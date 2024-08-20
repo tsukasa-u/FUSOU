@@ -1,0 +1,50 @@
+
+
+bp-progress-bar.hp-full::part(internal) {
+  accent-color: #ADFF2F;
+}
+
+bp-progress-bar.slight-damage::part(internal) {
+  accent-color: #FFD700;
+}
+
+bp-progress-bar.half-damage::part(internal) {
+  accent-color: #FFA500;
+}
+
+bp-progress-bar.heavy-damage::part(internal) {
+  accent-color: #FF4500;
+}
+
+
+bp-tree-item::part(internal) div {
+  /* padding: 1px; */
+  /* height: 1px; */
+  /* margin: 1px; */
+}
+
+.fusou-overflow {
+  overflow: hidden;
+}
+
+/* font size----------------------------*/
+.f7 {
+  font-size: 0.750rem;
+}
+
+.f8 {
+  font-size: 0.625rem;
+}
+/* font size----------------------------*/
+
+/**/
+.top-0_25 {
+  top: 0.25rem;
+}
+/**/
+
+/**/
+.h1_5 {
+  height: 1.4rem;
+}
+/**/

@@ -1,0 +1,6 @@
+[package]
+name = "register_macro_func_like"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
