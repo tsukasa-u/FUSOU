@@ -1,0 +1,1 @@
+how to install cmd for compiling and generating the golang file (*.pb.go and *-rpc.pb.go) from protoc

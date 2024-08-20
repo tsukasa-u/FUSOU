@@ -1,0 +1,21 @@
+{
+    "proxy" : {
+        "target" : "",
+        "host" : "localhost",
+        "port" : 8080
+    },
+    "permissions" : {
+        "data" : {
+            "score" : true,
+            "battle" : true,
+            "route" : true,
+            "fleet" : true
+        },
+        "visible" : {
+            "score" : true,
+            "battle" : true,
+            "route" : true,
+            "fleet" : true
+        }
+    }
+}
