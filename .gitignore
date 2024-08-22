@@ -17,3 +17,4 @@ node_modules/
 .VSCodeCounter/
 FUSOU.code-workspace
 test_data/
+FUSOU-APP/src-tauri/tests/struct_names
