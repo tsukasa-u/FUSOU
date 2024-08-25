@@ -1,7 +1,9 @@
+use std::net::SocketAddr;
+
 use warp::Filter;
 use tokio::sync::oneshot::Receiver;
 
-pub async fn serve_pac_file(path: String, port: u16, rx: Receiver<()>) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn serve_pac_file(path: String, port: u16, rx: Receiver<()>) -> Result<SocketAddr, Box<dyn std::error::Error>> {
     // let pac_file = include_str!("../proxy.pac");
 
     let routes = warp::path("proxy.pac")
@@ -15,9 +17,9 @@ pub async fn serve_pac_file(path: String, port: u16, rx: Receiver<()>) -> Result
         }
         println!("Shutting down PAC server");
     });
-    println!("Proxy server addr: {}", addr);
+    println!("Pac server addr: {}", addr);
 
     tokio::task::spawn(server_pac);
 
-    Ok(())
+    Ok(addr)
 }

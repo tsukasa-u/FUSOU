@@ -3,11 +3,11 @@ extern crate proc_macro;
 use proc_macro::TokenStream;
 use syn::DeriveInput;
 
-mod register_struct;
 mod add_field;
 mod generate_getter;
 mod generate_test_root;
 mod generate_test_struct;
+mod register_struct;
 
 mod parse_type_path;
 

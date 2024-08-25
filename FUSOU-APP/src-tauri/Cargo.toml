@@ -18,18 +18,25 @@ tauri-build = { version = "1.5.3", features = [] }
 [dependencies]
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
-tauri = { version = "1.7.0", features = [] }
+tauri = { version = "1.7.0", features = [ "notification-all", "system-tray" ] }
 quote = "1.0"
 syn = "2.0.67"
 proc-macro2 = "1.0"
 once_cell = "1.19.0"
 confy = "0.6.1"
 darling = "0.20.10"
+regex = "1.9.6"
+sqids = "0.4.1"
+tokio = { version = "1.38.0", features = ["full"] }
+crossbeam = "0.8.2"
+crossbeam-utils = "0.8.20"
+webbrowser = "1.0.1"
+arboard = "3.4.0"
 register_macro_derive_and_attr = { path = "./../register_macro_derive_and_attr" }
 register_macro_func_like = { path = "./../register_macro_func_like" }
 register_trait = { path = "./../register_trait" }
-regex = "1.9.6"
-sqids = "0.4.1"
+# proxy = { path = "./../../FUSOU-PROXY/proxy_rust/roxy" }
+test_proxy = { path = "./../../FUSOU-PROXY/proxy_rust/test_proxy" }
 
 [features]
 # this feature is used for production builds or when `devPath` points to the filesystem and the built-in dev server is disabled.

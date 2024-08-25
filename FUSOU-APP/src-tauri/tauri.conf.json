@@ -12,7 +12,9 @@
   },
   "tauri": {
     "allowlist": {
-      "all": false
+      "notification": {
+        "all": true
+      }
     },
     "bundle": {
       "active": true,
@@ -61,6 +63,12 @@
         "title": "fusou-app",
         "width": 800
       }
-    ]
+    ],
+    "systemTray": {
+      "iconPath": "icons/128x128.png",
+      "iconAsTemplate": true,
+      "menuOnLeftClick": true,
+      "title": "vitetuarinpmsample"
+    }
   }
 }

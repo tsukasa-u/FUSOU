@@ -11,6 +11,8 @@ pub use register_macro_derive_and_attr::TraitForTest;
 
 pub use serde_json::Value;
 
+pub const REGISTER_STRUCT: &str = "tests-register_struct_name_env";
+
 pub trait TraitForTest {
     fn test_type_value(&self, _: &mut LogMapType) {}
     fn test_extra(&self, _: &mut LogMapType) {}

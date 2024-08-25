@@ -1,5 +1,5 @@
 function FindProxyForURL(url, host) {
-
+    // World_*
     if (isInNet(host, "203.104.209.71" , "255.255.255.255") ||
         isInNet(host, "203.104.209.87" , "255.255.255.255") ||
         isInNet(host, "125.6.184.215"  , "255.255.255.255") ||
@@ -35,7 +35,7 @@ function FindProxyForURL(url, host) {
 
             // 80
             if (shExpMatch(url, "http:*")) {
-                return "PROXY 127.0.0.1:3128";
+                return "PROXY 127.0.0.1:65256"; // [REPLACE ADDR WORLD:80]
             }
 
             // 443
@@ -44,6 +44,7 @@ function FindProxyForURL(url, host) {
             // }
         }
     }
+    // Gadget
     // else if (isInNet(host, "203.104.209.7"  , "255.255.255.255")) {
         
     //     // 80

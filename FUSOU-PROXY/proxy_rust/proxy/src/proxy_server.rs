@@ -4,6 +4,7 @@ use warp::filters::path::FullPath;
 use warp::{hyper::Body, Filter, Rejection, http::Response};
 use warp_reverse_proxy::reverse_proxy_filter;
 use std::io::Read;
+use std::net::SocketAddr;
 
 use warp::hyper::body::HttpBody;
 
@@ -203,7 +204,7 @@ async fn log_response(mut response: Response<Body>, path: FullPath, tx_proxy_log
 // }
 
 // https://github.com/danielSanchezQ/warp-reverse-proxy
-pub async fn serve_proxy(proxy_address: String, port: u16, rx_proxy: oneshot::Receiver<()>, tx_proxy_log: mpsc::Sender<Vec<u8>>) -> Result<(), Box<dyn std::error::Error>> {
+pub async fn serve_proxy(proxy_address: String, port: u16, rx_proxy: oneshot::Receiver<()>, tx_proxy_log: mpsc::Sender<Vec<u8>>) -> Result<SocketAddr, Box<dyn std::error::Error>> {
     // let pac_file = include_str!("../proxy.pac");
 
     let routes = warp::any()
@@ -230,5 +231,5 @@ pub async fn serve_proxy(proxy_address: String, port: u16, rx_proxy: oneshot::Re
 
     tokio::task::spawn(server_proxy);
 
-    Ok(())
+    Ok(addr)
 }

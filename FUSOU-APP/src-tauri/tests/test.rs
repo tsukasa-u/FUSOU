@@ -4,6 +4,8 @@ use confy;
 use serde::{Deserialize, Serialize};
 
 use register_macro_derive_and_attr::add_field;
+use register_trait::REGISTER_STRUCT;
+
 
 // use register_trait::TraitForTest;
 
@@ -44,7 +46,8 @@ fn test_struct_defined() {
         }
     }
     
-    let cfg: TestConfig = confy::load_path(path::PathBuf::from("./tests/struct_names")).unwrap();
+    // let cfg: TestConfig = confy::load_path(path::PathBuf::from("./tests/struct_names")).unwrap();
+    let cfg: TestConfig = confy::load(REGISTER_STRUCT, None).unwrap();
 
     let cfg_hash_set: HashSet<String, RandomState> = cfg.struct_name;
 

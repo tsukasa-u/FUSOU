@@ -69,7 +69,7 @@ pub fn register_struct(attr: TokenStream, ast: &mut DeriveInput) -> Result<Token
                         confy::store_path(path::PathBuf::from(v), cfg).unwrap();
                     },
                     None => {
-                        confy::store("register_struct_env", None, cfg).unwrap();
+                        confy::store("tests-register_struct_name_env", None, cfg).unwrap();
                     }
                 }
             }
