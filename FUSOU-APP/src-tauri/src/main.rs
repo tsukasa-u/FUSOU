@@ -50,10 +50,13 @@ fn main() -> ExitCode {
   let shared_browser = Arc::new(Mutex::new(BrowserState::new()));
 
   let proxy_serve_shutdown: CustomMenuItem = CustomMenuItem::new("proxy-serve-shutdown".to_string(), "Shutdown Proxy Server".to_string());
-  let gprc_serve_shutdown: CustomMenuItem = CustomMenuItem::new("gprc-serve-shutdown".to_string(), "Shutdown gRPC Server".to_string());
+  let gprc_serve_shutdown: CustomMenuItem = CustomMenuItem::new("gprc-serve-shutdown".to_string(), "Shutdown gRPC Server".to_string()).disabled();
+  let pac_server_shutdown: CustomMenuItem = CustomMenuItem::new("pac-serve-shutdown".to_string(), "Shutdown PAC Server".to_string());
+  let delete_registry: CustomMenuItem = CustomMenuItem::new("delete-registry".to_string(), "Delete Registry".to_string());
+
   let quit: CustomMenuItem = CustomMenuItem::new("quit".to_string(), "Quit".to_string()).accelerator("CmdOrCtrl+Q".to_string());
   let pause: CustomMenuItem = CustomMenuItem::new("pause".to_string(), "Pause".to_string()).selected();
-  let title: CustomMenuItem = CustomMenuItem::new("title".to_string(), "Title".to_string()).disabled();
+  let title: CustomMenuItem = CustomMenuItem::new("title".to_string(), "FUSOU".to_string()).disabled();
   let open_close: CustomMenuItem = CustomMenuItem::new("open/close".to_string(), "Open Window".to_string());
   let visit_website: CustomMenuItem = CustomMenuItem::new("visit-website".to_string(), "Visit Website".to_string());
 
@@ -69,7 +72,9 @@ fn main() -> ExitCode {
     .add_item(CustomMenuItem::new("danger-title".to_string(), "Danger Zone".to_string()).disabled())  
     .add_native_item(tauri::SystemTrayMenuItem::Separator)
     .add_item(proxy_serve_shutdown)
-    .add_item(gprc_serve_shutdown);
+    .add_item(gprc_serve_shutdown)
+    .add_item(pac_server_shutdown)
+    .add_item(delete_registry);
 
   let advanced_sub_menu: SystemTrayMenu = SystemTrayMenu::new()
     .add_item(CustomMenuItem::new("advanced-title".to_string(), "Advanced".to_string()).disabled())
@@ -88,7 +93,7 @@ fn main() -> ExitCode {
     .add_item(pause)
     .add_item(quit);
 
-  let system_tray = SystemTray::new().with_menu(tray_menu).with_tooltip(&"tooltip");
+  let system_tray = SystemTray::new().with_menu(tray_menu).with_tooltip("FUSOU");
 
   tauri::Builder::default()
     .setup(|app| {
