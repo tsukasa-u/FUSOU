@@ -35,8 +35,7 @@ arboard = "3.4.0"
 register_macro_derive_and_attr = { path = "./../register_macro_derive_and_attr" }
 register_macro_func_like = { path = "./../register_macro_func_like" }
 register_trait = { path = "./../register_trait" }
-# proxy = { path = "./../../FUSOU-PROXY/proxy_rust/roxy" }
-test_proxy = { path = "./../../FUSOU-PROXY/proxy_rust/test_proxy" }
+proxy = { path = "./../../FUSOU-PROXY/proxy_rust/proxy" }
 
 [features]
 # this feature is used for production builds or when `devPath` points to the filesystem and the built-in dev server is disabled.
