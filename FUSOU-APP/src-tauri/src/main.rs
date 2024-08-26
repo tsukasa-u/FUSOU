@@ -6,7 +6,7 @@ use tauri::{AppHandle, CustomMenuItem, SystemTray, SystemTrayEvent, SystemTrayMe
 use tauri::Manager;
 use tauri::api::notification::Notification;
 use tokio::sync::mpsc;
-use tokio::sync::mpsc::{Sender, Receiver};
+use tokio::sync::broadcast;
 use webbrowser::{open_browser, Browser};
 use arboard::Clipboard;
 use std::sync::{Arc, Mutex};
@@ -97,7 +97,7 @@ fn main() -> ExitCode {
 
   tauri::Builder::default()
     .setup(|app| {
-      let _window = app.get_window("main").unwrap().close().unwrap();
+      // let _window = app.get_window("main").unwrap().close().unwrap();
       return Ok(())
     })
     .system_tray(system_tray)
@@ -116,10 +116,28 @@ fn main() -> ExitCode {
         size: _,
         ..
       } => {
-        
-        // Notification::new(&app.config().tauri.bundle.identifier).show().expect("unable to show notification");
     
-        notification::wrap_notification(app, notification::NotificationContent::default());
+        // notification::wrap_notification(app, notification::NotificationContent::default());
+        
+        let window = app.get_window("main");
+        match window {
+          Some(window) => {
+            match window.is_visible() {
+              Ok(false) => {
+                let _ = window.show().unwrap();
+                let _ = app.tray_handle().get_item("open/close").set_title("Close Window");
+              }
+              _ => {}
+            }
+          },
+          None => {
+            let _window = tauri::WindowBuilder::new(app, "main", tauri::WindowUrl::App("index.html".into()))
+              .build()
+              .unwrap();
+            let _ = app.tray_handle().get_item("open/close").set_title("Close Window");
+          }
+        }
+
         println!("system tray received a left click");
       },
       SystemTrayEvent::RightClick {
