@@ -75,7 +75,7 @@ mod tests {
     #[test]
     fn test_deserialize() {
 
-        let target_path = "./src/kc2api/test_data";
+        let target_path = "./../../test_data";
         let pattern_str =  Regex::new(r"[0-9]*_[0-9]*S@api_req_ranking@[a-z]*\.json").unwrap();
         let log_path = "./src/kc2api/api_req_ranking/ranking.log";
 

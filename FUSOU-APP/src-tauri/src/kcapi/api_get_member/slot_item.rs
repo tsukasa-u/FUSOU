@@ -51,7 +51,7 @@ mod tests {
 
     #[test]
     fn test_deserialize() {
-        let target_path = "./src/kc2api/test_data";
+        let target_path = "./../../test_data";
         let pattern_str = "S@api_get_member@slot_item.json";
         let log_path = "./src/kc2api/api_get_member/slot_item.log";
         simple_root_test::<Root>(target_path.to_string(), pattern_str.to_string(), log_path.to_string());
