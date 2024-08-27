@@ -16,6 +16,7 @@ pub enum StatusInfo {
     },
 }
 
+#[derive(Debug, Clone)]
 pub struct  Master<T> where T: Clone {
     pub tx: mpsc::Sender<T>,
     pub rx: Arc<Mutex<mpsc::Receiver<T>>>,
@@ -33,6 +34,7 @@ impl<T> Master<T> where T: Clone {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct Slave<T> where T: Clone {
     pub tx: mpsc::Sender<T>,
     pub rx: Arc<Mutex<mpsc::Receiver<T>>>,
@@ -50,6 +52,7 @@ impl <T> Slave<T> where T: Clone {
     
 }
 
+#[derive(Debug)]
 pub struct BidirectionalChannel<T> where T: Clone {
     pub master: Master<T>,
     pub slave: Slave<T>,
