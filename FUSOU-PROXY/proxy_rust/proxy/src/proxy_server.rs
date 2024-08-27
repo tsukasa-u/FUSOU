@@ -1,4 +1,3 @@
-use tokio::sync::oneshot;
 use tokio::sync::mpsc;
 use warp::filters::path::FullPath;
 use warp::{hyper::Body, Filter, Rejection, http::Response};
@@ -9,6 +8,8 @@ use std::net::SocketAddr;
 use warp::hyper::body::HttpBody;
 
 use regex;
+
+use crate::bidirectional_channel;
 
 fn decode_content_encoding(buffer_list: Vec<Vec<u8>>, content_encoding: String) -> Vec<Vec<u8>> {
     let mut ret_buffer_list: Vec<Vec<u8>> = Vec::new();
@@ -204,7 +205,7 @@ async fn log_response(mut response: Response<Body>, path: FullPath, tx_proxy_log
 // }
 
 // https://github.com/danielSanchezQ/warp-reverse-proxy
-pub async fn serve_proxy(proxy_address: String, port: u16, rx_proxy: oneshot::Receiver<()>, tx_proxy_log: mpsc::Sender<Vec<u8>>) -> Result<SocketAddr, Box<dyn std::error::Error>> {
+pub async fn serve_proxy(proxy_address: String, port: u16, mut slave: bidirectional_channel::Slave<bidirectional_channel::StatusInfo>, tx_proxy_log: mpsc::Sender<Vec<u8>>) -> Result<SocketAddr, Box<dyn std::error::Error>> {
     // let pac_file = include_str!("../proxy.pac");
 
     let routes = warp::any()
@@ -221,9 +222,32 @@ pub async fn serve_proxy(proxy_address: String, port: u16, rx_proxy: oneshot::Re
     });
     // spawn proxy server
     let (addr, server_proxy) = warp::serve(routes).bind_with_graceful_shutdown(([127, 0, 0, 1], port), async move {
-        tokio::select! {
-            _ = rx_proxy => {},
-            _ = tokio::signal::ctrl_c() => {},
+        loop {
+            tokio::select! {
+                recv_msg = slave.recv() => {
+                    match recv_msg {
+                        None => {
+                            println!("Received None message");
+                        },
+                        Some(bidirectional_channel::StatusInfo::SHUTDOWN { status, message }) => {
+                            println!("Received shutdown message: {} {}", status, message);
+                            let _ = slave.send(bidirectional_channel::StatusInfo::SHUTDOWN {
+                                status: "SHUTTING DOWN".to_string(),
+                                message: "Proxy server is shutting down".to_string(),
+                            }).await;
+                            break;
+                        },
+                        Some(bidirectional_channel::StatusInfo::HEALTH { status, message }) => {
+                            println!("Received health message: {} {}", status, message);
+                            let _ = slave.send(bidirectional_channel::StatusInfo::HEALTH {
+                                status: "RUNNING".to_string(),
+                                message: "Proxy server is running".to_string(),
+                            }).await;
+                        },
+                    }
+                },
+                _ = tokio::signal::ctrl_c() => {},
+            }
         }
         println!("Shutting down Proxy server");
     });
