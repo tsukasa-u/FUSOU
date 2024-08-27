@@ -20,4 +20,4 @@ crossbeam = "0.8.4"
 
 
 [[example]]
-name = "compression"
+name = "example"
