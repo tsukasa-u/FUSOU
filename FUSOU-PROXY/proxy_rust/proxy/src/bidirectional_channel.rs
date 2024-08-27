@@ -134,7 +134,7 @@ pub async fn check_health(mut master: Master<StatusInfo>) -> Result<(), SendErro
 pub async fn request_shutdown(mut master: Master<StatusInfo>) -> Result<(), SendError<StatusInfo>> {
     match master.send(StatusInfo::SHUTDOWN {
         status: "SHUTTING DOWN".to_string(),
-        message: "PAC server is shutting down".to_string(),
+        message: "".to_string(),
     }).await {
         Ok(_) => {
             println!("Sent shutdown message");
