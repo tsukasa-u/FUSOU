@@ -36,7 +36,9 @@ pub fn serve_pac_file(path: String, port: u16, mut slave: bidirectional_channel:
                         },
                     }
                 },
-                _ = tokio::signal::ctrl_c() => {},
+                _ = tokio::signal::ctrl_c() => {
+                    break;
+                },
             }
         }
         println!("Shutting down PAC server");
