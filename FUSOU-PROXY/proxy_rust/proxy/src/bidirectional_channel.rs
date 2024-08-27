@@ -84,6 +84,22 @@ impl<T> BidirectionalChannel<T> where T: Clone {
             rx: self.slave.rx.clone(),
         }
     }
+    pub async fn clean_buffer(&mut self) {
+        loop {
+            tokio::select!{
+                _ = self.slave.recv() => {},
+                _ = tokio::time::sleep(tokio::time::Duration::from_secs(200)) => {
+                    break;
+                },
+            }
+            tokio::select!{
+                _ = self.master.recv() => {},
+                _ = tokio::time::sleep(tokio::time::Duration::from_secs(200)) => {
+                    break;
+                },
+            }
+        }
+    }
 }
 
 
