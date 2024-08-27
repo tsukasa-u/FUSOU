@@ -1,5 +1,6 @@
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
+use tokio::sync::Mutex;
 use tokio::sync::mpsc;
 
 #[derive(Debug, Clone)]
@@ -25,10 +26,9 @@ impl<T> Master<T> where T: Clone {
         self.tx.send(message).await
     }
     pub async fn recv(&mut self) -> Option<T> {
-        match self.rx.lock() {
-            Ok(mut rx) => rx.recv().await,
-            Err(_) =>None,
-        }
+        let mut rx = self.rx.lock().await;
+        
+        rx.recv().await
     }
 }
 
@@ -42,10 +42,9 @@ impl <T> Slave<T> where T: Clone {
         self.tx.send(message).await
     }
     pub async fn recv(&mut self) -> Option<T> {
-        match self.rx.lock() {
-            Ok(mut rx) => rx.recv().await,
-            Err(_) => None,
-        }
+        let mut rx = self.rx.lock().await;
+        
+        rx.recv().await
     }
     
 }
