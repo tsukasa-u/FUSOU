@@ -32,6 +32,7 @@ crossbeam = "0.8.2"
 crossbeam-utils = "0.8.20"
 webbrowser = "1.0.1"
 arboard = "3.4.0"
+wg = { version = "0.9.1", features = ["future"] }
 register_macro_derive_and_attr = { path = "./../register_macro_derive_and_attr" }
 register_macro_func_like = { path = "./../register_macro_func_like" }
 register_trait = { path = "./../register_trait" }
