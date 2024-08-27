@@ -4,7 +4,7 @@ use warp::Filter;
 
 use crate::bidirectional_channel;
 
-pub async fn serve_pac_file(path: String, port: u16, mut slave: bidirectional_channel::Slave<bidirectional_channel::StatusInfo>) -> Result<SocketAddr, Box<dyn std::error::Error>> {
+pub fn serve_pac_file(path: String, port: u16, mut slave: bidirectional_channel::Slave<bidirectional_channel::StatusInfo>) -> Result<SocketAddr, Box<dyn std::error::Error>> {
     // let pac_file = include_str!("../proxy.pac");
 
     let routes = warp::path("proxy.pac")
