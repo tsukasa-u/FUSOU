@@ -245,6 +245,7 @@ pub fn serve_proxy(proxy_address: String, port: u16, mut slave: bidirectional_ch
                                 message: "Proxy server is running".to_string(),
                             }).await;
                         },
+                        _ => {}
                     }
                 },
                 _ = tokio::signal::ctrl_c() => {
