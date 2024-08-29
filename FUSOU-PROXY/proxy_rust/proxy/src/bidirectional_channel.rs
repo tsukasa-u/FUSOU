@@ -14,6 +14,11 @@ pub enum StatusInfo {
         status: String,
         message: String,
     },
+    CONTENT {
+        status: String,
+        name: String,
+        message: String,
+    },
 }
 
 #[derive(Debug, Clone)]
