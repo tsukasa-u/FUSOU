@@ -34,6 +34,7 @@ pub fn serve_pac_file(path: String, port: u16, mut slave: bidirectional_channel:
                                 message: "PAC server is running".to_string(),
                             }).await;
                         },
+                        _ => {}
                     }
                 },
                 _ = tokio::signal::ctrl_c() => {
