@@ -9,7 +9,6 @@ use webbrowser::{open_browser, Browser};
 use arboard::Clipboard;
 use std::sync::{Arc, Mutex};
 use std::process::ExitCode;
-use wg::AsyncWaitGroup;
 
 mod kcapi;
 mod notification;
@@ -38,16 +37,6 @@ impl BrowserState {
 #[tokio::main]
 async fn main() -> ExitCode {
 
-  let wg = AsyncWaitGroup::new();
-  // let wg = _wg.clone();
-
-  // let (tx_master_gprc, rx_slave_gprc) = mpsc::channel::<gprc_status::StatusInfo>(1);
-  // let (tx_slave_gprc, rx_master_gprc) = mpsc::channel::<gprc_status::StatusInfo>(1);
-  //
-  // let addr = "[::1]:50051".parse().unwrap();
-  // let _ = gprc_server::gprc_start_with_thread(_wg.clone(), tx_slave_gprc, rx_slave_gprc, addr);
-  //
-
   let proxy_bidirectional_channel = BidirectionalChannel::<StatusInfo>::new(1);
   let proxy_bidirectional_channel_slave = proxy_bidirectional_channel.clone_slave();
   let proxy_bidirectional_channel_master = proxy_bidirectional_channel.clone_master();
@@ -59,6 +48,8 @@ async fn main() -> ExitCode {
   let pac_path = "./../../FUSOU-PROXY/proxy_rust/proxy/proxy.pac".to_string();
 
   let (proxy_log_channel_tx, proxy_log_channel_rx) = mpsc::channel::<Vec<u8>>(1);
+
+  let (shutdown_tx, mut shutdown_rx) = mpsc::channel::<()>(1);
 
   let shared_browser = Arc::new(Mutex::new(BrowserState::new()));
 
@@ -131,6 +122,23 @@ async fn main() -> ExitCode {
       proxy::edit_pac::edit_pac(&pac_path, proxy_addr.unwrap().to_string().as_str());
       
       cmd_pac_tauri::add_pac(&format!("http://localhost:{}/proxy.pac", pac_addr.unwrap().port()));
+
+
+      let proxy_bidirectional_channel_master_clone = proxy_bidirectional_channel_master.clone();
+      let pac_bidirectional_channel_master_clone = pac_bidirectional_channel_master.clone();
+      let app_handle = app.handle();
+      tauri::async_runtime::spawn(async move {
+        let _ = shutdown_rx.recv().await;
+        // loop {
+          let _ = tokio::join!(
+            proxy::bidirectional_channel::request_shutdown(proxy_bidirectional_channel_master_clone),
+            proxy::bidirectional_channel::request_shutdown(pac_bidirectional_channel_master_clone)
+          );
+          app_handle.exit(0_i32);
+          // let _ = proxy::bidirectional_channel::check_health(proxy_bidirectional_channel_master);
+          // let _ = proxy::bidirectional_channel::check_health(pac_bidirectional_channel_master);
+        // }
+      });
 
       return Ok(())
     })
@@ -210,23 +218,23 @@ async fn main() -> ExitCode {
   
             cmd_pac_tauri::remove_pac();
 
+            let shutdown_tx_clone = shutdown_tx.clone();
+            tauri::async_runtime::spawn(async move {
+                let _ = shutdown_tx_clone.send(()).await;
+              }
+            );
+
             
           //   let res = task::block_in_place(move || {
           //     // めっちゃ重い処理をここでやる
           //     "done computing"
           // }).await?;
             
-              // tauri :: async_runtime :: block_on(async {
-              //   let _ = tokio::join!(
-              //     proxy::bidirectional_channel::request_shutdown(pac_bidirectional_channel_master_clone),
-              //     proxy::bidirectional_channel::request_shutdown(proxy_bidirectional_channel_master_clone)
-              //   );
-              // });
 
             // tokio::task::spawn(async {
             // });
             
-            app.exit(0_i32);
+            // app.exit(0_i32);
             // std::process::exit(0);
           },
           "copy-url" => {
@@ -292,6 +300,9 @@ async fn main() -> ExitCode {
       match event {
         tauri::RunEvent::ExitRequested { api, .. } => {
           api.prevent_exit();
+        },
+        tauri::RunEvent::Exit => {
+          println!("exit");
         },
         _ => {}
       }
