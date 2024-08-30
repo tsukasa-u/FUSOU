@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+  </head>
+  <body  oncontextmenu="return false;">
+    <div id="app"></div>
+    <h1>Loading...</h1>
+    <!-- <script type="module" src="/src/splashscreen.tsx"></script> -->
+    <script type="module">
+      import { invoke } from '@tauri-apps/api/tauri'
+      document.addEventListener('DOMContentLoaded', () => {
+        invoke('show_splashscreen');
+      })
+    </script>
+
+  </body>
+</html>

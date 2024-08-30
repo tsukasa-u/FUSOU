@@ -61,7 +61,16 @@
         "height": 600,
         "resizable": true,
         "title": "fusou-app",
-        "width": 800
+        "width": 800,
+        "visible": false
+      },
+      {
+        "width": 400,
+        "height": 200,
+        "decorations": false,
+        "url": "splashscreen.html",
+        "label": "splashscreen",
+        "visible": false
       }
     ],
     "systemTray": {
