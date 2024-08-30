@@ -7,12 +7,14 @@ use tauri::Manager;
 use tokio::sync::mpsc;
 use webbrowser::{open_browser, Browser};
 use arboard::Clipboard;
+use core::time;
 use std::sync::{Arc, Mutex};
 use std::process::ExitCode;
 
 mod kcapi;
 mod notification;
 mod cmd_pac_tauri;
+mod json_parser;
 
 use proxy::bidirectional_channel::{BidirectionalChannel, StatusInfo};
 
@@ -34,6 +36,20 @@ impl BrowserState {
     }
 }
 
+#[tauri::command]
+async fn show_splashscreen(window: tauri::Window) {
+  // Show splashscreen
+  window.get_window("splashscreen").expect("no window labeled 'splashscreen' found").show().unwrap();
+}
+
+#[tauri::command]
+async fn close_splashscreen(window: tauri::Window) {
+  // Close splashscreen
+  window.get_window("splashscreen").expect("no window labeled 'splashscreen' found").close().unwrap();
+  // Show main window
+  window.get_window("main").expect("no window labeled 'main' found").show().unwrap();
+}
+
 #[tokio::main]
 async fn main() -> ExitCode {
 
@@ -48,6 +64,10 @@ async fn main() -> ExitCode {
   let pac_path = "./../../FUSOU-PROXY/proxy_rust/proxy/proxy.pac".to_string();
 
   let (proxy_log_channel_tx, proxy_log_channel_rx) = mpsc::channel::<Vec<u8>>(1);
+
+  let response_parse_channel = BidirectionalChannel::<StatusInfo>::new(1);
+  let response_parse_channel_slave = response_parse_channel.clone_slave();
+  let response_parse_channel_master = response_parse_channel.clone_master();
 
   let (shutdown_tx, mut shutdown_rx) = mpsc::channel::<()>(1);
 
@@ -102,6 +122,7 @@ async fn main() -> ExitCode {
   let system_tray = SystemTray::new().with_menu(tray_menu).with_tooltip("FUSOU");
 
   tauri::Builder::default()
+    .invoke_handler(tauri::generate_handler![close_splashscreen, show_splashscreen])
     .setup(move |app| {
       // let _window = app.get_window("main").unwrap().close().unwrap();
 
@@ -129,15 +150,12 @@ async fn main() -> ExitCode {
       let app_handle = app.handle();
       tauri::async_runtime::spawn(async move {
         let _ = shutdown_rx.recv().await;
-        // loop {
-          let _ = tokio::join!(
-            proxy::bidirectional_channel::request_shutdown(proxy_bidirectional_channel_master_clone),
-            proxy::bidirectional_channel::request_shutdown(pac_bidirectional_channel_master_clone)
-          );
-          app_handle.exit(0_i32);
-          // let _ = proxy::bidirectional_channel::check_health(proxy_bidirectional_channel_master);
-          // let _ = proxy::bidirectional_channel::check_health(pac_bidirectional_channel_master);
-        // }
+        let _ = tokio::join!(
+          proxy::bidirectional_channel::request_shutdown(proxy_bidirectional_channel_master_clone),
+          proxy::bidirectional_channel::request_shutdown(pac_bidirectional_channel_master_clone)
+        );
+        tokio::time::sleep(time::Duration::from_millis(2000)).await;
+        app_handle.exit(0_i32);
       });
 
       return Ok(())
