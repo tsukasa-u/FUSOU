@@ -1,162 +1,76 @@
-import { component$, useSignal, Slot } from '@builder.io/qwik'
-import { Accordion } from '@qwik-ui/headless';
-import { LuChevronDown } from '@qwikest/icons/lucide';
+import { component$, useStyles$, useStore, useVisibleTask$ } from '@builder.io/qwik'
+import globalStyles from './tailwind.css?inline';
 
-// import '@blueprintui/themes/compact/index.min.css';
-// import '@blueprintui/themes/dark/index.min.css';
+import { IconResume } from './components/icons/resume.tsx';
+import { IconFile } from './components/icons/file.tsx';
+import { IconFolder } from './components/icons/folder.tsx';
+import { IconImage } from './components/icons/image.tsx';
 
-// import '@primer/css/utilities/index.scss';
+import { Deck } from './components/deck.tsx';
+import { Dock } from './components/dock.tsx';
+import { Expedition } from './components/expedition.tsx';
+import { Task } from './components/task.tsx';
 
-// import '@blueprintui/themes/index.min.css';
+import { invoke } from '@tauri-apps/api/tauri'
 
-import '@blueprintui/components/include/divider.js';
-import '@blueprintui/components/include/tree.js';
-import '@blueprintui/icons/include.js';
-import '@blueprintui/icons/shapes/user.js';
-import '@blueprintui/components/include/progress-bar.js';
-import '@blueprintui/components/include/divider.js';
-
-import 'tachyons';
+// import 'tachyons';
 import './app.css';
 
-// import "open-props/postcss/style";
-
-// /* optional imports that use the props */
-// import "open-props/postcss/normalize";
-// import "open-props/postcss/buttons";
-// import OpenProps from 'open-props'; // module
-// import Colors from 'open-props/src/colors';
-
 export const App = component$(() => {
-  
+  useStyles$(globalStyles);
+
+  useVisibleTask$(() => {
+    invoke('close_splashscreen')
+  });
+
+  const nDock = useStore([{ship_id: 1, complete_time: 1722010682963, counter: 0}, {ship_id: 2, complete_time: 1630000000000, counter: 0}, {ship_id: 3, complete_time: 1630000000000, counter: 0}]);
+  const deck = useStore([{id: 1, ship: [1, 2, 3], mission: {mission_id: 0, complete_time: 0, counter: 0}}, {id: 2, ship: [1, 2, 3], mission: {mission_id: 0, complete_time: 0, counter: 0}}, {id: 3, ship: [1, 2, 3], mission: {mission_id: 0, complete_time: 0, counter: 0}}, {id: 4, ship: [1, 2, 3], mission: {mission_id: 0, complete_time: 0, counter: 0}}]);
+  const ship = useStore({1: {ship_name: "Yamato", cond: 49, nowhp: 80, maxhp: 80, fuel: 100, max_fuel: 100}, 2: {ship_name: "Musashi", cond: 49, nowhp: 80, maxhp: 80, fuel: 100, max_fuel: 100}, 3: {ship_name: "Shinano", cond: 49, nowhp: 80, maxhp: 80, fuel: 100, max_fuel: 100}});
+
   return (
     <>
-
-  <bp-progress-bar value="75" class="hp-full"></bp-progress-bar>
-  <bp-progress-bar value="75" class="slight-damage" ></bp-progress-bar>
-  <bp-progress-bar value="75" class="half-damage"></bp-progress-bar>
-  <bp-progress-bar value="75" class="heavy-damage"></bp-progress-bar>
-
-      <bp-tree interaction="auto">
-        <bp-tree-item interaction="auto" class="bt bl b--black-80" expanded>
-          Fleet
-          <bp-tree-item interaction="auto" class="bt bl b--black-40 ml2" expanded>
-            1st Fleet
-            <bp-tree-item class="bt bl b--black-20 ml2 h1_5">
-              <span class="ml1"></span>
-              <div class=" w-40 fusou-overflow f5">第三〇号海防艦</div>
-
-              <div class="dt-columm w-20 h1">
-                <hp class="w-10 f8">10/34</hp>
-                <bp-progress-bar value="75" class="hp-full w-25 relative top-0_25"></bp-progress-bar>
-              </div>
-              <bp-progress-bar value="75" class="hp-full w-10"></bp-progress-bar>
-              <bp-progress-bar value="75" class="hp-full w-10"></bp-progress-bar>
-            </bp-tree-item>
-            <bp-tree-item class="bt bl b--black-20 ml2"><span class="ml1"></span>五十鈴改二</bp-tree-item>
-            <bp-tree-item class="bt bl b--black-20 ml2"><span class="ml1"></span>初月改二</bp-tree-item>
-            <bp-tree-item class="bt bl b--black-20 ml2"><span class="ml1"></span>清霜改二丁</bp-tree-item>
-            <bp-tree-item class="bt bl b--black-20 ml2"><span class="ml1"></span>長波改二</bp-tree-item>
-            <bp-tree-item class="bt bl b--black-20 ml2"><span class="ml1"></span>ーー</bp-tree-item>
-          </bp-tree-item>
-          <bp-tree-item interaction="auto" class="bt bl b--black-40 ml2">
-            2nd Fleet
-            <bp-tree-item class="bt b--black-20 ml3">Item 2-1</bp-tree-item>
-            <bp-tree-item class="bt b--black-20 ml3">Item 2-2</bp-tree-item>
-            <bp-tree-item class="bt b--black-20 ml3">Item 2-3</bp-tree-item>
-            <bp-tree-item class="bt b--black-20 ml3">Item 2-4</bp-tree-item>
-            <bp-tree-item class="bt b--black-20 ml3">Item 2-5</bp-tree-item>
-            <bp-tree-item class="bt b--black-20 ml3">Item 2-6</bp-tree-item>
-          </bp-tree-item>
-          <bp-tree-item interaction="auto" class="bt bl b--black-40 ml2">
-            3rd Fleet
-            <bp-tree-item class="bt b--black-20 ml3 h2">Item 3-1</bp-tree-item>
-            <bp-tree-item class="bt b--black-20 ml3">Item 3-2</bp-tree-item>
-            <bp-tree-item class="bt b--black-20 ml3">Item 3-3</bp-tree-item>
-            <bp-tree-item class="bt b--black-20 ml3">Item 3-4</bp-tree-item>
-            <bp-tree-item class="bt b--black-20 ml3">Item 3-5</bp-tree-item>
-            <bp-tree-item class="bt b--black-20 ml3">Item 3-6</bp-tree-item>
-          </bp-tree-item>
-          <bp-tree-item interaction="auto" class="bt bl b--black-40 ml2">
-            4th Fleet
-            <bp-tree-item class="bt b--black-20 ml3">Item 4-1</bp-tree-item>
-            <bp-tree-item class="bt b--black-20 ml3">Item 4-2</bp-tree-item>
-            <bp-tree-item class="bt b--black-20 ml3">Item 4-3</bp-tree-item>
-            <bp-tree-item class="bt b--black-20 ml3">Item 4-4</bp-tree-item>
-            <bp-tree-item class="bt b--black-20 ml3">Item 4-5</bp-tree-item>
-            <bp-tree-item class="bt b--black-20 ml3">Item 4-6</bp-tree-item>
-          </bp-tree-item>
-        </bp-tree-item>
-        <bp-tree-item interaction="auto" class="bt b--black-80">
-          Expedition
-          <bp-tree-item class="bt b--black-40 ml3">Item 3-3-1</bp-tree-item>
-          <bp-tree-item class="bt b--black-40 ml3">Item 3-3-2</bp-tree-item>
-          <bp-tree-item class="bt b--black-40 ml3">Item 3-3-3</bp-tree-item>
-        </bp-tree-item>
-        <bp-tree-item interaction="auto" class="bt b--black-80">
-          Repair
-          <bp-tree-item class="bt b--black-40 ml3">Item 3-3-1</bp-tree-item>
-          <bp-tree-item class="bt b--black-40 ml3">Item 3-3-2</bp-tree-item>
-          <bp-tree-item class="bt b--black-40 ml3">Item 3-3-3</bp-tree-item>
-        </bp-tree-item>
-        <bp-tree-item interaction="auto" class="bt b--black-80">
-          Task
-          <bp-tree-item class="bt b--black-40 ml3">Item 3-3-1</bp-tree-item>
-          <bp-tree-item class="bt b--black-40 ml3">Item 3-3-2</bp-tree-item>
-          <bp-tree-item class="bt b--black-40 ml3">Item 3-3-3</bp-tree-item>
-        </bp-tree-item>
-        <bp-tree-item interaction="auto" class="bt b--black-80">
-          Fleet
-          <bp-tree-item interaction="auto" class="bt b--black-40 ml2" expanded>
-            1st Fleet
-            <bp-tree-item class="bt b--black-20 ml2"><span class="ml1"></span>夕張改二</bp-tree-item>
-            <bp-tree-item class="bt b--black-20 ml2"><span class="ml1"></span>五十鈴改二</bp-tree-item>
-            <bp-tree-item class="bt b--black-20 ml2"><span class="ml1"></span>初月改二</bp-tree-item>
-            <bp-tree-item class="bt b--black-20 ml2"><span class="ml1"></span>清霜改二丁</bp-tree-item>
-            <bp-tree-item class="bt b--black-20 ml2"><span class="ml1"></span>長波改二</bp-tree-item>
-            <bp-tree-item class="bt b--black-20 ml2"><span class="ml1"></span>ーー</bp-tree-item>
-          </bp-tree-item>
-          <bp-tree-item interaction="auto" class="bt b--black-40 ml2">
-            2
-            <bp-tree-item class="bt b--black-20 ml3">Item 2-1</bp-tree-item>
-            <bp-tree-item class="bt b--black-20 ml3">Item 2-2</bp-tree-item>
-            <bp-tree-item class="bt b--black-20 ml3">Item 2-3</bp-tree-item>
-            <bp-tree-item class="bt b--black-20 ml3">Item 2-4</bp-tree-item>
-            <bp-tree-item class="bt b--black-20 ml3">Item 2-5</bp-tree-item>
-            <bp-tree-item class="bt b--black-20 ml3">Item 2-6</bp-tree-item>
-          </bp-tree-item>
-          <bp-tree-item interaction="auto" class="bt b--black-40 ml2">
-            3
-            <bp-tree-item class="bt b--black-20 ml3">Item 3-1</bp-tree-item>
-            <bp-tree-item class="bt b--black-20 ml3">Item 3-2</bp-tree-item>
-            <bp-tree-item class="bt b--black-20 ml3">Item 3-3</bp-tree-item>
-            <bp-tree-item class="bt b--black-20 ml3">Item 3-4</bp-tree-item>
-            <bp-tree-item class="bt b--black-20 ml3">Item 3-5</bp-tree-item>
-            <bp-tree-item class="bt b--black-20 ml3">Item 3-6</bp-tree-item>
-          </bp-tree-item>
-          <bp-tree-item interaction="auto" class="bt b--black-40 ml2">
-            4
-            <bp-tree-item class="bt b--black-20 ml3">Item 4-1</bp-tree-item>
-            <bp-tree-item class="bt b--black-20 ml3">Item 4-2</bp-tree-item>
-            <bp-tree-item class="bt b--black-20 ml3">Item 4-3</bp-tree-item>
-            <bp-tree-item class="bt b--black-20 ml3">Item 4-4</bp-tree-item>
-            <bp-tree-item class="bt b--black-20 ml3">Item 4-5</bp-tree-item>
-            <bp-tree-item class="bt b--black-20 ml3">Item 4-6</bp-tree-item>
-          </bp-tree-item>
-        </bp-tree-item>
+      <ul class="menu menu-xs bg-base-200 w-full pl-0 flex">
+        <li>
+          <details open>
+            <summary>
+              <IconFolder class="h-4 w-4" />
+              Fleets
+            </summary>
+            <ul class="pl-0">
+              {/* <Deck deckPort={ deck[1] } ships={ {1: ship} }> */}
+              <Deck deckPort={ deck[1] } ships={ ship }>
+                <IconFile class="h-4 w-4" q:slot='icon_fleet'/>
+                {/* <IconFile class="h-4 w-4" q:slot='icon_ship' /> */}
+              </Deck>
+              <Deck deckPort={ deck[2] } ships={ ship }>
+                <IconFile class="h-4 w-4" q:slot='icon_fleet'/>
+                {/* <IconFile class="h-4 w-4" q:slot='icon_ship' /> */}
+              </Deck>
+              <Deck deckPort={ deck[3] } ships={ ship }>
+                <IconFile class="h-4 w-4" q:slot='icon_fleet'/>
+                {/* <IconFile class="h-4 w-4" q:slot='icon_ship' /> */}
+              </Deck>
+              <Deck deckPort={ deck[0]} ships={ ship }>
+                <IconFile class="h-4 w-4" q:slot='icon_fleet'/>
+                {/* <IconFile class="h-4 w-4" q:slot='icon_ship' /> */}
+              </Deck>
+            </ul>
+          </details>
+        </li>
         
-        <bp-tree-item interaction="auto" class="bt b--black-80">
-          Map
-          <bp-tree-item class="bt b--black-40 ml3">MAP</bp-tree-item>
-        </bp-tree-item>
-        <bp-tree-item interaction="auto" class="bt b--black-80">
-          Log
-          <bp-tree-item class="bt b--black-40 ml3">LOG</bp-tree-item>
-        </bp-tree-item>
+        <Dock nDock={nDock} ships={{1: {ship_name: "Yamato", cond: 49, nowhp: 80, maxhp: 80, fuel: 100, max_fuel: 100}, 2: {ship_name: "Musashi", cond: 49, nowhp: 80, maxhp: 80, fuel: 100, max_fuel: 100}, 3: {ship_name: "Shinano", cond: 49, nowhp: 80, maxhp: 80, fuel: 100, max_fuel: 100}}}>
+          <IconFolder class="h-4 w-4" q:slot='icon_dock'/>
+        </Dock>
+
+        <Expedition deckPort={ deck } >
+          <IconFolder class="h-4 w-4" q:slot='icon_expedition'/>
+        </Expedition>
+
+        <Task>
+          <IconFolder class="h-4 w-4" q:slot='icon_task'/>
+        </Task>
         
-      </bp-tree>
-      
-      {/* <simple-greeting name="World"></simple-greeting> */}
+      </ul>
     </>
   )
 });

@@ -1,8 +1,7 @@
 import '@builder.io/qwik/qwikloader.js'
 
 import { render } from '@builder.io/qwik'
-// import { App } from './app.tsx'
-import { App } from './test.tsx'
+import { App } from './app.tsx'
 
 import './index.css'
 
