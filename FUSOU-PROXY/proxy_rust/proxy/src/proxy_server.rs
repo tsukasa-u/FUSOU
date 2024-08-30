@@ -192,7 +192,7 @@ async fn log_response(mut response: Response<Body>, path: FullPath, tx_proxy_log
             let buffer_list  = decode_response(body_cloned, content_length, content_encoding, transfer_encoding).await;
             for buffer in buffer_list {
                 // let _ = tx_proxy_log.send(buffer).await;
-                println!("buffer: {: <10}", String::from_utf8(buffer).unwrap());
+                println!("buffer: {: <10}", String::from_utf8(buffer).unwrap()[0..10].to_string());
             }
         });
 
