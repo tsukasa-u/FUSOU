@@ -122,7 +122,7 @@ async fn decode_response(response_body: Vec<u8>, content_length: i64, mut conten
     return ret_buffer_list;
 }
 
-async fn log_response(mut response: Response<Body>, path: FullPath, tx_proxy_log: mpsc::Sender<Vec<u8>>) -> Result<Response<Body>, Rejection> {
+async fn log_response(mut response: Response<Body>, path: FullPath, tx_proxy_log:bidirectional_channel::Master<bidirectional_channel::StatusInfo>) -> Result<Response<Body>, Rejection> {
 
     let mut res = Response::builder()
         .status(response.status());
@@ -206,7 +206,7 @@ async fn log_response(mut response: Response<Body>, path: FullPath, tx_proxy_log
 // }
 
 // https://github.com/danielSanchezQ/warp-reverse-proxy
-pub fn serve_proxy(proxy_address: String, port: u16, mut slave: bidirectional_channel::Slave<bidirectional_channel::StatusInfo>, tx_proxy_log: mpsc::Sender<Vec<u8>>) -> Result<SocketAddr, Box<dyn std::error::Error>> {
+pub fn serve_proxy(proxy_address: String, port: u16, mut slave: bidirectional_channel::Slave<bidirectional_channel::StatusInfo>, tx_proxy_log: bidirectional_channel::Master<bidirectional_channel::StatusInfo>) -> Result<SocketAddr, Box<dyn std::error::Error>> {
     // let pac_file = include_str!("../proxy.pac");
 
     let routes = warp::any()
