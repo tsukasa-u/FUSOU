@@ -208,7 +208,6 @@ pub struct ApiShip {
     #[serde(rename = "api_sally_area")]
     pub api_sally_area: Option<i64>,
     #[serde(rename = "api_sp_effect_items")]
-    #[serde(default)]
     pub api_sp_effect_items: Vec<ApiSpEffectItem>,
 }
 
