@@ -1,3 +1,4 @@
+use core::panic;
 use std::ops::Deref;
 use std::fs;
 use std::path;
@@ -28,17 +29,66 @@ pub fn expand_struct_selector(attr: TokenStream, ast: &mut ItemFn) -> Result<Tok
         Ok(v) => v,
         Err(e) => { return Err(e.into()); }
     };
-    
-    let mut body = Vec::new();
 
-    // let arg_checker = Vec::new();
-    for s in &ast.sig.inputs {
-        if let syn::FnArg::Typed(pat) = s {
-            let pat = pat.pat.deref();
-            println!("{:?}", pat);
+    let name_in = ast.sig.inputs.iter().any(|fn_arg| {
+        if let syn::FnArg::Typed(pat_type) = fn_arg {
+            if !pat_type.attrs.is_empty() {
+                return false;
+            }
+
+            if let syn::Pat::Ident(pat_ident) = pat_type.pat.deref() {
+                // I don't feel like to use '==' because '==' let me feel like I compare the reference of the string.
+                if !(pat_ident.ident.to_string().eq("name") && pat_ident.attrs.is_empty() && pat_ident.by_ref.is_none() && pat_ident.mutability.is_none() && pat_ident.subpat.is_none()) {
+                    return false;
+                }
+            } else {
+                return false;
+            }
+
+            // if let syn::token::Colon(colon) = pat_type.colon_token {} else {
+            //     return false;
+            // }
+
+            if let syn::Type::Path(type_path) = pat_type.ty.deref() {
+                if !(type_path.qself.is_none() &&  type_path.path.leading_colon.is_none() && type_path.path.segments.len() == 1) {
+                    return false;
+                }
+                if !type_path.path.segments[0].ident.to_string().eq("String") {
+                    return false;
+                }
+                if let syn::PathArguments::None = type_path.path.segments[0].arguments {
+                    return true;
+                }
+            } else {
+                return false;
+            }
+        } else {
+            return false;
+        }
+        return false;
+    });
+
+
+    if name_in == false {
+        return Err(syn::Error::new_spanned(ast.sig.inputs.clone(), "The function should have the reservedargument named 'name: String'"));
+    }
+
+    let mut resutlt_out = false;
+    if let syn::ReturnType::Type(_, box_type) = &ast.sig.output {
+        if let syn::Type::Path(path) = box_type.deref() {
+            if path.qself.is_none() && path.path.leading_colon.is_none() && path.path.segments.len() == 1 {
+                if path.path.segments[0].ident.to_string().eq("Result") {
+                    resutlt_out = true;
+                }
+            }
         }
     }
+
+    if resutlt_out == false {
+        return Err(syn::Error::new_spanned(ast.sig.output.clone(), "The function should return Result<_, Box<dyn std::error::Error>>"));
+    }
     
+    let mut body = Vec::new();
     for s in &ast.block.stmts {
         body.push(quote! { #s});
     }
@@ -106,10 +156,17 @@ pub fn expand_struct_selector(attr: TokenStream, ast: &mut ItemFn) -> Result<Tok
             _ => {}
         }
     };
+
+    let return_wrap = quote! {
+        return Err(Box::new(std::io::Error::new(std::io::ErrorKind::Other, "The name is not match any word")));
+    };
     
     ast.block.stmts.clear();
     ast.block.stmts.push(syn::parse_quote! {
         #match_wrap
+    });
+    ast.block.stmts.push(syn::parse_quote! {
+        #return_wrap
     });
 
     let expanded = quote! {
