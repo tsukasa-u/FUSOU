@@ -1,15 +1,28 @@
 extern crate proc_macro;
 
 use proc_macro::TokenStream;
-use syn::DeriveInput;
+use syn::{DeriveInput, ItemFn};
 
 mod add_field;
 mod generate_getter;
 mod generate_test_root;
 mod generate_test_struct;
 mod register_struct;
+mod expand_struct_selector;
 
 mod parse_type_path;
+
+#[proc_macro_attribute]
+pub fn expand_struct_selector(attr: TokenStream, item: TokenStream) -> TokenStream {
+
+    let mut ast = syn::parse_macro_input!(item as ItemFn);
+    let result = expand_struct_selector::expand_struct_selector(attr, &mut ast);
+    match result {
+        Ok(generated) => generated,
+        Err(err) => err.to_compile_error().into(),
+    }
+
+}
 
 #[proc_macro_attribute]
 pub fn register_struct(attr: TokenStream, item: TokenStream) -> TokenStream {
