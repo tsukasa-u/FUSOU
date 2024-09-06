@@ -1,36 +1,81 @@
+use std::error::Error;
+use proxy::bidirectional_channel;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use serde::{Serialize, Deserialize};
+use std::{collections::HashMap, sync::mpsc};
 use serde_json::Value;
 
+use register_macro_derive_and_attr::expand_struct_selector;
+use register_trait::TraitForRoot;
 
-#[derive(Serialize, Deserialize)]
-struct Test {
-    id: String,
-    username: String,
+// use crate::kcapi;
+use crate::interface::interface::EmitData;
 
-    #[serde(flatten)]
-    extra: HashMap<String, Value>,
+
+// Should I rewrite this attribute marcro to macro_rules!?
+#[expand_struct_selector(path = "./src/kcapi/")]
+async fn struct_selector(name: String, message: String) -> Result<Vec<EmitData>,  Box<dyn Error>> {
+    
+    let root_wrap: Result<kcsapi_lib::Root, serde_json::Error> = serde_json::from_str(&message);
+    match root_wrap {
+        Ok(root) => {
+            return Ok(root.convert::<EmitData>());
+        },
+        Err(e) => {
+            println!("\x1b[38;5;{}m Failed to parse JSON({:?}): {}\x1b[m ", 8, name, e);
+            return Err(Box::new(e));
+        }
+    };
 }
 
-fn check_updated(json_str: String) -> (bool, String) {
-    let mut updated = false;
-    let mut message = String::new();
-    let mut file = File::open("src-tauri/src/data.json").unwrap();
-    let mut data = String::new();
-    file.read_to_string(&mut data).unwrap();
-    let mut json: Value = serde_json::from_str(&data).unwrap();
-    let mut last_updated = json["last_updated"].as_str().unwrap();
-    let mut last_updated = last_updated.parse::<DateTime<Utc>>().unwrap();
-    let mut now = Utc::now();
-    let mut diff = now.signed_duration_since(last_updated);
-    if diff.num_days() > 0 {
-        updated = true;
-        message = format!("Data is {} days old", diff.num_days());
+async fn response_parser(mut slave: bidirectional_channel::Slave<bidirectional_channel::StatusInfo>, mut proxy_log_slave: bidirectional_channel::Slave<bidirectional_channel::StatusInfo>) {
+    
+    loop {
+        tokio::select! {
+            recv_log = proxy_log_slave.recv() => {
+                match recv_log {
+                    None => {
+                        println!("Received None message");
+                    },
+                    Some(bidirectional_channel::StatusInfo::CONTENT { status, name, message }) => {
+                        struct_selector(name, message).await;
+                    },
+                    _ => {}
+                }
+            },
+            recv_msg = slave.recv() => {
+                match recv_msg {
+                    None => {
+                        println!("Received None message");
+                    },
+                    Some(bidirectional_channel::StatusInfo::SHUTDOWN { status, message }) => {
+                        println!("Received shutdown message: {} {}", status, message);
+                        let _ = slave.send(bidirectional_channel::StatusInfo::SHUTDOWN {
+                            status: "SHUTTING DOWN".to_string(),
+                            message: "Response parser is shutting down".to_string(),
+                        }).await;
+                        break;
+                    },
+                    Some(bidirectional_channel::StatusInfo::HEALTH { status, message }) => {
+                        println!("Received health message: {} {}", status, message);
+                        let _ = slave.send(bidirectional_channel::StatusInfo::HEALTH {
+                            status: "RUNNING".to_string(),
+                            message: "Response parser is running".to_string(),
+                        }).await;
+                    },
+                    _ => {}
+                }
+            },
+            _ = tokio::signal::ctrl_c() => {
+                break;
+            },
+        }
     }
-    (updated, message)
 }
 
-fn main() {
+fn serve_reponse_parser<R: tauri::Runtime>(handle: &impl tauri::Manager<R>, slave: bidirectional_channel::Slave<bidirectional_channel::StatusInfo>, proxy_log_slave: bidirectional_channel::Slave<bidirectional_channel::StatusInfo>) {
+    let _ = handle;
 
+    tokio::task::spawn(async move {
+        response_parser(slave, proxy_log_slave)
+    });
 }
