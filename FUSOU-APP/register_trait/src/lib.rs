@@ -37,7 +37,7 @@ pub type LogMapType = HashMap<(String, String, String), Vec<String>>;
 
 pub trait TraitForRoot {
     fn test_deserialize<I>(_: I) -> LogMapType where I: Iterator<Item = PathBuf>;
-    fn convert<S, T>(_: S) -> Vec<T> where S: TraitForRoot { println!("not implemented"); return Vec::new(); }
+    fn convert<T>(&self) -> Vec<T> { println!("not implemented"); return Vec::new(); }
 }
 
 // pub trait DummyTraitForTest {
