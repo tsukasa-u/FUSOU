@@ -15,6 +15,7 @@ mod kcapi;
 mod notification;
 mod cmd_pac_tauri;
 mod json_parser;
+mod interface;
 
 use proxy::bidirectional_channel::{BidirectionalChannel, StatusInfo};
 
@@ -63,7 +64,9 @@ async fn main() -> ExitCode {
   let pac_bidirectional_channel_master = pac_bidirectional_channel.clone_master();
   let pac_path = "./../../FUSOU-PROXY/proxy_rust/proxy/proxy.pac".to_string();
 
-  let (proxy_log_channel_tx, proxy_log_channel_rx) = mpsc::channel::<Vec<u8>>(1);
+  let proxy_log_bidirectional_channel = BidirectionalChannel::<StatusInfo>::new(1);
+  let proxy_log_bidirectional_channel_slave = proxy_log_bidirectional_channel.clone_slave();
+  let proxy_log_bidirectional_channel_master = proxy_log_bidirectional_channel.clone_master();
 
   let response_parse_channel = BidirectionalChannel::<StatusInfo>::new(1);
   let response_parse_channel_slave = response_parse_channel.clone_slave();
@@ -127,7 +130,7 @@ async fn main() -> ExitCode {
       // let _window = app.get_window("main").unwrap().close().unwrap();
 
       // start proxy server
-      let proxy_addr = proxy::proxy_server::serve_proxy(proxy_target.to_string(), 0, proxy_bidirectional_channel_slave, proxy_log_channel_tx.clone());
+      let proxy_addr = proxy::proxy_server::serve_proxy(proxy_target.to_string(), 0, proxy_bidirectional_channel_slave, proxy_log_bidirectional_channel_master);
 
       if proxy_addr.is_err() {
         return Err("Failed to start proxy server".into());
@@ -233,7 +236,18 @@ async fn main() -> ExitCode {
 
             // let pac_bidirectional_channel_master_clone = pac_bidirectional_channel_master.clone();
             // let proxy_bidirectional_channel_master_clone = proxy_bidirectional_channel_master.clone();
-  
+            if let Some(window) = app.get_window("main"){
+            
+              if let Ok(visible) = window.is_visible() {
+                if !visible {
+                  let _ = app.get_window("main").expect("no window labeled 'main' found").hide().unwrap();
+                }
+              }
+            }
+            let _ = app.tray_handle().get_item("open/close").set_enabled(false);
+            let _ = app.tray_handle().get_item("quit").set_enabled(false);
+            let _ = app.tray_handle().get_item("pause").set_enabled(false);
+            let _ = app.tray_handle().get_item("advanced-title").set_enabled(false);
             cmd_pac_tauri::remove_pac();
 
             let shutdown_tx_clone = shutdown_tx.clone();
@@ -241,19 +255,6 @@ async fn main() -> ExitCode {
                 let _ = shutdown_tx_clone.send(()).await;
               }
             );
-
-            
-          //   let res = task::block_in_place(move || {
-          //     // めっちゃ重い処理をここでやる
-          //     "done computing"
-          // }).await?;
-            
-
-            // tokio::task::spawn(async {
-            // });
-            
-            // app.exit(0_i32);
-            // std::process::exit(0);
           },
           "copy-url" => {
             let mut clipboard = Clipboard::new().unwrap();
