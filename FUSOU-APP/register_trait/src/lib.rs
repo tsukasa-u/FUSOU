@@ -37,6 +37,7 @@ pub type LogMapType = HashMap<(String, String, String), Vec<String>>;
 
 pub trait TraitForRoot {
     fn test_deserialize<I>(_: I) -> LogMapType where I: Iterator<Item = PathBuf>;
+    fn convert<S, T>(_: S) -> Vec<T> where S: TraitForRoot { println!("not implemented"); return Vec::new(); }
 }
 
 // pub trait DummyTraitForTest {
@@ -100,7 +101,7 @@ pub fn simple_root_test<T>(target_path: String, pattren_str: String, log_path: S
 
     // let target_path = "./src/kc2api/test_data";
     let target = path::PathBuf::from(target_path);
-    let files = target.read_dir().expect( "read_dir call failed");
+    let files = target.read_dir().expect( &format!("\x1b[38;5;{}m read_dir call failed\x1b[m ", 8));
     let file_list = files.map(|dir_entry| {
         let file_path = dir_entry.unwrap().path();
         // file_path.exists();
