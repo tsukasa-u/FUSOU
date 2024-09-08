@@ -2,12 +2,14 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 // #![recursion_limit = "256"]
 
+use tauri::utils::config::Size;
 use tauri::{AppHandle, CustomMenuItem, SystemTray, SystemTrayEvent, SystemTrayMenu};
 use tauri::Manager;
 use tokio::sync::mpsc;
 use webbrowser::{open_browser, Browser};
 use arboard::Clipboard;
 use core::time;
+use std::fs;
 use std::sync::{Arc, Mutex};
 use std::process::ExitCode;
 
@@ -49,6 +51,28 @@ async fn close_splashscreen(window: tauri::Window) {
   window.get_window("splashscreen").expect("no window labeled 'splashscreen' found").close().unwrap();
   // Show main window
   window.get_window("main").expect("no window labeled 'main' found").show().unwrap();
+  window.get_window("external").expect("no window labeled 'external' found").show().unwrap();
+}
+
+fn create_external_window(app: &tauri::App) {
+
+  let init_script = fs::read_to_string("./../src/init_script.js").expect("Unable to read init_script.js");
+
+  let external = tauri::WindowBuilder::new(
+    app,
+    "external",
+    tauri::WindowUrl::External("http://www.dmm.com/netgame/social/-/gadgets/=/app_id=854854/".parse().unwrap()),
+  )
+  .fullscreen(false)
+  .title("fusou-viewer")
+  .inner_size(1192_f64, 712_f64)
+  .visible(false)
+  .initialization_script(&init_script)
+  .build()
+  .expect("error while building external");
+  external.open_devtools();
+  // external.hwnd().unwrap().0
+
 }
 
 #[tokio::main]
@@ -124,9 +148,17 @@ async fn main() -> ExitCode {
 
   let system_tray = SystemTray::new().with_menu(tray_menu).with_tooltip("FUSOU");
 
+  let external_window_size_before = Mutex::new(tauri::PhysicalSize::<u32> {
+    width: 1200,
+    height: 720
+  });
+
   tauri::Builder::default()
     .invoke_handler(tauri::generate_handler![close_splashscreen, show_splashscreen])
+    .plugin(tauri_plugin_window_state::Builder::default().build())
     .setup(move |app| {
+      
+      create_external_window(&app);
       // let _window = app.get_window("main").unwrap().close().unwrap();
 
       // start proxy server
@@ -167,10 +199,41 @@ async fn main() -> ExitCode {
     // .on_page_load(|window, _ | {
     //   let _ = window.app_handle().tray_handle().get_item("open").set_title("close");
     // })
-    .on_window_event(|event| match event.event() {
+    .on_window_event(move |event| match event.event() {
       tauri::WindowEvent::CloseRequested { .. } => {
           let _ = event.window().app_handle().tray_handle().get_item("open/close").set_title("Open Window");
-      }
+      },
+      tauri::WindowEvent::Resized(size) => {
+
+        if event.window().label().eq("external") {
+          if let Ok(is_maximized) = event.window().is_maximized() {
+            if is_maximized {
+              external_window_size_before.lock().unwrap().height = size.height;
+              external_window_size_before.lock().unwrap().width = size.width;
+              return;
+            }
+          }
+          if let Ok(is_minimized) = event.window().is_minimized() {
+            if is_minimized {
+              return;
+            }
+          }
+          
+          let mut external_w = 0_u32;
+          let mut external_h = 0_u32;
+          if size.width != external_window_size_before.lock().unwrap().width {
+            external_w = size.width;
+            external_h = size.width*712/1192;
+          } else {
+            external_w = size.height*1192/712;
+            external_h = size.height;
+          }
+
+          external_window_size_before.lock().unwrap().height = external_h;
+          external_window_size_before.lock().unwrap().width = external_w;
+          let _ = event.window().set_size(external_window_size_before.lock().unwrap().clone());
+        }
+      },
       _ => {}
     })
     .on_system_tray_event(move |app: &AppHandle, event: SystemTrayEvent| match event {
