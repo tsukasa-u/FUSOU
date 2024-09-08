@@ -10,6 +10,25 @@ use register_trait::TraitForRoot;
 // use crate::kcapi;
 use crate::interface::interface::EmitData;
 
+async fn emit_data(data: EmitData) {
+    match data {
+        EmitData::DeckPorts(data) => {
+            println!("DeckPorts: {:?}", data);
+        },
+        EmitData::Materials(data) => {
+            println!("Materials: {:?}", data);
+        },
+        EmitData::Ships(data) => {
+            println!("Ships: {:?}", data);
+        },
+        EmitData::NDocks(data) => {
+            println!("NDocks: {:?}", data);
+        },
+        EmitData::Logs(data) => {
+            println!("Logs: {:?}", data);
+        },
+    }
+}
 
 // Should I rewrite this attribute marcro to macro_rules!?
 #[expand_struct_selector(path = "./src/kcapi/")]
