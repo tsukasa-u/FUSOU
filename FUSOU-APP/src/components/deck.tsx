@@ -29,8 +29,9 @@ export const Deck = component$<DeckPortProps>(({ deckPort, ships }) => {
                     <summary>
                         <Slot name="icon_fleet" />
                         { fleet_name[deckPort.id] ?? "Unknown" }
+                        <span class="justify-end"></span>
                         <div class="form-control">
-                            <label class="label cursor-pointer h-4 justify-end">
+                            <label class="label cursor-pointer h-4">
                                 <span class="label-text mb-1.5 pr-2 h-4">more</span>
                                 <input type="checkbox" class="toggle toggle-xs h-4  border-gray-400 [--tglbg:theme(colors.gray.200)] checked:border-blue-200 checked:bg-blue-300 checked:[--tglbg:theme(colors.blue.100)] rounded-sm" defaultChecked />
                             </label>
