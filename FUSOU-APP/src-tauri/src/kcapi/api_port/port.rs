@@ -2,13 +2,16 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use register_macro_derive_and_attr::register_struct;
-use register_macro_derive_and_attr::add_field;
+use register_trait::register_struct;
+use register_trait::add_field;
 
 use register_trait::TraitForTest;
 use register_trait::Getter;
 use register_trait::TraitForRoot;
-use register_macro_derive_and_attr::TraitForRoot;
+use register_trait::TraitForConvert;
+use register_trait::TraitForEmitData;
+
+use crate::interface::interface;
 
 #[derive(Getter, TraitForTest, TraitForRoot)]
 #[struct_test_case(field_extra, type_value, integration)]
@@ -335,6 +338,14 @@ pub struct ApiFurnitureAffectItems {
 pub struct ApiPayitemDict {
     #[serde(rename = "21")]
     pub n21: i64,
+}
+
+impl TraitForConvert for Root {
+    type Output = interface::EmitData;
+    fn convert(&self) -> Option<Vec<interface::EmitData>> {
+        let materials: interface::Materials = self.api_data.api_material.clone().into();
+        Some(vec![interface::EmitData::Materials(materials)])
+    }
 }
 
 #[cfg(test)]
