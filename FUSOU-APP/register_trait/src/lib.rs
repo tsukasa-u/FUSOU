@@ -8,6 +8,12 @@ use std::path::PathBuf;
 
 pub use register_macro_derive_and_attr::Getter;
 pub use register_macro_derive_and_attr::TraitForTest;
+pub use register_macro_derive_and_attr::TraitForRoot;
+pub use register_macro_derive_and_attr::TraitForConvert;
+
+pub use register_macro_derive_and_attr::add_field;
+pub use register_macro_derive_and_attr::register_struct;
+pub use register_macro_derive_and_attr::expand_struct_selector;
 
 pub use serde_json::Value;
 
@@ -37,7 +43,10 @@ pub type LogMapType = HashMap<(String, String, String), Vec<String>>;
 
 pub trait TraitForRoot {
     fn test_deserialize<I>(_: I) -> LogMapType where I: Iterator<Item = PathBuf>;
-    fn convert<T>(&self) -> Vec<T> { println!("not implemented"); return Vec::new(); }
+}
+
+pub trait TraitForConvert {
+    fn convert<T>(&self) -> Vec<T> where T: Default { println!("not implemented"); return Vec::new(); }
 }
 
 // pub trait DummyTraitForTest {
