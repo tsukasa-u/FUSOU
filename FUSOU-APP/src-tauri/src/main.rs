@@ -3,8 +3,7 @@
 // #![recursion_limit = "256"]
 
 use tauri::utils::config::Size;
-use tauri::{AppHandle, CustomMenuItem, SystemTray, SystemTrayEvent, SystemTrayMenu};
-use tauri::Manager;
+use tauri::{Manager, AppHandle, CustomMenuItem, SystemTray, SystemTrayEvent, SystemTrayMenu};
 use tokio::sync::mpsc;
 use webbrowser::{open_browser, Browser};
 use arboard::Clipboard;
@@ -154,7 +153,7 @@ async fn main() -> ExitCode {
     width: 1200,
     height: 720
   });
-
+  
   tauri::Builder::default()
     .invoke_handler(tauri::generate_handler![close_splashscreen, show_splashscreen])
     .plugin(tauri_plugin_window_state::Builder::default().build())
@@ -183,6 +182,9 @@ async fn main() -> ExitCode {
 
       json_parser::serve_reponse_parser(&app.handle(), response_parse_channel_slave, proxy_log_bidirectional_channel_slave);
 
+      discord::connect();
+      discord::set_activity("experimental implementation", "playing with FUSOU");
+
       let proxy_bidirectional_channel_master_clone = proxy_bidirectional_channel_master.clone();
       let pac_bidirectional_channel_master_clone = pac_bidirectional_channel_master.clone();
       let response_parse_channel_master_clone = response_parse_channel_master.clone();
@@ -195,10 +197,10 @@ async fn main() -> ExitCode {
           proxy::bidirectional_channel::request_shutdown(pac_bidirectional_channel_master_clone),
           proxy::bidirectional_channel::request_shutdown(response_parse_channel_master_clone),
         );
+
         tokio::time::sleep(time::Duration::from_millis(2000)).await;
         app_handle.exit(0_i32);
       });
-
       return Ok(())
     })
     .system_tray(system_tray)
@@ -318,6 +320,8 @@ async fn main() -> ExitCode {
             let _ = app.tray_handle().get_item("pause").set_enabled(false);
             let _ = app.tray_handle().get_item("advanced-title").set_enabled(false);
             cmd_pac_tauri::remove_pac();
+            
+            discord::close();
 
             let shutdown_tx_clone = shutdown_tx.clone();
             tauri::async_runtime::spawn(async move {

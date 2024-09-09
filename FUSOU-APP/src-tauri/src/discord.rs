@@ -5,10 +5,12 @@
 //     )?;
 //     client.close()?;
 use discord_rich_presence::{activity, DiscordIpc, DiscordIpcClient};
-use std::env;
+use std::{env, sync::{LazyLock, Mutex}};
 use dotenvy::dotenv;
 
-pub fn init_client() -> Result<DiscordIpcClient, Box<dyn std::error::Error>> {
+static DISCORD_CLIENT: LazyLock<Mutex<Result<DiscordIpcClient, Box<dyn std::error::Error + Send + Sync>>>> = LazyLock::new(|| Mutex::new(init_client()));
+
+pub fn init_client() -> Result<DiscordIpcClient, Box<dyn std::error::Error + Send + Sync>> {
     dotenv().expect(".env file not found");
 
     let mut client_id = "".to_string();
@@ -19,23 +21,32 @@ pub fn init_client() -> Result<DiscordIpcClient, Box<dyn std::error::Error>> {
     }
 
     let client = DiscordIpcClient::new(&client_id);
-    client
+    match client {
+        Ok(client) => Ok(client),
+        Err(e) => Err(e.to_string().into()),
+    }
 }
 
-pub fn set_activity(client: &mut DiscordIpcClient, state: &str, details: &str) -> Result<(), Box<dyn std::error::Error>> {
-    client.set_activity(activity::Activity::new()
+pub fn set_activity(state: &str, details: &str) {
+    if DISCORD_CLIENT.lock().unwrap().is_err() {
+        return;
+    }
+    let _ = DISCORD_CLIENT.lock().unwrap().as_mut().unwrap().set_activity(activity::Activity::new()
         .state(state)
         .details(details)
-    )?;
-    Ok(())
+    );
 }
 
-pub fn connect(client: &mut DiscordIpcClient) -> Result<(), Box<dyn std::error::Error>> {
-    client.connect()?;
-    Ok(())
+pub fn connect() {
+    if DISCORD_CLIENT.lock().unwrap().is_err() {
+        return;
+    }
+    DISCORD_CLIENT.lock().unwrap().as_mut().unwrap().connect().unwrap();
 }
 
-pub fn close(client: &mut DiscordIpcClient) -> Result<(), Box<dyn std::error::Error>> {
-    client.close()?;
-    Ok(())
+pub fn close() {
+    if DISCORD_CLIENT.lock().unwrap().is_err() {
+        return;
+    }
+    DISCORD_CLIENT.lock().unwrap().as_mut().unwrap().close().unwrap();
 }
