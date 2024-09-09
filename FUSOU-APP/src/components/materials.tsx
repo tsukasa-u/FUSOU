@@ -1,6 +1,8 @@
-import { Slot, component$, useStylesScoped$ } from '@builder.io/qwik';
+import { Slot, component$, useStylesScoped$, useTask$ } from '@builder.io/qwik';
 
 import { Material } from "./interface/port.tsx";
+
+import { emit, listen } from '@tauri-apps/api/event'
 
 interface MaterialsProps {
     materials: Material;
@@ -8,6 +10,21 @@ interface MaterialsProps {
 
 export const Materials = component$<MaterialsProps>(({ materials }) => {
 
+    useTask$(({ track }) => {
+        let unlisten: any;
+        async function f() {
+          unlisten = await listen<Material>('materials', event => {
+            console.log(`materials ${event.payload} ${new Date()}`)
+            materials.materials = event.payload.materials;
+          });
+        }
+        f();
+        return () => {
+            if (unlisten) {
+                unlisten();
+            }
+        };
+      });
 
     useStylesScoped$(`
         div::before, div::after {
@@ -20,11 +37,10 @@ export const Materials = component$<MaterialsProps>(({ materials }) => {
         1: "icon_material_bull",
         2: "icon_material_steel",
         3: "icon_material_bauxite",
-        4: "icon_material_bucket",
-        5: "icon_material_nail",
-        6: "icon_material_barnar",
+        4: "icon_material_barnar",
+        5: "icon_material_bucket",
+        6: "icon_material_nail",
         7: "icon_material_screw",
-
     }
     
     return (
