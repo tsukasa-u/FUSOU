@@ -193,9 +193,9 @@ async fn log_response(mut response: Response<Body>, path: FullPath, tx_proxy_log
             for buffer in buffer_list {
                 if let Ok(buffer_string) = String::from_utf8(buffer) {
                     let mes = bidirectional_channel::StatusInfo::CONTENT {
-                        status: "PROXY RUNNING".to_string(), 
-                        name: "text/plain".to_string(), 
-                        message: buffer_string,
+                        path: path.as_str().to_string(),
+                        content_type: content_type.to_string(), 
+                        content: buffer_string,
                     };
                     let _ = tx_proxy_log.send(mes).await;
                 } else {
