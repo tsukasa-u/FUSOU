@@ -2,15 +2,15 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 // use serde_json::Value;
 
-use register_macro_derive_and_attr::register_struct;
-use register_macro_derive_and_attr::add_field;
+use register_trait::register_struct;
+use register_trait::add_field;
 
 use register_trait::TraitForTest;
 use register_trait::Getter;
 use register_trait::TraitForRoot;
-use register_macro_derive_and_attr::TraitForRoot;
+use register_trait::TraitForConvert;
 
-#[derive(Getter, TraitForTest, TraitForRoot)]
+#[derive(Getter, TraitForTest, TraitForRoot, TraitForConvert)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[register_struct(name = "api_req_kaisou/powerup")]
