@@ -9,9 +9,9 @@ use register_trait::TraitForTest;
 use register_trait::Getter;
 use register_trait::TraitForRoot;
 use register_trait::TraitForConvert;
-use register_trait::TraitForEmitData;
 
-use crate::interface::interface;
+use crate::interface::interface::EmitData;
+use crate::interface::material::Materials;
 
 #[derive(Getter, TraitForTest, TraitForRoot)]
 #[struct_test_case(field_extra, type_value, integration)]
@@ -211,7 +211,7 @@ pub struct ApiShip {
     #[serde(rename = "api_sally_area")]
     pub api_sally_area: Option<i64>,
     #[serde(rename = "api_sp_effect_items")]
-    pub api_sp_effect_items: Vec<ApiSpEffectItem>,
+    pub api_sp_effect_items: Option<Vec<ApiSpEffectItem>>,
 }
 
 #[derive(Getter, TraitForTest)]
@@ -341,10 +341,11 @@ pub struct ApiPayitemDict {
 }
 
 impl TraitForConvert for Root {
-    type Output = interface::EmitData;
-    fn convert(&self) -> Option<Vec<interface::EmitData>> {
-        let materials: interface::Materials = self.api_data.api_material.clone().into();
-        Some(vec![interface::EmitData::Materials(materials)])
+    type Output = EmitData;
+    fn convert(&self) -> Option<Vec<EmitData>> {
+        println!("Root");
+        let materials: Materials = self.api_data.api_material.clone().into();
+        Some(vec![EmitData::Materials(materials)])
     }
 }
 
