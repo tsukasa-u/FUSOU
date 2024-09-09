@@ -15,9 +15,9 @@ pub enum StatusInfo {
         message: String,
     },
     CONTENT {
-        status: String,
-        name: String,
-        message: String,
+        path: String,
+        content_type: String,
+        content: String,
     },
 }
 
