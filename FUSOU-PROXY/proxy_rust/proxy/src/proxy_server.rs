@@ -191,8 +191,17 @@ async fn log_response(mut response: Response<Body>, path: FullPath, tx_proxy_log
         tokio::spawn(async move {
             let buffer_list  = decode_response(body_cloned, content_length, content_encoding, transfer_encoding).await;
             for buffer in buffer_list {
-                // let _ = tx_proxy_log.send(buffer).await;
-                println!("buffer: {: <10}", String::from_utf8(buffer).unwrap()[0..10].to_string());
+                if let Ok(buffer_string) = String::from_utf8(buffer) {
+                    let mes = bidirectional_channel::StatusInfo::CONTENT {
+                        status: "PROXY RUNNING".to_string(), 
+                        name: "text/plain".to_string(), 
+                        message: buffer_string,
+                    };
+                    let _ = tx_proxy_log.send(mes).await;
+                } else {
+                    println!("Failed to convert buffer to string");
+                }
+                // println!("buffer: {: <10}", String::from_utf8(buffer).unwrap()[0..10].to_string());
             }
         });
 
