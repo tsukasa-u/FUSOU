@@ -10,7 +10,10 @@ use register_trait::Getter;
 use register_trait::TraitForRoot;
 use register_trait::TraitForConvert;
 
+use crate::interface::interface::EmitData;
+
 #[derive(Getter, TraitForTest, TraitForRoot, TraitForConvert)]
+#[convert_output(output = EmitData)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[register_struct(name = "api_get_member/payitem")]
