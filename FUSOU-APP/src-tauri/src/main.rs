@@ -19,6 +19,8 @@ mod cmd_pac_tauri;
 mod json_parser;
 mod interface;
 
+mod discord;
+
 use proxy::bidirectional_channel::{BidirectionalChannel, StatusInfo};
 
 #[derive(Debug, Default )]
@@ -179,15 +181,19 @@ async fn main() -> ExitCode {
       
       cmd_pac_tauri::add_pac(&format!("http://localhost:{}/proxy.pac", pac_addr.unwrap().port()));
 
+      json_parser::serve_reponse_parser(&app.handle(), response_parse_channel_slave, proxy_log_bidirectional_channel_slave);
 
       let proxy_bidirectional_channel_master_clone = proxy_bidirectional_channel_master.clone();
       let pac_bidirectional_channel_master_clone = pac_bidirectional_channel_master.clone();
+      let response_parse_channel_master_clone = response_parse_channel_master.clone();
       let app_handle = app.handle();
       tauri::async_runtime::spawn(async move {
         let _ = shutdown_rx.recv().await;
+        // is it needed to add select! for timeout?
         let _ = tokio::join!(
           proxy::bidirectional_channel::request_shutdown(proxy_bidirectional_channel_master_clone),
-          proxy::bidirectional_channel::request_shutdown(pac_bidirectional_channel_master_clone)
+          proxy::bidirectional_channel::request_shutdown(pac_bidirectional_channel_master_clone),
+          proxy::bidirectional_channel::request_shutdown(response_parse_channel_master_clone),
         );
         tokio::time::sleep(time::Duration::from_millis(2000)).await;
         app_handle.exit(0_i32);
