@@ -1,4 +1,3 @@
-use tokio::sync::mpsc;
 use warp::filters::path::FullPath;
 use warp::{hyper::Body, Filter, Rejection, http::Response};
 use warp_reverse_proxy::reverse_proxy_filter;
@@ -6,6 +5,7 @@ use std::io::Read;
 use std::net::SocketAddr;
 
 use warp::hyper::body::HttpBody;
+use tower;
 
 use regex;
 
@@ -216,9 +216,8 @@ async fn log_response(mut response: Response<Body>, path: FullPath, tx_proxy_log
 
 // https://github.com/danielSanchezQ/warp-reverse-proxy
 pub fn serve_proxy(proxy_address: String, port: u16, mut slave: bidirectional_channel::Slave<bidirectional_channel::StatusInfo>, tx_proxy_log: bidirectional_channel::Master<bidirectional_channel::StatusInfo>) -> Result<SocketAddr, Box<dyn std::error::Error>> {
-    // let pac_file = include_str!("../proxy.pac");
 
-    let routes = warp::any()
+    let route = warp::any()
     .and(
         reverse_proxy_filter("".to_string(), proxy_address)
     )
@@ -228,45 +227,103 @@ pub fn serve_proxy(proxy_address: String, port: u16, mut slave: bidirectional_ch
     })
     .and_then(move |(response, path, tx)| async {
         log_response(response, path, tx).await
-        // test(response)
     });
-    // spawn proxy server
-    let (addr, server_proxy) = warp::serve(routes).bind_with_graceful_shutdown(([127, 0, 0, 1], port), async move {
-        loop {
-            tokio::select! {
-                recv_msg = slave.recv() => {
-                    match recv_msg {
-                        None => {
-                            println!("Received None message");
-                        },
-                        Some(bidirectional_channel::StatusInfo::SHUTDOWN { status, message }) => {
-                            println!("Received shutdown message: {} {}", status, message);
-                            let _ = slave.send(bidirectional_channel::StatusInfo::SHUTDOWN {
-                                status: "SHUTTING DOWN".to_string(),
-                                message: "Proxy server is shutting down".to_string(),
-                            }).await;
-                            break;
-                        },
-                        Some(bidirectional_channel::StatusInfo::HEALTH { status, message }) => {
-                            println!("Received health message: {} {}", status, message);
-                            let _ = slave.send(bidirectional_channel::StatusInfo::HEALTH {
-                                status: "RUNNING".to_string(),
-                                message: "Proxy server is running".to_string(),
-                            }).await;
-                        },
-                        _ => {}
-                    }
-                },
-                _ = tokio::signal::ctrl_c() => {
-                    break;
-                },
-            }
+
+    let svc =  tower::ServiceBuilder::new()
+        .timeout(std::time::Duration::from_secs(15))
+        .service(warp::service(route));
+    
+    let make_service =  warp::hyper::service::make_service_fn(move |_| {
+        let value = svc.clone();
+        async move {
+            Ok::<_, std::convert::Infallible>(value)
         }
-        println!("Shutting down Proxy server");
     });
+
+    let server_proxy = warp::hyper::Server::bind(&([127, 0, 0, 1], port).into())
+        .serve(make_service);
+    let addr = server_proxy.local_addr();
+
+    let graceful_proxy = server_proxy
+        .with_graceful_shutdown(async move {
+            loop {
+                tokio::select! {
+                    recv_msg = slave.recv() => {
+                        match recv_msg {
+                            None => {
+                                println!("Received None message");
+                            },
+                            Some(bidirectional_channel::StatusInfo::SHUTDOWN { status, message }) => {
+                                println!("Received shutdown message: {} {}", status, message);
+                                let _ = slave.send(bidirectional_channel::StatusInfo::SHUTDOWN {
+                                    status: "SHUTTING DOWN".to_string(),
+                                    message: "Proxy server is shutting down".to_string(),
+                                }).await;
+                                break;
+                            },
+                            Some(bidirectional_channel::StatusInfo::HEALTH { status, message }) => {
+                                println!("Received health message: {} {}", status, message);
+                                let _ = slave.send(bidirectional_channel::StatusInfo::HEALTH {
+                                    status: "RUNNING".to_string(),
+                                    message: "Proxy server is running".to_string(),
+                                }).await;
+                            },
+                            _ => {}
+                        }
+                    },
+                    _ = tokio::signal::ctrl_c() => {
+                        break;
+                    },
+                }
+            }
+            println!("Shutting down Proxy server");
+        }
+    );
+    // spawn proxy server
+    // let (addr, server_proxy) = warp::serve(make_service)
+    //     .bind_with_graceful_shutdown(([127, 0, 0, 1], port), async move {
+    //         loop {
+    //             tokio::select! {
+    //                 recv_msg = slave.recv() => {
+    //                     match recv_msg {
+    //                         None => {
+    //                             println!("Received None message");
+    //                         },
+    //                         Some(bidirectional_channel::StatusInfo::SHUTDOWN { status, message }) => {
+    //                             println!("Received shutdown message: {} {}", status, message);
+    //                             let _ = slave.send(bidirectional_channel::StatusInfo::SHUTDOWN {
+    //                                 status: "SHUTTING DOWN".to_string(),
+    //                                 message: "Proxy server is shutting down".to_string(),
+    //                             }).await;
+    //                             break;
+    //                         },
+    //                         Some(bidirectional_channel::StatusInfo::HEALTH { status, message }) => {
+    //                             println!("Received health message: {} {}", status, message);
+    //                             let _ = slave.send(bidirectional_channel::StatusInfo::HEALTH {
+    //                                 status: "RUNNING".to_string(),
+    //                                 message: "Proxy server is running".to_string(),
+    //                             }).await;
+    //                         },
+    //                         _ => {}
+    //                     }
+    //                 },
+    //                 _ = tokio::signal::ctrl_c() => {
+    //                     break;
+    //                 },
+    //             }
+    //         }
+    //         println!("Shutting down Proxy server");
+    // });
+
+    
     println!("Proxy server addr: {}", addr);
 
-    tokio::task::spawn(server_proxy);
+    tokio::task::spawn(async {
+        let _ = graceful_proxy.await;
+    }
+    );
+
+    // tokio::task::spawn(server_proxy);
 
     Ok(addr)
 }
