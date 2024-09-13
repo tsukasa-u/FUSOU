@@ -1,6 +1,7 @@
 use crate::kcapi;
+use register_trait::TraitForEmitData;
 
-#[derive(Debug)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Materials {
     pub materials: Vec<i64>,
 }

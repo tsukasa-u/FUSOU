@@ -1,11 +1,11 @@
 use crate::kcapi;
 
-#[derive(Debug)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct DeckPorts {
     pub deck_ports: Vec<DeckPort>
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct DeckPort {
     pub id: i64,
     pub mission: Vec<i64>,

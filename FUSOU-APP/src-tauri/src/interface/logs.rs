@@ -1,6 +1,6 @@
 use crate::kcapi;
 
-#[derive(Debug)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Logs {
     pub message:   Option<Vec<String>>    // メッセージ
 }
