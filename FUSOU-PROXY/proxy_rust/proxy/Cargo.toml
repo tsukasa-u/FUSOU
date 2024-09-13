@@ -17,6 +17,7 @@ warp-reverse-proxy = "1.0.0"
 regex = "1.10.6"
 flate2 = "1.0.32"
 crossbeam = "0.8.4"
+tower = { version = "0.4.13", features = ["timeout"] }
 
 
 [[example]]
