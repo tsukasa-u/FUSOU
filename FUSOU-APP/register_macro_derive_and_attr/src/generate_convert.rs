@@ -2,7 +2,7 @@
 use darling::FromDeriveInput;
 use proc_macro::TokenStream;
 use quote::{quote, ToTokens};
-use syn::{DeriveInput, Type};
+use syn::DeriveInput;
 
 #[derive(Debug, FromDeriveInput)]
 #[darling(attributes(convert_output))]
