@@ -1,6 +1,6 @@
 import type { PropsOf } from '@builder.io/qwik'
  
-export function IconKira(props: PropsOf<'svg'>, key: string) {
+export function IconKira1(props: PropsOf<'svg'>, key: string) {
   return (
     <svg fill="currentColor" xmlns="http://www.w3.org/2000/svg"
       strokeWidth="1.5" 
@@ -18,4 +18,4 @@ export function IconKira(props: PropsOf<'svg'>, key: string) {
     </svg>
   )
 }
-export default IconKira
+export default IconKira1
