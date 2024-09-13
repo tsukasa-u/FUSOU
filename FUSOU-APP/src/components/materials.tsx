@@ -1,30 +1,14 @@
 import { Slot, component$, useStylesScoped$, useTask$ } from '@builder.io/qwik';
 
-import { Material } from "./interface/port.tsx";
+import { Materials } from "./interface/port.tsx";
 
 import { emit, listen } from '@tauri-apps/api/event'
 
 interface MaterialsProps {
-    materials: Material;
+    materials: Materials;
 }
 
-export const Materials = component$<MaterialsProps>(({ materials }) => {
-
-    useTask$(({ track }) => {
-        let unlisten: any;
-        async function f() {
-          unlisten = await listen<Material>('materials', event => {
-            console.log(`materials ${event.payload} ${new Date()}`)
-            materials.materials = event.payload.materials;
-          });
-        }
-        f();
-        return () => {
-            if (unlisten) {
-                unlisten();
-            }
-        };
-      });
+export const Material = component$<MaterialsProps>(({ materials }) => {
 
     useStylesScoped$(`
         div::before, div::after {
