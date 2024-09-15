@@ -1,13 +1,17 @@
 use warp::filters::path::FullPath;
 use warp::{hyper::Body, Filter, Rejection, http::Response};
 use warp_reverse_proxy::reverse_proxy_filter;
+use std::fs;
 use std::io::Read;
 use std::net::SocketAddr;
+use std::path::Path;
 
 use warp::hyper::body::HttpBody;
-use tower;
+// use tower;
 
 use regex;
+use chrono_tz::Asia::Tokyo;
+use chrono::{DateTime, Utc, TimeZone};
 
 use crate::bidirectional_channel;
 
@@ -122,7 +126,7 @@ async fn decode_response(response_body: Vec<u8>, content_length: i64, mut conten
     return ret_buffer_list;
 }
 
-async fn log_response(mut response: Response<Body>, path: FullPath, tx_proxy_log:bidirectional_channel::Master<bidirectional_channel::StatusInfo>) -> Result<Response<Body>, Rejection> {
+async fn log_response(mut response: Response<Body>, path: FullPath, tx_proxy_log:bidirectional_channel::Master<bidirectional_channel::StatusInfo>, save_path: String) -> Result<Response<Body>, Rejection> {
 
     let mut res = Response::builder()
         .status(response.status());
@@ -174,34 +178,85 @@ async fn log_response(mut response: Response<Body>, path: FullPath, tx_proxy_log
         "text/javascript" => true,
         _ => true
     };
+
+    let save: bool = match content_type.as_str() {
+        "text/plain" => true,
+        "application/json" => true,
+        "image/png" => true,
+        "video/mp4" => true,
+        "audio/mpeg" => true,
+        "text/html" => false,
+        "text/css" => false,
+        "text/javascript" => false,
+        _ => false
+    };
+
+    let utc = Utc::now().naive_utc();
+    let jst = Tokyo.from_utc_datetime(&utc);
     
-    println!("status: {:?}, path:{:?}, content-type:{:?}", response.status(), path, content_type);
-    
-    if !pass {
+    println!("{} status: {:?}, path:{:?}, content-type:{:?}", jst, response.status(), path, content_type);
+
+    if save || !pass {
         let mut body = Vec::new();
 
         while let Some(buffer) = response.body_mut().data().await {
             body.extend_from_slice(&buffer.unwrap());
         }
-        // if let Some(chunk) = response.body_mut().data().await {
-        //     body.extend_from_slice(&chunk.unwrap());
-        // }
-
+        
         let body_cloned = body.clone();
         tokio::spawn(async move {
-            let buffer_list  = decode_response(body_cloned, content_length, content_encoding, transfer_encoding).await;
-            for buffer in buffer_list {
-                if let Ok(buffer_string) = String::from_utf8(buffer) {
-                    let mes = bidirectional_channel::StatusInfo::CONTENT {
-                        path: path.as_str().to_string(),
-                        content_type: content_type.to_string(), 
-                        content: buffer_string,
-                    };
-                    let _ = tx_proxy_log.send(mes).await;
+            let mut cash_decoded_text_plain = Vec::new();
+            if !pass {
+                if content_type.eq("text/plain") {
+                    let buffer_list  = decode_response(body_cloned.clone(), content_length, content_encoding, transfer_encoding).await;
+                    cash_decoded_text_plain = buffer_list.clone();
+                    for buffer in buffer_list {
+                        if let Ok(buffer_string) = String::from_utf8(buffer) {
+                            let mes = bidirectional_channel::StatusInfo::CONTENT {
+                                path: path.as_str().to_string(),
+                                content_type: content_type.to_string(), 
+                                content: buffer_string,
+                            };
+                            let _ = tx_proxy_log.send(mes).await;
+                        } else {
+                            println!("Failed to convert buffer to string");
+                        }
+                        // println!("buffer: {: <10}", String::from_utf8(buffer).unwrap()[0..10].to_string());
+                    }
                 } else {
-                    println!("Failed to convert buffer to string");
+
                 }
-                // println!("buffer: {: <10}", String::from_utf8(buffer).unwrap()[0..10].to_string());
+            }
+            if save {
+                let path_log = Path::new(save_path.as_str());
+
+                if content_type.eq("text/plain") {
+                    let parent = Path::new("kcsapi");
+                    let path_parent = path_log.join(parent);
+                    if !path_parent.exists() {
+                        fs::create_dir_all(path_parent).expect("Failed to create directory");
+                    }
+
+                    let time_stamped = format!("kcsapi/{}{}", jst.timestamp(), path.as_str().replace("/kcsapi", "").replace("/", "@"));
+                    for (idx, buffer) in cash_decoded_text_plain.iter().enumerate() {
+                        let time_stamped_idx = if idx > 0 {
+                            format!("{}-{}", time_stamped, idx)
+                        } else {
+                            time_stamped.clone()
+                        };
+                        fs::write(path_log.join(Path::new(&time_stamped_idx)), buffer).expect("Failed to write file");
+                    }
+                } else {
+                    let path_removed = path.as_str().replacen("/", "", 1);
+                    if let Some(parent) = Path::new(path_removed.as_str()).parent() {
+                        let path_parent = path_log.join(parent);
+                        if !path_parent.exists() {
+                            fs::create_dir_all(path_parent).expect("Failed to create directory");
+                        }
+                    }
+                    
+                    fs::write(path_log.join(Path::new(path_removed.as_str())), body_cloned).expect("Failed to write file");
+                }
             }
         });
 
@@ -209,13 +264,44 @@ async fn log_response(mut response: Response<Body>, path: FullPath, tx_proxy_log
     } else {
         return Ok(response);
     }
+    
+    // if !pass {
+    //     let mut body = Vec::new();
+
+    //     while let Some(buffer) = response.body_mut().data().await {
+    //         body.extend_from_slice(&buffer.unwrap());
+    //     }
+
+    //     let body_cloned = body.clone();
+    //     tokio::spawn(async move {
+    //         let buffer_list  = decode_response(body_cloned, content_length, content_encoding, transfer_encoding).await;
+    //         for buffer in buffer_list {
+    //             if let Ok(buffer_string) = String::from_utf8(buffer) {
+    //                 let mes = bidirectional_channel::StatusInfo::CONTENT {
+    //                     path: path.as_str().to_string(),
+    //                     content_type: content_type.to_string(), 
+    //                     content: buffer_string,
+    //                 };
+    //                 let _ = tx_proxy_log.send(mes).await;
+    //             } else {
+    //                 println!("Failed to convert buffer to string");
+    //             }
+    //             // println!("buffer: {: <10}", String::from_utf8(buffer).unwrap()[0..10].to_string());
+    //         }
+    //     });
+
+    //     return Ok(res.body(body.into()).unwrap());
+    // } else {
+    //     return Ok(response);
+    // }
 }
+
 
 // async fn request_filter() -> Result<Request<Body>, Rejection> {
 // }
 
 // https://github.com/danielSanchezQ/warp-reverse-proxy
-pub fn serve_proxy(proxy_address: String, port: u16, mut slave: bidirectional_channel::Slave<bidirectional_channel::StatusInfo>, tx_proxy_log: bidirectional_channel::Master<bidirectional_channel::StatusInfo>) -> Result<SocketAddr, Box<dyn std::error::Error>> {
+pub fn serve_proxy(proxy_address: String, port: u16, mut slave: bidirectional_channel::Slave<bidirectional_channel::StatusInfo>, tx_proxy_log: bidirectional_channel::Master<bidirectional_channel::StatusInfo>, save_path: String) -> Result<SocketAddr, Box<dyn std::error::Error>> {
 
     let route = warp::any()
     .and(
@@ -223,15 +309,16 @@ pub fn serve_proxy(proxy_address: String, port: u16, mut slave: bidirectional_ch
     )
     .and(warp::path::full())
     .map(move |res, path| {
-        return (res, path, tx_proxy_log.clone());
+        return (res, path, tx_proxy_log.clone(), save_path.clone());
     })
-    .and_then(move |(response, path, tx)| async {
-        log_response(response, path, tx).await
+    .and_then(move |(response, path, tx, save_path)| async {
+        log_response(response, path, tx, save_path).await
     });
 
-    let svc =  tower::ServiceBuilder::new()
-        .timeout(std::time::Duration::from_secs(15))
-        .service(warp::service(route));
+    // let svc =  tower::ServiceBuilder::new()
+    //     .timeout(std::time::Duration::from_secs(15))
+    //     .service(warp::service(route));
+    let svc = warp::service(route);
     
     let make_service =  warp::hyper::service::make_service_fn(move |_| {
         let value = svc.clone();
@@ -241,6 +328,9 @@ pub fn serve_proxy(proxy_address: String, port: u16, mut slave: bidirectional_ch
     });
 
     let server_proxy = warp::hyper::Server::bind(&([127, 0, 0, 1], port).into())
+        .http1_max_buf_size(0x400000)
+        .http1_header_read_timeout(std::time::Duration::from_secs(12*60))
+        // .http1_keepalive(false)
         .serve(make_service);
     let addr = server_proxy.local_addr();
 
