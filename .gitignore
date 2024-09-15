@@ -18,3 +18,5 @@ node_modules/
 FUSOU.code-workspace
 test_data/
 .env
+FUSOU-PROXY-DATA/
+error_logs/
