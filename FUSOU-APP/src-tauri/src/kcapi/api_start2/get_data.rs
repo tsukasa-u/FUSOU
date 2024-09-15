@@ -2,18 +2,14 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 // use serde_json::Value;
 
-use register_trait::register_struct;
-use register_trait::add_field;
+use register_trait::{register_struct, add_field};
 
-use register_trait::TraitForTest;
-use register_trait::Getter;
-use register_trait::TraitForRoot;
-use register_trait::TraitForConvert;
+use register_trait::{TraitForTest, Getter, TraitForRoot, TraitForConvert};
 
-use crate::interface::interface::EmitData;
+use crate::interface::interface::{EmitData, Set};
+use crate::interface::mst_ship::MstShips;
 
-#[derive(Getter, TraitForTest, TraitForRoot, TraitForConvert)]
-#[convert_output(output = EmitData)]
+#[derive(Getter, TraitForTest, TraitForRoot)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[register_struct(name = "api_start2/getData")]
@@ -161,8 +157,7 @@ pub struct ApiMstShip {
     #[serde(rename = "api_voicef")]
     pub api_voicef: Option<i64>,
     #[serde(rename = "api_tais")]
-    #[serde(default)]
-    pub api_tais: Vec<i64>,
+    pub api_tais: Option<Vec<i64>>,
 }
 
 #[derive(Getter, TraitForTest)]
@@ -627,6 +622,15 @@ pub struct ApiMstFurniture {
     pub api_outside_id: i64,
     #[serde(rename = "api_active_flag")]
     pub api_active_flag: i64,
+}
+
+impl TraitForConvert for Root {
+    type Output = EmitData;
+    fn convert(&self) -> Option<Vec<EmitData>> {
+        // need to add other fields
+        let mst_ships: MstShips = self.api_data.api_mst_ship.clone().into();
+        Some(vec![EmitData::Set(Set::MstShips(mst_ships))])
+    }
 }
 
 #[cfg(test)]
