@@ -1,13 +1,22 @@
-import { Slot, component$, useStylesScoped$, useTask$ } from '@builder.io/qwik';
+import { QRL, Slot, component$, useComputed$, useResource$, useStylesScoped$, useTask$, $, JSXOutput, useStyles$ } from '@builder.io/qwik';
 
-import { DeckPort, Ship } from "./interface/port.tsx";
+import { DeckPort, Ships } from "./interface/port.ts";
+import { MstShips } from "./interface/get_data.ts";
+
+import { ColorBar } from './color_bar.tsx';
+
+import { IconCautionFill } from './icons/caution_fill.tsx';
+import { IconKira1 } from './icons/kira1.tsx';
+import { IconKira2 } from './icons/kira2.tsx';
+import { IconKira3 } from './icons/kira3.tsx';
 
 interface DeckPortProps {
     deckPort: DeckPort;
-    ships: { [key: number]: Ship };
+    ships: Ships;
+    mst_ships: MstShips;
 }
  
-export const Deck = component$<DeckPortProps>(({ deckPort, ships }) => {
+export const Deck = component$<DeckPortProps>(({ deckPort, ships, mst_ships }) => {
 
     const fleet_name: {[key:number]:string} = {
         1: "First Fleet",
@@ -21,7 +30,63 @@ export const Deck = component$<DeckPortProps>(({ deckPort, ships }) => {
           width: 1px;
         }
     `);
-    
+
+    const cond_state = useComputed$(() => {
+        const cond_list: JSXOutput[] = [
+            <IconKira3 class="h-4 w-4 fill-yellow-500 stroke-2"></IconKira3>,
+            <IconKira2 class="h-4 w-4 fill-yellow-500 stroke-2"></IconKira2>,
+            <IconKira1 class="h-4 w-4 fill-yellow-500 stroke-2"></IconKira1>,
+            <></>,
+            <IconCautionFill class="h-4 w-4 fill-yellow-500 stroke-2"></IconCautionFill>,
+            <IconCautionFill class="h-4 w-4 fill-yellow-500 stroke-2"></IconCautionFill>,
+            <IconCautionFill class="h-4 w-4 fill-orange-500 stroke-2"></IconCautionFill>,
+            <IconCautionFill class="h-4 w-4 fill-red-500 stroke-2"></IconCautionFill>,
+        ];
+        const set_cond_state = (cond: number): JSXOutput => {
+            let cond_state: JSXOutput = <></>;
+            if (cond >= 71) cond_state = cond_list[0];
+            else if (cond >= 58) cond_state = cond_list[1];
+            else if (cond >= 50) cond_state = cond_list[2];
+            else if (cond == 49) cond_state = cond_list[3];
+            else if (cond >= 40) cond_state = cond_list[4];
+            else if (cond >= 30) cond_state = cond_list[5];
+            else if (cond >= 20) cond_state = cond_list[6];
+            else if (cond >=  0) cond_state = cond_list[7];
+            return cond_state;
+        };
+
+        let states: JSXOutput[] = [];
+        deckPort.ship?.forEach((shipId) => {
+            states.push(set_cond_state(ships.ships[shipId]?.cond ?? 0));
+        });
+        return states;
+    });
+
+    const hp_state = useComputed$(() => {
+        const hp_list: JSXOutput[] = [
+            <></>,
+            <IconCautionFill class="h-4 w-4 fill-yellow-500 stroke-2"></IconCautionFill>,
+            <IconCautionFill class="h-4 w-4 fill-orange-500 stroke-2"></IconCautionFill>,
+            <IconCautionFill class="h-4 w-4 fill-red-500 stroke-2"></IconCautionFill>,
+        ];
+
+        const set_hp_state = (nowhp: number, maxhp: number): JSXOutput => {
+            let hp_state: JSXOutput = <></>;
+            if (nowhp > 0.75*maxhp) hp_state = hp_list[0];
+            else if (nowhp > 0.5*maxhp) hp_state = hp_list[1];
+            else if (nowhp > 0.25*maxhp) hp_state = hp_list[2];
+            else if (nowhp > 0) hp_state = hp_list[3];
+            return hp_state;
+        }
+
+        let states: JSXOutput[] = [];
+        deckPort.ship?.forEach((shipId) => {
+            states.push(set_hp_state(ships.ships[shipId]?.nowhp ?? 0, ships.ships[shipId]?.maxhp ?? 0));
+        });
+
+        return states;
+    });
+
     return (
         <>
             <li>
@@ -38,47 +103,63 @@ export const Deck = component$<DeckPortProps>(({ deckPort, ships }) => {
                         </div>
                     </summary>
                     <ul class="pl-0">
-                        {deckPort.ship?.map((shipId) => (
-                            <li class="h-6">
-                                <a class="justify-start gap-0">
-                                    <Slot name="icon_ship" />
-                                    <div class="pl-2 pr-0.5 truncate flex-1 min-w-12">
-                                        <div class="w-24">
-                                        { shipId != 0 ? ships[shipId].ship_name ?? "Unknown" : "----" }
-                                        </div>
-                                    </div>
-                                    <div class="divider divider-horizontal mr-0 ml-0 flex-none"></div>
-                                    <div class=" flex-none">
-                                        <div class="flex justify-center w-8">
-                                            <div class="badge badge-md bg-yellow-300 rounded-full border-inherit w-9">
-                                                { ships[shipId].cond ?? 0 }
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <div class="divider divider-horizontal mr-0 ml-0 flex-none"></div>
-                                    <div class=" flex-none">
-                                        <div class="grid h-2.5 w-12 place-content-center">
-                                            <div class="grid grid-flow-col auto-cols-max gap-1">
-                                                <div>{ ships[shipId].nowhp ?? 0 }</div>
-                                                <div>/</div>
-                                                <div>{ ships[shipId].maxhp ?? 0 }</div>
-                                            </div>
-                                        </div>
-                                        <div class="grid h-2.5 w-12 place-content-center">
-                                            <progress class="progress progress-success w-12 h-1" value={(ships[shipId].nowhp ?? 0)*100/((ships[shipId].maxhp ?? 0) + 1e-3) } max="100"></progress>
-                                        </div>
-                                    </div>
-                                    <div class="divider divider-horizontal mr-0 ml-0 flex-none"></div>
-                                    <div class=" flex-none">
-                                        <div class="grid h-2.5 w-6 place-content-center">
-                                            <progress class="progress progress-success w-6 h-1" value={(ships[shipId].fuel ?? 0)*100/((ships[shipId].max_fuel ?? 0) + 1e-3)} max="100"></progress>
-                                        </div>
-                                        <div class="grid h-2.5 w-6 place-content-center">
-                                            <progress class="progress progress-success w-6 h-1" value={(ships[shipId].bull ?? 0)*100/((ships[shipId].max_bull ?? 0) + 1e-3)} max="100"></progress>
-                                        </div>
-                                    </div>
-                                </a>
-                            </li>
+                        {deckPort.ship?.map((shipId, idx) => (
+                            <>
+                                { shipId > 0 
+                                    ? <>
+                                        <li class="h-6">
+                                            <a class="justify-start gap-0">
+                                                <Slot name="icon_ship" />
+                                                <div class="pl-2 pr-0.5 truncate flex-1 min-w-12">
+                                                    <div class="w-24">
+                                                        { mst_ships.mst_ships[ships.ships[shipId].ship_id]?.name ?? "Unknown" }
+                                                    </div>
+                                                </div>
+                                                <div class="divider divider-horizontal mr-0 ml-0 flex-none"></div>
+                                                <div class=" flex-none">
+                                                    <div class="flex justify-center w-8 indicator">
+                                                        <div class="indicator-item indicator-top indicator-end">
+                                                            { cond_state.value[idx] }
+                                                        </div>
+                                                        <div class="badge badge-md border-inherit w-9">
+                                                            { ships.ships[shipId]?.cond ?? 0 }
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div class="divider divider-horizontal mr-0 ml-0 flex-none"></div>
+                                                <div class="indicator">
+                                                    <div class="indicator-item indicator-top indicator-end flax space-x-2">
+                                                        <div></div>
+                                                        { hp_state.value[idx] }
+                                                    </div>
+                                                    <div class=" flex-none">
+                                                        <div class="grid h-2.5 w-12 place-content-center">
+                                                            <div class="grid grid-flow-col auto-cols-max gap-1">
+                                                                <div>{ ships.ships[shipId]?.nowhp ?? 0 }</div>
+                                                                <div>/</div>
+                                                                <div>{ ships.ships[shipId]?.maxhp ?? 0 }</div>
+                                                            </div>
+                                                        </div>
+                                                        <div class="grid h-2.5 w-12 place-content-center">
+                                                            <ColorBar class="w-12 h-1" v_now={ships.ships[shipId]?.nowhp ?? 0} v_max={ships.ships[shipId]?.maxhp ?? 0} />
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div class="divider divider-horizontal mr-0 ml-0 flex-none"></div>
+                                                <div class=" flex-none">
+                                                    <div class="grid h-2.5 w-6 place-content-center">
+                                                        <ColorBar class="w-6 h-1" v_now={ships.ships[shipId]?.fuel ?? 0} v_max={mst_ships.mst_ships[ships.ships[shipId].ship_id]?.fuel_max ?? 0} />
+                                                    </div>
+                                                    <div class="grid h-2.5 w-6 place-content-center">
+                                                        <ColorBar class="w-6 h-1" v_now={ships.ships[shipId]?.bull ?? 0} v_max={mst_ships.mst_ships[ships.ships[shipId].ship_id]?.bull_max ?? 0} />
+                                                    </div>
+                                                </div>
+                                            </a>
+                                        </li>
+                                    </> 
+                                    : <></> 
+                                }
+                            </>
                         ))}
                     </ul>
                 </details>
