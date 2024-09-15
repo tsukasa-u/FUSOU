@@ -2,7 +2,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 // #![recursion_limit = "256"]
 
-use tauri::utils::config::Size;
 use tauri::{Manager, AppHandle, CustomMenuItem, SystemTray, SystemTrayEvent, SystemTrayMenu};
 use tokio::sync::mpsc;
 use webbrowser::{open_browser, Browser};
@@ -163,7 +162,8 @@ async fn main() -> ExitCode {
       // let _window = app.get_window("main").unwrap().close().unwrap();
 
       // start proxy server
-      let proxy_addr = proxy::proxy_server::serve_proxy(proxy_target.to_string(), 0, proxy_bidirectional_channel_slave, proxy_log_bidirectional_channel_master);
+      let save_path = "./../../FUSOU-PROXY-DATA".to_string();
+      let proxy_addr = proxy::proxy_server::serve_proxy(proxy_target.to_string(), 0, proxy_bidirectional_channel_slave, proxy_log_bidirectional_channel_master, save_path);
 
       if proxy_addr.is_err() {
         return Err("Failed to start proxy server".into());
@@ -183,7 +183,7 @@ async fn main() -> ExitCode {
       json_parser::serve_reponse_parser(&app.handle(), response_parse_channel_slave, proxy_log_bidirectional_channel_slave);
 
       discord::connect();
-      discord::set_activity("experimental implementation", "playing with FUSOU");
+      discord::set_activity("experimental implementation", "playing KanColle with FUSOU");
 
       let proxy_bidirectional_channel_master_clone = proxy_bidirectional_channel_master.clone();
       let pac_bidirectional_channel_master_clone = pac_bidirectional_channel_master.clone();
@@ -227,18 +227,14 @@ async fn main() -> ExitCode {
             }
           }
           
-          let mut external_w = 0_u32;
-          let mut external_h = 0_u32;
           if size.width != external_window_size_before.lock().unwrap().width {
-            external_w = size.width;
-            external_h = size.width*712/1192;
+            external_window_size_before.lock().unwrap().width = size.width;
+            external_window_size_before.lock().unwrap().height = size.width*712/1192;
           } else {
-            external_w = size.height*1192/712;
-            external_h = size.height;
+            external_window_size_before.lock().unwrap().width = size.height*1192/712;
+            external_window_size_before.lock().unwrap().height = size.height;
           }
 
-          external_window_size_before.lock().unwrap().height = external_h;
-          external_window_size_before.lock().unwrap().width = external_w;
           let _ = event.window().set_size(external_window_size_before.lock().unwrap().clone());
         }
       },
