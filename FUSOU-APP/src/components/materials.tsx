@@ -2,8 +2,6 @@ import { Slot, component$, useStylesScoped$, useTask$ } from '@builder.io/qwik';
 
 import { Materials } from "./interface/port.tsx";
 
-import { emit, listen } from '@tauri-apps/api/event'
-
 interface MaterialsProps {
     materials: Materials;
 }
@@ -38,11 +36,12 @@ export const Material = component$<MaterialsProps>(({ materials }) => {
                     <ul class="pl-0">
                         <li class="h-6">
                             <a class="justify-start gap-0">
-                                {materials.materials?.slice(0, 4).map((material, index) => (
+                                {Object.values(materials.materials).slice(0, 4).map((material, index) => (
                                     <>
                                         <Slot name={icon_material_name[index]} />
                                         <div class="w-10 flex justify-end">
                                             {material}
+                                            {/* {materials.materials[index]} */}
                                         </div>
                                         <div class="divider divider-horizontal mr-0 ml-0"></div>
                                     </>
@@ -51,7 +50,7 @@ export const Material = component$<MaterialsProps>(({ materials }) => {
                         </li>
                         <li class="h-6">
                             <a class="justify-start gap-0">
-                                {materials.materials?.slice(4, 8).map((material, index) => (
+                                {Object.values(materials.materials).slice(4, 8).map((material, index) => (
                                     <>
                                         <Slot name={icon_material_name[index + 4]} />
                                         <div class="w-10 flex justify-end">
