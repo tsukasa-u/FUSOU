@@ -1,33 +1,69 @@
 use std::error::Error;
 use proxy::bidirectional_channel;
 use register_trait::TraitForConvert;
-use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, sync::mpsc};
-use serde_json::Value;
 
 use register_trait::expand_struct_selector;
-use register_trait::TraitForRoot;
 
 // use crate::kcapi;
-use crate::interface::interface::EmitData;
+use crate::interface::interface::{EmitData, Add, Set};
 
-fn emit_data<R: tauri::Runtime>(handle: &impl tauri::Manager<R>, data: EmitData) {
-    match data {
-        EmitData::DeckPorts(data) => {
-            println!("DeckPorts: {:?}", data);
+fn emit_data<R: tauri::Runtime>(handle: &impl tauri::Manager<R>, emit_data: EmitData) {
+    match emit_data {
+        EmitData::Add(data) => {
+            match data {
+                Add::DeckPorts(data) => {
+                    // println!("DeckPorts: {:?}", data);
+                    let _ = handle.emit_to("main", "add-kcs-deck-ports", data);
+                },
+                Add::Materials(data) => {
+                    // println!("Materials: {:?}", data.clone());
+                    let _ = handle.emit_to("main", "add-kcs-materials", data);
+                },
+                Add::Ships(data) => {
+                    // println!("Ships: {:?}", data);
+                    let _ = handle.emit_to("main", "add-kcs-ships", data);
+                },
+                Add::NDocks(data) => {
+                    // println!("NDocks: {:?}", data);
+                    let _ = handle.emit_to("main", "add-kcs-n-docks", data);
+                },
+                Add::Logs(data) => {
+                    // println!("Logs: {:?}", data);
+                    let _ = handle.emit_to("main", "add-kcs-logs", data);
+                },
+                Add::MstShips(data) => {
+                    // println!("MstShips: {:?}", data);
+                    let _ = handle.emit_to("main", "add-kcs-mst-ships", data);
+                },
+            }
         },
-        EmitData::Materials(data) => {
-            println!("Materials: {:?}", data.clone());
-            let _ = handle.emit_to("main", "materials", data);
-        },
-        EmitData::Ships(data) => {
-            println!("Ships: {:?}", data);
-        },
-        EmitData::NDocks(data) => {
-            println!("NDocks: {:?}", data);
-        },
-        EmitData::Logs(data) => {
-            println!("Logs: {:?}", data);
+        EmitData::Set(data) => {
+            match data {
+                Set::DeckPorts(data) => {
+                    // println!("DeckPorts: {:?}", data);
+                    let _ = handle.emit_to("main", "set-kcs-deck-ports", data);
+                },
+                Set::Materials(data) => {
+                    // println!("Materials: {:?}", data.clone());
+                    let _ = handle.emit_to("main", "set-kcs-materials", data);
+                },
+                Set::Ships(data) => {
+                    // println!("Ships: {:?}", data);
+                    let _ = handle.emit_to("main", "set-kcs-ships", data);
+                },
+                Set::NDocks(data) => {
+                    // println!("NDocks: {:?}", data);
+                    let _ = handle.emit_to("main", "set-kcs-n-docks", data);
+                },
+                Set::Logs(data) => {
+                    // println!("Logs: {:?}", data);
+                    let _ = handle.emit_to("main", "set-kcs-logs", data);
+                },
+                Set::MstShips(data) => {
+                    // println!("MstShips: {:?}", data);
+                    let _ = handle.emit_to("main", "set-kcs-mst-ships", data);
+                },
+            }
         },
     }
 }
