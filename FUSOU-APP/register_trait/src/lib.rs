@@ -50,7 +50,10 @@ pub trait  TraitForEmitData {}
 
 pub trait TraitForConvert {
     type Output;
-    fn convert(&self) -> Option<Vec<Self::Output>> { println!("not implemented"); return None; }
+    fn convert(&self) -> Option<Vec<Self::Output>> {
+        // println!("not implemented");
+        return None;
+    }
 }
 
 // pub trait DummyTraitForTest {
