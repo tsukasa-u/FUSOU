@@ -50,37 +50,18 @@ export const App = component$(() => {
       unlisten_kcs_materials = await listen<Materials>('set-kcs-materials', event => {
         // materials.materials = { ...materials.materials, ...event.payload.materials };
         materials.materials = event.payload.materials;
-        // console.log("materials:", materials);
       });
       unlisten_kcs_deck = await listen<DeckPorts>('set-kcs-deck-ports', event => {
         // deck.deck_ports = { ...deck.deck_ports, ...event.payload.deck_ports };
-        // Object.values(event.payload.deck_ports).forEach((deck_port) => {
-          // deck.deck_ports[deck_port.id] = deck_port;
-          // deck.deck_ports[deck_port.id].id = deck_port.id;
-          // deck.deck_ports[deck_port.id].mission = deck_port.mission;
-          // deck.deck_ports[deck_port.id].ship = deck_port.ship;
-        // });
         deck.deck_ports = event.payload.deck_ports;
-        // console.log("deck:", deck);
       });
       unlisten_kcs_ships = await listen<Ships>('set-kcs-ships', event => {
         // ships.ships = { ...ships.ships, ...event.payload.ships };
         ships.ships = event.payload.ships;
-        // Object.values(event.payload.ships).forEach((ship) => {
-        //   Object.entries(ship).forEach(([key, value]) => {
-        //     ships.ships[ship.id][key] = value;
-        //   });
-          
-          // ships.ships[ship.id] = ship;
-        // });
-        // console.log("ships:", ships);
-        // console.log("ships:", ships.ships);
       });
       unlisten_kcs_mst_ships = await listen<MstShips>('set-kcs-mst-ships', event => {
         // mst_ships.mst_ships = { ...mst_ships.mst_ships, ...event.payload.mst_ships };
         mst_ships.mst_ships = event.payload.mst_ships;
-        // console.log("mst_ships", mst_ships);
-        // console.log("mst_ships", mst_ships.mst_ships);
       });
 
     })();
