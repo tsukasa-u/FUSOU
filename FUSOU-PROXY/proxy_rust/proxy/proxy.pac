@@ -31,11 +31,11 @@ function FindProxyForURL(url, host) {
         if (isInNet(ip_addr, "10.0.0.0"   , "255.0.0.0"      ) ||
             isInNet(ip_addr, "172.16.0.0" , "255.240.0.0"    ) ||
             isInNet(ip_addr, "192.168.0.0", "255.255.0.0"    ) ||
-            isInNet(ip_addr, "127.0.1.1"  , "255.255.255.255")) {
+            isInNet(ip_addr, "127.0.0.1"  , "255.255.255.255")) {
 
             // 80
             if (shExpMatch(url, "http:*")) {
-                return "PROXY 127.0.0.1:65256"; // [REPLACE ADDR WORLD:80]
+                return "PROXY 127.0.0.1:60767"; // [REPLACE ADDR WORLD:80]
             }
 
             // 443
