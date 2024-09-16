@@ -1,10 +1,16 @@
+use reqwest::redirect::Policy;
 use warp::filters::path::FullPath;
+use warp::reply::Reply;
 use warp::{hyper::Body, Filter, Rejection, http::Response};
 use warp_reverse_proxy::reverse_proxy_filter;
+use warp_reverse_proxy::CLIENT;
+use std::convert::Infallible;
 use std::fs;
 use std::io::Read;
 use std::net::SocketAddr;
+use std::os::windows::fs::MetadataExt;
 use std::path::Path;
+use std::sync::LazyLock;
 
 use warp::hyper::body::HttpBody;
 // use tower;
@@ -12,6 +18,8 @@ use warp::hyper::body::HttpBody;
 use regex;
 use chrono_tz::Asia::Tokyo;
 use chrono::{DateTime, Utc, TimeZone};
+use tokio::sync::Mutex;
+// use std::sync::Mutex;
 
 use crate::bidirectional_channel;
 
@@ -126,7 +134,8 @@ async fn decode_response(response_body: Vec<u8>, content_length: i64, mut conten
     return ret_buffer_list;
 }
 
-async fn log_response(mut response: Response<Body>, path: FullPath, tx_proxy_log:bidirectional_channel::Master<bidirectional_channel::StatusInfo>, save_path: String) -> Result<Response<Body>, Rejection> {
+async fn log_response(mut response: Response<Body>, path: FullPath, tx_proxy_log:bidirectional_channel::Master<bidirectional_channel::StatusInfo>, save_path: String) -> Result<impl Reply, Rejection> {
+// async fn log_response(mut response: Response<Body>, path: FullPath, tx_proxy_log:bidirectional_channel::Master<bidirectional_channel::StatusInfo>, save_path: String) -> Result<Response<Body>, Rejection> {
 
     let mut res = Response::builder()
         .status(response.status());
@@ -188,13 +197,15 @@ async fn log_response(mut response: Response<Body>, path: FullPath, tx_proxy_log
         "text/html" => false,
         "text/css" => false,
         "text/javascript" => false,
-        _ => false
+        _ => true
     };
 
     let utc = Utc::now().naive_utc();
     let jst = Tokyo.from_utc_datetime(&utc);
     
-    println!("{} status: {:?}, path:{:?}, content-type:{:?}", jst, response.status(), path, content_type);
+    // println!("{} status: {:?}, path:{:?}, content-type:{:?} headers:{:?}", jst, response.status(), path, content_type, response.headers());
+    println!("{} status: {:?}, path:{:?}, content-type:{:?}", format!("{}", jst.format("%Y-%m-%d %H:%M:%S.%3f %Z")), response.status(), path, content_type);
+    // let path_cloned = path.as_str().to_string();
 
     if save || !pass {
         let mut body = Vec::new();
@@ -211,7 +222,7 @@ async fn log_response(mut response: Response<Body>, path: FullPath, tx_proxy_log
                     let buffer_list  = decode_response(body_cloned.clone(), content_length, content_encoding, transfer_encoding).await;
                     cash_decoded_text_plain = buffer_list.clone();
                     for buffer in buffer_list {
-                        if let Ok(buffer_string) = String::from_utf8(buffer) {
+                        if let Ok(buffer_string) = String::from_utf8(buffer.clone()) {
                             let mes = bidirectional_channel::StatusInfo::CONTENT {
                                 path: path.as_str().to_string(),
                                 content_type: content_type.to_string(), 
@@ -255,9 +266,20 @@ async fn log_response(mut response: Response<Body>, path: FullPath, tx_proxy_log
                         }
                     }
                     
-                    fs::write(path_log.join(Path::new(path_removed.as_str())), body_cloned).expect("Failed to write file");
+                    let file_log_path = path_log.join(Path::new(path_removed.as_str()));
+
+                    if !file_log_path.exists() {
+                        fs::write(file_log_path, body_cloned.clone()).expect("Failed to write file");
+                    } else {
+                        let file_log_metadata = fs::metadata(file_log_path.clone()).expect("Failed to get metadata");
+                        if file_log_metadata.file_size() == 0 {
+                            fs::write(file_log_path, body_cloned.clone()).expect("Failed to write file");
+                        }
+                    }
                 }
             }
+
+            // println!(" header check({:?}): {:?}", path_cloned,  response.headers());
         });
 
         return Ok(res.body(body.into()).unwrap());
@@ -296,23 +318,66 @@ async fn log_response(mut response: Response<Body>, path: FullPath, tx_proxy_log
     // }
 }
 
+static RES_LOCK: LazyLock<Mutex<(u64, u64)>> = LazyLock::new(|| {
+    Mutex::new((1, 1))
+});
 
-// async fn request_filter() -> Result<Request<Body>, Rejection> {
-// }
+async fn request_lock() -> impl Filter<Extract = (), Error = Infallible> + Clone  {
+
+    let lock_num = {
+        let mut lock = RES_LOCK.lock().await;
+        (*lock).1 += 1;
+        (*lock).1 - 1
+    };
+
+    loop {
+        tokio::select! {
+            lock = RES_LOCK.lock() => {
+                if (*lock).0 == lock_num {
+                    break;
+                }
+            }
+            else => {}
+        }
+    }
+
+    warp::any()
+}
+
+async fn response_unlock(res: impl Reply) -> Result<impl Reply, Rejection> {
+    let mut lock = RES_LOCK.lock().await;
+    (*lock).0 += 1;
+
+    Ok(res)
+}
 
 // https://github.com/danielSanchezQ/warp-reverse-proxy
 pub fn serve_proxy(proxy_address: String, port: u16, mut slave: bidirectional_channel::Slave<bidirectional_channel::StatusInfo>, tx_proxy_log: bidirectional_channel::Master<bidirectional_channel::StatusInfo>, save_path: String) -> Result<SocketAddr, Box<dyn std::error::Error>> {
 
+    let reqwest_client : reqwest::Client = reqwest::Client::builder()
+        .pool_idle_timeout(std::time::Duration::from_millis(0))
+        .pool_max_idle_per_host(0)
+        .redirect(Policy::none())
+        .build()
+        .expect("failed to create reqwest client");
+    CLIENT.set(reqwest_client).expect("client is set");
+
     let route = warp::any()
-    .and(
-        reverse_proxy_filter("".to_string(), proxy_address)
-    )
+    // Is it needed for prevent incompleteMessage Error?
+    .then(move | | async {
+        request_lock().await
+    })
+    .and(reverse_proxy_filter("".to_string(), proxy_address))
     .and(warp::path::full())
-    .map(move |res, path| {
+    .map(move |_, res, path| {
         return (res, path, tx_proxy_log.clone(), save_path.clone());
     })
     .and_then(move |(response, path, tx, save_path)| async {
         log_response(response, path, tx, save_path).await
+    })
+    // Is it needed for prevent incompleteMessage Error?
+    .and_then(move |res| async {
+        response_unlock(res).await
     });
 
     // let svc =  tower::ServiceBuilder::new()
@@ -329,7 +394,8 @@ pub fn serve_proxy(proxy_address: String, port: u16, mut slave: bidirectional_ch
 
     let server_proxy = warp::hyper::Server::bind(&([127, 0, 0, 1], port).into())
         .http1_max_buf_size(0x400000)
-        .http1_header_read_timeout(std::time::Duration::from_secs(12*60))
+        // .http1_header_read_timeout(std::time::Duration::from_secs(12*60))
+        // .http1_header_read_timeout(std::time::Duration::from_millis(0))
         // .http1_keepalive(false)
         .serve(make_service);
     let addr = server_proxy.local_addr();
