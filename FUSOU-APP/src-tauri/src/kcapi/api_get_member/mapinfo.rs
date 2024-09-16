@@ -77,9 +77,9 @@ pub struct ApiMapInfo {
 #[serde(rename_all = "camelCase")]
 pub struct ApiEventmap {
     #[serde(rename = "api_now_maphp")]
-    pub api_now_maphp: i64,
+    pub api_now_maphp: Option<i64>,
     #[serde(rename = "api_max_maphp")]
-    pub api_max_maphp: i64,
+    pub api_max_maphp: Option<i64>,
     #[serde(rename = "api_state")]
     pub api_state: i64,
     #[serde(rename = "api_selected_rank")]
