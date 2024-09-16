@@ -143,6 +143,7 @@ async fn response_parser<R: tauri::Runtime>(handle: &impl tauri::Manager<R>, mut
             },
         }
     }
+    println!("Shutting Response parser");
 }
 
 pub fn serve_reponse_parser<R: tauri::Runtime>(handle: &impl tauri::Manager<R>, slave: bidirectional_channel::Slave<bidirectional_channel::StatusInfo>, proxy_log_slave: bidirectional_channel::Slave<bidirectional_channel::StatusInfo>) {
