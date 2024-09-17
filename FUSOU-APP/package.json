@@ -13,7 +13,7 @@
     "@tauri-apps/cli": "^1.6.2",
     "daisyui": "^4.12.10",
     "serve": "^14.2.3",
-    "tailwindcss": "^3.4.11",
+    "tailwindcss": "^3.4.12",
     "typescript": "^5.6.2",
     "vite": "^5.4.6"
   },
@@ -21,6 +21,9 @@
     "@builder.io/qwik": "1.7.0",
     "@qwikest/icons": "^0.0.13",
     "@tauri-apps/api": "^1.6.0",
-    "autoprefixer": "^10.4.20"
+    "autoprefixer": "^10.4.20",
+    "d3": "^7.9.0",
+    "qwik-d3": "^0.0.24",
+    "qwik-image": "^0.0.13"
   }
 }
