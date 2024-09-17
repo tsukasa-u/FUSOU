@@ -1,4 +1,12 @@
 use std::collections::HashMap;
+use std::sync::{LazyLock, Mutex};
+
+// Is it better to use onecell::sync::Lazy or std::sync::Lazy?
+pub(crate) static KCS_MST_SHIPS: LazyLock<Mutex<MstShips>> = LazyLock::new(|| {
+    Mutex::new(MstShips {
+        mst_ships: HashMap::new()
+    })
+});
 
 use crate::kcapi;
 
@@ -39,6 +47,18 @@ pub struct MstShip {
     pub bull_max: Option<i64>,
     pub voicef: Option<i64>,
     pub tais: Option<Vec<i64>>
+}
+
+impl MstShips {
+    pub fn load() -> Self {
+        let ship_map = KCS_MST_SHIPS.lock().unwrap();
+        ship_map.clone()
+    }
+
+    pub fn restore(&self) {
+        let mut ship_map = KCS_MST_SHIPS.lock().unwrap();
+        *ship_map = self.clone();
+    }
 }
 
 impl From<Vec<kcapi::api_start2::get_data::ApiMstShip>> for MstShips {
@@ -89,3 +109,4 @@ impl From<kcapi::api_start2::get_data::ApiMstShip> for MstShip {
         }
     }
 }
+

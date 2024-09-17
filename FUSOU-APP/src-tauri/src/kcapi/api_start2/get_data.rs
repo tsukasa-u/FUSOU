@@ -629,6 +629,8 @@ impl TraitForConvert for Root {
     fn convert(&self) -> Option<Vec<EmitData>> {
         // need to add other fields
         let mst_ships: MstShips = self.api_data.api_mst_ship.clone().into();
+        mst_ships.restore();
+
         Some(vec![EmitData::Set(Set::MstShips(mst_ships))])
     }
 }
