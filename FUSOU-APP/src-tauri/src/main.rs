@@ -18,6 +18,7 @@ mod json_parser;
 mod interface;
 
 mod discord;
+mod tauri_cmd;
 
 use proxy::bidirectional_channel::{BidirectionalChannel, StatusInfo};
 
@@ -37,21 +38,6 @@ impl BrowserState {
     pub fn get_browser(&self) -> Browser {
         self.0.clone()
     }
-}
-
-#[tauri::command]
-async fn show_splashscreen(window: tauri::Window) {
-  // Show splashscreen
-  window.get_window("splashscreen").expect("no window labeled 'splashscreen' found").show().unwrap();
-}
-
-#[tauri::command]
-async fn close_splashscreen(window: tauri::Window) {
-  // Close splashscreen
-  window.get_window("splashscreen").expect("no window labeled 'splashscreen' found").close().unwrap();
-  // Show main window
-  window.get_window("main").expect("no window labeled 'main' found").show().unwrap();
-  window.get_window("external").expect("no window labeled 'external' found").show().unwrap();
 }
 
 fn create_external_window(app: &tauri::App) {
@@ -105,7 +91,7 @@ async fn main() -> ExitCode {
   let pac_server_shutdown: CustomMenuItem = CustomMenuItem::new("pac-serve-shutdown".to_string(), "Shutdown PAC Server".to_string());
   let delete_registry: CustomMenuItem = CustomMenuItem::new("delete-registry".to_string(), "Delete Registry".to_string());
 
-  let restart_proxy: CustomMenuItem = CustomMenuItem::new("restart-proxy".to_string(), "Restart Proxy Server".to_string());
+  // let restart_proxy: CustomMenuItem = CustomMenuItem::new("restart-proxy".to_string(), "Restart Proxy Server".to_string());
 
   let quit: CustomMenuItem = CustomMenuItem::new("quit".to_string(), "Quit".to_string()).accelerator("CmdOrCtrl+Q".to_string());
   let pause: CustomMenuItem = CustomMenuItem::new("pause".to_string(), "Pause".to_string()).selected();
@@ -154,7 +140,7 @@ async fn main() -> ExitCode {
   });
   
   tauri::Builder::default()
-    .invoke_handler(tauri::generate_handler![close_splashscreen, show_splashscreen])
+    .invoke_handler(tauri::generate_handler![tauri_cmd::close_splashscreen, tauri_cmd::show_splashscreen, tauri_cmd::get_mst_ships])
     .plugin(tauri_plugin_window_state::Builder::default().build())
     .setup(move |app| {
       
