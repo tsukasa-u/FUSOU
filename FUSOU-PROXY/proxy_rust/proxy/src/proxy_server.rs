@@ -13,7 +13,6 @@ use std::path::Path;
 use std::sync::LazyLock;
 
 use warp::hyper::body::HttpBody;
-// use tower;
 
 use regex;
 use chrono_tz::Asia::Tokyo;
@@ -392,9 +391,6 @@ pub fn serve_proxy(proxy_address: String, port: u16, mut slave: bidirectional_ch
     // })
     ;
 
-    // // let svc =  tower::ServiceBuilder::new()
-    // //     .timeout(std::time::Duration::from_secs(15))
-    // //     .service(warp::service(route));
     // let svc = warp::service(route);
     
     // let make_service =  warp::hyper::service::make_service_fn(move |_| {
