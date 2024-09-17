@@ -1,4 +1,4 @@
-import { Slot, component$, useComputed$, useStylesScoped$, useTask$ } from '@builder.io/qwik';
+import { Slot, component$, useStylesScoped$ } from '@builder.io/qwik';
 
 import { Deck } from './deck';
 import { DeckPorts, Ships } from './interface/port';

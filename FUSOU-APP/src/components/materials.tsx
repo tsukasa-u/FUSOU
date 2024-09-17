@@ -1,4 +1,4 @@
-import { Slot, component$, useStylesScoped$, useTask$ } from '@builder.io/qwik';
+import { Slot, component$, useStylesScoped$ } from '@builder.io/qwik';
 
 import { Materials } from "./interface/port.tsx";
 

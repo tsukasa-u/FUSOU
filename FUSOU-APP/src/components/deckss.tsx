@@ -1,6 +1,5 @@
-import { JSXOutput, Slot, component$, useComputed$, useStylesScoped$, useTask$ } from '@builder.io/qwik';
+import { JSXOutput, Slot, component$, useComputed$, useStylesScoped$ } from '@builder.io/qwik';
 
-import { Deck } from './deck';
 import { DeckPorts, Ships } from './interface/port';
 import { MstShips } from './interface/get_data';
 import IconCautionFill from './icons/caution_fill';
@@ -56,7 +55,7 @@ export const Deckss = component$<DecksProps>(({ decks, ships, mst_ships }) => {
         };
 
         let states: {[key:number]: JSXOutput} = {};
-        Object.entries(decks.deck_ports).forEach(([key, deck]) => {
+        Object.entries(decks.deck_ports).forEach(([_, deck]) => {
             deck.ship?.forEach((shipId) => {
                 states[shipId] = set_cond_state(ships.ships[shipId]?.cond ?? 0);
             });
@@ -83,7 +82,7 @@ export const Deckss = component$<DecksProps>(({ decks, ships, mst_ships }) => {
         }
 
         let states: {[key:number]: JSXOutput} = {};
-        Object.entries(decks.deck_ports).forEach(([key, deck]) => {
+        Object.entries(decks.deck_ports).forEach(([_, deck]) => {
             deck.ship?.forEach((shipId) => {
                 states[shipId] = set_hp_state(ships.ships[shipId]?.nowhp ?? 0, ships.ships[shipId]?.maxhp ?? 0);
             });
@@ -101,7 +100,7 @@ export const Deckss = component$<DecksProps>(({ decks, ships, mst_ships }) => {
                         Fleets
                     </summary>
                     <ul class="pl-0">
-                        { Object.entries(decks.deck_ports).map(([key, deck]) => (
+                        { Object.entries(decks.deck_ports).map(([_, deck]) => (
                             <li>
                                 <details open>
                                     <summary>

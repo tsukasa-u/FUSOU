@@ -23,7 +23,6 @@ import { invoke } from '@tauri-apps/api/tauri'
 // import 'tachyons';
 import './app.css';
 import { listen, UnlistenFn } from '@tauri-apps/api/event';
-import { Deckss } from './components/deckss.tsx';
 
 export const App = component$(() => {
   useStyles$(globalStyles);
@@ -32,15 +31,13 @@ export const App = component$(() => {
     invoke('close_splashscreen')
   });
 
-  let data = {}
-
-  let nDock = useStore(global_nDock);
+  // let nDock = useStore(global_nDock);
   let deck = useStore(global_deck_port);
   let ships = useStore(global_ship);
   let materials = useStore(global_materials);
   let mst_ships = useStore(global_mst_ships);
 
-  useTask$(({ track, cleanup }) => {
+  useTask$(({ cleanup }) => {
     let unlisten_kcs_materials: UnlistenFn;
     let unlisten_kcs_deck: UnlistenFn;
     let unlisten_kcs_ships: UnlistenFn;

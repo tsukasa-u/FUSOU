@@ -1,4 +1,4 @@
-import { QRL, Slot, component$, useComputed$, useResource$, useStylesScoped$, useTask$, $, JSXOutput, useStyles$ } from '@builder.io/qwik';
+import { Slot, component$, useComputed$, useStylesScoped$, JSXOutput } from '@builder.io/qwik';
 
 import { DeckPort, Ships } from "./interface/port.ts";
 import { MstShips } from "./interface/get_data.ts";
