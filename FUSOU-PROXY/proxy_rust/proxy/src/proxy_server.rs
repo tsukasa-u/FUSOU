@@ -2,8 +2,8 @@ use reqwest::redirect::Policy;
 use warp::filters::path::FullPath;
 use warp::reply::Reply;
 use warp::{hyper::Body, Filter, Rejection, http::Response};
-use warp_reverse_proxy::reverse_proxy_filter;
-use warp_reverse_proxy::CLIENT;
+use warp_reverse_proxy::{reverse_proxy_filter, CLIENT};
+use warp_reverse_proxy::{extract_request_data_filter, proxy_to_and_forward_response};
 use std::convert::Infallible;
 use std::fs;
 use std::io::Read;
@@ -17,7 +17,7 @@ use warp::hyper::body::HttpBody;
 
 use regex;
 use chrono_tz::Asia::Tokyo;
-use chrono::{DateTime, Utc, TimeZone};
+use chrono::{Utc, TimeZone};
 use tokio::sync::Mutex;
 // use std::sync::Mutex;
 
@@ -362,82 +362,58 @@ pub fn serve_proxy(proxy_address: String, port: u16, mut slave: bidirectional_ch
         .expect("failed to create reqwest client");
     CLIENT.set(reqwest_client).expect("client is set");
 
+    // https://docs.rs/rcgen/0.13.1/rcgen/
+        
+    let request_filter = extract_request_data_filter();
+    let bath_path = warp::any().map(move || "".to_string());
+    let address_proxy_target = warp::any().map(move || proxy_address.clone());
+
     let route = warp::any()
     // Is it needed for prevent incompleteMessage Error?
-    .then(move | | async {
-        request_lock().await
-    })
-    .and(reverse_proxy_filter("".to_string(), proxy_address))
+    // .then(move | | async {
+    //     request_lock().await
+    // })
+    .and(address_proxy_target)
+    .and(bath_path)
+    .and(request_filter)
+    .and_then(proxy_to_and_forward_response)
+    // .and(reverse_proxy_filter("".to_string(), proxy_address))
     .and(warp::path::full())
-    .map(move |_, res, path| {
+    // .map(move |_, res, path| {
+    .map(move |res, path| {
         return (res, path, tx_proxy_log.clone(), save_path.clone());
     })
     .and_then(move |(response, path, tx, save_path)| async {
         log_response(response, path, tx, save_path).await
     })
     // Is it needed for prevent incompleteMessage Error?
-    .and_then(move |res| async {
-        response_unlock(res).await
-    });
+    // .and_then(move |res| async {
+    //     response_unlock(res).await
+    // })
+    ;
 
-    // let svc =  tower::ServiceBuilder::new()
-    //     .timeout(std::time::Duration::from_secs(15))
-    //     .service(warp::service(route));
-    let svc = warp::service(route);
+    // // let svc =  tower::ServiceBuilder::new()
+    // //     .timeout(std::time::Duration::from_secs(15))
+    // //     .service(warp::service(route));
+    // let svc = warp::service(route);
     
-    let make_service =  warp::hyper::service::make_service_fn(move |_| {
-        let value = svc.clone();
-        async move {
-            Ok::<_, std::convert::Infallible>(value)
-        }
-    });
+    // let make_service =  warp::hyper::service::make_service_fn(move |_| {
+    //     let value = svc.clone();
+    //     async move {
+    //         Ok::<_, std::convert::Infallible>(value)
+    //     }
+    // });
 
-    let server_proxy = warp::hyper::Server::bind(&([127, 0, 0, 1], port).into())
-        .http1_max_buf_size(0x400000)
-        // .http1_header_read_timeout(std::time::Duration::from_secs(12*60))
-        // .http1_header_read_timeout(std::time::Duration::from_millis(0))
-        // .http1_keepalive(false)
-        .serve(make_service);
-    let addr = server_proxy.local_addr();
+    // let server_proxy = warp::hyper::Server::bind(&([127, 0, 0, 1], port).into())
+    //     .http1_max_buf_size(0x400000)
+    //     // .http1_header_read_timeout(std::time::Duration::from_secs(12*60))
+    //     // .http1_header_read_timeout(std::time::Duration::from_millis(0))
+    //     // .http1_keepalive(false)
+    //     .serve(make_service);
+    // let addr = server_proxy.local_addr();
 
-    let graceful_proxy = server_proxy
-        .with_graceful_shutdown(async move {
-            loop {
-                tokio::select! {
-                    recv_msg = slave.recv() => {
-                        match recv_msg {
-                            None => {
-                                println!("Received None message");
-                            },
-                            Some(bidirectional_channel::StatusInfo::SHUTDOWN { status, message }) => {
-                                println!("Received shutdown message: {} {}", status, message);
-                                let _ = slave.send(bidirectional_channel::StatusInfo::SHUTDOWN {
-                                    status: "SHUTTING DOWN".to_string(),
-                                    message: "Proxy server is shutting down".to_string(),
-                                }).await;
-                                break;
-                            },
-                            Some(bidirectional_channel::StatusInfo::HEALTH { status, message }) => {
-                                println!("Received health message: {} {}", status, message);
-                                let _ = slave.send(bidirectional_channel::StatusInfo::HEALTH {
-                                    status: "RUNNING".to_string(),
-                                    message: "Proxy server is running".to_string(),
-                                }).await;
-                            },
-                            _ => {}
-                        }
-                    },
-                    _ = tokio::signal::ctrl_c() => {
-                        break;
-                    },
-                }
-            }
-            println!("Shutting down Proxy server");
-        }
-    );
-    // spawn proxy server
-    // let (addr, server_proxy) = warp::serve(make_service)
-    //     .bind_with_graceful_shutdown(([127, 0, 0, 1], port), async move {
+    // let graceful_proxy = server_proxy
+    //     .with_graceful_shutdown(async move {
     //         loop {
     //             tokio::select! {
     //                 recv_msg = slave.recv() => {
@@ -469,17 +445,53 @@ pub fn serve_proxy(proxy_address: String, port: u16, mut slave: bidirectional_ch
     //             }
     //         }
     //         println!("Shutting down Proxy server");
-    // });
+    //     }
+    // );
+    // spawn proxy server
+    let (addr, server_proxy) = warp::serve(route)
+        .bind_with_graceful_shutdown(([127, 0, 0, 1], port), async move {
+            loop {
+                tokio::select! {
+                    recv_msg = slave.recv() => {
+                        match recv_msg {
+                            None => {
+                                println!("Received None message");
+                            },
+                            Some(bidirectional_channel::StatusInfo::SHUTDOWN { status, message }) => {
+                                println!("Received shutdown message: {} {}", status, message);
+                                let _ = slave.send(bidirectional_channel::StatusInfo::SHUTDOWN {
+                                    status: "SHUTTING DOWN".to_string(),
+                                    message: "Proxy server is shutting down".to_string(),
+                                }).await;
+                                break;
+                            },
+                            Some(bidirectional_channel::StatusInfo::HEALTH { status, message }) => {
+                                println!("Received health message: {} {}", status, message);
+                                let _ = slave.send(bidirectional_channel::StatusInfo::HEALTH {
+                                    status: "RUNNING".to_string(),
+                                    message: "Proxy server is running".to_string(),
+                                }).await;
+                            },
+                            _ => {}
+                        }
+                    },
+                    _ = tokio::signal::ctrl_c() => {
+                        break;
+                    },
+                }
+            }
+            println!("Shutting down Proxy server");
+    });
 
     
     println!("Proxy server addr: {}", addr);
 
-    tokio::task::spawn(async {
-        let _ = graceful_proxy.await;
-    }
-    );
+    // tokio::task::spawn(async {
+    //     let _ = graceful_proxy.await;
+    // }
+    // );
 
-    // tokio::task::spawn(server_proxy);
+    tokio::task::spawn(server_proxy);
 
     Ok(addr)
 }
