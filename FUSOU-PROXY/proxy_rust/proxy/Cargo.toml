@@ -7,17 +7,10 @@ edition = "2021"
 warp = "^0.3"
 tokio = { version = "1", features = ["full"] }
 tokio-macros = "2.4.0"
-futures-util = "0.3.30"
 hyper = "1.4.1"
-bytes = "1.7.1"
-http-body-util = "0.1.2"
-hyper-util = { version = "0.1.7", features = ["full"] }
-headers = "0.4.0"
 warp-reverse-proxy = "1.0.0"
 regex = "1.10.6"
 flate2 = "1.0.32"
-crossbeam = "0.8.4"
-tower = { version = "0.4.13", features = ["timeout"] }
 chrono = "0.4.31"
 chrono-tz = "0.10.0"
 reqwest = "^0.11"
