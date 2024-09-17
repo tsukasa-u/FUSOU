@@ -6,13 +6,10 @@
   "scripts": {
     "build": "tsc -b && vite build",
     "dev": "vite",
-    "prebuild.pandacss": "panda codegen --silent",
     "preview": "serve dist"
   },
   "devDependencies": {
     "@builder.io/vite-plugin-macro": "~0.0.7",
-    "@pandacss/dev": "^0.36.1",
-    "@qwik-ui/headless": "^0.5.0",
     "@tauri-apps/cli": "^1.6.1",
     "daisyui": "^4.12.10",
     "serve": "^14.2.3",
@@ -21,26 +18,9 @@
     "vite": "^5.3.4"
   },
   "dependencies": {
-    "@blueprintjs/core": "^5.10.5",
-    "@blueprintui/components": "^2.1.4",
-    "@blueprintui/icons": "^2.1.4",
-    "@blueprintui/layout": "^2.1.4",
-    "@blueprintui/themes": "^2.1.4",
-    "@blueprintui/typography": "^2.1.4",
     "@builder.io/qwik": "1.7.0",
-    "@emotion/react": "^11.12.0",
-    "@emotion/styled": "^11.12.0",
-    "@mui/icons-material": "^5.16.4",
-    "@mui/material": "^5.16.4",
-    "@mui/styled-engine-sc": "6.0.0-alpha.18",
     "@qwikest/icons": "^0.0.13",
     "@tauri-apps/api": "^1.6.0",
-    "autoprefixer": "^10.4.19",
-    "bulma": "^1.0.1",
-    "lit": "^3.1.4",
-    "open-props": "^1.7.5",
-    "postcss": "^8.4.39",
-    "preline": "^2.4.0",
-    "tachyons": "4.12.0"
+    "autoprefixer": "^10.4.19"
   }
 }
