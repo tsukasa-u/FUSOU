@@ -34,31 +34,30 @@ export const Material = component$<MaterialsProps>(({ materials }) => {
                         Materials
                     </summary>
                     <ul class="pl-0">
-                        <li class="h-6">
-                            <a class="justify-start gap-0">
-                                {Object.values(materials.materials).slice(0, 4).map((material, index) => (
-                                    <>
-                                        <Slot name={icon_material_name[index]} />
-                                        <div class="w-10 flex justify-end">
-                                            {material}
-                                            {/* {materials.materials[index]} */}
-                                        </div>
-                                        <div class="divider divider-horizontal mr-0 ml-0"></div>
-                                    </>
-                                ))}
-                            </a>
-                        </li>
-                        <li class="h-6">
-                            <a class="justify-start gap-0">
-                                {Object.values(materials.materials).slice(4, 8).map((material, index) => (
-                                    <>
-                                        <Slot name={icon_material_name[index + 4]} />
-                                        <div class="w-10 flex justify-end">
-                                            {material}
-                                        </div>
-                                        <div class="divider divider-horizontal mr-0 ml-0"></div>
-                                    </>
-                                ))}
+                        <li class="h-auto">
+                            <a class="justify-start gap-0 flex flex-wrap gap-y-1">
+                                <div class="justify-start gap-0 flex flex-nowrap">
+                                    {Object.values(materials.materials).slice(0, 4).map((material, index) => (
+                                        <>
+                                            <Slot name={icon_material_name[index]} />
+                                            <div class="w-10 flex justify-end">
+                                                {material}
+                                            </div>
+                                            <div class="divider divider-horizontal mr-0 ml-0"></div>
+                                        </>
+                                    ))}
+                                </div>
+                                <div class="justify-start gap-0 flex flex-nowrap">
+                                    {Object.values(materials.materials).slice(4, 8).map((material, index) => (
+                                        <>
+                                            <Slot name={icon_material_name[index + 4]} />
+                                            <div class="w-10 flex justify-end">
+                                                {material}
+                                            </div>
+                                            <div class="divider divider-horizontal mr-0 ml-0"></div>
+                                        </>
+                                    ))}
+                                </div>
                             </a>
                         </li>
                     </ul>
