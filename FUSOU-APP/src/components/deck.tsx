@@ -1,4 +1,4 @@
-import { Slot, component$, useComputed$, useStylesScoped$, JSXOutput } from '@builder.io/qwik';
+import { Slot, component$, useComputed$, useStylesScoped$, JSXOutput, useSignal } from '@builder.io/qwik';
 
 import { DeckPort, Ships } from "./interface/port.ts";
 import { MstShips } from "./interface/get_data.ts";
@@ -9,6 +9,8 @@ import { IconCautionFill } from './icons/caution_fill.tsx';
 import { IconKira1 } from './icons/kira1.tsx';
 import { IconKira2 } from './icons/kira2.tsx';
 import { IconKira3 } from './icons/kira3.tsx';
+
+import { Bs1Square, Bs2Square, Bs3Square, Bs4Square, Bs5Square, Bs0Square } from "@qwikest/icons/bootstrap";
 
 interface DeckPortProps {
     deckPort: DeckPort;
@@ -26,8 +28,13 @@ export const Deck = component$<DeckPortProps>(({ deckPort, ships, mst_ships }) =
     }
 
     useStylesScoped$(`
-        div::before, div::after {
-          width: 1px;
+        .divider-horizontal:before {
+            height: 100%;
+            width: 1px;
+        }
+        .divider-horizontal:after {
+            height: 100%;
+            width: 1px;
         }
     `);
 
@@ -87,6 +94,8 @@ export const Deck = component$<DeckPortProps>(({ deckPort, ships, mst_ships }) =
         return states;
     });
 
+    const moreSignal = useSignal(false);
+
     return (
         <>
             <li>
@@ -98,7 +107,7 @@ export const Deck = component$<DeckPortProps>(({ deckPort, ships, mst_ships }) =
                         <div class="form-control">
                             <label class="label cursor-pointer h-4">
                                 <span class="label-text mb-1.5 pr-2 h-4">more</span>
-                                <input type="checkbox" class="toggle toggle-xs h-4  border-gray-400 [--tglbg:theme(colors.gray.200)] checked:border-blue-200 checked:bg-blue-300 checked:[--tglbg:theme(colors.blue.100)] rounded-sm" defaultChecked />
+                                <input type="checkbox" onClick$={() => moreSignal.value = !moreSignal.value} class="toggle toggle-xs h-4  border-gray-400 [--tglbg:theme(colors.gray.200)] checked:border-blue-200 checked:bg-blue-300 checked:[--tglbg:theme(colors.blue.100)] rounded-sm" />
                             </label>
                         </div>
                     </summary>
@@ -107,53 +116,85 @@ export const Deck = component$<DeckPortProps>(({ deckPort, ships, mst_ships }) =
                             <>
                                 { shipId > 0 
                                     ? <>
-                                        <li class="h-6">
-                                            <a class="justify-start gap-0">
-                                                <Slot name="icon_ship" />
-                                                <div class="pl-2 pr-0.5 truncate flex-1 min-w-12">
-                                                    <div class="w-24">
-                                                        { mst_ships.mst_ships[ships.ships[shipId].ship_id]?.name ?? "Unknown" }
-                                                    </div>
-                                                </div>
-                                                <div class="divider divider-horizontal mr-0 ml-0 flex-none"></div>
-                                                <div class=" flex-none">
-                                                    <div class="flex justify-center w-8 indicator">
-                                                        <div class="indicator-item indicator-top indicator-end">
-                                                            { cond_state.value[idx] }
-                                                        </div>
-                                                        <div class="badge badge-md border-inherit w-9">
-                                                            { ships.ships[shipId]?.cond ?? 0 }
+                                        <li class="h-auto">
+                                            <a class="justify-start gap-x-0 gap-y-1 flex flex-wrap">
+                                                <div class="justify-start gap-0 flex flex-nowrap">
+                                                    <Slot name="icon_ship" />
+                                                    <div class="pl-2 pr-0.5 truncate flex-1 min-w-12 content-center">
+                                                        <div class="w-24 h-max">
+                                                            { mst_ships.mst_ships[ships.ships[shipId].ship_id]?.name ?? "Unknown" }
                                                         </div>
                                                     </div>
-                                                </div>
-                                                <div class="divider divider-horizontal mr-0 ml-0 flex-none"></div>
-                                                <div class="indicator">
-                                                    <div class="indicator-item indicator-top indicator-end flax space-x-2">
-                                                        <div></div>
-                                                        { hp_state.value[idx] }
-                                                    </div>
+                                                    <div class="divider divider-horizontal mr-0 ml-0 flex-none"></div>
                                                     <div class=" flex-none">
-                                                        <div class="grid h-2.5 w-12 place-content-center">
-                                                            <div class="grid grid-flow-col auto-cols-max gap-1">
-                                                                <div>{ ships.ships[shipId]?.nowhp ?? 0 }</div>
-                                                                <div>/</div>
-                                                                <div>{ ships.ships[shipId]?.maxhp ?? 0 }</div>
+                                                        <div class="flex justify-center w-8 indicator">
+                                                            <div class="indicator-item indicator-top indicator-end">
+                                                                { cond_state.value[idx] }
+                                                            </div>
+                                                            <div class="badge badge-md border-inherit w-9">
+                                                                { ships.ships[shipId]?.cond ?? 0 }
                                                             </div>
                                                         </div>
-                                                        <div class="grid h-2.5 w-12 place-content-center">
-                                                            <ColorBar class="w-12 h-1" v_now={ships.ships[shipId]?.nowhp ?? 0} v_max={ships.ships[shipId]?.maxhp ?? 0} />
+                                                    </div>
+                                                    <div class="divider divider-horizontal mr-0 ml-0 flex-none"></div>
+                                                    <div class="indicator">
+                                                        <div class="indicator-item indicator-top indicator-end flax space-x-2">
+                                                            <div></div>
+                                                            { hp_state.value[idx] }
+                                                        </div>
+                                                        <div class=" flex-none">
+                                                            <div class="grid h-2.5 w-12 place-content-center">
+                                                                <div class="grid grid-flow-col auto-cols-max gap-1">
+                                                                    <div>{ ships.ships[shipId]?.nowhp ?? 0 }</div>
+                                                                    <div>/</div>
+                                                                    <div>{ ships.ships[shipId]?.maxhp ?? 0 }</div>
+                                                                </div>
+                                                            </div>
+                                                            <div class="grid h-2.5 w-12 place-content-center">
+                                                                <ColorBar class="w-12 h-1" v_now={ships.ships[shipId]?.nowhp ?? 0} v_max={ships.ships[shipId]?.maxhp ?? 0} />
+                                                            </div>
                                                         </div>
                                                     </div>
-                                                </div>
-                                                <div class="divider divider-horizontal mr-0 ml-0 flex-none"></div>
-                                                <div class=" flex-none">
-                                                    <div class="grid h-2.5 w-6 place-content-center">
-                                                        <ColorBar class="w-6 h-1" v_now={ships.ships[shipId]?.fuel ?? 0} v_max={mst_ships.mst_ships[ships.ships[shipId].ship_id]?.fuel_max ?? 0} />
+                                                    <div class="divider divider-horizontal mr-0 ml-0 flex-none"></div>
+                                                    <div class=" flex-none">
+                                                        <div class="grid h-2.5 w-6 place-content-center">
+                                                            <ColorBar class="w-6 h-1" v_now={ships.ships[shipId]?.fuel ?? 0} v_max={mst_ships.mst_ships[ships.ships[shipId].ship_id]?.fuel_max ?? 0} />
+                                                        </div>
+                                                        <div class="grid h-2.5 w-6 place-content-center">
+                                                            <ColorBar class="w-6 h-1" v_now={ships.ships[shipId]?.bull ?? 0} v_max={mst_ships.mst_ships[ships.ships[shipId].ship_id]?.bull_max ?? 0} />
+                                                        </div>
                                                     </div>
-                                                    <div class="grid h-2.5 w-6 place-content-center">
-                                                        <ColorBar class="w-6 h-1" v_now={ships.ships[shipId]?.bull ?? 0} v_max={mst_ships.mst_ships[ships.ships[shipId].ship_id]?.bull_max ?? 0} />
-                                                    </div>
+                                                    <div class="divider divider-horizontal mr-0 ml-0"></div>
                                                 </div>
+                                                { !moreSignal.value 
+                                                ? <></> 
+                                                : <div class="justify-start gap-0 flex flex-nowrap">
+                                                    <div class="grid grid-cols-5 gap-2 content-center w-52 left-1">
+                                                        <div class="text-base flex justify-center">
+                                                            <Bs1Square></Bs1Square>
+                                                        </div>
+                                                        <div class="text-base flex justify-center">
+                                                            <Bs2Square></Bs2Square>
+                                                        </div>
+                                                        <div class="text-base flex justify-center">
+                                                            <Bs3Square></Bs3Square>
+                                                        </div>
+                                                        <div class="text-base flex justify-center">
+                                                            <Bs4Square></Bs4Square>
+                                                        </div>
+                                                        <div class="text-base flex justify-center">
+                                                            <Bs5Square></Bs5Square>
+                                                        </div>
+                                                    </div>
+                                                    <div class="divider divider-horizontal mr-0 ml-0"></div>
+                                                    <div class="content-center">
+                                                        <div class="text-base flex justify-center w-8">
+                                                            <Bs0Square></Bs0Square>
+                                                        </div>
+                                                    </div>
+                                                    <span class="w-0.5"></span>
+                                                    <div class="divider divider-horizontal mr-0 ml-0 h-5"></div>
+                                                </div> }
                                             </a>
                                         </li>
                                     </> 
