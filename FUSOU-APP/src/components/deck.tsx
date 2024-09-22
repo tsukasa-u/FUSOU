@@ -1,7 +1,8 @@
 import { Slot, component$, useComputed$, useStylesScoped$, JSXOutput, useSignal } from '@builder.io/qwik';
 
 import { DeckPort, Ships } from "./interface/port.ts";
-import { MstShips } from "./interface/get_data.ts";
+import { MstShips, MstSlotitems } from "./interface/get_data.ts";
+import { SlotItems } from "./interface/require_info.ts";
 
 import { ColorBar } from './color_bar.tsx';
 
@@ -9,6 +10,7 @@ import { IconCautionFill } from './icons/caution_fill.tsx';
 import { IconKira1 } from './icons/kira1.tsx';
 import { IconKira2 } from './icons/kira2.tsx';
 import { IconKira3 } from './icons/kira3.tsx';
+import { IconEquipment } from './icons/equipment.tsx';
 
 import { Bs1Square, Bs2Square, Bs3Square, Bs4Square, Bs5Square, Bs0Square } from "@qwikest/icons/bootstrap";
 
@@ -16,9 +18,11 @@ interface DeckPortProps {
     deckPort: DeckPort;
     ships: Ships;
     mst_ships: MstShips;
+    slot_items: SlotItems;
+    mst_slot_items: MstSlotitems;
 }
  
-export const Deck = component$<DeckPortProps>(({ deckPort, ships, mst_ships }) => {
+export const Deck = component$<DeckPortProps>(({ deckPort, ships, mst_ships, slot_items, mst_slot_items }) => {
 
     const fleet_name: {[key:number]:string} = {
         1: "First Fleet",
@@ -28,15 +32,29 @@ export const Deck = component$<DeckPortProps>(({ deckPort, ships, mst_ships }) =
     }
 
     useStylesScoped$(`
-        .divider-horizontal:before {
-            height: 100%;
+        .divider-horizontal::before {
             width: 1px;
         }
-        .divider-horizontal:after {
-            height: 100%;
+        .divider-horizontal::after {
             width: 1px;
         }
     `);
+
+    // const wquipment_state = useComputed$(() => {
+    //     let states: JSXOutput[] = [];
+    //     deckPort.ship?.forEach((shipId) => {
+    //         let ship_state: JSXOutput[] = [];
+    //         ships.ships[shipId]?.slot?.forEach((slotId) => {
+    //             if (slotId > 0) {
+    //                 ship_state.push(<>
+    //                     <IconEquipment class="h-5 w-5" category_number={mst_slot_items.mst_slot_items[slot_items.slot_items[slotId]?.slotitem_id]?._type[2]} icon_number={mst_slot_items.mst_slot_items[slot_items.slot_items[slotId]?.slotitem_id]?._type[3]}></IconEquipment>
+    //                 </>);
+    //             }
+    //         });
+    //         states.push(ship_state);
+    //     });
+    //     return states;
+    // });
 
     const cond_state = useComputed$(() => {
         const cond_list: JSXOutput[] = [
@@ -118,7 +136,7 @@ export const Deck = component$<DeckPortProps>(({ deckPort, ships, mst_ships }) =
                                     ? <>
                                         <li class="h-auto">
                                             <a class="justify-start gap-x-0 gap-y-1 flex flex-wrap">
-                                                <div class="justify-start gap-0 flex flex-nowrap">
+                                                <div class="justify-start gap-0 flex ">
                                                     <Slot name="icon_ship" />
                                                     <div class="pl-2 pr-0.5 truncate flex-1 min-w-12 content-center">
                                                         <div class="w-24 h-max">
@@ -168,9 +186,9 @@ export const Deck = component$<DeckPortProps>(({ deckPort, ships, mst_ships }) =
                                                 </div>
                                                 { !moreSignal.value 
                                                 ? <></> 
-                                                : <div class="justify-start gap-0 flex flex-nowrap">
-                                                    <div class="grid grid-cols-5 gap-2 content-center w-52 left-1">
-                                                        <div class="text-base flex justify-center">
+                                                : <div class="flex">
+                                                    <div class="grid grid-cols-5 gap-2 content-center w-52">
+                                                        {/* <div class="text-base flex justify-center">
                                                             <Bs1Square></Bs1Square>
                                                         </div>
                                                         <div class="text-base flex justify-center">
@@ -184,16 +202,28 @@ export const Deck = component$<DeckPortProps>(({ deckPort, ships, mst_ships }) =
                                                         </div>
                                                         <div class="text-base flex justify-center">
                                                             <Bs5Square></Bs5Square>
-                                                        </div>
+                                                        </div> */}
+                                                        { ships.ships[shipId]?.slot?.map((slotId) => (
+                                                            slotId > 0
+                                                            ? <div class="text-base flex justify-center">
+                                                                {/* { slot_items.slot_items[slotId]?.slotitem_id } */}
+                                                                {/* { mst_slot_items.mst_slot_items[slot_items.slot_items[slotId]?.slotitem_id]._type } */}
+                                                                {/* { mst_slot_items.mst_slot_items[slot_items.slot_items[slotId]?.slotitem_id]?.name ?? "Unknown" } */}
+                                                                <IconEquipment class="h-5 w-5" category_number={mst_slot_items.mst_slot_items[slot_items.slot_items[slotId]?.slotitem_id]?._type[1]} icon_number={mst_slot_items.mst_slot_items[slot_items.slot_items[slotId]?.slotitem_id]?._type[2]}></IconEquipment>
+                                                            </div>
+                                                            : <></>
+                                                        )) }
                                                     </div>
-                                                    <div class="divider divider-horizontal mr-0 ml-0"></div>
+                                                    <span class="w-2"></span>
+                                                    <div class="divider divider-horizontal mr-0 ml-0 basis-0 h-auto"></div>
+                                                    <span class="w-2"></span>
                                                     <div class="content-center">
                                                         <div class="text-base flex justify-center w-8">
                                                             <Bs0Square></Bs0Square>
                                                         </div>
                                                     </div>
-                                                    <span class="w-0.5"></span>
-                                                    <div class="divider divider-horizontal mr-0 ml-0 h-5"></div>
+                                                    <span class="w-px"></span>
+                                                    <div class="divider divider-horizontal mr-0 ml-0 h-auto"></div>
                                                 </div> }
                                             </a>
                                         </li>
