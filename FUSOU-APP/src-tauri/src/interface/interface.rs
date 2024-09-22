@@ -3,7 +3,9 @@ pub use super::logs::Logs;
 pub use super::deck_port::DeckPorts;
 pub use super::n_dock::NDocks;
 pub use super::ship::Ships;
+pub use super::slot_item::SlotItems;
 pub use super::mst_ship::MstShips;
+pub use super::mst_slot_item::MstSlotItems;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum EmitData {
@@ -13,15 +15,16 @@ pub enum EmitData {
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum Add {
-    Materials(Materials),
-    DeckPorts(DeckPorts),
+    // Materials(Materials),
+    // DeckPorts(DeckPorts),
     // Mission,
-    NDocks(NDocks),
-    Ships(Ships),
-    Logs(Logs),
+    // NDocks(NDocks),
+    // Ships(Ships),
+    // Logs(Logs),
     // AirBase,(AirBase),
     // Battle(Battle),
-    MstShips(MstShips),
+    // MstShips(MstShips),
+    Dammy(()),
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -31,8 +34,10 @@ pub enum Set {
     // Mission,
     NDocks(NDocks),
     Ships(Ships),
+    SlotItems(SlotItems),
     Logs(Logs),
     // AirBase,(AirBase),
     // Battle(Battle),
     MstShips(MstShips),
+    MstSlotItems(MstSlotItems),
 }
