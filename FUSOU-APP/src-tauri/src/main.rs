@@ -140,7 +140,13 @@ async fn main() -> ExitCode {
   });
   
   tauri::Builder::default()
-    .invoke_handler(tauri::generate_handler![tauri_cmd::close_splashscreen, tauri_cmd::show_splashscreen, tauri_cmd::get_mst_ships])
+    .invoke_handler(tauri::generate_handler![
+      tauri_cmd::close_splashscreen, 
+      tauri_cmd::show_splashscreen, 
+      tauri_cmd::get_mst_ships,
+      tauri_cmd::get_mst_slot_items,
+      tauri_cmd::get_slot_items
+    ])
     .plugin(tauri_plugin_window_state::Builder::default().build())
     .setup(move |app| {
       
