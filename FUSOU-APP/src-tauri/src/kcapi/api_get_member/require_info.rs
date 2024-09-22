@@ -2,18 +2,14 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 // use serde_json::Value;
 
-use register_trait::register_struct;
-use register_trait::add_field;
+use register_trait::{register_struct, add_field};
 
-use register_trait::TraitForTest;
-use register_trait::Getter;
-use register_trait::TraitForRoot;
-use register_trait::TraitForConvert;
+use register_trait::{TraitForTest, Getter, TraitForRoot, TraitForConvert};
 
-use crate::interface::interface::EmitData;
+use crate::interface::interface::{EmitData, Set};
+use crate::interface::slot_item::SlotItems;
 
-#[derive(Getter, TraitForTest, TraitForRoot, TraitForConvert)]
-#[convert_output(output = EmitData)]
+#[derive(Getter, TraitForTest, TraitForRoot)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[register_struct(name = "api_get_member/require_info")]
@@ -152,6 +148,16 @@ pub struct ApiOssSetting {
     pub api_language_type: i64,
     #[serde(rename = "api_oss_items")]
     pub api_oss_items: Vec<i64>,
+}
+
+impl TraitForConvert for Root {
+    type Output = EmitData;
+    fn convert(&self) -> Option<Vec<EmitData>> {
+        let slot_item: SlotItems = self.api_data.api_slot_item.clone().into();
+        slot_item.restore();
+
+        Some(vec![EmitData::Set(Set::SlotItems(slot_item))])
+    }
 }
 
 #[cfg(test)]
