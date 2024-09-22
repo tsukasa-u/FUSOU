@@ -15,14 +15,18 @@ import { Material } from './components/materials.tsx';
 import { global_materials, global_ship, global_nDock, global_deck_port } from './components/interface/port.ts';
 import { Materials, DeckPorts, Ships } from './components/interface/port.ts';
 
-import { MstShips } from './components/interface/get_data.ts';
-import { global_mst_ships } from './components/interface/get_data.ts';
+import { MstShips, MstSlotitems } from './components/interface/get_data.ts';
+import { global_mst_ships, global_mst_slot_items } from './components/interface/get_data.ts';
+
+import { SlotItems } from './components/interface/require_info.ts';
+import { global_slotitems } from './components/interface/require_info.ts';
 
 import { invoke } from '@tauri-apps/api/tauri'
 
 // import 'tachyons';
 import './app.css';
 import { listen, UnlistenFn } from '@tauri-apps/api/event';
+import { Settings } from './components/settings.tsx';
 
 export const App = component$(() => {
   useStyles$(globalStyles);
@@ -34,14 +38,18 @@ export const App = component$(() => {
   // let nDock = useStore(global_nDock);
   let deck = useStore(global_deck_port);
   let ships = useStore(global_ship);
+  let slot_items = useStore(global_slotitems);
   let materials = useStore(global_materials);
   let mst_ships = useStore(global_mst_ships);
+  let mst_slot_items = useStore(global_mst_slot_items);
 
   useTask$(({ cleanup }) => {
     let unlisten_kcs_materials: UnlistenFn;
     let unlisten_kcs_deck: UnlistenFn;
     let unlisten_kcs_ships: UnlistenFn;
+    let unlisten_kcs_slot_items: UnlistenFn;
     let unlisten_kcs_mst_ships: UnlistenFn;
+    let unlisten_kcs_mst_slot_items: UnlistenFn;
 
     (async() => {
       unlisten_kcs_materials = await listen<Materials>('set-kcs-materials', event => {
@@ -51,16 +59,28 @@ export const App = component$(() => {
       unlisten_kcs_deck = await listen<DeckPorts>('set-kcs-deck-ports', event => {
         // deck.deck_ports = { ...deck.deck_ports, ...event.payload.deck_ports };
         deck.deck_ports = event.payload.deck_ports;
+        console.log(deck);
       });
       unlisten_kcs_ships = await listen<Ships>('set-kcs-ships', event => {
         // ships.ships = { ...ships.ships, ...event.payload.ships };
         ships.ships = event.payload.ships;
+        console.log(ships);
       });
       unlisten_kcs_mst_ships = await listen<MstShips>('set-kcs-mst-ships', event => {
         // mst_ships.mst_ships = { ...mst_ships.mst_ships, ...event.payload.mst_ships };
         mst_ships.mst_ships = event.payload.mst_ships;
+        console.log(mst_ships);
       });
-
+      unlisten_kcs_slot_items = await listen<SlotItems>('set-kcs-slot-items', event => {
+        // slot_items.slot_items = { ...slot_items.slot_items, ...event.payload.slot_items };
+        slot_items.slot_items = event.payload.slot_items;
+        console.log(slot_items);
+      });
+      unlisten_kcs_mst_slot_items = await listen<MstSlotitems>('set-kcs-mst-slot-items', event => {
+        // mst_ships.mst_ships = { ...mst_ships.mst_ships, ...event.payload.mst_ships };
+        mst_slot_items.mst_slot_items = event.payload.mst_slot_items;
+        console.log(mst_slot_items);
+      });
     })();
 
     cleanup(() => {
@@ -68,45 +88,74 @@ export const App = component$(() => {
         if (unlisten_kcs_deck) unlisten_kcs_deck();
         if (unlisten_kcs_ships) unlisten_kcs_ships();
         if (unlisten_kcs_mst_ships) unlisten_kcs_mst_ships();
+        if (unlisten_kcs_slot_items) unlisten_kcs_slot_items();
+        if (unlisten_kcs_mst_slot_items) unlisten_kcs_mst_slot_items();
     });
   });
 
   return (
     <>
-      <ul class="menu menu-xs bg-base-200 w-full pl-0 flex">
-        <Material materials={materials}>
-          <IconFolder class="h-4 w-4" q:slot='icon_material'/>
-          <IconFile class="h-4 w-4" q:slot='icon_material_fuel'/>
-          <IconFile class="h-4 w-4" q:slot='icon_material_bull'/>
-          <IconFile class="h-4 w-4" q:slot='icon_material_steel'/>
-          <IconFile class="h-4 w-4" q:slot='icon_material_bauxite'/>
-          <IconFile class="h-4 w-4" q:slot='icon_material_bucket'/>
-          <IconFile class="h-4 w-4" q:slot='icon_material_nail'/>
-          <IconFile class="h-4 w-4" q:slot='icon_material_barnar'/>
-          <IconFile class="h-4 w-4" q:slot='icon_material_screw'/>
-        </Material>
+      <div class=" bg-base-200 h-screen">
+        <div role="tablist" class="tabs tabs-bordered tabs-sm">
+          <input type="radio" name="tabs_fleet" role="tab" class="tab [&::after]:w-16 bg-base-200 fixed" aria-label="Fleet Info" style={{"top":"0px", "left":"0px", "z-index":"100"}} defaultChecked />
+          <div role="tabpanel" class="tab-content p-0 h-full">
+            
+            <div class="h-6"></div>
 
-        <Decks decks={deck} ships={ships} mst_ships={mst_ships}>
-          <IconFolder class="h-4 w-4" q:slot='icon_fleets'/>
-          <IconFile class="h-4 w-4" q:slot='icon_fleet1'/>
-          <IconFile class="h-4 w-4" q:slot='icon_fleet2'/>
-          <IconFile class="h-4 w-4" q:slot='icon_fleet3'/>
-          <IconFile class="h-4 w-4" q:slot='icon_fleet4'/>
-        </Decks>
-        
-        {/* <Dock nDock={nDock} ships={ships} mst_ships={mst_ships}>
-          <IconFolder class="h-4 w-4" q:slot='icon_dock'/>
-        </Dock> */}
+            <ul class="menu menu-xs bg-base-200 w-full pl-0 flex pt-0">
+              <Material materials={materials}>
+                <IconFolder class="h-4 w-4" q:slot='icon_material'/>
+                <IconFile class="h-4 w-4" q:slot='icon_material_fuel'/>
+                <IconFile class="h-4 w-4" q:slot='icon_material_bull'/>
+                <IconFile class="h-4 w-4" q:slot='icon_material_steel'/>
+                <IconFile class="h-4 w-4" q:slot='icon_material_bauxite'/>
+                <IconFile class="h-4 w-4" q:slot='icon_material_bucket'/>
+                <IconFile class="h-4 w-4" q:slot='icon_material_nail'/>
+                <IconFile class="h-4 w-4" q:slot='icon_material_barnar'/>
+                <IconFile class="h-4 w-4" q:slot='icon_material_screw'/>
+              </Material>
 
-        {/* <Expedition deckPort={deck} >
-          <IconFolder class="h-4 w-4" q:slot='icon_expedition'/>
-        </Expedition> */}
+              <Decks decks={deck} ships={ships} mst_ships={mst_ships} slot_items={global_slotitems} mst_slot_items={mst_slot_items}>
+                <IconFolder class="h-4 w-4" q:slot='icon_fleets'/>
+                <IconFile class="h-4 w-4" q:slot='icon_fleet1'/>
+                <IconFile class="h-4 w-4" q:slot='icon_fleet2'/>
+                <IconFile class="h-4 w-4" q:slot='icon_fleet3'/>
+                <IconFile class="h-4 w-4" q:slot='icon_fleet4'/>
+              </Decks>
+              
+              {/* <Dock nDock={nDock} ships={ships} mst_ships={mst_ships}>
+                <IconFolder class="h-4 w-4" q:slot='icon_dock'/>
+              </Dock> */}
 
-        {/* <Task>
-          <IconFolder class="h-4 w-4" q:slot='icon_task'/>
-        </Task> */}
-        
-      </ul>
+              {/* <Expedition deckPort={deck} >
+                <IconFolder class="h-4 w-4" q:slot='icon_expedition'/>
+              </Expedition> */}
+
+              {/* <Task>
+                <IconFolder class="h-4 w-4" q:slot='icon_task'/>
+              </Task> */}
+              <div class="min-h-min"></div>
+              
+            </ul>
+          </div>
+
+          <input type="radio" name="tabs_fleet" role="tab" class="tab [&::after]:w-14 bg-base-200 fixed" aria-label="Ship Info" style={{"top":"0px", "left":"88px", "z-index":"100"}} />
+          <div role="tabpanel" class="tab-content p-10">
+          under construction
+          </div>
+      
+          <input type="radio" name="tabs_fleet" role="tab" class="tab [&::after]:w-14 bg-base-200 fixed" aria-label="Equi Info" style={{"top":"0px", "left":"168px", "z-index":"100"}} />
+          <div role="tabpanel" class="tab-content p-10">
+            under construction
+          </div>
+
+          <input type="radio" name="tabs_fleet" role="tab" class="tab [&::after]:w-14 bg-base-200 fixed" aria-label="Settings" style={{"top":"0px", "left":"248px", "z-index":"100"}} />
+          <div role="tabpanel" class="tab-content pt-0 pb-0 pl-0  bg-base-200">
+            <div class="h-6"></div>
+            <Settings></Settings>
+          </div>
+        </div>
+      </div>
     </>
   )
 });
