@@ -11,29 +11,9 @@ fn emit_data<R: tauri::Runtime>(handle: &impl tauri::Manager<R>, emit_data: Emit
     match emit_data {
         EmitData::Add(data) => {
             match data {
-                Add::DeckPorts(data) => {
-                    // println!("DeckPorts: {:?}", data);
-                    let _ = handle.emit_to("main", "add-kcs-deck-ports", data);
-                },
-                Add::Materials(data) => {
-                    // println!("Materials: {:?}", data.clone());
-                    let _ = handle.emit_to("main", "add-kcs-materials", data);
-                },
-                Add::Ships(data) => {
-                    // println!("Ships: {:?}", data);
-                    let _ = handle.emit_to("main", "add-kcs-ships", data);
-                },
-                Add::NDocks(data) => {
-                    // println!("NDocks: {:?}", data);
-                    let _ = handle.emit_to("main", "add-kcs-n-docks", data);
-                },
-                Add::Logs(data) => {
-                    // println!("Logs: {:?}", data);
-                    let _ = handle.emit_to("main", "add-kcs-logs", data);
-                },
-                Add::MstShips(data) => {
-                    // println!("MstShips: {:?}", data);
-                    let _ = handle.emit_to("main", "add-kcs-mst-ships", data);
+                Add::Dammy(_) => {
+                    // println!("Dammy");
+                    let _ = handle.emit_to("main", "add-kcs-dammy", ());
                 },
             }
         },
@@ -51,6 +31,10 @@ fn emit_data<R: tauri::Runtime>(handle: &impl tauri::Manager<R>, emit_data: Emit
                     // println!("Ships: {:?}", data);
                     let _ = handle.emit_to("main", "set-kcs-ships", data);
                 },
+                Set::SlotItems(data) => {
+                    // println!("SlotItems: {:?}", data);
+                    let _ = handle.emit_to("main", "set-kcs-slot-items", data);
+                },
                 Set::NDocks(data) => {
                     // println!("NDocks: {:?}", data);
                     let _ = handle.emit_to("main", "set-kcs-n-docks", data);
@@ -62,6 +46,10 @@ fn emit_data<R: tauri::Runtime>(handle: &impl tauri::Manager<R>, emit_data: Emit
                 Set::MstShips(data) => {
                     // println!("MstShips: {:?}", data);
                     let _ = handle.emit_to("main", "set-kcs-mst-ships", data);
+                },
+                Set::MstSlotItems(data) => {
+                    // println!("MstSlotItems: {:?}", data);
+                    let _ = handle.emit_to("main", "set-kcs-mst-slot-items", data);
                 },
             }
         },
