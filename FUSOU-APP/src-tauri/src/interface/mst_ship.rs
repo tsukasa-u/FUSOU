@@ -63,7 +63,8 @@ impl MstShips {
 
 impl From<Vec<kcapi::api_start2::get_data::ApiMstShip>> for MstShips {
     fn from(ships: Vec<kcapi::api_start2::get_data::ApiMstShip>) -> Self {
-        let mut ship_map = HashMap::new();
+        let mut ship_map = HashMap::<i64, MstShip>::with_capacity(ships.len());
+        // let mut ship_map = HashMap::new();
         for ship in ships {
             ship_map.insert(ship.api_id, ship.into());
         }
