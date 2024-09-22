@@ -1,12 +1,25 @@
 use tauri::Manager;
 
 use crate::interface::mst_ship::KCS_MST_SHIPS;
-use crate::interface::interface::{EmitData, Set};
+use crate::interface::mst_slot_item::KCS_MST_SLOT_ITEMS;
+use crate::interface::slot_item::KCS_SLOT_ITEMS;
 
 #[tauri::command]
-pub async fn get_mst_ships() -> EmitData {
-    let mst_ships = KCS_MST_SHIPS.lock().unwrap();
-    EmitData::Set(Set::MstShips((*mst_ships).clone()))
+pub async fn get_mst_ships(window: tauri::Window) {
+    let data = KCS_MST_SHIPS.lock().unwrap();
+    let _ = window.app_handle().emit_to("main", "set-kcs-mst-ships", (*data).clone());
+}
+
+#[tauri::command]
+pub async fn get_mst_slot_items(window: tauri::Window) {
+    let data = KCS_MST_SLOT_ITEMS.lock().unwrap();
+    let _ = window.app_handle().emit_to("main", "set-kcs-mst-slot-items", (*data).clone());
+}
+
+#[tauri::command]
+pub async fn get_slot_items(window: tauri::Window) {
+    let data = KCS_SLOT_ITEMS.lock().unwrap();
+    let _ = window.app_handle().emit_to("main", "set-kcs-slot-items", (*data).clone());
 }
 
 #[tauri::command]
