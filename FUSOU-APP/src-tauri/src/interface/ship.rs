@@ -37,7 +37,8 @@ pub struct Ship {
 
 impl From<Vec<kcapi::api_port::port::ApiShip>> for Ships {
     fn from(ships: Vec<kcapi::api_port::port::ApiShip>) -> Self {
-        let mut ship_map = HashMap::new();
+        let mut ship_map = HashMap::<i64, Ship>::with_capacity(ships.len());
+        // let mut ship_map = HashMap::new();
         for ship in ships {
             ship_map.insert(ship.api_id, ship.into());
         }
