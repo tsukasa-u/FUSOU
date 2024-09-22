@@ -8,6 +8,7 @@ use register_trait::{TraitForTest, Getter, TraitForRoot, TraitForConvert};
 
 use crate::interface::interface::{EmitData, Set};
 use crate::interface::mst_ship::MstShips;
+use crate::interface::mst_slot_item::MstSlotItems;
 
 #[derive(Getter, TraitForTest, TraitForRoot)]
 #[struct_test_case(field_extra, type_value, integration)]
@@ -631,7 +632,10 @@ impl TraitForConvert for Root {
         let mst_ships: MstShips = self.api_data.api_mst_ship.clone().into();
         mst_ships.restore();
 
-        Some(vec![EmitData::Set(Set::MstShips(mst_ships))])
+        let mst_slot_items: MstSlotItems = self.api_data.api_mst_slotitem.clone().into();
+        mst_slot_items.restore();
+
+        Some(vec![EmitData::Set(Set::MstShips(mst_ships)), EmitData::Set(Set::MstSlotItems(mst_slot_items))])
     }
 }
 
