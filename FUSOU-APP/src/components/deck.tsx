@@ -13,6 +13,7 @@ import { IconKira3 } from './icons/kira3.tsx';
 import { IconEquipment } from './icons/equipment.tsx';
 
 import { Bs1Square, Bs2Square, Bs3Square, Bs4Square, Bs5Square, Bs0Square } from "@qwikest/icons/bootstrap";
+import { Equiment } from './equipment.tsx';
 
 interface DeckPortProps {
     deckPort: DeckPort;
@@ -188,28 +189,11 @@ export const Deck = component$<DeckPortProps>(({ deckPort, ships, mst_ships, slo
                                                 ? <></> 
                                                 : <div class="flex">
                                                     <div class="grid grid-cols-5 gap-2 content-center w-52">
-                                                        {/* <div class="text-base flex justify-center">
-                                                            <Bs1Square></Bs1Square>
-                                                        </div>
-                                                        <div class="text-base flex justify-center">
-                                                            <Bs2Square></Bs2Square>
-                                                        </div>
-                                                        <div class="text-base flex justify-center">
-                                                            <Bs3Square></Bs3Square>
-                                                        </div>
-                                                        <div class="text-base flex justify-center">
-                                                            <Bs4Square></Bs4Square>
-                                                        </div>
-                                                        <div class="text-base flex justify-center">
-                                                            <Bs5Square></Bs5Square>
-                                                        </div> */}
                                                         { ships.ships[shipId]?.slot?.map((slotId) => (
                                                             slotId > 0
                                                             ? <div class="text-base flex justify-center">
-                                                                {/* { slot_items.slot_items[slotId]?.slotitem_id } */}
-                                                                {/* { mst_slot_items.mst_slot_items[slot_items.slot_items[slotId]?.slotitem_id]._type } */}
-                                                                {/* { mst_slot_items.mst_slot_items[slot_items.slot_items[slotId]?.slotitem_id]?.name ?? "Unknown" } */}
-                                                                <IconEquipment class="h-5 w-5" category_number={mst_slot_items.mst_slot_items[slot_items.slot_items[slotId]?.slotitem_id]?._type[1]} icon_number={mst_slot_items.mst_slot_items[slot_items.slot_items[slotId]?.slotitem_id]?._type[2]}></IconEquipment>
+                                                                <Equiment mst_slot_items={mst_slot_items} slot_items={slot_items} slot_id={slotId} ex_flag={false}></Equiment>
+                                                                {/* <IconEquipment class="h-5 w-5" category_number={mst_slot_items.mst_slot_items[slot_items.slot_items[slotId]?.slotitem_id]?._type[1]} icon_number={mst_slot_items.mst_slot_items[slot_items.slot_items[slotId]?.slotitem_id]?._type[2]}></IconEquipment> */}
                                                             </div>
                                                             : <></>
                                                         )) }
@@ -219,7 +203,10 @@ export const Deck = component$<DeckPortProps>(({ deckPort, ships, mst_ships, slo
                                                     <span class="w-2"></span>
                                                     <div class="content-center">
                                                         <div class="text-base flex justify-center w-8">
-                                                            <Bs0Square></Bs0Square>
+                                                            {/* { ships.ships[shipId]?.slot_ex } */}
+                                                            {/* { ships.ships[shipId]?.slot_ex > 0 ? slot_items.slot_items[ships.ships[shipId]?.slot_ex]?.slotitem_id.toString() : "None" } */}
+                                                            {/* { ships.ships[shipId]?.slot_ex > 0 ? mst_slot_items.mst_slot_items[slot_items.slot_items[ships.ships[shipId]?.slot_ex]?.slotitem_id ?? 0]?.name ?? "Unknown" : "None" } */}
+                                                            { ships.ships[shipId]?.slot_ex ?? 0 > 0 ? <Equiment mst_slot_items={mst_slot_items} slot_items={slot_items} slot_id={ships.ships[shipId]?.slot_ex} ex_flag={true}></Equiment> : <></> }
                                                         </div>
                                                     </div>
                                                     <span class="w-px"></span>
