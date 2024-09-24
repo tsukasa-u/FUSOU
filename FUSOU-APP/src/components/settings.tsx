@@ -39,14 +39,14 @@ export const Settings = component$(() => {
                         </div>
                     </div>
                     <div id="load_slot_items" class="py-2">
-                        <h2 class="text-lg font-semibold leading-4 text-slate-700">Load ship data</h2>
-                        <p class="text-slate-600">Load the mst_slotitems data restored from API  "/kcsapi/api_get_member/require_info"</p>
+                        <h2 class="text-lg font-semibold leading-4 text-slate-700">Load slotitems data</h2>
+                        <p class="text-slate-600">Load the slotitems data restored from API  "/kcsapi/api_get_member/require_info"</p>
                         <div class="mt-4 flex items-center justify-end">
                             <button class="btn btn-outline btn-wide" onClick$={() => { invoke("get_slot_items") }}>Load slot item data</button>
                         </div>
                     </div> 
                     <div id="load_mst_slot_items" class="py-2">
-                        <h2 class="text-lg font-semibold leading-4 text-slate-700">Load ship data</h2>
+                        <h2 class="text-lg font-semibold leading-4 text-slate-700">Load mst_slotitems data</h2>
                         <p class="text-slate-600">Load the mst_slotitems data restored from API "/kcsapi/api_start2/get_data"</p>
                         <div class="mt-4 flex items-center justify-end">
                             <button class="btn btn-outline btn-wide" onClick$={() => { invoke("get_mst_slot_items") }}>Load mst slot item data</button>
