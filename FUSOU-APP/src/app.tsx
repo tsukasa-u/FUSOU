@@ -140,17 +140,19 @@ export const App = component$(() => {
           </div>
 
           <input type="radio" name="tabs_fleet" role="tab" class="tab [&::after]:w-14 bg-base-200 fixed" aria-label="Ship Info" style={{"top":"0px", "left":"88px", "z-index":"100"}} />
-          <div role="tabpanel" class="tab-content p-10">
-          under construction
+          <div role="tabpanel" class="tab-content pt-0 pb-0 pl-0 bg-base-200">
+          <div class="h-6"></div>
+            under construction
           </div>
       
           <input type="radio" name="tabs_fleet" role="tab" class="tab [&::after]:w-14 bg-base-200 fixed" aria-label="Equi Info" style={{"top":"0px", "left":"168px", "z-index":"100"}} />
-          <div role="tabpanel" class="tab-content p-10">
-            under construction
+          <div role="tabpanel" class="tab-content pt-0 pb-0 pl-0 bg-base-200">
+            <div class="h-6"></div>
+              under construction
           </div>
 
           <input type="radio" name="tabs_fleet" role="tab" class="tab [&::after]:w-14 bg-base-200 fixed" aria-label="Settings" style={{"top":"0px", "left":"248px", "z-index":"100"}} />
-          <div role="tabpanel" class="tab-content pt-0 pb-0 pl-0  bg-base-200">
+          <div role="tabpanel" class="tab-content pt-0 pb-0 pl-0 bg-base-200">
             <div class="h-6"></div>
             <Settings></Settings>
           </div>
