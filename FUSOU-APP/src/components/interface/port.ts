@@ -87,6 +87,19 @@ export interface Ship {
     sakuteki:   number[]      // 索敵 length: 2
     lucky:      number[]      // 運
     sally_area: number      // 出撃海域
+    sp_effect_items?: SpEffectItems
+}
+
+export interface SpEffectItems {
+    items: { [key: number]: SpEffectItem }
+}
+
+export interface SpEffectItem {
+    kind: number
+    raig?: number
+    souk?: number
+    houg?: number
+    kaih?: number
 }
 
 export interface Ships {
