@@ -25,7 +25,7 @@ FUSOU-WEB : <br>
 ## My idea 考えていること
 I think the in-game data such as parameters like hp and equipment and analyzed data we cannot access normally should be separated locally and online. This means you can only view data you can normally access in a game with a local app and can access data analyzed or not normally accessible by the website.
 
-HPや装備などのユーザがアクセスできるパラメータと、普段はアクセスできない分析データなどのゲーム内データは、ローカルとオンラインで分離する必要があると考えている。ゲーム内で普段アクセスできるデータはローカルアプリでのみ表示し、ウェブサイトでは分析データや普段はアクセスできないデータにアクセスできるようなシステムを構築したい。
+HPや装備などのユーザがアクセスできるパラメータと、普段はアクセスできない分析データなどのゲーム内データは、ローカルとオンラインで分離するほうが望ましいのではないかと考えている。ゲーム内で普段アクセスできるデータはローカルアプリでのみ表示し、ウェブサイトでは分析データや普段はアクセスできないデータにアクセスできるようなシステムを構築したい。
 
 # In the Future 今後
 I improve my App to be able to use for playing Kancolle. And then, add code for data analysis.
