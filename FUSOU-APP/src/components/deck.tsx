@@ -10,10 +10,9 @@ import { IconCautionFill } from './icons/caution_fill.tsx';
 import { IconKira1 } from './icons/kira1.tsx';
 import { IconKira2 } from './icons/kira2.tsx';
 import { IconKira3 } from './icons/kira3.tsx';
-import { IconEquipment } from './icons/equipment.tsx';
 
-import { Bs1Square, Bs2Square, Bs3Square, Bs4Square, Bs5Square, Bs0Square } from "@qwikest/icons/bootstrap";
 import { Equiment } from './equipment.tsx';
+import { ShipName } from './ship_name.tsx';
 
 interface DeckPortProps {
     deckPort: DeckPort;
@@ -141,7 +140,9 @@ export const Deck = component$<DeckPortProps>(({ deckPort, ships, mst_ships, slo
                                                     <Slot name="icon_ship" />
                                                     <div class="pl-2 pr-0.5 truncate flex-1 min-w-12 content-center">
                                                         <div class="w-24 h-max">
-                                                            { mst_ships.mst_ships[ships.ships[shipId].ship_id]?.name ?? "Unknown" }
+                                                            {/* {shipId} */}
+                                                            <ShipName mst_ships={mst_ships} ships={ships} ship_id={shipId}></ShipName>
+                                                            {/* { mst_ships.mst_ships[ships.ships[shipId].ship_id]?.name ?? "Unknown" } */}
                                                         </div>
                                                     </div>
                                                     <div class="divider divider-horizontal mr-0 ml-0 flex-none"></div>
@@ -177,10 +178,10 @@ export const Deck = component$<DeckPortProps>(({ deckPort, ships, mst_ships, slo
                                                     <div class="divider divider-horizontal mr-0 ml-0 flex-none"></div>
                                                     <div class=" flex-none">
                                                         <div class="grid h-2.5 w-6 place-content-center">
-                                                            <ColorBar class="w-6 h-1" v_now={ships.ships[shipId]?.fuel ?? 0} v_max={mst_ships.mst_ships[ships.ships[shipId].ship_id]?.fuel_max ?? 0} />
+                                                            <ColorBar class="w-6 h-1" v_now={ships.ships[shipId]?.fuel ?? 0} v_max={mst_ships.mst_ships[ships.ships[shipId]?.ship_id ?? 0]?.fuel_max ?? 0} />
                                                         </div>
                                                         <div class="grid h-2.5 w-6 place-content-center">
-                                                            <ColorBar class="w-6 h-1" v_now={ships.ships[shipId]?.bull ?? 0} v_max={mst_ships.mst_ships[ships.ships[shipId].ship_id]?.bull_max ?? 0} />
+                                                            <ColorBar class="w-6 h-1" v_now={ships.ships[shipId]?.bull ?? 0} v_max={mst_ships.mst_ships[ships.ships[shipId]?.ship_id ?? 0]?.bull_max ?? 0} />
                                                         </div>
                                                     </div>
                                                     <div class="divider divider-horizontal mr-0 ml-0"></div>
@@ -193,7 +194,6 @@ export const Deck = component$<DeckPortProps>(({ deckPort, ships, mst_ships, slo
                                                             slotId > 0
                                                             ? <div class="text-base flex justify-center">
                                                                 <Equiment mst_slot_items={mst_slot_items} slot_items={slot_items} slot_id={slotId} ex_flag={false}></Equiment>
-                                                                {/* <IconEquipment class="h-5 w-5" category_number={mst_slot_items.mst_slot_items[slot_items.slot_items[slotId]?.slotitem_id]?._type[1]} icon_number={mst_slot_items.mst_slot_items[slot_items.slot_items[slotId]?.slotitem_id]?._type[2]}></IconEquipment> */}
                                                             </div>
                                                             : <></>
                                                         )) }
@@ -203,9 +203,6 @@ export const Deck = component$<DeckPortProps>(({ deckPort, ships, mst_ships, slo
                                                     <span class="w-2"></span>
                                                     <div class="content-center">
                                                         <div class="text-base flex justify-center w-8">
-                                                            {/* { ships.ships[shipId]?.slot_ex } */}
-                                                            {/* { ships.ships[shipId]?.slot_ex > 0 ? slot_items.slot_items[ships.ships[shipId]?.slot_ex]?.slotitem_id.toString() : "None" } */}
-                                                            {/* { ships.ships[shipId]?.slot_ex > 0 ? mst_slot_items.mst_slot_items[slot_items.slot_items[ships.ships[shipId]?.slot_ex]?.slotitem_id ?? 0]?.name ?? "Unknown" : "None" } */}
                                                             { ships.ships[shipId]?.slot_ex ?? 0 > 0 ? <Equiment mst_slot_items={mst_slot_items} slot_items={slot_items} slot_id={ships.ships[shipId]?.slot_ex} ex_flag={true}></Equiment> : <></> }
                                                         </div>
                                                     </div>
