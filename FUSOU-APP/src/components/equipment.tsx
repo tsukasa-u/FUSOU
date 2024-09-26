@@ -77,8 +77,11 @@ export const Equiment = component$(({mst_slot_items, slot_items, slot_id, ex_fla
                         <HiXMarkOutline class="h-6 w-6" />
                     </button>
                 </form>
-                <h3 class="font-bold text-base pl-3 truncate">{mst_slot_item.value?.name ?? "Unknown"}</h3>
-                <div class="">
+                <div class="flex justify-start">
+                    <h3 class="font-bold text-base pl-3 truncate">{mst_slot_item.value?.name ?? "Unknown"}</h3>
+                    <div class="place-self-end pb pl-4 text-sm text-accent">{slot_item.value?.level ?? 0 > 0 ? "+"+slot_item.value?.level : ""}</div>
+                </div>
+                <div class="pt-2">
                     <table class="table table-sm">
                         <caption class="truncate">Equipment Status</caption>
                         <tbody>
