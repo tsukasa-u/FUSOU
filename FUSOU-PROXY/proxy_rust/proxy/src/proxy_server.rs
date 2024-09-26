@@ -2,23 +2,23 @@ use reqwest::redirect::Policy;
 use warp::filters::path::FullPath;
 use warp::reply::Reply;
 use warp::{hyper::Body, Filter, Rejection, http::Response};
-use warp_reverse_proxy::{reverse_proxy_filter, CLIENT};
+use warp_reverse_proxy::CLIENT;
+// use warp_reverse_proxy::reverse_proxy_filter;
 use warp_reverse_proxy::{extract_request_data_filter, proxy_to_and_forward_response};
-use std::convert::Infallible;
+// use std::convert::Infallible;
 use std::fs;
 use std::io::Read;
 use std::net::SocketAddr;
 use std::os::windows::fs::MetadataExt;
 use std::path::Path;
-use std::sync::LazyLock;
+// use std::sync::LazyLock;
 
 use warp::hyper::body::HttpBody;
 
 use regex;
 use chrono_tz::Asia::Tokyo;
 use chrono::{Utc, TimeZone};
-use tokio::sync::Mutex;
-// use std::sync::Mutex;
+// use tokio::sync::Mutex;
 
 use crate::bidirectional_channel;
 
@@ -317,38 +317,38 @@ async fn log_response(mut response: Response<Body>, path: FullPath, tx_proxy_log
     // }
 }
 
-static RES_LOCK: LazyLock<Mutex<(u64, u64)>> = LazyLock::new(|| {
-    Mutex::new((1, 1))
-});
+// static RES_LOCK: LazyLock<Mutex<(u64, u64)>> = LazyLock::new(|| {
+//     Mutex::new((1, 1))
+// });
 
-async fn request_lock() -> impl Filter<Extract = (), Error = Infallible> + Clone  {
+// async fn request_lock() -> impl Filter<Extract = (), Error = Infallible> + Clone  {
 
-    let lock_num = {
-        let mut lock = RES_LOCK.lock().await;
-        (*lock).1 += 1;
-        (*lock).1 - 1
-    };
+//     let lock_num = {
+//         let mut lock = RES_LOCK.lock().await;
+//         (*lock).1 += 1;
+//         (*lock).1 - 1
+//     };
 
-    loop {
-        tokio::select! {
-            lock = RES_LOCK.lock() => {
-                if (*lock).0 == lock_num {
-                    break;
-                }
-            }
-            else => {}
-        }
-    }
+//     loop {
+//         tokio::select! {
+//             lock = RES_LOCK.lock() => {
+//                 if (*lock).0 == lock_num {
+//                     break;
+//                 }
+//             }
+//             else => {}
+//         }
+//     }
 
-    warp::any()
-}
+//     warp::any()
+// }
 
-async fn response_unlock(res: impl Reply) -> Result<impl Reply, Rejection> {
-    let mut lock = RES_LOCK.lock().await;
-    (*lock).0 += 1;
+// async fn response_unlock(res: impl Reply) -> Result<impl Reply, Rejection> {
+//     let mut lock = RES_LOCK.lock().await;
+//     (*lock).0 += 1;
 
-    Ok(res)
-}
+//     Ok(res)
+// }
 
 // https://github.com/danielSanchezQ/warp-reverse-proxy
 pub fn serve_proxy(proxy_address: String, port: u16, mut slave: bidirectional_channel::Slave<bidirectional_channel::StatusInfo>, tx_proxy_log: bidirectional_channel::Master<bidirectional_channel::StatusInfo>, save_path: String) -> Result<SocketAddr, Box<dyn std::error::Error>> {
