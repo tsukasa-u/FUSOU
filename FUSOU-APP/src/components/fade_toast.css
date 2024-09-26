@@ -1,0 +1,43 @@
+@keyframes fadein {
+    0% {
+       opacity: 0;
+       transform: translateX(20px);
+    }
+    100% {
+       opacity: 1;
+       transform: translateX(0px);
+    }
+}
+
+@keyframes fadeout {
+    0% {
+       opacity: 1;
+       transform: translateX(0);
+    }
+    100% {
+       opacity: 0;
+       transform: translateX(20px);
+    }
+}
+
+.fadein {
+    /* position: absolute;
+    top: 45%;
+    left: 20%;
+    color: rgb(255, 255, 255); */
+    animation-name: fadein;
+    animation-duration: 500ms;
+    animation-timing-function: ease-out;
+    animation-fill-mode: forwards;
+}
+
+.fadeout {
+    /* position: absolute;
+    top: 45%;
+    left: 20%;
+    color: rgb(255, 255, 255); */
+    animation-name: fadeout;
+    animation-duration: 500ms;
+    animation-timing-function: ease-out;
+    animation-fill-mode: forwards;
+}
