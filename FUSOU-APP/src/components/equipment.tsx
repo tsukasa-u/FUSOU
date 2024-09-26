@@ -65,7 +65,7 @@ export const Equiment = component$(({mst_slot_items, slot_items, slot_id, ex_fla
                 </div> : <></>
             }
             {
-                (name_flag ?? false) ? <div class="pl-3">
+                (name_flag ?? false) ? <div class="pl-3 pt-0.5">
                     <div class="truncate">{mst_slot_item.value?.name ?? "Unknown"}</div>
                 </div> : <></>
             }
