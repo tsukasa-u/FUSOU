@@ -101,7 +101,10 @@ export const ShipName = component$(({mst_ships, ships, ship_id, slot_items, mst_
                         <HiXMarkOutline class="h-6 w-6" />
                     </button>
                 </form>
-                <h3 class="font-bold text-base pl-3 truncate">{mst_ship.value?.name ?? "Unknown"}</h3>
+                <div class="flex justify-start">
+                    <h3 class="font-bold text-base pl-2 truncate">{mst_ship.value?.name ?? "Unknown"}</h3>
+                    <div class="place-self-end pb-0.5 pl-4">Lv. {ship.value?.lv ?? ""}</div>
+                </div>
                 <div class="">
                     <table class="table table-xs">
                         <caption class="truncate">Equipment</caption>
