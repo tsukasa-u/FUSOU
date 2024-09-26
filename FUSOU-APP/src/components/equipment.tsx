@@ -12,9 +12,10 @@ interface EquipmentProps {
     slot_items: SlotItems;
     slot_id: number;
     ex_flag: boolean;
+    name_flag: boolean;
 }
 
-export const Equiment = component$(({mst_slot_items, slot_items, slot_id, ex_flag}: EquipmentProps) => {
+export const Equiment = component$(({mst_slot_items, slot_items, slot_id, ex_flag, name_flag}: EquipmentProps) => {
 
     useStylesScoped$(`
         .modal:not(dialog:not(.modal-open)), .modal::backdrop {
@@ -61,6 +62,11 @@ export const Equiment = component$(({mst_slot_items, slot_items, slot_id, ex_fla
                     <div class="grid h-2.5 w-4 place-content-center text-xs">
                         {/* {slot_item.value?.alv ?? 0} */}
                     </div>
+                </div> : <></>
+            }
+            {
+                (name_flag ?? false) ? <div class="pl-3">
+                    <div class="truncate">{mst_slot_item.value?.name ?? "Unknown"}</div>
                 </div> : <></>
             }
         </div>
