@@ -1,4 +1,4 @@
-import { component$, JSXOutput, useComputed$, PropsOf, Signal, useStylesScoped$ } from '@builder.io/qwik';
+import { component$, useComputed$, Signal, useStylesScoped$ } from '@builder.io/qwik';
 
 import { MstSlotitem, MstSlotitems } from './interface/get_data';
 import { SlotItem, SlotItems } from './interface/require_info';
@@ -40,7 +40,7 @@ export const Equiment = component$(({mst_slot_items, slot_items, slot_id, ex_fla
 
 
     return <>
-        <div class="flex flex-nowarp" onClick$={()=> { document.getElementById("my_modal"+slot_id).showModal() }}>
+        <div class="flex flex-nowarp" onClick$={()=> { document.getElementById("deck_equipment_modal_"+slot_id).showModal() }}>
             <div class="indicator">
                 {/* <span class="indicator-item badge badge-sm badge-outline">
                     {slot_item.value.level > 0 ? slot_item.value.level : "" }
@@ -64,7 +64,7 @@ export const Equiment = component$(({mst_slot_items, slot_items, slot_id, ex_fla
                 </div> : <></>
             }
         </div>
-        <dialog id={"my_modal"+slot_id} class="modal">
+        <dialog id={"deck_equipment_modal_"+slot_id} class="modal">
             <div class="modal-box bg-base-100 modal-box-width">
                 <form method="dialog">
                     <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">
