@@ -1,13 +1,17 @@
 import { component$, useComputed$, Signal, useStylesScoped$ } from '@builder.io/qwik';
 
 import { Ship, Ships } from './interface/port.ts';
-import { MstShip, MstShips } from './interface/get_data';
+import { MstShip, MstShips, MstSlotitem, MstSlotitems } from './interface/get_data';
 
 import { HiXMarkOutline } from '@qwikest/icons/heroicons';
+import { SlotItem, SlotItems } from './interface/require_info.ts';
+import { Equiment } from './equipment.tsx';
 
 interface ShipNameProps {
     mst_ships: MstShips;
     ships: Ships;
+    slot_items: SlotItems;
+    mst_slot_items: MstSlotitems;
     ship_id: number;
 }
 
@@ -18,7 +22,7 @@ interface SpEffectItem {
     kaihi: number;
 }
 
-export const ShipName = component$(({mst_ships, ships, ship_id}: ShipNameProps) => {
+export const ShipName = component$(({mst_ships, ships, ship_id, slot_items, mst_slot_items}: ShipNameProps) => {
 
     useStylesScoped$(`
         .modal:not(dialog:not(.modal-open)), .modal::backdrop {
@@ -40,6 +44,22 @@ export const ShipName = component$(({mst_ships, ships, ship_id}: ShipNameProps) 
 
     const mst_ship: Signal<MstShip> = useComputed$(() => {
         return mst_ships.mst_ships[ships.ships[ship_id]?.ship_id];
+    });
+
+    const slot_item_list: Signal<SlotItem[]> = useComputed$(() => {
+        let slot = ships.ships[ship_id]?.slot;
+        if (slot === undefined) return [];
+        return slot.map((slot_id) => {
+            return slot_items.slot_items[slot_id];
+        });
+    });
+
+    const mst_slot_item_list: Signal<MstSlotitem[]> = useComputed$(() => {
+        let slot = ships.ships[ship_id]?.slot;
+        if (slot === undefined) return [];
+        return slot.map((slot_id) => {
+            return mst_slot_items.mst_slot_items[slot_items.slot_items[slot_id]?.slotitem_id];
+        });
     });
 
     const max_eq: Signal<number> = useComputed$(() => {
@@ -83,7 +103,38 @@ export const ShipName = component$(({mst_ships, ships, ship_id}: ShipNameProps) 
                 </form>
                 <h3 class="font-bold text-base pl-3 truncate">{mst_ship.value?.name ?? "Unknown"}</h3>
                 <div class="">
-                    <table class="table table-sm">
+                    <table class="table table-xs">
+                        <caption class="truncate">Equipment</caption>
+                        <tbody>
+                            {
+                                ship.value?.slot.map((slot_ele, index) => {
+                                    return <>
+                                        <tr class="flex">
+                                            <th class="flex-none w-4">S{index+1}</th>
+                                            <td class="flex-none w-12 pl-4">
+                                                {
+                                                    slot_ele > 0
+                                                        ? <Equiment mst_slot_items={mst_slot_items} slot_items={slot_items} slot_id={slot_ele} ex_flag={true} name_flag={true}></Equiment>
+                                                        : <></>
+                                                }
+                                            </td>
+                                        </tr>
+                                    </>
+                                })
+                            }
+                            <tr class="flex">
+                                <th class="flex-none w-2">SE</th>
+                                <td class="flex-none w-12 pl-4">
+                                    {
+                                        ship.value?.slot_ex > 0
+                                            ? <Equiment mst_slot_items={mst_slot_items} slot_items={slot_items} slot_id={ship.value?.slot_ex} ex_flag={true} name_flag={true}></Equiment>
+                                            : <></>
+                                    }
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                    <table class="table table-xs">
                         <caption class="truncate">Ship Status</caption>
                         <tbody>
                             <tr class="flex">
