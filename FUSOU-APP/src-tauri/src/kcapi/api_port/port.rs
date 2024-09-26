@@ -223,9 +223,13 @@ pub struct ApiSpEffectItem {
     #[serde(rename = "api_kind")]
     pub api_kind: i64,
     #[serde(rename = "api_raig")]
-    pub api_raig: i64,
+    pub api_raig: Option<i64>,
     #[serde(rename = "api_souk")]
-    pub api_souk: i64,
+    pub api_souk: Option<i64>,
+    #[serde(rename = "api_houg")]
+    pub api_houg: Option<i64>,
+    #[serde(rename = "api_kaih")]
+    pub api_kaih: Option<i64>,
 }
 
 #[derive(Getter, TraitForTest)]
