@@ -32,7 +32,22 @@ pub struct Ship {
     pub taisen:     Vec<i64>,      // 対潜
     pub sakuteki:   Vec<i64>,      // 索敵
     pub lucky:      Vec<i64>,      // 運
-    pub sally_area: Option<i64>,  
+    pub sally_area: Option<i64>,
+    pub sp_effect_items: Option<SpEffectItems>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct SpEffectItems {
+    items: HashMap<i64, SpEffectItem>
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct SpEffectItem {
+    pub kind: i64,
+    pub raig: Option<i64>,
+    pub souk: Option<i64>,
+    pub houg: Option<i64>,
+    pub kaih: Option<i64>,
 }
 
 impl From<Vec<kcapi::api_port::port::ApiShip>> for Ships {
@@ -75,6 +90,34 @@ impl From<kcapi::api_port::port::ApiShip> for Ship {
             sakuteki:   ship.api_sakuteki,
             lucky:      ship.api_lucky,
             sally_area: ship.api_sally_area,
+            sp_effect_items: match ship.api_sp_effect_items {
+                Some(items) => Some(items.into()),
+                None => None,
+            },
+        }
+    }
+}
+
+impl From<Vec<kcapi::api_port::port::ApiSpEffectItem>> for SpEffectItems {
+    fn from(items: Vec<kcapi::api_port::port::ApiSpEffectItem>) -> Self {
+        let mut item_map = HashMap::<i64, SpEffectItem>::with_capacity(items.len());
+        for item in items {
+            item_map.insert(item.api_kind, item.into());
+        }
+        Self {
+            items: item_map
+        }
+    }
+}
+
+impl From<kcapi::api_port::port::ApiSpEffectItem> for SpEffectItem {
+    fn from(item: kcapi::api_port::port::ApiSpEffectItem) -> Self {
+        Self {
+            kind: item.api_kind,
+            raig: item.api_raig,
+            souk: item.api_souk,
+            houg: item.api_houg,
+            kaih: item.api_kaih,
         }
     }
 }
