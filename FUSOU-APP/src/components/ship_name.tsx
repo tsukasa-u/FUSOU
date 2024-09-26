@@ -38,6 +38,9 @@ export const ShipName = component$(({mst_ships, ships, ship_id, slot_items, mst_
         }
     `);
 
+    const speed_list = ["", "", "", "", "", "Slow", "", "", "", "", "Fast", "", "", "", "", "Fast+", "", "", "", "", "Fastest"];
+    const range_list = ["", "Short", "Medium", "Long", "Very Long"];
+
     const ship: Signal<Ship> = useComputed$(() => {
         return ships.ships[ship_id];
     });
@@ -104,8 +107,9 @@ export const ShipName = component$(({mst_ships, ships, ship_id, slot_items, mst_
                 <div class="flex justify-start">
                     <h3 class="font-bold text-base pl-2 truncate">{mst_ship.value?.name ?? "Unknown"}</h3>
                     <div class="place-self-end pb-0.5 pl-4">Lv. {ship.value?.lv ?? ""}</div>
+                    <div class="place-self-end pb-0.5 pl-2">next {ship.value?.exp[1] ?? ""}</div>
                 </div>
-                <div class="">
+                <div class="pt-2">
                     <table class="table table-xs">
                         <caption class="truncate">Equipment</caption>
                         <tbody>
@@ -137,6 +141,7 @@ export const ShipName = component$(({mst_ships, ships, ship_id, slot_items, mst_
                             </tr>
                         </tbody>
                     </table>
+                    <div class="h-2"></div>
                     <table class="table table-xs">
                         <caption class="truncate">Ship Status</caption>
                         <tbody>
@@ -194,13 +199,13 @@ export const ShipName = component$(({mst_ships, ships, ship_id, slot_items, mst_
                             </tr>
                             <tr class="flex">
                                 <th class="truncate flex-1 w-2">Speed</th>
-                                <td class="flex-none w-12 flex justify-end pr-4">{ship.value?.soku ?? 0}</td>
+                                <td class="flex-none w-12 flex justify-end pr-4">{speed_list[ship.value?.soku ?? 0]}</td>
                                 <th class="truncate flex-1 w-2">Reconnaissance</th>
                                 <td class="flex-none w-12 flex justify-end pr-4">{ship.value?.sakuteki[0] ?? 0 }</td>
                             </tr>
                             <tr class="flex">
                                 <th class="truncate flex-1 w-2">Range</th>
-                                <td class="flex-none w-12 flex justify-end pr-4">{ship.value?.leng ?? 0 }</td>
+                                <td class="flex-none w-12 flex justify-end pr-4">{range_list[ship.value?.leng ?? 0]}</td>
                                 <th class="truncate flex-1 w-2">Luck</th>
                                 <td class="flex-none w-12 flex justify-end pr-4">{ship.value?.lucky[0] ?? 0 }</td>
                             </tr>
