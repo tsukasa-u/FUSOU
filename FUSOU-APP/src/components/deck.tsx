@@ -112,6 +112,31 @@ export const Deck = component$<DeckPortProps>(({ deckPort, ships, mst_ships, slo
         return states;
     });
 
+    const fuel_bullet_state = useComputed$(() => {
+        const fuel_bullet_list: JSXOutput[] = [
+            <></>,
+            <IconCautionFill class="h-4 w-4 fill-yellow-500 stroke-2"></IconCautionFill>,
+            <IconCautionFill class="h-4 w-4 fill-orange-500 stroke-2"></IconCautionFill>,
+            <IconCautionFill class="h-4 w-4 fill-red-500 stroke-2"></IconCautionFill>,
+        ];
+
+        const set_fuel_bullet_state = (nowfuel: number, maxfuel: number, nowbullet: number, maxbullet: number): JSXOutput => {
+            let fuel_bullet_state: JSXOutput = <></>;
+            if (nowfuel > 0.75*maxfuel || nowbullet > 0.75*maxbullet) fuel_bullet_state = fuel_bullet_list[0];
+            else if (nowfuel > 0.5*maxfuel || nowbullet > 0.5*maxbullet) fuel_bullet_state = fuel_bullet_list[1];
+            else if (nowfuel > 0.25*maxfuel || nowbullet > 0.25*maxbullet) fuel_bullet_state = fuel_bullet_list[2];
+            else if (nowfuel >= 0 || nowbullet >= 0) fuel_bullet_state = fuel_bullet_list[3];
+            return fuel_bullet_state;
+        }
+
+        let states: JSXOutput[] = [];
+        deckPort.ship?.forEach((shipId) => {
+            states.push(set_fuel_bullet_state(ships.ships[shipId]?.bull ?? 0, mst_ships.mst_ships[ships.ships[shipId]?.ship_id ?? 0]?.bull_max ?? 0, ships.ships[shipId]?.fuel ?? 0, mst_ships.mst_ships[ships.ships[shipId]?.ship_id ?? 0]?.fuel_max ?? 0));
+        });
+
+        return states;
+    });
+
     const moreSignal = useSignal(false);
 
     return (
@@ -159,7 +184,6 @@ export const Deck = component$<DeckPortProps>(({ deckPort, ships, mst_ships, slo
                                                     <div class="divider divider-horizontal mr-0 ml-0 flex-none"></div>
                                                     <div class="indicator">
                                                         <div class="indicator-item indicator-top indicator-end flax space-x-2">
-                                                            <div></div>
                                                             { hp_state.value[idx] }
                                                         </div>
                                                         <div class=" flex-none">
@@ -176,12 +200,17 @@ export const Deck = component$<DeckPortProps>(({ deckPort, ships, mst_ships, slo
                                                         </div>
                                                     </div>
                                                     <div class="divider divider-horizontal mr-0 ml-0 flex-none"></div>
-                                                    <div class=" flex-none">
-                                                        <div class="grid h-2.5 w-6 place-content-center">
-                                                            <ColorBar class="w-6 h-1" v_now={ships.ships[shipId]?.fuel ?? 0} v_max={mst_ships.mst_ships[ships.ships[shipId]?.ship_id ?? 0]?.fuel_max ?? 0} />
-                                                        </div>
-                                                        <div class="grid h-2.5 w-6 place-content-center">
-                                                            <ColorBar class="w-6 h-1" v_now={ships.ships[shipId]?.bull ?? 0} v_max={mst_ships.mst_ships[ships.ships[shipId]?.ship_id ?? 0]?.bull_max ?? 0} />
+                                                    <div class="indicator">
+                                                        <div class="flex-none">
+                                                            <div class="indicator-item indicator-top indicator-end flax space-x-2">
+                                                                { fuel_bullet_state.value[idx] }
+                                                            </div>
+                                                            <div class="grid h-2.5 w-6 place-content-center">
+                                                                <ColorBar class="w-6 h-1" v_now={ships.ships[shipId]?.fuel ?? 0} v_max={mst_ships.mst_ships[ships.ships[shipId]?.ship_id ?? 0]?.fuel_max ?? 0} />
+                                                            </div>
+                                                            <div class="grid h-2.5 w-6 place-content-center">
+                                                                <ColorBar class="w-6 h-1" v_now={ships.ships[shipId]?.bull ?? 0} v_max={mst_ships.mst_ships[ships.ships[shipId]?.ship_id ?? 0]?.bull_max ?? 0} />
+                                                            </div>
                                                         </div>
                                                     </div>
                                                     <div class="divider divider-horizontal mr-0 ml-0"></div>
