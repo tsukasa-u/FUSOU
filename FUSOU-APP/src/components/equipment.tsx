@@ -41,7 +41,7 @@ export const Equiment = component$(({mst_slot_items, slot_items, slot_id, ex_fla
 
 
     return <>
-        <div class="flex flex-nowarp" onClick$={()=> { document.getElementById("deck_equipment_modal_"+slot_id).showModal() }}>
+        <div class="flex flex-nowarp" onClick$={()=> { document.getElementById("deck_equipment_modal_"+slot_id).showModal() }} >
             <div class="indicator">
                 {/* <span class="indicator-item badge badge-sm badge-outline">
                     {slot_item.value.level > 0 ? slot_item.value.level : "" }
@@ -52,7 +52,7 @@ export const Equiment = component$(({mst_slot_items, slot_items, slot_id, ex_fla
                         { slot_item.value.level === 10 ? "★" : slot_item.value.level }
                     </div> : "" }
                 </span>
-                <IconEquipment class="h-5 w-5" category_number={mst_slot_items.mst_slot_items[slot_items.slot_items[slot_id]?.slotitem_id]?._type[1]} icon_number={mst_slot_items.mst_slot_items[slot_items.slot_items[slot_id]?.slotitem_id]?._type[2]}></IconEquipment>
+                <IconEquipment class="h-5 w-5" category_number={mst_slot_items.mst_slot_items[slot_items.slot_items[slot_id]?.slotitem_id]?._type[1]} icon_number={mst_slot_items.mst_slot_items[slot_items.slot_items[slot_id]?.slotitem_id]?._type[3]}></IconEquipment>
             </div>
             {
                 !(ex_flag ?? false) ? <div class="flex-none">
@@ -95,7 +95,7 @@ export const Equiment = component$(({mst_slot_items, slot_items, slot_id, ex_fla
                                 <th class="truncate flex-1 w-2">Bomb</th>
                                 <td class="flex-none w-12">{mst_slot_item.value?.baku ?? 0 > 0 ? "+"+mst_slot_item.value.baku : ""}</td>
                                 <th class="truncate flex-1 w-2">Anti-Air</th>
-                                <td class="flex-none w-12">{mst_slot_item.value?.taik ?? 0 > 0 ? "+"+mst_slot_item.value.taik :  ""}</td>
+                                <td class="flex-none w-12">{mst_slot_item.value?.tyku ?? 0 > 0 ? "+"+mst_slot_item.value.tyku :  ""}</td>
                             </tr>
                             <tr class="flex">
                                 <th class="truncate flex-1 w-2">Anti-Submarine</th>
@@ -110,11 +110,17 @@ export const Equiment = component$(({mst_slot_items, slot_items, slot_id, ex_fla
                                 <td class="flex-none w-12">{mst_slot_item.value?.houk ?? 0 > 0 ? "+"+mst_slot_item.value.houk : ""}</td>
                             </tr>
                             <tr class="flex">
+                                <th class="truncate flex-1 w-2">Armor</th>
+                                <td class="flex-none w-12">{mst_slot_item.value?.taik ?? 0 > 0 ? "+"+mst_slot_item.value.taik : ""}</td>
+                                <th class="truncate flex-1 w-2"></th>
+                                <td class="flex-none w-12"></td>
+                            </tr>
+                            {/* <tr class="flex">
                                 <th class="truncate flex-1 w-2">Range</th>
                                 <td class="flex-none w-12">{mst_slot_item.value?.leng ?? 0 > 0 ? "+"+mst_slot_item.value.leng : ""}</td>
                                 <th class="truncate flex-1 w-2"></th>
                                 <td class="flex-none w-12"></td>
-                            </tr>
+                            </tr> */}
                         </tbody>
                     </table>
                 </div>
