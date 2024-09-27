@@ -184,7 +184,7 @@ export function IconEquipment({icon_number, category_number, ...props}: PropsOf<
   return (
     <svg 
       fill="currentColor"
-      strokeWidth="1.5" 
+      stroke-width="1.5" 
       stroke="currentColor" 
       viewBox="0 0 151 151"
       xmlns="http://www.w3.org/2000/svg" 
