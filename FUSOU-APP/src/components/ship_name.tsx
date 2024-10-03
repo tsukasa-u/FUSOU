@@ -21,6 +21,11 @@ interface SpEffectItem {
     karyoku: number;
     kaihi: number;
 }
+   
+const show_modal = (ship_id: number) => {
+    const dialogElement = document.getElementById("deck_ship_name_modal_"+ship_id) as HTMLDialogElement | null
+    dialogElement?.showModal()
+}
 
 export const ShipName = component$(({mst_ships, ships, ship_id, slot_items, mst_slot_items}: ShipNameProps) => {
 
@@ -92,11 +97,6 @@ export const ShipName = component$(({mst_ships, ships, ship_id, slot_items, mst_
 
         return parameter_map;
     });
-    
-    const show_modal = (ship_id: number) => {
-        const dialogElement = document.getElementById("deck_ship_name_modal_"+ship_id) as HTMLDialogElement | null
-        dialogElement?.showModal()
-    }
 
     return <>
         <div class="flex flex-nowarp" onClick$={()=> show_modal(ship_id)}>
