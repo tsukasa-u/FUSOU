@@ -15,6 +15,11 @@ interface EquipmentProps {
     name_flag: boolean;
 }
 
+const show_modal = (slot_id: number) => {
+    const dialogElement = document.getElementById("deck_equipment_modal_"+slot_id) as HTMLDialogElement | null
+    dialogElement?.showModal()
+}
+
 export const Equiment = component$(({mst_slot_items, slot_items, slot_id, ex_flag, name_flag}: EquipmentProps) => {
 
     useStylesScoped$(`
@@ -38,11 +43,6 @@ export const Equiment = component$(({mst_slot_items, slot_items, slot_id, ex_fla
     const mst_slot_item: Signal<MstSlotitem> = useComputed$(() => {
         return mst_slot_items.mst_slot_items[slot_items.slot_items[slot_id]?.slotitem_id];
     });
-
-    const show_modal = (slot_id: number) => {
-        const dialogElement = document.getElementById("deck_equipment_modal_"+slot_id) as HTMLDialogElement | null
-        dialogElement?.showModal()
-    }
 
     return <>
         <div class="flex flex-nowarp" onClick$={()=> show_modal(slot_id)} >
