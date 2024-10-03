@@ -5,7 +5,7 @@ use crate::kcapi;
 use std::sync::{LazyLock, Mutex};
 
 // Is it better to use onecell::sync::Lazy or std::sync::Lazy?
-static KCS_DECKS: LazyLock<Mutex<DeckPorts>> = LazyLock::new(|| {
+pub static KCS_DECKS: LazyLock<Mutex<DeckPorts>> = LazyLock::new(|| {
     Mutex::new(DeckPorts {
         deck_ports: HashMap::new()
     })
