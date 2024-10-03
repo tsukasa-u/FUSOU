@@ -39,15 +39,19 @@ export const Equiment = component$(({mst_slot_items, slot_items, slot_id, ex_fla
         return mst_slot_items.mst_slot_items[slot_items.slot_items[slot_id]?.slotitem_id];
     });
 
+    const show_modal = (slot_id: number) => {
+        const dialogElement = document.getElementById("deck_equipment_modal_"+slot_id) as HTMLDialogElement | null
+        dialogElement?.showModal()
+    }
 
     return <>
-        <div class="flex flex-nowarp" onClick$={()=> { document.getElementById("deck_equipment_modal_"+slot_id).showModal() }} >
+        <div class="flex flex-nowarp" onClick$={()=> show_modal(slot_id)} >
             <div class="indicator">
                 {/* <span class="indicator-item badge badge-sm badge-outline">
                     {slot_item.value.level > 0 ? slot_item.value.level : "" }
                 </span> */}
                 <span class="indicator-item">
-                    { slot_item.value.level > 0 ? 
+                    { slot_item.value?.level ?? 0 > 0 ? 
                     <div class="badge badge-xs badge-ghost w-2 rounded grid place-content-center">
                         { slot_item.value.level === 10 ? "★" : slot_item.value.level }
                     </div> : "" }
