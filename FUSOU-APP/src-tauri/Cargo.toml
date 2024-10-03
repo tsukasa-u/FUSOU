@@ -32,6 +32,7 @@ chrono = "0.4.31"
 tauri-plugin-window-state = { git = "https://github.com/tauri-apps/plugins-workspace", branch = "v1" }
 discord-rich-presence = "0.2.4"
 dotenvy = "0.15.7"
+tauri-invoke-http = "0.1"
 
 
 [features]
