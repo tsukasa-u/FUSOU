@@ -1,4 +1,5 @@
-import { component$, useStyles$, useStore, useVisibleTask$, useTask$ } from '@builder.io/qwik'
+import { component$, useStyles$, useStore, useVisibleTask$, useTask$, Signal } from '@builder.io/qwik';
+import { useContext, useContextProvider, createContextId } from '@builder.io/qwik';
 import globalStyles from './tailwind.css?inline';
 
 import { IconResume } from './components/icons/resume.tsx';
@@ -52,6 +53,15 @@ function mergeObjects<T>(source: T, target: T): void {
   });
 }
 
+export const global_slot_items_context_id = createContextId<SlotItems>('global_slot_items');
+export const global_mst_slot_items_context_id = createContextId<MstSlotitems>('global_mst_slot_items');
+export const global_ship_context_id = createContextId<Ships>('global_ship');
+export const global_mst_ships_context_id = createContextId<MstShips>('global_mst_ships');
+export const global_deck_port_context_id = createContextId<Signal<DeckPorts>>('global_deck_port');
+export const global_materials_context_id = createContextId<Materials>('global_materials');
+// export const global_nDock_context_id = createContextId<Signal<number>>('global_nDock');
+
+
 export const App = component$(() => {
   useStyles$(globalStyles);
 
@@ -62,13 +72,19 @@ export const App = component$(() => {
   // let nDock = useStore(global_nDock);
   let deck = useStore(global_deck_port);
   let ships = useStore(global_ship);
-  // let slot_items = global_slotitems;
-  let slot_items = useStore(global_slotitems);
+  let slot_items = global_slotitems;
+  // let slot_items = useStore(global_slotitems);
   let materials = useStore(global_materials);
-  // let mst_ships = global_mst_ships;
-  let mst_ships = useStore(global_mst_ships);
-  // let mst_slot_items = global_mst_slot_items;
-  let mst_slot_items = useStore(global_mst_slot_items);
+  let mst_ships = global_mst_ships;
+  // let mst_ships = useStore(global_mst_ships);
+  let mst_slot_items = global_mst_slot_items;
+  // let mst_slot_items = useStore(global_mst_slot_items);
+
+  useContextProvider(global_materials_context_id, materials);
+  useContextProvider(global_slot_items_context_id, slot_items);
+  useContextProvider(global_mst_slot_items_context_id, mst_slot_items);
+  useContextProvider(global_ship_context_id, ships);
+  useContextProvider(global_mst_ships_context_id, mst_ships);
 
   useTask$(({ cleanup }) => {
     let unlisten_set_kcs_materials: UnlistenFn;
@@ -131,7 +147,7 @@ export const App = component$(() => {
             <div class="h-6"></div>
 
             <ul class="menu menu-xs bg-base-200 w-full pl-0 flex pt-0">
-              <Material materials={materials}>
+              <Material>
                 <IconFolder class="h-4 w-4" q:slot='icon_material'/>
                 <IconFile class="h-4 w-4" q:slot='icon_material_fuel'/>
                 <IconFile class="h-4 w-4" q:slot='icon_material_bull'/>
@@ -143,7 +159,7 @@ export const App = component$(() => {
                 <IconFile class="h-4 w-4" q:slot='icon_material_screw'/>
               </Material>
 
-              <Decks decks={deck} ships={ships} mst_ships={mst_ships} slot_items={global_slotitems} mst_slot_items={mst_slot_items}>
+              <Decks decks={deck} >
                 <IconFolder class="h-4 w-4" q:slot='icon_fleets'/>
                 <IconFile class="h-4 w-4" q:slot='icon_fleet1'/>
                 <IconFile class="h-4 w-4" q:slot='icon_fleet2'/>

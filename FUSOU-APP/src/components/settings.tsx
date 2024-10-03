@@ -29,6 +29,14 @@ export const Settings = component$(() => {
                 <hr class="mt-4 mb-8" />
                 <p class="py-2 text-xl font-semibold">Load Data</p>
                 <p class="text-slate-600">Load saved response data when the API comes from. this app does not access KanColle server via API, it just copies response data.</p>
+                <div class="mt-4 flex items-center justify-end">
+                    <button class="btn btn-outline btn-wide" onClick$={() => {
+                        invoke("get_mst_ships");
+                        invoke("get_slot_items");
+                        invoke("get_mst_slot_items");
+                        showFadeToast('setting_toast', "load all data");
+                    }}>Load all data</button>
+                </div>
                 <hr class="mt-4 mb-4" />
 
                 <div class="grid py-6">

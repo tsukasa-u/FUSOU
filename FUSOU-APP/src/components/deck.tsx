@@ -1,4 +1,4 @@
-import { Slot, component$, useComputed$, useStylesScoped$, JSXOutput, useSignal } from '@builder.io/qwik';
+import { Slot, component$, useComputed$, useStylesScoped$, JSXOutput, useSignal, useContext } from '@builder.io/qwik';
 
 import { DeckPort, Ships } from "./interface/port.ts";
 import { MstShips, MstSlotitems } from "./interface/get_data.ts";
@@ -13,16 +13,13 @@ import { IconKira3 } from './icons/kira3.tsx';
 
 import { Equiment } from './equipment.tsx';
 import { ShipName } from './ship_name.tsx';
+import { global_mst_ships_context_id, global_ship_context_id } from '../app.tsx';
 
 interface DeckPortProps {
     deckPort: DeckPort;
-    ships: Ships;
-    mst_ships: MstShips;
-    slot_items: SlotItems;
-    mst_slot_items: MstSlotitems;
 }
  
-export const Deck = component$<DeckPortProps>(({ deckPort, ships, mst_ships, slot_items, mst_slot_items }) => {
+export const Deck = component$<DeckPortProps>(({ deckPort }) => {
 
     const fleet_name: {[key:number]:string} = {
         1: "First Fleet",
@@ -39,6 +36,9 @@ export const Deck = component$<DeckPortProps>(({ deckPort, ships, mst_ships, slo
             width: 1px;
         }
     `);
+
+    const _mst_ships = useContext(global_mst_ships_context_id);
+    const _ships = useContext(global_ship_context_id);
 
     // const wquipment_state = useComputed$(() => {
     //     let states: JSXOutput[] = [];
@@ -82,7 +82,7 @@ export const Deck = component$<DeckPortProps>(({ deckPort, ships, mst_ships, slo
 
         let states: JSXOutput[] = [];
         deckPort.ship?.forEach((shipId) => {
-            states.push(set_cond_state(ships.ships[shipId]?.cond ?? 0));
+            states.push(set_cond_state(_ships.ships[shipId]?.cond ?? 0));
         });
         return states;
     });
@@ -93,6 +93,7 @@ export const Deck = component$<DeckPortProps>(({ deckPort, ships, mst_ships, slo
             <IconCautionFill class="h-4 w-4 fill-yellow-500 stroke-2"></IconCautionFill>,
             <IconCautionFill class="h-4 w-4 fill-orange-500 stroke-2"></IconCautionFill>,
             <IconCautionFill class="h-4 w-4 fill-red-500 stroke-2"></IconCautionFill>,
+            <></>,
         ];
 
         const set_hp_state = (nowhp: number, maxhp: number): JSXOutput => {
@@ -101,12 +102,13 @@ export const Deck = component$<DeckPortProps>(({ deckPort, ships, mst_ships, slo
             else if (nowhp > 0.5*maxhp) hp_state = hp_list[1];
             else if (nowhp > 0.25*maxhp) hp_state = hp_list[2];
             else if (nowhp > 0) hp_state = hp_list[3];
+            else hp_state = hp_list[4];
             return hp_state;
         }
 
         let states: JSXOutput[] = [];
         deckPort.ship?.forEach((shipId) => {
-            states.push(set_hp_state(ships.ships[shipId]?.nowhp ?? 0, ships.ships[shipId]?.maxhp ?? 0));
+            states.push(set_hp_state(_ships.ships[shipId]?.nowhp ?? 0, _ships.ships[shipId]?.maxhp ?? 0));
         });
 
         return states;
@@ -131,7 +133,7 @@ export const Deck = component$<DeckPortProps>(({ deckPort, ships, mst_ships, slo
 
         let states: JSXOutput[] = [];
         deckPort.ship?.forEach((shipId) => {
-            states.push(set_fuel_bullet_state(ships.ships[shipId]?.bull ?? 0, mst_ships.mst_ships[ships.ships[shipId]?.ship_id ?? 0]?.bull_max ?? 0, ships.ships[shipId]?.fuel ?? 0, mst_ships.mst_ships[ships.ships[shipId]?.ship_id ?? 0]?.fuel_max ?? 0));
+            states.push(set_fuel_bullet_state(_ships.ships[shipId]?.bull ?? 0, _mst_ships.mst_ships[_ships.ships[shipId]?.ship_id ?? 0]?.bull_max ?? 0, _ships.ships[shipId]?.fuel ?? 0, _mst_ships.mst_ships[_ships.ships[shipId]?.ship_id ?? 0]?.fuel_max ?? 0));
         });
 
         return states;
@@ -165,9 +167,7 @@ export const Deck = component$<DeckPortProps>(({ deckPort, ships, mst_ships, slo
                                                     <Slot name="icon_ship" />
                                                     <div class="pl-2 pr-0.5 truncate flex-1 min-w-12 content-center">
                                                         <div class="w-24 h-max">
-                                                            {/* {shipId} */}
-                                                            <ShipName mst_ships={mst_ships} ships={ships} ship_id={shipId} slot_items={slot_items} mst_slot_items={mst_slot_items}></ShipName>
-                                                            {/* { mst_ships.mst_ships[ships.ships[shipId].ship_id]?.name ?? "Unknown" } */}
+                                                            <ShipName ship_id={shipId}></ShipName>
                                                         </div>
                                                     </div>
                                                     <div class="divider divider-horizontal mr-0 ml-0 flex-none"></div>
@@ -177,7 +177,7 @@ export const Deck = component$<DeckPortProps>(({ deckPort, ships, mst_ships, slo
                                                                 { cond_state.value[idx] }
                                                             </div>
                                                             <div class="badge badge-md border-inherit w-9">
-                                                                { ships.ships[shipId]?.cond ?? 0 }
+                                                                { _ships.ships[shipId]?.cond ?? 0 }
                                                             </div>
                                                         </div>
                                                     </div>
@@ -189,13 +189,13 @@ export const Deck = component$<DeckPortProps>(({ deckPort, ships, mst_ships, slo
                                                         <div class=" flex-none">
                                                             <div class="grid h-2.5 w-12 place-content-center">
                                                                 <div class="grid grid-flow-col auto-cols-max gap-1">
-                                                                    <div>{ ships.ships[shipId]?.nowhp ?? 0 }</div>
+                                                                    <div>{ _ships.ships[shipId]?.nowhp ?? 0 }</div>
                                                                     <div>/</div>
-                                                                    <div>{ ships.ships[shipId]?.maxhp ?? 0 }</div>
+                                                                    <div>{ _ships.ships[shipId]?.maxhp ?? 0 }</div>
                                                                 </div>
                                                             </div>
                                                             <div class="grid h-2.5 w-12 place-content-center">
-                                                                <ColorBar class="w-12 h-1" v_now={ships.ships[shipId]?.nowhp ?? 0} v_max={ships.ships[shipId]?.maxhp ?? 0} />
+                                                                <ColorBar class="w-12 h-1" v_now={_ships.ships[shipId]?.nowhp ?? 0} v_max={_ships.ships[shipId]?.maxhp ?? 0} />
                                                             </div>
                                                         </div>
                                                     </div>
@@ -206,10 +206,10 @@ export const Deck = component$<DeckPortProps>(({ deckPort, ships, mst_ships, slo
                                                                 { fuel_bullet_state.value[idx] }
                                                             </div>
                                                             <div class="grid h-2.5 w-6 place-content-center">
-                                                                <ColorBar class="w-6 h-1" v_now={ships.ships[shipId]?.fuel ?? 0} v_max={mst_ships.mst_ships[ships.ships[shipId]?.ship_id ?? 0]?.fuel_max ?? 0} />
+                                                                <ColorBar class="w-6 h-1" v_now={_ships.ships[shipId]?.fuel ?? 0} v_max={_mst_ships.mst_ships[_ships.ships[shipId]?.ship_id ?? 0]?.fuel_max ?? 0} />
                                                             </div>
                                                             <div class="grid h-2.5 w-6 place-content-center">
-                                                                <ColorBar class="w-6 h-1" v_now={ships.ships[shipId]?.bull ?? 0} v_max={mst_ships.mst_ships[ships.ships[shipId]?.ship_id ?? 0]?.bull_max ?? 0} />
+                                                                <ColorBar class="w-6 h-1" v_now={_ships.ships[shipId]?.bull ?? 0} v_max={_mst_ships.mst_ships[_ships.ships[shipId]?.ship_id ?? 0]?.bull_max ?? 0} />
                                                             </div>
                                                         </div>
                                                     </div>
@@ -219,10 +219,10 @@ export const Deck = component$<DeckPortProps>(({ deckPort, ships, mst_ships, slo
                                                 ? <></> 
                                                 : <div class="flex">
                                                     <div class="grid grid-cols-5 gap-2 content-center w-52">
-                                                        { ships.ships[shipId]?.slot?.map((slotId) => (
+                                                        { _ships.ships[shipId]?.slot?.map((slotId) => (
                                                             slotId > 0
                                                             ? <div class="text-base flex justify-center">
-                                                                <Equiment mst_slot_items={mst_slot_items} slot_items={slot_items} slot_id={slotId} ex_flag={false} name_flag={false}></Equiment>
+                                                                <Equiment slot_id={slotId} ex_flag={false} name_flag={false}></Equiment>
                                                             </div>
                                                             : <></>
                                                         )) }
@@ -232,7 +232,7 @@ export const Deck = component$<DeckPortProps>(({ deckPort, ships, mst_ships, slo
                                                     <span class="w-2"></span>
                                                     <div class="content-center">
                                                         <div class="text-base flex justify-center w-8">
-                                                            { ships.ships[shipId]?.slot_ex ?? 0 > 0 ? <Equiment mst_slot_items={mst_slot_items} slot_items={slot_items} slot_id={ships.ships[shipId]?.slot_ex} ex_flag={true} name_flag={false}></Equiment> : <></> }
+                                                            { _ships.ships[shipId]?.slot_ex ?? 0 > 0 ? <Equiment slot_id={_ships.ships[shipId]?.slot_ex} ex_flag={true} name_flag={false}></Equiment> : <></> }
                                                         </div>
                                                     </div>
                                                     <span class="w-px"></span>

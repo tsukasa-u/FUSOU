@@ -1,4 +1,4 @@
-import { component$, useComputed$, Signal, useStylesScoped$ } from '@builder.io/qwik';
+import { component$, useComputed$, Signal, useStylesScoped$, useContext } from '@builder.io/qwik';
 
 import { MstSlotitem, MstSlotitems } from './interface/get_data';
 import { SlotItem, SlotItems } from './interface/require_info';
@@ -6,10 +6,9 @@ import { SlotItem, SlotItems } from './interface/require_info';
 import { IconEquipment } from './icons/equipment.tsx';
 
 import { HiXMarkOutline } from '@qwikest/icons/heroicons';
+import { global_mst_slot_items_context_id, global_slot_items_context_id } from '../app.tsx';
 
 interface EquipmentProps {
-    mst_slot_items: MstSlotitems;
-    slot_items: SlotItems;
     slot_id: number;
     ex_flag: boolean;
     name_flag: boolean;
@@ -20,7 +19,7 @@ const show_modal = (slot_id: number) => {
     dialogElement?.showModal()
 }
 
-export const Equiment = component$(({mst_slot_items, slot_items, slot_id, ex_flag, name_flag}: EquipmentProps) => {
+export const Equiment = component$(({slot_id, ex_flag, name_flag}: EquipmentProps) => {
 
     useStylesScoped$(`
         .modal:not(dialog:not(.modal-open)), .modal::backdrop {
@@ -36,12 +35,15 @@ export const Equiment = component$(({mst_slot_items, slot_items, slot_id, ex_fla
         }
     `);
 
+    const _mst_slot_items = useContext(global_mst_slot_items_context_id);
+    const _slot_items = useContext(global_slot_items_context_id);
+
     const slot_item: Signal<SlotItem> = useComputed$(() => {
-        return slot_items.slot_items[slot_id];
+        return _slot_items.slot_items[slot_id];
     });
 
     const mst_slot_item: Signal<MstSlotitem> = useComputed$(() => {
-        return mst_slot_items.mst_slot_items[slot_items.slot_items[slot_id]?.slotitem_id];
+        return _mst_slot_items.mst_slot_items[_slot_items.slot_items[slot_id]?.slotitem_id];
     });
 
     return <>
@@ -56,7 +58,7 @@ export const Equiment = component$(({mst_slot_items, slot_items, slot_id, ex_fla
                         { slot_item.value.level === 10 ? "★" : slot_item.value.level }
                     </div> : "" }
                 </span>
-                <IconEquipment class="h-5 w-5" category_number={mst_slot_items.mst_slot_items[slot_items.slot_items[slot_id]?.slotitem_id]?._type[1]} icon_number={mst_slot_items.mst_slot_items[slot_items.slot_items[slot_id]?.slotitem_id]?._type[3]}></IconEquipment>
+                <IconEquipment class="h-5 w-5" category_number={_mst_slot_items.mst_slot_items[_slot_items.slot_items[slot_id]?.slotitem_id]?._type[1]} icon_number={_mst_slot_items.mst_slot_items[_slot_items.slot_items[slot_id]?.slotitem_id]?._type[3]}></IconEquipment>
             </div>
             {
                 !(ex_flag ?? false) ? <div class="flex-none">

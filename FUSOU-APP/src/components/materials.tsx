@@ -1,12 +1,9 @@
-import { Slot, component$, useStylesScoped$ } from '@builder.io/qwik';
+import { Slot, component$, useContext, useStylesScoped$ } from '@builder.io/qwik';
 
 import { Materials } from "./interface/port.tsx";
+import { global_materials_context_id } from '../app.tsx';
 
-interface MaterialsProps {
-    materials: Materials;
-}
-
-export const Material = component$<MaterialsProps>(({ materials }) => {
+export const Material = component$(() => {
 
     useStylesScoped$(`
         div::before, div::after {
@@ -24,6 +21,9 @@ export const Material = component$<MaterialsProps>(({ materials }) => {
         6: "icon_material_nail",
         7: "icon_material_screw",
     }
+
+    
+    const _materials = useContext<Materials>(global_materials_context_id);    
     
     return (
         <>
@@ -37,7 +37,7 @@ export const Material = component$<MaterialsProps>(({ materials }) => {
                         <li class="h-auto">
                             <a class="justify-start gap-0 flex flex-wrap gap-y-1">
                                 <div class="justify-start gap-0 flex flex-nowrap">
-                                    {Object.values(materials.materials).slice(0, 4).map((material, index) => (
+                                    {Object.values(_materials.materials).slice(0, 4).map((material, index) => (
                                         <>
                                             <Slot name={icon_material_name[index]} />
                                             <div class="w-10 flex justify-end">
@@ -48,7 +48,7 @@ export const Material = component$<MaterialsProps>(({ materials }) => {
                                     ))}
                                 </div>
                                 <div class="justify-start gap-0 flex flex-nowrap">
-                                    {Object.values(materials.materials).slice(4, 8).map((material, index) => (
+                                    {Object.values(_materials.materials).slice(4, 8).map((material, index) => (
                                         <>
                                             <Slot name={icon_material_name[index + 4]} />
                                             <div class="w-10 flex justify-end">

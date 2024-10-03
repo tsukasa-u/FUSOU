@@ -1,4 +1,4 @@
-import { component$, useComputed$, Signal, useStylesScoped$ } from '@builder.io/qwik';
+import { component$, useComputed$, Signal, useStylesScoped$, useContext } from '@builder.io/qwik';
 
 import { Ship, Ships } from './interface/port.ts';
 import { MstShip, MstShips, MstSlotitem, MstSlotitems } from './interface/get_data';
@@ -6,12 +6,9 @@ import { MstShip, MstShips, MstSlotitem, MstSlotitems } from './interface/get_da
 import { HiXMarkOutline } from '@qwikest/icons/heroicons';
 import { SlotItem, SlotItems } from './interface/require_info.ts';
 import { Equiment } from './equipment.tsx';
+import { global_mst_ships_context_id, global_ship_context_id } from '../app.tsx';
 
 interface ShipNameProps {
-    mst_ships: MstShips;
-    ships: Ships;
-    slot_items: SlotItems;
-    mst_slot_items: MstSlotitems;
     ship_id: number;
 }
 
@@ -27,7 +24,7 @@ const show_modal = (ship_id: number) => {
     dialogElement?.showModal()
 }
 
-export const ShipName = component$(({mst_ships, ships, ship_id, slot_items, mst_slot_items}: ShipNameProps) => {
+export const ShipName = component$(({ship_id}: ShipNameProps) => {
 
     useStylesScoped$(`
         .modal:not(dialog:not(.modal-open)), .modal::backdrop {
@@ -43,35 +40,38 @@ export const ShipName = component$(({mst_ships, ships, ship_id, slot_items, mst_
         }
     `);
 
+    const _mst_ships = useContext(global_mst_ships_context_id);
+    const _ships = useContext(global_ship_context_id);
+
     const speed_list = ["", "", "", "", "", "Slow", "", "", "", "", "Fast", "", "", "", "", "Fast+", "", "", "", "", "Fastest"];
     const range_list = ["", "Short", "Medium", "Long", "Very Long"];
 
     const ship: Signal<Ship> = useComputed$(() => {
-        return ships.ships[ship_id];
+        return _ships.ships[ship_id];
     });
 
     const mst_ship: Signal<MstShip> = useComputed$(() => {
-        return mst_ships.mst_ships[ships.ships[ship_id]?.ship_id];
+        return _mst_ships.mst_ships[_ships.ships[ship_id]?.ship_id];
     });
 
-    const slot_item_list: Signal<SlotItem[]> = useComputed$(() => {
-        let slot = ships.ships[ship_id]?.slot;
-        if (slot === undefined) return [];
-        return slot.map((slot_id) => {
-            return slot_items.slot_items[slot_id];
-        });
-    });
+    // const slot_item_list: Signal<SlotItem[]> = useComputed$(() => {
+    //     let slot = _ships.ships[ship_id]?.slot;
+    //     if (slot === undefined) return [];
+    //     return slot.map((slot_id) => {
+    //         return slot_items.slot_items[slot_id];
+    //     });
+    // });
 
-    const mst_slot_item_list: Signal<MstSlotitem[]> = useComputed$(() => {
-        let slot = ships.ships[ship_id]?.slot;
-        if (slot === undefined) return [];
-        return slot.map((slot_id) => {
-            return mst_slot_items.mst_slot_items[slot_items.slot_items[slot_id]?.slotitem_id];
-        });
-    });
+    // const mst_slot_item_list: Signal<MstSlotitem[]> = useComputed$(() => {
+    //     let slot = _ships.ships[ship_id]?.slot;
+    //     if (slot === undefined) return [];
+    //     return slot.map((slot_id) => {
+    //         return mst_slot_items.mst_slot_items[slot_items.slot_items[slot_id]?.slotitem_id];
+    //     });
+    // });
 
     const max_eq: Signal<number> = useComputed$(() => {
-        return mst_ships.mst_ships[ships.ships[ship_id]?.ship_id]?.maxeq.reduce((a, b) => a + b, 0);
+        return _mst_ships.mst_ships[_ships.ships[ship_id]?.ship_id]?.maxeq.reduce((a, b) => a + b, 0);
     });
 
     const sp_effect_item: Signal<SpEffectItem> = useComputed$(() => {
@@ -81,12 +81,12 @@ export const ShipName = component$(({mst_ships, ships, ship_id, slot_items, mst_
             karyoku: 0,
             kaihi: 0
         };
-        if (ships.ships[ship_id] === undefined) return parameter_map;
-        if (ships.ships[ship_id].sp_effect_items === undefined) return parameter_map;
-        if (ships.ships[ship_id].sp_effect_items === null) return parameter_map;
+        if (_ships.ships[ship_id] === undefined) return parameter_map;
+        if (_ships.ships[ship_id].sp_effect_items === undefined) return parameter_map;
+        if (_ships.ships[ship_id].sp_effect_items === null) return parameter_map;
 
         for (const i of [1, 2]) {
-            let sp_effect_item = ships.ships[ship_id].sp_effect_items.items[i];
+            let sp_effect_item = _ships.ships[ship_id].sp_effect_items.items[i];
             if (sp_effect_item) {
                 parameter_map.soukou += sp_effect_item.souk ?? 0;
                 parameter_map.raisou += sp_effect_item.raig ?? 0;
@@ -126,7 +126,7 @@ export const ShipName = component$(({mst_ships, ships, ship_id, slot_items, mst_
                                             <td class="flex-none w-12 pl-4">
                                                 {
                                                     slot_ele > 0
-                                                        ? <Equiment mst_slot_items={mst_slot_items} slot_items={slot_items} slot_id={slot_ele} ex_flag={true} name_flag={true}></Equiment>
+                                                        ? <Equiment slot_id={slot_ele} ex_flag={true} name_flag={true}></Equiment>
                                                         : <></>
                                                 }
                                             </td>
@@ -139,7 +139,7 @@ export const ShipName = component$(({mst_ships, ships, ship_id, slot_items, mst_
                                 <td class="flex-none w-12 pl-4">
                                     {
                                         ship.value?.slot_ex > 0
-                                            ? <Equiment mst_slot_items={mst_slot_items} slot_items={slot_items} slot_id={ship.value?.slot_ex} ex_flag={true} name_flag={true}></Equiment>
+                                            ? <Equiment slot_id={ship.value?.slot_ex} ex_flag={true} name_flag={true}></Equiment>
                                             : <></>
                                     }
                                 </td>
