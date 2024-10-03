@@ -11,6 +11,10 @@ fn emit_data<R: tauri::Runtime>(handle: &impl tauri::Manager<R>, emit_data: Emit
     match emit_data {
         EmitData::Add(data) => {
             match data {
+                Add::Ships(data) => {
+                    // println!("Ships: {:?}", data);
+                    let _ = handle.emit_to("main", "add-kcs-ships", data);
+                },
                 Add::Dammy(_) => {
                     // println!("Dammy");
                     let _ = handle.emit_to("main", "add-kcs-dammy", ());
@@ -50,6 +54,10 @@ fn emit_data<R: tauri::Runtime>(handle: &impl tauri::Manager<R>, emit_data: Emit
                 Set::MstSlotItems(data) => {
                     // println!("MstSlotItems: {:?}", data);
                     let _ = handle.emit_to("main", "set-kcs-mst-slot-items", data);
+                },
+                Set::Dammy(_) => {
+                    // println!("Dammy");
+                    let _ = handle.emit_to("main", "set-kcs-dammy", ());
                 },
             }
         },
