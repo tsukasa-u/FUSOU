@@ -28,6 +28,30 @@ import './app.css';
 import { listen, UnlistenFn } from '@tauri-apps/api/event';
 import { Settings } from './components/settings.tsx';
 
+function mergeObjects<T>(source: T, target: T): void {
+  if (typeof source !== 'object' || source === null || typeof target !== 'object' || target === null) {
+      return;
+  }
+
+  Object.keys(source).forEach(key => {
+      const sourceValue = (source as any)[key];
+      const targetValue = (target as any)[key];
+
+      if (Array.isArray(sourceValue)) {
+          if (sourceValue !== null) {
+              (target as any)[key] = sourceValue;
+          }
+      } else if (typeof sourceValue === 'object' && sourceValue !== null) {
+          if (typeof targetValue !== 'object' || targetValue === null) {
+              (target as any)[key] = {};
+          }
+          mergeObjects(sourceValue, (target as any)[key]);
+      } else if (sourceValue !== null) {
+          (target as any)[key] = sourceValue;
+      }
+  });
+}
+
 export const App = component$(() => {
   useStyles$(globalStyles);
 
@@ -38,58 +62,62 @@ export const App = component$(() => {
   // let nDock = useStore(global_nDock);
   let deck = useStore(global_deck_port);
   let ships = useStore(global_ship);
+  // let slot_items = global_slotitems;
   let slot_items = useStore(global_slotitems);
   let materials = useStore(global_materials);
+  // let mst_ships = global_mst_ships;
   let mst_ships = useStore(global_mst_ships);
+  // let mst_slot_items = global_mst_slot_items;
   let mst_slot_items = useStore(global_mst_slot_items);
 
   useTask$(({ cleanup }) => {
-    let unlisten_kcs_materials: UnlistenFn;
-    let unlisten_kcs_deck: UnlistenFn;
-    let unlisten_kcs_ships: UnlistenFn;
-    let unlisten_kcs_slot_items: UnlistenFn;
-    let unlisten_kcs_mst_ships: UnlistenFn;
-    let unlisten_kcs_mst_slot_items: UnlistenFn;
+    let unlisten_set_kcs_materials: UnlistenFn;
+    let unlisten_set_kcs_deck: UnlistenFn;
+    let unlisten_set_kcs_ships: UnlistenFn;
+    let unlisten_add_kcs_ships: UnlistenFn;
+    let unlisten_set_kcs_slot_items: UnlistenFn;
+    let unlisten_set_kcs_mst_ships: UnlistenFn;
+    let unlisten_set_kcs_mst_slot_items: UnlistenFn;
 
     (async() => {
-      unlisten_kcs_materials = await listen<Materials>('set-kcs-materials', event => {
-        // materials.materials = { ...materials.materials, ...event.payload.materials };
+      unlisten_set_kcs_materials = await listen<Materials>('set-kcs-materials', event => {
         materials.materials = event.payload.materials;
+        // console.log(materials);
       });
-      unlisten_kcs_deck = await listen<DeckPorts>('set-kcs-deck-ports', event => {
-        // deck.deck_ports = { ...deck.deck_ports, ...event.payload.deck_ports };
+      unlisten_set_kcs_deck = await listen<DeckPorts>('set-kcs-deck-ports', event => {
         deck.deck_ports = event.payload.deck_ports;
-        console.log(deck);
+        // console.log(deck);
       });
-      unlisten_kcs_ships = await listen<Ships>('set-kcs-ships', event => {
-        // ships.ships = { ...ships.ships, ...event.payload.ships };
+      unlisten_set_kcs_ships = await listen<Ships>('set-kcs-ships', event => {
         ships.ships = event.payload.ships;
-        console.log(ships);
+        // console.log(ships);
       });
-      unlisten_kcs_mst_ships = await listen<MstShips>('set-kcs-mst-ships', event => {
-        // mst_ships.mst_ships = { ...mst_ships.mst_ships, ...event.payload.mst_ships };
+      unlisten_add_kcs_ships = await listen<Ships>('add-kcs-ships', event => {
+        mergeObjects(event.payload.ships, ships.ships);
+        // console.log(ships);
+      });
+      unlisten_set_kcs_mst_ships = await listen<MstShips>('set-kcs-mst-ships', event => {
         mst_ships.mst_ships = event.payload.mst_ships;
-        console.log(mst_ships);
+        // console.log(mst_ships);
       });
-      unlisten_kcs_slot_items = await listen<SlotItems>('set-kcs-slot-items', event => {
-        // slot_items.slot_items = { ...slot_items.slot_items, ...event.payload.slot_items };
+      unlisten_set_kcs_slot_items = await listen<SlotItems>('set-kcs-slot-items', event => {
         slot_items.slot_items = event.payload.slot_items;
-        console.log(slot_items);
+        // console.log(slot_items);
       });
-      unlisten_kcs_mst_slot_items = await listen<MstSlotitems>('set-kcs-mst-slot-items', event => {
-        // mst_ships.mst_ships = { ...mst_ships.mst_ships, ...event.payload.mst_ships };
+      unlisten_set_kcs_mst_slot_items = await listen<MstSlotitems>('set-kcs-mst-slot-items', event => {
         mst_slot_items.mst_slot_items = event.payload.mst_slot_items;
-        console.log(mst_slot_items);
+        // console.log(mst_slot_items);
       });
     })();
 
     cleanup(() => {
-        if (unlisten_kcs_materials) unlisten_kcs_materials();
-        if (unlisten_kcs_deck) unlisten_kcs_deck();
-        if (unlisten_kcs_ships) unlisten_kcs_ships();
-        if (unlisten_kcs_mst_ships) unlisten_kcs_mst_ships();
-        if (unlisten_kcs_slot_items) unlisten_kcs_slot_items();
-        if (unlisten_kcs_mst_slot_items) unlisten_kcs_mst_slot_items();
+        if (unlisten_set_kcs_materials) unlisten_set_kcs_materials();
+        if (unlisten_set_kcs_deck) unlisten_set_kcs_deck();
+        if (unlisten_set_kcs_ships) unlisten_set_kcs_ships();
+        if (unlisten_set_kcs_mst_ships) unlisten_set_kcs_mst_ships();
+        if (unlisten_add_kcs_ships) unlisten_add_kcs_ships();
+        if (unlisten_set_kcs_slot_items) unlisten_set_kcs_slot_items();
+        if (unlisten_set_kcs_mst_slot_items) unlisten_set_kcs_mst_slot_items();
     });
   });
 
