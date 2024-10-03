@@ -19,7 +19,7 @@ pub enum Add {
     // DeckPorts(DeckPorts),
     // Mission,
     // NDocks(NDocks),
-    // Ships(Ships),
+    Ships(Ships),
     // Logs(Logs),
     // AirBase,(AirBase),
     // Battle(Battle),
@@ -40,4 +40,5 @@ pub enum Set {
     // Battle(Battle),
     MstShips(MstShips),
     MstSlotItems(MstSlotItems),
+    Dammy(()),
 }
