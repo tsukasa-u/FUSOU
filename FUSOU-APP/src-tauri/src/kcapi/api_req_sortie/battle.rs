@@ -2,18 +2,14 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use register_trait::register_struct;
-use register_trait::add_field;
+use register_trait::{register_struct, add_field};
 
-use register_trait::TraitForTest;
-use register_trait::Getter;
-use register_trait::TraitForRoot;
-use register_trait::TraitForConvert;
+use register_trait:: {TraitForTest, Getter, TraitForRoot, TraitForConvert};
 
-use crate::interface::interface::EmitData;
+use crate::interface::interface::{EmitData, Add};
+use crate::interface::ship::Ships;
 
-#[derive(Getter, TraitForTest, TraitForRoot, TraitForConvert)]
-#[convert_output(output = EmitData)]
+#[derive(Getter, TraitForTest, TraitForRoot)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[register_struct(name = "api_req_sortie/battle")]
@@ -331,6 +327,14 @@ pub struct ApiOpeningAtack {
     pub api_edam: Vec<f32>,
     #[serde(rename = "api_eydam_list_items")]
     pub api_eydam_list_items: Vec<Option<Vec<i64>>>,
+}
+
+impl TraitForConvert for Root {
+    type Output = EmitData;
+    fn convert(&self) -> Option<Vec<EmitData>> {
+        let ships: Ships = self.api_data.clone().into();
+        Some(vec![EmitData::Add(Add::Ships(ships))])
+    }
 }
 
 #[cfg(test)]
