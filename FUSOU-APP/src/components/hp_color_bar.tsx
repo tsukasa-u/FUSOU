@@ -5,7 +5,7 @@ interface ColorBarProps {
     v_max: number;
 }
 
-export const ColorBar = component$(({v_now, v_max, ...props}: ColorBarProps & PropsOf<'progress'>) => {
+export const HpColorBar = component$(({v_now, v_max, ...props}: ColorBarProps & PropsOf<'progress'>) => {
     const progress_color_state = useComputed$(() => {
         let props_expand = { ...props, value: v_max != 0 ? (v_now ?? 0) * 100 / (v_max ?? -1) : 0, max: 100 };
         const progress_color_list: JSXOutput[] = [

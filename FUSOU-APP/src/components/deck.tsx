@@ -4,7 +4,8 @@ import { DeckPort, Ships } from "./interface/port.ts";
 import { MstShips, MstSlotitems } from "./interface/get_data.ts";
 import { SlotItems } from "./interface/require_info.ts";
 
-import { ColorBar } from './color_bar.tsx';
+import { FuelBulletColorBar } from './fuel_bullet_color_bar.tsx';
+import { HpColorBar } from './hp_color_bar.tsx';
 
 import { IconCautionFill } from './icons/caution_fill.tsx';
 import { IconKira1 } from './icons/kira1.tsx';
@@ -126,7 +127,7 @@ export const Deck = component$<DeckPortProps>(({ deckPort }) => {
             let fuel_bullet_state: JSXOutput = <></>;
             if (nowfuel == maxfuel &&  nowbullet  == maxbullet) fuel_bullet_state = fuel_bullet_list[0];
             else if (nowfuel > 7/9*maxfuel && nowbullet > 7/9*maxbullet) fuel_bullet_state = fuel_bullet_list[1];
-            else if (nowfuel > 4/9*maxfuel || nowbullet > 4/9*maxbullet) fuel_bullet_state = fuel_bullet_list[2];
+            else if (nowfuel > 3/9*maxfuel || nowbullet > 3/9*maxbullet) fuel_bullet_state = fuel_bullet_list[2];
             else if (nowfuel >= 0 || nowbullet >= 0) fuel_bullet_state = fuel_bullet_list[3];
             return fuel_bullet_state;
         }
@@ -195,7 +196,7 @@ export const Deck = component$<DeckPortProps>(({ deckPort }) => {
                                                                 </div>
                                                             </div>
                                                             <div class="grid h-2.5 w-12 place-content-center">
-                                                                <ColorBar class="w-12 h-1" v_now={_ships.ships[shipId]?.nowhp ?? 0} v_max={_ships.ships[shipId]?.maxhp ?? 0} />
+                                                                <HpColorBar class="w-12 h-1" v_now={_ships.ships[shipId]?.nowhp ?? 0} v_max={_ships.ships[shipId]?.maxhp ?? 0} />
                                                             </div>
                                                         </div>
                                                     </div>
@@ -206,10 +207,10 @@ export const Deck = component$<DeckPortProps>(({ deckPort }) => {
                                                                 { fuel_bullet_state.value[idx] }
                                                             </div>
                                                             <div class="grid h-2.5 w-6 place-content-center">
-                                                                <ColorBar class="w-6 h-1" v_now={_ships.ships[shipId]?.fuel ?? 0} v_max={_mst_ships.mst_ships[_ships.ships[shipId]?.ship_id ?? 0]?.fuel_max ?? 0} />
+                                                                <FuelBulletColorBar class="w-6 h-1" v_now={_ships.ships[shipId]?.fuel ?? 0} v_max={_mst_ships.mst_ships[_ships.ships[shipId]?.ship_id ?? 0]?.fuel_max ?? 0} />
                                                             </div>
                                                             <div class="grid h-2.5 w-6 place-content-center">
-                                                                <ColorBar class="w-6 h-1" v_now={_ships.ships[shipId]?.bull ?? 0} v_max={_mst_ships.mst_ships[_ships.ships[shipId]?.ship_id ?? 0]?.bull_max ?? 0} />
+                                                                <FuelBulletColorBar class="w-6 h-1" v_now={_ships.ships[shipId]?.bull ?? 0} v_max={_mst_ships.mst_ships[_ships.ships[shipId]?.ship_id ?? 0]?.bull_max ?? 0} />
                                                             </div>
                                                         </div>
                                                     </div>
@@ -232,7 +233,7 @@ export const Deck = component$<DeckPortProps>(({ deckPort }) => {
                                                     <span class="w-2"></span>
                                                     <div class="content-center">
                                                         <div class="text-base flex justify-center w-8">
-                                                            { _ships.ships[shipId]?.slot_ex ?? 0 > 0 ? <Equiment slot_id={_ships.ships[shipId]?.slot_ex} ex_flag={true} name_flag={false}></Equiment> : <></> }
+                                                            { _ships.ships[shipId]?.slot_ex > 0 ? <Equiment slot_id={_ships.ships[shipId]?.slot_ex} ex_flag={true} name_flag={false}></Equiment> : <></> }
                                                         </div>
                                                     </div>
                                                     <span class="w-px"></span>
