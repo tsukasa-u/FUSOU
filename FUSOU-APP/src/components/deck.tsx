@@ -124,9 +124,9 @@ export const Deck = component$<DeckPortProps>(({ deckPort }) => {
 
         const set_fuel_bullet_state = (nowfuel: number, maxfuel: number, nowbullet: number, maxbullet: number): JSXOutput => {
             let fuel_bullet_state: JSXOutput = <></>;
-            if (nowfuel > 0.75*maxfuel || nowbullet > 0.75*maxbullet) fuel_bullet_state = fuel_bullet_list[0];
-            else if (nowfuel > 0.5*maxfuel || nowbullet > 0.5*maxbullet) fuel_bullet_state = fuel_bullet_list[1];
-            else if (nowfuel > 0.25*maxfuel || nowbullet > 0.25*maxbullet) fuel_bullet_state = fuel_bullet_list[2];
+            if (nowfuel == maxfuel &&  nowbullet  == maxbullet) fuel_bullet_state = fuel_bullet_list[0];
+            else if (nowfuel > 7/9*maxfuel && nowbullet > 7/9*maxbullet) fuel_bullet_state = fuel_bullet_list[1];
+            else if (nowfuel > 4/9*maxfuel || nowbullet > 4/9*maxbullet) fuel_bullet_state = fuel_bullet_list[2];
             else if (nowfuel >= 0 || nowbullet >= 0) fuel_bullet_state = fuel_bullet_list[3];
             return fuel_bullet_state;
         }
