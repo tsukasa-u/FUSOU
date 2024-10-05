@@ -1,7 +1,7 @@
 import { component$, useComputed$, Signal, useStylesScoped$, useContext } from '@builder.io/qwik';
 
-import { MstSlotitem, MstSlotitems } from './interface/get_data';
-import { SlotItem, SlotItems } from './interface/require_info';
+import { MstSlotitem, MstSlotitems } from '../interface/get_data.ts';
+import { SlotItem, SlotItems } from '../interface/require_info.ts';
 
 import { IconEquipment } from './icons/equipment.tsx';
 

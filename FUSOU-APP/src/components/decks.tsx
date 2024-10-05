@@ -1,9 +1,9 @@
 import { Slot, component$, useStylesScoped$ } from '@builder.io/qwik';
 
 import { Deck } from './deck';
-import { DeckPorts, Ships } from './interface/port';
-import { MstShips, MstSlotitems } from './interface/get_data';
-import { SlotItems } from './interface/require_info';
+import { DeckPorts, Ships } from '../interface/port';
+import { MstShips, MstSlotitems } from '../interface/get_data';
+import { SlotItems } from '../interface/require_info';
 
 interface DecksProps {
     decks: DeckPorts;

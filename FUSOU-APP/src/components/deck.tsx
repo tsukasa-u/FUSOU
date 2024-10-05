@@ -1,8 +1,8 @@
 import { Slot, component$, useComputed$, useStylesScoped$, JSXOutput, useSignal, useContext } from '@builder.io/qwik';
 
-import { DeckPort, Ships } from "./interface/port.ts";
-import { MstShips, MstSlotitems } from "./interface/get_data.ts";
-import { SlotItems } from "./interface/require_info.ts";
+import { DeckPort, Ships } from "../interface/port.ts";
+import { MstShips, MstSlotitems } from "../interface/get_data.ts";
+import { SlotItems } from "../interface/require_info.ts";
 
 import { FuelBulletColorBar } from './fuel_bullet_color_bar.tsx';
 import { HpColorBar } from './hp_color_bar.tsx';
