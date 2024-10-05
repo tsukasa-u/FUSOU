@@ -5,3 +5,11 @@ html {
 	-webkit-user-select: none;
 	-ms-user-select: none;
 }
+
+
+.divider-horizontal::before {
+	width: 1px;
+}
+.divider-horizontal::after {
+	width: 1px;
+}

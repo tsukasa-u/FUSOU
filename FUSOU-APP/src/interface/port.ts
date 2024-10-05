@@ -31,12 +31,12 @@ export interface DeckPorts {
     deck_ports: { [key: number]: DeckPort }
 }
 
-export var global_deck_port: DeckPorts = {
+export var global_deck_ports: DeckPorts = {
     deck_ports: {
-        1: { id: 1, mission: { mission_id: 0, complete_time: 0, counter: 0 }, ship: [0, 0, 0] },
-        2: { id: 2, mission: { mission_id: 0, complete_time: 0, counter: 0 }, ship: [0, 0, 0] },
-        3: { id: 3, mission: { mission_id: 0, complete_time: 0, counter: 0 }, ship: [0, 0, 0] },
-        4: { id: 4, mission: { mission_id: 0, complete_time: 0, counter: 0 }, ship: [0, 0, 0] }
+        // 1: { id: 1, mission: { mission_id: 0, complete_time: 0, counter: 0 }, ship: [0, 0, 0] },
+        // 2: { id: 2, mission: { mission_id: 0, complete_time: 0, counter: 0 }, ship: [0, 0, 0] },
+        // 3: { id: 3, mission: { mission_id: 0, complete_time: 0, counter: 0 }, ship: [0, 0, 0] },
+        // 4: { id: 4, mission: { mission_id: 0, complete_time: 0, counter: 0 }, ship: [0, 0, 0] }
     }
 };
 
