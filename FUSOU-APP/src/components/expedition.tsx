@@ -1,6 +1,6 @@
 import { Slot, component$, useStylesScoped$, useTask$ } from '@builder.io/qwik';
 
-import { DeckPorts } from "./interface/port.tsx";
+import { DeckPorts } from "../interface/port.ts";
 
 interface ExpeditionProps {
     deckPort: DeckPorts;

@@ -106,7 +106,7 @@ export interface Ships {
     ships: { [key: number]: Ship }
 }
 
-export var global_ship: Ships = {
+export var global_ships: Ships = {
     ships:{
         // 1: { id: 1, ship_id: 1, lv: 1, exp: [0, 0, 0], nowhp: 80, maxhp: 80, soku: 10, leng: 1, slot: [1, 2, 3, 4], onsolot: [1, 2, 3, 4], slot_ex: 0, fuel: 100, bull: 100, slotnum: 4, cond: 49, karyoku: [0, 0], raisou: [0, 0], taiku: [0, 0], soukou: [0, 0], kaihi: [0, 0], taisen: [0, 0], sakuteki: [0, 0], lucky: [0, 0], sally_area: 0 },
         // 2: { id: 2, ship_id: 2, lv: 1, exp: [0, 0, 0], nowhp: 80, maxhp: 80, soku: 10, leng: 1, slot: [1, 2, 3, 4], onsolot: [1, 2, 3, 4], slot_ex: 0, fuel: 100, bull: 100, slotnum: 4, cond: 49, karyoku: [0, 0], raisou: [0, 0], taiku: [0, 0], soukou: [0, 0], kaihi: [0, 0], taisen: [0, 0], sakuteki: [0, 0], lucky: [0, 0], sally_area: 0 },
