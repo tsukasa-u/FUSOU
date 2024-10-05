@@ -22,20 +22,6 @@ const show_modal = (slot_id: number) => {
 
 export function EquimentComponent({slot_id, ex_flag, name_flag}: EquipmentProps) {
 
-    // useStylesScoped$(`
-    //     .modal:not(dialog:not(.modal-open)), .modal::backdrop {
-    //         background-color: #0001;
-    //         animation: modal-pop 0.2s ease-out;
-    //     }
-    //     .modal:not(dialog:not(.modal-open)), .modal::backdrop {
-    //         background-color: #0001;
-    //         animation: modal-pop 0.2s ease-out;
-    //     }
-    //     .modal-box-width {
-    //         width: calc(100vw - 3em);
-    //     }
-    // `);
-
     const [_mst_slot_items, ] = useMstSlotItems();
     const [_slot_items, ] = useSlotItems();
 
