@@ -194,29 +194,31 @@ export function DeckComponent({deck_id}: DeckPortProps) {
                                                 </div>
                                                 <div class="divider divider-horizontal mr-0 ml-0"></div>
                                             </div>
-                                            { !moreSignal() 
-                                            ? <></> 
-                                            : <div class="flex">
-                                                <div class="grid grid-cols-5 gap-2 content-center w-52">
-                                                    { _ships.ships[shipId]?.slot?.map((slotId) => (
-                                                        slotId > 0
-                                                        ? <div class="text-base flex justify-center">
-                                                            <EquimentComponent slot_id={slotId} ex_flag={false} name_flag={false} />
-                                                        </div>
-                                                        : <></>
-                                                    )) }
-                                                </div>
-                                                <span class="w-2"></span>
-                                                <div class="divider divider-horizontal mr-0 ml-0 basis-0 h-auto"></div>
-                                                <span class="w-2"></span>
-                                                <div class="content-center">
-                                                    <div class="text-base flex justify-center w-8">
-                                                        { _ships.ships[shipId]?.slot_ex > 0 ? <EquimentComponent slot_id={_ships.ships[shipId]?.slot_ex} ex_flag={true} name_flag={false} /> : <></> }
+                                            <Show when={moreSignal()}>
+                                                <div class="flex">
+                                                    <div class="grid grid-cols-5 gap-2 content-center w-52">
+                                                        { _ships.ships[shipId]?.slot?.map((slotId) => (
+                                                            <Show when={slotId > 0}>
+                                                                <div class="text-base flex justify-center">
+                                                                    <EquimentComponent slot_id={slotId} ex_flag={false} name_flag={false} />
+                                                                </div>
+                                                            </Show>
+                                                        )) }
                                                     </div>
+                                                    <span class="w-2"></span>
+                                                    <div class="divider divider-horizontal mr-0 ml-0 basis-0 h-auto"></div>
+                                                    <span class="w-2"></span>
+                                                    <div class="content-center">
+                                                        <div class="text-base flex justify-center w-8">
+                                                            <Show when={_ships.ships[shipId]?.slot_ex > 0}>
+                                                                <EquimentComponent slot_id={_ships.ships[shipId]?.slot_ex} ex_flag={true} name_flag={false} />
+                                                            </Show>
+                                                        </div>
+                                                    </div>
+                                                    <span class="w-px"></span>
+                                                    <div class="divider divider-horizontal mr-0 ml-0 h-auto"></div>
                                                 </div>
-                                                <span class="w-px"></span>
-                                                <div class="divider divider-horizontal mr-0 ml-0 h-auto"></div>
-                                            </div> }
+                                            </Show>
                                         </a>
                                     </li>
                                 </Show>
