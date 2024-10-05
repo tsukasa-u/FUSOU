@@ -1,59 +1,57 @@
-import { Slot, component$, useStylesScoped$ } from '@builder.io/qwik';
-
-import { Deck } from './deck';
+import { DeckComponent } from './deck';
 import { DeckPorts, Ships } from '../interface/port';
 import { MstShips, MstSlotitems } from '../interface/get_data';
 import { SlotItems } from '../interface/require_info';
-
-interface DecksProps {
-    decks: DeckPorts;
-}
+import { MstShipsProvider, ShipsProvider, useDeckPorts } from '../utility/provider';
+import { createComponent, createMemo, For, Index } from 'solid-js';
 
 
-export const Decks = component$<DecksProps>(({ decks }) => {
+export function DecksComponent() {
 
-    useStylesScoped$(`
-        div::before, div::after {
-          width: 1px;
-        }
-    `);
+    // useStylesScoped$(`
+    //     div::before, div::after {
+    //       width: 1px;
+    //     }
+    // `);
+
+
+    const [decks, ] =  useDeckPorts();
     
+    const deck_ports_length = createMemo(() => {
+        return Object.entries(decks.deck_ports).length;
+    });
+
+    const deck_memo = createMemo(() => {
+        console.log(decks.deck_ports);
+        return(
+            <For each={Object.entries(decks.deck_ports)} fallback={<div>Loading Fleet Data ...</div>}>
+                {/* {(item) => <div>{item[0]}</div>} */}
+                {(item) => <div>{<DeckComponent deck_id={Number(item[0])}></DeckComponent>}</div>}
+            </For>
+        );
+    });
+
     return (
         <>
             <li>
                 <details open>
-                    <summary>
-                        <Slot name="icon_fleets" />
+                    <summary onClick={() => console.log(decks.deck_ports)}>
                         Fleets
+                        {deck_ports_length()}
                     </summary>
                     <ul class="pl-0">
-                        {/* { Object.values(decks.deck_ports).map((deck, idx) => (
-                            <Deck deckPorts={ decks } ships={ ships } mst_ships={ mst_ships } idx={idx+1}>
-                                <Slot name={`icon_fleet${idx}`} />
-                            </Deck>
-                        ))} */}
-                        { Object.entries(decks.deck_ports).map(([key, deck]) => (
-                            <>
-                                <Deck deckPort={ deck }>
-                                    <Slot name={`icon_fleet${key}`} />
-                                </Deck>
-                            </>
-                        )) }
-                        {/* <Deck deckPort={ decks.deck_ports[1] } ships={ ships } mst_ships={ mst_ships }>
-                            <Slot name="icon_fleet1" />
-                        </Deck>
-                        <Deck deckPort={ decks.deck_ports[2] } ships={ ships } mst_ships={ mst_ships }>
-                            <Slot name="icon_fleet2" />
-                        </Deck>
-                        <Deck deckPort={ decks.deck_ports[3] } ships={ ships } mst_ships={ mst_ships }>
-                            <Slot name="icon_fleet3" />
-                        </Deck>
-                        <Deck deckPort={ decks.deck_ports[4]} ships={ ships } mst_ships={ mst_ships }>
-                            <Slot name="icon_fleet4" />
-                        </Deck> */}
+                        {deck_ports_length() > 0 ?
+                        <>
+                            {deck_memo()}
+                        </>
+                            : <div>Loading Fleet Data ...</div>
+                        }
+                            {/* <For each={Object.entries(decks.deck_ports)} fallback={<div>Loading Fleet Data ...</div>}>
+                                {(item) => <>{<DeckComponent deck_id={Number(item[0])}></DeckComponent>}</>}
+                            </For> */}
                     </ul>
                 </details>
             </li>
         </>
     );
-});
+}

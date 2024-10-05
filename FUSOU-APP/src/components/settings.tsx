@@ -1,15 +1,15 @@
-import { component$, useStylesScoped$ } from '@builder.io/qwik';
+import { createMemo, For, Show } from 'solid-js';
 
 import { invoke } from '@tauri-apps/api/tauri'
 import { FadeToast, showFadeToast } from './fade_toast';
 
-export const Settings = component$(() => {
+export function SettingsComponent(){
 
-    useStylesScoped$(`
-        div::before, div::after {
-          width: 1px;
-        }
-    `);
+    // useStylesScoped$(`
+    //     div::before, div::after {
+    //       width: 1px;
+    //     }
+    // `);
     
     return (
         <>
@@ -30,7 +30,7 @@ export const Settings = component$(() => {
                 <p class="py-2 text-xl font-semibold">Load Data</p>
                 <p class="text-slate-600">Load saved response data when the API comes from. this app does not access KanColle server via API, it just copies response data.</p>
                 <div class="mt-4 flex items-center justify-end">
-                    <button class="btn btn-outline btn-wide" onClick$={() => {
+                    <button class="btn btn-outline btn-wide" onClick={() => {
                         invoke("get_mst_ships");
                         invoke("get_slot_items");
                         invoke("get_mst_slot_items");
@@ -44,21 +44,21 @@ export const Settings = component$(() => {
                         <h2 class="text-lg font-semibold leading-4 text-slate-700">Load ship data</h2>
                         <p class="text-slate-600">Load the mst_ships data restored from API "/kcsapi/api_start2/get_data"</p>
                         <div class="mt-4 flex items-center justify-end">
-                            <button class="btn btn-outline btn-wide" onClick$={() => { invoke("get_mst_ships"); showFadeToast('setting_toast', "load mst_ships");  }}>Load mst ship data</button>
+                            <button class="btn btn-outline btn-wide" onClick={() => { invoke("get_mst_ships"); showFadeToast('setting_toast', "load mst_ships");  }}>Load mst ship data</button>
                         </div>
                     </div>
                     <div id="load_slot_items" class="py-2">
                         <h2 class="text-lg font-semibold leading-4 text-slate-700">Load slotitems data</h2>
                         <p class="text-slate-600">Load the slotitems data restored from API  "/kcsapi/api_get_member/require_info"</p>
                         <div class="mt-4 flex items-center justify-end">
-                            <button class="btn btn-outline btn-wide" onClick$={() => { invoke("get_slot_items"); showFadeToast('setting_toast', "load slot_items");  }}>Load slot item data</button>
+                            <button class="btn btn-outline btn-wide" onClick={() => { invoke("get_slot_items"); showFadeToast('setting_toast', "load slot_items");  }}>Load slot item data</button>
                         </div>
                     </div> 
                     <div id="load_mst_slot_items" class="py-2">
                         <h2 class="text-lg font-semibold leading-4 text-slate-700">Load mst_slotitems data</h2>
                         <p class="text-slate-600">Load the mst_slotitems data restored from API "/kcsapi/api_start2/get_data"</p>
                         <div class="mt-4 flex items-center justify-end">
-                            <button class="btn btn-outline btn-wide" onClick$={() => { invoke("get_mst_slot_items"); showFadeToast('setting_toast', "load mst_slot_items"); }}>Load mst slot item data</button>
+                            <button class="btn btn-outline btn-wide" onClick={() => { invoke("get_mst_slot_items"); showFadeToast('setting_toast', "load mst_slot_items"); }}>Load mst slot item data</button>
                         </div>
                     </div> 
                 </div>
@@ -68,4 +68,4 @@ export const Settings = component$(() => {
             <FadeToast toast_id='setting_toast'></FadeToast>
         </>
     );
-});
+}

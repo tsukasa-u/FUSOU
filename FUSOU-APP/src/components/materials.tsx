@@ -1,14 +1,9 @@
 import { Materials } from "../interface/port.ts";
 import { useMaterials } from '../utility/provider.tsx';
-// import { global_materials_context_id } from '../app.tsx';
+
+// import "../css/divider.css";
 
 export function MaterialsComponent() {
-
-    // useStylesScoped$(`
-    //     div::before, div::after {
-    //       width: 1px;
-    //     }
-    // `);
     
     const icon_material_name: {[key:number]:string} = {
         0: "icon_material_fuel",
@@ -23,7 +18,7 @@ export function MaterialsComponent() {
 
     
     // const _materials = useContext<Materials>(global_materials_context_id);
-    const [_materials, set] =  useMaterials()! as [Materials, (value: Materials) => void];
+    const [_materials, ] =  useMaterials();
     
     return (
         <>

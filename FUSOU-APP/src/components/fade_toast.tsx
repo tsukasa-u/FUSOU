@@ -1,8 +1,9 @@
-import { component$, JSXOutput, useComputed$, PropsOf, useStyles$ } from '@builder.io/qwik';
+import { JSX } from "solid-js";
 
-import { HiXMarkOutline } from '@qwikest/icons/heroicons';
+// import { HiXMarkOutline } from '@qwikest/icons/heroicons';
+import { IconXMark } from "../icons/X-mark";
 
-import toast_style from "./fade_toast.css?inline";
+import "../css/fade_toast.css";
 
 interface FadeToastProps {
     toast_id: string;
@@ -93,9 +94,9 @@ export const hideFadeToast = function(id: string) {
     }
 }
 
-export const FadeToast = component$(({toast_id, ...props}: FadeToastProps & PropsOf<'div'>) => {
+export function FadeToast({toast_id, ...props}: FadeToastProps & JSX.HTMLAttributes<HTMLDivElement>) {
 
-    useStyles$(toast_style);
+    // useStyles$(toast_style);
 
     return <>
         <div class="toast toast-end" {...props}>
@@ -107,4 +108,4 @@ export const FadeToast = component$(({toast_id, ...props}: FadeToastProps & Prop
             </div>
         </div>
     </>;
-});
+}

@@ -1,11 +1,11 @@
 import { createContext, useContext, JSX, createEffect, onCleanup } from "solid-js";
 import { createStore } from "solid-js/store";
-import { DeckPorts, Materials, Ships, global_deck_port, global_materials, global_ships } from "../interface/port";
+import { DeckPorts, Materials, Ships, global_deck_ports, global_materials, global_ships } from "../interface/port";
 import { MstShips, MstSlotitems, global_mst_ships, global_mst_slot_items } from "../interface/get_data";
 import { SlotItems, global_slotitems } from "../interface/require_info";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
 
-const ShipsContext = createContext();
+const ShipsContext = createContext<(Ships | { set(data: Ships): void; })[]>();
 
 export function ShipsProvider(props: { children: JSX.Element }) {
     const [data, setData] = createStore(global_ships)
@@ -27,7 +27,9 @@ export function ShipsProvider(props: { children: JSX.Element }) {
             });
         })();
         
-        onCleanup(() => { unlisten_data(); });
+        onCleanup(() => { 
+            if (unlisten_data) unlisten_data();
+        });
     });
 
     return (
@@ -38,10 +40,14 @@ export function ShipsProvider(props: { children: JSX.Element }) {
 }
 
 export function useShips() {
-    return useContext(ShipsContext);
+    const context = useContext(ShipsContext);
+    if (!context) {
+        throw new Error("useShips: cannot find a ShipsContext")
+    }
+    return context as [Ships, (value: Ships) => void];
 }
 
-const MstShipsContext = createContext();
+const MstShipsContext = createContext<(MstShips | { set(data: MstShips):void; })[]>();
 
 export function MstShipsProvider(props: { children: JSX.Element }) {
     const [data, setData] = createStore(global_mst_ships);
@@ -62,7 +68,9 @@ export function MstShipsProvider(props: { children: JSX.Element }) {
             });
         })();
         
-        onCleanup(() => { unlisten_data(); });
+        onCleanup(() => { 
+            if (unlisten_data) unlisten_data();
+        });
     });
 
     return (
@@ -73,10 +81,14 @@ export function MstShipsProvider(props: { children: JSX.Element }) {
 }
 
 export function useMstShips() {
-    return useContext(MstShipsContext);
+    const context = useContext(MstShipsContext);
+    if (!context) {
+        throw new Error("useContext: cannot find a MstShipsContext")
+    }
+    return context as [MstShips, (value: MstShips) => void];
 }
 
-const SlotItemsContext = createContext();
+const SlotItemsContext = createContext<(SlotItems | {set(data: SlotItems): void; })[]>();
 
 export function SlotItemsProvider(props: { children: JSX.Element }) {
     const [data, setData] = createStore(global_slotitems);
@@ -97,7 +109,9 @@ export function SlotItemsProvider(props: { children: JSX.Element }) {
             });
         })();
         
-        onCleanup(() => { unlisten_data(); });
+        onCleanup(() => { 
+            if (unlisten_data) unlisten_data();
+        });
     });
 
     return (
@@ -108,10 +122,14 @@ export function SlotItemsProvider(props: { children: JSX.Element }) {
 }
 
 export function useSlotItems() {
-    return useContext(SlotItemsContext);
+    const context = useContext(SlotItemsContext);
+    if (!context) {
+        throw new Error("useSlotItems: cannot find a SlotItemsContext")
+    }
+    return context as [SlotItems, (value: SlotItems) => void];
 }
 
-const MstSlotItemsContext = createContext();
+const MstSlotItemsContext = createContext<(MstSlotitems | { set(data: MstSlotitems): void; })[]>();
 
 export function MstSlotItemsProvider(props: { children: JSX.Element }) {
     const [data, setData] = createStore(global_mst_slot_items);
@@ -132,7 +150,9 @@ export function MstSlotItemsProvider(props: { children: JSX.Element }) {
             });
         })();
         
-        onCleanup(() => { unlisten_data(); });
+        onCleanup(() => { 
+            if (unlisten_data) unlisten_data();
+        });
     });
 
     return (
@@ -143,7 +163,11 @@ export function MstSlotItemsProvider(props: { children: JSX.Element }) {
 }
 
 export function useMstSlotItems() {
-  return useContext(MstSlotItemsContext);
+  const context = useContext(MstSlotItemsContext);
+  if (!context) {
+    throw new Error("useMstSlotItems: cannot find a MstSlotItemsContext")
+  }
+  return context as [MstSlotitems, (value: MstSlotitems) => void];
 }
 
 const MaterialsContext = createContext<(Materials | { set(data: Materials): void; })[]>();
@@ -164,10 +188,14 @@ export function MaterialsProvider(props: { children: JSX.Element }) {
         (async() => {
             unlisten_data = await listen<Materials>('set-kcs-materials', event => {
               setData(event.payload);
+              console.log('MaterialsProvider');
             });
+
         })();
         
-        onCleanup(() => { unlisten_data(); });
+        onCleanup(() => { 
+            if (unlisten_data) unlisten_data();
+        });
     });
 
     return (
@@ -180,16 +208,16 @@ export function MaterialsProvider(props: { children: JSX.Element }) {
 export function useMaterials() {
     const context = useContext(MaterialsContext);
     if (!context) {
-      throw new Error("useCounterContext: cannot find a CounterContext")
+      throw new Error("useMaterials: cannot find a MaterialsContext")
     }
-    return context;
+    return context as [Materials, (value: Materials) => void];
 }
 
-const DeckPortContext = createContext();
+const DeckPortsContext = createContext<(DeckPorts | { set(data: DeckPorts): void; })[]>();
 
-export function DeckPortProvider(props: { children: JSX.Element }) {
-    const [data, setData] = createStore(global_deck_port);
-    const count = [
+export function DeckPortsProvider(props: { children: JSX.Element }) {
+    const [data, setData] = createStore(global_deck_ports);
+    const setter = [
         data,
         {
             set(data: DeckPorts) {
@@ -203,19 +231,28 @@ export function DeckPortProvider(props: { children: JSX.Element }) {
         (async() => {
             unlisten_data = await listen<DeckPorts>('set-kcs-deck-ports', event => {
               setData(event.payload);
+              console.log('DeckPortsProvider');
+              console.log(event.payload);
+              console.log(data);
             });
         })();
         
-        onCleanup(() => { unlisten_data(); });
+        onCleanup(() => { 
+            if (unlisten_data) unlisten_data();
+        });
     });
 
     return (
-        <DeckPortContext.Provider value={count}>
+        <DeckPortsContext.Provider value={setter}>
             {props.children}
-        </DeckPortContext.Provider>
+        </DeckPortsContext.Provider>
     );
 }
 
-export function useDeckPort() {
-    return useContext(DeckPortContext);
+export function useDeckPorts() {
+    const context = useContext(DeckPortsContext);
+    if (!context) {
+      throw new Error("useDeckPorts: cannot find a DeckPortsContext")
+    }
+    return context as [DeckPorts, (value: DeckPorts) => void];
 }
