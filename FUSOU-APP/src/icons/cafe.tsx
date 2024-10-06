@@ -1,12 +1,12 @@
-import type { PropsOf } from '@builder.io/qwik'
- 
-export function IconCafe(props: PropsOf<'svg'>, key: string) {
+import { JSX } from 'solid-js'
+
+export function IconCafe(props: JSX.HTMLAttributes<SVGSVGElement>) {
   return (
     <svg fill="currentColor" xmlns="http://www.w3.org/2000/svg"
-      strokeWidth="1.5" 
+      stroke-width="1.5" 
       stroke="currentColor" 
 	 viewBox="0 0 512 512"
-      {...props} key={key}>
+      {...props}>
       <g>
 	<path class="st0" d="M0,366.061c0,37.182,34.805,67.33,77.738,67.33h329.528c42.937,0,77.741-30.149,77.741-67.33v-0.858H0V366.061
 		z"></path>
