@@ -1,15 +1,8 @@
-import { Slot, component$, useContext, useStylesScoped$ } from '@builder.io/qwik';
+import { useMaterials } from '../utility/provider.tsx';
 
-import { Materials } from "./interface/port.tsx";
-import { global_materials_context_id } from '../app.tsx';
+import "../css/divider.css";
 
-export const Material = component$(() => {
-
-    useStylesScoped$(`
-        div::before, div::after {
-          width: 1px;
-        }
-    `);
+export function MaterialsComponent() {
     
     const icon_material_name: {[key:number]:string} = {
         0: "icon_material_fuel",
@@ -23,14 +16,14 @@ export const Material = component$(() => {
     }
 
     
-    const _materials = useContext<Materials>(global_materials_context_id);    
+    // const _materials = useContext<Materials>(global_materials_context_id);
+    const [_materials, ] =  useMaterials();
     
     return (
         <>
             <li>
                 <details open>
                     <summary>
-                        <Slot name="icon_material" />
                         Materials
                     </summary>
                     <ul class="pl-0">
@@ -39,22 +32,20 @@ export const Material = component$(() => {
                                 <div class="justify-start gap-0 flex flex-nowrap">
                                     {Object.values(_materials.materials).slice(0, 4).map((material, index) => (
                                         <>
-                                            <Slot name={icon_material_name[index]} />
                                             <div class="w-10 flex justify-end">
                                                 {material}
                                             </div>
-                                            <div class="divider divider-horizontal mr-0 ml-0"></div>
+                                            <div class="divider divider-horizontal [&::after]:w-px [&::before]:w-px mr-0 ml-0"></div>
                                         </>
                                     ))}
                                 </div>
                                 <div class="justify-start gap-0 flex flex-nowrap">
                                     {Object.values(_materials.materials).slice(4, 8).map((material, index) => (
                                         <>
-                                            <Slot name={icon_material_name[index + 4]} />
                                             <div class="w-10 flex justify-end">
                                                 {material}
                                             </div>
-                                            <div class="divider divider-horizontal mr-0 ml-0"></div>
+                                            <div class="divider divider-horizontal [&::after]:w-px [&::before]:w-px mr-0 ml-0"></div>
                                         </>
                                     ))}
                                 </div>
@@ -65,4 +56,4 @@ export const Material = component$(() => {
             </li>
         </>
     );
-});
+};

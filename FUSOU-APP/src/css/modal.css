@@ -1,0 +1,12 @@
+
+.modal:not(dialog:not(.modal-open)), .modal::backdrop {
+    background-color: #0001;
+    animation: modal-pop 0.2s ease-out;
+}
+.modal:not(dialog:not(.modal-open)), .modal::backdrop {
+    background-color: #0001;
+    animation: modal-pop 0.2s ease-out;
+}
+.modal-box-width {
+    width: calc(100vw - 3em);
+}

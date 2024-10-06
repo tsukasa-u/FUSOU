@@ -1,12 +1,12 @@
-import type { PropsOf } from '@builder.io/qwik'
+import { JSX } from 'solid-js';
  
-export function IconKira3(props: PropsOf<'svg'>, key: string) {
+export function IconKira3(props: JSX.HTMLAttributes<SVGSVGElement>) {
   return (
     <svg fill="currentColor" xmlns="http://www.w3.org/2000/svg"
-      strokeWidth="1.5" 
+      stroke-width="1.5" 
       stroke="currentColor" 
 	 viewBox="0 0 512 512"
-      {...props} key={key}>
+      {...props}>
       <g>
 	<path d="M247.355,106.9C222.705,82.241,205.833,39.18,197.46,0c-8.386,39.188-25.24,82.258-49.899,106.917
 		c-24.65,24.642-67.724,41.514-106.896,49.904c39.188,8.373,82.254,25.235,106.904,49.895c24.65,24.65,41.522,67.72,49.908,106.9

@@ -1,7 +1,7 @@
 import { Slot, component$, useStylesScoped$, useTask$ } from '@builder.io/qwik';
 
-import { NDocks, Ships } from "./interface/port.ts";
-import { MstShips } from './interface/get_data.ts';
+import { NDocks, Ships } from "../interface/port.ts";
+import { MstShips } from '../interface/get_data.ts';
 
 interface NDockProps {
     nDock: NDocks;

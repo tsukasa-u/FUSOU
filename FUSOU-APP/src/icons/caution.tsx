@@ -1,12 +1,12 @@
-import type { PropsOf } from '@builder.io/qwik'
+import { JSX } from 'solid-js';
  
-export function IconCaution(props: PropsOf<'svg'>, key: string) {
+export function IconCaution(props: JSX.HTMLAttributes<SVGSVGElement>) {
   return (
     <svg fill="currentColor" xmlns="http://www.w3.org/2000/svg"
-      strokeWidth="1.5" 
+      stroke-width="1.5" 
       stroke="currentColor" 
 	 viewBox="0 0 512 512"
-      {...props} key={key}>
+      {...props}>
 	  <g>
 	<path d="M256.007,357.113c-16.784,0-30.411,13.613-30.411,30.397c0,16.791,13.627,30.405,30.411,30.405
 		s30.397-13.614,30.397-30.405C286.405,370.726,272.792,357.113,256.007,357.113z"></path>

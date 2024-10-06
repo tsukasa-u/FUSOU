@@ -1,12 +1,9 @@
-import { component$, useComputed$, Signal, useStylesScoped$, useContext } from '@builder.io/qwik';
+import { IconXMark } from '../icons/X-mark.tsx';
+import { EquimentComponent } from './equipment.tsx';
 
-import { Ship, Ships } from './interface/port.ts';
-import { MstShip, MstShips, MstSlotitem, MstSlotitems } from './interface/get_data';
-
-import { HiXMarkOutline } from '@qwikest/icons/heroicons';
-import { SlotItem, SlotItems } from './interface/require_info.ts';
-import { Equiment } from './equipment.tsx';
-import { global_mst_ships_context_id, global_ship_context_id } from '../app.tsx';
+import '../css/modal.css';
+import { useMstShips, useShips } from '../utility/provider.tsx';
+import { createMemo, For, Show } from 'solid-js';
 
 interface ShipNameProps {
     ship_id: number;
@@ -24,33 +21,19 @@ const show_modal = (ship_id: number) => {
     dialogElement?.showModal()
 }
 
-export const ShipName = component$(({ship_id}: ShipNameProps) => {
+export function ShipNameComponent({ship_id}: ShipNameProps) {
 
-    useStylesScoped$(`
-        .modal:not(dialog:not(.modal-open)), .modal::backdrop {
-            background-color: #0001;
-            animation: modal-pop 0.2s ease-out;
-        }
-        .modal:not(dialog:not(.modal-open)), .modal::backdrop {
-            background-color: #0001;
-            animation: modal-pop 0.2s ease-out;
-        }
-        .modal-box-width {
-            width: calc(100vw - 3em);
-        }
-    `);
-
-    const _mst_ships = useContext(global_mst_ships_context_id);
-    const _ships = useContext(global_ship_context_id);
+    const [_mst_ships, ] = useMstShips();
+    const [_ships, ] = useShips();
 
     const speed_list = ["", "", "", "", "", "Slow", "", "", "", "", "Fast", "", "", "", "", "Fast+", "", "", "", "", "Fastest"];
     const range_list = ["", "Short", "Medium", "Long", "Very Long"];
 
-    const ship: Signal<Ship> = useComputed$(() => {
+    const ship= createMemo(() => {
         return _ships.ships[ship_id];
     });
 
-    const mst_ship: Signal<MstShip> = useComputed$(() => {
+    const mst_ship = createMemo(() => {
         return _mst_ships.mst_ships[_ships.ships[ship_id]?.ship_id];
     });
 
@@ -70,11 +53,11 @@ export const ShipName = component$(({ship_id}: ShipNameProps) => {
     //     });
     // });
 
-    const max_eq: Signal<number> = useComputed$(() => {
+    const max_eq  = createMemo(() => {
         return _mst_ships.mst_ships[_ships.ships[ship_id]?.ship_id]?.maxeq.reduce((a, b) => a + b, 0);
     });
 
-    const sp_effect_item: Signal<SpEffectItem> = useComputed$(() => {
+    const sp_effect_item = createMemo(() => {
         let parameter_map: SpEffectItem = {
             soukou: 0,
             raisou: 0,
@@ -99,49 +82,45 @@ export const ShipName = component$(({ship_id}: ShipNameProps) => {
     });
 
     return <>
-        <div class="flex flex-nowarp" onClick$={()=> show_modal(ship_id)}>
-            {mst_ship.value?.name ?? "Unknown"}
+        <div class="flex flex-nowarp" onClick={()=> show_modal(ship_id)}>
+            {mst_ship()?.name ?? "Unknown"}
         </div>
         <dialog id={"deck_ship_name_modal_"+ship_id} class="modal">
             <div class="modal-box bg-base-100 modal-box-width">
                 <form method="dialog">
                     <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">
-                        <HiXMarkOutline class="h-6 w-6" />
+                        <IconXMark class="h-6 w-6" />
                     </button>
                 </form>
                 <div class="flex justify-start">
-                    <h3 class="font-bold text-base pl-2 truncate">{mst_ship.value?.name ?? "Unknown"}</h3>
-                    <div class="place-self-end pb-0.5 pl-4">Lv. {ship.value?.lv ?? ""}</div>
-                    <div class="place-self-end pb-0.5 pl-2">next {ship.value?.exp[1] ?? ""}</div>
+                    <h3 class="font-bold text-base pl-2 truncate">{mst_ship()?.name ?? "Unknown"}</h3>
+                    <div class="place-self-end pb-0.5 pl-4">Lv. {ship()?.lv ?? ""}</div>
+                    <div class="place-self-end pb-0.5 pl-2">next {ship()?.exp[1] ?? ""}</div>
                 </div>
                 <div class="pt-2">
                     <table class="table table-xs">
                         <caption class="truncate">Equipment</caption>
                         <tbody>
-                            {
-                                ship.value?.slot.map((slot_ele, index) => {
+                            <For each={ship()?.slot} fallback={<></>}>
+                                {(slot_ele, index) => {
                                     return <>
                                         <tr class="flex">
-                                            <th class="flex-none w-4">S{index+1}</th>
+                                            <th class="flex-none w-4">S{index()+1}</th>
                                             <td class="flex-none w-12 pl-4">
-                                                {
-                                                    slot_ele > 0
-                                                        ? <Equiment slot_id={slot_ele} ex_flag={true} name_flag={true}></Equiment>
-                                                        : <></>
-                                                }
+                                                <Show when={slot_ele > 0}>
+                                                    <EquimentComponent slot_id={slot_ele} ex_flag={true} name_flag={true}></EquimentComponent>
+                                                </Show>
                                             </td>
                                         </tr>
                                     </>
-                                })
-                            }
+                                }}
+                            </For>
                             <tr class="flex">
                                 <th class="flex-none w-2">SE</th>
                                 <td class="flex-none w-12 pl-4">
-                                    {
-                                        ship.value?.slot_ex > 0
-                                            ? <Equiment slot_id={ship.value?.slot_ex} ex_flag={true} name_flag={true}></Equiment>
-                                            : <></>
-                                    }
+                                    <Show when={ship()?.slot_ex > 0}>
+                                        <EquimentComponent slot_id={ship()?.slot_ex} ex_flag={true} name_flag={true}></EquimentComponent>
+                                    </Show>
                                 </td>
                             </tr>
                         </tbody>
@@ -152,14 +131,14 @@ export const ShipName = component$(({ship_id}: ShipNameProps) => {
                         <tbody>
                             <tr class="flex">
                                 <th class="truncate flex-1 w-2">Durability</th>
-                                <td class="flex-none w-12 flex justify-end pr-4">{ship.value?.maxhp ?? 0 }</td>
+                                <td class="flex-none w-12 flex justify-end pr-4">{ship()?.maxhp ?? 0 }</td>
                                 <th class="truncate flex-1 w-2">Firepower</th>
                                 <td class="flex-none w-12 flex justify-end pr-4">
                                     <div class="indicator">
                                         <span class="indicator-item indicator-bottom text-accent text-xs">
-                                            {sp_effect_item.value?.karyoku > 0 ? "+"+sp_effect_item.value?.karyoku : ""}
+                                            {sp_effect_item()?.karyoku > 0 ? "+"+sp_effect_item()?.karyoku : ""}
                                         </span>
-                                        {ship.value?.karyoku[0] ?? 0 }
+                                        {ship()?.karyoku[0] ?? 0 }
                                     </div>
                                 </td>
                             </tr>
@@ -168,18 +147,18 @@ export const ShipName = component$(({ship_id}: ShipNameProps) => {
                                 <td class="flex-none w-12 flex justify-end pr-4">
                                     <div class="indicator">
                                         <span class="indicator-item indicator-bottom text-accent text-xs">
-                                            {sp_effect_item.value?.soukou > 0 ? "+"+sp_effect_item.value?.soukou : ""}
+                                            {sp_effect_item()?.soukou > 0 ? "+"+sp_effect_item()?.soukou : ""}
                                         </span>
-                                        {ship.value?.soukou[0] ?? 0 }
+                                        {ship()?.soukou[0] ?? 0 }
                                     </div>
                                 </td>
                                 <th class="truncate flex-1 w-2">Torpedo</th>
                                 <td class="flex-none w-12 flex justify-end pr-4">
                                     <div class="indicator">
                                         <span class="indicator-item indicator-bottom text-accent text-xs">
-                                            {sp_effect_item.value?.raisou > 0 ? "+"+sp_effect_item.value?.raisou : ""}
+                                            {sp_effect_item()?.raisou > 0 ? "+"+sp_effect_item()?.raisou : ""}
                                         </span>
-                                        {ship.value?.raisou[0] ?? 0 }
+                                        {ship()?.raisou[0] ?? 0 }
                                     </div>
                                 </td>
                             </tr>
@@ -188,31 +167,31 @@ export const ShipName = component$(({ship_id}: ShipNameProps) => {
                                 <td class="flex-none w-12 flex justify-end pr-4">
                                     <div class="indicator">
                                         <span class="indicator-item indicator-bottom text-accent text-xs">
-                                            {sp_effect_item.value?.kaihi > 0 ? "+"+sp_effect_item.value?.kaihi : ""}
+                                            {sp_effect_item()?.kaihi > 0 ? "+"+sp_effect_item()?.kaihi : ""}
                                         </span>
-                                        {ship.value?.kaihi[0] ?? 0 }
+                                        {ship()?.kaihi[0] ?? 0 }
                                     </div>
                                 </td>
                                 <th class="truncate flex-1 w-2">Anti-Air</th>
-                                <td class="flex-none w-12 flex justify-end pr-4">{ship.value?.taiku[0] ?? 0 }</td>
+                                <td class="flex-none w-12 flex justify-end pr-4">{ship()?.taiku[0] ?? 0 }</td>
                             </tr>
                             <tr class="flex">
                                 <th class="truncate flex-1 w-2">Aircraft installed</th>
-                                <td class="flex-none w-12 flex justify-end pr-4">{max_eq ?? 0 > 0}</td>
+                                <td class="flex-none w-12 flex justify-end pr-4">{max_eq() ?? 0 > 0}</td>
                                 <th class="truncate flex-1 w-2">Anti-Submarine</th>
-                                <td class="flex-none w-12 flex justify-end pr-4">{ship.value?.taisen[0] ?? 0 }</td>
+                                <td class="flex-none w-12 flex justify-end pr-4">{ship()?.taisen[0] ?? 0 }</td>
                             </tr>
                             <tr class="flex">
                                 <th class="truncate flex-1 w-2">Speed</th>
-                                <td class="flex-none w-12 flex justify-end pr-4">{speed_list[ship.value?.soku ?? 0]}</td>
+                                <td class="flex-none w-12 flex justify-end pr-4">{speed_list[ship()?.soku ?? 0]}</td>
                                 <th class="truncate flex-1 w-2">Reconnaissance</th>
-                                <td class="flex-none w-12 flex justify-end pr-4">{ship.value?.sakuteki[0] ?? 0 }</td>
+                                <td class="flex-none w-12 flex justify-end pr-4">{ship()?.sakuteki[0] ?? 0 }</td>
                             </tr>
                             <tr class="flex">
                                 <th class="truncate flex-1 w-2">Range</th>
-                                <td class="flex-none w-12 flex justify-end pr-4">{range_list[ship.value?.leng ?? 0]}</td>
+                                <td class="flex-none w-12 flex justify-end pr-4">{range_list[ship()?.leng ?? 0]}</td>
                                 <th class="truncate flex-1 w-2">Luck</th>
-                                <td class="flex-none w-12 flex justify-end pr-4">{ship.value?.lucky[0] ?? 0 }</td>
+                                <td class="flex-none w-12 flex justify-end pr-4">{ship()?.lucky[0] ?? 0 }</td>
                             </tr>
                         </tbody>
                     </table>
@@ -223,4 +202,4 @@ export const ShipName = component$(({ship_id}: ShipNameProps) => {
             </form>
         </dialog>
     </>;
-});
+}

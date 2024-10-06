@@ -1,12 +1,12 @@
-import type { PropsOf } from '@builder.io/qwik'
+import { JSX } from 'solid-js';
  
-export function IconCatHand(props: PropsOf<'svg'>, key: string) {
+export function IconCatHand(props: JSX.HTMLAttributes<SVGSVGElement>) {
   return (
     <svg fill="currentColor" xmlns="http://www.w3.org/2000/svg"
-      strokeWidth="1.5" 
+      stroke-width="1.5" 
       stroke="currentColor" 
 	 viewBox="0 0 512 512"
-      {...props} key={key}>
+      {...props}>
       <g>
 	<path d="M223.297,131.419c13.892-2.636,23.017-16.014,20.389-29.907c-2.628-13.876-16.015-23.009-29.906-20.381
 		c-13.876,2.644-23.009,16.023-20.381,29.907C196.026,124.921,209.422,134.046,223.297,131.419z"></path>

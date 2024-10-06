@@ -3,28 +3,6 @@
   overflow: hidden;
 }
 
-/* font size----------------------------*/
-.f7 {
-  font-size: 0.750rem;
-}
-
-.f8 {
-  font-size: 0.625rem;
-}
-/* font size----------------------------*/
-
-/**/
-.top-0_25 {
-  top: 0.25rem;
-}
-/**/
-
-/**/
-.h1_5 {
-  height: 1.4rem;
-}
-/**/
-
 html {
   overflow-y: scroll;
 }
