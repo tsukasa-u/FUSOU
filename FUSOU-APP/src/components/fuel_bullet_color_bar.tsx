@@ -18,8 +18,8 @@ export function FuelBulletColorBarComponent({v_now, v_max, ...props}: ColorBarPr
 
         let color: JSX.Element = <></>;
         if (v_now == v_max) color = progress_color_list[4];
-        else if (v_now > 7/9*v_max) color = progress_color_list[3];
-        else if (v_now > 3/9*v_max) color = progress_color_list[2];
+        else if (9*v_now >= 7*v_max) color = progress_color_list[3];
+        else if (9*v_now >= 3*v_max) color = progress_color_list[2];
         else if (v_now >= 0) color = progress_color_list[1];
         return color;
     });

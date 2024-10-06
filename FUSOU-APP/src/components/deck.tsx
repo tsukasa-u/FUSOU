@@ -9,7 +9,7 @@ import { IconKira3 } from '../icons/kira3.tsx';
 import { EquimentComponent } from './equipment.tsx';
 import { ShipNameComponent } from './ship_name.tsx';
 import { useDeckPorts, useMstShips, useShips } from '../utility/provider.tsx';
-import { createComputed, createEffect, createMemo, createSignal, For, JSX, Show } from "solid-js";
+import { createMemo, createSignal, For, JSX, Show } from "solid-js";
 // import { global_mst_ships_context_id, global_ship_context_id } from '../app.tsx';
 
 import "../css/divider.css";
@@ -34,26 +34,26 @@ export function DeckComponent({deck_id}: DeckPortProps) {
     const [_deck_ports, ] = useDeckPorts();
 
     const cond_state = createMemo<JSX.Element[]>(() => {
-        const cond_list: JSX.Element[] = [
-            <IconKira3 class="h-4 w-4 fill-yellow-500 stroke-2"></IconKira3>,
-            <IconKira2 class="h-4 w-4 fill-yellow-500 stroke-2"></IconKira2>,
-            <IconKira1 class="h-4 w-4 fill-yellow-500 stroke-2"></IconKira1>,
-            <></>,
-            <IconCautionFill class="h-4 w-4 fill-yellow-500 stroke-2"></IconCautionFill>,
-            <IconCautionFill class="h-4 w-4 fill-yellow-500 stroke-2"></IconCautionFill>,
-            <IconCautionFill class="h-4 w-4 fill-orange-500 stroke-2"></IconCautionFill>,
-            <IconCautionFill class="h-4 w-4 fill-red-500 stroke-2"></IconCautionFill>,
-        ];
+        // const cond_list: JSX.Element[] = [
+        //     <IconKira3 class="h-4 w-4 fill-yellow-500 stroke-2"></IconKira3>,
+        //     <IconKira2 class="h-4 w-4 fill-yellow-500 stroke-2"></IconKira2>,
+        //     <IconKira1 class="h-4 w-4 fill-yellow-500 stroke-2"></IconKira1>,
+        //     <></>,
+        //     <IconCautionFill class="h-4 w-4 fill-yellow-500 stroke-2"></IconCautionFill>,
+        //     <IconCautionFill class="h-4 w-4 fill-yellow-500 stroke-2"></IconCautionFill>,
+        //     <IconCautionFill class="h-4 w-4 fill-orange-500 stroke-2"></IconCautionFill>,
+        //     <IconCautionFill class="h-4 w-4 fill-red-500 stroke-2"></IconCautionFill>,
+        // ];
         const set_cond_state = (cond: number): JSX.Element => {
             let cond_state: JSX.Element = <></>;
-            if (cond >= 71) cond_state = cond_list[0];
-            else if (cond >= 58) cond_state = cond_list[1];
-            else if (cond >= 50) cond_state = cond_list[2];
-            else if (cond == 49) cond_state = cond_list[3];
-            else if (cond >= 40) cond_state = cond_list[4];
-            else if (cond >= 30) cond_state = cond_list[5];
-            else if (cond >= 20) cond_state = cond_list[6];
-            else if (cond >=  0) cond_state = cond_list[7];
+            if (cond >= 71)      cond_state = <IconKira3 class="h-4 w-4 fill-yellow-500 stroke-2"></IconKira3>;
+            else if (cond >= 58) cond_state = <IconKira2 class="h-4 w-4 fill-yellow-500 stroke-2"></IconKira2>;
+            else if (cond >= 50) cond_state = <IconKira1 class="h-4 w-4 fill-yellow-500 stroke-2"></IconKira1>;
+            else if (cond == 49) cond_state = <></>;
+            else if (cond >= 40) cond_state = <IconCautionFill class="h-4 w-4 fill-yellow-500 stroke-2"></IconCautionFill>;
+            else if (cond >= 30) cond_state = <IconCautionFill class="h-4 w-4 fill-yellow-500 stroke-2"></IconCautionFill>;
+            else if (cond >= 20) cond_state = <IconCautionFill class="h-4 w-4 fill-orange-500 stroke-2"></IconCautionFill>;
+            else if (cond >=  0) cond_state = <IconCautionFill class="h-4 w-4 fill-red-500 stroke-2"></IconCautionFill>;
             return cond_state;
         };
 
@@ -65,21 +65,20 @@ export function DeckComponent({deck_id}: DeckPortProps) {
     });
 
     const hp_state = createMemo<JSX.Element[]>(() => {
-        const hp_list: JSX.Element[] = [
-            <></>,
-            <IconCautionFill class="h-4 w-4 fill-yellow-500 stroke-2"></IconCautionFill>,
-            <IconCautionFill class="h-4 w-4 fill-orange-500 stroke-2"></IconCautionFill>,
-            <IconCautionFill class="h-4 w-4 fill-red-500 stroke-2"></IconCautionFill>,
-            <></>,
-        ];
+        // const hp_list: JSX.Element[] = [
+        //     <></>,
+        //     <IconCautionFill class="h-4 w-4 fill-yellow-500 stroke-2"></IconCautionFill>,
+        //     <IconCautionFill class="h-4 w-4 fill-orange-500 stroke-2"></IconCautionFill>,
+        //     <IconCautionFill class="h-4 w-4 fill-red-500 stroke-2"></IconCautionFill>,
+        //     <></>,
+        // ];
 
         const set_hp_state = (nowhp: number, maxhp: number): JSX.Element => {
             let hp_state: JSX.Element = <></>;
-            if (nowhp > 0.75*maxhp) hp_state = hp_list[0];
-            else if (nowhp > 0.5*maxhp) hp_state = hp_list[1];
-            else if (nowhp > 0.25*maxhp) hp_state = hp_list[2];
-            else if (nowhp > 0) hp_state = hp_list[3];
-            else hp_state = hp_list[4];
+            if (nowhp > 0.75*maxhp)      hp_state = <></>;
+            else if (nowhp > 0.5 *maxhp) hp_state = <IconCautionFill class="h-4 w-4 fill-yellow-500 stroke-2"></IconCautionFill>;
+            else if (nowhp > 0.25*maxhp) hp_state = <IconCautionFill class="h-4 w-4 fill-orange-500 stroke-2"></IconCautionFill>;
+            else if (nowhp > 0)          hp_state = <IconCautionFill class="h-4 w-4 fill-red-500 stroke-2"></IconCautionFill>;
             return hp_state;
         }
 
@@ -92,20 +91,19 @@ export function DeckComponent({deck_id}: DeckPortProps) {
     });
 
     const fuel_bullet_state = createMemo<JSX.Element[]>(() => {
-        const fuel_bullet_list: JSX.Element[] = [
-            <></>,
-            <IconCautionFill class="h-4 w-4 fill-yellow-500 stroke-2"></IconCautionFill>,
-            <IconCautionFill class="h-4 w-4 fill-orange-500 stroke-2"></IconCautionFill>,
-            <IconCautionFill class="h-4 w-4 fill-red-500 stroke-2"></IconCautionFill>,
-        ];
+        // const fuel_bullet_list: JSX.Element[] = [
+        //     <></>,
+        //     <IconCautionFill class="h-4 w-4 fill-yellow-500 stroke-2"></IconCautionFill>,
+        //     <IconCautionFill class="h-4 w-4 fill-orange-500 stroke-2"></IconCautionFill>,
+        //     <IconCautionFill class="h-4 w-4 fill-red-500 stroke-2"></IconCautionFill>,
+        // ];
 
         const set_fuel_bullet_state = (nowfuel: number, maxfuel: number, nowbullet: number, maxbullet: number): JSX.Element => {
             let fuel_bullet_state: JSX.Element = <></>;
-            if (nowfuel == maxfuel &&  nowbullet  == maxbullet) fuel_bullet_state = fuel_bullet_list[0];
-            else if (nowfuel > 7/9*maxfuel && nowbullet > 7/9*maxbullet) fuel_bullet_state = fuel_bullet_list[1];
-            else if (nowfuel > 3/9*maxfuel || nowbullet > 3/9*maxbullet) fuel_bullet_state = fuel_bullet_list[2];
-            else if (nowfuel >= 0 || nowbullet >= 0) fuel_bullet_state = fuel_bullet_list[3];
-            else fuel_bullet_state = fuel_bullet_list[4];
+            if (nowfuel == maxfuel &&  nowbullet  == maxbullet)            fuel_bullet_state = <></>;
+            else if (9*nowfuel >= 7*maxfuel && 9*nowbullet >= 7*maxbullet) fuel_bullet_state = <IconCautionFill class="h-4 w-4 fill-yellow-500 stroke-2"></IconCautionFill>;
+            else if (9*nowfuel >= 3*maxfuel && 9*nowbullet >= 3*maxbullet) fuel_bullet_state = <IconCautionFill class="h-4 w-4 fill-orange-500 stroke-2"></IconCautionFill>;
+            else if (nowfuel >= 0 && nowbullet >= 0)                       fuel_bullet_state = <IconCautionFill class="h-4 w-4 fill-red-500 stroke-2"></IconCautionFill>;
             return fuel_bullet_state;
         }
 
