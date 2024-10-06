@@ -9,10 +9,12 @@ import { IconKira3 } from '../icons/kira3.tsx';
 import { EquimentComponent } from './equipment.tsx';
 import { ShipNameComponent } from './ship_name.tsx';
 import { useDeckPorts, useMstShips, useShips } from '../utility/provider.tsx';
-import { createMemo, createSignal, For, JSX, Show } from "solid-js";
+import { createComputed, createEffect, createMemo, createSignal, For, JSX, Show } from "solid-js";
 // import { global_mst_ships_context_id, global_ship_context_id } from '../app.tsx';
 
 import "../css/divider.css";
+
+let moreSiganMap: {[key:number]:boolean} = {};
 
 interface DeckPortProps {
     deck_id: number;
@@ -115,7 +117,10 @@ export function DeckComponent({deck_id}: DeckPortProps) {
         return states;
     });
 
-    const [moreSignal, setMoreSignal] = createSignal(false);
+    if (moreSiganMap[deck_id] == undefined) {
+        moreSiganMap[deck_id] = false;
+    }
+    const [moreSignal, setMoreSignal] = createSignal<boolean>(moreSiganMap[deck_id]);
 
     return (
         <>
@@ -127,7 +132,7 @@ export function DeckComponent({deck_id}: DeckPortProps) {
                         <div class="form-control">
                             <label class="label cursor-pointer h-4">
                                 <span class="label-text mb-1.5 pr-2 h-4">more</span>
-                                <input type="checkbox" onClick={() => setMoreSignal(!moreSignal())} class="toggle toggle-xs h-4  border-gray-400 [--tglbg:theme(colors.gray.200)] checked:border-blue-200 checked:bg-blue-300 checked:[--tglbg:theme(colors.blue.100)] rounded-sm" />
+                                <input type="checkbox" onClick={() => { moreSiganMap[deck_id] = !moreSignal(); setMoreSignal(!moreSignal()); }}  class="toggle toggle-xs h-4  border-gray-400 [--tglbg:theme(colors.gray.200)] checked:border-blue-200 checked:bg-blue-300 checked:[--tglbg:theme(colors.blue.100)] rounded-sm" checked={moreSignal()}/>
                             </label>
                         </div>
                     </summary>

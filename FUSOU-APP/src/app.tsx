@@ -16,14 +16,25 @@ import { SettingsComponent } from './components/settings.tsx';
 
 import { MaterialsComponent } from './components/materials.tsx';
 import { DeckPortsProvider, MaterialsProvider, MstShipsProvider, MstSlotItemsProvider, ShipsProvider, SlotItemsProvider } from './utility/provider.tsx';
+import { createSignal, For, onMount } from 'solid-js';
 
 function App() {
 
+  const [key, setKey] = createSignal([{}], { equals: false });
+  const rerender = () => setKey([{}]);
+
+  onMount(() => {
+    rerender();
+    console.log("App mounted");
+  });
+  
   return (
     <>
       <div class=" bg-base-200 h-screen">
         <div role="tablist" class="tabs tabs-bordered tabs-sm">
-          <input type="radio" name="tabs_fleet" role="tab" class="tab [&::after]:w-16 bg-base-200 fixed" aria-label="Fleet Info" style={{"top":"0px", "left":"0px", "z-index":"100"}}  />
+          <div class="h-6 w-screen fixed bg-base-200 left-0 top-0 tab" style={{"z-index": "99"}}></div>
+
+          <input type="radio" name="tabs_fleet" role="tab" class="tab [&::after]:w-16 bg-base-200 fixed" aria-label="Fleet Info" style={{"top":"0px", "left":"0px", "z-index":"100"}} checked={true}/>
           <div role="tabpanel" class="tab-content p-0 h-full">
             
             <div class="h-6"></div>
@@ -33,17 +44,17 @@ function App() {
                 <MaterialsComponent></MaterialsComponent>
               </MaterialsProvider>
 
-            <MstSlotItemsProvider>
-              <SlotItemsProvider>
-                <ShipsProvider>
-                  <MstShipsProvider>
-                    <DeckPortsProvider>
-                      <DecksComponent />
-                    </DeckPortsProvider>
-                  </MstShipsProvider>
-                </ShipsProvider>
-              </SlotItemsProvider>
-            </MstSlotItemsProvider>
+              <MstSlotItemsProvider>
+                <SlotItemsProvider>
+                  <ShipsProvider>
+                    <MstShipsProvider>
+                      <DeckPortsProvider>
+                        <DecksComponent />
+                      </DeckPortsProvider>
+                    </MstShipsProvider>
+                  </ShipsProvider>
+                </SlotItemsProvider>
+              </MstSlotItemsProvider>
               
               {/* <Dock nDock={nDock} ships={ships} mst_ships={mst_ships}>
                 <IconFolder class="h-4 w-4" q:slot='icon_dock'/>
@@ -73,7 +84,7 @@ function App() {
               under construction
           </div>
 
-          <input type="radio" name="tabs_fleet" role="tab" class="tab [&::after]:w-14 bg-base-200 fixed" aria-label="Settings" style={{"top":"0px", "left":"248px", "z-index":"100"}} />
+          <input type="radio" name="tabs_fleet" role="tab" class="tab [&::after]:w-14 bg-base-200 fixed w-screen" aria-label="Settings" style={{"top":"0px", "left":"248px", "z-index":"100"}} />
           <div role="tabpanel" class="tab-content pt-0 pb-0 pl-0 bg-base-200">
             <div class="h-6"></div>
             <SettingsComponent></SettingsComponent>
