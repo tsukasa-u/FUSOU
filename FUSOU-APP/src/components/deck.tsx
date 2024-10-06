@@ -1,7 +1,3 @@
-import { DeckPort, DeckPorts, Ships } from "../interface/port.ts";
-import { MstShips, MstSlotitems } from "../interface/get_data.ts";
-import { SlotItems } from "../interface/require_info.ts";
-
 import { FuelBulletColorBarComponent } from './fuel_bullet_color_bar.tsx';
 import { HpColorBarComponent } from './hp_color_bar.tsx';
 

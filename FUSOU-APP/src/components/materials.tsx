@@ -1,7 +1,6 @@
-import { Materials } from "../interface/port.ts";
 import { useMaterials } from '../utility/provider.tsx';
 
-// import "../css/divider.css";
+import "../css/divider.css";
 
 export function MaterialsComponent() {
     
