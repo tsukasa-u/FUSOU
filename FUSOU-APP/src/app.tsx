@@ -1,14 +1,3 @@
-// import { IconResume } from './components/icons/resume.tsx';
-// import { IconFile } from './components/icons/file.tsx';
-// import { IconFolder } from './components/icons/folder.tsx';
-// import { IconImage } from './components/icons/image.tsx';
-
-// import { Decks } from './components/decks.tsx';
-// import { Dock } from './components/dock.tsx';
-// import { Expedition } from './components/expedition.tsx';
-// import { Task } from './components/task.tsx';
-// import { Material } from './components/materials.tsx';
-
 import './app.css';
 import { DecksComponent } from './components/decks.tsx';
 import { SettingsComponent } from './components/settings.tsx';
@@ -16,17 +5,8 @@ import { SettingsComponent } from './components/settings.tsx';
 
 import { MaterialsComponent } from './components/materials.tsx';
 import { DeckPortsProvider, MaterialsProvider, MstShipsProvider, MstSlotItemsProvider, ShipsProvider, SlotItemsProvider } from './utility/provider.tsx';
-import { createSignal, For, onMount } from 'solid-js';
 
 function App() {
-
-  const [key, setKey] = createSignal([{}], { equals: false });
-  const rerender = () => setKey([{}]);
-
-  onMount(() => {
-    rerender();
-    console.log("App mounted");
-  });
   
   return (
     <>
