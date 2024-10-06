@@ -52,7 +52,6 @@ export function DeckComponent({deck_id}: DeckPortProps) {
             else if (cond >= 30) cond_state = cond_list[5];
             else if (cond >= 20) cond_state = cond_list[6];
             else if (cond >=  0) cond_state = cond_list[7];
-            console.log(cond);
             return cond_state;
         };
 

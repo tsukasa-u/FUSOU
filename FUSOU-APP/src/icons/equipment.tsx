@@ -1,4 +1,4 @@
-import type { PropsOf } from '@builder.io/qwik'
+import { JSX } from 'solid-js';
 
 interface EquipmentProps {
   icon_number: number;
@@ -176,7 +176,7 @@ const category_list: { [key: number]: string } = {
   48: "UN",   //  Unknown
 };
  
-export function IconEquipment({icon_number, category_number, ...props}: PropsOf<'svg'> & EquipmentProps, key: string, ) {
+export function IconEquipment({icon_number, category_number, ...props}: JSX.HTMLAttributes<SVGSVGElement> & EquipmentProps) {
 
   let primary_color: string = icon_list[icon_number ?? 0][0];
   let secondary_color: string = icon_list[icon_number ?? 0][1];
@@ -190,8 +190,7 @@ export function IconEquipment({icon_number, category_number, ...props}: PropsOf<
       xmlns="http://www.w3.org/2000/svg" 
       xmlns:xlink="http://www.w3.org/1999/xlink" 
       overflow="hidden" 
-      {...props} 
-      key={key}>
+      {...props}>
       {/* <defs>
         <filter id="fx0" x="-10%" y="-10%" width="120%" height="120%" filterUnits="userSpaceOnUse" primitiveUnits="userSpaceOnUse">
           <feComponentTransfer color-interpolation-filters="sRGB">

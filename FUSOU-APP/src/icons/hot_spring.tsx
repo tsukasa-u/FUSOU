@@ -1,12 +1,12 @@
-import type { PropsOf } from '@builder.io/qwik'
+import { JSX } from 'solid-js';
  
-export function IconHotSpring(props: PropsOf<'svg'>, key: string) {
+export function IconHotSpring(props: JSX.HTMLAttributes<SVGSVGElement>) {
   return (
     <svg fill="currentColor" xmlns="http://www.w3.org/2000/svg"
-      strokeWidth="1.5" 
+      stroke-width="1.5" 
       stroke="currentColor" 
 	 viewBox="0 0 512 512"
-      {...props} key={key}>
+      {...props}>
       <g>
 	<path d="M506.391,287.074c-3.578-10.219-13.484-22-20.734-29.047c-17.188-16.672-35.688-25-44.75-29.875
 		c-6.75-4.047-15.313-1.594-19.188,5.484c-3.844,7.063-1.313,15.703,5.219,20.141c42.844,29.234,49.906,64.281,18.906,100.859

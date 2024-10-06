@@ -19,7 +19,6 @@ export function ShipsProvider(props: { children: JSX.Element }) {
     ];
 
     createEffect(() => {
-        console.log('ShipsProvider');
         let unlisten_data: UnlistenFn
         (async() => {
             unlisten_data = await listen<Ships>('set-kcs-ships', event => {
@@ -188,7 +187,6 @@ export function MaterialsProvider(props: { children: JSX.Element }) {
         (async() => {
             unlisten_data = await listen<Materials>('set-kcs-materials', event => {
               setData(event.payload);
-              console.log('MaterialsProvider');
             });
 
         })();
@@ -231,9 +229,6 @@ export function DeckPortsProvider(props: { children: JSX.Element }) {
         (async() => {
             unlisten_data = await listen<DeckPorts>('set-kcs-deck-ports', event => {
               setData(event.payload);
-              console.log('DeckPortsProvider');
-              console.log(event.payload);
-              console.log(data);
             });
         })();
         

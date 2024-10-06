@@ -8,7 +8,6 @@ interface ColorBarProps {
 export function HpColorBarComponent({v_now, v_max, ...props}: ColorBarProps & JSX.HTMLAttributes<HTMLProgressElement>) {
     const progress_color_state = createMemo(() => {
         let props_expand = { ...props, value: v_max != 0 ? (v_now ?? 0) * 100 / (v_max ?? -1) : 0, max: 100 };
-        console.log(props.class);
         const progress_color_list: JSX.Element[] = [
             <progress {...props_expand} class={(props.class != undefined ? props.class : "")+" progress [&::-webkit-progress-value]:bg-black      [&::-moz-progress-bar]:bg-black"     }></progress>,
             <progress {...props_expand} class={(props.class != undefined ? props.class : "")+" progress [&::-webkit-progress-value]:bg-red-500    [&::-moz-progress-bar]:bg-red-500"   }></progress>,
