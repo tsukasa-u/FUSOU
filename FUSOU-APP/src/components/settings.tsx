@@ -1,5 +1,3 @@
-import { createMemo, For, Show } from 'solid-js';
-
 import { invoke } from '@tauri-apps/api/tauri'
 import { FadeToast, showFadeToast } from './fade_toast';
 

@@ -1,9 +1,6 @@
-import { MstSlotitem, MstSlotitems } from '../interface/get_data.ts';
-import { SlotItem, SlotItems } from '../interface/require_info.ts';
-
 import { IconEquipment } from '../icons/equipment.tsx';
 
-import { HiXMarkOutline } from '@qwikest/icons/heroicons';
+import { IconXMark } from '../icons/X-mark.tsx';
 import { useMstSlotItems, useSlotItems } from '../utility/provider.tsx';
 
 import "../css/modal.css";
@@ -67,7 +64,7 @@ export function EquimentComponent({slot_id, ex_flag, name_flag}: EquipmentProps)
             <div class="modal-box bg-base-100 modal-box-width">
                 <form method="dialog">
                     <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">
-                        <HiXMarkOutline class="h-6 w-6" />
+                        <IconXMark class="h-6 w-6" />
                     </button>
                 </form>
                 <div class="flex justify-start">

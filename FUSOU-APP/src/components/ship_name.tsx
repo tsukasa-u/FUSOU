@@ -1,9 +1,4 @@
-import { Ship, Ships } from '../interface/port.ts';
-import { MstShip, MstShips, MstSlotitem, MstSlotitems } from '../interface/get_data.ts';
-
-// import { HiXMarkOutline } from '@qwikest/icons/heroicons';
 import { IconXMark } from '../icons/X-mark.tsx';
-import { SlotItem, SlotItems } from '../interface/require_info.ts';
 import { EquimentComponent } from './equipment.tsx';
 
 import '../css/modal.css';

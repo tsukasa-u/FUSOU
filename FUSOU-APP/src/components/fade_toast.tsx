@@ -1,8 +1,5 @@
 import { JSX } from "solid-js";
 
-// import { HiXMarkOutline } from '@qwikest/icons/heroicons';
-import { IconXMark } from "../icons/X-mark";
-
 import "../css/fade_toast.css";
 
 interface FadeToastProps {
