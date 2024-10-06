@@ -9,21 +9,18 @@
     "preview": "serve dist"
   },
   "devDependencies": {
-    "@builder.io/vite-plugin-macro": "~0.0.7",
     "@tauri-apps/cli": "^1.6.2",
-    "daisyui": "^4.12.10",
-    "serve": "^14.2.3",
-    "tailwindcss": "^3.4.12",
     "typescript": "^5.6.2",
-    "vite": "^5.4.6"
+    "autoprefixer": "^10.4.20",
+    "daisyui": "^4.12.12",
+    "postcss": "^8.4.47",
+    "tailwindcss": "^3.4.13",
+    "vite": "^5.4.8",
+    "vite-plugin-solid": "^2.10.2"
   },
   "dependencies": {
-    "@builder.io/qwik": "1.7.0",
-    "@qwikest/icons": "^0.0.13",
+    "solid-js": "^1.9.1",
     "@tauri-apps/api": "^1.6.0",
-    "autoprefixer": "^10.4.20",
-    "d3": "^7.9.0",
-    "qwik-d3": "^0.0.24",
-    "qwik-image": "^0.0.13"
+    "d3": "^7.9.0"
   }
 }

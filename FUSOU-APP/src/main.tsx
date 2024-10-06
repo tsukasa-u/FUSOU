@@ -1,10 +1,8 @@
-import '@builder.io/qwik/qwikloader.js'
-
-import { render } from '@builder.io/qwik'
-import { App } from './app.tsx'
+/* @refresh reload */
+import { render } from "solid-js/web";
+import App from './app.tsx'
 
 import './index.css'
+import './tailwind.css'
 
-
-
-render(document.getElementById('app') as HTMLElement, <App />)
+render(() => <App />, document.getElementById("root") as HTMLElement);

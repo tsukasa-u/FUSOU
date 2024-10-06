@@ -1,15 +1,15 @@
-import type { PropsOf } from '@builder.io/qwik'
+import { JSX } from 'solid-js';
  
-export function IconStar(props: PropsOf<'svg'>, key: string) {
+export function IconStar(props: JSX.HTMLAttributes<SVGSVGElement>) {
   return (
     <svg fill="currentColor" xmlns="http://www.w3.org/2000/svg"
-      strokeWidth="1.5" 
+      stroke-width="1.5" 
       stroke="currentColor" 
 	 viewBox="0 0 36.09 36.09"
-      {...props} key={key}>
+      {...props}>
       <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
+        stroke-linecap="round"
+        stroke-linejoin="round"
         d="M 36.042 13.909 c -0.123 -0.377 -0.456 -0.646 -0.85 -0.688 l -11.549 -1.172 L 18.96 1.43 c -0.16 -0.36 -0.519 -0.596 -0.915 -0.596 s -0.755 0.234 -0.915 0.598 L 12.446 12.05 L 0.899 13.221 c -0.394 0.04 -0.728 0.312 -0.85 0.688 c -0.123 0.377 -0.011 0.791 0.285 1.055 l 8.652 7.738 L 6.533 34.045 c -0.083 0.387 0.069 0.787 0.39 1.02 c 0.175 0.127 0.381 0.191 0.588 0.191 c 0.173 0 0.347 -0.045 0.503 -0.137 l 10.032 -5.84 l 10.03 5.84 c 0.342 0.197 0.77 0.178 1.091 -0.059 c 0.32 -0.229 0.474 -0.633 0.391 -1.02 l -2.453 -11.344 l 8.653 -7.737 C 36.052 14.699 36.165 14.285 36.042 13.909" />
     </svg>
   )
