@@ -17,7 +17,7 @@ export function DecksComponent() {
                         Fleets
                     </summary>
                     <ul class="pl-0">
-                        <For each={Object.entries(decks.deck_ports)} fallback={<div>Loading Fleet Data ...</div>}>
+                        <For each={Object.entries(decks.deck_ports)} fallback={<div class="text-xs py-2">Loading Fleet Data ...</div>}>
                             {(item) => <>{<DeckComponent deck_id={Number(item[0])}></DeckComponent>}</>}
                         </For>
                     </ul>
