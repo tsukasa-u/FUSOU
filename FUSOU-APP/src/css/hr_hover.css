@@ -1,0 +1,13 @@
+@media (hover: hover) {
+    @supports (color: oklch(0% 0 0)) {
+        :not(#fakeID) .bg-neutral.not_hr:hover {
+            background-color: var(--fallback-bc, oklch(var(--bc) / 1.0));
+        }
+    }
+}
+
+@media (hover: hover) {
+    :not(#fakeID) .not_hr:hover {
+        cursor: default;
+    }
+}
