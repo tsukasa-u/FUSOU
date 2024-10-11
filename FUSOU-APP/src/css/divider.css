@@ -1,7 +1,7 @@
 
-.divider-horizontal::before {
-    width: 1px;
+div.divider-horizontal::before {
+    width: 0.5px;
 }
-.divider-horizontal::after {
-    width: 1px;
+div.divider-horizontal::after {
+    width: 0.5px;
 }

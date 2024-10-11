@@ -35,7 +35,7 @@ export function MaterialsComponent() {
                                             <div class="w-10 flex justify-end">
                                                 {material}
                                             </div>
-                                            <div class="divider divider-horizontal [&::after]:w-px [&::before]:w-px mr-0 ml-0"></div>
+                                            <div class="divider divider-horizontal mr-0 ml-0"></div>
                                         </>
                                     ))}
                                 </div>
@@ -45,7 +45,7 @@ export function MaterialsComponent() {
                                             <div class="w-10 flex justify-end">
                                                 {material}
                                             </div>
-                                            <div class="divider divider-horizontal [&::after]:w-px [&::before]:w-px mr-0 ml-0"></div>
+                                            <div class="divider divider-horizontal mr-0 ml-0"></div>
                                         </>
                                     ))}
                                 </div>
