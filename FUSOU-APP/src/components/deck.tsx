@@ -147,7 +147,7 @@ export function DeckComponent({deck_id}: DeckPortProps) {
                                                         <ShipNameComponent ship_id={shipId}></ShipNameComponent>
                                                     </div>
                                                 </div>
-                                                <div class="divider divider-horizontal [&::after]:w-px [&::before]:w-px mr-0 ml-0 flex-none"></div>
+                                                <div class="divider divider-horizontal mr-0 ml-0 flex-none"></div>
                                                 <div class=" flex-none">
                                                     <div class="flex justify-center w-8 indicator">
                                                         <div class="indicator-item indicator-top indicator-end">
@@ -158,7 +158,7 @@ export function DeckComponent({deck_id}: DeckPortProps) {
                                                         </div>
                                                     </div>
                                                 </div>
-                                                <div class="divider divider-horizontal [&::after]:w-px [&::before]:w-px mr-0 ml-0 flex-none"></div>
+                                                <div class="divider divider-horizontal mr-0 ml-0 flex-none"></div>
                                                 <div class="indicator">
                                                     <div class="indicator-item indicator-top indicator-end flax space-x-2">
                                                         { hp_state()[idx()] }
@@ -176,7 +176,7 @@ export function DeckComponent({deck_id}: DeckPortProps) {
                                                         </div>
                                                     </div>
                                                 </div>
-                                                <div class="divider divider-horizontal [&::after]:w-px [&::before]:w-px mr-0 ml-0 flex-none"></div>
+                                                <div class="divider divider-horizontal mr-0 ml-0 flex-none"></div>
                                                 <div class="indicator">
                                                     <div class="flex-none">
                                                         <div class="indicator-item indicator-top indicator-end flax space-x-2">
@@ -190,7 +190,7 @@ export function DeckComponent({deck_id}: DeckPortProps) {
                                                         </div>
                                                     </div>
                                                 </div>
-                                                <div class="divider divider-horizontal [&::after]:w-px [&::before]:w-px mr-0 ml-0"></div>
+                                                <div class="divider divider-horizontal mr-0 ml-0"></div>
                                             </div>
                                             <Show when={moreSignal()}>
                                                 <div class="flex">
@@ -204,7 +204,7 @@ export function DeckComponent({deck_id}: DeckPortProps) {
                                                         )) }
                                                     </div>
                                                     <span class="w-2"></span>
-                                                    <div class="divider divider-horizontal [&::after]:w-px [&::before]:w-px mr-0 ml-0 basis-0 h-auto"></div>
+                                                    <div class="divider divider-horizontal mr-0 ml-0 basis-0 h-auto"></div>
                                                     <span class="w-2"></span>
                                                     <div class="content-center">
                                                         <div class="text-base flex justify-center w-8">
@@ -214,7 +214,7 @@ export function DeckComponent({deck_id}: DeckPortProps) {
                                                         </div>
                                                     </div>
                                                     <span class="w-px"></span>
-                                                    <div class="divider divider-horizontal [&::after]:w-px [&::before]:w-px mr-0 ml-0 h-auto"></div>
+                                                    <div class="divider divider-horizontal mr-0 ml-0 h-auto"></div>
                                                 </div>
                                             </Show>
                                         </a>
