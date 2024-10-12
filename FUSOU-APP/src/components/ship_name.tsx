@@ -4,6 +4,7 @@ import { EquimentComponent } from './equipment.tsx';
 import '../css/modal.css';
 import { useMstShips, useShips } from '../utility/provider.tsx';
 import { createMemo, For, Show } from 'solid-js';
+import IconShip from '../icons/ship.tsx';
 
 interface ShipNameProps {
     ship_id: number;
@@ -83,6 +84,7 @@ export function ShipNameComponent({ship_id}: ShipNameProps) {
 
     return <>
         <div class="flex flex-nowarp" onClick={()=> show_modal(ship_id)}>
+            <IconShip class="h-5 -mt-0.5 pr-2" ship_stype={mst_ship().stype} />
             {mst_ship()?.name ?? "Unknown"}
         </div>
         <dialog id={"deck_ship_name_modal_"+ship_id} class="modal">
