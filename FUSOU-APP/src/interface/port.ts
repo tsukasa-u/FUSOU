@@ -19,6 +19,7 @@ export var global_materials: Materials = {
 
 export interface DeckPort {
     id:        number
+    name:      string
     mission:   {
         mission_id:     number
         complete_time:  number

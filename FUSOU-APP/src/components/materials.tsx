@@ -33,7 +33,7 @@ export function MaterialsComponent() {
                                     {Object.values(_materials.materials).slice(0, 4).map((material, index) => (
                                         <>
                                             <IconMaterial item_number={icon_material_converter[index]} class="h-5 w-5"></IconMaterial>
-                                            <div class="w-10 flex justify-end">
+                                            <div class="w-10 flex justify-end pt-0.5">
                                                 {material}
                                             </div>
                                             <div class="divider divider-horizontal mr-0 ml-0"></div>
@@ -44,7 +44,7 @@ export function MaterialsComponent() {
                                     {Object.values(_materials.materials).slice(4, 8).map((material, index) => (
                                         <>
                                             <IconMaterial item_number={icon_material_converter[index+4]} class="h-5 w-5"></IconMaterial>
-                                            <div class="w-10 flex justify-end">
+                                            <div class="w-10 flex justify-end pt-0.5">
                                                 {material}
                                             </div>
                                             <div class="divider divider-horizontal mr-0 ml-0"></div>

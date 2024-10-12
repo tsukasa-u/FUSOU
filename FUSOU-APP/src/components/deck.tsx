@@ -6,6 +6,8 @@ import { IconKira1 } from '../icons/kira1.tsx';
 import { IconKira2 } from '../icons/kira2.tsx';
 import { IconKira3 } from '../icons/kira3.tsx';
 
+import { IconChevronRight } from '../icons/chevron_right.tsx';
+
 import { EquimentComponent } from './equipment.tsx';
 import { ShipNameComponent } from './ship_name.tsx';
 import { useDeckPorts, useMstShips, useShips } from '../utility/provider.tsx';
@@ -124,10 +126,14 @@ export function DeckComponent({deck_id}: DeckPortProps) {
         <>
             <li>
                 <details open>
-                    <summary>
-                        { fleet_name[_deck_ports.deck_ports[deck_id].id] ?? "Unknown" }
-                        <span class="justify-end"></span>
-                        <div class="form-control">
+                    <summary class="flex">
+                        <div class="w-20 flex-none">
+                            { fleet_name[_deck_ports.deck_ports[deck_id].id] ?? "Unknown" }
+                        </div>
+                        <div class="w-4 flex-none -mx-4"><IconChevronRight class="h-4 w-4" /></div>
+                        <div class="pl-4">{_deck_ports.deck_ports[deck_id].name ?? ""}</div>
+                        <span class="flex-auto"></span>
+                        <div class="form-control flex-none">
                             <label class="label cursor-pointer h-4">
                                 <span class="label-text mb-1.5 pr-2 h-4">more</span>
                                 <input type="checkbox" onClick={() => { moreSiganMap[deck_id] = !moreSignal(); setMoreSignal(!moreSignal()); }}  class="toggle toggle-xs h-4  border-gray-400 [--tglbg:theme(colors.gray.200)] checked:border-blue-200 checked:bg-blue-300 checked:[--tglbg:theme(colors.blue.100)] rounded-sm" checked={moreSignal()}/>
