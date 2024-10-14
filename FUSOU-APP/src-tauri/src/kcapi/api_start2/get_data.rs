@@ -9,6 +9,11 @@ use register_trait::{TraitForTest, Getter, TraitForRoot, TraitForConvert};
 use crate::interface::interface::{EmitData, Set};
 use crate::interface::mst_ship::MstShips;
 use crate::interface::mst_slot_item::MstSlotItems;
+use crate::interface::mst_slot_item_equip_type::MstSlotItemEquipTypes;
+use crate::interface::mst_equip_exslot_ship::MstEquipExslotShips;
+use crate::interface::mst_equip_ship::MstEquipShips;
+use crate::interface::mst_stype::MstStypes;
+use crate::interface::mst_use_item::MstUseItems;
 
 #[derive(Getter, TraitForTest, TraitForRoot)]
 #[struct_test_case(field_extra, type_value, integration)]
@@ -635,7 +640,26 @@ impl TraitForConvert for Root {
         let mst_slot_items: MstSlotItems = self.api_data.api_mst_slotitem.clone().into();
         mst_slot_items.restore();
 
-        Some(vec![EmitData::Set(Set::MstShips(mst_ships)), EmitData::Set(Set::MstSlotItems(mst_slot_items))])
+        let mst_equip_exslot_ship: MstEquipExslotShips = self.api_data.api_mst_equip_exslot_ship.clone().into();
+        mst_equip_exslot_ship.restore();
+
+        let mst_slot_item_equip_type: MstSlotItemEquipTypes = self.api_data.api_mst_slotitem_equiptype.clone().into();
+        mst_slot_item_equip_type.restore();
+
+        let mst_equip_ship: MstEquipShips = self.api_data.api_mst_equip_ship.clone().into();
+        mst_equip_ship.restore();
+
+        let mst_stype: MstStypes = self.api_data.api_mst_stype.clone().into();
+        mst_stype.restore();
+
+        let mst_use_item: MstUseItems = self.api_data.api_mst_useitem.clone().into();
+        mst_use_item.restore();
+
+
+        Some(vec![
+            EmitData::Set(Set::MstShips(mst_ships)), 
+            EmitData::Set(Set::MstSlotItems(mst_slot_items))
+        ])
     }
 }
 
