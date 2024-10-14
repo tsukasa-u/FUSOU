@@ -88,7 +88,7 @@ mod tests {
             }
         }
 
-        let pattern_str =  Regex::new(r"[0-9]*_[0-9]*S@api_req_ranking@[a-z]*\.json").unwrap();
+        let pattern_str =  Regex::new(r"[0-9]*_[0-9]*S@api_req_ranking@[a-z]*\target_path").unwrap();
         let log_path = "./src/kcapi/api_req_ranking/ranking.log";
 
         let target = path::PathBuf::from(target_path);

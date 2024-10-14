@@ -60,7 +60,7 @@ mod tests {
             }
         }
 
-        let pattern_str = "S@api_req_mission@start.json";
+        let pattern_str = "S@api_req_mission@starttarget_path";
         let log_path = "./src/kcapi/api_req_mission/start.log";
         simple_root_test::<Root>(target_path, pattern_str.to_string(), log_path.to_string());
     }

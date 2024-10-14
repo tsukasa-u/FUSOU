@@ -46,7 +46,7 @@ mod tests {
             }
         }
 
-        let pattern_str = "S@api_req_sortie@goback_port.json";
+        let pattern_str = "S@api_req_sortie@goback_porttarget_path";
         let log_path = "./src/kcapi/api_req_sortie/goback_port.log";
         simple_root_test::<Root>(target_path, pattern_str.to_string(), log_path.to_string());
     }
