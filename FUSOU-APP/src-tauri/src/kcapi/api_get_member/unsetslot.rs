@@ -48,7 +48,7 @@ mod tests {
             }
         }
 
-        let pattern_str = "S@api_get_member@unsetslottarget_path";
+        let pattern_str = "S@api_get_member@unsetslot";
         let log_path = "./src/kcapi/api_get_member/unsetslot.log";
         simple_root_test::<Root>(target_path.to_string(), pattern_str.to_string(), log_path.to_string());
     }
