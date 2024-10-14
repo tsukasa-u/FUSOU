@@ -16,20 +16,20 @@ import { createMemo, createSignal, For, JSX, Show } from "solid-js";
 
 import "../css/divider.css";
 
-let moreSiganMap: {[key:number]:boolean} = {};
+let moreSiganMap: {[key: number]: boolean} = {};
+let fleetOpenSignalMap: {[key: number]: boolean} = {
+    1: true,
+    2: false,
+    3: false,
+    4: false,
+};
 
 interface DeckPortProps {
     deck_id: number;
+    fleet_name?: string;
 }
  
-export function DeckComponent({deck_id}: DeckPortProps) {
-
-    const fleet_name: {[key:number]:string} = {
-        1: "First Fleet",
-        2: "Second Fleet",
-        3: "Third Fleet",
-        4: "Fourth Fleet",
-    }
+export function DeckComponent({deck_id, fleet_name}: DeckPortProps) {
 
     const [_mst_ships, ] = useMstShips();
     const [_ships, ] = useShips();
@@ -122,13 +122,17 @@ export function DeckComponent({deck_id}: DeckPortProps) {
     }
     const [moreSignal, setMoreSignal] = createSignal<boolean>(moreSiganMap[deck_id]);
 
+    if (fleetOpenSignalMap[deck_id] == undefined) {
+        fleetOpenSignalMap[deck_id] = false;
+    }
+
     return (
         <>
             <li>
-                <details open>
-                    <summary class="flex">
+                <details open={fleetOpenSignalMap[deck_id]}>
+                    <summary class="flex" onClick={() => {fleetOpenSignalMap[deck_id]=!fleetOpenSignalMap[deck_id];}}>
                         <div class="w-20 flex-none">
-                            { fleet_name[_deck_ports.deck_ports[deck_id].id] ?? "Unknown" }
+                            { fleet_name ?? "Unknown" }
                         </div>
                         <div class="w-4 flex-none -mx-4"><IconChevronRight class="h-4 w-4" /></div>
                         <div class="pl-4">{_deck_ports.deck_ports[deck_id].name ?? ""}</div>
