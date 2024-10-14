@@ -60,6 +60,19 @@ pub struct SpEffectItem {
     pub kaih: Option<i64>,
 }
 
+
+impl Ships {
+    pub fn load() -> Self {
+        let stype_map = KCS_SHIPS.lock().unwrap();
+        stype_map.clone()
+    }
+
+    pub fn restore(&self) {
+        let mut stype_map = KCS_SHIPS.lock().unwrap();
+        *stype_map = self.clone();
+    }
+}
+
 impl From<Vec<kcapi::api_port::port::ApiShip>> for Ships {
     fn from(ships: Vec<kcapi::api_port::port::ApiShip>) -> Self {
         let mut ship_map = HashMap::<i64, Ship>::with_capacity(ships.len());
