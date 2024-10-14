@@ -244,21 +244,28 @@ async fn log_response(mut response: Response<Body>, path: FullPath, tx_proxy_log
             if save {
                 let path_log = Path::new(save_path.as_str());
 
-                if content_type.eq("text/plain") {
+                let mut path_kcsapi_find = path.as_str().find("/kcsapi");
+                if path_kcsapi_find.is_some() {
+                    if path_kcsapi_find.unwrap() != 0 {
+                        path_kcsapi_find =None;
+                    }
+                }
+
+                if content_type.eq("text/plain") && path_kcsapi_find.is_some() {
                     let parent = Path::new("kcsapi");
                     let path_parent = path_log.join(parent);
                     if !path_parent.exists() {
                         fs::create_dir_all(path_parent).expect("Failed to create directory");
                     }
-
-                    let time_stamped = format!("kcsapi/{}{}", jst.timestamp(), path.as_str().replace("/kcsapi", "").replace("/", "@"));
+                    
                     for (idx, buffer) in cash_decoded_text_plain.iter().enumerate() {
                         let time_stamped_idx = if idx > 0 {
-                            format!("{}-{}", time_stamped, idx)
+                            format!("{}-{}", jst.timestamp(), idx)
                         } else {
-                            time_stamped.clone()
+                            jst.timestamp().to_string()
                         };
-                        fs::write(path_log.join(Path::new(&time_stamped_idx)), buffer).expect("Failed to write file");
+                        let time_stamped = format!("kcsapi/{}S{}", time_stamped_idx, path.as_str().replace("/kcsapi", "").replace("/", "@"));
+                        fs::write(path_log.join(Path::new(&time_stamped)), buffer).expect("Failed to write file");
                     }
                 } else {
                     let path_removed = path.as_str().replacen("/", "", 1);
