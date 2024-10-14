@@ -6,6 +6,8 @@ use serde::{Deserialize, Serialize};
 use register_macro_derive_and_attr::add_field;
 use register_trait::REGISTER_STRUCT;
 
+use dotenvy::dotenv;
+use std::env;
 
 // use register_trait::TraitForTest;
 
@@ -16,7 +18,16 @@ struct TestConfig {}
 
 #[test]
 fn test_struct_defined() {
-    let target_path = "./src/kc2api/test_data";
+
+    let mut target_path = "./../../FUSOU-PROXY-DATA/kcsapi".to_string();
+
+    dotenv().expect(".env file not found");
+    for (key, value) in env::vars() {
+        if key.eq("TEST_DATA_PATH") {
+            target_path = value.clone();
+        }
+    }
+
     let target = path::PathBuf::from(target_path);
     let files = target.read_dir().expect( "read_dir call failed");
     let mut books = HashSet::<String>::new();
