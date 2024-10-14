@@ -1,7 +1,5 @@
 use std::collections::HashMap;
 
-use serde::de;
-
 use crate::kcapi;
 use crate::interface::deck_port::KCS_DECKS;
 
@@ -60,6 +58,19 @@ pub struct SpEffectItem {
     pub souk: Option<i64>,
     pub houg: Option<i64>,
     pub kaih: Option<i64>,
+}
+
+
+impl Ships {
+    pub fn load() -> Self {
+        let stype_map = KCS_SHIPS.lock().unwrap();
+        stype_map.clone()
+    }
+
+    pub fn restore(&self) {
+        let mut stype_map = KCS_SHIPS.lock().unwrap();
+        *stype_map = self.clone();
+    }
 }
 
 impl From<Vec<kcapi::api_port::port::ApiShip>> for Ships {
@@ -139,41 +150,51 @@ impl From<kcapi::api_req_sortie::battle::ApiData> for Ships {
         let mut ship_map = HashMap::<i64, Ship>::with_capacity(7);
 
         let deck_id = battle_data.api_deck_id.clone();
-        let deck_ports = KCS_DECKS.lock().unwrap();
+
+        let deck_ports_wrap = KCS_DECKS.lock();
+        if deck_ports_wrap.is_err() {
+            return Ships {
+                ships: ship_map
+            };
+        }
+
+        let deck_ports = deck_ports_wrap.unwrap();
 
         if let Some(deck) = (*deck_ports).deck_ports.get(&deck_id).clone() {
             if let Some(ship_ids) = &deck.ship {
                 for (idx, id) in ship_ids.iter().enumerate() {
-                    ship_map.insert(
-                        id.clone(), 
-                        Ship {
-                            id:         id.clone(),
-                            ship_id:    None,
-                            lv:         None,
-                            exp:        None,
-                            nowhp:      battle_data.api_f_nowhps[idx],
-                            maxhp:      battle_data.api_f_maxhps[idx],
-                            soku:       None,
-                            leng:       None,
-                            slot:       None,
-                            onsolot:    None,
-                            slot_ex:    None,
-                            fuel:       None,
-                            bull:       None,
-                            slotnum:    None,
-                            cond:       None,
-                            karyoku:    None,
-                            raisou:     None,
-                            taiku:      None,
-                            soukou:     None,
-                            kaihi:      None,
-                            taisen:     None,
-                            sakuteki:   None,
-                            lucky:      None,
-                            sally_area: None,
-                            sp_effect_items: None,
-                        }
-                    );
+                    if *id > 0 {
+                        ship_map.insert(
+                            id.clone(), 
+                            Ship {
+                                id:         id.clone(),
+                                ship_id:    None,
+                                lv:         None,
+                                exp:        None,
+                                nowhp:      battle_data.api_f_nowhps[idx],
+                                maxhp:      battle_data.api_f_maxhps[idx],
+                                soku:       None,
+                                leng:       None,
+                                slot:       None,
+                                onsolot:    None,
+                                slot_ex:    None,
+                                fuel:       None,
+                                bull:       None,
+                                slotnum:    None,
+                                cond:       None,
+                                karyoku:    None,
+                                raisou:     None,
+                                taiku:      None,
+                                soukou:     None,
+                                kaihi:      None,
+                                taisen:     None,
+                                sakuteki:   None,
+                                lucky:      None,
+                                sally_area: None,
+                                sp_effect_items: None,
+                            }
+                        );
+                    }
                 }
             }
         }

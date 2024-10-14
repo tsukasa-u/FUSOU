@@ -97,12 +97,23 @@ mod tests {
     use register_trait::simple_root_test;
 
     use super::*;
+    use dotenvy::dotenv;
+    use std::env;
 
     #[test]
     fn test_deserialize() {
-        let target_path = "./../../test_data";
+        
+        let mut target_path = "./../../FUSOU-PROXY-DATA/kcsapi".to_string();
+    
+        dotenv().expect(".env file not found");
+        for (key, value) in env::vars() {
+            if key.eq("TEST_DATA_PATH") {
+                target_path = value.clone();
+            }
+        }
+
         let pattern_str = "S@api_req_member@get_practice_enemyinfo.json";
-        let log_path = "./src/kc2api/api_req_member/get_practice_enemyinfo.log";
-        simple_root_test::<Root>(target_path.to_string(), pattern_str.to_string(), log_path.to_string());
+        let log_path = "./src/kcapi/api_req_member/get_practice_enemyinfo.log";
+        simple_root_test::<Root>(target_path, pattern_str.to_string(), log_path.to_string());
     }
 }

@@ -19,6 +19,7 @@ pub struct DeckPorts {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct DeckPort {
     pub id: i64,
+    pub name: String,
     pub mission: Vec<i64>,
     pub ship: Option<Vec<i64>>,
 }
@@ -51,6 +52,7 @@ impl From<kcapi::api_port::port::ApiDeckPort> for DeckPort {
     fn from(deck_port: kcapi::api_port::port::ApiDeckPort) -> Self {
         Self {
             id: deck_port.api_id,
+            name: deck_port.api_name,
             mission: deck_port.api_mission,
             ship: Some(deck_port.api_ship),
         }
