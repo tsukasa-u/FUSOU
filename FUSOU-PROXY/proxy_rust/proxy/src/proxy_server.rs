@@ -212,6 +212,10 @@ async fn log_response(mut response: Response<Body>, path: FullPath, tx_proxy_log
         while let Some(buffer) = response.body_mut().data().await {
             body.extend_from_slice(&buffer.unwrap());
         }
+
+        if body.len() == 0 {
+            return Ok(res.body(body.into()).unwrap());
+        }
         
         let body_cloned = body.clone();
         tokio::spawn(async move {
