@@ -55,6 +55,22 @@ fn emit_data<R: tauri::Runtime>(handle: &impl tauri::Manager<R>, emit_data: Emit
                     // println!("MstSlotItems: {:?}", data);
                     let _ = handle.emit_to("main", "set-kcs-mst-slot-items", data);
                 },
+                Set::MstEquipExslotShips(data) => {
+                    // println!("MstEquipExslotShips: {:?}", data);
+                    let _ = handle.emit_to("main", "set-kcs-mst-equip-exslot-ships", data);
+                },
+                Set::MstEquipShips(data) => {
+                    // println!("MstEquipShips: {:?}", data);
+                    let _ = handle.emit_to("main", "set-kcs-mst-equip-ships", data);
+                },
+                Set::MstStypes(data) => {
+                    // println!("MstStypes: {:?}", data);
+                    let _ = handle.emit_to("main", "set-kcs-mst-stypes", data);
+                },
+                Set::MstUseItems(data) => {
+                    // println!("MstUseItems: {:?}", data);
+                    let _ = handle.emit_to("main", "set-kcs-mst-use-items", data);
+                },
                 Set::Dammy(_) => {
                     // println!("Dammy");
                     let _ = handle.emit_to("main", "set-kcs-dammy", ());
