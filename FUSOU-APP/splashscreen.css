@@ -1,7 +1,0 @@
-@font-face {
-    font-family: 'D3NS';
-    src: url("https://github.com/tsukasa-u/D3NS/blob/main/font/D3NS_monospaced_A2Z.woff") format('woff');
-}
-body {
-    font-family:'D3NS';
-}

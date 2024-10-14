@@ -9,6 +9,11 @@ use register_trait::{TraitForTest, Getter, TraitForRoot, TraitForConvert};
 use crate::interface::interface::{EmitData, Set};
 use crate::interface::mst_ship::MstShips;
 use crate::interface::mst_slot_item::MstSlotItems;
+use crate::interface::mst_slot_item_equip_type::MstSlotItemEquipTypes;
+use crate::interface::mst_equip_exslot_ship::MstEquipExslotShips;
+use crate::interface::mst_equip_ship::MstEquipShips;
+use crate::interface::mst_stype::MstStypes;
+use crate::interface::mst_use_item::MstUseItems;
 
 #[derive(Getter, TraitForTest, TraitForRoot)]
 #[struct_test_case(field_extra, type_value, integration)]
@@ -635,7 +640,26 @@ impl TraitForConvert for Root {
         let mst_slot_items: MstSlotItems = self.api_data.api_mst_slotitem.clone().into();
         mst_slot_items.restore();
 
-        Some(vec![EmitData::Set(Set::MstShips(mst_ships)), EmitData::Set(Set::MstSlotItems(mst_slot_items))])
+        let mst_equip_exslot_ship: MstEquipExslotShips = self.api_data.api_mst_equip_exslot_ship.clone().into();
+        mst_equip_exslot_ship.restore();
+
+        let mst_slot_item_equip_type: MstSlotItemEquipTypes = self.api_data.api_mst_slotitem_equiptype.clone().into();
+        mst_slot_item_equip_type.restore();
+
+        let mst_equip_ship: MstEquipShips = self.api_data.api_mst_equip_ship.clone().into();
+        mst_equip_ship.restore();
+
+        let mst_stype: MstStypes = self.api_data.api_mst_stype.clone().into();
+        mst_stype.restore();
+
+        let mst_use_item: MstUseItems = self.api_data.api_mst_useitem.clone().into();
+        mst_use_item.restore();
+
+
+        Some(vec![
+            EmitData::Set(Set::MstShips(mst_ships)), 
+            EmitData::Set(Set::MstSlotItems(mst_slot_items))
+        ])
     }
 }
 
@@ -644,12 +668,23 @@ mod tests {
     use register_trait::simple_root_test;
 
     use super::*;
+    use dotenvy::dotenv;
+    use std::env;
 
     #[test]
     fn test_deserialize() {
-        let target_path = "./../../test_data";
+        
+        let mut target_path = "./../../FUSOU-PROXY-DATA/kcsapi".to_string();
+    
+        dotenv().expect(".env file not found");
+        for (key, value) in env::vars() {
+            if key.eq("TEST_DATA_PATH") {
+                target_path = value.clone();
+            }
+        }
+
         let pattern_str = "S@api_start2@getData.json";
-        let log_path = "./src/kc2api/api_start2/getData.log";
-        simple_root_test::<Root>(target_path.to_string(), pattern_str.to_string(), log_path.to_string());
+        let log_path = "./src/kcapi/api_start2/getData.log";
+        simple_root_test::<Root>(target_path, pattern_str.to_string(), log_path.to_string());
     }
 }

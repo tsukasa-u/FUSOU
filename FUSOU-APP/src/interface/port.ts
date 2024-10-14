@@ -19,6 +19,7 @@ export var global_materials: Materials = {
 
 export interface DeckPort {
     id:        number
+    name:      string
     mission:   {
         mission_id:     number
         complete_time:  number
@@ -32,12 +33,7 @@ export interface DeckPorts {
 }
 
 export var global_deck_ports: DeckPorts = {
-    deck_ports: {
-        // 1: { id: 1, mission: { mission_id: 0, complete_time: 0, counter: 0 }, ship: [0, 0, 0] },
-        // 2: { id: 2, mission: { mission_id: 0, complete_time: 0, counter: 0 }, ship: [0, 0, 0] },
-        // 3: { id: 3, mission: { mission_id: 0, complete_time: 0, counter: 0 }, ship: [0, 0, 0] },
-        // 4: { id: 4, mission: { mission_id: 0, complete_time: 0, counter: 0 }, ship: [0, 0, 0] }
-    }
+    deck_ports: {}
 };
 
 export interface NDock {
@@ -55,11 +51,7 @@ export interface NDocks {
 }
 
 export var global_nDock: NDocks = {
-    n_docks: [
-        // { ship_id: 1, complete_time: 1722010682963, counter: 0, item1: 0, item2: 0, item3: 0, item4: 0 },
-        // { ship_id: 2, complete_time: 1630000000000, counter: 0, item1: 0, item2: 0, item3: 0, item4: 0 },
-        // { ship_id: 3, complete_time: 1630000000000, counter: 0, item1: 0, item2: 0, item3: 0, item4: 0 }
-    ]
+    n_docks: []
 };
 
 export interface Ship {
@@ -107,15 +99,13 @@ export interface Ships {
 }
 
 export var global_ships: Ships = {
-    ships:{
-        // 1: { id: 1, ship_id: 1, lv: 1, exp: [0, 0, 0], nowhp: 80, maxhp: 80, soku: 10, leng: 1, slot: [1, 2, 3, 4], onsolot: [1, 2, 3, 4], slot_ex: 0, fuel: 100, bull: 100, slotnum: 4, cond: 49, karyoku: [0, 0], raisou: [0, 0], taiku: [0, 0], soukou: [0, 0], kaihi: [0, 0], taisen: [0, 0], sakuteki: [0, 0], lucky: [0, 0], sally_area: 0 },
-        // 2: { id: 2, ship_id: 2, lv: 1, exp: [0, 0, 0], nowhp: 80, maxhp: 80, soku: 10, leng: 1, slot: [1, 2, 3, 4], onsolot: [1, 2, 3, 4], slot_ex: 0, fuel: 100, bull: 100, slotnum: 4, cond: 49, karyoku: [0, 0], raisou: [0, 0], taiku: [0, 0], soukou: [0, 0], kaihi: [0, 0], taisen: [0, 0], sakuteki: [0, 0], lucky: [0, 0], sally_area: 0 },
-        // 3: { id: 3, ship_id: 3, lv: 1, exp: [0, 0, 0], nowhp: 80, maxhp: 80, soku: 10, leng: 1, slot: [1, 2, 3, 4], onsolot: [1, 2, 3, 4], slot_ex: 0, fuel: 100, bull: 100, slotnum: 4, cond: 49, karyoku: [0, 0], raisou: [0, 0], taiku: [0, 0], soukou: [0, 0], kaihi: [0, 0], taisen: [0, 0], sakuteki: [0, 0], lucky: [0, 0], sally_area: 0 }
-    }
+    ships: {}
 };
 
 interface Logs {
     message?:   string[]    // メッセージ
 }
 
-export var global_logs: Logs = { message: [] };
+export var global_logs: Logs = {
+    message: [] 
+};

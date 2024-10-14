@@ -1,0 +1,11 @@
+@media (hover: hover) {
+    :not(#fakeID) .not_menu:hover {
+        cursor: default;
+        background-color: var(--fallback-bc, oklch(var(--bc) / 0.0));
+    }
+}
+
+:not(#fakeID) .not_menu:hover {
+    cursor: default;
+    background-color: var(--fallback-bc, oklch(var(--bc) / 0.0));
+}

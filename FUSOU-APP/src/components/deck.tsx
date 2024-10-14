@@ -6,6 +6,8 @@ import { IconKira1 } from '../icons/kira1.tsx';
 import { IconKira2 } from '../icons/kira2.tsx';
 import { IconKira3 } from '../icons/kira3.tsx';
 
+import { IconChevronRight } from '../icons/chevron_right.tsx';
+
 import { EquimentComponent } from './equipment.tsx';
 import { ShipNameComponent } from './ship_name.tsx';
 import { useDeckPorts, useMstShips, useShips } from '../utility/provider.tsx';
@@ -14,20 +16,20 @@ import { createMemo, createSignal, For, JSX, Show } from "solid-js";
 
 import "../css/divider.css";
 
-let moreSiganMap: {[key:number]:boolean} = {};
+let moreSiganMap: {[key: number]: boolean} = {};
+let fleetOpenSignalMap: {[key: number]: boolean} = {
+    1: true,
+    2: false,
+    3: false,
+    4: false,
+};
 
 interface DeckPortProps {
     deck_id: number;
+    fleet_name?: string;
 }
  
-export function DeckComponent({deck_id}: DeckPortProps) {
-
-    const fleet_name: {[key:number]:string} = {
-        1: "First Fleet",
-        2: "Second Fleet",
-        3: "Third Fleet",
-        4: "Fourth Fleet",
-    }
+export function DeckComponent({deck_id, fleet_name}: DeckPortProps) {
 
     const [_mst_ships, ] = useMstShips();
     const [_ships, ] = useShips();
@@ -120,14 +122,22 @@ export function DeckComponent({deck_id}: DeckPortProps) {
     }
     const [moreSignal, setMoreSignal] = createSignal<boolean>(moreSiganMap[deck_id]);
 
+    if (fleetOpenSignalMap[deck_id] == undefined) {
+        fleetOpenSignalMap[deck_id] = false;
+    }
+
     return (
         <>
             <li>
-                <details open>
-                    <summary>
-                        { fleet_name[_deck_ports.deck_ports[deck_id].id] ?? "Unknown" }
-                        <span class="justify-end"></span>
-                        <div class="form-control">
+                <details open={fleetOpenSignalMap[deck_id]}>
+                    <summary class="flex" onClick={() => {fleetOpenSignalMap[deck_id]=!fleetOpenSignalMap[deck_id];}}>
+                        <div class="w-20 flex-none">
+                            { fleet_name ?? "Unknown" }
+                        </div>
+                        <div class="w-4 flex-none -mx-4"><IconChevronRight class="h-4 w-4" /></div>
+                        <div class="pl-4">{_deck_ports.deck_ports[deck_id].name ?? ""}</div>
+                        <span class="flex-auto"></span>
+                        <div class="form-control flex-none">
                             <label class="label cursor-pointer h-4">
                                 <span class="label-text mb-1.5 pr-2 h-4">more</span>
                                 <input type="checkbox" onClick={() => { moreSiganMap[deck_id] = !moreSignal(); setMoreSignal(!moreSignal()); }}  class="toggle toggle-xs h-4  border-gray-400 [--tglbg:theme(colors.gray.200)] checked:border-blue-200 checked:bg-blue-300 checked:[--tglbg:theme(colors.blue.100)] rounded-sm" checked={moreSignal()}/>
@@ -147,7 +157,7 @@ export function DeckComponent({deck_id}: DeckPortProps) {
                                                         <ShipNameComponent ship_id={shipId}></ShipNameComponent>
                                                     </div>
                                                 </div>
-                                                <div class="divider divider-horizontal [&::after]:w-px [&::before]:w-px mr-0 ml-0 flex-none"></div>
+                                                <div class="divider divider-horizontal mr-0 ml-0 flex-none"></div>
                                                 <div class=" flex-none">
                                                     <div class="flex justify-center w-8 indicator">
                                                         <div class="indicator-item indicator-top indicator-end">
@@ -158,7 +168,7 @@ export function DeckComponent({deck_id}: DeckPortProps) {
                                                         </div>
                                                     </div>
                                                 </div>
-                                                <div class="divider divider-horizontal [&::after]:w-px [&::before]:w-px mr-0 ml-0 flex-none"></div>
+                                                <div class="divider divider-horizontal mr-0 ml-0 flex-none"></div>
                                                 <div class="indicator">
                                                     <div class="indicator-item indicator-top indicator-end flax space-x-2">
                                                         { hp_state()[idx()] }
@@ -176,7 +186,7 @@ export function DeckComponent({deck_id}: DeckPortProps) {
                                                         </div>
                                                     </div>
                                                 </div>
-                                                <div class="divider divider-horizontal [&::after]:w-px [&::before]:w-px mr-0 ml-0 flex-none"></div>
+                                                <div class="divider divider-horizontal mr-0 ml-0 flex-none"></div>
                                                 <div class="indicator">
                                                     <div class="flex-none">
                                                         <div class="indicator-item indicator-top indicator-end flax space-x-2">
@@ -190,7 +200,7 @@ export function DeckComponent({deck_id}: DeckPortProps) {
                                                         </div>
                                                     </div>
                                                 </div>
-                                                <div class="divider divider-horizontal [&::after]:w-px [&::before]:w-px mr-0 ml-0"></div>
+                                                <div class="divider divider-horizontal mr-0 ml-0"></div>
                                             </div>
                                             <Show when={moreSignal()}>
                                                 <div class="flex">
@@ -204,7 +214,7 @@ export function DeckComponent({deck_id}: DeckPortProps) {
                                                         )) }
                                                     </div>
                                                     <span class="w-2"></span>
-                                                    <div class="divider divider-horizontal [&::after]:w-px [&::before]:w-px mr-0 ml-0 basis-0 h-auto"></div>
+                                                    <div class="divider divider-horizontal mr-0 ml-0 basis-0 h-auto"></div>
                                                     <span class="w-2"></span>
                                                     <div class="content-center">
                                                         <div class="text-base flex justify-center w-8">
@@ -214,7 +224,7 @@ export function DeckComponent({deck_id}: DeckPortProps) {
                                                         </div>
                                                     </div>
                                                     <span class="w-px"></span>
-                                                    <div class="divider divider-horizontal [&::after]:w-px [&::before]:w-px mr-0 ml-0 h-auto"></div>
+                                                    <div class="divider divider-horizontal mr-0 ml-0 h-auto"></div>
                                                 </div>
                                             </Show>
                                         </a>
