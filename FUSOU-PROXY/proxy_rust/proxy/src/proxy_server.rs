@@ -244,14 +244,7 @@ async fn log_response(mut response: Response<Body>, path: FullPath, tx_proxy_log
             if save {
                 let path_log = Path::new(save_path.as_str());
 
-                let mut path_kcsapi_find = path.as_str().find("/kcsapi");
-                if path_kcsapi_find.is_some() {
-                    if path_kcsapi_find.unwrap() != 0 {
-                        path_kcsapi_find =None;
-                    }
-                }
-
-                if content_type.eq("text/plain") && path_kcsapi_find.is_some() {
+                if content_type.eq("text/plain") && path.as_str().starts_with("/kcsapi") {
                     let parent = Path::new("kcsapi");
                     let path_parent = path_log.join(parent);
                     if !path_parent.exists() {
