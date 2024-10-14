@@ -71,7 +71,7 @@ mod tests {
             }
         }
 
-        let pattern_str = "S@api_get_member@deck.json";
+        let pattern_str = "S@api_get_member@decktarget_path";
         let log_path = "./src/kcapi/api_get_member/deck.log";
         simple_root_test::<Root>(target_path.to_string(), pattern_str.to_string(), log_path.to_string());
     }

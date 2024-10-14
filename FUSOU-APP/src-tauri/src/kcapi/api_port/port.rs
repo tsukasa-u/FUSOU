@@ -383,7 +383,7 @@ mod tests {
             }
         }
 
-        let pattern_str = "S@api_port@port.json";
+        let pattern_str = "S@api_port@porttarget_path";
         let log_path = "./src/kcapi/api_port/port.log";
         simple_root_test::<Root>(target_path, pattern_str.to_string(), log_path.to_string());
     }

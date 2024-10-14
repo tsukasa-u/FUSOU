@@ -683,7 +683,7 @@ mod tests {
             }
         }
 
-        let pattern_str = "S@api_start2@getData.json";
+        let pattern_str = "S@api_start2@getDatatarget_path";
         let log_path = "./src/kcapi/api_start2/getData.log";
         simple_root_test::<Root>(target_path, pattern_str.to_string(), log_path.to_string());
     }
