@@ -46,7 +46,7 @@ mod tests {
             }
         }
 
-        let pattern_str = "S@api_req_kaisou@slotset_ex.json";
+        let pattern_str = "S@api_req_kaisou@slotset_ex";
         let log_path = "./src/kcapi/api_req_kaisou/slotset_ex.log";
         simple_root_test::<Root>(target_path, pattern_str.to_string(), log_path.to_string());
     }

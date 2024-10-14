@@ -100,7 +100,7 @@ mod tests {
             }
         }
 
-        let pattern_str = "S@api_get_member@questlist.json";
+        let pattern_str = "S@api_get_member@questlist";
         let log_path = "./src/kcapi/api_get_member/questlist.log";
         simple_root_test::<Root>(target_path.to_string(), pattern_str.to_string(), log_path.to_string());
     }
