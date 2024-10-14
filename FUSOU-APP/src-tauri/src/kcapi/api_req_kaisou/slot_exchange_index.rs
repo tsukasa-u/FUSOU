@@ -130,7 +130,7 @@ mod tests {
             }
         }
 
-        let pattern_str = "S@api_req_kaisou@slot_exchange_indextarget_path";
+        let pattern_str = "S@api_req_kaisou@slot_exchange_index";
         let log_path = "./src/kcapi/api_req_kaisou/slot_exchange_index.log";
         simple_root_test::<Root>(target_path, pattern_str.to_string(), log_path.to_string());
     }

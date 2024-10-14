@@ -118,7 +118,7 @@ mod tests {
             }
         }
 
-        let pattern_str = "S@api_req_battle_midnight@sp_midnighttarget_path";
+        let pattern_str = "S@api_req_battle_midnight@sp_midnight";
         let log_path = "./src/kcapi/api_req_battle_midnight/sp_midnight.log";
         simple_root_test::<Root>(target_path, pattern_str.to_string(), log_path.to_string());
     }
