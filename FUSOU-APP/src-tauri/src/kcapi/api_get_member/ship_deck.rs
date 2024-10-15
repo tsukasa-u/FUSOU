@@ -35,7 +35,7 @@ pub struct Root {
 #[serde(rename_all = "camelCase")]
 pub struct ApiData {
     #[serde(rename = "api_ship_data")]
-    pub api_ship_data: Vec<ApiShipDaum>,
+    pub api_ship_data: Vec<ApiShipData>,
     #[serde(rename = "api_deck_data")]
     pub api_deck_data: Vec<ApiDeckDaum>,
 }
@@ -45,7 +45,7 @@ pub struct ApiData {
 #[add_field(extra)]
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ApiShipDaum {
+pub struct ApiShipData {
     #[serde(rename = "api_id")]
     pub api_id: i64,
     #[serde(rename = "api_sortno")]
@@ -110,6 +110,26 @@ pub struct ApiShipDaum {
     pub api_locked_equip: i64,
     #[serde(rename = "api_sally_area")]
     pub api_sally_area: Option<i64>,
+    #[serde(rename = "api_sp_effect_items")]
+    pub api_sp_effect_items: Option<Vec<ApiSpEffectItems>>,
+}
+
+#[derive(Getter, TraitForTest)]
+#[struct_test_case(field_extra, type_value, integration)]
+#[add_field(extra)]
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApiSpEffectItems {
+    #[serde(rename = "api_kind")]
+    pub api_kind: i64,
+    #[serde(rename = "api_raig")]
+    pub api_raig: Option<i64>,
+    #[serde(rename = "api_souk")]
+    pub api_souk: Option<i64>,
+    #[serde(rename = "api_houg")]
+    pub api_houg: Option<i64>,
+    #[serde(rename = "api_kaih")]
+    pub api_kaih: Option<i64>,
 }
 
 #[derive(Getter, TraitForTest)]
