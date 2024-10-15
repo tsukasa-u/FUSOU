@@ -68,6 +68,8 @@ pub struct ApiMapInfo {
     pub api_eventmap: Option<ApiEventmap>,
     #[serde(rename = "api_sally_flag")]
     pub api_sally_flag: Option<Vec<i64>>,
+    #[serde(rename = "api_m10")]
+    pub api_m10: Option<i64>,
 }
 
 #[derive(Getter, TraitForTest)]
