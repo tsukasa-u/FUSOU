@@ -34,7 +34,7 @@ pub struct Root {
 #[serde(rename_all = "camelCase")]
 pub struct ApiData {
     #[serde(rename = "api_cell_data")]
-    pub api_cell_data: Vec<ApiCellDaum>,
+    pub api_cell_data: Vec<ApiCellData>,
     #[serde(rename = "api_rashin_flg")]
     pub api_rashin_flg: i64,
     #[serde(rename = "api_rashin_id")]
@@ -65,6 +65,12 @@ pub struct ApiData {
     pub api_limit_state: i64,
     #[serde(rename = "api_from_no")]
     pub api_from_no: i64,
+    #[serde(rename = "api_eventmap")]
+    pub api_eventmap: Option<ApiEventmap>,
+    #[serde(rename = "api_cell_flavor")]
+    pub api_cell_flavor: Option<ApiCellFlavor>,
+    #[serde(rename = "api_select_route")]
+    pub api_select_route: Option<ApiSelectRoute>,
 }
 
 #[derive(Getter, TraitForTest)]
@@ -72,7 +78,44 @@ pub struct ApiData {
 #[add_field(extra)]
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ApiCellDaum {
+pub struct ApiSelectRoute {
+    #[serde(rename = "api_select_cells")]
+    pub api_select_cells: Vec<i64>,
+}
+
+
+#[derive(Getter, TraitForTest)]
+#[struct_test_case(field_extra, type_value, integration)]
+#[add_field(extra)]
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApiCellFlavor {
+    #[serde(rename = "api_type")]
+    pub api_type: i64,
+    #[serde(rename = "api_message")]
+    pub api_message: String,
+}
+
+#[derive(Getter, TraitForTest)]
+#[struct_test_case(field_extra, type_value, integration)]
+#[add_field(extra)]
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApiEventmap {
+    #[serde(rename = "api_max_maphp")]
+    pub api_max_maphp: i64,
+    #[serde(rename = "api_now_maphp")]
+    pub api_now_maphp: i64,
+    #[serde(rename = "api_dmg")]
+    pub api_dmg: i64
+}
+
+#[derive(Getter, TraitForTest)]
+#[struct_test_case(field_extra, type_value, integration)]
+#[add_field(extra)]
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApiCellData {
     #[serde(rename = "api_id")]
     pub api_id: i64,
     #[serde(rename = "api_no")]
