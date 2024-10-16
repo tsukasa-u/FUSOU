@@ -69,7 +69,7 @@ pub struct ApiData {
     #[serde(rename = "api_get_flag")]
     pub api_get_flag: Vec<i64>,
     #[serde(rename = "api_get_eventflag")]
-    pub api_get_eventflag: i64,
+    pub api_get_eventflag: Option<i64>,
     #[serde(rename = "api_get_exmap_rate")]
     pub api_get_exmap_rate: Value,
     #[serde(rename = "api_get_exmap_useitem_id")]
@@ -82,6 +82,46 @@ pub struct ApiData {
     pub api_get_ship: Option<ApiGetShip>,
     #[serde(rename = "api_m1")]
     pub api_m1: Option<i64>,
+    #[serde(rename = "api_landing_hp")]
+    pub api_landing_hp: Option<ApiLandingHp>,
+    #[serde(rename = "api_m_suffix")]
+    pub api_m_suffix: Option<String>,
+    #[serde(rename = "api_get_eventitem")]
+    pub api_get_eventitem: Option<Vec<Value>>,
+    #[serde(rename = "api_next_map_ids")]
+    pub api_next_map_ids: Option<Vec<Value>>,
+    #[serde(rename = "api_select_reward_dict")]
+    pub api_select_reward_dict: Option<HashMap<String, Vec<ApiSelectRewardDict>>>,
+}
+
+#[derive(Getter, TraitForTest)]
+#[struct_test_case(field_extra, type_value, integration)]
+#[add_field(extra)]
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApiSelectRewardDict {
+    #[serde(rename = "api_item_no")]
+    api_item_no: i64,
+    #[serde(rename = "api_type")]
+    api_type: i64,
+    #[serde(rename = "api_id")]
+    api_id: i64,
+    #[serde(rename = "api_value")]
+    api_value: i64,
+}
+
+#[derive(Getter, TraitForTest)]
+#[struct_test_case(field_extra, type_value, integration)]
+#[add_field(extra)]
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApiLandingHp {
+    #[serde(rename = "api_max_hp")]
+    api_max_hp: String,
+    #[serde(rename = "api_now_hp")]
+    api_now_hp: String,
+    #[serde(rename = "api_sub_value")]
+    api_sub_value: Value
 }
 
 #[derive(Getter, TraitForTest)]

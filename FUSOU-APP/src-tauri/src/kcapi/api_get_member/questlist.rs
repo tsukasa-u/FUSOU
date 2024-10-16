@@ -44,6 +44,24 @@ pub struct ApiData {
     pub api_exec_count: i64,
     #[serde(rename = "api_exec_type")]
     pub api_exec_type: i64,
+    #[serde(rename = "api_c_list")]
+    pub api_c_list: Option<Vec<ApiCList>>
+}
+
+#[derive(Getter, TraitForTest)]
+#[struct_test_case(field_extra, type_value, integration)]
+#[add_field(extra)]
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApiCList {
+    #[serde(rename = "api_no")]
+    pub api_no: i64,
+    #[serde(rename = "api_state")]
+    pub api_state: i64,
+    #[serde(rename = "api_progress_flag")]
+    pub api_progress_flag: i64,
+    #[serde(rename = "api_c_flag")]
+    pub api_c_flag: i64,
 }
 
 #[derive(Getter, TraitForTest)]
@@ -78,6 +96,26 @@ pub struct ApiList {
     pub api_invalid_flag: i64,
     #[serde(rename = "api_lost_badges")]
     pub api_lost_badges: Option<i64>,
+    #[serde(rename = "api_select_rewards")]
+    pub api_select_rewards: Option<Vec<Vec<ApiSelectRewards>>>,
+}
+
+#[derive(Getter, TraitForTest)]
+#[struct_test_case(field_extra, type_value, integration)]
+#[add_field(extra)]
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApiSelectRewards {
+    #[serde(rename = "api_no")]
+    pub api_no: i64,
+    #[serde(rename = "api_kind")]
+    pub api_kind: i64,
+    #[serde(rename = "api_mst_id")]
+    pub api_mst_id: i64,
+    #[serde(rename = "api_count")]
+    pub api_count: i64,
+    #[serde(rename = "api_slotitem_level")]
+    pub api_slotitem_level: Option<i64>,
 }
 
 #[cfg(test)]
