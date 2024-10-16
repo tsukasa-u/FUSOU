@@ -36,6 +36,8 @@ pub struct Root {
 pub struct ApiData {
     #[serde(rename = "api_material")]
     pub api_material: Vec<i64>,
+    #[serde(rename = "api_unset_list")]
+    pub api_unset_list: Option<HashMap<String, Vec<i64>>>,
 }
 
 #[cfg(test)]

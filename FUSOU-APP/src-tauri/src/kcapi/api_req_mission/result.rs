@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
-// use serde_json::Value;
+use serde_json::Value;
 
 use register_trait::register_struct;
 use register_trait::add_field;
@@ -57,7 +57,7 @@ pub struct ApiData {
     #[serde(rename = "api_quest_level")]
     pub api_quest_level: i64,
     #[serde(rename = "api_get_material")]
-    pub api_get_material: Vec<i64>,
+    pub api_get_material: Value,
     #[serde(rename = "api_useitem_flag")]
     pub api_useitem_flag: Vec<i64>,
     #[serde(rename = "api_get_item1")]
@@ -75,7 +75,7 @@ pub struct ApiGetItem {
     #[serde(rename = "api_useitem_id")]
     pub api_useitem_id: i64,
     #[serde(rename = "api_useitem_name")]
-    pub api_useitem_name: String,
+    pub api_useitem_name: Option<String>,
     #[serde(rename = "api_useitem_count")]
     pub api_useitem_count: i64,
 }

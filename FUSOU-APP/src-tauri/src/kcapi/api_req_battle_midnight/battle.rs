@@ -68,6 +68,52 @@ pub struct ApiData {
     pub api_flare_pos: Vec<i64>,
     #[serde(rename = "api_hougeki")]
     pub api_hougeki: ApiHougeki,
+    #[serde(rename = "api_escape_idx")]
+    pub api_escape_idx: Option<Vec<i64>>,
+    #[serde(rename = "api_friendly_battle")]
+    pub api_friendly_battle: Option<ApiFriendlyBattle>,
+    #[serde(rename = "api_friendly_info")]
+    pub api_friendly_info: Option<ApiFriendlyInfo>,
+}
+
+#[derive(Getter, TraitForTest)]
+#[struct_test_case(field_extra, type_value, integration)]
+#[add_field(extra)]
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApiFriendlyInfo {
+    #[serde(rename = "api_production_type")]
+    pub api_production_type: i64,
+    #[serde(rename = "api_ship_id")]
+    pub api_ship_id: Vec<i64>,
+    #[serde(rename = "api_ship_lv")]
+    pub api_ship_lv: Vec<i64>,
+    #[serde(rename = "api_nowhps")]
+    pub api_nowhps: Vec<i64>,
+    #[serde(rename = "api_maxhps")]
+    pub api_maxhps: Vec<i64>,
+    #[serde(rename = "api_Slot")]
+    pub api_slot: Vec<Vec<i64>>,
+    #[serde(rename = "api_slot_ex")]
+    pub api_slot_ex: Vec<i64>,
+    #[serde(rename = "api_Param")]
+    pub api_param: Vec<Vec<i64>>,
+    #[serde(rename = "api_voice_id")]
+    pub api_voice_id: Vec<i64>,
+    #[serde(rename = "api_voice_p_no")]
+    pub api_voice_p_no: Vec<i64>,
+}
+
+#[derive(Getter, TraitForTest)]
+#[struct_test_case(field_extra, type_value, integration)]
+#[add_field(extra)]
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApiFriendlyBattle {
+    #[serde(rename = "api_flare_pos")]
+    pub api_flare_pos: Vec<i64>,
+    #[serde(rename = "api_hougeki")]
+    pub api_hougeki: ApiHougeki,
 }
 
 #[derive(Getter, TraitForTest)]

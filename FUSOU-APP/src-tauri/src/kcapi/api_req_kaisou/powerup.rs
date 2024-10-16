@@ -125,7 +125,7 @@ pub struct ApiShip {
     #[serde(rename = "api_locked_equip")]
     pub api_locked_equip: i64,
     #[serde(rename = "api_sally_area")]
-    pub api_sally_area: i64,
+    pub api_sally_area: Option<i64>,
 }
 
 #[derive(Getter, TraitForTest)]

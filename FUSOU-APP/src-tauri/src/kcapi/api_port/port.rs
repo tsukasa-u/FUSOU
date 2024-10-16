@@ -60,6 +60,46 @@ pub struct ApiData {
     pub api_dest_ship_slot: i64,
     #[serde(rename = "api_c_flags")]
     pub api_c_flags: Option<Vec<i64>>,
+    #[serde(rename = "api_friendly_setting")]
+    pub api_friendly_setting: Option<ApiFriendlySetting>,
+    #[serde(rename = "api_plane_info")]
+    pub api_plane_info: Option<ApiPlaneInfo>
+}
+
+#[derive(Getter, TraitForTest)]
+#[struct_test_case(field_extra, type_value, integration)]
+#[add_field(extra)]
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApiPlaneInfo {
+    #[serde(rename = "api_base_convert_slot")]
+    pub api_base_convert_slot: Option<Vec<i64>>,
+    #[serde(rename = "api_unset_slot")]
+    pub api_unset_slot: Option<Vec<ApiUnsetSlot>>,
+}
+
+#[derive(Getter, TraitForTest)]
+#[struct_test_case(field_extra, type_value, integration)]
+#[add_field(extra)]
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApiUnsetSlot {
+    #[serde(rename = "api_type3No")]
+    api_type3_no: i64,
+    #[serde(rename = "api_slot_list")]
+    api_slot_list: Vec<i64>,
+}
+
+#[derive(Getter, TraitForTest)]
+#[struct_test_case(field_extra, type_value, integration)]
+#[add_field(extra)]
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApiFriendlySetting {
+    #[serde(rename = "api_request_flag")]
+    api_request_flag: i64,
+    #[serde(rename = "api_request_type")]
+    api_request_type: i64,
 }
 
 #[derive(Getter, TraitForTest)]
@@ -69,9 +109,9 @@ pub struct ApiData {
 #[serde(rename_all = "camelCase")]
 pub struct ApiEventObject {
     #[serde(rename = "api_c_num")]
-    pub api_c_num: i64,
+    pub api_c_num: Option<i64>,
     #[serde(rename = "api_m_flag")]
-    pub api_m_flag: i64,
+    pub api_m_flag: Option<i64>,
     #[serde(rename = "api_m_flag2")]
     pub api_m_flag2: Option<i64>,
 }

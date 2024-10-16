@@ -69,7 +69,7 @@ pub struct ApiData {
     #[serde(rename = "api_support_flag")]
     pub api_support_flag: i64,
     #[serde(rename = "api_support_info")]
-    pub api_support_info: Value,
+    pub api_support_info: Option<ApiSupportInfo>,
     #[serde(rename = "api_opening_taisen_flag")]
     pub api_opening_taisen_flag: i64,
     #[serde(rename = "api_opening_taisen")]
@@ -90,6 +90,56 @@ pub struct ApiData {
     pub api_raigeki: Option<ApiRaigeki>,
     #[serde(rename = "api_flavor_info")]
     pub api_flavor_info: Option<Vec<ApiFlavoInfo>>,
+    #[serde(rename = "api_air_base_attack")]
+    pub api_air_base_attack: Option<Vec<ApiAirBaseAttack>>,
+    #[serde(rename = "api_escape_idx")]
+    pub api_escape_idx: Option<Vec<i64>>,
+}
+
+#[derive(Getter, TraitForTest)]
+#[struct_test_case(field_extra, type_value, integration)]
+#[add_field(extra)]
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApiSupportInfo {
+    #[serde(rename = "api_support_airatack")]
+    api_support_airatack: Value,
+    #[serde(rename = "api_support_hourai")]
+    api_support_hourai: ApiSupportHourai,
+}
+
+#[derive(Getter, TraitForTest)]
+#[struct_test_case(field_extra, type_value, integration)]
+#[add_field(extra)]
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApiAirBaseAttack {
+    #[serde(rename = "api_stage1")]
+    pub api_stage1: ApiStage1,
+    #[serde(rename = "api_stage2")]
+    pub api_stage2: Option<ApiStage2>,
+    #[serde(rename = "api_stage3")]
+    pub api_stage3: Option<ApiStage3>,
+    #[serde(rename = "api_base_id")]
+    pub api_base_id: i64,
+    #[serde(rename = "api_stage_flag")]
+    pub api_stage_flag: Vec<i64>,
+    #[serde(rename = "api_plane_from")]
+    pub api_plane_from: Vec<Option<Vec<i64>>>,
+    #[serde(rename = "api_squadron_plane")]
+    pub api_squadron_plane: Option<Vec<ApiSquadronPlane>>,
+}
+
+#[derive(Getter, TraitForTest)]
+#[struct_test_case(field_extra, type_value, integration)]
+#[add_field(extra)]
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApiSquadronPlane {
+    #[serde(rename = "api_mst_id")]
+    pub api_mst_id: Option<i64>,
+    #[serde(rename = "api_count")]
+    pub api_count: Option<i64>,
 }
 
 #[derive(Getter, TraitForTest)]
@@ -183,7 +233,27 @@ pub struct ApiFlavoInfo {
     #[serde(rename = "api_pos_y")]
     pub api_pos_y: String,
     #[serde(rename = "api_data")]
-    pub api_data: String
+    pub api_data: String,
+    #[serde(rename = "api_support_hourai")]
+    pub api_support_hourai: Option<ApiSupportHourai>,
+}
+
+#[derive(Getter, TraitForTest)]
+#[struct_test_case(field_extra, type_value, integration)]
+#[add_field(extra)]
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApiSupportHourai {
+    #[serde(rename = "api_deck_id")]
+    pub api_deck_id: i64,
+    #[serde(rename = "api_ship_id")]
+    pub api_ship_id: Vec<i64>,
+    #[serde(rename = "api_undressing_flag")]
+    pub api_undressing_flag: Vec<i64>,
+    #[serde(rename = "api_cl_list")]
+    pub api_cl_list: Vec<i64>,
+    #[serde(rename = "api_damage")]
+    pub api_damage: Vec<f32>,
 }
 
 #[derive(Getter, TraitForTest)]
@@ -262,23 +332,23 @@ pub struct ApiAirFire {
 #[serde(rename_all = "camelCase")]
 pub struct ApiStage3 {
     #[serde(rename = "api_frai_flag")]
-    pub api_frai_flag: Vec<i64>,
+    pub api_frai_flag: Option<Vec<Option<i64>>>,
     #[serde(rename = "api_erai_flag")]
     pub api_erai_flag: Vec<i64>,
     #[serde(rename = "api_fbak_flag")]
-    pub api_fbak_flag: Vec<i64>,
+    pub api_fbak_flag: Option<Vec<Option<i64>>>,
     #[serde(rename = "api_ebak_flag")]
     pub api_ebak_flag: Vec<i64>,
     #[serde(rename = "api_fcl_flag")]
-    pub api_fcl_flag: Vec<i64>,
+    pub api_fcl_flag: Option<Vec<i64>>,
     #[serde(rename = "api_ecl_flag")]
     pub api_ecl_flag: Vec<i64>,
     #[serde(rename = "api_fdam")]
-    pub api_fdam: Vec<f32>,
+    pub api_fdam: Option<Vec<f32>>,
     #[serde(rename = "api_edam")]
     pub api_edam: Vec<f32>,
     #[serde(rename = "api_f_sp_list")]
-    pub api_f_sp_list: Vec<Value>,
+    pub api_f_sp_list: Option<Vec<Option<Vec<i64>>>>,
     #[serde(rename = "api_e_sp_list")]
     pub api_e_sp_list: Vec<Value>,
 }
@@ -294,7 +364,7 @@ pub struct ApiOpeningAtack {
     #[serde(rename = "api_fcl_list_items")]
     pub api_fcl_list_items: Vec<Option<Vec<i64>>>,
     #[serde(rename = "api_fdam")]
-    pub api_fdam: Vec<f32>,
+    pub api_fdam: Option<Vec<f32>>,
     #[serde(rename = "api_fydam_list_items")]
     pub api_fydam_list_items: Vec<Option<Vec<i64>>>,
     #[serde(rename = "api_erai_list_items")]
