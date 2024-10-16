@@ -216,6 +216,10 @@ pub struct ApiMstShipgraph {
     pub api_pab: Option<Vec<i64>>,
     #[serde(rename = "api_sp_flag")]
     pub api_sp_flag: Option<i64>,
+    #[serde(rename = "api_wedc")]
+    pub api_wedc: Option<Vec<i64>>,
+    #[serde(rename = "api_wedd")]
+    pub api_wedd: Option<Vec<i64>>,
 }
 
 #[derive(Getter, TraitForTest)]
