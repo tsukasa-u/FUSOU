@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
-// use serde_json::Value;
+use serde_json::Value;
 
 use register_trait::register_struct;
 use register_trait::add_field;
@@ -74,6 +74,172 @@ pub struct ApiData {
     pub api_cell_flavor: Option<ApiCellFlavor>,
     #[serde(rename = "api_itemget")]
     pub api_itemget: Option<Vec<ApiItemget>>,
+    #[serde(rename = "api_eventmap")]
+    pub api_eventmap: Option<ApiEventmap>,
+    #[serde(rename = "api_m1")]
+    pub api_m1: Option<i64>,
+    #[serde(rename = "api_destruction_battle")]
+    pub api_destruction_battle: Option<ApiDestructionBattle>,
+    #[serde(rename = "api_happening")]
+    pub api_happening: Option<ApiHappening>,
+    #[serde(rename = "api_itemget_eo_comment")]
+    pub api_itemget_eo_comment: Option<ApiItemgetEoComment>,
+}
+
+#[derive(Getter, TraitForTest)]
+#[struct_test_case(field_extra, type_value, integration)]
+#[add_field(extra)]
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")] 
+pub struct ApiItemgetEoComment {
+    #[serde(rename = "api_usemst")]
+    api_usemst: i64,
+    #[serde(rename = "api_id")]
+    api_id: i64,
+    #[serde(rename = "api_getcount")]
+    api_getcount: i64,
+}
+
+#[derive(Getter, TraitForTest)]
+#[struct_test_case(field_extra, type_value, integration)]
+#[add_field(extra)]
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")] 
+pub struct ApiHappening {
+    #[serde(rename = "api_type")]
+    api_type: i64,
+    #[serde(rename = "api_count")]
+    api_count: i64,
+    #[serde(rename = "api_usemst")]
+    api_usemst: i64,
+    #[serde(rename = "api_mst_id")]
+    api_mst_id: i64,
+    #[serde(rename = "api_icon_id")]
+    api_icon_id: i64,
+    #[serde(rename = "api_dentan")]
+    api_dentan: i64,
+}
+
+#[derive(Getter, TraitForTest)]
+#[struct_test_case(field_extra, type_value, integration)]
+#[add_field(extra)]
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")] 
+pub struct ApiDestructionBattle {
+    #[serde(rename = "api_formation")]
+    pub api_formation: Vec<i64>,
+    #[serde(rename = "api_ship_ke")]
+    pub api_ship_ke: Vec<i64>,
+    #[serde(rename = "api_ship_lv")]
+    pub api_ship_lv: Vec<i64>,
+    #[serde(rename = "api_e_nowhps")]
+    pub api_e_nowhps: Vec<i64>,
+    #[serde(rename = "api_e_maxhps")]
+    pub api_e_maxhps: Vec<i64>,
+    #[serde(rename = "api_eSlot")]
+    pub api_e_slot: Vec<Vec<i64>>,
+    #[serde(rename = "api_f_nowhps")]
+    pub api_f_nowhps: Vec<i64>,
+    #[serde(rename = "api_f_maxhps")]
+    pub api_f_maxhps: Vec<i64>,
+    #[serde(rename = "api_air_base_attack")]
+    pub api_air_base_attack: ApiAirBaseAttack,
+    #[serde(rename = "api_lost_kind")]
+    pub api_lost_kind: i64,
+}
+
+#[derive(Getter, TraitForTest)]
+#[struct_test_case(field_extra, type_value, integration)]
+#[add_field(extra)]
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")] 
+pub struct ApiAirBaseAttack {
+    #[serde(rename = "api_stage_flag")]
+    pub api_stage_flag: Vec<i64>,
+    #[serde(rename = "api_plane_from")]
+    pub api_plane_from: Vec<Option<Vec<i64>>>,
+    #[serde(rename = "api_map_squadron_plane")]
+    pub api_map_squadron_plane: Option<HashMap<String, Vec<ApiMapSquadronPlane>>>,
+    #[serde(rename = "api_stage1")]
+    pub api_stage1: Option<ApiStage1>,
+    #[serde(rename = "api_stage2")]
+    pub api_stage2: Option<Value>,
+    #[serde(rename = "api_stage3")]
+    pub api_stage3: Option<ApiStage3>,
+}
+
+#[derive(Getter, TraitForTest)]
+#[struct_test_case(field_extra, type_value, integration)]
+#[add_field(extra)]
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")] 
+pub struct ApiStage1 {
+    #[serde(rename = "api_f_count")]
+    pub api_f_count: i64,
+    #[serde(rename = "api_f_lostcount")]
+    pub api_f_lostcount: i64,
+    #[serde(rename = "api_e_count")]
+    pub api_e_count: i64,
+    #[serde(rename = "api_e_lostcount")]
+    pub api_e_lostcount: i64,
+    #[serde(rename = "api_disp_seiku")]
+    pub api_disp_seiku: i64,
+    #[serde(rename = "api_touch_plane")]
+    pub api_touch_plane: Vec<i64>,
+}
+
+#[derive(Getter, TraitForTest)]
+#[struct_test_case(field_extra, type_value, integration)]
+#[add_field(extra)]
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")] 
+pub struct ApiStage3 {
+    #[serde(rename = "api_frai_flag")]
+    pub api_frai_flag: Vec<i64>,
+    #[serde(rename = "api_erai_flag")]
+    pub api_erai_flag: Vec<i64>,
+    #[serde(rename = "api_fbak_flag")]
+    pub api_fbak_flag: Vec<i64>,
+    #[serde(rename = "api_ebak_flag")]
+    pub api_ebak_flag: Vec<i64>,
+    #[serde(rename = "api_fcl_flag")]
+    pub api_fcl_flag: Vec<i64>,
+    #[serde(rename = "api_ecl_flag")]
+    pub api_ecl_flag: Vec<i64>,
+    #[serde(rename = "api_edam")]
+    pub api_edam: Vec<i64>,
+    #[serde(rename = "api_fdam")]
+    pub api_fdam: Vec<i64>,
+    #[serde(rename = "api_e_sp_list")]
+    pub api_e_sp_list: Vec<Option<i64>>,
+    #[serde(rename = "api_f_sp_list")]
+    pub api_f_sp_list: Vec<Option<i64>>,
+}
+
+#[derive(Getter, TraitForTest)]
+#[struct_test_case(field_extra, type_value, integration)]
+#[add_field(extra)]
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")] 
+pub struct ApiMapSquadronPlane {
+    #[serde(rename = "api_mst_id")]
+    pub api_mst_id: i64,
+    #[serde(rename = "api_count")]
+    pub api_count: i64,
+}
+
+#[derive(Getter, TraitForTest)]
+#[struct_test_case(field_extra, type_value, integration)]
+#[add_field(extra)]
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")] 
+pub struct ApiEventmap {
+    #[serde(rename = "api_max_maphp")]
+    api_max_maphp: i64,
+    #[serde(rename = "api_now_maphp")]
+    api_now_maphp: i64,
+    #[serde(rename = "api_dmg")]
+    api_dmg: i64,
 }
 
 #[derive(Getter, TraitForTest)]
