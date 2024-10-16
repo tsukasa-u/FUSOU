@@ -63,9 +63,17 @@ pub struct ApiBounu {
 #[serde(rename_all = "camelCase")]
 pub struct ApiItem {
     #[serde(rename = "api_id")]
-    pub api_id: i64,
+    pub api_id: Option<i64>,
     #[serde(rename = "api_name")]
-    pub api_name: String,
+    pub api_name: Option<String>,
+    #[serde(rename = "api_id_from")]
+    pub api_id_from: Option<i64>,
+    #[serde(rename = "api_id_to")]
+    pub api_id_to: Option<i64>,
+    #[serde(rename = "api_message")]
+    pub api_message: Option<String>,
+    #[serde(rename = "api_slotitem_level")]
+    pub api_slotitem_level: Option<i64>,
 }
 
 #[cfg(test)]
