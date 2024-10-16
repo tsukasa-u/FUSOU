@@ -96,6 +96,24 @@ pub struct ApiData {
     pub api_raigeki: Option<ApiRaigeki>,
     #[serde(rename = "api_flavor_info")]
     pub api_flavor_info: Option<Vec<ApiFlavoInfo>>,
+    #[serde(rename = "api_injection_kouku")]
+    pub api_injection_kouku: Option<ApiInjectionKouku>,
+}
+
+#[derive(Getter, TraitForTest)]
+#[struct_test_case(field_extra, type_value, integration)]
+#[add_field(extra)]
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApiInjectionKouku {
+    #[serde(rename = "api_plane_from")]
+    pub api_plane_from: Vec<Option<Vec<i64>>>,
+    #[serde(rename = "api_stage1")]
+    pub api_stage1: Option<ApiStage1>,
+    #[serde(rename = "api_stage2")]
+    pub api_stage2: Option<ApiStage2>,
+    #[serde(rename = "api_stage3")]
+    pub api_stage3: Option<ApiStage3>,
 }
 
 #[derive(Getter, TraitForTest)]
@@ -157,11 +175,11 @@ pub struct ApiOpeningTaisen {
     #[serde(rename = "api_df_list")]
     pub api_df_list: Vec<Vec<i64>>,
     #[serde(rename = "api_si_list")]
-    pub api_si_list: Vec<Vec<i64>>,
+    pub api_si_list: Vec<Vec<Value>>,
     #[serde(rename = "api_cl_list")]
     pub api_cl_list: Vec<Vec<i64>>,
     #[serde(rename = "api_damage")]
-    pub api_damage: Vec<Vec<i64>>,
+    pub api_damage: Vec<Vec<f32>>,
 }
 
 #[derive(Getter, TraitForTest)]
@@ -221,9 +239,9 @@ pub struct ApiFlavoInfo {
 #[serde(rename_all = "camelCase")]
 pub struct ApiKouku {
     #[serde(rename = "api_plane_from")]
-    pub api_plane_from: Vec<Option<Vec<i64>>>,
+    pub api_plane_from: Option<Vec<Option<Vec<i64>>>>,
     #[serde(rename = "api_stage1")]
-    pub api_stage1: ApiStage1,
+    pub api_stage1: Option<ApiStage1>,
     #[serde(rename = "api_stage2")]
     pub api_stage2: Option<ApiStage2>,
     #[serde(rename = "api_stage3")]
@@ -245,9 +263,9 @@ pub struct ApiStage1 {
     #[serde(rename = "api_e_lostcount")]
     pub api_e_lostcount: i64,
     #[serde(rename = "api_disp_seiku")]
-    pub api_disp_seiku: i64,
+    pub api_disp_seiku: Option<i64>,
     #[serde(rename = "api_touch_plane")]
-    pub api_touch_plane: Vec<i64>,
+    pub api_touch_plane: Option<Vec<i64>>,
 }
 
 #[derive(Getter, TraitForTest)]
