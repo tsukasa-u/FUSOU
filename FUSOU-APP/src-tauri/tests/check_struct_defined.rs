@@ -1,4 +1,4 @@
-use std::{collections::HashSet, hash::RandomState, path};
+use std::{collections::HashSet, fs::File, hash::RandomState, io::Write, path};
 use confy;
 use serde::{Deserialize, Serialize};
 
@@ -48,6 +48,11 @@ pub fn check_struct_defined(target_path: String) {
 
     let diff = books.difference(&cfg_hash_set);
     if diff.clone().count() > 0 {
-        panic!("\x1b[38;5;{}m There are some not implemented struct for test response data ({}/{}) {:#?}\x1b[m", 8, diff.clone().count(), books.len(), diff.collect::<HashSet<&String, RandomState>>());
+        let content = diff.clone().collect::<HashSet<&String, RandomState>>();
+        
+        let mut file = File::create("./tests/struct_defined.log").unwrap();
+        file.write(format!("{:#?}", content).as_bytes()).expect("write failed");
+
+        panic!("\x1b[38;5;{}m There are some not implemented struct for test response data ({}/{}) {:#?}\x1b[m", 8, diff.clone().count(), books.len(), content);
     }
 }
