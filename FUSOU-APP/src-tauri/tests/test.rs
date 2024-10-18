@@ -4,9 +4,7 @@ use std::env;
 mod check_struct_defined;
 mod check_struct_dependency;
 
-#[test]
-fn test_struct_defined() {
-
+fn target_path() -> String {
     let mut target_path = "./../../FUSOU-PROXY-DATA/kcsapi".to_string();
 
     dotenv().expect(".env file not found");
@@ -16,10 +14,21 @@ fn test_struct_defined() {
         }
     }
 
+    target_path
+}
+
+#[test]
+fn test_struct_defined() {
+
+    let target_path = target_path();
+
     check_struct_defined::check_struct_defined(target_path);
 }
 
 #[test]
 fn test_struct_dependency() {
 
+    let target_path = "./src/kcapi".to_string();
+
+    check_struct_dependency::check_struct_dependency(target_path);
 }
