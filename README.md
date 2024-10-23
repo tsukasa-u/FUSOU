@@ -1,6 +1,6 @@
 # FUSOU
 
-![FUSOU](DOCS/title.png)
+![FUSOU](Docs/title.png)
 
 ## Stacks
 
