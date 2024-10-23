@@ -175,7 +175,8 @@ async fn main() -> ExitCode {
       json_parser::serve_reponse_parser(&app.handle(), response_parse_channel_slave, proxy_log_bidirectional_channel_slave);
 
       discord::connect();
-      discord::set_activity("experimental implementation", "playing KanColle with FUSOU");
+      // discord::set_activity("experimental implementation", "playing KanColle with FUSOU");
+      discord::set_activity_button("experimental implementation", "playing KanColle with FUSOU", "Visit GitHub Repository", "https://github.com/tsukasa-u/FUSOU");
 
       let proxy_bidirectional_channel_master_clone = proxy_bidirectional_channel_master.clone();
       let pac_bidirectional_channel_master_clone = pac_bidirectional_channel_master.clone();

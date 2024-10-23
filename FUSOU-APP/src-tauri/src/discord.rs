@@ -34,6 +34,26 @@ pub fn set_activity(state: &str, details: &str) {
     let _ = DISCORD_CLIENT.lock().unwrap().as_mut().unwrap().set_activity(activity::Activity::new()
         .state(state)
         .details(details)
+        .timestamps(activity::Timestamps::new().start(0))
+    );
+}
+
+pub fn set_activity_button(state: &str, details: &str, label: &str, url: &str) {
+    if DISCORD_CLIENT.lock().unwrap().is_err() {
+        return;
+    }
+    let elapsed_time = match std::time::SystemTime::now().duration_since(std::time::SystemTime::UNIX_EPOCH) {
+        Ok(elapsed) => elapsed.as_secs() as i64,
+        Err(_) => 0,
+    };
+    
+    let buttons = vec![activity::Button::new(label, url)];
+    
+    let _ = DISCORD_CLIENT.lock().unwrap().as_mut().unwrap().set_activity(activity::Activity::new()
+        .state(state)
+        .details(details)
+        .timestamps(activity::Timestamps::new().start(elapsed_time))
+        .buttons(buttons)
     );
 }
 
