@@ -6,19 +6,12 @@
 
 <p style="display: inline">
   <img alt="Static Badge" src="https://img.shields.io/badge/rust-000000?style=for-the-badge&logo=rust&logoColor=FFFFFF&color=000000">
-<p style="display: inline">
   <img alt="Static Badge" src="https://img.shields.io/badge/Typescript-000000?style=for-the-badge&logo=typescript&logoColor=FFFFFF&color=3178C6">
-<p style="display: inline">
   <img alt="Static Badge" src="https://img.shields.io/badge/Go-000000?style=for-the-badge&logo=go&logoColor=FFFFFF&color=00ADD8">
-<p style="display: inline">
   <img alt="Static Badge" src="https://img.shields.io/badge/tauri-000000?style=for-the-badge&logo=tauri&logoColor=FFFFFF&color=24C8D8">
-<p style="display: inline">
   <img alt="Static Badge" src="https://img.shields.io/badge/pnpm-000000?style=for-the-badge&logo=pnpm&logoColor=FFFFFF&color=F69220">
-<p style="display: inline">
   <img alt="Static Badge" src="https://img.shields.io/badge/cargo-000000?style=for-the-badge&logo=rust&logoColor=FFFFFF&color=000000">
-<p style="display: inline">
   <img alt="Static Badge" src="https://img.shields.io/badge/tailwind css-000000?style=for-the-badge&logo=tailwindcss&logoColor=FFFFFF&color=06B6D4">
-<p style="display: inline">
   <img alt="Static Badge" src="https://img.shields.io/badge/Solid-000000?style=for-the-badge&logo=solid&logoColor=FFFFFF&color=2C4F7C">
 </p>
 
