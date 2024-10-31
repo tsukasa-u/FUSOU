@@ -7,7 +7,6 @@ use tokio::sync::mpsc;
 use webbrowser::{open_browser, Browser};
 use arboard::Clipboard;
 use core::time;
-use std::fs;
 use std::sync::{Arc, Mutex};
 use std::process::ExitCode;
 
@@ -40,24 +39,59 @@ impl BrowserState {
     }
 }
 
-fn create_external_window(app: &tauri::App) {
+fn create_external_window(app: &tauri::App, browser: Browser) {
 
-  let init_script = fs::read_to_string("./../src/init_script.js").expect("Unable to read init_script.js");
-
-  let external = tauri::WindowBuilder::new(
-    app,
-    "external",
-    tauri::WindowUrl::External("http://www.dmm.com/netgame/social/-/gadgets/=/app_id=854854/".parse().unwrap()),
-  )
-  .fullscreen(false)
-  .title("fusou-viewer")
-  .inner_size(1192_f64, 712_f64)
-  .visible(false)
-  .initialization_script(&init_script)
-  .build()
-  .expect("error while building external");
-  external.open_devtools();
+  #[cfg(not(target_os = "linux"))]
+  {
+    let init_script = fs::read_to_string("./../src/init_script.js").expect("Unable to read init_script.js");
+  
+    let external = tauri::WindowBuilder::new(
+      app,
+      "external",
+      tauri::WindowUrl::External("http://www.dmm.com/netgame/social/-/gadgets/=/app_id=854854/".parse().unwrap()),
+    )
+    .fullscreen(false)
+    .title("fusou-viewer")
+    .inner_size(1192_f64, 712_f64)
+    .visible(false)
+    .initialization_script(&init_script)
+    .build()
+    .expect("error while building external");
+  }
+  // external.open_devtools();
   // external.hwnd().unwrap().0
+
+  #[cfg(target_os = "linux")]
+  {
+    // let browser = shared_browser.lock().unwrap();
+    let _ = open_browser(browser, "http://www.dmm.com/netgame/social/-/gadgets/=/app_id=854854/").is_ok();
+  }
+
+  // #[cfg(target_os = "linux")]
+  // {
+  //   let context = webkit2gtk::WebContext::default().expect("Failed to get default WebContext");
+  //   context.set_network_proxy_settings(webkit2gtk::NetworkProxyMode::Default, None);
+  //   // #[cfg(feature = "v2_6")]
+  //   // let webview = webkit2gtk::WebView::with_context(&context);
+  //   // #[cfg(not(feature = "v2_6"))]
+  //   let webview = webkit2gtk::WebViewBuilder::new().web_context(&context).build();
+  //   // println!("{:?}", external.gtk_window().unwrap().default_widget());
+  //   // let widget =  external.gtk_window().unwrap().default_widget().unwrap();
+  //   // external.gtk_window().unwrap().remove(&widget);
+  //   // external.gtk_window().unwrap().add(&webview);
+  //   // external.gtk_window().unwrap().show_all();
+
+  //   let gtk_window = gtk::ApplicationWindow::new(
+  //     &external.gtk_window().unwrap().application().unwrap(),
+  //   );
+  //   // gtk_window.set_app_paintable(true);
+  //   gtk_window.set_window_position(gtk::WindowPosition::Mouse);
+  //   gtk_window.set_height_request(480);
+  //   gtk_window.set_width_request(640);
+  //   gtk_window.add(&webview);
+  //   webview.load_uri("http://www.dmm.com/netgame/social/-/gadgets/=/app_id=854854/");
+  //   gtk_window.show();
+  // }
 
 }
 
@@ -138,6 +172,8 @@ async fn main() -> ExitCode {
     width: 1200,
     height: 720
   });
+
+  let browser = shared_browser.lock().unwrap().get_browser();
   
   tauri::Builder::default()
     .invoke_handler(tauri::generate_handler![
@@ -150,7 +186,7 @@ async fn main() -> ExitCode {
     .plugin(tauri_plugin_window_state::Builder::default().build())
     .setup(move |app| {
       
-      create_external_window(&app);
+      create_external_window(&app, browser);
       // let _window = app.get_window("main").unwrap().close().unwrap();
 
       // start proxy server
