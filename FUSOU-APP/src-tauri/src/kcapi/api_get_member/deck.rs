@@ -25,7 +25,7 @@ pub struct Root {
     #[serde(rename = "api_result_msg")]
     pub api_result_msg: String,
     #[serde(rename = "api_data")]
-    pub api_data: Vec<ApiDaum>,
+    pub api_data: Vec<ApiData>,
 }
 
 #[derive(Getter, TraitForTest)]
@@ -33,7 +33,7 @@ pub struct Root {
 #[add_field(extra)]
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ApiDaum {
+pub struct ApiData {
     #[serde(rename = "api_member_id")]
     pub api_member_id: i64,
     #[serde(rename = "api_id")]
