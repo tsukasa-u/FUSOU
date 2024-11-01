@@ -56,6 +56,12 @@ run on terminal
 pnpm install
 ```
 
+on Linux(Ubuntu), you have to install additional library
+
+```
+apt install libsoup-gnome2.4-dev libjavascriptcoregtk-4.0-dev libwebkit2gtk-4.0-dev
+```
+
 ### 4. launch tauri
 run on terminal
 ```
