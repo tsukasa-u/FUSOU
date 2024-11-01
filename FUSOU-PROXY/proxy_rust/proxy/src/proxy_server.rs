@@ -9,7 +9,10 @@ use warp_reverse_proxy::{extract_request_data_filter, proxy_to_and_forward_respo
 use std::fs;
 use std::io::Read;
 use std::net::SocketAddr;
+#[cfg(target_os = "windows")]
 use std::os::windows::fs::MetadataExt;
+#[cfg(target_os = "linux")]
+use std::os::linux::fs::MetadataExt;
 use std::path::Path;
 // use std::sync::LazyLock;
 
@@ -275,6 +278,11 @@ async fn log_response(mut response: Response<Body>, path: FullPath, tx_proxy_log
                         fs::write(file_log_path, body_cloned.clone()).expect("Failed to write file");
                     } else {
                         let file_log_metadata = fs::metadata(file_log_path.clone()).expect("Failed to get metadata");
+                        #[cfg(target_os = "linux")]
+                        if file_log_metadata.len() == 0 {
+                            fs::write(file_log_path, body_cloned.clone()).expect("Failed to write file");
+                        }
+                        #[cfg(target_os = "windows")]
                         if file_log_metadata.file_size() == 0 {
                             fs::write(file_log_path, body_cloned.clone()).expect("Failed to write file");
                         }
