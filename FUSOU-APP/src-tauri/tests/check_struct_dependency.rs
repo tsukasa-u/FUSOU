@@ -37,9 +37,13 @@ pub fn check_struct_dependency(target_path: String) {
                                 let content = fs::read_to_string(file_path.clone()).expect("failed to read file");
                                 let captured = re_struct.captures_iter(&content);
     
+                                #[cfg(target_os = "windows")]
                                 let api_name_splited: Vec<String> = file_path_str.split("\\").map(|s| { s.replace(".rs", "") }).collect();
-                                let api_name_1 = api_name_splited[1].clone();
-                                let api_name_2 = api_name_splited[2].clone();
+                                #[cfg(target_os = "linux")]
+                                let api_name_splited: Vec<String> = file_path_str.split("/").map(|s| { s.replace(".rs", "") }).collect();
+
+                                let api_name_1 = api_name_splited[api_name_splited.len()-2].clone();
+                                let api_name_2 = api_name_splited[api_name_splited.len()-1].clone();
                                 
                                 let use_captured = re_use.captures_iter(&content);
                                 let mut use_book = HashMap::<String, String>::new();
@@ -186,7 +190,12 @@ pub fn check_struct_dependency(target_path: String) {
     //     .output()
     //     .expect("failed to execute process");
 
+    #[cfg(target_os = "windows")]
     Command::new("./tests/export_svg.bat")
+        .output()
+        .expect("failed to execute process");
+    #[cfg(target_os = "linux")]
+    Command::new("./tests/export_svg.sh")
         .output()
         .expect("failed to execute process");
 
