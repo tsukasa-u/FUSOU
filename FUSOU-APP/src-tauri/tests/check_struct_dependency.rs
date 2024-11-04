@@ -1,5 +1,5 @@
 use std::{collections::HashMap,  fs::{self, File}, io::Write, path, process::Command};
-use dot_writer::{Attributes, Color, DotWriter, Node, Shape, Style};
+use dot_writer::{Attributes, Color, DotWriter, Shape, Style};
 
 pub fn check_struct_dependency(target_path: String) {
 
@@ -176,7 +176,7 @@ pub fn check_struct_dependency(target_path: String) {
                         // format!("{} | {} <{}> {} | {} {}", acc, "{", field_name, field_name, field_type.replace("<", r"\<").replace(">", r"\>"), "}")
                         format!("{} | {} {} | <{}> {} {}", acc, "{", field_name, field_name, field_type.replace("<", r"\<").replace(">", r"\>"), "}")
                     });
-                    node_struct_name.set_label(&format!("{} {}", struct_name, struct_label));
+                    node_struct_name.set_label(&format!("<{}> {} {}", struct_name, struct_name, struct_label));
                     node_struct_name.set_shape(Shape::Record);
 
                     if struct_name.ne("Root") && struct_name.ne("ApiData") {
@@ -204,7 +204,7 @@ pub fn check_struct_dependency(target_path: String) {
                                 node_field_type.id()
                             }
                         };
-                        cluster.edge(node_struct_name_id.clone().port(field_name), node_field_type_id);
+                        cluster.edge(node_struct_name_id.clone().port(field_name), node_field_type_id.port(type_name));
                     }
                 }
             }
