@@ -1,14 +1,14 @@
-use std::{collections::{HashMap, HashSet},  fs::{self, File}, io::Write, path, process::Command};
-use petgraph::Graph;
+use std::{collections::HashMap,  fs::{self, File}, io::Write, path, process::Command};
 use dot_writer::{Color, DotWriter, Attributes, Shape, Style};
 
 pub fn check_struct_dependency(target_path: String) {
 
     let re_struct = regex::Regex::new(r#"(pub)? struct [A-Za-z0-9]+ \{[^\}]*\}"#).unwrap();
     let re_struct_name = regex::Regex::new(r#"(pub)? struct ([A-Za-z0-9]+) \{[^\}]*\}"#).unwrap();
-    let re_struct_field = regex::Regex::new(r#"\#\[serde\(rename = \"([A-Za-z0-9_]+)\"\)\]\s*(pub)? [a-z_0-9]+\s?:\s?([A-Za-z0-9<>]+),?"#).unwrap();
+    let re_struct_field = regex::Regex::new(r#"\#\[serde\(rename = \"([A-Za-z0-9_]+)\"\)\]\s*(pub)? [a-z_0-9]+\s?:\s?([A-Za-z0-9<>,\s]+)\n"#).unwrap();
     let re_use = regex::Regex::new(r#"^use (([A-Za-z0-9_]+::)*([A-Za-z0-9_]+));"#).unwrap();
-    let re_parse_type = regex::Regex::new(r#"([A-Za-z]+<)*([A-Za-z0-9]+)>*"#).unwrap();
+    // let re_parse_type = regex::Regex::new(r#"([A-Za-z]+<)*([A-Za-z0-9]+)>*"#).unwrap();
+    let re_parse_type = regex::Regex::new(r#"([A-Za-z]+<([A-Za-z]+,\s*)?)*([A-Za-z0-9]+)>*"#).unwrap();
     
     // let path = env::current_dir().unwrap();
     // println!("starting dir: {}", path.display());
@@ -121,12 +121,24 @@ pub fn check_struct_dependency(target_path: String) {
     // }
     for ((api_name_1, api_name_2), fieldm) in books.clone().iter() {
         for (struct_name, field) in fieldm.iter() {
-            for (field_name, (_field_type_location, field_type, type_name)) in field.iter() {
+            for (field_name, (_field_type_location, _field_type, type_name)) in field.iter() {
                 if let Some(ret) = books.get(&(api_name_1.clone(), api_name_2.clone())) {
                     if let Some(_) = ret.get(&type_name.clone()) {
                         books.get_mut(&(api_name_1.clone(), api_name_2.clone())).unwrap().get_mut(struct_name).unwrap().get_mut(field_name).unwrap().0 = "self".to_string();
                     }
                 }
+            }
+        }
+    }
+
+    let mut double_resitering_struct_name = HashMap::<String, i64>::new();
+    for ((_api_name_1, _api_name_2), fieldm) in books.clone().iter() {
+        for (struct_name, _fields) in fieldm.iter() {
+            if double_resitering_struct_name.contains_key(struct_name) {
+                let count = double_resitering_struct_name.get_mut(struct_name).unwrap();
+                *count += 1;
+            } else {
+                double_resitering_struct_name.insert(struct_name.clone(), 1);
             }
         }
     }
@@ -144,35 +156,54 @@ pub fn check_struct_dependency(target_path: String) {
         for ((api_name_1, api_name_2), fieldm) in books_vec {
             let mut cluster = deps_graph.cluster();
 
-            cluster.set_label(&format!("{} / {}", api_name_1, api_name_2))
-                .set_style(Style::Solid)
-                .set_color(Color::LightGrey);
+            cluster.set_label(&format!("{} / {}", api_name_1, api_name_2));
             cluster.node_attributes()
                 .set_style(Style::Filled)
-                .set_color(Color::White);
+                .set_color(Color::White)
+                .set_style(Style::Solid)
+                .set_color(Color::Gray20);
+
+            let mut struct_node_list = HashMap::new();
 
             for (struct_name, fields) in fieldm.iter() {
                 
                 // let node_struct_name = cluster.node_named(struct_name).id();
                 let node_struct_name_id = {
                     let mut node_struct_name = cluster.node_named(&format!("{}__{}__{}", api_name_1, api_name_2, struct_name));
-                    node_struct_name.set_label(struct_name);
-                    // node_struct_name.set_head_label("struct_name -> field_type");
-                    // node_struct_name.set_tail_label("struct_name -> field_type");
+                    // node_struct_name.set_label(struct_name);
+                    let struct_label = fields.iter().fold("".to_string(), |acc, (field_name, (_field_type_location, field_type, _type_name))| {
+                        format!("{} | {} <{}> {} | {} {}", acc, "{", field_name, field_name, field_type.replace("<", r"\<").replace(">", r"\>"), "}")
+                    });
+                    node_struct_name.set_label(&format!("{} {} {} {}", "{", struct_name, struct_label, "}"));
+                    node_struct_name.set_shape(Shape::Record);
+                    
+
+                    if (struct_name.ne("Root") && struct_name.ne("ApiData")) {
+                        if double_resitering_struct_name.contains_key(struct_name) {
+                            let count = double_resitering_struct_name.get(struct_name).unwrap();
+                            if *count > 1 {
+                                node_struct_name.set_color(Color::Red);
+                            }
+                        }
+                    }
+                    
                     node_struct_name.id()
                 };
+                struct_node_list.insert(format!("{}__{}__{}", api_name_1, api_name_2, struct_name), node_struct_name_id.clone());
     
-                for (field_name, (field_type_location, field_type, type_name)) in fields.iter() {
+                for (field_name, (field_type_location, _field_type, type_name)) in fields.iter() {
                     if field_type_location == "self" {
                         // let node_field_type = cluster.node_named(field_type).id();
                         let node_field_type_id = {
-                            let mut node_field_type = cluster.node_named(&format!("{}__{}__{}", api_name_1, api_name_2, type_name));
-                            node_field_type.set_label(type_name);
-                            // node_field_type.set_head_label(&(field_name.to_owned() + " -> " + field_type));
-                            // node_field_type.set_tail_label(&(field_name.to_owned() + " -> " + field_type));
-                            node_field_type.id()
+                            let key = format!("{}__{}__{}", api_name_1, api_name_2, type_name);
+                            if struct_node_list.contains_key(&key) {
+                                struct_node_list.get(&key).unwrap().clone()
+                            } else {
+                                let node_field_type = cluster.node_named(&key);
+                                node_field_type.id()
+                            }
                         };
-                        cluster.edge(node_struct_name_id.clone(), node_field_type_id);
+                        cluster.edge(node_struct_name_id.clone().port(field_name), node_field_type_id);
                     }
                 }
             }
