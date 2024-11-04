@@ -1,5 +1,5 @@
 use std::{collections::HashMap,  fs::{self, File}, io::Write, path, process::Command};
-use dot_writer::{Color, DotWriter, Attributes, Shape, Style};
+use dot_writer::{Attributes, Color, DotWriter, Node, Shape, Style};
 
 pub fn check_struct_dependency(target_path: String) {
 
@@ -151,6 +151,7 @@ pub fn check_struct_dependency(target_path: String) {
         let mut writer = DotWriter::from(&mut output_bytes);
         writer.set_pretty_print(false);
         let mut deps_graph = writer.digraph();
+        deps_graph.set_rank_direction(dot_writer::RankDirection::LeftRight);
         let mut books_vec = books.iter().collect::<Vec<_>>();
         books_vec.sort_by(|a, b| format!("{}__{}", a.0.0, a.0.1).cmp(&format!("{}__{}", b.0.0, b.0.1)));
         for ((api_name_1, api_name_2), fieldm) in books_vec {
@@ -172,13 +173,13 @@ pub fn check_struct_dependency(target_path: String) {
                     let mut node_struct_name = cluster.node_named(&format!("{}__{}__{}", api_name_1, api_name_2, struct_name));
                     // node_struct_name.set_label(struct_name);
                     let struct_label = fields.iter().fold("".to_string(), |acc, (field_name, (_field_type_location, field_type, _type_name))| {
-                        format!("{} | {} <{}> {} | {} {}", acc, "{", field_name, field_name, field_type.replace("<", r"\<").replace(">", r"\>"), "}")
+                        // format!("{} | {} <{}> {} | {} {}", acc, "{", field_name, field_name, field_type.replace("<", r"\<").replace(">", r"\>"), "}")
+                        format!("{} | {} {} | <{}> {} {}", acc, "{", field_name, field_name, field_type.replace("<", r"\<").replace(">", r"\>"), "}")
                     });
-                    node_struct_name.set_label(&format!("{} {} {} {}", "{", struct_name, struct_label, "}"));
+                    node_struct_name.set_label(&format!("{} {}", struct_name, struct_label));
                     node_struct_name.set_shape(Shape::Record);
-                    
 
-                    if (struct_name.ne("Root") && struct_name.ne("ApiData")) {
+                    if struct_name.ne("Root") && struct_name.ne("ApiData") {
                         if double_resitering_struct_name.contains_key(struct_name) {
                             let count = double_resitering_struct_name.get(struct_name).unwrap();
                             if *count > 1 {
