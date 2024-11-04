@@ -6,7 +6,7 @@ pub fn check_struct_dependency(target_path: String) {
     let re_struct = regex::Regex::new(r#"(pub)? struct [A-Za-z0-9]+ \{[^\}]*\}"#).unwrap();
     let re_struct_name = regex::Regex::new(r#"(pub)? struct ([A-Za-z0-9]+) \{[^\}]*\}"#).unwrap();
     let re_struct_field = regex::Regex::new(r#"\#\[serde\(rename = \"([A-Za-z0-9_]+)\"\)\]\s*(pub)? [a-z_0-9]+\s?:\s?([A-Za-z0-9<>,\s]+)\n"#).unwrap();
-    let re_use = regex::Regex::new(r#"^use (([A-Za-z0-9_]+::)*([A-Za-z0-9_]+));"#).unwrap();
+    let re_use = regex::Regex::new(r#"(//\s+)?use\s+(([A-Za-z0-9_]+::)*([A-Za-z0-9_]+));"#).unwrap();
     // let re_parse_type = regex::Regex::new(r#"([A-Za-z]+<)*([A-Za-z0-9]+)>*"#).unwrap();
     let re_parse_type = regex::Regex::new(r#"([A-Za-z]+<([A-Za-z]+,\s*)?)*([A-Za-z0-9]+)>*"#).unwrap();
     
@@ -48,9 +48,11 @@ pub fn check_struct_dependency(target_path: String) {
                                 let use_captured = re_use.captures_iter(&content);
                                 let mut use_book = HashMap::<String, String>::new();
                                 for use_cap in use_captured {
-                                    let use_name = use_cap.get(1).unwrap().as_str();
-                                    let use_name_last = use_cap.get(3).unwrap().as_str();
-                                    use_book.insert(use_name_last.to_string(), use_name.to_string());
+                                    if use_cap.get(1).is_none() {
+                                        let use_name = use_cap.get(2).unwrap().as_str();
+                                        let use_name_last = use_cap.get(use_cap.len()-1).unwrap().as_str();
+                                        use_book.insert(use_name_last.to_string(), use_name.to_string());
+                                    }
                                 }
                                 
 
@@ -59,17 +61,19 @@ pub fn check_struct_dependency(target_path: String) {
 
                                     let field_captured = re_struct_field.captures_iter(cap.get(0).unwrap().as_str());
                                     for field_cap in field_captured {
-                                        // println!("{:?}", field_cap);
-                                        // let field_name = field_cap.get(1).unwrap().as_str();
-                                        // println!("{:?}", field_cap);
                                         let field_type = field_cap.get(3).unwrap().as_str();
                                         let field_rename = field_cap.get(1).unwrap().as_str();
-
-                                        let use_name_full = use_book.keys().filter(|x| x.find(field_type).is_some()).map(|x| {
-                                            use_book.get(x)
-                                        });
                                         
-                                        let field_type_location = if use_name_full.clone().count() > 0 && use_name_full.clone().count() < 2 {
+                                        let type_captured = re_parse_type.captures(field_type);
+                                        let type_name = if let Some(type_cap) = type_captured {
+                                            type_cap.get(type_cap.len()-1).unwrap().as_str().to_string()
+                                        } else {
+                                            field_type.to_string()
+                                        };
+                                        let use_name_full = use_book.keys().filter(|x| type_name.eq(x.to_owned())).map(|x| use_book.get(x) );
+                                        
+                                        // println!("{:?}", use_name_full.clone().collect::<Vec<_>>());
+                                        let field_type_location = if use_name_full.clone().count() == 1 {
                                             match use_name_full.last().unwrap() {
                                                 Some(name_last) => {
                                                     name_last.to_owned()
@@ -80,14 +84,6 @@ pub fn check_struct_dependency(target_path: String) {
                                             }
                                         } else {
                                             "_".to_string()
-                                        };
-                                        //  field_cap.get(0).unwrap().as_str();
-                                        
-                                        let type_captured = re_parse_type.captures(field_type);
-                                        let type_name = if let Some(type_cap) = type_captured {
-                                            type_cap.get(type_cap.len()-1).unwrap().as_str().to_string()
-                                        } else {
-                                            field_type.to_string()
                                         };
 
                                         book.insert(field_rename.to_string(), (field_type_location, field_type.to_string(), type_name));
@@ -111,14 +107,6 @@ pub fn check_struct_dependency(target_path: String) {
         }
     }
 
-    // for ((api_name_1, api_name_2, struct_name), fields) in books.clone().iter() {
-    //     for (field_name, (_field_type_location, field_type, type_name)) in fields.iter() {
-
-    //         if books.get(&(api_name_1.clone(), api_name_2.clone(), type_name.clone())).is_some() {
-    //             books.get_mut(&(api_name_1.clone(), api_name_2.clone(), struct_name.clone())).unwrap().get_mut(field_name).unwrap().0 = "self".to_string();
-    //         }
-    //     }
-    // }
     for ((api_name_1, api_name_2), fieldm) in books.clone().iter() {
         for (struct_name, field) in fieldm.iter() {
             for (field_name, (_field_type_location, _field_type, type_name)) in field.iter() {
