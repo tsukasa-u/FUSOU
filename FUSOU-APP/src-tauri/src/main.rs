@@ -9,6 +9,7 @@ use arboard::Clipboard;
 use core::time;
 use std::sync::{Arc, Mutex};
 use std::process::ExitCode;
+use std::fs;
 
 mod kcapi;
 mod notification;
