@@ -1,23 +1,37 @@
-use std::{collections::HashMap,  fs::{self, File}, io::Write, path, process::Command};
-use dot_writer::{Attributes, Color, DotWriter, Shape, Style};
+use std::{collections::{HashMap, HashSet}, fs::{self, File}, io::Write, path::{self, PathBuf}, process::Command};
+use dot_writer::{Attributes, Color, DotWriter, PortId, Shape, Style};
 
-pub fn check_struct_dependency(target_path: String) {
+pub fn check_struct_dependency() {
+    
+    let target_path = "./src/kcapi".to_string();
+    let sub_target_path = "./src/kcapi_common".to_string();
 
-    let re_struct = regex::Regex::new(r#"(pub)? struct [A-Za-z0-9]+ \{[^\}]*\}"#).unwrap();
-    let re_struct_name = regex::Regex::new(r#"(pub)? struct ([A-Za-z0-9]+) \{[^\}]*\}"#).unwrap();
-    let re_struct_field = regex::Regex::new(r#"\#\[serde\(rename = \"([A-Za-z0-9_]+)\"\)\]\s*(pub)? [a-z_0-9]+\s?:\s?([A-Za-z0-9<>,\s]+)\n"#).unwrap();
+    let re_struct = regex::Regex::new(r#"\n(pub\s+)?struct [A-Za-z0-9]+ \{[^\}]*\}"#).unwrap();
+    let re_struct_name = regex::Regex::new(r#"\n(pub\s+)?struct ([A-Za-z0-9]+) \{[^\}]*\}"#).unwrap();
+    let re_struct_field = regex::Regex::new(r#"\#\[serde\(rename = \"([A-Za-z0-9_]+)\"\)\]\s*(pub)? [a-z_0-9]+\s?:\s?([A-Za-z0-9<>,\s]+),\r?\n"#).unwrap();
     let re_use = regex::Regex::new(r#"(//\s+)?use\s+(([A-Za-z0-9_]+::)*([A-Za-z0-9_]+));"#).unwrap();
     // let re_parse_type = regex::Regex::new(r#"([A-Za-z]+<)*([A-Za-z0-9]+)>*"#).unwrap();
     let re_parse_type = regex::Regex::new(r#"([A-Za-z]+<([A-Za-z]+,\s*)?)*([A-Za-z0-9]+)>*"#).unwrap();
     
     // let path = env::current_dir().unwrap();
     // println!("starting dir: {}", path.display());
+
+    let mut file_path_list: Vec<PathBuf> = Vec::new();
+    let mut books = HashMap::<(String, String), HashMap<String, HashMap::<String, (String, String, String)>>>::new();
+
+    let sub_target = path::PathBuf::from(sub_target_path);
+    let sub_folders = sub_target.read_dir().expect( "read_dir call failed");
+    for entry in  sub_folders {
+        if let Ok(file_entry) = entry {
+            let file_path = file_entry.path();
+            file_path_list.push(file_path);          
+        }
+    }
     
     let target = path::PathBuf::from(target_path);
     let folders = target.read_dir().expect( "read_dir call failed");
-    let mut books = HashMap::<(String, String), HashMap<String, HashMap::<String, (String, String, String)>>>::new();
-    for dir_entry in folders {
 
+    for dir_entry in folders {
         if dir_entry.is_ok() {
             let dir_entry_path = dir_entry.unwrap().path();
             
@@ -26,83 +40,86 @@ pub fn check_struct_dependency(target_path: String) {
                 for entry in  files {
                     if let Ok(file_entry) = entry {
                         let file_path = file_entry.path();
-    
-                        let file_path_str = file_path.to_string_lossy().to_string();
-    
-                        if file_path_str.ends_with(".rs") {
-                            if !file_path_str.ends_with("mod.rs") {
+                        file_path_list.push(file_path);                        
+                    }
+                }
+            }
+        }
+    }
 
-                                let mut bookm = HashMap::<String, HashMap<String, (String, String, String)>>::new();
-    
-                                let content = fs::read_to_string(file_path.clone()).expect("failed to read file");
-                                let captured = re_struct.captures_iter(&content);
-    
-                                #[cfg(target_os = "windows")]
-                                let api_name_splited: Vec<String> = file_path_str.split("\\").map(|s| { s.replace(".rs", "") }).collect();
-                                #[cfg(target_os = "linux")]
-                                let api_name_splited: Vec<String> = file_path_str.split("/").map(|s| { s.replace(".rs", "") }).collect();
+    for file_path in file_path_list {
+        let file_path_str = file_path.to_string_lossy().to_string();
 
-                                let api_name_1 = api_name_splited[api_name_splited.len()-2].clone();
-                                let api_name_2 = api_name_splited[api_name_splited.len()-1].clone();
-                                
-                                let use_captured = re_use.captures_iter(&content);
-                                let mut use_book = HashMap::<String, String>::new();
-                                for use_cap in use_captured {
-                                    if use_cap.get(1).is_none() {
-                                        let use_name = use_cap.get(2).unwrap().as_str();
-                                        let use_name_last = use_cap.get(use_cap.len()-1).unwrap().as_str();
-                                        use_book.insert(use_name_last.to_string(), use_name.to_string());
-                                    }
+        if file_path_str.ends_with(".rs") {
+            if !file_path_str.ends_with("mod.rs") {
+
+                let mut bookm = HashMap::<String, HashMap<String, (String, String, String)>>::new();
+
+                let content = fs::read_to_string(file_path.clone()).expect("failed to read file");
+                let captured = re_struct.captures_iter(&content);
+
+                #[cfg(target_os = "windows")]
+                let api_name_splited: Vec<String> = file_path_str.replace("\\", "/").split("/").map(|s| { s.replace(".rs", "") }).collect();
+                #[cfg(target_os = "linux")]
+                let api_name_splited: Vec<String> = file_path_str.split("/").map(|s| { s.replace(".rs", "") }).collect();
+
+                let api_name_1 = api_name_splited[api_name_splited.len()-2].clone();
+                let api_name_2 = api_name_splited[api_name_splited.len()-1].clone();
+                
+                let use_captured = re_use.captures_iter(&content);
+                let mut use_book = HashMap::<String, String>::new();
+                for use_cap in use_captured {
+                    if use_cap.get(1).is_none() {
+                        let use_name = use_cap.get(2).unwrap().as_str();
+                        let use_name_last = use_cap.get(use_cap.len()-1).unwrap().as_str();
+                        use_book.insert(use_name_last.to_string(), use_name.to_string());
+                    }
+                }
+                
+
+                for cap in captured {
+                    let mut book = HashMap::<String, (String, String, String)>::new();
+
+                    let field_captured = re_struct_field.captures_iter(cap.get(0).unwrap().as_str());
+                    for field_cap in field_captured {
+                        let field_type = field_cap.get(3).unwrap().as_str();
+                        let field_rename = field_cap.get(1).unwrap().as_str();
+                        
+                        let type_captured = re_parse_type.captures(field_type);
+                        let type_name = if let Some(type_cap) = type_captured {
+                            type_cap.get(type_cap.len()-1).unwrap().as_str().to_string()
+                        } else {
+                            field_type.to_string()
+                        };
+                        let use_name_full = use_book.keys().filter(|x| type_name.eq(x.to_owned())).map(|x| use_book.get(x) );
+                        
+                        // println!("{:?}", use_name_full.clone().collect::<Vec<_>>());
+                        let field_type_location = if use_name_full.clone().count() == 1 {
+                            match use_name_full.last().unwrap() {
+                                Some(name_last) => {
+                                    name_last.to_owned()
+                                },
+                                None => {
+                                    "_".to_string()
                                 }
-                                
-
-                                for cap in captured {
-                                    let mut book = HashMap::<String, (String, String, String)>::new();
-
-                                    let field_captured = re_struct_field.captures_iter(cap.get(0).unwrap().as_str());
-                                    for field_cap in field_captured {
-                                        let field_type = field_cap.get(3).unwrap().as_str();
-                                        let field_rename = field_cap.get(1).unwrap().as_str();
-                                        
-                                        let type_captured = re_parse_type.captures(field_type);
-                                        let type_name = if let Some(type_cap) = type_captured {
-                                            type_cap.get(type_cap.len()-1).unwrap().as_str().to_string()
-                                        } else {
-                                            field_type.to_string()
-                                        };
-                                        let use_name_full = use_book.keys().filter(|x| type_name.eq(x.to_owned())).map(|x| use_book.get(x) );
-                                        
-                                        // println!("{:?}", use_name_full.clone().collect::<Vec<_>>());
-                                        let field_type_location = if use_name_full.clone().count() == 1 {
-                                            match use_name_full.last().unwrap() {
-                                                Some(name_last) => {
-                                                    name_last.to_owned()
-                                                },
-                                                None => {
-                                                    "_".to_string()
-                                                }
-                                            }
-                                        } else {
-                                            "_".to_string()
-                                        };
-
-                                        book.insert(field_rename.to_string(), (field_type_location, field_type.to_string(), type_name));
-                                    }
-
-    
-                                    let struct_name_captrued = re_struct_name.captures(cap.get(0).unwrap().as_str());
-                                    if let Some(struct_name) = struct_name_captrued {
-                                        // println!("{:?}", struct_name.get(2).unwrap().as_str());
-                                        if let Some(struct_name_unwrap) = struct_name.get(2) {
-                                            bookm.insert( struct_name_unwrap.as_str().to_string(), book);
-                                        }
-                                    }
-                                }
-                                books.insert((api_name_1.clone(), api_name_2.clone()), bookm);
                             }
+                        } else {
+                            "_".to_string()
+                        };
+
+                        book.insert(field_rename.to_string(), (field_type_location, field_type.to_string(), type_name));
+                    }
+
+
+                    let struct_name_captrued = re_struct_name.captures(cap.get(0).unwrap().as_str());
+                    if let Some(struct_name) = struct_name_captrued {
+                        // println!("{:?}", struct_name.get(2).unwrap().as_str());
+                        if let Some(struct_name_unwrap) = struct_name.get(2) {
+                            bookm.insert( struct_name_unwrap.as_str().to_string(), book);
                         }
                     }
                 }
+                books.insert((api_name_1.clone(), api_name_2.clone()), bookm);
             }
         }
     }
@@ -134,6 +151,9 @@ pub fn check_struct_dependency(target_path: String) {
     let mut file = File::create("./tests/struct_dependency.log").unwrap();
     file.write(format!("{:#?}", books).as_bytes()).expect("write failed");
 
+    let mut struct_node_list = HashMap::new();
+    let mut edge_list: Vec<(PortId, (String, String))> = Vec::new();
+
     let mut output_bytes = Vec::new();
     {
         let mut writer = DotWriter::from(&mut output_bytes);
@@ -151,8 +171,6 @@ pub fn check_struct_dependency(target_path: String) {
                 .set_color(Color::White)
                 .set_style(Style::Solid)
                 .set_color(Color::Gray20);
-
-            let mut struct_node_list = HashMap::new();
 
             for (struct_name, fields) in fieldm.iter() {
                 
@@ -193,8 +211,30 @@ pub fn check_struct_dependency(target_path: String) {
                             }
                         };
                         cluster.edge(node_struct_name_id.clone().port(field_name), node_field_type_id.port(type_name));
+                    } else if field_type_location != "_" {
+                        // println!("{:?}", field_type_location);
+                        if field_type_location.starts_with("crate") {
+                            println!("{:?}", field_type_location);
+                            let field_type_location_parse = field_type_location.split("::").collect::<Vec<&str>>();
+                            
+                            let key = format!("{}__{}__{}", field_type_location_parse[field_type_location_parse.len()-3], field_type_location_parse[field_type_location_parse.len()-2], field_type_location_parse[field_type_location_parse.len()-1]);
+                                // println!("{:?}", key);
+                            if struct_node_list.contains_key(&key) {
+                                let node_field_type_id = struct_node_list.get(&key).unwrap().clone();
+                                cluster.edge(node_struct_name_id.clone().port(field_name), node_field_type_id);
+                            } else {
+                                edge_list.push((node_struct_name_id.clone().port(field_name), (key, type_name.to_owned())));
+                            }
+                        }
                     }
                 }
+            }
+        }
+        for (from, to) in edge_list {
+            let to_node = struct_node_list.get(&to.0);
+            if to_node.is_some() {
+                deps_graph.edge(from, to_node.unwrap().clone().port(&to.1));
+
             }
         }
     }
@@ -210,13 +250,16 @@ pub fn check_struct_dependency(target_path: String) {
     //     .output()
     //     .expect("failed to execute process");
 
+    // on windows, the dot cmd in bat file is not working because of "permmision denied"
     #[cfg(target_os = "windows")]
-    Command::new("./tests/export_svg.bat")
+    let output = Command::new("./tests/export_svg.bat")
         .output()
         .expect("failed to execute process");
     #[cfg(target_os = "linux")]
-    Command::new("./tests/export_svg.sh")
+    let output  = Command::new("./tests/export_svg.sh")
         .output()
         .expect("failed to execute process");
+
+    println!("{:?}", output);
 
 }
