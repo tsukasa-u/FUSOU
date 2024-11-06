@@ -14,6 +14,7 @@ use crate::interface::interface::EmitData;
 
 use crate::kcapi_common::common_1::ApiStage1;
 use crate::kcapi_common::common_1::ApiStage2;
+use crate::kcapi_common::common_1::ApiStage3;
 
 #[derive(Getter, TraitForTest, TraitForRoot, TraitForConvert)]
 #[convert_output(output = EmitData)]
@@ -127,34 +128,6 @@ pub struct ApiKouku {
     pub api_stage2: ApiStage2,
     #[serde(rename = "api_stage3")]
     pub api_stage3: Option<ApiStage3>,
-}
-
-#[derive(Getter, TraitForTest)]
-#[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ApiStage3 {
-    #[serde(rename = "api_frai_flag")]
-    pub api_frai_flag: Option<Vec<Option<i64>>>,
-    #[serde(rename = "api_erai_flag")]
-    pub api_erai_flag: Vec<i64>,
-    #[serde(rename = "api_fbak_flag")]
-    pub api_fbak_flag: Option<Vec<Option<i64>>>,
-    #[serde(rename = "api_ebak_flag")]
-    pub api_ebak_flag: Vec<i64>,
-    #[serde(rename = "api_fcl_flag")]
-    pub api_fcl_flag: Option<Vec<i64>>,
-    #[serde(rename = "api_ecl_flag")]
-    pub api_ecl_flag: Vec<i64>,
-    #[serde(rename = "api_fdam")]
-    pub api_fdam: Option<Vec<f64>>,
-    #[serde(rename = "api_edam")]
-    pub api_edam: Vec<i64>,
-    #[serde(rename = "api_f_sp_list")]
-    pub api_f_sp_list: Option<Vec<Option<Vec<i64>>>>,
-    #[serde(rename = "api_e_sp_list")]
-    pub api_e_sp_list: Vec<Value>,
 }
 
 #[cfg(test)]
