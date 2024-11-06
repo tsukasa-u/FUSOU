@@ -12,6 +12,9 @@ use register_trait::TraitForConvert;
 
 use crate::interface::interface::EmitData;
 
+use crate::kcapi_common::common_1::ApiStage1;
+use crate::kcapi_common::common_1::ApiStage2;
+
 #[derive(Getter, TraitForTest, TraitForRoot, TraitForConvert)]
 #[convert_output(output = EmitData)]
 #[struct_test_case(field_extra, type_value, integration)]
@@ -124,58 +127,6 @@ pub struct ApiKouku {
     pub api_stage2: ApiStage2,
     #[serde(rename = "api_stage3")]
     pub api_stage3: Option<ApiStage3>,
-}
-
-#[derive(Getter, TraitForTest)]
-#[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ApiAirFire {
-    #[serde(rename = "api_idx")]
-    api_idx: i64,
-    #[serde(rename = "api_kind")]
-    api_kind: i64,
-    #[serde(rename = "api_use_items")]
-    api_use_items: Vec<i64>,
-}
-
-#[derive(Getter, TraitForTest)]
-#[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ApiStage1 {
-    #[serde(rename = "api_f_count")]
-    pub api_f_count: i64,
-    #[serde(rename = "api_f_lostcount")]
-    pub api_f_lostcount: i64,
-    #[serde(rename = "api_e_count")]
-    pub api_e_count: i64,
-    #[serde(rename = "api_e_lostcount")]
-    pub api_e_lostcount: i64,
-    #[serde(rename = "api_disp_seiku")]
-    pub api_disp_seiku: i64,
-    #[serde(rename = "api_touch_plane")]
-    pub api_touch_plane: Vec<i64>,
-}
-
-#[derive(Getter, TraitForTest)]
-#[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ApiStage2 {
-    #[serde(rename = "api_f_count")]
-    pub api_f_count: i64,
-    #[serde(rename = "api_f_lostcount")]
-    pub api_f_lostcount: i64,
-    #[serde(rename = "api_e_count")]
-    pub api_e_count: i64,
-    #[serde(rename = "api_e_lostcount")]
-    pub api_e_lostcount: i64,
-    #[serde(rename = "api_air_fire")]
-    pub api_air_fire: Option<ApiAirFire>,
 }
 
 #[derive(Getter, TraitForTest)]

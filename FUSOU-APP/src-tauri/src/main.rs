@@ -12,6 +12,7 @@ use std::process::ExitCode;
 use std::fs;
 
 mod kcapi;
+mod kcapi_common;
 mod notification;
 mod cmd_pac_tauri;
 mod json_parser;
