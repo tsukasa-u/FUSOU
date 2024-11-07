@@ -15,6 +15,7 @@ use crate::interface::interface::EmitData;
 use crate::kcapi_common::common_1::ApiStage1;
 use crate::kcapi_common::common_1::ApiStage2;
 use crate::kcapi_common::common_1::ApiStage3;
+use crate::kcapi_common::common_1::ApiKouku;
 
 #[derive(Getter, TraitForTest, TraitForRoot, TraitForConvert)]
 #[convert_output(output = EmitData)]
@@ -114,21 +115,21 @@ pub struct ApiSquadronPlane {
     api_count: i64,
 }
 
-#[derive(Getter, TraitForTest)]
-#[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ApiKouku {
-    #[serde(rename = "api_plane_from")]
-    pub api_plane_from: Vec<Option<Vec<i64>>>,
-    #[serde(rename = "api_stage1")]
-    pub api_stage1: ApiStage1,
-    #[serde(rename = "api_stage2")]
-    pub api_stage2: ApiStage2,
-    #[serde(rename = "api_stage3")]
-    pub api_stage3: Option<ApiStage3>,
-}
+// #[derive(Getter, TraitForTest)]
+// #[struct_test_case(field_extra, type_value, integration)]
+// #[add_field(extra)]
+// #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+// #[serde(rename_all = "camelCase")]
+// pub struct ApiKouku {
+//     #[serde(rename = "api_plane_from")]
+//     pub api_plane_from: Vec<Option<Vec<i64>>>,
+//     #[serde(rename = "api_stage1")]
+//     pub api_stage1: ApiStage1,
+//     #[serde(rename = "api_stage2")]
+//     pub api_stage2: ApiStage2,
+//     #[serde(rename = "api_stage3")]
+//     pub api_stage3: Option<ApiStage3>,
+// }
 
 #[cfg(test)]
 mod tests {

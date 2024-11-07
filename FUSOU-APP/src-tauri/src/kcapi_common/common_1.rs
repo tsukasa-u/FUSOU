@@ -27,9 +27,9 @@ pub struct ApiStage1 {
     #[serde(rename = "api_e_lostcount")]
     pub api_e_lostcount: i64,
     #[serde(rename = "api_disp_seiku")]
-    pub api_disp_seiku: i64,
+    pub api_disp_seiku: Option<i64>,
     #[serde(rename = "api_touch_plane")]
-    pub api_touch_plane: Vec<i64>,
+    pub api_touch_plane: Option<Vec<i64>>,
 }
 
 #[derive(Getter, TraitForTest)]
@@ -83,11 +83,27 @@ pub struct ApiStage3 {
     #[serde(rename = "api_ecl_flag")]
     pub api_ecl_flag: Vec<i64>,
     #[serde(rename = "api_fdam")]
-    pub api_fdam: Option<Vec<f64>>,
+    pub api_fdam: Option<Vec<f32>>,
     #[serde(rename = "api_edam")]
-    pub api_edam: Vec<i64>,
+    pub api_edam: Vec<f32>,
     #[serde(rename = "api_f_sp_list")]
     pub api_f_sp_list: Option<Vec<Option<Vec<i64>>>>,
     #[serde(rename = "api_e_sp_list")]
     pub api_e_sp_list: Vec<Value>,
+}
+
+#[derive(Getter, TraitForTest)]
+#[struct_test_case(field_extra, type_value, integration)]
+#[add_field(extra)]
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApiKouku {
+    #[serde(rename = "api_plane_from")]
+    pub api_plane_from: Option<Vec<Option<Vec<i64>>>>,
+    #[serde(rename = "api_stage1")]
+    pub api_stage1: Option<ApiStage1>,
+    #[serde(rename = "api_stage2")]
+    pub api_stage2: Option<ApiStage2>,
+    #[serde(rename = "api_stage3")]
+    pub api_stage3: Option<ApiStage3>,
 }
