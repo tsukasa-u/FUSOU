@@ -210,18 +210,18 @@ pub fn check_struct_dependency() {
                                 node_field_type.id()
                             }
                         };
-                        cluster.edge(node_struct_name_id.clone().port(field_name), node_field_type_id.port(type_name));
+                        cluster.edge(node_struct_name_id.clone().port(field_name).position(dot_writer::PortPosition::East), node_field_type_id.port(type_name).position(dot_writer::PortPosition::West));
                     } else if field_type_location != "_" {
                         // println!("{:?}", field_type_location);
                         if field_type_location.starts_with("crate") {
-                            println!("{:?}", field_type_location);
+                            // println!("{:?}", field_type_location);
                             let field_type_location_parse = field_type_location.split("::").collect::<Vec<&str>>();
                             
                             let key = format!("{}__{}__{}", field_type_location_parse[field_type_location_parse.len()-3], field_type_location_parse[field_type_location_parse.len()-2], field_type_location_parse[field_type_location_parse.len()-1]);
                                 // println!("{:?}", key);
                             if struct_node_list.contains_key(&key) {
                                 let node_field_type_id = struct_node_list.get(&key).unwrap().clone();
-                                cluster.edge(node_struct_name_id.clone().port(field_name), node_field_type_id);
+                                cluster.edge(node_struct_name_id.clone().port(field_name).position(dot_writer::PortPosition::East), node_field_type_id.port(&type_name).position(dot_writer::PortPosition::West));
                             } else {
                                 edge_list.push((node_struct_name_id.clone().port(field_name), (key, type_name.to_owned())));
                             }
@@ -233,7 +233,7 @@ pub fn check_struct_dependency() {
         for (from, to) in edge_list {
             let to_node = struct_node_list.get(&to.0);
             if to_node.is_some() {
-                deps_graph.edge(from, to_node.unwrap().clone().port(&to.1));
+                deps_graph.edge(from.position(dot_writer::PortPosition::East), to_node.unwrap().clone().port(&to.1).position(dot_writer::PortPosition::West)).attributes();
 
             }
         }
