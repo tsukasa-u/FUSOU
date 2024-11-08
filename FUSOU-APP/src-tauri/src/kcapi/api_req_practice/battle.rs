@@ -16,6 +16,7 @@ use crate::kcapi_common::common_1::ApiStage1;
 use crate::kcapi_common::common_1::ApiStage2;
 use crate::kcapi_common::common_1::ApiStage3;
 use crate::kcapi_common::common_1::ApiKouku;
+use crate::kcapi_common::common_2::ApiRaigeki;
 
 #[derive(Getter, TraitForTest, TraitForRoot, TraitForConvert)]
 #[convert_output(output = EmitData)]
@@ -187,29 +188,29 @@ pub struct ApiOpeningTaisen {
     pub api_damage: Vec<Vec<f32>>,
 }
 
-#[derive(Getter, TraitForTest)]
-#[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ApiRaigeki {
-    #[serde(rename = "api_frai")]
-    pub api_frai: Vec<i64>,
-    #[serde(rename = "api_fcl")]
-    pub api_fcl: Vec<i64>,
-    #[serde(rename = "api_fdam")]
-    pub api_fdam: Vec<f32>,
-    #[serde(rename = "api_fydam")]
-    pub api_fydam: Vec<i64>,
-    #[serde(rename = "api_erai")]
-    pub api_erai: Vec<i64>,
-    #[serde(rename = "api_ecl")]
-    pub api_ecl: Vec<i64>,
-    #[serde(rename = "api_edam")]
-    pub api_edam: Vec<f32>,
-    #[serde(rename = "api_eydam")]
-    pub api_eydam: Vec<i64>,
-}
+// #[derive(Getter, TraitForTest)]
+// #[struct_test_case(field_extra, type_value, integration)]
+// #[add_field(extra)]
+// #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+// #[serde(rename_all = "camelCase")]
+// pub struct ApiRaigeki {
+//     #[serde(rename = "api_frai")]
+//     pub api_frai: Vec<i64>,
+//     #[serde(rename = "api_fcl")]
+//     pub api_fcl: Vec<i64>,
+//     #[serde(rename = "api_fdam")]
+//     pub api_fdam: Vec<f32>,
+//     #[serde(rename = "api_fydam")]
+//     pub api_fydam: Vec<i64>,
+//     #[serde(rename = "api_erai")]
+//     pub api_erai: Vec<i64>,
+//     #[serde(rename = "api_ecl")]
+//     pub api_ecl: Vec<i64>,
+//     #[serde(rename = "api_edam")]
+//     pub api_edam: Vec<f32>,
+//     #[serde(rename = "api_eydam")]
+//     pub api_eydam: Vec<i64>,
+// }
 
 #[derive(Getter, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]

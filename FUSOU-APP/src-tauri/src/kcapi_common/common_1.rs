@@ -2,15 +2,10 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-// use register_trait::register_struct;
 use register_trait::add_field;
 
 use register_trait::TraitForTest;
 use register_trait::Getter;
-// use register_trait::TraitForRoot;
-// use register_trait::TraitForConvert;
-
-// use crate::interface::interface::EmitData;
 
 #[derive(Getter, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
@@ -106,4 +101,38 @@ pub struct ApiKouku {
     pub api_stage2: Option<ApiStage2>,
     #[serde(rename = "api_stage3")]
     pub api_stage3: Option<ApiStage3>,
+}
+
+#[derive(Getter, TraitForTest)]
+#[struct_test_case(field_extra, type_value, integration)]
+#[add_field(extra)]
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApiAirBaseAttack {
+    #[serde(rename = "api_stage1")]
+    pub api_stage1: ApiStage1,
+    #[serde(rename = "api_stage2")]
+    pub api_stage2: Option<ApiStage2>,
+    #[serde(rename = "api_stage3")]
+    pub api_stage3: Option<ApiStage3>,
+    #[serde(rename = "api_base_id")]
+    pub api_base_id: i64,
+    #[serde(rename = "api_stage_flag")]
+    pub api_stage_flag: Vec<i64>,
+    #[serde(rename = "api_plane_from")]
+    pub api_plane_from: Vec<Option<Vec<i64>>>,
+    #[serde(rename = "api_squadron_plane")]
+    pub api_squadron_plane: Option<Vec<ApiSquadronPlane>>,
+}
+
+#[derive(Getter, TraitForTest)]
+#[struct_test_case(field_extra, type_value, integration)]
+#[add_field(extra)]
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApiSquadronPlane {
+    #[serde(rename = "api_mst_id")]
+    pub api_mst_id: Option<i64>,
+    #[serde(rename = "api_count")]
+    pub api_count: Option<i64>,
 }
