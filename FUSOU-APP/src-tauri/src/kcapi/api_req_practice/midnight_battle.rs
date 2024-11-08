@@ -12,6 +12,8 @@ use register_trait::TraitForConvert;
 
 use crate::interface::interface::EmitData;
 
+// use crate::kcapi_common::common_2::ApiHougeki;
+
 #[derive(Getter, TraitForTest, TraitForRoot, TraitForConvert)]
 #[convert_output(output = EmitData)]
 #[struct_test_case(field_extra, type_value, integration)]

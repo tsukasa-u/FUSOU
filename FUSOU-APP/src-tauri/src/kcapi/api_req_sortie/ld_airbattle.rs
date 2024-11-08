@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+// use serde_json::Value;
 
 use register_trait::register_struct;
 use register_trait::add_field;
@@ -12,10 +12,8 @@ use register_trait::TraitForConvert;
 
 use crate::interface::interface::EmitData;
 
-use crate::kcapi_common::common_1::ApiStage1;
-use crate::kcapi_common::common_1::ApiStage2;
-use crate::kcapi_common::common_1::ApiStage3;
 use crate::kcapi_common::common_1::ApiKouku;
+use crate::kcapi_common::common_1::ApiAirBaseAttack;
 
 #[derive(Getter, TraitForTest, TraitForRoot, TraitForConvert)]
 #[convert_output(output = EmitData)]
@@ -81,39 +79,39 @@ pub struct ApiData {
     pub api_air_base_attack: Option<Vec<ApiAirBaseAttack>>,
 }
 
-#[derive(Getter, TraitForTest)]
-#[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ApiAirBaseAttack {
-    #[serde(rename = "api_base_id")]
-    api_base_id: i64,
-    #[serde(rename = "api_stage_flag")]
-    api_stage_flag: Vec<i64>,
-    #[serde(rename = "api_plane_from")]
-    api_plane_from: Vec<Option<Vec<i64>>>,
-    #[serde(rename = "api_squadron_plane")]
-    pub api_squadron_plane: Option<Vec<ApiSquadronPlane>>,
-    #[serde(rename = "api_stage1")]
-    pub api_stage1: ApiStage1,
-    #[serde(rename = "api_stage2")]
-    pub api_stage2: Option<ApiStage2>,
-    #[serde(rename = "api_stage3")]
-    pub api_stage3: Option<ApiStage3>,
-}
+// #[derive(Getter, TraitForTest)]
+// #[struct_test_case(field_extra, type_value, integration)]
+// #[add_field(extra)]
+// #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+// #[serde(rename_all = "camelCase")]
+// pub struct ApiAirBaseAttack {
+//     #[serde(rename = "api_base_id")]
+//     api_base_id: i64,
+//     #[serde(rename = "api_stage_flag")]
+//     api_stage_flag: Vec<i64>,
+//     #[serde(rename = "api_plane_from")]
+//     api_plane_from: Vec<Option<Vec<i64>>>,
+//     #[serde(rename = "api_squadron_plane")]
+//     pub api_squadron_plane: Option<Vec<ApiSquadronPlane>>,
+//     #[serde(rename = "api_stage1")]
+//     pub api_stage1: ApiStage1,
+//     #[serde(rename = "api_stage2")]
+//     pub api_stage2: Option<ApiStage2>,
+//     #[serde(rename = "api_stage3")]
+//     pub api_stage3: Option<ApiStage3>,
+// }
 
-#[derive(Getter, TraitForTest)]
-#[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ApiSquadronPlane {
-    #[serde(rename = "api_mst_id")]
-    api_mst_id: i64,
-    #[serde(rename = "api_count")]
-    api_count: i64,
-}
+// #[derive(Getter, TraitForTest)]
+// #[struct_test_case(field_extra, type_value, integration)]
+// #[add_field(extra)]
+// #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+// #[serde(rename_all = "camelCase")]
+// pub struct ApiSquadronPlane {
+//     #[serde(rename = "api_mst_id")]
+//     api_mst_id: i64,
+//     #[serde(rename = "api_count")]
+//     api_count: i64,
+// }
 
 // #[derive(Getter, TraitForTest)]
 // #[struct_test_case(field_extra, type_value, integration)]

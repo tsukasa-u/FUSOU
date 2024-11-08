@@ -9,10 +9,10 @@ use register_trait:: {TraitForTest, Getter, TraitForRoot, TraitForConvert};
 use crate::interface::interface::{EmitData, Add};
 use crate::interface::ship::Ships;
 
-use crate::kcapi_common::common_1::ApiStage1;
-use crate::kcapi_common::common_1::ApiStage2;
-use crate::kcapi_common::common_1::ApiStage3;
 use crate::kcapi_common::common_1::ApiKouku;
+use crate::kcapi_common::common_1::ApiAirBaseAttack;
+use crate::kcapi_common::common_2::ApiRaigeki;
+use crate::kcapi_common::common_2::ApiHougeki;
 
 #[derive(Getter, TraitForTest, TraitForRoot)]
 #[struct_test_case(field_extra, type_value, integration)]
@@ -113,61 +113,61 @@ pub struct ApiSupportInfo {
     api_support_hourai: ApiSupportHourai,
 }
 
-#[derive(Getter, TraitForTest)]
-#[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ApiAirBaseAttack {
-    #[serde(rename = "api_stage1")]
-    pub api_stage1: ApiStage1,
-    #[serde(rename = "api_stage2")]
-    pub api_stage2: Option<ApiStage2>,
-    #[serde(rename = "api_stage3")]
-    pub api_stage3: Option<ApiStage3>,
-    #[serde(rename = "api_base_id")]
-    pub api_base_id: i64,
-    #[serde(rename = "api_stage_flag")]
-    pub api_stage_flag: Vec<i64>,
-    #[serde(rename = "api_plane_from")]
-    pub api_plane_from: Vec<Option<Vec<i64>>>,
-    #[serde(rename = "api_squadron_plane")]
-    pub api_squadron_plane: Option<Vec<ApiSquadronPlane>>,
-}
+// #[derive(Getter, TraitForTest)]
+// #[struct_test_case(field_extra, type_value, integration)]
+// #[add_field(extra)]
+// #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+// #[serde(rename_all = "camelCase")]
+// pub struct ApiAirBaseAttack {
+//     #[serde(rename = "api_stage1")]
+//     pub api_stage1: ApiStage1,
+//     #[serde(rename = "api_stage2")]
+//     pub api_stage2: Option<ApiStage2>,
+//     #[serde(rename = "api_stage3")]
+//     pub api_stage3: Option<ApiStage3>,
+//     #[serde(rename = "api_base_id")]
+//     pub api_base_id: i64,
+//     #[serde(rename = "api_stage_flag")]
+//     pub api_stage_flag: Vec<i64>,
+//     #[serde(rename = "api_plane_from")]
+//     pub api_plane_from: Vec<Option<Vec<i64>>>,
+//     #[serde(rename = "api_squadron_plane")]
+//     pub api_squadron_plane: Option<Vec<ApiSquadronPlane>>,
+// }
 
-#[derive(Getter, TraitForTest)]
-#[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ApiSquadronPlane {
-    #[serde(rename = "api_mst_id")]
-    pub api_mst_id: Option<i64>,
-    #[serde(rename = "api_count")]
-    pub api_count: Option<i64>,
-}
+// #[derive(Getter, TraitForTest)]
+// #[struct_test_case(field_extra, type_value, integration)]
+// #[add_field(extra)]
+// #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+// #[serde(rename_all = "camelCase")]
+// pub struct ApiSquadronPlane {
+//     #[serde(rename = "api_mst_id")]
+//     pub api_mst_id: Option<i64>,
+//     #[serde(rename = "api_count")]
+//     pub api_count: Option<i64>,
+// }
 
-#[derive(Getter, TraitForTest)]
-#[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ApiHougeki {
-    #[serde(rename = "api_at_eflag")]
-    pub api_at_eflag: Vec<i64>,
-    #[serde(rename = "api_at_list")]
-    pub api_at_list: Vec<i64>,
-    #[serde(rename = "api_at_type")]
-    pub api_at_type: Vec<i64>,
-    #[serde(rename = "api_df_list")]
-    pub api_df_list: Vec<Vec<i64>>,
-    #[serde(rename = "api_si_list")]
-    pub api_si_list: Vec<Vec<Value>>, 
-    #[serde(rename = "api_cl_list")]
-    pub api_cl_list: Vec<Vec<i64>>,
-    #[serde(rename = "api_damage")]
-    pub api_damage: Vec<Vec<f32>>,
-}
+// #[derive(Getter, TraitForTest)]
+// #[struct_test_case(field_extra, type_value, integration)]
+// #[add_field(extra)]
+// #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+// #[serde(rename_all = "camelCase")]
+// pub struct ApiHougeki {
+//     #[serde(rename = "api_at_eflag")]
+//     pub api_at_eflag: Vec<i64>,
+//     #[serde(rename = "api_at_list")]
+//     pub api_at_list: Vec<i64>,
+//     #[serde(rename = "api_at_type")]
+//     pub api_at_type: Vec<i64>,
+//     #[serde(rename = "api_df_list")]
+//     pub api_df_list: Vec<Vec<i64>>,
+//     #[serde(rename = "api_si_list")]
+//     pub api_si_list: Vec<Vec<Value>>, 
+//     #[serde(rename = "api_cl_list")]
+//     pub api_cl_list: Vec<Vec<i64>>,
+//     #[serde(rename = "api_damage")]
+//     pub api_damage: Vec<Vec<f32>>,
+// }
 
 #[derive(Getter, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
@@ -191,29 +191,29 @@ pub struct ApiOpeningTaisen {
     pub api_damage: Vec<Vec<f64>>,
 }
 
-#[derive(Getter, TraitForTest)]
-#[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ApiRaigeki {
-    #[serde(rename = "api_frai")]
-    pub api_frai: Vec<i64>,
-    #[serde(rename = "api_fcl")]
-    pub api_fcl: Vec<i64>,
-    #[serde(rename = "api_fdam")]
-    pub api_fdam: Vec<f32>,
-    #[serde(rename = "api_fydam")]
-    pub api_fydam: Vec<i64>,
-    #[serde(rename = "api_erai")]
-    pub api_erai: Vec<i64>,
-    #[serde(rename = "api_ecl")]
-    pub api_ecl: Vec<i64>,
-    #[serde(rename = "api_edam")]
-    pub api_edam: Vec<f32>,
-    #[serde(rename = "api_eydam")]
-    pub api_eydam: Vec<i64>,
-}
+// #[derive(Getter, TraitForTest)]
+// #[struct_test_case(field_extra, type_value, integration)]
+// #[add_field(extra)]
+// #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+// #[serde(rename_all = "camelCase")]
+// pub struct ApiRaigeki {
+//     #[serde(rename = "api_frai")]
+//     pub api_frai: Vec<i64>,
+//     #[serde(rename = "api_fcl")]
+//     pub api_fcl: Vec<i64>,
+//     #[serde(rename = "api_fdam")]
+//     pub api_fdam: Vec<f32>,
+//     #[serde(rename = "api_fydam")]
+//     pub api_fydam: Vec<i64>,
+//     #[serde(rename = "api_erai")]
+//     pub api_erai: Vec<i64>,
+//     #[serde(rename = "api_ecl")]
+//     pub api_ecl: Vec<i64>,
+//     #[serde(rename = "api_edam")]
+//     pub api_edam: Vec<f32>,
+//     #[serde(rename = "api_eydam")]
+//     pub api_eydam: Vec<i64>,
+// }
 
 #[derive(Getter, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
