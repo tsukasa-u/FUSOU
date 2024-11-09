@@ -1,2 +1,3 @@
-pub mod common_1;
-pub mod common_2;
+pub mod common_air;
+pub mod common_battle;
+pub mod common_midnight;

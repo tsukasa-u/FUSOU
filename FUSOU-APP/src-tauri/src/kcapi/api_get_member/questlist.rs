@@ -45,7 +45,7 @@ pub struct ApiData {
     #[serde(rename = "api_exec_type")]
     pub api_exec_type: i64,
     #[serde(rename = "api_c_list")]
-    pub api_c_list: Option<Vec<ApiCList>>
+    pub api_c_list: Option<Vec<ApiCList>>,
 }
 
 #[derive(Getter, TraitForTest)]
