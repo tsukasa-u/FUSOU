@@ -1,4 +1,4 @@
-use std::{collections::{HashMap, HashSet}, fs::{self, File}, io::Write, path::{self, PathBuf}, process::Command};
+use std::{collections::HashMap, fs::{self, File}, io::Write, path::{self, PathBuf}, process::Command};
 use dot_writer::{Attributes, Color, DotWriter, PortId, Shape, Style};
 
 pub fn check_struct_dependency() {
@@ -8,11 +8,14 @@ pub fn check_struct_dependency() {
 
     let re_struct = regex::Regex::new(r#"\n(pub\s+)?struct [A-Za-z0-9]+ \{[^\}]*\}"#).unwrap();
     let re_struct_name = regex::Regex::new(r#"\n(pub\s+)?struct ([A-Za-z0-9]+) \{[^\}]*\}"#).unwrap();
+    // let re_struct_field = regex::Regex::new(r#"\#\[serde\(rename = \"([A-Za-z0-9_]+)\"\)\]\s*(pub)? [a-z_0-9]+\s?:\s?([A-Za-z0-9<>,\s]+)(?=,\r?\n}|\r?\n\s*})"#).unwrap();
     let re_struct_field = regex::Regex::new(r#"\#\[serde\(rename = \"([A-Za-z0-9_]+)\"\)\]\s*(pub)? [a-z_0-9]+\s?:\s?([A-Za-z0-9<>,\s]+),\r?\n"#).unwrap();
     let re_use = regex::Regex::new(r#"(//\s+)?use\s+(([A-Za-z0-9_]+::)*([A-Za-z0-9_]+));"#).unwrap();
     // let re_parse_type = regex::Regex::new(r#"([A-Za-z]+<)*([A-Za-z0-9]+)>*"#).unwrap();
     let re_parse_type = regex::Regex::new(r#"([A-Za-z]+<([A-Za-z]+,\s*)?)*([A-Za-z0-9]+)>*"#).unwrap();
     
+    let re_check_comma = regex::Regex::new(r#"(pub)? [a-z_0-9]+\s?:\s?[A-Za-z0-9<>,\s]*[A-Za-z0-9<>]\r?\n\s*}"#).unwrap();
+
     // let path = env::current_dir().unwrap();
     // println!("starting dir: {}", path.display());
 
@@ -75,9 +78,9 @@ pub fn check_struct_dependency() {
                         use_book.insert(use_name_last.to_string(), use_name.to_string());
                     }
                 }
-                
 
                 for cap in captured {
+
                     let mut book = HashMap::<String, (String, String, String)>::new();
 
                     let field_captured = re_struct_field.captures_iter(cap.get(0).unwrap().as_str());
@@ -116,6 +119,11 @@ pub fn check_struct_dependency() {
                         // println!("{:?}", struct_name.get(2).unwrap().as_str());
                         if let Some(struct_name_unwrap) = struct_name.get(2) {
                             bookm.insert( struct_name_unwrap.as_str().to_string(), book);
+
+                            let check_comma_captured = re_check_comma.captures_iter(&cap.get(0).unwrap().as_str());
+                            for check_comma_cap in check_comma_captured {
+                                println!("\x1b[38;5;{}m add comma at the end of this line({}) in {} ({}/{}.rs) \x1b[m ", 11, check_comma_cap.get(0).unwrap().as_str().replace("\n}", "").replace("\r", ""), struct_name_unwrap.as_str(), api_name_1, api_name_2);
+                            }
                         }
                     }
                 }
