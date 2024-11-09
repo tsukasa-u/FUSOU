@@ -74,3 +74,27 @@ pub struct ApiOpeningTaisen {
     #[serde(rename = "api_damage")]
     pub api_damage: Vec<Vec<f64>>,
 }
+
+#[derive(Getter, TraitForTest)]
+#[struct_test_case(field_extra, type_value, integration)]
+#[add_field(extra)]
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApiOpeningAtack {
+    #[serde(rename = "api_frai_list_items")]
+    pub api_frai_list_items: Vec<Option<Vec<i64>>>,
+    #[serde(rename = "api_fcl_list_items")]
+    pub api_fcl_list_items: Vec<Option<Vec<i64>>>,
+    #[serde(rename = "api_fdam")]
+    pub api_fdam: Vec<f32>,
+    #[serde(rename = "api_fydam_list_items")]
+    pub api_fydam_list_items: Vec<Option<Vec<i64>>>,
+    #[serde(rename = "api_erai_list_items")]
+    pub api_erai_list_items: Vec<Option<Vec<i64>>>,
+    #[serde(rename = "api_ecl_list_items")]
+    pub api_ecl_list_items: Vec<Option<Vec<i64>>>,
+    #[serde(rename = "api_edam")]
+    pub api_edam: Vec<f32>,
+    #[serde(rename = "api_eydam_list_items")]
+    pub api_eydam_list_items: Vec<Option<Vec<i64>>>,
+}
