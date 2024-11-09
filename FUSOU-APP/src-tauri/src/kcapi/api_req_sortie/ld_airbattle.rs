@@ -12,8 +12,8 @@ use register_trait::TraitForConvert;
 
 use crate::interface::interface::EmitData;
 
-use crate::kcapi_common::common_1::ApiKouku;
-use crate::kcapi_common::common_1::ApiAirBaseAttack;
+use crate::kcapi_common::common_air::ApiKouku;
+use crate::kcapi_common::common_air::ApiAirBaseAttack;
 
 #[derive(Getter, TraitForTest, TraitForRoot, TraitForConvert)]
 #[convert_output(output = EmitData)]

@@ -12,9 +12,9 @@ use register_trait::TraitForConvert;
 
 use crate::interface::interface::EmitData;
 
-use crate::kcapi_common::common_1::ApiStage1;
-use crate::kcapi_common::common_1::ApiStage2;
-use crate::kcapi_common::common_1::ApiStage3;
+use crate::kcapi_common::common_air::ApiStage1;
+use crate::kcapi_common::common_air::ApiStage2;
+use crate::kcapi_common::common_air::ApiStage3;
 
 #[derive(Getter, TraitForTest, TraitForRoot, TraitForConvert)]
 #[convert_output(output = EmitData)]
