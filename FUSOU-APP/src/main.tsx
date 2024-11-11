@@ -2,22 +2,16 @@
 import { render } from "solid-js/web";
 import { Router, Route } from "@solidjs/router";
 
+import Root from './pages/root.tsx'
 import App from './pages/app.tsx'
 import Start from './pages/start.tsx'
 import NotFound from "./pages/not_found.tsx";
 
 import './tailwind.css'
-import { JSX } from "solid-js";
-
-const Root = (props: {children: JSX.Element}) => (
-    <>
-      {props.children}
-    </>
-);
 
 render(
     () => (
-        <Router root={Root}>
+        <Router >
             <Route path="/app" component={App} />
             <Route path="/" component={Start} />
             <Route path="*paramName" component={NotFound} />
