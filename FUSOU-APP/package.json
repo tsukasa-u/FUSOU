@@ -10,17 +10,18 @@
   },
   "devDependencies": {
     "@tauri-apps/cli": "^1.6.2",
-    "typescript": "^5.6.2",
     "autoprefixer": "^10.4.20",
     "daisyui": "^4.12.12",
     "postcss": "^8.4.47",
     "tailwindcss": "^3.4.13",
+    "typescript": "^5.6.2",
     "vite": "^5.4.8",
     "vite-plugin-solid": "^2.10.2"
   },
   "dependencies": {
-    "solid-js": "^1.9.1",
+    "@solidjs/router": "^0.15.1",
     "@tauri-apps/api": "^1.6.0",
-    "d3": "^7.9.0"
+    "d3": "^7.9.0",
+    "solid-js": "^1.9.1"
   }
 }
