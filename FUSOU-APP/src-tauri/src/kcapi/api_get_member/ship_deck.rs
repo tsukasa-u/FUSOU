@@ -37,7 +37,7 @@ pub struct ApiData {
     #[serde(rename = "api_ship_data")]
     pub api_ship_data: Vec<ApiShipData>,
     #[serde(rename = "api_deck_data")]
-    pub api_deck_data: Vec<ApiDeckDaum>,
+    pub api_deck_data: Vec<ApiDeckData>,
 }
 
 #[derive(Getter, TraitForTest)]
@@ -137,7 +137,7 @@ pub struct ApiSpEffectItems {
 #[add_field(extra)]
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ApiDeckDaum {
+pub struct ApiDeckData {
     #[serde(rename = "api_member_id")]
     pub api_member_id: i64,
     #[serde(rename = "api_id")]

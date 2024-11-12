@@ -101,13 +101,13 @@ pub struct ApiData {
 #[serde(rename_all = "camelCase")]
 pub struct ApiSelectRewardDict {
     #[serde(rename = "api_item_no")]
-    api_item_no: i64,
+    pub api_item_no: i64,
     #[serde(rename = "api_type")]
-    api_type: i64,
+    pub api_type: i64,
     #[serde(rename = "api_id")]
-    api_id: i64,
+    pub api_id: i64,
     #[serde(rename = "api_value")]
-    api_value: i64,
+    pub api_value: i64,
 }
 
 #[derive(Getter, TraitForTest)]
@@ -117,11 +117,11 @@ pub struct ApiSelectRewardDict {
 #[serde(rename_all = "camelCase")]
 pub struct ApiLandingHp {
     #[serde(rename = "api_max_hp")]
-    api_max_hp: String,
+    pub api_max_hp: String,
     #[serde(rename = "api_now_hp")]
-    api_now_hp: String,
+    pub api_now_hp: String,
     #[serde(rename = "api_sub_value")]
-    api_sub_value: Value
+    pub api_sub_value: Value,
 }
 
 #[derive(Getter, TraitForTest)]
@@ -131,9 +131,9 @@ pub struct ApiLandingHp {
 #[serde(rename_all = "camelCase")]
 pub struct ApiEscapeFlag {
     #[serde(rename = "api_escape_idx")]
-    api_escape_idx: Vec<i64>,
+    pub api_escape_idx: Vec<i64>,
     #[serde(rename = "api_escape_type")]
-    api_escape_type: i64,
+    pub api_escape_type: i64,
 }
 
 #[derive(Getter, TraitForTest)]
@@ -143,13 +143,13 @@ pub struct ApiEscapeFlag {
 #[serde(rename_all = "camelCase")]
 pub struct ApiGetShip {
     #[serde(rename = "api_ship_id")]
-    api_ship_id: i64,
+    pub api_ship_id: i64,
     #[serde(rename = "api_ship_type")]
-    api_ship_type: String,
+    pub api_ship_type: String,
     #[serde(rename = "api_ship_name")]
-    api_ship_name: String,
+    pub api_ship_name: String,
     #[serde(rename = "api_ship_getmes")]
-    api_ship_getmes: String,
+    pub api_ship_getmes: String,
 }
 
 #[derive(Getter, TraitForTest)]

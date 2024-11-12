@@ -5,3 +5,10 @@ div.divider-horizontal::before {
 div.divider-horizontal::after {
     width: 0.5px;
 }
+
+div.divider::before {
+    height: 0.5px;
+}
+div.divider::after {
+    height: 0.5px;
+}

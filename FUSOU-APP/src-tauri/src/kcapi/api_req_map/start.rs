@@ -107,7 +107,7 @@ pub struct ApiEventmap {
     #[serde(rename = "api_now_maphp")]
     pub api_now_maphp: i64,
     #[serde(rename = "api_dmg")]
-    pub api_dmg: i64
+    pub api_dmg: i64,
 }
 
 #[derive(Getter, TraitForTest)]

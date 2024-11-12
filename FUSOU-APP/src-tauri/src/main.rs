@@ -7,10 +7,11 @@ use tokio::sync::mpsc;
 use webbrowser::{open_browser, Browser};
 use arboard::Clipboard;
 use core::time;
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 use std::process::ExitCode;
 
 mod kcapi;
+mod kcapi_common;
 mod notification;
 mod cmd_pac_tauri;
 mod json_parser;
@@ -18,82 +19,12 @@ mod interface;
 
 mod discord;
 mod tauri_cmd;
+mod external;
+mod wrap_proxy;
 
 use proxy::bidirectional_channel::{BidirectionalChannel, StatusInfo};
 
-#[derive(Debug, Default )]
-pub struct BrowserState(Browser);
-
-impl BrowserState {
-    pub fn new() -> Self {
-        BrowserState(Browser::default())
-    }
-
-    pub fn set_browser(&mut self, browser: &Browser) {
-      browser.clone_into(&mut self.0);
-      // self.0 = browser.clone();
-    }
-
-    pub fn get_browser(&self) -> Browser {
-        self.0.clone()
-    }
-}
-
-fn create_external_window(app: &tauri::App, browser: Browser) {
-
-  #[cfg(not(target_os = "linux"))]
-  {
-    let init_script = fs::read_to_string("./../src/init_script.js").expect("Unable to read init_script.js");
-  
-    let external = tauri::WindowBuilder::new(
-      app,
-      "external",
-      tauri::WindowUrl::External("http://www.dmm.com/netgame/social/-/gadgets/=/app_id=854854/".parse().unwrap()),
-    )
-    .fullscreen(false)
-    .title("fusou-viewer")
-    .inner_size(1192_f64, 712_f64)
-    .visible(false)
-    .initialization_script(&init_script)
-    .build()
-    .expect("error while building external");
-  }
-  // external.open_devtools();
-  // external.hwnd().unwrap().0
-
-  #[cfg(target_os = "linux")]
-  {
-    // let browser = shared_browser.lock().unwrap();
-    let _ = open_browser(browser, "http://www.dmm.com/netgame/social/-/gadgets/=/app_id=854854/").is_ok();
-  }
-
-  // #[cfg(target_os = "linux")]
-  // {
-  //   let context = webkit2gtk::WebContext::default().expect("Failed to get default WebContext");
-  //   context.set_network_proxy_settings(webkit2gtk::NetworkProxyMode::Default, None);
-  //   // #[cfg(feature = "v2_6")]
-  //   // let webview = webkit2gtk::WebView::with_context(&context);
-  //   // #[cfg(not(feature = "v2_6"))]
-  //   let webview = webkit2gtk::WebViewBuilder::new().web_context(&context).build();
-  //   // println!("{:?}", external.gtk_window().unwrap().default_widget());
-  //   // let widget =  external.gtk_window().unwrap().default_widget().unwrap();
-  //   // external.gtk_window().unwrap().remove(&widget);
-  //   // external.gtk_window().unwrap().add(&webview);
-  //   // external.gtk_window().unwrap().show_all();
-
-  //   let gtk_window = gtk::ApplicationWindow::new(
-  //     &external.gtk_window().unwrap().application().unwrap(),
-  //   );
-  //   // gtk_window.set_app_paintable(true);
-  //   gtk_window.set_window_position(gtk::WindowPosition::Mouse);
-  //   gtk_window.set_height_request(480);
-  //   gtk_window.set_width_request(640);
-  //   gtk_window.add(&webview);
-  //   webview.load_uri("http://www.dmm.com/netgame/social/-/gadgets/=/app_id=854854/");
-  //   gtk_window.show();
-  // }
-
-}
+use crate::external::SHARED_BROWSER;
 
 #[tokio::main]
 async fn main() -> ExitCode {
@@ -118,7 +49,7 @@ async fn main() -> ExitCode {
 
   let (shutdown_tx, mut shutdown_rx) = mpsc::channel::<()>(1);
 
-  let shared_browser = Arc::new(Mutex::new(BrowserState::new()));
+  // let shared_browser = Arc::new(Mutex::new(BrowserState::new()));
 
   let proxy_serve_shutdown: CustomMenuItem = CustomMenuItem::new("proxy-serve-shutdown".to_string(), "Shutdown Proxy Server".to_string());
   let gprc_serve_shutdown: CustomMenuItem = CustomMenuItem::new("gprc-serve-shutdown".to_string(), "Shutdown gRPC Server".to_string()).disabled();
@@ -173,42 +104,68 @@ async fn main() -> ExitCode {
     height: 720
   });
 
-  let browser = shared_browser.lock().unwrap().get_browser();
+  // let browser = shared_browser.lock().unwrap().get_browser();
+  
+  let manege_pac_channel = wrap_proxy::PacChannel {
+    master: pac_bidirectional_channel_master.clone(),
+    slave: pac_bidirectional_channel_slave.clone(),
+  };
+
+  let manage_proxy_channel = wrap_proxy::ProxyChannel {
+    master: proxy_bidirectional_channel_master.clone(),
+    slave: proxy_bidirectional_channel_slave.clone(),
+  };
+
+  let manage_proxy_log_channel = wrap_proxy::ProxyLogChannel {
+    master: proxy_log_bidirectional_channel_master.clone(),
+    slave: proxy_log_bidirectional_channel_slave.clone(),
+  };
+
+  let manage_response_parse_channel = wrap_proxy::ResponseParseChannel {
+    master: response_parse_channel_master.clone(),
+    slave: response_parse_channel_slave.clone(),
+  };
+
   
   tauri::Builder::default()
+    .manage(manege_pac_channel)
+    .manage(manage_proxy_channel)
+    .manage(manage_proxy_log_channel)
+    .manage(manage_response_parse_channel)
     .invoke_handler(tauri::generate_handler![
       // tauri_cmd::close_splashscreen, 
       // tauri_cmd::show_splashscreen, 
       tauri_cmd::get_mst_ships,
       tauri_cmd::get_mst_slot_items,
-      tauri_cmd::get_slot_items
+      tauri_cmd::get_slot_items,
+      tauri_cmd::launch_with_options,
     ])
     .plugin(tauri_plugin_window_state::Builder::default().build())
     .setup(move |app| {
       
-      create_external_window(&app, browser);
+      // create_external_window(&app, browser);
       // let _window = app.get_window("main").unwrap().close().unwrap();
 
       // start proxy server
-      let save_path = "./../../FUSOU-PROXY-DATA".to_string();
-      let proxy_addr = proxy::proxy_server::serve_proxy(proxy_target.to_string(), 0, proxy_bidirectional_channel_slave, proxy_log_bidirectional_channel_master, save_path);
+      // let save_path = "./../../FUSOU-PROXY-DATA".to_string();
+      // let proxy_addr = proxy::proxy_server::serve_proxy(proxy_target.to_string(), 0, proxy_bidirectional_channel_slave, proxy_log_bidirectional_channel_master, save_path);
 
-      if proxy_addr.is_err() {
-        return Err("Failed to start proxy server".into());
-      }
+      // if proxy_addr.is_err() {
+      //   return Err("Failed to start proxy server".into());
+      // }
 
-      // start pac server
-      let pac_addr = proxy::pac_server::serve_pac_file(pac_path.clone(), 0, pac_bidirectional_channel_slave);
+      // // start pac server
+      // let pac_addr = proxy::pac_server::serve_pac_file(pac_path.clone(), 0, pac_bidirectional_channel_slave);
       
-      if pac_addr.is_err() {
-        return Err("Failed to start pac server".into());
-      }
+      // if pac_addr.is_err() {
+      //   return Err("Failed to start pac server".into());
+      // }
 
-      proxy::edit_pac::edit_pac(&pac_path, proxy_addr.unwrap().to_string().as_str());
+      // proxy::edit_pac::edit_pac(&pac_path, proxy_addr.unwrap().to_string().as_str());
       
-      cmd_pac_tauri::add_pac(&format!("http://localhost:{}/proxy.pac", pac_addr.unwrap().port()));
+      // cmd_pac_tauri::add_pac(&format!("http://localhost:{}/proxy.pac", pac_addr.unwrap().port()));
 
-      json_parser::serve_reponse_parser(&app.handle(), response_parse_channel_slave, proxy_log_bidirectional_channel_slave);
+      // json_parser::serve_reponse_parser(&app.handle(), response_parse_channel_slave, proxy_log_bidirectional_channel_slave);
 
       discord::connect();
       // discord::set_activity("experimental implementation", "playing KanColle with FUSOU");
@@ -359,8 +316,8 @@ async fn main() -> ExitCode {
             clipboard.set_text("https://github.com/tsukasa-u").unwrap();
           }
           "visit-website" => {
-            let browser = shared_browser.lock().unwrap();
-            let _ = open_browser(browser.get_browser(), "https://github.com/tsukasa-u").is_ok();
+            let browser = SHARED_BROWSER.lock().unwrap().get_browser();
+            let _ = open_browser(browser, "https://github.com/tsukasa-u").is_ok();
           },
           "open/close" => {
             let window = app.get_window("main");
@@ -395,7 +352,7 @@ async fn main() -> ExitCode {
                   let _ = app.tray_handle().get_item(&format!("select-{}", item)).set_selected(submenu.get(1).unwrap().eq(&item));
                 });
 
-                let mut browser = shared_browser.lock().unwrap();
+                let mut browser = SHARED_BROWSER.lock().unwrap();
                 browser.set_browser(&(match submenu.get(1) {
                   Some(&"default") => Browser::default().to_owned(),
                   Some(&"firefox") => Browser::Firefox.to_owned(),
