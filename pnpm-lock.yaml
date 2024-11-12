@@ -17,6 +17,9 @@ importers:
 
   FUSOU-APP:
     dependencies:
+      '@solidjs/router':
+        specifier: ^0.15.1
+        version: 0.15.1(solid-js@1.9.2)
       '@tauri-apps/api':
         specifier: ^1.6.0
         version: 1.6.0
@@ -416,6 +419,11 @@ packages:
 
   '@sinclair/typebox@0.27.8':
     resolution: {integrity: sha512-+Fj43pSMwJs4KRrH/938Uf+uAELIgVBmQzg/q1YG10djyfA3TnrU8N8XzqCh/okZdszqBQTZf96idMfE5lnwTA==}
+
+  '@solidjs/router@0.15.1':
+    resolution: {integrity: sha512-lb5BRBqQqii/1dQCglx2K68xLkgu7QcrcajWKuuEx6FHTsK/hp5IgVhjy6RzPMLj+SFyrrRi/ldirCFNxtzh0Q==}
+    peerDependencies:
+      solid-js: ^1.8.6
 
   '@tauri-apps/api@1.6.0':
     resolution: {integrity: sha512-rqI++FWClU5I2UBp4HXFvl+sBWkdigBkxnpJDQUWttNyG7IZP4FwQGhTNL5EOw0vI8i6eSAJ5frLqO7n7jbJdg==}
@@ -1679,6 +1687,10 @@ snapshots:
     optional: true
 
   '@sinclair/typebox@0.27.8': {}
+
+  '@solidjs/router@0.15.1(solid-js@1.9.2)':
+    dependencies:
+      solid-js: 1.9.2
 
   '@tauri-apps/api@1.6.0': {}
 
