@@ -1,21 +1,47 @@
 import "../css/preview.css";
 import "../css/divider.css";
-import { createSignal, Show } from "solid-js";
+import { createSignal, For, Show } from "solid-js";
+import { event, invoke } from "@tauri-apps/api";
 
 
-let launch_options: {[key: string]: boolean} = {
-    "run_proxy_server": true,
-    "open_app": true,
-    "open_kancolle": true,
-    "open_kancolle_with_webview": true,
+let launch_options: {[key: string]: number} = {
+    "run_proxy_server": 1,
+    "open_app": 1,
+    "open_kancolle": 1,
+    "open_kancolle_with_webview": 1,
+    "server": -1
 };
+
+let server_list: {[key: string]: string} = {
+    "横須賀鎮守府":	"203.104.209.71",
+    "新呉鎮守府":	"203.104.209.87",
+    "佐世保鎮守府":	"125.6.184.215",
+    "舞鶴鎮守府":	"203.104.209.183",
+    "大湊警備府":	"203.104.209.150",
+    "トラック泊地":	"203.104.209.134",
+    "リンガ泊地":	"203.104.209.167",
+    "ラバウル基地":	"203.104.209.199",
+    "ショートランド泊地":	"125.6.189.7",
+    "ブイン基地":	"125.6.189.39",
+    "タウイタウイ泊地":	"125.6.189.71",
+    "パラオ泊地":	"125.6.189.103",
+    "ブルネイ泊地":	"125.6.189.135",
+    "単冠湾泊地":	"125.6.189.167",
+    "宿毛湾泊地":	"125.6.189.247",
+    "幌筵泊地":	"125.6.189.215",
+    "鹿屋基地":	"203.104.209.23",
+    "岩川基地":	"203.104.209.39",
+    "佐伯湾泊地":	"203.104.209.55",
+    "柱島泊地":	"203.104.209.102",
+}
 
 function Start() {
 
-    const [runProxyServer, setRunProxyServer] = createSignal<boolean>(launch_options["run_proxy_server"]);
-    const [openApp, setOpenApp] = createSignal<boolean>(launch_options["open_app"]);
-    const [openKancolle, setOpenKancolle] = createSignal<boolean>(launch_options["open_kancolle"]);
-    const [openKancolleWithWebView, setOpenKancolleWithWebView] = createSignal<boolean>(launch_options["open_kancolle_with_webview"]);
+    const [runProxyServer, setRunProxyServer] = createSignal<boolean>(Boolean(launch_options["run_proxy_server"]));
+    const [openApp, setOpenApp] = createSignal<boolean>(Boolean(launch_options["open_app"]));
+    const [openKancolle, setOpenKancolle] = createSignal<boolean>(Boolean(launch_options["open_kancolle"]));
+    const [openKancolleWithWebView, setOpenKancolleWithWebView] = createSignal<boolean>(Boolean(launch_options["open_kancolle_with_webview"]));
+    const [server, setServer] = createSignal<number>(launch_options["server"]);
   
     return (
       <>
@@ -40,9 +66,22 @@ function Start() {
                                             Off
                                         </Show>
                                     </span>
-                                    <input type="checkbox" onClick={() => { launch_options["run_proxy_server"] = !runProxyServer(); setRunProxyServer(!runProxyServer()); }} class="toggle toggle-sm toggle-primary rounded-sm" checked={runProxyServer()}/>
+                                    <input type="checkbox" onClick={() => { launch_options["run_proxy_server"] = Number(!runProxyServer()); setRunProxyServer(!runProxyServer()); }} class="toggle toggle-sm toggle-primary rounded-sm" checked={runProxyServer()}/>
                                 </label>
                             </div>
+                        </div>
+                        <div class="flex flex-nowrap pt-4">
+                            <div class="h-6 w-28 self-center ml-4 flex-none">
+                                Your server
+                            </div>
+                            <select class="select select-sm select-bordered w-full" disabled={!runProxyServer()} onchange={(e) => { launch_options["server"] = e.target.selectedIndex-1; setServer(e.target.selectedIndex-1);}}>
+                                <option disabled selected>Select your KanColle Server</option>
+                                <For each={Object.keys(server_list)}>
+                                    {(name, idx) => (
+                                        <option selected={server() == idx()}>{name}</option>
+                                    )}
+                                </For>
+                            </select>
                         </div>
                     </div>
                     <div id="load_mst_ships" class="py-2">
@@ -63,7 +102,7 @@ function Start() {
                                             Disable
                                         </Show>
                                     </span>
-                                    <input type="checkbox" onClick={() => { launch_options["open_app"] = !openApp(); setOpenApp(!openApp()); }} class="toggle toggle-sm toggle-primary rounded-sm" checked={openApp()} disabled={!runProxyServer()}/>
+                                    <input type="checkbox" onClick={() => { launch_options["open_app"] = Number(!openApp()); setOpenApp(!openApp()); }} class="toggle toggle-sm toggle-primary rounded-sm" checked={openApp()} disabled={!runProxyServer()}/>
                                 </label>
                             </div>
                         </div>
@@ -83,20 +122,20 @@ function Start() {
                                             Off
                                         </Show>
                                     </span>
-                                    <input type="checkbox" onClick={() => { launch_options["open_kancolle"] = !openKancolle(); setOpenKancolle(!openKancolle()); }} class="toggle toggle-sm toggle-primary rounded-sm" checked={openKancolle()}/>
+                                    <input type="checkbox" onClick={() => { launch_options["open_kancolle"] = Number(!openKancolle()); setOpenKancolle(!openKancolle()); }} class="toggle toggle-sm toggle-primary rounded-sm" checked={openKancolle()}/>
                                 </label>
                             </div>
                         </div>
                         <div class="mx-4">
                             <div class="form-control">
                                 <label class="label cursor-pointer">
-                                    <input type="radio" name="radio-10" class="radio radio-secondary" disabled={!openKancolle()} checked={openKancolleWithWebView()} onclick={() => { launch_options["open_kancolle_with_webview"] = true; setOpenKancolleWithWebView(true) }} />
+                                    <input type="radio" name="radio-10" class="radio radio-secondary" disabled={!openKancolle()} checked={openKancolleWithWebView()} onclick={() => { launch_options["open_kancolle_with_webview"] = 1; setOpenKancolleWithWebView(true) }} />
                                     <span class="label-text">Open with WebView</span>
                                 </label>
                             </div>
                             <div class="form-control">
                                 <label class="label cursor-pointer">
-                                    <input type="radio" name="radio-10" class="radio radio-secondary" disabled={!openKancolle()} checked={!openKancolleWithWebView()} onclick={() => { launch_options["open_kancolle_with_webview"] = false; setOpenKancolleWithWebView(false) }} />
+                                    <input type="radio" name="radio-10" class="radio radio-secondary" disabled={!openKancolle()} checked={!openKancolleWithWebView()} onclick={() => { launch_options["open_kancolle_with_webview"] = 0; setOpenKancolleWithWebView(false) }} />
                                     <span class="label-text">Open with native browser</span>
                                 </label>
                             </div>
@@ -109,7 +148,7 @@ function Start() {
             <div class="divider mt-0 mb-0 w-11/12 justify-self-center"></div>
             <div class="h-8"></div>
             <div class="flex justify-center">
-                <a role="button" class="btn btn-wide" href="/app">Start</a>
+                <a role="button" class="btn btn-wide" href="/app" onclick={() => { invoke("launch_with_options", {options: launch_options}); }}>Start</a>
             </div>
         </div>
       </div>
