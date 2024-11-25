@@ -63,7 +63,7 @@ pub struct ApiData {
     #[serde(rename = "api_friendly_setting")]
     pub api_friendly_setting: Option<ApiFriendlySetting>,
     #[serde(rename = "api_plane_info")]
-    pub api_plane_info: Option<ApiPlaneInfo>
+    pub api_plane_info: Option<ApiPlaneInfo>,
 }
 
 #[derive(Getter, TraitForTest)]
@@ -371,18 +371,7 @@ pub struct ApiLog {
 #[serde(rename_all = "camelCase")]
 pub struct ApiFurnitureAffectItems {
     #[serde(rename = "api_payitem_dict")]
-    pub api_payitem_dict: ApiPayitemDict,
-}
-
-#[derive(Getter, TraitForTest)]
-#[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ApiPayitemDict {
-    // need to fix!
-    #[serde(rename = "21")]
-    pub n21: i64,
+    pub api_payitem_dict: HashMap<String, i64>,
 }
 
 impl TraitForConvert for Root {

@@ -28,7 +28,5 @@ fn test_struct_defined() {
 #[test]
 fn test_struct_dependency() {
 
-    let target_path = "./src/kcapi".to_string();
-
-    check_struct_dependency::check_struct_dependency(target_path);
+    check_struct_dependency::check_struct_dependency();
 }
