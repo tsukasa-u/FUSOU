@@ -1,5 +1,6 @@
 import "../css/preview.css";
 import "../css/divider.css";
+import "../css/justify_self_center.css";
 import { createSignal, For, Show } from "solid-js";
 import { event, invoke } from "@tauri-apps/api";
 
