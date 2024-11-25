@@ -1,10 +1,9 @@
-import './app.css';
-import { DecksComponent } from './components/decks.tsx';
-import { SettingsComponent } from './components/settings.tsx';
+import { DecksComponent } from './../components/decks.tsx';
+import { SettingsComponent } from './../components/settings.tsx';
 
 
-import { MaterialsComponent } from './components/materials.tsx';
-import { DeckPortsProvider, MaterialsProvider, MstShipsProvider, MstSlotItemsProvider, ShipsProvider, SlotItemsProvider } from './utility/provider.tsx';
+import { MaterialsComponent } from './../components/materials.tsx';
+import { DeckPortsProvider, MaterialsProvider, MstShipsProvider, MstSlotItemsProvider, ShipsProvider, SlotItemsProvider } from './../utility/provider.tsx';
 
 function App() {
   
