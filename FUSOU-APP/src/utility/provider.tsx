@@ -3,6 +3,7 @@ import { createStore } from "solid-js/store";
 import { DeckPorts, Materials, Ships, global_deck_ports, global_materials, global_ships } from "../interface/port";
 import { MstShips, MstSlotitems, global_mst_ships, global_mst_slot_items } from "../interface/get_data";
 import { SlotItems, global_slotitems } from "../interface/require_info";
+import { Battle, global_battle } from "../interface/battle";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
 
 const ShipsContext = createContext<(Ships | { set(data: Ships): void; })[]>();
@@ -19,15 +20,23 @@ export function ShipsProvider(props: { children: JSX.Element }) {
     ];
 
     createEffect(() => {
-        let unlisten_data: UnlistenFn
+        let unlisten_data_set: UnlistenFn;
+        let unlisten_data_add: UnlistenFn;
         (async() => {
-            unlisten_data = await listen<Ships>('set-kcs-ships', event => {
-              setData(event.payload);
+            unlisten_data_set = await listen<Ships>('set-kcs-ships', event => {
+                setData(event.payload);
+            });
+            unlisten_data_add = await listen<Ships>('add-kcs-ships', event => {
+                console.log('add-kcs-ships', event.payload);
+                let target: Ships = data;
+                mergeObjects(event.payload, target);
+                setData(target);
             });
         })();
         
         onCleanup(() => { 
-            if (unlisten_data) unlisten_data();
+            if (unlisten_data_set) unlisten_data_set();
+            if (unlisten_data_add) unlisten_data_add();
         });
     });
 
@@ -250,4 +259,46 @@ export function useDeckPorts() {
       throw new Error("useDeckPorts: cannot find a DeckPortsContext")
     }
     return context as [DeckPorts, (value: DeckPorts) => void];
+}
+
+
+const BattleContext = createContext<(Battle | { set(data: Battle): void; })[]>();
+
+export function BattleContextProvider(props: { children: JSX.Element }) {
+    const [data, setData] = createStore(global_battle);
+    const setter = [
+        data,
+        {
+            set(data: Battle) {
+                setData(data);
+            }
+        }
+    ];
+
+    createEffect(() => {
+        let unlisten_data: UnlistenFn;
+        (async() => {
+            unlisten_data = await listen<Battle>('set-kcs-battle', event => {
+              setData(event.payload);
+            });
+        })();
+        
+        onCleanup(() => { 
+            if (unlisten_data) unlisten_data();
+        });
+    });
+
+    return (
+        <BattleContext.Provider value={setter}>
+            {props.children}
+        </BattleContext.Provider>
+    );
+}
+
+export function useBattle() {
+    const context = useContext(BattleContext);
+    if (!context) {
+      throw new Error("useBattle: cannot find a BattleContext")
+    }
+    return context as [Battle, (value: Battle) => void];
 }

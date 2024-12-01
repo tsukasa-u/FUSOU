@@ -151,6 +151,24 @@ pub struct ApiFlavoInfo {
     pub api_data: String,
 }
 
+// impl TraitForConvert for Root {
+//     type Output = EmitData;
+//     fn convert(&self) -> Option<Vec<EmitData>> {
+//         let materials: Materials = self.api_data.api_material.clone().into();
+//         let ships: Ships = self.api_data.api_ship.clone().into();
+//         let ndocks: NDocks = self.api_data.api_ndock.clone().into();
+//         let logs: Logs = self.api_data.api_log.clone().into();
+//         let deck_ports: DeckPorts = self.api_data.api_deck_port.clone().into();
+//         deck_ports.restore();
+//         Some(vec![
+//             EmitData::Set(Set::Materials(materials)), 
+//             EmitData::Set(Set::Ships(ships)), 
+//             EmitData::Set(Set::NDocks(ndocks)), 
+//             EmitData::Set(Set::Logs(logs)), 
+//             EmitData::Set(Set::DeckPorts(deck_ports))])
+//     }
+// }
+
 #[cfg(test)]
 mod tests {
     use register_trait::simple_root_test;

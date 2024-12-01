@@ -1,8 +1,9 @@
+use super::battle::Battle;
 pub use super::material::Materials;
 pub use super::logs::Logs;
 pub use super::deck_port::DeckPorts;
 pub use super::mst_equip_exslot_ship::MstEquipExslotShips;
-use super::mst_equip_ship::MstEquipShips;
+pub use super::mst_equip_ship::MstEquipShips;
 pub use super::mst_stype::MstStypes;
 pub use crate::interface::mst_use_item::MstUseItems;
 pub use super::n_dock::NDocks;
@@ -10,6 +11,7 @@ pub use super::ship::Ships;
 pub use super::slot_item::SlotItems;
 pub use super::mst_ship::MstShips;
 pub use super::mst_slot_item::MstSlotItems;
+pub use super::battle::Battles;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum EmitData {
@@ -41,7 +43,7 @@ pub enum Set {
     SlotItems(SlotItems),
     Logs(Logs),
     // AirBase,(AirBase),
-    // Battle(Battle),
+    Battle(Battle),
     MstShips(MstShips),
     MstSlotItems(MstSlotItems),
     MstEquipExslotShips(MstEquipExslotShips),

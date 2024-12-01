@@ -72,7 +72,7 @@ pub struct ApiOpeningTaisen {
     #[serde(rename = "api_cl_list")]
     pub api_cl_list: Vec<Vec<i64>>,
     #[serde(rename = "api_damage")]
-    pub api_damage: Vec<Vec<f64>>,
+    pub api_damage: Vec<Vec<f32>>,
 }
 
 #[derive(Getter, TraitForTest)]
