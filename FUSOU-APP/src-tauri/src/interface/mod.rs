@@ -12,5 +12,6 @@ pub mod mst_slot_item_equip_type;
 pub mod mst_use_item;
 pub mod mst_equip_exslot_ship;
 pub mod mst_equip_ship;
+pub mod battle;
 
 pub mod interface;
