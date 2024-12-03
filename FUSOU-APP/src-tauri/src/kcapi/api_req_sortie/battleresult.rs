@@ -92,6 +92,34 @@ pub struct ApiData {
     pub api_next_map_ids: Option<Vec<Value>>,
     #[serde(rename = "api_select_reward_dict")]
     pub api_select_reward_dict: Option<HashMap<String, Vec<ApiSelectRewardDict>>>,
+    #[serde(rename = "api_get_useitem")]
+    pub api_get_useitem: Option<ApiGetUseitem>,
+}
+
+#[derive(Getter, TraitForTest)]
+#[struct_test_case(field_extra, type_value, integration)]
+#[add_field(extra)]
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApiGetUseitem {
+    #[serde(rename = "api_useitem_id")]
+    pub api_useitem_id: i64,
+    #[serde(rename = "api_useitem_name")]
+    pub api_useitem_name: String,
+}
+
+#[derive(Getter, TraitForTest)]
+#[struct_test_case(field_extra, type_value, integration)]
+#[add_field(extra)]
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApiGetEventitem {
+    #[serde(rename = "api_type")]
+    pub api_tye: i64,
+    #[serde(rename = "api_id")]
+    pub api_id: i64,
+    #[serde(rename = "api_value")]
+    pub api_value: i64,
 }
 
 #[derive(Getter, TraitForTest)]
