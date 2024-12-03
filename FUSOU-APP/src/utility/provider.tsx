@@ -22,23 +22,24 @@ export function ShipsProvider(props: { children: JSX.Element }) {
 
     createEffect(() => {
         let unlisten_data_set: UnlistenFn;
-        let unlisten_data_add: UnlistenFn;
+        // let unlisten_data_add: UnlistenFn;
         (async() => {
             unlisten_data_set = await listen<Ships>('set-kcs-ships', event => {
                 setData(event.payload);
             });
-            unlisten_data_add = await listen<Ships>('add-kcs-ships', event => {
-                console.log('add-kcs-ships', event.payload);
-                let target: Ships =  unwrap(data);
-                // mergeObjects<Ships>(data, target);
-                mergeObjects<Ships>(event.payload, target);
-                setData(target);
-            });
+            // won't be worked
+            // unlisten_data_add = await listen<Ships>('add-kcs-ships', event => {
+            //     console.log('add-kcs-ships', event.payload);
+            //     let target: Ships =  unwrap(data);
+            //     // mergeObjects<Ships>(data, target);
+            //     mergeObjects<Ships>(event.payload, target);
+            //     setData(target);
+            // });
         })();
         
         onCleanup(() => { 
             if (unlisten_data_set) unlisten_data_set();
-            if (unlisten_data_add) unlisten_data_add();
+            // if (unlisten_data_add) unlisten_data_add();
         });
     });
 
