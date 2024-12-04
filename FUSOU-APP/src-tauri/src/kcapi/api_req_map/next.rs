@@ -10,7 +10,8 @@ use register_trait::Getter;
 use register_trait::TraitForRoot;
 use register_trait::TraitForConvert;
 
-use crate::interface::interface::EmitData;
+use crate::interface::cells::Cell;
+use crate::interface::interface::{Add, EmitData};
 
 use crate::kcapi_common::common_air::ApiStage1;
 use crate::kcapi_common::common_air::ApiStage2;
@@ -22,8 +23,7 @@ use crate::kcapi_common::common_map::ApiEventmap;
 use crate::kcapi_common::common_map::ApiAirsearch;
 use crate::kcapi_common::common_map::ApiEDeckInfo;
 
-#[derive(Getter, TraitForTest, TraitForRoot, TraitForConvert)]
-#[convert_output(output = EmitData)]
+#[derive(Getter, TraitForTest, TraitForRoot)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[register_struct(name = "api_req_map/next")]
@@ -206,6 +206,15 @@ pub struct ApiItemget {
     pub api_name: String,
     #[serde(rename = "api_icon_id")]
     pub api_icon_id: i64,
+}
+
+impl TraitForConvert for Root {
+    type Output = EmitData;
+    fn convert(&self) -> Option<Vec<EmitData>> {
+        let cell: Cell = self.api_data.clone().into();
+        Some(vec![
+            EmitData::Add(Add::Cell(cell)) ])
+    }
 }
 
 #[cfg(test)]

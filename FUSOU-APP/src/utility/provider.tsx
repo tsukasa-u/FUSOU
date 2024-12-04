@@ -329,6 +329,7 @@ export function CellsContextProvider(props: { children: JSX.Element }) {
               setData(event.payload);
             });
             unlisten_data_add = await listen<Cell>('add-kcs-cell', event => {
+                console.log('add-kcs-cell', event.payload);
                 setData("cells", (cells: {[key: number]: Cell}) => {
                     cells[event.payload.no] = event.payload;
                     return cells;
