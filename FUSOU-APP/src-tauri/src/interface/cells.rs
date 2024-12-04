@@ -18,6 +18,7 @@ pub struct Cells {
     pub bosscell_no: i64,
     pub bosscomp: i64,
     pub cells: HashMap<i64, Cell>,
+    pub cell_index: Vec<i64>,
     pub event_map: Option<Eventmap>,
     pub cell_data: Vec<CellData>,
 }
@@ -217,7 +218,8 @@ impl From<kcapi::api_req_map::start::ApiData> for Cells {
             mapinfo_no: cells.api_mapinfo_no,
             bosscell_no: cells.api_bosscell_no,
             bosscomp: cells.api_bosscomp,
-            cells: vec![(cell.no, cell)].into_iter().collect(),
+            cells: vec![(cell.no.clone(), cell.clone())].into_iter().collect(),
+            cell_index: vec![cell.no],
             event_map: cells.api_eventmap.map(|eventmap| eventmap.into()),
             cell_data: cell_data,
         }

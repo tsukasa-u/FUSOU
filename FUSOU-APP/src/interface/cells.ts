@@ -4,6 +4,7 @@ export interface Cells {
     bosscell_no: number,
     bosscomp: number,
     cells: {[key: number]: Cell},
+    cell_index: number[],
     event_map?: Eventmap,
     cell_data: CellData[],
 }
@@ -65,5 +66,6 @@ export var global_cells: Cells = {
     bosscell_no: 0,
     bosscomp: 0,
     cells: {},
+    cell_index: [],
     cell_data: [],
 }
