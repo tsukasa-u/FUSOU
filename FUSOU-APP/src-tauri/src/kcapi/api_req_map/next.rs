@@ -103,11 +103,11 @@ pub struct ApiData {
 #[serde(rename_all = "camelCase")] 
 pub struct ApiItemgetEoComment {
     #[serde(rename = "api_usemst")]
-    api_usemst: i64,
+    pub api_usemst: i64,
     #[serde(rename = "api_id")]
-    api_id: i64,
+    pub api_id: i64,
     #[serde(rename = "api_getcount")]
-    api_getcount: i64,
+    pub api_getcount: i64,
 }
 
 #[derive(Getter, TraitForTest)]
@@ -117,17 +117,17 @@ pub struct ApiItemgetEoComment {
 #[serde(rename_all = "camelCase")] 
 pub struct ApiHappening {
     #[serde(rename = "api_type")]
-    api_type: i64,
+    pub api_type: i64,
     #[serde(rename = "api_count")]
-    api_count: i64,
+    pub api_count: i64,
     #[serde(rename = "api_usemst")]
-    api_usemst: i64,
+    pub api_usemst: i64,
     #[serde(rename = "api_mst_id")]
-    api_mst_id: i64,
+    pub api_mst_id: i64,
     #[serde(rename = "api_icon_id")]
-    api_icon_id: i64,
+    pub api_icon_id: i64,
     #[serde(rename = "api_dentan")]
-    api_dentan: i64,
+    pub api_dentan: i64,
 }
 
 #[derive(Getter, TraitForTest)]
