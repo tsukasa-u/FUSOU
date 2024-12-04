@@ -1,4 +1,4 @@
-import { useBattle, useDeckPorts, useMstShips, useShips } from '../utility/provider';
+import { useBattle, useCells, useDeckPorts, useMstShips, useShips } from '../utility/provider';
 import { ShipNameComponent } from './ship_name';
 
 import { createMemo, For } from 'solid-js';
@@ -11,6 +11,7 @@ export function BattlesComponent() {
     const [ships, ] = useShips();
     const [mst_ships, ] = useMstShips();
     const [deck_ports, ] = useDeckPorts();
+    const [cells, ] = useCells();
 
     const deck_ship_id = createMemo<{[key: number]: number[]}>(() => {
         let deck_ship_id: {[key: number]: number[]} = {};
@@ -99,6 +100,16 @@ export function BattlesComponent() {
                                     <p>
                                         {battles.opening_taisen.cl_list}
                                     </p> */}
+                                    <div class="join join-vertical">
+                                        <For each={Object.keys(cells.cells)}>
+                                            {(cell) => (
+                                                <button class="btn join-item">{cells.cells[Number(cell)].no}</button>
+                                            )}
+                                        </For>
+                                        <button class="btn join-item">Button</button>
+                                        <button class="btn join-item">Button</button>
+                                        <button class="btn join-item">Button</button>
+                                    </div>
                                 </ul>
                             </details>
                         </li>
