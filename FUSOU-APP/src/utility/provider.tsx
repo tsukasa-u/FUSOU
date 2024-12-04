@@ -4,6 +4,7 @@ import { DeckPorts, Materials, Ships, global_deck_ports, global_materials, globa
 import { MstShips, MstSlotitems, global_mst_ships, global_mst_slot_items } from "../interface/get_data";
 import { SlotItems, global_slotitems } from "../interface/require_info";
 import { Battle, global_battle } from "../interface/battle";
+import { Cell, Cells, global_cells } from "../interface/cells";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
 import { mergeObjects } from "./merge_object";
 
@@ -304,4 +305,54 @@ export function useBattle() {
       throw new Error("useBattle: cannot find a BattleContext")
     }
     return context as [Battle, (value: Battle) => void];
+}
+
+
+const CellsContext = createContext<(Cells | { set(data: Cells): void; })[]>();
+
+export function CellsContextProvider(props: { children: JSX.Element }) {
+    const [data, setData] = createStore(global_cells);
+    const setter = [
+        data,
+        {
+            set(data: Cells) {
+                setData(data);
+            }
+        }
+    ];
+
+    createEffect(() => {
+        let unlisten_data_set: UnlistenFn;
+        let unlisten_data_add: UnlistenFn;
+        (async() => {
+            unlisten_data_set = await listen<Cells>('set-kcs-cells', event => {
+              setData(event.payload);
+            });
+            unlisten_data_add = await listen<Cell>('add-kcs-cell', event => {
+                setData("cells", (cells: {[key: number]: Cell}) => {
+                    cells[event.payload.no] = event.payload;
+                    return cells;
+                });
+            });
+        })();
+        
+        onCleanup(() => { 
+            if (unlisten_data_set) unlisten_data_set();
+            if (unlisten_data_add) unlisten_data_add();
+        });
+    });
+
+    return (
+        <CellsContext.Provider value={setter}>
+            {props.children}
+        </CellsContext.Provider>
+    );
+}
+
+export function useCells() {
+    const context = useContext(CellsContext);
+    if (!context) {
+      throw new Error("useBattle: cannot find a CellsContext")
+    }
+    return context as [Cells, (value: Cells) => void];
 }
