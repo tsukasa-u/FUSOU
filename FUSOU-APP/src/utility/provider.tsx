@@ -329,11 +329,36 @@ export function CellsContextProvider(props: { children: JSX.Element }) {
               setData(event.payload);
             });
             unlisten_data_add = await listen<Cell>('add-kcs-cell', event => {
-                console.log('add-kcs-cell', event.payload);
+                // console.log('add-kcs-cell', event.payload);
+                // setData("timestamp", (date: number) => {
+                //     return Date.now();
+                // });
                 setData("cells", (cells: {[key: number]: Cell}) => {
                     cells[event.payload.no] = event.payload;
                     return cells;
                 });
+                setData("cell_index", (cell_index: number[]) => {
+                    cell_index.push(event.payload.no);
+                    let cell_index_copy : number[]= cell_index.slice();
+                    return cell_index_copy;
+                });
+                // let target: Cells =  unwrap(data);
+                // console.log('add-kcs-cell', global_cells);
+                // let target = {...unwrap(data)};
+                // target.cells[event.payload.no] = event.payload;
+                // target.cell_index.push(event.payload.no);
+                // let target: Cells = {
+                //     maparea_id: 0,
+                //     mapinfo_no: 0,
+                //     bosscell_no: 0,
+                //     bosscomp: 0,
+                //     cells: {},
+                //     cell_index: [],
+                //     cell_data: [],
+                // }
+                // setData(target);
+                // console.log('add-kcs-cell', global_cells);
+                // console.log('add-kcs-cell', unwrap(data));
             });
         })();
         
