@@ -1,9 +1,11 @@
 import { useBattle, useCells, useDeckPorts, useMstShips, useShips } from '../utility/provider';
 import { ShipNameComponent } from './ship_name';
 
-import { createMemo, For } from 'solid-js';
+import { createEffect, createMemo, createSignal, For, Show } from 'solid-js';
 
 import "../css/divider.css";
+import { JSX } from 'solid-js/h/jsx-runtime';
+import IconChevronRight from '../icons/chevron_right';
 
 export function BattlesComponent() {
 
@@ -12,6 +14,8 @@ export function BattlesComponent() {
     const [mst_ships, ] = useMstShips();
     const [deck_ports, ] = useDeckPorts();
     const [cells, ] = useCells();
+
+    const [cell_index_selected, set_cell_index_selected] = createSignal<number>(0);
 
     const deck_ship_id = createMemo<{[key: number]: number[]}>(() => {
         let deck_ship_id: {[key: number]: number[]} = {};
@@ -24,17 +28,61 @@ export function BattlesComponent() {
             deck_ship_id[Number(j)] = deck_ports.deck_ports[Number(j)].ship;
         }
         return deck_ship_id;
+    }); 
+
+    const cell_index_memo = createMemo<number[]>(() => {
+        let cell_index: number[] = [];
+        // console.log(cells.cells);
+        for ( let i of Object.keys(cells.cells) ) {
+            cell_index.push(cells.cells[Number(i)].no);
+        }
+        // console.log(cells.cell_index);
+        // console.log(cell_index);
+        return cell_index;
+    });
+
+    createEffect(() => {
+        set_cell_index_selected(cells.cell_index.length-1);
     });
 
     return (
         <>
             <li>
                 <details open={true}>
-                    <summary>
+                    <summary class="flex">
                         Battles
+                        <IconChevronRight class="h-4 w-4" />
+                        <div>Map : {cells.maparea_id}-{cells.mapinfo_no}</div>
+                        <div class="divider divider-horizontal mr-0 ml-0"></div>
+                        <div>Boss Cell : {cells.bosscell_no}</div>
+                        <span class="flex-auto"></span>
                     </summary>
-                    <ul class="pl-0">
+                    <ul class="pl-2">
+                        {/* <div class="join round-xs rounded-none pl-2 flex flex-row"> */}
                         
+                        {/* <li> */}
+                            {/* <details open={true}> */}
+                                {/* <summary> */}
+                        <div class="flex flex-row">
+                            <div class="h-4 mt-px pt-px">cells</div>
+                            <IconChevronRight class="h-4 w-4 m-1 " />
+                            <For each={cells.cell_index}>
+                                {(cell_index, index) => (
+                                    <>
+                                        <Show when={index() > 0}>
+                                            <div class="divider divider-horizontal mr-0 ml-0 w-px"></div>
+                                        </Show>
+                                        <button class={`${cell_index_selected()==index() ? 'btn-active' : ''} btn btn-xs btn-square rounded-none`} style="box-shadow:none" onclick={() => {set_cell_index_selected(index())}}>{cells.cell_index[index()]}</button>
+                                    </>
+                                )}
+                            </For>
+                        </div>
+                        {/* </summary> */}
+                        {/* </details> */}
+                        {/* </li> */}
+                    </ul>
+                    <ul class="pl-0">
+                        {/* <div class="flex flex-row"> */}
                         <li>
                             <details open={true}>
                                 <summary>
@@ -61,21 +109,6 @@ export function BattlesComponent() {
                                                     </tr>
                                                 )}
                                             </For>
-                                            {/* <tr>
-                                                <td>Cy Ganderton</td>
-                                                <td>Quality  </td>
-                                                <td>Blue</td>
-                                            </tr>
-                                            <tr>
-                                                <td>Hart Hagerty</td>
-                                                <td>Desktop  </td>
-                                                <td>Purple</td>
-                                            </tr>
-                                            <tr>
-                                                <td>Brice Swyre</td>
-                                                <td>Tax </td>
-                                                <td>Red</td>
-                                            </tr> */}
                                         </tbody>
                                     </table>
                                     {/* <p>{ship_name()[1]}</p> */}
@@ -100,19 +133,10 @@ export function BattlesComponent() {
                                     <p>
                                         {battles.opening_taisen.cl_list}
                                     </p> */}
-                                    <div class="join join-vertical">
-                                        <For each={Object.keys(cells.cells)}>
-                                            {(cell) => (
-                                                <button class="btn join-item">{cells.cells[Number(cell)].no}</button>
-                                            )}
-                                        </For>
-                                        <button class="btn join-item">Button</button>
-                                        <button class="btn join-item">Button</button>
-                                        <button class="btn join-item">Button</button>
-                                    </div>
                                 </ul>
                             </details>
                         </li>
+                        {/* </div> */}
                     </ul>
                 </details>
             </li>

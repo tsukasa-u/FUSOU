@@ -1,4 +1,7 @@
-
+export interface Battles {
+    cells: number[],
+    battles: {[key: number]: Battle},
+}
 
 export interface Battle {
     cell_id: number,

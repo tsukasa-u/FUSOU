@@ -13,7 +13,7 @@ use std::sync::{LazyLock, Mutex};
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Battles {
-    pub cells: Vec<String>,
+    pub cells: Vec<i64>,
     pub battles: HashMap<i64, Battle>,
 }
 
