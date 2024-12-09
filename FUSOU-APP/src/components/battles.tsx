@@ -31,9 +31,8 @@ export function BattlesComponent() {
     }); 
 
     const show_anti_submarine = createMemo<boolean>(() => {
-        console.log(battles.cells.reverse()[0]);
-        console.log(cells.cell_index);
-        if (battles.cells.reverse()[0] != cells.cell_index[cell_index_selected()]) return false;
+        if (battles.cells.length == 0) return false;
+        if (battles.cells.find((cell) => cell == cells.cell_index[cell_index_selected()]) == undefined) return false;
         return battles.battles[cells.cell_index[cell_index_selected()]].opening_taisen != null;
     });
 
