@@ -293,7 +293,7 @@ export function BattleContextProvider(props: { children: JSX.Element }) {
                 });
                 setData("cells", (cell_index: number[]) => {
                     cell_index.push(event.payload.cell_id);
-                    let cell_index_copy : number[]= cell_index.slice();
+                    let cell_index_copy : number[] = cell_index.slice();
                     return cell_index_copy;
                 });
             });
