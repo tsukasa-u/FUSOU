@@ -120,3 +120,13 @@ impl From<kcapi::api_req_sortie::battle::ApiData> for Battle {
         }
     }
 }
+
+impl From<kcapi::api_req_map::start::ApiData> for Battles {
+    fn from(start: kcapi::api_req_map::start::ApiData) -> Self {
+        let battles = HashMap::new();
+        Self {
+            cells: Vec::new(),
+            battles: battles,
+        }
+    }
+}

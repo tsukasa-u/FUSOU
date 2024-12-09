@@ -169,7 +169,7 @@ impl TraitForConvert for Root {
         let battle: Battle = self.api_data.clone().into();
         Some(vec![
             EmitData::Add(Add::Ships(ships)),
-            EmitData::Set(Set::Battle(battle))])
+            EmitData::Add(Add::Battle(battle))])
     }
 }
 

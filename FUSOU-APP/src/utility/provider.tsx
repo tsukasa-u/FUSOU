@@ -3,7 +3,7 @@ import { createStore, unwrap } from "solid-js/store";
 import { DeckPorts, Materials, Ships, global_deck_ports, global_materials, global_ships } from "../interface/port";
 import { MstShips, MstSlotitems, global_mst_ships, global_mst_slot_items } from "../interface/get_data";
 import { SlotItems, global_slotitems } from "../interface/require_info";
-import { Battle, global_battle } from "../interface/battle";
+import { Battle, Battles, global_battle, global_battles } from "../interface/battle";
 import { Cell, Cells, global_cells } from "../interface/cells";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
 import { mergeObjects } from "./merge_object";
@@ -266,29 +266,43 @@ export function useDeckPorts() {
 }
 
 
-const BattleContext = createContext<(Battle | { set(data: Battle): void; })[]>();
+const BattleContext = createContext<(Battles | { set(data: Battles): void; })[]>();
 
 export function BattleContextProvider(props: { children: JSX.Element }) {
-    const [data, setData] = createStore(global_battle);
+    const [data, setData] = createStore(global_battles);
     const setter = [
         data,
         {
-            set(data: Battle) {
+            set(data: Battles) {
                 setData(data);
             }
         }
     ];
 
     createEffect(() => {
-        let unlisten_data: UnlistenFn;
+        let unlisten_data_set: UnlistenFn;
+        let unlisten_data_add: UnlistenFn;
         (async() => {
-            unlisten_data = await listen<Battle>('set-kcs-battle', event => {
+            unlisten_data_set = await listen<Battles>('set-kcs-battles', event => {
               setData(event.payload);
+            });
+            unlisten_data_add = await listen<Battle>('add-kcs-battle', event => {
+                setData("battles", (battles: {[key: number]: Battle}) => {
+                    battles[event.payload.cell_id] = event.payload;
+                    return battles;
+                });
+                setData("cells", (cell_index: number[]) => {
+                    cell_index.push(event.payload.cell_id);
+                    let cell_index_copy : number[]= cell_index.slice();
+                    return cell_index_copy;
+                });
+                console.log('add-kcs-battle', data);
             });
         })();
         
         onCleanup(() => { 
-            if (unlisten_data) unlisten_data();
+            if (unlisten_data_set) unlisten_data_set();
+            if (unlisten_data_add) unlisten_data_add();
         });
     });
 
@@ -299,12 +313,12 @@ export function BattleContextProvider(props: { children: JSX.Element }) {
     );
 }
 
-export function useBattle() {
+export function useBattles() {
     const context = useContext(BattleContext);
     if (!context) {
       throw new Error("useBattle: cannot find a BattleContext")
     }
-    return context as [Battle, (value: Battle) => void];
+    return context as [Battles, (value: Battles) => void];
 }
 
 
@@ -329,10 +343,6 @@ export function CellsContextProvider(props: { children: JSX.Element }) {
               setData(event.payload);
             });
             unlisten_data_add = await listen<Cell>('add-kcs-cell', event => {
-                // console.log('add-kcs-cell', event.payload);
-                // setData("timestamp", (date: number) => {
-                //     return Date.now();
-                // });
                 setData("cells", (cells: {[key: number]: Cell}) => {
                     cells[event.payload.no] = event.payload;
                     return cells;
@@ -342,23 +352,6 @@ export function CellsContextProvider(props: { children: JSX.Element }) {
                     let cell_index_copy : number[]= cell_index.slice();
                     return cell_index_copy;
                 });
-                // let target: Cells =  unwrap(data);
-                // console.log('add-kcs-cell', global_cells);
-                // let target = {...unwrap(data)};
-                // target.cells[event.payload.no] = event.payload;
-                // target.cell_index.push(event.payload.no);
-                // let target: Cells = {
-                //     maparea_id: 0,
-                //     mapinfo_no: 0,
-                //     bosscell_no: 0,
-                //     bosscomp: 0,
-                //     cells: {},
-                //     cell_index: [],
-                //     cell_data: [],
-                // }
-                // setData(target);
-                // console.log('add-kcs-cell', global_cells);
-                // console.log('add-kcs-cell', unwrap(data));
             });
         })();
         
