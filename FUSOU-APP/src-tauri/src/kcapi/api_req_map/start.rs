@@ -9,10 +9,17 @@ use register_trait::Getter;
 use register_trait::TraitForRoot;
 use register_trait::TraitForConvert;
 
-use crate::interface::interface::EmitData;
+use crate::interface::battle::Battles;
+use crate::interface::cells::Cells;
+use crate::interface::interface::{Set, EmitData};
 
-#[derive(Getter, TraitForTest, TraitForRoot, TraitForConvert)]
-#[convert_output(output = EmitData)]
+use crate::kcapi_common::common_map::ApiSelectRoute;
+use crate::kcapi_common::common_map::ApiCellFlavor;
+use crate::kcapi_common::common_map::ApiEventmap;
+use crate::kcapi_common::common_map::ApiAirsearch;
+use crate::kcapi_common::common_map::ApiEDeckInfo;
+
+#[derive(Getter, TraitForTest, TraitForRoot)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[register_struct(name = "api_req_map/start")]
@@ -78,43 +85,6 @@ pub struct ApiData {
 #[add_field(extra)]
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ApiSelectRoute {
-    #[serde(rename = "api_select_cells")]
-    pub api_select_cells: Vec<i64>,
-}
-
-
-#[derive(Getter, TraitForTest)]
-#[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ApiCellFlavor {
-    #[serde(rename = "api_type")]
-    pub api_type: i64,
-    #[serde(rename = "api_message")]
-    pub api_message: String,
-}
-
-#[derive(Getter, TraitForTest)]
-#[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ApiEventmap {
-    #[serde(rename = "api_max_maphp")]
-    pub api_max_maphp: i64,
-    #[serde(rename = "api_now_maphp")]
-    pub api_now_maphp: i64,
-    #[serde(rename = "api_dmg")]
-    pub api_dmg: i64,
-}
-
-#[derive(Getter, TraitForTest)]
-#[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct ApiCellData {
     #[serde(rename = "api_id")]
     pub api_id: i64,
@@ -128,28 +98,15 @@ pub struct ApiCellData {
     pub api_distance: Option<i64>,
 }
 
-#[derive(Getter, TraitForTest)]
-#[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ApiAirsearch {
-    #[serde(rename = "api_plane_type")]
-    pub api_plane_type: i64,
-    #[serde(rename = "api_result")]
-    pub api_result: i64,
-}
-
-#[derive(Getter, TraitForTest)]
-#[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ApiEDeckInfo {
-    #[serde(rename = "api_kind")]
-    pub api_kind: i64,
-    #[serde(rename = "api_ship_ids")]
-    pub api_ship_ids: Vec<i64>,
+impl TraitForConvert for Root {
+    type Output = EmitData;
+    fn convert(&self) -> Option<Vec<EmitData>> {
+        let cells: Cells = self.api_data.clone().into();
+        let battles: Battles = self.api_data.clone().into();
+        Some(vec![
+            EmitData::Set(Set::Cells(cells)),
+            EmitData::Set(Set::Battles(battles))])
+    }
 }
 
 #[cfg(test)]

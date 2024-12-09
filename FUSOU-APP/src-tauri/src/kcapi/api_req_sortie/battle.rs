@@ -6,8 +6,9 @@ use register_trait::{register_struct, add_field};
 
 use register_trait:: {TraitForTest, Getter, TraitForRoot, TraitForConvert};
 
-use crate::interface::interface::{EmitData, Add};
+use crate::interface::interface::{EmitData, Add, Set};
 use crate::interface::ship::Ships;
+use crate::interface::battle::Battle;
 
 use crate::kcapi_common::common_air::ApiKouku;
 use crate::kcapi_common::common_air::ApiAirBaseAttack;
@@ -165,7 +166,10 @@ impl TraitForConvert for Root {
     type Output = EmitData;
     fn convert(&self) -> Option<Vec<EmitData>> {
         let ships: Ships = self.api_data.clone().into();
-        Some(vec![EmitData::Add(Add::Ships(ships))])
+        let battle: Battle = self.api_data.clone().into();
+        Some(vec![
+            EmitData::Add(Add::Ships(ships)),
+            EmitData::Add(Add::Battle(battle))])
     }
 }
 
