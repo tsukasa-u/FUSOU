@@ -6,10 +6,10 @@ use crate::{kcapi, kcapi_common};
 
 use std::sync::{LazyLock, Mutex};
 
-// // Is it better to use onecell::sync::Lazy or std::sync::Lazy?
-// pub static KCS_CELLS: LazyLock<Mutex<Battles>> = LazyLock::new(|| {
-//     Mutex::new( Battles::new())
-// });
+// Is it better to use onecell::sync::Lazy or std::sync::Lazy?
+pub static KCS_CELLS: LazyLock<Mutex<Vec<i64>>> = LazyLock::new(|| {
+    Mutex::new(Vec::new())
+});
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Cells {
@@ -154,6 +154,10 @@ impl From<kcapi::api_req_map::next::ApiData> for Cell {
             None => None,
         };
 
+        {
+           KCS_CELLS.lock().unwrap().push(cells.api_no.clone());
+        }
+
         Self {
             rashin_id: cells.api_rashin_id,
             no: cells.api_no,
@@ -190,6 +194,10 @@ impl From<kcapi::api_req_map::start::ApiData> for Cell {
             None => None,
         };
 
+        {
+            KCS_CELLS.lock().unwrap().push(cells.api_no.clone());
+        }
+
         Self {
             rashin_id: cells.api_rashin_id,
             no: cells.api_no,
@@ -212,7 +220,7 @@ impl From<kcapi::api_req_map::start::ApiData> for Cells {
         
         let cell: Cell = cells.clone().into();
         let cell_data: Vec<CellData> = cells.api_cell_data.into_iter().map(|cell_data| cell_data.into()).collect();
-        
+
         Self {
             maparea_id: cells.api_maparea_id,
             mapinfo_no: cells.api_mapinfo_no,
