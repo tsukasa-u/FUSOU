@@ -6,6 +6,7 @@ import { createEffect, createMemo, createSignal, For, Show } from 'solid-js';
 import "../css/divider.css";
 import { JSX } from 'solid-js/h/jsx-runtime';
 import IconChevronRight from '../icons/chevron_right';
+import { EnemyNameComponent } from './enemy_name';
 
 export function BattlesComponent() {
 
@@ -113,7 +114,17 @@ export function BattlesComponent() {
                                                         {(at, index) => (
                                                             <tr>
                                                                 <td><ShipNameComponent ship_id={deck_ship_id()[1][at]}></ShipNameComponent></td>
-                                                                <td>{battles.battles[cells.cell_index[cell_index_selected()]].opening_taisen.df_list[index()]}</td>
+                                                                {/* <td>{battles.battles[cells.cell_index[cell_index_selected()]].opening_taisen.df_list[index()]}</td> */}
+                                                                <td>
+                                                                    <For each={battles.battles[cells.cell_index[cell_index_selected()]].opening_taisen.df_list[index()]}>
+                                                                        {(df, index) => (
+                                                                            <>
+                                                                                {/* {cells.cells[cells.cell_index[cell_index_selected()]].e_deck_info![0].ship_ids[df]} */}
+                                                                                <EnemyNameComponent ship_id={cells.cells[cells.cell_index[cell_index_selected()]].e_deck_info![0].ship_ids[df]}></EnemyNameComponent>
+                                                                            </>
+                                                                        )}
+                                                                    </For>
+                                                                    </td>
                                                                 <td>{battles.battles[cells.cell_index[cell_index_selected()]].opening_taisen.damage[index()]}</td>
                                                                 <td>{battles.battles[cells.cell_index[cell_index_selected()]].opening_taisen.at_type[index()]}</td>
                                                             </tr>
