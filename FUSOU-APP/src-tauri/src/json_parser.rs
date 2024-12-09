@@ -15,6 +15,10 @@ fn emit_data<R: tauri::Runtime>(handle: &impl tauri::Manager<R>, emit_data: Emit
                     // println!("Ships: {:?}", data);
                     let _ = handle.emit_to("main", "add-kcs-ships", data);
                 },
+                Add::Battle(data) => {
+                    // println!("Battle: {:?}", data);
+                    let _ = handle.emit_to("main", "add-kcs-battle", data);
+                },
                 Add::Cell(data) => {
                     // println!("Cell: {:?}", data);
                     let _ = handle.emit_to("main", "add-kcs-cell", data);
@@ -75,9 +79,9 @@ fn emit_data<R: tauri::Runtime>(handle: &impl tauri::Manager<R>, emit_data: Emit
                     // println!("MstUseItems: {:?}", data);
                     let _ = handle.emit_to("main", "set-kcs-mst-use-items", data);
                 },
-                Set::Battle(data) => {
+                Set::Battles(data) => {
                     // println!("Battle: {:?}", data);
-                    let _ = handle.emit_to("main", "set-kcs-battle", data);
+                    let _ = handle.emit_to("main", "set-kcs-battles", data);
                 },
                 Set::Cells(data) => {
                     // println!("Cells: {:?}", data);

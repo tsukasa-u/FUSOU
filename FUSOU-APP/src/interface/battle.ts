@@ -66,6 +66,11 @@ export interface EndingRaigeki {
     ecl: number[],
 }
 
+export var global_battles: Battles = {
+    cells: [],
+    battles: {},
+};
+
 export var global_battle: Battle = {
     cell_id: 0,
     formation: [],
