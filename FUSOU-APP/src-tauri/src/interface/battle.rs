@@ -6,6 +6,8 @@ use crate::{kcapi, kcapi_common};
 
 use std::sync::{LazyLock, Mutex};
 
+use super::cells::KCS_CELLS;
+
 // // Is it better to use onecell::sync::Lazy or std::sync::Lazy?
 // pub static KCS_BATTLE: LazyLock<Mutex<Battles>> = LazyLock::new(|| {
 //     Mutex::new( Battles::new())
@@ -20,6 +22,7 @@ pub struct Battles {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Battle {
     pub cell_id: i64,
+    pub api_deck_id: i64,
     pub formation: Vec<i64>,
     pub total_damages_friends: Vec<i64>,
     pub total_damages_enemies: Vec<i64>,
@@ -106,8 +109,14 @@ impl From<kcapi::api_req_sortie::battle::ApiData> for Battle {
             None => None,
         };
         let empty = Vec::new();
+        let cell_no = match KCS_CELLS.lock().unwrap().last() {
+            Some(cell) => cell.clone(),
+            None => 0,
+        };
+
         Self {
-            cell_id: battle.api_atoll_cell,
+            cell_id: cell_no,
+            api_deck_id: battle.api_deck_id,
             formation: battle.api_formation,
             total_damages_friends: empty.clone(),
             total_damages_enemies: empty.clone(),

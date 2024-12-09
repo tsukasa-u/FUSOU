@@ -30,16 +30,23 @@ export function BattlesComponent() {
         return deck_ship_id;
     }); 
 
-    const cell_index_memo = createMemo<number[]>(() => {
-        let cell_index: number[] = [];
-        // console.log(cells.cells);
-        for ( let i of Object.keys(cells.cells) ) {
-            cell_index.push(cells.cells[Number(i)].no);
-        }
-        // console.log(cells.cell_index);
-        // console.log(cell_index);
-        return cell_index;
+    const show_anti_submarine = createMemo<boolean>(() => {
+        console.log(battles.cells.reverse()[0]);
+        console.log(cells.cell_index);
+        if (battles.cells.reverse()[0] != cells.cell_index[cell_index_selected()]) return false;
+        return battles.battles[cells.cell_index[cell_index_selected()]].opening_taisen != null;
     });
+
+    // const cell_index_memo = createMemo<number[]>(() => {
+    //     let cell_index: number[] = [];
+    //     // console.log(cells.cells);
+    //     for ( let i of Object.keys(cells.cells) ) {
+    //         cell_index.push(cells.cells[Number(i)].no);
+    //     }
+    //     // console.log(cells.cell_index);
+    //     // console.log(cell_index);
+    //     return cell_index;
+    // });
 
     createEffect(() => {
         set_cell_index_selected(cells.cell_index.length-1);
@@ -85,7 +92,8 @@ export function BattlesComponent() {
                     </ul>
                     <Show when={battles.cells.length > 0}>
                         <ul class="pl-0">
-                            <Show when={battles.battles[cell_index_selected()].opening_taisen.at_list.length > 0}>
+                            {/* <Show when={battles.battles[cells.cell_index[cell_index_selected()]].opening_taisen != null}> */}
+                            <Show when={show_anti_submarine()}>
                                 <li>
                                     <details open={true}>
                                         <summary>
@@ -102,13 +110,13 @@ export function BattlesComponent() {
                                                     </tr>
                                                 </thead>
                                                 <tbody>
-                                                    <For each={battles.battles[cell_index_selected()].opening_taisen.at_list}>
+                                                    <For each={battles.battles[cells.cell_index[cell_index_selected()]].opening_taisen.at_list}>
                                                         {(at, index) => (
                                                             <tr>
                                                                 <td><ShipNameComponent ship_id={deck_ship_id()[1][at]}></ShipNameComponent></td>
-                                                                <td>{battles.battles[cell_index_selected()].opening_taisen.df_list[index()]}</td>
-                                                                <td>{battles.battles[cell_index_selected()].opening_taisen.damage[index()]}</td>
-                                                                <td>{battles.battles[cell_index_selected()].opening_taisen.at_type[index()]}</td>
+                                                                <td>{battles.battles[cells.cell_index[cell_index_selected()]].opening_taisen.df_list[index()]}</td>
+                                                                <td>{battles.battles[cells.cell_index[cell_index_selected()]].opening_taisen.damage[index()]}</td>
+                                                                <td>{battles.battles[cells.cell_index[cell_index_selected()]].opening_taisen.at_type[index()]}</td>
                                                             </tr>
                                                         )}
                                                     </For>
