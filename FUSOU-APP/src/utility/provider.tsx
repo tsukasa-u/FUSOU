@@ -296,7 +296,6 @@ export function BattleContextProvider(props: { children: JSX.Element }) {
                     let cell_index_copy : number[]= cell_index.slice();
                     return cell_index_copy;
                 });
-                console.log('add-kcs-battle', data);
             });
         })();
         
