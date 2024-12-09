@@ -1,4 +1,4 @@
-function mergeObjects<T>(source: T, target: T): void {
+export function mergeObjects<T>(source: T, target: T): void {
     if (typeof source !== 'object' || source === null || typeof target !== 'object' || target === null) {
         return;
     }
