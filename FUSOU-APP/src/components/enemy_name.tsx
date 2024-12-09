@@ -20,6 +20,7 @@ export function EnemyNameComponent({ship_id}: ShipNameProps) {
     const [_mst_ships, ] = useMstShips();
 
     const mst_ship = createMemo(() => {
+        console.log(_mst_ships.mst_ships[ship_id]);
         return _mst_ships.mst_ships[ship_id];
     });
 
@@ -41,7 +42,7 @@ export function EnemyNameComponent({ship_id}: ShipNameProps) {
 
     return <>
         <div class="flex flex-nowarp" onClick={()=> show_modal(ship_id)}>
-            <IconShip class="h-5 -mt-0.5 pr-2" ship_stype={mst_ship().stype} />
+            <IconShip class="h-5 -mt-0.5 pr-2" ship_stype={mst_ship().stype ?? 0} />
             {mst_ship()?.name ?? "Unknown"}
         </div>
         <dialog id={"deck_ship_name_modal_"+ship_id} class="modal">
@@ -55,7 +56,7 @@ export function EnemyNameComponent({ship_id}: ShipNameProps) {
                     <h3 class="font-bold text-base pl-2 truncate">{mst_ship()?.name ?? "Unknown"}</h3>
                 </div>
                 <div class="pt-2">
-                    <table class="table table-xs">
+                    {/* <table class="table table-xs">
                         <caption class="truncate">Equipment</caption>
                         <tbody>
                             <For each={ship()?.slot} fallback={<></>}>
@@ -81,7 +82,7 @@ export function EnemyNameComponent({ship_id}: ShipNameProps) {
                                 </td>
                             </tr>
                         </tbody>
-                    </table>
+                    </table> */}
                 </div>
             </div>
             <form method="dialog" class="modal-backdrop">
