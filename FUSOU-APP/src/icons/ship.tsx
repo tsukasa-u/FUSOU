@@ -2,12 +2,15 @@ import { JSX } from 'solid-js';
 
 interface ShipProps {
   ship_stype: number;
+  color?: string;
 }
 
 
-const icon_list: { [key: number]: string[] } = {
-   0: ["#FFFFFF"], //  Undefined
-   1: ["#CCCCCC"]
+const icon_list: { [key: string]: string } = {
+   "undifined": "#FFFFFF", //  Undefined
+   "": "#CCCCCC",
+   "elite": "#FF4500",     //  Elite
+    "flagship": "#FFD700",  //  Flagship
 };
 
 
@@ -37,9 +40,14 @@ const name_list: { [key: number]: string } = {
   22: "AO",   //    Fleet Oiler
 };
  
-export function IconShip({ship_stype, ...props}: JSX.HTMLAttributes<SVGSVGElement> & ShipProps) {
+export function IconShip({ship_stype, color, ...props}: JSX.HTMLAttributes<SVGSVGElement> & ShipProps) {
 
-  let primary_color: string = icon_list[1][0];
+  let primary_color: string = icon_list[""];
+  let secondary_color: string = icon_list[color ?? ""];
+  if (secondary_color == undefined) {
+    secondary_color = "#000000";
+    console.log("color is undefined", color);
+  }
   let name = name_list[ship_stype ?? 0];
 
   return (
@@ -56,9 +64,8 @@ export function IconShip({ship_stype, ...props}: JSX.HTMLAttributes<SVGSVGElemen
           {name}
         </text>
         <path d="m 9 32 C 9 19.85 18.85 10 31 10 L 167 10 C 179.15 10 189 19.85 189 32 l 0 88 C 189 132.15 179.15 142 167 142 L 31 142 C 18.85 142 9 132.15 9 120 Z" stroke="#000000" stroke-width="4" stroke-linejoin="round" stroke-miterlimit="10" fill="none" fill-rule="evenodd"/>
-        <path d="M28 124 76 124" stroke={primary_color} stroke-width="16" stroke-miterlimit="8" fill="none" fill-rule="evenodd"/>
-        <path d="M76 124 124 124" stroke={primary_color} stroke-width="16" stroke-miterlimit="8" fill="none" fill-rule="evenodd"/>
-        <path d="M124 124 172 124" stroke={primary_color} stroke-width="16" stroke-miterlimit="8" fill="none" fill-rule="evenodd"/>
+        <path d="M28 124 100 124" stroke={primary_color} stroke-width="16" stroke-miterlimit="8" fill="none" fill-rule="evenodd"/>
+        <path d="M100 124 172 124" stroke={secondary_color} stroke-width="16" stroke-miterlimit="8" fill="none" fill-rule="evenodd"/>
     </svg>
   )
 }
