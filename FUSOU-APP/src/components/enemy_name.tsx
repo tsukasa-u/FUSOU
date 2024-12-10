@@ -20,7 +20,7 @@ export function EnemyNameComponent({ship_id}: ShipNameProps) {
     const [_mst_ships, ] = useMstShips();
 
     const mst_ship = createMemo(() => {
-        console.log(_mst_ships.mst_ships[ship_id]);
+        console.log(Date.now(), ship_id, _mst_ships.mst_ships[ship_id]);
         return _mst_ships.mst_ships[ship_id];
     });
 
@@ -42,7 +42,7 @@ export function EnemyNameComponent({ship_id}: ShipNameProps) {
 
     return <>
         <div class="flex flex-nowarp" onClick={()=> show_modal(ship_id)}>
-            <IconShip class="h-5 -mt-0.5 pr-2" ship_stype={mst_ship().stype ?? 0} />
+            <IconShip class="h-5 -mt-0.5 pr-2" ship_stype={mst_ship().stype ?? 0} color={mst_ship().yomi}/>
             {mst_ship()?.name ?? "Unknown"}
         </div>
         <dialog id={"deck_ship_name_modal_"+ship_id} class="modal">

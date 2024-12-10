@@ -7,6 +7,7 @@ import "../css/divider.css";
 import { JSX } from 'solid-js/h/jsx-runtime';
 import IconChevronRight from '../icons/chevron_right';
 import { EnemyNameComponent } from './enemy_name';
+import { Battle } from '../interface/battle';
 
 export function BattlesComponent() {
 
@@ -32,21 +33,16 @@ export function BattlesComponent() {
     }); 
 
     const show_anti_submarine = createMemo<boolean>(() => {
+        console.log(cells.cells);
         if (battles.cells.length == 0) return false;
         if (battles.cells.find((cell) => cell == cells.cell_index[cell_index_selected()]) == undefined) return false;
         return battles.battles[cells.cell_index[cell_index_selected()]].opening_taisen != null;
     });
 
-    // const cell_index_memo = createMemo<number[]>(() => {
-    //     let cell_index: number[] = [];
-    //     // console.log(cells.cells);
-    //     for ( let i of Object.keys(cells.cells) ) {
-    //         cell_index.push(cells.cells[Number(i)].no);
-    //     }
-    //     // console.log(cells.cell_index);
-    //     // console.log(cell_index);
-    //     return cell_index;
-    // });
+    const battle_selected = createMemo<Battle>(() => {
+        console.log(battles.battles[battles.cells[cell_index_selected()]]);
+        return battles.battles[battles.cells[cell_index_selected()]];
+    });
 
     createEffect(() => {
         set_cell_index_selected(cells.cell_index.length-1);
@@ -110,50 +106,44 @@ export function BattlesComponent() {
                                                     </tr>
                                                 </thead>
                                                 <tbody>
-                                                    <For each={battles.battles[cells.cell_index[cell_index_selected()]].opening_taisen.at_list}>
-                                                        {(at, index) => (
+                                                    <For each={battle_selected().opening_taisen.at_list}>
+                                                        {(at, at_index) => (
                                                             <tr>
-                                                                <td><ShipNameComponent ship_id={deck_ship_id()[1][at]}></ShipNameComponent></td>
-                                                                {/* <td>{battles.battles[cells.cell_index[cell_index_selected()]].opening_taisen.df_list[index()]}</td> */}
                                                                 <td>
-                                                                    <For each={battles.battles[cells.cell_index[cell_index_selected()]].opening_taisen.df_list[index()]}>
-                                                                        {(df, index) => (
-                                                                            <>
-                                                                                {/* {cells.cells[cells.cell_index[cell_index_selected()]].e_deck_info![0].ship_ids[df]} */}
-                                                                                <EnemyNameComponent ship_id={cells.cells[cells.cell_index[cell_index_selected()]].e_deck_info![0].ship_ids[df]}></EnemyNameComponent>
-                                                                            </>
-                                                                        )}
-                                                                    </For>
-                                                                    </td>
-                                                                <td>{battles.battles[cells.cell_index[cell_index_selected()]].opening_taisen.damage[index()]}</td>
-                                                                <td>{battles.battles[cells.cell_index[cell_index_selected()]].opening_taisen.at_type[index()]}</td>
+                                                                    <Show when={battle_selected().opening_taisen.at_eflag[at_index()]==0} fallback={
+                                                                        <EnemyNameComponent ship_id={battle_selected().enemy_ship_id[at]}></EnemyNameComponent>
+                                                                    }>
+                                                                        <ShipNameComponent ship_id={deck_ship_id()[1][at]}></ShipNameComponent>
+                                                                    </Show>
+                                                                </td>
+                                                                <td>
+                                                                    <div class="flex flex-col">
+                                                                        <For each={battle_selected().opening_taisen.df_list[at_index()]}>
+                                                                            {(df, df_index) => (
+                                                                                <Show when={battle_selected().opening_taisen.at_eflag[at_index()]==1} fallback={
+                                                                                    <EnemyNameComponent ship_id={battle_selected().enemy_ship_id[df]}></EnemyNameComponent>
+                                                                                }>
+                                                                                    <ShipNameComponent ship_id={deck_ship_id()[1][df]}></ShipNameComponent>
+                                                                                </Show>
+                                                                            )}
+                                                                        </For>
+                                                                    </div>
+                                                                </td>
+                                                                <td >
+                                                                    <div class="flex flex-col">
+                                                                        <For each={battle_selected().opening_taisen.damage[at_index()]}>
+                                                                            {(dmg, admg_index) => (
+                                                                                <div>{dmg}</div>
+                                                                            )}
+                                                                        </For>
+                                                                    </div>
+                                                                </td>
+                                                                <td>{battle_selected().opening_taisen.at_type[at_index()]}</td>
                                                             </tr>
                                                         )}
                                                     </For>
                                                 </tbody>
                                             </table>
-                                            {/* <p>{ship_name()[1]}</p> */}
-                                            {/* <p>
-                                                {battles.opening_taisen.damage}
-                                            </p>
-                                            <p>
-                                                {battles.opening_taisen.at_list}
-                                            </p>
-                                            <p>
-                                                {battles.opening_taisen.at_type}
-                                            </p>
-                                            <p>
-                                                {battles.opening_taisen.at_eflag}
-                                            </p>
-                                            <p>
-                                                {battles.opening_taisen.df_list}
-                                            </p>
-                                            <p>
-                                                {battles.opening_taisen.si_list}
-                                            </p>
-                                            <p>
-                                                {battles.opening_taisen.cl_list}
-                                            </p> */}
                                         </ul>
                                     </details>
                                 </li>
