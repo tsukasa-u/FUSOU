@@ -6,6 +6,7 @@ export interface Battles {
 export interface Battle {
     cell_id: number,
     formation: number[],
+    enemy_ship_id: number[],
     total_damages_friends: number[],
     total_damages_enemies: number[],
     reconnaissance: number[],
@@ -74,6 +75,7 @@ export var global_battles: Battles = {
 export var global_battle: Battle = {
     cell_id: 0,
     formation: [],
+    enemy_ship_id: [],
     total_damages_friends: [],
     total_damages_enemies: [],
     reconnaissance: [],
