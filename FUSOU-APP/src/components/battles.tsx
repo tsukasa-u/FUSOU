@@ -1,15 +1,12 @@
 import { useBattles, useCells, useDeckPorts, useMstShips, useShips } from '../utility/provider';
-import { ShipNameComponent } from './ship_name';
-
 import { createEffect, createMemo, createSignal, For, Show } from 'solid-js';
 
 import "../css/divider.css";
-import { JSX } from 'solid-js/h/jsx-runtime';
 import IconChevronRight from '../icons/chevron_right';
-import { EnemyNameComponent } from './enemy_name';
 import { Battle } from '../interface/battle';
 import { OpeningAntiSubmarineComponent } from './opening_anti_submarine';
-import { OpeningTorpedoSubmarineComponent } from './opening_torpedo_attack';
+// import { OpeningTorpedoAttackComponent } from './opening_torpedo_attack';
+import { EndingTorpedoAttackComponent } from './ending_torpedo_attack';
 
 export function BattlesComponent() {
 
@@ -32,14 +29,19 @@ export function BattlesComponent() {
             deck_ship_id[Number(j)] = deck_ports.deck_ports[Number(j)].ship;
         }
         return deck_ship_id;
-    }); 
-
-    const battle_selected = createMemo<Battle>(() => {
-        return battles.battles[battles.cells[cell_index_selected()]];
     });
 
+    const battle_selected = createMemo<Battle>(() => {
+        return battles.battles[cells.cell_index[cell_index_selected()]];
+    });
     createEffect(() => {
-        set_cell_index_selected(cells.cell_index.length-1);
+        set_cell_index_selected(cells.cell_index.length > 0 ? cells.cell_index.length - 1 : 0)
+    });
+
+    const show_battle = createMemo<boolean>(() => {
+        if (battles.cells.length == 0) return false;
+        if (battles.cells.find((cell) => cell == cells.cell_index[cell_index_selected()]) == undefined) return false;
+        return true;
     });
 
     return (
@@ -49,11 +51,11 @@ export function BattlesComponent() {
                     <summary class="flex">
                         Battles
                         <IconChevronRight class="h-4 w-4" />
-                        <Show when={battles.cells.length > 0}>
+                        {/* <Show when={show_battle()}> */}
                             <div>Map : {cells.maparea_id}-{cells.mapinfo_no}</div>
                             <div class="divider divider-horizontal mr-0 ml-0"></div>
                             <div>Boss Cell : {cells.bosscell_no}</div>
-                        </Show>
+                        {/* </Show> */}
                         <span class="flex-auto"></span>
                     </summary>
                     <ul class="pl-2">
@@ -72,10 +74,11 @@ export function BattlesComponent() {
                             </For>
                         </div>
                     </ul>
-                    <Show when={battles.cells.length > 0}>
+                    <Show when={show_battle()}>
                         <ul class="pl-0">
-                            <OpeningAntiSubmarineComponent deck_ship_id={deck_ship_id} battle_selected={battle_selected} cell_index_selected={cell_index_selected}></OpeningAntiSubmarineComponent>
-                            {/* <OpeningTorpedoSubmarineComponent deck_ship_id={deck_ship_id} battle_selected={battle_selected} cell_index_selected={cell_index_selected}></OpeningTorpedoSubmarineComponent> */}
+                            {/* <OpeningTorpedoAttackComponent deck_ship_id={deck_ship_id} battle_selected={battle_selected} cell_index_selected={cell_index_selected}></OpeningTorpedoAttackComponent> */}
+                            <OpeningAntiSubmarineComponent deck_ship_id={deck_ship_id()} battle_selected={battle_selected}></OpeningAntiSubmarineComponent>
+                            <EndingTorpedoAttackComponent deck_ship_id={deck_ship_id()} battle_selected={battle_selected}></EndingTorpedoAttackComponent>
                         </ul>
                     </Show>
                 </details>
