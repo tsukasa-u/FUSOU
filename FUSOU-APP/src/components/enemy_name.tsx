@@ -2,7 +2,7 @@ import { IconXMark } from '../icons/X-mark.tsx';
 import { EquimentComponent } from './equipment.tsx';
 
 import '../css/modal.css';
-import { useMstShips, useShips } from '../utility/provider.tsx';
+import { useMstShips } from '../utility/provider.tsx';
 import { createMemo, For, Show } from 'solid-js';
 import IconShip from '../icons/ship.tsx';
 
