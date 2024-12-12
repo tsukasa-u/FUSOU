@@ -103,12 +103,51 @@ impl From<kcapi_common::common_battle::ApiOpeningTaisen> for OpeningTaisen {
     }
 }
 
+// impl From<kcapi_common::common_battle::ApiRaigeki> for OpeningRaigeki {
+//     fn from(opening_raigeki: kcapi_common::common_battle::ApiRaigeki) -> Self {
+//         Self {
+//             fdam: opening_raigeki.api_fdam,
+//             edam: opening_raigeki.api_edam,
+//             fydam: opening_raigeki.api_fydam,
+//             eydam: opening_raigeki.api_eydam,
+//             frai: opening_raigeki.api_frai,
+//             erai: opening_raigeki.api_erai,
+//             fcl: opening_raigeki.api_fcl,
+//             ecl: opening_raigeki.api_ecl,
+//         }
+//     }
+// }
+
+impl From<kcapi_common::common_battle::ApiRaigeki> for EndingRaigeki {
+    fn from(ending_raigeki: kcapi_common::common_battle::ApiRaigeki) -> Self {
+        Self {
+            fdam: ending_raigeki.api_fdam,
+            edam: ending_raigeki.api_edam,
+            fydam: ending_raigeki.api_fydam,
+            eydam: ending_raigeki.api_eydam,
+            frai: ending_raigeki.api_frai,
+            erai: ending_raigeki.api_erai,
+            fcl: ending_raigeki.api_fcl,
+            ecl: ending_raigeki.api_ecl,
+        }
+    }
+}
+
 impl From<kcapi::api_req_sortie::battle::ApiData> for Battle {
     fn from(battle: kcapi::api_req_sortie::battle::ApiData) -> Self {
         let opening_taisen: Option<OpeningTaisen> = match battle.api_opening_taisen {
             Some(opening_taisen) => Some(opening_taisen.into()),
             None => None,
         };
+        // let opening_raigeki: Option<OpeningRaigeki> = match battle.api_raigeki {
+        //     Some(opening_raigeki) => Some(opening_raigeki.into()),
+        //     None => None,
+        // };
+        let ending_taigeki: Option<EndingRaigeki> = match battle.api_raigeki {
+            Some(ending_raigeki) => Some(ending_raigeki.into()),
+            None => None,
+        };
+
         let empty = Vec::new();
         let cell_no = match KCS_CELLS.lock().unwrap().last() {
             Some(cell) => cell.clone(),
@@ -127,7 +166,7 @@ impl From<kcapi::api_req_sortie::battle::ApiData> for Battle {
             opening_taisen: opening_taisen,
             opening_raigeki: None,
             hougeki: None,
-            ending_raigeki: None,
+            ending_raigeki: ending_taigeki,
         }
     }
 }
