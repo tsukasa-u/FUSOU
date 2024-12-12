@@ -287,10 +287,8 @@ export function BattleContextProvider(props: { children: JSX.Element }) {
               setData(event.payload);
             });
             unlisten_data_add = await listen<Battle>('add-kcs-battle', event => {
-                setData("battles", (battles: {[key: number]: Battle}) => {
-                    battles[event.payload.cell_id] = event.payload;
-                    return battles;
-                });
+                setData("battles", event.payload.cell_id, event.payload);
+                // need to change the method? but it works
                 setData("cells", (cell_index: number[]) => {
                     cell_index.push(event.payload.cell_id);
                     let cell_index_copy : number[] = cell_index.slice();
@@ -342,13 +340,11 @@ export function CellsContextProvider(props: { children: JSX.Element }) {
               setData(event.payload);
             });
             unlisten_data_add = await listen<Cell>('add-kcs-cell', event => {
-                setData("cells", (cells: {[key: number]: Cell}) => {
-                    cells[event.payload.no] = event.payload;
-                    return cells;
-                });
+                setData("cells", event.payload.no, event.payload);
+                // need to change the method? but it works
                 setData("cell_index", (cell_index: number[]) => {
                     cell_index.push(event.payload.no);
-                    let cell_index_copy : number[]= cell_index.slice();
+                    let cell_index_copy : number[] = cell_index.slice();
                     return cell_index_copy;
                 });
             });
