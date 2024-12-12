@@ -1,27 +1,22 @@
-import { useBattles, useCells } from '../utility/provider';
 import { ShipNameComponent } from './ship_name';
 
-import { Accessor, createMemo, For, Show } from 'solid-js';
+import { createMemo, For, Show } from 'solid-js';
 
 import "../css/divider.css";
 import { EnemyNameComponent } from './enemy_name';
 import { Battle } from '../interface/battle';
 
 interface AntiSubmarineProps {
-    deck_ship_id: Accessor<{ [key: number]: number[] }>;
-    battle_selected: Accessor<Battle>;
-    cell_index_selected: Accessor<number>;
+    deck_ship_id: { [key: number]: number[] };
+    battle_selected: () => Battle;
 }
 
-export function OpeningAntiSubmarineComponent({deck_ship_id, battle_selected, cell_index_selected}: AntiSubmarineProps) {
-
-    const [battles, ] = useBattles();
-    const [cells, ] = useCells();
+export function OpeningAntiSubmarineComponent({deck_ship_id, battle_selected}: AntiSubmarineProps) {
     
     const show_anti_submarine = createMemo<boolean>(() => {
-        if (battles.cells.length == 0) return false;
-        if (battles.cells.find((cell) => cell == cells.cell_index[cell_index_selected()]) == undefined) return false;
-        return battles.battles[cells.cell_index[cell_index_selected()]].opening_taisen != null;
+        if (battle_selected() == undefined) return false;
+        if (battle_selected().opening_taisen == null) return false;
+        return true;
     });
 
 
@@ -50,7 +45,7 @@ export function OpeningAntiSubmarineComponent({deck_ship_id, battle_selected, ce
                                                 <Show when={battle_selected().opening_taisen.at_eflag[at_index()]==0} fallback={
                                                     <EnemyNameComponent ship_id={battle_selected().enemy_ship_id[at]}></EnemyNameComponent>
                                                 }>
-                                                    <ShipNameComponent ship_id={deck_ship_id()[1][at]}></ShipNameComponent>
+                                                    <ShipNameComponent ship_id={deck_ship_id[1][at]}></ShipNameComponent>
                                                 </Show>
                                             </td>
                                             <td>
@@ -60,7 +55,7 @@ export function OpeningAntiSubmarineComponent({deck_ship_id, battle_selected, ce
                                                             <Show when={battle_selected().opening_taisen.at_eflag[at_index()]==1} fallback={
                                                                 <EnemyNameComponent ship_id={battle_selected().enemy_ship_id[df]}></EnemyNameComponent>
                                                             }>
-                                                                <ShipNameComponent ship_id={deck_ship_id()[1][df]}></ShipNameComponent>
+                                                                <ShipNameComponent ship_id={deck_ship_id[1][df]}></ShipNameComponent>
                                                             </Show>
                                                         )}
                                                     </For>
@@ -72,12 +67,12 @@ export function OpeningAntiSubmarineComponent({deck_ship_id, battle_selected, ce
                                                         {(dmg, dmg_index) => (
                                                             <div class={
                                                                 (() => {
-                                                                    console.log(battle_selected().opening_taisen.cl_list);
-                                                                    if (battle_selected().opening_taisen.cl_list[at_index()][dmg_index()]==0) {
+                                                                    let cl_flag = battle_selected().opening_taisen.cl_list[at_index()][dmg_index()];
+                                                                    if (cl_flag==0) {
                                                                         return "text-red-500";
-                                                                    } else if (battle_selected().opening_taisen.cl_list[at_index()][dmg_index()]==1) {
+                                                                    } else if (cl_flag==1) {
                                                                         return "text-yellow-500";
-                                                                    } else if (battle_selected().opening_taisen.cl_list[at_index()][dmg_index()]==2) {
+                                                                    } else if (cl_flag==2) {
                                                                         return "text-yellow-500";
                                                                     }
                                                                 })()
