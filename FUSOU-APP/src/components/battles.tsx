@@ -63,7 +63,7 @@ export function BattlesComponent() {
                             <div class="h-4 mt-px pt-px">cells</div>
                             <IconChevronRight class="h-4 w-4 m-1 " />
                             <For each={cells.cell_index}>
-                                {(cell_index, index) => (
+                                {(_, index) => (
                                     <>
                                         <Show when={index() > 0}>
                                             <div class="divider divider-horizontal mr-0 ml-0 w-px"></div>
