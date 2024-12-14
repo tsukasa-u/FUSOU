@@ -13,7 +13,7 @@ interface AntiSubmarineProps {
 
 export function OpeningAntiSubmarineComponent({deck_ship_id, battle_selected}: AntiSubmarineProps) {
     
-    const show_torpedo_attack = createMemo<boolean>(() => {
+    const show_anti_submarine = createMemo<boolean>(() => {
         if (battle_selected() == undefined) return false;
         if (battle_selected().opening_taisen == null) return false;
         return true;
@@ -21,7 +21,7 @@ export function OpeningAntiSubmarineComponent({deck_ship_id, battle_selected}: A
 
 
     return (
-        <Show when={show_torpedo_attack()}>
+        <Show when={show_anti_submarine()}>
             <li>
                 <details open={true}>
                     <summary>
