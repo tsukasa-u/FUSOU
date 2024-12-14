@@ -13,7 +13,7 @@ interface AntiSubmarineProps {
 
 export function OpeningAntiSubmarineComponent({deck_ship_id, battle_selected}: AntiSubmarineProps) {
     
-    const show_anti_submarine = createMemo<boolean>(() => {
+    const show_torpedo_attack = createMemo<boolean>(() => {
         if (battle_selected() == undefined) return false;
         if (battle_selected().opening_taisen == null) return false;
         return true;
@@ -21,7 +21,7 @@ export function OpeningAntiSubmarineComponent({deck_ship_id, battle_selected}: A
 
 
     return (
-        <Show when={show_anti_submarine()}>
+        <Show when={show_torpedo_attack()}>
             <li>
                 <details open={true}>
                     <summary>
@@ -34,7 +34,6 @@ export function OpeningAntiSubmarineComponent({deck_ship_id, battle_selected}: A
                                     <th>From</th>
                                     <th>To</th>
                                     <th>Attack</th>
-                                    <th>Type</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -70,8 +69,6 @@ export function OpeningAntiSubmarineComponent({deck_ship_id, battle_selected}: A
                                                                     let cl_flag = battle_selected().opening_taisen.cl_list[at_index()][dmg_index()];
                                                                     if (cl_flag==0) {
                                                                         return "text-red-500";
-                                                                    } else if (cl_flag==1) {
-                                                                        return "text-yellow-500";
                                                                     } else if (cl_flag==2) {
                                                                         return "text-yellow-500";
                                                                     }
@@ -81,7 +78,6 @@ export function OpeningAntiSubmarineComponent({deck_ship_id, battle_selected}: A
                                                     </For>
                                                 </div>
                                             </td>
-                                            <td>{battle_selected().opening_taisen.at_type[at_index()]}</td>
                                         </tr>
                                     )}
                                 </For>
