@@ -30,8 +30,8 @@ export function EndingTorpedoAttackComponent({deck_ship_id, battle_selected}: To
     const show_torpedo_attack = createMemo<boolean>(() => {
         if (battle_selected() == undefined) return false;
         if (battle_selected().ending_raigeki == null) return false;
-        if (battle_selected().ending_raigeki.frai.find((val) => val==-1) == undefined) return false;
-        if (battle_selected().ending_raigeki.erai.find((val) => val==-1) == undefined) return false;
+        if (battle_selected().ending_raigeki.frai.findIndex((val) => val != null) == -1) return false;
+        if (battle_selected().ending_raigeki.erai.findIndex((val) => val != null) == -1) return false;
         return true;
     });
 
@@ -53,17 +53,19 @@ export function EndingTorpedoAttackComponent({deck_ship_id, battle_selected}: To
             if (frai != -1) {
                 // if (torpedo_damage.hasOwnProperty(frai)) {
                 if (torpedo_damage.frai.list.includes(frai)) {
-                    torpedo_damage.frai.dict[frai].dmg += battle_selected().ending_raigeki.fdam[i];
+                    torpedo_damage.frai.dict[frai].dmg += battle_selected().ending_raigeki.fydam[i];
                     torpedo_damage.frai.dict[frai].ships.push(i);
                     // How to detect critical?
-                    torpedo_damage.frai.dict[frai].cl = torpedo_damage.frai.dict[frai].cl + battle_selected().ending_raigeki.fcl[i] ? 1 : 0;
+                    if (battle_selected().ending_raigeki.fcl[i] > torpedo_damage.frai.dict[frai].cl) {
+                        torpedo_damage.frai.dict[frai].cl = battle_selected().ending_raigeki.fcl[i];
+                    }
                 } else {
                     torpedo_damage.frai.list.push(frai);
                     torpedo_damage.frai.dict[frai] = {
-                        dmg: battle_selected().ending_raigeki.fdam[i],
+                        dmg: battle_selected().ending_raigeki.fydam[i],
                         ships: [i],
                         // How to detect critical?
-                        cl : battle_selected().ending_raigeki.fcl[i] > 0 ? 1 : 0,
+                        cl : battle_selected().ending_raigeki.fcl[i],
                     };
                 }
             }
@@ -71,17 +73,19 @@ export function EndingTorpedoAttackComponent({deck_ship_id, battle_selected}: To
         battle_selected().ending_raigeki.erai.forEach((erai, i) => {
             if (erai != -1) {
                 if (torpedo_damage.erai.list.includes(erai)) {
-                    torpedo_damage.erai.dict[erai].dmg += battle_selected().ending_raigeki.edam[i];
+                    torpedo_damage.erai.dict[erai].dmg += battle_selected().ending_raigeki.eydam[i];
                     torpedo_damage.erai.dict[erai].ships.push(i);
                     // How to detect critical?
-                    torpedo_damage.erai.dict[erai].cl = torpedo_damage.erai.dict[erai].cl + battle_selected().ending_raigeki.ecl[i] ? 1 : 0;
+                    if (battle_selected().ending_raigeki.ecl[i] > torpedo_damage.erai.dict[erai].cl) {
+                        torpedo_damage.erai.dict[erai].cl = battle_selected().ending_raigeki.ecl[i];
+                    }
                 } else {
                     torpedo_damage.erai.list.push(erai);
                     torpedo_damage.erai.dict[erai] = {
-                        dmg: battle_selected().ending_raigeki.edam[i],
+                        dmg: battle_selected().ending_raigeki.eydam[i],
                         ships: [i],
                         // How to detect critical?
-                        cl: battle_selected().ending_raigeki.ecl[i] ? 1 : 0, 
+                        cl: battle_selected().ending_raigeki.ecl[i], 
                     };
                 }
             }
@@ -133,7 +137,7 @@ export function EndingTorpedoAttackComponent({deck_ship_id, battle_selected}: To
                                                         let cl_flag = torpedo_damage().frai.dict[frai].cl;
                                                         if (cl_flag==0) {
                                                             return "text-red-500";
-                                                        } else if (cl_flag==1) {
+                                                        } else if (cl_flag==2) {
                                                             return "text-yellow-500";
                                                         }
                                                     })()
@@ -163,7 +167,7 @@ export function EndingTorpedoAttackComponent({deck_ship_id, battle_selected}: To
                                                         let cl_flag = torpedo_damage().erai.dict[erai].cl;
                                                         if (cl_flag==0) {
                                                             return "text-red-500";
-                                                        } else if (cl_flag==1) {
+                                                        } else if (cl_flag==2) {
                                                             return "text-yellow-500";
                                                         }
                                                     })()

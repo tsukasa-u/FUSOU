@@ -47,8 +47,8 @@ pub struct Battle {
 pub struct OpeningRaigeki {
     pub fdam: Vec<f32>,
     pub edam: Vec<f32>,
-    pub fydam: Vec<Option<Vec<i64>>>,
-    pub eydam: Vec<Option<Vec<i64>>>,
+    pub fydam_list_items: Vec<Option<Vec<i64>>>,
+    pub eydam_list_items: Vec<Option<Vec<i64>>>,
     pub frai_list_items: Vec<Option<Vec<i64>>>,
     pub erai_list_items: Vec<Option<Vec<i64>>>,
     pub fcl_list_items: Vec<Option<Vec<i64>>>,
@@ -103,20 +103,20 @@ impl From<kcapi_common::common_battle::ApiOpeningTaisen> for OpeningTaisen {
     }
 }
 
-// impl From<kcapi_common::common_battle::ApiRaigeki> for OpeningRaigeki {
-//     fn from(opening_raigeki: kcapi_common::common_battle::ApiRaigeki) -> Self {
-//         Self {
-//             fdam: opening_raigeki.api_fdam,
-//             edam: opening_raigeki.api_edam,
-//             fydam: opening_raigeki.api_fydam,
-//             eydam: opening_raigeki.api_eydam,
-//             frai: opening_raigeki.api_frai,
-//             erai: opening_raigeki.api_erai,
-//             fcl: opening_raigeki.api_fcl,
-//             ecl: opening_raigeki.api_ecl,
-//         }
-//     }
-// }
+impl From<kcapi_common::common_battle::ApiOpeningAtack> for OpeningRaigeki {
+    fn from(opening_raigeki: kcapi_common::common_battle::ApiOpeningAtack) -> Self {
+        Self {
+            fdam: opening_raigeki.api_fdam,
+            edam: opening_raigeki.api_edam,
+            fydam_list_items: opening_raigeki.api_fydam_list_items,
+            eydam_list_items: opening_raigeki.api_eydam_list_items,
+            frai_list_items: opening_raigeki.api_frai_list_items,
+            erai_list_items: opening_raigeki.api_erai_list_items,
+            fcl_list_items: opening_raigeki.api_fcl_list_items,
+            ecl_list_items: opening_raigeki.api_ecl_list_items,
+        }
+    }
+}
 
 impl From<kcapi_common::common_battle::ApiRaigeki> for EndingRaigeki {
     fn from(ending_raigeki: kcapi_common::common_battle::ApiRaigeki) -> Self {
@@ -139,10 +139,10 @@ impl From<kcapi::api_req_sortie::battle::ApiData> for Battle {
             Some(opening_taisen) => Some(opening_taisen.into()),
             None => None,
         };
-        // let opening_raigeki: Option<OpeningRaigeki> = match battle.api_raigeki {
-        //     Some(opening_raigeki) => Some(opening_raigeki.into()),
-        //     None => None,
-        // };
+        let opening_raigeki: Option<OpeningRaigeki> = match battle.api_opening_atack {
+            Some(opening_attack) => Some(opening_attack.into()),
+            None => None,
+        };
         let ending_taigeki: Option<EndingRaigeki> = match battle.api_raigeki {
             Some(ending_raigeki) => Some(ending_raigeki.into()),
             None => None,
@@ -164,7 +164,7 @@ impl From<kcapi::api_req_sortie::battle::ApiData> for Battle {
             reconnaissance: empty.clone(),
             forward_observe: empty.clone(),
             opening_taisen: opening_taisen,
-            opening_raigeki: None,
+            opening_raigeki: opening_raigeki,
             hougeki: None,
             ending_raigeki: ending_taigeki,
         }

@@ -5,7 +5,7 @@ import "../css/divider.css";
 import IconChevronRight from '../icons/chevron_right';
 import { Battle } from '../interface/battle';
 import { OpeningAntiSubmarineComponent } from './opening_anti_submarine';
-// import { OpeningTorpedoAttackComponent } from './opening_torpedo_attack';
+import { OpeningTorpedoAttackComponent } from './opening_torpedo_attack';
 import { EndingTorpedoAttackComponent } from './ending_torpedo_attack';
 
 export function BattlesComponent() {
@@ -76,8 +76,8 @@ export function BattlesComponent() {
                     </ul>
                     <Show when={show_battle()}>
                         <ul class="pl-0">
-                            {/* <OpeningTorpedoAttackComponent deck_ship_id={deck_ship_id} battle_selected={battle_selected} cell_index_selected={cell_index_selected}></OpeningTorpedoAttackComponent> */}
                             <OpeningAntiSubmarineComponent deck_ship_id={deck_ship_id()} battle_selected={battle_selected}></OpeningAntiSubmarineComponent>
+                            <OpeningTorpedoAttackComponent deck_ship_id={deck_ship_id()} battle_selected={battle_selected}></OpeningTorpedoAttackComponent>
                             <EndingTorpedoAttackComponent deck_ship_id={deck_ship_id()} battle_selected={battle_selected}></EndingTorpedoAttackComponent>
                         </ul>
                     </Show>

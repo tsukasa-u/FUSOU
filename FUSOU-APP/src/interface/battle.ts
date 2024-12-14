@@ -38,12 +38,12 @@ export interface OpeningTaisen {
 export interface OpeningRaigeki {
     fdam: number[],
     edam: number[],
-    fydam: number[],
-    eydam: number[],
-    frai: number[],
-    erai: number[],
-    fcl: number[],
-    ecl: number[],
+    fydam_list_items: number[][],
+    eydam_list_items: number[][],
+    frai_list_items: number[][],
+    erai_list_items: number[][],
+    fcl_list_items: number[][],
+    ecl_list_items: number[][],
 }
 
 export interface Hougeki {
@@ -92,12 +92,12 @@ export var global_battle: Battle = {
     opening_raigeki: {
         fdam: [],
         edam: [],
-        fydam: [],
-        eydam: [],
-        frai: [],
-        erai: [],
-        fcl: [],
-        ecl: [],
+        fydam_list_items: [[]],
+        eydam_list_items: [[]],
+        frai_list_items: [[]],
+        erai_list_items: [[]],
+        fcl_list_items: [[]],
+        ecl_list_items: [[]],
     },
     hougeki: [],
     ending_raigeki: {
