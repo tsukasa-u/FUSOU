@@ -51,7 +51,7 @@ export function OpeningAntiSubmarineComponent({deck_ship_id, battle_selected}: A
                                             <td>
                                                 <div class="flex flex-col">
                                                     <For each={battle_selected().opening_taisen.df_list[at_index()]}>
-                                                        {(df, df_index) => (
+                                                        {(df, _) => (
                                                             <Show when={battle_selected().opening_taisen.at_eflag[at_index()]==1} fallback={
                                                                 <EnemyNameComponent ship_id={battle_selected().enemy_ship_id[df]}></EnemyNameComponent>
                                                             }>
