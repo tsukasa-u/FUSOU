@@ -7,10 +7,11 @@ interface ShipProps {
 
 
 const icon_list: { [key: string]: string } = {
-   "undifined": "#FFFFFF", //  Undefined
-   "": "#CCCCCC",
-   "elite": "#FF4500",     //  Elite
-    "flagship": "#FFD700",  //  Flagship
+  "undifined": "#FFFFFF", //  Undefined
+  "": "#CCCCCC",
+  "-" : "#CCCCCC",
+  "elite": "#FF4500",     //  Elite
+  "flagship": "#FFD700",  //  Flagship
 };
 
 
