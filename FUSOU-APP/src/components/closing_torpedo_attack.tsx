@@ -25,13 +25,12 @@ interface TorpedoDamages {
     erai: TorpedoDamage;
 }
 
-export function EndingTorpedoAttackComponent({deck_ship_id, battle_selected}: TorpedoSubmarineProps) {
+export function ClosingTorpedoAttackComponent({deck_ship_id, battle_selected}: TorpedoSubmarineProps) {
     
     const show_torpedo_attack = createMemo<boolean>(() => {
         if (battle_selected() == undefined) return false;
-        if (battle_selected().ending_raigeki == null) return false;
-        if (battle_selected().ending_raigeki.frai.findIndex((val) => val != null) == -1) return false;
-        if (battle_selected().ending_raigeki.erai.findIndex((val) => val != null) == -1) return false;
+        if (battle_selected().closing_raigeki == null) return false;
+        if (battle_selected().closing_raigeki.frai.findIndex((val) => val != null) == -1 && battle_selected().closing_raigeki.erai.findIndex((val) => val != null) == -1) return false;
         return true;
     });
 
@@ -47,45 +46,45 @@ export function EndingTorpedoAttackComponent({deck_ship_id, battle_selected}: To
                 dict: {},
             },
         };
-        if (battle_selected().ending_raigeki == null) return torpedo_damage;
+        if (battle_selected().closing_raigeki == null) return torpedo_damage;
 
-        battle_selected().ending_raigeki.frai.forEach((frai, i) => {
+        battle_selected().closing_raigeki.frai.forEach((frai, i) => {
             if (frai != -1) {
                 // if (torpedo_damage.hasOwnProperty(frai)) {
                 if (torpedo_damage.frai.list.includes(frai)) {
-                    torpedo_damage.frai.dict[frai].dmg += battle_selected().ending_raigeki.fydam[i];
+                    torpedo_damage.frai.dict[frai].dmg += battle_selected().closing_raigeki.fydam[i];
                     torpedo_damage.frai.dict[frai].ships.push(i);
                     // How to detect critical?
-                    if (battle_selected().ending_raigeki.fcl[i] > torpedo_damage.frai.dict[frai].cl) {
-                        torpedo_damage.frai.dict[frai].cl = battle_selected().ending_raigeki.fcl[i];
+                    if (battle_selected().closing_raigeki.fcl[i] > torpedo_damage.frai.dict[frai].cl) {
+                        torpedo_damage.frai.dict[frai].cl = battle_selected().closing_raigeki.fcl[i];
                     }
                 } else {
                     torpedo_damage.frai.list.push(frai);
                     torpedo_damage.frai.dict[frai] = {
-                        dmg: battle_selected().ending_raigeki.fydam[i],
+                        dmg: battle_selected().closing_raigeki.fydam[i],
                         ships: [i],
                         // How to detect critical?
-                        cl : battle_selected().ending_raigeki.fcl[i],
+                        cl : battle_selected().closing_raigeki.fcl[i],
                     };
                 }
             }
         });
-        battle_selected().ending_raigeki.erai.forEach((erai, i) => {
+        battle_selected().closing_raigeki.erai.forEach((erai, i) => {
             if (erai != -1) {
                 if (torpedo_damage.erai.list.includes(erai)) {
-                    torpedo_damage.erai.dict[erai].dmg += battle_selected().ending_raigeki.eydam[i];
+                    torpedo_damage.erai.dict[erai].dmg += battle_selected().closing_raigeki.eydam[i];
                     torpedo_damage.erai.dict[erai].ships.push(i);
                     // How to detect critical?
-                    if (battle_selected().ending_raigeki.ecl[i] > torpedo_damage.erai.dict[erai].cl) {
-                        torpedo_damage.erai.dict[erai].cl = battle_selected().ending_raigeki.ecl[i];
+                    if (battle_selected().closing_raigeki.ecl[i] > torpedo_damage.erai.dict[erai].cl) {
+                        torpedo_damage.erai.dict[erai].cl = battle_selected().closing_raigeki.ecl[i];
                     }
                 } else {
                     torpedo_damage.erai.list.push(erai);
                     torpedo_damage.erai.dict[erai] = {
-                        dmg: battle_selected().ending_raigeki.eydam[i],
+                        dmg: battle_selected().closing_raigeki.eydam[i],
                         ships: [i],
                         // How to detect critical?
-                        cl: battle_selected().ending_raigeki.ecl[i], 
+                        cl: battle_selected().closing_raigeki.ecl[i], 
                     };
                 }
             }
@@ -99,7 +98,7 @@ export function EndingTorpedoAttackComponent({deck_ship_id, battle_selected}: To
             <li>
                 <details open={true}>
                     <summary>
-                        Ending Torpedo Attack
+                        Closing Torpedo Attack
                     </summary>
                     <ul class="pl-0">
                         <table class="table table-xs">
