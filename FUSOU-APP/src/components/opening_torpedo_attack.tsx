@@ -30,8 +30,7 @@ export function OpeningTorpedoAttackComponent({deck_ship_id, battle_selected}: T
     const show_torpedo_attack = createMemo<boolean>(() => {
         if (battle_selected() == undefined) return false;
         if (battle_selected().opening_raigeki == null) return false;
-        if (battle_selected().opening_raigeki.fcl_list_items.findIndex((val) => val != null) == -1) return false;
-        if (battle_selected().opening_raigeki.erai_list_items.findIndex((val) => val != null) == -1) return false;
+        if (battle_selected().opening_raigeki.frai_list_items.findIndex((val) => val != null) == -1 && battle_selected().opening_raigeki.erai_list_items.findIndex((val) => val != null) == -1) return false;
         return true;
     });
 
