@@ -6,7 +6,8 @@ import IconChevronRight from '../icons/chevron_right';
 import { Battle } from '../interface/battle';
 import { OpeningAntiSubmarineComponent } from './opening_anti_submarine';
 import { OpeningTorpedoAttackComponent } from './opening_torpedo_attack';
-import { EndingTorpedoAttackComponent } from './ending_torpedo_attack';
+import { ClosingTorpedoAttackComponent } from './closing_torpedo_attack';
+import { ShellingComponent } from './shelling';
 
 export function BattlesComponent() {
 
@@ -78,7 +79,8 @@ export function BattlesComponent() {
                         <ul class="pl-0">
                             <OpeningAntiSubmarineComponent deck_ship_id={deck_ship_id()} battle_selected={battle_selected}></OpeningAntiSubmarineComponent>
                             <OpeningTorpedoAttackComponent deck_ship_id={deck_ship_id()} battle_selected={battle_selected}></OpeningTorpedoAttackComponent>
-                            <EndingTorpedoAttackComponent deck_ship_id={deck_ship_id()} battle_selected={battle_selected}></EndingTorpedoAttackComponent>
+                            <ShellingComponent deck_ship_id={deck_ship_id()} battle_selected={battle_selected}></ShellingComponent>
+                            <ClosingTorpedoAttackComponent deck_ship_id={deck_ship_id()} battle_selected={battle_selected}></ClosingTorpedoAttackComponent>
                         </ul>
                     </Show>
                 </details>
