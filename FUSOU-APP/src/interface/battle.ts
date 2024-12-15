@@ -20,7 +20,7 @@ export interface Battle {
     opening_taisen: OpeningTaisen,
     opening_raigeki: OpeningRaigeki,
     hougeki: Hougeki[],
-    ending_raigeki: EndingRaigeki,
+    closing_raigeki: EndingRaigeki,
     // friendly_fleet_attack: Option<FriendlyFleetAttack>,
     // midnight_hougeki: Option<Vec<Option<Hougeki>>,
 }
@@ -100,7 +100,7 @@ export var global_battle: Battle = {
         ecl_list_items: [[]],
     },
     hougeki: [],
-    ending_raigeki: {
+    closing_raigeki: {
         fdam: [],
         edam: [],
         fydam: [],

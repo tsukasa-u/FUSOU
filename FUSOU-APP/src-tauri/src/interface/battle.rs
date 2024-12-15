@@ -38,7 +38,7 @@ pub struct Battle {
     pub opening_taisen: Option<OpeningTaisen>,
     pub opening_raigeki: Option<OpeningRaigeki>,
     pub hougeki: Option<Vec<Option<Hougeki>>>,
-    pub ending_raigeki: Option<EndingRaigeki>,
+    pub closing_raigeki: Option<ClosingRaigeki>,
     // pub friendly_fleet_attack: Option<FriendlyFleetAttack>,
     // pub midnight_hougeki: Option<Vec<Option<Hougeki>>,
 }
@@ -67,7 +67,7 @@ pub struct OpeningTaisen {
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct EndingRaigeki {
+pub struct ClosingRaigeki {
     pub fdam: Vec<f32>,
     pub edam: Vec<f32>,
     pub fydam: Vec<i64>,
@@ -118,17 +118,31 @@ impl From<kcapi_common::common_battle::ApiOpeningAtack> for OpeningRaigeki {
     }
 }
 
-impl From<kcapi_common::common_battle::ApiRaigeki> for EndingRaigeki {
-    fn from(ending_raigeki: kcapi_common::common_battle::ApiRaigeki) -> Self {
+impl From<kcapi_common::common_battle::ApiRaigeki> for ClosingRaigeki {
+    fn from(closing_raigeki: kcapi_common::common_battle::ApiRaigeki) -> Self {
         Self {
-            fdam: ending_raigeki.api_fdam,
-            edam: ending_raigeki.api_edam,
-            fydam: ending_raigeki.api_fydam,
-            eydam: ending_raigeki.api_eydam,
-            frai: ending_raigeki.api_frai,
-            erai: ending_raigeki.api_erai,
-            fcl: ending_raigeki.api_fcl,
-            ecl: ending_raigeki.api_ecl,
+            fdam: closing_raigeki.api_fdam,
+            edam: closing_raigeki.api_edam,
+            fydam: closing_raigeki.api_fydam,
+            eydam: closing_raigeki.api_eydam,
+            frai: closing_raigeki.api_frai,
+            erai: closing_raigeki.api_erai,
+            fcl: closing_raigeki.api_fcl,
+            ecl: closing_raigeki.api_ecl,
+        }
+    }
+}
+
+impl From<kcapi_common::common_battle::ApiHougeki> for Hougeki {
+    fn from(hougeki: kcapi_common::common_battle::ApiHougeki) -> Self {
+        Self {
+            at_list: hougeki.api_at_list,
+            at_type: hougeki.api_at_type,
+            df_list: hougeki.api_df_list,
+            cl_list: hougeki.api_cl_list,
+            damage: hougeki.api_damage,
+            at_eflag: hougeki.api_at_eflag,
+            si_list: hougeki.api_si_list,
         }
     }
 }
@@ -143,9 +157,26 @@ impl From<kcapi::api_req_sortie::battle::ApiData> for Battle {
             Some(opening_attack) => Some(opening_attack.into()),
             None => None,
         };
-        let ending_taigeki: Option<EndingRaigeki> = match battle.api_raigeki {
-            Some(ending_raigeki) => Some(ending_raigeki.into()),
+        let closing_taigeki: Option<ClosingRaigeki> = match battle.api_raigeki {
+            Some(closing_raigeki) => Some(closing_raigeki.into()),
             None => None,
+        };
+        let hougeki_1: Option<Hougeki> = match battle.api_hougeki1 {
+            Some(hougeki) => Some(hougeki.into()),
+            None => None,
+        };
+        let hougeki_2: Option<Hougeki> = match battle.api_hougeki2 {
+            Some(hougeki) => Some(hougeki.into()),
+            None => None,
+        };
+        // Need to implement hougeki_3
+        let hougeki_3: Option<Hougeki> = match battle.api_hougeki3 {
+            _ => None,
+        };
+        let hougeki: Option<Vec<Option<Hougeki>>> = if hougeki_1.is_some() || hougeki_2.is_some() || hougeki_3.is_some() {
+            Some(vec![hougeki_1, hougeki_2, hougeki_3])
+        } else {
+            None
         };
 
         let empty = Vec::new();
@@ -165,8 +196,8 @@ impl From<kcapi::api_req_sortie::battle::ApiData> for Battle {
             forward_observe: empty.clone(),
             opening_taisen: opening_taisen,
             opening_raigeki: opening_raigeki,
-            hougeki: None,
-            ending_raigeki: ending_taigeki,
+            hougeki: hougeki,
+            closing_raigeki: closing_taigeki,
         }
     }
 }
