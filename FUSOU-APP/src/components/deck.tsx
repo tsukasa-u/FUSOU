@@ -205,10 +205,10 @@ export function DeckComponent({deck_id, fleet_name}: DeckPortProps) {
                                             <Show when={moreSignal()}>
                                                 <div class="flex">
                                                     <div class="grid grid-cols-5 gap-2 content-center w-52">
-                                                        { _ships.ships[shipId]?.slot?.map((slotId) => (
+                                                        { _ships.ships[shipId]?.slot?.map((slotId, slotId_index) => (
                                                             <Show when={slotId > 0}>
                                                                 <div class="text-base flex justify-center">
-                                                                    <EquimentComponent slot_id={slotId} ex_flag={false} name_flag={false} />
+                                                                    <EquimentComponent slot_id={slotId} ex_flag={false} name_flag={false} onslot={_ships.ships[shipId]?.onsolot[slotId_index]}/>
                                                                 </div>
                                                             </Show>
                                                         )) }

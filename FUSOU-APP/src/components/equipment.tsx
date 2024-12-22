@@ -10,6 +10,7 @@ interface EquipmentProps {
     slot_id: number;
     ex_flag: boolean;
     name_flag: boolean;
+    onslot?: number;
 }
 
 const show_modal = (slot_id: number) => {
@@ -17,7 +18,7 @@ const show_modal = (slot_id: number) => {
     dialogElement?.showModal()
 }
 
-export function EquimentComponent({slot_id, ex_flag, name_flag}: EquipmentProps) {
+export function EquimentComponent({slot_id, ex_flag, name_flag, onslot}: EquipmentProps) {
 
     const [_mst_slot_items, ] = useMstSlotItems();
     const [_slot_items, ] = useSlotItems();
@@ -28,6 +29,11 @@ export function EquimentComponent({slot_id, ex_flag, name_flag}: EquipmentProps)
 
     const mst_slot_item = createMemo(() => {
         return _mst_slot_items.mst_slot_items[_slot_items.slot_items[slot_id]?.slotitem_id];
+    });
+
+    const show_onslot = createMemo(() => {
+        let type = _mst_slot_items.mst_slot_items[_slot_items.slot_items[slot_id]?.slotitem_id]._type[1];
+        return type == 5 || type == 7 || type == 16 || type == 33 || type == 36 || type == 38 || type == 39 || type == 40 || type == 43 || type == 44;
     });
 
     return <>
@@ -51,6 +57,7 @@ export function EquimentComponent({slot_id, ex_flag, name_flag}: EquipmentProps)
                     </div>
                     <div class="grid h-2.5 w-4 place-content-center text-xs">
                         {/* {slot_item()?.alv ?? 0} */}
+                        {show_onslot() ? onslot : ""}
                     </div>
                 </div> : <></>
             }
