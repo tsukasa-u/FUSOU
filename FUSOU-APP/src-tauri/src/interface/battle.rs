@@ -33,7 +33,7 @@ pub struct Battle {
     // pub force_jet_assault: Option<Vec<i64>>,
     // pub AirBaseCombat: Option<AirBaseCombat>,
     // pub Mobile TaskForceFriendlyAirCombat: Option<MobileTaskForceFriendlyAirCombat>
-    pub opening_air_Attack: Option<OprningAirAttack>,
+    pub opening_air_attack: Option<OpeningAirAttack>,
     // pub support_attack: Option<SupportAttack>,
     pub opening_taisen: Option<OpeningTaisen>,
     pub opening_raigeki: Option<OpeningRaigeki>,
@@ -44,24 +44,26 @@ pub struct Battle {
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct OprningAirAttack {
+pub struct OpeningAirAttack {
     pub f_plane_from: Option<Vec<Option<i64>>>,
     pub e_plane_from: Option<Vec<Option<i64>>>,
-    pub stage1: Option<OprningAirAttackStage1>,
-    pub stage2: Option<OprningAirAttackStage2>,
-    pub stage3: Option<OprningAirAttackStage3>,
+    pub stage1: Option<OpeningAirAttackStage1>,
+    pub stage2: Option<OpeningAirAttackStage2>,
+    pub stage3: Option<OpeningAirAttackStage3>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct OprningAirAttackStage1 {
+pub struct OpeningAirAttackStage1 {
     pub f_loss_plane: i64,
     pub e_loss_plane: i64,
     pub air_superiority: Option<i64>,
+    pub f_touch_plane: Option<i64>,
+    pub e_touch_plane: Option<i64>,
 }
 
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct OprningAirAttackStage2 {
+pub struct OpeningAirAttackStage2 {
     pub f_loss_plane: i64,
     pub e_loss_plane: i64,
     pub air_fire: Option<AirFire>,
@@ -75,7 +77,7 @@ pub struct AirFire {
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct OprningAirAttackStage3 {
+pub struct OpeningAirAttackStage3 {
     pub frai_flag: Option<Vec<i64>>,
     pub erai_flag: Option<Vec<i64>>,
     pub fbak_flag: Option<Vec<i64>>,
@@ -239,7 +241,7 @@ impl From<kcapi::api_req_sortie::battle::ApiData> for Battle {
             total_damages_enemies: empty.clone(),
             reconnaissance: empty.clone(),
             forward_observe: empty.clone(),
-            opening_air_Attack: None,
+            opening_air_attack: None,
             opening_taisen: opening_taisen,
             opening_raigeki: opening_raigeki,
             hougeki: hougeki,
