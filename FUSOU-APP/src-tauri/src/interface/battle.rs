@@ -33,7 +33,7 @@ pub struct Battle {
     // pub force_jet_assault: Option<Vec<i64>>,
     // pub AirBaseCombat: Option<AirBaseCombat>,
     // pub Mobile TaskForceFriendlyAirCombat: Option<MobileTaskForceFriendlyAirCombat>
-    // pub opening_kouku: Option<Kouku>,
+    pub opening_air_Attack: Option<OprningAirAttack>,
     // pub support_attack: Option<SupportAttack>,
     pub opening_taisen: Option<OpeningTaisen>,
     pub opening_raigeki: Option<OpeningRaigeki>,
@@ -41,6 +41,51 @@ pub struct Battle {
     pub closing_raigeki: Option<ClosingRaigeki>,
     // pub friendly_fleet_attack: Option<FriendlyFleetAttack>,
     // pub midnight_hougeki: Option<Vec<Option<Hougeki>>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct OprningAirAttack {
+    pub f_plane_from: Option<Vec<Option<i64>>>,
+    pub e_plane_from: Option<Vec<Option<i64>>>,
+    pub stage1: Option<OprningAirAttackStage1>,
+    pub stage2: Option<OprningAirAttackStage2>,
+    pub stage3: Option<OprningAirAttackStage3>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct OprningAirAttackStage1 {
+    pub f_loss_plane: i64,
+    pub e_loss_plane: i64,
+    pub air_superiority: Option<i64>,
+}
+
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct OprningAirAttackStage2 {
+    pub f_loss_plane: i64,
+    pub e_loss_plane: i64,
+    pub air_fire: Option<AirFire>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct AirFire {
+    pub use_item: Vec<i64>,
+    pub idx: i64,
+    pub kind: i64,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct OprningAirAttackStage3 {
+    pub frai_flag: Option<Vec<i64>>,
+    pub erai_flag: Option<Vec<i64>>,
+    pub fbak_flag: Option<Vec<i64>>,
+    pub ebak_flag: Option<Vec<i64>>,
+    pub fcl_flag: Option<Vec<i64>>,
+    pub ecl_flag: Option<Vec<i64>>,
+    pub fdam: Option<Vec<f32>>,
+    pub edam: Option<Vec<f32>>,
+    pub f_sp_list: Option<Vec<Option<Vec<i64>>>>,
+    pub e_sp_list: Option<Vec<Option<Vec<i64>>>>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -194,6 +239,7 @@ impl From<kcapi::api_req_sortie::battle::ApiData> for Battle {
             total_damages_enemies: empty.clone(),
             reconnaissance: empty.clone(),
             forward_observe: empty.clone(),
+            opening_air_Attack: None,
             opening_taisen: opening_taisen,
             opening_raigeki: opening_raigeki,
             hougeki: hougeki,
