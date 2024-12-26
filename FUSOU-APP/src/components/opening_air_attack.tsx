@@ -41,7 +41,6 @@ export function OpeningAirAttackComponent({deck_ship_id, battle_selected}: AirDa
         if (battle_selected().opening_air_attack == null) return false;
         if (battle_selected().opening_air_attack.f_damage == null) return false;
         if (battle_selected().opening_air_attack.e_damage == null) return false;
-        console.log(battle_selected().opening_air_attack);
         return true;
     });
 
