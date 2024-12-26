@@ -41,55 +41,8 @@ export function OpeningAirAttackComponent({deck_ship_id, battle_selected}: AirDa
         if (battle_selected().opening_air_attack == null) return false;
         if (battle_selected().opening_air_attack.f_damage == null) return false;
         if (battle_selected().opening_air_attack.e_damage == null) return false;
+        console.log(battle_selected().opening_air_attack);
         return true;
-    });
-
-    const opening_air_attack = createMemo<AirDamages>(() => {
-        let opening_air_attack: AirDamages = {
-            air_fire: {
-                use_items: [],
-                ship_id: -1,
-            },
-            air_superiority: 0,
-            f_damage: {
-                plane_from: [],
-                touch_plane: 0,
-                loss_plane1: 0,
-                loss_plane2: 0,
-                damages: [],
-                cl: [],
-                sp: [],
-                rai_flag: [],
-                bak_flag: [],
-            },
-            e_damage: {
-                plane_from: [],
-                touch_plane: 0,
-                loss_plane1: 0,
-                loss_plane2: 0,
-                damages: [],
-                cl: [],
-                sp: [],
-                rai_flag: [],
-                bak_flag: [],
-            },
-        };
-        if (battle_selected().opening_air_attack == null) return opening_air_attack;
-        
-        battle_selected().opening_air_attack.f_damage.damages.forEach((damage, index) => {
-            opening_air_attack.f_damage.damages.push(damage);
-            opening_air_attack.f_damage.cl.push(battle_selected().opening_air_attack.f_damage.cl[index]);
-            opening_air_attack.f_damage.sp.push(battle_selected().opening_air_attack.f_damage.sp[index]);
-        });
-        battle_selected().opening_air_attack.e_damage.damages.forEach((damage, index) => {
-            opening_air_attack.e_damage.damages.push(damage);
-            opening_air_attack.e_damage.cl.push(battle_selected().opening_air_attack.e_damage.cl[index]);
-            opening_air_attack.e_damage.sp.push(battle_selected().opening_air_attack.e_damage.sp[index]);
-        });
-        opening_air_attack.air_superiority = battle_selected().opening_air_attack.air_superiority;
-        opening_air_attack.air_fire = battle_selected().opening_air_attack.air_fire;
-
-        return opening_air_attack;
     });
 
     return (
@@ -112,7 +65,7 @@ export function OpeningAirAttackComponent({deck_ship_id, battle_selected}: AirDa
                                 <tr>
                                     <td>
                                         <div class="flex flex-col">
-                                            <For each={opening_air_attack().f_damage.plane_from}>
+                                            <For each={battle_selected().opening_air_attack.f_damage.plane_from}>
                                                 {(plane_flag, idx) => (
                                                     <>
                                                         <Show when={plane_flag != -1}>
@@ -127,10 +80,10 @@ export function OpeningAirAttackComponent({deck_ship_id, battle_selected}: AirDa
                                         </div>
                                     </td>
                                     <td>
-                                        <For each={opening_air_attack().e_damage.damages}>
+                                        <For each={battle_selected().opening_air_attack.e_damage.damages}>
                                             {(dmg, idx) => (
                                                 <>
-                                                    <Show when={opening_air_attack().e_damage.bak_flag[idx()] || opening_air_attack().e_damage.rai_flag[idx()]}>
+                                                    <Show when={battle_selected().opening_air_attack.e_damage.bak_flag[idx()] || battle_selected().opening_air_attack.e_damage.rai_flag[idx()]}>
                                                         <Show when={idx() > 0}>
                                                             <div class="h-px"></div>
                                                         </Show>
@@ -141,19 +94,22 @@ export function OpeningAirAttackComponent({deck_ship_id, battle_selected}: AirDa
                                         </For>
                                     </td>
                                     <td >
-                                        <For each={opening_air_attack().e_damage.damages}>
+                                        <For each={battle_selected().opening_air_attack.e_damage.damages}>
                                             {(dmg, idx) => (
                                                 <>
-                                                    <div class={
-                                                        (() => {
-                                                            let cl_flag = opening_air_attack().f_damage.cl[idx()];
-                                                            if (cl_flag==0) {
-                                                                return "text-red-500";
-                                                            } else if (cl_flag==2) {
-                                                                return "text-yellow-500";
-                                                            }
-                                                        })()
-                                                    }>{dmg}</div>
+                                                    <Show when={battle_selected().opening_air_attack.e_damage.bak_flag[idx()] || battle_selected().opening_air_attack.e_damage.rai_flag[idx()]}>
+                                                        <Show when={idx() > 0}>
+                                                            <div class="h-[4px]"></div>
+                                                        </Show>
+                                                        <div class={
+                                                            (() => {
+                                                                let cl_flag = battle_selected().opening_air_attack.f_damage.cl[idx()];
+                                                                if (cl_flag==1) {
+                                                                    return "text-yellow-500";
+                                                                }
+                                                            })()
+                                                        }>{dmg}</div>
+                                                    </Show>
                                                 </>
                                             )}
                                         </For>
@@ -162,7 +118,7 @@ export function OpeningAirAttackComponent({deck_ship_id, battle_selected}: AirDa
                                 <tr>
                                     <td>
                                         <div class="flex flex-col">
-                                            <For each={opening_air_attack().e_damage.plane_from}>
+                                            <For each={battle_selected().opening_air_attack.e_damage.plane_from}>
                                                 {(plane_flag, idx) => (
                                                     <>
                                                         <Show when={plane_flag != -1}>
@@ -177,10 +133,10 @@ export function OpeningAirAttackComponent({deck_ship_id, battle_selected}: AirDa
                                         </div>
                                     </td>
                                     <td>
-                                        <For each={opening_air_attack().f_damage.damages}>
+                                        <For each={battle_selected().opening_air_attack.f_damage.damages}>
                                             {(dmg, idx) => (
                                                 <>
-                                                    <Show when={opening_air_attack().f_damage.bak_flag[idx()] || opening_air_attack().f_damage.rai_flag[idx()]}>
+                                                    <Show when={battle_selected().opening_air_attack.f_damage.bak_flag[idx()] || battle_selected().opening_air_attack.f_damage.rai_flag[idx()]}>
                                                         <Show when={idx() > 0}>
                                                             <div class="h-px"></div>
                                                         </Show>
@@ -191,19 +147,19 @@ export function OpeningAirAttackComponent({deck_ship_id, battle_selected}: AirDa
                                         </For>
                                     </td>
                                     <td>
-                                        <For each={opening_air_attack().f_damage.damages}>
+                                        <For each={battle_selected().opening_air_attack.f_damage.damages}>
                                             {(dmg, idx) => (
                                                 <>
-                                                    <div class={
-                                                        (() => {
-                                                            let cl_flag = opening_air_attack().e_damage.cl[idx()];
-                                                            if (cl_flag==0) {
-                                                                return "text-red-500";
-                                                            } else if (cl_flag==2) {
-                                                                return "text-yellow-500";
-                                                            }
-                                                        })()
-                                                    }>{dmg}</div>
+                                                    <Show when={battle_selected().opening_air_attack.f_damage.bak_flag[idx()] || battle_selected().opening_air_attack.f_damage.rai_flag[idx()]}>
+                                                        <div class={
+                                                            (() => {
+                                                                let cl_flag = battle_selected().opening_air_attack.e_damage.cl[idx()];
+                                                                if (cl_flag==2) {
+                                                                    return "text-yellow-500";
+                                                                }
+                                                            })()
+                                                        }>{dmg}</div>
+                                                    </Show>
                                                 </>
                                             )}
                                         </For>

@@ -8,6 +8,7 @@ import { OpeningAntiSubmarineComponent } from './opening_anti_submarine';
 import { OpeningTorpedoAttackComponent } from './opening_torpedo_attack';
 import { ClosingTorpedoAttackComponent } from './closing_torpedo_attack';
 import { ShellingComponent } from './shelling';
+import { OpeningAirAttackComponent } from './opening_air_attack';
 
 export function BattlesComponent() {
 
@@ -77,6 +78,7 @@ export function BattlesComponent() {
                     </ul>
                     <Show when={show_battle()}>
                         <ul class="pl-0">
+                            <OpeningAirAttackComponent deck_ship_id={deck_ship_id()} battle_selected={battle_selected}></OpeningAirAttackComponent>
                             <OpeningAntiSubmarineComponent deck_ship_id={deck_ship_id()} battle_selected={battle_selected}></OpeningAntiSubmarineComponent>
                             <OpeningTorpedoAttackComponent deck_ship_id={deck_ship_id()} battle_selected={battle_selected}></OpeningTorpedoAttackComponent>
                             <ShellingComponent deck_ship_id={deck_ship_id()} battle_selected={battle_selected}></ShellingComponent>
