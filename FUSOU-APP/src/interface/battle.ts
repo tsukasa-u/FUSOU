@@ -15,7 +15,7 @@ export interface Battle {
     // force_jet_assault: Option<number[]>,
     // AirBaseCombat: Option<AirBaseCombat>,
     // Mobile TaskForceFriendlyAirCombat: Option<MobileTaskForceFriendlyAirCombat>
-    // opening_kouku: Option<Kouku>,
+    opening_air_attack: AirAttack,
     // support_attack: Option<SupportAttack>,
     opening_taisen: OpeningTaisen,
     opening_raigeki: OpeningRaigeki,
@@ -23,6 +23,30 @@ export interface Battle {
     closing_raigeki: EndingRaigeki,
     // friendly_fleet_attack: Option<FriendlyFleetAttack>,
     // midnight_hougeki: Option<Vec<Option<Hougeki>>,
+}
+
+export interface AirAttack {
+    air_superiority: number,
+    air_fire: AirFire,
+    f_damage: AirDamage,
+    e_damage: AirDamage,
+}
+
+export interface AirFire {
+    use_items: number[],
+    ship_id: number,
+}
+
+export interface AirDamage {
+    plane_from: number[],
+    touch_plane: number,
+    loss_plane1: number,
+    loss_plane2: number,
+    damages: number[],
+    cl: number[],
+    sp: number[][],
+    rai_flag: number[],
+    bak_flag: number[],
 }
 
 export interface OpeningTaisen {
@@ -80,6 +104,35 @@ export var global_battle: Battle = {
     total_damages_enemies: [],
     reconnaissance: [],
     forward_observe: [],
+    opening_air_attack: {
+        air_superiority: 0,
+        air_fire: {
+            use_items: [],
+            ship_id: -1,
+        },
+        f_damage: {
+            plane_from: [],
+            touch_plane: 0,
+            loss_plane1: 0,
+            loss_plane2: 0,
+            damages: [],
+            cl: [],
+            sp: [],
+            rai_flag: [],
+            bak_flag: [],
+        },
+        e_damage: {
+            plane_from: [],
+            touch_plane: 0,
+            loss_plane1: 0,
+            loss_plane2: 0,
+            damages: [],
+            cl: [],
+            sp: [],
+            rai_flag: [],
+            bak_flag: [],
+        },
+    },
     opening_taisen: {
         at_list: [],
         at_type: [],
