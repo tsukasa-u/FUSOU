@@ -110,7 +110,7 @@ pub struct ApiKouku {
 #[serde(rename_all = "camelCase")]
 pub struct ApiAirBaseAttack {
     #[serde(rename = "api_stage1")]
-    pub api_stage1: ApiStage1,
+    pub api_stage1: Option<ApiStage1>,
     #[serde(rename = "api_stage2")]
     pub api_stage2: Option<ApiStage2>,
     #[serde(rename = "api_stage3")]
@@ -120,7 +120,7 @@ pub struct ApiAirBaseAttack {
     #[serde(rename = "api_stage_flag")]
     pub api_stage_flag: Vec<i64>,
     #[serde(rename = "api_plane_from")]
-    pub api_plane_from: Vec<Option<Vec<i64>>>,
+    pub api_plane_from: Option<Vec<Option<Vec<i64>>>>,
     #[serde(rename = "api_squadron_plane")]
     pub api_squadron_plane: Option<Vec<ApiSquadronPlane>>,
 }

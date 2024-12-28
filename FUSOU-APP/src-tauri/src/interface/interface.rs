@@ -13,6 +13,7 @@ pub use super::mst_ship::MstShips;
 pub use super::mst_slot_item::MstSlotItems;
 pub use super::battle::Battles;
 pub use super::cells::{Cells, Cell};
+pub use super::air_base::AirBases;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum EmitData {
@@ -45,7 +46,7 @@ pub enum Set {
     Ships(Ships),
     SlotItems(SlotItems),
     Logs(Logs),
-    // AirBase,(AirBase),
+    AirBases(AirBases),
     Battles(Battles),
     Cells(Cells),
     MstShips(MstShips),

@@ -99,7 +99,7 @@ function Start() {
                                 <option disabled selected>Select your KanColle Server</option>
                                 <For each={Object.keys(server_list)}>
                                     {(name, idx) => (
-                                        <option selected={server() == idx()}>{name}</option>
+                                        <option selected={server() == idx()+1}>{name}</option>
                                     )}
                                 </For>
                             </select>
