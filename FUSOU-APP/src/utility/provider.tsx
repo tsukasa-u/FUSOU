@@ -7,6 +7,7 @@ import { Battle, Battles, global_battle, global_battles } from "../interface/bat
 import { Cell, Cells, global_cells } from "../interface/cells";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
 import { mergeObjects } from "./merge_object";
+import { AirBases, global_air_bases } from "../interface/map_info";
 
 const ShipsContext = createContext<(Ships | { set(data: Ships): void; })[]>();
 
@@ -318,7 +319,6 @@ export function useBattles() {
     return context as [Battles, (value: Battles) => void];
 }
 
-
 const CellsContext = createContext<(Cells | { set(data: Cells): void; })[]>();
 
 export function CellsContextProvider(props: { children: JSX.Element }) {
@@ -369,4 +369,45 @@ export function useCells() {
       throw new Error("useBattle: cannot find a CellsContext")
     }
     return context as [Cells, (value: Cells) => void];
+}
+
+const AirBasesContext = createContext<(AirBases | { set(data: AirBases): void; })[]>();
+
+export function AirBasesProvider(props: { children: JSX.Element }) {
+    const [data, setData] = createStore(global_air_bases);
+    const setter = [
+        data,
+        {
+            set(data: AirBases) {
+                setData(data);
+            }
+        }
+    ];
+
+    createEffect(() => {
+        let unlisten_data: UnlistenFn;
+        (async() => {
+            unlisten_data = await listen<AirBases>('set-kcs-air-bases', event => {
+              setData(event.payload);
+            });
+        })();
+        
+        onCleanup(() => { 
+            if (unlisten_data) unlisten_data();
+        });
+    });
+
+    return (
+        <AirBasesContext.Provider value={setter}>
+            {props.children}
+        </AirBasesContext.Provider>
+    );
+}
+
+export function useAirBases() {
+    const context = useContext(AirBasesContext);
+    if (!context) {
+      throw new Error("useAirBases: cannot find a AirBasesContext")
+    }
+    return context as [AirBases, (value: AirBases) => void];
 }
