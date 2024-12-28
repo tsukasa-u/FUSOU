@@ -4,12 +4,19 @@ import { IconXMark } from '../icons/X-mark.tsx';
 import { useMstSlotItems, useSlotItems } from '../utility/provider.tsx';
 
 import "../css/modal.css";
-import { createMemo } from 'solid-js';
+import { createMemo, JSX } from 'solid-js';
+import IconPlaneProficiency1 from '../icons/plane_proficiency1.tsx';
+import IconPlaneProficiency2 from '../icons/plane_proficiency2.tsx';
+import IconPlaneProficiency3 from '../icons/plane_proficiency3.tsx';
+import IconPlaneProficiency4 from '../icons/plane_proficiency4.tsx';
+import IconPlaneProficiency5 from '../icons/plane_proficiency5.tsx';
+import IconPlaneProficiency6 from '../icons/plane_proficiency6.tsx';
+import IconPlaneProficiency7 from '../icons/plane_proficiency7.tsx';
 
 interface EquipmentProps {
     slot_id: number;
-    ex_flag: boolean;
-    name_flag: boolean;
+    ex_flag?: boolean;
+    name_flag?: boolean;
     onslot?: number;
 }
 
@@ -31,9 +38,21 @@ export function EquimentComponent({slot_id, ex_flag, name_flag, onslot}: Equipme
         return _mst_slot_items.mst_slot_items[_slot_items.slot_items[slot_id]?.slotitem_id];
     });
 
-    const show_onslot = createMemo(() => {
+    const show_onslot = createMemo<Boolean>(() => {
         let type = _mst_slot_items.mst_slot_items[_slot_items.slot_items[slot_id]?.slotitem_id]._type[1];
         return type == 5 || type == 7 || type == 16 || type == 33 || type == 36 || type == 38 || type == 39 || type == 40 || type == 43 || type == 44;
+    });
+
+    const proficiency = createMemo<JSX.Element>(() => {
+        let proficiency: JSX.Element = <div class="h-2 w-2"></div>;
+        if (slot_item()?.alv == 1)      proficiency = <IconPlaneProficiency1 class="h-2 w-2" />;
+        else if (slot_item()?.alv == 2) proficiency = <IconPlaneProficiency2 class="h-2 w-2" />;
+        else if (slot_item()?.alv == 3) proficiency = <IconPlaneProficiency3 class="h-2 w-2" />;
+        else if (slot_item()?.alv == 4) proficiency = <IconPlaneProficiency4 class="h-2 w-2" />;
+        else if (slot_item()?.alv == 5) proficiency = <IconPlaneProficiency5 class="h-2 w-2" />;
+        else if (slot_item()?.alv == 6) proficiency = <IconPlaneProficiency6 class="h-2 w-2" />;
+        else if (slot_item()?.alv == 7) proficiency = <IconPlaneProficiency7 class="h-2 w-2" />;
+        return proficiency;
     });
 
     return <>
@@ -44,19 +63,18 @@ export function EquimentComponent({slot_id, ex_flag, name_flag, onslot}: Equipme
                 </span> */}
                 <span class="indicator-item">
                     { slot_item()?.level ?? 0 > 0 ? 
-                    <div class="badge badge-xs badge-ghost w-2 rounded grid place-content-center">
+                    <div class="badge badge-xs badge-ghost w-2 rounded grid place-content-center text-accent">
                         { slot_item().level === 10 ? "★" : slot_item().level }
                     </div> : "" }
                 </span>
                 <IconEquipment class="h-5 w-5" category_number={_mst_slot_items.mst_slot_items[_slot_items.slot_items[slot_id]?.slotitem_id]?._type[1]} icon_number={_mst_slot_items.mst_slot_items[_slot_items.slot_items[slot_id]?.slotitem_id]?._type[3]}></IconEquipment>
             </div>
             {
-                !(ex_flag ?? false) ? <div class="flex-none">
+                !(ex_flag ?? false) ? <div class="flex-none pl-px">
                     <div class="grid h-2.5 w-4 place-content-center text-xs text-accent">
-                        {slot_item()?.alv ?? 0 > 0 ? slot_item()?.alv ?? 0 : ""}
+                        { proficiency() }
                     </div>
                     <div class="grid h-2.5 w-4 place-content-center text-xs">
-                        {/* {slot_item()?.alv ?? 0} */}
                         {show_onslot() ? onslot : ""}
                     </div>
                 </div> : <></>

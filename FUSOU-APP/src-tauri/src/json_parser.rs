@@ -55,6 +55,10 @@ fn emit_data<R: tauri::Runtime>(handle: &impl tauri::Manager<R>, emit_data: Emit
                     // println!("Logs: {:?}", data);
                     let _ = handle.emit_to("main", "set-kcs-logs", data);
                 },
+                Set::AirBases(data) => {
+                    // println!("AirBases: {:?}", data);
+                    let _ = handle.emit_to("main", "set-kcs-air-bases", data);
+                },
                 Set::MstShips(data) => {
                     // println!("MstShips: {:?}", data);
                     let _ = handle.emit_to("main", "set-kcs-mst-ships", data);

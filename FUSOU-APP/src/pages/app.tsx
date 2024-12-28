@@ -3,8 +3,9 @@ import { SettingsComponent } from './../components/settings.tsx';
 
 
 import { MaterialsComponent } from './../components/materials.tsx';
-import { BattleContextProvider, CellsContextProvider, DeckPortsProvider, MaterialsProvider, MstShipsProvider, MstSlotItemsProvider, ShipsProvider, SlotItemsProvider } from './../utility/provider.tsx';
+import { AirBasesProvider, BattleContextProvider, CellsContextProvider, DeckPortsProvider, MaterialsProvider, MstShipsProvider, MstSlotItemsProvider, ShipsProvider, SlotItemsProvider } from './../utility/provider.tsx';
 import { BattlesComponent } from '../components/battles.tsx';
+import { AirBasesComponent } from '../components/air_bases.tsx';
 
 function App() {
   
@@ -30,11 +31,14 @@ function App() {
                     <MstShipsProvider>
                       <DeckPortsProvider>
                         <DecksComponent />
-                        <CellsContextProvider>
-                          <BattleContextProvider>
-                            <BattlesComponent />
-                          </BattleContextProvider>
-                        </CellsContextProvider>
+                        <AirBasesProvider>
+                          <AirBasesComponent />
+                          <CellsContextProvider>
+                            <BattleContextProvider>
+                              <BattlesComponent />
+                            </BattleContextProvider>
+                          </CellsContextProvider>
+                        </AirBasesProvider>
                       </DeckPortsProvider>
                     </MstShipsProvider>
                   </ShipsProvider>
