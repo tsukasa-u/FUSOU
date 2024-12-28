@@ -11,10 +11,10 @@ export interface Battle {
     total_damages_enemies: number[],
     reconnaissance: number[],
     forward_observe: number[],
-    // air_base_force_jet_assault: Option<number[]>,
-    // force_jet_assault: Option<number[]>,
-    // AirBaseCombat: Option<AirBaseCombat>,
-    // Mobile TaskForceFriendlyAirCombat: Option<MobileTaskForceFriendlyAirCombat>
+    
+    // air_base_assault: AirBaseAssult,
+    // carrier_base_assault: CarrierBaseAssault,
+    air_base_air_attacks: AirBaseAirAttacks,
     opening_air_attack: AirAttack,
     // support_attack: Option<SupportAttack>,
     opening_taisen: OpeningTaisen,
@@ -25,9 +25,21 @@ export interface Battle {
     // midnight_hougeki: Option<Vec<Option<Hougeki>>,
 }
 
+export interface AirBaseAirAttacks {
+    attacks: AirBaseAirAttack[],
+}
+
+export interface AirBaseAirAttack {
+    stage_flag: number[],
+    squadron_plane: (number | null)[] | null,
+    base_id: number,
+    f_damage: AirDamage,
+    e_damage: AirDamage,
+}
+
 export interface AirAttack {
-    air_superiority: number,
-    air_fire: AirFire,
+    air_superiority: number | null,
+    air_fire: AirFire | null,
     f_damage: AirDamage,
     e_damage: AirDamage,
 }
@@ -38,15 +50,15 @@ export interface AirFire {
 }
 
 export interface AirDamage {
-    plane_from: number[],
-    touch_plane: number,
+    plane_from: number[] | null,
+    touch_plane: number | null,
     loss_plane1: number,
     loss_plane2: number,
-    damages: number[],
-    cl: number[],
-    sp: number[][],
-    rai_flag: number[],
-    bak_flag: number[],
+    damages: number[] | null,
+    cl: number[] | null,
+    sp: (number[] | null)[] | null,
+    rai_flag: (number | null)[] | null,
+    bak_flag: (number | null)[] | null,
 }
 
 export interface OpeningTaisen {
@@ -104,6 +116,9 @@ export var global_battle: Battle = {
     total_damages_enemies: [],
     reconnaissance: [],
     forward_observe: [],
+    air_base_air_attacks: {
+        attacks: [],
+    },
     opening_air_attack: {
         air_superiority: 0,
         air_fire: {

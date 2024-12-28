@@ -9,6 +9,7 @@ import { OpeningTorpedoAttackComponent } from './opening_torpedo_attack';
 import { ClosingTorpedoAttackComponent } from './closing_torpedo_attack';
 import { ShellingComponent } from './shelling';
 import { OpeningAirAttackComponent } from './opening_air_attack';
+import { AirBaseAirAttackComponent } from './air_base_air_attack';
 
 export function BattlesComponent() {
 
@@ -34,6 +35,7 @@ export function BattlesComponent() {
     });
 
     const battle_selected = createMemo<Battle>(() => {
+        console.log(battles.battles[cells.cell_index[cell_index_selected()]]);
         return battles.battles[cells.cell_index[cell_index_selected()]];
     });
     createEffect(() => {
@@ -78,6 +80,7 @@ export function BattlesComponent() {
                     </ul>
                     <Show when={show_battle()}>
                         <ul class="pl-0">
+                            <AirBaseAirAttackComponent area_id={cells.maparea_id} battle_selected={battle_selected}></AirBaseAirAttackComponent>
                             <OpeningAirAttackComponent deck_ship_id={deck_ship_id()} battle_selected={battle_selected}></OpeningAirAttackComponent>
                             <OpeningAntiSubmarineComponent deck_ship_id={deck_ship_id()} battle_selected={battle_selected}></OpeningAntiSubmarineComponent>
                             <OpeningTorpedoAttackComponent deck_ship_id={deck_ship_id()} battle_selected={battle_selected}></OpeningTorpedoAttackComponent>

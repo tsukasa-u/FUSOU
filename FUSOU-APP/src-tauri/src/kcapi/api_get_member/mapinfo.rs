@@ -10,10 +10,10 @@ use register_trait::Getter;
 use register_trait::TraitForRoot;
 use register_trait::TraitForConvert;
 
-use crate::interface::interface::EmitData;
+use crate::interface::interface::{EmitData, Set};
+use crate::interface::air_base::AirBases;
 
-#[derive(Getter, TraitForTest, TraitForRoot, TraitForConvert)]
-#[convert_output(output = EmitData)]
+#[derive(Getter, TraitForTest, TraitForRoot)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[register_struct(name = "api_get_member/mapinfo")]
@@ -151,6 +151,20 @@ pub struct ApiAirBaseExpandedInfo {
     #[serde(rename = "api_maintenance_level")]
     pub api_maintenance_level: i64,
 }
+
+
+impl TraitForConvert for Root {
+    type Output = EmitData;
+    fn convert(&self) -> Option<Vec<EmitData>> {
+        
+        let air_bases: AirBases = self.api_data.api_air_base.clone().into();
+
+        Some(vec![
+            EmitData::Set(Set::AirBases(air_bases))
+        ])
+    }
+}
+
 
 #[cfg(test)]
 mod tests {
