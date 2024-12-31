@@ -54,6 +54,8 @@ pub struct N {
     pub api_name_id: String,
     #[serde(rename = "api_ship")]
     pub api_ship: Vec<i64>,
+    #[serde(rename = "api_lock_flag")]
+    pub api_lock_flag: Option<i64>,
 }
 
 #[cfg(test)]

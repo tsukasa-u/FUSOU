@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use serde_json::Value;
 
-use crate::{kcapi, kcapi_common};
+use crate::{kcapi::{self, api_get_member::preset_deck::N}, kcapi_common};
 
 use std::sync::{LazyLock, Mutex};
 
@@ -22,27 +22,31 @@ pub struct Battles {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Battle {
     pub cell_id: i64,
-    pub api_deck_id: i64,
-    pub formation: Vec<i64>,
-    pub enemy_ship_id: Vec<i64>,
-    pub e_params: Vec<Vec<i64>>,
-    pub e_slot: Vec<Vec<i64>>,
-    pub total_damages_friends: Vec<i64>,
-    pub total_damages_enemies: Vec<i64>,
-    pub reconnaissance: Vec<i64>,
-    pub forward_observe: Vec<i64>,
+    pub deck_id: Option<i64>,
+    pub formation: Option<Vec<i64>>,
+    pub enemy_ship_id: Option<Vec<i64>>,
+    pub e_params: Option<Vec<Vec<i64>>>,
+    pub e_slot: Option<Vec<Vec<i64>>>,
+    pub total_damages_friends: Option<Vec<i64>>,
+    pub total_damages_enemies: Option<Vec<i64>>,
+    pub reconnaissance: Option<Vec<i64>>,
+    pub forward_observe: Option<Vec<i64>>,
+    pub escape_idx: Option<Vec<i64>>,
+    pub smoke_type: Option<i64>,
     // pub air_base_assault: Option<AirBaseAssult>,
     // pub carrier_base_assault: Option<CarrierBaseAssault>,
     pub air_base_air_attacks: Option<AirBaseAirAttacks>,
+    // pub friendly_task_force_attack: Option<FriendlyTaskForceAttack>,
     pub opening_air_attack: Option<OpeningAirAttack>,
-    // pub support_attack: Option<SupportAttack>,
+    pub support_attack: Option<SupportAttack>,
     pub opening_taisen: Option<OpeningTaisen>,
     pub opening_raigeki: Option<OpeningRaigeki>,
     pub hougeki: Option<Vec<Option<Hougeki>>>,
     pub closing_raigeki: Option<ClosingRaigeki>,
     // pub friendly_fleet_attack: Option<FriendlyFleetAttack>,
-    pub midnight_hougeki: Option<Vec<Option<Hougeki>>>,
-    pub midnight_params: Option<MidnightParams>,
+    pub midnight_flare_pos: Option<Vec<i64>>,
+    pub midngiht_touchplane: Option<Vec<i64>>,
+    pub midnight_hougeki: Option<MidnightHougeki>,
 }
 
 // #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -146,9 +150,27 @@ pub struct Hougeki {
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct MidnightParams {
-    pub touch_plane: Vec<i64>,
-    pub flare_pos: Vec<i64>,
+pub struct MidnightHougeki {
+    pub at_list: Vec<i64>,
+    pub df_list: Vec<Vec<i64>>,
+    pub cl_list: Vec<Vec<i64>>,
+    pub damage: Vec<Vec<f32>>,
+    pub at_eflag: Vec<i64>,
+    pub si_list: Vec<Vec<Value>>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct SupportAttack {
+    pub support_hourai: Option<SupportHourai>,
+    // pub support_airatack: Option<Value>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct SupportHourai {
+    pub cl_list: Vec<i64>,
+    pub damage: Vec<f32>,
+    pub deck_id: i64,
+    pub ship_id: Vec<i64>,
 }
 
 impl From<kcapi_common::common_air::ApiAirBaseAttack> for AirBaseAirAttack {
@@ -274,6 +296,43 @@ impl From<kcapi_common::common_battle::ApiHougeki> for Hougeki {
     }
 }
 
+impl From<kcapi_common::common_midnight::ApiHougeki> for MidnightHougeki {
+    fn from(hougeki: kcapi_common::common_midnight::ApiHougeki) -> Self {
+        Self {
+            at_list: hougeki.api_at_list,
+            df_list: hougeki.api_df_list,
+            cl_list: hougeki.api_cl_list,
+            damage: hougeki.api_damage,
+            at_eflag: hougeki.api_at_eflag,
+            si_list: hougeki.api_si_list,
+        }
+    }
+}
+
+impl From<kcapi::api_req_sortie::battle::ApiSupportInfo> for SupportAttack {
+    fn from(support_info: kcapi::api_req_sortie::battle::ApiSupportInfo) -> Self {
+        let support_hourai: Option<SupportHourai> = match support_info.api_support_hourai {
+            Some(support_hourai) => Some(support_hourai.into()),
+            None => None,
+        };
+        // let support_airatack: Option<Value> = None;
+        Self {
+            support_hourai: support_hourai,
+        }
+    }
+}
+
+impl From<kcapi::api_req_sortie::battle::ApiSupportHourai> for SupportHourai {
+    fn from(support_hourai: kcapi::api_req_sortie::battle::ApiSupportHourai) -> Self {
+        Self {
+            cl_list: support_hourai.api_cl_list,
+            damage: support_hourai.api_damage,
+            deck_id: support_hourai.api_deck_id,
+            ship_id: support_hourai.api_ship_id,
+        }
+    }
+}
+
 impl From<kcapi::api_req_sortie::battle::ApiData> for Battle {
     fn from(battle: kcapi::api_req_sortie::battle::ApiData) -> Self {
         let air_base_air_attacks: Option<AirBaseAirAttacks> = match battle.api_air_base_attack {
@@ -312,8 +371,12 @@ impl From<kcapi::api_req_sortie::battle::ApiData> for Battle {
         } else {
             None
         };
+        
+        let support_attack: Option<SupportAttack> = match battle.api_support_info {
+            Some(support_attack) => Some(support_attack.into()),
+            None => None,
+        };
 
-        let empty = Vec::new();
         let cell_no = match KCS_CELLS.lock().unwrap().last() {
             Some(cell) => cell.clone(),
             None => 0,
@@ -321,26 +384,108 @@ impl From<kcapi::api_req_sortie::battle::ApiData> for Battle {
 
         Self {
             cell_id: cell_no,
-            api_deck_id: battle.api_deck_id,
-            formation: battle.api_formation,
-            enemy_ship_id: battle.api_ship_ke,
-            e_params: battle.api_e_param,
-            e_slot: battle.api_e_slot,
-            total_damages_friends: empty.clone(),
-            total_damages_enemies: empty.clone(),
-            reconnaissance: battle.api_search,
-            forward_observe: empty.clone(),
+            deck_id: Some(battle.api_deck_id),
+            formation: Some(battle.api_formation),
+            enemy_ship_id: Some(battle.api_ship_ke),
+            e_params: Some(battle.api_e_param),
+            e_slot: Some(battle.api_e_slot),
+            total_damages_friends: None,
+            total_damages_enemies: None,
+            reconnaissance: Some(battle.api_search),
+            forward_observe: None,
+            escape_idx: battle.api_escape_idx,
+            smoke_type: Some(battle.api_smoke_type),
             // air_base_assault: None,
             // carrier_base_assault: None,
             air_base_air_attacks: air_base_air_attacks,
             opening_air_attack: opening_air_attack,
+            support_attack: support_attack,
             opening_taisen: opening_taisen,
             opening_raigeki: opening_raigeki,
             hougeki: hougeki,
             closing_raigeki: closing_taigeki,
             // friendly_fleet_attack: None,
+            midnight_flare_pos: None,
+            midngiht_touchplane: None,
             midnight_hougeki: None,
-            midnight_params: None,
+        }
+    }
+}
+
+impl From<kcapi::api_req_battle_midnight::battle::ApiData> for Battle {
+    fn from(battle: kcapi::api_req_battle_midnight::battle::ApiData) -> Self {
+        let midnight_hougeki: Option<MidnightHougeki> = Some(battle.api_hougeki.into());
+
+        let cell_no = match KCS_CELLS.lock().unwrap().last() {
+            Some(cell) => cell.clone(),
+            None => 0,
+        };
+
+        Self {
+            cell_id: cell_no,
+            deck_id: Some(battle.api_deck_id),
+            formation: Some(battle.api_formation),
+            enemy_ship_id: Some(battle.api_ship_ke),
+            e_params: Some(battle.api_e_param),
+            e_slot: Some(battle.api_e_slot),
+            total_damages_friends: None,
+            total_damages_enemies: None,
+            reconnaissance: None,
+            forward_observe: None,
+            escape_idx: battle.api_escape_idx,
+            smoke_type: Some(battle.api_smoke_type),
+            // air_base_assault: None,
+            // carrier_base_assault: None,
+            air_base_air_attacks: None,
+            opening_air_attack: None,
+            support_attack: None,
+            opening_taisen: None,
+            opening_raigeki: None,
+            hougeki: None,
+            closing_raigeki: None,
+            // friendly_fleet_attack: None,
+            midnight_flare_pos: Some(battle.api_flare_pos),
+            midngiht_touchplane: Some(battle.api_touch_plane),
+            midnight_hougeki: midnight_hougeki,
+        }
+    }
+}
+
+impl From<kcapi::api_req_battle_midnight::sp_midnight::ApiData> for Battle {
+    fn from(battle: kcapi::api_req_battle_midnight::sp_midnight::ApiData) -> Self {
+        let midnight_hougeki: Option<MidnightHougeki> = Some(battle.api_hougeki.into());
+
+        let cell_no = match KCS_CELLS.lock().unwrap().last() {
+            Some(cell) => cell.clone(),
+            None => 0,
+        };
+
+        Self {
+            cell_id: cell_no,
+            deck_id: Some(battle.api_deck_id),
+            formation: Some(battle.api_formation),
+            enemy_ship_id: Some(battle.api_ship_ke),
+            e_params: Some(battle.api_e_param),
+            e_slot: Some(battle.api_e_slot),
+            total_damages_friends: None,
+            total_damages_enemies: None,
+            reconnaissance: None,
+            forward_observe: None,
+            escape_idx: battle.api_escape_idx,
+            smoke_type: Some(battle.api_smoke_type),
+            // air_base_assault: None,
+            // carrier_base_assault: None,
+            air_base_air_attacks: None,
+            opening_air_attack: None,
+            support_attack: None,
+            opening_taisen: None,
+            opening_raigeki: None,
+            hougeki: None,
+            closing_raigeki: None,
+            // friendly_fleet_attack: None,
+            midnight_flare_pos: Some(battle.api_flare_pos),
+            midngiht_touchplane: Some(battle.api_touch_plane),
+            midnight_hougeki: midnight_hougeki,
         }
     }
 }
