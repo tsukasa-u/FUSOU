@@ -14,9 +14,8 @@ interface AirDamageProps {
 export function OpeningAirAttackComponent({deck_ship_id, battle_selected}: AirDamageProps) {
     const show_air_attack = createMemo<boolean>(() => {
         if (battle_selected() == undefined) return false;
+        if (battle_selected().deck_id == null) return false;
         if (battle_selected().opening_air_attack == null) return false;
-        // if (battle_selected().opening_air_attack.f_damage == null) return false;
-        // if (battle_selected().opening_air_attack.e_damage == null) return false;
         return true;
     });
 
@@ -25,6 +24,7 @@ export function OpeningAirAttackComponent({deck_ship_id, battle_selected}: AirDa
             [false, false, false, false, false, false, false],
             [false, false, false, false, false, false, false],
         ];
+        if (battle_selected().opening_air_attack == null) return show_damage;
         if (battle_selected().opening_air_attack.e_damage.bak_flag) {
             battle_selected()!.opening_air_attack!.e_damage!.bak_flag!.forEach((flag, idx) => {
                 show_damage[0][idx] ||= flag == 1;
@@ -69,14 +69,12 @@ export function OpeningAirAttackComponent({deck_ship_id, battle_selected}: AirDa
                                     <td>
                                         <div class="flex flex-col">
                                             <For each={battle_selected().opening_air_attack.f_damage.plane_from}>
-                                                {(plane_flag, idx) => (
+                                                {(ship_idx, idx) => (
                                                     <>
-                                                        <Show when={plane_flag != -1}>
-                                                            <Show when={idx() > 0}>
-                                                                <div class="h-px"></div>
-                                                            </Show>
-                                                            <ShipNameComponent ship_id={deck_ship_id[1][idx()]}></ShipNameComponent>
+                                                        <Show when={idx() > 0}>
+                                                            <div class="h-px"></div>
                                                         </Show>
+                                                        <ShipNameComponent ship_id={deck_ship_id[battle_selected().deck_id!][ship_idx-1]}></ShipNameComponent>
                                                     </>
                                                 )}
                                             </For>
@@ -136,7 +134,7 @@ export function OpeningAirAttackComponent({deck_ship_id, battle_selected}: AirDa
                                                         <Show when={idx() > 0}>
                                                             <div class="h-px"></div>
                                                         </Show>
-                                                        <ShipNameComponent ship_id={deck_ship_id[1][idx()]}></ShipNameComponent>
+                                                        <ShipNameComponent ship_id={deck_ship_id[battle_selected().deck_id!][idx()]}></ShipNameComponent>
                                                     </Show>
                                                 </>
                                             )}

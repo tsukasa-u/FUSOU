@@ -78,6 +78,26 @@ pub struct ApiData {
     pub api_cell_flavor: Option<ApiCellFlavor>,
     #[serde(rename = "api_select_route")]
     pub api_select_route: Option<ApiSelectRoute>,
+    #[serde(rename = "api_itemget")]
+    pub api_itemget: Option<Vec<ApiItemget>>,
+}
+
+#[derive(Getter, TraitForTest)]
+#[struct_test_case(field_extra, type_value, integration)]
+#[add_field(extra)]
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")] 
+pub struct ApiItemget {
+    #[serde(rename = "api_usemst")]
+    pub api_usemst: i64,
+    #[serde(rename = "api_id")]
+    pub api_id: i64,
+    #[serde(rename = "api_getcount")]
+    pub api_getcount: i64,
+    #[serde(rename = "api_name")]
+    pub api_name: String,
+    #[serde(rename = "api_icon_id")]
+    pub api_icon_id: i64,
 }
 
 #[derive(Getter, TraitForTest)]

@@ -5,24 +5,53 @@ export interface Battles {
 
 export interface Battle {
     cell_id: number,
-    formation: number[],
+    deck_id: number | null,
+    formation: number[] | null,
     enemy_ship_id: number[],
-    total_damages_friends: number[],
-    total_damages_enemies: number[],
-    reconnaissance: number[],
-    forward_observe: number[],
-    
+    e_params: number[][] | null,
+    e_slot: number[][] | null,
+    total_damages_friends: number[] | null,
+    total_damages_enemies: number[] | null,
+    reconnaissance: number[] | null,
+    forward_observe: number[] | null,
+    escape_idx: number[] | null,
+    smoke_type: number | null,
     // air_base_assault: AirBaseAssult,
     // carrier_base_assault: CarrierBaseAssault,
     air_base_air_attacks: AirBaseAirAttacks,
+    // friendly_task_force_attack: FriendlyTaskForceAttack | null,
     opening_air_attack: AirAttack,
-    // support_attack: Option<SupportAttack>,
+    support_attack: SupportAttack | null,
     opening_taisen: OpeningTaisen,
     opening_raigeki: OpeningRaigeki,
     hougeki: Hougeki[],
     closing_raigeki: EndingRaigeki,
     // friendly_fleet_attack: Option<FriendlyFleetAttack>,
-    // midnight_hougeki: Option<Vec<Option<Hougeki>>,
+    midnight_flare_pos: number[] | null,
+    midngiht_touchplane: number[] | null,
+    midnight_hougeki: MidnightHougeki | null,
+}
+
+export interface SupportAttack {
+    support_hourai: SupportHourai | null;
+    // support_airatack: SupportAirAttack | null;,
+}
+
+export interface SupportHourai {
+    cl_list: number[],
+    damage: number[],
+    deck_id: number,
+    ship_id: number[],
+}
+
+
+export interface MidnightHougeki {
+    at_list: number[],
+    df_list: number[][],
+    cl_list: number[][],
+    damage: number[][],
+    at_eflag: number[],
+    si_list: (number | string | null)[][],
 }
 
 export interface AirBaseAirAttacks {
@@ -68,7 +97,7 @@ export interface OpeningTaisen {
     cl_list: number[][],
     damage: number[][],
     at_eflag: number[],
-    si_list: (number | null)[][],
+    si_list: (number | string | null)[][],
 }
 
 export interface OpeningRaigeki {
@@ -110,12 +139,17 @@ export var global_battles: Battles = {
 
 export var global_battle: Battle = {
     cell_id: 0,
+    deck_id: 0,
     formation: [],
     enemy_ship_id: [],
+    e_params: [],
+    e_slot: [],
     total_damages_friends: [],
     total_damages_enemies: [],
     reconnaissance: [],
     forward_observe: [],
+    escape_idx: [],
+    smoke_type: null,
     air_base_air_attacks: {
         attacks: [],
     },
@@ -148,6 +182,14 @@ export var global_battle: Battle = {
             bak_flag: [],
         },
     },
+    support_attack: {
+        support_hourai: {
+            cl_list: [],
+            damage: [],
+            deck_id: 0,
+            ship_id: [],
+        },
+    },
     opening_taisen: {
         at_list: [],
         at_type: [],
@@ -177,5 +219,15 @@ export var global_battle: Battle = {
         erai: [],
         fcl: [],
         ecl: [],
+    },
+    midngiht_touchplane: [],
+    midnight_flare_pos: [],
+    midnight_hougeki: {
+        at_list: [],
+        df_list: [[]],
+        cl_list: [[]],
+        damage: [[]],
+        at_eflag: [],
+        si_list: [[]],
     },
 };

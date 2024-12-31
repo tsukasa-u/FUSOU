@@ -28,5 +28,5 @@ pub struct ApiHougeki {
     #[serde(rename = "api_sp_list")]
     pub api_sp_list: Vec<i64>,
     #[serde(rename = "api_damage")]
-    pub api_damage: Vec<Vec<f64>>,
+    pub api_damage: Vec<Vec<f32>>,
 }

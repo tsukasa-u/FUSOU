@@ -15,6 +15,7 @@ export function ShellingComponent({deck_ship_id, battle_selected}: AntiSubmarine
     
     const show_shelling = createMemo<boolean>(() => {
         if (battle_selected() == undefined) return false;
+        if (battle_selected().deck_id == null) return false;
         if (battle_selected().hougeki == null) return false;
         return true;
     });
@@ -47,7 +48,7 @@ export function ShellingComponent({deck_ship_id, battle_selected}: AntiSubmarine
                                                             <Show when={hougeki.at_eflag[at_index()]==0} fallback={
                                                                 <EnemyNameComponent ship_id={battle_selected().enemy_ship_id[at]}></EnemyNameComponent>
                                                             }>
-                                                                <ShipNameComponent ship_id={deck_ship_id[1][at]}></ShipNameComponent>
+                                                                <ShipNameComponent ship_id={deck_ship_id[battle_selected().deck_id!][at]}></ShipNameComponent>
                                                             </Show>
                                                         </td>
                                                         <td>
@@ -57,7 +58,7 @@ export function ShellingComponent({deck_ship_id, battle_selected}: AntiSubmarine
                                                                         <Show when={hougeki.at_eflag[at_index()]==1} fallback={
                                                                             <EnemyNameComponent ship_id={battle_selected().enemy_ship_id[df]}></EnemyNameComponent>
                                                                         }>
-                                                                            <ShipNameComponent ship_id={deck_ship_id[1][df]}></ShipNameComponent>
+                                                                            <ShipNameComponent ship_id={deck_ship_id[battle_selected().deck_id!][df]}></ShipNameComponent>
                                                                         </Show>
                                                                     )}
                                                                 </For>
