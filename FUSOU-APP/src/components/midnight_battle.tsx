@@ -52,7 +52,7 @@ export function MidnightShellingComponent({deck_ship_id, battle_selected}: AntiS
                                                 <div class="flex flex-col">
                                                     <For each={battle_selected().midnight_hougeki?.df_list[at_index()]}>
                                                         {(df, _) => (
-                                                            <Show when={battle_selected().midnight_hougeki?.at_eflag[at_index()]==1} fallback={
+                                                            <Show when={battle_selected().midnight_hougeki?.at_eflag[at_index()]==1 && df != -1} fallback={
                                                                 <EnemyNameComponent ship_id={battle_selected().enemy_ship_id[df]}></EnemyNameComponent>
                                                             }>
                                                                 <ShipNameComponent ship_id={deck_ship_id[battle_selected().deck_id!][df]}></ShipNameComponent>
@@ -65,16 +65,18 @@ export function MidnightShellingComponent({deck_ship_id, battle_selected}: AntiS
                                                 <div class="flex flex-col">
                                                     <For each={battle_selected().midnight_hougeki?.damage[at_index()]}>
                                                         {(dmg, dmg_index) => (
-                                                            <div class={
-                                                                (() => {
-                                                                    let cl_flag = battle_selected().midnight_hougeki?.cl_list[at_index()][dmg_index()];
-                                                                    if (cl_flag==0) {
-                                                                        return "text-red-500";
-                                                                    } else if (cl_flag==2) {
-                                                                        return "text-yellow-500";
-                                                                    }
-                                                                })()
-                                                            }>{dmg}</div>
+                                                            <Show when={dmg != -1}>
+                                                                <div class={
+                                                                    (() => {
+                                                                        let cl_flag = battle_selected().midnight_hougeki?.cl_list[at_index()][dmg_index()];
+                                                                        if (cl_flag==0) {
+                                                                            return "text-red-500";
+                                                                        } else if (cl_flag==2) {
+                                                                            return "text-yellow-500";
+                                                                        }
+                                                                    })()
+                                                                }>{dmg}</div>
+                                                            </Show>
                                                         )}
                                                     </For>
                                                 </div>
