@@ -32,12 +32,10 @@ async fn main() -> ExitCode {
   let proxy_bidirectional_channel = BidirectionalChannel::<StatusInfo>::new(1);
   let proxy_bidirectional_channel_slave = proxy_bidirectional_channel.clone_slave();
   let proxy_bidirectional_channel_master = proxy_bidirectional_channel.clone_master();
-  let proxy_target = "http://125.6.189.247";
 
   let pac_bidirectional_channel = BidirectionalChannel::<StatusInfo>::new(1);
   let pac_bidirectional_channel_slave = pac_bidirectional_channel.clone_slave();
   let pac_bidirectional_channel_master = pac_bidirectional_channel.clone_master();
-  let pac_path = "./../../FUSOU-PROXY/proxy_rust/proxy/proxy.pac".to_string();
 
   let proxy_log_bidirectional_channel = BidirectionalChannel::<StatusInfo>::new(1);
   let proxy_log_bidirectional_channel_slave = proxy_log_bidirectional_channel.clone_slave();
