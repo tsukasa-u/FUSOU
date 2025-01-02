@@ -1,5 +1,5 @@
 import { createContext, useContext, JSX, createEffect, onCleanup } from "solid-js";
-import { createStore, unwrap } from "solid-js/store";
+import { createStore, Part, unwrap } from "solid-js/store";
 import { DeckPorts, Materials, Ships, global_deck_ports, global_materials, global_ships } from "../interface/port";
 import { MstShips, MstSlotitems, global_mst_ships, global_mst_slot_items } from "../interface/get_data";
 import { SlotItems, global_slotitems } from "../interface/require_info";
@@ -288,13 +288,22 @@ export function BattleContextProvider(props: { children: JSX.Element }) {
               setData(event.payload);
             });
             unlisten_data_add = await listen<Battle>('add-kcs-battle', event => {
-                setData("battles", event.payload.cell_id, event.payload);
-                // need to change the method? but it works
-                setData("cells", (cell_index: number[]) => {
-                    cell_index.push(event.payload.cell_id);
-                    let cell_index_copy : number[] = cell_index.slice();
-                    return cell_index_copy;
-                });
+                if (data.cells[data.cells.length - 1] == event.payload.cell_id) {
+                    Object.entries(event.payload).forEach(([key, value]) => {
+                        if ( value !== null && typeof value === 'object' ) {
+                            // setData(key as Part<Battles, keyof Battles>, event.payload.cell_id, value);
+                            setData("battles", event.payload.cell_id, key as Part<Battle, keyof Battle>,  value);
+                        }
+                    });
+                } else {
+                    setData("battles", event.payload.cell_id, event.payload);
+                    // need to change the method? but it works
+                    setData("cells", (cell_index: number[]) => {
+                        cell_index.push(event.payload.cell_id);
+                        let cell_index_copy : number[] = cell_index.slice();
+                        return cell_index_copy;
+                    });
+                }
             });
         })();
         

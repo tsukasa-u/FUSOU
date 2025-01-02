@@ -11,22 +11,22 @@ interface AntiSubmarineProps {
     battle_selected: () => Battle;
 }
 
-export function OpeningAntiSubmarineComponent({deck_ship_id, battle_selected}: AntiSubmarineProps) {
+export function MidnightShellingComponent({deck_ship_id, battle_selected}: AntiSubmarineProps) {
     
-    const show_anti_submarine = createMemo<boolean>(() => {
+    const show_shelling = createMemo<boolean>(() => {
         if (battle_selected() == undefined) return false;
         if (battle_selected().deck_id == null) return false;
-        if (battle_selected().opening_taisen == null) return false;
+        if (battle_selected().midnight_hougeki == null) return false;
         return true;
     });
 
 
     return (
-        <Show when={show_anti_submarine()}>
+        <Show when={show_shelling()}>
             <li>
                 <details open={true}>
                     <summary>
-                        Opening Anti-submarine
+                        Midnight Shelling
                     </summary>
                     <ul class="pl-0">
                         <table class="table table-xs">
@@ -38,11 +38,11 @@ export function OpeningAntiSubmarineComponent({deck_ship_id, battle_selected}: A
                                 </tr>
                             </thead>
                             <tbody>
-                                <For each={battle_selected().opening_taisen.at_list}>
+                                <For each={battle_selected().midnight_hougeki?.at_list}>
                                     {(at, at_index) => (
                                         <tr>
                                             <td>
-                                                <Show when={battle_selected().opening_taisen.at_eflag[at_index()]==0} fallback={
+                                                <Show when={battle_selected().midnight_hougeki?.at_eflag[at_index()]==0} fallback={
                                                     <EnemyNameComponent ship_id={battle_selected().enemy_ship_id[at]}></EnemyNameComponent>
                                                 }>
                                                     <ShipNameComponent ship_id={deck_ship_id[battle_selected().deck_id!][at]}></ShipNameComponent>
@@ -50,9 +50,9 @@ export function OpeningAntiSubmarineComponent({deck_ship_id, battle_selected}: A
                                             </td>
                                             <td>
                                                 <div class="flex flex-col">
-                                                    <For each={battle_selected().opening_taisen.df_list[at_index()]}>
+                                                    <For each={battle_selected().midnight_hougeki?.df_list[at_index()]}>
                                                         {(df, _) => (
-                                                            <Show when={battle_selected().opening_taisen.at_eflag[at_index()]==1} fallback={
+                                                            <Show when={battle_selected().midnight_hougeki?.at_eflag[at_index()]==1 && df != -1} fallback={
                                                                 <EnemyNameComponent ship_id={battle_selected().enemy_ship_id[df]}></EnemyNameComponent>
                                                             }>
                                                                 <ShipNameComponent ship_id={deck_ship_id[battle_selected().deck_id!][df]}></ShipNameComponent>
@@ -63,18 +63,20 @@ export function OpeningAntiSubmarineComponent({deck_ship_id, battle_selected}: A
                                             </td>
                                             <td >
                                                 <div class="flex flex-col">
-                                                    <For each={battle_selected().opening_taisen.damage[at_index()]}>
+                                                    <For each={battle_selected().midnight_hougeki?.damage[at_index()]}>
                                                         {(dmg, dmg_index) => (
-                                                            <div class={
-                                                                (() => {
-                                                                    let cl_flag = battle_selected().opening_taisen.cl_list[at_index()][dmg_index()];
-                                                                    if (cl_flag==0) {
-                                                                        return "text-red-500";
-                                                                    } else if (cl_flag==2) {
-                                                                        return "text-yellow-500";
-                                                                    }
-                                                                })()
-                                                            }>{dmg}</div>
+                                                            <Show when={dmg != -1}>
+                                                                <div class={
+                                                                    (() => {
+                                                                        let cl_flag = battle_selected().midnight_hougeki?.cl_list[at_index()][dmg_index()];
+                                                                        if (cl_flag==0) {
+                                                                            return "text-red-500";
+                                                                        } else if (cl_flag==2) {
+                                                                            return "text-yellow-500";
+                                                                        }
+                                                                    })()
+                                                                }>{dmg}</div>
+                                                            </Show>
                                                         )}
                                                     </For>
                                                 </div>
