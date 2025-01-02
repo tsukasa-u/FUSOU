@@ -10,6 +10,8 @@ import { ClosingTorpedoAttackComponent } from './closing_torpedo_attack';
 import { ShellingComponent } from './shelling';
 import { OpeningAirAttackComponent } from './opening_air_attack';
 import { AirBaseAirAttackComponent } from './air_base_air_attack';
+import { MidnightShellingComponent } from './midnight_battle';
+import { SupportAttackComponent } from './support_attack';
 
 export function BattlesComponent() {
 
@@ -38,6 +40,7 @@ export function BattlesComponent() {
         console.log(battles.battles[cells.cell_index[cell_index_selected()]]);
         return battles.battles[cells.cell_index[cell_index_selected()]];
     });
+    
     createEffect(() => {
         set_cell_index_selected(cells.cell_index.length > 0 ? cells.cell_index.length - 1 : 0)
     });
@@ -80,12 +83,14 @@ export function BattlesComponent() {
                     </ul>
                     <Show when={show_battle()}>
                         <ul class="pl-0">
-                            <AirBaseAirAttackComponent area_id={cells.maparea_id} battle_selected={battle_selected}></AirBaseAirAttackComponent>
-                            <OpeningAirAttackComponent deck_ship_id={deck_ship_id()} battle_selected={battle_selected}></OpeningAirAttackComponent>
-                            <OpeningAntiSubmarineComponent deck_ship_id={deck_ship_id()} battle_selected={battle_selected}></OpeningAntiSubmarineComponent>
-                            <OpeningTorpedoAttackComponent deck_ship_id={deck_ship_id()} battle_selected={battle_selected}></OpeningTorpedoAttackComponent>
-                            <ShellingComponent deck_ship_id={deck_ship_id()} battle_selected={battle_selected}></ShellingComponent>
-                            <ClosingTorpedoAttackComponent deck_ship_id={deck_ship_id()} battle_selected={battle_selected}></ClosingTorpedoAttackComponent>
+                            <AirBaseAirAttackComponent area_id={cells.maparea_id} battle_selected={battle_selected} />
+                            <OpeningAirAttackComponent deck_ship_id={deck_ship_id()} battle_selected={battle_selected} />
+                            <SupportAttackComponent deck_ship_id={deck_ship_id()} battle_selected={battle_selected} />
+                            <OpeningAntiSubmarineComponent deck_ship_id={deck_ship_id()} battle_selected={battle_selected} />
+                            <OpeningTorpedoAttackComponent deck_ship_id={deck_ship_id()} battle_selected={battle_selected} />
+                            <ShellingComponent deck_ship_id={deck_ship_id()} battle_selected={battle_selected} />
+                            <ClosingTorpedoAttackComponent deck_ship_id={deck_ship_id()} battle_selected={battle_selected} />
+                            <MidnightShellingComponent deck_ship_id={deck_ship_id()} battle_selected={battle_selected} />
                         </ul>
                     </Show>
                 </details>

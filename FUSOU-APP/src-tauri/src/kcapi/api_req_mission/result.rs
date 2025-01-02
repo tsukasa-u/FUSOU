@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+// use serde_json::Value;
+
+use crate::kcapi_common::custom_type::DuoType;
 
 use register_trait::register_struct;
 use register_trait::add_field;
@@ -57,7 +59,7 @@ pub struct ApiData {
     #[serde(rename = "api_quest_level")]
     pub api_quest_level: i64,
     #[serde(rename = "api_get_material")]
-    pub api_get_material: Value,
+    pub api_get_material: Option<DuoType<Vec<i64>, i64>>,
     #[serde(rename = "api_useitem_flag")]
     pub api_useitem_flag: Vec<i64>,
     #[serde(rename = "api_get_item1")]

@@ -6,7 +6,7 @@ use register_trait::{register_struct, add_field};
 
 use register_trait:: {TraitForTest, Getter, TraitForRoot, TraitForConvert};
 
-use crate::interface::interface::{EmitData, Add, Set};
+use crate::interface::interface::{EmitData, Add};
 use crate::interface::ship::Ships;
 use crate::interface::battle::Battle;
 
@@ -97,7 +97,7 @@ pub struct ApiData {
     #[serde(rename = "api_raigeki")]
     pub api_raigeki: Option<ApiRaigeki>,
     #[serde(rename = "api_flavor_info")]
-    pub api_flavor_info: Option<Vec<ApiFlavoInfo>>,
+    pub api_flavor_info: Option<Vec<ApiFlavoInfor>>,
     #[serde(rename = "api_air_base_attack")]
     pub api_air_base_attack: Option<Vec<ApiAirBaseAttack>>,
     #[serde(rename = "api_escape_idx")]
@@ -111,9 +111,9 @@ pub struct ApiData {
 #[serde(rename_all = "camelCase")]
 pub struct ApiSupportInfo {
     #[serde(rename = "api_support_airatack")]
-    api_support_airatack: Value,
+    pub api_support_airatack: Value,
     #[serde(rename = "api_support_hourai")]
-    api_support_hourai: ApiSupportHourai,
+    pub api_support_hourai: Option<ApiSupportHourai>,
 }
 
 #[derive(Getter, TraitForTest)]
@@ -121,7 +121,7 @@ pub struct ApiSupportInfo {
 #[add_field(extra)]
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ApiFlavoInfo {
+pub struct ApiFlavoInfor {
     #[serde(rename = "api_boss_ship_id")]
     pub api_boss_ship_id: String,
     #[serde(rename = "api_type")]

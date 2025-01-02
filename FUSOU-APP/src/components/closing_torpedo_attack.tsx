@@ -29,6 +29,7 @@ export function ClosingTorpedoAttackComponent({deck_ship_id, battle_selected}: T
     
     const show_torpedo_attack = createMemo<boolean>(() => {
         if (battle_selected() == undefined) return false;
+        if (battle_selected().deck_id == null) return false;
         if (battle_selected().closing_raigeki == null) return false;
         if (battle_selected().closing_raigeki.frai.findIndex((val) => val != null) == -1 && battle_selected().closing_raigeki.erai.findIndex((val) => val != null) == -1) return false;
         return true;
@@ -121,7 +122,7 @@ export function ClosingTorpedoAttackComponent({deck_ship_id, battle_selected}: T
                                                                 <Show when={ship_id_index() > 0}>
                                                                     <div class="h-px"></div>
                                                                 </Show>
-                                                                <ShipNameComponent ship_id={deck_ship_id[1][ship_id]}></ShipNameComponent>
+                                                                <ShipNameComponent ship_id={deck_ship_id[battle_selected().deck_id!][ship_id]}></ShipNameComponent>
                                                             </>
                                                         )}
                                                     </For>
@@ -158,7 +159,7 @@ export function ClosingTorpedoAttackComponent({deck_ship_id, battle_selected}: T
                                                 </div>
                                             </td>
                                             <td>
-                                                <ShipNameComponent ship_id={deck_ship_id[1][erai]}></ShipNameComponent>
+                                                <ShipNameComponent ship_id={deck_ship_id[battle_selected().deck_id!][erai]}></ShipNameComponent>
                                             </td>
                                             <td >
                                                 <div class={
