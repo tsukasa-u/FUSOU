@@ -2,6 +2,8 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use super::custom_type::DuoType;
+
 use register_trait::add_field;
 
 use register_trait::TraitForTest;
@@ -46,7 +48,7 @@ pub struct ApiHougeki {
     #[serde(rename = "api_df_list")]
     pub api_df_list: Vec<Vec<i64>>,
     #[serde(rename = "api_si_list")]
-    pub api_si_list: Vec<Vec<Value>>, 
+    pub api_si_list: Vec<Vec<Option<DuoType<i64, String>>>>, 
     #[serde(rename = "api_cl_list")]
     pub api_cl_list: Vec<Vec<i64>>,
     #[serde(rename = "api_damage")]
@@ -68,7 +70,7 @@ pub struct ApiOpeningTaisen {
     #[serde(rename = "api_df_list")]
     pub api_df_list: Vec<Vec<i64>>,
     #[serde(rename = "api_si_list")]
-    pub api_si_list: Vec<Vec<Value>>,
+    pub api_si_list: Vec<Vec<Option<DuoType<i64, String>>>>,
     #[serde(rename = "api_cl_list")]
     pub api_cl_list: Vec<Vec<i64>>,
     #[serde(rename = "api_damage")]

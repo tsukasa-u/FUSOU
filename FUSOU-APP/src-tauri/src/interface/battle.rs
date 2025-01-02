@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use serde_json::Value;
 
-use crate::{kcapi::{self, api_get_member::preset_deck::N}, kcapi_common};
+use crate::{kcapi, kcapi_common::{self, custom_type::DuoType}};
 
 use std::sync::{LazyLock, Mutex};
 
@@ -123,7 +123,7 @@ pub struct OpeningTaisen {
     pub cl_list: Vec<Vec<i64>>,
     pub damage: Vec<Vec<f32>>,
     pub at_eflag: Vec<i64>,
-    pub si_list: Vec<Vec<Value>>,
+    pub si_list: Vec<Vec<Option<i64>>>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -146,7 +146,7 @@ pub struct Hougeki {
     pub cl_list: Vec<Vec<i64>>,
     pub damage: Vec<Vec<f32>>,
     pub at_eflag: Vec<i64>,
-    pub si_list: Vec<Vec<Value>>,
+    pub si_list: Vec<Vec<Option<i64>>>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -156,7 +156,7 @@ pub struct MidnightHougeki {
     pub cl_list: Vec<Vec<i64>>,
     pub damage: Vec<Vec<f32>>,
     pub at_eflag: Vec<i64>,
-    pub si_list: Vec<Vec<Value>>,
+    pub si_list: Vec<Vec<Option<i64>>>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -247,7 +247,18 @@ impl From<kcapi_common::common_battle::ApiOpeningTaisen> for OpeningTaisen {
             cl_list: opening_taisen.api_cl_list,
             damage: opening_taisen.api_damage,
             at_eflag: opening_taisen.api_at_eflag,
-            si_list: opening_taisen.api_si_list,
+            si_list: opening_taisen.api_si_list.iter().map(|si_list| si_list.iter().map(|si_option| {
+                match si_option {
+                    Some(si) => match si {
+                        DuoType::Type1(num) => if *num == -1 { None } else { Some(*num) },
+                        DuoType::Type2(string) => match string.parse::<i64>() {
+                            Ok(num) => Some(num),
+                            Err(_) => None,
+                        }
+                    },
+                    None => None,
+                }
+            }).collect()).collect(),
         }
     }
 }
@@ -291,7 +302,18 @@ impl From<kcapi_common::common_battle::ApiHougeki> for Hougeki {
             cl_list: hougeki.api_cl_list,
             damage: hougeki.api_damage,
             at_eflag: hougeki.api_at_eflag,
-            si_list: hougeki.api_si_list,
+            si_list: hougeki.api_si_list.iter().map(|si_list| si_list.iter().map(|si_option| {
+                match si_option {
+                    Some(si) => match si {
+                        DuoType::Type1(num) => if *num == -1 { None } else { Some(*num) },
+                        DuoType::Type2(string) => match string.parse::<i64>() {
+                            Ok(num) => Some(num),
+                            Err(_) => None,
+                        }
+                    },
+                    None => None,
+                }
+            }).collect()).collect(),
         }
     }
 }
@@ -304,7 +326,13 @@ impl From<kcapi_common::common_midnight::ApiHougeki> for MidnightHougeki {
             cl_list: hougeki.api_cl_list,
             damage: hougeki.api_damage,
             at_eflag: hougeki.api_at_eflag,
-            si_list: hougeki.api_si_list,
+            si_list: hougeki.api_si_list.iter().map(|si_list| si_list.iter().map(|si| match si {
+                DuoType::Type1(num) => if *num == -1 { None } else { Some(*num) },
+                DuoType::Type2(string) => match string.parse::<i64>(){
+                    Ok(num) => Some(num),
+                    Err(_) => None,
+                },
+            }).collect()).collect(),
         }
     }
 }

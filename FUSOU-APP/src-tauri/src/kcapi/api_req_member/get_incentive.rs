@@ -36,6 +36,24 @@ pub struct Root {
 pub struct ApiData {
     #[serde(rename = "api_count")]
     pub api_count: i64,
+    #[serde(rename = "api_item")]
+    pub api_item: Option<Vec<ApiItem>>,
+}
+
+#[derive(Getter, TraitForTest)]
+#[struct_test_case(field_extra, type_value, integration)]
+#[add_field(extra)]
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApiItem {
+    #[serde(rename = "api_mode")]
+    pub api_mode: i64,
+    #[serde(rename = "api_type")]
+    pub api_type: i64,
+    #[serde(rename = "api_mst_id")]
+    pub api_mst_id: i64,
+    #[serde(rename = "api_getmes")]
+    pub api_getmes: String,
 }
 
 #[cfg(test)]

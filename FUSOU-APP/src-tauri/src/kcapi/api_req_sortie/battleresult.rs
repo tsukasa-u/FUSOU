@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+// use serde_json::Value;
+
+use crate::kcapi_common::custom_type::DuoType;
 
 use register_trait::register_struct;
 use register_trait::add_field;
@@ -71,9 +73,9 @@ pub struct ApiData {
     #[serde(rename = "api_get_eventflag")]
     pub api_get_eventflag: Option<i64>,
     #[serde(rename = "api_get_exmap_rate")]
-    pub api_get_exmap_rate: Value,
+    pub api_get_exmap_rate: Option<DuoType<i64, String>>,
     #[serde(rename = "api_get_exmap_useitem_id")]
-    pub api_get_exmap_useitem_id: Value,
+    pub api_get_exmap_useitem_id: Option<DuoType<i64, String>>,
     #[serde(rename = "api_escape_flag")]
     pub api_escape_flag: i64,
     #[serde(rename = "api_escape")]
@@ -87,9 +89,9 @@ pub struct ApiData {
     #[serde(rename = "api_m_suffix")]
     pub api_m_suffix: Option<String>,
     #[serde(rename = "api_get_eventitem")]
-    pub api_get_eventitem: Option<Vec<Value>>,
+    pub api_get_eventitem: Option<Vec<ApiGetEventitem>>,
     #[serde(rename = "api_next_map_ids")]
-    pub api_next_map_ids: Option<Vec<Value>>,
+    pub api_next_map_ids: Option<Vec<DuoType<i64, String>>>,
     #[serde(rename = "api_select_reward_dict")]
     pub api_select_reward_dict: Option<HashMap<String, Vec<ApiSelectRewardDict>>>,
     #[serde(rename = "api_get_useitem")]
@@ -149,7 +151,7 @@ pub struct ApiLandingHp {
     #[serde(rename = "api_now_hp")]
     pub api_now_hp: String,
     #[serde(rename = "api_sub_value")]
-    pub api_sub_value: Value,
+    pub api_sub_value: Option<DuoType<i64, String>>,
 }
 
 #[derive(Getter, TraitForTest)]
