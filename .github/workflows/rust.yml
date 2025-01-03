@@ -12,12 +12,16 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./FUSOU-APP/src-tauri
     steps:
     - uses: actions/checkout@v3
-    - name: change-directory
-      run: cd ./FUSOU-APP/src-tauri
     - name: Build
-      run: cargo build --verbose
+      run: |
+        pwd
+        ls
+        cargo build --verbose
     - name: Run tests
       run: cargo test --verbose
 
