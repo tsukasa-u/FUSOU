@@ -64,7 +64,7 @@ jobs:
     - name: Remove lock file
       run: rm target/doc/.lock
     - name: check_contents
-      run: ls -la 
+      run: ls -la ./target
     - name: Upload artifact
       uses: actions/upload-pages-artifact@v3
       with:
