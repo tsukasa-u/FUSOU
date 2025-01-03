@@ -12,9 +12,6 @@ env:
 jobs:
   check_pwd:
     runs-on: ubuntu-22.04
-    defaults:
-      run:
-        working-directory: ./FUSOU-APP/src-tauri
     steps:
     - name: Check working directory
       run: echo "Working directory is ${{ github.workspace }}"
