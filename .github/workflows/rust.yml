@@ -12,6 +12,9 @@ env:
 jobs:
   check_pwd:
     runs-on: ubuntu-22.04
+    defaults:
+      run:
+        working-directory: ./FUSOU-APP/src-tauri
     steps:
     - uses: actions/checkout@v4
     - name: Check working directory
