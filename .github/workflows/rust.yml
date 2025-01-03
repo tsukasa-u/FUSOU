@@ -63,23 +63,21 @@ jobs:
     #   run: echo '<meta http-equiv="refresh" content="0;url=aoc/index.html">' > target/doc/index.html
     - name: Remove lock file
       run: rm target/doc/.lock
-    - name: check_contents
-      run: ls -la ./target/doc
     - name: Upload artifact
       uses: actions/upload-pages-artifact@v3
       with:
         path: ./FUSOU-APP/src-tauri/target/doc
 
-  # deploy:
-  #   needs: doc
-  #   permissions:
-  #     pages: write
-  #     id-token: write
-  #   environment:
-  #     name: github-pages
-  #     url: ${{ steps.deployment.outputs.page_url }}
-  #   runs-on: ubuntu-22.04
-  #   steps:
-  #     - name: Deploy to GitHub Pages
-  #       id: deployment
-  #       uses: actions/deploy-pages@v4
+  deploy:
+    needs: doc
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
