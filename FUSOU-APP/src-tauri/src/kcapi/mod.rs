@@ -14,3 +14,9 @@ pub mod api_req_battle_midnight;
 pub mod api_start2;
 pub mod api_port;
 pub mod api_req_ranking;
+
+//! # kanColle API
+//! Here is the part of KanColle API implementation.
+//! Above Apis are also dependent on kcapi::kcapi_common.
+//! The dependency graph of the APIs is shown below.
+//! ![KC_API_dependency](https://raw.githubusercontent.com/tsukasa-u/FUSOU/refs/heads/main/FUSOU-APP/src-tauri/tests/struct_dependency.svg)
