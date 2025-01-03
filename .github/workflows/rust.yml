@@ -60,7 +60,7 @@ jobs:
     - name: Build docs
       run: cargo doc --no-deps -p app -p proxy -p register_trait -p register_macro_derive_and_attr 
     - name: Add redirect
-      run: echo '<meta http-equiv="refresh" content="0;url=app/index.html">' > target/app/index.html
+      run: echo '<meta http-equiv="refresh" content="0;url=app/index.html">' > target/doc/index.html
     - name: Remove lock file
       run: rm target/doc/.lock
     - name: Upload artifact
