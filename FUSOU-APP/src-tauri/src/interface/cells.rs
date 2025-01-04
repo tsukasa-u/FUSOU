@@ -6,6 +6,8 @@ use crate::{kcapi, kcapi_common};
 
 use std::sync::{LazyLock, Mutex};
 
+use super::battle::Battle;
+
 // Is it better to use onecell::sync::Lazy or std::sync::Lazy?
 pub static KCS_CELLS: LazyLock<Mutex<Vec<i64>>> = LazyLock::new(|| {
     Mutex::new(Vec::new())
@@ -21,6 +23,7 @@ pub struct Cells {
     pub cell_index: Vec<i64>,
     pub event_map: Option<Eventmap>,
     pub cell_data: Vec<CellData>,
+    pub battles: HashMap<i64, Battle>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -230,6 +233,7 @@ impl From<kcapi::api_req_map::start::ApiData> for Cells {
             cell_index: vec![cell.no],
             event_map: cells.api_eventmap.map(|eventmap| eventmap.into()),
             cell_data: cell_data,
+            battles: HashMap::new(),
         }
     }
 }

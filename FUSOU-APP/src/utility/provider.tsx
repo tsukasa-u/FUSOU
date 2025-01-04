@@ -266,67 +266,65 @@ export function useDeckPorts() {
     return context as [DeckPorts, (value: DeckPorts) => void];
 }
 
+// const BattleContext = createContext<(Battles | { set(data: Battles): void; })[]>();
 
-const BattleContext = createContext<(Battles | { set(data: Battles): void; })[]>();
+// export function BattleContextProvider(props: { children: JSX.Element }) {
+//     const [data, setData] = createStore(global_battles);
+//     const setter = [
+//         data,
+//         {
+//             set(data: Battles) {
+//                 setData(data);
+//             }
+//         }
+//     ];
 
-export function BattleContextProvider(props: { children: JSX.Element }) {
-    const [data, setData] = createStore(global_battles);
-    const setter = [
-        data,
-        {
-            set(data: Battles) {
-                setData(data);
-            }
-        }
-    ];
-
-    createEffect(() => {
-        let unlisten_data_set: UnlistenFn;
-        let unlisten_data_add: UnlistenFn;
-        (async() => {
-            unlisten_data_set = await listen<Battles>('set-kcs-battles', event => {
-              setData(event.payload);
-            });
-            unlisten_data_add = await listen<Battle>('add-kcs-battle', event => {
-                if (data.cells[data.cells.length - 1] == event.payload.cell_id) {
-                    Object.entries(event.payload).forEach(([key, value]) => {
-                        if ( value !== null && typeof value === 'object' ) {
-                            // setData(key as Part<Battles, keyof Battles>, event.payload.cell_id, value);
-                            setData("battles", event.payload.cell_id, key as Part<Battle, keyof Battle>,  value);
-                        }
-                    });
-                } else {
-                    setData("battles", event.payload.cell_id, event.payload);
-                    // need to change the method? but it works
-                    setData("cells", (cell_index: number[]) => {
-                        cell_index.push(event.payload.cell_id);
-                        let cell_index_copy : number[] = cell_index.slice();
-                        return cell_index_copy;
-                    });
-                }
-            });
-        })();
+//     createEffect(() => {
+//         let unlisten_data_set: UnlistenFn;
+//         let unlisten_data_add: UnlistenFn;
+//         (async() => {
+//             unlisten_data_set = await listen<Battles>('set-kcs-battles', event => {
+//               setData(event.payload);
+//             });
+//             unlisten_data_add = await listen<Battle>('add-kcs-battle', event => {
+//                 if (data.cells[data.cells.length - 1] == event.payload.cell_id) {
+//                     Object.entries(event.payload).forEach(([key, value]) => {
+//                         if ( value !== null && typeof value === 'object' ) {
+//                             setData("battles", event.payload.cell_id, key as Part<Battle, keyof Battle>,  value);
+//                         }
+//                     });
+//                 } else {
+//                     setData("battles", event.payload.cell_id, event.payload);
+//                     // need to change the method? but it works
+//                     setData("cells", (cell_index: number[]) => {
+//                         cell_index.push(event.payload.cell_id);
+//                         let cell_index_copy : number[] = cell_index.slice();
+//                         return cell_index_copy;
+//                     });
+//                 }
+//             });
+//         })();
         
-        onCleanup(() => { 
-            if (unlisten_data_set) unlisten_data_set();
-            if (unlisten_data_add) unlisten_data_add();
-        });
-    });
+//         onCleanup(() => { 
+//             if (unlisten_data_set) unlisten_data_set();
+//             if (unlisten_data_add) unlisten_data_add();
+//         });
+//     });
 
-    return (
-        <BattleContext.Provider value={setter}>
-            {props.children}
-        </BattleContext.Provider>
-    );
-}
+//     return (
+//         <BattleContext.Provider value={setter}>
+//             {props.children}
+//         </BattleContext.Provider>
+//     );
+// }
 
-export function useBattles() {
-    const context = useContext(BattleContext);
-    if (!context) {
-      throw new Error("useBattle: cannot find a BattleContext")
-    }
-    return context as [Battles, (value: Battles) => void];
-}
+// export function useBattles() {
+//     const context = useContext(BattleContext);
+//     if (!context) {
+//       throw new Error("useBattle: cannot find a BattleContext")
+//     }
+//     return context as [Battles, (value: Battles) => void];
+// }
 
 const CellsContext = createContext<(Cells | { set(data: Cells): void; })[]>();
 
@@ -342,29 +340,39 @@ export function CellsContextProvider(props: { children: JSX.Element }) {
     ];
 
     createEffect(() => {
-        let unlisten_data_set: UnlistenFn;
-        let unlisten_data_add: UnlistenFn;
+        let unlisten_data_set_cells: UnlistenFn;
+        let unlisten_data_add_cell: UnlistenFn;
+        let unlisten_data_add_battle: UnlistenFn;
         (async() => {
-            unlisten_data_set = await listen<Cells>('set-kcs-cells', event => {
+            unlisten_data_set_cells = await listen<Cells>('set-kcs-cells', event => {
               setData(event.payload);
             });
-            unlisten_data_add = await listen<Cell>('add-kcs-cell', event => {
+            unlisten_data_add_cell = await listen<Cell>('add-kcs-cell', event => {
                 setData("cells", event.payload.no, event.payload);
-                // need to change the method? but it works
-                setData("cell_index", (cell_index: number[]) => {
-                    cell_index.push(event.payload.no);
-                    let cell_index_copy : number[] = cell_index.slice();
-                    return cell_index_copy;
-                });
+                setData("cell_index", data.cell_index.length, event.payload.no);
+            });
+            unlisten_data_add_battle = await listen<Battle>('add-kcs-battle', event => {
+                // console.log('add-kcs-battle', data.cell_index, event.payload);
+                if (event.payload.cell_id in Object.keys(data.battles)) {
+                // if (data.cell_index[data.cell_index.length - 1] == event.payload.cell_id) {
+                    Object.entries(event.payload).forEach(([key, value]) => {
+                        if ( value !== null && typeof value === 'object' ) {
+                            setData("battles", event.payload.cell_id, key as Part<Battle, keyof Battle>,  value);
+                        }
+                    });
+                } else {
+                    setData("battles", event.payload.cell_id, event.payload);
+                }
             });
         })();
         
         onCleanup(() => { 
-            if (unlisten_data_set) unlisten_data_set();
-            if (unlisten_data_add) unlisten_data_add();
+            if (unlisten_data_set_cells) unlisten_data_set_cells();
+            if (unlisten_data_add_cell) unlisten_data_add_cell();
+            if (unlisten_data_add_battle) unlisten_data_add_battle();
         });
     });
-
+    
     return (
         <CellsContext.Provider value={setter}>
             {props.children}
