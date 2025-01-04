@@ -1,3 +1,5 @@
+import { Battle } from "./battle";
+
 export interface Cells {
     maparea_id: number,
     mapinfo_no: number,
@@ -8,6 +10,7 @@ export interface Cells {
     event_map?: Eventmap,
     cell_data: CellData[],
     // timestamp: number,
+    battles: {[key: number]: Battle},
 }
 
 export interface Cell {
@@ -69,5 +72,6 @@ export var global_cells: Cells = {
     cells: {},
     cell_index: [],
     cell_data: [],
+    battles: {},
     // timestamp: 0,
 }

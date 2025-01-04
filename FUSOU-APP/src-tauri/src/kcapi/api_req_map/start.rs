@@ -125,7 +125,8 @@ impl TraitForConvert for Root {
         let battles: Battles = self.api_data.clone().into();
         Some(vec![
             EmitData::Set(Set::Cells(cells)),
-            EmitData::Set(Set::Battles(battles))])
+            // EmitData::Set(Set::Battles(battles))
+            ])
     }
 }
 
