@@ -1,4 +1,4 @@
-import { Battle } from "./battle";
+import { AirDamage, Battle } from "./battle";
 
 export interface Cells {
     maparea_id: number,
@@ -55,13 +55,22 @@ export interface EDeckInfo {
 export interface DestructionBattle {
     formation: number[],
     ship_ke: number[],
+    ship_lv: number[],
     e_nowhps: number[],
     e_maxhps: number[],
     e_slot: number[][],
     f_nowhps: number[],
     f_maxhps: number[],
-    // Need to implement 
-    // air_base_attack: ApiAirBaseAttack,
+    air_base_attack: ApiAirBaseAttack,
+    lost_kind: number,
+}
+
+export interface ApiAirBaseAttack {
+    stage_flag: number[],
+    squadron_plane: (number | null)[] | null,
+    f_damage: AirDamage,
+    e_damage: AirDamage,
+    map_squadron_plane: {[key: string]: number[]} | null,
 }
 
 export var global_cells: Cells = {
