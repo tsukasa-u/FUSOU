@@ -1,0 +1,84 @@
+name: Rust
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # check_pwd:
+  #   runs-on: ubuntu-22.04
+  #   defaults:
+  #     run:
+  #       working-directory: ./FUSOU-APP/src-tauri
+  #   steps:
+  #   - uses: actions/checkout@v4
+  #   - name: Check working directory
+  #     run: echo "Working directory is ${{ github.workspace }}"
+  #   - name: Check contents
+  #     run: ls -la
+
+  # build:
+    # runs-on: ubuntu-22.04
+    # defaults:
+    #   run:
+    #     working-directory: ./FUSOU-APP/src-tauri
+    # steps:
+    # - uses: actions/checkout@v4
+    # - uses: actions-rust-lang/setup-rust-toolchain@v1
+    # - name: Setup Ubuntu for tauir@v1
+    #   run: |
+    #     sudo apt update && \
+    #     sudo apt install -y libwebkit2gtk-4.0-dev 
+    # - name: Build
+    #   run: cargo build --verbose
+    # - name: Run tests
+    #   run: cargo test --verbose
+
+  doc:
+    runs-on: ubuntu-22.04
+    defaults:
+      run:
+        working-directory: ./FUSOU-APP/src-tauri
+    # needs: build
+    steps:
+    - uses: actions/checkout@v4
+    # - uses: actions-rust-lang/setup-rust-toolchain@v1
+    - name: Setup Ubuntu for tauir@v1
+      run: |
+        sudo apt update && \
+        sudo apt install -y libwebkit2gtk-4.0-dev 
+    # - name: Setup pages
+    #   id: pages
+    #   uses: actions/configure-pages@v5
+    - name: Clean docs folder
+      run: cargo clean --doc
+    - name: Build docs
+      run: cargo doc --no-deps -p app -p proxy -p register_trait -p register_macro_derive_and_attr 
+    - name: Add redirect
+      run: echo '<meta http-equiv="refresh" content="0;url=app/index.html">' > target/doc/index.html
+    - name: Remove lock file
+      run: rm target/doc/.lock
+    - name: Upload artifact
+      uses: actions/upload-pages-artifact@v3
+      with:
+        path: ./FUSOU-APP/src-tauri/target/doc
+
+  deploy:
+    needs: doc
+    permissions:
+      pages: write
+      id-token: write
+      pull-requests: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
