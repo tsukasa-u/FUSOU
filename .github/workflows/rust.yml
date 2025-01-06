@@ -2,28 +2,20 @@ name: Rust
 
 on:
   push:
-    branches: [ "main" ]
+    branches:
+      - main
   pull_request:
-    branches: [ "main" ]
+    branches:
+      - main
+    types: [closed]
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  # check_pwd:
-  #   runs-on: ubuntu-22.04
-  #   defaults:
-  #     run:
-  #       working-directory: ./FUSOU-APP/src-tauri
-  #   steps:
-  #   - uses: actions/checkout@v4
-  #   - name: Check working directory
-  #     run: echo "Working directory is ${{ github.workspace }}"
-  #   - name: Check contents
-  #     run: ls -la
-
   # build:
     # runs-on: ubuntu-22.04
+    # if: github.event.pull_request.merged == true
     # defaults:
     #   run:
     #     working-directory: ./FUSOU-APP/src-tauri
@@ -41,6 +33,7 @@ jobs:
 
   doc:
     runs-on: ubuntu-22.04
+    if: github.event.pull_request.merged == true
     defaults:
       run:
         working-directory: ./FUSOU-APP/src-tauri
