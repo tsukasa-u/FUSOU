@@ -7,7 +7,6 @@ on:
   pull_request:
     branches:
       - main
-    types: [closed]
 
 env:
   CARGO_TERM_COLOR: always
@@ -15,7 +14,6 @@ env:
 jobs:
   # build:
     # runs-on: ubuntu-22.04
-    # if: github.event.pull_request.merged == true
     # defaults:
     #   run:
     #     working-directory: ./FUSOU-APP/src-tauri
@@ -33,7 +31,6 @@ jobs:
 
   doc:
     runs-on: ubuntu-22.04
-    if: github.event.pull_request.merged == true
     defaults:
       run:
         working-directory: ./FUSOU-APP/src-tauri
