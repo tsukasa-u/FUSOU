@@ -6,6 +6,11 @@ use crate::external::create_external_window;
 use crate::interface::mst_ship::KCS_MST_SHIPS;
 use crate::interface::mst_slot_item::KCS_MST_SLOT_ITEMS;
 use crate::interface::slot_item::KCS_SLOT_ITEMS;
+use crate::interface::mst_equip_exslot_ship::KCS_MST_EQUIP_EXSLOT_SHIP;
+use crate::interface::mst_slot_item_equip_type::KCS_MST_EQUIPTYPES;
+use crate::interface::mst_equip_ship::KCS_MST_EQUIP_SHIP;
+use crate::interface::mst_stype::KCS_MST_STYPES;
+use crate::interface::mst_use_item::KCS_MST_USEITEMS;
 
 use crate::external::SHARED_BROWSER;
 use crate::json_parser;
@@ -31,6 +36,36 @@ pub async fn get_mst_slot_items(window: tauri::Window) {
 pub async fn get_slot_items(window: tauri::Window) {
     let data = KCS_SLOT_ITEMS.lock().unwrap();
     let _ = window.app_handle().emit_to("main", "set-kcs-slot-items", (*data).clone());
+}
+
+#[tauri::command]
+pub async fn get_mst_equip_exslot_ships(window: tauri::Window) {
+    let data = KCS_MST_EQUIP_EXSLOT_SHIP.lock().unwrap();
+    let _ = window.app_handle().emit_to("main", "set-kcs-mst-equip-exslot-ships", (*data).clone());
+}
+
+#[tauri::command]
+pub async fn get_mst_slotitem_equip_types(window: tauri::Window) {
+    let data = KCS_MST_EQUIPTYPES.lock().unwrap();
+    let _ = window.app_handle().emit_to("main", "set-kcs-mst-slot-item-equip-types", (*data).clone());
+}
+
+#[tauri::command]
+pub async fn get_mst_equip_ships(window: tauri::Window) {
+    let data = KCS_MST_EQUIP_SHIP.lock().unwrap();
+    let _ = window.app_handle().emit_to("main", "set-kcs-mst-equip-ships", (*data).clone());
+}
+
+#[tauri::command]
+pub async fn get_mst_stypes(window: tauri::Window) {
+    let data = KCS_MST_STYPES.lock().unwrap();
+    let _ = window.app_handle().emit_to("main", "set-kcs-mst-stypes", (*data).clone());
+}
+
+#[tauri::command]
+pub async fn get_mst_useitems(window: tauri::Window) {
+    let data = KCS_MST_USEITEMS.lock().unwrap();
+    let _ = window.app_handle().emit_to("main", "set-kcs-mst-use-items", (*data).clone());
 }
 
 #[tauri::command]

@@ -662,7 +662,12 @@ impl TraitForConvert for Root {
 
         Some(vec![
             EmitData::Set(Set::MstShips(mst_ships)), 
-            EmitData::Set(Set::MstSlotItems(mst_slot_items))
+            EmitData::Set(Set::MstSlotItems(mst_slot_items)),
+            EmitData::Set(Set::MstEquipExslotShips(mst_equip_exslot_ship)),
+            EmitData::Set(Set::MstSlotItemEquipTypes(mst_slot_item_equip_type)),
+            EmitData::Set(Set::MstEquipShips(mst_equip_ship)),
+            EmitData::Set(Set::MstStypes(mst_stype)),
+            EmitData::Set(Set::MstUseItems(mst_use_item))
         ])
     }
 }

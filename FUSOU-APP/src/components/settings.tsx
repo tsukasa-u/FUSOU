@@ -68,6 +68,11 @@ export function SettingsComponent(){
                         invoke("get_mst_ships");
                         invoke("get_slot_items");
                         invoke("get_mst_slot_items");
+                        invoke("get_mst_equip_exslot_ships");
+                        invoke("get_mst_slotitem_equip_types");
+                        invoke("get_mst_equip_ships");
+                        invoke("get_mst_stypes");
+                        invoke("get_mst_useitems");
                         showFadeToast('setting_toast', "load all data");
                     }}>Load all data</button>
                 </div>
@@ -94,7 +99,42 @@ export function SettingsComponent(){
                         <div class="mt-4 flex items-center justify-end">
                             <button class="btn btn-outline btn-wide" onClick={() => { invoke("get_mst_slot_items"); showFadeToast('setting_toast', "load mst_slot_items"); }}>Load mst slot item data</button>
                         </div>
-                    </div> 
+                    </div>
+                    <div id="load_mst_equip_exslot_ships" class="py-2">
+                        <h2 class="text-lg font-semibold leading-4 ">Load mst_equip_exslot_ships data</h2>
+                        <p class="">Load the mst_equip_exslot_ships data restored from API "/kcsapi/api_start2/get_data"</p>
+                        <div class="mt-4 flex items-center justify-end">
+                            <button class="btn btn-outline btn-wide" onClick={() => { invoke("get_mst_equip_exslot_ships"); showFadeToast('setting_toast', "load mst_equip_exslot_ships"); }}>Load mst equip exslot ship data</button>
+                        </div>
+                    </div>
+                    <div id="load_mst_slotitem_equip_types" class="py-2">
+                        <h2 class="text-lg font-semibold leading-4 ">Load mst_slotitem_equip_types data</h2>
+                        <p class="">Load the mst_slotitem_equip_types data restored from API "/kcsapi/api_start2/get_data"</p>
+                        <div class="mt-4 flex items-center justify-end">
+                            <button class="btn btn-outline btn-wide" onClick={() => { invoke("get_mst_slotitem_equip_types"); showFadeToast('setting_toast', "load mst_slotitem_equip_types"); }}>Load mst slot item equip types data</button>
+                        </div>
+                    </div>
+                    <div id="load_mst_equip_ships" class="py-2">
+                        <h2 class="text-lg font-semibold leading-4 ">Load mst_equip_ships data</h2>
+                        <p class="">Load the mst_equip_ships data restored from API "/kcsapi/api_start2/get_data"</p>
+                        <div class="mt-4 flex items-center justify-end">
+                            <button class="btn btn-outline btn-wide" onClick={() => { invoke("get_mst_equip_ships"); showFadeToast('setting_toast', "load mst_equip_ships"); }}>Load mst equip ships data</button>
+                        </div>
+                    </div>
+                    <div id="load_mst_stypes" class="py-2">
+                        <h2 class="text-lg font-semibold leading-4 ">Load mst_stypes data</h2>
+                        <p class="">Load the mst_stypes data restored from API "/kcsapi/api_start2/get_data"</p>
+                        <div class="mt-4 flex items-center justify-end">
+                            <button class="btn btn-outline btn-wide" onClick={() => { invoke("get_mst_stypes"); showFadeToast('setting_toast', "load mst_stypes"); }}>Load mst stypes data</button>
+                        </div>
+                    </div>
+                    <div id="load_mst_useitems" class="py-2">
+                        <h2 class="text-lg font-semibold leading-4 ">Load mst_useitems data</h2>
+                        <p class="">Load the mst_useitems data restored from API "/kcsapi/api_start2/get_data"</p>
+                        <div class="mt-4 flex items-center justify-end">
+                            <button class="btn btn-outline btn-wide" onClick={() => { invoke("get_mst_useitems"); showFadeToast('setting_toast', "load mst_useitems"); }}>Load mst useitems data</button>
+                        </div>
+                    </div>
                 </div>
 
                 <hr class="mt-4 mb-8" />
