@@ -125,6 +125,7 @@ const icon_list: { [key: number]: string[] } = {
   54: ["#000000", "#000000"], //  Unknown
   55: ["#000000", "#000000"], //  Unknown
   56: ["#000000", "#000000"], //  Unknown
+  57: ["#000000", "#000000"], //  Unknown
 };
 
 const category_list: { [key: number]: string } = {
