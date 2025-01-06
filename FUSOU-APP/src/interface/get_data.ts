@@ -79,12 +79,69 @@ export var global_mst_slot_items: MstSlotitems = {
 };
 
 export interface MstEquipExslotShip {
-    ship_ids: { [key: string]: number },
-    stypes: { [key: string]: number },
-    ctypes: { [key: string]: number },
+    ship_ids: { [key: string]: number } | null,
+    stypes: { [key: string]: number } | null,
+    ctypes: { [key: string]: number } | null,
     req_level: number,
 }
 
 export interface MstEquipExslotShips {
-    mst_equip_exslot_ships: { [key: number]: number }
+    mst_equip_exslot_ships: { [key: string]: MstEquipExslotShip }
 }
+
+export var global_mst_equip_exslot_ships: MstEquipExslotShips = {
+    mst_equip_exslot_ships: {}
+};
+
+export interface MstSlotItemEquipTypes {
+    mst_slotitem_equip_types: { [key: number]: MstSlotItemEquipType }
+}
+
+export interface MstSlotItemEquipType {
+    id: number,
+    name: string,
+}
+
+export var global_mst_slotitem_equip_types: MstSlotItemEquipTypes = {
+    mst_slotitem_equip_types: {}
+};
+
+export interface MstEquipShips {
+    mst_equip_ships: { [key: number]: MstEquipShip }
+}
+
+export interface MstEquipShip {
+    ship_id: number,
+    equip_type: number[],
+}
+
+export var global_mst_equip_ships: MstEquipShips = {
+    mst_equip_ships: {}
+};
+
+export interface MstStypes {
+    mst_stypes: { [key: number]: MstStype }
+}
+export interface MstStype {
+    id: number,
+    sortno: number,
+    name: string,
+    equip_type: { [key: string]: number },
+}
+
+export var global_mst_stypes: MstStypes = {
+    mst_stypes: {}
+};
+
+export interface MstUseItems {
+    mst_useitems: { [key: number]: MstUseItem }
+}
+
+export interface MstUseItem {
+    id: number,
+    name: string,
+}
+
+export var global_mst_useitems: MstUseItems = {
+    mst_useitems: {}
+};

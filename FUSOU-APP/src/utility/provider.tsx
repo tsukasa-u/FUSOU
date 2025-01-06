@@ -1,7 +1,7 @@
 import { createContext, useContext, JSX, createEffect, onCleanup } from "solid-js";
 import { createStore, Part, unwrap } from "solid-js/store";
 import { DeckPorts, Materials, Ships, global_deck_ports, global_materials, global_ships } from "../interface/port";
-import { MstShips, MstSlotitems, global_mst_ships, global_mst_slot_items } from "../interface/get_data";
+import { MstEquipExslotShips, MstEquipShips, MstShips, MstSlotItemEquipTypes, MstSlotitems, MstStypes, MstUseItems, global_mst_equip_exslot_ships, global_mst_equip_ships, global_mst_ships, global_mst_slot_items, global_mst_slotitem_equip_types, global_mst_stypes, global_mst_useitems } from "../interface/get_data";
 import { SlotItems, global_slotitems } from "../interface/require_info";
 import { Battle, Battles, global_battle, global_battles } from "../interface/battle";
 import { Cell, Cells, global_cells } from "../interface/cells";
@@ -181,6 +181,211 @@ export function useMstSlotItems() {
     throw new Error("useMstSlotItems: cannot find a MstSlotItemsContext")
   }
   return context as [MstSlotitems, (value: MstSlotitems) => void];
+}
+
+const MstEquipExslotShipsContext = createContext<(MstEquipExslotShips | { set(data: MstEquipExslotShips): void; })[]>();
+
+export function MstEquipExslotShipsProvider(props: { children: JSX.Element }) {
+    const [data, setData] = createStore(global_mst_equip_exslot_ships);
+    const setter = [
+        data,
+        {
+            set(data: MstEquipExslotShips) {
+                setData(data);
+            }
+        }
+    ];
+
+    createEffect(() => {
+        let unlisten_data: UnlistenFn;
+        (async() => {
+            unlisten_data = await listen<MstEquipExslotShips>('set-kcs-mst-equip-exslot-ships', event => {
+              setData(event.payload);
+            });
+        })();
+        
+        onCleanup(() => { 
+            if (unlisten_data) unlisten_data();
+        });
+    });
+
+    return (
+        <MstEquipExslotShipsContext.Provider value={setter}>
+            {props.children}
+        </MstEquipExslotShipsContext.Provider>
+    );
+}
+
+export function useMstEquipExslotShips() {
+  const context = useContext(MstEquipExslotShipsContext);
+  if (!context) {
+    throw new Error("useMstEquipExslotShips: cannot find a MstEquipExslotShipsContext")
+  }
+  return context as [MstEquipExslotShips, (value: MstEquipExslotShips) => void];
+}
+
+const MstSlotItemEquipTypesContext = createContext<(MstSlotItemEquipTypes | { set(data: MstSlotItemEquipTypes): void; })[]>();
+
+export function MstSlotItemEquipTypesProvider(props: { children: JSX.Element }) {
+    const [data, setData] = createStore(global_mst_slotitem_equip_types);
+    const setter = [
+        data,
+        {
+            set(data: MstSlotItemEquipTypes) {
+                setData(data);
+            }
+        }
+    ];
+
+    createEffect(() => {
+        let unlisten_data: UnlistenFn;
+        (async() => {
+            unlisten_data = await listen<MstSlotItemEquipTypes>('set-kcs-mst-slot-item-equip-types', event => {
+              setData(event.payload);
+            });
+        })();
+        
+        onCleanup(() => { 
+            if (unlisten_data) unlisten_data();
+        });
+    });
+
+    return (
+        <MstSlotItemEquipTypesContext.Provider value={setter}>
+            {props.children}
+        </MstSlotItemEquipTypesContext.Provider>
+    );
+}
+
+export function useMstSlotItemEquipTypes() {
+  const context = useContext(MstSlotItemEquipTypesContext);
+  if (!context) {
+    throw new Error("useMstSlotItemEquipTypes: cannot find a MstSlotItemEquipTypesContext")
+  }
+  return context as [MstSlotItemEquipTypes, (value: MstSlotItemEquipTypes) => void];
+}
+
+const MstEquipShipsContext = createContext<(MstEquipShips | { set(data: MstEquipShips): void; })[]>();
+
+export function MstEquipShipsProvider(props: { children: JSX.Element }) {
+    const [data, setData] = createStore(global_mst_equip_ships);
+    const setter = [
+        data,
+        {
+            set(data: MstEquipShips) {
+                setData(data);
+            }
+        }
+    ];
+
+    createEffect(() => {
+        let unlisten_data: UnlistenFn;
+        (async() => {
+            unlisten_data = await listen<MstEquipShips>('set-kcs-mst-equip-ships', event => {
+              setData(event.payload);
+            });
+        })();
+        
+        onCleanup(() => { 
+            if (unlisten_data) unlisten_data();
+        });
+    });
+
+    return (
+        <MstEquipShipsContext.Provider value={setter}>
+            {props.children}
+        </MstEquipShipsContext.Provider>
+    );
+}
+
+export function useMstEquipShips() {
+  const context = useContext(MstEquipShipsContext);
+  if (!context) {
+    throw new Error("useMstEquipShips: cannot find a MstEquipShipsContext")
+  }
+  return context as [MstEquipShips, (value: MstEquipShips) => void];
+}
+
+const MstStypesContext = createContext<(MstStypes | { set(data: MstStypes): void; })[]>();
+
+export function MstStypesProvider(props: { children: JSX.Element }) {
+    const [data, setData] = createStore(global_mst_stypes);
+    const setter = [
+        data,
+        {
+            set(data: MstStypes) {
+                setData(data);
+            }
+        }
+    ];
+
+    createEffect(() => {
+        let unlisten_data: UnlistenFn;
+        (async() => {
+            unlisten_data = await listen<MstStypes>('set-kcs-mst-stypes', event => {
+              setData(event.payload);
+            });
+        })();
+        
+        onCleanup(() => { 
+            if (unlisten_data) unlisten_data();
+        });
+    });
+
+    return (
+        <MstStypesContext.Provider value={setter}>
+            {props.children}
+        </MstStypesContext.Provider>
+    );
+}
+
+export function useMstStypes() {
+  const context = useContext(MstStypesContext);
+  if (!context) {
+    throw new Error("useMstStypes: cannot find a MstStypesContext")
+  }
+  return context as [MstStypes, (value: MstStypes) => void];
+}
+
+const MstUseItemsContext = createContext<(MstUseItems | { set(data: MstUseItems): void; })[]>();
+
+export function MstUseItemsProvider(props: { children: JSX.Element }) {
+    const [data, setData] = createStore(global_mst_useitems);
+    const setter = [
+        data,
+        {
+            set(data: MstUseItems) {
+                setData(data);
+            }
+        }
+    ];
+
+    createEffect(() => {
+        let unlisten_data: UnlistenFn;
+        (async() => {
+            unlisten_data = await listen<MstUseItems>('set-kcs-mst-use-items', event => {
+              setData(event.payload);
+            });
+        })();
+        
+        onCleanup(() => { 
+            if (unlisten_data) unlisten_data();
+        });
+    });
+
+    return (
+        <MstUseItemsContext.Provider value={setter}>
+            {props.children}
+        </MstUseItemsContext.Provider>
+    );
+}
+
+export function useMstUseItems() {
+  const context = useContext(MstUseItemsContext);
+  if (!context) {
+    throw new Error("useMstUseItems: cannot find a MstUseItemsContext")
+  }
+  return context as [MstUseItems, (value: MstUseItems) => void];
 }
 
 const MaterialsContext = createContext<(Materials | { set(data: Materials): void; })[]>();
