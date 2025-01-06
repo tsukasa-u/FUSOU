@@ -3,8 +3,11 @@ import { EquimentComponent } from './equipment.tsx';
 
 import '../css/modal.css';
 import { useMstShips, useShips } from '../utility/provider.tsx';
-import { createMemo, For, Show } from 'solid-js';
+import { createMemo, createSignal, For, Show } from 'solid-js';
 import IconShip from '../icons/ship.tsx';
+
+import "./../css/table_hover.css";
+import "./../css/table_active.css";
 
 interface ShipNameProps {
     ship_id: number;
@@ -82,126 +85,134 @@ export function ShipNameComponent({ship_id}: ShipNameProps) {
         return parameter_map;
     });
 
+    const [show_dialog, set_show_dialog] = createSignal(false);
+
     return <>
-        <div class="flex flex-nowarp" onClick={()=> show_modal(ship_id)}>
-            <IconShip class="h-5 -mt-0.5 pr-2" ship_stype={mst_ship().stype} />
-            {mst_ship()?.name ?? "Unknown"}
-        </div>
-        <dialog id={"deck_ship_name_modal_"+ship_id} class="modal">
-            <div class="modal-box bg-base-100 modal-box-width">
-                <form method="dialog">
-                    <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2">
-                        <IconXMark class="h-6 w-6" />
-                    </button>
-                </form>
-                <div class="flex justify-start">
-                    <h3 class="font-bold text-base pl-2 truncate">{mst_ship()?.name ?? "Unknown"}</h3>
-                    <div class="place-self-end pb-0.5 pl-4">Lv. {ship()?.lv ?? ""}</div>
-                    <div class="place-self-end pb-0.5 pl-2">next {ship()?.exp[1] ?? ""}</div>
-                </div>
-                <div class="pt-2">
-                    <table class="table table-xs">
-                        <caption class="truncate">Equipment</caption>
-                        <tbody>
-                            <For each={ship()?.slot} fallback={<></>}>
-                                {(slot_ele, index) => {
-                                    return <>
-                                        <tr class="flex">
-                                            <th class="flex-none w-4">S{index()+1}</th>
-                                            <td class="flex-none w-12 pl-4">
-                                                <Show when={slot_ele > 0}>
-                                                    <EquimentComponent slot_id={slot_ele} ex_flag={true} name_flag={true}></EquimentComponent>
-                                                </Show>
-                                            </td>
-                                        </tr>
-                                    </>
-                                }}
-                            </For>
-                            <tr class="flex">
-                                <th class="flex-none w-2">SE</th>
-                                <td class="flex-none w-12 pl-4">
-                                    <Show when={ship()?.slot_ex > 0}>
-                                        <EquimentComponent slot_id={ship()?.slot_ex} ex_flag={true} name_flag={true}></EquimentComponent>
-                                    </Show>
-                                </td>
-                            </tr>
-                        </tbody>
-                    </table>
-                    <div class="h-2"></div>
-                    <table class="table table-xs">
-                        <caption class="truncate">Ship Status</caption>
-                        <tbody>
-                            <tr class="flex">
-                                <th class="truncate flex-1 w-2">Durability</th>
-                                <td class="flex-none w-12 flex justify-end pr-4">{ship()?.maxhp ?? 0 }</td>
-                                <th class="truncate flex-1 w-2">Firepower</th>
-                                <td class="flex-none w-12 flex justify-end pr-4">
-                                    <div class="indicator">
-                                        <span class="indicator-item indicator-bottom text-accent text-xs">
-                                            {sp_effect_item()?.karyoku > 0 ? "+"+sp_effect_item()?.karyoku : ""}
-                                        </span>
-                                        {ship()?.karyoku[0] ?? 0 }
-                                    </div>
-                                </td>
-                            </tr>
-                            <tr class="flex">
-                                <th class="truncate flex-1 w-2">Armor</th>
-                                <td class="flex-none w-12 flex justify-end pr-4">
-                                    <div class="indicator">
-                                        <span class="indicator-item indicator-bottom text-accent text-xs">
-                                            {sp_effect_item()?.soukou > 0 ? "+"+sp_effect_item()?.soukou : ""}
-                                        </span>
-                                        {ship()?.soukou[0] ?? 0 }
-                                    </div>
-                                </td>
-                                <th class="truncate flex-1 w-2">Torpedo</th>
-                                <td class="flex-none w-12 flex justify-end pr-4">
-                                    <div class="indicator">
-                                        <span class="indicator-item indicator-bottom text-accent text-xs">
-                                            {sp_effect_item()?.raisou > 0 ? "+"+sp_effect_item()?.raisou : ""}
-                                        </span>
-                                        {ship()?.raisou[0] ?? 0 }
-                                    </div>
-                                </td>
-                            </tr>
-                            <tr class="flex">
-                                <th class="truncate flex-1 w-2">Evasion</th>
-                                <td class="flex-none w-12 flex justify-end pr-4">
-                                    <div class="indicator">
-                                        <span class="indicator-item indicator-bottom text-accent text-xs">
-                                            {sp_effect_item()?.kaihi > 0 ? "+"+sp_effect_item()?.kaihi : ""}
-                                        </span>
-                                        {ship()?.kaihi[0] ?? 0 }
-                                    </div>
-                                </td>
-                                <th class="truncate flex-1 w-2">Anti-Air</th>
-                                <td class="flex-none w-12 flex justify-end pr-4">{ship()?.taiku[0] ?? 0 }</td>
-                            </tr>
-                            <tr class="flex">
-                                <th class="truncate flex-1 w-2">Aircraft installed</th>
-                                <td class="flex-none w-12 flex justify-end pr-4">{max_eq() ?? 0 > 0}</td>
-                                <th class="truncate flex-1 w-2">Anti-Submarine</th>
-                                <td class="flex-none w-12 flex justify-end pr-4">{ship()?.taisen[0] ?? 0 }</td>
-                            </tr>
-                            <tr class="flex">
-                                <th class="truncate flex-1 w-2">Speed</th>
-                                <td class="flex-none w-12 flex justify-end pr-4">{speed_list[ship()?.soku ?? 0]}</td>
-                                <th class="truncate flex-1 w-2">Reconnaissance</th>
-                                <td class="flex-none w-12 flex justify-end pr-4">{ship()?.sakuteki[0] ?? 0 }</td>
-                            </tr>
-                            <tr class="flex">
-                                <th class="truncate flex-1 w-2">Range</th>
-                                <td class="flex-none w-12 flex justify-end pr-4">{range_list[ship()?.leng ?? 0]}</td>
-                                <th class="truncate flex-1 w-2">Luck</th>
-                                <td class="flex-none w-12 flex justify-end pr-4">{ship()?.lucky[0] ?? 0 }</td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
+        <div class="flex flex-nowarp w-full" onClick={()=> {set_show_dialog(true); show_modal(ship_id);}}>
+            <div>
+                <IconShip class="h-5 -mt-0.5 pr-2" ship_stype={mst_ship().stype} />
             </div>
-            <form method="dialog" class="modal-backdrop">
-                <button>close</button>
-            </form>
-        </dialog>
+            <div class="truncate">
+                {mst_ship()?.name ?? "Unknown"}
+            </div>
+        </div>
+        <Show when={show_dialog()}>
+            <dialog id={"deck_ship_name_modal_"+ship_id} class="modal">
+                <div class="modal-box bg-base-100 modal-box-width">
+                    <form method="dialog">
+                        <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" onClick={() => set_show_dialog(false)}>
+                            <IconXMark class="h-6 w-6" />
+                        </button>
+                    </form>
+                    <div class="flex justify-start">
+                        <h3 class="font-bold text-base pl-2 truncate">{mst_ship()?.name ?? "Unknown"}</h3>
+                        <div class="place-self-end pb-0.5 pl-4">Lv. {ship()?.lv ?? ""}</div>
+                        <div class="place-self-end pb-0.5 pl-2">next {ship()?.exp[1] ?? ""}</div>
+                    </div>
+                    <div class="pt-2">
+                        <table class="table table-xs">
+                            <caption class="truncate">Equipment</caption>
+                            <tbody>
+                                <For each={ship()?.slot} fallback={<></>}>
+                                    {(slot_ele, index) => {
+                                        return <>
+                                            <tr class="flex table_active table_hover rounded rounded items-center">
+                                                <th class="flex-none w-4">S{index()+1}</th>
+                                                <td class="flex-none w-12 pl-4 h-7">
+                                                    <Show when={slot_ele > 0}>
+                                                        <EquimentComponent slot_id={slot_ele} ex_flag={false} name_flag={true}></EquimentComponent>
+                                                    </Show>
+                                                </td>
+                                            </tr>
+                                        </>
+                                    }}
+                                </For>
+                                <tr class="flex table_active table_hover rounded rounded items-center">
+                                    <th class="flex-none w-2">SE</th>
+                                    <td class="flex-none w-12 pl-4 h-7">
+                                        <Show when={ship()?.slot_ex > 0}>
+                                            <EquimentComponent slot_id={ship()?.slot_ex} ex_flag={true} name_flag={true}></EquimentComponent>
+                                        </Show>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                        <div class="h-2"></div>
+                        <table class="table table-xs">
+                            <caption class="truncate">Ship Status</caption>
+                            <tbody>
+                                <tr class="flex table_active table_hover rounded">
+                                    <th class="truncate flex-1 w-2">Durability</th>
+                                    <td class="flex-none w-12 flex justify-end pr-4">{ship()?.maxhp ?? 0 }</td>
+                                    <th class="truncate flex-1 w-2">Firepower</th>
+                                    <td class="flex-none w-12 flex justify-end pr-4">
+                                        <div class="indicator">
+                                            <span class="indicator-item indicator-bottom text-accent text-xs">
+                                                {sp_effect_item()?.karyoku > 0 ? "+"+sp_effect_item()?.karyoku : ""}
+                                            </span>
+                                            {ship()?.karyoku[0] ?? 0 }
+                                        </div>
+                                    </td>
+                                </tr>
+                                <tr class="flex table_active table_hover rounded">
+                                    <th class="truncate flex-1 w-2">Armor</th>
+                                    <td class="flex-none w-12 flex justify-end pr-4">
+                                        <div class="indicator">
+                                            <span class="indicator-item indicator-bottom text-accent text-xs">
+                                                {sp_effect_item()?.soukou > 0 ? "+"+sp_effect_item()?.soukou : ""}
+                                            </span>
+                                            {ship()?.soukou[0] ?? 0 }
+                                        </div>
+                                    </td>
+                                    <th class="truncate flex-1 w-2">Torpedo</th>
+                                    <td class="flex-none w-12 flex justify-end pr-4">
+                                        <div class="indicator">
+                                            <span class="indicator-item indicator-bottom text-accent text-xs">
+                                                {sp_effect_item()?.raisou > 0 ? "+"+sp_effect_item()?.raisou : ""}
+                                            </span>
+                                            {ship()?.raisou[0] ?? 0 }
+                                        </div>
+                                    </td>
+                                </tr>
+                                <tr class="flex table_active table_hover rounded">
+                                    <th class="truncate flex-1 w-2">Evasion</th>
+                                    <td class="flex-none w-12 flex justify-end pr-4">
+                                        <div class="indicator">
+                                            <span class="indicator-item indicator-bottom text-accent text-xs">
+                                                {sp_effect_item()?.kaihi > 0 ? "+"+sp_effect_item()?.kaihi : ""}
+                                            </span>
+                                            {ship()?.kaihi[0] ?? 0 }
+                                        </div>
+                                    </td>
+                                    <th class="truncate flex-1 w-2">Anti-Air</th>
+                                    <td class="flex-none w-12 flex justify-end pr-4">{ship()?.taiku[0] ?? 0 }</td>
+                                </tr>
+                                <tr class="flex table_active table_hover rounded">
+                                    <th class="truncate flex-1 w-2">Aircraft installed</th>
+                                    <td class="flex-none w-12 flex justify-end pr-4">{max_eq() ?? 0 > 0}</td>
+                                    <th class="truncate flex-1 w-2">Anti-Submarine</th>
+                                    <td class="flex-none w-12 flex justify-end pr-4">{ship()?.taisen[0] ?? 0 }</td>
+                                </tr>
+                                <tr class="flex table_active table_hover rounded">
+                                    <th class="truncate flex-1 w-2">Speed</th>
+                                    <td class="flex-none w-12 flex justify-end pr-4">{speed_list[ship()?.soku ?? 0]}</td>
+                                    <th class="truncate flex-1 w-2">Reconnaissance</th>
+                                    <td class="flex-none w-12 flex justify-end pr-4">{ship()?.sakuteki[0] ?? 0 }</td>
+                                </tr>
+                                <tr class="flex table_active table_hover rounded">
+                                    <th class="truncate flex-1 w-2">Range</th>
+                                    <td class="flex-none w-12 flex justify-end pr-4">{range_list[ship()?.leng ?? 0]}</td>
+                                    <th class="truncate flex-1 w-2">Luck</th>
+                                    <td class="flex-none w-12 flex justify-end pr-4">{ship()?.lucky[0] ?? 0 }</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <form method="dialog" class="modal-backdrop">
+                    <button onClick={() => set_show_dialog(false)}>close</button>
+                </form>
+            </dialog>
+        </Show>
     </>;
 }
