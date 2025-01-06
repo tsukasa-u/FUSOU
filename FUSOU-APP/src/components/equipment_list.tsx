@@ -1,4 +1,4 @@
-import { useMstShips, useMstStypes, useShips } from '../utility/provider.tsx';
+import { useMstShips, useMstSlotItems, useMstStypes, useShips, useSlotItems } from '../utility/provider.tsx';
 
 import "../css/divider.css";
 import { createEffect, createMemo, createSignal, For, JSX, Match, Show, Switch } from 'solid-js';
@@ -10,45 +10,48 @@ import "./../css/table_hover.css";
 import "./../css/table_active.css";
 import IconUpArrow from '../icons/up_arrow.tsx';
 import IconDownArrow from '../icons/down_arrow.tsx';
+import { EquimentComponent } from './equipment.tsx';
 
-export function ShipListComponent() {
+export function EquipmentListComponent() {
     
     const [ships, ] =  useShips();
     const [mst_ships, ] = useMstShips();
     const [mst_stypes, ] = useMstStypes();
+    const [slot_items, ] = useSlotItems();
+    const [mst_slot_items, ] = useMstSlotItems();
     
-    const speed_list = ["", "", "", "", "", "Slow", "", "", "", "", "Fast", "", "", "", "", "Fast+", "", "", "", "", "Fastest"];
-    const range_list = ["", "Short", "Medium", "Long", "Very Long"];
-    const ship_properties = ["Level", "Durability", "Firepower", "Torpedo", "Anti-Air", "Speed", "Armor", "Evasion", "Anti-Submarine", "Luck", "Aircraft installed", "Reconnaissance", "Range"];
+    // const speed_list = ["", "", "", "", "", "Slow", "", "", "", "", "Fast", "", "", "", "", "Fast+", "", "", "", "", "Fastest"];
+    // const range_list = ["", "Short", "Medium", "Long", "Very Long"];
+    // const ship_properties = ["Level", "Durability", "Firepower", "Torpedo", "Anti-Air", "Speed", "Armor", "Evasion", "Anti-Submarine", "Luck", "Aircraft installed", "Reconnaissance", "Range"];
 
-    const [check_stype, set_check_stype] = createStore<{[key: string]: boolean}>({});
-    createEffect(() => {
-        let check_stype: {[key: string]: boolean} = {};
-        Object.entries(mst_stypes.mst_stypes).forEach(([_, stype]) => {
-            check_stype[stype.name] = true;
-        });
-        set_check_stype(check_stype);
-    });
+    // const [check_stype, set_check_stype] = createStore<{[key: string]: boolean}>({});
+    // createEffect(() => {
+    //     let check_stype: {[key: string]: boolean} = {};
+    //     Object.entries(mst_stypes.mst_stypes).forEach(([_, stype]) => {
+    //         check_stype[stype.name] = true;
+    //     });
+    //     set_check_stype(check_stype);
+    // });
 
-    const [check_name, set_check_name] = createStore<{[key: number]: boolean}>({});
-    createEffect(() => {
-        let check_name: {[key: number]: boolean} = {};
-        Object.entries(ships.ships).forEach(([ship_id, _]) => {
-            check_name[Number(ship_id)] = true;
-        });
-        set_check_name(check_name);
-    });
+    // const [check_name, set_check_name] = createStore<{[key: number]: boolean}>({});
+    // createEffect(() => {
+    //     let check_name: {[key: number]: boolean} = {};
+    //     Object.entries(ships.ships).forEach(([ship_id, _]) => {
+    //         check_name[Number(ship_id)] = true;
+    //     });
+    //     set_check_name(check_name);
+    // });
 
-    const [check_ship_propaty, set_check_ship_propaty] = createStore<{[key: string]: boolean}>((
-        () => {
-            let check_ship_propaty: {[key: string]: boolean} = {};
-            check_ship_propaty["Ship Type"] = true;
-            ship_properties.forEach((propaty) => {
-                check_ship_propaty[propaty] = true;
-            });
-            return check_ship_propaty;
-        }
-    )());
+    // const [check_ship_propaty, set_check_ship_propaty] = createStore<{[key: string]: boolean}>((
+    //     () => {
+    //         let check_ship_propaty: {[key: string]: boolean} = {};
+    //         check_ship_propaty["Ship Type"] = true;
+    //         ship_properties.forEach((propaty) => {
+    //             check_ship_propaty[propaty] = true;
+    //         });
+    //         return check_ship_propaty;
+    //     }
+    // )());
 
     const [set_order, set_set_order] = createSignal(false);
     const [set_sort, set_set_sort] = createSignal("New");
@@ -57,237 +60,238 @@ export function ShipListComponent() {
         if (set_sort() == "New") return 0;
         let a_ship = ships.ships[Number(a)];
         let b_ship = ships.ships[Number(b)];
-        if (set_sort() == "Level") return a_ship.lv - b_ship.lv;
-        if (set_sort() == "Durability") return a_ship.maxhp - b_ship.maxhp;
-        if (set_sort() == "Firepower") return a_ship.karyoku[0] - b_ship.karyoku[0];
-        if (set_sort() == "Torpedo") return a_ship.raisou[0] - b_ship.raisou[0];
-        if (set_sort() == "Anti-Air") return a_ship.taiku[0] - b_ship.taiku[0];
-        if (set_sort() == "Speed") return a_ship.soku - b_ship.soku;
-        if (set_sort() == "Armor") return a_ship.soukou[0] - b_ship.soukou[0];
-        if (set_sort() == "Evasion") return a_ship.kaihi[0] - b_ship.kaihi[0];
-        if (set_sort() == "Anti-Submarine") return a_ship.taisen[0] - b_ship.taisen[0];
-        if (set_sort() == "Luck") return a_ship.lucky[0] - b_ship.lucky[0];
-        if (set_sort() == "Aircraft installed") return mst_ships.mst_ships[a_ship.ship_id]?.maxeq.reduce((a, b) => a + b, 0) - mst_ships.mst_ships[b_ship.ship_id]?.maxeq.reduce((a, b) => a + b, 0);
-        if (set_sort() == "Reconnaissance") return a_ship.sakuteki[0] - b_ship.sakuteki[0];
-        if (set_sort() == "Range") return a_ship.leng - b_ship.leng;
+        // if (set_sort() == "Level") return a_ship.lv - b_ship.lv;
+        // if (set_sort() == "Durability") return a_ship.maxhp - b_ship.maxhp;
+        // if (set_sort() == "Firepower") return a_ship.karyoku[0] - b_ship.karyoku[0];
+        // if (set_sort() == "Torpedo") return a_ship.raisou[0] - b_ship.raisou[0];
+        // if (set_sort() == "Anti-Air") return a_ship.taiku[0] - b_ship.taiku[0];
+        // if (set_sort() == "Speed") return a_ship.soku - b_ship.soku;
+        // if (set_sort() == "Armor") return a_ship.soukou[0] - b_ship.soukou[0];
+        // if (set_sort() == "Evasion") return a_ship.kaihi[0] - b_ship.kaihi[0];
+        // if (set_sort() == "Anti-Submarine") return a_ship.taisen[0] - b_ship.taisen[0];
+        // if (set_sort() == "Luck") return a_ship.lucky[0] - b_ship.lucky[0];
+        // if (set_sort() == "Aircraft installed") return mst_ships.mst_ships[a_ship.ship_id]?.maxeq.reduce((a, b) => a + b, 0) - mst_ships.mst_ships[b_ship.ship_id]?.maxeq.reduce((a, b) => a + b, 0);
+        // if (set_sort() == "Reconnaissance") return a_ship.sakuteki[0] - b_ship.sakuteki[0];
+        // if (set_sort() == "Range") return a_ship.leng - b_ship.leng;
         return 0;
     }
 
-    const sorted_ship_keys = createMemo(() => {
-        let keys = Object.keys(ships.ships);
+    const sorted_slot_item_keys = createMemo(() => {
+        let keys = Object.keys(slot_items.slot_items);
         if (set_order()) keys = keys.reverse();
         keys = keys.sort(sort_fn);
+        console.log(keys);
         return keys;
     });
 
-    const [range_props, set_range_props] = createStore<{[key: string]: {min: number, max: number, eq: number, range: boolean, abbreviation: string}}>((
-        () => {
-            let range_props: {[key: string]: {min: number, max: number, eq: number, range: boolean, abbreviation: string}} = {};
-            let params = ship_properties;
-            let abbreviations = ["Lv", "Dur", "Fire", "Tor", "AA", "Spd", "Arm", "Eva", "ASW", "Lck", "ACI", "Rec", "Rng"];
-            params.forEach((param, index) => {
-                range_props[param] = {min: 0, max: 0, eq: 0, range: true, abbreviation: abbreviations[index]};
-            });
-            return range_props;
-        }
-    )());
+    // const [range_props, set_range_props] = createStore<{[key: string]: {min: number, max: number, eq: number, range: boolean, abbreviation: string}}>((
+    //     () => {
+    //         let range_props: {[key: string]: {min: number, max: number, eq: number, range: boolean, abbreviation: string}} = {};
+    //         let params = ship_properties;
+    //         let abbreviations = ["Lv", "Dur", "Fire", "Tor", "AA", "Spd", "Arm", "Eva", "ASW", "Lck", "ACI", "Rec", "Rng"];
+    //         params.forEach((param, index) => {
+    //             range_props[param] = {min: 0, max: 0, eq: 0, range: true, abbreviation: abbreviations[index]};
+    //         });
+    //         return range_props;
+    //     }
+    // )());
 
-    const filtered_ships = createMemo<{[key: number]:boolean}>(() => {
+    // const filtered_ships = createMemo<{[key: number]:boolean}>(() => {
 
-        const check_range = (param: string, value: number) => {
-            if (range_props[param].range) {
-                if (Number.isInteger(range_props[param].min) && range_props[param].min != 0){
-                    if (value < range_props[param].min) return false;
-                }
-                if (Number.isInteger(range_props[param].max) && range_props[param].max != 0){
-                    if (value > range_props[param].max) return false;
-                }
-            } else {
-                if (!Number.isInteger(range_props[param].eq)) return false;
-                if (value != range_props[param].eq) return false;
-            }
-            return true;
-        };
+    //     const check_range = (param: string, value: number) => {
+    //         if (range_props[param].range) {
+    //             if (Number.isInteger(range_props[param].min) && range_props[param].min != 0){
+    //                 if (value < range_props[param].min) return false;
+    //             }
+    //             if (Number.isInteger(range_props[param].max) && range_props[param].max != 0){
+    //                 if (value > range_props[param].max) return false;
+    //             }
+    //         } else {
+    //             if (!Number.isInteger(range_props[param].eq)) return false;
+    //             if (value != range_props[param].eq) return false;
+    //         }
+    //         return true;
+    //     };
 
-        let ret: {[key: number]: boolean} = {};
-        (set_order() ? Object.keys(ships.ships) : Object.keys(ships.ships).reverse()).forEach((ship_id) => {
-            ret[Number(ship_id)] = (() => {
-                if (!check_stype[mst_stypes.mst_stypes[mst_ships.mst_ships[ships.ships[Number(ship_id)].ship_id].stype].name]) return false;
-                if (!check_name[Number(ship_id)]) return false;
-                if (!check_range("Level", ships.ships[Number(ship_id)].lv)) return false;
-                if (!check_range("Durability", ships.ships[Number(ship_id)].maxhp)) return false;
-                if (!check_range("Firepower", ships.ships[Number(ship_id)].karyoku[0])) return false;
-                if (!check_range("Torpedo", ships.ships[Number(ship_id)].raisou[0])) return false;
-                if (!check_range("Anti-Air", ships.ships[Number(ship_id)].taiku[0])) return false;
-                if (!check_range("Speed", ships.ships[Number(ship_id)].soku)) return false;
-                if (!check_range("Armor", ships.ships[Number(ship_id)].soukou[0])) return false;
-                if (!check_range("Evasion", ships.ships[Number(ship_id)].kaihi[0])) return false;
-                if (!check_range("Anti-Submarine", ships.ships[Number(ship_id)].taisen[0])) return false;
-                if (!check_range("Luck", ships.ships[Number(ship_id)].lucky[0])) return false;
-                if (!check_range("Aircraft installed", ships.ships[Number(ship_id)].slotnum)) return false;
-                if (!check_range("Reconnaissance", ships.ships[Number(ship_id)].sakuteki[0])) return false;
-                if (!check_range("Range", ships.ships[Number(ship_id)].leng)) return false;
-            return true;
-            })();
-        });
-        return ret;
-    });
+    //     let ret: {[key: number]: boolean} = {};
+    //     (set_order() ? Object.keys(ships.ships) : Object.keys(ships.ships).reverse()).forEach((ship_id) => {
+    //         ret[Number(ship_id)] = (() => {
+    //             if (!check_stype[mst_stypes.mst_stypes[mst_ships.mst_ships[ships.ships[Number(ship_id)].ship_id].stype].name]) return false;
+    //             if (!check_name[Number(ship_id)]) return false;
+    //             if (!check_range("Level", ships.ships[Number(ship_id)].lv)) return false;
+    //             if (!check_range("Durability", ships.ships[Number(ship_id)].maxhp)) return false;
+    //             if (!check_range("Firepower", ships.ships[Number(ship_id)].karyoku[0])) return false;
+    //             if (!check_range("Torpedo", ships.ships[Number(ship_id)].raisou[0])) return false;
+    //             if (!check_range("Anti-Air", ships.ships[Number(ship_id)].taiku[0])) return false;
+    //             if (!check_range("Speed", ships.ships[Number(ship_id)].soku)) return false;
+    //             if (!check_range("Armor", ships.ships[Number(ship_id)].soukou[0])) return false;
+    //             if (!check_range("Evasion", ships.ships[Number(ship_id)].kaihi[0])) return false;
+    //             if (!check_range("Anti-Submarine", ships.ships[Number(ship_id)].taisen[0])) return false;
+    //             if (!check_range("Luck", ships.ships[Number(ship_id)].lucky[0])) return false;
+    //             if (!check_range("Aircraft installed", ships.ships[Number(ship_id)].slotnum)) return false;
+    //             if (!check_range("Reconnaissance", ships.ships[Number(ship_id)].sakuteki[0])) return false;
+    //             if (!check_range("Range", ships.ships[Number(ship_id)].leng)) return false;
+    //         return true;
+    //         })();
+    //     });
+    //     return ret;
+    // });
 
-    const set_range_window = createMemo(() => {
-        let set_range_element: {[key: string]: JSX.Element} = {};
-        let params = ["Level", "Durability", "Firepower", "Torpedo", "Anti-Air", "Armor", "Evasion", "Anti-Submarine", "Luck", "Aircraft installed", "Reconnaissance"];
-        params.forEach((param) => {
+    // const set_range_window = createMemo(() => {
+    //     let set_range_element: {[key: string]: JSX.Element} = {};
+    //     let params = ["Level", "Durability", "Firepower", "Torpedo", "Anti-Air", "Armor", "Evasion", "Anti-Submarine", "Luck", "Aircraft installed", "Reconnaissance"];
+    //     params.forEach((param) => {
 
-            set_range_element[param] = (
-                <div class="dropdown dropdown-end">
-                    <div class="indicator">
-                        <Show when={(
-                            () => {
-                                let ret = false;
-                                if (range_props[param].range) {
-                                    if (Number.isInteger(range_props[param].min) && range_props[param].min != 0) ret = true;
-                                    if (Number.isInteger(range_props[param].max) && range_props[param].max != 0) ret = true;
-                                } else {
-                                    if (Number.isInteger(range_props[param].eq)) ret = true;
-                                }
-                                return ret;
-                            }
-                        )()}>
-                            <span class="indicator-item badge badge-secondary badge-xs -mx-2">filtered</span>
-                        </Show>
-                        <div tabindex="0" role="button" class="btn btn-xs btn-ghost -mx-2">{param}</div>
-                    </div>
-                    <div tabindex="0" class="dropdown-content card card-compact bg-base-100 z-[1] w-64 shadow rounded-md">
-                        <div class="card-body">
-                            <div class="form-control">
-                                <label class="label cursor-pointer relative">
-                                    <input type="radio" name="radio-Level" class="radio radio-sm" checked={range_props[param].range} onClick={() => set_range_props(param, "range", true)} />
-                                    <span class="label-text text-sm">
-                                        <input type="text" placeholder="Min" class="input input-sm input-bordered w-14" onInput={(e) => set_range_props(param, "min", Number(e.target.value))}/> &#8804; {range_props[param].abbreviation} &#8804; <input type="text" placeholder="Max" class="input input-sm input-bordered w-14" onInput={(e) => set_range_props(param, "max", Number(e.target.value))}/>
-                                        <Show when={!Number.isInteger(range_props[param].max)}>
-                                            <div class="label absolute -bottom-4 right-0">
-                                                <span class="label-text-alt text-error">Input Number</span>
-                                            </div>
-                                        </Show>
-                                        <Show when={!Number.isInteger(range_props[param].min)}>
-                                            <div class="label absolute -bottom-4 right-[116px]">
-                                                <span class="label-text-alt text-error">Input Number</span>
-                                            </div>
-                                        </Show>
-                                    </span>
-                                </label>
-                            </div>
-                            <div class="divider my-0.5">OR</div>
-                            <div class="form-control">
-                                <label class="label cursor-pointer relative">
-                                    <input type="radio" name="radio-Level" class="radio radio-sm" checked={!range_props[param].range} onClick={() => set_range_props(param, "range", false)} />
-                                    <span class="label-text text-sm">
-                                        {range_props[param].abbreviation} = <input type="text" placeholder="Eq" class="input input-sm input-bordered w-32" onInput={(e) => set_range_props(param, "eq", Number(e.target.value))}/>
-                                        <Show when={!Number.isInteger(range_props[param].eq)}>
-                                            <div class="label absolute -bottom-4 right-0">
-                                                <span class="label-text-alt text-error">Input Number</span>
-                                            </div>
-                                        </Show>
-                                    </span>
-                                </label>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            );
-        });
-        return set_range_element;
-    });
+    //         set_range_element[param] = (
+    //             <div class="dropdown dropdown-end">
+    //                 <div class="indicator">
+    //                     <Show when={(
+    //                         () => {
+    //                             let ret = false;
+    //                             if (range_props[param].range) {
+    //                                 if (Number.isInteger(range_props[param].min) && range_props[param].min != 0) ret = true;
+    //                                 if (Number.isInteger(range_props[param].max) && range_props[param].max != 0) ret = true;
+    //                             } else {
+    //                                 if (Number.isInteger(range_props[param].eq)) ret = true;
+    //                             }
+    //                             return ret;
+    //                         }
+    //                     )()}>
+    //                         <span class="indicator-item badge badge-secondary badge-xs -mx-2">filtered</span>
+    //                     </Show>
+    //                     <div tabindex="0" role="button" class="btn btn-xs btn-ghost -mx-2">{param}</div>
+    //                 </div>
+    //                 <div tabindex="0" class="dropdown-content card card-compact bg-base-100 z-[1] w-64 shadow rounded-md">
+    //                     <div class="card-body">
+    //                         <div class="form-control">
+    //                             <label class="label cursor-pointer relative">
+    //                                 <input type="radio" name="radio-Level" class="radio radio-sm" checked={range_props[param].range} onClick={() => set_range_props(param, "range", true)} />
+    //                                 <span class="label-text text-sm">
+    //                                     <input type="text" placeholder="Min" class="input input-sm input-bordered w-14" onInput={(e) => set_range_props(param, "min", Number(e.target.value))}/> &#8804; {range_props[param].abbreviation} &#8804; <input type="text" placeholder="Max" class="input input-sm input-bordered w-14" onInput={(e) => set_range_props(param, "max", Number(e.target.value))}/>
+    //                                     <Show when={!Number.isInteger(range_props[param].max)}>
+    //                                         <div class="label absolute -bottom-4 right-0">
+    //                                             <span class="label-text-alt text-error">Input Number</span>
+    //                                         </div>
+    //                                     </Show>
+    //                                     <Show when={!Number.isInteger(range_props[param].min)}>
+    //                                         <div class="label absolute -bottom-4 right-[116px]">
+    //                                             <span class="label-text-alt text-error">Input Number</span>
+    //                                         </div>
+    //                                     </Show>
+    //                                 </span>
+    //                             </label>
+    //                         </div>
+    //                         <div class="divider my-0.5">OR</div>
+    //                         <div class="form-control">
+    //                             <label class="label cursor-pointer relative">
+    //                                 <input type="radio" name="radio-Level" class="radio radio-sm" checked={!range_props[param].range} onClick={() => set_range_props(param, "range", false)} />
+    //                                 <span class="label-text text-sm">
+    //                                     {range_props[param].abbreviation} = <input type="text" placeholder="Eq" class="input input-sm input-bordered w-32" onInput={(e) => set_range_props(param, "eq", Number(e.target.value))}/>
+    //                                     <Show when={!Number.isInteger(range_props[param].eq)}>
+    //                                         <div class="label absolute -bottom-4 right-0">
+    //                                             <span class="label-text-alt text-error">Input Number</span>
+    //                                         </div>
+    //                                     </Show>
+    //                                 </span>
+    //                             </label>
+    //                         </div>
+    //                     </div>
+    //                 </div>
+    //             </div>
+    //         );
+    //     });
+    //     return set_range_element;
+    // });
 
     
-    const set_discrete_range_window = createMemo(() => {
-        let set_range_element: {[key: string]: JSX.Element} = {};
-        let params = ["Speed", "Range"];
-        let params_option = [
-            ["None", "Slow", "Fast", "Fast+", "Fastest"],
-            ["None", "Short", "Medium", "Long", "Very Long"]
-        ];
-        let param_converter = [
-            ["None", "", "", "", "", "Slow", "", "", "", "", "Fast", "", "", "", "", "Fast+", "", "", "", "", "Fastest"],
-            ["None", "Short", "Medium", "Long", "Very Long"]
-        ]
-        params.forEach((param, param_index) => {
-            set_range_element[param] = (
-                <div class="dropdown dropdown-end">
-                    <div class="indicator">
-                        <Show when={(
-                            () => {
-                                let ret = false;
-                                if (range_props[param].range) {
-                                    if (Number.isInteger(range_props[param].min) && range_props[param].min != 0) ret = true;
-                                    if (Number.isInteger(range_props[param].max) && range_props[param].max != 0) ret = true;
-                                } else {
-                                    if (Number.isInteger(range_props[param].eq)) ret = true;
-                                }
-                                return ret;
-                            }
-                        )()}>
-                            <span class="indicator-item badge badge-secondary badge-xs -mx-2">filtered</span>
-                        </Show>
-                        <div tabindex="0" role="button" class="btn btn-xs btn-ghost -mx-2">{param}</div>
-                    </div>
-                    <div tabindex="0" class="dropdown-content card card-compact bg-base-100 z-[1] w-80 shadow rounded-md">
-                        <div class="card-body">
-                            <div class="form-control">
-                                <label class="label cursor-pointer relative">
-                                    <input type="radio" name="radio-Level" class="radio radio-sm" checked={range_props[param].range} onClick={() => set_range_props(param, "range", true)} />
-                                    <span class="label-text text-sm">
-                                        <select class="select select-bordered select-sm w-24 mx-2" onChange={(e) => set_range_props(param, "min", param_converter[param_index].findIndex((param_select) => param_select == e.target.value))}>
-                                            <For each={params_option[param_index]}>
-                                                {(param_select) => 
-                                                    <>
-                                                        <option>{param_select}</option>
-                                                    </>
-                                                }
-                                            </For>
-                                        </select>
-                                        &#8804; {range_props[param].abbreviation} &#8804;
-                                        <select class="select select-bordered select-sm w-24 mx-2" onChange={(e) => set_range_props(param, "max", param_converter[param_index].findIndex((param_select) => param_select == e.target.value))}>
-                                            <For each={params_option[param_index]}>
-                                                {(param_select) => 
-                                                    <>
-                                                        <option>{param_select}</option>
-                                                    </>
-                                                }
-                                            </For>
-                                        </select>
-                                    </span>
-                                </label>
-                            </div>
-                            <div class="divider my-0.5">OR</div>
-                            <div class="form-control">
-                                <label class="label cursor-pointer relative">
-                                    <input type="radio" name="radio-Level" class="radio radio-sm" checked={!range_props[param].range} onClick={() => set_range_props(param, "range", false)} />
-                                    <span class="label-text text-sm">
-                                        {range_props[param].abbreviation} = 
-                                        <select class="select select-bordered select-sm w-52" onChange={(e) => set_range_props(param, "eq", param_converter[param_index].findIndex((param_select) => param_select == e.target.value))}>
-                                            <For each={params_option[param_index]}>
-                                                {(param_select) => 
-                                                    <>
-                                                        <option>{param_select}</option>
-                                                    </>
-                                                }
-                                            </For>
-                                        </select>
-                                    </span>
-                                </label>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            );
-        });
-        return set_range_element;
-    });
+    // const set_discrete_range_window = createMemo(() => {
+    //     let set_range_element: {[key: string]: JSX.Element} = {};
+    //     let params = ["Speed", "Range"];
+    //     let params_option = [
+    //         ["None", "Slow", "Fast", "Fast+", "Fastest"],
+    //         ["None", "Short", "Medium", "Long", "Very Long"]
+    //     ];
+    //     let param_converter = [
+    //         ["None", "", "", "", "", "Slow", "", "", "", "", "Fast", "", "", "", "", "Fast+", "", "", "", "", "Fastest"],
+    //         ["None", "Short", "Medium", "Long", "Very Long"]
+    //     ]
+    //     params.forEach((param, param_index) => {
+    //         set_range_element[param] = (
+    //             <div class="dropdown dropdown-end">
+    //                 <div class="indicator">
+    //                     <Show when={(
+    //                         () => {
+    //                             let ret = false;
+    //                             if (range_props[param].range) {
+    //                                 if (Number.isInteger(range_props[param].min) && range_props[param].min != 0) ret = true;
+    //                                 if (Number.isInteger(range_props[param].max) && range_props[param].max != 0) ret = true;
+    //                             } else {
+    //                                 if (Number.isInteger(range_props[param].eq)) ret = true;
+    //                             }
+    //                             return ret;
+    //                         }
+    //                     )()}>
+    //                         <span class="indicator-item badge badge-secondary badge-xs -mx-2">filtered</span>
+    //                     </Show>
+    //                     <div tabindex="0" role="button" class="btn btn-xs btn-ghost -mx-2">{param}</div>
+    //                 </div>
+    //                 <div tabindex="0" class="dropdown-content card card-compact bg-base-100 z-[1] w-80 shadow rounded-md">
+    //                     <div class="card-body">
+    //                         <div class="form-control">
+    //                             <label class="label cursor-pointer relative">
+    //                                 <input type="radio" name="radio-Level" class="radio radio-sm" checked={range_props[param].range} onClick={() => set_range_props(param, "range", true)} />
+    //                                 <span class="label-text text-sm">
+    //                                     <select class="select select-bordered select-sm w-24 mx-2" onChange={(e) => set_range_props(param, "min", param_converter[param_index].findIndex((param_select) => param_select == e.target.value))}>
+    //                                         <For each={params_option[param_index]}>
+    //                                             {(param_select) => 
+    //                                                 <>
+    //                                                     <option>{param_select}</option>
+    //                                                 </>
+    //                                             }
+    //                                         </For>
+    //                                     </select>
+    //                                     &#8804; {range_props[param].abbreviation} &#8804;
+    //                                     <select class="select select-bordered select-sm w-24 mx-2" onChange={(e) => set_range_props(param, "max", param_converter[param_index].findIndex((param_select) => param_select == e.target.value))}>
+    //                                         <For each={params_option[param_index]}>
+    //                                             {(param_select) => 
+    //                                                 <>
+    //                                                     <option>{param_select}</option>
+    //                                                 </>
+    //                                             }
+    //                                         </For>
+    //                                     </select>
+    //                                 </span>
+    //                             </label>
+    //                         </div>
+    //                         <div class="divider my-0.5">OR</div>
+    //                         <div class="form-control">
+    //                             <label class="label cursor-pointer relative">
+    //                                 <input type="radio" name="radio-Level" class="radio radio-sm" checked={!range_props[param].range} onClick={() => set_range_props(param, "range", false)} />
+    //                                 <span class="label-text text-sm">
+    //                                     {range_props[param].abbreviation} = 
+    //                                     <select class="select select-bordered select-sm w-52" onChange={(e) => set_range_props(param, "eq", param_converter[param_index].findIndex((param_select) => param_select == e.target.value))}>
+    //                                         <For each={params_option[param_index]}>
+    //                                             {(param_select) => 
+    //                                                 <>
+    //                                                     <option>{param_select}</option>
+    //                                                 </>
+    //                                             }
+    //                                         </For>
+    //                                     </select>
+    //                                 </span>
+    //                             </label>
+    //                         </div>
+    //                     </div>
+    //                 </div>
+    //             </div>
+    //         );
+    //     });
+    //     return set_range_element;
+    // });
 
     return (
         <>
-            <div class="h-px"></div>
+            {/* <div class="h-px"></div>
             <div class="px-2 py-1 text-xs flex flex-nowrap items-center">
                 Ship Specification Table
                 <IconChevronRight class="h-4 w-4 mx-2" />
@@ -312,12 +316,12 @@ export function ShipListComponent() {
                         </For>
                     </ul>
                 </details>
-            </div>
+            </div> */}
             {/* <div class="h-2"></div> */}
             <table class="table table-xs">
-                <thead>
-                    <tr class="flex">
-                        <th class="w-10 flex">
+                {/* <thead>
+                    <tr class="flex"> */}
+                        {/* <th class="w-10 flex">
                             <div class="dropdown">
                                 <div class="indicator">
                                     <span class="indicator-item badge badge-secondary badge-xs -mx-2 max-w-16 truncate flex justify-start">
@@ -505,22 +509,22 @@ export function ShipListComponent() {
                         </Show>
                         <Show when={check_ship_propaty["Range"]}>
                             <th class="w-16">{set_discrete_range_window()["Range"]}</th>
-                        </Show>
-                    </tr>
-                </thead>
+                        </Show> */}
+                    {/* </tr>
+                </thead> */}
                 <tbody>
-                    <For each={sorted_ship_keys()}>
-                        {(ship_id, index) => (
-                            <Show when={filtered_ships()[Number(ship_id)] ?? false}>
+                    <For each={sorted_slot_item_keys()}>
+                        {(slot_item_id, index) => (
+                            // <Show when={filtered_ships()[Number(ship_id)] ?? false}>
                                 <tr class="flex table_hover table_active rounded">
                                     <th class="w-10 flex">
                                         <span class="flex-1"></span>
                                         {index() + 1}
                                     </th>
-                                    <td class="w-32 overflow-hidden">
-                                        <ShipNameComponent ship_id={Number(ship_id)}></ShipNameComponent>
+                                    <td class="w-48 overflow-hidden">
+                                        <EquimentComponent slot_id={Number(slot_item_id)} ex_flag={false} name_flag={true} />
                                     </td>
-                                    <Show when={check_ship_propaty["Ship Type"]}>
+                                    {/* <Show when={check_ship_propaty["Ship Type"]}>
                                         <td class="w-[88px]">{mst_stypes.mst_stypes[mst_ships.mst_ships[ships.ships[Number(ship_id)].ship_id].stype].name}</td>
                                     </Show>
                                     <Show when={check_ship_propaty["Level"]}>
@@ -624,9 +628,9 @@ export function ShipListComponent() {
                                                 {range_list[ships.ships[Number(ship_id)].leng]}
                                             </div>
                                         </td>
-                                    </Show>
+                                    </Show> */}
                                 </tr>
-                            </Show>
+                            // </Show>
                         )}
                     </For>
                 </tbody>
