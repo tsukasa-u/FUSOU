@@ -122,10 +122,11 @@ impl TraitForConvert for Root {
     type Output = EmitData;
     fn convert(&self) -> Option<Vec<EmitData>> {
         let cells: Cells = self.api_data.clone().into();
-        let battles: Battles = self.api_data.clone().into();
+        // let battles: Battles = self.api_data.clone().into();
         Some(vec![
             EmitData::Set(Set::Cells(cells)),
-            EmitData::Set(Set::Battles(battles))])
+            // EmitData::Set(Set::Battles(battles))
+            ])
     }
 }
 

@@ -1,19 +1,20 @@
 use super::battle::Battle;
-pub use super::material::Materials;
-pub use super::logs::Logs;
-pub use super::deck_port::DeckPorts;
-pub use super::mst_equip_exslot_ship::MstEquipExslotShips;
-pub use super::mst_equip_ship::MstEquipShips;
-pub use super::mst_stype::MstStypes;
-pub use crate::interface::mst_use_item::MstUseItems;
-pub use super::n_dock::NDocks;
-pub use super::ship::Ships;
-pub use super::slot_item::SlotItems;
-pub use super::mst_ship::MstShips;
-pub use super::mst_slot_item::MstSlotItems;
-pub use super::battle::Battles;
-pub use super::cells::{Cells, Cell};
-pub use super::air_base::AirBases;
+use super::material::Materials;
+use super::logs::Logs;
+use super::deck_port::DeckPorts;
+use super::mst_equip_exslot_ship::MstEquipExslotShips;
+use super::mst_equip_ship::MstEquipShips;
+use super::mst_slot_item_equip_type::MstSlotItemEquipTypes;
+use super::mst_stype::MstStypes;
+use super::mst_use_item::MstUseItems;
+use super::n_dock::NDocks;
+use super::ship::Ships;
+use super::slot_item::SlotItems;
+use super::mst_ship::MstShips;
+use super::mst_slot_item::MstSlotItems;
+use super::battle::Battles;
+use super::cells::{Cells, Cell};
+use super::air_base::AirBases;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum EmitData {
@@ -53,6 +54,7 @@ pub enum Set {
     MstSlotItems(MstSlotItems),
     MstEquipExslotShips(MstEquipExslotShips),
     MstEquipShips(MstEquipShips),
+    MstSlotItemEquipTypes(MstSlotItemEquipTypes),
     MstStypes(MstStypes),
     MstUseItems(MstUseItems),
     Dammy(()),

@@ -136,6 +136,11 @@ async fn main() -> ExitCode {
       tauri_cmd::get_mst_ships,
       tauri_cmd::get_mst_slot_items,
       tauri_cmd::get_slot_items,
+      tauri_cmd::get_mst_equip_exslot_ships,
+      tauri_cmd::get_mst_slotitem_equip_types,
+      tauri_cmd::get_mst_equip_ships,
+      tauri_cmd::get_mst_stypes,
+      tauri_cmd::get_mst_useitems,
       tauri_cmd::launch_with_options,
     ])
     .plugin(tauri_plugin_window_state::Builder::default().build())

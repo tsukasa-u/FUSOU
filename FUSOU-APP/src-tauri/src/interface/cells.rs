@@ -1,10 +1,13 @@
 use std::collections::HashMap;
 
+use chrono::Local;
 use serde_json::Value;
 
-use crate::{kcapi, kcapi_common};
+use crate::{kcapi::{self, api_get_member::mapinfo}, kcapi_common};
 
 use std::sync::{LazyLock, Mutex};
+
+use super::battle::{AirDamage, Battle, TupledAirStages};
 
 // Is it better to use onecell::sync::Lazy or std::sync::Lazy?
 pub static KCS_CELLS: LazyLock<Mutex<Vec<i64>>> = LazyLock::new(|| {
@@ -21,10 +24,12 @@ pub struct Cells {
     pub cell_index: Vec<i64>,
     pub event_map: Option<Eventmap>,
     pub cell_data: Vec<CellData>,
+    pub battles: HashMap<i64, Battle>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Cell {
+    pub timestamp: Option<i64>,
     pub rashin_id: i64,
     pub no: i64,
     pub color_no: i64,
@@ -82,15 +87,37 @@ pub struct EDeckInfo {
 pub struct DestructionBattle {
     pub formation: Vec<i64>,
     pub ship_ke: Vec<i64>,
-    // pub ship_lv: Vec<i64>,
+    pub ship_lv: Vec<i64>,
     pub e_nowhps: Vec<i64>,
     pub e_maxhps: Vec<i64>,
     pub e_slot: Vec<Vec<i64>>,
     pub f_nowhps: Vec<i64>,
     pub f_maxhps: Vec<i64>,
     // Need to implement 
-    // pub air_base_attack: ApiAirBaseAttack,
-    // pub lost_kind: i64,
+    pub air_base_attack: AirBaseAttack,
+    pub lost_kind: i64,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct AirBaseAttack {
+    pub plane_from: Vec<Option<Vec<i64>>>,
+    pub f_damage: AirDamage,
+    pub e_damage: AirDamage,
+    pub stage_flag: Vec<i64>,
+    pub map_squadron_plane: Option<HashMap<String, Vec<i64>>>,
+}
+
+impl From<kcapi::api_req_map::next::ApiAirBaseAttack> for AirBaseAttack {
+    fn from(air_base_attack: kcapi::api_req_map::next::ApiAirBaseAttack) -> Self {
+        let (f_damage, e_damage) = TupledAirStages(Some(air_base_attack.api_plane_from.clone()), air_base_attack.api_stage1.clone(), air_base_attack.api_stage2.clone(), air_base_attack.api_stage3.clone()).into();
+        Self {
+            plane_from: air_base_attack.api_plane_from,
+            f_damage: f_damage,
+            e_damage: e_damage,
+            stage_flag: air_base_attack.api_stage_flag,
+            map_squadron_plane: air_base_attack.api_map_squadron_plane.and_then(|map_plane| Some(map_plane.iter().map(|(k, v)| (k.clone(), v.iter().map(|plane| plane.api_mst_id).collect::<Vec<i64>>())).collect::<HashMap<String, Vec<i64>>>())),
+        }
+    }
 }
 
 impl From<kcapi_common::common_map::ApiEDeckInfo> for EDeckInfo {
@@ -126,12 +153,15 @@ impl From<kcapi::api_req_map::next::ApiDestructionBattle> for DestructionBattle 
     fn from(destruction_battle: kcapi::api_req_map::next::ApiDestructionBattle) -> Self {
         Self {
             formation: destruction_battle.api_formation,
+            ship_lv: destruction_battle.api_ship_lv,
             ship_ke: destruction_battle.api_ship_ke,
             e_nowhps: destruction_battle.api_e_nowhps,
             e_maxhps: destruction_battle.api_e_maxhps,
             e_slot: destruction_battle.api_e_slot,
             f_nowhps: destruction_battle.api_f_nowhps,
             f_maxhps: destruction_battle.api_f_maxhps,
+            air_base_attack: destruction_battle.api_air_base_attack.into(),
+            lost_kind: destruction_battle.api_lost_kind,
         }
     }
 }
@@ -159,6 +189,7 @@ impl From<kcapi::api_req_map::next::ApiData> for Cell {
         }
 
         Self {
+            timestamp: Some(Local::now().timestamp()),
             rashin_id: cells.api_rashin_id,
             no: cells.api_no,
             color_no: cells.api_color_no,
@@ -199,6 +230,7 @@ impl From<kcapi::api_req_map::start::ApiData> for Cell {
         }
 
         Self {
+            timestamp: Some(Local::now().timestamp()),
             rashin_id: cells.api_rashin_id,
             no: cells.api_no,
             color_no: cells.api_color_no,
@@ -230,6 +262,7 @@ impl From<kcapi::api_req_map::start::ApiData> for Cells {
             cell_index: vec![cell.no],
             event_map: cells.api_eventmap.map(|eventmap| eventmap.into()),
             cell_data: cell_data,
+            battles: HashMap::new(),
         }
     }
 }

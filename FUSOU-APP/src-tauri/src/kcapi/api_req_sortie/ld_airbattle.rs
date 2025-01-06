@@ -10,13 +10,14 @@ use register_trait::Getter;
 use register_trait::TraitForRoot;
 use register_trait::TraitForConvert;
 
-use crate::interface::interface::EmitData;
+use crate::interface::interface::{EmitData, Add};
+use crate::interface::ship::Ships;
+use crate::interface::battle::Battle;
 
 use crate::kcapi_common::common_air::ApiKouku;
 use crate::kcapi_common::common_air::ApiAirBaseAttack;
 
-#[derive(Getter, TraitForTest, TraitForRoot, TraitForConvert)]
-#[convert_output(output = EmitData)]
+#[derive(Getter, TraitForTest, TraitForRoot)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[register_struct(name = "api_req_sortie/ld_airbattle")]
@@ -128,6 +129,17 @@ pub struct ApiData {
 //     #[serde(rename = "api_stage3")]
 //     pub api_stage3: Option<ApiStage3>,
 // }
+
+impl TraitForConvert for Root {
+    type Output = EmitData;
+    fn convert(&self) -> Option<Vec<EmitData>> {
+        // let ships: Ships = self.api_data.clone().into();
+        let battle: Battle = self.api_data.clone().into();
+        Some(vec![
+            // EmitData::Add(Add::Ships(ships)),
+            EmitData::Add(Add::Battle(battle))])
+    }
+}
 
 #[cfg(test)]
 mod tests {

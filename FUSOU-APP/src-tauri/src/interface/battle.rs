@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use chrono::Local;
 use serde_json::Value;
 
 use crate::{kcapi, kcapi_common::{self, custom_type::DuoType}};
@@ -21,6 +22,8 @@ pub struct Battles {
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Battle {
+    pub timestamp: Option<i64>,
+    pub midnight_timestamp: Option<i64>,
     pub cell_id: i64,
     pub deck_id: Option<i64>,
     pub formation: Option<Vec<i64>>,
@@ -186,9 +189,7 @@ impl From<kcapi_common::common_air::ApiAirBaseAttack> for AirBaseAirAttack {
     }
 }
 
-struct TupledAirStages(Option<Vec<Option<Vec<i64>>>>, Option<kcapi_common::common_air::ApiStage1>, Option<kcapi_common::common_air::ApiStage2>, Option<kcapi_common::common_air::ApiStage3>);
-// struct TupledAirDamage(AirDamage, AirDamage);
-type TupledAirDamage = (AirDamage, AirDamage);
+pub struct TupledAirStages(pub(super) Option<Vec<Option<Vec<i64>>>>, pub(super) Option<kcapi_common::common_air::ApiStage1>, pub(super) Option<kcapi_common::common_air::ApiStage2>, pub(super) Option<kcapi_common::common_air::ApiStage3>);
 impl From<TupledAirStages> for (AirDamage, AirDamage) {
     fn from(tupled_air_stages: TupledAirStages) -> Self {
         let TupledAirStages(plane_from, stage1, stage2, stage3) = tupled_air_stages;
@@ -411,6 +412,8 @@ impl From<kcapi::api_req_sortie::battle::ApiData> for Battle {
         };
 
         Self {
+            timestamp: Some(Local::now().timestamp()),
+            midnight_timestamp: None,
             cell_id: cell_no,
             deck_id: Some(battle.api_deck_id),
             formation: Some(battle.api_formation),
@@ -450,6 +453,8 @@ impl From<kcapi::api_req_battle_midnight::battle::ApiData> for Battle {
         };
 
         Self {
+            timestamp: None,
+            midnight_timestamp: Some(Local::now().timestamp()),
             cell_id: cell_no,
             deck_id: Some(battle.api_deck_id),
             formation: Some(battle.api_formation),
@@ -489,6 +494,8 @@ impl From<kcapi::api_req_battle_midnight::sp_midnight::ApiData> for Battle {
         };
 
         Self {
+            timestamp: None,
+            midnight_timestamp: Some(Local::now().timestamp()),
             cell_id: cell_no,
             deck_id: Some(battle.api_deck_id),
             formation: Some(battle.api_formation),
@@ -518,12 +525,59 @@ impl From<kcapi::api_req_battle_midnight::sp_midnight::ApiData> for Battle {
     }
 }
 
-impl From<kcapi::api_req_map::start::ApiData> for Battles {
-    fn from(start: kcapi::api_req_map::start::ApiData) -> Self {
-        let battles = HashMap::new();
+impl From<kcapi::api_req_sortie::ld_airbattle::ApiData> for Battle {
+    fn from(airbattle: kcapi::api_req_sortie::ld_airbattle::ApiData) -> Self {
+        let air_base_air_attacks: Option<AirBaseAirAttacks> = match airbattle.api_air_base_attack {
+            Some(air_base_air_attack) => Some(AirBaseAirAttacks {
+                attacks: air_base_air_attack.iter().map(|air_base_air_attack| air_base_air_attack.clone().into()).collect(),
+            }),
+            None => None,
+        };
+        let opening_air_attack: Option<OpeningAirAttack> = Some(airbattle.api_kouku.into());
+
+        let cell_no = match KCS_CELLS.lock().unwrap().last() {
+            Some(cell) => cell.clone(),
+            None => 0,
+        };
+
         Self {
-            cells: Vec::new(),
-            battles: battles,
+            timestamp: Some(Local::now().timestamp()),
+            midnight_timestamp: None,
+            cell_id: cell_no,
+            deck_id: Some(airbattle.api_deck_id),
+            formation: Some(airbattle.api_formation),
+            enemy_ship_id: Some(airbattle.api_ship_ke),
+            e_params: Some(airbattle.api_e_param),
+            e_slot: Some(airbattle.api_e_slot),
+            total_damages_friends: None,
+            total_damages_enemies: None,
+            reconnaissance: Some(airbattle.api_search),
+            forward_observe: None,
+            escape_idx: airbattle.api_escape_idx,
+            smoke_type: Some(airbattle.api_smoke_type),
+            // air_base_assault: None,
+            // carrier_base_assault: None,
+            air_base_air_attacks: air_base_air_attacks,
+            opening_air_attack: opening_air_attack,
+            support_attack: None,
+            opening_taisen: None,
+            opening_raigeki: None,
+            hougeki: None,
+            closing_raigeki: None,
+            // friendly_fleet_attack: None,
+            midnight_flare_pos: None,
+            midngiht_touchplane: None,
+            midnight_hougeki: None,
         }
     }
 }
+
+// impl From<kcapi::api_req_map::start::ApiData> for Battles {
+//     fn from(start: kcapi::api_req_map::start::ApiData) -> Self {
+//         let battles = HashMap::new();
+//         Self {
+//             cells: Vec::new(),
+//             battles: battles,
+//         }
+//     }
+// }

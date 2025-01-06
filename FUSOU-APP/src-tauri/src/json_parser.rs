@@ -83,6 +83,10 @@ fn emit_data<R: tauri::Runtime>(handle: &impl tauri::Manager<R>, emit_data: Emit
                     // println!("MstUseItems: {:?}", data);
                     let _ = handle.emit_to("main", "set-kcs-mst-use-items", data);
                 },
+                Set::MstSlotItemEquipTypes(data) => {
+                    // println!("MstSlotItemEquipTypes: {:?}", data);
+                    let _ = handle.emit_to("main", "set-kcs-mst-slot-item-equip-types", data);
+                },
                 Set::Battles(data) => {
                     // println!("Battle: {:?}", data);
                     let _ = handle.emit_to("main", "set-kcs-battles", data);
