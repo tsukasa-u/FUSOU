@@ -1,0 +1,9 @@
+@media (hover: hover) {
+    :not(#fakeID) .table_hover:hover {
+        background-color: var(--fallback-bc, oklch(var(--bc) / 0.1));
+    }
+}
+
+:not(#fakeID) .table_hover:hover {
+    background-color: var(--fallback-bc, oklch(var(--bc) / 0.1));
+}
