@@ -8,6 +8,8 @@ import IconShip from '../icons/ship.tsx';
 
 import "./../css/table_hover.css";
 import "./../css/table_active.css";
+// import "./../css/modal_hover.css";
+import "./../css/modal_active.css";
 
 interface ShipNameProps {
     ship_id: number;
