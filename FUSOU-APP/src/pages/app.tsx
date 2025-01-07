@@ -7,6 +7,7 @@ import { AirBasesProvider, /*BattleContextProvider,*/ CellsContextProvider, Deck
 import { BattlesComponent } from '../components/battles.tsx';
 import { AirBasesComponent } from '../components/air_bases.tsx';
 import { ShipListComponent } from '../components/ship_list.tsx';
+import { EquipmentListComponent } from '../components/equipment_list.tsx';
 
 function App() {
   
@@ -64,8 +65,8 @@ function App() {
 
           <input type="radio" name="tabs_fleet" role="tab" class="tab [&::after]:w-18 bg-base-200 fixed" aria-label="Ship Info" style={{"top":"0px", "left":"88px", "z-index":"100"}} />
           <div role="tabpanel" class="tab-content pt-0 pb-0 pl-0 bg-base-200">
-            <div class="h-6"></div>
-            <ul class="menu menu-xs bg-base-200 w-full pl-0 flex pt-0">
+            {/* <div class="h-6"></div> */}
+            {/* <ul class="menu menu-xs bg-base-200 w-full pl-0 flex pt-0"> */}
               <MstSlotItemsProvider>
                 <SlotItemsProvider>
                   <ShipsProvider>
@@ -77,13 +78,23 @@ function App() {
                   </ShipsProvider>
                 </SlotItemsProvider>
               </MstSlotItemsProvider>
-            </ul>
+            {/* </ul> */}
           </div>
       
           <input type="radio" name="tabs_fleet" role="tab" class="tab [&::after]:w-18 bg-base-200 fixed" aria-label="Equip Info" style={{"top":"0px", "left":"168px", "z-index":"100"}} />
           <div role="tabpanel" class="tab-content pt-0 pb-0 pl-0 bg-base-200">
             <div class="h-6"></div>
-              under construction
+            <MstSlotItemsProvider>
+              <SlotItemsProvider>
+                <ShipsProvider>
+                  <MstShipsProvider>
+                    <MstStypesProvider>
+                      <EquipmentListComponent />
+                    </MstStypesProvider>
+                  </MstShipsProvider>
+                </ShipsProvider>
+              </SlotItemsProvider>
+            </MstSlotItemsProvider>
           </div>
 
           <input type="radio" name="tabs_fleet" role="tab" class="tab [&::after]:w-14 bg-base-200 fixed w-screen" aria-label="Settings" style={{"top":"0px", "left":"248px", "z-index":"100"}} />

@@ -8,6 +8,8 @@ import { createStore } from 'solid-js/store';
 
 import "./../css/table_hover.css";
 import "./../css/table_active.css";
+import "./../css/menu_hover.css";
+import "./../css/menu_active.css";
 import IconUpArrow from '../icons/up_arrow.tsx';
 import IconDownArrow from '../icons/down_arrow.tsx';
 
@@ -53,6 +55,8 @@ export function ShipListComponent() {
     const [set_order, set_set_order] = createSignal(false);
     const [set_sort, set_set_sort] = createSignal("New");
 
+    const [set_categorize, set_set_categorize] = createSignal(false);
+
     const sort_fn = (a: string, b: string) => {
         if (set_sort() == "New") return 0;
         let a_ship = ships.ships[Number(a)];
@@ -75,9 +79,19 @@ export function ShipListComponent() {
 
     const sorted_ship_keys = createMemo(() => {
         let keys = Object.keys(ships.ships);
+        keys = keys.sort(sort_fn);
         if (!set_order()) keys = keys.reverse();
-        keys = keys.sort(sort_fn).reverse();
         return keys;
+    });
+
+    const categorized_ships_keys = createMemo(() => {
+        let categorized_ships_keys: {[key: string]: number[]} = {};
+        Object.entries(ships.ships).forEach(([ship_id, _]) => {
+            let stype = mst_stypes.mst_stypes[mst_ships.mst_ships[ships.ships[Number(ship_id)].ship_id].stype].name;
+            if (!categorized_ships_keys[stype]) categorized_ships_keys[stype] = [];
+            categorized_ships_keys[stype].push(Number(ship_id));
+        });
+        return categorized_ships_keys;
     });
 
     const [range_props, set_range_props] = createStore<{[key: string]: {min: number, max: number, eq: number, range: boolean, abbreviation: string}}>((
@@ -157,7 +171,7 @@ export function ShipListComponent() {
                         </Show>
                         <div tabindex="0" role="button" class="btn btn-xs btn-ghost -mx-2">{param}</div>
                     </div>
-                    <div tabindex="0" class="dropdown-content card card-compact bg-base-100 z-[1] w-64 shadow rounded-md">
+                    <div tabindex="0" class="dropdown-content z-[2] card card-compact bg-base-100 z-[1] w-64 shadow rounded-md">
                         <div class="card-body">
                             <div class="form-control">
                                 <label class="label cursor-pointer relative">
@@ -231,7 +245,7 @@ export function ShipListComponent() {
                         </Show>
                         <div tabindex="0" role="button" class="btn btn-xs btn-ghost -mx-2">{param}</div>
                     </div>
-                    <div tabindex="0" class="dropdown-content card card-compact bg-base-100 z-[1] w-80 shadow rounded-md">
+                    <div tabindex="0" class="dropdown-content z-[2] card card-compact bg-base-100 z-[1] w-80 shadow rounded-md">
                         <div class="card-body">
                             <div class="form-control">
                                 <label class="label cursor-pointer relative">
@@ -285,235 +299,15 @@ export function ShipListComponent() {
         return set_range_element;
     });
 
-    return (
-        <>
-            <div class="h-px"></div>
-            <div class="px-2 py-1 text-xs flex flex-nowrap items-center">
-                Ship Specification Table
-                <IconChevronRight class="h-4 w-4 mx-2" />
-                <details class="dropdown">
-                    <summary class="btn btn-xs btn-ghost">select properties</summary>
-                    <ul tabindex="0" class="dropdown-content menu menu-xs bg-base-100 rounded-md z-[1]  shadow flex">
-                        <For each={Object.keys(check_ship_propaty)}>
-                            {(prop) => (
-                                <li class="flex-col w-32">
-                                    <a>
-                                        <div class="form-control">
-                                            <label class="label cursor-pointer py-0">
-                                                <input type="checkbox" checked={check_ship_propaty[prop]} class="checkbox checkbox-sm" onClick={() => {set_check_ship_propaty(prop, !check_ship_propaty[prop])}} />
-                                                <span class="label-text text-xs pl-2">
-                                                    {prop}
-                                                </span>
-                                            </label>
-                                        </div>
-                                    </a>
-                                </li>
-                            )}
-                        </For>
-                    </ul>
-                </details>
-            </div>
-            {/* <div class="h-2"></div> */}
-            <table class="table table-xs">
-                <thead>
-                    <tr class="flex">
-                        <th class="w-10 flex">
-                            <div class="dropdown">
-                                <div class="indicator">
-                                    <span class="indicator-item badge badge-secondary badge-xs -mx-2 max-w-16 truncate flex justify-start">
-                                        <Switch fallback="">
-                                            <Match when={set_order()}>▲</Match>
-                                            <Match when={!set_order()}>▼</Match>
-                                        </Switch>
-                                        {set_sort()}
-                                    </span>
-                                    <div tabindex="0" role="button" class="btn btn-xs btn-ghost -mx-2">No</div>
-                                </div>
-                                <div tabindex="0" class="dropdown-content card card-compact bg-base-100 z-[1] w-72 shadow rounded-md">
-                                    <div class="card-body ">
-                                        <table class="table table-sm">
-                                            <tbody>
-                                                <tr class="flex" style={"border-bottom-width: 0px"}>
-                                                    <td class="flex-1">order</td>
-                                                    <td class="flex-none h-6">
-                                                        <label class="swap swap-rotate">
-                                                            <input type="checkbox" onClick={(e) => set_set_order(e.currentTarget.checked)}/>
-                                                            <div class="swap-on flex flex-nowrap items-center">
-                                                                <IconUpArrow class="h-6 w-6"></IconUpArrow>
-                                                                <div class="label-text text-xs">ASC</div>
-                                                            </div>
-                                                            <div class="swap-off flex flex-nowrap items-center">
-                                                                <IconDownArrow class="h-6 w-6"></IconDownArrow>
-                                                                <div class="label-text text-xs">DESC</div>
-                                                            </div>
-                                                        </label>
-                                                    </td>
-                                                </tr>
-                                                <tr class="flex items-center" style={"border-bottom-width: 0px"}>
-                                                    <td class="flex-1">sort parameters</td>
-                                                    <td class="flex-none">
-                                                        <select class="select select-bordered select-sm w-28" onChange={(e) => set_set_sort(e.target.value)}>
-                                                            <option>New</option>
-                                                            <For each={ship_properties}>
-                                                                {(propaty) => (
-                                                                    <option>{propaty}</option>
-                                                                )}
-                                                            </For>
-                                                        </select>
-                                                    </td>
-                                                </tr>
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                </div>
-                            </div>
-                        </th>
-                        <th class="w-32">
-                            <div class="dropdown">
-                                <div class="indicator">
-                                    <Show when={Object.values(check_name).findIndex((value) => !value) != -1}>
-                                        <span class="indicator-item badge badge-secondary badge-xs -mx-2">filtered</span>
-                                    </Show>
-                                    <div tabindex="0" role="button" class="btn btn-xs btn-ghost -mx-2">Ship Name</div>
-                                </div>
-                                <div tabindex="0" class="dropdown-content card card-compact bg-base-100 z-[1] w-72 shadow rounded-md">
-                                    <div class="card-body ">
-                                        <label class="input input-sm input-bordered flex items-center gap-2">
-                                            <input type="text" class="grow" placeholder="Search Name" onChange={(e) => {
-                                                let search_name = e.target.value;
-                                                Object.entries(ships.ships).forEach(([ship_id, ship]) => {
-                                                    if (mst_ships.mst_ships[ship.ship_id].name.indexOf(search_name) != -1) {
-                                                        set_check_name(Number(ship_id), true);
-                                                    } else {
-                                                        set_check_name(Number(ship_id), false);
-                                                    }
-                                                });
-                                            }}/>
-                                            <svg
-                                                xmlns="http://www.w3.org/2000/svg"
-                                                viewBox="0 0 16 16"
-                                                fill="currentColor"
-                                                class="h-4 w-4 opacity-70">
-                                                <path
-                                                fill-rule="evenodd"
-                                                d="M9.965 11.026a5 5 0 1 1 1.06-1.06l2.755 2.754a.75.75 0 1 1-1.06 1.06l-2.755-2.754ZM10.5 7a3.5 3.5 0 1 1-7 0 3.5 3.5 0 0 1 7 0Z"
-                                                clip-rule="evenodd" />
-                                            </svg>
-                                        </label>
-                                    </div>
-                                </div>
-                            </div>
-                        </th>
-                        <Show when={check_ship_propaty["Ship Type"]}>
-                            <th class="w-[88px]">
-                                <div class="dropdown">
-                                    <div class="indicator">
-                                        <Show when={Object.values(check_stype).findIndex((value) => !value) != -1}>
-                                            <span class="indicator-item badge badge-secondary badge-xs -mx-2">filtered</span>
-                                        </Show>
-                                        <div tabindex="0" role="button" class="btn btn-xs btn-ghost -mx-2">Ship Type</div>
-                                    </div>
-                                    <ul tabindex="0" class="dropdown-content menu menu-xs bg-base-100 rounded-md z-[1]  shadow max-h-64 overflow-x-scroll flex">
-                                        <For each={Object.keys(check_stype)}>
-                                            {(stype_name) => (
-                                                <li class="flex-col w-32">
-                                                    <a>
-                                                        <div class="form-control">
-                                                            <label class="label cursor-pointer py-0">
-                                                                <input type="checkbox" checked={check_stype[stype_name]} class="checkbox checkbox-sm" onClick={() => {set_check_stype(stype_name, !check_stype[stype_name])}} />
-                                                                <span class="label-text text-xs pl-2">
-                                                                    {stype_name}
-                                                                </span>
-                                                            </label>
-                                                        </div>
-                                                    </a>
-                                                </li>
-                                            )}
-                                        </For>
-                                    </ul>
-                                </div>
-                            </th>
-                        </Show>
-                        <Show when={check_ship_propaty["Level"]}>
-                            <th class="w-12 flex">
-                                <span class="flex-1"></span>
-                                {set_range_window()["Level"]}
-                            </th>
-                        </Show>
-                        <Show when={check_ship_propaty["Durability"]}>
-                            <th class="w-[72px] flex">
-                                <span class="flex-1"></span>
-                                {set_range_window()["Durability"]}
-                            </th>
-                        </Show>
-                        <Show when={check_ship_propaty["Firepower"]}>
-                            <th class="w-[72px] flex">
-                                <span class="flex-1"></span>
-                                {set_range_window()["Firepower"]}
-                            </th>
-                        </Show>
-                        <Show when={check_ship_propaty["Torpedo"]}>
-                            <th class="w-16 flex">
-                                <span class="flex-1"></span>
-                                {set_range_window()["Torpedo"]}
-                            </th>
-                        </Show>
-                        <Show when={check_ship_propaty["Anti-Air"]}>
-                            <th class="w-16 flex">
-                                <span class="flex-1"></span>
-                                {set_range_window()["Anti-Air"]}
-                            </th>
-                        </Show>
-                        <Show when={check_ship_propaty["Speed"]}>
-                            <th class="w-14">{set_discrete_range_window()["Speed"]}</th>
-                        </Show>
-                        <Show when={check_ship_propaty["Armor"]}>
-                            <th class="w-14 flex">
-                                <span class="flex-1"></span>
-                                {set_range_window()["Armor"]}
-                            </th>
-                        </Show>
-                        <Show when={check_ship_propaty["Evasion"]}>
-                            <th class="w-16 flex">
-                                <span class="flex-1"></span>
-                                {set_range_window()["Evasion"]}
-                            </th>
-                        </Show>
-                        <Show when={check_ship_propaty["Anti-Submarine"]}>
-                            <th class="w-24 flex">
-                                <span class="flex-1"></span>
-                                {set_range_window()["Anti-Submarine"]}
-                            </th>
-                        </Show>
-                        <Show when={check_ship_propaty["Luck"]}>
-                            <th class="w-12 flex">
-                                <span class="flex-1"></span>
-                                {set_range_window()["Luck"]}
-                            </th>
-                        </Show>
-                        <Show when={check_ship_propaty["Aircraft installed"]}>
-                            <th class="w-28 flex">
-                                <span class="flex-1"></span>
-                                {set_range_window()["Aircraft installed"]}
-                            </th>
-                        </Show>
-                        <Show when={check_ship_propaty["Reconnaissance"]}>
-                            <th class="w-24 flex">
-                                <span class="flex-1"></span>
-                                {set_range_window()["Reconnaissance"]}
-                            </th>
-                        </Show>
-                        <Show when={check_ship_propaty["Range"]}>
-                            <th class="w-16">{set_discrete_range_window()["Range"]}</th>
-                        </Show>
-                    </tr>
-                </thead>
+    const table_element = (ship_ids: (number | string)[]) => {
+        return (
+            <table class="table table-xs not_menu">
                 <tbody>
-                    <For each={sorted_ship_keys()}>
+                    <For each={ship_ids}>
                         {(ship_id, index) => (
                             <Show when={filtered_ships()[Number(ship_id)] ?? false}>
-                                <tr class="flex table_hover table_active rounded">
-                                    <th class="w-10 flex">
+                                <tr class="flex table_hover table_active rounded ml-10 -pl-10">
+                                    <th class="w-10 flex bg-base-200 z-[1] -ml-10" style={"position: sticky; left: 0;"}>
                                         <span class="flex-1"></span>
                                         {index() + 1}
                                     </th>
@@ -631,6 +425,272 @@ export function ShipListComponent() {
                     </For>
                 </tbody>
             </table>
+        );
+    };
+
+    return (
+        <>
+            <div class="bg-base-200 shadow z-[4]" style={"position: sticky; top: 0;"}>
+                <div class="h-6"></div>
+                <div class="h-px"></div>
+                <div class="px-2 py-1 text-xs flex flex-nowrap items-center">
+                    Ship Specification Table
+                    <IconChevronRight class="h-4 w-4 mx-2" />
+                    <details class="dropdown">
+                        <summary class="btn btn-xs btn-ghost">select properties</summary>
+                        <ul tabindex="0" class="dropdown-content z-[2] menu menu-xs bg-base-100 rounded-md  shadow flex">
+                            <For each={Object.keys(check_ship_propaty)}>
+                                {(prop) => (
+                                    <li class="flex-col w-32">
+                                        <a>
+                                            <div class="form-control">
+                                                <label class="label cursor-pointer py-0">
+                                                    <input type="checkbox" checked={check_ship_propaty[prop]} class="checkbox checkbox-sm" onClick={() => {set_check_ship_propaty(prop, !check_ship_propaty[prop])}} />
+                                                    <span class="label-text text-xs pl-2">
+                                                        {prop}
+                                                    </span>
+                                                </label>
+                                            </div>
+                                        </a>
+                                    </li>
+                                )}
+                            </For>
+                        </ul>
+                    </details>
+                    <div class="divider divider-horizontal mr-0 ml-0 flex-none"></div>
+                    <div class="form-control">
+                        <label class="label cursor-pointer h-4">
+                            <input type="checkbox" checked={set_categorize()} class="checkbox checkbox-sm" onClick={(e) => set_set_categorize(e.currentTarget.checked)}/>
+                            <span class="label-text text-xs btn btn-xs btn-ghost">display categorized list</span>
+                        </label>
+                    </div>
+                </div>
+                {/* <div class="h-2"></div> */}
+                <table class="table table-xs">
+                    <thead>
+                        <tr class="flex">
+                            <th class="w-10 flex bg-base-200 z-[3]" style={"position: sticky; left: 0;"}>
+                                <div class="h-lvh w-10 shadow absolute left-0 z-[1]"></div>
+                                <div class="dropdown" style={"z-index: 3;"}>
+                                    <div class="indicator">
+                                        <span class="indicator-item badge badge-secondary badge-xs -mx-2 max-w-16 truncate flex justify-start">
+                                            <Switch fallback="">
+                                                <Match when={set_order()}>▲</Match>
+                                                <Match when={!set_order()}>▼</Match>
+                                            </Switch>
+                                            {set_sort()}
+                                        </span>
+                                        <div tabindex="0" role="button" class="btn btn-xs btn-ghost -mx-2">No</div>
+                                    </div>
+                                    <div tabindex="0" class="dropdown-content z-[2] card card-compact bg-base-100 w-72 shadow rounded-md">
+                                        <div class="card-body ">
+                                            <table class="table table-sm">
+                                                <tbody>
+                                                    <tr class="flex" style={"border-bottom-width: 0px"}>
+                                                        <td class="flex-1">order</td>
+                                                        <td class="flex-none h-6">
+                                                            <label class="swap swap-rotate">
+                                                                <input type="checkbox" onClick={(e) => set_set_order(e.currentTarget.checked)}/>
+                                                                <div class="swap-on flex flex-nowrap items-center">
+                                                                    <IconUpArrow class="h-6 w-6"></IconUpArrow>
+                                                                    <div class="label-text text-xs">ASC</div>
+                                                                </div>
+                                                                <div class="swap-off flex flex-nowrap items-center">
+                                                                    <IconDownArrow class="h-6 w-6"></IconDownArrow>
+                                                                    <div class="label-text text-xs">DESC</div>
+                                                                </div>
+                                                            </label>
+                                                        </td>
+                                                    </tr>
+                                                    <tr class="flex items-center" style={"border-bottom-width: 0px"}>
+                                                        <td class="flex-1">sort parameters</td>
+                                                        <td class="flex-none">
+                                                            <select class="select select-bordered select-sm w-28" onChange={(e) => set_set_sort(e.target.value)}>
+                                                                <option>New</option>
+                                                                <For each={ship_properties}>
+                                                                    {(propaty) => (
+                                                                        <option>{propaty}</option>
+                                                                    )}
+                                                                </For>
+                                                            </select>
+                                                        </td>
+                                                    </tr>
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </div>
+                                </div>
+                            </th>
+                            <th class="w-32">
+                                <div class="dropdown">
+                                    <div class="indicator">
+                                        <Show when={Object.values(check_name).findIndex((value) => !value) != -1}>
+                                            <span class="indicator-item badge badge-secondary badge-xs -mx-2">filtered</span>
+                                        </Show>
+                                        <div tabindex="0" role="button" class="btn btn-xs btn-ghost -mx-2">Ship Name</div>
+                                    </div>
+                                    <div tabindex="0" class="dropdown-content z-[2] card card-compact bg-base-100 z-[1] w-72 shadow rounded-md">
+                                        <div class="card-body ">
+                                            <label class="input input-sm input-bordered flex items-center gap-2">
+                                                <input type="text" class="grow" placeholder="Search Name" onChange={(e) => {
+                                                    let search_name = e.target.value;
+                                                    Object.entries(ships.ships).forEach(([ship_id, ship]) => {
+                                                        if (mst_ships.mst_ships[ship.ship_id].name.indexOf(search_name) != -1) {
+                                                            set_check_name(Number(ship_id), true);
+                                                        } else {
+                                                            set_check_name(Number(ship_id), false);
+                                                        }
+                                                    });
+                                                }}/>
+                                                <svg
+                                                    xmlns="http://www.w3.org/2000/svg"
+                                                    viewBox="0 0 16 16"
+                                                    fill="currentColor"
+                                                    class="h-4 w-4 opacity-70">
+                                                    <path
+                                                    fill-rule="evenodd"
+                                                    d="M9.965 11.026a5 5 0 1 1 1.06-1.06l2.755 2.754a.75.75 0 1 1-1.06 1.06l-2.755-2.754ZM10.5 7a3.5 3.5 0 1 1-7 0 3.5 3.5 0 0 1 7 0Z"
+                                                    clip-rule="evenodd" />
+                                                </svg>
+                                            </label>
+                                        </div>
+                                    </div>
+                                </div>
+                            </th>
+                            <Show when={check_ship_propaty["Ship Type"]}>
+                                <th class="w-[88px]">
+                                    <div class="dropdown">
+                                        <div class="indicator">
+                                            <Show when={Object.values(check_stype).findIndex((value) => !value) != -1}>
+                                                <span class="indicator-item badge badge-secondary badge-xs -mx-2">filtered</span>
+                                            </Show>
+                                            <div tabindex="0" role="button" class="btn btn-xs btn-ghost -mx-2">Ship Type</div>
+                                        </div>
+                                        <ul tabindex="0" class="dropdown-content z-[2] menu menu-xs bg-base-100 rounded-md z-[1]  shadow max-h-64 overflow-x-scroll flex">
+                                            <For each={Object.keys(check_stype)}>
+                                                {(stype_name) => (
+                                                    <li class="flex-col w-32">
+                                                        <a>
+                                                            <div class="form-control">
+                                                                <label class="label cursor-pointer py-0">
+                                                                    <input type="checkbox" checked={check_stype[stype_name]} class="checkbox checkbox-sm" onClick={() => {set_check_stype(stype_name, !check_stype[stype_name])}} />
+                                                                    <span class="label-text text-xs pl-2">
+                                                                        {stype_name}
+                                                                    </span>
+                                                                </label>
+                                                            </div>
+                                                        </a>
+                                                    </li>
+                                                )}
+                                            </For>
+                                        </ul>
+                                    </div>
+                                </th>
+                            </Show>
+                            <Show when={check_ship_propaty["Level"]}>
+                                <th class="w-12 flex">
+                                    <span class="flex-1"></span>
+                                    {set_range_window()["Level"]}
+                                </th>
+                            </Show>
+                            <Show when={check_ship_propaty["Durability"]}>
+                                <th class="w-[72px] flex">
+                                    <span class="flex-1"></span>
+                                    {set_range_window()["Durability"]}
+                                </th>
+                            </Show>
+                            <Show when={check_ship_propaty["Firepower"]}>
+                                <th class="w-[72px] flex">
+                                    <span class="flex-1"></span>
+                                    {set_range_window()["Firepower"]}
+                                </th>
+                            </Show>
+                            <Show when={check_ship_propaty["Torpedo"]}>
+                                <th class="w-16 flex">
+                                    <span class="flex-1"></span>
+                                    {set_range_window()["Torpedo"]}
+                                </th>
+                            </Show>
+                            <Show when={check_ship_propaty["Anti-Air"]}>
+                                <th class="w-16 flex">
+                                    <span class="flex-1"></span>
+                                    {set_range_window()["Anti-Air"]}
+                                </th>
+                            </Show>
+                            <Show when={check_ship_propaty["Speed"]}>
+                                <th class="w-14">{set_discrete_range_window()["Speed"]}</th>
+                            </Show>
+                            <Show when={check_ship_propaty["Armor"]}>
+                                <th class="w-14 flex">
+                                    <span class="flex-1"></span>
+                                    {set_range_window()["Armor"]}
+                                </th>
+                            </Show>
+                            <Show when={check_ship_propaty["Evasion"]}>
+                                <th class="w-16 flex">
+                                    <span class="flex-1"></span>
+                                    {set_range_window()["Evasion"]}
+                                </th>
+                            </Show>
+                            <Show when={check_ship_propaty["Anti-Submarine"]}>
+                                <th class="w-24 flex">
+                                    <span class="flex-1"></span>
+                                    {set_range_window()["Anti-Submarine"]}
+                                </th>
+                            </Show>
+                            <Show when={check_ship_propaty["Luck"]}>
+                                <th class="w-12 flex">
+                                    <span class="flex-1"></span>
+                                    {set_range_window()["Luck"]}
+                                </th>
+                            </Show>
+                            <Show when={check_ship_propaty["Aircraft installed"]}>
+                                <th class="w-28 flex">
+                                    <span class="flex-1"></span>
+                                    {set_range_window()["Aircraft installed"]}
+                                </th>
+                            </Show>
+                            <Show when={check_ship_propaty["Reconnaissance"]}>
+                                <th class="w-24 flex">
+                                    <span class="flex-1"></span>
+                                    {set_range_window()["Reconnaissance"]}
+                                </th>
+                            </Show>
+                            <Show when={check_ship_propaty["Range"]}>
+                                <th class="w-16">{set_discrete_range_window()["Range"]}</th>
+                            </Show>
+                        </tr>
+                    </thead>
+                </table>
+            </div>
+            <Switch>
+                <Match when={set_categorize()}>
+                    <For each={Object.keys(categorized_ships_keys())}>
+                        {(stype_name, stype_name_index) => (
+                            <Show when={check_stype[stype_name]}>
+                                <ul class="menu bg-base-200 menu-sm p-0">
+                                    <li>
+                                        <details open>
+                                            <summary class="ml-10 relative">
+                                                <div class="w-10 h-6 z-[3] bg-base-200 -ml-[52px] px-0" style={"position: sticky; left: 0;"}></div>
+                                                Category. {stype_name_index()+1} : {stype_name}
+                                            </summary>
+                                            <ul class="pl-0 ml-0">
+                                                <li>
+                                                    {table_element(categorized_ships_keys()[stype_name])}
+                                                </li>
+                                            </ul>
+                                        </details>
+                                    </li>
+                                </ul>
+                            </Show>
+                        )}
+                    </For>
+                </Match>
+                <Match when={!set_categorize()}>
+                    {table_element(sorted_ship_keys())}
+                </Match>
+            </Switch>
         </>
     );
 };
