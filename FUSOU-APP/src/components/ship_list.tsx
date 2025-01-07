@@ -75,8 +75,8 @@ export function ShipListComponent() {
 
     const sorted_ship_keys = createMemo(() => {
         let keys = Object.keys(ships.ships);
-        if (set_order()) keys = keys.reverse();
         keys = keys.sort(sort_fn);
+        if (!set_order()) keys = keys.reverse();
         return keys;
     });
 
