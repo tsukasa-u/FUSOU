@@ -41,14 +41,14 @@ export function ShipListComponent() {
         set_check_name(check_name);
     });
 
-    const [check_ship_propaty, set_check_ship_propaty] = createStore<{[key: string]: boolean}>((
+    const [check_ship_property, set_check_ship_property] = createStore<{[key: string]: boolean}>((
         () => {
-            let check_ship_propaty: {[key: string]: boolean} = {};
-            check_ship_propaty["Ship Type"] = true;
-            ship_properties.forEach((propaty) => {
-                check_ship_propaty[propaty] = true;
+            let check_ship_property: {[key: string]: boolean} = {};
+            check_ship_property["Ship Type"] = true;
+            ship_properties.forEach((property) => {
+                check_ship_property[property] = true;
             });
-            return check_ship_propaty;
+            return check_ship_property;
         }
     )());
 
@@ -317,10 +317,10 @@ export function ShipListComponent() {
                                     <td class="w-32 overflow-hidden">
                                         <ShipNameComponent ship_id={Number(ship_id)}></ShipNameComponent>
                                     </td>
-                                    <Show when={check_ship_propaty["Ship Type"]}>
+                                    <Show when={check_ship_property["Ship Type"]}>
                                         <td class="w-[88px]">{mst_stypes.mst_stypes[mst_ships.mst_ships[ships.ships[Number(ship_id)].ship_id].stype].name}</td>
                                     </Show>
-                                    <Show when={check_ship_propaty["Level"]}>
+                                    <Show when={check_ship_property["Level"]}>
                                         <td class="w-12">
                                             <div class="w-6 flex justify-self-center">
                                                 <span class="flex-1"></span>
@@ -328,7 +328,7 @@ export function ShipListComponent() {
                                             </div>
                                         </td>
                                     </Show>
-                                    <Show when={check_ship_propaty["Durability"]}>
+                                    <Show when={check_ship_property["Durability"]}>
                                         <td class="w-[72px]">
                                             <div class="w-6 flex justify-self-center">
                                                 <span class="flex-1"></span>
@@ -336,7 +336,7 @@ export function ShipListComponent() {
                                             </div>
                                         </td>
                                     </Show>
-                                    <Show when={check_ship_propaty["Firepower"]}>
+                                    <Show when={check_ship_property["Firepower"]}>
                                         <td class="w-[72px]">
                                             <div class="w-6 flex justify-self-center">
                                                 <span class="flex-1"></span>
@@ -344,7 +344,7 @@ export function ShipListComponent() {
                                             </div>
                                         </td>
                                     </Show>
-                                    <Show when={check_ship_propaty["Torpedo"]}>
+                                    <Show when={check_ship_property["Torpedo"]}>
                                         <td class="w-16">
                                             <div class="w-6 flex justify-self-center">
                                                 <span class="flex-1"></span>
@@ -352,7 +352,7 @@ export function ShipListComponent() {
                                             </div>
                                         </td>
                                     </Show>
-                                    <Show when={check_ship_propaty["Anti-Air"]}>
+                                    <Show when={check_ship_property["Anti-Air"]}>
                                         <td class="w-16">
                                             <div class="w-6 flex justify-self-center">
                                                 <span class="flex-1"></span>
@@ -360,14 +360,14 @@ export function ShipListComponent() {
                                             </div>
                                         </td>
                                     </Show>
-                                    <Show when={check_ship_propaty["Speed"]}>
+                                    <Show when={check_ship_property["Speed"]}>
                                         <td class="w-14">
                                             <div class="w-6 flex justify-self-center">
                                                 {speed_list[ships.ships[Number(ship_id)].soku]}
                                             </div>
                                         </td>
                                     </Show>
-                                    <Show when={check_ship_propaty["Armor"]}>
+                                    <Show when={check_ship_property["Armor"]}>
                                         <td class="w-14">
                                             <div class="w-6 flex justify-self-center">
                                                 <span class="flex-1"></span>
@@ -375,7 +375,7 @@ export function ShipListComponent() {
                                             </div>
                                         </td>
                                     </Show>
-                                    <Show when={check_ship_propaty["Evasion"]}>
+                                    <Show when={check_ship_property["Evasion"]}>
                                         <td class="w-16">
                                             <div class="w-6 flex justify-self-center">
                                                 <span class="flex-1"></span>
@@ -383,7 +383,7 @@ export function ShipListComponent() {
                                             </div>
                                         </td>
                                     </Show>
-                                    <Show when={check_ship_propaty["Anti-Submarine"]}>
+                                    <Show when={check_ship_property["Anti-Submarine"]}>
                                         <td class="w-24">
                                             <div class="w-6 flex justify-self-center">
                                                 <span class="flex-1"></span>
@@ -391,7 +391,7 @@ export function ShipListComponent() {
                                             </div>
                                         </td>   
                                     </Show>
-                                    <Show when={check_ship_propaty["Luck"]}>
+                                    <Show when={check_ship_property["Luck"]}>
                                         <td class="w-12">
                                             <div class="w-6 flex justify-self-center">
                                                 <span class="flex-1"></span>
@@ -399,7 +399,7 @@ export function ShipListComponent() {
                                             </div>
                                         </td>
                                     </Show>
-                                    <Show when={check_ship_propaty["Aircraft installed"]}>
+                                    <Show when={check_ship_property["Aircraft installed"]}>
                                         <td class="w-28">
                                             <div class="w-6 flex justify-self-center">
                                                 <span class="flex-1"></span>
@@ -407,7 +407,7 @@ export function ShipListComponent() {
                                             </div>
                                         </td>
                                     </Show>
-                                    <Show when={check_ship_propaty["Reconnaissance"]}>
+                                    <Show when={check_ship_property["Reconnaissance"]}>
                                         <td class="w-24">
                                             <div class="w-6 flex justify-self-center">
                                                 <span class="flex-1"></span>
@@ -415,7 +415,7 @@ export function ShipListComponent() {
                                             </div>
                                         </td>
                                     </Show>
-                                    <Show when={check_ship_propaty["Range"]}>
+                                    <Show when={check_ship_property["Range"]}>
                                         <td class="w-16">
                                             <div class="w-16 flex justify-self-center">
                                                 {range_list[ships.ships[Number(ship_id)].leng]}
@@ -442,13 +442,13 @@ export function ShipListComponent() {
                     <details class="dropdown">
                         <summary class="btn btn-xs btn-ghost">select properties</summary>
                         <ul tabindex="0" class="dropdown-content z-[2] menu menu-xs bg-base-100 rounded-md  shadow flex">
-                            <For each={Object.keys(check_ship_propaty)}>
+                            <For each={Object.keys(check_ship_property)}>
                                 {(prop) => (
                                     <li class="flex-col w-32">
                                         <a>
                                             <div class="form-control">
                                                 <label class="label cursor-pointer py-0">
-                                                    <input type="checkbox" checked={check_ship_propaty[prop]} class="checkbox checkbox-sm" onClick={() => {set_check_ship_propaty(prop, !check_ship_propaty[prop])}} />
+                                                    <input type="checkbox" checked={check_ship_property[prop]} class="checkbox checkbox-sm" onClick={() => {set_check_ship_property(prop, !check_ship_property[prop])}} />
                                                     <span class="label-text text-xs pl-2">
                                                         {prop}
                                                     </span>
@@ -511,8 +511,8 @@ export function ShipListComponent() {
                                                             <select class="select select-bordered select-sm w-28" onChange={(e) => set_set_sort(e.target.value)}>
                                                                 <option>New</option>
                                                                 <For each={ship_properties}>
-                                                                    {(propaty) => (
-                                                                        <option>{propaty}</option>
+                                                                    {(property) => (
+                                                                        <option>{property}</option>
                                                                     )}
                                                                 </For>
                                                             </select>
@@ -560,7 +560,7 @@ export function ShipListComponent() {
                                     </div>
                                 </div>
                             </th>
-                            <Show when={check_ship_propaty["Ship Type"]}>
+                            <Show when={check_ship_property["Ship Type"]}>
                                 <th class="w-[88px]">
                                     <div class="dropdown">
                                         <div class="indicator">
@@ -592,76 +592,76 @@ export function ShipListComponent() {
                                     </div>
                                 </th>
                             </Show>
-                            <Show when={check_ship_propaty["Level"]}>
+                            <Show when={check_ship_property["Level"]}>
                                 <th class="w-12 flex">
                                     <span class="flex-1"></span>
                                     {set_range_window()["Level"]}
                                 </th>
                             </Show>
-                            <Show when={check_ship_propaty["Durability"]}>
+                            <Show when={check_ship_property["Durability"]}>
                                 <th class="w-[72px] flex">
                                     <span class="flex-1"></span>
                                     {set_range_window()["Durability"]}
                                 </th>
                             </Show>
-                            <Show when={check_ship_propaty["Firepower"]}>
+                            <Show when={check_ship_property["Firepower"]}>
                                 <th class="w-[72px] flex">
                                     <span class="flex-1"></span>
                                     {set_range_window()["Firepower"]}
                                 </th>
                             </Show>
-                            <Show when={check_ship_propaty["Torpedo"]}>
+                            <Show when={check_ship_property["Torpedo"]}>
                                 <th class="w-16 flex">
                                     <span class="flex-1"></span>
                                     {set_range_window()["Torpedo"]}
                                 </th>
                             </Show>
-                            <Show when={check_ship_propaty["Anti-Air"]}>
+                            <Show when={check_ship_property["Anti-Air"]}>
                                 <th class="w-16 flex">
                                     <span class="flex-1"></span>
                                     {set_range_window()["Anti-Air"]}
                                 </th>
                             </Show>
-                            <Show when={check_ship_propaty["Speed"]}>
+                            <Show when={check_ship_property["Speed"]}>
                                 <th class="w-14">{set_discrete_range_window()["Speed"]}</th>
                             </Show>
-                            <Show when={check_ship_propaty["Armor"]}>
+                            <Show when={check_ship_property["Armor"]}>
                                 <th class="w-14 flex">
                                     <span class="flex-1"></span>
                                     {set_range_window()["Armor"]}
                                 </th>
                             </Show>
-                            <Show when={check_ship_propaty["Evasion"]}>
+                            <Show when={check_ship_property["Evasion"]}>
                                 <th class="w-16 flex">
                                     <span class="flex-1"></span>
                                     {set_range_window()["Evasion"]}
                                 </th>
                             </Show>
-                            <Show when={check_ship_propaty["Anti-Submarine"]}>
+                            <Show when={check_ship_property["Anti-Submarine"]}>
                                 <th class="w-24 flex">
                                     <span class="flex-1"></span>
                                     {set_range_window()["Anti-Submarine"]}
                                 </th>
                             </Show>
-                            <Show when={check_ship_propaty["Luck"]}>
+                            <Show when={check_ship_property["Luck"]}>
                                 <th class="w-12 flex">
                                     <span class="flex-1"></span>
                                     {set_range_window()["Luck"]}
                                 </th>
                             </Show>
-                            <Show when={check_ship_propaty["Aircraft installed"]}>
+                            <Show when={check_ship_property["Aircraft installed"]}>
                                 <th class="w-28 flex">
                                     <span class="flex-1"></span>
                                     {set_range_window()["Aircraft installed"]}
                                 </th>
                             </Show>
-                            <Show when={check_ship_propaty["Reconnaissance"]}>
+                            <Show when={check_ship_property["Reconnaissance"]}>
                                 <th class="w-24 flex">
                                     <span class="flex-1"></span>
                                     {set_range_window()["Reconnaissance"]}
                                 </th>
                             </Show>
-                            <Show when={check_ship_propaty["Range"]}>
+                            <Show when={check_ship_property["Range"]}>
                                 <th class="w-16">{set_discrete_range_window()["Range"]}</th>
                             </Show>
                         </tr>
