@@ -86,9 +86,12 @@ export function ShipListComponent() {
 
     const categorized_ships_keys = createMemo(() => {
         let categorized_ships_keys: {[key: string]: number[]} = {};
+        Object.entries(mst_stypes.mst_stypes).forEach(([_, stype]) => {
+            categorized_ships_keys[stype.name] = [];
+        });
         Object.entries(ships.ships).forEach(([ship_id, _]) => {
             let stype = mst_stypes.mst_stypes[mst_ships.mst_ships[ships.ships[Number(ship_id)].ship_id].stype].name;
-            if (!categorized_ships_keys[stype]) categorized_ships_keys[stype] = [];
+            // if (!categorized_ships_keys[stype]) categorized_ships_keys[stype] = [];
             categorized_ships_keys[stype].push(Number(ship_id));
         });
         return categorized_ships_keys;
@@ -569,18 +572,20 @@ export function ShipListComponent() {
                                         <ul tabindex="0" class="dropdown-content z-[2] menu menu-xs bg-base-100 rounded-md z-[1]  shadow max-h-64 overflow-x-scroll flex">
                                             <For each={Object.keys(check_stype)}>
                                                 {(stype_name) => (
-                                                    <li class="flex-col w-32">
-                                                        <a>
-                                                            <div class="form-control">
-                                                                <label class="label cursor-pointer py-0">
-                                                                    <input type="checkbox" checked={check_stype[stype_name]} class="checkbox checkbox-sm" onClick={() => {set_check_stype(stype_name, !check_stype[stype_name])}} />
-                                                                    <span class="label-text text-xs pl-2">
-                                                                        {stype_name}
-                                                                    </span>
-                                                                </label>
-                                                            </div>
-                                                        </a>
-                                                    </li>
+                                                    <Show when={categorized_ships_keys()[stype_name].length != 0}>
+                                                        <li class="flex-col w-32">
+                                                            <a>
+                                                                <div class="form-control">
+                                                                    <label class="label cursor-pointer py-0">
+                                                                        <input type="checkbox" checked={check_stype[stype_name]} class="checkbox checkbox-sm" onClick={() => {set_check_stype(stype_name, !check_stype[stype_name])}} />
+                                                                        <span class="label-text text-xs pl-2">
+                                                                            {stype_name}
+                                                                        </span>
+                                                                    </label>
+                                                                </div>
+                                                            </a>
+                                                        </li>
+                                                    </Show>
                                                 )}
                                             </For>
                                         </ul>
@@ -667,7 +672,7 @@ export function ShipListComponent() {
                 <Match when={set_categorize()}>
                     <For each={Object.keys(categorized_ships_keys())}>
                         {(stype_name, stype_name_index) => (
-                            <Show when={check_stype[stype_name]}>
+                            <Show when={check_stype[stype_name] && categorized_ships_keys()[stype_name].length != 0}>
                                 <ul class="menu bg-base-200 menu-sm p-0">
                                     <li>
                                         <details open>
