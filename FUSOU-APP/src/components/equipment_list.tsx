@@ -488,7 +488,7 @@ export function EquipmentListComponent() {
                                     </Show>
                                 )}
                             </For>
-                            <For each={[...Array(Math.floor(default_disply_pages/2))].map((_, i) => -i - 1)}>
+                            <For each={[...Array(Math.floor(default_disply_pages/2))].map((_, i) => i - Math.floor(default_disply_pages/2))}>
                                 {(index) => (
                                     <Show when={pagination.options[pagination.selected].current_page + index <= 0 && pagination.options[pagination.selected].current_page + index + default_disply_pages <= pagination.options[pagination.selected].pages}>
                                         <button class="btn btn-sm btn-square btn-ghost mx-0.5 pagination" onClick={(e) => set_pagination("options", pagination.selected, "current_page", pagination.options[pagination.selected].current_page + index + default_disply_pages)}>{pagination.options[pagination.selected].current_page + index + default_disply_pages}</button>
