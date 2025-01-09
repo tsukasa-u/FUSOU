@@ -102,7 +102,13 @@ export function ShipNameComponent({ship_id}: ShipNameProps) {
             <dialog id={"deck_ship_name_modal_"+ship_id} class="modal">
                 <div class="modal-box bg-base-100 modal-box-width">
                     <form method="dialog">
-                        <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" onClick={() => set_show_dialog(false)}>
+                        <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" onClick={() => {
+                        let sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+                        (async () => {
+                            await sleep(10);
+                            set_show_dialog(false);
+                        })();
+                    }}>
                             <IconXMark class="h-6 w-6" />
                         </button>
                     </form>
@@ -212,7 +218,13 @@ export function ShipNameComponent({ship_id}: ShipNameProps) {
                     </div>
                 </div>
                 <form method="dialog" class="modal-backdrop">
-                    <button onClick={() => set_show_dialog(false)}>close</button>
+                    <button onClick={() => {
+                        let sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+                        (async () => {
+                            await sleep(10);
+                            set_show_dialog(false);
+                        })();
+                    }}>close</button>
                 </form>
             </dialog>
         </Show>
