@@ -64,15 +64,18 @@ export function SettingsComponent(){
                 <p class="py-2 text-xl font-semibold">Load Data</p>
                 <p class="">Load saved response data when the API comes from. this app does not access KanColle server via API, it just copies response data.</p>
                 <div class="mt-4 flex items-center justify-end">
-                    <button class="btn btn-outline btn-wide" onClick={() => {
-                        invoke("get_mst_ships");
-                        invoke("get_slot_items");
-                        invoke("get_mst_slot_items");
-                        invoke("get_mst_equip_exslot_ships");
-                        invoke("get_mst_slotitem_equip_types");
-                        invoke("get_mst_equip_ships");
-                        invoke("get_mst_stypes");
-                        invoke("get_mst_useitems");
+                    <button class="btn btn-outline btn-wide" onClick={async () => {
+                        // We must invoke the API in order to get the data as follows ?
+                        // get_data -> require_info
+                        // IMPORTANT: KEEP THIS ORDER
+                        await invoke("get_mst_ships");                    // get_data
+                        await invoke("get_mst_slot_items");               // get_data
+                        await invoke("get_mst_equip_exslot_ships");       // get_data
+                        await invoke("get_mst_slotitem_equip_types");     // get_data
+                        await invoke("get_mst_equip_ships");              // get_data
+                        await invoke("get_mst_stypes");                   // get_data
+                        await invoke("get_mst_useitems");                 // get_data
+                        await invoke("get_slot_items");                   // require_info
                         showFadeToast('setting_toast', "load all data");
                     }}>Load all data</button>
                 </div>
