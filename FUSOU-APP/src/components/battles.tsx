@@ -2,7 +2,7 @@ import { /*useBattles,*/ useCells, useDeckPorts, useMstShips, useShips } from '.
 import { createEffect, createMemo, createSignal, For, Show } from 'solid-js';
 
 import "../css/divider.css";
-import IconChevronRight from '../icons/chevron_right';
+import IconChevronRightS from '../icons/chevron_right_s';
 import { Battle } from '../interface/battle';
 import { OpeningAntiSubmarineComponent } from './opening_anti_submarine';
 import { OpeningTorpedoAttackComponent } from './opening_torpedo_attack';
@@ -62,7 +62,7 @@ export function BattlesComponent() {
                 <details open={true}>
                     <summary class="flex">
                         Battles
-                        <IconChevronRight class="h-4 w-4" />
+                        <IconChevronRightS class="h-4 w-4" />
                         {/* <Show when={show_battle()}> */}
                             <div>Map : {cells.maparea_id}-{cells.mapinfo_no}</div>
                             <div class="divider divider-horizontal mr-0 ml-0"></div>
@@ -73,7 +73,7 @@ export function BattlesComponent() {
                     <ul class="pl-2">
                         <div class="flex flex-row">
                             <div class="h-4 mt-px pt-px">cells</div>
-                            <IconChevronRight class="h-4 w-4 m-1 " />
+                            <IconChevronRightS class="h-4 w-4 m-1 " />
                             <For each={cells.cell_index}>
                                 {(_, index) => (
                                     <>

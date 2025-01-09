@@ -4,7 +4,7 @@ import "../css/divider.css";
 import { createMemo, For, JSX } from 'solid-js';
 import { EquimentComponent } from './equipment.tsx';
 import IconCautionFill from '../icons/caution_fill.tsx';
-import IconChevronRight from '../icons/chevron_right.tsx';
+import IconChevronRightS from '../icons/chevron_right_s.tsx';
 
 export function AirBasesComponent() {
     
@@ -59,7 +59,7 @@ export function AirBasesComponent() {
                                             {Number(base[0]) >> 16}
                                             {"-"}
                                             {Number(base[0]) & 0xFFFF}
-                                            <div class="w-4"><IconChevronRight class="h-4 w-4" /></div>
+                                            <div class="w-4"><IconChevronRightS class="h-4 w-4" /></div>
                                             <div class="truncate w-32">
                                                 {base[1].name}
                                             </div>
