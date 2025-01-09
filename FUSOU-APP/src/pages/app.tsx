@@ -13,8 +13,9 @@ function App() {
   
   return (
     <>
-      <div class=" bg-base-200 h-screen">
-        <div role="tablist" class="tabs tabs-bordered tabs-sm">
+      <div class="bg-base-200 h-lvh">
+        <div class="h-dvh w-dvw bg-base-200" style={"position: fixed; top: 0; left: 0;"}></div>
+        <div role="tablist" class="tabs tabs-bordered tabs-sm" style={{"position": "absolute", "top": "0px", "left": "0px"}}>
           <div class="h-6 w-screen fixed bg-base-200 left-0 top-0 tab" style={{"z-index": "99"}}></div>
 
           <input type="radio" name="tabs_fleet" role="tab" class="tab [&::after]:w-18 bg-base-200 fixed" aria-label="Fleet Info" style={{"top":"0px", "left":"0px", "z-index":"100"}} checked={true}/>
