@@ -3,7 +3,7 @@ import { SettingsComponent } from './../components/settings.tsx';
 
 
 import { MaterialsComponent } from './../components/materials.tsx';
-import { AirBasesProvider, /*BattleContextProvider,*/ CellsContextProvider, DeckPortsProvider, MaterialsProvider, MstShipsProvider, MstSlotItemsProvider, MstStypesProvider, ShipsProvider, SlotItemsProvider } from './../utility/provider.tsx';
+import { AirBasesProvider, /*BattleContextProvider,*/ CellsContextProvider, DeckPortsProvider, MaterialsProvider, MstShipsProvider, MstSlotItemEquipTypesProvider, MstSlotItemsProvider, MstStypesProvider, ShipsProvider, SlotItemsProvider } from './../utility/provider.tsx';
 import { BattlesComponent } from '../components/battles.tsx';
 import { AirBasesComponent } from '../components/air_bases.tsx';
 import { ShipListComponent } from '../components/ship_list.tsx';
@@ -83,16 +83,18 @@ function App() {
       
           <input type="radio" name="tabs_fleet" role="tab" class="tab [&::after]:w-18 bg-base-200 fixed" aria-label="Equip Info" style={{"top":"0px", "left":"168px", "z-index":"100"}} />
           <div role="tabpanel" class="tab-content pt-0 pb-0 pl-0 bg-base-200">
-            <div class="h-6"></div>
+            {/* <div class="h-6"></div> */}
             <MstSlotItemsProvider>
               <SlotItemsProvider>
-                <ShipsProvider>
+                {/* <ShipsProvider>
                   <MstShipsProvider>
-                    <MstStypesProvider>
-                      <EquipmentListComponent />
-                    </MstStypesProvider>
+                    <MstStypesProvider> */}
+                      <MstSlotItemEquipTypesProvider>
+                        <EquipmentListComponent />
+                      </MstSlotItemEquipTypesProvider>
+                    {/* </MstStypesProvider>
                   </MstShipsProvider>
-                </ShipsProvider>
+                </ShipsProvider> */}
               </SlotItemsProvider>
             </MstSlotItemsProvider>
           </div>
