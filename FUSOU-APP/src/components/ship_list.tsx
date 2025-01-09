@@ -2,7 +2,7 @@ import { useMstShips, useMstStypes, useShips } from '../utility/provider.tsx';
 
 import "../css/divider.css";
 import { createEffect, createMemo, createSignal, For, JSX, Match, Show, Switch } from 'solid-js';
-import IconChevronRight from '../icons/chevron_right.tsx';
+import IconChevronRightS from '../icons/chevron_right_s.tsx';
 import { ShipNameComponent } from './ship_name.tsx';
 import { createStore } from 'solid-js/store';
 
@@ -10,8 +10,14 @@ import "./../css/table_hover.css";
 import "./../css/table_active.css";
 import "./../css/menu_hover.css";
 import "./../css/menu_active.css";
+import "./../css/pagination.css";
+
 import IconUpArrow from '../icons/up_arrow.tsx';
 import IconDownArrow from '../icons/down_arrow.tsx';
+import IconChevronDoubleLeft from '../icons/chevron_double_left.tsx';
+import IconChevronDoubleRight from '../icons/chevron_double_right.tsx';
+import { IconChevronLeft } from '../icons/chevron_left.tsx';
+import IconChevronRight from '../icons/chevron_right.tsx';
 
 export function ShipListComponent() {
     
@@ -302,13 +308,55 @@ export function ShipListComponent() {
         return set_range_element;
     });
 
+    const default_disply_pages = 5;
+
+    const [pagination, set_pagination] = createStore<{selected: string, options: {[key: string]: {pages: number, current_page: number, display_pages: number}}}>({
+        selected: "10",
+        "options": {
+            "10": {"pages": 1, "current_page": 1, display_pages: 1},
+            "20": {"pages": 1, "current_page": 1, display_pages: 1},
+            "50": {"pages": 1, "current_page": 1, display_pages: 1},
+            "100": {"pages": 1, "current_page": 1, display_pages: 1},
+            "200": {"pages": 1, "current_page": 1, display_pages: 1},
+            "500": {"pages": 1, "current_page": 1, display_pages: 1},
+            "All": {"pages": 1, "current_page": 1, display_pages: 1},
+        }
+    });
+
+    createEffect(() => {
+        if (pagination.selected == "All") return;
+        let option = pagination.options[pagination.selected];
+        let pages = Math.ceil(Object.keys(filtered_ships()).length / Number(pagination.selected));
+        let current_page = option.current_page;
+        if (current_page > pages) current_page = pages;
+        current_page = current_page == 0 ? 1 : current_page;
+        let display_pages = Math.min(5, pages);
+        display_pages = display_pages == 0 ? 1 : display_pages;
+        set_pagination("options", pagination.selected, {pages: pages, current_page: current_page, display_pages: display_pages});
+    });
+
+    const show_pagination = (index: number) => {
+
+        if (set_categorize()) return true;
+
+        if (pagination.selected == "All") return true;
+
+        let pages = pagination.options[pagination.selected].pages;
+        let current_page = pagination.options[pagination.selected].current_page;
+        let display_pages = pagination.options[pagination.selected].display_pages;
+
+        if (index < current_page*Number(pagination.selected) && index >= (current_page-1)*Number(pagination.selected)) return true;
+
+        return false;
+    }
+
     const table_element = (ship_ids: (number | string)[]) => {
         return (
             <table class="table table-xs not_menu">
                 <tbody>
                     <For each={ship_ids}>
                         {(ship_id, index) => (
-                            <Show when={filtered_ships()[Number(ship_id)] ?? false}>
+                            <Show when={(filtered_ships()[Number(ship_id)] ?? false) && show_pagination(index())}>
                                 <tr class="flex table_hover table_active rounded ml-10 -pl-10">
                                     <th class="w-10 flex bg-base-200 z-[1] -ml-10" style={"position: sticky; left: 0;"}>
                                         <span class="flex-1"></span>
@@ -436,37 +484,81 @@ export function ShipListComponent() {
             <div class="bg-base-200 shadow z-[4]" style={"position: sticky; top: 0;"}>
                 <div class="h-6"></div>
                 <div class="h-px"></div>
-                <div class="px-2 py-1 text-xs flex flex-nowrap items-center">
-                    Ship Specification Table
-                    <IconChevronRight class="h-4 w-4 mx-2" />
-                    <details class="dropdown">
-                        <summary class="btn btn-xs btn-ghost">select properties</summary>
-                        <ul tabindex="0" class="dropdown-content z-[2] menu menu-xs bg-base-100 rounded-md  shadow flex">
-                            <For each={Object.keys(check_ship_property)}>
-                                {(prop) => (
-                                    <li class="flex-col w-32">
-                                        <a>
-                                            <div class="form-control">
-                                                <label class="label cursor-pointer py-0">
-                                                    <input type="checkbox" checked={check_ship_property[prop]} class="checkbox checkbox-sm" onClick={() => {set_check_ship_property(prop, !check_ship_property[prop])}} />
-                                                    <span class="label-text text-xs pl-2">
-                                                        {prop}
-                                                    </span>
-                                                </label>
-                                            </div>
-                                        </a>
-                                    </li>
+                <div class="px-2 py-1 text-xs flex flex-wrap items-center w-screen">
+                    <div class="flex flex-nowrap items-center">
+                        <div class="truncate">Ship Specification Table</div>
+                        <IconChevronRightS class="h-4 w-4 mx-2" />
+                        <details class="dropdown">
+                            <summary class="btn btn-xs btn-ghost">select properties</summary>
+                            <ul tabindex="0" class="dropdown-content z-[2] menu menu-xs bg-base-100 rounded-md  shadow flex">
+                                <For each={Object.keys(check_ship_property)}>
+                                    {(prop) => (
+                                        <li class="flex-col w-32">
+                                            <a>
+                                                <div class="form-control">
+                                                    <label class="label cursor-pointer py-0">
+                                                        <input type="checkbox" checked={check_ship_property[prop]} class="checkbox checkbox-sm" onClick={() => {set_check_ship_property(prop, !check_ship_property[prop])}} />
+                                                        <span class="label-text text-xs pl-2">
+                                                            {prop}
+                                                        </span>
+                                                    </label>
+                                                </div>
+                                            </a>
+                                        </li>
+                                    )}
+                                </For>
+                            </ul>
+                        </details>
+                        <div class="divider divider-horizontal mr-0 ml-0 flex-none"></div>
+                        <div class="form-control">
+                            <label class="label cursor-pointer h-4">
+                                <input type="checkbox" checked={set_categorize()} class="checkbox checkbox-sm" onClick={(e) => set_set_categorize(e.currentTarget.checked)}/>
+                                <span class="label-text text-xs btn btn-xs btn-ghost">categorized</span>
+                            </label>
+                        </div>
+                        <div class="divider divider-horizontal mr-0 ml-0 flex-none"></div>
+                        <div class="px-2">display</div>
+                        <select class="select select-sm select-ghost select-bordered" onChange={(e) => set_pagination("selected", e.currentTarget.value)} disabled={set_categorize()}>
+                            <For each={Object.keys(pagination.options)}>
+                                {(option) => (
+                                    <option>{option}</option>
                                 )}
                             </For>
-                        </ul>
-                    </details>
-                    <div class="divider divider-horizontal mr-0 ml-0 flex-none"></div>
-                    <div class="form-control">
-                        <label class="label cursor-pointer h-4">
-                            <input type="checkbox" checked={set_categorize()} class="checkbox checkbox-sm" onClick={(e) => set_set_categorize(e.currentTarget.checked)}/>
-                            <span class="label-text text-xs btn btn-xs btn-ghost">display categorized list</span>
-                        </label>
+                        </select>
+                        <div class="px-2">items</div>
+                        <div class="divider divider-horizontal mr-0 ml-0 flex-none"></div>
                     </div>
+                    <Show when={!set_categorize() && pagination.selected != "All"}>
+                        <div class="flex flex-nowrap items-center mt-2 w-full">
+                            <span class="flex-1"></span>
+                            <button class="btn btn-sm btn-ghost mx-0.5 pagination px-3" onClick={(e) => set_pagination("options", pagination.selected, "current_page", 1)}><IconChevronDoubleLeft class="h-3 -mt-0.5 " /></button>
+                            <button class="btn btn-sm btn-ghost mx-0.5 pagination" onClick={(e) => set_pagination("options", pagination.selected, "current_page", pagination.options[pagination.selected].current_page - 1)}><IconChevronLeft class="h-3 -mt-0.5" /></button>
+                            <For each={[...Array(Math.floor(default_disply_pages/2))].map((_, i) => i + 1)}>
+                                {(index) => (
+                                    <Show when={pagination.options[pagination.selected].current_page + index > pagination.options[pagination.selected].pages && pagination.options[pagination.selected].current_page + index - default_disply_pages > 0}>
+                                        <button class="btn btn-sm btn-square btn-ghost mx-0.5 pagination" onClick={(e) => set_pagination("options", pagination.selected, "current_page", pagination.options[pagination.selected].current_page + index - default_disply_pages)}>{pagination.options[pagination.selected].current_page + index - default_disply_pages}</button>
+                                    </Show>
+                                )}
+                            </For>
+                            <For each={[...Array(default_disply_pages)].map((_, i) => i - Math.floor(default_disply_pages/2))}>
+                                {(index) => (
+                                    <Show when={0 < index+pagination.options[pagination.selected].current_page && index+pagination.options[pagination.selected].current_page <= pagination.options[pagination.selected].pages}>
+                                        <button class={"btn btn-sm btn-square btn-ghost mx-0.5 pagination"+(index==0 ? " btn-active":"")} onClick={(e) => {set_pagination("options", pagination.selected, "current_page", index+pagination.options[pagination.selected].current_page); console.log(pagination)}}>{index+pagination.options[pagination.selected].current_page}</button>
+                                    </Show>
+                                )}
+                            </For>
+                            <For each={[...Array(Math.floor(default_disply_pages/2))].map((_, i) => -i - 1)}>
+                                {(index) => (
+                                    <Show when={pagination.options[pagination.selected].current_page + index <= 0 && pagination.options[pagination.selected].current_page + index + default_disply_pages <= pagination.options[pagination.selected].pages}>
+                                        <button class="btn btn-sm btn-square btn-ghost mx-0.5 pagination" onClick={(e) => set_pagination("options", pagination.selected, "current_page", pagination.options[pagination.selected].current_page + index + default_disply_pages)}>{pagination.options[pagination.selected].current_page + index + default_disply_pages}</button>
+                                    </Show>
+                                )}
+                            </For>
+                            <button class="btn btn-sm btn-ghost mx-0.5 pagination" onClick={(e) => set_pagination("options", pagination.selected, "current_page", pagination.options[pagination.selected].current_page + 1)}><IconChevronRight class="h-3 -mt-0.5" /></button>
+                            <button class="btn btn-sm btn-ghost mx-0.5 pagination" onClick={(e) => set_pagination("options", pagination.selected, "current_page", pagination.options[pagination.selected].pages)}><IconChevronDoubleRight class="h-3 -mt-0.5" /></button>
+                            <span class="flex-1"></span>
+                        </div>
+                    </Show>
                 </div>
                 {/* <div class="h-2"></div> */}
                 <table class="table table-xs">
@@ -675,7 +767,7 @@ export function ShipListComponent() {
                             <Show when={check_stype[stype_name] && categorized_ships_keys()[stype_name].length != 0}>
                                 <ul class="menu bg-base-200 menu-sm p-0">
                                     <li>
-                                        <details open>
+                                        <details >
                                             <summary class="ml-10 relative">
                                                 <div class="w-10 h-6 z-[3] bg-base-200 -ml-[52px] px-0" style={"position: sticky; left: 0;"}></div>
                                                 Category. {stype_name_index()+1} : {stype_name}
