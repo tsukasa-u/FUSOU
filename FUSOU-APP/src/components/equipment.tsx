@@ -58,7 +58,7 @@ export function EquimentComponent({slot_id, ex_flag, name_flag, onslot}: Equipme
     const [show_dialog, set_show_dialog] = createSignal(false);
 
     return <>
-        <div class="flex flex-nowarp" onClick={()=> {set_show_dialog(true); show_modal(slot_id);}} >
+        <div class="flex flex-nowarp w-full" onClick={()=> {set_show_dialog(true); show_modal(slot_id);}} >
             <div class="indicator">
                 {/* <span class="indicator-item badge badge-sm badge-outline">
                     {slot_item().level > 0 ? slot_item().level : "" }
@@ -69,7 +69,7 @@ export function EquimentComponent({slot_id, ex_flag, name_flag, onslot}: Equipme
                         { slot_item().level === 10 ? "★" : slot_item().level }
                     </div> : "" }
                 </span>
-                <IconEquipment class="h-5 w-5" category_number={_mst_slot_items.mst_slot_items[_slot_items.slot_items[slot_id]?.slotitem_id]?._type[1]} icon_number={_mst_slot_items.mst_slot_items[_slot_items.slot_items[slot_id]?.slotitem_id]?._type[3]}></IconEquipment>
+                <IconEquipment class="h-5 w-5 -mt-0.5" category_number={_mst_slot_items.mst_slot_items[_slot_items.slot_items[slot_id]?.slotitem_id]?._type[1]} icon_number={_mst_slot_items.mst_slot_items[_slot_items.slot_items[slot_id]?.slotitem_id]?._type[3]}></IconEquipment>
             </div>
             {
                 !(ex_flag ?? false) ? <div class="flex-none pl-px">
@@ -82,9 +82,7 @@ export function EquimentComponent({slot_id, ex_flag, name_flag, onslot}: Equipme
                 </div> : <></>
             }
             {
-                (name_flag ?? false) ? <div class="pl-3 pt-0.5">
-                    <div class="truncate">{mst_slot_item()?.name ?? "Unknown"}</div>
-                </div> : <></>
+                (name_flag ?? false) ? <div class="pl-3 truncate">{mst_slot_item()?.name ?? "Unknown"}</div>: <></>
             }
         </div>
         
@@ -92,7 +90,13 @@ export function EquimentComponent({slot_id, ex_flag, name_flag, onslot}: Equipme
             <dialog id={"deck_equipment_modal_"+slot_id} class="modal">
                 <div class="modal-box bg-base-100 modal-box-width">
                     <form method="dialog">
-                        <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" onClick={() => set_show_dialog(false)}>
+                        <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" onClick={() => {
+                        let sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+                        (async () => {
+                            await sleep(10);
+                            set_show_dialog(false);
+                        })();
+                    }}>
                             <IconXMark class="h-6 w-6" />
                         </button>
                     </form>
@@ -145,7 +149,13 @@ export function EquimentComponent({slot_id, ex_flag, name_flag, onslot}: Equipme
                     </div>
                 </div>
                 <form method="dialog" class="modal-backdrop">
-                    <button onClick={() => set_show_dialog(false)}>close</button>
+                    <button onClick={() => {
+                        let sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+                        (async () => {
+                            await sleep(10);
+                            set_show_dialog(false);
+                        })();
+                    }}>close</button>
                 </form>
             </dialog>
         </Show>

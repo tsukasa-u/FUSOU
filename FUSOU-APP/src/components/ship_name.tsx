@@ -102,7 +102,13 @@ export function ShipNameComponent({ship_id}: ShipNameProps) {
             <dialog id={"deck_ship_name_modal_"+ship_id} class="modal">
                 <div class="modal-box bg-base-100 modal-box-width">
                     <form method="dialog">
-                        <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" onClick={() => set_show_dialog(false)}>
+                        <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" onClick={() => {
+                        let sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+                        (async () => {
+                            await sleep(10);
+                            set_show_dialog(false);
+                        })();
+                    }}>
                             <IconXMark class="h-6 w-6" />
                         </button>
                     </form>
@@ -118,9 +124,9 @@ export function ShipNameComponent({ship_id}: ShipNameProps) {
                                 <For each={ship()?.slot} fallback={<></>}>
                                     {(slot_ele, index) => {
                                         return <>
-                                            <tr class="flex table_active table_hover rounded rounded items-center">
+                                            <tr class="flex table_active table_hover rounded rounded items-center w-full">
                                                 <th class="flex-none w-4">S{index()+1}</th>
-                                                <td class="flex-none w-12 pl-4 h-7">
+                                                <td class="flex-none w-12 pl-4 h-7 mt-1 w-full">
                                                     <Show when={slot_ele > 0}>
                                                         <EquimentComponent slot_id={slot_ele} ex_flag={false} name_flag={true}></EquimentComponent>
                                                     </Show>
@@ -212,7 +218,13 @@ export function ShipNameComponent({ship_id}: ShipNameProps) {
                     </div>
                 </div>
                 <form method="dialog" class="modal-backdrop">
-                    <button onClick={() => set_show_dialog(false)}>close</button>
+                    <button onClick={() => {
+                        let sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+                        (async () => {
+                            await sleep(10);
+                            set_show_dialog(false);
+                        })();
+                    }}>close</button>
                 </form>
             </dialog>
         </Show>
