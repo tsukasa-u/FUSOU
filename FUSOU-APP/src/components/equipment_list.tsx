@@ -51,6 +51,8 @@ export function EquipmentListComponent() {
         set_check_name(check_name);
     });
 
+    const [search_name, set_search_name] = createSignal("");
+
     const [check_equip_property, set_check_equip_property] = createStore<{[key: string]: boolean}>((
         () => {
             let check_equip_property: {[key: string]: boolean} = {};
@@ -63,26 +65,36 @@ export function EquipmentListComponent() {
     )());
 
     const [set_order, set_set_order] = createSignal(false);
-    const [set_sort, set_set_sort] = createSignal("New");
+    const [set_sort, set_set_sort] = createSignal("Default");
 
     const [set_categorize, set_set_categorize] = createSignal(false);
 
+    const [progress_value, set_progress_value] = createSignal(0);
+
+    const additional_sort_fn = (a: number, b: number, _a: number, _b: number) => {
+        let tmp = a - b;
+        if (tmp != 0) return tmp;
+        return _a - _b;
+    }
+
     const sort_fn = (a: string, b: string) => {
-        if (set_sort() == "New") return 0;
         let a_equip = slot_items.slot_items[Number(a)];
         let b_equip = slot_items.slot_items[Number(b)];
-        let a_mst_equip = mst_slot_items.mst_slot_items[a_equip.id];
-        let b_mst_equip = mst_slot_items.mst_slot_items[b_equip.id];
-        if (set_sort() == "Level") return a_equip.level - b_equip.level;
-        if (set_sort() == "Firepower") return a_mst_equip.houg - b_mst_equip.houg;
-        if (set_sort() == "Torpedo") return a_mst_equip.raig - b_mst_equip.raig;
-        if (set_sort() == "Anti-Air") return a_mst_equip.tyku - b_mst_equip.tyku;
-        if (set_sort() == "Armor") return a_mst_equip.souk - b_mst_equip.souk;
-        if (set_sort() == "Evasion") return a_mst_equip.houk - b_mst_equip.houk;
-        if (set_sort() == "Anti-Submarine") return a_mst_equip.tais - b_mst_equip.tais;
-        if (set_sort() == "Reconnaissance") return a_mst_equip.saku - b_mst_equip.saku;
-        if (set_sort() == "Proficiency") return (a_equip.alv ?? 0) - (b_equip.alv ?? 0);
-        if (set_sort() == "Bomb") return a_mst_equip.baku - b_mst_equip.baku;
+        if (a_equip == undefined || b_equip == undefined) return 0;
+        let a_mst_equip = mst_slot_items.mst_slot_items[a_equip.slotitem_id];
+        let b_mst_equip = mst_slot_items.mst_slot_items[b_equip.slotitem_id];
+        if (a_mst_equip == undefined || b_mst_equip == undefined) return 0;
+        if (set_sort() == "Default") return additional_sort_fn(a_mst_equip.sortno, b_mst_equip.sortno, a_mst_equip.sortno, b_mst_equip.sortno);
+        if (set_sort() == "Level") return additional_sort_fn(a_equip.level, b_equip.level, a_mst_equip.sortno, b_mst_equip.sortno);
+        if (set_sort() == "Firepower") return additional_sort_fn(a_mst_equip.houg, b_mst_equip.houg, a_mst_equip.sortno, b_mst_equip.sortno);
+        if (set_sort() == "Torpedo") return additional_sort_fn(a_mst_equip.raig, b_mst_equip.raig, a_mst_equip.sortno, b_mst_equip.sortno);
+        if (set_sort() == "Anti-Air") return additional_sort_fn(a_mst_equip.tyku, b_mst_equip.tyku, a_mst_equip.sortno, b_mst_equip.sortno);
+        if (set_sort() == "Armor") return additional_sort_fn(a_mst_equip.souk, b_mst_equip.souk, a_mst_equip.sortno, b_mst_equip.sortno);
+        if (set_sort() == "Evasion") return additional_sort_fn(a_mst_equip.houk, b_mst_equip.houk, a_mst_equip.sortno, b_mst_equip.sortno);
+        if (set_sort() == "Anti-Submarine") return additional_sort_fn(a_mst_equip.tais, b_mst_equip.tais, a_mst_equip.sortno, b_mst_equip.sortno);
+        if (set_sort() == "Reconnaissance") return additional_sort_fn(a_mst_equip.saku, b_mst_equip.saku, a_mst_equip.sortno, b_mst_equip.sortno);
+        if (set_sort() == "Proficiency") return additional_sort_fn(a_equip.alv ?? 0, b_equip.alv ?? 0, a_mst_equip.sortno, b_mst_equip.sortno);
+        if (set_sort() == "Bomb") return additional_sort_fn(a_mst_equip.baku, b_mst_equip.baku, a_mst_equip.sortno, b_mst_equip.sortno);
         return 0;
     }
 
@@ -383,11 +395,36 @@ export function EquipmentListComponent() {
         );
     };
 
+    const cal_search_name = (search_name: string) => {
+        let tmp_name: {[key: number]: boolean} = {};
+        let slot_items_length_100 = Object.keys(slot_items.slot_items).length/100;
+        let slot_items_length = Object.keys(slot_items.slot_items).length;
+        let sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
+        Object.entries(slot_items.slot_items).forEach(([equip_id, slotitem], index) => {
+            (async () => {
+                await sleep(10);
+                let mst_slot_item = mst_slot_items.mst_slot_items[slotitem.slotitem_id];
+                if (mst_slot_item.name.indexOf(search_name) != -1) {
+                    tmp_name[Number(equip_id)] =  true;
+                } else {
+                    tmp_name[Number(equip_id)] =  false;
+                }
+                set_progress_value(index/slot_items_length_100);
+                if (index == slot_items_length - 1) {
+                    set_progress_value(0);
+                    set_check_name(tmp_name);
+                }
+            })();
+        });
+    }
+
     return (
         <>
             <div class="bg-base-200 shadow z-[4]" style={"position: sticky; top: 0;"}>
-                <div class="h-6"></div>
-                <div class="h-px"></div>
+                {/* <div class="h-6"></div> */}
+                {/* <div class="h-px"></div> */}
+                <div class="h-[2px]"></div>
+                <progress class="progress progress-info w-screen rounded-none py-0 h-[4px] bg-base-200 -mb-2" value={String(progress_value())} max="100"  style={"position: sticky; left: 0;"}></progress>
                 <div class="px-2 py-1 text-xs flex flex-wrap items-center w-screen">
                     <div class="flex flex-nowrap items-center">
                         <div class="truncate">Equipment Specification Table</div>
@@ -422,7 +459,7 @@ export function EquipmentListComponent() {
                         </div>
                         <div class="divider divider-horizontal mr-0 ml-0 flex-none"></div>
                         <div class="px-2">display</div>
-                        <select class="select select-sm select-ghost select-bordered" onChange={(e) => set_pagination("selected", e.currentTarget.value)} disabled={set_categorize()}>
+                        <select class="select select-sm select-ghost select-bordered z-[10]" onChange={(e) => set_pagination("selected", e.currentTarget.value)} disabled={set_categorize()}>
                             <For each={Object.keys(pagination.options)}>
                                 {(option) => (
                                     <option>{option}</option>
@@ -504,7 +541,7 @@ export function EquipmentListComponent() {
                                                         <td class="flex-1">sort parameters</td>
                                                         <td class="flex-none">
                                                             <select class="select select-bordered select-sm w-28" onChange={(e) => set_set_sort(e.target.value)}>
-                                                                <option>New</option>
+                                                                <option>Default</option>
                                                                 <For each={equip_properties}>
                                                                     {(property) => (
                                                                         <option>{property}</option>
@@ -531,25 +568,23 @@ export function EquipmentListComponent() {
                                         <div class="card-body ">
                                             <label class="input input-sm input-bordered flex items-center gap-2">
                                                 <input type="text" class="grow" placeholder="Search Name" onChange={(e) => {
-                                                    let search_name = e.target.value;
-                                                    Object.entries(slot_items.slot_items).forEach(([equip_id, slotitem]) => {
-                                                        if (mst_slot_items.mst_slot_items[slotitem.slotitem_id].name.indexOf(search_name) != -1) {
-                                                            set_check_name(Number(equip_id), true);
-                                                        } else {
-                                                            set_check_name(Number(equip_id), false);
-                                                        }
-                                                    });
+                                                    set_search_name(e.target.value);
+                                                    cal_search_name(e.target.value);
                                                 }}/>
-                                                <svg
-                                                    xmlns="http://www.w3.org/2000/svg"
-                                                    viewBox="0 0 16 16"
-                                                    fill="currentColor"
-                                                    class="h-4 w-4 opacity-70">
-                                                    <path
-                                                    fill-rule="evenodd"
-                                                    d="M9.965 11.026a5 5 0 1 1 1.06-1.06l2.755 2.754a.75.75 0 1 1-1.06 1.06l-2.755-2.754ZM10.5 7a3.5 3.5 0 1 1-7 0 3.5 3.5 0 0 1 7 0Z"
-                                                    clip-rule="evenodd" />
-                                                </svg>
+                                                <div class="btn btn-ghost btn-sm -mr-3" onClick={() => {
+                                                    cal_search_name(search_name());
+                                                }}>
+                                                    <svg
+                                                        xmlns="http://www.w3.org/2000/svg"
+                                                        viewBox="0 0 16 16"
+                                                        fill="currentColor"
+                                                        class="h-4 w-4 opacity-70">
+                                                        <path
+                                                        fill-rule="evenodd"
+                                                        d="M9.965 11.026a5 5 0 1 1 1.06-1.06l2.755 2.754a.75.75 0 1 1-1.06 1.06l-2.755-2.754ZM10.5 7a3.5 3.5 0 1 1-7 0 3.5 3.5 0 0 1 7 0Z"
+                                                        clip-rule="evenodd" />
+                                                    </svg>
+                                                </div>
                                             </label>
                                         </div>
                                     </div>
