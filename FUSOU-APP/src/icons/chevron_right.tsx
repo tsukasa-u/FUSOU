@@ -3,11 +3,11 @@ import { JSX } from 'solid-js';
 export function IconChevronRight(props: JSX.HTMLAttributes<SVGSVGElement>) {
   return (
     <svg fill="currentColor" xmlns="http://www.w3.org/2000/svg"
-      stroke-width="1.5" 
+      stroke-width="0" 
       stroke="currentColor" 
-	 viewBox="0 0 21 21"
+	    viewBox="0 0 16 16"
       {...props}>
-        <path fill="none" d="m 10 16 l 5 -5 l -5 -5"/>
+      	<path fill-rule="evenodd" d="M4.646 1.646a0.5 0.5 0 0 1 0.708 0l6 6a0.5 0.5 0 0 1 0 0.708l-6 6a0.5 0.5 0 0 1 -0.708 -0.708L10.293 8 4.646 2.354a0.5 0.5 0 0 1 0 -0.708"></path>
     </svg>
   )
 }
