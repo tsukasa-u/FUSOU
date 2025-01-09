@@ -118,9 +118,9 @@ export function ShipNameComponent({ship_id}: ShipNameProps) {
                                 <For each={ship()?.slot} fallback={<></>}>
                                     {(slot_ele, index) => {
                                         return <>
-                                            <tr class="flex table_active table_hover rounded rounded items-center">
+                                            <tr class="flex table_active table_hover rounded rounded items-center w-full">
                                                 <th class="flex-none w-4">S{index()+1}</th>
-                                                <td class="flex-none w-12 pl-4 h-7">
+                                                <td class="flex-none w-12 pl-4 h-7 mt-1 w-full">
                                                     <Show when={slot_ele > 0}>
                                                         <EquimentComponent slot_id={slot_ele} ex_flag={false} name_flag={true}></EquimentComponent>
                                                     </Show>
