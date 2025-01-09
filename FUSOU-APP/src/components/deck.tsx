@@ -6,7 +6,7 @@ import { IconKira1 } from '../icons/kira1.tsx';
 import { IconKira2 } from '../icons/kira2.tsx';
 import { IconKira3 } from '../icons/kira3.tsx';
 
-import { IconChevronRight } from '../icons/chevron_right.tsx';
+import { IconChevronRightS } from '../icons/chevron_right_s.tsx';
 
 import { EquimentComponent } from './equipment.tsx';
 import { ShipNameComponent } from './ship_name.tsx';
@@ -134,7 +134,7 @@ export function DeckComponent({deck_id, fleet_name}: DeckPortProps) {
                         <div class="w-20 flex-none">
                             { fleet_name ?? "Unknown" }
                         </div>
-                        <div class="w-4 flex-none -mx-4"><IconChevronRight class="h-4 w-4" /></div>
+                        <div class="w-4 flex-none -mx-4"><IconChevronRightS class="h-4 w-4" /></div>
                         <div class="pl-4">{_deck_ports.deck_ports[deck_id].name ?? ""}</div>
                         <span class="flex-auto"></span>
                         <div class="form-control flex-none">
