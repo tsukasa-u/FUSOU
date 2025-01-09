@@ -64,7 +64,7 @@ export function EquipmentListComponent() {
         }
     )());
 
-    const [set_order, set_set_order] = createSignal(false);
+    const [set_order, set_set_order] = createSignal(true);
     const [set_sort, set_set_sort] = createSignal("Default");
 
     const [set_categorize, set_set_categorize] = createSignal(false);
@@ -77,7 +77,7 @@ export function EquipmentListComponent() {
         return _a - _b;
     }
 
-    const sort_fn = (a: string, b: string) => {
+    const sort_fn = (a: string | number, b: string | number) => {
         let a_equip = slot_items.slot_items[Number(a)];
         let b_equip = slot_items.slot_items[Number(b)];
         if (a_equip == undefined || b_equip == undefined) return 0;
@@ -118,8 +118,12 @@ export function EquipmentListComponent() {
             let equip_type = mst_slot_items_equip_types.mst_slotitem_equip_types[mst_slot_items.mst_slot_items[slot_item.slotitem_id]._type[2]].name;
             categorized_equips_keys[equip_type].push(Number(equip_id));
         });
-        // console.log(slot_items.slot_items);
-        // console.log(categorized_equips_keys);
+        
+        Object.entries(mst_slot_items_equip_types.mst_slotitem_equip_types).forEach(([_, equip_types]) => {
+            categorized_equips_keys[equip_types.name] = categorized_equips_keys[equip_types.name].sort(sort_fn);
+            if (!set_order()) categorized_equips_keys[equip_types.name] = categorized_equips_keys[equip_types.name].reverse();
+        });
+
         return categorized_equips_keys;
     });
 
@@ -304,7 +308,7 @@ export function EquipmentListComponent() {
                                     </td>
                                     <Show when={check_equip_property["Equip Type"]}>
                                         {/* which index is ture? */}
-                                        <td class="w-[88px]">{mst_slot_items_equip_types.mst_slotitem_equip_types[mst_slot_items.mst_slot_items[slot_items.slot_items[Number(equip_id)].slotitem_id]._type[2]].name}</td>
+                                        <td class="w-[96px]">{mst_slot_items_equip_types.mst_slotitem_equip_types[mst_slot_items.mst_slot_items[slot_items.slot_items[Number(equip_id)].slotitem_id]._type[2]].name}</td>
                                     </Show>
                                     <Show when={check_equip_property["Level"]}>
                                         <td class="w-12">
@@ -591,7 +595,7 @@ export function EquipmentListComponent() {
                                 </div>
                             </th>
                             <Show when={check_equip_property["Equip Type"]}>
-                                <th class="w-[88px]">
+                                <th class="w-[96px]">
                                     <div class="dropdown">
                                         <div class="indicator">
                                             <Show when={Object.values(check_equip_types).findIndex((value) => !value) != -1}>

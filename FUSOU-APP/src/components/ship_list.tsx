@@ -60,12 +60,12 @@ export function ShipListComponent() {
         }
     )());
 
-    const [set_order, set_set_order] = createSignal(false);
+    const [set_order, set_set_order] = createSignal(true);
     const [set_sort, set_set_sort] = createSignal("Default");
 
     const [set_categorize, set_set_categorize] = createSignal(false);
 
-    const sort_fn = (a: string, b: string) => {
+    const sort_fn = (a: string | number, b: string | number) => {
         if (set_sort() == "Default") return 0;
         let a_ship = ships.ships[Number(a)];
         let b_ship = ships.ships[Number(b)];
@@ -101,6 +101,11 @@ export function ShipListComponent() {
             let stype = mst_stypes.mst_stypes[mst_ships.mst_ships[ships.ships[Number(ship_id)].ship_id].stype].name;
             // if (!categorized_ships_keys[stype]) categorized_ships_keys[stype] = [];
             categorized_ships_keys[stype].push(Number(ship_id));
+        });
+        
+        Object.entries(mst_stypes.mst_stypes).forEach(([_, stype]) => {
+            categorized_ships_keys[stype.name] = categorized_ships_keys[stype.name].sort(sort_fn);
+            if (!set_order()) categorized_ships_keys[stype.name] = categorized_ships_keys[stype.name].reverse();
         });
         return categorized_ships_keys;
     });
