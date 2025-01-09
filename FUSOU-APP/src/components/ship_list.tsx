@@ -47,6 +47,8 @@ export function ShipListComponent() {
         set_check_name(check_name);
     });
 
+    const [search_name, set_search_name] = createSignal("");
+
     const [check_ship_property, set_check_ship_property] = createStore<{[key: string]: boolean}>((
         () => {
             let check_ship_property: {[key: string]: boolean} = {};
@@ -59,12 +61,12 @@ export function ShipListComponent() {
     )());
 
     const [set_order, set_set_order] = createSignal(false);
-    const [set_sort, set_set_sort] = createSignal("New");
+    const [set_sort, set_set_sort] = createSignal("Default");
 
     const [set_categorize, set_set_categorize] = createSignal(false);
 
     const sort_fn = (a: string, b: string) => {
-        if (set_sort() == "New") return 0;
+        if (set_sort() == "Default") return 0;
         let a_ship = ships.ships[Number(a)];
         let b_ship = ships.ships[Number(b)];
         if (set_sort() == "Level") return a_ship.lv - b_ship.lv;
@@ -479,11 +481,38 @@ export function ShipListComponent() {
         );
     };
 
+    const [progress_value, set_progress_value] = createSignal(0);
+
+    const cal_search_name = (search_name: string) => {
+        let tmp_name: {[key: number]: boolean} = {};
+        let ships_length_100 = Object.keys(ships.ships).length/100;
+        let ships_length = Object.keys(ships.ships).length;
+        let sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
+        Object.entries(ships.ships).forEach(([ship_id, ship], index) => {
+            (async () => {
+                await sleep(10);
+                let mst_ship = mst_ships.mst_ships[ship.ship_id];
+                if (mst_ship.name.indexOf(search_name) != -1) {
+                    tmp_name[Number(ship_id)] =  true;
+                } else {
+                    tmp_name[Number(ship_id)] =  false;
+                }
+                set_progress_value(index/ships_length_100);
+                if (index == ships_length - 1) {
+                    set_progress_value(0);
+                    set_check_name(tmp_name);
+                }
+            })();
+        });
+    }
+
     return (
         <>
             <div class="bg-base-200 shadow z-[4]" style={"position: sticky; top: 0;"}>
-                <div class="h-6"></div>
-                <div class="h-px"></div>
+                {/* <div class="h-6"></div> */}
+                {/* <div class="h-px"></div> */}
+                <div class="h-[2px]"></div>
+                <progress class="progress progress-info w-screen rounded-none py-0 h-[4px] bg-base-200 -mb-2" value={String(progress_value())} max="100"  style={"position: sticky; left: 0;"}></progress>
                 <div class="px-2 py-1 text-xs flex flex-wrap items-center w-screen">
                     <div class="flex flex-nowrap items-center">
                         <div class="truncate">Ship Specification Table</div>
@@ -518,7 +547,7 @@ export function ShipListComponent() {
                         </div>
                         <div class="divider divider-horizontal mr-0 ml-0 flex-none"></div>
                         <div class="px-2">display</div>
-                        <select class="select select-sm select-ghost select-bordered" onChange={(e) => set_pagination("selected", e.currentTarget.value)} disabled={set_categorize()}>
+                        <select class="select select-sm select-ghost select-bordered z-[10]" onChange={(e) => set_pagination("selected", e.currentTarget.value)} disabled={set_categorize()}>
                             <For each={Object.keys(pagination.options)}>
                                 {(option) => (
                                     <option>{option}</option>
@@ -601,7 +630,7 @@ export function ShipListComponent() {
                                                         <td class="flex-1">sort parameters</td>
                                                         <td class="flex-none">
                                                             <select class="select select-bordered select-sm w-28" onChange={(e) => set_set_sort(e.target.value)}>
-                                                                <option>New</option>
+                                                                <option>Default</option>
                                                                 <For each={ship_properties}>
                                                                     {(property) => (
                                                                         <option>{property}</option>
@@ -627,26 +656,24 @@ export function ShipListComponent() {
                                     <div tabindex="0" class="dropdown-content z-[2] card card-compact bg-base-100 z-[1] w-72 shadow rounded-md">
                                         <div class="card-body ">
                                             <label class="input input-sm input-bordered flex items-center gap-2">
-                                                <input type="text" class="grow" placeholder="Search Name" onChange={(e) => {
-                                                    let search_name = e.target.value;
-                                                    Object.entries(ships.ships).forEach(([ship_id, ship]) => {
-                                                        if (mst_ships.mst_ships[ship.ship_id].name.indexOf(search_name) != -1) {
-                                                            set_check_name(Number(ship_id), true);
-                                                        } else {
-                                                            set_check_name(Number(ship_id), false);
-                                                        }
-                                                    });
+                                            <input type="text" class="grow" placeholder="Search Name" onChange={(e) => {
+                                                    set_search_name(e.target.value);
+                                                    cal_search_name(e.target.value);
                                                 }}/>
-                                                <svg
-                                                    xmlns="http://www.w3.org/2000/svg"
-                                                    viewBox="0 0 16 16"
-                                                    fill="currentColor"
-                                                    class="h-4 w-4 opacity-70">
-                                                    <path
-                                                    fill-rule="evenodd"
-                                                    d="M9.965 11.026a5 5 0 1 1 1.06-1.06l2.755 2.754a.75.75 0 1 1-1.06 1.06l-2.755-2.754ZM10.5 7a3.5 3.5 0 1 1-7 0 3.5 3.5 0 0 1 7 0Z"
-                                                    clip-rule="evenodd" />
-                                                </svg>
+                                                <div class="btn btn-ghost btn-sm -mr-3" onClick={() => {
+                                                    cal_search_name(search_name());
+                                                }}>
+                                                    <svg
+                                                        xmlns="http://www.w3.org/2000/svg"
+                                                        viewBox="0 0 16 16"
+                                                        fill="currentColor"
+                                                        class="h-4 w-4 opacity-70">
+                                                        <path
+                                                        fill-rule="evenodd"
+                                                        d="M9.965 11.026a5 5 0 1 1 1.06-1.06l2.755 2.754a.75.75 0 1 1-1.06 1.06l-2.755-2.754ZM10.5 7a3.5 3.5 0 1 1-7 0 3.5 3.5 0 0 1 7 0Z"
+                                                        clip-rule="evenodd" />
+                                                    </svg>
+                                                </div>
                                             </label>
                                         </div>
                                     </div>
