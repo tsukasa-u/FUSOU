@@ -1,4 +1,4 @@
-import { /*useBattles,*/ useCells, useDeckPorts, useMstShips, useShips } from '../utility/provider';
+import { /*useBattles,*/ useCells, useDeckPorts, /*useMstShips, useShips*/ } from '../utility/provider';
 import { createEffect, createMemo, createSignal, For, Show } from 'solid-js';
 
 import "../css/divider.css";
@@ -16,8 +16,8 @@ import { SupportAttackComponent } from './support_attack';
 export function BattlesComponent() {
 
     // const [battles, ] = useBattles();
-    const [ships, ] = useShips();
-    const [mst_ships, ] = useMstShips();
+    // const [ships, ] = useShips();
+    // const [mst_ships, ] = useMstShips();
     const [deck_ports, ] = useDeckPorts();
     const [cells, ] = useCells();
 
@@ -37,10 +37,6 @@ export function BattlesComponent() {
     });
 
     const battle_selected = createMemo<Battle>(() => {
-        // console.log(battles.battles[cells.cell_index[cell_index_selected()]]);
-        // return battles.battles[cells.cell_index[cell_index_selected()]];
-        // console.log(cells.battles[cells.cell_index[cell_index_selected()]]);
-        console.log(cells);
         return cells.battles[cells.cell_index[cell_index_selected()]];
     });
     
@@ -49,8 +45,6 @@ export function BattlesComponent() {
     });
 
     const show_battle = createMemo<boolean>(() => {
-        // if (battles.cells.length == 0) return false;
-        // if (battles.cells.find((cell) => cell == cells.cell_index[cell_index_selected()]) == undefined) return false;
         if (Object.keys(cells.battles).length == 0) return false;
         if (Object.keys(cells.battles).find((cell) => Number(cell) == cells.cell_index[cell_index_selected()]) == undefined) return false;
         return true;

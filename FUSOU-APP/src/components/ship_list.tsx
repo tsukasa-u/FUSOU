@@ -229,7 +229,6 @@ export function ShipListComponent() {
         return set_range_element;
     });
 
-    
     const set_discrete_range_window = createMemo(() => {
         let set_range_element: {[key: string]: JSX.Element} = {};
         let params = ["Speed", "Range"];

@@ -63,6 +63,8 @@ export interface MstSlotitem {
     luck: number,
     leng: number,
     rare: number,
+    taibaku: number,
+    geigeki: number,
     broken: number[],
     usebull: string,
     version?: number,

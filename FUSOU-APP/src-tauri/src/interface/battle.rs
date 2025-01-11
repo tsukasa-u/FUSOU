@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use chrono::Local;
+use regex::Match;
 use serde_json::Value;
 
 use crate::{kcapi, kcapi_common::{self, custom_type::DuoType}};
@@ -30,6 +31,7 @@ pub struct Battle {
     pub enemy_ship_id: Option<Vec<i64>>,
     pub e_params: Option<Vec<Vec<i64>>>,
     pub e_slot: Option<Vec<Vec<i64>>>,
+    pub e_hp_max: Option<Vec<i64>>,
     pub total_damages_friends: Option<Vec<i64>>,
     pub total_damages_enemies: Option<Vec<i64>>,
     pub reconnaissance: Option<Vec<i64>>,
@@ -160,6 +162,7 @@ pub struct MidnightHougeki {
     pub damage: Vec<Vec<f32>>,
     pub at_eflag: Vec<i64>,
     pub si_list: Vec<Vec<Option<i64>>>,
+    pub api_sp_list: Vec<i64>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -321,19 +324,77 @@ impl From<kcapi_common::common_battle::ApiHougeki> for Hougeki {
 
 impl From<kcapi_common::common_midnight::ApiHougeki> for MidnightHougeki {
     fn from(hougeki: kcapi_common::common_midnight::ApiHougeki) -> Self {
-        Self {
-            at_list: hougeki.api_at_list,
-            df_list: hougeki.api_df_list,
-            cl_list: hougeki.api_cl_list,
-            damage: hougeki.api_damage,
-            at_eflag: hougeki.api_at_eflag,
-            si_list: hougeki.api_si_list.iter().map(|si_list| si_list.iter().map(|si| match si {
+
+        let remove_m1_i64 = |vec: &Vec<i64>, idx: usize| vec.clone().iter().enumerate().filter_map(|(y_idx, y)| if hougeki.api_df_list.clone()[idx][y_idx] != -1 { Some(*y) } else { None }).collect::<Vec<i64>>();
+        let remove_m1_f32 = |vec: &Vec<f32>, idx: usize| vec.clone().iter().enumerate().filter_map(|(y_idx, y)| if hougeki.api_df_list.clone()[idx][y_idx] != -1 { Some((*y).floor()) } else { None }).collect::<Vec<f32>>();
+
+        let si_list: Vec<Vec<Option<i64>>> = hougeki.api_si_list.iter().enumerate().map(|(idx, si_list)| {
+            let si_vec: Vec<Option<i64>> = si_list.iter().map(|si| match si {
                 DuoType::Type1(num) => if *num == -1 { None } else { Some(*num) },
                 DuoType::Type2(string) => match string.parse::<i64>(){
                     Ok(num) => Some(num),
                     Err(_) => None,
                 },
-            }).collect()).collect(),
+            }).collect();
+            return si_vec;
+        }).collect();
+
+        let cl_list: Vec<Vec<i64>> = hougeki.api_cl_list.iter().enumerate().map(|(idx, cl_list)| {
+            (match hougeki.api_sp_list[idx] {
+                0 => remove_m1_i64(cl_list, idx),
+                1 => remove_m1_i64(cl_list, idx).iter().map(|x| 2).collect(),
+                n if n < 100 => {
+                    let df_0 = hougeki.api_df_list[idx][0].clone();
+                    if hougeki.api_df_list[idx].iter().all(|x| *x == df_0) {
+                        return vec![remove_m1_i64(cl_list, idx).iter().fold(0, |acc, y| acc.max(*y))];
+                        // return vec![2];
+                    } else {
+                        return remove_m1_i64(cl_list, idx);
+                        // return vec![2; cl_list.len()];
+                    }
+                },
+                _ => remove_m1_i64(cl_list, idx),
+            })
+        }).collect();
+
+        let damages: Vec<Vec<f32>> = hougeki.api_damage.iter().enumerate().map(|(idx, damage)| {
+            match hougeki.api_sp_list[idx] {
+                0 | 1 => remove_m1_f32(damage, idx),
+                n if n < 100 => {
+                    let df_0 = hougeki.api_df_list[idx][0].clone();
+                    if hougeki.api_df_list[idx].iter().all(|x| *x == df_0) {
+                        return vec![remove_m1_f32(damage, idx).iter().fold(0_f32, |acc, y| acc + *y)];
+                    } else {
+                        return remove_m1_f32(damage, idx);
+                    }
+                },
+                _ => remove_m1_f32(damage, idx),
+            }.to_vec()
+        }).collect();
+        
+        let df_list: Vec<Vec<i64>> = hougeki.api_df_list.iter().enumerate().map(|(idx, df_list)| {
+            match hougeki.api_sp_list[idx] {
+                0 | 1 => remove_m1_i64(df_list, idx),
+                n if n < 100 => {
+                    let df_0 = df_list[0].clone();
+                    if df_list.iter().all(|x| *x == df_0) {
+                        return vec![df_0]
+                    } else {
+                        return remove_m1_i64(df_list, idx);
+                    }
+                },
+                _ => remove_m1_i64(df_list, idx),
+            }.to_vec()
+        }).collect();
+
+        Self {
+            at_list: hougeki.api_at_list,
+            df_list: df_list,
+            cl_list: cl_list,
+            damage: damages,
+            at_eflag: hougeki.api_at_eflag,
+            si_list: si_list,
+            api_sp_list: hougeki.api_sp_list,
         }
     }
 }
@@ -420,6 +481,7 @@ impl From<kcapi::api_req_sortie::battle::ApiData> for Battle {
             enemy_ship_id: Some(battle.api_ship_ke),
             e_params: Some(battle.api_e_param),
             e_slot: Some(battle.api_e_slot),
+            e_hp_max: Some(battle.api_e_maxhps),
             total_damages_friends: None,
             total_damages_enemies: None,
             reconnaissance: Some(battle.api_search),
@@ -461,6 +523,7 @@ impl From<kcapi::api_req_battle_midnight::battle::ApiData> for Battle {
             enemy_ship_id: Some(battle.api_ship_ke),
             e_params: Some(battle.api_e_param),
             e_slot: Some(battle.api_e_slot),
+            e_hp_max: Some(battle.api_e_maxhps),
             total_damages_friends: None,
             total_damages_enemies: None,
             reconnaissance: None,
@@ -502,6 +565,7 @@ impl From<kcapi::api_req_battle_midnight::sp_midnight::ApiData> for Battle {
             enemy_ship_id: Some(battle.api_ship_ke),
             e_params: Some(battle.api_e_param),
             e_slot: Some(battle.api_e_slot),
+            e_hp_max: Some(battle.api_e_maxhps),
             total_damages_friends: None,
             total_damages_enemies: None,
             reconnaissance: None,
@@ -549,6 +613,7 @@ impl From<kcapi::api_req_sortie::ld_airbattle::ApiData> for Battle {
             enemy_ship_id: Some(airbattle.api_ship_ke),
             e_params: Some(airbattle.api_e_param),
             e_slot: Some(airbattle.api_e_slot),
+            e_hp_max: Some(airbattle.api_e_maxhps),
             total_damages_friends: None,
             total_damages_enemies: None,
             reconnaissance: Some(airbattle.api_search),

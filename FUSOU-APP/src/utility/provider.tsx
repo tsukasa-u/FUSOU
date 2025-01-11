@@ -1,12 +1,11 @@
 import { createContext, useContext, JSX, createEffect, onCleanup } from "solid-js";
-import { createStore, Part, unwrap } from "solid-js/store";
-import { DeckPorts, Materials, Ships, global_deck_ports, global_materials, global_ships } from "../interface/port";
+import { createStore, Part } from "solid-js/store";
+import { DeckPorts, Materials, Ship, Ships, global_deck_ports, global_materials, global_ships } from "../interface/port";
 import { MstEquipExslotShips, MstEquipShips, MstShips, MstSlotItemEquipTypes, MstSlotitems, MstStypes, MstUseItems, global_mst_equip_exslot_ships, global_mst_equip_ships, global_mst_ships, global_mst_slot_items, global_mst_slotitem_equip_types, global_mst_stypes, global_mst_useitems } from "../interface/get_data";
 import { SlotItems, global_slotitems } from "../interface/require_info";
-import { Battle, Battles, global_battle, global_battles } from "../interface/battle";
+import { Battle } from "../interface/battle";
 import { Cell, Cells, global_cells } from "../interface/cells";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
-import { mergeObjects } from "./merge_object";
 import { AirBases, global_air_bases } from "../interface/map_info";
 
 const ShipsContext = createContext<(Ships | { set(data: Ships): void; })[]>();
@@ -24,24 +23,25 @@ export function ShipsProvider(props: { children: JSX.Element }) {
 
     createEffect(() => {
         let unlisten_data_set: UnlistenFn;
-        // let unlisten_data_add: UnlistenFn;
+        let unlisten_data_add: UnlistenFn;
         (async() => {
             unlisten_data_set = await listen<Ships>('set-kcs-ships', event => {
                 setData(event.payload);
             });
-            // won't be worked
-            // unlisten_data_add = await listen<Ships>('add-kcs-ships', event => {
-            //     console.log('add-kcs-ships', event.payload);
-            //     let target: Ships =  unwrap(data);
-            //     // mergeObjects<Ships>(data, target);
-            //     mergeObjects<Ships>(event.payload, target);
-            //     setData(target);
-            // });
+            unlisten_data_add = await listen<Ships>('add-kcs-ships', event => {
+                Object.entries(event.payload.ships).forEach(([key1, value1]) => {
+                    Object.entries(value1).forEach(([key2, value2]) => {
+                        if (value2 !== null) {
+                            setData("ships", Number(key1), key2 as Part<Ship, keyof Ship>,  value2);
+                        }
+                    });
+                });
+            });
         })();
         
         onCleanup(() => { 
             if (unlisten_data_set) unlisten_data_set();
-            // if (unlisten_data_add) unlisten_data_add();
+            if (unlisten_data_add) unlisten_data_add();
         });
     });
 
@@ -402,16 +402,24 @@ export function MaterialsProvider(props: { children: JSX.Element }) {
     ];
 
     createEffect(() => {
-        let unlisten_data: UnlistenFn;
+        let unlisten_data_set: UnlistenFn;
+        let unlisten_data_add: UnlistenFn;
         (async() => {
-            unlisten_data = await listen<Materials>('set-kcs-materials', event => {
+            unlisten_data_set = await listen<Materials>('set-kcs-materials', event => {
               setData(event.payload);
             });
-
+            unlisten_data_add = await listen<Materials>('add-kcs-materials', event => {
+                Object.entries(event.payload).forEach(([key, value]) => {
+                    if ( value !== null ) {
+                        setData(key as Part<Materials, keyof Materials>,  value);
+                    }
+                });
+            });
         })();
         
         onCleanup(() => { 
-            if (unlisten_data) unlisten_data();
+            if (unlisten_data_set) unlisten_data_set();
+            if (unlisten_data_add) unlisten_data_add();
         });
     });
 

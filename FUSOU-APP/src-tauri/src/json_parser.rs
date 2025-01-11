@@ -11,6 +11,10 @@ fn emit_data<R: tauri::Runtime>(handle: &impl tauri::Manager<R>, emit_data: Emit
     match emit_data {
         EmitData::Add(data) => {
             match data {
+                Add::Materials(data) => {
+                    // println!("Materials: {:?}", data.clone());
+                    let _ = handle.emit_to("main", "add-kcs-materials", data);
+                },
                 Add::Ships(data) => {
                     // println!("Ships: {:?}", data);
                     let _ = handle.emit_to("main", "add-kcs-ships", data);

@@ -23,8 +23,8 @@ pub struct Ship {
     pub ship_id:    Option<i64>,
     pub lv:         Option<i64>,      // レベル
     pub exp:        Option<Vec<i64>>,    
-    pub nowhp:      i64,      // 現在HP
-    pub maxhp:      i64,      // 最大HP
+    pub nowhp:      Option<i64>,      // 現在HP
+    pub maxhp:      Option<i64>,      // 最大HP
     pub soku:       Option<i64>,      // 速力
     pub leng:       Option<i64>,      // 射程
     pub slot:       Option<Vec<i64>>,    // 装備
@@ -93,8 +93,8 @@ impl From<kcapi::api_port::port::ApiShip> for Ship {
             ship_id:    Some(ship.api_ship_id),
             lv:         Some(ship.api_lv),
             exp:        Some(ship.api_exp),
-            nowhp:      ship.api_nowhp,
-            maxhp:      ship.api_maxhp,
+            nowhp:      Some(ship.api_nowhp),
+            maxhp:      Some(ship.api_maxhp),
             soku:       Some(ship.api_soku),
             leng:       Some(ship.api_leng),
             slot:       Some(ship.api_slot),
@@ -145,58 +145,101 @@ impl From<kcapi::api_port::port::ApiSpEffectItem> for SpEffectItem {
     }
 }
 
-impl From<kcapi::api_req_sortie::battle::ApiData> for Ships {
-    fn from(battle_data: kcapi::api_req_sortie::battle::ApiData) -> Self {
-        let mut ship_map = HashMap::<i64, Ship>::with_capacity(7);
+// impl From<kcapi::api_req_sortie::battle::ApiData> for Ships {
+//     fn from(battle_data: kcapi::api_req_sortie::battle::ApiData) -> Self {
+//         let mut ship_map = HashMap::<i64, Ship>::with_capacity(7);
 
-        let deck_id = battle_data.api_deck_id.clone();
+//         let deck_id = battle_data.api_deck_id.clone();
 
-        let deck_ports_wrap = KCS_DECKS.lock();
-        if deck_ports_wrap.is_err() {
-            return Ships {
-                ships: ship_map
-            };
-        }
+//         let deck_ports_wrap = KCS_DECKS.lock();
+//         if deck_ports_wrap.is_err() {
+//             return Ships {
+//                 ships: ship_map
+//             };
+//         }
 
-        let deck_ports = deck_ports_wrap.unwrap();
+//         let deck_ports = deck_ports_wrap.unwrap();
 
-        if let Some(deck) = (*deck_ports).deck_ports.get(&deck_id).clone() {
-            if let Some(ship_ids) = &deck.ship {
-                for (idx, id) in ship_ids.iter().enumerate() {
-                    if *id > 0 {
-                        ship_map.insert(
-                            id.clone(), 
-                            Ship {
-                                id:         id.clone(),
-                                ship_id:    None,
-                                lv:         None,
-                                exp:        None,
-                                nowhp:      battle_data.api_f_nowhps[idx],
-                                maxhp:      battle_data.api_f_maxhps[idx],
-                                soku:       None,
-                                leng:       None,
-                                slot:       None,
-                                onsolot:    None,
-                                slot_ex:    None,
-                                fuel:       None,
-                                bull:       None,
-                                slotnum:    None,
-                                cond:       None,
-                                karyoku:    None,
-                                raisou:     None,
-                                taiku:      None,
-                                soukou:     None,
-                                kaihi:      None,
-                                taisen:     None,
-                                sakuteki:   None,
-                                lucky:      None,
-                                sally_area: None,
-                                sp_effect_items: None,
-                            }
-                        );
-                    }
+//         if let Some(deck) = (*deck_ports).deck_ports.get(&deck_id).clone() {
+//             if let Some(ship_ids) = &deck.ship {
+//                 for (idx, id) in ship_ids.iter().enumerate() {
+//                     if *id > 0 {
+//                         ship_map.insert(
+//                             id.clone(), 
+//                             Ship {
+//                                 id:         id.clone(),
+//                                 ship_id:    None,
+//                                 lv:         None,
+//                                 exp:        None,
+//                                 nowhp:      battle_data.api_f_nowhps[idx],
+//                                 maxhp:      battle_data.api_f_maxhps[idx],
+//                                 soku:       None,
+//                                 leng:       None,
+//                                 slot:       None,
+//                                 onsolot:    None,
+//                                 slot_ex:    None,
+//                                 fuel:       None,
+//                                 bull:       None,
+//                                 slotnum:    None,
+//                                 cond:       None,
+//                                 karyoku:    None,
+//                                 raisou:     None,
+//                                 taiku:      None,
+//                                 soukou:     None,
+//                                 kaihi:      None,
+//                                 taisen:     None,
+//                                 sakuteki:   None,
+//                                 lucky:      None,
+//                                 sally_area: None,
+//                                 sp_effect_items: None,
+//                             }
+//                         );
+//                     }
+//                 }
+//             }
+//         }
+
+//         Ships {
+//             ships: ship_map
+//         }
+//     }
+// }
+
+impl From<kcapi::api_req_hokyu::charge::ApiData> for Ships {
+    fn from(charge_data: kcapi::api_req_hokyu::charge::ApiData) -> Self {
+        let mut ship_map = HashMap::<i64, Ship>::with_capacity(charge_data.api_ship.clone().len());
+
+        for ship in charge_data.api_ship {
+            ship_map.insert(
+                ship.api_id, 
+                Ship {
+                    id:         ship.api_id,
+                    ship_id:    None,
+                    lv:         None,
+                    exp:        None,
+                    nowhp:      None,
+                    maxhp:      None,
+                    soku:       None,
+                    leng:       None,
+                    slot:       None,
+                    onsolot:    Some(ship.api_onslot),
+                    slot_ex:    None,
+                    fuel:       Some(ship.api_fuel),
+                    bull:       Some(ship.api_bull),
+                    slotnum:    None,
+                    cond:       None,
+                    karyoku:    None,
+                    raisou:     None,
+                    taiku:      None,
+                    soukou:     None,
+                    kaihi:      None,
+                    taisen:     None,
+                    sakuteki:   None,
+                    lucky:      None,
+                    sally_area: None,
+                    sp_effect_items: None,
                 }
-            }
+            );
         }
 
         Ships {

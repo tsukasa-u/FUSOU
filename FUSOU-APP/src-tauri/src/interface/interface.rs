@@ -24,7 +24,7 @@ pub enum EmitData {
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum Add {
-    // Materials(Materials),
+    Materials(Materials),
     // DeckPorts(DeckPorts),
     // Mission,
     // NDocks(NDocks),
