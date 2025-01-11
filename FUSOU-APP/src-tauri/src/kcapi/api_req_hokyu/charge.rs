@@ -10,10 +10,11 @@ use register_trait::Getter;
 use register_trait::TraitForRoot;
 use register_trait::TraitForConvert;
 
-use crate::interface::interface::EmitData;
+use crate::interface::interface::{EmitData, Add};
+use crate::interface::ship::Ships;
+use crate::interface::material::Materials;
 
-#[derive(Getter, TraitForTest, TraitForRoot, TraitForConvert)]
-#[convert_output(output = EmitData)]
+#[derive(Getter, TraitForTest, TraitForRoot)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[register_struct(name = "api_req_hokyu/charge")]
@@ -56,6 +57,17 @@ pub struct ApiShip {
     pub api_bull: i64,
     #[serde(rename = "api_onslot")]
     pub api_onslot: Vec<i64>,
+}
+
+impl TraitForConvert for Root {
+    type Output = EmitData;
+    fn convert(&self) -> Option<Vec<EmitData>> {
+        let materials: Materials = Materials::from(self.api_data.clone());
+        let ships: Ships = Ships::from(self.api_data.clone());
+        Some(vec![
+            EmitData::Add(Add::Ships(ships)),
+            EmitData::Add(Add::Materials(materials))])
+    }
 }
 
 #[cfg(test)]

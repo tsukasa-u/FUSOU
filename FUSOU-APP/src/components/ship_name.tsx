@@ -103,12 +103,12 @@ export function ShipNameComponent({ship_id}: ShipNameProps) {
                 <div class="modal-box bg-base-100 modal-box-width">
                     <form method="dialog">
                         <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" onClick={() => {
-                        let sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-                        (async () => {
-                            await sleep(10);
-                            set_show_dialog(false);
-                        })();
-                    }}>
+                            let sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+                            (async () => {
+                                await sleep(10);
+                                set_show_dialog(false);
+                            })();
+                        }}>
                             <IconXMark class="h-6 w-6" />
                         </button>
                     </form>
@@ -136,8 +136,8 @@ export function ShipNameComponent({ship_id}: ShipNameProps) {
                                     }}
                                 </For>
                                 <tr class="flex table_active table_hover rounded rounded items-center">
-                                    <th class="flex-none w-2">SE</th>
-                                    <td class="flex-none w-12 pl-4 h-7">
+                                    <th class="flex-none w-4">SE</th>
+                                    <td class="flex-none w-12 pl-4 h-7 mt-1 w-full">
                                         <Show when={ship()?.slot_ex > 0}>
                                             <EquimentComponent slot_id={ship()?.slot_ex} ex_flag={true} name_flag={true}></EquimentComponent>
                                         </Show>

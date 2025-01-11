@@ -17,6 +17,13 @@ import IconChevronLeft from '../icons/chevron_left.tsx';
 import IconChevronDoubleLeft from '../icons/chevron_double_left.tsx';
 import IconChevronRight from '../icons/chevron_right.tsx';
 import IconChevronDoubleRight from '../icons/chevron_double_right.tsx';
+import IconPlaneProficiency7 from '../icons/plane_proficiency7.tsx';
+import IconPlaneProficiency6 from '../icons/plane_proficiency6.tsx';
+import IconPlaneProficiency5 from '../icons/plane_proficiency5.tsx';
+import IconPlaneProficiency4 from '../icons/plane_proficiency4.tsx';
+import IconPlaneProficiency3 from '../icons/plane_proficiency3.tsx';
+import IconPlaneProficiency2 from '../icons/plane_proficiency2.tsx';
+import IconPlaneProficiency1 from '../icons/plane_proficiency1.tsx';
 
 export function EquipmentListComponent() {
     
@@ -29,8 +36,8 @@ export function EquipmentListComponent() {
     
     // const speed_list = ["", "", "", "", "", "Slow", "", "", "", "", "Fast", "", "", "", "", "Fast+", "", "", "", "", "Fastest"];
     // const range_list = ["", "Short", "Medium", "Long", "Very Long"];
-    const equip_properties = ["Level", "Firepower", "Torpedo", "Anti-Air", "Bomb", "Armor", "Evasion", "Anti-Submarine", "Reconnaissance", "Proficiency"];
-    const equip_properties_abbreviation = ["Lv", "Fire", "Tor", "AA", "Bomb", "Arm", "Eva", "ASW", "Rec", "Prof"];
+    const equip_properties = ["Level", "Firepower", "Torpedo", "Anti-Air", "Bomb", "Armor", "Evasion", "Anti-Submarine", "Reconnaissance", "Proficiency", "Anti-Bomber", "Interception", "Distance"];
+    const equip_properties_abbreviation = ["Lv", "Fire", "Tor", "AA", "Bomb", "Arm", "Eva", "ASW", "Rec", "Prof", "AB", "Int", "Dis"];
 
     const [check_equip_types, set_check_equip_types] = createStore<{[key: string]: boolean}>({});
     createEffect(() => {
@@ -64,7 +71,7 @@ export function EquipmentListComponent() {
         }
     )());
 
-    const [set_order, set_set_order] = createSignal(false);
+    const [set_order, set_set_order] = createSignal(true);
     const [set_sort, set_set_sort] = createSignal("Default");
 
     const [set_categorize, set_set_categorize] = createSignal(false);
@@ -77,7 +84,7 @@ export function EquipmentListComponent() {
         return _a - _b;
     }
 
-    const sort_fn = (a: string, b: string) => {
+    const sort_fn = (a: string | number, b: string | number) => {
         let a_equip = slot_items.slot_items[Number(a)];
         let b_equip = slot_items.slot_items[Number(b)];
         if (a_equip == undefined || b_equip == undefined) return 0;
@@ -118,8 +125,12 @@ export function EquipmentListComponent() {
             let equip_type = mst_slot_items_equip_types.mst_slotitem_equip_types[mst_slot_items.mst_slot_items[slot_item.slotitem_id]._type[2]].name;
             categorized_equips_keys[equip_type].push(Number(equip_id));
         });
-        // console.log(slot_items.slot_items);
-        // console.log(categorized_equips_keys);
+        
+        Object.entries(mst_slot_items_equip_types.mst_slotitem_equip_types).forEach(([_, equip_types]) => {
+            categorized_equips_keys[equip_types.name] = categorized_equips_keys[equip_types.name].sort(sort_fn);
+            if (!set_order()) categorized_equips_keys[equip_types.name] = categorized_equips_keys[equip_types.name].reverse();
+        });
+
         return categorized_equips_keys;
     });
 
@@ -182,7 +193,7 @@ export function EquipmentListComponent() {
 
     const set_range_window = createMemo(() => {
         let set_range_element: {[key: string]: JSX.Element} = {};
-        let params = ["Level", "Firepower", "Torpedo", "Anti-Air", "Bomb", "Armor", "Evasion", "Anti-Submarine", "Reconnaissance", "Proficiency"];
+        let params = ["Level", "Firepower", "Torpedo", "Anti-Air", "Bomb", "Armor", "Evasion", "Anti-Submarine", "Reconnaissance", "Proficiency", "Anti-Bomber", "Interception", "Distance"];
         params.forEach((param) => {
             set_range_element[param] = (
                 <div class="dropdown dropdown-end">
@@ -244,6 +255,128 @@ export function EquipmentListComponent() {
         });
         return set_range_element;
     });
+    const proficiency_selector = (alv: number) => {
+        return (
+            <Switch fallback={<></>}>
+                <Match when={alv == 7}>
+                    <IconPlaneProficiency7 class="h-5" />
+                </Match>
+                <Match when={alv == 6}>
+                    <IconPlaneProficiency6 class="h-5" />
+                </Match>
+                <Match when={alv == 5}>
+                    <IconPlaneProficiency5 class="h-5" />
+                </Match>
+                <Match when={alv == 4}>
+                    <IconPlaneProficiency4 class="h-5" />
+                </Match>
+                <Match when={alv == 3}>
+                    <IconPlaneProficiency3 class="h-5" />
+                </Match>
+                <Match when={alv == 2}>
+                    <IconPlaneProficiency2 class="h-5" />
+                </Match>
+                <Match when={alv == 1}>
+                    <IconPlaneProficiency1 class="h-5" />
+                </Match>
+            </Switch>
+        );
+    }
+    
+    // const set_discrete_range_window_image = createMemo(() => {
+    //     let set_range_element: {[key: string]: JSX.Element} = {};
+    //     let params = ["Proficiency"];
+    //     let params_option = [
+    //         ["None", "1", "2", "3", "4", "5", "6", "7"]
+    //     ];
+    //     let param_image_converter = [
+    //         [ "None", "|", "||", "|||", "/", "//", "///", ">>"]
+    //     ]
+    //     let param_converter = [
+    //         [ "None", "|", "||", "|||", "/", "//", "///", ">>"]
+    //     ]
+    //     params.forEach((param, param_index) => {
+    //         set_range_element[param] = (
+    //             <div class="dropdown dropdown-end">
+    //                 <div class="indicator">
+    //                     <Show when={(
+    //                         () => {
+    //                             let ret = false;
+    //                             if (range_props[param].range) {
+    //                                 if (Number.isInteger(range_props[param].min) && range_props[param].min != 0) ret = true;
+    //                                 if (Number.isInteger(range_props[param].max) && range_props[param].max != 0) ret = true;
+    //                             } else {
+    //                                 if (Number.isInteger(range_props[param].eq)) ret = true;
+    //                             }
+    //                             return ret;
+    //                         }
+    //                     )()}>
+    //                         <span class="indicator-item badge badge-secondary badge-xs -mx-2">filtered</span>
+    //                     </Show>
+    //                     <div tabindex="0" role="button" class="btn btn-xs btn-ghost -mx-2">{param}</div>
+    //                 </div>
+    //                 <div tabindex="0" class="dropdown-content z-[2] card card-compact bg-base-100 z-[1] w-80 shadow rounded-md">
+    //                     <div class="card-body">
+    //                         <div class="form-control">
+    //                             <label class="label cursor-pointer relative">
+    //                                 <input type="radio" name="radio-Level" class="radio radio-sm" checked={range_props[param].range} onClick={() => set_range_props(param, "range", true)} />
+    //                                 <span class="label-text text-sm">
+    //                                     <select class="select select-bordered select-sm w-24 mx-2" onChange={(e) => set_range_props(param, "min", param_converter[param_index].findIndex((param_select) => param_select == e.target.value))}>
+    //                                         <For each={params_option[param_index]}>
+    //                                             {(param_select, selected_index) => 
+    //                                                 <>
+    //                                                     <option>
+    //                                                         {param_image_converter[param_index][selected_index()]}
+    //                                                     </option>
+    //                                                 </>
+    //                                             }
+    //                                         </For>
+    //                                     </select>
+    //                                     &#8804; {range_props[param].abbreviation} &#8804;
+    //                                     <select class="select select-bordered select-sm w-24 mx-2" onChange={(e) => set_range_props(param, "max", param_converter[param_index].findIndex((param_select) => param_select == e.target.value))}>
+    //                                         <For each={params_option[param_index]}>
+    //                                             {(param_select, selected_index) => 
+    //                                                 <>
+    //                                                     <option>
+    //                                                         {param_image_converter[param_index][selected_index()]}
+    //                                                     </option>
+    //                                                 </>
+    //                                             }
+    //                                         </For>
+    //                                     </select>
+    //                                 </span>
+    //                             </label>
+    //                         </div>
+    //                         <div class="divider my-0.5">OR</div>
+    //                         <div class="form-control">
+    //                             <label class="label cursor-pointer relative">
+    //                                 <input type="radio" name="radio-Level" class="radio radio-sm" checked={!range_props[param].range} onClick={() => set_range_props(param, "range", false)} />
+    //                                 <span class="label-text text-sm">
+    //                                     {range_props[param].abbreviation} = 
+    //                                     <select class="select select-bordered select-sm w-52" onChange={(e) => {
+    //                                         // set_range_props(param, "eq", param_converter[param_index].findIndex((param_select) => param_select == e.target.value));
+    //                                         console.log(e.target.value);
+    //                                         }}>
+    //                                         <For each={params_option[param_index]}>
+    //                                             {(param_select, selected_index) => 
+    //                                                 <>
+    //                                                     <option>
+    //                                                         {param_image_converter[param_index][selected_index()]}
+    //                                                     </option>
+    //                                                 </>
+    //                                             }
+    //                                         </For>
+    //                                     </select>
+    //                                 </span>
+    //                             </label>
+    //                         </div>
+    //                     </div>
+    //                 </div>
+    //             </div>
+    //         );
+    //     });
+    //     return set_range_element;
+    // });
 
     const default_disply_pages = 5;
 
@@ -304,7 +437,7 @@ export function EquipmentListComponent() {
                                     </td>
                                     <Show when={check_equip_property["Equip Type"]}>
                                         {/* which index is ture? */}
-                                        <td class="w-[88px]">{mst_slot_items_equip_types.mst_slotitem_equip_types[mst_slot_items.mst_slot_items[slot_items.slot_items[Number(equip_id)].slotitem_id]._type[2]].name}</td>
+                                        <td class="w-[96px]">{mst_slot_items_equip_types.mst_slotitem_equip_types[mst_slot_items.mst_slot_items[slot_items.slot_items[Number(equip_id)].slotitem_id]._type[2]].name}</td>
                                     </Show>
                                     <Show when={check_equip_property["Level"]}>
                                         <td class="w-12">
@@ -371,18 +504,42 @@ export function EquipmentListComponent() {
                                         </td>
                                     </Show>
                                     <Show when={check_equip_property["Proficiency"]}>
-                                        <td class="w-12">
+                                        <td class="w-20">
                                             <div class="w-6 flex justify-self-center">
                                                 <span class="flex-1"></span>
-                                                {slot_items.slot_items[Number(equip_id)].alv ?? 0}
+                                                {proficiency_selector(slot_items.slot_items[Number(equip_id)].alv ?? 0)}
                                             </div>
                                         </td>
                                     </Show>
                                     <Show when={check_equip_property["Bomb"]}>
-                                        <td class="w-16">
+                                        <td class="w-12">
                                             <div class="w-6 flex justify-self-center">
                                                 <span class="flex-1"></span>
                                                 {mst_slot_items.mst_slot_items[slot_items.slot_items[Number(equip_id)].slotitem_id].baku}
+                                            </div>
+                                        </td>
+                                    </Show>
+                                    <Show when={check_equip_property["Anti-Bomber"]}>
+                                        <td class="w-20">
+                                            <div class="w-6 flex justify-self-center">
+                                                <span class="flex-1"></span>
+                                                {mst_slot_items.mst_slot_items[slot_items.slot_items[Number(equip_id)].slotitem_id].taibaku}
+                                            </div>
+                                        </td>
+                                    </Show>
+                                    <Show when={check_equip_property["Interception"]}>
+                                        <td class="w-20">
+                                            <div class="w-6 flex justify-self-center">
+                                                <span class="flex-1"></span>
+                                                {mst_slot_items.mst_slot_items[slot_items.slot_items[Number(equip_id)].slotitem_id].geigeki}
+                                            </div>
+                                        </td>
+                                    </Show>
+                                    <Show when={check_equip_property["Distance"]}>
+                                        <td class="w-12">
+                                            <div class="w-6 flex justify-self-center">
+                                                <span class="flex-1"></span>
+                                                {mst_slot_items.mst_slot_items[slot_items.slot_items[Number(equip_id)].slotitem_id].distance ?? 0}
                                             </div>
                                         </td>
                                     </Show>
@@ -488,7 +645,7 @@ export function EquipmentListComponent() {
                                     </Show>
                                 )}
                             </For>
-                            <For each={[...Array(Math.floor(default_disply_pages/2))].map((_, i) => -i - 1)}>
+                            <For each={[...Array(Math.floor(default_disply_pages/2))].map((_, i) => i - Math.floor(default_disply_pages/2))}>
                                 {(index) => (
                                     <Show when={pagination.options[pagination.selected].current_page + index <= 0 && pagination.options[pagination.selected].current_page + index + default_disply_pages <= pagination.options[pagination.selected].pages}>
                                         <button class="btn btn-sm btn-square btn-ghost mx-0.5 pagination" onClick={(e) => set_pagination("options", pagination.selected, "current_page", pagination.options[pagination.selected].current_page + index + default_disply_pages)}>{pagination.options[pagination.selected].current_page + index + default_disply_pages}</button>
@@ -591,7 +748,7 @@ export function EquipmentListComponent() {
                                 </div>
                             </th>
                             <Show when={check_equip_property["Equip Type"]}>
-                                <th class="w-[88px]">
+                                <th class="w-[96px]">
                                     <div class="dropdown">
                                         <div class="indicator">
                                             <Show when={Object.values(check_equip_types).findIndex((value) => !value) != -1}>
@@ -672,15 +829,34 @@ export function EquipmentListComponent() {
                                 </th>
                             </Show>
                             <Show when={check_equip_property["Proficiency"]}>
-                                <th class="w-12 flex">
+                                <th class="w-20 flex">
                                     <span class="flex-1"></span>
+                                    {/* {set_discrete_range_window_image()["Proficiency"]} */}
                                     {set_range_window()["Proficiency"]}
                                 </th>
                             </Show>
                             <Show when={check_equip_property["Bomb"]}>
-                                <th class="w-16 flex">
+                                <th class="w-12 flex">
                                     <span class="flex-1"></span>
                                     {set_range_window()["Bomb"]}
+                                </th>
+                            </Show>
+                            <Show when={check_equip_property["Anti-Bomber"]}>
+                                <th class="w-20 flex">
+                                    <span class="flex-1"></span>
+                                    {set_range_window()["Anti-Bomber"]}
+                                </th>
+                            </Show>
+                            <Show when={check_equip_property["Interception"]}>
+                                <th class="w-20 flex">
+                                    <span class="flex-1"></span>
+                                    {set_range_window()["Interception"]}
+                                </th>
+                            </Show>
+                            <Show when={check_equip_property["Distance"]}>
+                                <th class="w-12 flex">
+                                    <span class="flex-1"></span>
+                                    {set_range_window()["Distance"]}
                                 </th>
                             </Show>
                         </tr>
