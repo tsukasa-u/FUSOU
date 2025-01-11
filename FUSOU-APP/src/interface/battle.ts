@@ -10,6 +10,7 @@ export interface Battle {
     enemy_ship_id: number[],
     e_params: number[][] | null,
     e_slot: number[][] | null,
+    e_hp_max: number[] | null,
     total_damages_friends: number[] | null,
     total_damages_enemies: number[] | null,
     reconnaissance: number[] | null,
@@ -51,7 +52,8 @@ export interface MidnightHougeki {
     cl_list: number[][],
     damage: number[][],
     at_eflag: number[],
-    si_list: (number | string | null)[][],
+    si_list: (number | null)[][],
+    sp_list: number[],
 }
 
 export interface AirBaseAirAttacks {
@@ -144,6 +146,7 @@ export var global_battle: Battle = {
     enemy_ship_id: [],
     e_params: [],
     e_slot: [],
+    e_hp_max: [],
     total_damages_friends: [],
     total_damages_enemies: [],
     reconnaissance: [],
@@ -229,5 +232,6 @@ export var global_battle: Battle = {
         damage: [[]],
         at_eflag: [],
         si_list: [[]],
+        sp_list: [],
     },
 };

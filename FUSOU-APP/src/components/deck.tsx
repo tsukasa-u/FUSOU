@@ -12,7 +12,7 @@ import { EquimentComponent } from './equipment.tsx';
 import { ShipNameComponent } from './ship_name.tsx';
 import { useDeckPorts, useMstShips, useShips } from '../utility/provider.tsx';
 import { createMemo, createSignal, For, JSX, Show } from "solid-js";
-// import { global_mst_ships_context_id, global_ship_context_id } from '../app.tsx';
+// import { globalmst_ships_context_id, global_ship_context_id } from '../app.tsx';
 
 import "../css/divider.css";
 
@@ -31,8 +31,8 @@ interface DeckPortProps {
  
 export function DeckComponent({deck_id, fleet_name}: DeckPortProps) {
 
-    const [_mst_ships, ] = useMstShips();
-    const [_ships, ] = useShips();
+    const [mst_ships, ] = useMstShips();
+    const [ships, ] = useShips();
     const [_deck_ports, ] = useDeckPorts();
 
     const cond_state = createMemo<JSX.Element[]>(() => {
@@ -61,7 +61,7 @@ export function DeckComponent({deck_id, fleet_name}: DeckPortProps) {
 
         let states: JSX.Element[] = [];
         _deck_ports.deck_ports[deck_id].ship?.forEach((shipId) => {
-            states.push(set_cond_state(_ships.ships[shipId]?.cond ?? 0));
+            states.push(set_cond_state(ships.ships[shipId]?.cond ?? 0));
         });
         return states;
     });
@@ -86,7 +86,7 @@ export function DeckComponent({deck_id, fleet_name}: DeckPortProps) {
 
         let states: JSX.Element[] = [];
         _deck_ports.deck_ports[deck_id].ship?.forEach((shipId) => {
-            states.push(set_hp_state(_ships.ships[shipId]?.nowhp ?? 0, _ships.ships[shipId]?.maxhp ?? 0));
+            states.push(set_hp_state(ships.ships[shipId]?.nowhp ?? 0, ships.ships[shipId]?.maxhp ?? 0));
         });
 
         return states;
@@ -111,7 +111,7 @@ export function DeckComponent({deck_id, fleet_name}: DeckPortProps) {
 
         let states: JSX.Element[] = [];
         _deck_ports.deck_ports[deck_id].ship?.forEach((shipId) => {
-            states.push(set_fuel_bullet_state(_ships.ships[shipId]?.bull ?? 0, _mst_ships.mst_ships[_ships.ships[shipId]?.ship_id ?? 0]?.bull_max ?? 0, _ships.ships[shipId]?.fuel ?? 0, _mst_ships.mst_ships[_ships.ships[shipId]?.ship_id ?? 0]?.fuel_max ?? 0));
+            states.push(set_fuel_bullet_state(ships.ships[shipId]?.bull ?? 0, mst_ships.mst_ships[ships.ships[shipId]?.ship_id ?? 0]?.bull_max ?? 0, ships.ships[shipId]?.fuel ?? 0, mst_ships.mst_ships[ships.ships[shipId]?.ship_id ?? 0]?.fuel_max ?? 0));
         });
 
         return states;
@@ -164,7 +164,7 @@ export function DeckComponent({deck_id, fleet_name}: DeckPortProps) {
                                                             { cond_state()[idx()]}
                                                         </div>
                                                         <div class="badge badge-md border-inherit w-9">
-                                                            { _ships.ships[shipId]?.cond ?? 0 }
+                                                            { ships.ships[shipId]?.cond ?? 0 }
                                                         </div>
                                                     </div>
                                                 </div>
@@ -176,13 +176,13 @@ export function DeckComponent({deck_id, fleet_name}: DeckPortProps) {
                                                     <div class=" flex-none">
                                                         <div class="grid h-2.5 w-12 place-content-center">
                                                             <div class="grid grid-flow-col auto-cols-max gap-1">
-                                                                <div>{ _ships.ships[shipId]?.nowhp ?? 0 }</div>
+                                                                <div>{ ships.ships[shipId]?.nowhp ?? 0 }</div>
                                                                 <div>/</div>
-                                                                <div>{ _ships.ships[shipId]?.maxhp ?? 0 }</div>
+                                                                <div>{ ships.ships[shipId]?.maxhp ?? 0 }</div>
                                                             </div>
                                                         </div>
                                                         <div class="grid h-2.5 w-12 place-content-center">
-                                                            <HpColorBarComponent class="w-12 h-1" v_now={_ships.ships[shipId]?.nowhp ?? 0} v_max={_ships.ships[shipId]?.maxhp ?? 0} />
+                                                            <HpColorBarComponent class="w-12 h-1" v_now={() => (ships.ships[shipId]?.nowhp ?? 0)} v_max={() => (ships.ships[shipId]?.maxhp ?? 0)} />
                                                         </div>
                                                     </div>
                                                 </div>
@@ -193,10 +193,10 @@ export function DeckComponent({deck_id, fleet_name}: DeckPortProps) {
                                                             { fuel_bullet_state()[idx()] }
                                                         </div>
                                                         <div class="grid h-2.5 w-6 place-content-center">
-                                                            <FuelBulletColorBarComponent class="w-6 h-1" v_now={_ships.ships[shipId]?.fuel ?? 0} v_max={_mst_ships.mst_ships[_ships.ships[shipId]?.ship_id ?? 0]?.fuel_max ?? 0} />
+                                                            <FuelBulletColorBarComponent class="w-6 h-1" v_now={() => (ships.ships[shipId]?.fuel ?? 0)} v_max={() => (mst_ships.mst_ships[ships.ships[shipId]?.ship_id ?? 0]?.fuel_max ?? 0)} />
                                                         </div>
                                                         <div class="grid h-2.5 w-6 place-content-center">
-                                                            <FuelBulletColorBarComponent class="w-6 h-1" v_now={_ships.ships[shipId]?.bull ?? 0} v_max={_mst_ships.mst_ships[_ships.ships[shipId]?.ship_id ?? 0]?.bull_max ?? 0} />
+                                                            <FuelBulletColorBarComponent class="w-6 h-1" v_now={() => (ships.ships[shipId]?.bull ?? 0)} v_max={() => (mst_ships.mst_ships[ships.ships[shipId]?.ship_id ?? 0]?.bull_max ?? 0)} />
                                                         </div>
                                                     </div>
                                                 </div>
@@ -205,10 +205,10 @@ export function DeckComponent({deck_id, fleet_name}: DeckPortProps) {
                                             <Show when={moreSignal()}>
                                                 <div class="flex">
                                                     <div class="grid grid-cols-5 gap-2 content-center w-52">
-                                                        { _ships.ships[shipId]?.slot?.map((slotId, slotId_index) => (
+                                                        { ships.ships[shipId]?.slot?.map((slotId, slotId_index) => (
                                                             <Show when={slotId > 0}>
                                                                 <div class="text-base flex justify-center">
-                                                                    <EquimentComponent slot_id={slotId} ex_flag={false} name_flag={false} onslot={_ships.ships[shipId]?.onsolot[slotId_index]}/>
+                                                                    <EquimentComponent slot_id={slotId} ex_flag={false} name_flag={false} onslot={ships.ships[shipId]?.onsolot[slotId_index]}/>
                                                                 </div>
                                                             </Show>
                                                         )) }
@@ -218,8 +218,8 @@ export function DeckComponent({deck_id, fleet_name}: DeckPortProps) {
                                                     <span class="w-2"></span>
                                                     <div class="content-center">
                                                         <div class="text-base flex justify-center w-8">
-                                                            <Show when={_ships.ships[shipId]?.slot_ex > 0}>
-                                                                <EquimentComponent slot_id={_ships.ships[shipId]?.slot_ex} ex_flag={true} name_flag={false} />
+                                                            <Show when={ships.ships[shipId]?.slot_ex > 0}>
+                                                                <EquimentComponent slot_id={ships.ships[shipId]?.slot_ex} ex_flag={true} name_flag={false} />
                                                             </Show>
                                                         </div>
                                                     </div>
