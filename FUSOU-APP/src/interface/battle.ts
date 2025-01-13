@@ -26,7 +26,7 @@ export interface Battle {
     opening_taisen: OpeningTaisen,
     opening_raigeki: OpeningRaigeki,
     hougeki: Hougeki[],
-    closing_raigeki: EndingRaigeki,
+    closing_raigeki: ClosingRaigeki,
     // friendly_fleet_attack: Option<FriendlyFleetAttack>,
     midnight_flare_pos: number[] | null,
     midngiht_touchplane: number[] | null,
@@ -43,6 +43,7 @@ export interface SupportHourai {
     damage: number[],
     deck_id: number,
     ship_id: number[],
+    protect_flag: boolean[],
 }
 
 
@@ -54,6 +55,7 @@ export interface MidnightHougeki {
     at_eflag: number[],
     si_list: (number | null)[][],
     sp_list: number[],
+    protect_flag: boolean[][],
 }
 
 export interface AirBaseAirAttacks {
@@ -90,6 +92,7 @@ export interface AirDamage {
     sp: (number[] | null)[] | null,
     rai_flag: (number | null)[] | null,
     bak_flag: (number | null)[] | null,
+    protect_flag: boolean[] | null,
 }
 
 export interface OpeningTaisen {
@@ -99,18 +102,23 @@ export interface OpeningTaisen {
     cl_list: number[][],
     damage: number[][],
     at_eflag: number[],
-    si_list: (number | string | null)[][],
+    si_list: (number | null)[][],
+    protect_flag: boolean[][],
 }
 
 export interface OpeningRaigeki {
     fdam: number[],
     edam: number[],
-    fydam_list_items: number[][],
-    eydam_list_items: number[][],
+    // fydam_list_items: number[][],
+    // eydam_list_items: number[][],
     frai_list_items: number[][],
     erai_list_items: number[][],
-    fcl_list_items: number[][],
-    ecl_list_items: number[][],
+    // fcl_list_items: number[][],
+    // ecl_list_items: number[][],
+    fcl_list: number[],
+    ecl_list: number[],
+    f_protect_flag: boolean[],
+    e_protect_flag: boolean[],
 }
 
 export interface Hougeki {
@@ -121,17 +129,20 @@ export interface Hougeki {
     damage: number[][],
     at_eflag: number[],
     si_list: (number | null)[][],
+    protect_flag: boolean[][],
 }
 
-export interface EndingRaigeki {
+export interface ClosingRaigeki {
     fdam: number[],
     edam: number[],
-    fydam: number[],
-    eydam: number[],
+    // fydam: number[],
+    // eydam: number[],
     frai: number[],
     erai: number[],
     fcl: number[],
     ecl: number[],
+    f_protect_flag: boolean[],
+    e_protect_flag: boolean[],
 }
 
 export var global_battles: Battles = {
@@ -172,6 +183,7 @@ export var global_battle: Battle = {
             sp: [],
             rai_flag: [],
             bak_flag: [],
+            protect_flag: [],
         },
         e_damage: {
             plane_from: [],
@@ -183,6 +195,7 @@ export var global_battle: Battle = {
             sp: [],
             rai_flag: [],
             bak_flag: [],
+            protect_flag: [],
         },
     },
     support_attack: {
@@ -191,6 +204,7 @@ export var global_battle: Battle = {
             damage: [],
             deck_id: 0,
             ship_id: [],
+            protect_flag: [],
         },
     },
     opening_taisen: {
@@ -201,27 +215,34 @@ export var global_battle: Battle = {
         damage: [],
         at_eflag: [],
         si_list: [],
+        protect_flag: [],
     },
     opening_raigeki: {
         fdam: [],
         edam: [],
-        fydam_list_items: [[]],
-        eydam_list_items: [[]],
+        // fydam_list_items: [[]],
+        // eydam_list_items: [[]],
         frai_list_items: [[]],
         erai_list_items: [[]],
-        fcl_list_items: [[]],
-        ecl_list_items: [[]],
+        // fcl_list_items: [[]],
+        // ecl_list_items: [[]],
+        fcl_list: [],
+        ecl_list: [],
+        f_protect_flag: [],
+        e_protect_flag: [],
     },
     hougeki: [],
     closing_raigeki: {
         fdam: [],
         edam: [],
-        fydam: [],
-        eydam: [],
+        // fydam: [],
+        // eydam: [],
         frai: [],
         erai: [],
         fcl: [],
         ecl: [],
+        f_protect_flag: [],
+        e_protect_flag: [],
     },
     midngiht_touchplane: [],
     midnight_flare_pos: [],
@@ -233,5 +254,6 @@ export var global_battle: Battle = {
         at_eflag: [],
         si_list: [[]],
         sp_list: [],
+        protect_flag: [[]],
     },
 };
