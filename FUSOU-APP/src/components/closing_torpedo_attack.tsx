@@ -51,21 +51,14 @@ export function ClosingTorpedoAttackComponent({deck_ship_id, battle_selected}: T
 
         battle_selected().closing_raigeki.frai.forEach((frai, i) => {
             if (frai != -1) {
-                // if (torpedo_damage.hasOwnProperty(frai)) {
                 if (torpedo_damage.frai.list.includes(frai)) {
-                    torpedo_damage.frai.dict[frai].dmg += battle_selected().closing_raigeki.fydam[i];
                     torpedo_damage.frai.dict[frai].ships.push(i);
-                    // How to detect critical?
-                    if (battle_selected().closing_raigeki.fcl[i] > torpedo_damage.frai.dict[frai].cl) {
-                        torpedo_damage.frai.dict[frai].cl = battle_selected().closing_raigeki.fcl[i];
-                    }
                 } else {
                     torpedo_damage.frai.list.push(frai);
                     torpedo_damage.frai.dict[frai] = {
-                        dmg: battle_selected().closing_raigeki.fydam[i],
+                        dmg: battle_selected().closing_raigeki.edam[i],
                         ships: [i],
-                        // How to detect critical?
-                        cl : battle_selected().closing_raigeki.fcl[i],
+                        cl : battle_selected().closing_raigeki.ecl[i],
                     };
                 }
             }
@@ -73,19 +66,13 @@ export function ClosingTorpedoAttackComponent({deck_ship_id, battle_selected}: T
         battle_selected().closing_raigeki.erai.forEach((erai, i) => {
             if (erai != -1) {
                 if (torpedo_damage.erai.list.includes(erai)) {
-                    torpedo_damage.erai.dict[erai].dmg += battle_selected().closing_raigeki.eydam[i];
                     torpedo_damage.erai.dict[erai].ships.push(i);
-                    // How to detect critical?
-                    if (battle_selected().closing_raigeki.ecl[i] > torpedo_damage.erai.dict[erai].cl) {
-                        torpedo_damage.erai.dict[erai].cl = battle_selected().closing_raigeki.ecl[i];
-                    }
                 } else {
                     torpedo_damage.erai.list.push(erai);
                     torpedo_damage.erai.dict[erai] = {
-                        dmg: battle_selected().closing_raigeki.eydam[i],
+                        dmg: battle_selected().closing_raigeki.fdam[i],
                         ships: [i],
-                        // How to detect critical?
-                        cl: battle_selected().closing_raigeki.ecl[i], 
+                        cl: battle_selected().closing_raigeki.fcl[i], 
                     };
                 }
             }
@@ -135,7 +122,7 @@ export function ClosingTorpedoAttackComponent({deck_ship_id, battle_selected}: T
                                                 <div class={
                                                     (() => {
                                                         let cl_flag = torpedo_damage().frai.dict[frai].cl;
-                                                        if (cl_flag==0) {
+                                                        if (cl_flag==0 || torpedo_damage().frai.dict[frai].dmg == 0) {
                                                             return "text-red-500";
                                                         } else if (cl_flag==2) {
                                                             return "text-yellow-500";
@@ -165,7 +152,7 @@ export function ClosingTorpedoAttackComponent({deck_ship_id, battle_selected}: T
                                                 <div class={
                                                     (() => {
                                                         let cl_flag = torpedo_damage().erai.dict[erai].cl;
-                                                        if (cl_flag==0) {
+                                                        if (cl_flag==0 || torpedo_damage().erai.dict[erai].dmg == 0) {
                                                             return "text-red-500";
                                                         } else if (cl_flag==2) {
                                                             return "text-yellow-500";
