@@ -58,7 +58,7 @@ export function MidnightShellingComponent({deck_ship_id, battle_selected}: AntiS
                                         <tr>
                                             <td>
                                                 <Show when={battle_selected().midnight_hougeki?.at_eflag[at_index()]==0} fallback={
-                                                    <EnemyNameComponent ship_id={battle_selected().enemy_ship_id[at]} ship_param={battle_selected().e_params![at]} ship_slot={battle_selected().e_slot![at]} ship_max_hp={battle_selected().e_hp_max![at]} diplay={false}></EnemyNameComponent>
+                                                    <EnemyNameComponent ship_id={battle_selected().enemy_ship_id[at]} ship_param={battle_selected().e_params![at]} ship_slot={battle_selected().e_slot![at]} ship_max_hp={battle_selected().e_hp_max![at]} display={false}></EnemyNameComponent>
                                                 }>
                                                     <ShipNameComponent ship_id={deck_ship_id[battle_selected().deck_id!][at]}></ShipNameComponent>
                                                 </Show>
@@ -68,7 +68,7 @@ export function MidnightShellingComponent({deck_ship_id, battle_selected}: AntiS
                                                     <For each={battle_selected().midnight_hougeki?.df_list[at_index()]}>
                                                         {(df, _) => (
                                                             <Show when={battle_selected().midnight_hougeki?.at_eflag[at_index()]==1 && df != -1} fallback={
-                                                                <EnemyNameComponent ship_id={battle_selected().enemy_ship_id[df]} ship_param={battle_selected().e_params![df]} ship_slot={battle_selected().e_slot![df]} ship_max_hp={battle_selected().e_hp_max![df]} diplay={false}></EnemyNameComponent>
+                                                                <EnemyNameComponent ship_id={battle_selected().enemy_ship_id[df]} ship_param={battle_selected().e_params![df]} ship_slot={battle_selected().e_slot![df]} ship_max_hp={battle_selected().e_hp_max![df]} display={false}></EnemyNameComponent>
                                                             }>
                                                                 <ShipNameComponent ship_id={deck_ship_id[battle_selected().deck_id!][df]}></ShipNameComponent>
                                                             </Show>
