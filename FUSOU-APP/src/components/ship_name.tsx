@@ -13,6 +13,7 @@ import "./../css/modal_active.css";
 
 interface ShipNameProps {
     ship_id: number;
+    compact?: boolean;
 }
 
 interface SpEffectItem {
@@ -27,7 +28,7 @@ const show_modal = (ship_id: number) => {
     dialogElement?.showModal()
 }
 
-export function ShipNameComponent({ship_id}: ShipNameProps) {
+export function ShipNameComponent({ship_id, compact}: ShipNameProps) {
 
     const [_mst_ships, ] = useMstShips();
     const [_ships, ] = useShips();
@@ -94,9 +95,10 @@ export function ShipNameComponent({ship_id}: ShipNameProps) {
             <div>
                 <IconShip class="h-5 -mt-0.5 pr-2" ship_stype={mst_ship().stype} />
             </div>
-            <div class="truncate">
+            {(compact ?? false) ? <></>: <div class="truncate">
                 {mst_ship()?.name ?? "Unknown"}
-            </div>
+            </div>}
+            
         </div>
         <Show when={show_dialog()}>
             <dialog id={"deck_ship_name_modal_"+ship_id} class="modal">
@@ -128,7 +130,7 @@ export function ShipNameComponent({ship_id}: ShipNameProps) {
                                                 <th class="flex-none w-4">S{index()+1}</th>
                                                 <td class="flex-none w-12 pl-4 h-7 mt-1 w-full">
                                                     <Show when={slot_ele > 0}>
-                                                        <EquimentComponent slot_id={slot_ele} ex_flag={false} name_flag={true}></EquimentComponent>
+                                                        <EquimentComponent slot_id={slot_ele} ex_flag={false} name_flag={true} onslot={mst_ship().slot_num}></EquimentComponent>
                                                     </Show>
                                                 </td>
                                             </tr>
