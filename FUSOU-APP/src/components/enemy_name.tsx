@@ -12,7 +12,7 @@ interface ShipNameProps {
     ship_param: number[] | null;
     ship_slot: number[] | null;
     ship_max_hp: number;
-    diplay: boolean | null;
+    display?: boolean | null;
 }
    
 const show_modal = (ship_id: number) => {
@@ -20,7 +20,7 @@ const show_modal = (ship_id: number) => {
     dialogElement?.showModal()
 }
 
-export function EnemyNameComponent({ship_id, ship_param, ship_slot, ship_max_hp}: ShipNameProps) {
+export function EnemyNameComponent({ship_id, ship_param, ship_slot, ship_max_hp, display}: ShipNameProps) {
 
     const [_mst_ships, ] = useMstShips();
 
