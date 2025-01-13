@@ -76,8 +76,8 @@ export interface AirAttack {
 }
 
 export interface AirFire {
-    use_items: number[],
-    ship_id: number,
+    use_item: number[],
+    idx: number,
 }
 
 export interface AirDamage {
@@ -159,8 +159,8 @@ export var global_battle: Battle = {
     opening_air_attack: {
         air_superiority: 0,
         air_fire: {
-            use_items: [],
-            ship_id: -1,
+            use_item: [],
+            idx: -1,
         },
         f_damage: {
             plane_from: [],
