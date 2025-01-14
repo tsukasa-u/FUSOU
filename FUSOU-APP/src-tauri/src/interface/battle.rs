@@ -744,7 +744,7 @@ fn calc_si_list(si_list: &Vec<Option<DuoType<i64, String>>>) -> Vec<Option<i64>>
 }
 
 fn calc_protect_flag(damages: &Vec<f32>) -> Vec<bool> {
-    damages.iter().map(|dmg| (*dmg).floor() > *dmg).collect()
+    damages.iter().map(|dmg| (*dmg).floor() < *dmg).collect()
 }
 
 fn calc_max_critical(cl_list: &Vec<i64>) -> i64 {
