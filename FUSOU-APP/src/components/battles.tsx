@@ -47,12 +47,17 @@ export function BattlesComponent() {
     const show_battle = createMemo<boolean>(() => {
         if (Object.keys(cells.battles).length == 0) return false;
         if (Object.keys(cells.battles).find((cell) => Number(cell) == cells.cell_index[cell_index_selected()]) == undefined) return false;
-        console.log(cells.battles[cells.cell_index[cell_index_selected()]]);
+        // console.log(cells.battles[cells.cell_index[cell_index_selected()]]);
         return true;
     });
 
     const show_cell = createMemo<boolean>(() => {
         return cells.cell_index.length > 0;
+    });
+    
+    createEffect(() => {
+        console.log("battle_selected", battle_selected());
+        console.log("midnight_hougeki", battle_selected()?.midnight_hougeki);
     });
 
     return (
@@ -88,26 +93,28 @@ export function BattlesComponent() {
                             <Show when={show_battle()}>
                                 <div class="flex felx-nowrap text-xs py-0.5 tooltip tooltip-right" data-tip={battle_selected().reconnaissance}>
                                     Search : <span class="w-1"></span>
-                                    <Switch fallback={<div>_</div>}>
-                                        <Match when={battle_selected().reconnaissance![0] == 1}>
-                                            <div class="text-lime-500">Enemy in sight; Accuracy & Evacuation Up</div>
-                                        </Match>
-                                        <Match when={battle_selected().reconnaissance![0] == 2}>
-                                            <div class="text-lime-500">Enemy in sight; Accuracy & Evacuation Up</div>
-                                        </Match>
-                                        <Match when={battle_selected().reconnaissance![0] == 3}>
-                                            <div class="text-red-500">No Enemy in Sight; Some reconnaissance planes not returned; Anti-Air & Evacuation Down</div>
-                                        </Match>
-                                        <Match when={battle_selected().reconnaissance![0] == 4}>
-                                            <div class="text-red-500">No Enemy in Sight; Anti-Air & Evacuation Down</div>
-                                        </Match>
-                                        <Match when={battle_selected().reconnaissance![0] == 5}>
-                                            <div class="text-lime-500">Find Enemy; Accuracy & Evacuation Up</div>
-                                        </Match>
-                                        <Match when={battle_selected().reconnaissance![0] == 6}>
-                                            <div></div>
-                                        </Match>
-                                    </Switch>
+                                    <Show when={battle_selected().reconnaissance !== null} fallback={<div>_</div>}>
+                                        <Switch fallback={<div>_</div>}>
+                                            <Match when={battle_selected().reconnaissance![0] == 1}>
+                                                <div class="text-lime-500">Enemy in sight; Accuracy & Evacuation Up</div>
+                                            </Match>
+                                            <Match when={battle_selected().reconnaissance![0] == 2}>
+                                                <div class="text-lime-500">Enemy in sight; Accuracy & Evacuation Up</div>
+                                            </Match>
+                                            <Match when={battle_selected().reconnaissance![0] == 3}>
+                                                <div class="text-red-500">No Enemy in Sight; Some reconnaissance planes not returned; Anti-Air & Evacuation Down</div>
+                                            </Match>
+                                            <Match when={battle_selected().reconnaissance![0] == 4}>
+                                                <div class="text-red-500">No Enemy in Sight; Anti-Air & Evacuation Down</div>
+                                            </Match>
+                                            <Match when={battle_selected().reconnaissance![0] == 5}>
+                                                <div class="text-lime-500">Find Enemy; Accuracy & Evacuation Up</div>
+                                            </Match>
+                                            <Match when={battle_selected().reconnaissance![0] == 6}>
+                                                <div></div>
+                                            </Match>
+                                        </Switch>
+                                    </Show>
                                 </div>
                                 <div class="flex felx-nowrap text-xs py-0.5 tooltip tooltip-right" data-tip={battle_selected().formation}>
                                     Formation : <span class="w-1"></span>

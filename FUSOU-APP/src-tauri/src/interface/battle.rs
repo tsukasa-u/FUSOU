@@ -348,7 +348,7 @@ impl From<kcapi_common::common_battle::ApiHougeki> for Hougeki {
                 },
                 _ => damages,
             }.to_vec()
-        }).collect();
+        }).enumerate().map(|(idx, damages)| calc_floor(&damages)).collect();
         
         let cl_list: Vec<Vec<i64>> = hougeki.api_cl_list.iter().enumerate().map(|(idx, cl_list)| remove_m1(cl_list, &hougeki.api_df_list[idx])).enumerate().map(|(idx, cl_list)| {
             match hougeki.api_at_type[idx] {
@@ -385,7 +385,7 @@ impl From<kcapi_common::common_battle::ApiHougeki> for Hougeki {
         Self {
             at_list: hougeki.api_at_list,
             at_type: hougeki.api_at_type,
-            df_list: hougeki.api_df_list,
+            df_list:df_list,
             cl_list: cl_list,
             damage: damages,
             at_eflag: hougeki.api_at_eflag,
@@ -413,7 +413,7 @@ impl From<kcapi_common::common_midnight::ApiHougeki> for MidnightHougeki {
                 },
                 _ => damages,
             }.to_vec()
-        }).collect();
+        }).enumerate().map(|(idx, damages)| calc_floor(&damages)).collect();
         
         let cl_list: Vec<Vec<i64>> = hougeki.api_cl_list.iter().enumerate().map(|(idx, cl_list)| remove_m1(cl_list, &hougeki.api_df_list[idx])).enumerate().map(|(idx, cl_list)| {
             match hougeki.api_sp_list[idx] {
