@@ -5,6 +5,7 @@ import { createMemo, For, Show } from 'solid-js';
 import "../css/divider.css";
 import { EnemyNameComponent } from './enemy_name';
 import { Battle } from '../interface/battle';
+import IconShield from '../icons/shield';
 
 interface AntiSubmarineProps {
     deck_ship_id: { [key: number]: number[] };
@@ -51,12 +52,17 @@ export function OpeningAntiSubmarineComponent({deck_ship_id, battle_selected}: A
                                             <td>
                                                 <div class="flex flex-col">
                                                     <For each={battle_selected().opening_taisen.df_list[at_index()]}>
-                                                        {(df, _) => (
-                                                            <Show when={battle_selected().opening_taisen.at_eflag[at_index()]==1} fallback={
-                                                                <EnemyNameComponent ship_id={battle_selected().enemy_ship_id[df]} ship_slot={battle_selected().e_slot![df]} ship_param={battle_selected().e_params![df]} ship_max_hp={battle_selected().e_hp_max![df]} display={false}></EnemyNameComponent>
-                                                            }>
-                                                                <ShipNameComponent ship_id={deck_ship_id[battle_selected().deck_id!][df]}></ShipNameComponent>
-                                                            </Show>
+                                                        {(df, df_index) => (
+                                                            <div class="flex flex-nowarp">
+                                                                <Show when={battle_selected().opening_taisen.at_eflag[at_index()]==1} fallback={
+                                                                    <EnemyNameComponent ship_id={battle_selected().enemy_ship_id[df]} ship_slot={battle_selected().e_slot![df]} ship_param={battle_selected().e_params![df]} ship_max_hp={battle_selected().e_hp_max![df]} display={false}></EnemyNameComponent>
+                                                                }>
+                                                                    <ShipNameComponent ship_id={deck_ship_id[battle_selected().deck_id!][df]}></ShipNameComponent>
+                                                                </Show>
+                                                                <Show when={battle_selected().opening_taisen.protect_flag[at_index()][df_index()] == true}>
+                                                                    <IconShield class="h-5 w-5"></IconShield>
+                                                                </Show>
+                                                            </div>
                                                         )}
                                                     </For>
                                                 </div>

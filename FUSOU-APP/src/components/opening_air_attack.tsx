@@ -6,6 +6,7 @@ import "../css/divider.css";
 import { EnemyNameComponent } from './enemy_name';
 import { Battle } from '../interface/battle';
 import { MstEquipmentComponent } from './mst_equipment';
+import IconShield from '../icons/shield';
 
 interface AirDamageProps {
     deck_ship_id: { [key: number]: number[] };
@@ -146,7 +147,12 @@ export function OpeningAirAttackComponent({deck_ship_id, battle_selected}: AirDa
                                                                 <Show when={idx() > 0}>
                                                                     <div class="h-px"></div>
                                                                 </Show>
+                                                                <div class="flex flex-nowrap">
                                                                     <EnemyNameComponent ship_id={battle_selected().enemy_ship_id[idx()]} ship_slot={battle_selected().e_slot![idx()]} ship_param={battle_selected().e_params![idx()]} ship_max_hp={battle_selected().e_hp_max![idx()]} display={false}></EnemyNameComponent>
+                                                                    <Show when={battle_selected().opening_air_attack.e_damage.protect_flag?.some(flag => flag == true)}>
+                                                                        <IconShield class="h-5 w-5"></IconShield>
+                                                                    </Show>
+                                                                </div>
                                                             </Show>
                                                         </>
                                                     )}
@@ -188,7 +194,12 @@ export function OpeningAirAttackComponent({deck_ship_id, battle_selected}: AirDa
                                                                     <Show when={idx() > 0}>
                                                                         <div class="h-px"></div>
                                                                     </Show>
-                                                                    <EnemyNameComponent ship_id={battle_selected().enemy_ship_id[idx()]} ship_slot={battle_selected().e_slot![idx()]} ship_param={battle_selected().e_params![idx()]} ship_max_hp={battle_selected().e_hp_max![idx()]} display={false}></EnemyNameComponent>
+                                                                    <div class="flex flex-nowrap">
+                                                                        <EnemyNameComponent ship_id={battle_selected().enemy_ship_id[idx()]} ship_slot={battle_selected().e_slot![idx()]} ship_param={battle_selected().e_params![idx()]} ship_max_hp={battle_selected().e_hp_max![idx()]} display={false}></EnemyNameComponent>
+                                                                        <Show when={battle_selected().opening_air_attack.e_damage.protect_flag?.some(flag => flag == true)}>
+                                                                            <IconShield class="h-5 w-5"></IconShield>
+                                                                        </Show>
+                                                                    </div>
                                                                 </Show>
                                                             </>
                                                         )}

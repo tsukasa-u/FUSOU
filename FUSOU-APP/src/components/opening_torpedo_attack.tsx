@@ -5,6 +5,7 @@ import { createMemo, For, Show } from 'solid-js';
 import "../css/divider.css";
 import { EnemyNameComponent } from './enemy_name';
 import { Battle } from '../interface/battle';
+import IconShield from '../icons/shield';
 
 interface TorpedoSubmarineProps {
     deck_ship_id: { [key: number]: number[] };
@@ -32,7 +33,6 @@ export function OpeningTorpedoAttackComponent({deck_ship_id, battle_selected}: T
         if (battle_selected().deck_id == null) return false;
         if (battle_selected().opening_raigeki == null) return false;
         if (battle_selected().opening_raigeki.frai_list_items.findIndex((val) => val != null) == -1 && battle_selected().opening_raigeki.erai_list_items.findIndex((val) => val != null) == -1) return false;
-        console.log(battle_selected().opening_raigeki);
         return true;
     });
 
@@ -119,7 +119,12 @@ export function OpeningTorpedoAttackComponent({deck_ship_id, battle_selected}: T
                                                 </div>
                                             </td>
                                             <td>
-                                                <EnemyNameComponent ship_id={battle_selected().enemy_ship_id[frai]} ship_max_hp={battle_selected().e_hp_max![frai]} ship_param={battle_selected().e_params![frai]} ship_slot={battle_selected().e_slot![frai]}></EnemyNameComponent>
+                                                <div class="flex flex-nowrap">
+                                                    <EnemyNameComponent ship_id={battle_selected().enemy_ship_id[frai]} ship_max_hp={battle_selected().e_hp_max![frai]} ship_param={battle_selected().e_params![frai]} ship_slot={battle_selected().e_slot![frai]}></EnemyNameComponent>
+                                                    <Show when={battle_selected().opening_raigeki.e_protect_flag.some(flag => flag == true)}>
+                                                        <IconShield class="h-5 w-5"></IconShield>
+                                                    </Show>
+                                                </div>
                                             </td>
                                             <td >
                                                 <div class={
@@ -149,7 +154,12 @@ export function OpeningTorpedoAttackComponent({deck_ship_id, battle_selected}: T
                                                 </div>
                                             </td>
                                             <td>
-                                                <ShipNameComponent ship_id={deck_ship_id[battle_selected().deck_id!][erai]}></ShipNameComponent>
+                                                <div class="flex flex-nowrap">
+                                                    <ShipNameComponent ship_id={deck_ship_id[battle_selected().deck_id!][erai]}></ShipNameComponent>
+                                                    <Show when={battle_selected().opening_raigeki.f_protect_flag.some(flag => flag == true)}>
+                                                        <IconShield class="h-5 w-5"></IconShield>
+                                                    </Show>
+                                                </div>
                                             </td>
                                             <td >
                                                 <div class={

@@ -5,6 +5,7 @@ import { createMemo, For, Show } from 'solid-js';
 import "../css/divider.css";
 import { EnemyNameComponent } from './enemy_name';
 import { Battle } from '../interface/battle';
+import IconShield from '../icons/shield';
 
 interface AirDamageProps {
     deck_ship_id: { [key: number]: number[] };
@@ -59,7 +60,12 @@ export function SupportAttackComponent({deck_ship_id, battle_selected}: AirDamag
                                                         <Show when={idx() > 0}>
                                                             <div class="h-px"></div>
                                                         </Show>
-                                                        <EnemyNameComponent ship_id={ship_id}></EnemyNameComponent>
+                                                        <div class="flex flex-nowrap">
+                                                            <EnemyNameComponent ship_id={ship_id} ship_max_hp={battle_selected().e_hp_max![idx()]} ship_param={battle_selected().e_params![idx()]} ship_slot={battle_selected().e_slot![idx()]}></EnemyNameComponent>
+                                                            <Show when={battle_selected().support_attack!.support_hourai!.protect_flag.some(flag => flag == true)}>
+                                                                <IconShield class="h-5 w-5"></IconShield>
+                                                            </Show>
+                                                        </div>
                                                     </>
                                                 )}
                                             </For>
