@@ -44,6 +44,34 @@ export function MidnightShellingComponent({deck_ship_id, battle_selected}: AntiS
                         Midnight Shelling
                     </summary>
                     <ul class="pl-0">
+                        <div class="pl-2 text-xs flex felx-nowarp">
+                        touch : <span class="w-1"></span>
+                            <div class="w-6 flex justify-center">
+                                <Show when={battle_selected().midngiht_touchplane![0] > 0} fallback={<div>_</div>}>
+                                    <MstEquipmentComponent equip_id={battle_selected().midngiht_touchplane![0]} name_flag={true} compact={true} show_param={true}></MstEquipmentComponent>
+                                </Show>
+                            </div>
+                            <div class="w-6 flex justify-center">
+                                <Show when={battle_selected().midngiht_touchplane![1] > 0} fallback={<div>_</div>}>
+                                    <MstEquipmentComponent equip_id={battle_selected().midngiht_touchplane![1]} name_flag={true} compact={true} show_param={true}></MstEquipmentComponent>
+                                </Show>
+                            </div>
+                            <div class="divider divider-horizontal mr-0 ml-0"></div>
+                            Flare : <span class="w-1"></span>
+                            <Show when={battle_selected().midnight_flare_pos != null} fallback={<div><div class="w-24">_</div><div class="w-3">/</div><div class="w-24">_</div></div>}>
+                                <div class="w-24 flex justify-center">
+                                    <Show when={battle_selected().midnight_flare_pos![0] != -1} fallback={<div>_</div>}>
+                                        <ShipNameComponent ship_id={deck_ship_id[battle_selected().deck_id!][battle_selected().midnight_flare_pos![0]]}></ShipNameComponent>
+                                    </Show>
+                                </div>
+                                <div class="w-3">/</div>
+                                <div class="w-24 flex justify-center">
+                                    <Show when={battle_selected().midnight_flare_pos![1] != -1} fallback={<div>_</div>}>
+                                        <EnemyNameComponent ship_id={battle_selected().enemy_ship_id[battle_selected().midnight_flare_pos![1]]} ship_param={battle_selected().e_params![battle_selected().midnight_flare_pos![1]]} ship_slot={battle_selected().e_slot![battle_selected().midnight_flare_pos![1]]} ship_max_hp={battle_selected().e_hp_max![battle_selected().midnight_flare_pos![1]]} display={false}></EnemyNameComponent>
+                                    </Show>
+                                </div>
+                            </Show>
+                        </div>
                         <table class="table table-xs">
                             <thead>
                                 <tr>
