@@ -5,6 +5,7 @@ import { createMemo, For, Show } from 'solid-js';
 import "../css/divider.css";
 import { EnemyNameComponent } from './enemy_name';
 import { Battle } from '../interface/battle';
+import IconShield from '../icons/shield';
 
 interface TorpedoSubmarineProps {
     deck_ship_id: { [key: number]: number[] };
@@ -52,19 +53,13 @@ export function OpeningTorpedoAttackComponent({deck_ship_id, battle_selected}: T
             if (frai_list != null) {
                 frai_list.forEach((frai, j) => {
                     if (opening_torpedo_damage.frai.list.includes(frai)) {
-                        opening_torpedo_damage.frai.dict[frai].dmg += battle_selected().opening_raigeki.fydam_list_items[i][j];
                         opening_torpedo_damage.frai.dict[frai].ships.push(i);
-                        // How to detect critical?
-                        if (battle_selected().opening_raigeki.fcl_list_items[i][j] > opening_torpedo_damage.frai.dict[frai].cl) {
-                            opening_torpedo_damage.frai.dict[frai].cl = battle_selected().opening_raigeki.fcl_list_items[i][j];
-                        }
                     } else {
                         opening_torpedo_damage.frai.list.push(frai);
                         opening_torpedo_damage.frai.dict[frai] = {
-                            dmg: battle_selected().opening_raigeki.fydam_list_items[i][j],
+                            dmg: battle_selected().opening_raigeki.edam[i],
                             ships: [i],
-                            // How to detect critical?
-                            cl : battle_selected().opening_raigeki.fcl_list_items[i][j],
+                            cl : battle_selected().opening_raigeki.ecl_list[i],
                         };
                     }
                 });
@@ -74,19 +69,13 @@ export function OpeningTorpedoAttackComponent({deck_ship_id, battle_selected}: T
             if (erai_list != null) {
                 erai_list.forEach((erai, j) => {
                     if (opening_torpedo_damage.erai.list.includes(erai)) {
-                        opening_torpedo_damage.erai.dict[erai].dmg += battle_selected().opening_raigeki.eydam_list_items[i][j];
                         opening_torpedo_damage.erai.dict[erai].ships.push(i);
-                        // How to detect critical?
-                        if (battle_selected().opening_raigeki.ecl_list_items[i][j] > opening_torpedo_damage.erai.dict[erai].cl) {
-                            opening_torpedo_damage.erai.dict[erai].cl = battle_selected().opening_raigeki.ecl_list_items[i][j];
-                        }
                     } else {
                         opening_torpedo_damage.erai.list.push(erai);
                         opening_torpedo_damage.erai.dict[erai] = {
-                            dmg: battle_selected().opening_raigeki.eydam_list_items[i][j],
+                            dmg: battle_selected().opening_raigeki.fdam[i],
                             ships: [i],
-                            // How to detect critical?
-                            cl: battle_selected().opening_raigeki.ecl_list_items[i][j], 
+                            cl: battle_selected().opening_raigeki.fcl_list[i], 
                         };
                     }
                 });
@@ -114,7 +103,7 @@ export function OpeningTorpedoAttackComponent({deck_ship_id, battle_selected}: T
                             <tbody>
                                 <For each={opening_torpedo_damage().frai.list}>
                                     {(frai, _) => (
-                                        <tr>
+                                        <tr class="table_hover table_active rounded">
                                             <td>
                                                 <div class="flex flex-col">
                                                     <For each={opening_torpedo_damage().frai.dict[frai].ships}>
@@ -130,13 +119,18 @@ export function OpeningTorpedoAttackComponent({deck_ship_id, battle_selected}: T
                                                 </div>
                                             </td>
                                             <td>
-                                                <EnemyNameComponent ship_id={battle_selected().enemy_ship_id[frai]}></EnemyNameComponent>
+                                                <div class="flex flex-nowrap">
+                                                    <EnemyNameComponent ship_id={battle_selected().enemy_ship_id[frai]} ship_max_hp={battle_selected().e_hp_max![frai]} ship_param={battle_selected().e_params![frai]} ship_slot={battle_selected().e_slot![frai]}></EnemyNameComponent>
+                                                    <Show when={battle_selected().opening_raigeki.e_protect_flag.some(flag => flag == true)}>
+                                                        <IconShield class="h-5 w-5"></IconShield>
+                                                    </Show>
+                                                </div>
                                             </td>
                                             <td >
                                                 <div class={
                                                     (() => {
                                                         let cl_flag = opening_torpedo_damage().frai.dict[frai].cl;
-                                                        if (cl_flag==0) {
+                                                        if (cl_flag==0 || opening_torpedo_damage().frai.dict[frai].dmg == 0) {
                                                             return "text-red-500";
                                                         } else if (cl_flag==2) {
                                                             return "text-yellow-500";
@@ -149,24 +143,29 @@ export function OpeningTorpedoAttackComponent({deck_ship_id, battle_selected}: T
                                 </For>
                                 <For each={opening_torpedo_damage().erai.list}>
                                     {(erai, _) => (
-                                        <tr>
+                                        <tr class="table_hover table_active rounded">
                                             <td>
                                                 <div class="flex flex-col">
                                                     <For each={opening_torpedo_damage().erai.dict[erai].ships}>
                                                         {(ship_id, _) => (
-                                                            <EnemyNameComponent ship_id={battle_selected().enemy_ship_id[ship_id]}></EnemyNameComponent>
+                                                            <EnemyNameComponent ship_id={battle_selected().enemy_ship_id[ship_id]} ship_max_hp={battle_selected().e_hp_max![ship_id]} ship_param={battle_selected().e_params![ship_id]} ship_slot={battle_selected().e_slot![ship_id]}></EnemyNameComponent>
                                                         )}
                                                     </For>
                                                 </div>
                                             </td>
                                             <td>
-                                                <ShipNameComponent ship_id={deck_ship_id[battle_selected().deck_id!][erai]}></ShipNameComponent>
+                                                <div class="flex flex-nowrap">
+                                                    <ShipNameComponent ship_id={deck_ship_id[battle_selected().deck_id!][erai]}></ShipNameComponent>
+                                                    <Show when={battle_selected().opening_raigeki.f_protect_flag.some(flag => flag == true)}>
+                                                        <IconShield class="h-5 w-5"></IconShield>
+                                                    </Show>
+                                                </div>
                                             </td>
                                             <td >
                                                 <div class={
                                                     (() => {
                                                         let cl_flag = opening_torpedo_damage().erai.dict[erai].cl;
-                                                        if (cl_flag==0) {
+                                                        if (cl_flag==0 || opening_torpedo_damage().erai.dict[erai].dmg == 0) {
                                                             return "text-red-500";
                                                         } else if (cl_flag==2) {
                                                             return "text-yellow-500";

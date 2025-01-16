@@ -105,7 +105,7 @@ export function EquimentComponent({slot_id, ex_flag, name_flag, onslot}: Equipme
                 <IconEquipment class="h-5 w-5 -mt-0.5" category_number={_mst_slot_items.mst_slot_items[_slot_items.slot_items[slot_id]?.slotitem_id]?._type[1]} icon_number={_mst_slot_items.mst_slot_items[_slot_items.slot_items[slot_id]?.slotitem_id]?._type[3]}></IconEquipment>
             </div>
             {
-                !(ex_flag ?? false) ? <div class="flex-none pl-px">
+                !(ex_flag ?? false) ? <div class="flex-none pl-0.5 -mt-[3px]">
                     <div class="grid h-2.5 w-4 place-content-center text-xs text-accent">
                         { proficiency() }
                     </div>

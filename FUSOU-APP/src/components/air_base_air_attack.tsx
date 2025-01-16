@@ -7,6 +7,7 @@ import { EnemyNameComponent } from './enemy_name';
 import { Battle } from '../interface/battle';
 import { EquimentComponent } from './equipment';
 import { useAirBases } from '../utility/provider';
+import IconShield from '../icons/shield';
 
 interface AirDamageProps {
     area_id: number;
@@ -79,32 +80,50 @@ export function AirBaseAirAttackComponent({area_id, battle_selected}: AirDamageP
                                                 </div>
                                             </td>
                                             <td>
-                                                <For each={attack.e_damage.damages ?? []}>
-                                                    {(_, idx) => (
-                                                        <>
-                                                            <Show when={show_damage()[attack_idx()][idx()]}>
-                                                                <Show when={idx() > 0}>
-                                                                    <div class="h-px"></div>
+                                                <div class="flex flex-col">
+                                                    <For each={attack.e_damage.damages ?? []}>
+                                                        {(_, idx) => (
+                                                            <>
+                                                                <Show when={show_damage()[attack_idx()][idx()]}>
+                                                                    <Show when={idx() > 0}>
+                                                                        <div class="h-px"></div>
+                                                                    </Show>
+                                                                    <div class="flex flex-nowrap">
+                                                                        <EnemyNameComponent ship_id={battle_selected().enemy_ship_id[idx()]} ship_max_hp={battle_selected().e_hp_max![idx()]} ship_param={battle_selected().e_params![idx()]} ship_slot={battle_selected().e_slot![idx()]}></EnemyNameComponent>
+                                                                        <Show when={battle_selected().air_base_air_attacks.attacks[attack_idx()].e_damage.protect_flag?.some(flag => flag == true)}>
+                                                                            <IconShield class="h-5 w-5"></IconShield>
+                                                                        </Show>
+                                                                    </div>
                                                                 </Show>
-                                                                <EnemyNameComponent ship_id={battle_selected().enemy_ship_id[idx()]}></EnemyNameComponent>
-                                                            </Show>
-                                                        </>
-                                                    )}
-                                                </For>
+                                                            </>
+                                                        )}
+                                                    </For>
+                                                </div>
                                             </td>
                                             <td >
-                                                <For each={attack.e_damage.damages ?? []}>
-                                                    {(dmg, idx) => (
-                                                        <>
-                                                            <Show when={show_damage()[attack_idx()][idx()]}>
-                                                                <Show when={idx() > 0}>
-                                                                    <div class="h-[4px]"></div>
+                                                <div class="flex flex-col">
+                                                    <For each={attack.e_damage.damages ?? []}>
+                                                        {(dmg, idx) => (
+                                                            <>
+                                                                <Show when={show_damage()[attack_idx()][idx()]}>
+                                                                    <Show when={idx() > 0}>
+                                                                        <div class="h-[4px]"></div>
+                                                                    </Show>
+                                                                    <div class={
+                                                                        (() => {
+                                                                            let cl_flag = battle_selected().air_base_air_attacks.attacks![attack_idx()].e_damage!.cl![idx()];
+                                                                            if (cl_flag==0 || dmg==0) {
+                                                                                return "text-red-500";
+                                                                            } else if (cl_flag==2) {
+                                                                                return "text-yellow-500";
+                                                                            }
+                                                                        })()
+                                                                    }>{dmg}</div>
                                                                 </Show>
-                                                                <div>{dmg}</div>
-                                                            </Show>
-                                                        </>
-                                                    )}
-                                                </For>
+                                                            </>
+                                                        )}
+                                                    </For>
+                                                </div>
                                             </td>
                                         </tr>
                                     )}
