@@ -1,5 +1,6 @@
 use std::error::Error;
-use proxy::bidirectional_channel;
+// use proxy::bidirectional_channel;
+use proxy_https::bidirectional_channel;
 use register_trait::TraitForConvert;
 
 use register_trait::expand_struct_selector;
