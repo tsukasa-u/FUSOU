@@ -22,7 +22,8 @@ mod tauri_cmd;
 mod external;
 mod wrap_proxy;
 
-use proxy::bidirectional_channel::{BidirectionalChannel, StatusInfo};
+// use proxy::bidirectional_channel::{BidirectionalChannel, StatusInfo};
+use proxy_https::bidirectional_channel::{BidirectionalChannel, StatusInfo, request_shutdown};
 
 use crate::external::SHARED_BROWSER;
 
@@ -182,9 +183,9 @@ async fn main() -> ExitCode {
         let _ = shutdown_rx.recv().await;
         // is it needed to add select! for timeout?
         let _ = tokio::join!(
-          proxy::bidirectional_channel::request_shutdown(proxy_bidirectional_channel_master_clone),
-          proxy::bidirectional_channel::request_shutdown(pac_bidirectional_channel_master_clone),
-          proxy::bidirectional_channel::request_shutdown(response_parse_channel_master_clone),
+          request_shutdown(proxy_bidirectional_channel_master_clone),
+          request_shutdown(pac_bidirectional_channel_master_clone),
+          request_shutdown(response_parse_channel_master_clone),
         );
 
         tokio::time::sleep(time::Duration::from_millis(2000)).await;
