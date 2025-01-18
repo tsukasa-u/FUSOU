@@ -91,6 +91,7 @@ pub async fn launch_with_options(window: tauri::Window, options: HashMap<String,
     if flag!=0 {
       if let Some(&server_index) = options.get("server") {
         let server_address = match server_index {
+          -1 => Some(""),
            1 => Some("http://w01y.kancolle-server.com"), // 横須賀鎮守府
            2 => Some("http://w02k.kancolle-server.com"), // 新呉鎮守府
            3 => Some("http://w03s.kancolle-server.com"), // 佐世保鎮守府
@@ -134,7 +135,7 @@ pub async fn launch_with_options(window: tauri::Window, options: HashMap<String,
           _ => None,
         };
         if let Some(server_address) = server_address {
-          let pac_path = "./../../FUSOU-PROXY/proxy_rust/proxy/proxy.pac".to_string();
+          let pac_path = "./../../FUSOU-PROXY/proxy_rust/proxy-https/proxy.pac".to_string();
           let _proxy_result = wrap_proxy::serve_proxy(server_address.to_string(), pac_path, proxy_channel.slave.clone(), proxy_log_channel.master.clone(), pac_channel.slave.clone()).unwrap();
         }
       }

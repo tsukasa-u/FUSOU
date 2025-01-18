@@ -20,3 +20,4 @@ test_data/
 .env
 FUSOU-PROXY-DATA/
 error_logs/
+FUSOU-APP/src-tauri/ca/*
