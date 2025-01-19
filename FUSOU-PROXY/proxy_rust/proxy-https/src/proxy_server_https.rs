@@ -76,8 +76,11 @@ fn log_response(parts: Parts, body: Vec<u8>, uri: Uri, tx_proxy_log:bidirectiona
 
     let utc = Utc::now().naive_utc();
     let jst = Tokyo.from_utc_datetime(&utc);
+
+    let re_uri = regex::Regex::new(r"https+://.*\.kancolle-server\.com").unwrap();
+    let uri_path = re_uri.replace(uri.path(), "").to_string();
     
-    println!("{} status: {:?}, path:{:?}, content-type:{:?}", format!("{}", jst.format("%Y-%m-%d %H:%M:%S.%3f %Z")), parts.status, "path", content_type);
+    println!("{} status: {:?}, path:{:?}, content-type:{:?}", format!("{}", jst.format("%Y-%m-%d %H:%M:%S.%3f %Z")), parts.status, uri_path, content_type);
     
     if save || !pass {
 
@@ -85,18 +88,29 @@ fn log_response(parts: Parts, body: Vec<u8>, uri: Uri, tx_proxy_log:bidirectiona
             return;
         }
         
-        let body_cloned = body.clone();
         tokio::spawn(async move {
+            let mut buffer: Vec<u8> = Vec::new();
             if !pass {
                 if content_type.eq("text/plain") {
-                    if let Ok(buffer_string) = String::from_utf8(body.clone()) {
+                    // this code is for the response not decoded in hudsucker!!
+                    match flate2::read::MultiGzDecoder::new(body.as_slice()).read_to_end(&mut buffer) {
+                        Ok(_) => {},
+                        Err(e) => {
+                            // println!("Failed to decode gzip: {:?}", e);
+                            buffer = body.clone();
+                        }
+                    }
+
+                    if let Ok(buffer_string) = String::from_utf8(buffer.clone()) {
                         let mes = bidirectional_channel::StatusInfo::CONTENT {
-                            path: uri.path().to_string(),
+                            path: uri_path.clone(),
                             content_type: content_type.to_string(), 
                             content: buffer_string,
                         };
                         let _ = tx_proxy_log.send(mes).await;
                     } else {
+                        // println!("{:?}", String::from_utf8(body.clone()).unwrap());
+                        // println!("{:?}", String::from_utf8_lossy(&body.clone()));
                         println!("Failed to convert buffer to string");
                     }
                 }
@@ -104,14 +118,17 @@ fn log_response(parts: Parts, body: Vec<u8>, uri: Uri, tx_proxy_log:bidirectiona
             if save {
                 let path_log = Path::new(save_path.as_str());
 
-                if content_type.eq("text/plain") && uri.path().starts_with("/kcsapi") {
+                if content_type.eq("text/plain") && uri_path.as_str().starts_with("/kcsapi") {
                     let parent = Path::new("kcsapi");
                     let path_parent = path_log.join(parent);
                     if !path_parent.exists() {
                         fs::create_dir_all(path_parent).expect("Failed to create directory");
                     }
+                    
+                    let time_stamped = format!("kcsapi/{}S{}", jst.timestamp().to_string(), uri_path.as_str().replace("/kcsapi", "").replace("/", "@"));
+                    fs::write(path_log.join(Path::new(&time_stamped)), buffer).expect("Failed to write file");
                 } else {
-                    let path_removed = uri.path().replacen("/", "", 1);
+                    let path_removed = uri_path.as_str().replacen("/", "", 1);
                     if let Some(parent) = Path::new(path_removed.as_str()).parent() {
                         let path_parent = path_log.join(parent);
                         if !path_parent.exists() {
@@ -122,16 +139,16 @@ fn log_response(parts: Parts, body: Vec<u8>, uri: Uri, tx_proxy_log:bidirectiona
                     let file_log_path = path_log.join(Path::new(path_removed.as_str()));
 
                     if !file_log_path.exists() {
-                        fs::write(file_log_path, body_cloned.clone()).expect("Failed to write file");
+                        fs::write(file_log_path, body.clone().clone()).expect("Failed to write file");
                     } else {
                         let file_log_metadata = fs::metadata(file_log_path.clone()).expect("Failed to get metadata");
                         #[cfg(target_os = "linux")]
                         if file_log_metadata.len() == 0 {
-                            fs::write(file_log_path, body_cloned.clone()).expect("Failed to write file");
+                            fs::write(file_log_path, body.clone().clone()).expect("Failed to write file");
                         }
                         #[cfg(target_os = "windows")]
                         if file_log_metadata.file_size() == 0 {
-                            fs::write(file_log_path, body_cloned.clone()).expect("Failed to write file");
+                            fs::write(file_log_path, body.clone().clone()).expect("Failed to write file");
                         }
                     }
                 }
@@ -153,7 +170,6 @@ impl HttpHandler for LogHandler {
         _ctx: &HttpContext,
         req: Request<Body>,
     ) -> RequestOrResponse {
-        println!("{:?}", req.uri());
         self.request_uri = req.uri().clone();
         req.into()
     }
