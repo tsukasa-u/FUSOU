@@ -196,6 +196,9 @@ fn create_ca() {
     entity_param.is_ca = rcgen::IsCa::NoCa;
     entity_param.use_authority_key_identifier_extension = true;
     entity_param.key_usages.push(rcgen::KeyUsagePurpose::DigitalSignature);
+    entity_param
+        .extended_key_usages
+        .push(rcgen::ExtendedKeyUsagePurpose::ServerAuth);
     entity_param.distinguished_name.push(rcgen::DnType::CommonName, "localhost");
     entity_param.subject_alt_names.extend(vec![
         rcgen::SanType::IpAddress(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1))),
@@ -221,14 +224,14 @@ fn create_ca() {
     // }
     // let _ = fs::write(ca_dir.join("entity_cert.der"), der_binary);
 
-    let mut der_binary = Vec::<u8>::new();
-    for b in ca_cert.der().bytes() {
-        match b {
-            Ok(b) => der_binary.push(b),
-            Err(e) => println!("{:?}", e)
-        }
-    }
-    let _ = fs::write(ca_dir.join("ca_cert.der"), der_binary);
+    // let mut der_binary = Vec::<u8>::new();
+    // for b in ca_cert.der().bytes() {
+    //     match b {
+    //         Ok(b) => der_binary.push(b),
+    //         Err(e) => println!("{:?}", e)
+    //     }
+    // }
+    // let _ = fs::write(ca_dir.join("ca_cert.der"), der_binary);
 
 }
 
@@ -242,10 +245,12 @@ fn check_ca() {
     if !entity_cert.exists() || !entity_key.exists() || !ca_cert.exists() || !ca_key.exists() {
         create_ca();
 
-        // Command::new("./ca/ca_cert.der")
-        //     .output()
-        //     .expect("failed to execute process");
-    }
+        // Command::new("./../../FUSOU-PROXY/proxy_rust/proxy-https/cmd/add_store.bat")
+        Command::new(super::pac_server::PATH_ADD_STORE_BAT)
+            .args(["./ca/ca_cert.pem"])
+            .output()
+            .expect("failed to execute process");
+        }
 }
 
 fn available_port() -> std::io::Result<u16> {
