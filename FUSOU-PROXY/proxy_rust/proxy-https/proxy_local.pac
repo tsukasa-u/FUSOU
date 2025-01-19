@@ -1,8 +1,6 @@
 function FindProxyForURL(url, host) {
     // World_*
-    // Gadget
-    if (shExpMatch(host, "w00g.kancolle-server.com") ||
-        shExpMatch(host, "w01y.kancolle-server.com") ||
+    if (shExpMatch(host, "w01y.kancolle-server.com") ||
         shExpMatch(host, "w02k.kancolle-server.com") ||
         shExpMatch(host, "w03s.kancolle-server.com") ||
         shExpMatch(host, "w04m.kancolle-server.com") ||
@@ -21,7 +19,7 @@ function FindProxyForURL(url, host) {
         shExpMatch(host, "w17k.kancolle-server.com") ||
         shExpMatch(host, "w18i.kancolle-server.com") ||
         shExpMatch(host, "w19s.kancolle-server.com") ||
-        shExpMatch(host, "w20h.kancolle-server.com")) {
+        shExpMatch(host, "w20h.kancolle-server.com")) { // [REPLACE HOST]
 
         ip_addr = myIpAddress();
 

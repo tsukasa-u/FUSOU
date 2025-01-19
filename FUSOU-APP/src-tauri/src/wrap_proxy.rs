@@ -46,7 +46,13 @@ pub fn serve_proxy(proxy_target: String, pac_path: String, proxy_bidirectional_c
         return Err("Failed to start pac server".into());
     }
     
-    edit_pac(pac_path.as_str(), proxy_addr.unwrap().to_string().as_str());
+    // edit_pac(pac_path.as_str(), proxy_addr.unwrap().to_string().as_str());
+    let host =if proxy_target.is_empty() {
+        None
+    } else {
+        Some(proxy_target.as_str())
+    };
+    edit_pac(pac_path.as_str(), proxy_addr.unwrap().to_string().as_str(), host);
       
     cmd_pac_tauri::add_pac(&format!("http://localhost:{}/proxy.pac", pac_addr.unwrap().port()));
     
