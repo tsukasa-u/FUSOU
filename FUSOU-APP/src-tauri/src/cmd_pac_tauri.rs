@@ -1,9 +1,14 @@
 use tauri::api::process::Command;
+use proxy_https::pac_server::PATH_ADD_PROXY_BAT;
+use proxy_https::pac_server::PATH_DELETE_PROXY_BAT;
+use proxy_https::pac_server::PATH_ADD_STORE_BAT;
+use proxy_https::pac_server::PATH_ADD_PROXY_SH;
+use proxy_https::pac_server::PATH_DELETE_PROXY_SH;
+use proxy_https::pac_server::PATH_ADD_STORE_SH;
     
 #[cfg(target_os = "windows")]
 pub fn add_pac(path: &str) {
-    // let _output = Command::new("./../../FUSOU-PROXY/proxy_rust/proxy/cmd/add_proxy.bat")
-    let _output = Command::new("./../../FUSOU-PROXY/proxy_rust/proxy-https/cmd/add_proxy.bat")
+    let _output = Command::new(PATH_ADD_PROXY_BAT)
         .args([path, ])
         .output()
         .expect("failed to execute process");
@@ -12,17 +17,23 @@ pub fn add_pac(path: &str) {
     
 #[cfg(target_os = "windows")]
 pub fn remove_pac() {
-    // Command::new("./../../FUSOU-PROXY/proxy_rust/proxy/cmd/delete_proxy.bat")
-    Command::new("./../../FUSOU-PROXY/proxy_rust/proxy-https/cmd/delete_proxy.bat")
+    Command::new(PATH_DELETE_PROXY_BAT)
         .output()
         .expect("failed to execute process");
     println!("unregister AutoConfigURL");
 }
 
+#[cfg(target_os = "windows")]
+pub fn add_store() {
+    Command::new(PATH_ADD_STORE_BAT)
+        .args(["./ca/ca_cert.pem"])
+        .output()
+        .expect("failed to execute process");
+}
+
 #[cfg(target_os = "linux")]
 pub fn add_pac(path: &str) {
-    // let _output = Command::new("./../../FUSOU-PROXY/proxy_rust/proxy/cmd/add_proxy.sh")
-    let _output = Command::new("./../../FUSOU-PROXY/proxy_rust/proxy-https/cmd/add_proxy.sh")
+    let _output = Command::new(PATH_ADD_PROXY_SH)
         .args([path, ])
         .output()
         .expect("failed to execute process");
@@ -31,8 +42,7 @@ pub fn add_pac(path: &str) {
     
 #[cfg(target_os = "linux")]
 pub fn remove_pac() {
-    // Command::new("./../../FUSOU-PROXY/proxy_rust/proxy/cmd/delete_proxy.sh")
-    Command::new("./../../FUSOU-PROXY/proxy_rust/proxy-https/cmd/delete_proxy.sh")
+    Command::new(PATH_DELETE_PROXY_SH)
         .output()
         .expect("failed to execute process");
     println!("unregister AutoConfigURL");
