@@ -96,7 +96,7 @@ function Start() {
                                 Your server
                             </div>
                             <select class="select select-sm select-bordered w-full" disabled={!runProxyServer()} onchange={(e) => { launch_options["server"] = e.target.selectedIndex; setServer(e.target.selectedIndex);}}>
-                                <option disabled selected>Auto Listen</option>
+                                <option selected>Auto Listen</option>
                                 <For each={Object.keys(server_list)}>
                                     {(name, idx) => (
                                         <option selected={server() == idx()+1}>{name}</option>
