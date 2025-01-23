@@ -21,4 +21,5 @@ pub mod api_req_battle_midnight;
 pub mod api_start2;
 pub mod api_port;
 pub mod api_req_ranking;
-
+pub mod api_dmm_payment;
+pub mod api_req_air_corps;
