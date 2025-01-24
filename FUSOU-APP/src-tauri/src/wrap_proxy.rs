@@ -1,5 +1,3 @@
-use std::net::SocketAddr;
-
 // use proxy::bidirectional_channel::{Master, Slave, StatusInfo};
 use proxy_https::{
     bidirectional_channel::{Master, Slave, StatusInfo},

@@ -23,3 +23,4 @@ pub mod api_port;
 pub mod api_req_ranking;
 pub mod api_dmm_payment;
 pub mod api_req_air_corps;
+pub mod api_req_furniture;

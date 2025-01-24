@@ -3,7 +3,9 @@ use std::collections::HashMap;
 use chrono::Local;
 use serde_json::Value;
 
-use crate::{kcapi::{self, api_get_member::mapinfo}, kcapi_common};
+use crate::kcapi;
+use crate::kcapi_common;
+use crate::kcapi_common::custom_type::DuoType;
 
 use std::sync::{LazyLock, Mutex};
 
@@ -139,8 +141,8 @@ impl From<kcapi_common::common_map::ApiEventmap> for Eventmap {
     }
 }
 
-impl From<kcapi::api_req_map::next::ApiHappening> for Happening {
-    fn from(happening: kcapi::api_req_map::next::ApiHappening) -> Self {
+impl From<kcapi_common::common_map::ApiHappening> for Happening {
+    fn from(happening: kcapi_common::common_map::ApiHappening) -> Self {
         Self {
             count: happening.api_count,
             mst_id: happening.api_mst_id,

@@ -95,8 +95,7 @@ fn log_response(parts: Parts, body: Vec<u8>, uri: Uri, tx_proxy_log:bidirectiona
                     // this code is for the response not decoded in hudsucker!!
                     match flate2::read::MultiGzDecoder::new(body.as_slice()).read_to_end(&mut buffer) {
                         Ok(_) => {},
-                        Err(e) => {
-                            // println!("Failed to decode gzip: {:?}", e);
+                        Err(_) => {
                             buffer = body.clone();
                         }
                     }
@@ -109,8 +108,6 @@ fn log_response(parts: Parts, body: Vec<u8>, uri: Uri, tx_proxy_log:bidirectiona
                         };
                         let _ = tx_proxy_log.send(mes).await;
                     } else {
-                        // println!("{:?}", String::from_utf8(body.clone()).unwrap());
-                        // println!("{:?}", String::from_utf8_lossy(&body.clone()));
                         println!("Failed to convert buffer to string");
                     }
                 }

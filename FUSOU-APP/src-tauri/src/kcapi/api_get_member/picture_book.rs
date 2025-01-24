@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 // use serde_json::Value;
+use crate::kcapi_common::custom_type::DuoType;
 
 use register_trait::register_struct;
 use register_trait::add_field;
@@ -47,7 +48,7 @@ pub struct ApiList {
     #[serde(rename = "api_index_no")]
     pub api_index_no: i64,
     #[serde(rename = "api_state")]
-    pub api_state: Vec<Vec<i64>>,
+    pub api_state: Vec<DuoType<i64, Vec<i64>>>,
     #[serde(rename = "api_table_id")]
     pub api_table_id: Vec<i64>,
     #[serde(rename = "api_name")]
@@ -94,6 +95,22 @@ pub struct ApiList {
     pub api_ctype: Option<i64>,
     #[serde(rename = "api_yomi")]
     pub api_yomi: Option<String>,
+    #[serde(rename = "api_q_voice_info")]
+    pub api_q_voice_info: Option<Vec<QVoiceInfo>>,
+}
+
+#[derive(Getter, TraitForTest)]
+#[struct_test_case(field_extra, type_value, integration)]
+#[add_field(extra)]
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QVoiceInfo {
+    #[serde(rename = "api_no")]
+    pub api_no: i64,
+    #[serde(rename = "api_voice_id")]
+    pub api_voice_id: i64,
+    #[serde(rename = "api_icon_id")]
+    pub api_icon_id: i64,
 }
 
 #[cfg(test)]

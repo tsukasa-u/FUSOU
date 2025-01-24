@@ -9,7 +9,6 @@ use register_trait::Getter;
 use register_trait::TraitForRoot;
 use register_trait::TraitForConvert;
 
-use crate::interface::battle::Battles;
 use crate::interface::cells::Cells;
 use crate::interface::interface::{Set, EmitData};
 
@@ -18,6 +17,7 @@ use crate::kcapi_common::common_map::ApiCellFlavor;
 use crate::kcapi_common::common_map::ApiEventmap;
 use crate::kcapi_common::common_map::ApiAirsearch;
 use crate::kcapi_common::common_map::ApiEDeckInfo;
+use crate::kcapi_common::common_map::ApiHappening;
 
 #[derive(Getter, TraitForTest, TraitForRoot)]
 #[struct_test_case(field_extra, type_value, integration)]
@@ -80,6 +80,8 @@ pub struct ApiData {
     pub api_select_route: Option<ApiSelectRoute>,
     #[serde(rename = "api_itemget")]
     pub api_itemget: Option<Vec<ApiItemget>>,
+    #[serde(rename = "api_happening")]
+    pub api_happening: Option<ApiHappening>,
 }
 
 #[derive(Getter, TraitForTest)]
