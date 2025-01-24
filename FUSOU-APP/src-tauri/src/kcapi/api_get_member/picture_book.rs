@@ -80,6 +80,20 @@ pub struct ApiList {
     pub api_flag: Option<Vec<i64>>,
     #[serde(rename = "api_info")]
     pub api_info: Option<String>,
+    #[serde(rename = "api_cnum")]
+    pub api_cnum: Option<i64>,
+    #[serde(rename = "api_taik")]
+    pub api_taik: Option<i64>,
+    #[serde(rename = "api_kaih")]
+    pub api_kaih: Option<i64>,
+    #[serde(rename = "api_sinfo")]
+    pub api_sinfo: Option<String>,
+    #[serde(rename = "api_stype")]
+    pub api_stype: Option<i64>,
+    #[serde(rename = "api_ctype")]
+    pub api_ctype: Option<i64>,
+    #[serde(rename = "api_yomi")]
+    pub api_yomi: Option<String>,
 }
 
 #[cfg(test)]
