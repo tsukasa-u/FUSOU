@@ -4,7 +4,9 @@ use chrono::Local;
 use regex::Match;
 use serde_json::Value;
 
-use crate::{kcapi, kcapi_common::{self, custom_type::DuoType}};
+use crate::kcapi;
+use crate::kcapi_common;
+use crate::kcapi_common::custom_type::DuoType;
 
 use std::sync::{LazyLock, Mutex};
 

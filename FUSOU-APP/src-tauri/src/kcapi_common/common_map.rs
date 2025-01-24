@@ -1,13 +1,10 @@
 use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 
-use register_trait::register_struct;
 use register_trait::add_field;
 
 use register_trait::TraitForTest;
 use register_trait::Getter;
-use register_trait::TraitForRoot;
-use register_trait::TraitForConvert;
 
 #[derive(Getter, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
@@ -68,4 +65,24 @@ pub struct ApiEDeckInfo {
     pub api_kind: i64,
     #[serde(rename = "api_ship_ids")]
     pub api_ship_ids: Vec<i64>,
+}
+
+#[derive(Getter, TraitForTest)]
+#[struct_test_case(field_extra, type_value, integration)]
+#[add_field(extra)]
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")] 
+pub struct ApiHappening {
+    #[serde(rename = "api_type")]
+    pub api_type: i64,
+    #[serde(rename = "api_count")]
+    pub api_count: i64,
+    #[serde(rename = "api_usemst")]
+    pub api_usemst: i64,
+    #[serde(rename = "api_mst_id")]
+    pub api_mst_id: i64,
+    #[serde(rename = "api_icon_id")]
+    pub api_icon_id: i64,
+    #[serde(rename = "api_dentan")]
+    pub api_dentan: i64,
 }
