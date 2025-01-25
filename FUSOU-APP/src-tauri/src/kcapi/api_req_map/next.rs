@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+// use serde_json::Value;
 
 use register_trait::register_struct;
 use register_trait::add_field;
@@ -22,6 +22,7 @@ use crate::kcapi_common::common_map::ApiCellFlavor;
 use crate::kcapi_common::common_map::ApiEventmap;
 use crate::kcapi_common::common_map::ApiAirsearch;
 use crate::kcapi_common::common_map::ApiEDeckInfo;
+use crate::kcapi_common::common_map::ApiHappening;
 
 #[derive(Getter, TraitForTest, TraitForRoot)]
 #[struct_test_case(field_extra, type_value, integration)]
@@ -108,26 +109,6 @@ pub struct ApiItemgetEoComment {
     pub api_id: i64,
     #[serde(rename = "api_getcount")]
     pub api_getcount: i64,
-}
-
-#[derive(Getter, TraitForTest)]
-#[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")] 
-pub struct ApiHappening {
-    #[serde(rename = "api_type")]
-    pub api_type: i64,
-    #[serde(rename = "api_count")]
-    pub api_count: i64,
-    #[serde(rename = "api_usemst")]
-    pub api_usemst: i64,
-    #[serde(rename = "api_mst_id")]
-    pub api_mst_id: i64,
-    #[serde(rename = "api_icon_id")]
-    pub api_icon_id: i64,
-    #[serde(rename = "api_dentan")]
-    pub api_dentan: i64,
 }
 
 #[derive(Getter, TraitForTest)]

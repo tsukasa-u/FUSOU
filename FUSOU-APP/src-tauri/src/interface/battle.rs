@@ -1,10 +1,13 @@
 use std::collections::HashMap;
+use std::vec;
 
 use chrono::Local;
 use regex::Match;
 use serde_json::Value;
 
-use crate::{kcapi, kcapi_common::{self, custom_type::DuoType}};
+use crate::kcapi;
+use crate::kcapi_common;
+use crate::kcapi_common::custom_type::DuoType;
 
 use std::sync::{LazyLock, Mutex};
 
@@ -163,14 +166,14 @@ pub struct Hougeki {
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct MidnightHougeki {
-    pub at_list: Vec<i64>,
-    pub df_list: Vec<Vec<i64>>,
-    pub cl_list: Vec<Vec<i64>>,
-    pub damage: Vec<Vec<f32>>,
-    pub at_eflag: Vec<i64>,
-    pub si_list: Vec<Vec<Option<i64>>>,
-    pub api_sp_list: Vec<i64>,
-    pub protect_flag: Vec<Vec<bool>>,
+    pub at_list: Option<Vec<i64>>,
+    pub df_list: Option<Vec<Vec<i64>>>,
+    pub cl_list: Option<Vec<Vec<i64>>>,
+    pub damage: Option<Vec<Vec<f32>>>,
+    pub at_eflag: Option<Vec<i64>>,
+    pub si_list: Option<Vec<Vec<Option<i64>>>>,
+    pub sp_list: Option<Vec<i64>>,
+    pub protect_flag: Option<Vec<Vec<bool>>>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -348,7 +351,7 @@ impl From<kcapi_common::common_battle::ApiHougeki> for Hougeki {
                 },
                 _ => damages,
             }.to_vec()
-        }).enumerate().map(|(idx, damages)| calc_floor(&damages)).collect();
+        }).map(|damages| calc_floor(&damages)).collect();
         
         let cl_list: Vec<Vec<i64>> = hougeki.api_cl_list.iter().enumerate().map(|(idx, cl_list)| remove_m1(cl_list, &hougeki.api_df_list[idx])).enumerate().map(|(idx, cl_list)| {
             match hougeki.api_at_type[idx] {
@@ -398,54 +401,120 @@ impl From<kcapi_common::common_battle::ApiHougeki> for Hougeki {
 impl From<kcapi_common::common_midnight::ApiHougeki> for MidnightHougeki {
     fn from(hougeki: kcapi_common::common_midnight::ApiHougeki) -> Self {
 
-        let si_list: Vec<Vec<Option<i64>>> = hougeki.api_si_list.iter().map(|si_list| calc_si_list(&si_list.iter().map(|si| Some(si.to_owned())).collect::<Vec<Option<DuoType<i64, String>>>>())).collect();
+        // let si_list: Vec<Vec<Option<i64>>> = hougeki.api_si_list.iter().map(|si_list| calc_si_list(&si_list.iter().map(|si| Some(si.to_owned())).collect::<Vec<Option<DuoType<i64, String>>>>())).collect();
+        let si_list: Option<Vec<Vec<Option<i64>>>> = hougeki.api_si_list.and_then(|api_si_list| Some(api_si_list.iter().map(|si_list| calc_si_list(&si_list.iter().map(|si| Some(si.to_owned())).collect())).collect()));
 
-        let damages: Vec<Vec<f32>> = hougeki.api_damage.iter().enumerate().map(|(idx, damage)| remove_m1(damage, &hougeki.api_df_list[idx])).enumerate().map(|(idx, damages)| {
-            match hougeki.api_sp_list[idx] {
-                0 | 1 => damages,
-                n if n < 100 => {
-                    let df_0 = hougeki.api_df_list[idx][0].clone();
-                    if hougeki.api_df_list[idx].iter().all(|x| *x == df_0) {
-                        return vec![damages.iter().fold(0_f32, |acc, y| acc + *y)];
-                    } else {
-                        return damages;
-                    }
-                },
-                _ => damages,
-            }.to_vec()
-        }).enumerate().map(|(idx, damages)| calc_floor(&damages)).collect();
+        // let damages: Vec<Vec<f32>> = hougeki.api_damage.iter().enumerate().map(|(idx, damage)| remove_m1(damage, &hougeki.api_df_list[idx])).enumerate().map(|(idx, damages)| {
+        //     match hougeki.api_sp_list[idx] {
+        //         0 | 1 => damages,
+        //         n if n < 100 => {
+        //             let df_0 = hougeki.api_df_list[idx][0].clone();
+        //             if hougeki.api_df_list[idx].iter().all(|x| *x == df_0) {
+        //                 return vec![damages.iter().fold(0_f32, |acc, y| acc + *y)];
+        //             } else {
+        //                 return damages;
+        //             }
+        //         },
+        //         _ => damages,
+        //     }.to_vec()
+        // }).enumerate().map(|(idx, damages)| calc_floor(&damages)).collect();
+        let damages: Option<Vec<Vec<f32>>> = hougeki.api_damage.clone().and_then(|api_damage| 
+            hougeki.api_df_list.clone().and_then(|df_list| 
+                hougeki.api_sp_list.clone().and_then(|api_sp_list|
+                    Some(api_damage.iter().enumerate().map(|(idx, damage)| remove_m1(damage, &df_list[idx])).enumerate().map(|(idx, damages)| 
+                        match api_sp_list[idx] {
+                            0 | 1 => damages,
+                            n if n < 100 => {
+                                let df_0 = df_list[idx][0].clone();
+                                if df_list[idx].iter().all(|x| *x == df_0) {
+                                    return vec![damages.iter().fold(0_f32, |acc, y| acc + *y)];
+                                } else {
+                                    return damages;
+                                }
+                            },
+                            _ => damages,
+                        }
+                    ).map(|damages| calc_floor(&damages)).collect())
+                )
+            )
+        );
         
-        let cl_list: Vec<Vec<i64>> = hougeki.api_cl_list.iter().enumerate().map(|(idx, cl_list)| remove_m1(cl_list, &hougeki.api_df_list[idx])).enumerate().map(|(idx, cl_list)| {
-            match hougeki.api_sp_list[idx] {
-                0 | 1 => cl_list,
-                n if n < 100 => {
-                    let df_0 = hougeki.api_df_list[idx][0].clone();
-                    if hougeki.api_df_list[idx].iter().all(|x| *x == df_0) {
-                        return vec![cl_list.iter().max().unwrap_or(&0).to_owned()];
-                    } else {
-                        return cl_list;
-                    }
-                },
-                _ => cl_list,
-            }.to_vec()
-        }).enumerate().map(|(idx, cl_list)| calc_critical(&damages[idx], &cl_list)).collect();
+        // let cl_list: Vec<Vec<i64>> = hougeki.api_cl_list.iter().enumerate().map(|(idx, cl_list)| remove_m1(cl_list, &hougeki.api_df_list[idx])).enumerate().map(|(idx, cl_list)| {
+        //     match hougeki.api_sp_list[idx] {
+        //         0 | 1 => cl_list,
+        //         n if n < 100 => {
+        //             let df_0 = hougeki.api_df_list[idx][0].clone();
+        //             if hougeki.api_df_list[idx].iter().all(|x| *x == df_0) {
+        //                 return vec![cl_list.iter().max().unwrap_or(&0).to_owned()];
+        //             } else {
+        //                 return cl_list;
+        //             }
+        //         },
+        //         _ => cl_list,
+        //     }.to_vec()
+        // }).enumerate().map(|(idx, cl_list)| calc_critical(&damages[idx], &cl_list)).collect();
+        let cl_list: Option<Vec<Vec<i64>>>= hougeki.api_cl_list.and_then(|api_cl_list| 
+            damages.clone().and_then(|damages| 
+                hougeki.api_df_list.clone().and_then(|df_list| 
+                    hougeki.api_sp_list.clone().and_then(|api_sp_list|
+                        Some(api_cl_list.iter().enumerate().map(|(idx, cl_list)| remove_m1(cl_list, &df_list[idx])).enumerate().map(|(idx, cl_list)| 
+                            match api_sp_list[idx] {
+                                0 | 1 => cl_list,
+                                n if n < 100 => {
+                                    let df_0 = df_list[idx][0].clone();
+                                    if df_list[idx].iter().all(|x| *x == df_0) {
+                                        return vec![cl_list.iter().max().unwrap_or(&0).to_owned()];
+                                    } else {
+                                        return cl_list;
+                                    }
+                                },
+                                _ => cl_list,
+                            }
+                        ).enumerate().map(|(idx, cl_list)| calc_critical(&damages[idx], &cl_list)).collect())
+                    )
+                )
+            )
+        );
         
-        let protect_flag: Vec<Vec<bool>> = hougeki.api_damage.iter().enumerate().map(|(idx, damage)| remove_m1(damage, &hougeki.api_df_list[idx])).map(|damage| calc_protect_flag(&damage)).collect();
+        // let protect_flag: Vec<Vec<bool>> = hougeki.api_damage.iter().enumerate().map(|(idx, damage)| remove_m1(damage, &hougeki.api_df_list[idx])).map(|damage| calc_protect_flag(&damage)).collect();
+        let protect_flag: Option<Vec<Vec<bool>>> = hougeki.api_damage.and_then(|api_damage| 
+            hougeki.api_df_list.clone().and_then(|df_list| 
+                Some(api_damage.iter().enumerate().map(|(idx, damage)| remove_m1(damage, &df_list[idx])).map(|damage| calc_protect_flag(&damage)).collect())
+            )
+        );
 
-        let df_list: Vec<Vec<i64>> = hougeki.api_df_list.iter().enumerate().map(|(idx, df_list)| remove_m1(df_list, &hougeki.api_df_list[idx])).enumerate().map(|(idx, df_list)| {
-            match hougeki.api_sp_list[idx] {
-                0 | 1 => df_list,
-                n if n < 100 => {
-                    let df_0 = df_list[0].clone();
-                    if df_list.iter().all(|x| *x == df_0) {
-                        return vec![df_0];
-                    } else {
-                        return df_list;
+        // let df_list: Vec<Vec<i64>> = hougeki.api_df_list.iter().enumerate().map(|(idx, df_list)| remove_m1(df_list, &hougeki.api_df_list[idx])).enumerate().map(|(idx, df_list)| {
+        //     match hougeki.api_sp_list[idx] {
+        //         0 | 1 => df_list,
+        //         n if n < 100 => {
+        //             let df_0 = df_list[0].clone();
+        //             if df_list.iter().all(|x| *x == df_0) {
+        //                 return vec![df_0];
+        //             } else {
+        //                 return df_list;
+        //             }
+        //         },
+        //         _ => df_list,
+        //     }.to_vec()
+        // }).collect();
+        let df_list: Option<Vec<Vec<i64>>> = hougeki.api_df_list.and_then(|api_df_list| 
+            hougeki.api_sp_list.clone().and_then(|api_sp_list|
+                Some(api_df_list.iter().enumerate().map(|(idx, df_list)| remove_m1(df_list, &api_df_list[idx])).enumerate().map(|(idx, df_list)| 
+                    match api_sp_list[idx] {
+                        0 | 1 => df_list,
+                        n if n < 100 => {
+                            let df_0 = df_list[0].clone();
+                            if df_list.iter().all(|x| *x == df_0) {
+                                return vec![df_0];
+                            } else {
+                                return df_list;
+                            }
+                        },
+                        _ => df_list,
                     }
-                },
-                _ => df_list,
-            }.to_vec()
-        }).collect();
+                ).collect())
+            )
+        );
 
         Self {
             at_list: hougeki.api_at_list,
@@ -454,7 +523,7 @@ impl From<kcapi_common::common_midnight::ApiHougeki> for MidnightHougeki {
             damage: damages,
             at_eflag: hougeki.api_at_eflag,
             si_list: si_list,
-            api_sp_list: hougeki.api_sp_list,
+            sp_list: hougeki.api_sp_list,
             protect_flag: protect_flag,
         }
     }

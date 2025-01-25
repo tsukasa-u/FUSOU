@@ -4,7 +4,6 @@ use warp::Filter;
 
 use crate::bidirectional_channel;
 
-static CARGO_MANIFEST_DIR: &'static str = env!("CARGO_MANIFEST_DIR");
 pub static PATH_ADD_PROXY_BAT: &'static str = concat!(env!("CARGO_MANIFEST_DIR"), "/cmd/add_proxy.bat");
 pub static PATH_DELETE_PROXY_BAT: &'static str = concat!(env!("CARGO_MANIFEST_DIR"), "/cmd/delete_proxy.bat");
 pub static PATH_ADD_STORE_BAT: &'static str = concat!(env!("CARGO_MANIFEST_DIR"), "/cmd/add_store.bat");

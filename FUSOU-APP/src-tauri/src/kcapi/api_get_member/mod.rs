@@ -16,3 +16,7 @@ pub mod material;
 pub mod require_info;
 pub mod useitem;
 pub mod ship_deck;
+pub mod picture_book;
+pub mod preset_slot;
+pub mod basic;
+pub mod kdock;

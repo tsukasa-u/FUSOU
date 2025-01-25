@@ -50,7 +50,6 @@ pub struct ApiData {
     pub api_ship: Vec<i64>,
 }
 
-
 #[cfg(test)]
 mod tests {
     use register_trait::simple_root_test;

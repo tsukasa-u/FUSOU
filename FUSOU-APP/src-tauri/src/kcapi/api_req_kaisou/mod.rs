@@ -7,3 +7,6 @@ pub mod unsetslot_all;
 pub mod slot_exchange_index;
 pub mod can_preset_slot_select;
 pub mod slot_deprive;
+pub mod preset_slot_update_lock;
+pub mod marriage;
+pub mod open_exslot;

@@ -11,7 +11,7 @@ use register_trait::TraitForRoot;
 use register_trait::TraitForConvert;
 
 use crate::interface::interface::{EmitData, Add};
-use crate::interface::ship::Ships;
+// use crate::interface::ship::Ships;
 use crate::interface::battle::Battle;
 
 use crate::kcapi_common::common_air::ApiKouku;

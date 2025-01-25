@@ -1,3 +1,10 @@
 pub mod get_practice_enemyinfo;
 pub mod set_oss_condition;
 pub mod get_incentive;
+pub mod updatedeckname;
+pub mod updatecomment;
+pub mod set_flagship_position;
+pub mod get_event_selected_reward;
+pub mod payitemuse;
+pub mod set_friendly_request;
+pub mod itemuse;

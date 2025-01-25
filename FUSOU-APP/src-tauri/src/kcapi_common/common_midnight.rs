@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+// use serde_json::Value;
 
 use super::custom_type::DuoType;
 
@@ -16,19 +16,19 @@ use register_trait::Getter;
 #[serde(rename_all = "camelCase")]
 pub struct ApiHougeki {
     #[serde(rename = "api_at_eflag")]
-    pub api_at_eflag: Vec<i64>,
+    pub api_at_eflag: Option<Vec<i64>>,
     #[serde(rename = "api_at_list")]
-    pub api_at_list: Vec<i64>,
+    pub api_at_list: Option<Vec<i64>>,
     #[serde(rename = "api_n_mother_list")]
-    pub api_n_mother_list: Vec<i64>,
+    pub api_n_mother_list: Option<Vec<i64>>,
     #[serde(rename = "api_df_list")]
-    pub api_df_list: Vec<Vec<i64>>,
+    pub api_df_list: Option<Vec<Vec<i64>>>,
     #[serde(rename = "api_si_list")]
-    pub api_si_list: Vec<Vec<DuoType<i64, String>>>,
+    pub api_si_list: Option<Vec<Vec<DuoType<i64, String>>>>,
     #[serde(rename = "api_cl_list")]
-    pub api_cl_list: Vec<Vec<i64>>,
+    pub api_cl_list: Option<Vec<Vec<i64>>>,
     #[serde(rename = "api_sp_list")]
-    pub api_sp_list: Vec<i64>,
+    pub api_sp_list: Option<Vec<i64>>,
     #[serde(rename = "api_damage")]
-    pub api_damage: Vec<Vec<f32>>,
+    pub api_damage: Option<Vec<Vec<f32>>>,
 }
