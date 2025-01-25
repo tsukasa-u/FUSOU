@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
-// use serde_json::Value;
+use serde_json::Value;
 
 use register_trait::register_struct;
 use register_trait::add_field;
@@ -10,15 +10,15 @@ use register_trait::Getter;
 use register_trait::TraitForRoot;
 use register_trait::TraitForConvert;
 
-use crate::interface::interface::EmitData;
+use crate::kcapi_common::common_air::ApiKouku;
 
-use crate::kcapi_common::common_midnight::ApiHougeki;
+use crate::interface::interface::EmitData;
 
 #[derive(Getter, TraitForTest, TraitForRoot, TraitForConvert)]
 #[convert_output(output = EmitData)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
-#[register_struct(name = "api_req_practice/midnight_battle")]
+#[register_struct(name = "api_req_sortie/airbattle")]
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Root {
@@ -58,45 +58,29 @@ pub struct ApiData {
     pub api_e_slot: Vec<Vec<i64>>,
     #[serde(rename = "api_eParam")]
     pub api_e_param: Vec<Vec<i64>>,
-    #[serde(rename = "api_e_effect_list")]
-    pub api_e_effect_list: Vec<Vec<i64>>,
     #[serde(rename = "api_smoke_type")]
     pub api_smoke_type: i64,
     #[serde(rename = "api_balloon_cell")]
     pub api_balloon_cell: i64,
     #[serde(rename = "api_atoll_cell")]
     pub api_atoll_cell: i64,
-    #[serde(rename = "api_touch_plane")]
-    pub api_touch_plane: Vec<i64>,
-    #[serde(rename = "api_flare_pos")]
-    pub api_flare_pos: Vec<i64>,
-    #[serde(rename = "api_hougeki")]
-    pub api_hougeki: ApiHougeki,
+    #[serde(rename = "api_midnight_flag")]
+    pub api_midnight_flag: i64,
+    #[serde(rename = "api_search")]
+    pub api_search: Vec<i64>,
+    #[serde(rename = "api_stage_flag")]
+    pub api_stage_flag: Vec<i64>,
+    #[serde(rename = "api_kouku")]
+    pub api_kouku: ApiKouku,
+    #[serde(rename = "api_support_flag")]
+    pub api_support_flag: i64,
+    #[serde(rename = "api_support_info")]
+    pub api_support_info: Value,
+    #[serde(rename = "api_stage_flag2")]
+    pub api_stage_flag2: Vec<i64>,
+    #[serde(rename = "api_kouku2")]
+    pub api_kouku2: ApiKouku,
 }
-
-// #[derive(Getter, TraitForTest)]
-// #[struct_test_case(field_extra, type_value, integration)]
-// #[add_field(extra)]
-// #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-// #[serde(rename_all = "camelCase")]
-// pub struct ApiHougeki {
-//     #[serde(rename = "api_at_eflag")]
-//     pub api_at_eflag: Vec<i64>,
-//     #[serde(rename = "api_at_list")]
-//     pub api_at_list: Vec<i64>,
-//     #[serde(rename = "api_n_mother_list")]
-//     pub api_n_mother_list: Vec<i64>,
-//     #[serde(rename = "api_df_list")]
-//     pub api_df_list: Vec<Vec<i64>>,
-//     #[serde(rename = "api_si_list")]
-//     pub api_si_list: Vec<Vec<Value>>,
-//     #[serde(rename = "api_cl_list")]
-//     pub api_cl_list: Vec<Vec<i64>>,
-//     #[serde(rename = "api_sp_list")]
-//     pub api_sp_list: Vec<i64>,
-//     #[serde(rename = "api_damage")]
-//     pub api_damage: Vec<Vec<f64>>,
-// }
 
 #[cfg(test)]
 mod tests {
@@ -118,8 +102,8 @@ mod tests {
             }
         }
 
-        let pattern_str = "S@api_req_practice@midnight_battle";
-        let log_path = "./src/kcapi/api_req_practice/midnight_battle.log";
+        let pattern_str = "S@api_req_sortie@airbattle";
+        let log_path = "./src/kcapi/api_req_sortie/airbattle.log";
         simple_root_test::<Root>(target_path, pattern_str.to_string(), log_path.to_string());
     }
 }

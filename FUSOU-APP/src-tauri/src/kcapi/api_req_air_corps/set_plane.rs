@@ -1,0 +1,101 @@
+use std::collections::HashMap;
+use serde::{Deserialize, Serialize};
+// use serde_json::Value;
+
+use register_trait::register_struct;
+use register_trait::add_field;
+
+use register_trait::TraitForTest;
+use register_trait::Getter;
+use register_trait::TraitForRoot;
+use register_trait::TraitForConvert;
+
+use crate::interface::interface::EmitData;
+
+#[derive(Getter, TraitForTest, TraitForRoot, TraitForConvert)]
+#[convert_output(output = EmitData)]
+#[struct_test_case(field_extra, type_value, integration)]
+#[add_field(extra)]
+#[register_struct(name = "api_req_air_corps/set_plane")]
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Root {
+    #[serde(rename = "api_data")]
+    pub api_data: ApiData,
+    #[serde(rename = "api_result")]
+    pub api_result: i64,
+    #[serde(rename = "api_result_msg")]
+    pub api_result_msg: String,
+}
+
+#[derive(Getter, TraitForTest)]
+#[struct_test_case(field_extra, type_value, integration)]
+#[add_field(extra)]
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApiData {
+    #[serde(rename = "api_plane_info")]
+    pub api_plane_info: Vec<ApiPlaneInfo>,
+    #[serde(rename = "api_after_bauxite")]
+    pub api_after_bauxite: i64,
+    #[serde(rename = "api_distance")]
+    pub api_distance: ApiDistance,
+}
+
+#[derive(Getter, TraitForTest)]
+#[struct_test_case(field_extra, type_value, integration)]
+#[add_field(extra)]
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApiPlaneInfo {
+    #[serde(rename = "api_squadron_id")]
+    pub api_squadron_id: i64,
+    #[serde(rename = "api_state")]
+    pub api_state: i64,
+    #[serde(rename = "api_slotid")]
+    pub api_slotid: i64,
+    #[serde(rename = "api_count")]
+    pub api_count: i64,
+    #[serde(rename = "api_max_count")]
+    pub api_max_count: i64,
+    #[serde(rename = "api_cond")]
+    pub api_cond: i64,
+}
+
+#[derive(Getter, TraitForTest)]
+#[struct_test_case(field_extra, type_value, integration)]
+#[add_field(extra)]
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApiDistance {
+    #[serde(rename = "api_base")]
+    pub api_base: i64,
+    #[serde(rename = "api_bonus")]
+    pub api_bonus: i64,
+}
+
+#[cfg(test)]
+mod tests {
+    use register_trait::simple_root_test;
+
+    use super::*;
+    use dotenvy::dotenv;
+    use std::env;
+
+    #[test]
+    fn test_deserialize() {
+        
+        let mut target_path = "./../../FUSOU-PROXY-DATA/kcsapi".to_string();
+    
+        dotenv().expect(".env file not found");
+        for (key, value) in env::vars() {
+            if key.eq("TEST_DATA_PATH") {
+                target_path = value.clone();
+            }
+        }
+
+        let pattern_str = "S@api_req_air_corps@set_plane";
+        let log_path = "./src/kcapi/api_req_air_corps/set_plane.log";
+        simple_root_test::<Root>(target_path, pattern_str.to_string(), log_path.to_string());
+    }
+}
