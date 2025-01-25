@@ -16,7 +16,7 @@ use crate::interface::interface::EmitData;
 #[convert_output(output = EmitData)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
-#[register_struct(name = "api_get_member/deck")]
+#[register_struct(name = "api_req_map/select_eventmap_rank")]
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Root {
@@ -25,7 +25,7 @@ pub struct Root {
     #[serde(rename = "api_result_msg")]
     pub api_result_msg: String,
     #[serde(rename = "api_data")]
-    pub api_data: Vec<ApiData>,
+    pub api_data: ApiData,
 }
 
 #[derive(Getter, TraitForTest)]
@@ -34,20 +34,32 @@ pub struct Root {
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiData {
-    #[serde(rename = "api_member_id")]
-    pub api_member_id: i64,
-    #[serde(rename = "api_id")]
-    pub api_id: i64,
-    #[serde(rename = "api_name")]
-    pub api_name: String,
-    #[serde(rename = "api_name_id")]
-    pub api_name_id: String,
-    #[serde(rename = "api_mission")]
-    pub api_mission: Vec<i64>,
-    #[serde(rename = "api_flagship")]
-    pub api_flagship: String,
-    #[serde(rename = "api_ship")]
-    pub api_ship: Vec<i64>,
+    #[serde(rename = "api_maphp")]
+    pub api_maphp: ApiMaphp,
+    #[serde(rename = "api_sally_flag")]
+    pub api_sally_flag: Vec<i64>,
+    #[serde(rename = "api_m10")]
+    pub api_m10: Option<i64>,
+    #[serde(rename = "api_s_no")]
+    pub api_s_no: i64,
+    #[serde(rename = "api_air_base_decks")]
+    pub api_air_base_decks: Option<i64>,
+}
+
+#[derive(Getter, TraitForTest)]
+#[struct_test_case(field_extra, type_value, integration)]
+#[add_field(extra)]
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApiMaphp {
+    #[serde(rename = "api_now_maphp")]
+    pub api_now_maphp: i64,
+    #[serde(rename = "api_max_maphp")]
+    pub api_max_maphp: i64,
+    #[serde(rename = "api_gauge_type")]
+    pub api_gauge_type: i64,
+    #[serde(rename = "api_gauge_num")]
+    pub api_gauge_num: i64,
 }
 
 #[cfg(test)]
@@ -70,8 +82,8 @@ mod tests {
             }
         }
 
-        let pattern_str = "S@api_get_member@deck";
-        let log_path = "./src/kcapi/api_get_member/deck.log";
-        simple_root_test::<Root>(target_path.to_string(), pattern_str.to_string(), log_path.to_string());
+        let pattern_str = "S@api_req_map@select_eventmap_rank";
+        let log_path = "./src/kcapi/api_req_map/select_eventmap_rank.log";
+        simple_root_test::<Root>(target_path, pattern_str.to_string(), log_path.to_string());
     }
 }

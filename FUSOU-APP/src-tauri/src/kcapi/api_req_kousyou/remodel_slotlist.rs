@@ -16,7 +16,7 @@ use crate::interface::interface::EmitData;
 #[convert_output(output = EmitData)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
-#[register_struct(name = "api_get_member/deck")]
+#[register_struct(name = "api_req_kousyou/remodel_slotlist")]
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Root {
@@ -34,20 +34,28 @@ pub struct Root {
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiData {
-    #[serde(rename = "api_member_id")]
-    pub api_member_id: i64,
     #[serde(rename = "api_id")]
     pub api_id: i64,
-    #[serde(rename = "api_name")]
-    pub api_name: String,
-    #[serde(rename = "api_name_id")]
-    pub api_name_id: String,
-    #[serde(rename = "api_mission")]
-    pub api_mission: Vec<i64>,
-    #[serde(rename = "api_flagship")]
-    pub api_flagship: String,
-    #[serde(rename = "api_ship")]
-    pub api_ship: Vec<i64>,
+    #[serde(rename = "api_slot_id")]
+    pub api_slot_id: i64,
+    #[serde(rename = "api_sp_type")]
+    pub api_sp_type: i64,
+    #[serde(rename = "api_req_fuel")]
+    pub api_req_fuel: i64,
+    #[serde(rename = "api_req_bull")]
+    pub api_req_bull: i64,
+    #[serde(rename = "api_req_steel")]
+    pub api_req_steel: i64,
+    #[serde(rename = "api_req_bauxite")]
+    pub api_req_bauxite: i64,
+    #[serde(rename = "api_req_buildkit")]
+    pub api_req_buildkit: i64,
+    #[serde(rename = "api_req_remodelkit")]
+    pub api_req_remodelkit: i64,
+    #[serde(rename = "api_req_slot_id")]
+    pub api_req_slot_id: i64,
+    #[serde(rename = "api_req_slot_num")]
+    pub api_req_slot_num: i64,
 }
 
 #[cfg(test)]
@@ -70,8 +78,8 @@ mod tests {
             }
         }
 
-        let pattern_str = "S@api_get_member@deck";
-        let log_path = "./src/kcapi/api_get_member/deck.log";
-        simple_root_test::<Root>(target_path.to_string(), pattern_str.to_string(), log_path.to_string());
+        let pattern_str = "S@api_req_kousyou@remodel_slotlist";
+        let log_path = "./src/kcapi/api_req_kousyou/remodel_slotlist.log";
+        simple_root_test::<Root>(target_path, pattern_str.to_string(), log_path.to_string());
     }
 }

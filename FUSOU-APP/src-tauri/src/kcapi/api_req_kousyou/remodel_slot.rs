@@ -16,7 +16,7 @@ use crate::interface::interface::EmitData;
 #[convert_output(output = EmitData)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
-#[register_struct(name = "api_get_member/deck")]
+#[register_struct(name = "api_req_kousyou/remodel_slot")]
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Root {
@@ -25,7 +25,7 @@ pub struct Root {
     #[serde(rename = "api_result_msg")]
     pub api_result_msg: String,
     #[serde(rename = "api_data")]
-    pub api_data: Vec<ApiData>,
+    pub api_data: ApiData,
 }
 
 #[derive(Getter, TraitForTest)]
@@ -34,20 +34,38 @@ pub struct Root {
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiData {
-    #[serde(rename = "api_member_id")]
-    pub api_member_id: i64,
+    #[serde(rename = "api_remodel_flag")]
+    pub api_remodel_flag: i64,
+    #[serde(rename = "api_remodel_id")]
+    pub api_remodel_id: Vec<i64>,
+    #[serde(rename = "api_after_material")]
+    pub api_after_material: Vec<i64>,
+    #[serde(rename = "api_voice_ship_id")]
+    pub api_voice_ship_id: i64,
+    #[serde(rename = "api_voice_id")]
+    pub api_voice_id: i64,
+    #[serde(rename = "api_after_slot")]
+    pub api_after_slot: Option<ApiAfterSlot>,
+    #[serde(rename = "api_use_slot_id")]
+    pub api_use_slot_id: Option<Vec<i64>>,
+}
+
+#[derive(Getter, TraitForTest)]
+#[struct_test_case(field_extra, type_value, integration)]
+#[add_field(extra)]
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApiAfterSlot {
     #[serde(rename = "api_id")]
     pub api_id: i64,
-    #[serde(rename = "api_name")]
-    pub api_name: String,
-    #[serde(rename = "api_name_id")]
-    pub api_name_id: String,
-    #[serde(rename = "api_mission")]
-    pub api_mission: Vec<i64>,
-    #[serde(rename = "api_flagship")]
-    pub api_flagship: String,
-    #[serde(rename = "api_ship")]
-    pub api_ship: Vec<i64>,
+    #[serde(rename = "api_slotitem_id")]
+    pub api_slotitem_id: i64,
+    #[serde(rename = "api_locked")]
+    pub api_locked: i64,
+    #[serde(rename = "api_level")]
+    pub api_level: i64,
+    #[serde(rename = "api_alv")]
+    pub api_alv: Option<i64>,
 }
 
 #[cfg(test)]
@@ -70,8 +88,8 @@ mod tests {
             }
         }
 
-        let pattern_str = "S@api_get_member@deck";
-        let log_path = "./src/kcapi/api_get_member/deck.log";
-        simple_root_test::<Root>(target_path.to_string(), pattern_str.to_string(), log_path.to_string());
+        let pattern_str = "S@api_req_kousyou@remodel_slot";
+        let log_path = "./src/kcapi/api_req_kousyou/remodel_slot.log";
+        simple_root_test::<Root>(target_path, pattern_str.to_string(), log_path.to_string());
     }
 }
