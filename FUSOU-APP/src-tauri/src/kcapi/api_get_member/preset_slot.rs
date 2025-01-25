@@ -1,0 +1,113 @@
+use std::collections::HashMap;
+use serde::{Deserialize, Serialize};
+// use serde_json::Value;
+
+use register_trait::register_struct;
+use register_trait::add_field;
+
+use register_trait::TraitForTest;
+use register_trait::Getter;
+use register_trait::TraitForRoot;
+use register_trait::TraitForConvert;
+
+use crate::interface::interface::EmitData;
+
+#[derive(Getter, TraitForTest, TraitForRoot, TraitForConvert)]
+#[convert_output(output = EmitData)]
+#[struct_test_case(field_extra, type_value, integration)]
+#[add_field(extra)]
+#[register_struct(name = "api_get_member/preset_slot")]
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Root {
+    #[serde(rename = "api_result")]
+    pub api_result: i64,
+    #[serde(rename = "api_result_msg")]
+    pub api_result_msg: String,
+    #[serde(rename = "api_data")]
+    pub api_data: ApiData,
+}
+
+#[derive(Getter, TraitForTest)]
+#[struct_test_case(field_extra, type_value, integration)]
+#[add_field(extra)]
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApiData {
+    #[serde(rename = "api_max_num")]
+    pub api_max_num: i64,
+    #[serde(rename = "api_preset_items")]
+    pub api_preset_items: Vec<ApiPresetItem>,
+}
+
+#[derive(Getter, TraitForTest)]
+#[struct_test_case(field_extra, type_value, integration)]
+#[add_field(extra)]
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApiPresetItem {
+    #[serde(rename = "api_preset_no")]
+    pub api_preset_no: i64,
+    #[serde(rename = "api_name")]
+    pub api_name: String,
+    #[serde(rename = "api_selected_mode")]
+    pub api_selected_mode: i64,
+    #[serde(rename = "api_lock_flag")]
+    pub api_lock_flag: i64,
+    #[serde(rename = "api_slot_ex_flag")]
+    pub api_slot_ex_flag: i64,
+    #[serde(rename = "api_slot_item")]
+    pub api_slot_item: Vec<ApiSlotItem>,
+    #[serde(rename = "api_slot_item_ex")]
+    pub api_slot_item_ex: Option<ApiSlotItemEx>,
+}
+
+#[derive(Getter, TraitForTest)]
+#[struct_test_case(field_extra, type_value, integration)]
+#[add_field(extra)]
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApiSlotItem {
+    #[serde(rename = "api_id")]
+    pub api_id: i64,
+    #[serde(rename = "api_level")]
+    pub api_level: i64,
+}
+
+#[derive(Getter, TraitForTest)]
+#[struct_test_case(field_extra, type_value, integration)]
+#[add_field(extra)]
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApiSlotItemEx {
+    #[serde(rename = "api_id")]
+    pub api_id: i64,
+    #[serde(rename = "api_level")]
+    pub api_level: i64,
+}
+
+#[cfg(test)]
+mod tests {
+    use register_trait::simple_root_test;
+
+    use super::*;
+    use dotenvy::dotenv;
+    use std::env;
+
+    #[test]
+    fn test_deserialize() {
+        
+        let mut target_path = "./../../FUSOU-PROXY-DATA/kcsapi".to_string();
+    
+        dotenv().expect(".env file not found");
+        for (key, value) in env::vars() {
+            if key.eq("TEST_DATA_PATH") {
+                target_path = value.clone();
+            }
+        }
+
+        let pattern_str = "S@api_get_member@preset_slot";
+        let log_path = "./src/kcapi/api_get_member/preset_slot.log";
+        simple_root_test::<Root>(target_path.to_string(), pattern_str.to_string(), log_path.to_string());
+    }
+}
