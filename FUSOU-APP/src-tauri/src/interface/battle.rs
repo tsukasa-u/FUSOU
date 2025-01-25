@@ -351,7 +351,7 @@ impl From<kcapi_common::common_battle::ApiHougeki> for Hougeki {
                 },
                 _ => damages,
             }.to_vec()
-        }).enumerate().map(|(idx, damages)| calc_floor(&damages)).collect();
+        }).map(|damages| calc_floor(&damages)).collect();
         
         let cl_list: Vec<Vec<i64>> = hougeki.api_cl_list.iter().enumerate().map(|(idx, cl_list)| remove_m1(cl_list, &hougeki.api_df_list[idx])).enumerate().map(|(idx, cl_list)| {
             match hougeki.api_at_type[idx] {
