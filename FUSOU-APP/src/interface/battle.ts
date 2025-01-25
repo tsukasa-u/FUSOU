@@ -48,14 +48,14 @@ export interface SupportHourai {
 
 
 export interface MidnightHougeki {
-    at_list: number[],
-    df_list: number[][],
-    cl_list: number[][],
-    damage: number[][],
-    at_eflag: number[],
-    si_list: (number | null)[][],
-    sp_list: number[],
-    protect_flag: boolean[][],
+    at_list: number[] | null,
+    df_list: number[][] | null,
+    cl_list: number[][] | null,
+    damage: number[][] | null,
+    at_eflag: number[] | null,
+    si_list: (number | null)[][] | null,
+    sp_list: number[] | null,
+    protect_flag: boolean[][] | null,
 }
 
 export interface AirBaseAirAttacks {
