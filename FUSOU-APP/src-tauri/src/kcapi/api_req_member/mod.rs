@@ -8,3 +8,4 @@ pub mod get_event_selected_reward;
 pub mod payitemuse;
 pub mod set_friendly_request;
 pub mod itemuse;
+pub mod itemuse_cond;
