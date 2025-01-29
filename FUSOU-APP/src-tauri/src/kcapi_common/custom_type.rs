@@ -10,8 +10,8 @@ pub enum DuoType<S, T> {
 
 impl<S, T> TraitForTest for DuoType<S, T> {}
 
-// impl <S, T> Default for DuoType<S, T> {
-//     fn default() -> Self {
-//         DuoType::Type1(Default::default())
-//     }
-// }
+impl <S, T> Default for DuoType<S, T> where  S: Default {
+    fn default() -> Self {
+        DuoType::Type1(Default::default())
+    }
+}

@@ -20,3 +20,4 @@ pub mod picture_book;
 pub mod preset_slot;
 pub mod basic;
 pub mod kdock;
+pub mod ship2;
