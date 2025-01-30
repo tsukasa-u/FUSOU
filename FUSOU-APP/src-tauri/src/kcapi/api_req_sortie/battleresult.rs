@@ -12,6 +12,11 @@ use register_trait::Getter;
 use register_trait::TraitForRoot;
 use register_trait::TraitForConvert;
 
+use crate::kcapi_common::common_result::ApiEnemyInfo;
+use crate::kcapi_common::common_result::ApiGetEventitem;
+use crate::kcapi_common::common_result::ApiGetShip;
+use crate::kcapi_common::common_result::ApiLandingHp;
+
 use crate::interface::interface::EmitData;
 
 #[derive(Getter, TraitForTest, TraitForRoot, TraitForConvert)]
@@ -110,19 +115,19 @@ pub struct ApiGetUseitem {
     pub api_useitem_name: String,
 }
 
-#[derive(Getter, TraitForTest)]
-#[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ApiGetEventitem {
-    #[serde(rename = "api_type")]
-    pub api_tye: i64,
-    #[serde(rename = "api_id")]
-    pub api_id: i64,
-    #[serde(rename = "api_value")]
-    pub api_value: i64,
-}
+// #[derive(Getter, TraitForTest)]
+// #[struct_test_case(field_extra, type_value, integration)]
+// #[add_field(extra)]
+// #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+// #[serde(rename_all = "camelCase")]
+// pub struct ApiGetEventitem {
+//     #[serde(rename = "api_type")]
+//     pub api_tye: i64,
+//     #[serde(rename = "api_id")]
+//     pub api_id: i64,
+//     #[serde(rename = "api_value")]
+//     pub api_value: i64,
+// }
 
 #[derive(Getter, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
@@ -140,19 +145,19 @@ pub struct ApiSelectRewardDict {
     pub api_value: i64,
 }
 
-#[derive(Getter, TraitForTest)]
-#[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ApiLandingHp {
-    #[serde(rename = "api_max_hp")]
-    pub api_max_hp: String,
-    #[serde(rename = "api_now_hp")]
-    pub api_now_hp: String,
-    #[serde(rename = "api_sub_value")]
-    pub api_sub_value: Option<DuoType<i64, String>>,
-}
+// #[derive(Getter, TraitForTest)]
+// #[struct_test_case(field_extra, type_value, integration)]
+// #[add_field(extra)]
+// #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+// #[serde(rename_all = "camelCase")]
+// pub struct ApiLandingHp {
+//     #[serde(rename = "api_max_hp")]
+//     pub api_max_hp: String,
+//     #[serde(rename = "api_now_hp")]
+//     pub api_now_hp: String,
+//     #[serde(rename = "api_sub_value")]
+//     pub api_sub_value: Option<DuoType<i64, String>>,
+// }
 
 #[derive(Getter, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
@@ -166,35 +171,35 @@ pub struct ApiEscapeFlag {
     pub api_escape_type: i64,
 }
 
-#[derive(Getter, TraitForTest)]
-#[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ApiGetShip {
-    #[serde(rename = "api_ship_id")]
-    pub api_ship_id: i64,
-    #[serde(rename = "api_ship_type")]
-    pub api_ship_type: String,
-    #[serde(rename = "api_ship_name")]
-    pub api_ship_name: String,
-    #[serde(rename = "api_ship_getmes")]
-    pub api_ship_getmes: String,
-}
+// #[derive(Getter, TraitForTest)]
+// #[struct_test_case(field_extra, type_value, integration)]
+// #[add_field(extra)]
+// #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+// #[serde(rename_all = "camelCase")]
+// pub struct ApiGetShip {
+//     #[serde(rename = "api_ship_id")]
+//     pub api_ship_id: i64,
+//     #[serde(rename = "api_ship_type")]
+//     pub api_ship_type: String,
+//     #[serde(rename = "api_ship_name")]
+//     pub api_ship_name: String,
+//     #[serde(rename = "api_ship_getmes")]
+//     pub api_ship_getmes: String,
+// }
 
-#[derive(Getter, TraitForTest)]
-#[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ApiEnemyInfo {
-    #[serde(rename = "api_level")]
-    pub api_level: String,
-    #[serde(rename = "api_rank")]
-    pub api_rank: String,
-    #[serde(rename = "api_deck_name")]
-    pub api_deck_name: String,
-}
+// #[derive(Getter, TraitForTest)]
+// #[struct_test_case(field_extra, type_value, integration)]
+// #[add_field(extra)]
+// #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+// #[serde(rename_all = "camelCase")]
+// pub struct ApiEnemyInfo {
+//     #[serde(rename = "api_level")]
+//     pub api_level: String,
+//     #[serde(rename = "api_rank")]
+//     pub api_rank: String,
+//     #[serde(rename = "api_deck_name")]
+//     pub api_deck_name: String,
+// }
 
 #[cfg(test)]
 mod tests {
