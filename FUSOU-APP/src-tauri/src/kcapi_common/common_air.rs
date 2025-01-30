@@ -101,6 +101,8 @@ pub struct ApiKouku {
     pub api_stage2: Option<ApiStage2>,
     #[serde(rename = "api_stage3")]
     pub api_stage3: Option<ApiStage3>,
+    #[serde(rename = "api_stage3_combined")]
+    pub api_stage3_combined: Option<ApiStage3>,
 }
 
 #[derive(Getter, TraitForTest)]
@@ -123,6 +125,8 @@ pub struct ApiAirBaseAttack {
     pub api_plane_from: Option<Vec<Option<Vec<i64>>>>,
     #[serde(rename = "api_squadron_plane")]
     pub api_squadron_plane: Option<Vec<ApiSquadronPlane>>,
+    #[serde(rename = "api_stage3_combined")]
+    pub api_stage3_combined: Option<ApiStage3>,
 }
 
 #[derive(Getter, TraitForTest)]
