@@ -529,8 +529,8 @@ impl From<kcapi_common::common_midnight::ApiHougeki> for MidnightHougeki {
     }
 }
 
-impl From<kcapi::api_req_sortie::battle::ApiSupportInfo> for SupportAttack {
-    fn from(support_info: kcapi::api_req_sortie::battle::ApiSupportInfo) -> Self {
+impl From<kcapi_common::common_battle::ApiSupportInfo> for SupportAttack {
+    fn from(support_info: kcapi_common::common_battle::ApiSupportInfo) -> Self {
         let support_hourai: Option<SupportHourai> = match support_info.api_support_hourai {
             Some(support_hourai) => Some(support_hourai.into()),
             None => None,
@@ -542,8 +542,8 @@ impl From<kcapi::api_req_sortie::battle::ApiSupportInfo> for SupportAttack {
     }
 }
 
-impl From<kcapi::api_req_sortie::battle::ApiSupportHourai> for SupportHourai {
-    fn from(support_hourai: kcapi::api_req_sortie::battle::ApiSupportHourai) -> Self {
+impl From<kcapi_common::common_battle::ApiSupportHourai> for SupportHourai {
+    fn from(support_hourai:kcapi_common::common_battle::ApiSupportHourai) -> Self {
 
         let damages: Vec<f32> = calc_floor(&support_hourai.api_damage);
         let cl_list: Vec<i64> = calc_critical(&damages, &support_hourai.api_cl_list);
