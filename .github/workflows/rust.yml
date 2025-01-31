@@ -56,10 +56,13 @@ jobs:
       run: ls ./tests/struct_dependency_svg
     - name: Upload SVG
       uses: actions/upload-artifact@v4
+      id: artifact-upload-svg
       with:
-        name: struct_dependency_artifact
-        path: ./tests/struct_dependency_svg
+        name: struct-dependency-artifact
+        path: ./FUSOU-APP/src-tauri/tests/struct_dependency_svg
         overwrite: true
+    - name: Output artifact ID
+      run:  echo 'Artifact ID is ${{ steps.artifact-upload-svg.outputs.artifact-id }}'
 
   doc:
     runs-on: ubuntu-22.04
@@ -89,7 +92,7 @@ jobs:
     - name: Download SVG
       uses: actions/download-artifact@v4
       with:
-        name: struct_dependency_artifact
+        name: struct-dependency-artifact
     - name: move struct dependency svg
       run: mv -r ./tests/struct_dependency_svg ./target/struct_dependency_svg
     - name: Upload artifact
