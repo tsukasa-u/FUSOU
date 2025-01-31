@@ -2,7 +2,7 @@
 //! KC APIs are also dependent on kcapi::kcapi_common.
 //! The dependency graph of the APIs is shown below.
 //! <div style="height: 80vh; overflow: scroll;">
-//!   <img src="https://raw.githubusercontent.com/tsukasa-u/FUSOU/refs/heads/main/FUSOU-APP/src-tauri/tests/struct_dependency.svg" alt="KC_API_dependency" style="max-width: 2000px;"/>
+//!   <img src="https://tsukasa-u.github.io/FUSOU/struct_dependency_svg/all.svg" alt="KC_API_dependency(all)" style="max-width: 2000px;"/>
 //! </div>
 
 pub mod api_req_hokyu;
