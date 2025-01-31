@@ -1,0 +1,15 @@
+digraph {
+  rankdir=LR;
+  subgraph cluster_0 {
+    label="api_req_quest / clearitemget";
+    node [style="filled", color=white, style="solid", color=gray20];
+    api_req_quest__clearitemget__ApiItem [label="<ApiItem> ApiItem  | { api_id_to | <api_id_to> Option\<i64\> } | { api_name | <api_name> Option\<String\> } | { api_message | <api_message> Option\<String\> } | { api_slotitem_level | <api_slotitem_level> Option\<i64\> } | { api_id | <api_id> Option\<i64\> } | { api_id_from | <api_id_from> Option\<i64\> }", shape=record];
+    api_req_quest__clearitemget__Root [label="<Root> Root  | { api_result_msg | <api_result_msg> String } | { api_result | <api_result> i64 } | { api_data | <api_data> ApiData }", shape=record];
+    api_req_quest__clearitemget__ApiData;
+    api_req_quest__clearitemget__Root:api_data:e -> api_req_quest__clearitemget__ApiData:ApiData:w;
+    api_req_quest__clearitemget__ApiBounu [label="<ApiBounu> ApiBounu  | { api_type | <api_type> i64 } | { api_count | <api_count> i64 } | { api_item | <api_item> ApiItem }", shape=record];
+    api_req_quest__clearitemget__ApiBounu:api_item:e -> api_req_quest__clearitemget__ApiItem:ApiItem:w;
+    api_req_quest__clearitemget__ApiData [label="<ApiData> ApiData  | { api_material | <api_material> Vec\<i64\> } | { api_bounus | <api_bounus> Vec\<ApiBounu\> } | { api_bounus_count | <api_bounus_count> i64 }", shape=record];
+    api_req_quest__clearitemget__ApiData:api_bounus:e -> api_req_quest__clearitemget__ApiBounu:ApiBounu:w;
+  }
+}

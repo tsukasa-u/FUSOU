@@ -1,3 +1,11 @@
 #!/bin/bash
 
-dot -Tsvg ./tests/struct_dependency.dot > ./tests/struct_dependency.svg
+for f in ./tests/struct_dependency_dot/*.dot; do
+    FILE_PATH_DOT=$f
+    FILE_PATH_SVG=${f/dot/svg}
+    rm -f $FILE_PATH_SVG
+    dot -Tsvg $FILE_PATH_DOT > $FILE_PATH_SVG
+done
+
+FILE_PATH_DOT=
+FILE_PATH_SVG=

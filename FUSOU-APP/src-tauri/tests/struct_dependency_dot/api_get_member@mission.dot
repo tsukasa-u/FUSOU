@@ -1,0 +1,14 @@
+digraph {
+  rankdir=LR;
+  subgraph cluster_0 {
+    label="api_get_member / mission";
+    node [style="filled", color=white, style="solid", color=gray20];
+    api_get_member__mission__Root [label="<Root> Root  | { api_data | <api_data> ApiData } | { api_result | <api_result> i64 } | { api_result_msg | <api_result_msg> String }", shape=record];
+    api_get_member__mission__ApiData;
+    api_get_member__mission__Root:api_data:e -> api_get_member__mission__ApiData:ApiData:w;
+    api_get_member__mission__ApiData [label="<ApiData> ApiData  | { api_list_items | <api_list_items> Vec\<ApiListItem\> } | { api_limit_time | <api_limit_time> Vec\<i64\> }", shape=record];
+    api_get_member__mission__ApiListItem;
+    api_get_member__mission__ApiData:api_list_items:e -> api_get_member__mission__ApiListItem:ApiListItem:w;
+    api_get_member__mission__ApiListItem [label="<ApiListItem> ApiListItem  | { api_mission_id | <api_mission_id> i64 } | { api_state | <api_state> i64 }", shape=record];
+  }
+}

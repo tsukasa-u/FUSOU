@@ -1,0 +1,13 @@
+digraph {
+  rankdir=LR;
+  subgraph cluster_0 {
+    label="api_req_kousyou / remodel_slot";
+    node [style="filled", color=white, style="solid", color=gray20];
+    api_req_kousyou__remodel_slot__Root [label="<Root> Root  | { api_result_msg | <api_result_msg> String } | { api_result | <api_result> i64 } | { api_data | <api_data> ApiData }", shape=record];
+    api_req_kousyou__remodel_slot__ApiData;
+    api_req_kousyou__remodel_slot__Root:api_data:e -> api_req_kousyou__remodel_slot__ApiData:ApiData:w;
+    api_req_kousyou__remodel_slot__ApiAfterSlot [label="<ApiAfterSlot> ApiAfterSlot  | { api_level | <api_level> i64 } | { api_slotitem_id | <api_slotitem_id> i64 } | { api_locked | <api_locked> i64 } | { api_id | <api_id> i64 } | { api_alv | <api_alv> Option\<i64\> }", shape=record];
+    api_req_kousyou__remodel_slot__ApiData [label="<ApiData> ApiData  | { api_remodel_id | <api_remodel_id> Vec\<i64\> } | { api_remodel_flag | <api_remodel_flag> i64 } | { api_voice_id | <api_voice_id> i64 } | { api_use_slot_id | <api_use_slot_id> Option\<Vec\<i64\>\> } | { api_after_material | <api_after_material> Vec\<i64\> } | { api_after_slot | <api_after_slot> Option\<ApiAfterSlot\> } | { api_voice_ship_id | <api_voice_ship_id> i64 }", shape=record];
+    api_req_kousyou__remodel_slot__ApiData:api_after_slot:e -> api_req_kousyou__remodel_slot__ApiAfterSlot:ApiAfterSlot:w;
+  }
+}
