@@ -12,32 +12,49 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  # build:
-    # runs-on: ubuntu-22.04
-    # defaults:
-    #   run:
-    #     working-directory: ./FUSOU-APP/src-tauri
-    # steps:
-    # - uses: actions/checkout@v4
-    # - uses: actions-rust-lang/setup-rust-toolchain@v1
-    # - name: Setup Ubuntu for tauir@v1
+  build:
+    runs-on: ubuntu-22.04
+    defaults:
+      run:
+        working-directory: ./FUSOU-APP/src-tauri
+    steps:
+    - uses: actions/checkout@v4
+    - name: Setup Ubuntu for tauri@v1
+      run: |
+        sudo apt update && \
+        sudo apt install -y libwebkit2gtk-4.0-dev 
+    - name: Build
+      run: cargo build --verbose
+
+  struct_dependency:
+    runs-on: ubuntu-22.04
+    defaults:
+      run:
+        working-directory: ./FUSOU-APP/src-tauri
+    needs: build
+    steps:
+    - uses: actions/checkout@v4
+    # - name: Stauir@v1
     #   run: |
     #     sudo apt update && \
     #     sudo apt install -y libwebkit2gtk-4.0-dev 
-    # - name: Build
-    #   run: cargo build --verbose
-    # - name: Run tests
-    #   run: cargo test --verbose
+    - name: setup Ubuntu for dot
+      run: |
+        sudo apt update && \
+        sudo apt install -y graphviz
+    - name: export dependencies dot
+      run: cargo test --all test_struct_dependency
+    - name: export dependencies svg
+      run: sudo sh .\tests\export_svg.sh
 
   doc:
     runs-on: ubuntu-22.04
     defaults:
       run:
         working-directory: ./FUSOU-APP/src-tauri
-    # needs: build
+    needs: [build, struct_dependency]
     steps:
     - uses: actions/checkout@v4
-    # - uses: actions-rust-lang/setup-rust-toolchain@v1
     - name: Setup Ubuntu for tauir@v1
       run: |
         sudo apt update && \
@@ -53,6 +70,8 @@ jobs:
       run: echo '<meta http-equiv="refresh" content="0;url=app/index.html">' > target/doc/index.html
     - name: Remove lock file
       run: rm target/doc/.lock
+    - name: move struct dependency svg
+      run: mv -r ./tests/struct_dependency_svg ./target/struct_dependency_svg
     - name: Upload artifact
       uses: actions/upload-pages-artifact@v3
       with:
