@@ -47,12 +47,27 @@ pub fn check_struct_defined(target_path: String) {
     let cfg_hash_set: HashSet<String, RandomState> = cfg.struct_name;
 
     let diff = books.difference(&cfg_hash_set);
-    if diff.clone().count() > 0 {
-        let content = diff.clone().collect::<HashSet<&String, RandomState>>();
-        
-        let mut file = File::create("./tests/struct_defined.log").unwrap();
-        file.write(format!("{:#?}", content).as_bytes()).expect("write failed");
+    let diff_not_in_data = cfg_hash_set.difference(&books);
 
+    let content = diff.clone().collect::<HashSet<&String, RandomState>>();
+    
+    let mut file = File::create("./tests/struct_defined.log").unwrap();
+    file.write(format!("unregistered struct ({}/{})\n", diff.clone().count(), books.clone().len()).as_bytes()).expect("write failed");
+    file.write(format!("{:#?}\n", content).as_bytes()).expect("write failed");
+
+    file.write("\n".as_bytes()).expect("write failed");
+    file.write(format!("registered struct ({}/{})\n", cfg_hash_set.clone().len(), books.clone().len()).as_bytes()).expect("write failed");
+    file.write(format!("{:#?}\n", cfg_hash_set).as_bytes()).expect("write failed");
+
+    file.write("\n".as_bytes()).expect("write failed");
+    file.write(format!("struct not in test data ({}/{})\n", diff_not_in_data.clone().count(), cfg_hash_set.clone().len()).as_bytes()).expect("write failed");
+    file.write(format!("{:#?}\n", diff_not_in_data).as_bytes()).expect("write failed");
+    
+    file.write("\n".as_bytes()).expect("write failed");
+    file.write(format!("all struct ({})\n", cfg_hash_set.clone().len()).as_bytes()).expect("write failed");
+    file.write(format!("{:#?}\n", cfg_hash_set).as_bytes()).expect("write failed");
+
+    if diff.clone().count() > 0 {
         panic!("\x1b[38;5;{}m There are some not implemented struct for test response data ({}/{}) {:#?}\x1b[m", 8, diff.clone().count(), books.len(), content);
     }
 }

@@ -1,0 +1,18 @@
+digraph {
+  rankdir=LR;
+  subgraph cluster_0 {
+    label="api_get_member / preset_slot";
+    node [style="filled", color=white, style="solid", color=gray20];
+    api_get_member__preset_slot__ApiSlotItemEx [label="<ApiSlotItemEx> ApiSlotItemEx  | { api_id | <api_id> i64 } | { api_level | <api_level> i64 }", shape=record];
+    api_get_member__preset_slot__ApiPresetItem [label="<ApiPresetItem> ApiPresetItem  | { api_slot_item_ex | <api_slot_item_ex> Option\<ApiSlotItemEx\> } | { api_slot_ex_flag | <api_slot_ex_flag> i64 } | { api_selected_mode | <api_selected_mode> i64 } | { api_name | <api_name> String } | { api_lock_flag | <api_lock_flag> i64 } | { api_preset_no | <api_preset_no> i64 } | { api_slot_item | <api_slot_item> Vec\<ApiSlotItem\> }", shape=record];
+    api_get_member__preset_slot__ApiPresetItem:api_slot_item_ex:e -> api_get_member__preset_slot__ApiSlotItemEx:ApiSlotItemEx:w;
+    api_get_member__preset_slot__ApiSlotItem;
+    api_get_member__preset_slot__ApiPresetItem:api_slot_item:e -> api_get_member__preset_slot__ApiSlotItem:ApiSlotItem:w;
+    api_get_member__preset_slot__ApiSlotItem [label="<ApiSlotItem> ApiSlotItem  | { api_id | <api_id> i64 } | { api_level | <api_level> i64 }", shape=record];
+    api_get_member__preset_slot__Root [label="<Root> Root  | { api_data | <api_data> ApiData } | { api_result | <api_result> i64 } | { api_result_msg | <api_result_msg> String }", shape=record];
+    api_get_member__preset_slot__ApiData;
+    api_get_member__preset_slot__Root:api_data:e -> api_get_member__preset_slot__ApiData:ApiData:w;
+    api_get_member__preset_slot__ApiData [label="<ApiData> ApiData  | { api_max_num | <api_max_num> i64 } | { api_preset_items | <api_preset_items> Vec\<ApiPresetItem\> }", shape=record];
+    api_get_member__preset_slot__ApiData:api_preset_items:e -> api_get_member__preset_slot__ApiPresetItem:ApiPresetItem:w;
+  }
+}
