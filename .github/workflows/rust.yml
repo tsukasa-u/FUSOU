@@ -50,6 +50,11 @@ jobs:
       run: cargo test --all test_struct_dependency
     - name: export dependencies svg
       run: sudo ./tests/export_svg.sh
+    - name: Upload SVG
+      uses: actions/upload-artifact@v4
+      with:
+        name: struct-dependency-artifact
+        path: ./tests/struct_dependency_svg
 
   doc:
     runs-on: ubuntu-22.04
@@ -76,6 +81,10 @@ jobs:
       run: echo '<meta http-equiv="refresh" content="0;url=app/index.html">' > target/doc/index.html
     - name: Remove lock file
       run: rm target/doc/.lock
+    - name: Download SVG
+      uses: actions/download-artifact@v4
+      with:
+        name: struct-dependency-artifact
     - name: move struct dependency svg
       run: mv -r ./tests/struct_dependency_svg ./target/struct_dependency_svg
     - name: Upload artifact
