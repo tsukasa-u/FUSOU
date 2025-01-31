@@ -49,7 +49,7 @@ jobs:
     - name: export dependencies dot
       run: cargo test --all test_struct_dependency
     - name: export dependencies svg
-      run: sudo sh ./tests/export_svg.sh
+      run: sudo ./tests/export_svg.sh
 
   doc:
     runs-on: ubuntu-22.04
