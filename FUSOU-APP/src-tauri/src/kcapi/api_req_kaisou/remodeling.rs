@@ -1,3 +1,10 @@
+//! # kanColle API
+//! KC APIs are also dependent on kcapi::kcapi_common.
+//! The dependency graph of the APIs is shown below.
+//! <div style="height: 80vh; overflow: scroll;">
+//!   <img src="https://tsukasa-u.github.io/FUSOU/struct_dependency_svg/api_req_kaisou@remodeling.svg" alt="KC_API_dependency(api_req_kaisou/remodeling)" style="max-width: 2000px;"/>
+//! </div>
+
 use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 // use serde_json::Value;
