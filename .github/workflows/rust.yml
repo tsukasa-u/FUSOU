@@ -48,13 +48,18 @@ jobs:
       uses: mozilla-actions/sccache-action@v0.0.7
     - name: export dependencies dot
       run: cargo test --all test_struct_dependency
+    - name: check if dot is created
+      run: ls ./tests/struct_dependency_dot
     - name: export dependencies svg
       run: sudo ./tests/export_svg.sh
+    - name: check if svg is created
+      run: ls ./tests/struct_dependency_svg
     - name: Upload SVG
       uses: actions/upload-artifact@v4
       with:
-        name: struct-dependency-artifact
+        name: struct_dependency_artifact
         path: ./tests/struct_dependency_svg
+        overwrite: true
 
   doc:
     runs-on: ubuntu-22.04
@@ -84,7 +89,7 @@ jobs:
     - name: Download SVG
       uses: actions/download-artifact@v4
       with:
-        name: struct-dependency-artifact
+        name: struct_dependency_artifact
     - name: move struct dependency svg
       run: mv -r ./tests/struct_dependency_svg ./target/struct_dependency_svg
     - name: Upload artifact
