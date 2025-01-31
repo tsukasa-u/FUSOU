@@ -94,7 +94,7 @@ jobs:
       with:
         name: struct-dependency-artifact
     - name: move struct dependency svg
-      run: mv -r ./tests/struct_dependency_svg ./target/struct_dependency_svg
+      run: mv -f ./tests/struct_dependency_svg ./target/struct_dependency_svg
     - name: Upload artifact
       uses: actions/upload-pages-artifact@v3
       with:
