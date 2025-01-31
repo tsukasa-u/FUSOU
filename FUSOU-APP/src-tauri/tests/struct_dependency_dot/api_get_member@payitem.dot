@@ -1,0 +1,10 @@
+digraph {
+  rankdir=LR;
+  subgraph cluster_0 {
+    label="api_get_member / payitem";
+    node [style="filled", color=white, style="solid", color=gray20];
+    api_get_member__payitem__ApiData [label="<ApiData> ApiData  | { api_name | <api_name> String } | { api_description | <api_description> String } | { api_price | <api_price> i64 } | { api_count | <api_count> i64 } | { api_payitem_id | <api_payitem_id> String } | { api_type | <api_type> i64 }", shape=record];
+    api_get_member__payitem__Root [label="<Root> Root  | { api_result | <api_result> i64 } | { api_result_msg | <api_result_msg> String } | { api_data | <api_data> Vec\<ApiData\> }", shape=record];
+    api_get_member__payitem__Root:api_data:e -> api_get_member__payitem__ApiData:ApiData:w;
+  }
+}
