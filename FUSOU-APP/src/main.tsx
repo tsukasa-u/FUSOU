@@ -2,7 +2,7 @@
 import { render } from "solid-js/web";
 import { Router, Route } from "@solidjs/router";
 
-import Root from './pages/root.tsx'
+// import Root from './pages/root.tsx'
 import App from './pages/app.tsx'
 import Start from './pages/start.tsx'
 import NotFound from "./pages/not_found.tsx";

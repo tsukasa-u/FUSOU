@@ -1,5 +1,3 @@
-import { ShipNameComponent } from './ship_name';
-
 import { createMemo, For, Show } from 'solid-js';
 
 import "../css/divider.css";
@@ -75,7 +73,7 @@ export function DestructionBattleComponent({area_id, cell_index_selected}: Destr
                                     <td>
                                         <div class="flex flex-col">
                                             <For each={Object.keys(cells.cells[cell_index_selected()].destruction_battle!.air_base_attack.map_squadron_plane!)}>
-                                                {(base_id, idx) => (
+                                                {(base_id) => (
                                                     <For each={air_bases.bases[(area_id << 16) | Number(base_id)].plane_info}>
                                                         {(plane, idx) => (
                                                             <>
@@ -100,7 +98,7 @@ export function DestructionBattleComponent({area_id, cell_index_selected}: Destr
                                                         <Show when={idx() > 0}>
                                                             <div class="h-px"></div>
                                                         </Show>
-                                                        <EnemyNameComponent ship_id={cells.cells[cell_index_selected()].destruction_battle!.ship_ke[idx()]}></EnemyNameComponent>
+                                                        <EnemyNameComponent ship_id={cells.cells[cell_index_selected()].destruction_battle!.ship_ke[idx()]} ship_max_hp={cells.cells[cell_index_selected()].destruction_battle?.e_maxhps[idx()] ?? 0} ship_param={null} ship_slot={cells.cells[cell_index_selected()].destruction_battle?.e_slot[idx()]!}></EnemyNameComponent>
                                                     </Show>
                                                 </>
                                             )}
@@ -131,7 +129,7 @@ export function DestructionBattleComponent({area_id, cell_index_selected}: Destr
                                                             <Show when={idx() > 0}>
                                                                 <div class="h-px"></div>
                                                             </Show>
-                                                            <EnemyNameComponent ship_id={cells.cells[cell_index_selected()].destruction_battle!.ship_ke[idx()]}></EnemyNameComponent>
+                                                            <EnemyNameComponent ship_id={cells.cells[cell_index_selected()].destruction_battle!.ship_ke[idx()]} ship_max_hp={cells.cells[cell_index_selected()].destruction_battle?.e_maxhps[idx()] ?? 0} ship_param={null} ship_slot={cells.cells[cell_index_selected()].destruction_battle?.e_slot[idx()]!}></EnemyNameComponent>
                                                         </Show>
                                                     </>
                                                 )}

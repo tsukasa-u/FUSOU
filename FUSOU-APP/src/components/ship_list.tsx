@@ -347,9 +347,9 @@ export function ShipListComponent() {
 
         if (pagination.selected == "All") return true;
 
-        let pages = pagination.options[pagination.selected].pages;
+        // let pages = pagination.options[pagination.selected].pages;
         let current_page = pagination.options[pagination.selected].current_page;
-        let display_pages = pagination.options[pagination.selected].display_pages;
+        // let display_pages = pagination.options[pagination.selected].display_pages;
 
         if (index < current_page*Number(pagination.selected) && index >= (current_page-1)*Number(pagination.selected)) return true;
 
@@ -564,31 +564,31 @@ export function ShipListComponent() {
                     <Show when={!set_categorize() && pagination.selected != "All"}>
                         <div class="flex flex-nowrap items-center mt-2 w-full">
                             <span class="flex-1"></span>
-                            <button class="btn btn-sm btn-ghost mx-0.5 pagination px-3" onClick={(e) => set_pagination("options", pagination.selected, "current_page", 1)}><IconChevronDoubleLeft class="h-3 -mt-0.5 " /></button>
-                            <button class="btn btn-sm btn-ghost mx-0.5 pagination" onClick={(e) => set_pagination("options", pagination.selected, "current_page", pagination.options[pagination.selected].current_page - 1)}><IconChevronLeft class="h-3 -mt-0.5" /></button>
+                            <button class="btn btn-sm btn-ghost mx-0.5 pagination px-3" onClick={(_e) => set_pagination("options", pagination.selected, "current_page", 1)}><IconChevronDoubleLeft class="h-3 -mt-0.5 " /></button>
+                            <button class="btn btn-sm btn-ghost mx-0.5 pagination" onClick={(_e) => set_pagination("options", pagination.selected, "current_page", pagination.options[pagination.selected].current_page - 1)}><IconChevronLeft class="h-3 -mt-0.5" /></button>
                             <For each={[...Array(Math.floor(default_disply_pages/2))].map((_, i) => i + 1)}>
                                 {(index) => (
                                     <Show when={pagination.options[pagination.selected].current_page + index > pagination.options[pagination.selected].pages && pagination.options[pagination.selected].current_page + index - default_disply_pages > 0}>
-                                        <button class="btn btn-sm btn-square btn-ghost mx-0.5 pagination" onClick={(e) => set_pagination("options", pagination.selected, "current_page", pagination.options[pagination.selected].current_page + index - default_disply_pages)}>{pagination.options[pagination.selected].current_page + index - default_disply_pages}</button>
+                                        <button class="btn btn-sm btn-square btn-ghost mx-0.5 pagination" onClick={(_e) => set_pagination("options", pagination.selected, "current_page", pagination.options[pagination.selected].current_page + index - default_disply_pages)}>{pagination.options[pagination.selected].current_page + index - default_disply_pages}</button>
                                     </Show>
                                 )}
                             </For>
                             <For each={[...Array(default_disply_pages)].map((_, i) => i - Math.floor(default_disply_pages/2))}>
                                 {(index) => (
                                     <Show when={0 < index+pagination.options[pagination.selected].current_page && index+pagination.options[pagination.selected].current_page <= pagination.options[pagination.selected].pages}>
-                                        <button class={"btn btn-sm btn-square btn-ghost mx-0.5 pagination"+(index==0 ? " btn-active":"")} onClick={(e) => {set_pagination("options", pagination.selected, "current_page", index+pagination.options[pagination.selected].current_page); console.log(pagination)}}>{index+pagination.options[pagination.selected].current_page}</button>
+                                        <button class={"btn btn-sm btn-square btn-ghost mx-0.5 pagination"+(index==0 ? " btn-active":"")} onClick={(_e) => {set_pagination("options", pagination.selected, "current_page", index+pagination.options[pagination.selected].current_page); console.log(pagination)}}>{index+pagination.options[pagination.selected].current_page}</button>
                                     </Show>
                                 )}
                             </For>
                             <For each={[...Array(Math.floor(default_disply_pages/2))].map((_, i) => i - Math.floor(default_disply_pages/2))}>
                                 {(index) => (
                                     <Show when={pagination.options[pagination.selected].current_page + index <= 0 && pagination.options[pagination.selected].current_page + index + default_disply_pages <= pagination.options[pagination.selected].pages}>
-                                        <button class="btn btn-sm btn-square btn-ghost mx-0.5 pagination" onClick={(e) => set_pagination("options", pagination.selected, "current_page", pagination.options[pagination.selected].current_page + index + default_disply_pages)}>{pagination.options[pagination.selected].current_page + index + default_disply_pages}</button>
+                                        <button class="btn btn-sm btn-square btn-ghost mx-0.5 pagination" onClick={(_e) => set_pagination("options", pagination.selected, "current_page", pagination.options[pagination.selected].current_page + index + default_disply_pages)}>{pagination.options[pagination.selected].current_page + index + default_disply_pages}</button>
                                     </Show>
                                 )}
                             </For>
-                            <button class="btn btn-sm btn-ghost mx-0.5 pagination" onClick={(e) => set_pagination("options", pagination.selected, "current_page", pagination.options[pagination.selected].current_page + 1)}><IconChevronRight class="h-3 -mt-0.5" /></button>
-                            <button class="btn btn-sm btn-ghost mx-0.5 pagination" onClick={(e) => set_pagination("options", pagination.selected, "current_page", pagination.options[pagination.selected].pages)}><IconChevronDoubleRight class="h-3 -mt-0.5" /></button>
+                            <button class="btn btn-sm btn-ghost mx-0.5 pagination" onClick={(_e) => set_pagination("options", pagination.selected, "current_page", pagination.options[pagination.selected].current_page + 1)}><IconChevronRight class="h-3 -mt-0.5" /></button>
+                            <button class="btn btn-sm btn-ghost mx-0.5 pagination" onClick={(_e) => set_pagination("options", pagination.selected, "current_page", pagination.options[pagination.selected].pages)}><IconChevronDoubleRight class="h-3 -mt-0.5" /></button>
                             <span class="flex-1"></span>
                         </div>
                     </Show>
