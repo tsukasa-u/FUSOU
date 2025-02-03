@@ -1,5 +1,4 @@
 import { IconXMark } from '../icons/X-mark.tsx';
-import { EquimentComponent } from './equipment.tsx';
 
 import '../css/modal.css';
 import { useMstShips } from '../utility/provider.tsx';
@@ -21,6 +20,12 @@ const show_modal = (ship_id: number) => {
 }
 
 export function EnemyNameComponent({ship_id, ship_param, ship_slot, ship_max_hp, display}: ShipNameProps) {
+
+    if (display === false) {
+        // need to replace the currect code
+        // this is a dummy code for pass the build
+        return <></>;
+    }
 
     const [_mst_ships, ] = useMstShips();
 

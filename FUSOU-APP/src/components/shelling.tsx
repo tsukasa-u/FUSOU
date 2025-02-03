@@ -40,7 +40,7 @@ export function ShellingComponent({deck_ship_id, battle_selected}: AntiSubmarine
                             </thead>
                             <tbody>
                                 <For each={battle_selected().hougeki}>
-                                    {(hougeki, hougeki_index) => (
+                                    {(hougeki, _hougeki_index) => (
                                         <Show when={hougeki != null}>
                                             <For each={hougeki.at_list}>
                                                 {(at, at_index) => (
