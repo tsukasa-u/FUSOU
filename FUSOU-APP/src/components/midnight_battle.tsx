@@ -66,7 +66,7 @@ export function MidnightShellingComponent({deck_ship_id, battle_selected}: AntiS
                                 <div class="w-3">/</div>
                                 <div class="w-24 flex justify-center">
                                     <Show when={battle_selected().midnight_flare_pos![1] != -1} fallback={<div>_</div>}>
-                                        <EnemyNameComponent ship_id={battle_selected().enemy_ship_id[battle_selected().midnight_flare_pos![1]]} ship_param={battle_selected().e_params![battle_selected().midnight_flare_pos![1]]} ship_slot={battle_selected().e_slot![battle_selected().midnight_flare_pos![1]]} ship_max_hp={battle_selected().e_hp_max![battle_selected().midnight_flare_pos![1]]} display={false}></EnemyNameComponent>
+                                        <EnemyNameComponent ship_id={battle_selected().enemy_ship_id[battle_selected().midnight_flare_pos![1]]} ship_param={battle_selected().e_params![battle_selected().midnight_flare_pos![1]]} ship_slot={battle_selected().e_slot![battle_selected().midnight_flare_pos![1]]} ship_max_hp={battle_selected().e_hp_max![battle_selected().midnight_flare_pos![1]]} ></EnemyNameComponent>
                                     </Show>
                                 </div>
                             </Show>
@@ -87,7 +87,7 @@ export function MidnightShellingComponent({deck_ship_id, battle_selected}: AntiS
                                             <tr>
                                                 <td>
                                                     <Show when={battle_selected().midnight_hougeki?.at_eflag![at_index()]==0} fallback={
-                                                        <EnemyNameComponent ship_id={battle_selected().enemy_ship_id[at]} ship_param={battle_selected().e_params![at]} ship_slot={battle_selected().e_slot![at]} ship_max_hp={battle_selected().e_hp_max![at]} display={false}></EnemyNameComponent>
+                                                        <EnemyNameComponent ship_id={battle_selected().enemy_ship_id[at]} ship_param={battle_selected().e_params![at]} ship_slot={battle_selected().e_slot![at]} ship_max_hp={battle_selected().e_hp_max![at]} ></EnemyNameComponent>
                                                     }>
                                                         <ShipNameComponent ship_id={deck_ship_id[battle_selected().deck_id!][at]}></ShipNameComponent>
                                                     </Show>
@@ -98,7 +98,7 @@ export function MidnightShellingComponent({deck_ship_id, battle_selected}: AntiS
                                                             {(df, df_index) => (
                                                                 <div class="flex flex-nowrap">
                                                                     <Show when={battle_selected().midnight_hougeki?.at_eflag![at_index()]==1 && df != -1} fallback={
-                                                                        <EnemyNameComponent ship_id={battle_selected().enemy_ship_id[df]} ship_param={battle_selected().e_params![df]} ship_slot={battle_selected().e_slot![df]} ship_max_hp={battle_selected().e_hp_max![df]} display={false}></EnemyNameComponent>
+                                                                        <EnemyNameComponent ship_id={battle_selected().enemy_ship_id[df]} ship_param={battle_selected().e_params![df]} ship_slot={battle_selected().e_slot![df]} ship_max_hp={battle_selected().e_hp_max![df]}></EnemyNameComponent>
                                                                     }>
                                                                         <ShipNameComponent ship_id={deck_ship_id[battle_selected().deck_id!][df]}></ShipNameComponent>
                                                                     </Show>
