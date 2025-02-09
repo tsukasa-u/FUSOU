@@ -3,17 +3,19 @@
 // #![recursion_limit = "256"]
 
 use tauri::{Manager, AppHandle, CustomMenuItem, SystemTray, SystemTrayEvent, SystemTrayMenu};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, OnceCell};
 use webbrowser::{open_browser, Browser};
 use arboard::Clipboard;
 use core::time;
-use std::sync::Mutex;
+use std::fs;
+use std::path::PathBuf;
+use std::{path::Path, sync::Mutex};
 use std::process::ExitCode;
 
 mod kcapi;
 mod kcapi_common;
 mod notification;
-mod cmd_pac_tauri;
+mod cmd;
 mod json_parser;
 mod interface;
 
@@ -26,6 +28,9 @@ mod wrap_proxy;
 use proxy_https::bidirectional_channel::{BidirectionalChannel, StatusInfo, request_shutdown};
 
 use crate::external::SHARED_BROWSER;
+
+static RESOURCES_DIR: OnceCell<PathBuf> = OnceCell::const_new();
+static ROAMING_DIR: OnceCell<PathBuf> = OnceCell::const_new();
 
 #[tokio::main]
 async fn main() -> ExitCode {
@@ -146,6 +151,30 @@ async fn main() -> ExitCode {
     ])
     .plugin(tauri_plugin_window_state::Builder::default().build())
     .setup(move |app| {
+
+      #[cfg(TAURI_BUILD_DEBUG)]
+      RESOURCES_DIR.set(PathBuf::from(env!("CARGO_MANIFEST_DIR"))).unwrap();
+      #[cfg(not(TAURI_BUILD_DEBUG))]
+      match app.path_resolver().resource_dir() {
+        Some(path) => {
+          RESOURCES_DIR.set(path.join("resources")).unwrap();
+          println!("app_local_data_dir: {:?}", app.path_resolver().app_local_data_dir());
+          println!("app_cache_dir: {:?}", app.path_resolver().app_cache_dir());
+          println!("app_data_dir: {:?}", app.path_resolver().app_data_dir());
+          println!("app_log_dir: {:?}", app.path_resolver().app_log_dir());
+          println!("app_config_dir: {:?}", app.path_resolver().app_config_dir());
+          println!("resource_dir: {:?}", app.path_resolver().resource_dir());
+        },
+        None => return Err("Failed to get app data directory".into())
+      }
+
+      #[cfg(not(TAURI_BUILD_DEBUG))]
+      match app.path_resolver().app_data_dir() {
+        Some(path) => {
+          ROAMING_DIR.set(path.clone()).unwrap();
+        },
+        None => return Err("Failed to get app data directory".into())
+      }
       
       // create_external_window(&app, browser);
       // let _window = app.get_window("main").unwrap().close().unwrap();
@@ -171,9 +200,9 @@ async fn main() -> ExitCode {
 
       // json_parser::serve_reponse_parser(&app.handle(), response_parse_channel_slave, proxy_log_bidirectional_channel_slave);
 
-      discord::connect();
-      // discord::set_activity("experimental implementation", "playing KanColle with FUSOU");
-      discord::set_activity_button("experimental implementation", "playing KanColle with FUSOU", "Visit GitHub Repository", "https://github.com/tsukasa-u/FUSOU");
+      // discord::connect();
+      // // discord::set_activity("experimental implementation", "playing KanColle with FUSOU");
+      // discord::set_activity_button("experimental implementation", "playing KanColle with FUSOU", "Visit GitHub Repository", "https://github.com/tsukasa-u/FUSOU");
 
       let proxy_bidirectional_channel_master_clone = proxy_bidirectional_channel_master.clone();
       let pac_bidirectional_channel_master_clone = pac_bidirectional_channel_master.clone();
@@ -305,9 +334,10 @@ async fn main() -> ExitCode {
             let _ = app.tray_handle().get_item("quit").set_enabled(false);
             let _ = app.tray_handle().get_item("pause").set_enabled(false);
             let _ = app.tray_handle().get_item("advanced-title").set_enabled(false);
-            cmd_pac_tauri::remove_pac();
             
-            discord::close();
+            cmd::remove_pac();
+            
+            // discord::close();
 
             let shutdown_tx_clone = shutdown_tx.clone();
             tauri::async_runtime::spawn(async move {

@@ -1,10 +1,12 @@
+use std::process::Command;
+
 // use proxy::bidirectional_channel::{Master, Slave, StatusInfo};
 use proxy_https::{
     bidirectional_channel::{Master, Slave, StatusInfo},
     edit_pac::edit_pac,
 };
 
-use crate::cmd_pac_tauri;
+use crate::cmd;
 
 pub struct PacChannel {
     pub master: Master<StatusInfo>,
@@ -26,11 +28,16 @@ pub struct ResponseParseChannel {
     pub slave: Slave<StatusInfo>,
 }
 
-pub fn serve_proxy(proxy_target: String, pac_path: String, proxy_bidirectional_channel_slave: Slave<StatusInfo>, proxy_log_bidirectional_channel_master: Master<StatusInfo>, pac_bidirectional_channel_slave: Slave<StatusInfo>) -> Result<(), Box<dyn std::error::Error>> {
+pub fn serve_proxy(proxy_target: String, save_path: String, pac_path: String, ca_path: String, proxy_bidirectional_channel_slave: Slave<StatusInfo>, proxy_log_bidirectional_channel_master: Master<StatusInfo>, pac_bidirectional_channel_slave: Slave<StatusInfo>) -> Result<(), Box<dyn std::error::Error>> {
+
+    proxy_https::proxy_server_https::check_ca(ca_path.clone());
+
+    cmd::add_store();
+
     // start proxy server
-    let save_path = "./../../FUSOU-PROXY-DATA".to_string();
+    // let save_path = "./../../FUSOU-PROXY-DATA".to_string();
     // let proxy_addr = proxy::proxy_server_http::serve_proxy(proxy_target, 0, proxy_bidirectional_channel_slave, proxy_log_bidirectional_channel_master, save_path);
-    let proxy_addr = proxy_https::proxy_server_https::serve_proxy(0, proxy_bidirectional_channel_slave, proxy_log_bidirectional_channel_master, save_path);
+    let proxy_addr = proxy_https::proxy_server_https::serve_proxy(0, proxy_bidirectional_channel_slave, proxy_log_bidirectional_channel_master, save_path, ca_path);
 
     if proxy_addr.is_err() {
         return Err("Failed to start proxy server".into());
@@ -51,8 +58,11 @@ pub fn serve_proxy(proxy_target: String, pac_path: String, proxy_bidirectional_c
         Some(proxy_target.as_str())
     };
     edit_pac(pac_path.as_str(), proxy_addr.unwrap().to_string().as_str(), host);
-      
-    cmd_pac_tauri::add_pac(&format!("http://localhost:{}/proxy.pac", pac_addr.unwrap().port()));
+    
+    // #[cfg(TAURI_BUILD_DEBUG)] 
+    cmd::add_pac(&format!("http://localhost:{}/proxy.pac", pac_addr.unwrap().port()));
+    // #[cfg(not(TAURI_BUILD_DEBUG))]
+    // todo!("add_pac for release build");
     
     return Ok(());
 }

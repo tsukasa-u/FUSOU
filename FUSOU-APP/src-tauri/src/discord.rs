@@ -13,12 +13,14 @@ static DISCORD_CLIENT: LazyLock<Mutex<Result<DiscordIpcClient, Box<dyn std::erro
 pub fn init_client() -> Result<DiscordIpcClient, Box<dyn std::error::Error + Send + Sync>> {
     dotenv().expect(".env file not found");
 
-    let mut client_id = "".to_string();
-    for (key, value) in env::vars() {
-        if key.eq("DISCORD_CLIENT_ID") {
-            client_id = value;
-        }
-    }
+    // let mut client_id = "".to_string();
+    // // for (key, value) in env::vars() {
+    // //     if key.eq("DISCORD_CLIENT_ID") {
+    // //         client_id = value;
+    // //     }
+    // // }
+    
+    let client_id = dotenvy_macro::dotenv!("DISCORD_CLIENT_ID").to_string();
 
     let client = DiscordIpcClient::new(&client_id);
     match client {

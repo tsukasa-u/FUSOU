@@ -40,7 +40,9 @@
         "providerShortName": null,
         "signingIdentity": null
       },
-      "resources": [],
+      "resources": [
+        "./resources/*"
+      ],
       "shortDescription": "",
       "targets": "all",
       "windows": {
@@ -69,7 +71,7 @@
       "iconPath": "icons/128x128.png",
       "iconAsTemplate": true,
       "menuOnLeftClick": true,
-      "title": "vitetuarinpmsample"
+      "title": "fusou-system-tray"
     }
   }
 }
