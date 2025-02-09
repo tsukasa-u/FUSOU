@@ -565,8 +565,8 @@ export function CellsContextProvider(props: { children: JSX.Element }) {
                 setData("cell_index", data.cell_index.length, event.payload.no);
             });
             unlisten_data_add_battle = await listen<Battle>('add-kcs-battle', event => {
-                // console.log('add-kcs-battle', data.cell_index, event.payload);
-                if (event.payload.cell_id in Object.keys(data.battles)) {
+                if (data.battles.hasOwnProperty(event.payload.cell_id)) {
+                // if (String(event.payload.cell_id) in Object.keys(data.battles)) {
                 // if (data.cell_index[data.cell_index.length - 1] == event.payload.cell_id) {
                     Object.entries(event.payload).forEach(([key, value]) => {
                         if ( value !== null && typeof value === 'object' ) {
