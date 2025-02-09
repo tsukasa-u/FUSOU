@@ -26,7 +26,8 @@ pub fn create_external_window(app: &AppHandle, browser: Option<Browser>, browse_
 
     
     if browse_webview {
-        let init_script = fs::read_to_string("./../src/init_script.js").expect("Unable to read init_script.js");
+        // let init_script = fs::read_to_string("./../src/init_script.js").expect("Unable to read init_script.js");
+        let init_script = include_str!(".././../src/init_script.js");
       
         let _external = tauri::WindowBuilder::new(
           app,

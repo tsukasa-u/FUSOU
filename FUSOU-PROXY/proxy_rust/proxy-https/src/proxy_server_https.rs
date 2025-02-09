@@ -7,7 +7,7 @@ use hudsucker::{
     *,
 };
 use std::{
-    fs, io::Read, 
+    fs, io::{self, Read, Write}, 
     net::{IpAddr, Ipv4Addr, SocketAddr}, 
     path::Path, 
     process::Command, 
@@ -189,7 +189,7 @@ impl HttpHandler for LogHandler {
     }
 }
 
-fn create_ca() {
+fn create_ca(ca_dir: &Path) {
     
     let ca_key_pair = rcgen::KeyPair::generate().unwrap();
 
@@ -219,7 +219,7 @@ fn create_ca() {
         ]);
     let entity_cert = entity_param.signed_by(&entity_key_pair, &ca_cert, &ca_key_pair).unwrap();
 
-    let ca_dir = Path::new("./ca");
+    // let ca_dir = Path::new("./ca");
     let _ = fs::create_dir_all(ca_dir);
 
     let _ = fs::write(ca_dir.join("ca_cert.pem"), ca_cert.pem());
@@ -248,22 +248,29 @@ fn create_ca() {
 
 }
 
-fn check_ca() {
-    let ca_dir = Path::new("./ca");
+pub fn check_ca(ca_save_path: String) {
+    // let ca_dir = Path::new("./ca");
+    let ca_dir = Path::new(ca_save_path.as_str());
     let entity_cert = ca_dir.join("entity_cert.pem");
     let entity_key = ca_dir.join("entity_key.pem");
     let ca_cert = ca_dir.join("ca_cert.pem");
     let ca_key = ca_dir.join("ca_key.pem");
 
     if !entity_cert.exists() || !entity_key.exists() || !ca_cert.exists() || !ca_key.exists() {
-        create_ca();
+        create_ca(ca_dir);
+    }
 
-        // Command::new("./../../FUSOU-PROXY/proxy_rust/proxy-https/cmd/add_store.bat")
-        Command::new(super::pac_server::PATH_ADD_STORE_BAT)
-            .args(["./ca/ca_cert.pem"])
-            .output()
-            .expect("failed to execute process");
-        }
+    // #[cfg(target_os = "windows")]
+    // let cmd_path = format!("{}/{}", super::pac_server::PATH_PROXY_CRATE, super::pac_server::PATH_ADD_STORE_BAT);
+
+    // let output  = Command::new(cmd_path)
+    // // .args([ca_cert.to_str().expect("Failed to get path")])
+    //     .args([ca_cert.to_str().expect("Failed to get path")])
+    //     .output()
+    //     .expect("failed to execute process");
+    
+    // println!("status: {}", output.status);
+    
 }
 
 fn available_port() -> std::io::Result<u16> {
@@ -275,13 +282,21 @@ fn available_port() -> std::io::Result<u16> {
     }
 }
 
-pub fn serve_proxy(port: u16, mut slave: bidirectional_channel::Slave<bidirectional_channel::StatusInfo>, tx_proxy_log: bidirectional_channel::Master<bidirectional_channel::StatusInfo>, save_path: String) -> Result<SocketAddr, Box<dyn std::error::Error>> {
+pub fn serve_proxy(port: u16, mut slave: bidirectional_channel::Slave<bidirectional_channel::StatusInfo>, tx_proxy_log: bidirectional_channel::Master<bidirectional_channel::StatusInfo>, log_save_path: String, ca_save_path: String) -> Result<SocketAddr, Box<dyn std::error::Error>> {
 
-    check_ca();
-    let key_pair = fs::read_to_string("./ca/entity_key.pem").expect("Failed to open file");
-    // let key_pair = include_str!("../ca/entity_key.pem");
-    let ca_cert = fs::read_to_string("./ca/entity_cert.pem").expect("Failed to open file");
-    // let ca_cert = include_str!("../ca/entity_cert.pem");
+    
+    let ca_dir = Path::new(ca_save_path.as_str());
+    let entity_cert = ca_dir.join("entity_cert.pem");
+    let entity_key = ca_dir.join("entity_key.pem");
+    let ca_cert = ca_dir.join("ca_cert.pem");
+    let ca_key = ca_dir.join("ca_key.pem");
+
+    // check_ca(ca_save_path.clone());
+
+    let key_pair = fs::read_to_string(entity_key.clone()).expect("Failed to open file");
+    
+    let ca_cert = fs::read_to_string(entity_cert.clone()).expect("Failed to open file");
+
     let key_pair = KeyPair::from_pem(&key_pair).expect("Failed to parse private key");
     let ca_cert = CertificateParams::from_ca_cert_pem(&ca_cert)
         .expect("Failed to parse CA certificate")
@@ -329,7 +344,7 @@ pub fn serve_proxy(port: u16, mut slave: bidirectional_channel::Slave<bidirectio
         .with_http_handler(LogHandler {
             tx_proxy_log: tx_proxy_log.clone(),
             request_uri: Uri::default(),
-            save_path: save_path.clone(),
+            save_path: log_save_path.clone(),
         })
         .with_graceful_shutdown(async move {
             loop {
