@@ -1,4 +1,9 @@
+import { createEffect } from "solid-js";
+import { location_route } from "../utility/location";
+
 function NotFound() {
+  
+    createEffect(location_route);
   
     return (
       <>

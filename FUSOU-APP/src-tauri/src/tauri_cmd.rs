@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use proxy_https::bidirectional_channel;
+use tauri::AppHandle;
 use tauri::Manager;
 
 use crate::external::create_external_window;
@@ -86,7 +88,31 @@ pub async fn close_splashscreen(window: tauri::Window) {
 }
 
 #[tauri::command]
-pub async fn launch_with_options(window: tauri::Window, options: HashMap<String, i32>, pac_channel: tauri::State<'_, PacChannel>, proxy_channel: tauri::State<'_, ProxyChannel>, proxy_log_channel: tauri::State<'_, ProxyLogChannel>, response_parse_channel: tauri::State<'_, ResponseParseChannel>) -> Result<(), ()>{
+pub async fn check_pac_server_health(window: tauri::Window, pac_channel: tauri::State<'_, PacChannel>) -> Result<String, String> {
+  match bidirectional_channel::check_health(pac_channel.master.clone()).await {
+    Ok(_) => {
+      Ok("PAC server is running".to_string())
+    },
+    Err(e) => {
+      Err(e.to_string())
+    }
+  }
+}
+
+#[tauri::command]
+pub async fn check_proxy_server_health(window: tauri::Window, proxy_channel: tauri::State<'_, ProxyChannel>) -> Result<String, String> {
+  match bidirectional_channel::check_health(proxy_channel.master.clone()).await {
+    Ok(_) => {
+      Ok("Proxy server is running".to_string())
+    },
+    Err(e) => {
+      Err(e.to_string())
+    }
+  }
+}
+
+#[tauri::command]
+pub async fn launch_with_options(window: tauri::Window, options: HashMap<String, i32>, pac_channel: tauri::State<'_, PacChannel>, proxy_channel: tauri::State<'_, ProxyChannel>, proxy_log_channel: tauri::State<'_, ProxyLogChannel>, response_parse_channel: tauri::State<'_, ResponseParseChannel>) -> Result<(), ()> {
   println!("{:?}", options);
 
   if let Some(&flag) = options.get("run_proxy_server") {
@@ -167,8 +193,10 @@ pub async fn launch_with_options(window: tauri::Window, options: HashMap<String,
     if flag!=0 {
       json_parser::serve_reponse_parser(&window.app_handle(), response_parse_channel.slave.clone(), proxy_log_channel.slave.clone());
       window.get_window("main").expect("no window labeled 'main' found").show().unwrap();
+      let _ = window.app_handle().tray_handle().get_item("main-open/close").set_title("Close Main Window");
     } else {
       window.get_window("main").expect("no window labeled 'main' found").close().unwrap();
+      let _ = window.app_handle().tray_handle().get_item("main-open/close").set_title("Open Main Window");
     }
   }
   if let Some(&flag) = options.get("open_kancolle") {
@@ -185,4 +213,10 @@ pub async fn launch_with_options(window: tauri::Window, options: HashMap<String,
   }
 
   return Ok(());
+}
+
+//--------------------------------------------------------------
+
+pub fn set_launch_page(app: &AppHandle) {
+    let _ = app.emit_to::<()>("main", "set-main-page-launch", ());
 }

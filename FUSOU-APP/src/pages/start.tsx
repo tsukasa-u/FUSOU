@@ -1,8 +1,14 @@
 import "../css/preview.css";
 import "../css/divider.css";
 import "../css/justify_self_center.css";
-import { createSignal, For, Show } from "solid-js";
+import { createEffect, onCleanup, createMemo, createSignal, For, Match, Show, Switch } from "solid-js";
+import { listen, UnlistenFn } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api";
+
+import IconCheckBoxGreen from "../icons/check_box_green";
+import IconCheckBoxRed from "../icons/check_box_red";
+
+import { location_route } from "../utility/location";
 
 
 let launch_options: {[key: string]: number} = {
@@ -57,38 +63,133 @@ let server_list: {[key: string]: string} = {
 }
 
 function Start() {
+    
+    createEffect(location_route);
 
     const [runProxyServer, setRunProxyServer] = createSignal<boolean>(Boolean(launch_options["run_proxy_server"]));
     const [openApp, setOpenApp] = createSignal<boolean>(Boolean(launch_options["open_app"]));
     const [openKancolle, setOpenKancolle] = createSignal<boolean>(Boolean(launch_options["open_kancolle"]));
     const [openKancolleWithWebView, setOpenKancolleWithWebView] = createSignal<boolean>(Boolean(launch_options["open_kancolle_with_webview"]));
     const [server, setServer] = createSignal<number>(launch_options["server"]);
+
+    const [pacServerHealth, setPacServerHealth] = createSignal<number>(-1);
+    const [proxyServerHealth, setProxyServerHealth] = createSignal<number>(-1);
+
+    function check_server_status() {
+        setPacServerHealth(-1);
+        setProxyServerHealth(-1);
+            
+        invoke<string>("check_proxy_server_health").then((_) => {
+            setProxyServerHealth(1);
+        }).catch((_e) => {
+            setProxyServerHealth(0);
+        });
+
+        invoke<string>("check_proxy_server_health").then((_) => {
+            setPacServerHealth(1);
+        }).catch((_e) => {
+            setPacServerHealth(0);
+        });
+    }
+
+    createEffect(() => {
+        check_server_status();
+    });
+
+    createEffect(() => {
+        if (run_proxy_flag() == 1) {
+            launch_options["run_proxy_server"] = Number(runProxyServer());
+        } else {
+            launch_options["run_proxy_server"] = 0;
+        }
+        if (run_app_flag() == 1) {
+            launch_options["open_app"] = Number(openApp()); 
+        } else {
+            launch_options["open_app"] = 0;
+        }
+    });
+
+    const run_proxy_flag = createMemo(() => {
+        if (proxyServerHealth() == -1 || pacServerHealth() == -1) return 0;
+        if (proxyServerHealth() == 0 && pacServerHealth() == 0) return 1;
+        if (proxyServerHealth() == 1 && pacServerHealth() == 1) return 0;
+        return -1;
+    });
+
+    const run_app_flag = createMemo(() => {
+        if (proxyServerHealth() == -1 || pacServerHealth() == -1) return 0;
+        if (proxyServerHealth() == 0 && pacServerHealth() == 0 && !runProxyServer()) return 0;
+        return 1;
+    });
+
+    const start_button_class = createMemo(() => {
+        if (proxyServerHealth() == -1 || pacServerHealth() == -1) return "btn btn-wide btn-disabled";
+        if (run_proxy_flag() == -1) return "btn btn-wide btn-disabled";
+        return "btn btn-wide";
+    });
   
     return (
       <>
       <div class="bg-base-200 h-screen">
         <div class="max-w-md justify-self-center bg-base-100 h-screen">
-            <h1 class="mx-4 pt-4 text-2xl font-semibold">Launch Options</h1>
+            <div class="flex flex-nowrap">
+                <h1 class="mx-4 pt-4 text-2xl font-semibold">Launch Options</h1>
+                <span class="flex-1"></span>
+                <button class="place-self-end btn btn-sm btn-outline btn-info" onclick={check_server_status}>check server status</button>
+                <span class="w-4"></span>
+            </div>
             <div class="divider mt-0 mb-0 w-11/12 justify-self-center"></div>
             <div class="mx-4 flex">
                 <div class="grid">
-                    <div id="load_mst_ships" class="py-2">
+                    <div class="py-2">
                         <h2 class="text-lg font-semibold leading-4 text-slate-700">Run Proxy Server</h2>
-                        <p class="text-slate-600">Run proxy server to copy response data communicated between your pc and KanColle server</p>
-                        <div class="mt-4 flex items-center justify-end">
-                            <span class="flex-auto"></span>
-                            <div class="form-control flex-none">
-                                <label class="label cursor-pointer h-4">
-                                    <span class="label-text mb-1.5 pr-2 h-4">
-                                        <Show when={runProxyServer()}>
-                                            On
-                                        </Show>
-                                        <Show when={!runProxyServer()}>
-                                            Off
-                                        </Show>
-                                    </span>
-                                    <input type="checkbox" onClick={() => { launch_options["run_proxy_server"] = Number(!runProxyServer()); setRunProxyServer(!runProxyServer()); }} class="toggle toggle-sm toggle-primary rounded-sm" checked={runProxyServer()}/>
-                                </label>
+                        <p class="text-slate-600">Run proxy server to copy responsed data from KC server </p>
+                        <div class="flex flex-nowrap mt-4">
+                            <div class="flex flex-nowrap">
+                                <Switch>
+                                    <Match when={proxyServerHealth() == -1}>
+                                        <div class="w-4 h-4">
+                                            <span class="loading loading-spinner loading-sm h-5 w-5 mt-1"></span>
+                                        </div>
+                                        <div class="h-6 self-center ml-4 text-nowrap  mb-[2.5px] pr-1">
+                                            checking proxy server status
+                                        </div>
+                                        <span class="loading loading-dots loading-xs mt-2"></span>
+                                    </Match>
+                                    <Match when={proxyServerHealth() == 0}>
+                                        <div class="w-4 h-4">
+                                            <IconCheckBoxRed class="h-6 w-6 mb-[2px] pr-1 text-base-100"/>
+                                        </div>
+                                        <div class="h-6 self-center ml-4 text-nowrap mb-[2.5px] pr-1">
+                                            Proxy server is not running
+                                        </div>
+                                    </Match>
+                                    <Match when={proxyServerHealth() == 1}>
+                                        <div class="w-4 h-4">
+                                            <IconCheckBoxGreen class="h-6 w-6 mb-[2px] pr-1 text-base-100"/>
+                                        </div>
+                                        <div class="h-6 self-center ml-4 text-nowrap mb-[2.5px] pr-1">
+                                            Proxy server is running
+                                        </div>
+                                    </Match>
+                                </Switch>
+                            </div>
+                            <span class="flex-1"></span>
+                            <div class="flex items-center justify-end">
+                                <span class="flex-auto"></span>
+                                <div class="form-control flex-none">
+                                    <label class="label cursor-pointer h-4">
+                                        <span class="label-text mb-1.5 pr-2 h-4">
+                                            <Show when={runProxyServer()}>
+                                                On
+                                            </Show>
+                                            <Show when={!runProxyServer()}>
+                                                Off
+                                            </Show>
+                                        </span>
+                                        <input type="checkbox" onClick={() => { setRunProxyServer(!runProxyServer()); }} class="toggle toggle-sm toggle-primary rounded-sm" checked={runProxyServer()} disabled={run_proxy_flag()<=0}/>
+                                    </label>
+                                </div>
                             </div>
                         </div>
                         <div class="flex flex-nowrap pt-4">
@@ -104,8 +205,53 @@ function Start() {
                                 </For>
                             </select>
                         </div>
+                        <div class="flex flex-nowrap pt-2">
+                            <Switch>
+                                <Match when={pacServerHealth() == -1}>
+                                    <div class="w-4 h-4">
+                                        <span class="loading loading-spinner loading-sm h-5 w-5 mt-1"></span>
+                                    </div>
+                                    <div class="h-6 self-center ml-4 text-nowrap  mb-[2.5px] pr-1">
+                                        checking pac server status
+                                    </div>
+                                    <span class="loading loading-dots loading-xs mt-2"></span>
+                                </Match>
+                                <Match when={pacServerHealth() == 0}>
+                                    <div class="w-4 h-4">
+                                        <IconCheckBoxRed class="h-6 w-6 mb-[2px] pr-1 text-base-100"/>
+                                    </div>
+                                    <div class="h-6 self-center ml-4 text-nowrap mb-[2.5px] pr-1">
+                                        Pac server is not running
+                                    </div>
+                                </Match>
+                                <Match when={pacServerHealth() == 1}>
+                                    <div class="w-4 h-4">
+                                        <IconCheckBoxGreen class="h-6 w-6 mb-[2px] pr-1 text-base-100"/>
+                                    </div>
+                                    <div class="h-6 self-center ml-4 text-nowrap mb-[2.5px] pr-1">
+                                        Pac server is running
+                                    </div>
+                                </Match>
+                            </Switch>
+                        </div>
                     </div>
-                    <div id="load_mst_ships" class="py-2">
+                    <Show when={run_proxy_flag() == -1}>
+                        <div role="alert" class="alert alert-error">
+                            <svg
+                                xmlns="http://www.w3.org/2000/svg"
+                                class="h-6 w-6 shrink-0 stroke-current"
+                                fill="none"
+                                viewBox="0 0 24 24">
+                                <path
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                                stroke-width="2"
+                                d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                            <span>Something Wrong. Restart from System Tray.</span>
+                        </div>
+                    </Show>
+                    <div class="py-2">
                         <h2 class="text-lg font-semibold leading-4 text-slate-700">Open App</h2>
                         <p class="text-slate-600">Open internal KanColle data viewer</p>
                         <div class="mt-4 flex items-center justify-end">
@@ -123,12 +269,12 @@ function Start() {
                                             Disable
                                         </Show>
                                     </span>
-                                    <input type="checkbox" onClick={() => { launch_options["open_app"] = Number(!openApp()); setOpenApp(!openApp()); }} class="toggle toggle-sm toggle-primary rounded-sm" checked={openApp()} disabled={!runProxyServer()}/>
+                                    <input type="checkbox" onClick={() => { setOpenApp(!openApp()); }} class="toggle toggle-sm toggle-primary rounded-sm" checked={openApp()} disabled={run_app_flag()<=0}/>
                                 </label>
                             </div>
                         </div>
                     </div>
-                    <div id="load_mst_ships" class="py-2">
+                    <div class="py-2">
                         <h2 class="text-lg font-semibold leading-4 text-slate-700">Open KanColle</h2>
                         <p class="text-slate-600">Open KanColle with WebView or native browser</p>
                         <div class="mt-4 flex items-center justify-end">
@@ -169,7 +315,7 @@ function Start() {
             <div class="divider mt-0 mb-0 w-11/12 justify-self-center"></div>
             <div class="h-8"></div>
             <div class="flex justify-center">
-                <a role="button" class="btn btn-wide" href="/app" onclick={() => { invoke("launch_with_options", {options: launch_options}); }}>Start</a>
+                <a role="button" class={start_button_class()} href="/app" onclick={() => { invoke("launch_with_options", {options: launch_options}); }}>Start</a>
             </div>
         </div>
       </div>

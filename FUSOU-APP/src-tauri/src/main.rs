@@ -7,9 +7,8 @@ use tokio::sync::{mpsc, OnceCell};
 use webbrowser::{open_browser, Browser};
 use arboard::Clipboard;
 use core::time;
-use std::fs;
 use std::path::PathBuf;
-use std::{path::Path, sync::Mutex};
+use std::sync::Mutex;
 use std::process::ExitCode;
 
 mod kcapi;
@@ -65,8 +64,10 @@ async fn main() -> ExitCode {
   let quit: CustomMenuItem = CustomMenuItem::new("quit".to_string(), "Quit".to_string()).accelerator("CmdOrCtrl+Q".to_string());
   let pause: CustomMenuItem = CustomMenuItem::new("pause".to_string(), "Pause".to_string()).selected();
   let title: CustomMenuItem = CustomMenuItem::new("title".to_string(), "FUSOU".to_string()).disabled();
-  let open_close: CustomMenuItem = CustomMenuItem::new("open/close".to_string(), "Open Window".to_string());
+  let external_open_close: CustomMenuItem = CustomMenuItem::new("external-open/close".to_string(), "Open WebView".to_string());
+  let main_open_close: CustomMenuItem = CustomMenuItem::new("main-open/close".to_string(), "Open Main Window".to_string());
   let visit_website: CustomMenuItem = CustomMenuItem::new("visit-website".to_string(), "Visit Website".to_string());
+  let open_launch_page: CustomMenuItem = CustomMenuItem::new("open-launch-page".to_string(), "Open Launch Page".to_string());
 
   let browser_sub_menu : SystemTrayMenu = SystemTrayMenu::new()
     .add_item(CustomMenuItem::new("select-default".to_string(), "Default".to_string()).selected())
@@ -94,7 +95,9 @@ async fn main() -> ExitCode {
     .add_item(title)
     .add_native_item(tauri::SystemTrayMenuItem::Separator)
     .add_item(visit_website)
-    .add_item(open_close)
+    .add_item(main_open_close)
+    .add_item(external_open_close)
+    .add_item(open_launch_page)
     .add_native_item(tauri::SystemTrayMenuItem::Separator)
     .add_submenu(tauri::SystemTraySubmenu::new("Advanced".to_string(), advanced_sub_menu))
     .add_native_item(tauri::SystemTrayMenuItem::Separator)
@@ -148,6 +151,8 @@ async fn main() -> ExitCode {
       tauri_cmd::get_mst_stypes,
       tauri_cmd::get_mst_useitems,
       tauri_cmd::launch_with_options,
+      tauri_cmd::check_pac_server_health,
+      tauri_cmd::check_proxy_server_health,
     ])
     .plugin(tauri_plugin_window_state::Builder::default().build())
     .setup(move |app| {
@@ -228,7 +233,7 @@ async fn main() -> ExitCode {
     // })
     .on_window_event(move |event| match event.event() {
       tauri::WindowEvent::CloseRequested { .. } => {
-          let _ = event.window().app_handle().tray_handle().get_item("open/close").set_title("Open Window");
+          let _ = event.window().app_handle().tray_handle().get_item("main-open/close").set_title("Open Main Window");
       },
       tauri::WindowEvent::Resized(size) => {
 
@@ -274,16 +279,17 @@ async fn main() -> ExitCode {
             match window.is_visible() {
               Ok(false) => {
                 let _ = window.show().unwrap();
-                let _ = app.tray_handle().get_item("open/close").set_title("Close Window");
+                let _ = app.tray_handle().get_item("main-open/close").set_title("Close Main Window");
               }
               _ => {}
             }
           },
           None => {
             let _window = tauri::WindowBuilder::new(app, "main", tauri::WindowUrl::App("index.html".into()))
+              .title("fusou-app")
               .build()
               .unwrap();
-            let _ = app.tray_handle().get_item("open/close").set_title("Close Window");
+            let _ = app.tray_handle().get_item("main-open/close").set_title("Close Main Window");
           }
         }
 
@@ -323,14 +329,22 @@ async fn main() -> ExitCode {
             // let pac_bidirectional_channel_master_clone = pac_bidirectional_channel_master.clone();
             // let proxy_bidirectional_channel_master_clone = proxy_bidirectional_channel_master.clone();
             if let Some(window) = app.get_window("main"){
-            
               if let Ok(visible) = window.is_visible() {
-                if !visible {
+                if visible {
                   let _ = app.get_window("main").expect("no window labeled 'main' found").hide().unwrap();
                 }
               }
             }
-            let _ = app.tray_handle().get_item("open/close").set_enabled(false);
+
+            if let Some(window) = app.get_window("external"){
+              if let Ok(visible) = window.is_visible() {
+                if visible {
+                  let _ = app.get_window("external").expect("no window labeled 'external' found").hide().unwrap();
+                }
+              }
+            }
+
+            let _ = app.tray_handle().get_item("main-open/close").set_enabled(false);
             let _ = app.tray_handle().get_item("quit").set_enabled(false);
             let _ = app.tray_handle().get_item("pause").set_enabled(false);
             let _ = app.tray_handle().get_item("advanced-title").set_enabled(false);
@@ -353,30 +367,76 @@ async fn main() -> ExitCode {
             let browser = SHARED_BROWSER.lock().unwrap().get_browser();
             let _ = open_browser(browser, "https://github.com/tsukasa-u").is_ok();
           },
-          "open/close" => {
+          "open-launch-page" => {
+            let window = app.get_window("main");
+            match window {
+              Some(window) => {
+                match window.is_visible() {
+                  Ok(false) => {
+                    window.show().unwrap();
+                  }
+                  _ => {}
+                }
+                tauri_cmd::set_launch_page(app);
+              },
+              None => {
+                let _window = tauri::WindowBuilder::new(app, "main", tauri::WindowUrl::App("index.html".into()))
+                  .title("fusou-app")
+                  .build()
+                  .unwrap();
+              }
+            }
+          },
+          "main-open/close" => {
             let window = app.get_window("main");
             match window {
               Some(window) => {
                 match window.is_visible() {
                   Ok(true) => {
                     let _ = window.hide().unwrap();
-                    let _ = app.tray_handle().get_item("open/close").set_title("Open Window");
+                    let _ = app.tray_handle().get_item("main-open/close").set_title("Open Main Window");
                   },
                   Ok(false) => {
                     let _ = window.show().unwrap();
-                    let _ = app.tray_handle().get_item("open/close").set_title("Close Window");
+                    let _ = app.tray_handle().get_item("main-open/close").set_title("Close Main Window");
                   }
                   _ => {}
                 }
               },
               None => {
                 let _window = tauri::WindowBuilder::new(app, "main", tauri::WindowUrl::App("index.html".into()))
+                  .title("fusou-app")
                   .build()
                   .unwrap();
-                let _ = app.tray_handle().get_item("open/close").set_title("Close Window");
+                let _ = app.tray_handle().get_item("main-open/close").set_title("Close Main Window");
               }
             }
-          }
+          },
+          "external-open/close" => {
+            let window = app.get_window("external");
+            match window {
+              Some(window) => {
+                match window.is_visible() {
+                  Ok(true) => {
+                    let _ = window.hide().unwrap();
+                    let _ = app.tray_handle().get_item("external-open/close").set_title("Open WebView");
+                  },
+                  Ok(false) => {
+                    let _ = window.show().unwrap();
+                    let _ = app.tray_handle().get_item("external-open/close").set_title("Close WebView");
+                  }
+                  _ => {}
+                }
+              },
+              None => {
+                // let _window = tauri::WindowBuilder::new(app, "main", tauri::WindowUrl::App("index.html".into()))
+                //   .build()
+                //   .unwrap();
+                crate::external::create_external_window(&app, None, true);
+                let _ = app.tray_handle().get_item("external-open/close").set_title("Close WebView");
+              }
+            }
+          },
           _ => {
             let submenu: Vec<&str> = id.as_str().split("-").collect();
             match submenu.get(0) {

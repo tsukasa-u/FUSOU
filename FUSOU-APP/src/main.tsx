@@ -14,7 +14,7 @@ render(
         <Router >
             <Route path="/app" component={App} />
             <Route path="/" component={Start} />
-            <Route path="*paramName" component={NotFound} />
+            <Route path="*" component={NotFound} />
         </Router>
     ),
     document.getElementById("root") as HTMLElement
