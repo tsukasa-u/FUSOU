@@ -77,7 +77,7 @@ export function ShellingComponent({deck_ship_id, battle_selected}: AntiSubmarine
                                                                         <div class={
                                                                             (() => {
                                                                                 let cl_flag = hougeki.cl_list[at_index()][dmg_index()];
-                                                                                if (cl_flag==0) {
+                                                                                if (cl_flag==0 || dmg == 0) {
                                                                                     return "text-red-500";
                                                                                 } else if (cl_flag==2) {
                                                                                     return "text-yellow-500";
