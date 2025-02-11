@@ -47,15 +47,15 @@ export function SettingsComponent(){
     
     return (
         <>
-            <div class="breadcrumbs text-sm bg-base-300 fixed border-b-1 border-t-1 w-full rounded" style={{"z-index":"100"}}>
+            {/* <div class="breadcrumbs text-sm bg-base-300 fixed border-b-1 border-t-1 w-full rounded" style={{"z-index":"100"}}>
               <ul class="pl-4">
                 <li><a class="link">Settings</a></li>
                 <li><a class="link">Debug</a></li>
                 <li><a class="link">Load Data</a></li>
               </ul>
-            </div>
+            </div> */}
 
-            <div class="h-8"></div>
+            {/* <div class="h-8"></div> */}
 
             <div class="mx-4">
                 <h1 class="pt-4 pb-2 text-2xl font-semibold">Settings</h1>
@@ -139,6 +139,22 @@ export function SettingsComponent(){
                         </div>
                     </div>
                 </div>
+                
+                <hr class="mt-4 mb-8" />
+
+                {/* <div class="grid py-6">
+                    <div id="load_mst_ships" class="py-2">
+                        <h2 class="text-lg font-semibold leading-4 ">Save Response Data</h2>
+                        <p>Save response data to test or use to analyze statistics</p>
+                        <div class="mt-4 flex items-center justify-end">
+                            <span class="w-8"></span>
+                            <input type="file" class="file-input file-input-bordered file-input-sm w-full" />
+                        </div>
+                        <div class="mt-4 flex items-center justify-end">
+                            <button class="btn btn-outline btn-wide" onClick={() => {  }}>empty</button>
+                        </div>
+                    </div>
+                </div> */}
 
                 <hr class="mt-4 mb-8" />
 

@@ -8,8 +8,12 @@ import { BattlesComponent } from '../components/battles.tsx';
 import { AirBasesComponent } from '../components/air_bases.tsx';
 import { ShipListComponent } from '../components/ship_list.tsx';
 import { EquipmentListComponent } from '../components/equipment_list.tsx';
+import { createEffect } from 'solid-js';
+import { location_route } from "../utility/location";
 
 function App() {
+
+  createEffect(location_route);
   
   return (
     <>
