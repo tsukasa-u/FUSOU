@@ -19,6 +19,8 @@ pub fn init_client() -> Result<DiscordIpcClient, Box<dyn std::error::Error + Sen
             client_id = value;
         }
     }
+    
+    // let client_id = dotenvy_macro::dotenv!("DISCORD_CLIENT_ID").to_string();
 
     let client = DiscordIpcClient::new(&client_id);
     match client {

@@ -1,8 +1,10 @@
 use std::sync::Arc;
 
 use tokio::sync::mpsc::error::SendError;
+use tokio::sync::mpsc::error::SendTimeoutError;
 use tokio::sync::Mutex;
 use tokio::sync::mpsc;
+use tokio::time::Timeout;
 
 #[derive(Debug, Clone)]
 pub enum StatusInfo {
@@ -37,6 +39,9 @@ impl<T> Master<T> where T: Clone {
         
         rx.recv().await
     }
+    pub async fn send_timeout(&self, message: T, timeout: u64) -> Result<(), mpsc::error::SendTimeoutError<T>> {
+        self.tx.send_timeout(message, tokio::time::Duration::from_millis(timeout)).await
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -54,7 +59,9 @@ impl <T> Slave<T> where T: Clone {
         
         rx.recv().await
     }
-    
+    pub async fn send_timeout(&self, message: T, timeout: u64) -> Result<(), SendTimeoutError<T>> {
+        self.tx.send_timeout(message, tokio::time::Duration::from_millis(timeout)).await
+    }
 }
 
 #[derive(Debug)]
@@ -111,21 +118,23 @@ impl<T> BidirectionalChannel<T> where T: Clone {
 }
 
 
-pub async fn check_health(mut master: Master<StatusInfo>) -> Result<(), SendError<StatusInfo>> {   
-    match master.send(StatusInfo::HEALTH {
+pub async fn check_health(mut master: Master<StatusInfo>) -> Result<(), SendTimeoutError<StatusInfo>> {   
+    match master.send_timeout(StatusInfo::HEALTH {
         status: "RUNNING".to_string(),
         message: "".to_string(),
-    }).await {
+    }, 2000).await {
         Ok(_) => {
             println!("Sent health message");
             tokio::select! {
-                _ = tokio::time::sleep(tokio::time::Duration::from_secs(5)) => {
-                    return Err(SendError::<StatusInfo>(
-                        StatusInfo::HEALTH {
-                            status: "ERROR".to_string(),
-                            message: "Health check failed with timeout".to_string(),
-                        }
-                    ));
+                _ = tokio::time::sleep(tokio::time::Duration::from_millis(2000)) => {
+                    return Err(
+                        SendTimeoutError::<StatusInfo>::Timeout(
+                            StatusInfo::HEALTH {
+                                status: "ERROR".to_string(),
+                                message: "Health check failed with timeout".to_string(),
+                            }
+                        )
+                    );
                 },
                 _ = master.recv() => {
                     return Ok(());
@@ -139,16 +148,16 @@ pub async fn check_health(mut master: Master<StatusInfo>) -> Result<(), SendErro
     }
 }
 
-pub async fn request_shutdown(mut master: Master<StatusInfo>) -> Result<(), SendError<StatusInfo>> {
-    match master.send(StatusInfo::SHUTDOWN {
+pub async fn request_shutdown(mut master: Master<StatusInfo>) -> Result<(), SendTimeoutError<StatusInfo>> {
+    match master.send_timeout(StatusInfo::SHUTDOWN {
         status: "SHUTTING DOWN".to_string(),
         message: "".to_string(),
-    }).await {
+    }, 2000).await {
         Ok(_) => {
             println!("Sent shutdown message");
             tokio::select! {
-                _ = tokio::time::sleep(tokio::time::Duration::from_secs(5)) => {
-                    return Err(SendError::<StatusInfo>(
+                _ = tokio::time::sleep(tokio::time::Duration::from_millis(2000)) => {
+                    return Err(SendTimeoutError::<StatusInfo>::Timeout(
                         StatusInfo::SHUTDOWN {
                             status: "ERROR".to_string(),
                             message: "Shutdown failed with timeout".to_string(),

@@ -33,7 +33,8 @@ tauri-plugin-window-state = { git = "https://github.com/tauri-apps/plugins-works
 discord-rich-presence = "0.2.4"
 dotenvy = "0.15.7"
 tauri-invoke-http = "0.1"
-
+dotenvy_macro = "0.15.7"
+directories = "6.0.0"
 
 [dev-dependencies]
 dot-writer = "0.1.3"
@@ -45,3 +46,7 @@ petgraph = "0.6.3"
 # If you use cargo directly instead of tauri's cli you can use this feature flag to switch between tauri's `dev` and `build` modes.
 # DO NOT REMOVE!!
 custom-protocol = [ "tauri/custom-protocol" ]
+
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(TAURI_BUILD_DEBUG)'] }

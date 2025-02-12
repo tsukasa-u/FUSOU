@@ -1,4 +1,4 @@
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 use webbrowser::{open_browser, Browser};
 use std::{fs, sync::{LazyLock, Mutex}};
 
@@ -26,7 +26,22 @@ pub fn create_external_window(app: &AppHandle, browser: Option<Browser>, browse_
 
     
     if browse_webview {
-        let init_script = fs::read_to_string("./../src/init_script.js").expect("Unable to read init_script.js");
+        if let Some(window) = app.get_window("external") {
+            match window.is_visible() {
+                Ok(visible) => {
+                    if !visible {
+                        window.show().expect("Failed to show external window");
+                    }
+                },
+                Err(e) => {
+                    println!("Error: {:?}", e);
+                }
+            }
+            return;
+        }
+
+        // let init_script = fs::read_to_string("./../src/init_script.js").expect("Unable to read init_script.js");
+        let init_script = include_str!(".././../src/init_script.js");
       
         let _external = tauri::WindowBuilder::new(
           app,

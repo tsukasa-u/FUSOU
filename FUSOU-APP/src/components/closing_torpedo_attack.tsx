@@ -57,9 +57,9 @@ export function ClosingTorpedoAttackComponent({deck_ship_id, battle_selected}: T
                 } else {
                     torpedo_damage.frai.list.push(frai);
                     torpedo_damage.frai.dict[frai] = {
-                        dmg: battle_selected().closing_raigeki.edam[i],
+                        dmg: battle_selected().closing_raigeki.edam[frai],
                         ships: [i],
-                        cl : battle_selected().closing_raigeki.ecl[i],
+                        cl : battle_selected().closing_raigeki.ecl[frai],
                     };
                 }
             }
@@ -71,9 +71,9 @@ export function ClosingTorpedoAttackComponent({deck_ship_id, battle_selected}: T
                 } else {
                     torpedo_damage.erai.list.push(erai);
                     torpedo_damage.erai.dict[erai] = {
-                        dmg: battle_selected().closing_raigeki.fdam[i],
+                        dmg: battle_selected().closing_raigeki.fdam[erai],
                         ships: [i],
-                        cl: battle_selected().closing_raigeki.fcl[i], 
+                        cl: battle_selected().closing_raigeki.fcl[erai], 
                     };
                 }
             }

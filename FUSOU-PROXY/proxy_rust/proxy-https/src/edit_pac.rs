@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use regex::Regex;
 
 // possibly the process of editing the pac file drive the compiler to rebuild the project, that means the project re build twice in frontend. It induce the late of display window and rendering.
@@ -17,6 +19,8 @@ pub fn edit_pac(path: &str, addr: &str, host: Option<&str>) {
         
         std::fs::write(path, replaced).expect("Unable to write file");
     } else {
+        let parent_path = Path::new(path).parent().expect("failed to get parent").to_str().expect("failed to convert to str");
+        std::fs::create_dir_all(parent_path).expect("failed to create dir");
         std::fs::write(path, replaced).expect("Unable to write file");
     }
 }

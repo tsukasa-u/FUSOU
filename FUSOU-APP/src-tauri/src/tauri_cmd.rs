@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use proxy_https::bidirectional_channel;
+use tauri::AppHandle;
 use tauri::Manager;
 
 use crate::external::create_external_window;
@@ -19,6 +21,8 @@ use crate::wrap_proxy::PacChannel;
 use crate::wrap_proxy::ProxyChannel;
 use crate::wrap_proxy::ProxyLogChannel;
 use crate::wrap_proxy::ResponseParseChannel;
+use crate::RESOURCES_DIR;
+use crate::ROAMING_DIR;
 
 #[tauri::command]
 pub async fn get_mst_ships(window: tauri::Window) {
@@ -84,7 +88,31 @@ pub async fn close_splashscreen(window: tauri::Window) {
 }
 
 #[tauri::command]
-pub async fn launch_with_options(window: tauri::Window, options: HashMap<String, i32>, pac_channel: tauri::State<'_, PacChannel>, proxy_channel: tauri::State<'_, ProxyChannel>, proxy_log_channel: tauri::State<'_, ProxyLogChannel>, response_parse_channel: tauri::State<'_, ResponseParseChannel>) -> Result<(), ()>{
+pub async fn check_pac_server_health(window: tauri::Window, pac_channel: tauri::State<'_, PacChannel>) -> Result<String, String> {
+  match bidirectional_channel::check_health(pac_channel.master.clone()).await {
+    Ok(_) => {
+      Ok("PAC server is running".to_string())
+    },
+    Err(e) => {
+      Err(e.to_string())
+    }
+  }
+}
+
+#[tauri::command]
+pub async fn check_proxy_server_health(window: tauri::Window, proxy_channel: tauri::State<'_, ProxyChannel>) -> Result<String, String> {
+  match bidirectional_channel::check_health(proxy_channel.master.clone()).await {
+    Ok(_) => {
+      Ok("Proxy server is running".to_string())
+    },
+    Err(e) => {
+      Err(e.to_string())
+    }
+  }
+}
+
+#[tauri::command]
+pub async fn launch_with_options(window: tauri::Window, options: HashMap<String, i32>, pac_channel: tauri::State<'_, PacChannel>, proxy_channel: tauri::State<'_, ProxyChannel>, proxy_log_channel: tauri::State<'_, ProxyLogChannel>, response_parse_channel: tauri::State<'_, ResponseParseChannel>) -> Result<(), ()> {
   println!("{:?}", options);
 
   if let Some(&flag) = options.get("run_proxy_server") {
@@ -135,8 +163,28 @@ pub async fn launch_with_options(window: tauri::Window, options: HashMap<String,
           _ => None,
         };
         if let Some(server_address) = server_address {
+          #[cfg(TAURI_BUILD_DEBUG)]
           let pac_path = "./../../FUSOU-PROXY/proxy_rust/proxy-https/proxy.pac".to_string();
-          let _proxy_result = wrap_proxy::serve_proxy(server_address.to_string(), pac_path, proxy_channel.slave.clone(), proxy_log_channel.master.clone(), pac_channel.slave.clone()).unwrap();
+          #[cfg(not(TAURI_BUILD_DEBUG))]
+          let pac_path = ROAMING_DIR.get().expect("ROAMING_DIR not found").join("./resources/pac/proxy.pac").as_path().to_str().expect("failed to convert str").to_string();
+          // let pac_path = window.app_handle().path_resolver().resolve_resource("./resources/pac/proxy.pac").expect("failed to resolve resources/pac/proxy dir").as_path().to_str().expect("failed to convert str").to_string();
+
+          #[cfg(TAURI_BUILD_DEBUG)]
+          let save_path = "./../../FUSOU-PROXY-DATA".to_string();
+          #[cfg(not(TAURI_BUILD_DEBUG))]
+          let save_path = directories::UserDirs::new().expect("failed to get user dirs").document_dir().expect("failed to get doc dirs").join("FUSOU-PROXY-DATA").as_path().to_str().expect("failed to convert str").to_string();
+
+          #[cfg(TAURI_BUILD_DEBUG)]
+          let ca_path = "./ca/".to_string();
+          #[cfg(not(TAURI_BUILD_DEBUG))]
+          let ca_path = ROAMING_DIR.get().expect("ROAMING_DIR not found").join("./resources/ca").as_path().to_str().expect("failed to convert str").to_string();
+          // let ca_path =  window.app_handle().path_resolver().resolve_resource("./resources/ca").expect("failed to resolve app_local_data_dir").as_path().to_str().expect("failed to convert str").to_string();
+
+          println!("save address: {}", save_path);
+          println!("ca path: {}", ca_path);
+          println!("pac path: {}", pac_path);
+
+          let _proxy_result = wrap_proxy::serve_proxy(server_address.to_string(), save_path, pac_path, ca_path, proxy_channel.slave.clone(), proxy_log_channel.master.clone(), pac_channel.slave.clone()).unwrap();
         }
       }
     }
@@ -145,8 +193,10 @@ pub async fn launch_with_options(window: tauri::Window, options: HashMap<String,
     if flag!=0 {
       json_parser::serve_reponse_parser(&window.app_handle(), response_parse_channel.slave.clone(), proxy_log_channel.slave.clone());
       window.get_window("main").expect("no window labeled 'main' found").show().unwrap();
+      let _ = window.app_handle().tray_handle().get_item("main-open/close").set_title("Close Main Window");
     } else {
       window.get_window("main").expect("no window labeled 'main' found").close().unwrap();
+      let _ = window.app_handle().tray_handle().get_item("main-open/close").set_title("Open Main Window");
     }
   }
   if let Some(&flag) = options.get("open_kancolle") {
@@ -163,4 +213,10 @@ pub async fn launch_with_options(window: tauri::Window, options: HashMap<String,
   }
 
   return Ok(());
+}
+
+//--------------------------------------------------------------
+
+pub fn set_launch_page(app: &AppHandle) {
+    let _ = app.emit_to::<()>("main", "set-main-page-launch", ());
 }

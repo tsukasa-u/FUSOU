@@ -51,15 +51,15 @@ export function OpeningTorpedoAttackComponent({deck_ship_id, battle_selected}: T
         
         battle_selected().opening_raigeki.frai_list_items.forEach((frai_list, i) => {
             if (frai_list != null) {
-                frai_list.forEach((frai, j) => {
+                frai_list.forEach((frai) => {
                     if (opening_torpedo_damage.frai.list.includes(frai)) {
                         opening_torpedo_damage.frai.dict[frai].ships.push(i);
                     } else {
                         opening_torpedo_damage.frai.list.push(frai);
                         opening_torpedo_damage.frai.dict[frai] = {
-                            dmg: battle_selected().opening_raigeki.edam[i],
+                            dmg: battle_selected().opening_raigeki.edam[frai],
                             ships: [i],
-                            cl : battle_selected().opening_raigeki.ecl_list[i],
+                            cl : battle_selected().opening_raigeki.ecl_list[frai],
                         };
                     }
                 });
@@ -67,15 +67,15 @@ export function OpeningTorpedoAttackComponent({deck_ship_id, battle_selected}: T
         });
         battle_selected().opening_raigeki.erai_list_items.forEach((erai_list, i) => {
             if (erai_list != null) {
-                erai_list.forEach((erai, j) => {
+                erai_list.forEach((erai) => {
                     if (opening_torpedo_damage.erai.list.includes(erai)) {
                         opening_torpedo_damage.erai.dict[erai].ships.push(i);
                     } else {
                         opening_torpedo_damage.erai.list.push(erai);
                         opening_torpedo_damage.erai.dict[erai] = {
-                            dmg: battle_selected().opening_raigeki.fdam[i],
+                            dmg: battle_selected().opening_raigeki.fdam[erai],
                             ships: [i],
-                            cl: battle_selected().opening_raigeki.fcl_list[i], 
+                            cl: battle_selected().opening_raigeki.fcl_list[erai], 
                         };
                     }
                 });

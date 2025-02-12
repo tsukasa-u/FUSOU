@@ -40,11 +40,11 @@ export function ShellingComponent({deck_ship_id, battle_selected}: AntiSubmarine
                             </thead>
                             <tbody>
                                 <For each={battle_selected().hougeki}>
-                                    {(hougeki, hougeki_index) => (
+                                    {(hougeki, _hougeki_index) => (
                                         <Show when={hougeki != null}>
                                             <For each={hougeki.at_list}>
                                                 {(at, at_index) => (
-                                                    <tr>
+                                                    <tr class="table_hover table_active rounded">
                                                         <td>
                                                             <Show when={hougeki.at_eflag[at_index()]==0} fallback={
                                                                 <EnemyNameComponent ship_id={battle_selected().enemy_ship_id[at]} ship_max_hp={battle_selected().e_hp_max![at]} ship_param={battle_selected().e_params![at]} ship_slot={battle_selected().e_slot![at]}></EnemyNameComponent>
@@ -77,7 +77,7 @@ export function ShellingComponent({deck_ship_id, battle_selected}: AntiSubmarine
                                                                         <div class={
                                                                             (() => {
                                                                                 let cl_flag = hougeki.cl_list[at_index()][dmg_index()];
-                                                                                if (cl_flag==0) {
+                                                                                if (cl_flag==0 || dmg == 0) {
                                                                                     return "text-red-500";
                                                                                 } else if (cl_flag==2) {
                                                                                     return "text-yellow-500";

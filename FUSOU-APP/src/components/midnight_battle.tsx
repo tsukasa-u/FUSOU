@@ -1,12 +1,11 @@
 import { ShipNameComponent } from './ship_name';
 
-import { createMemo, For, Match, Show, Switch } from 'solid-js';
+import { createMemo, For, Show } from 'solid-js';
 
 import "../css/divider.css";
 import { EnemyNameComponent } from './enemy_name';
 import { Battle } from '../interface/battle';
 import { MstEquipmentComponent } from './mst_equipment';
-import { EquimentComponent } from './equipment';
 import IconShield from '../icons/shield';
 
 interface AntiSubmarineProps {
@@ -67,7 +66,7 @@ export function MidnightShellingComponent({deck_ship_id, battle_selected}: AntiS
                                 <div class="w-3">/</div>
                                 <div class="w-24 flex justify-center">
                                     <Show when={battle_selected().midnight_flare_pos![1] != -1} fallback={<div>_</div>}>
-                                        <EnemyNameComponent ship_id={battle_selected().enemy_ship_id[battle_selected().midnight_flare_pos![1]]} ship_param={battle_selected().e_params![battle_selected().midnight_flare_pos![1]]} ship_slot={battle_selected().e_slot![battle_selected().midnight_flare_pos![1]]} ship_max_hp={battle_selected().e_hp_max![battle_selected().midnight_flare_pos![1]]} display={false}></EnemyNameComponent>
+                                        <EnemyNameComponent ship_id={battle_selected().enemy_ship_id[battle_selected().midnight_flare_pos![1]]} ship_param={battle_selected().e_params![battle_selected().midnight_flare_pos![1]]} ship_slot={battle_selected().e_slot![battle_selected().midnight_flare_pos![1]]} ship_max_hp={battle_selected().e_hp_max![battle_selected().midnight_flare_pos![1]]} ></EnemyNameComponent>
                                     </Show>
                                 </div>
                             </Show>
@@ -82,70 +81,72 @@ export function MidnightShellingComponent({deck_ship_id, battle_selected}: AntiS
                                 </tr>
                             </thead>
                             <tbody>
-                                <For each={battle_selected().midnight_hougeki?.at_list}>
-                                    {(at, at_index) => (
-                                        <tr>
-                                            <td>
-                                                <Show when={battle_selected().midnight_hougeki?.at_eflag[at_index()]==0} fallback={
-                                                    <EnemyNameComponent ship_id={battle_selected().enemy_ship_id[at]} ship_param={battle_selected().e_params![at]} ship_slot={battle_selected().e_slot![at]} ship_max_hp={battle_selected().e_hp_max![at]} display={false}></EnemyNameComponent>
-                                                }>
-                                                    <ShipNameComponent ship_id={deck_ship_id[battle_selected().deck_id!][at]}></ShipNameComponent>
-                                                </Show>
-                                            </td>
-                                            <td>
-                                                <div class="flex flex-col">
-                                                    <For each={battle_selected().midnight_hougeki?.df_list[at_index()]}>
-                                                        {(df, df_index) => (
-                                                            <div class="flex flex-nowrap">
-                                                                <Show when={battle_selected().midnight_hougeki?.at_eflag[at_index()]==1 && df != -1} fallback={
-                                                                    <EnemyNameComponent ship_id={battle_selected().enemy_ship_id[df]} ship_param={battle_selected().e_params![df]} ship_slot={battle_selected().e_slot![df]} ship_max_hp={battle_selected().e_hp_max![df]} display={false}></EnemyNameComponent>
-                                                                }>
-                                                                    <ShipNameComponent ship_id={deck_ship_id[battle_selected().deck_id!][df]}></ShipNameComponent>
-                                                                </Show>
-                                                                <Show when={battle_selected().midnight_hougeki?.protect_flag[at_index()][df_index()] == true}>
-                                                                    <IconShield class="h-5 w-5"></IconShield>
-                                                                </Show>
-                                                            </div>
-                                                        )}
-                                                    </For>
-                                                </div>
-                                            </td>
-                                            <td >
-                                                <div class="flex flex-col">
-                                                    <For each={battle_selected().midnight_hougeki?.damage[at_index()]}>
-                                                        {(dmg, dmg_index) => (
-                                                            <Show when={dmg != -1}>
-                                                                <div class={
-                                                                    (() => {
-                                                                        let cl_flag = battle_selected().midnight_hougeki?.cl_list[at_index()][dmg_index()];
-                                                                        if (cl_flag==0 || dmg == 0) {
-                                                                            return "text-red-500";
-                                                                        } else if (cl_flag==2) {
-                                                                            return "text-yellow-500";
-                                                                        }
-                                                                    })()
-                                                                }>{dmg}</div>
-                                                            </Show>
-                                                        )}
-                                                    </For>
-                                                </div>
-                                            </td>
-                                            <td>
-                                                <div class={battle_selected().midnight_hougeki?.df_list[at_index()].length == 1 ? "flex flex-nowrap" : "flex flex-col"}>
-                                                    <Show when={battle_selected().midnight_hougeki?.si_list[at_index()] != null}>
-                                                        <For each={battle_selected().midnight_hougeki?.si_list[at_index()]}>
-                                                            {(si) => (
-                                                                <Show when={si != null}>
-                                                                    <MstEquipmentComponent equip_id={si ?? 0} name_flag={true} compact={true} show_param={battle_selected().midnight_hougeki?.at_eflag[at_index()] == 0}></MstEquipmentComponent>
+                                <Show when={battle_selected().midnight_hougeki?.at_list != null}>
+                                    <For each={battle_selected().midnight_hougeki?.at_list}>
+                                        {(at, at_index) => (
+                                            <tr>
+                                                <td>
+                                                    <Show when={battle_selected().midnight_hougeki?.at_eflag![at_index()]==0} fallback={
+                                                        <EnemyNameComponent ship_id={battle_selected().enemy_ship_id[at]} ship_param={battle_selected().e_params![at]} ship_slot={battle_selected().e_slot![at]} ship_max_hp={battle_selected().e_hp_max![at]} ></EnemyNameComponent>
+                                                    }>
+                                                        <ShipNameComponent ship_id={deck_ship_id[battle_selected().deck_id!][at]}></ShipNameComponent>
+                                                    </Show>
+                                                </td>
+                                                <td>
+                                                    <div class="flex flex-col">
+                                                        <For each={battle_selected().midnight_hougeki?.df_list![at_index()]}>
+                                                            {(df, df_index) => (
+                                                                <div class="flex flex-nowrap">
+                                                                    <Show when={battle_selected().midnight_hougeki?.at_eflag![at_index()]==1 && df != -1} fallback={
+                                                                        <EnemyNameComponent ship_id={battle_selected().enemy_ship_id[df]} ship_param={battle_selected().e_params![df]} ship_slot={battle_selected().e_slot![df]} ship_max_hp={battle_selected().e_hp_max![df]}></EnemyNameComponent>
+                                                                    }>
+                                                                        <ShipNameComponent ship_id={deck_ship_id[battle_selected().deck_id!][df]}></ShipNameComponent>
+                                                                    </Show>
+                                                                    <Show when={battle_selected().midnight_hougeki?.protect_flag![at_index()][df_index()] == true}>
+                                                                        <IconShield class="h-5 w-5"></IconShield>
+                                                                    </Show>
+                                                                </div>
+                                                            )}
+                                                        </For>
+                                                    </div>
+                                                </td>
+                                                <td >
+                                                    <div class="flex flex-col">
+                                                        <For each={battle_selected().midnight_hougeki?.damage![at_index()]}>
+                                                            {(dmg, dmg_index) => (
+                                                                <Show when={dmg != -1}>
+                                                                    <div class={
+                                                                        (() => {
+                                                                            let cl_flag = battle_selected().midnight_hougeki?.cl_list![at_index()][dmg_index()];
+                                                                            if (cl_flag==0 || dmg == 0) {
+                                                                                return "text-red-500";
+                                                                            } else if (cl_flag==2) {
+                                                                                return "text-yellow-500";
+                                                                            }
+                                                                        })()
+                                                                    }>{dmg}</div>
                                                                 </Show>
                                                             )}
                                                         </For>
-                                                    </Show>
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    )}
-                                </For>
+                                                    </div>
+                                                </td>
+                                                <td>
+                                                    <div class={battle_selected().midnight_hougeki?.df_list![at_index()].length == 1 ? "flex flex-nowrap" : "flex flex-col"}>
+                                                        <Show when={battle_selected().midnight_hougeki?.si_list![at_index()] != null}>
+                                                            <For each={battle_selected().midnight_hougeki?.si_list![at_index()]}>
+                                                                {(si) => (
+                                                                    <Show when={si != null}>
+                                                                        <MstEquipmentComponent equip_id={si ?? 0} name_flag={true} compact={true} show_param={battle_selected().midnight_hougeki?.at_eflag![at_index()] == 0}></MstEquipmentComponent>
+                                                                    </Show>
+                                                                )}
+                                                            </For>
+                                                        </Show>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        )}
+                                    </For>
+                                </Show>
                             </tbody>
                         </table>
                     </ul>
