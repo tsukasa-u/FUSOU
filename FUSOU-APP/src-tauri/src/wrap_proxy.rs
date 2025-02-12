@@ -59,10 +59,7 @@ pub fn serve_proxy(proxy_target: String, save_path: String, pac_path: String, ca
     };
     edit_pac(pac_path.as_str(), proxy_addr.unwrap().to_string().as_str(), host);
     
-    // #[cfg(TAURI_BUILD_DEBUG)] 
     cmd::add_pac(&format!("http://localhost:{}/proxy.pac", pac_addr.unwrap().port()));
-    // #[cfg(not(TAURI_BUILD_DEBUG))]
-    // todo!("add_pac for release build");
     
     return Ok(());
 }
