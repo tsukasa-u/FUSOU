@@ -11,6 +11,7 @@ use proxy_https::pac_server::PATH_DELETE_PROXY_SH;
 use proxy_https::pac_server::PATH_ADD_STORE_SH;
 
 use crate::RESOURCES_DIR;
+use crate::ROAMING_DIR;
     
 pub fn add_pac(path: &str) {
     #[cfg(target_os = "windows")]
