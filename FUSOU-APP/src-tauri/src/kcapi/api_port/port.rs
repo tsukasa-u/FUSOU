@@ -388,7 +388,8 @@ impl TraitForConvert for Root {
         let ships: Ships = self.api_data.api_ship.clone().into();
         let ndocks: NDocks = self.api_data.api_ndock.clone().into();
         let logs: Logs = self.api_data.api_log.clone().into();
-        let deck_ports: DeckPorts = self.api_data.api_deck_port.clone().into();
+        // let deck_ports: DeckPorts = self.api_data.api_deck_port.clone().into();
+        let deck_ports: DeckPorts = self.api_data.clone().into();
         deck_ports.restore();
         Some(vec![
             EmitData::Set(Set::Materials(materials)), 

@@ -2,7 +2,7 @@
 //! KC APIs are also dependent on kcapi::kcapi_common.
 //! The dependency graph of the APIs is shown below.
 //! <div style="height: 80vh; overflow: scroll;">
-//!   <img src="https://tsukasa-u.github.io/FUSOU/struct_dependency_svg/api_req_hensei@preset_register.svg" alt="KC_API_dependency(api_req_hensei/preset_register)" style="max-width: 2000px;"/>
+//!   <img src="https://tsukasa-u.github.io/FUSOU/struct_dependency_svg/api_req_member@set_friendly_request.svg" alt="KC_API_dependency(api_req_member/set_friendly_request)" style="max-width: 2000px;"/>
 //! </div>
 
 use std::collections::HashMap;
@@ -23,7 +23,7 @@ use crate::interface::interface::EmitData;
 #[convert_output(output = EmitData)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
-#[register_struct(name = "api_req_hensei/preset_register")]
+#[register_struct(name = "api_req_member/set_option_setting")]
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Root {
@@ -31,26 +31,6 @@ pub struct Root {
     pub api_result: i64,
     #[serde(rename = "api_result_msg")]
     pub api_result_msg: String,
-    #[serde(rename = "api_data")]
-    pub api_data: ApiData,
-}
-
-#[derive(Getter, TraitForTest)]
-#[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ApiData {
-    #[serde(rename = "api_preset_no")]
-    pub api_preset_no: i64,
-    #[serde(rename = "api_name")]
-    pub api_name: String,
-    #[serde(rename = "api_name_id")]
-    pub api_name_id: String,
-    #[serde(rename = "api_ship")]
-    pub api_ship: Vec<i64>,
-    #[serde(rename = "api_lock_flag")]
-    pub api_lock_flag: Option<i64>,
 }
 
 #[cfg(test)]
@@ -73,8 +53,8 @@ mod tests {
             }
         }
 
-        let pattern_str = "S@api_req_hensei@preset_register";
-        let log_path = "./src/kcapi/api_req_hensei/preset_register.log";
+        let pattern_str = "S@api_req_member@set_option_setting";
+        let log_path = "./src/kcapi/api_req_member/set_option_setting.log";
         simple_root_test::<Root>(target_path, pattern_str.to_string(), log_path.to_string());
     }
 }

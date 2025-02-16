@@ -3,12 +3,12 @@ digraph {
   subgraph cluster_0 {
     label="api_req_hokyu / charge";
     node [style="filled", color=white, style="solid", color=gray20];
-    api_req_hokyu__charge__Root [label="<Root> Root  | { api_data | <api_data> ApiData } | { api_result | <api_result> i64 } | { api_result_msg | <api_result_msg> String }", shape=record];
+    api_req_hokyu__charge__Root [label="<Root> Root  | { api_result | <api_result> i64 } | { api_result_msg | <api_result_msg> String } | { api_data | <api_data> ApiData }", shape=record];
     api_req_hokyu__charge__ApiData;
     api_req_hokyu__charge__Root:api_data:e -> api_req_hokyu__charge__ApiData:ApiData:w;
-    api_req_hokyu__charge__ApiData [label="<ApiData> ApiData  | { api_material | <api_material> Vec\<i64\> } | { api_use_bou | <api_use_bou> i64 } | { api_ship | <api_ship> Vec\<ApiShip\> }", shape=record];
+    api_req_hokyu__charge__ApiData [label="<ApiData> ApiData  | { api_material | <api_material> Vec\<i64\> } | { api_ship | <api_ship> Vec\<ApiShip\> } | { api_use_bou | <api_use_bou> i64 }", shape=record];
     api_req_hokyu__charge__ApiShip;
     api_req_hokyu__charge__ApiData:api_ship:e -> api_req_hokyu__charge__ApiShip:ApiShip:w;
-    api_req_hokyu__charge__ApiShip [label="<ApiShip> ApiShip  | { api_id | <api_id> i64 } | { api_bull | <api_bull> i64 } | { api_fuel | <api_fuel> i64 } | { api_onslot | <api_onslot> Vec\<i64\> }", shape=record];
+    api_req_hokyu__charge__ApiShip [label="<ApiShip> ApiShip  | { api_fuel | <api_fuel> i64 } | { api_id | <api_id> i64 } | { api_onslot | <api_onslot> Vec\<i64\> } | { api_bull | <api_bull> i64 }", shape=record];
   }
 }

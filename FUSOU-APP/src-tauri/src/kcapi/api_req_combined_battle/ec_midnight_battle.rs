@@ -17,14 +17,15 @@ use register_trait::Getter;
 use register_trait::TraitForRoot;
 use register_trait::TraitForConvert;
 
+use crate::interface::battle::Battle;
+use crate::interface::interface::Add;
 use crate::kcapi_common::common_midnight::ApiHougeki;
 use crate::kcapi_common::common_midnight::ApiFriendlyBattle;
 use crate::kcapi_common::common_midnight::ApiFriendlyInfo;
 
 use crate::interface::interface::EmitData;
 
-#[derive(Getter, TraitForTest, TraitForRoot, TraitForConvert)]
-#[convert_output(output = EmitData)]
+#[derive(Getter, TraitForTest, TraitForRoot)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[register_struct(name = "api_req_combined_battle/ec_midnight_battle")]
@@ -108,6 +109,15 @@ pub struct ApiData {
     #[serde(rename = "api_friendly_info")]
     pub api_friendly_info: Option<ApiFriendlyInfo>,
 }
+
+impl TraitForConvert for Root {
+    type Output = EmitData;
+    fn convert(&self) -> Option<Vec<EmitData>> {
+        let battle: Battle = self.api_data.clone().into();
+        Some(vec![EmitData::Add(Add::Battle(battle))])
+    }
+}
+
 
 #[cfg(test)]
 mod tests {

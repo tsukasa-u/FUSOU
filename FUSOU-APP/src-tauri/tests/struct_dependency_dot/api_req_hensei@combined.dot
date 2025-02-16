@@ -3,7 +3,7 @@ digraph {
   subgraph cluster_0 {
     label="api_req_hensei / combined";
     node [style="filled", color=white, style="solid", color=gray20];
-    api_req_hensei__combined__Root [label="<Root> Root  | { api_result_msg | <api_result_msg> String } | { api_data | <api_data> ApiData } | { api_result | <api_result> i64 }", shape=record];
+    api_req_hensei__combined__Root [label="<Root> Root  | { api_result | <api_result> i64 } | { api_result_msg | <api_result_msg> String } | { api_data | <api_data> ApiData }", shape=record];
     api_req_hensei__combined__ApiData;
     api_req_hensei__combined__Root:api_data:e -> api_req_hensei__combined__ApiData:ApiData:w;
     api_req_hensei__combined__ApiData [label="<ApiData> ApiData  | { api_combined | <api_combined> i64 }", shape=record];

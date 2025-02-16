@@ -1,8 +1,7 @@
 import "../css/preview.css";
 import "../css/divider.css";
 import "../css/justify_self_center.css";
-import { createEffect, onCleanup, createMemo, createSignal, For, Match, Show, Switch } from "solid-js";
-import { listen, UnlistenFn } from "@tauri-apps/api/event";
+import { createEffect, createMemo, createSignal, For, Match, Show, Switch } from "solid-js";
 import { invoke } from "@tauri-apps/api";
 
 import IconCheckBoxGreen from "../icons/check_box_green";

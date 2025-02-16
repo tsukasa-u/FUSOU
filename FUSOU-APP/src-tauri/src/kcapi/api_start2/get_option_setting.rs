@@ -44,7 +44,25 @@ pub struct ApiData {
     #[serde(rename = "api_skin_id")]
     pub api_skin_id: i64,
     #[serde(rename = "api_volume_setting")]
-    pub api_volume_setting: Value,
+    pub api_volume_setting: Option<ApiVolumeSetting>,
+}
+
+#[derive(Getter, TraitForTest)]
+#[struct_test_case(field_extra, type_value, integration)]
+#[add_field(extra)]
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApiVolumeSetting {
+    #[serde(rename = "api_be_left")]
+    pub api_be_left: i64,
+    #[serde(rename = "api_duty")]
+    pub api_duty: i64,
+    #[serde(rename = "api_bgm")]
+    pub api_bgm: i64,
+    #[serde(rename = "api_se")]
+    pub api_se: i64,
+    #[serde(rename = "api_voice")]
+    pub api_voice: i64,
 }
 
 #[cfg(test)]

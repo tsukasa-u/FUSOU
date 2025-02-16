@@ -1,11 +1,9 @@
 use std::collections::HashMap;
 
 use chrono::Local;
-use serde_json::Value;
 
 use crate::kcapi;
 use crate::kcapi_common;
-use crate::kcapi_common::custom_type::DuoType;
 
 use std::sync::{LazyLock, Mutex};
 
@@ -111,7 +109,7 @@ pub struct AirBaseAttack {
 
 impl From<kcapi::api_req_map::next::ApiAirBaseAttack> for AirBaseAttack {
     fn from(air_base_attack: kcapi::api_req_map::next::ApiAirBaseAttack) -> Self {
-        let (f_damage, e_damage) = TupledAirStages(Some(air_base_attack.api_plane_from.clone()), air_base_attack.api_stage1.clone(), air_base_attack.api_stage2.clone(), air_base_attack.api_stage3.clone()).into();
+        let (f_damage, e_damage) = TupledAirStages(Some(air_base_attack.api_plane_from.clone()), air_base_attack.api_stage1.clone(), air_base_attack.api_stage2.clone(), air_base_attack.api_stage3.clone(), None).into();
         Self {
             plane_from: air_base_attack.api_plane_from,
             f_damage: f_damage,

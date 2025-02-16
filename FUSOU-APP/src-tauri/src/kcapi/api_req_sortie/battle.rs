@@ -111,6 +111,8 @@ pub struct ApiData {
     pub api_air_base_attack: Option<Vec<ApiAirBaseAttack>>,
     #[serde(rename = "api_escape_idx")]
     pub api_escape_idx: Option<Vec<i64>>,
+    #[serde(rename = "api_injection_kouku")]
+    pub api_injection_kouku: Option<ApiKouku>,
 }
 
 impl TraitForConvert for Root {

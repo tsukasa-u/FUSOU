@@ -72,7 +72,7 @@ pub struct Battle {
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct AirBaseAirAttacks {
-    attacks: Vec<AirBaseAirAttack>,
+   pub  attacks: Vec<AirBaseAirAttack>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -191,9 +191,23 @@ pub struct SupportHourai {
     pub protect_flag: Vec<bool>,
 }
 
+fn combine<T>(list: &[Option<Vec<T>>]) -> Option<Vec<T>> where T: Clone{
+    let mut combined: Vec<T> = Vec::new();
+    for x in list {
+        match x {
+            Some(y) => combined.extend(y.clone()),
+            None => continue,
+        }
+    }
+    match combined.is_empty() {
+        true => None,
+        false => Some(combined),
+    }
+}
+
 impl From<kcapi_common::common_air::ApiAirBaseAttack> for AirBaseAirAttack {
     fn from(air_base_air_attack: kcapi_common::common_air::ApiAirBaseAttack) -> Self {
-        let (f_damage, e_damage) = TupledAirStages(air_base_air_attack.api_plane_from.clone(), air_base_air_attack.api_stage1.clone(), air_base_air_attack.api_stage2.clone(), air_base_air_attack.api_stage3.clone()).into();
+        let (f_damage, e_damage) = TupledAirStages(air_base_air_attack.api_plane_from.clone(), air_base_air_attack.api_stage1.clone(), air_base_air_attack.api_stage2.clone(), air_base_air_attack.api_stage3.clone(), air_base_air_attack.api_stage3_combined.clone()).into();
         Self {
             stage_flag: air_base_air_attack.api_stage_flag,
             squadron_plane: air_base_air_attack.api_squadron_plane.and_then(|squadron_planes| Some(squadron_planes.iter().map(|squadron_plane| squadron_plane.api_mst_id).collect())),
@@ -204,40 +218,65 @@ impl From<kcapi_common::common_air::ApiAirBaseAttack> for AirBaseAirAttack {
     }
 }
 
-pub struct TupledAirStages(pub(super) Option<Vec<Option<Vec<i64>>>>, pub(super) Option<kcapi_common::common_air::ApiStage1>, pub(super) Option<kcapi_common::common_air::ApiStage2>, pub(super) Option<kcapi_common::common_air::ApiStage3>);
+pub struct TupledAirStages(pub(super) Option<Vec<Option<Vec<i64>>>>, pub(super) Option<kcapi_common::common_air::ApiStage1>, pub(super) Option<kcapi_common::common_air::ApiStage2>, pub(super) Option<kcapi_common::common_air::ApiStage3>, pub(super) Option<kcapi_common::common_air::ApiStage3>);
 impl From<TupledAirStages> for (AirDamage, AirDamage) {
     fn from(tupled_air_stages: TupledAirStages) -> Self {
-        let TupledAirStages(plane_from, stage1, stage2, stage3) = tupled_air_stages;
+        let TupledAirStages(plane_from, stage1, stage2, stage3, stage3_combined) = tupled_air_stages;
         let f_damages: Option<Vec<f32>> = stage3.clone().and_then(|stage3| stage3.api_fdam.and_then(|f_damages| Some(calc_floor(&f_damages))));
+        let f_damages_combined: Option<Vec<f32>> = stage3_combined.clone().and_then(|stage3_combined| stage3_combined.api_fdam.and_then(|f_damages| Some(calc_floor(&f_damages))));
         let e_damages: Option<Vec<f32>> = stage3.clone().and_then(|stage3| stage3.api_edam.and_then(|e_damages| Some(calc_floor(&e_damages))));
+        let e_damages_combined: Option<Vec<f32>> = stage3_combined.clone().and_then(|stage3_combined| stage3_combined.api_edam.and_then(|e_damages| Some(calc_floor(&e_damages))));
         let f_cl: Option<Vec<i64>> = stage3.clone().and_then(|stage3| stage3.api_fcl_flag.and_then(|f_cl| Some(calc_critical(&f_damages.clone().unwrap_or(vec![0_f32; f_cl.len()]), &f_cl))));
+        let f_cl_combined: Option<Vec<i64>> = stage3_combined.clone().and_then(|stage3_combined| stage3_combined.api_fcl_flag.and_then(|f_cl| Some(calc_critical(&f_damages_combined.clone().unwrap_or(vec![0_f32; f_cl.len()]), &f_cl))));
         let e_cl: Option<Vec<i64>> = stage3.clone().and_then(|stage3| stage3.api_ecl_flag.and_then(|e_cl| Some(calc_critical(&e_damages.clone().unwrap_or(vec![0_f32; e_cl.len()]), &e_cl))));
+        let e_cl_combined: Option<Vec<i64>> = stage3_combined.clone().and_then(|stage3_combined| stage3_combined.api_ecl_flag.and_then(|e_cl| Some(calc_critical(&e_damages_combined.clone().unwrap_or(vec![0_f32; e_cl.len()]), &e_cl))));
         let f_protect: Option<Vec<bool>> = stage3.clone().and_then(|stage3| stage3.api_fdam.and_then(|f_damages| Some(calc_protect_flag(&f_damages))));
+        let f_protect_combined: Option<Vec<bool>> = stage3_combined.clone().and_then(|stage3_combined| stage3_combined.api_fdam.and_then(|f_damages| Some(calc_protect_flag(&f_damages))));
         let e_protect: Option<Vec<bool>> = stage3.clone().and_then(|stage3| stage3.api_edam.and_then(|e_damages| Some(calc_protect_flag(&e_damages))));
+        let e_protect_combined: Option<Vec<bool>> = stage3_combined.clone().and_then(|stage3_combined| stage3_combined.api_edam.and_then(|e_damages| Some(calc_protect_flag(&e_damages))));
+        let f_sp: Option<Vec<Option<Vec<i64>>>> = stage3.clone().and_then(|stage3| stage3.api_f_sp_list);
+        let f_sp_combined: Option<Vec<Option<Vec<i64>>>> = stage3_combined.clone().and_then(|stage3_combined| stage3_combined.api_f_sp_list);
+        let e_sp: Option<Vec<Option<Vec<i64>>>> = stage3.clone().and_then(|stage3| stage3.api_e_sp_list);
+        let e_sp_combined: Option<Vec<Option<Vec<i64>>>> = stage3_combined.clone().and_then(|stage3_combined| stage3_combined.api_e_sp_list);
+        let f_rai_flag: Option<Vec<Option<i64>>> = stage3.clone().and_then(|stage3| stage3.api_frai_flag);
+        let f_rai_flag_combined: Option<Vec<Option<i64>>> = stage3_combined.clone().and_then(|stage3_combined| stage3_combined.api_frai_flag);
+        let f_bak_flag: Option<Vec<Option<i64>>> = stage3.clone().and_then(|stage3| stage3.api_fbak_flag);
+        let f_bak_flag_combined: Option<Vec<Option<i64>>> = stage3_combined.clone().and_then(|stage3_combined| stage3_combined.api_fbak_flag);
+        let e_rai_flag: Option<Vec<Option<i64>>> = stage3.clone().and_then(|stage3| stage3.api_erai_flag);
+        let e_rai_flag_combined: Option<Vec<Option<i64>>> = stage3_combined.clone().and_then(|stage3_combined| stage3_combined.api_erai_flag);
+        let e_bak_flag: Option<Vec<Option<i64>>> = stage3.clone().and_then(|stage3| stage3.api_ebak_flag);
+        let e_bak_flag_combined: Option<Vec<Option<i64>>> = stage3_combined.clone().and_then(|stage3_combined| stage3_combined.api_ebak_flag);
+        
+        // let combine = |list| {
+        //     match list.map(|x| x.unwrap_or(vec![])).concat() {
+        //         list if list.is_empty() => None,
+        //         list => Some(list),
+        //     }
+        // };
         (
             AirDamage {
                 plane_from: plane_from.clone().and_then(|plane_from| plane_from[0].clone()),
                 touch_plane: stage1.clone().and_then(|stage1| stage1.api_touch_plane.and_then(|touch_plane| Some(touch_plane[0]))),
                 loss_plane1: stage1.clone().and_then(|stage1| Some(stage1.api_f_lostcount)).unwrap_or(0),
                 loss_plane2: stage2.clone().and_then(|stage2| Some(stage2.api_f_lostcount)).unwrap_or(0),
-                damages: f_damages,
-                cl: f_cl,
-                sp: stage3.clone().and_then(|stage3| stage3.api_f_sp_list),
-                rai_flag: stage3.clone().and_then(|stage3| stage3.api_frai_flag),
-                bak_flag: stage3.clone().and_then(|stage3| stage3.api_fbak_flag),
-                protect_flag: f_protect,
+                damages: combine(&[f_damages, f_damages_combined]),
+                cl: combine(&[f_cl, f_cl_combined]),
+                sp: combine(&[f_sp, f_sp_combined]),
+                rai_flag: combine(&[f_rai_flag, f_rai_flag_combined]),
+                bak_flag: combine(&[f_bak_flag, f_bak_flag_combined]),
+                protect_flag: combine(&[f_protect, f_protect_combined]),
             },
             AirDamage {
                 plane_from: plane_from.clone().and_then(|plane_from| plane_from[1].clone()),
                 touch_plane: stage1.clone().and_then(|stage1| stage1.api_touch_plane.and_then(|touch_plane| Some(touch_plane[1]))),
                 loss_plane1: stage1.clone().and_then(|stage1| Some(stage1.api_e_lostcount)).unwrap_or(0),
                 loss_plane2: stage2.clone().and_then(|stage2| Some(stage2.api_e_lostcount)).unwrap_or(0),
-                damages: e_damages,
-                cl: e_cl,
-                sp: stage3.clone().and_then(|stage3| stage3.api_e_sp_list),
-                rai_flag: stage3.clone().and_then(|stage3| stage3.api_erai_flag),
-                bak_flag: stage3.clone().and_then(|stage3| stage3.api_ebak_flag),
-                protect_flag: e_protect,
+                damages: combine(&[e_damages, e_damages_combined]),
+                cl: combine(&[e_cl, e_cl_combined]),
+                sp: combine(&[e_sp, e_sp_combined]),
+                rai_flag: combine(&[e_rai_flag, e_rai_flag_combined]),
+                bak_flag: combine(&[e_bak_flag, e_bak_flag_combined]),
+                protect_flag: combine(&[e_protect, e_protect_combined]),
             }
 
         )
@@ -246,7 +285,7 @@ impl From<TupledAirStages> for (AirDamage, AirDamage) {
 
 impl From<kcapi_common::common_air::ApiKouku> for OpeningAirAttack {
     fn from(air: kcapi_common::common_air::ApiKouku) -> Self {
-        let (f_damage, e_damage) = TupledAirStages(air.api_plane_from.clone(), air.api_stage1.clone(), air.api_stage2.clone(), air.api_stage3.clone()).into();
+        let (f_damage, e_damage) = TupledAirStages(air.api_plane_from.clone(), air.api_stage1.clone(), air.api_stage2.clone(), air.api_stage3.clone(), air.api_stage3_combined.clone()).into();
         Self {
             air_superiority: air.api_stage1.clone().and_then(|stage1| stage1.api_disp_seiku),
             air_fire: match air.api_stage2.clone().and_then(|stage2| stage2.api_air_fire) {
@@ -401,23 +440,8 @@ impl From<kcapi_common::common_battle::ApiHougeki> for Hougeki {
 impl From<kcapi_common::common_midnight::ApiHougeki> for MidnightHougeki {
     fn from(hougeki: kcapi_common::common_midnight::ApiHougeki) -> Self {
 
-        // let si_list: Vec<Vec<Option<i64>>> = hougeki.api_si_list.iter().map(|si_list| calc_si_list(&si_list.iter().map(|si| Some(si.to_owned())).collect::<Vec<Option<DuoType<i64, String>>>>())).collect();
         let si_list: Option<Vec<Vec<Option<i64>>>> = hougeki.api_si_list.and_then(|api_si_list| Some(api_si_list.iter().map(|si_list| calc_si_list(&si_list.iter().map(|si| Some(si.to_owned())).collect())).collect()));
 
-        // let damages: Vec<Vec<f32>> = hougeki.api_damage.iter().enumerate().map(|(idx, damage)| remove_m1(damage, &hougeki.api_df_list[idx])).enumerate().map(|(idx, damages)| {
-        //     match hougeki.api_sp_list[idx] {
-        //         0 | 1 => damages,
-        //         n if n < 100 => {
-        //             let df_0 = hougeki.api_df_list[idx][0].clone();
-        //             if hougeki.api_df_list[idx].iter().all(|x| *x == df_0) {
-        //                 return vec![damages.iter().fold(0_f32, |acc, y| acc + *y)];
-        //             } else {
-        //                 return damages;
-        //             }
-        //         },
-        //         _ => damages,
-        //     }.to_vec()
-        // }).enumerate().map(|(idx, damages)| calc_floor(&damages)).collect();
         let damages: Option<Vec<Vec<f32>>> = hougeki.api_damage.clone().and_then(|api_damage| 
             hougeki.api_df_list.clone().and_then(|df_list| 
                 hougeki.api_sp_list.clone().and_then(|api_sp_list|
@@ -439,20 +463,6 @@ impl From<kcapi_common::common_midnight::ApiHougeki> for MidnightHougeki {
             )
         );
         
-        // let cl_list: Vec<Vec<i64>> = hougeki.api_cl_list.iter().enumerate().map(|(idx, cl_list)| remove_m1(cl_list, &hougeki.api_df_list[idx])).enumerate().map(|(idx, cl_list)| {
-        //     match hougeki.api_sp_list[idx] {
-        //         0 | 1 => cl_list,
-        //         n if n < 100 => {
-        //             let df_0 = hougeki.api_df_list[idx][0].clone();
-        //             if hougeki.api_df_list[idx].iter().all(|x| *x == df_0) {
-        //                 return vec![cl_list.iter().max().unwrap_or(&0).to_owned()];
-        //             } else {
-        //                 return cl_list;
-        //             }
-        //         },
-        //         _ => cl_list,
-        //     }.to_vec()
-        // }).enumerate().map(|(idx, cl_list)| calc_critical(&damages[idx], &cl_list)).collect();
         let cl_list: Option<Vec<Vec<i64>>>= hougeki.api_cl_list.and_then(|api_cl_list| 
             damages.clone().and_then(|damages| 
                 hougeki.api_df_list.clone().and_then(|df_list| 
@@ -476,27 +486,12 @@ impl From<kcapi_common::common_midnight::ApiHougeki> for MidnightHougeki {
             )
         );
         
-        // let protect_flag: Vec<Vec<bool>> = hougeki.api_damage.iter().enumerate().map(|(idx, damage)| remove_m1(damage, &hougeki.api_df_list[idx])).map(|damage| calc_protect_flag(&damage)).collect();
         let protect_flag: Option<Vec<Vec<bool>>> = hougeki.api_damage.and_then(|api_damage| 
             hougeki.api_df_list.clone().and_then(|df_list| 
                 Some(api_damage.iter().enumerate().map(|(idx, damage)| remove_m1(damage, &df_list[idx])).map(|damage| calc_protect_flag(&damage)).collect())
             )
         );
 
-        // let df_list: Vec<Vec<i64>> = hougeki.api_df_list.iter().enumerate().map(|(idx, df_list)| remove_m1(df_list, &hougeki.api_df_list[idx])).enumerate().map(|(idx, df_list)| {
-        //     match hougeki.api_sp_list[idx] {
-        //         0 | 1 => df_list,
-        //         n if n < 100 => {
-        //             let df_0 = df_list[0].clone();
-        //             if df_list.iter().all(|x| *x == df_0) {
-        //                 return vec![df_0];
-        //             } else {
-        //                 return df_list;
-        //             }
-        //         },
-        //         _ => df_list,
-        //     }.to_vec()
-        // }).collect();
         let df_list: Option<Vec<Vec<i64>>> = hougeki.api_df_list.and_then(|api_df_list| 
             hougeki.api_sp_list.clone().and_then(|api_sp_list|
                 Some(api_df_list.iter().enumerate().map(|(idx, df_list)| remove_m1(df_list, &api_df_list[idx])).enumerate().map(|(idx, df_list)| 

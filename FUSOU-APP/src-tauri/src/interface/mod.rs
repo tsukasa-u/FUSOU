@@ -15,5 +15,6 @@ pub mod mst_equip_ship;
 pub mod battle;
 pub mod cells;
 pub mod air_base;
+pub mod battle_combined;
 
 pub mod interface;
