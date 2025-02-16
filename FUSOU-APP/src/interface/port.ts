@@ -30,10 +30,12 @@ export interface DeckPort {
 
 export interface DeckPorts {
     deck_ports: { [key: number]: DeckPort }
+    combined_flag: number | null
 }
 
 export var global_deck_ports: DeckPorts = {
-    deck_ports: {}
+    deck_ports: {},
+    combined_flag: null
 };
 
 export interface NDock {
