@@ -124,6 +124,8 @@ pub struct ApiData {
     pub api_hougeki2: ApiHougeki,
     #[serde(rename = "api_hougeki3")]
     pub api_hougeki3: ApiHougeki,
+    #[serde(rename = "api_injection_kouku")]
+    pub api_injection_kouku: Option<ApiKouku>,
 }
 
 impl TraitForConvert for Root {

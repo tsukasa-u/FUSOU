@@ -9,3 +9,4 @@ pub mod payitemuse;
 pub mod set_friendly_request;
 pub mod itemuse;
 pub mod itemuse_cond;
+pub mod set_option_setting;

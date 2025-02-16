@@ -3,15 +3,14 @@ digraph {
   subgraph cluster_0 {
     label="api_req_member / itemuse";
     node [style="filled", color=white, style="solid", color=gray20];
-    api_req_member__itemuse__Root [label="<Root> Root  | { api_result | <api_result> i64 } | { api_result_msg | <api_result_msg> String } | { api_data | <api_data> ApiData }", shape=record];
+    api_req_member__itemuse__Root [label="<Root> Root  | { api_data | <api_data> ApiData } | { api_result | <api_result> i64 } | { api_result_msg | <api_result_msg> String }", shape=record];
     api_req_member__itemuse__ApiData;
     api_req_member__itemuse__Root:api_data:e -> api_req_member__itemuse__ApiData:ApiData:w;
-    api_req_member__itemuse__ApiData [label="<ApiData> ApiData  | { api_getitem | <api_getitem> Option\<Vec\<ApiGetitem\>\> } | { api_caution_flag | <api_caution_flag> i64 } | { api_flag | <api_flag> i64 } | { api_material | <api_material> Option\<Vec\<i64\>\> }", shape=record];
+    api_req_member__itemuse__ApiSlotitem [label="<ApiSlotitem> ApiSlotitem  | { api_alv | <api_alv> Option\<i64\> } | { api_level | <api_level> i64 } | { api_id | <api_id> i64 } | { api_slotitem_id | <api_slotitem_id> i64 } | { api_locked | <api_locked> i64 }", shape=record];
+    api_req_member__itemuse__ApiData [label="<ApiData> ApiData  | { api_flag | <api_flag> i64 } | { api_caution_flag | <api_caution_flag> i64 } | { api_getitem | <api_getitem> Option\<Vec\<ApiGetitem\>\> } | { api_material | <api_material> Option\<Vec\<i64\>\> }", shape=record];
     api_req_member__itemuse__ApiGetitem;
     api_req_member__itemuse__ApiData:api_getitem:e -> api_req_member__itemuse__ApiGetitem:ApiGetitem:w;
-    api_req_member__itemuse__ApiGetitem [label="<ApiGetitem> ApiGetitem  | { api_mst_id | <api_mst_id> i64 } | { api_slotitem | <api_slotitem> Option\<ApiSlotitem\> } | { api_usemst | <api_usemst> i64 } | { api_getcount | <api_getcount> i64 }", shape=record];
-    api_req_member__itemuse__ApiSlotitem;
+    api_req_member__itemuse__ApiGetitem [label="<ApiGetitem> ApiGetitem  | { api_getcount | <api_getcount> i64 } | { api_usemst | <api_usemst> i64 } | { api_mst_id | <api_mst_id> i64 } | { api_slotitem | <api_slotitem> Option\<ApiSlotitem\> }", shape=record];
     api_req_member__itemuse__ApiGetitem:api_slotitem:e -> api_req_member__itemuse__ApiSlotitem:ApiSlotitem:w;
-    api_req_member__itemuse__ApiSlotitem [label="<ApiSlotitem> ApiSlotitem  | { api_slotitem_id | <api_slotitem_id> i64 } | { api_level | <api_level> i64 } | { api_alv | <api_alv> Option\<i64\> } | { api_id | <api_id> i64 } | { api_locked | <api_locked> i64 }", shape=record];
   }
 }
