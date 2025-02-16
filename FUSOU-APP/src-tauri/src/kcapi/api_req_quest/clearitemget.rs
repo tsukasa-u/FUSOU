@@ -60,7 +60,7 @@ pub struct ApiBounu {
     #[serde(rename = "api_count")]
     pub api_count: i64,
     #[serde(rename = "api_item")]
-    pub api_item: ApiItem,
+    pub api_item: Option<ApiItem>,
 }
 
 #[derive(Getter, TraitForTest)]

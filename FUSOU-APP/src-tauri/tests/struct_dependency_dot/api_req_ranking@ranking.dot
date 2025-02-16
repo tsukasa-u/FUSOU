@@ -3,11 +3,10 @@ digraph {
   subgraph cluster_0 {
     label="api_req_ranking / ranking";
     node [style="filled", color=white, style="solid", color=gray20];
-    api_req_ranking__ranking__ApiData [label="<ApiData> ApiData  | { api_disp_page | <api_disp_page> i64 } | { api_list | <api_list> Vec\<ApiList\> } | { api_page_count | <api_page_count> i64 } | { api_count | <api_count> i64 }", shape=record];
-    api_req_ranking__ranking__ApiList;
+    api_req_ranking__ranking__ApiList [label="<ApiList> ApiList  | { api_wuhnhojjxmke | <api_wuhnhojjxmke> i64 } | { api_pbgkfylkbjuy | <api_pbgkfylkbjuy> i64 } | { api_pcumlrymlujh | <api_pcumlrymlujh> i64 } | { api_itslcqtmrxtf | <api_itslcqtmrxtf> i64 } | { api_mxltvkpyuklh | <api_mxltvkpyuklh> i64 } | { api_itbrdpdbkynm | <api_itbrdpdbkynm> String } | { api_mtjmdcwtvhdr | <api_mtjmdcwtvhdr> String }", shape=record];
+    api_req_ranking__ranking__ApiData [label="<ApiData> ApiData  | { api_disp_page | <api_disp_page> i64 } | { api_count | <api_count> i64 } | { api_page_count | <api_page_count> i64 } | { api_list | <api_list> Vec\<ApiList\> }", shape=record];
     api_req_ranking__ranking__ApiData:api_list:e -> api_req_ranking__ranking__ApiList:ApiList:w;
-    api_req_ranking__ranking__ApiList [label="<ApiList> ApiList  | { api_mtjmdcwtvhdr | <api_mtjmdcwtvhdr> String } | { api_wuhnhojjxmke | <api_wuhnhojjxmke> i64 } | { api_itslcqtmrxtf | <api_itslcqtmrxtf> i64 } | { api_itbrdpdbkynm | <api_itbrdpdbkynm> String } | { api_mxltvkpyuklh | <api_mxltvkpyuklh> i64 } | { api_pcumlrymlujh | <api_pcumlrymlujh> i64 } | { api_pbgkfylkbjuy | <api_pbgkfylkbjuy> i64 }", shape=record];
-    api_req_ranking__ranking__Root [label="<Root> Root  | { api_result_msg | <api_result_msg> String } | { api_result | <api_result> i64 } | { api_data | <api_data> ApiData }", shape=record];
+    api_req_ranking__ranking__Root [label="<Root> Root  | { api_result | <api_result> i64 } | { api_result_msg | <api_result_msg> String } | { api_data | <api_data> ApiData }", shape=record];
     api_req_ranking__ranking__Root:api_data:e -> api_req_ranking__ranking__ApiData:ApiData:w;
   }
 }

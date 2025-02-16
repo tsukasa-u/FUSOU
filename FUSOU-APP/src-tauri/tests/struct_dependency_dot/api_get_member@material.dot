@@ -6,6 +6,6 @@ digraph {
     api_get_member__material__Root [label="<Root> Root  | { api_result_msg | <api_result_msg> String } | { api_result | <api_result> i64 } | { api_data | <api_data> Vec\<ApiData\> }", shape=record];
     api_get_member__material__ApiData;
     api_get_member__material__Root:api_data:e -> api_get_member__material__ApiData:ApiData:w;
-    api_get_member__material__ApiData [label="<ApiData> ApiData  | { api_id | <api_id> i64 } | { api_value | <api_value> i64 } | { api_member_id | <api_member_id> i64 }", shape=record];
+    api_get_member__material__ApiData [label="<ApiData> ApiData  | { api_member_id | <api_member_id> i64 } | { api_value | <api_value> i64 } | { api_id | <api_id> i64 }", shape=record];
   }
 }

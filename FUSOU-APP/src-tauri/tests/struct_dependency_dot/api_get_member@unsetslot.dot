@@ -3,6 +3,6 @@ digraph {
   subgraph cluster_0 {
     label="api_get_member / unsetslot";
     node [style="filled", color=white, style="solid", color=gray20];
-    api_get_member__unsetslot__Root [label="<Root> Root  | { api_result_msg | <api_result_msg> String } | { api_result | <api_result> i64 } | { api_data | <api_data> HashMap\<String, Vec\<i64\>\> }", shape=record];
+    api_get_member__unsetslot__Root [label="<Root> Root  | { api_data | <api_data> HashMap\<String, Vec\<i64\>\> } | { api_result | <api_result> i64 } | { api_result_msg | <api_result_msg> String }", shape=record];
   }
 }

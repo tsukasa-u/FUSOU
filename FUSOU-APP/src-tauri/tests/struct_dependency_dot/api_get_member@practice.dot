@@ -3,11 +3,11 @@ digraph {
   subgraph cluster_0 {
     label="api_get_member / practice";
     node [style="filled", color=white, style="solid", color=gray20];
-    api_get_member__practice__ApiData [label="<ApiData> ApiData  | { api_create_kind | <api_create_kind> i64 } | { api_selected_kind | <api_selected_kind> i64 } | { api_entry_limit | <api_entry_limit> Option\<i64\> } | { api_list | <api_list> Vec\<ApiList\> }", shape=record];
-    api_get_member__practice__ApiList;
-    api_get_member__practice__ApiData:api_list:e -> api_get_member__practice__ApiList:ApiList:w;
-    api_get_member__practice__Root [label="<Root> Root  | { api_result_msg | <api_result_msg> String } | { api_result | <api_result> i64 } | { api_data | <api_data> ApiData }", shape=record];
+    api_get_member__practice__ApiList [label="<ApiList> ApiList  | { api_enemy_id | <api_enemy_id> i64 } | { api_enemy_flag | <api_enemy_flag> i64 } | { api_enemy_rank | <api_enemy_rank> String } | { api_enemy_flag_ship | <api_enemy_flag_ship> i64 } | { api_enemy_comment | <api_enemy_comment> String } | { api_enemy_name_id | <api_enemy_name_id> String } | { api_enemy_name | <api_enemy_name> String } | { api_enemy_level | <api_enemy_level> i64 } | { api_state | <api_state> i64 } | { api_medals | <api_medals> i64 } | { api_enemy_comment_id | <api_enemy_comment_id> String }", shape=record];
+    api_get_member__practice__Root [label="<Root> Root  | { api_data | <api_data> ApiData } | { api_result | <api_result> i64 } | { api_result_msg | <api_result_msg> String }", shape=record];
+    api_get_member__practice__ApiData;
     api_get_member__practice__Root:api_data:e -> api_get_member__practice__ApiData:ApiData:w;
-    api_get_member__practice__ApiList [label="<ApiList> ApiList  | { api_enemy_level | <api_enemy_level> i64 } | { api_enemy_rank | <api_enemy_rank> String } | { api_enemy_flag_ship | <api_enemy_flag_ship> i64 } | { api_enemy_id | <api_enemy_id> i64 } | { api_enemy_flag | <api_enemy_flag> i64 } | { api_enemy_name | <api_enemy_name> String } | { api_enemy_comment | <api_enemy_comment> String } | { api_enemy_comment_id | <api_enemy_comment_id> String } | { api_state | <api_state> i64 } | { api_medals | <api_medals> i64 } | { api_enemy_name_id | <api_enemy_name_id> String }", shape=record];
+    api_get_member__practice__ApiData [label="<ApiData> ApiData  | { api_entry_limit | <api_entry_limit> Option\<i64\> } | { api_list | <api_list> Vec\<ApiList\> } | { api_create_kind | <api_create_kind> i64 } | { api_selected_kind | <api_selected_kind> i64 }", shape=record];
+    api_get_member__practice__ApiData:api_list:e -> api_get_member__practice__ApiList:ApiList:w;
   }
 }

@@ -3,14 +3,14 @@ digraph {
   subgraph cluster_0 {
     label="api_req_air_corps / supply";
     node [style="filled", color=white, style="solid", color=gray20];
-    api_req_air_corps__supply__ApiData [label="<ApiData> ApiData  | { api_after_bauxite | <api_after_bauxite> i64 } | { api_after_fuel | <api_after_fuel> i64 } | { api_distance | <api_distance> ApiDistance } | { api_plane_info | <api_plane_info> Vec\<ApiPlaneInfo\> }", shape=record];
-    api_req_air_corps__supply__ApiDistance;
+    api_req_air_corps__supply__ApiDistance [label="<ApiDistance> ApiDistance  | { api_base | <api_base> i64 } | { api_bonus | <api_bonus> i64 }", shape=record];
+    api_req_air_corps__supply__Root [label="<Root> Root  | { api_result | <api_result> i64 } | { api_data | <api_data> ApiData } | { api_result_msg | <api_result_msg> String }", shape=record];
+    api_req_air_corps__supply__ApiData;
+    api_req_air_corps__supply__Root:api_data:e -> api_req_air_corps__supply__ApiData:ApiData:w;
+    api_req_air_corps__supply__ApiData [label="<ApiData> ApiData  | { api_distance | <api_distance> ApiDistance } | { api_after_fuel | <api_after_fuel> i64 } | { api_after_bauxite | <api_after_bauxite> i64 } | { api_plane_info | <api_plane_info> Vec\<ApiPlaneInfo\> }", shape=record];
     api_req_air_corps__supply__ApiData:api_distance:e -> api_req_air_corps__supply__ApiDistance:ApiDistance:w;
     api_req_air_corps__supply__ApiPlaneInfo;
     api_req_air_corps__supply__ApiData:api_plane_info:e -> api_req_air_corps__supply__ApiPlaneInfo:ApiPlaneInfo:w;
-    api_req_air_corps__supply__ApiPlaneInfo [label="<ApiPlaneInfo> ApiPlaneInfo  | { api_squadron_id | <api_squadron_id> i64 } | { api_state | <api_state> i64 } | { api_count | <api_count> i64 } | { api_slotid | <api_slotid> i64 } | { api_cond | <api_cond> i64 } | { api_max_count | <api_max_count> i64 }", shape=record];
-    api_req_air_corps__supply__ApiDistance [label="<ApiDistance> ApiDistance  | { api_bonus | <api_bonus> i64 } | { api_base | <api_base> i64 }", shape=record];
-    api_req_air_corps__supply__Root [label="<Root> Root  | { api_result | <api_result> i64 } | { api_result_msg | <api_result_msg> String } | { api_data | <api_data> ApiData }", shape=record];
-    api_req_air_corps__supply__Root:api_data:e -> api_req_air_corps__supply__ApiData:ApiData:w;
+    api_req_air_corps__supply__ApiPlaneInfo [label="<ApiPlaneInfo> ApiPlaneInfo  | { api_state | <api_state> i64 } | { api_slotid | <api_slotid> i64 } | { api_squadron_id | <api_squadron_id> i64 } | { api_max_count | <api_max_count> i64 } | { api_cond | <api_cond> i64 } | { api_count | <api_count> i64 }", shape=record];
   }
 }

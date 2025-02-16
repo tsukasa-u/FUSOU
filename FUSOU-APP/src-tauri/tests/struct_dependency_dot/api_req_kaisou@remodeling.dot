@@ -3,6 +3,6 @@ digraph {
   subgraph cluster_0 {
     label="api_req_kaisou / remodeling";
     node [style="filled", color=white, style="solid", color=gray20];
-    api_req_kaisou__remodeling__Root [label="<Root> Root  | { api_result_msg | <api_result_msg> String } | { api_result | <api_result> i64 }", shape=record];
+    api_req_kaisou__remodeling__Root [label="<Root> Root  | { api_result | <api_result> i64 } | { api_result_msg | <api_result_msg> String }", shape=record];
   }
 }
