@@ -7,13 +7,15 @@ use std::sync::{LazyLock, Mutex};
 // Is it better to use onecell::sync::Lazy or std::sync::Lazy?
 pub static KCS_DECKS: LazyLock<Mutex<DeckPorts>> = LazyLock::new(|| {
     Mutex::new(DeckPorts {
-        deck_ports: HashMap::new()
+        deck_ports: HashMap::new(),
+        combined_flag: None,
     })
 });
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct DeckPorts {
-    pub deck_ports: HashMap<i64, DeckPort>
+    pub deck_ports: HashMap<i64, DeckPort>,
+    pub combined_flag: Option<i64>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -43,7 +45,8 @@ impl From<Vec<kcapi::api_port::port::ApiDeckPort>> for DeckPorts {
             deck_port_list.insert(deck_port.api_id, deck_port.into());
         }
         Self {
-            deck_ports: deck_port_list
+            deck_ports: deck_port_list,
+            combined_flag: None,
         }
     }
 }
@@ -56,5 +59,18 @@ impl From<kcapi::api_port::port::ApiDeckPort> for DeckPort {
             mission: deck_port.api_mission,
             ship: Some(deck_port.api_ship),
         }
+    }
+}
+
+impl From<kcapi::api_port::port::ApiData> for DeckPorts {
+    fn from(api_data: kcapi::api_port::port::ApiData) -> Self {
+        let mut deck_ports: DeckPorts = api_data.api_deck_port.clone().into();
+        deck_ports.combined_flag = api_data.api_combined_flag;
+        if deck_ports.combined_flag.is_some_and(|flag| flag > 0) {
+            if let Some(deck_port) =  deck_ports.deck_ports.get_mut(&1) {
+                deck_port.ship = Some([api_data.api_deck_port[0].api_ship.clone(), api_data.api_deck_port[1].api_ship.clone()].concat().to_vec())
+            }
+        }
+        deck_ports
     }
 }

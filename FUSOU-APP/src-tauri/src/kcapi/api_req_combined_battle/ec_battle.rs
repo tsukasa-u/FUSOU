@@ -17,6 +17,8 @@ use register_trait::Getter;
 use register_trait::TraitForRoot;
 use register_trait::TraitForConvert;
 
+use crate::interface::battle::Battle;
+use crate::interface::interface::Add;
 use crate::kcapi_common::common_air::ApiAirBaseAttack;
 use crate::kcapi_common::common_air::ApiKouku;
 use crate::kcapi_common::common_battle::ApiHougeki;
@@ -29,8 +31,7 @@ use crate::kcapi_common::common_battle::ApiFlavorInfo;
 
 use crate::interface::interface::EmitData;
 
-#[derive(Getter, TraitForTest, TraitForRoot, TraitForConvert)]
-#[convert_output(output = EmitData)]
+#[derive(Getter, TraitForTest, TraitForRoot)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[register_struct(name = "api_req_combined_battle/ec_battle")]
@@ -124,6 +125,15 @@ pub struct ApiData {
     #[serde(rename = "api_hougeki3")]
     pub api_hougeki3: ApiHougeki,
 }
+
+impl TraitForConvert for Root {
+    type Output = EmitData;
+    fn convert(&self) -> Option<Vec<EmitData>> {
+        let battle: Battle = self.api_data.clone().into();
+        Some(vec![EmitData::Add(Add::Battle(battle))])
+    }
+}
+
 
 #[cfg(test)]
 mod tests {
