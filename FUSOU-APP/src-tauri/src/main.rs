@@ -157,9 +157,9 @@ async fn main() -> ExitCode {
     .plugin(tauri_plugin_window_state::Builder::default().build())
     .setup(move |app| {
 
-      #[cfg(TAURI_BUILD_DEBUG)]
+      #[cfg(TAURI_BUILD_TYPE="DEBUG")]
       RESOURCES_DIR.set(PathBuf::from(env!("CARGO_MANIFEST_DIR"))).unwrap();
-      #[cfg(not(TAURI_BUILD_DEBUG))]
+      #[cfg(TAURI_BUILD_TYPE="RELEASE")]
       match app.path_resolver().resource_dir() {
         Some(path) => {
           RESOURCES_DIR.set(path.join("resources")).unwrap();
@@ -173,7 +173,7 @@ async fn main() -> ExitCode {
         None => return Err("Failed to get app data directory".into())
       }
 
-      #[cfg(not(TAURI_BUILD_DEBUG))]
+      #[cfg(TAURI_BUILD_TYPE="RELEASE")]
       match app.path_resolver().app_data_dir() {
         Some(path) => {
           ROAMING_DIR.set(path.clone()).unwrap();
