@@ -3,11 +3,10 @@ digraph {
   subgraph cluster_0 {
     label="api_get_member / preset_deck";
     node [style="filled", color=white, style="solid", color=gray20];
-    api_get_member__preset_deck__ApiData [label="<ApiData> ApiData  | { api_max_num | <api_max_num> i64 } | { api_deck | <api_deck> HashMap\<String, N\> }", shape=record];
-    api_get_member__preset_deck__N;
+    api_get_member__preset_deck__N [label="<N> N  | { api_ship | <api_ship> Vec\<i64\> } | { api_preset_no | <api_preset_no> i64 } | { api_name | <api_name> String } | { api_name_id | <api_name_id> String } | { api_lock_flag | <api_lock_flag> Option\<i64\> }", shape=record];
+    api_get_member__preset_deck__ApiData [label="<ApiData> ApiData  | { api_deck | <api_deck> HashMap\<String, N\> } | { api_max_num | <api_max_num> i64 }", shape=record];
     api_get_member__preset_deck__ApiData:api_deck:e -> api_get_member__preset_deck__N:N:w;
-    api_get_member__preset_deck__N [label="<N> N  | { api_lock_flag | <api_lock_flag> Option\<i64\> } | { api_preset_no | <api_preset_no> i64 } | { api_ship | <api_ship> Vec\<i64\> } | { api_name | <api_name> String } | { api_name_id | <api_name_id> String }", shape=record];
-    api_get_member__preset_deck__Root [label="<Root> Root  | { api_data | <api_data> ApiData } | { api_result_msg | <api_result_msg> String } | { api_result | <api_result> i64 }", shape=record];
+    api_get_member__preset_deck__Root [label="<Root> Root  | { api_result_msg | <api_result_msg> String } | { api_data | <api_data> ApiData } | { api_result | <api_result> i64 }", shape=record];
     api_get_member__preset_deck__Root:api_data:e -> api_get_member__preset_deck__ApiData:ApiData:w;
   }
 }

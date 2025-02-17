@@ -3,8 +3,9 @@ digraph {
   subgraph cluster_0 {
     label="api_req_mission / start";
     node [style="filled", color=white, style="solid", color=gray20];
-    api_req_mission__start__ApiData [label="<ApiData> ApiData  | { api_complatetime | <api_complatetime> i64 } | { api_complatetime_str | <api_complatetime_str> String }", shape=record];
-    api_req_mission__start__Root [label="<Root> Root  | { api_result | <api_result> i64 } | { api_data | <api_data> ApiData } | { api_result_msg | <api_result_msg> String }", shape=record];
+    api_req_mission__start__Root [label="<Root> Root  | { api_result | <api_result> i64 } | { api_result_msg | <api_result_msg> String } | { api_data | <api_data> ApiData }", shape=record];
+    api_req_mission__start__ApiData;
     api_req_mission__start__Root:api_data:e -> api_req_mission__start__ApiData:ApiData:w;
+    api_req_mission__start__ApiData [label="<ApiData> ApiData  | { api_complatetime_str | <api_complatetime_str> String } | { api_complatetime | <api_complatetime> i64 }", shape=record];
   }
 }
