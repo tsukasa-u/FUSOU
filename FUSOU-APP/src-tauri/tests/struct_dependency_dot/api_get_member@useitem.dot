@@ -3,8 +3,8 @@ digraph {
   subgraph cluster_0 {
     label="api_get_member / useitem";
     node [style="filled", color=white, style="solid", color=gray20];
-    api_get_member__useitem__ApiData [label="<ApiData> ApiData  | { api_id | <api_id> i64 } | { api_count | <api_count> i64 }", shape=record];
-    api_get_member__useitem__Root [label="<Root> Root  | { api_result_msg | <api_result_msg> String } | { api_data | <api_data> Vec\<ApiData\> } | { api_result | <api_result> i64 }", shape=record];
+    api_get_member__useitem__ApiData [label="<ApiData> ApiData  | { api_count | <api_count> i64 } | { api_id | <api_id> i64 }", shape=record];
+    api_get_member__useitem__Root [label="<Root> Root  | { api_data | <api_data> Vec\<ApiData\> } | { api_result | <api_result> i64 } | { api_result_msg | <api_result_msg> String }", shape=record];
     api_get_member__useitem__Root:api_data:e -> api_get_member__useitem__ApiData:ApiData:w;
   }
 }

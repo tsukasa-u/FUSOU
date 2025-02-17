@@ -3,9 +3,8 @@ digraph {
   subgraph cluster_0 {
     label="api_req_hensei / preset_delete";
     node [style="filled", color=white, style="solid", color=gray20];
-    api_req_hensei__preset_delete__Root [label="<Root> Root  | { api_result_msg | <api_result_msg> String } | { api_data | <api_data> ApiData } | { api_result | <api_result> i64 }", shape=record];
-    api_req_hensei__preset_delete__ApiData;
-    api_req_hensei__preset_delete__Root:api_data:e -> api_req_hensei__preset_delete__ApiData:ApiData:w;
     api_req_hensei__preset_delete__ApiData [label="<ApiData> ApiData  | { api_combined | <api_combined> i64 }", shape=record];
+    api_req_hensei__preset_delete__Root [label="<Root> Root  | { api_data | <api_data> ApiData } | { api_result | <api_result> i64 } | { api_result_msg | <api_result_msg> String }", shape=record];
+    api_req_hensei__preset_delete__Root:api_data:e -> api_req_hensei__preset_delete__ApiData:ApiData:w;
   }
 }

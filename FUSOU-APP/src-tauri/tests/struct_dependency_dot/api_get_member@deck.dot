@@ -3,9 +3,8 @@ digraph {
   subgraph cluster_0 {
     label="api_get_member / deck";
     node [style="filled", color=white, style="solid", color=gray20];
-    api_get_member__deck__Root [label="<Root> Root  | { api_data | <api_data> Vec\<ApiData\> } | { api_result | <api_result> i64 } | { api_result_msg | <api_result_msg> String }", shape=record];
-    api_get_member__deck__ApiData;
+    api_get_member__deck__ApiData [label="<ApiData> ApiData  | { api_id | <api_id> i64 } | { api_ship | <api_ship> Vec\<i64\> } | { api_name_id | <api_name_id> String } | { api_mission | <api_mission> Vec\<i64\> } | { api_member_id | <api_member_id> i64 } | { api_name | <api_name> String } | { api_flagship | <api_flagship> String }", shape=record];
+    api_get_member__deck__Root [label="<Root> Root  | { api_result | <api_result> i64 } | { api_data | <api_data> Vec\<ApiData\> } | { api_result_msg | <api_result_msg> String }", shape=record];
     api_get_member__deck__Root:api_data:e -> api_get_member__deck__ApiData:ApiData:w;
-    api_get_member__deck__ApiData [label="<ApiData> ApiData  | { api_name_id | <api_name_id> String } | { api_ship | <api_ship> Vec\<i64\> } | { api_flagship | <api_flagship> String } | { api_name | <api_name> String } | { api_member_id | <api_member_id> i64 } | { api_mission | <api_mission> Vec\<i64\> } | { api_id | <api_id> i64 }", shape=record];
   }
 }

@@ -3,6 +3,6 @@ digraph {
   subgraph cluster_0 {
     label="api_req_nyukyo / start";
     node [style="filled", color=white, style="solid", color=gray20];
-    api_req_nyukyo__start__Root [label="<Root> Root  | { api_result | <api_result> i64 } | { api_result_msg | <api_result_msg> String }", shape=record];
+    api_req_nyukyo__start__Root [label="<Root> Root  | { api_result_msg | <api_result_msg> String } | { api_result | <api_result> i64 }", shape=record];
   }
 }
