@@ -22,6 +22,8 @@ use crate::interface::mst_equip_ship::MstEquipShips;
 use crate::interface::mst_stype::MstStypes;
 use crate::interface::mst_use_item::MstUseItems;
 
+use register_trait::LogMapNumberSize;
+
 #[derive(Getter, TraitForTest, TraitForRoot)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
@@ -682,6 +684,8 @@ impl TraitForConvert for Root {
 #[cfg(test)]
 mod tests {
     use register_trait::simple_root_test;
+    use register_trait::simple_root_check_number_size;
+    use crate::util::type_of;
 
     use super::*;
     use dotenvy::dotenv;
@@ -702,5 +706,22 @@ mod tests {
         let pattern_str = "S@api_start2@getData";
         let log_path = "./src/kcapi/api_start2/getData.log";
         simple_root_test::<Root>(target_path, pattern_str.to_string(), log_path.to_string());
+    }
+
+    #[test]
+    fn test_possible_values() {
+        
+        let mut target_path = "./../../FUSOU-PROXY-DATA/kcsapi".to_string();
+    
+        dotenv().expect(".env file not found");
+        for (key, value) in env::vars() {
+            if key.eq("TEST_DATA_PATH") {
+                target_path = value.clone();
+            }
+        }
+
+        let pattern_str = "S@api_start2@getData";
+        let log_path = "./src/kcapi/api_start2/getData_check_number.log";
+        simple_root_check_number_size::<Root>(target_path, pattern_str.to_string(), log_path.to_string());
     }
 }
