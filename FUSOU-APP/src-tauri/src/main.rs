@@ -22,6 +22,7 @@ mod discord;
 mod tauri_cmd;
 mod external;
 mod wrap_proxy;
+mod util;
 
 // use proxy::bidirectional_channel::{BidirectionalChannel, StatusInfo};
 use proxy_https::bidirectional_channel::{BidirectionalChannel, StatusInfo, request_shutdown};

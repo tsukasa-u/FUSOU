@@ -3,6 +3,7 @@ use std::env;
 
 mod check_struct_defined;
 mod check_struct_dependency;
+pub mod util;
 
 fn target_path() -> String {
     let mut target_path = "./../../FUSOU-PROXY-DATA/kcsapi".to_string();

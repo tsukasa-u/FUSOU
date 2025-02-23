@@ -85,6 +85,10 @@ impl From<kcapi::api_req_combined_battle::ec_battle::ApiData> for Battle {
             midnight_flare_pos: None,
             midngiht_touchplane: None,
             midnight_hougeki: None,
+            f_nowhps: Some(battle.api_f_nowhps),
+            e_nowhps: Some([battle.api_e_nowhps, battle.api_e_nowhps_combined].concat()),
+            midngiht_f_nowhps: None,
+            midngiht_e_nowhps: None,
         }
     }
 }
@@ -127,6 +131,10 @@ impl From<kcapi::api_req_combined_battle::ec_midnight_battle::ApiData> for Battl
             midnight_flare_pos: Some(battle.api_flare_pos),
             midngiht_touchplane: Some(battle.api_touch_plane),
             midnight_hougeki: midnight_hougeki,
+            f_nowhps: None,
+            e_nowhps: None,
+            midngiht_f_nowhps: Some(battle.api_f_nowhps),
+            midngiht_e_nowhps: Some([battle.api_e_nowhps, battle.api_e_nowhps_combined].concat()),
         }
     }
 }

@@ -2,14 +2,12 @@ use std::collections::HashMap;
 use std::vec;
 
 use chrono::Local;
-use regex::Match;
-use serde_json::Value;
 
 use crate::kcapi;
 use crate::kcapi_common;
 use crate::kcapi_common::custom_type::DuoType;
 
-use std::sync::{LazyLock, Mutex};
+// use std::sync::{LazyLock, Mutex};
 
 use super::cells::KCS_CELLS;
 
@@ -55,6 +53,10 @@ pub struct Battle {
     pub midnight_flare_pos: Option<Vec<i64>>,
     pub midngiht_touchplane: Option<Vec<i64>>,
     pub midnight_hougeki: Option<MidnightHougeki>,
+    pub f_nowhps: Option<Vec<i64>>,
+    pub e_nowhps: Option<Vec<i64>>,
+    pub midngiht_f_nowhps: Option<Vec<i64>>,
+    pub midngiht_e_nowhps: Option<Vec<i64>>,
 }
 
 // #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -632,6 +634,10 @@ impl From<kcapi::api_req_sortie::battle::ApiData> for Battle {
             midnight_flare_pos: None,
             midngiht_touchplane: None,
             midnight_hougeki: None,
+            f_nowhps: Some(battle.api_f_nowhps),
+            e_nowhps: Some(battle.api_e_nowhps),
+            midngiht_f_nowhps: None,
+            midngiht_e_nowhps: None,
         }
     }
 }
@@ -674,6 +680,10 @@ impl From<kcapi::api_req_battle_midnight::battle::ApiData> for Battle {
             midnight_flare_pos: Some(battle.api_flare_pos),
             midngiht_touchplane: Some(battle.api_touch_plane),
             midnight_hougeki: midnight_hougeki,
+            f_nowhps: None,
+            e_nowhps: None,
+            midngiht_f_nowhps: Some(battle.api_f_nowhps),
+            midngiht_e_nowhps: Some(battle.api_e_nowhps),
         }
     }
 }
@@ -716,6 +726,10 @@ impl From<kcapi::api_req_battle_midnight::sp_midnight::ApiData> for Battle {
             midnight_flare_pos: Some(battle.api_flare_pos),
             midngiht_touchplane: Some(battle.api_touch_plane),
             midnight_hougeki: midnight_hougeki,
+            f_nowhps: None,
+            e_nowhps: None,
+            midngiht_f_nowhps: Some(battle.api_f_nowhps),
+            midngiht_e_nowhps: Some(battle.api_e_nowhps),
         }
     }
 }
@@ -764,6 +778,10 @@ impl From<kcapi::api_req_sortie::ld_airbattle::ApiData> for Battle {
             midnight_flare_pos: None,
             midngiht_touchplane: None,
             midnight_hougeki: None,
+            f_nowhps: Some(airbattle.api_f_nowhps),
+            e_nowhps: Some(airbattle.api_e_nowhps),
+            midngiht_f_nowhps: None,
+            midngiht_e_nowhps: None,
         }
     }
 }
