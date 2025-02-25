@@ -35,7 +35,7 @@ impl From<kcapi::api_req_combined_battle::ec_battle::ApiData> for Battle {
             Some(hougeki) => Some(hougeki.into()),
             None => None,
         };
-        let hougeki_3: Option<Hougeki> = match Some(battle.api_hougeki3) {
+        let hougeki_3: Option<Hougeki> = match battle.api_hougeki3 {
             Some(hougeki) => Some(hougeki.into()),
             None => None,
         };
