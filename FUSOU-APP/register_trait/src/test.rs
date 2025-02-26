@@ -67,7 +67,7 @@ pub fn custom_root_test<T>(file_list: impl Iterator<Item = PathBuf>, log_path: S
     
     if write_log_test(log_path.clone(), &log_map) > 0 {
         if log_map.iter().filter(
-            |(key, log)| (key.0 == "type_value" && log.iter().position(|x| x == "null").is_some() && log.iter().position(|x| x != "null").is_some()) || key.0 != "type_value").count() > 0 {
+            |(key, log)| (key.0 == "type_value" && log.iter().position(|x| x != "null").is_some()) || key.0 != "type_value").count() > 0 {
             panic!("\x1b[38;5;{}m some errors or warnings are exist. check the log file({})\x1b[m ", 13, log_path);
         } else {
             println!("\x1b[38;5;{}m some warnings are exist. check the log file({})\x1b[m ", 11, log_path);
