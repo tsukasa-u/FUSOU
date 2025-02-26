@@ -18,6 +18,7 @@ use crate::interface::interface::{EmitData, Add};
 use crate::interface::battle::Battle;
 
 use crate::kcapi_common::common_air::ApiKouku;
+use crate::kcapi_common::common_air::ApiAirBaseInjection;
 use crate::kcapi_common::common_air::ApiAirBaseAttack;
 use crate::kcapi_common::common_battle::ApiRaigeki;
 use crate::kcapi_common::common_battle::ApiHougeki;
@@ -113,6 +114,8 @@ pub struct ApiData {
     pub api_escape_idx: Option<Vec<i64>>,
     #[serde(rename = "api_injection_kouku")]
     pub api_injection_kouku: Option<ApiKouku>,
+    #[serde(rename = "api_air_base_injection")]
+    pub api_air_base_injection: Option<ApiAirBaseInjection>,
 }
 
 impl TraitForConvert for Root {

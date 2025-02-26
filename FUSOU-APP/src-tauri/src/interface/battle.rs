@@ -272,7 +272,7 @@ impl From<TupledAirStages> for (AirDamage, AirDamage) {
                 plane_from: plane_from.clone().and_then(|plane_from| plane_from[1].clone()),
                 touch_plane: stage1.clone().and_then(|stage1| stage1.api_touch_plane.and_then(|touch_plane| Some(touch_plane[1]))),
                 loss_plane1: stage1.clone().and_then(|stage1| Some(stage1.api_e_lostcount)).unwrap_or(0),
-                loss_plane2: stage2.clone().and_then(|stage2| Some(stage2.api_e_lostcount)).unwrap_or(0),
+                loss_plane2: stage2.clone().and_then(|stage2| Some(stage2.api_e_lostcount.unwrap_or(0))).unwrap_or(0),
                 damages: combine(&[e_damages, e_damages_combined]),
                 cl: combine(&[e_cl, e_cl_combined]),
                 sp: combine(&[e_sp, e_sp_combined]),
