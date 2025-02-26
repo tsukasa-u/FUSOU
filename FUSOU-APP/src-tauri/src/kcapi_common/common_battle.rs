@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+// use serde_json::Value;
 
+use super::common_air::AapiSupportAiratack;
 use super::custom_type::DuoType;
 
 use register_trait::add_field;
@@ -108,10 +109,11 @@ pub struct ApiOpeningAtack {
 #[serde(rename_all = "camelCase")]
 pub struct ApiSupportInfo {
     #[serde(rename = "api_support_airatack")]
-    pub api_support_airatack: Value,
+    pub api_support_airatack: Option<AapiSupportAiratack>,
     #[serde(rename = "api_support_hourai")]
     pub api_support_hourai: Option<ApiSupportHourai>,
 }
+
 
 #[derive(Getter, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
