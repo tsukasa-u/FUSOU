@@ -99,6 +99,8 @@ jobs:
       uses: actions/download-artifact@v4
       with:
         name: struct-dependency-artifact
+    - name: check tree
+      run: tree dir
     - name: move struct dependency svg
       run: mv -f ./tests/struct_dependency_svg ./target/doc/struct_dependency_svg
     - name: Upload artifact
