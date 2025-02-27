@@ -98,7 +98,7 @@ jobs:
     - name: Download SVG
       uses: actions/download-artifact@v4
       with:
-        name: struct-dependency-artifact
+        name: artifact-upload-svg
     - name: check tree
       run: tree .
     - name: move struct dependency svg
