@@ -207,6 +207,8 @@ pub fn check_struct_dependency() {
             }
         }
 
+        std::fs::create_dir_all("./tests/struct_dependency_dot").expect("create dir failed");
+        std::fs::create_dir_all("./tests/struct_dependency_svg").expect("create dir failed");
         let mut file = File::create("./tests/struct_dependency_dot/all.dot").unwrap();
         file.write_all(output_bytes.as_slice()).expect("write failed");
     }
