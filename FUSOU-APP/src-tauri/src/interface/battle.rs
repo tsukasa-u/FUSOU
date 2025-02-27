@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::option;
 use std::vec;
 
 use chrono::Local;
@@ -194,6 +193,17 @@ pub struct SupportHourai {
     pub protect_flag: Vec<bool>,
 }
 
+pub struct AirBaseAssult {
+
+}
+
+pub struct CarrierBaseAssault {
+
+}
+
+pub struct FriendlyFleetAttack {
+}
+
 fn combine<T>(list: &[Option<Vec<T>>]) -> Option<Vec<T>> where T: Clone{
     let mut combined: Vec<T> = Vec::new();
     for x in list {
@@ -263,12 +273,6 @@ impl From<TupledAirStages> for (AirDamage, AirDamage) {
         let e_rai_flag_combined: Option<Vec<Option<i64>>> = stage3_combined.clone().and_then(|stage3_combined| stage3_combined.api_erai_flag);
         let e_bak_flag_combined: Option<Vec<Option<i64>>> = stage3_combined.clone().and_then(|stage3_combined| stage3_combined.api_ebak_flag);
         
-        // let combine = |list| {
-        //     match list.map(|x| x.unwrap_or(vec![])).concat() {
-        //         list if list.is_empty() => None,
-        //         list => Some(list),
-        //     }
-        // };
         (
             AirDamage {
                 plane_from: plane_from.clone().and_then(|plane_from| plane_from[0].clone()),
@@ -569,6 +573,8 @@ impl From<kcapi_common::common_battle::ApiSupportHourai> for SupportHourai {
         }
     }
 }
+
+
 
 impl From<kcapi::api_req_sortie::battle::ApiData> for Battle {
     fn from(battle: kcapi::api_req_sortie::battle::ApiData) -> Self {
