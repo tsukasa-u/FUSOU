@@ -22,5 +22,5 @@ FUSOU-PROXY-DATA/
 error_logs/
 FUSOU-APP/src-tauri/ca/*
 
-/FUSOU-APP/src-tauri/tests/struct_dependency_dot
-/FUSOU-APP/src-tauri/tests/struct_dependency_svg
+/FUSOU-APP/src-tauri/tests/struct_dependency_dot/*.dot
+/FUSOU-APP/src-tauri/tests/struct_dependency_svg/*.svg
