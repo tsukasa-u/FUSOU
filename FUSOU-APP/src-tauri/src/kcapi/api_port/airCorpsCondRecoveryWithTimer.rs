@@ -2,7 +2,7 @@
 //! KC APIs are also dependent on kcapi::kcapi_common.
 //! The dependency graph of the APIs is shown below.
 //! <div style="height: 80vh; overflow: scroll;">
-//!   <img src="https://tsukasa-u.github.io/FUSOU/struct_dependency_svg/api_req_air_corps@expand_base.svg" alt="KC_API_dependency(api_req_air_corps/set_action)" style="max-width: 2000px;"/>
+//!   <img src="https://tsukasa-u.github.io/FUSOU/struct_dependency_svg/api_port@airCorpsCondRecoveryWithTimer.svg" alt="KC_API_dependency(api_dmm_payment/paycheck)" style="max-width: 2000px;"/>
 //! </div>
 
 use std::collections::HashMap;
@@ -23,7 +23,7 @@ use crate::interface::interface::EmitData;
 #[convert_output(output = EmitData)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
-#[register_struct(name = "api_req_air_corps/expand_base")]
+#[register_struct(name = "api_port/airCorpsCondRecoveryWithTimer")]
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Root {
@@ -32,7 +32,7 @@ pub struct Root {
     #[serde(rename = "api_result_msg")]
     pub api_result_msg: String,
     #[serde(rename = "api_data")]
-    pub api_data: Vec<ApiData>,
+    pub api_data: ApiData,
 }
 
 #[derive(Getter, TraitForTest)]
@@ -41,16 +41,8 @@ pub struct Root {
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiData {
-    #[serde(rename = "api_area_id")]
-    pub api_area_id: i64,
-    #[serde(rename = "api_rid")]
-    pub api_rid: i64,
-    #[serde(rename = "api_name")]
-    pub api_name: String,
     #[serde(rename = "api_distance")]
     pub api_distance: ApiDistance,
-    #[serde(rename = "api_action_kind")]
-    pub api_action_kind: i64,
     #[serde(rename = "api_plane_info")]
     pub api_plane_info: Vec<ApiPlaneInfo>,
 }
@@ -79,6 +71,12 @@ pub struct ApiPlaneInfo {
     pub api_state: i64,
     #[serde(rename = "api_slotid")]
     pub api_slotid: i64,
+    #[serde(rename = "api_count")]
+    pub api_count: i64,
+    #[serde(rename = "api_max_count")]
+    pub api_max_count: i64,
+    #[serde(rename = "api_cond")]
+    pub api_cond: i64,
 }
 
 #[cfg(test)]
@@ -101,8 +99,8 @@ mod tests {
             }
         }
 
-        let pattern_str = "S@api_req_air_corps@expand_base";
-        let log_path = "./src/kcapi/api_req_air_corps/expand_base.log";
-        simple_root_test::<Root>(target_path, pattern_str.to_string(), log_path.to_string());
+        let pattern_str = "S@api_port@airCorpsCondRecoveryWithTimer";
+        let log_path = "./src/kcapi/api_port/airCorpsCondRecoveryWithTimer.log";
+        simple_root_test::<Root>(target_path.to_string(), pattern_str.to_string(), log_path.to_string());
     }
 }
