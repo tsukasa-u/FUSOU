@@ -7,7 +7,7 @@
 
 use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+// use serde_json::Value;
 
 use register_trait::{register_struct, add_field};
 
@@ -103,7 +103,7 @@ pub struct ApiData {
     #[serde(rename = "api_hougeki2")]
     pub api_hougeki2: Option<ApiHougeki>,
     #[serde(rename = "api_hougeki3")]
-    pub api_hougeki3: Value,
+    pub api_hougeki3: Option<ApiHougeki>,
     #[serde(rename = "api_raigeki")]
     pub api_raigeki: Option<ApiRaigeki>,
     #[serde(rename = "api_flavor_info")]
