@@ -100,7 +100,7 @@ jobs:
       with:
         name: struct-dependency-artifact
     - name: check tree
-      run: tree dir
+      run: tree .
     - name: move struct dependency svg
       run: mv -f ./tests/struct_dependency_svg ./target/doc/struct_dependency_svg
     - name: Upload artifact
