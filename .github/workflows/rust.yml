@@ -65,12 +65,6 @@ jobs:
       run: echo '<meta http-equiv="refresh" content="0;url=app/index.html">' > target/doc/index.html
     - name: Remove lock file
       run: rm target/doc/.lock
-    - name: Download SVG
-      uses: actions/download-artifact@v4
-      with:
-        name: struct-dependency-artifact
-    - name: check tree
-      run: tree .
     - name: move struct dependency svg
       run: mv -f ./tests/struct_dependency_svg ./target/doc/struct_dependency_svg
     - name: Upload artifact
