@@ -7,7 +7,7 @@
 
 use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+// use serde_json::Value;
 
 use register_trait::{register_struct, add_field};
 
@@ -18,6 +18,7 @@ use crate::interface::interface::{EmitData, Add};
 use crate::interface::battle::Battle;
 
 use crate::kcapi_common::common_air::ApiKouku;
+use crate::kcapi_common::common_air::ApiAirBaseInjection;
 use crate::kcapi_common::common_air::ApiAirBaseAttack;
 use crate::kcapi_common::common_battle::ApiRaigeki;
 use crate::kcapi_common::common_battle::ApiHougeki;
@@ -102,7 +103,7 @@ pub struct ApiData {
     #[serde(rename = "api_hougeki2")]
     pub api_hougeki2: Option<ApiHougeki>,
     #[serde(rename = "api_hougeki3")]
-    pub api_hougeki3: Value,
+    pub api_hougeki3: Option<ApiHougeki>,
     #[serde(rename = "api_raigeki")]
     pub api_raigeki: Option<ApiRaigeki>,
     #[serde(rename = "api_flavor_info")]
@@ -113,6 +114,8 @@ pub struct ApiData {
     pub api_escape_idx: Option<Vec<i64>>,
     #[serde(rename = "api_injection_kouku")]
     pub api_injection_kouku: Option<ApiKouku>,
+    #[serde(rename = "api_air_base_injection")]
+    pub api_air_base_injection: Option<ApiAirBaseInjection>,
 }
 
 impl TraitForConvert for Root {

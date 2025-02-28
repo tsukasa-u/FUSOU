@@ -21,5 +21,6 @@ test_data/
 FUSOU-PROXY-DATA/
 error_logs/
 FUSOU-APP/src-tauri/ca/*
-FUSOU-PROXY/proxy_rust/proxy/proxy.pac
-FUSOU-PROXY/proxy_rust/proxy-https/proxy.pac
+
+/FUSOU-APP/src-tauri/tests/struct_dependency_dot/*.dot
+/FUSOU-APP/src-tauri/tests/struct_dependency_svg/*.svg

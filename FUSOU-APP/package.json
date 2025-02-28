@@ -4,8 +4,8 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "build": "tsc -b && vite build",
-    "dev": "vite",
+    "build": "Set TAURI_BUILD_DEBUG=RELEASE && tsc -b && vite build",
+    "dev": "Set TAURI_BUILD_TYPE=DEBUG && vite",
     "preview": "serve dist"
   },
   "devDependencies": {

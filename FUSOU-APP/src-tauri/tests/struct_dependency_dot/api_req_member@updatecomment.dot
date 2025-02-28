@@ -1,8 +1,0 @@
-digraph {
-  rankdir=LR;
-  subgraph cluster_0 {
-    label="api_req_member / updatecomment";
-    node [style="filled", color=white, style="solid", color=gray20];
-    api_req_member__updatecomment__Root [label="<Root> Root  | { api_result_msg | <api_result_msg> String } | { api_result | <api_result> i64 }", shape=record];
-  }
-}

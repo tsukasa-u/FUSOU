@@ -163,20 +163,20 @@ pub async fn launch_with_options(window: tauri::Window, options: HashMap<String,
           _ => None,
         };
         if let Some(server_address) = server_address {
-          #[cfg(TAURI_BUILD_DEBUG)]
+          #[cfg(TAURI_BUILD_TYPE="DEBUG")]
           let pac_path = "./../../FUSOU-PROXY/proxy_rust/proxy-https/proxy.pac".to_string();
-          #[cfg(not(TAURI_BUILD_DEBUG))]
+          #[cfg(TAURI_BUILD_TYPE="RELEASE")]
           let pac_path = ROAMING_DIR.get().expect("ROAMING_DIR not found").join("./resources/pac/proxy.pac").as_path().to_str().expect("failed to convert str").to_string();
           // let pac_path = window.app_handle().path_resolver().resolve_resource("./resources/pac/proxy.pac").expect("failed to resolve resources/pac/proxy dir").as_path().to_str().expect("failed to convert str").to_string();
 
-          #[cfg(TAURI_BUILD_DEBUG)]
+          #[cfg(TAURI_BUILD_TYPE="DEBUG")]
           let save_path = "./../../FUSOU-PROXY-DATA".to_string();
-          #[cfg(not(TAURI_BUILD_DEBUG))]
+          #[cfg(TAURI_BUILD_TYPE="RELEASE")]
           let save_path = directories::UserDirs::new().expect("failed to get user dirs").document_dir().expect("failed to get doc dirs").join("FUSOU-PROXY-DATA").as_path().to_str().expect("failed to convert str").to_string();
 
-          #[cfg(TAURI_BUILD_DEBUG)]
+          #[cfg(TAURI_BUILD_TYPE="DEBUG")]
           let ca_path = "./ca/".to_string();
-          #[cfg(not(TAURI_BUILD_DEBUG))]
+          #[cfg(TAURI_BUILD_TYPE="RELEASE")]
           let ca_path = ROAMING_DIR.get().expect("ROAMING_DIR not found").join("./resources/ca").as_path().to_str().expect("failed to convert str").to_string();
           // let ca_path =  window.app_handle().path_resolver().resolve_resource("./resources/ca").expect("failed to resolve app_local_data_dir").as_path().to_str().expect("failed to convert str").to_string();
 

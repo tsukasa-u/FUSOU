@@ -23,6 +23,7 @@ use crate::kcapi_common::common_battle::ApiOpeningTaisen;
 use crate::kcapi_common::common_battle::ApiRaigeki;
 use crate::kcapi_common::common_air::ApiAirBaseAttack;
 use crate::kcapi_common::common_air::ApiKouku;
+use crate::kcapi_common::common_battle::ApiSupportInfo;
 
 use crate::interface::interface::EmitData;
 
@@ -97,7 +98,7 @@ pub struct ApiData {
     #[serde(rename = "api_support_flag")]
     pub api_support_flag: i64,
     #[serde(rename = "api_support_info")]
-    pub api_support_info: Value,
+    pub api_support_info: Option<ApiSupportInfo>,
     #[serde(rename = "api_opening_taisen_flag")]
     pub api_opening_taisen_flag: i64,
     #[serde(rename = "api_opening_taisen")]

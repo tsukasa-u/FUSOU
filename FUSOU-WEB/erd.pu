@@ -1,0 +1,48 @@
+@startuml erd
+    !include tables.pu
+
+    mst_ship ||--o{ mst_stype
+    mst_stype ||--o{ mst_slot_item_equip_type
+    mst_slot_item ||--o{ mst_slot_item_equip_type
+    mst_slot_item ||--o{ mst_equip_exslot
+    mst_equip_exslot ||--o{ mst_stype
+    mst_equip_exslot ||--o{ mst_ship
+    ship ||--o{ mst_ship
+    ship ||--o{ slot_item
+    ship ||--o{ mst_equip_ship
+
+    slot_item }o--|| mst_slot_item
+    decks ||--o{ ship
+    air_base ||--o{ plane_info
+
+    friend_decks ||--o{ friend_ship
+    friend_ship }o--o{ mst_slot_item
+    
+' -----------------
+
+    enemy_decks ||--o{ enemy_ship
+    enemy_ship }o--o{ enemy_slot_item
+
+' -----------------
+    
+    map }o--o{ cell_data
+
+' -----------------
+
+    sortie ||--o{ map
+    sortie ||--o{ battle
+    sortie ||--o{ cell_data
+    sortie ||--o{ destruction_battle
+    sortie ||--o{ happening
+
+    destruction_battle ||--o{ enemy_decks
+
+    battle ||--o{ decks
+    battle ||--o{ enemy_decks
+    battle ||--o{ friend_decks
+    battle ||--o{ air_base
+    battle ||--o{ cell_data
+
+
+
+@enduml

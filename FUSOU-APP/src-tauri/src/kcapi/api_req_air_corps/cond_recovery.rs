@@ -2,7 +2,7 @@
 //! KC APIs are also dependent on kcapi::kcapi_common.
 //! The dependency graph of the APIs is shown below.
 //! <div style="height: 80vh; overflow: scroll;">
-//!   <img src="https://tsukasa-u.github.io/FUSOU/struct_dependency_svg/api_req_quest@clearitemget.svg" alt="KC_API_dependency(api_req_quest/clearitemget)" style="max-width: 2000px;"/>
+//!   <img src="https://tsukasa-u.github.io/FUSOU/struct_dependency_svg/api_req_air_corps@cond_recovery.svg" alt="KC_API_dependency(api_dmm_payment/paycheck)" style="max-width: 2000px;"/>
 //! </div>
 
 use std::collections::HashMap;
@@ -23,7 +23,7 @@ use crate::interface::interface::EmitData;
 #[convert_output(output = EmitData)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
-#[register_struct(name = "api_req_quest/clearitemget")]
+#[register_struct(name = "api_req_air_corps/cond_recovery")]
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Root {
@@ -41,12 +41,10 @@ pub struct Root {
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiData {
-    #[serde(rename = "api_material")]
-    pub api_material: Vec<i64>,
-    #[serde(rename = "api_bounus_count")]
-    pub api_bounus_count: i64,
-    #[serde(rename = "api_bounus")]
-    pub api_bounus: Vec<ApiBounu>,
+    #[serde(rename = "api_distance")]
+    pub api_distance: ApiDistance,
+    #[serde(rename = "api_plane_info")]
+    pub api_plane_info: Vec<ApiPlaneInfo>,
 }
 
 #[derive(Getter, TraitForTest)]
@@ -54,37 +52,31 @@ pub struct ApiData {
 #[add_field(extra)]
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ApiBounu {
-    #[serde(rename = "api_type")]
-    pub api_type: i64,
+pub struct ApiDistance {
+    #[serde(rename = "api_base")]
+    pub api_base: i64,
+    #[serde(rename = "api_bonus")]
+    pub api_bonus: i64,
+}
+
+#[derive(Getter, TraitForTest)]
+#[struct_test_case(field_extra, type_value, integration)]
+#[add_field(extra)]
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApiPlaneInfo {
+    #[serde(rename = "api_squadron_id")]
+    pub api_squadron_id: i64,
+    #[serde(rename = "api_state")]
+    pub api_state: i64,
+    #[serde(rename = "api_slotid")]
+    pub api_slotid: i64,
     #[serde(rename = "api_count")]
     pub api_count: i64,
-    #[serde(rename = "api_item")]
-    pub api_item: Option<ApiItem>,
-}
-
-#[derive(Getter, TraitForTest)]
-#[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ApiItem {
-    #[serde(rename = "api_id")]
-    pub api_id: Option<i64>,
-    #[serde(rename = "api_name")]
-    pub api_name: Option<String>,
-    #[serde(rename = "api_id_from")]
-    pub api_id_from: Option<i64>,
-    #[serde(rename = "api_id_to")]
-    pub api_id_to: Option<i64>,
-    #[serde(rename = "api_message")]
-    pub api_message: Option<String>,
-    #[serde(rename = "api_slotitem_level")]
-    pub api_slotitem_level: Option<i64>,
-    #[serde(rename = "api_ship_id")]
-    pub api_ship_id: Option<i64>,
-    #[serde(rename = "api_getmes")]
-    pub api_getmes: Option<String>,
+    #[serde(rename = "api_max_count")]
+    pub api_max_count: i64,
+    #[serde(rename = "api_cond")]
+    pub api_cond: i64,
 }
 
 #[cfg(test)]
@@ -107,8 +99,8 @@ mod tests {
             }
         }
 
-        let pattern_str = "S@api_req_quest@clearitemget";
-        let log_path = "./src/kcapi/api_req_quest/clearitemget.log";
-        simple_root_test::<Root>(target_path, pattern_str.to_string(), log_path.to_string());
+        let pattern_str = "S@api_req_air_corps@cond_recovery";
+        let log_path = "./src/kcapi/api_req_air_corps/cond_recovery.log";
+        simple_root_test::<Root>(target_path.to_string(), pattern_str.to_string(), log_path.to_string());
     }
 }

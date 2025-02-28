@@ -38,9 +38,9 @@ pub struct ApiStage2 {
     #[serde(rename = "api_f_lostcount")]
     pub api_f_lostcount: i64,
     #[serde(rename = "api_e_count")]
-    pub api_e_count: i64,
+    pub api_e_count: Option<i64>,
     #[serde(rename = "api_e_lostcount")]
-    pub api_e_lostcount: i64,
+    pub api_e_lostcount: Option<i64>,
     #[serde(rename = "api_air_fire")]
     pub api_air_fire: Option<ApiAirFire>,
 }
@@ -139,4 +139,62 @@ pub struct ApiSquadronPlane {
     pub api_mst_id: Option<i64>,
     #[serde(rename = "api_count")]
     pub api_count: Option<i64>,
+}
+
+#[derive(Getter, TraitForTest)]
+#[struct_test_case(field_extra, type_value, integration)]
+#[add_field(extra)]
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApiAirBaseInjection {
+    #[serde(rename = "api_plane_from")]
+    pub api_plane_from: Vec<Option<Vec<i64>>>,
+    #[serde(rename = "api_air_base_data")]
+    pub api_air_base_data: Vec<ApiAirBaseData>,
+    #[serde(rename = "api_stage1")]
+    pub api_stage1: ApiStage1,
+    #[serde(rename = "api_stage2")]
+    pub api_stage2: ApiStage2,
+    #[serde(rename = "api_stage3")]
+    pub api_stage3: ApiStage3,
+    #[serde(rename = "api_stage3_combined")]
+    pub api_stage3_combined: Option<ApiStage3>,
+}
+
+#[derive(Getter, TraitForTest)]
+#[struct_test_case(field_extra, type_value, integration)]
+#[add_field(extra)]
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApiAirBaseData {
+    #[serde(rename = "api_mst_id")]
+    pub api_mst_id: i64,
+    #[serde(rename = "api_count")]
+    pub api_count: i64,
+}
+
+#[derive(Getter, TraitForTest)]
+#[struct_test_case(field_extra, type_value, integration)]
+#[add_field(extra)]
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AapiSupportAiratack {
+    #[serde(rename = "api_deck_id")]
+    pub api_deck_id: i64,
+    #[serde(rename = "api_ship_id")]
+    pub api_ship_id: Vec<i64>,
+    #[serde(rename = "api_undressing_flag")]
+    pub api_undressing_flag: Vec<i64>,
+    #[serde(rename = "api_stage_flag")]
+    pub api_stage_flag: Vec<i64>,
+    #[serde(rename = "api_plane_from")]
+    pub api_plane_from: Vec<Option<Vec<i64>>>,
+    #[serde(rename = "api_stage1")]
+    pub api_stage1: ApiStage1,
+    #[serde(rename = "api_stage2")]
+    pub api_stage2: ApiStage2,
+    #[serde(rename = "api_stage3")]
+    pub api_stage3: ApiStage3,
+    #[serde(rename = "api_stage3_combined")]
+    pub api_stage3_combined: Option<ApiStage3>,
 }
