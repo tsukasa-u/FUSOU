@@ -31,7 +31,7 @@ jobs:
     - name: Build
       run: cargo build --verbose
 
-  struct_dependency:
+  doc:
     runs-on: ubuntu-22.04
     env:
       SCCACHE_GHA_ENABLED: "true"
@@ -57,36 +57,6 @@ jobs:
       run: sudo ./tests/export_svg.sh
     - name: check if svg is created
       run: ls ./tests/struct_dependency_svg
-    - name: Upload SVG
-      uses: actions/upload-artifact@v4
-      with:
-        name: struct-dependency-artifact
-        path: ./FUSOU-APP/src-tauri/tests/struct_dependency_svg
-        retention-days: 1
-        overwrite: true
-    - name: Output artifact ID
-      run:  echo 'Artifact ID is ${{ steps.artifact-upload-svg.outputs.artifact-id }}'
-
-  doc:
-    runs-on: ubuntu-22.04
-    env:
-      SCCACHE_GHA_ENABLED: "true"
-      RUSTC_WRAPPER: "sccache"
-    defaults:
-      run:
-        working-directory: ./FUSOU-APP/src-tauri
-    needs: [build, struct_dependency]
-    steps:
-    - uses: actions/checkout@v4
-    - name: Setup Ubuntu for tauir@v1
-      run: |
-        sudo apt update && \
-        sudo apt install -y libwebkit2gtk-4.0-dev 
-    # - name: Setup pages
-    #   id: pages
-    #   uses: actions/configure-pages@v5
-    - name: Run sccache-cache
-      uses: mozilla-actions/sccache-action@v0.0.7
     - name: Clean docs folder
       run: cargo clean --doc
     - name: Build docs
