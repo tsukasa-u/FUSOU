@@ -1,60 +1,26 @@
 use chrono::Local;
 
-use crate::kcapi;
+use crate::kcapi::{self, api_get_member::preset_deck::N};
 
 use super::{battle::{Battle, MidnightHougeki}, cells::KCS_CELLS};
 use crate::interface::battle::{AirBaseAirAttacks, OpeningAirAttack, OpeningTaisen, OpeningRaigeki, ClosingRaigeki, Hougeki, SupportAttack};
 
 impl From<kcapi::api_req_combined_battle::ec_battle::ApiData> for Battle {
     fn from(battle: kcapi::api_req_combined_battle::ec_battle::ApiData) -> Self {
-        let air_base_air_attacks: Option<AirBaseAirAttacks> = match Some(battle.api_air_base_attack) {
-            Some(air_base_air_attack) => Some(AirBaseAirAttacks {
-                attacks: air_base_air_attack.iter().map(|air_base_air_attack| air_base_air_attack.clone().into()).collect(),
-            }),
-            None => None,
-        };
+        
+        let air_base_air_attacks: Option<AirBaseAirAttacks> = Some(battle.api_air_base_attack.into());
         let opening_air_attack: Option<OpeningAirAttack> = Some(battle.api_kouku.into());
         let opening_taisen: Option<OpeningTaisen> = None;
-        // let opening_taisen: Option<OpeningTaisen> = match battle.api_opening_taisen {
-        //     Some(opening_taisen) => Some(opening_taisen.into()),
-        //     None => None,
-        // };
-        let opening_raigeki: Option<OpeningRaigeki> = match Some(battle.api_opening_atack) {
-            Some(opening_attack) => Some(opening_attack.into()),
-            None => None,
-        };
-        let closing_taigeki: Option<ClosingRaigeki> = match Some(battle.api_raigeki) {
-            Some(closing_raigeki) => Some(closing_raigeki.into()),
-            None => None,
-        };
-        let hougeki_1: Option<Hougeki> = match Some(battle.api_hougeki1) {
-            Some(hougeki) => Some(hougeki.into()),
-            None => None,
-        };
-        let hougeki_2: Option<Hougeki> = match Some(battle.api_hougeki2) {
-            Some(hougeki) => Some(hougeki.into()),
-            None => None,
-        };
-        let hougeki_3: Option<Hougeki> = match battle.api_hougeki3 {
-            Some(hougeki) => Some(hougeki.into()),
-            None => None,
-        };
-        let hougeki: Option<Vec<Option<Hougeki>>> = if hougeki_1.is_some() || hougeki_2.is_some() || hougeki_3.is_some() {
-            Some(vec![hougeki_1, hougeki_2, hougeki_3])
-        } else {
-            None
-        };
-        
+        let opening_raigeki: Option<OpeningRaigeki> = Some(battle.api_opening_atack.into());
+        let closing_taigeki: Option<ClosingRaigeki> = Some(battle.api_raigeki.into());
+        let hougeki_1: Option<Hougeki> = Some(battle.api_hougeki1.into());
+        let hougeki_2: Option<Hougeki> = Some(battle.api_hougeki2.into());
+        let hougeki_3: Option<Hougeki> = battle.api_hougeki3.and_then(|hougeki| Some(hougeki.into()));
         let support_attack: Option<SupportAttack> = None;
-        // let support_attack: Option<SupportAttack> = match battle.api_support_info {
-        //     Some(support_attack) => Some(support_attack.into()),
-        //     None => None,
-        // };
+        
+        let hougeki: Option<Vec<Option<Hougeki>>> = if hougeki_1.is_some() || hougeki_2.is_some() || hougeki_3.is_some() { Some(vec![hougeki_1, hougeki_2, hougeki_3]) } else { None };
 
-        let cell_no = match KCS_CELLS.lock().unwrap().last() {
-            Some(cell) => cell.clone(),
-            None => 0,
-        };
+        let cell_no = KCS_CELLS.lock().and_then(|cells| Ok(cells.last().unwrap_or(&0).clone())).unwrap_or(0);
 
         Self {
             timestamp: Some(Local::now().timestamp()),
@@ -97,10 +63,7 @@ impl From<kcapi::api_req_combined_battle::ec_midnight_battle::ApiData> for Battl
     fn from(battle: kcapi::api_req_combined_battle::ec_midnight_battle::ApiData) -> Self {
         let midnight_hougeki: Option<MidnightHougeki> = Some(battle.api_hougeki.into());
 
-        let cell_no = match KCS_CELLS.lock().unwrap().last() {
-            Some(cell) => cell.clone(),
-            None => 0,
-        };
+        let cell_no = KCS_CELLS.lock().and_then(|cells| Ok(cells.last().unwrap_or(&0).clone())).unwrap_or(0);
 
         Self {
             timestamp: None,

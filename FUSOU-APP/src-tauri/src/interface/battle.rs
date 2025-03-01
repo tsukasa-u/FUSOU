@@ -42,7 +42,7 @@ pub struct Battle {
     // pub air_base_assault: Option<AirBaseAssult>,
     // pub carrier_base_assault: Option<CarrierBaseAssault>,
     pub air_base_air_attacks: Option<AirBaseAirAttacks>,
-    // pub friendly_task_force_attack: Option<FriendlyTaskForceAttack>,
+    // pub friendly_task_force__attack: Option<FriendlyTaskForceAttack>,
     pub opening_air_attack: Option<OpeningAirAttack>,
     pub support_attack: Option<SupportAttack>,
     pub opening_taisen: Option<OpeningTaisen>,
@@ -65,12 +65,13 @@ pub struct Battle {
 //     pub e_damage: AirDamage,
 // }
 
-// #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-// pub struct AirBaseAssult {
-//     pub air_plane_id: Vec<i64>,
-//     pub f_damage: AirDamage,
-//     pub e_damage: AirDamage,
-// }
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct AirBaseAssult {
+    pub stage_flag: Vec<i64>,
+    pub squadron_plane: Option<Vec<Option<i64>>>,
+    pub f_damage: AirDamage,
+    pub e_damage: AirDamage,
+}
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct AirBaseAirAttacks {
@@ -191,17 +192,6 @@ pub struct SupportHourai {
     pub deck_id: i64,
     pub ship_id: Vec<i64>,
     pub protect_flag: Vec<bool>,
-}
-
-pub struct AirBaseAssult {
-
-}
-
-pub struct CarrierBaseAssault {
-
-}
-
-pub struct FriendlyFleetAttack {
 }
 
 fn combine<T>(list: &[Option<Vec<T>>]) -> Option<Vec<T>> where T: Clone{
@@ -633,10 +623,7 @@ impl From<kcapi::api_req_battle_midnight::battle::ApiData> for Battle {
     fn from(battle: kcapi::api_req_battle_midnight::battle::ApiData) -> Self {
         let midnight_hougeki: Option<MidnightHougeki> = Some(battle.api_hougeki.into());
 
-        let cell_no = match KCS_CELLS.lock().unwrap().last() {
-            Some(cell) => cell.clone(),
-            None => 0,
-        };
+        let cell_no = KCS_CELLS.lock().and_then(|cells| Ok(cells.last().unwrap_or(&0).clone())).unwrap_or(0);
 
         Self {
             timestamp: None,
@@ -679,10 +666,7 @@ impl From<kcapi::api_req_battle_midnight::sp_midnight::ApiData> for Battle {
     fn from(battle: kcapi::api_req_battle_midnight::sp_midnight::ApiData) -> Self {
         let midnight_hougeki: Option<MidnightHougeki> = Some(battle.api_hougeki.into());
 
-        let cell_no = match KCS_CELLS.lock().unwrap().last() {
-            Some(cell) => cell.clone(),
-            None => 0,
-        };
+        let cell_no = KCS_CELLS.lock().and_then(|cells| Ok(cells.last().unwrap_or(&0).clone())).unwrap_or(0);
 
         Self {
             timestamp: None,
@@ -723,18 +707,10 @@ impl From<kcapi::api_req_battle_midnight::sp_midnight::ApiData> for Battle {
 
 impl From<kcapi::api_req_sortie::ld_airbattle::ApiData> for Battle {
     fn from(airbattle: kcapi::api_req_sortie::ld_airbattle::ApiData) -> Self {
-        let air_base_air_attacks: Option<AirBaseAirAttacks> = match airbattle.api_air_base_attack {
-            Some(air_base_air_attack) => Some(AirBaseAirAttacks {
-                attacks: air_base_air_attack.iter().map(|air_base_air_attack| air_base_air_attack.clone().into()).collect(),
-            }),
-            None => None,
-        };
+        let air_base_air_attacks: Option<AirBaseAirAttacks> = airbattle.api_air_base_attack.and_then(|air_base_air_attack| Some(air_base_air_attack.into()));
         let opening_air_attack: Option<OpeningAirAttack> = Some(airbattle.api_kouku.into());
 
-        let cell_no = match KCS_CELLS.lock().unwrap().last() {
-            Some(cell) => cell.clone(),
-            None => 0,
-        };
+        let cell_no = KCS_CELLS.lock().and_then(|cells| Ok(cells.last().unwrap_or(&0).clone())).unwrap_or(0);
 
         Self {
             timestamp: Some(Local::now().timestamp()),
