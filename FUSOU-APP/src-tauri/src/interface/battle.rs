@@ -9,6 +9,7 @@ use crate::kcapi_common::custom_type::DuoType;
 
 // use std::sync::{LazyLock, Mutex};
 
+use super::air_base;
 use super::cells::KCS_CELLS;
 
 // // Is it better to use onecell::sync::Lazy or std::sync::Lazy?
@@ -39,8 +40,8 @@ pub struct Battle {
     pub forward_observe: Option<Vec<i64>>,
     pub escape_idx: Option<Vec<i64>>,
     pub smoke_type: Option<i64>,
-    // pub air_base_assault: Option<AirBaseAssult>,
-    // pub carrier_base_assault: Option<CarrierBaseAssault>,
+    pub air_base_assault: Option<AirBaseAssult>,
+    pub carrier_base_assault: Option<CarrierBaseAssault>,
     pub air_base_air_attacks: Option<AirBaseAirAttacks>,
     // pub friendly_task_force__attack: Option<FriendlyTaskForceAttack>,
     pub opening_air_attack: Option<OpeningAirAttack>,
@@ -59,16 +60,15 @@ pub struct Battle {
     pub midngiht_e_nowhps: Option<Vec<i64>>,
 }
 
-// #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-// pub struct CarrierBaseAssault {
-//     pub f_damage: AirDamage,
-//     pub e_damage: AirDamage,
-// }
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct CarrierBaseAssault {
+    pub f_damage: AirDamage,
+    pub e_damage: AirDamage,
+}
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct AirBaseAssult {
-    pub stage_flag: Vec<i64>,
-    pub squadron_plane: Option<Vec<Option<i64>>>,
+    pub squadron_plane: Vec<i64>,
     pub f_damage: AirDamage,
     pub e_damage: AirDamage,
 }
@@ -182,7 +182,7 @@ pub struct MidnightHougeki {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SupportAttack {
     pub support_hourai: Option<SupportHourai>,
-    // pub support_airatack: Option<Value>,
+    pub support_airatack: Option<SupportAiratack>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -192,6 +192,14 @@ pub struct SupportHourai {
     pub deck_id: i64,
     pub ship_id: Vec<i64>,
     pub protect_flag: Vec<bool>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct SupportAiratack {
+    pub deck_id: i64,
+    pub ship_id: Vec<i64>,
+    pub f_damage: AirDamage,
+    pub e_damage: AirDamage,
 }
 
 fn combine<T>(list: &[Option<Vec<T>>]) -> Option<Vec<T>> where T: Clone{
@@ -540,9 +548,14 @@ impl From<kcapi_common::common_battle::ApiSupportInfo> for SupportAttack {
             Some(support_hourai) => Some(support_hourai.into()),
             None => None,
         };
-        // let support_airatack: Option<Value> = None;
+        let support_airatack: Option<SupportAiratack> = match support_info.api_support_airatack {
+            Some(support_airatack) => Some(support_airatack.into()),
+            None => None,
+            
+        };
         Self {
             support_hourai: support_hourai,
+            support_airatack: support_airatack,
         }
     }
 }
@@ -564,7 +577,47 @@ impl From<kcapi_common::common_battle::ApiSupportHourai> for SupportHourai {
     }
 }
 
+impl From<kcapi_common::common_air::ApiSupportAiratack> for SupportAiratack {
+    fn from(support_airatack: kcapi_common::common_air::ApiSupportAiratack) -> Self {
+        let (f_damage, e_damage) = TupledAirStages(Some(support_airatack.api_plane_from.clone()), Some(support_airatack.api_stage1.clone()), Some(support_airatack.api_stage2.clone()), Some(support_airatack.api_stage3.clone()), support_airatack.api_stage3_combined.clone()).into();
+        Self {
+            deck_id: support_airatack.api_deck_id,
+            ship_id: support_airatack.api_ship_id,
+            f_damage: f_damage,
+            e_damage: e_damage,
+        }
+    }
+}
 
+impl From<kcapi_common::common_air::ApiAirBaseInjection> for AirBaseAssult {
+    fn from(air_base_injection: kcapi_common::common_air::ApiAirBaseInjection) -> Self {
+        let (f_damage, e_damage) = TupledAirStages(Some(air_base_injection.api_plane_from.clone()), Some(air_base_injection.api_stage1.clone()), Some(air_base_injection.api_stage2.clone()), Some(air_base_injection.api_stage3.clone()), air_base_injection.api_stage3_combined.clone()).into();
+        Self {
+            squadron_plane: air_base_injection.api_air_base_data.iter().map(|air_base_data| air_base_data.api_mst_id).collect(),
+            f_damage: f_damage,
+            e_damage: e_damage,
+        }
+    }
+}
+
+impl From<kcapi_common::common_air::ApiKouku> for CarrierBaseAssault {
+    fn from(value: kcapi_common::common_air::ApiKouku) -> Self {
+        let (f_damage, e_damage) = TupledAirStages(value.api_plane_from.clone(), value.api_stage1.clone(), value.api_stage2.clone(), value.api_stage3.clone(), value.api_stage3_combined.clone()).into();
+        Self {
+            f_damage: f_damage,
+            e_damage: e_damage,
+        }
+    }
+}
+
+// impl From<kcapi_common::common_battle::ApiFlavorInfo> for  {
+//     fn from(flavor_info: kcapi_common::common_battle::ApiFlavorInfo) -> Self {
+//         Self {
+//             api_flavor_text: flavor_info.api_flavor_text,
+//             api_flavor_voice: flavor_info.api_flavor_voice,
+//         }
+//     }
+// }
 
 impl From<kcapi::api_req_sortie::battle::ApiData> for Battle {
     fn from(battle: kcapi::api_req_sortie::battle::ApiData) -> Self {
@@ -577,6 +630,8 @@ impl From<kcapi::api_req_sortie::battle::ApiData> for Battle {
         let hougeki_2: Option<Hougeki> = battle.api_hougeki2.and_then(|hougeki| Some(hougeki.into()));
         let hougeki_3: Option<Hougeki> = battle.api_hougeki3.and_then(|hougeki| Some(hougeki.into()));
         let support_attack: Option<SupportAttack> = battle.api_support_info.and_then(|support_info| Some(support_info.into()));
+        let air_base_assault: Option<AirBaseAssult> = battle.api_air_base_injection.and_then(|air_base_injection| Some(air_base_injection.into()));
+        let carrier_base_assault: Option<CarrierBaseAssault> = battle.api_injection_kouku.and_then(|injection_kouku| Some(injection_kouku.into()));
         
         let hougeki: Option<Vec<Option<Hougeki>>> = if hougeki_1.is_some() || hougeki_2.is_some() || hougeki_3.is_some() { Some(vec![hougeki_1, hougeki_2, hougeki_3]) } else { None };
 
@@ -598,8 +653,8 @@ impl From<kcapi::api_req_sortie::battle::ApiData> for Battle {
             forward_observe: None,
             escape_idx: battle.api_escape_idx,
             smoke_type: Some(battle.api_smoke_type),
-            // air_base_assault: None,
-            // carrier_base_assault: None,
+            air_base_assault: air_base_assault,
+            carrier_base_assault: carrier_base_assault,
             air_base_air_attacks: air_base_air_attacks,
             opening_air_attack: opening_air_attack,
             support_attack: support_attack,
@@ -641,8 +696,8 @@ impl From<kcapi::api_req_battle_midnight::battle::ApiData> for Battle {
             forward_observe: None,
             escape_idx: battle.api_escape_idx,
             smoke_type: Some(battle.api_smoke_type),
-            // air_base_assault: None,
-            // carrier_base_assault: None,
+            air_base_assault: None,
+            carrier_base_assault: None,
             air_base_air_attacks: None,
             opening_air_attack: None,
             support_attack: None,
@@ -684,8 +739,8 @@ impl From<kcapi::api_req_battle_midnight::sp_midnight::ApiData> for Battle {
             forward_observe: None,
             escape_idx: battle.api_escape_idx,
             smoke_type: Some(battle.api_smoke_type),
-            // air_base_assault: None,
-            // carrier_base_assault: None,
+            air_base_assault: None,
+            carrier_base_assault: None,
             air_base_air_attacks: None,
             opening_air_attack: None,
             support_attack: None,
@@ -710,6 +765,11 @@ impl From<kcapi::api_req_sortie::ld_airbattle::ApiData> for Battle {
         let air_base_air_attacks: Option<AirBaseAirAttacks> = airbattle.api_air_base_attack.and_then(|air_base_air_attack| Some(air_base_air_attack.into()));
         let opening_air_attack: Option<OpeningAirAttack> = Some(airbattle.api_kouku.into());
 
+        // need to research
+        // let support_attack: Option<SupportAttack> = airbattle.api_support_info.and_then(|support_info| Some(support_info.into()));
+        // let air_base_assault: Option<AirBaseAssult> = airbattle.api_air_base_injection.and_then(|air_base_injection| Some(air_base_injection.into()));
+        // let carrier_base_assault: Option<CarrierBaseAssault> = airbattle.api_injection_kouku.and_then(|injection_kouku| Some(injection_kouku.into());
+
         let cell_no = KCS_CELLS.lock().and_then(|cells| Ok(cells.last().unwrap_or(&0).clone())).unwrap_or(0);
 
         Self {
@@ -728,8 +788,8 @@ impl From<kcapi::api_req_sortie::ld_airbattle::ApiData> for Battle {
             forward_observe: None,
             escape_idx: airbattle.api_escape_idx,
             smoke_type: Some(airbattle.api_smoke_type),
-            // air_base_assault: None,
-            // carrier_base_assault: None,
+            air_base_assault: None,
+            carrier_base_assault: None,
             air_base_air_attacks: air_base_air_attacks,
             opening_air_attack: opening_air_attack,
             support_attack: None,

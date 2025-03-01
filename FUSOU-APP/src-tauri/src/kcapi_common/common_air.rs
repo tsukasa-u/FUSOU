@@ -178,7 +178,7 @@ pub struct ApiAirBaseData {
 #[add_field(extra)]
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct AapiSupportAiratack {
+pub struct ApiSupportAiratack {
     #[serde(rename = "api_deck_id")]
     pub api_deck_id: i64,
     #[serde(rename = "api_ship_id")]
