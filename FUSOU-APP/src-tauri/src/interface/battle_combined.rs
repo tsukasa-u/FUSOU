@@ -1,22 +1,24 @@
 use chrono::Local;
 
-use crate::kcapi::{self, api_get_member::preset_deck::N};
+use crate::kcapi;
 
-use super::{battle::{Battle, MidnightHougeki}, cells::KCS_CELLS};
-use crate::interface::battle::{AirBaseAirAttacks, OpeningAirAttack, OpeningTaisen, OpeningRaigeki, ClosingRaigeki, Hougeki, SupportAttack};
+use crate::interface::cells::KCS_CELLS;
+use crate::interface::battle::{AirBaseAirAttacks, OpeningAirAttack, OpeningTaisen, OpeningRaigeki, ClosingRaigeki, Hougeki, SupportAttack, AirBaseAssult, Battle, MidnightHougeki, CarrierBaseAssault};
 
 impl From<kcapi::api_req_combined_battle::ec_battle::ApiData> for Battle {
     fn from(battle: kcapi::api_req_combined_battle::ec_battle::ApiData) -> Self {
         
         let air_base_air_attacks: Option<AirBaseAirAttacks> = Some(battle.api_air_base_attack.into());
         let opening_air_attack: Option<OpeningAirAttack> = Some(battle.api_kouku.into());
-        let opening_taisen: Option<OpeningTaisen> = None;
+        let opening_taisen: Option<OpeningTaisen> = battle.api_opening_taisen.and_then(|opening_taisen| Some(opening_taisen.into()));
         let opening_raigeki: Option<OpeningRaigeki> = Some(battle.api_opening_atack.into());
         let closing_taigeki: Option<ClosingRaigeki> = Some(battle.api_raigeki.into());
         let hougeki_1: Option<Hougeki> = Some(battle.api_hougeki1.into());
         let hougeki_2: Option<Hougeki> = Some(battle.api_hougeki2.into());
         let hougeki_3: Option<Hougeki> = battle.api_hougeki3.and_then(|hougeki| Some(hougeki.into()));
-        let support_attack: Option<SupportAttack> = None;
+        let support_attack: Option<SupportAttack> = battle.api_support_info.and_then(|support_attack| Some(support_attack.into()));
+        let air_base_assault: Option<AirBaseAssult> = battle.api_air_base_injection.and_then(|air_base_injection| Some(air_base_injection.into()));
+        let carrier_base_assault: Option<CarrierBaseAssault> = battle.api_injection_kouku.and_then(|injection_kouku| Some(injection_kouku.into()));
         
         let hougeki: Option<Vec<Option<Hougeki>>> = if hougeki_1.is_some() || hougeki_2.is_some() || hougeki_3.is_some() { Some(vec![hougeki_1, hougeki_2, hougeki_3]) } else { None };
 
@@ -38,8 +40,8 @@ impl From<kcapi::api_req_combined_battle::ec_battle::ApiData> for Battle {
             forward_observe: None,
             escape_idx: None,
             smoke_type: Some(battle.api_smoke_type),
-            // air_base_assault: None,
-            // carrier_base_assault: None,
+            air_base_assault: air_base_assault,
+            carrier_base_assault: carrier_base_assault,
             air_base_air_attacks: air_base_air_attacks,
             opening_air_attack: opening_air_attack,
             support_attack: support_attack,
@@ -81,8 +83,8 @@ impl From<kcapi::api_req_combined_battle::ec_midnight_battle::ApiData> for Battl
             forward_observe: None,
             escape_idx: battle.api_escape_idx,
             smoke_type: Some(battle.api_smoke_type),
-            // air_base_assault: None,
-            // carrier_base_assault: None,
+            air_base_assault: None,
+            carrier_base_assault: None,
             air_base_air_attacks: None,
             opening_air_attack: None,
             support_attack: None,
