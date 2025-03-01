@@ -139,8 +139,8 @@ pub struct ApiFlavoInfo {
     pub api_pos_y: String,
     #[serde(rename = "api_data")]
     pub api_data: String,
-    #[serde(rename = "api_support_hourai")]
-    pub api_support_hourai: Option<ApiSupportHourai>,
+    // #[serde(rename = "api_support_hourai")]
+    // pub api_support_hourai: Option<ApiSupportHourai>,
 }
 
 #[derive(Getter, TraitForTest)]
