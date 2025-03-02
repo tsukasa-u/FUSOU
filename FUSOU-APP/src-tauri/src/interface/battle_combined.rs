@@ -3,7 +3,7 @@ use chrono::Local;
 use crate::kcapi;
 
 use crate::interface::cells::KCS_CELLS;
-use crate::interface::battle::{AirBaseAirAttacks, OpeningAirAttack, OpeningTaisen, OpeningRaigeki, ClosingRaigeki, Hougeki, SupportAttack, AirBaseAssult, Battle, MidnightHougeki, CarrierBaseAssault};
+use crate::interface::battle::{FriendlyForceAttack, AirBaseAirAttacks, OpeningAirAttack, OpeningTaisen, OpeningRaigeki, ClosingRaigeki, Hougeki, SupportAttack, AirBaseAssult, Battle, MidnightHougeki, CarrierBaseAssault};
 
 impl From<kcapi::api_req_combined_battle::ec_battle::ApiData> for Battle {
     fn from(battle: kcapi::api_req_combined_battle::ec_battle::ApiData) -> Self {
@@ -49,7 +49,7 @@ impl From<kcapi::api_req_combined_battle::ec_battle::ApiData> for Battle {
             opening_raigeki: opening_raigeki,
             hougeki: hougeki,
             closing_raigeki: closing_taigeki,
-            // friendly_fleet_attack: None,
+            friendly_force_attack: None,
             midnight_flare_pos: None,
             midngiht_touchplane: None,
             midnight_hougeki: None,
@@ -64,6 +64,7 @@ impl From<kcapi::api_req_combined_battle::ec_battle::ApiData> for Battle {
 impl From<kcapi::api_req_combined_battle::ec_midnight_battle::ApiData> for Battle {
     fn from(battle: kcapi::api_req_combined_battle::ec_midnight_battle::ApiData) -> Self {
         let midnight_hougeki: Option<MidnightHougeki> = Some(battle.api_hougeki.into());
+        let friendly_force_attack: Option<FriendlyForceAttack> = if battle.api_friendly_info.is_some() && battle.api_friendly_battle.is_some() { Some(FriendlyForceAttack::from_api_data(battle.api_friendly_info.unwrap(), battle.api_friendly_battle.unwrap())) } else { None };
 
         let cell_no = KCS_CELLS.lock().and_then(|cells| Ok(cells.last().unwrap_or(&0).clone())).unwrap_or(0);
 
@@ -92,7 +93,7 @@ impl From<kcapi::api_req_combined_battle::ec_midnight_battle::ApiData> for Battl
             opening_raigeki: None,
             hougeki: None,
             closing_raigeki: None,
-            // friendly_fleet_attack: None,
+            friendly_force_attack: friendly_force_attack,
             midnight_flare_pos: Some(battle.api_flare_pos),
             midngiht_touchplane: Some(battle.api_touch_plane),
             midnight_hougeki: midnight_hougeki,

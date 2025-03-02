@@ -9,7 +9,6 @@ use crate::kcapi_common::custom_type::DuoType;
 
 // use std::sync::{LazyLock, Mutex};
 
-use super::air_base;
 use super::cells::KCS_CELLS;
 
 // // Is it better to use onecell::sync::Lazy or std::sync::Lazy?
@@ -43,14 +42,14 @@ pub struct Battle {
     pub air_base_assault: Option<AirBaseAssult>,
     pub carrier_base_assault: Option<CarrierBaseAssault>,
     pub air_base_air_attacks: Option<AirBaseAirAttacks>,
-    // pub friendly_task_force__attack: Option<FriendlyTaskForceAttack>,
+    // pub friendly_task_force_attack: Option<FriendlyTaskForceAttack>,
     pub opening_air_attack: Option<OpeningAirAttack>,
     pub support_attack: Option<SupportAttack>,
     pub opening_taisen: Option<OpeningTaisen>,
     pub opening_raigeki: Option<OpeningRaigeki>,
     pub hougeki: Option<Vec<Option<Hougeki>>>,
     pub closing_raigeki: Option<ClosingRaigeki>,
-    // pub friendly_fleet_attack: Option<FriendlyFleetAttack>,
+    pub friendly_force_attack: Option<FriendlyForceAttack>,
     pub midnight_flare_pos: Option<Vec<i64>>,
     pub midngiht_touchplane: Option<Vec<i64>>,
     pub midnight_hougeki: Option<MidnightHougeki>,
@@ -202,6 +201,37 @@ pub struct SupportAiratack {
     pub e_damage: AirDamage,
 }
 
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct FriendlyForceAttack {
+    pub fleet_info: FriendlyForceInfo,
+    pub support_hourai: Option<FriendlySupportHourai>,
+    // pub support_airatack: Option<FriendlySupportAiratack>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct FriendlySupportHourai {
+    pub flare_pos: Vec<i64>,
+    pub hougeki: MidnightHougeki,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct FriendlyForceInfo {
+    pub slot_ex: Vec<i64>,
+    pub max_hps: Vec<i64>,
+    pub ship_id: Vec<i64>,
+    pub params: Vec<Vec<i64>>,
+    pub ship_lv: Vec<i64>,
+    pub now_hps: Vec<i64>,
+    pub slot: Vec<Vec<i64>>,
+}
+
+// #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+// pub struct FriendlySupportAiratack {
+//     pub stage_flag: Vec<i64>,
+//     pub f_damage: AirDamage,
+//     pub e_damage: AirDamage,
+// }
+
 fn combine<T>(list: &[Option<Vec<T>>]) -> Option<Vec<T>> where T: Clone{
     let mut combined: Vec<T> = Vec::new();
     for x in list {
@@ -218,7 +248,7 @@ fn combine<T>(list: &[Option<Vec<T>>]) -> Option<Vec<T>> where T: Clone{
 
 impl From<kcapi_common::common_air::ApiAirBaseAttack> for AirBaseAirAttack {
     fn from(air_base_air_attack: kcapi_common::common_air::ApiAirBaseAttack) -> Self {
-        let (f_damage, e_damage) = TupledAirStages(air_base_air_attack.api_plane_from.clone(), air_base_air_attack.api_stage1.clone(), air_base_air_attack.api_stage2.clone(), air_base_air_attack.api_stage3.clone(), air_base_air_attack.api_stage3_combined.clone()).into();
+        let (f_damage, e_damage) = calc_air_damage(air_base_air_attack.api_plane_from.clone(), air_base_air_attack.api_stage1.clone(), air_base_air_attack.api_stage2.clone(), air_base_air_attack.api_stage3.clone(), air_base_air_attack.api_stage3_combined.clone());
         Self {
             stage_flag: air_base_air_attack.api_stage_flag,
             squadron_plane: air_base_air_attack.api_squadron_plane.and_then(|squadron_planes| Some(squadron_planes.iter().map(|squadron_plane| squadron_plane.api_mst_id).collect())),
@@ -237,73 +267,69 @@ impl From<Vec<kcapi_common::common_air::ApiAirBaseAttack>> for AirBaseAirAttacks
     }
 }
 
-pub struct TupledAirStages(pub(super) Option<Vec<Option<Vec<i64>>>>, pub(super) Option<kcapi_common::common_air::ApiStage1>, pub(super) Option<kcapi_common::common_air::ApiStage2>, pub(super) Option<kcapi_common::common_air::ApiStage3>, pub(super) Option<kcapi_common::common_air::ApiStage3>);
-impl From<TupledAirStages> for (AirDamage, AirDamage) {
-    fn from(tupled_air_stages: TupledAirStages) -> Self {
-        let TupledAirStages(plane_from, stage1, stage2, stage3, stage3_combined) = tupled_air_stages;
-        let f_damages: Option<Vec<f32>> = stage3.clone().and_then(|stage3| stage3.api_fdam.and_then(|f_damages| Some(calc_floor(&f_damages))));
-        let e_damages: Option<Vec<f32>> = stage3.clone().and_then(|stage3| stage3.api_edam.and_then(|e_damages| Some(calc_floor(&e_damages))));
-        let f_damages_combined: Option<Vec<f32>> = stage3_combined.clone().and_then(|stage3_combined| stage3_combined.api_fdam.and_then(|f_damages| Some(calc_floor(&f_damages))));
-        let e_damages_combined: Option<Vec<f32>> = stage3_combined.clone().and_then(|stage3_combined| stage3_combined.api_edam.and_then(|e_damages| Some(calc_floor(&e_damages))));
-        
-        let f_cl: Option<Vec<i64>> = stage3.clone().and_then(|stage3| stage3.api_fcl_flag.and_then(|f_cl| Some(calc_critical(&f_damages.clone().unwrap_or(vec![0_f32; f_cl.len()]), &f_cl))));
-        let e_cl: Option<Vec<i64>> = stage3.clone().and_then(|stage3| stage3.api_ecl_flag.and_then(|e_cl| Some(calc_critical(&e_damages.clone().unwrap_or(vec![0_f32; e_cl.len()]), &e_cl))));
-        let f_cl_combined: Option<Vec<i64>> = stage3_combined.clone().and_then(|stage3_combined| stage3_combined.api_fcl_flag.and_then(|f_cl| Some(calc_critical(&f_damages_combined.clone().unwrap_or(vec![0_f32; f_cl.len()]), &f_cl))));
-        let e_cl_combined: Option<Vec<i64>> = stage3_combined.clone().and_then(|stage3_combined| stage3_combined.api_ecl_flag.and_then(|e_cl| Some(calc_critical(&e_damages_combined.clone().unwrap_or(vec![0_f32; e_cl.len()]), &e_cl))));
+pub fn calc_air_damage(plane_from: Option<Vec<Option<Vec<i64>>>>, stage1: Option<kcapi_common::common_air::ApiStage1>, stage2: Option<kcapi_common::common_air::ApiStage2>, stage3: Option<kcapi_common::common_air::ApiStage3>, stage3_combined: Option<kcapi_common::common_air::ApiStage3>) -> (AirDamage, AirDamage) {
+    let f_damages: Option<Vec<f32>> = stage3.clone().and_then(|stage3| stage3.api_fdam.and_then(|f_damages| Some(calc_floor(&f_damages))));
+    let e_damages: Option<Vec<f32>> = stage3.clone().and_then(|stage3| stage3.api_edam.and_then(|e_damages| Some(calc_floor(&e_damages))));
+    let f_damages_combined: Option<Vec<f32>> = stage3_combined.clone().and_then(|stage3_combined| stage3_combined.api_fdam.and_then(|f_damages| Some(calc_floor(&f_damages))));
+    let e_damages_combined: Option<Vec<f32>> = stage3_combined.clone().and_then(|stage3_combined| stage3_combined.api_edam.and_then(|e_damages| Some(calc_floor(&e_damages))));
+    
+    let f_cl: Option<Vec<i64>> = stage3.clone().and_then(|stage3| stage3.api_fcl_flag.and_then(|f_cl| Some(calc_critical(&f_damages.clone().unwrap_or(vec![0_f32; f_cl.len()]), &f_cl))));
+    let e_cl: Option<Vec<i64>> = stage3.clone().and_then(|stage3| stage3.api_ecl_flag.and_then(|e_cl| Some(calc_critical(&e_damages.clone().unwrap_or(vec![0_f32; e_cl.len()]), &e_cl))));
+    let f_cl_combined: Option<Vec<i64>> = stage3_combined.clone().and_then(|stage3_combined| stage3_combined.api_fcl_flag.and_then(|f_cl| Some(calc_critical(&f_damages_combined.clone().unwrap_or(vec![0_f32; f_cl.len()]), &f_cl))));
+    let e_cl_combined: Option<Vec<i64>> = stage3_combined.clone().and_then(|stage3_combined| stage3_combined.api_ecl_flag.and_then(|e_cl| Some(calc_critical(&e_damages_combined.clone().unwrap_or(vec![0_f32; e_cl.len()]), &e_cl))));
 
-        let f_protect: Option<Vec<bool>> = stage3.clone().and_then(|stage3| stage3.api_fdam.and_then(|f_damages| Some(calc_protect_flag(&f_damages))));
-        let e_protect: Option<Vec<bool>> = stage3.clone().and_then(|stage3| stage3.api_edam.and_then(|e_damages| Some(calc_protect_flag(&e_damages))));
-        let f_protect_combined: Option<Vec<bool>> = stage3_combined.clone().and_then(|stage3_combined| stage3_combined.api_fdam.and_then(|f_damages| Some(calc_protect_flag(&f_damages))));
-        let e_protect_combined: Option<Vec<bool>> = stage3_combined.clone().and_then(|stage3_combined| stage3_combined.api_edam.and_then(|e_damages| Some(calc_protect_flag(&e_damages))));
-        
-        let f_sp: Option<Vec<Option<Vec<i64>>>> = stage3.clone().and_then(|stage3| stage3.api_f_sp_list);
-        let e_sp: Option<Vec<Option<Vec<i64>>>> = stage3.clone().and_then(|stage3| stage3.api_e_sp_list);
-        let f_sp_combined: Option<Vec<Option<Vec<i64>>>> = stage3_combined.clone().and_then(|stage3_combined| stage3_combined.api_f_sp_list);
-        let e_sp_combined: Option<Vec<Option<Vec<i64>>>> = stage3_combined.clone().and_then(|stage3_combined| stage3_combined.api_e_sp_list);
+    let f_protect: Option<Vec<bool>> = stage3.clone().and_then(|stage3| stage3.api_fdam.and_then(|f_damages| Some(calc_protect_flag(&f_damages))));
+    let e_protect: Option<Vec<bool>> = stage3.clone().and_then(|stage3| stage3.api_edam.and_then(|e_damages| Some(calc_protect_flag(&e_damages))));
+    let f_protect_combined: Option<Vec<bool>> = stage3_combined.clone().and_then(|stage3_combined| stage3_combined.api_fdam.and_then(|f_damages| Some(calc_protect_flag(&f_damages))));
+    let e_protect_combined: Option<Vec<bool>> = stage3_combined.clone().and_then(|stage3_combined| stage3_combined.api_edam.and_then(|e_damages| Some(calc_protect_flag(&e_damages))));
+    
+    let f_sp: Option<Vec<Option<Vec<i64>>>> = stage3.clone().and_then(|stage3| stage3.api_f_sp_list);
+    let e_sp: Option<Vec<Option<Vec<i64>>>> = stage3.clone().and_then(|stage3| stage3.api_e_sp_list);
+    let f_sp_combined: Option<Vec<Option<Vec<i64>>>> = stage3_combined.clone().and_then(|stage3_combined| stage3_combined.api_f_sp_list);
+    let e_sp_combined: Option<Vec<Option<Vec<i64>>>> = stage3_combined.clone().and_then(|stage3_combined| stage3_combined.api_e_sp_list);
 
-        let f_rai_flag: Option<Vec<Option<i64>>> = stage3.clone().and_then(|stage3| stage3.api_frai_flag);
-        let f_bak_flag: Option<Vec<Option<i64>>> = stage3.clone().and_then(|stage3| stage3.api_fbak_flag);
-        let f_rai_flag_combined: Option<Vec<Option<i64>>> = stage3_combined.clone().and_then(|stage3_combined| stage3_combined.api_frai_flag);
-        let f_bak_flag_combined: Option<Vec<Option<i64>>> = stage3_combined.clone().and_then(|stage3_combined| stage3_combined.api_fbak_flag);
-        
-        let e_rai_flag: Option<Vec<Option<i64>>> = stage3.clone().and_then(|stage3| stage3.api_erai_flag);
-        let e_bak_flag: Option<Vec<Option<i64>>> = stage3.clone().and_then(|stage3| stage3.api_ebak_flag);
-        let e_rai_flag_combined: Option<Vec<Option<i64>>> = stage3_combined.clone().and_then(|stage3_combined| stage3_combined.api_erai_flag);
-        let e_bak_flag_combined: Option<Vec<Option<i64>>> = stage3_combined.clone().and_then(|stage3_combined| stage3_combined.api_ebak_flag);
-        
-        (
-            AirDamage {
-                plane_from: plane_from.clone().and_then(|plane_from| plane_from[0].clone()),
-                touch_plane: stage1.clone().and_then(|stage1| stage1.api_touch_plane.and_then(|touch_plane| Some(touch_plane[0]))),
-                loss_plane1: stage1.clone().and_then(|stage1| Some(stage1.api_f_lostcount)).unwrap_or(0),
-                loss_plane2: stage2.clone().and_then(|stage2| Some(stage2.api_f_lostcount)).unwrap_or(0),
-                damages: combine(&[f_damages, f_damages_combined]),
-                cl: combine(&[f_cl, f_cl_combined]),
-                sp: combine(&[f_sp, f_sp_combined]),
-                rai_flag: combine(&[f_rai_flag, f_rai_flag_combined]),
-                bak_flag: combine(&[f_bak_flag, f_bak_flag_combined]),
-                protect_flag: combine(&[f_protect, f_protect_combined]),
-            },
-            AirDamage {
-                plane_from: plane_from.clone().and_then(|plane_from| plane_from[1].clone()),
-                touch_plane: stage1.clone().and_then(|stage1| stage1.api_touch_plane.and_then(|touch_plane| Some(touch_plane[1]))),
-                loss_plane1: stage1.clone().and_then(|stage1| Some(stage1.api_e_lostcount)).unwrap_or(0),
-                loss_plane2: stage2.clone().and_then(|stage2| Some(stage2.api_e_lostcount.unwrap_or(0))).unwrap_or(0),
-                damages: combine(&[e_damages, e_damages_combined]),
-                cl: combine(&[e_cl, e_cl_combined]),
-                sp: combine(&[e_sp, e_sp_combined]),
-                rai_flag: combine(&[e_rai_flag, e_rai_flag_combined]),
-                bak_flag: combine(&[e_bak_flag, e_bak_flag_combined]),
-                protect_flag: combine(&[e_protect, e_protect_combined]),
-            }
+    let f_rai_flag: Option<Vec<Option<i64>>> = stage3.clone().and_then(|stage3| stage3.api_frai_flag);
+    let f_bak_flag: Option<Vec<Option<i64>>> = stage3.clone().and_then(|stage3| stage3.api_fbak_flag);
+    let f_rai_flag_combined: Option<Vec<Option<i64>>> = stage3_combined.clone().and_then(|stage3_combined| stage3_combined.api_frai_flag);
+    let f_bak_flag_combined: Option<Vec<Option<i64>>> = stage3_combined.clone().and_then(|stage3_combined| stage3_combined.api_fbak_flag);
+    
+    let e_rai_flag: Option<Vec<Option<i64>>> = stage3.clone().and_then(|stage3| stage3.api_erai_flag);
+    let e_bak_flag: Option<Vec<Option<i64>>> = stage3.clone().and_then(|stage3| stage3.api_ebak_flag);
+    let e_rai_flag_combined: Option<Vec<Option<i64>>> = stage3_combined.clone().and_then(|stage3_combined| stage3_combined.api_erai_flag);
+    let e_bak_flag_combined: Option<Vec<Option<i64>>> = stage3_combined.clone().and_then(|stage3_combined| stage3_combined.api_ebak_flag);
+    
+    (
+        AirDamage {
+            plane_from: plane_from.clone().and_then(|plane_from| plane_from[0].clone()),
+            touch_plane: stage1.clone().and_then(|stage1| stage1.api_touch_plane.and_then(|touch_plane| Some(touch_plane[0]))),
+            loss_plane1: stage1.clone().and_then(|stage1| Some(stage1.api_f_lostcount)).unwrap_or(0),
+            loss_plane2: stage2.clone().and_then(|stage2| Some(stage2.api_f_lostcount)).unwrap_or(0),
+            damages: combine(&[f_damages, f_damages_combined]),
+            cl: combine(&[f_cl, f_cl_combined]),
+            sp: combine(&[f_sp, f_sp_combined]),
+            rai_flag: combine(&[f_rai_flag, f_rai_flag_combined]),
+            bak_flag: combine(&[f_bak_flag, f_bak_flag_combined]),
+            protect_flag: combine(&[f_protect, f_protect_combined]),
+        },
+        AirDamage {
+            plane_from: plane_from.clone().and_then(|plane_from| plane_from[1].clone()),
+            touch_plane: stage1.clone().and_then(|stage1| stage1.api_touch_plane.and_then(|touch_plane| Some(touch_plane[1]))),
+            loss_plane1: stage1.clone().and_then(|stage1| Some(stage1.api_e_lostcount)).unwrap_or(0),
+            loss_plane2: stage2.clone().and_then(|stage2| Some(stage2.api_e_lostcount.unwrap_or(0))).unwrap_or(0),
+            damages: combine(&[e_damages, e_damages_combined]),
+            cl: combine(&[e_cl, e_cl_combined]),
+            sp: combine(&[e_sp, e_sp_combined]),
+            rai_flag: combine(&[e_rai_flag, e_rai_flag_combined]),
+            bak_flag: combine(&[e_bak_flag, e_bak_flag_combined]),
+            protect_flag: combine(&[e_protect, e_protect_combined]),
+        }
 
-        )
-    }
+    )
 }
 
 impl From<kcapi_common::common_air::ApiKouku> for OpeningAirAttack {
     fn from(air: kcapi_common::common_air::ApiKouku) -> Self {
-        let (f_damage, e_damage) = TupledAirStages(air.api_plane_from.clone(), air.api_stage1.clone(), air.api_stage2.clone(), air.api_stage3.clone(), air.api_stage3_combined.clone()).into();
+        let (f_damage, e_damage) = calc_air_damage(air.api_plane_from.clone(), air.api_stage1.clone(), air.api_stage2.clone(), air.api_stage3.clone(), air.api_stage3_combined.clone());
         Self {
             air_superiority: air.api_stage1.clone().and_then(|stage1| stage1.api_disp_seiku),
             air_fire: match air.api_stage2.clone().and_then(|stage2| stage2.api_air_fire) {
@@ -579,7 +605,7 @@ impl From<kcapi_common::common_battle::ApiSupportHourai> for SupportHourai {
 
 impl From<kcapi_common::common_air::ApiSupportAiratack> for SupportAiratack {
     fn from(support_airatack: kcapi_common::common_air::ApiSupportAiratack) -> Self {
-        let (f_damage, e_damage) = TupledAirStages(Some(support_airatack.api_plane_from.clone()), Some(support_airatack.api_stage1.clone()), Some(support_airatack.api_stage2.clone()), Some(support_airatack.api_stage3.clone()), support_airatack.api_stage3_combined.clone()).into();
+        let (f_damage, e_damage) = calc_air_damage(Some(support_airatack.api_plane_from.clone()), Some(support_airatack.api_stage1.clone()), Some(support_airatack.api_stage2.clone()), Some(support_airatack.api_stage3.clone()), support_airatack.api_stage3_combined.clone());
         Self {
             deck_id: support_airatack.api_deck_id,
             ship_id: support_airatack.api_ship_id,
@@ -591,7 +617,7 @@ impl From<kcapi_common::common_air::ApiSupportAiratack> for SupportAiratack {
 
 impl From<kcapi_common::common_air::ApiAirBaseInjection> for AirBaseAssult {
     fn from(air_base_injection: kcapi_common::common_air::ApiAirBaseInjection) -> Self {
-        let (f_damage, e_damage) = TupledAirStages(Some(air_base_injection.api_plane_from.clone()), Some(air_base_injection.api_stage1.clone()), Some(air_base_injection.api_stage2.clone()), Some(air_base_injection.api_stage3.clone()), air_base_injection.api_stage3_combined.clone()).into();
+        let (f_damage, e_damage) = calc_air_damage(Some(air_base_injection.api_plane_from.clone()), Some(air_base_injection.api_stage1.clone()), Some(air_base_injection.api_stage2.clone()), Some(air_base_injection.api_stage3.clone()), air_base_injection.api_stage3_combined.clone());
         Self {
             squadron_plane: air_base_injection.api_air_base_data.iter().map(|air_base_data| air_base_data.api_mst_id).collect(),
             f_damage: f_damage,
@@ -602,10 +628,47 @@ impl From<kcapi_common::common_air::ApiAirBaseInjection> for AirBaseAssult {
 
 impl From<kcapi_common::common_air::ApiKouku> for CarrierBaseAssault {
     fn from(value: kcapi_common::common_air::ApiKouku) -> Self {
-        let (f_damage, e_damage) = TupledAirStages(value.api_plane_from.clone(), value.api_stage1.clone(), value.api_stage2.clone(), value.api_stage3.clone(), value.api_stage3_combined.clone()).into();
+        let (f_damage, e_damage) = calc_air_damage(value.api_plane_from.clone(), value.api_stage1.clone(), value.api_stage2.clone(), value.api_stage3.clone(), value.api_stage3_combined.clone());
+        let (f_damage, e_damage) = calc_air_damage(value.api_plane_from.clone(), value.api_stage1.clone(), value.api_stage2.clone(), value.api_stage3.clone(), value.api_stage3_combined.clone());
         Self {
             f_damage: f_damage,
             e_damage: e_damage,
+        }
+    }
+}
+
+impl From<kcapi_common::common_midnight::ApiFriendlyInfo> for FriendlyForceInfo {
+    fn from(fleet_info: kcapi_common::common_midnight::ApiFriendlyInfo) -> Self {
+        Self {
+            slot_ex: fleet_info.api_slot_ex,
+            max_hps: fleet_info.api_maxhps,
+            ship_id: fleet_info.api_ship_id,
+            params: fleet_info.api_param,
+            ship_lv: fleet_info.api_ship_lv,
+            now_hps: fleet_info.api_nowhps,
+            slot: fleet_info.api_slot,
+        }
+    }
+}
+
+impl From<kcapi_common::common_midnight::ApiFriendlyBattle> for FriendlySupportHourai {
+    fn from(friendly_support_hourai: kcapi_common::common_midnight::ApiFriendlyBattle) -> Self {
+        let flare_pos: Vec<i64> = friendly_support_hourai.api_flare_pos;
+        let hougeki: MidnightHougeki = friendly_support_hourai.api_hougeki.into();
+        Self {
+            flare_pos: flare_pos,
+            hougeki: hougeki,
+        }
+    }
+}
+
+impl FriendlyForceAttack {
+    pub fn from_api_data(friendly_force_info: kcapi_common::common_midnight::ApiFriendlyInfo, friendly_support_hourai: kcapi_common::common_midnight::ApiFriendlyBattle) -> Self {
+        let force_info: FriendlyForceInfo = friendly_force_info.into();
+        let support_hourai: Option<FriendlySupportHourai> = Some(friendly_support_hourai.into());
+        Self {
+            fleet_info: force_info,
+            support_hourai: support_hourai,
         }
     }
 }
@@ -662,7 +725,7 @@ impl From<kcapi::api_req_sortie::battle::ApiData> for Battle {
             opening_raigeki: opening_raigeki,
             hougeki: hougeki,
             closing_raigeki: closing_taigeki,
-            // friendly_fleet_attack: None,
+            friendly_force_attack: None,
             midnight_flare_pos: None,
             midngiht_touchplane: None,
             midnight_hougeki: None,
@@ -677,6 +740,7 @@ impl From<kcapi::api_req_sortie::battle::ApiData> for Battle {
 impl From<kcapi::api_req_battle_midnight::battle::ApiData> for Battle {
     fn from(battle: kcapi::api_req_battle_midnight::battle::ApiData) -> Self {
         let midnight_hougeki: Option<MidnightHougeki> = Some(battle.api_hougeki.into());
+        let friendly_force_attack: Option<FriendlyForceAttack> = if battle.api_friendly_info.is_some() && battle.api_friendly_battle.is_some() { Some(FriendlyForceAttack::from_api_data(battle.api_friendly_info.unwrap(), battle.api_friendly_battle.unwrap())) } else { None };
 
         let cell_no = KCS_CELLS.lock().and_then(|cells| Ok(cells.last().unwrap_or(&0).clone())).unwrap_or(0);
 
@@ -705,7 +769,7 @@ impl From<kcapi::api_req_battle_midnight::battle::ApiData> for Battle {
             opening_raigeki: None,
             hougeki: None,
             closing_raigeki: None,
-            // friendly_fleet_attack: None,
+            friendly_force_attack: friendly_force_attack,
             midnight_flare_pos: Some(battle.api_flare_pos),
             midngiht_touchplane: Some(battle.api_touch_plane),
             midnight_hougeki: midnight_hougeki,
@@ -720,6 +784,7 @@ impl From<kcapi::api_req_battle_midnight::battle::ApiData> for Battle {
 impl From<kcapi::api_req_battle_midnight::sp_midnight::ApiData> for Battle {
     fn from(battle: kcapi::api_req_battle_midnight::sp_midnight::ApiData) -> Self {
         let midnight_hougeki: Option<MidnightHougeki> = Some(battle.api_hougeki.into());
+        let friendly_force_attack:Option<FriendlyForceAttack> = None;
 
         let cell_no = KCS_CELLS.lock().and_then(|cells| Ok(cells.last().unwrap_or(&0).clone())).unwrap_or(0);
 
@@ -748,7 +813,7 @@ impl From<kcapi::api_req_battle_midnight::sp_midnight::ApiData> for Battle {
             opening_raigeki: None,
             hougeki: None,
             closing_raigeki: None,
-            // friendly_fleet_attack: None,
+            friendly_force_attack: friendly_force_attack,
             midnight_flare_pos: Some(battle.api_flare_pos),
             midngiht_touchplane: Some(battle.api_touch_plane),
             midnight_hougeki: midnight_hougeki,
@@ -797,7 +862,7 @@ impl From<kcapi::api_req_sortie::ld_airbattle::ApiData> for Battle {
             opening_raigeki: None,
             hougeki: None,
             closing_raigeki: None,
-            // friendly_fleet_attack: None,
+            friendly_force_attack: None,
             midnight_flare_pos: None,
             midngiht_touchplane: None,
             midnight_hougeki: None,
