@@ -7,7 +7,8 @@ use crate::kcapi_common;
 
 use std::sync::{LazyLock, Mutex};
 
-use super::battle::{AirDamage, Battle, TupledAirStages};
+use super::battle::calc_air_damage;
+use super::battle::{AirDamage, Battle};
 
 // Is it better to use onecell::sync::Lazy or std::sync::Lazy?
 pub static KCS_CELLS: LazyLock<Mutex<Vec<i64>>> = LazyLock::new(|| {
@@ -109,7 +110,9 @@ pub struct AirBaseAttack {
 
 impl From<kcapi::api_req_map::next::ApiAirBaseAttack> for AirBaseAttack {
     fn from(air_base_attack: kcapi::api_req_map::next::ApiAirBaseAttack) -> Self {
-        let (f_damage, e_damage) = TupledAirStages(Some(air_base_attack.api_plane_from.clone()), air_base_attack.api_stage1.clone(), air_base_attack.api_stage2.clone(), air_base_attack.api_stage3.clone(), None).into();
+        // let (f_damage, e_damage) = TupledAirStages(Some(air_base_attack.api_plane_from.clone()), air_base_attack.api_stage1.clone(), air_base_attack.api_stage2.clone(), air_base_attack.api_stage3.clone(), None).into();
+        let (f_damage, e_damage) = calc_air_damage(Some(air_base_attack.api_plane_from.clone()), air_base_attack.api_stage1.clone(), air_base_attack.api_stage2.clone(), air_base_attack.api_stage3.clone(), None);
+        
         Self {
             plane_from: air_base_attack.api_plane_from,
             f_damage: f_damage,
