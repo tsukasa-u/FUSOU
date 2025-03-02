@@ -629,7 +629,6 @@ impl From<kcapi_common::common_air::ApiAirBaseInjection> for AirBaseAssult {
 impl From<kcapi_common::common_air::ApiKouku> for CarrierBaseAssault {
     fn from(value: kcapi_common::common_air::ApiKouku) -> Self {
         let (f_damage, e_damage) = calc_air_damage(value.api_plane_from.clone(), value.api_stage1.clone(), value.api_stage2.clone(), value.api_stage3.clone(), value.api_stage3_combined.clone());
-        let (f_damage, e_damage) = calc_air_damage(value.api_plane_from.clone(), value.api_stage1.clone(), value.api_stage2.clone(), value.api_stage3.clone(), value.api_stage3_combined.clone());
         Self {
             f_damage: f_damage,
             e_damage: e_damage,
