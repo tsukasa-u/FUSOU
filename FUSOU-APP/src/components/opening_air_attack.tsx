@@ -198,9 +198,6 @@ export function OpeningAirAttackComponent({deck_ship_id, battle_selected}: AirDa
                                                                 </Show>
                                                                 <div class="flex flex-nowrap">
                                                                     <EnemyNameComponent ship_id={battle_selected().enemy_ship_id[ship_idx]} ship_slot={battle_selected().e_slot![ship_idx]} ship_param={battle_selected().e_params![ship_idx]} ship_max_hp={battle_selected().e_hp_max![ship_idx]}></EnemyNameComponent>
-                                                                    <Show when={battle_selected().opening_air_attack.e_damage.protect_flag?.some(flag => flag == true)}>
-                                                                        <IconShield class="h-5 w-5"></IconShield>
-                                                                    </Show>
                                                                 </div>
                                                             </>
                                                         )}
