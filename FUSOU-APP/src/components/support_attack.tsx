@@ -13,15 +13,46 @@ interface AirDamageProps {
 }
 
 export function SupportAttackComponent({deck_ship_id, battle_selected}: AirDamageProps) {
-    const show_hourai = createMemo<boolean>(() => {
+    const show_support = createMemo<boolean>(() => {
         if (battle_selected() == undefined) return false;
         if (battle_selected().deck_id == null) return false;
         if (battle_selected().support_attack == null) return false;
         return true;
     });
 
+
+    const show_air_damage = createMemo<boolean[][]>(() => {
+        let show_air_damage: boolean[][] = [
+            [false, false, false, false, false, false, false],
+            [false, false, false, false, false, false, false],
+        ];
+        if (battle_selected().support_attack == null) return show_air_damage;
+        if (battle_selected().support_attack!.support_airatack == null) return show_air_damage;
+        if (battle_selected().support_attack!.support_airatack!.e_damage.bak_flag) {
+            battle_selected().support_attack!.support_airatack!.e_damage!.bak_flag!.forEach((flag, idx) => {
+                show_air_damage[0][idx] ||= flag == 1;
+            });
+        }
+        if (battle_selected().support_attack!.support_airatack!.e_damage.rai_flag) {
+            battle_selected()!.support_attack!.support_airatack!!.e_damage!.rai_flag!.forEach((flag, idx) => {
+                show_air_damage[0][idx] ||= flag == 1;
+            });
+        }
+        if (battle_selected().support_attack!.support_airatack!.f_damage.bak_flag) {
+            battle_selected()!.support_attack!.support_airatack!!.f_damage!.bak_flag!.forEach((flag, idx) => {
+                show_air_damage[1][idx] ||= flag == 1;
+            });
+        }
+        if (battle_selected().support_attack!.support_airatack!.f_damage.rai_flag) {
+            battle_selected()!.support_attack!.support_airatack!!.f_damage!.rai_flag!.forEach((flag, idx) => {
+                show_air_damage[1][idx] ||= flag == 1;
+            });
+        }
+        return show_air_damage;
+    });
+
     return (
-        <Show when={show_hourai()}>
+        <Show when={show_support()}>
             <li>
                 <details open={true}>
                     <summary>
@@ -38,7 +69,7 @@ export function SupportAttackComponent({deck_ship_id, battle_selected}: AirDamag
                             </thead>
                             <tbody>
                                 <Show when={battle_selected().support_attack!.support_hourai !== null}>
-                                    <tr>
+                                    <tr class="table_hover table_active rounded">
                                         <td>
                                             <div class="flex flex-col">
                                                 <For each={deck_ship_id[battle_selected()!.support_attack!.support_hourai!.deck_id ?? battle_selected()!.support_attack!.support_hourai!.ship_id]}>
@@ -83,6 +114,68 @@ export function SupportAttackComponent({deck_ship_id, battle_selected}: AirDamag
                                             </For>
                                         </td>
                                     </tr>
+                                </Show>
+                                <Show when={battle_selected().support_attack!.support_airatack !== null}>
+                                    <Show when={(battle_selected().support_attack!.support_airatack!.f_damage!.plane_from ?? []).length > 0}>
+                                        <tr class="table_hover table_active rounded">
+                                            <td>
+                                                <div class="flex flex-col">
+                                                    <For each={battle_selected().support_attack!.support_airatack!.f_damage.plane_from}>
+                                                        {(ship_idx, idx) => (
+                                                            <>
+                                                                <Show when={idx() > 0}>
+                                                                    <div class="h-px"></div>
+                                                                </Show>
+                                                                <ShipNameComponent ship_id={deck_ship_id[battle_selected().support_attack!.support_airatack!.deck_id][ship_idx-1]}></ShipNameComponent>
+                                                            </>
+                                                        )}
+                                                    </For>
+                                                </div>
+                                            </td>
+                                            <td>
+                                                <For each={battle_selected().support_attack!.support_airatack!.e_damage.damages}>
+                                                    {(_, idx) => (
+                                                        <>
+                                                            <Show when={show_air_damage()[0][idx()]}>
+                                                                <Show when={idx() > 0}>
+                                                                    <div class="h-px"></div>
+                                                                </Show>
+                                                                <div class="flex flex-nowrap">
+                                                                    <EnemyNameComponent ship_id={battle_selected().enemy_ship_id[idx()]} ship_slot={battle_selected().e_slot![idx()]} ship_param={battle_selected().e_params![idx()]} ship_max_hp={battle_selected().e_hp_max![idx()]}></EnemyNameComponent>
+                                                                    <Show when={battle_selected().support_attack!.support_airatack!.e_damage.protect_flag?.some(flag => flag == true)}>
+                                                                        <IconShield class="h-5 w-5"></IconShield>
+                                                                    </Show>
+                                                                </div>
+                                                            </Show>
+                                                        </>
+                                                    )}
+                                                </For>
+                                            </td>
+                                            <td >
+                                                <For each={battle_selected().support_attack!.support_airatack!.e_damage.damages}>
+                                                    {(dmg, dmg_index) => (
+                                                        <>
+                                                            <Show when={show_air_damage()[0][dmg_index()]}>
+                                                                <Show when={dmg_index() > 0}>
+                                                                    <div class="h-[4px]"></div>
+                                                                </Show>
+                                                                <div class={
+                                                                    (() => {
+                                                                        let cl_flag = battle_selected().support_attack!.support_airatack!!.e_damage!.cl![dmg_index()] ?? 0;
+                                                                        if (cl_flag==0 || dmg==0) {
+                                                                            return "text-red-500";
+                                                                        } else if (cl_flag==2) {
+                                                                            return "text-yellow-500";
+                                                                        }
+                                                                    })()
+                                                                }>{dmg}</div>
+                                                            </Show>
+                                                        </>
+                                                    )}
+                                                </For>
+                                            </td>
+                                        </tr>
+                                    </Show>
                                 </Show>
                             </tbody>
                         </table>
