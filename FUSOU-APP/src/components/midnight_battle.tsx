@@ -8,12 +8,12 @@ import { Battle } from '../interface/battle';
 import { MstEquipmentComponent } from './mst_equipment';
 import IconShield from '../icons/shield';
 
-interface AntiSubmarineProps {
+interface MidnightShellingProps {
     deck_ship_id: { [key: number]: number[] };
     battle_selected: () => Battle;
 }
 
-export function MidnightShellingComponent({deck_ship_id, battle_selected}: AntiSubmarineProps) {
+export function MidnightShellingComponent({deck_ship_id, battle_selected}: MidnightShellingProps) {
     
     const show_shelling = createMemo<boolean>(() => {
         if (battle_selected() == undefined) return false;
