@@ -297,10 +297,13 @@ pub fn calc_air_damage(plane_from: Option<Vec<Option<Vec<i64>>>>, stage1: Option
     let e_bak_flag: Option<Vec<Option<i64>>> = stage3.clone().and_then(|stage3| stage3.api_ebak_flag);
     let e_rai_flag_combined: Option<Vec<Option<i64>>> = stage3_combined.clone().and_then(|stage3_combined| stage3_combined.api_erai_flag);
     let e_bak_flag_combined: Option<Vec<Option<i64>>> = stage3_combined.clone().and_then(|stage3_combined| stage3_combined.api_ebak_flag);
+
+    let f_plane_from: Option<Vec<i64>> = plane_from.clone().and_then(|plane_from| plane_from[0].clone().and_then(|plane_from| Some(plane_from.clone().iter().map(|x| x - 1).collect())));
+    let e_plane_from: Option<Vec<i64>> = plane_from.clone().and_then(|plane_from| plane_from[1].clone().and_then(|plane_from| Some(plane_from.clone().iter().map(|x| x - 1).collect())));
     
     (
         AirDamage {
-            plane_from: plane_from.clone().and_then(|plane_from| plane_from[0].clone()),
+            plane_from: f_plane_from,
             touch_plane: stage1.clone().and_then(|stage1| stage1.api_touch_plane.and_then(|touch_plane| Some(touch_plane[0]))),
             loss_plane1: stage1.clone().and_then(|stage1| Some(stage1.api_f_lostcount)).unwrap_or(0),
             loss_plane2: stage2.clone().and_then(|stage2| Some(stage2.api_f_lostcount)).unwrap_or(0),
@@ -312,7 +315,7 @@ pub fn calc_air_damage(plane_from: Option<Vec<Option<Vec<i64>>>>, stage1: Option
             protect_flag: combine(&[f_protect, f_protect_combined]),
         },
         AirDamage {
-            plane_from: plane_from.clone().and_then(|plane_from| plane_from[1].clone()),
+            plane_from: e_plane_from,
             touch_plane: stage1.clone().and_then(|stage1| stage1.api_touch_plane.and_then(|touch_plane| Some(touch_plane[1]))),
             loss_plane1: stage1.clone().and_then(|stage1| Some(stage1.api_e_lostcount)).unwrap_or(0),
             loss_plane2: stage2.clone().and_then(|stage2| Some(stage2.api_e_lostcount.unwrap_or(0))).unwrap_or(0),

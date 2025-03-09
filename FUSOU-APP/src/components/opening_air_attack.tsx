@@ -19,6 +19,8 @@ export function OpeningAirAttackComponent({deck_ship_id, battle_selected}: AirDa
         if (battle_selected().deck_id == null) return false;
         if (battle_selected().opening_air_attack == null) return false;
         if (battle_selected().opening_air_attack.f_damage.plane_from == null && battle_selected().opening_air_attack.e_damage.plane_from == null) return false;
+        console.log(battle_selected().opening_air_attack.f_damage.plane_from);
+        console.log(battle_selected().opening_air_attack.e_damage.plane_from);
         return true;
     });
 
@@ -133,7 +135,7 @@ export function OpeningAirAttackComponent({deck_ship_id, battle_selected}: AirDa
                                                                 <Show when={idx() > 0}>
                                                                     <div class="h-px"></div>
                                                                 </Show>
-                                                                <ShipNameComponent ship_id={deck_ship_id[battle_selected().deck_id!][ship_idx-1]}></ShipNameComponent>
+                                                                <ShipNameComponent ship_id={deck_ship_id[battle_selected().deck_id!][ship_idx]}></ShipNameComponent>
                                                             </>
                                                         )}
                                                     </For>
@@ -150,7 +152,7 @@ export function OpeningAirAttackComponent({deck_ship_id, battle_selected}: AirDa
                                                                 <div class="flex flex-nowrap">
                                                                     <EnemyNameComponent ship_id={battle_selected().enemy_ship_id[idx()]} ship_slot={battle_selected().e_slot![idx()]} ship_param={battle_selected().e_params![idx()]} ship_max_hp={battle_selected().e_hp_max![idx()]}></EnemyNameComponent>
                                                                     <Show when={battle_selected().opening_air_attack.e_damage.protect_flag?.some(flag => flag == true)}>
-                                                                        <IconShield class="h-5 w-5"></IconShield>
+                                                                        <IconShield class="h-4 w-4"></IconShield>
                                                                     </Show>
                                                                 </div>
                                                             </Show>
@@ -187,8 +189,22 @@ export function OpeningAirAttackComponent({deck_ship_id, battle_selected}: AirDa
                                         <tr class="table_hover table_active rounded">
                                             <td>
                                                 <div class="flex flex-col">
+                                                    {/* Is this correct? */}
                                                     <For each={battle_selected().opening_air_attack.e_damage.plane_from}>
-                                                        {(plane_flag, idx) => (
+                                                        {(ship_idx, idx) => (
+                                                            <>
+                                                                <Show when={idx() > 0}>
+                                                                    <div class="h-px"></div>
+                                                                </Show>
+                                                                <div class="flex flex-nowrap">
+                                                                    <EnemyNameComponent ship_id={battle_selected().enemy_ship_id[ship_idx]} ship_slot={battle_selected().e_slot![ship_idx]} ship_param={battle_selected().e_params![ship_idx]} ship_max_hp={battle_selected().e_hp_max![ship_idx]}></EnemyNameComponent>
+                                                                    <Show when={battle_selected().opening_air_attack.e_damage.protect_flag?.some(flag => flag == true)}>
+                                                                        <IconShield class="h-5 w-5"></IconShield>
+                                                                    </Show>
+                                                                </div>
+                                                            </>
+                                                        )}
+                                                        {/* {(plane_flag, idx) => (
                                                             <>
                                                                 <Show when={plane_flag != -1}>
                                                                     <Show when={idx() > 0}>
@@ -202,7 +218,7 @@ export function OpeningAirAttackComponent({deck_ship_id, battle_selected}: AirDa
                                                                     </div>
                                                                 </Show>
                                                             </>
-                                                        )}
+                                                        )} */}
                                                     </For>
                                                 </div>
                                             </td>
