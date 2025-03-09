@@ -1,10 +1,10 @@
 [package]
 name = "app"
 version = "0.1.2"
-description = "A Tauri App"
-authors = ["you"]
-license = ""
-repository = ""
+description = "A Tauri App for proxy KanColle data"
+authors = ["Hideyuki Oguri"]
+license = "MIT/Apache-2.0"
+repository = "https://github.com/tsukasa-u/FUSOU"
 default-run = "app"
 edition = "2021"
 rust-version = "1.60"
@@ -38,7 +38,6 @@ directories = "6.0.0"
 
 [dev-dependencies]
 dot-writer = "0.1.3"
-petgraph = "0.6.3"
 
 
 [features]
