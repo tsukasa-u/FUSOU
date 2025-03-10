@@ -11,11 +11,10 @@ import { EquimentComponent } from './equipment';
 import { useSlotItems } from '../utility/provider';
 
 interface AirDamageProps {
-    deck_ship_id: { [key: number]: number[] };
     battle_selected: () => Battle;
 }
 
-export function CarrierBaseAssaultComponent({deck_ship_id, battle_selected}: AirDamageProps) {
+export function CarrierBaseAssaultComponent({battle_selected}: AirDamageProps) {
 
     const [slotitems, ] = useSlotItems();
 

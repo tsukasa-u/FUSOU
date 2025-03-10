@@ -8,13 +8,11 @@ import { useAirBases, useSlotItems } from '../utility/provider';
 import IconShield from '../icons/shield';
 
 interface AirDamageProps {
-    area_id: number;
     battle_selected: () => Battle;
 }
 
-export function AirBaseAssaultComponent({area_id, battle_selected}: AirDamageProps) {
+export function AirBaseAssaultComponent({battle_selected}: AirDamageProps) {
     
-    const [air_bases, ] =  useAirBases();
     const [slotitems, ] = useSlotItems();
 
     const show_air_attack = createMemo<boolean>(() => {
