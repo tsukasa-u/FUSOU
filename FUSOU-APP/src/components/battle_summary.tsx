@@ -44,6 +44,22 @@ interface FleetInfo {
     friend_slot: number[][],
 }
 
+function select_min(a: number[], b: number[]): number[] {
+    if (a == null) return b;
+    if (b == null) return a;
+
+    let ret = [];
+    for (let i = 0; i < a.length; i++) {
+        ret.push(Math.min(a[i], b[i]));
+    }
+    if (!(ret.every((v, i) => v == a[i]) || ret.every((v, i) => v == b[i]))) {
+        ret.map((_v, i) => {
+            ret[i] = -1;
+        });
+    }
+    return ret;
+}
+
 export function BattleSummaryComponent({deck_ship_id, battle_selected}: MidnightShellingProps) {
 
     const [deck_ports, ] = useDeckPorts();
@@ -84,8 +100,13 @@ export function BattleSummaryComponent({deck_ship_id, battle_selected}: Midnight
             friend_slot: [[]],
         };
 
+        let f_now_hps: number[] = select_min(battle_selected().f_nowhps!, battle_selected().midngiht_f_nowhps!).map((v, i) => v - battle_selected().f_total_damages![i]).map((v) => Math.max(v, 0));
+        let e_now_hps: number[] = select_min(battle_selected().e_nowhps!, battle_selected().midngiht_e_nowhps!).map((v, i) => v - battle_selected().e_total_damages![i]).map((v) => Math.max(v, 0));
+
+
         let f_main_ship_id: number[] = deck_ship_id[battle_selected().deck_id!];
-        let f_main_nowhps: number[] = battle_selected().f_nowhps!;
+        // let f_main_nowhps: number[] = battle_selected().f_nowhps!;
+        let f_main_nowhps: number[] = f_now_hps;
         let f_main_maxhps: number[] = deck_ship_id[battle_selected().deck_id!].map((ship_id) => ships.ships[ship_id].maxhp);;
         let f_main_damages: number[] = battle_selected().f_total_damages ?? [-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1];
 
@@ -95,14 +116,14 @@ export function BattleSummaryComponent({deck_ship_id, battle_selected}: Midnight
         let f_escort_damages: number[] = [];
 
         let e_main_ship_id: number[] = battle_selected().enemy_ship_id.slice(0, 6);
-        let e_main_nowhps: number[] = (battle_selected().e_nowhps ?? []).slice(0, 6);
+        let e_main_nowhps: number[] = e_now_hps.slice(0, 6);
         let e_main_maxhps: number[] = (battle_selected().e_hp_max ?? []).slice(0, 6);
         let e_main_damages: number[] = (battle_selected().e_total_damages ?? [-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1]).slice(0, 6);
         let e_main_prams: number[][] = (battle_selected().e_params ?? []).slice(0, 6);
         let e_main_slot: number[][] = (battle_selected().e_slot ?? []).slice(0, 6);
 
         let e_escort_ship_id: number[] = battle_selected().enemy_ship_id.slice(6, 12);
-        let e_escort_nowhps: number[] = (battle_selected().e_nowhps ?? []).slice(6, 12);
+        let e_escort_nowhps: number[] = e_now_hps.slice(6, 12);
         let e_escort_maxhps: number[] = (battle_selected().e_hp_max ?? []).slice(6, 12);
         let e_escort_damages: number[] = (battle_selected().e_total_damages ?? [-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1]).slice(6, 12);
         let e_escrot_params: number[][] = (battle_selected().e_params ?? []).slice(6, 12);
@@ -117,11 +138,11 @@ export function BattleSummaryComponent({deck_ship_id, battle_selected}: Midnight
 
         if (deck_ports.combined_flag) {
             f_escort_ship_id = deck_ship_id[battle_selected().deck_id ?? 1].slice(0, 6);
-            f_main_nowhps = (battle_selected().f_nowhps ?? []).slice(0, 6);
+            f_main_nowhps = f_now_hps.slice(0, 6);
             f_main_maxhps = deck_ship_id[battle_selected().deck_id!].map((ship_id) => ships.ships[ship_id].maxhp).slice(0, 6);
             f_main_damages = (battle_selected().f_total_damages ?? [-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1]).slice(0, 6);
             f_escort_ship_id = deck_ship_id[battle_selected().deck_id!].slice(6, 12);
-            f_escort_nowhps = (battle_selected().f_nowhps ?? []).slice(6, 12);
+            f_escort_nowhps = f_now_hps.slice(6, 12);
             f_escort_maxhps = deck_ship_id[battle_selected().deck_id!].map((ship_id) => ships.ships[ship_id].maxhp).slice(6, 12);
             f_escort_damages = (battle_selected().f_total_damages ?? [-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1]).slice(6, 12);
         }

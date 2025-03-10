@@ -4,6 +4,7 @@ use crate::kcapi;
 
 use crate::interface::cells::KCS_CELLS;
 use crate::interface::battle::{FriendlyForceAttack, AirBaseAirAttacks, OpeningAirAttack, OpeningTaisen, OpeningRaigeki, ClosingRaigeki, Hougeki, SupportAttack, AirBaseAssult, Battle, MidnightHougeki, CarrierBaseAssault};
+use crate::interface::battle::calc_dmg;
 
 impl From<kcapi::api_req_combined_battle::ec_battle::ApiData> for Battle {
     fn from(battle: kcapi::api_req_combined_battle::ec_battle::ApiData) -> Self {
@@ -24,7 +25,7 @@ impl From<kcapi::api_req_combined_battle::ec_battle::ApiData> for Battle {
 
         let cell_no = KCS_CELLS.lock().and_then(|cells| Ok(cells.last().unwrap_or(&0).clone())).unwrap_or(0);
 
-        Self {
+        let mut ret = Self {
             timestamp: Some(Local::now().timestamp()),
             midnight_timestamp: None,
             cell_id: cell_no,
@@ -58,7 +59,9 @@ impl From<kcapi::api_req_combined_battle::ec_battle::ApiData> for Battle {
             e_nowhps: Some([battle.api_e_nowhps, battle.api_e_nowhps_combined].concat()),
             midngiht_f_nowhps: None,
             midngiht_e_nowhps: None,
-        }
+        };
+        calc_dmg(&mut ret);
+        return ret;
     }
 }
 
@@ -69,7 +72,7 @@ impl From<kcapi::api_req_combined_battle::ec_midnight_battle::ApiData> for Battl
 
         let cell_no = KCS_CELLS.lock().and_then(|cells| Ok(cells.last().unwrap_or(&0).clone())).unwrap_or(0);
 
-        Self {
+        let mut ret = Self {
             timestamp: None,
             midnight_timestamp: Some(Local::now().timestamp()),
             cell_id: cell_no,
@@ -103,7 +106,9 @@ impl From<kcapi::api_req_combined_battle::ec_midnight_battle::ApiData> for Battl
             e_nowhps: None,
             midngiht_f_nowhps: Some(battle.api_f_nowhps),
             midngiht_e_nowhps: Some([battle.api_e_nowhps, battle.api_e_nowhps_combined].concat()),
-        }
+        };
+        calc_dmg(&mut ret);
+        return ret;
     }
 }
 
