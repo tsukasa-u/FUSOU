@@ -12,6 +12,9 @@ import { OpeningAirAttackComponent } from './opening_air_attack';
 import { AirBaseAirAttackComponent } from './air_base_air_attack';
 import { MidnightShellingComponent } from './midnight_battle';
 import { SupportAttackComponent } from './support_attack';
+import { FriendlyForceAttackComponent } from './friendly_force_attack';
+import { AirBaseAssaultComponent } from './air_base_assault';
+import { CarrierBaseAssaultComponent } from './carrier_base_assault';
 
 export function BattlesComponent() {
 
@@ -169,6 +172,8 @@ export function BattlesComponent() {
                         </ul>
                         <Show when={show_battle()} fallback={<div class="text-xs pl-4 py-1">No Battle Data ...</div>}>
                             <ul class="pl-0">
+                                <AirBaseAssaultComponent battle_selected={battle_selected} />
+                                <CarrierBaseAssaultComponent battle_selected={battle_selected} />
                                 <AirBaseAirAttackComponent area_id={cells.maparea_id} battle_selected={battle_selected} />
                                 <OpeningAirAttackComponent deck_ship_id={deck_ship_id()} battle_selected={battle_selected} />
                                 <SupportAttackComponent deck_ship_id={deck_ship_id()} battle_selected={battle_selected} />
@@ -176,6 +181,7 @@ export function BattlesComponent() {
                                 <OpeningTorpedoAttackComponent deck_ship_id={deck_ship_id()} battle_selected={battle_selected} />
                                 <ShellingComponent deck_ship_id={deck_ship_id()} battle_selected={battle_selected} />
                                 <ClosingTorpedoAttackComponent deck_ship_id={deck_ship_id()} battle_selected={battle_selected} />
+                                <FriendlyForceAttackComponent battle_selected={battle_selected} />
                                 <MidnightShellingComponent deck_ship_id={deck_ship_id()} battle_selected={battle_selected} />
                             </ul>
                         </Show>
