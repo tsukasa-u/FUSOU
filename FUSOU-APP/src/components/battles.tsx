@@ -15,6 +15,7 @@ import { SupportAttackComponent } from './support_attack';
 import { FriendlyForceAttackComponent } from './friendly_force_attack';
 import { AirBaseAssaultComponent } from './air_base_assault';
 import { CarrierBaseAssaultComponent } from './carrier_base_assault';
+import { BattleSummaryComponent } from './battle_summary';
 
 export function BattlesComponent() {
 
@@ -172,6 +173,7 @@ export function BattlesComponent() {
                         </ul>
                         <Show when={show_battle()} fallback={<div class="text-xs pl-4 py-1">No Battle Data ...</div>}>
                             <ul class="pl-0">
+                                <BattleSummaryComponent deck_ship_id={deck_ship_id()} battle_selected={battle_selected} />
                                 <AirBaseAssaultComponent battle_selected={battle_selected} />
                                 <CarrierBaseAssaultComponent battle_selected={battle_selected} />
                                 <AirBaseAirAttackComponent area_id={cells.maparea_id} battle_selected={battle_selected} />

@@ -3,7 +3,7 @@ import { ShipNameComponent } from './ship_name';
 import { createMemo, For, Show } from 'solid-js';
 
 import "../css/divider.css";
-import { EnemyNameComponent } from './enemy_name';
+import { SimpleShipNameComponent } from './simple_ship_name';
 import { Battle } from '../interface/battle';
 import IconShield from '../icons/shield';
 
@@ -44,7 +44,7 @@ export function OpeningAntiSubmarineComponent({deck_ship_id, battle_selected}: A
                                         <tr class="table_hover table_active rounded">
                                             <td>
                                                 <Show when={battle_selected().opening_taisen.at_eflag[at_index()]==0} fallback={
-                                                    <EnemyNameComponent ship_id={battle_selected().enemy_ship_id[at]} ship_slot={battle_selected().e_slot![at]} ship_param={battle_selected().e_params![at]} ship_max_hp={battle_selected().e_hp_max![at]} display={false}></EnemyNameComponent>
+                                                    <SimpleShipNameComponent ship_id={battle_selected().enemy_ship_id[at]} ship_slot={battle_selected().e_slot![at]} ship_param={battle_selected().e_params![at]} ship_max_hp={battle_selected().e_hp_max![at]} display={false}></SimpleShipNameComponent>
                                                 }>
                                                     <ShipNameComponent ship_id={deck_ship_id[battle_selected().deck_id!][at]}></ShipNameComponent>
                                                 </Show>
@@ -55,7 +55,7 @@ export function OpeningAntiSubmarineComponent({deck_ship_id, battle_selected}: A
                                                         {(df, df_index) => (
                                                             <div class="flex flex-nowarp">
                                                                 <Show when={battle_selected().opening_taisen.at_eflag[at_index()]==1} fallback={
-                                                                    <EnemyNameComponent ship_id={battle_selected().enemy_ship_id[df]} ship_slot={battle_selected().e_slot![df]} ship_param={battle_selected().e_params![df]} ship_max_hp={battle_selected().e_hp_max![df]} display={false}></EnemyNameComponent>
+                                                                    <SimpleShipNameComponent ship_id={battle_selected().enemy_ship_id[df]} ship_slot={battle_selected().e_slot![df]} ship_param={battle_selected().e_params![df]} ship_max_hp={battle_selected().e_hp_max![df]} display={false}></SimpleShipNameComponent>
                                                                 }>
                                                                     <ShipNameComponent ship_id={deck_ship_id[battle_selected().deck_id!][df]}></ShipNameComponent>
                                                                 </Show>

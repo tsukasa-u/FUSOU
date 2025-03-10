@@ -19,7 +19,7 @@ const show_modal = (ship_id: number) => {
     dialogElement?.showModal()
 }
 
-export function EnemyNameComponent({ship_id, ship_param, ship_slot, ship_max_hp, display}: ShipNameProps) {
+export function SimpleShipNameComponent({ship_id, ship_param, ship_slot, ship_max_hp, display}: ShipNameProps) {
 
     if (display === false) {
         // need to replace the currect code

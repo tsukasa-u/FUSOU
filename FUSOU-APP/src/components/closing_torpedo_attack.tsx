@@ -3,7 +3,7 @@ import { ShipNameComponent } from './ship_name';
 import { createMemo, For, Show } from 'solid-js';
 
 import "../css/divider.css";
-import { EnemyNameComponent } from './enemy_name';
+import { SimpleShipNameComponent } from './simple_ship_name';
 import { Battle } from '../interface/battle';
 import IconShield from '../icons/shield';
 
@@ -118,7 +118,7 @@ export function ClosingTorpedoAttackComponent({deck_ship_id, battle_selected}: T
                                             </td>
                                             <td>
                                                 <div class="flex flex-nowrap">
-                                                    <EnemyNameComponent ship_id={battle_selected().enemy_ship_id[frai]} ship_max_hp={battle_selected().e_hp_max![frai]} ship_param={battle_selected().e_params![frai]} ship_slot={battle_selected().e_slot![frai]}></EnemyNameComponent>
+                                                    <SimpleShipNameComponent ship_id={battle_selected().enemy_ship_id[frai]} ship_max_hp={battle_selected().e_hp_max![frai]} ship_param={battle_selected().e_params![frai]} ship_slot={battle_selected().e_slot![frai]}></SimpleShipNameComponent>
                                                     <Show when={battle_selected().closing_raigeki.e_protect_flag.some(flag => flag == true)}>
                                                         <IconShield class="h-5 w-5"></IconShield>
                                                     </Show>
@@ -146,7 +146,7 @@ export function ClosingTorpedoAttackComponent({deck_ship_id, battle_selected}: T
                                                 <div class="flex flex-col">
                                                     <For each={torpedo_damage().erai.dict[erai].ships}>
                                                         {(ship_id, _) => (
-                                                            <EnemyNameComponent ship_id={battle_selected().enemy_ship_id[ship_id]} ship_max_hp={battle_selected().e_hp_max![ship_id]} ship_param={battle_selected().e_params![ship_id]} ship_slot={battle_selected().e_slot![ship_id]}></EnemyNameComponent>
+                                                            <SimpleShipNameComponent ship_id={battle_selected().enemy_ship_id[ship_id]} ship_max_hp={battle_selected().e_hp_max![ship_id]} ship_param={battle_selected().e_params![ship_id]} ship_slot={battle_selected().e_slot![ship_id]}></SimpleShipNameComponent>
                                                         )}
                                                     </For>
                                                 </div>
