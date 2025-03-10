@@ -11,8 +11,9 @@ export interface Battle {
     e_params: number[][] | null,
     e_slot: number[][] | null,
     e_hp_max: number[] | null,
-    total_damages_friends: number[] | null,
-    total_damages_enemies: number[] | null,
+    f_total_damages: number[] | null,
+    e_total_damages: number[] | null,
+    friend_total_damages: number[] | null,
     reconnaissance: number[] | null,
     forward_observe: number[] | null,
     escape_idx: number[] | null,
@@ -31,12 +32,16 @@ export interface Battle {
     midnight_flare_pos: number[] | null,
     midngiht_touchplane: number[] | null,
     midnight_hougeki: MidnightHougeki | null,
+    f_nowhps: number[] | null,
+    e_nowhps: number[] | null,
+    midngiht_f_nowhps: number[] | null,
+    midngiht_e_nowhps: number[] | null,
 }
 
 export interface FriendlyForceAttack {
     fleet_info: FriendlyForceInfo,
     support_hourai: FriendlySupportHourai | null,
-    // pub support_airatack: Option<FriendlySupportAiratack>,
+    // support_airatack: Option<FriendlySupportAiratack>,
 }
 
 export interface FriendlySupportHourai {
@@ -195,8 +200,6 @@ export var global_battle: Battle = {
     e_params: [],
     e_slot: [],
     e_hp_max: [],
-    total_damages_friends: [],
-    total_damages_enemies: [],
     reconnaissance: [],
     forward_observe: [],
     escape_idx: [],
@@ -323,5 +326,12 @@ export var global_battle: Battle = {
     },
     air_base_assault: null,
     carrier_base_assault: null,
-    friendly_force_attack: null
+    friendly_force_attack: null,
+    f_nowhps: null,
+    e_nowhps: null,
+    midngiht_f_nowhps: null,
+    midngiht_e_nowhps: null,
+    f_total_damages: null,
+    e_total_damages: null,
+    friend_total_damages: null
 };

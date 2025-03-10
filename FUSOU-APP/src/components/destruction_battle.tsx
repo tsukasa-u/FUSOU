@@ -1,7 +1,7 @@
 import { createMemo, For, Show } from 'solid-js';
 
 import "../css/divider.css";
-import { EnemyNameComponent } from './enemy_name';
+import { SimpleShipNameComponent } from './simple_ship_name';
 import { useAirBases, useCells } from '../utility/provider';
 import { EquimentComponent } from './equipment';
 
@@ -98,7 +98,7 @@ export function DestructionBattleComponent({area_id, cell_index_selected}: Destr
                                                         <Show when={idx() > 0}>
                                                             <div class="h-px"></div>
                                                         </Show>
-                                                        <EnemyNameComponent ship_id={cells.cells[cell_index_selected()].destruction_battle!.ship_ke[idx()]} ship_max_hp={cells.cells[cell_index_selected()].destruction_battle?.e_maxhps[idx()] ?? 0} ship_param={null} ship_slot={cells.cells[cell_index_selected()].destruction_battle?.e_slot[idx()]!}></EnemyNameComponent>
+                                                        <SimpleShipNameComponent ship_id={cells.cells[cell_index_selected()].destruction_battle!.ship_ke[idx()]} ship_max_hp={cells.cells[cell_index_selected()].destruction_battle?.e_maxhps[idx()] ?? 0} ship_param={null} ship_slot={cells.cells[cell_index_selected()].destruction_battle?.e_slot[idx()]!}></SimpleShipNameComponent>
                                                     </Show>
                                                 </>
                                             )}
@@ -129,7 +129,7 @@ export function DestructionBattleComponent({area_id, cell_index_selected}: Destr
                                                             <Show when={idx() > 0}>
                                                                 <div class="h-px"></div>
                                                             </Show>
-                                                            <EnemyNameComponent ship_id={cells.cells[cell_index_selected()].destruction_battle!.ship_ke[idx()]} ship_max_hp={cells.cells[cell_index_selected()].destruction_battle?.e_maxhps[idx()] ?? 0} ship_param={null} ship_slot={cells.cells[cell_index_selected()].destruction_battle?.e_slot[idx()]!}></EnemyNameComponent>
+                                                            <SimpleShipNameComponent ship_id={cells.cells[cell_index_selected()].destruction_battle!.ship_ke[idx()]} ship_max_hp={cells.cells[cell_index_selected()].destruction_battle?.e_maxhps[idx()] ?? 0} ship_param={null} ship_slot={cells.cells[cell_index_selected()].destruction_battle?.e_slot[idx()]!}></SimpleShipNameComponent>
                                                         </Show>
                                                     </>
                                                 )}
