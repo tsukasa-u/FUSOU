@@ -17,7 +17,6 @@ export function AirBaseAirAttackComponent({area_id, battle_selected}: AirDamageP
     const [air_bases, ] =  useAirBases();
 
     const show_air_attack = createMemo<boolean>(() => {
-        console.log(battle_selected());
         if (battle_selected() == undefined) return false;
         if (battle_selected().air_base_air_attacks == null) return false;
         return true;

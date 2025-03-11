@@ -51,17 +51,11 @@ export function BattlesComponent() {
     const show_battle = createMemo<boolean>(() => {
         if (Object.keys(cells.battles).length == 0) return false;
         if (Object.keys(cells.battles).find((cell) => Number(cell) == cells.cell_index[cell_index_selected()]) == undefined) return false;
-        // console.log(cells.battles[cells.cell_index[cell_index_selected()]]);
         return true;
     });
 
     const show_cell = createMemo<boolean>(() => {
         return cells.cell_index.length > 0;
-    });
-    
-    createEffect(() => {
-        console.log("battle_selected", battle_selected());
-        console.log("midnight_hougeki", battle_selected()?.midnight_hougeki);
     });
 
     return (
@@ -174,7 +168,7 @@ export function BattlesComponent() {
                         <Show when={show_battle()} fallback={<div class="text-xs pl-4 py-1">No Battle Data ...</div>}>
                             <ul class="pl-0">
                                 <BattleSummaryComponent deck_ship_id={deck_ship_id()} battle_selected={battle_selected} />
-                                <AirBaseAssaultComponent battle_selected={battle_selected} />
+                                <AirBaseAssaultComponent area_id={cells.maparea_id} battle_selected={battle_selected} />
                                 <CarrierBaseAssaultComponent battle_selected={battle_selected} />
                                 <AirBaseAirAttackComponent area_id={cells.maparea_id} battle_selected={battle_selected} />
                                 <OpeningAirAttackComponent deck_ship_id={deck_ship_id()} battle_selected={battle_selected} />

@@ -30,7 +30,6 @@ export function SimpleShipNameComponent({ship_id, ship_param, ship_slot, ship_ma
     const [_mst_ships, ] = useMstShips();
 
     const mst_ship = createMemo(() => {
-        // console.log(Date.now(), ship_id, _mst_ships.mst_ships[ship_id]);
         return _mst_ships.mst_ships[ship_id];
     });
 
