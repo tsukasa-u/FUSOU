@@ -1,5 +1,3 @@
-import { ShipNameComponent } from './ship_name';
-
 import { createMemo, For, Show } from 'solid-js';
 
 import "../css/divider.css";
