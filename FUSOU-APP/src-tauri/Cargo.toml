@@ -1,6 +1,6 @@
 [package]
 name = "app"
-version = "0.1.2"
+version = "0.1.3"
 description = "A Tauri App for proxy KanColle data"
 authors = ["Hideyuki Oguri"]
 license = "MIT/Apache-2.0"
