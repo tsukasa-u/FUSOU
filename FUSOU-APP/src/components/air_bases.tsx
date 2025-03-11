@@ -11,6 +11,7 @@ export function AirBasesComponent() {
     const [air_bases, ] =  useAirBases();
 
     const cond_state = createMemo<JSX.Element[][]>(() => {
+
         const set_cond_state = (cond: number): JSX.Element => {
             let cond_state: JSX.Element = <></>;
             if (cond == 1) cond_state = <></>;
@@ -74,7 +75,7 @@ export function AirBasesComponent() {
                                             <span class="flex-auto"></span>
                                         </summary>
                                         <ul class="pl-0">
-                                            <For each={base[1].plane_info}>
+                                            <For each={base[1].plane_info.filter((plane) => plane.slotid != 0)} fallback={<li class="h-auto"><div class="text-xs py-2">No Plane Data ...</div></li>}>
                                                 {(plane, plane_index) => <>
                                                     <li class="h-auto">
                                                         <a class="justify-start gap-x-0 gap-y-1 flex flex-wrap">

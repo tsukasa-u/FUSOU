@@ -1,7 +1,7 @@
 import { createMemo, For, Show } from 'solid-js';
 
 import "../css/divider.css";
-import { EnemyNameComponent } from './enemy_name';
+import { SimpleShipNameComponent } from './simple_ship_name';
 import { Battle } from '../interface/battle';
 import { EquimentComponent } from './equipment';
 import { useAirBases } from '../utility/provider';
@@ -60,10 +60,10 @@ export function AirBaseAirAttackComponent({area_id, battle_selected}: AirDamageP
                             <tbody>
                                 <For each={battle_selected().air_base_air_attacks.attacks}>
                                     {(attack, attack_idx) => (
-                                        <tr>
+                                        <tr class="table_hover table_active rounded">
                                             <td>
                                                 <div class="flex flex-col">
-                                                    <For each={air_bases.bases[(area_id << 16) | attack.base_id].plane_info}>
+                                                    <For each={air_bases.bases[(area_id << 16) | attack.base_id].plane_info.filter(palne => palne.slotid != 0)}>
                                                         {(plane, idx) => (
                                                             <>
                                                                 <Show when={plane != null}>
@@ -87,7 +87,7 @@ export function AirBaseAirAttackComponent({area_id, battle_selected}: AirDamageP
                                                                         <div class="h-px"></div>
                                                                     </Show>
                                                                     <div class="flex flex-nowrap">
-                                                                        <EnemyNameComponent ship_id={battle_selected().enemy_ship_id[idx()]} ship_max_hp={battle_selected().e_hp_max![idx()]} ship_param={battle_selected().e_params![idx()]} ship_slot={battle_selected().e_slot![idx()]}></EnemyNameComponent>
+                                                                        <SimpleShipNameComponent ship_id={battle_selected().enemy_ship_id[idx()]} ship_max_hp={battle_selected().e_hp_max![idx()]} ship_param={battle_selected().e_params![idx()]} ship_slot={battle_selected().e_slot![idx()]}></SimpleShipNameComponent>
                                                                         <Show when={battle_selected().air_base_air_attacks.attacks[attack_idx()].e_damage.protect_flag?.some(flag => flag == true)}>
                                                                             <IconShield class="h-5 w-5"></IconShield>
                                                                         </Show>

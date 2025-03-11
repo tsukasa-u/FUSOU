@@ -8,7 +8,7 @@
   },
   "package": {
     "productName": "fusou-app",
-    "version": "0.1.2"
+    "version": "0.1.3"
   },
   "tauri": {
     "allowlist": {
@@ -64,7 +64,8 @@
         "resizable": true,
         "title": "fusou-app",
         "width": 800,
-        "visible": false
+        "visible": false,
+        "fileDropEnabled": false
       }
     ],
     "systemTray": {

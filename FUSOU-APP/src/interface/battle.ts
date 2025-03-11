@@ -11,14 +11,15 @@ export interface Battle {
     e_params: number[][] | null,
     e_slot: number[][] | null,
     e_hp_max: number[] | null,
-    total_damages_friends: number[] | null,
-    total_damages_enemies: number[] | null,
+    f_total_damages: number[] | null,
+    e_total_damages: number[] | null,
+    friend_total_damages: number[] | null,
     reconnaissance: number[] | null,
     forward_observe: number[] | null,
     escape_idx: number[] | null,
     smoke_type: number | null,
-    // air_base_assault: AirBaseAssult,
-    // carrier_base_assault: CarrierBaseAssault,
+    air_base_assault: AirBaseAssult | null,
+    carrier_base_assault: CarrierBaseAssault | null,
     air_base_air_attacks: AirBaseAirAttacks,
     // friendly_task_force_attack: FriendlyTaskForceAttack | null,
     opening_air_attack: AirAttack,
@@ -27,15 +28,56 @@ export interface Battle {
     opening_raigeki: OpeningRaigeki,
     hougeki: Hougeki[],
     closing_raigeki: ClosingRaigeki,
-    // friendly_fleet_attack: Option<FriendlyFleetAttack>,
+    friendly_force_attack: FriendlyForceAttack | null,
     midnight_flare_pos: number[] | null,
     midngiht_touchplane: number[] | null,
     midnight_hougeki: MidnightHougeki | null,
+    f_nowhps: number[] | null,
+    e_nowhps: number[] | null,
+    midngiht_f_nowhps: number[] | null,
+    midngiht_e_nowhps: number[] | null,
+}
+
+export interface FriendlyForceAttack {
+    fleet_info: FriendlyForceInfo,
+    support_hourai: FriendlySupportHourai | null,
+    // support_airatack: Option<FriendlySupportAiratack>,
+}
+
+export interface FriendlySupportHourai {
+    flare_pos: number[],
+    hougeki: MidnightHougeki,
+}
+
+export interface FriendlyForceInfo {
+    ship_id: number[],
+    params: number[][],
+    ship_lv: number[],
+    now_hps: number[],
+    slot: number[][],
+}
+
+export interface AirBaseAssult {
+    squadron_plane: number[],
+    f_damage: AirDamage,
+    e_damage: AirDamage,
+}
+
+export interface CarrierBaseAssault {
+    f_damage: AirDamage,
+    e_damage: AirDamage,
 }
 
 export interface SupportAttack {
-    support_hourai: SupportHourai | null;
-    // support_airatack: SupportAirAttack | null;,
+    support_hourai: SupportHourai | null,
+    support_airatack: SupportAiratack | null,
+}
+
+export interface SupportAiratack {
+    deck_id: number,
+    ship_id: number[],
+    f_damage: AirDamage,
+    e_damage: AirDamage,
 }
 
 export interface SupportHourai {
@@ -158,8 +200,6 @@ export var global_battle: Battle = {
     e_params: [],
     e_slot: [],
     e_hp_max: [],
-    total_damages_friends: [],
-    total_damages_enemies: [],
     reconnaissance: [],
     forward_observe: [],
     escape_idx: [],
@@ -205,6 +245,34 @@ export var global_battle: Battle = {
             deck_id: 0,
             ship_id: [],
             protect_flag: [],
+        },
+        support_airatack: {
+            deck_id: 0,
+            ship_id: [],
+            f_damage: {
+                plane_from: [],
+                touch_plane: 0,
+                loss_plane1: 0,
+                loss_plane2: 0,
+                damages: [],
+                cl: [],
+                sp: [],
+                rai_flag: [],
+                bak_flag: [],
+                protect_flag: [],
+            },
+            e_damage: {
+                plane_from: [],
+                touch_plane: 0,
+                loss_plane1: 0,
+                loss_plane2: 0,
+                damages: [],
+                cl: [],
+                sp: [],
+                rai_flag: [],
+                bak_flag: [],
+                protect_flag: [],
+            },
         },
     },
     opening_taisen: {
@@ -256,4 +324,14 @@ export var global_battle: Battle = {
         sp_list: [],
         protect_flag: [[]],
     },
+    air_base_assault: null,
+    carrier_base_assault: null,
+    friendly_force_attack: null,
+    f_nowhps: null,
+    e_nowhps: null,
+    midngiht_f_nowhps: null,
+    midngiht_e_nowhps: null,
+    f_total_damages: null,
+    e_total_damages: null,
+    friend_total_damages: null
 };

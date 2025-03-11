@@ -61,6 +61,16 @@ export function SettingsComponent(){
                 <h1 class="pt-4 pb-2 text-2xl font-semibold">Settings</h1>
                 
                 <hr class="mt-4 mb-8" />
+
+                <p class="py-2 text-xl font-semibold">Reload App Pages</p>
+                <p class="">Reload this application pages, not KanColle game web page</p>
+                <div class="mt-4 flex items-center justify-end">
+                    <button class="btn btn-outline btn-wide" onClick={async () => {
+                        window.location.reload();
+                    }}>Reload</button>
+                </div>
+                <hr class="mt-4 mb-4" />
+
                 <p class="py-2 text-xl font-semibold">Load Data</p>
                 <p class="">Load saved response data when the API comes from. this app does not access KanColle server via API, it just copies response data.</p>
                 <div class="mt-4 flex items-center justify-end">

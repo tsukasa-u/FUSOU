@@ -576,7 +576,7 @@ export function ShipListComponent() {
                             <For each={[...Array(default_disply_pages)].map((_, i) => i - Math.floor(default_disply_pages/2))}>
                                 {(index) => (
                                     <Show when={0 < index+pagination.options[pagination.selected].current_page && index+pagination.options[pagination.selected].current_page <= pagination.options[pagination.selected].pages}>
-                                        <button class={"btn btn-sm btn-square btn-ghost mx-0.5 pagination"+(index==0 ? " btn-active":"")} onClick={(_e) => {set_pagination("options", pagination.selected, "current_page", index+pagination.options[pagination.selected].current_page); console.log(pagination)}}>{index+pagination.options[pagination.selected].current_page}</button>
+                                        <button class={"btn btn-sm btn-square btn-ghost mx-0.5 pagination"+(index==0 ? " btn-active":"")} onClick={(_e) => {set_pagination("options", pagination.selected, "current_page", index+pagination.options[pagination.selected].current_page);}}>{index+pagination.options[pagination.selected].current_page}</button>
                                     </Show>
                                 )}
                             </For>

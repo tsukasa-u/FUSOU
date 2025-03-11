@@ -3,7 +3,7 @@ import { ShipNameComponent } from './ship_name';
 import { createMemo, For, Show } from 'solid-js';
 
 import "../css/divider.css";
-import { EnemyNameComponent } from './enemy_name';
+import { SimpleShipNameComponent } from './simple_ship_name';
 import { Battle } from '../interface/battle';
 import { MstEquipmentComponent } from './mst_equipment';
 import IconShield from '../icons/shield';
@@ -85,7 +85,6 @@ export function OpeningAirAttackComponent({deck_ship_id, battle_selected}: AirDa
                             </div>
                             <div class="w-6 flex justify-center">
                                 <Show when={(battle_selected().opening_air_attack!.e_damage!.touch_plane ?? 0) > 0} fallback={<div>_</div>}>
-                                {/* {(()=>{console.log(battle_selected().opening_air_attack!.e_damage!.touch_plane ?? 0); return <></>;})()} */}
                                     <MstEquipmentComponent equip_id={battle_selected().opening_air_attack!.e_damage!.touch_plane!} name_flag={true} compact={true} show_param={true}></MstEquipmentComponent>
                                 </Show>
                             </div>
@@ -93,7 +92,6 @@ export function OpeningAirAttackComponent({deck_ship_id, battle_selected}: AirDa
                             CI : <span class="w-1"></span>
                             <div class="flex justify-center">
                                 <Show when={battle_selected().opening_air_attack!.air_fire != null} fallback={<div>_</div>}>
-                                    {/* {(() => {console.log(deck_ship_id[battle_selected().deck_id!][battle_selected().opening_air_attack!.air_fire!.idx]);return ""})()} */}
                                     <div class="w-24">
                                         <ShipNameComponent ship_id={deck_ship_id[battle_selected().deck_id!][battle_selected().opening_air_attack!.air_fire!.idx]} compact={false}></ShipNameComponent>
                                     </div>
@@ -133,7 +131,7 @@ export function OpeningAirAttackComponent({deck_ship_id, battle_selected}: AirDa
                                                                 <Show when={idx() > 0}>
                                                                     <div class="h-px"></div>
                                                                 </Show>
-                                                                <ShipNameComponent ship_id={deck_ship_id[battle_selected().deck_id!][ship_idx-1]}></ShipNameComponent>
+                                                                <ShipNameComponent ship_id={deck_ship_id[battle_selected().deck_id!][ship_idx]}></ShipNameComponent>
                                                             </>
                                                         )}
                                                     </For>
@@ -148,9 +146,9 @@ export function OpeningAirAttackComponent({deck_ship_id, battle_selected}: AirDa
                                                                     <div class="h-px"></div>
                                                                 </Show>
                                                                 <div class="flex flex-nowrap">
-                                                                    <EnemyNameComponent ship_id={battle_selected().enemy_ship_id[idx()]} ship_slot={battle_selected().e_slot![idx()]} ship_param={battle_selected().e_params![idx()]} ship_max_hp={battle_selected().e_hp_max![idx()]}></EnemyNameComponent>
+                                                                    <SimpleShipNameComponent ship_id={battle_selected().enemy_ship_id[idx()]} ship_slot={battle_selected().e_slot![idx()]} ship_param={battle_selected().e_params![idx()]} ship_max_hp={battle_selected().e_hp_max![idx()]}></SimpleShipNameComponent>
                                                                     <Show when={battle_selected().opening_air_attack.e_damage.protect_flag?.some(flag => flag == true)}>
-                                                                        <IconShield class="h-5 w-5"></IconShield>
+                                                                        <IconShield class="h-4 w-4"></IconShield>
                                                                     </Show>
                                                                 </div>
                                                             </Show>
@@ -187,22 +185,33 @@ export function OpeningAirAttackComponent({deck_ship_id, battle_selected}: AirDa
                                         <tr class="table_hover table_active rounded">
                                             <td>
                                                 <div class="flex flex-col">
+                                                    {/* Is this correct? */}
                                                     <For each={battle_selected().opening_air_attack.e_damage.plane_from}>
-                                                        {(plane_flag, idx) => (
+                                                        {(ship_idx, idx) => (
+                                                            <>
+                                                                <Show when={idx() > 0}>
+                                                                    <div class="h-px"></div>
+                                                                </Show>
+                                                                <div class="flex flex-nowrap">
+                                                                    <SimpleShipNameComponent ship_id={battle_selected().enemy_ship_id[ship_idx]} ship_slot={battle_selected().e_slot![ship_idx]} ship_param={battle_selected().e_params![ship_idx]} ship_max_hp={battle_selected().e_hp_max![ship_idx]}></SimpleShipNameComponent>
+                                                                </div>
+                                                            </>
+                                                        )}
+                                                        {/* {(plane_flag, idx) => (
                                                             <>
                                                                 <Show when={plane_flag != -1}>
                                                                     <Show when={idx() > 0}>
                                                                         <div class="h-px"></div>
                                                                     </Show>
                                                                     <div class="flex flex-nowrap">
-                                                                        <EnemyNameComponent ship_id={battle_selected().enemy_ship_id[idx()]} ship_slot={battle_selected().e_slot![idx()]} ship_param={battle_selected().e_params![idx()]} ship_max_hp={battle_selected().e_hp_max![idx()]}></EnemyNameComponent>
+                                                                        <SimpleShipNameComponent ship_id={battle_selected().enemy_ship_id[idx()]} ship_slot={battle_selected().e_slot![idx()]} ship_param={battle_selected().e_params![idx()]} ship_max_hp={battle_selected().e_hp_max![idx()]}></SimpleShipNameComponent>
                                                                         <Show when={battle_selected().opening_air_attack.e_damage.protect_flag?.some(flag => flag == true)}>
                                                                             <IconShield class="h-5 w-5"></IconShield>
                                                                         </Show>
                                                                     </div>
                                                                 </Show>
                                                             </>
-                                                        )}
+                                                        )} */}
                                                     </For>
                                                 </div>
                                             </td>

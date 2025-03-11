@@ -19,7 +19,7 @@ const show_modal = (ship_id: number) => {
     dialogElement?.showModal()
 }
 
-export function EnemyNameComponent({ship_id, ship_param, ship_slot, ship_max_hp, display}: ShipNameProps) {
+export function SimpleShipNameComponent({ship_id, ship_param, ship_slot, ship_max_hp, display}: ShipNameProps) {
 
     if (display === false) {
         // need to replace the currect code
@@ -30,7 +30,6 @@ export function EnemyNameComponent({ship_id, ship_param, ship_slot, ship_max_hp,
     const [_mst_ships, ] = useMstShips();
 
     const mst_ship = createMemo(() => {
-        // console.log(Date.now(), ship_id, _mst_ships.mst_ships[ship_id]);
         return _mst_ships.mst_ships[ship_id];
     });
 
