@@ -8,12 +8,14 @@ import { useAirBases, useSlotItems } from '../utility/provider';
 import IconShield from '../icons/shield';
 
 interface AirDamageProps {
+    area_id: number;
     battle_selected: () => Battle;
 }
 
-export function AirBaseAssaultComponent({battle_selected}: AirDamageProps) {
+export function AirBaseAssaultComponent({area_id, battle_selected}: AirDamageProps) {
     
     const [slotitems, ] = useSlotItems();
+    const [air_bases, ] =  useAirBases();
 
     const show_air_attack = createMemo<boolean>(() => {
         if (battle_selected() == undefined) return false;
@@ -50,6 +52,26 @@ export function AirBaseAssaultComponent({battle_selected}: AirDamageProps) {
         return show_damage;
     });
 
+    const plane_info = createMemo<number[]>(() => {
+        
+        if (battle_selected().air_base_assault == null) return [];
+        if (battle_selected().air_base_air_attacks == null) return [];
+
+        let set_base_id: Set<number> = new Set(battle_selected().air_base_air_attacks.attacks.map((attack) => attack.base_id))
+        let plane_info = Array.from(set_base_id.values()).map((base_id) => air_bases.bases[(area_id << 16) | base_id].plane_info).reduce((acc, val) => acc.concat(val), []);
+        
+        let ret: number[] = [];
+        battle_selected().air_base_assault!.squadron_plane.filter(squadron_plane => squadron_plane != 0).forEach((squadron_plane) => {
+            let idx = plane_info.findIndex((plane) => slotitems.slot_items[plane.slotid].slotitem_id == squadron_plane);
+            if (idx != -1) {
+                ret.push(plane_info[idx].slotid);
+                delete plane_info[idx];
+            }
+        });
+
+        return ret;
+    });
+
     return (
         <Show when={show_air_attack()}>
             <li>
@@ -70,13 +92,13 @@ export function AirBaseAssaultComponent({battle_selected}: AirDamageProps) {
                                 <tr class="table_hover table_active rounded">
                                     <td>
                                         <div class="flex flex-col">
-                                            <For each={battle_selected().air_base_assault!.squadron_plane.filter(plane => plane != 0)}>
-                                                {(plane, idx) => (
+                                            <For each={plane_info()}>
+                                                {(slot_id, idx) => (
                                                     <>
                                                         <Show when={idx() > 0}>
                                                             <div class="h-px"></div>
                                                         </Show>
-                                                        {/* <EquimentComponent slot_id={plane} name_flag={true}></EquimentComponent> */}
+                                                        <EquimentComponent slot_id={slot_id} name_flag={true}></EquimentComponent>
                                                     </>
                                                 )}
                                             </For>
