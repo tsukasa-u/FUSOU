@@ -5,10 +5,8 @@ import { createMemo, For, Show } from 'solid-js';
 import "../css/divider.css";
 import { SimpleShipNameComponent } from './simple_ship_name';
 import { Battle } from '../interface/battle';
-import { MstEquipmentComponent } from './mst_equipment';
 import IconShield from '../icons/shield';
-import { EquimentComponent } from './equipment';
-import { useSlotItems } from '../utility/provider';
+import { useDeckPorts } from '../utility/provider';
 
 interface AirDamageProps {
     battle_selected: () => Battle;
@@ -16,7 +14,7 @@ interface AirDamageProps {
 
 export function CarrierBaseAssaultComponent({battle_selected}: AirDamageProps) {
 
-    const [slotitems, ] = useSlotItems();
+    const [deck_ports, ] = useDeckPorts();
 
     const show_air_attack = createMemo<boolean>(() => {
         if (battle_selected() == undefined) return false;
@@ -76,13 +74,13 @@ export function CarrierBaseAssaultComponent({battle_selected}: AirDamageProps) {
                                     <tr class="table_hover table_active rounded">
                                         <td>
                                             <div class="flex flex-col">
-                                                <For each={battle_selected().air_base_assault!.squadron_plane}>
-                                                    {(plane, idx) => (
+                                                <For each={battle_selected().carrier_base_assault!.f_damage!.plane_from}>
+                                                    {(ship_idx, idx) => (
                                                         <>
                                                             <Show when={idx() > 0}>
                                                                 <div class="h-px"></div>
                                                             </Show>
-                                                            {/* <EquimentComponent slot_id={plane} name_flag={true}></EquimentComponent> */}
+                                                            <ShipNameComponent ship_id={deck_ports.deck_ports[battle_selected().deck_id!].ship[ship_idx]}></ShipNameComponent>
                                                         </>
                                                     )}
                                                 </For>
