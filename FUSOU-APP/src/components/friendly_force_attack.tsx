@@ -35,15 +35,16 @@ export function FriendlyForceAttackComponent({battle_selected}: FriendlyForceAtt
                             Flare : <span class="w-1"></span>
                             <Show when={battle_selected().friendly_force_attack!.support_hourai!.flare_pos != null} fallback={<div><div class="w-24">_</div><div class="w-3">/</div><div class="w-24">_</div></div>}>
                                 <div class="w-24 flex justify-center">
-                                    {/* <Show when={battle_selected().friendly_force_attack!.support_hourai!.flare_pos![0] != -1} fallback={<div>_</div>}>
-                                        <ShipNameComponent ship_id={battle_selected().friendly_force_attack!.fleet_info.ship_id[battle_selected().friendly_force_attack!.support_hourai!.flare_pos![0]]}></ShipNameComponent>
-                                    </Show> */}
+                                    <Show when={battle_selected().friendly_force_attack!.support_hourai!.flare_pos![0] != -1} fallback={<div>_</div>}>
+                                        <SimpleShipNameComponent ship_id={battle_selected().friendly_force_attack!.fleet_info.ship_id[battle_selected().friendly_force_attack!.support_hourai!.flare_pos![0]]} ship_param={battle_selected().friendly_force_attack!.fleet_info.params[battle_selected().friendly_force_attack!.support_hourai!.flare_pos![0]]} ship_slot={battle_selected().friendly_force_attack!.fleet_info.slot[battle_selected().friendly_force_attack!.support_hourai!.flare_pos![0]]} ship_max_hp={battle_selected().friendly_force_attack!.fleet_info.now_hps[battle_selected().friendly_force_attack!.support_hourai!.flare_pos![0]]}></SimpleShipNameComponent>
+                                        {/* <ShipNameComponent ship_id={battle_selected().friendly_force_attack!.fleet_info.ship_id[battle_selected().friendly_force_attack!.support_hourai!.flare_pos![0]]}></ShipNameComponent> */}
+                                    </Show>
                                 </div>
                                 <div class="w-3">/</div>
                                 <div class="w-24 flex justify-center">
-                                    {/* <Show when={battle_selected().friendly_force_attack!.support_hourai!.flare_pos![1] != -1} fallback={<div>_</div>}>
+                                    <Show when={battle_selected().friendly_force_attack!.support_hourai!.flare_pos![1] != -1} fallback={<div>_</div>}>
                                         <SimpleShipNameComponent ship_id={battle_selected().enemy_ship_id[battle_selected().friendly_force_attack!.support_hourai!.flare_pos![1]]} ship_param={battle_selected().e_params![battle_selected().friendly_force_attack!.support_hourai!.flare_pos![1]]} ship_slot={battle_selected().e_slot![battle_selected().friendly_force_attack!.support_hourai!.flare_pos![1]]} ship_max_hp={battle_selected().e_hp_max![battle_selected().friendly_force_attack!.support_hourai!.flare_pos![1]]} ></SimpleShipNameComponent>
-                                    </Show> */}
+                                    </Show>
                                 </div>
                             </Show>
                         </div>
@@ -62,22 +63,24 @@ export function FriendlyForceAttackComponent({battle_selected}: FriendlyForceAtt
                                         {(at, at_index) => (
                                             <tr>
                                                 <td>
-                                                    {/* <Show when={battle_selected().friendly_force_attack!.support_hourai!.hougeki!.at_eflag![at_index()]==0} fallback={
+                                                    <Show when={battle_selected().friendly_force_attack!.support_hourai!.hougeki!.at_eflag![at_index()]==0} fallback={
                                                         <SimpleShipNameComponent ship_id={battle_selected().enemy_ship_id[at]} ship_param={battle_selected().e_params![at]} ship_slot={battle_selected().e_slot![at]} ship_max_hp={battle_selected().e_hp_max![at]} ></SimpleShipNameComponent>
                                                     }>
-                                                        <ShipNameComponent ship_id={battle_selected().friendly_force_attack!.fleet_info!.ship_id[at]}></ShipNameComponent>
-                                                    </Show> */}
+                                                        {/* <ShipNameComponent ship_id={battle_selected().friendly_force_attack!.fleet_info!.ship_id[at]}></ShipNameComponent> */}
+                                                        <SimpleShipNameComponent ship_id={battle_selected().friendly_force_attack!.fleet_info.ship_id[at]} ship_param={battle_selected().friendly_force_attack!.fleet_info.params[at]} ship_slot={battle_selected().friendly_force_attack!.fleet_info.slot[at]} ship_max_hp={battle_selected().friendly_force_attack!.fleet_info.now_hps[at]}></SimpleShipNameComponent>
+                                                    </Show>
                                                 </td>
                                                 <td>
                                                     <div class="flex flex-col">
                                                         <For each={battle_selected().friendly_force_attack!.support_hourai!.hougeki!.df_list![at_index()]}>
                                                             {(df, df_index) => (
                                                                 <div class="flex flex-nowrap">
-                                                                    {/* <Show when={battle_selected().friendly_force_attack!.support_hourai!.hougeki!.at_eflag![at_index()]==1 && df != -1} fallback={
+                                                                    <Show when={battle_selected().friendly_force_attack!.support_hourai!.hougeki!.at_eflag![at_index()]==1 && df != -1} fallback={
                                                                         <SimpleShipNameComponent ship_id={battle_selected().enemy_ship_id[df]} ship_param={battle_selected().e_params![df]} ship_slot={battle_selected().e_slot![df]} ship_max_hp={battle_selected().e_hp_max![df]}></SimpleShipNameComponent>
                                                                     }>
-                                                                        <ShipNameComponent ship_id={battle_selected().friendly_force_attack!.fleet_info!.ship_id[df]}></ShipNameComponent>
-                                                                    </Show> */}
+                                                                        {/* <ShipNameComponent ship_id={battle_selected().friendly_force_attack!.fleet_info!.ship_id[df]}></ShipNameComponent> */}
+                                                                        <SimpleShipNameComponent ship_id={battle_selected().friendly_force_attack!.fleet_info.ship_id[df]} ship_param={battle_selected().friendly_force_attack!.fleet_info.params[df]} ship_slot={battle_selected().friendly_force_attack!.fleet_info.slot[df]} ship_max_hp={battle_selected().friendly_force_attack!.fleet_info.now_hps[df]}></SimpleShipNameComponent>
+                                                                    </Show>
                                                                     <Show when={battle_selected().friendly_force_attack!.support_hourai!.hougeki!.protect_flag![at_index()][df_index()] == true}>
                                                                         <IconShield class="h-5 w-5"></IconShield>
                                                                     </Show>
