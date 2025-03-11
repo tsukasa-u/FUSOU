@@ -1,7 +1,7 @@
-import { useAirBases } from '../utility/provider.tsx';
+import { useAirBases, useSlotItems } from '../utility/provider.tsx';
 
 import "../css/divider.css";
-import { createMemo, For, JSX } from 'solid-js';
+import { createMemo, For, JSX, Show } from 'solid-js';
 import { EquimentComponent } from './equipment.tsx';
 import IconCautionFill from '../icons/caution_fill.tsx';
 import IconChevronRightS from '../icons/chevron_right_s.tsx';
@@ -9,8 +9,11 @@ import IconChevronRightS from '../icons/chevron_right_s.tsx';
 export function AirBasesComponent() {
     
     const [air_bases, ] =  useAirBases();
+    const [slotitems, ] = useSlotItems();
 
     const cond_state = createMemo<JSX.Element[][]>(() => {
+        console.log(air_bases);
+
         const set_cond_state = (cond: number): JSX.Element => {
             let cond_state: JSX.Element = <></>;
             if (cond == 1) cond_state = <></>;
@@ -74,7 +77,7 @@ export function AirBasesComponent() {
                                             <span class="flex-auto"></span>
                                         </summary>
                                         <ul class="pl-0">
-                                            <For each={base[1].plane_info}>
+                                            <For each={base[1].plane_info.filter((plane) => plane.slotid != 0)} fallback={<li class="h-auto"><div class="text-xs py-2">No Plane Data ...</div></li>}>
                                                 {(plane, plane_index) => <>
                                                     <li class="h-auto">
                                                         <a class="justify-start gap-x-0 gap-y-1 flex flex-wrap">

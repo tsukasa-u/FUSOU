@@ -17,6 +17,7 @@ export function AirBaseAirAttackComponent({area_id, battle_selected}: AirDamageP
     const [air_bases, ] =  useAirBases();
 
     const show_air_attack = createMemo<boolean>(() => {
+        console.log(battle_selected());
         if (battle_selected() == undefined) return false;
         if (battle_selected().air_base_air_attacks == null) return false;
         return true;
@@ -60,10 +61,10 @@ export function AirBaseAirAttackComponent({area_id, battle_selected}: AirDamageP
                             <tbody>
                                 <For each={battle_selected().air_base_air_attacks.attacks}>
                                     {(attack, attack_idx) => (
-                                        <tr>
+                                        <tr class="table_hover table_active rounded">
                                             <td>
                                                 <div class="flex flex-col">
-                                                    <For each={air_bases.bases[(area_id << 16) | attack.base_id].plane_info}>
+                                                    <For each={air_bases.bases[(area_id << 16) | attack.base_id].plane_info.filter(palne => palne.slotid != 0)}>
                                                         {(plane, idx) => (
                                                             <>
                                                                 <Show when={plane != null}>

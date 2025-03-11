@@ -70,13 +70,13 @@ export function AirBaseAssaultComponent({battle_selected}: AirDamageProps) {
                                 <tr class="table_hover table_active rounded">
                                     <td>
                                         <div class="flex flex-col">
-                                            <For each={battle_selected().air_base_assault!.squadron_plane}>
+                                            <For each={battle_selected().air_base_assault!.squadron_plane.filter(plane => plane != 0)}>
                                                 {(plane, idx) => (
                                                     <>
                                                         <Show when={idx() > 0}>
                                                             <div class="h-px"></div>
                                                         </Show>
-                                                        <EquimentComponent slot_id={slotitems.slot_items[plane].id} name_flag={true}></EquimentComponent>
+                                                        {/* <EquimentComponent slot_id={plane} name_flag={true}></EquimentComponent> */}
                                                     </>
                                                 )}
                                             </For>

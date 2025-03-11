@@ -82,7 +82,7 @@ export function CarrierBaseAssaultComponent({battle_selected}: AirDamageProps) {
                                                             <Show when={idx() > 0}>
                                                                 <div class="h-px"></div>
                                                             </Show>
-                                                            <EquimentComponent slot_id={slotitems.slot_items[plane].id} name_flag={true}></EquimentComponent>
+                                                            {/* <EquimentComponent slot_id={plane} name_flag={true}></EquimentComponent> */}
                                                         </>
                                                     )}
                                                 </For>
