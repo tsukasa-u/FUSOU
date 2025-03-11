@@ -64,7 +64,8 @@
         "resizable": true,
         "title": "fusou-app",
         "width": 800,
-        "visible": false
+        "visible": false,
+        "fileDropEnabled": false
       }
     ],
     "systemTray": {
