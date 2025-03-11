@@ -19,8 +19,6 @@ export function OpeningAirAttackComponent({deck_ship_id, battle_selected}: AirDa
         if (battle_selected().deck_id == null) return false;
         if (battle_selected().opening_air_attack == null) return false;
         if (battle_selected().opening_air_attack.f_damage.plane_from == null && battle_selected().opening_air_attack.e_damage.plane_from == null) return false;
-        console.log(battle_selected().opening_air_attack.f_damage.plane_from);
-        console.log(battle_selected().opening_air_attack.e_damage.plane_from);
         return true;
     });
 
@@ -87,7 +85,6 @@ export function OpeningAirAttackComponent({deck_ship_id, battle_selected}: AirDa
                             </div>
                             <div class="w-6 flex justify-center">
                                 <Show when={(battle_selected().opening_air_attack!.e_damage!.touch_plane ?? 0) > 0} fallback={<div>_</div>}>
-                                {/* {(()=>{console.log(battle_selected().opening_air_attack!.e_damage!.touch_plane ?? 0); return <></>;})()} */}
                                     <MstEquipmentComponent equip_id={battle_selected().opening_air_attack!.e_damage!.touch_plane!} name_flag={true} compact={true} show_param={true}></MstEquipmentComponent>
                                 </Show>
                             </div>
@@ -95,7 +92,6 @@ export function OpeningAirAttackComponent({deck_ship_id, battle_selected}: AirDa
                             CI : <span class="w-1"></span>
                             <div class="flex justify-center">
                                 <Show when={battle_selected().opening_air_attack!.air_fire != null} fallback={<div>_</div>}>
-                                    {/* {(() => {console.log(deck_ship_id[battle_selected().deck_id!][battle_selected().opening_air_attack!.air_fire!.idx]);return ""})()} */}
                                     <div class="w-24">
                                         <ShipNameComponent ship_id={deck_ship_id[battle_selected().deck_id!][battle_selected().opening_air_attack!.air_fire!.idx]} compact={false}></ShipNameComponent>
                                     </div>

@@ -1,6 +1,6 @@
 import { DeckComponent } from './deck';
 import { useDeckPorts } from '../utility/provider';
-import { createEffect, For } from 'solid-js';
+import { For } from 'solid-js';
 
 import "../css/divider.css";
 
@@ -14,10 +14,6 @@ export function DecksComponent() {
     }
 
     const [decks, ] =  useDeckPorts();
-
-    createEffect(() => {
-        console.log(decks.combined_flag);
-    });
 
     return (
         <>

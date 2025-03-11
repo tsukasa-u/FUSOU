@@ -19,7 +19,6 @@ export function MidnightShellingComponent({deck_ship_id, battle_selected}: Midni
         if (battle_selected() == undefined) return false;
         if (battle_selected().deck_id == null) return false;
         if (battle_selected().midnight_hougeki == null) return false;
-        console.log(battle_selected());
         return true;
     });
 
