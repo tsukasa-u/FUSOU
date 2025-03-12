@@ -7,10 +7,9 @@ use hudsucker::{
     *,
 };
 use std::{
-    fs, io::{self, Read, Write}, 
+    fs, io::Read, 
     net::{IpAddr, Ipv4Addr, SocketAddr}, 
     path::Path, 
-    process::Command, 
     time::Duration
 };
 use http::{
@@ -288,8 +287,8 @@ pub fn serve_proxy(port: u16, mut slave: bidirectional_channel::Slave<bidirectio
     let ca_dir = Path::new(ca_save_path.as_str());
     let entity_cert = ca_dir.join("entity_cert.pem");
     let entity_key = ca_dir.join("entity_key.pem");
-    let ca_cert = ca_dir.join("ca_cert.pem");
-    let ca_key = ca_dir.join("ca_key.pem");
+    // let ca_cert = ca_dir.join("ca_cert.pem");
+    // let ca_key = ca_dir.join("ca_key.pem");
 
     // check_ca(ca_save_path.clone());
 

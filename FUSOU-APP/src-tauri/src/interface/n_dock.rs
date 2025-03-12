@@ -20,7 +20,7 @@ pub struct NDock {
 impl From<Vec<kcapi::api_port::port::ApiNdock>> for NDocks {
     fn from(n_docks: Vec<kcapi::api_port::port::ApiNdock>) -> Self {
         let mut n_dock_list = Vec::with_capacity(4);
-        let local_time = chrono::Utc::now().timestamp();
+        // let local_time = chrono::Utc::now().timestamp();
         for n_dock in n_docks {
             n_dock_list.push(n_dock.into());
         }

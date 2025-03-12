@@ -30,6 +30,8 @@ use proxy_https::bidirectional_channel::{BidirectionalChannel, StatusInfo, reque
 use crate::external::SHARED_BROWSER;
 
 static RESOURCES_DIR: OnceCell<PathBuf> = OnceCell::const_new();
+
+#[cfg(TAURI_BUILD_TYPE="RELEASE")]
 static ROAMING_DIR: OnceCell<PathBuf> = OnceCell::const_new();
 
 #[tokio::main]
@@ -130,7 +132,7 @@ async fn main() -> ExitCode {
   };
 
   let manage_response_parse_channel = wrap_proxy::ResponseParseChannel {
-    master: response_parse_channel_master.clone(),
+    // master: response_parse_channel_master.clone(),
     slave: response_parse_channel_slave.clone(),
   };
 

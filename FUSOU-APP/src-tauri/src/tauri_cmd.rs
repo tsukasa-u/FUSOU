@@ -21,8 +21,8 @@ use crate::wrap_proxy::PacChannel;
 use crate::wrap_proxy::ProxyChannel;
 use crate::wrap_proxy::ProxyLogChannel;
 use crate::wrap_proxy::ResponseParseChannel;
-use crate::RESOURCES_DIR;
-use crate::ROAMING_DIR;
+// use crate::RESOURCES_DIR;
+// use crate::ROAMING_DIR;
 
 #[tauri::command]
 pub async fn get_mst_ships(window: tauri::Window) {
@@ -72,12 +72,14 @@ pub async fn get_mst_useitems(window: tauri::Window) {
     let _ = window.app_handle().emit_to("main", "set-kcs-mst-use-items", (*data).clone());
 }
 
+#[allow(dead_code)]
 #[tauri::command]
 pub async fn show_splashscreen(window: tauri::Window) {
   // Show splashscreen
   window.get_window("splashscreen").expect("no window labeled 'splashscreen' found").show().unwrap();
 }
 
+#[allow(dead_code)]
 #[tauri::command]
 pub async fn close_splashscreen(window: tauri::Window) {
   // Close splashscreen
@@ -88,7 +90,7 @@ pub async fn close_splashscreen(window: tauri::Window) {
 }
 
 #[tauri::command]
-pub async fn check_pac_server_health(window: tauri::Window, pac_channel: tauri::State<'_, PacChannel>) -> Result<String, String> {
+pub async fn check_pac_server_health(_window: tauri::Window, pac_channel: tauri::State<'_, PacChannel>) -> Result<String, String> {
   match bidirectional_channel::check_health(pac_channel.master.clone()).await {
     Ok(_) => {
       Ok("PAC server is running".to_string())
@@ -100,7 +102,7 @@ pub async fn check_pac_server_health(window: tauri::Window, pac_channel: tauri::
 }
 
 #[tauri::command]
-pub async fn check_proxy_server_health(window: tauri::Window, proxy_channel: tauri::State<'_, ProxyChannel>) -> Result<String, String> {
+pub async fn check_proxy_server_health(_window: tauri::Window, proxy_channel: tauri::State<'_, ProxyChannel>) -> Result<String, String> {
   match bidirectional_channel::check_health(proxy_channel.master.clone()).await {
     Ok(_) => {
       Ok("Proxy server is running".to_string())

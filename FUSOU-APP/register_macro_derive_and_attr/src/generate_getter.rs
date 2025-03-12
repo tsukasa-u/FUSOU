@@ -1,12 +1,5 @@
-
-use std::any::{Any, TypeId};
-use std::collections::HashSet;
-use std::hash::RandomState;
-use std::string;
-use std::sync::{LazyLock, Mutex};
-
 use proc_macro::TokenStream;
-use quote::{quote, ToTokens};
+use quote::quote;
 use syn::DeriveInput;
 
 // static METHOD_NAME: LazyLock<Mutex<HashSet<TypeId, RandomState>>> = LazyLock::new(|| {
@@ -25,7 +18,7 @@ pub fn generate_getter(ast: &mut DeriveInput) -> Result<TokenStream, syn::Error>
             // if is_defined {
                 for field in &struct_data.fields {
                     let ident = field.ident.as_ref().unwrap();
-                    let ty = &field.ty.to_token_stream();
+                    // let ty = &field.ty.to_token_stream();
                     // let method_name: proc_macro2::TokenStream = format!("get_{}", ident.to_string()).parse().unwrap();
                     // filed_names.push(ident.clone());
 

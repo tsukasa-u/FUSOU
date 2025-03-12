@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use tauri::{api::notification::Notification, AppHandle};
 
 #[derive(Debug, Clone)]
