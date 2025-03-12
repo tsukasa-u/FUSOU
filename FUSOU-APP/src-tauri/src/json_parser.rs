@@ -143,7 +143,7 @@ async fn response_parser<R: tauri::Runtime>(handle: &impl tauri::Manager<R>, mut
                     None => {
                         println!("Received None message");
                     },
-                    Some(bidirectional_channel::StatusInfo::CONTENT { path, content_type, content }) => {
+                    Some(bidirectional_channel::StatusInfo::CONTENT { path, content_type: _, content }) => {
                         let handle_clone = handle.app_handle();
                         tokio::task::spawn(async move {
                             if let Ok(emit_data_list) = struct_selector(path, content) {

@@ -1,4 +1,4 @@
-use std::{collections::{HashMap, HashSet}, fs::{self, File}, io::Write, path::{self, PathBuf}, process::Command};
+use std::{collections::HashMap, fs::{self, File}, io::Write, path::{self, PathBuf}, /*process::Command*/};
 use dot_writer::{Attributes, Color, DotWriter, Node, NodeId, PortId, Scope, Shape, Style};
 
 pub fn check_struct_dependency() {
@@ -215,7 +215,7 @@ pub fn check_struct_dependency() {
 
     let binding = books_vec.clone();
     let books_vec_common = binding.iter().filter(|x| x.0.0.ne("kcapi_common")).collect::<Vec<_>>();
-    let books_vec_not_common = books_vec.clone().iter().filter(|x| x.0.0.eq("kcapi_common")).collect::<Vec<_>>();
+    // let books_vec_not_common = books_vec.clone().iter().filter(|x| x.0.0.eq("kcapi_common")).collect::<Vec<_>>();
         
     for ((api_name_1, api_name_2), fieldm) in books_vec_common {
         let mut struct_node_list: HashMap<String, NodeId> = HashMap::new();

@@ -21,9 +21,9 @@ use crate::kcapi_common::common_air::ApiAirBaseAttack;
 use crate::kcapi_common::common_air::ApiKouku;
 use crate::kcapi_common::common_battle::ApiHougeki;
 use crate::kcapi_common::common_battle::ApiOpeningAtack;
-use crate::kcapi_common::common_battle::ApiOpeningTaisen;
+// use crate::kcapi_common::common_battle::ApiOpeningTaisen;
 use crate::kcapi_common::common_battle::ApiRaigeki;
-use crate::kcapi_common::common_battle::ApiSupportHourai;
+// use crate::kcapi_common::common_battle::ApiSupportHourai;
 use crate::kcapi_common::common_battle::ApiSupportInfo;
 use crate::kcapi_common::common_battle::ApiFlavorInfo;
 

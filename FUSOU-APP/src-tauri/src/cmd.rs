@@ -3,14 +3,29 @@ use tauri::api::process::Command;
 #[cfg(TAURI_BUILD_TYPE="DEBUG")]
 use proxy_https::pac_server::PATH_PROXY_CRATE;
 
+
+#[cfg(target_os = "windows")]
 use proxy_https::pac_server::PATH_ADD_PROXY_BAT;
+
+#[cfg(target_os = "windows")]
 use proxy_https::pac_server::PATH_DELETE_PROXY_BAT;
+
+#[cfg(target_os = "windows")]
 use proxy_https::pac_server::PATH_ADD_STORE_BAT;
+
+#[cfg(target_os = "linux")]
 use proxy_https::pac_server::PATH_ADD_PROXY_SH;
+
+#[cfg(target_os = "linux")]
 use proxy_https::pac_server::PATH_DELETE_PROXY_SH;
+
+#[cfg(target_os = "linux")]
 use proxy_https::pac_server::PATH_ADD_STORE_SH;
 
+#[cfg(TAURI_BUILD_TYPE="RELEASE")]
 use crate::RESOURCES_DIR;
+
+#[cfg(TAURI_BUILD_TYPE="RELEASE")]
 use crate::ROAMING_DIR;
     
 pub fn add_pac(path: &str) {

@@ -19,9 +19,6 @@ use register_trait::TraitForConvert;
 
 use crate::interface::interface::EmitData;
 
-use crate::kcapi_common::common_air::ApiStage1;
-use crate::kcapi_common::common_air::ApiStage2;
-use crate::kcapi_common::common_air::ApiStage3;
 use crate::kcapi_common::common_air::ApiKouku;
 use crate::kcapi_common::common_battle::ApiRaigeki;
 use crate::kcapi_common::common_battle::ApiHougeki;

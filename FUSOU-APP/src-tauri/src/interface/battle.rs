@@ -4,7 +4,6 @@ use std::vec;
 use chrono::Local;
 
 use crate::kcapi;
-use crate::kcapi::api_req_battle_midnight::battle;
 use crate::kcapi_common;
 use crate::kcapi_common::custom_type::DuoType;
 

@@ -19,8 +19,6 @@ use register_trait::TraitForConvert;
 
 use crate::kcapi_common::common_midnight::ApiHougeki;
 
-use crate::kcapi_common::custom_type::DuoType;
-
 use crate::interface::interface::EmitData;
 
 #[derive(Getter, TraitForTest, TraitForRoot, TraitForConvert)]

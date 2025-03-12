@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 // client.connect()?;
 //     client.set_activity(activity::Activity::new()
 //         .state("foo")

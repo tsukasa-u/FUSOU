@@ -1,5 +1,3 @@
-use std::process::Command;
-
 // use proxy::bidirectional_channel::{Master, Slave, StatusInfo};
 use proxy_https::{
     bidirectional_channel::{Master, Slave, StatusInfo},
@@ -24,7 +22,7 @@ pub struct ProxyLogChannel {
 }
 
 pub struct ResponseParseChannel {
-    pub master: Master<StatusInfo>,
+    // pub master: Master<StatusInfo>,
     pub slave: Slave<StatusInfo>,
 }
 

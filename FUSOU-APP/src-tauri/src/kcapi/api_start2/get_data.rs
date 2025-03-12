@@ -22,8 +22,6 @@ use crate::interface::mst_equip_ship::MstEquipShips;
 use crate::interface::mst_stype::MstStypes;
 use crate::interface::mst_use_item::MstUseItems;
 
-use register_trait::LogMapNumberSize;
-
 #[derive(Getter, TraitForTest, TraitForRoot)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
@@ -685,7 +683,7 @@ impl TraitForConvert for Root {
 mod tests {
     use register_trait::simple_root_test;
     use register_trait::simple_root_check_number_size;
-    use crate::util::type_of;
+    // use crate::util::type_of;
 
     use super::*;
     use dotenvy::dotenv;

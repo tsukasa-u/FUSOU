@@ -1,6 +1,6 @@
 use tauri::{AppHandle, Manager};
 use webbrowser::{open_browser, Browser};
-use std::{fs, sync::{LazyLock, Mutex}};
+use std::sync::{LazyLock, Mutex};
 
 #[derive(Debug, Default )]
 pub struct BrowserState(Browser);
