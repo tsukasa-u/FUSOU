@@ -8,7 +8,7 @@ import { Battle } from '../interface/battle';
 import { useDeckPorts, useShips } from '../utility/provider';
 import { HpColorBarComponent } from './hp_color_bar';
 
-interface MidnightShellingProps {
+interface ButtleSummaryProps {
     deck_ship_id: { [key: number]: number[] };
     battle_selected: () => Battle;
 }
@@ -58,7 +58,7 @@ function select_min(a: number[], b: number[]): number[] {
     return ret;
 }
 
-export function BattleSummaryComponent({deck_ship_id, battle_selected}: MidnightShellingProps) {
+export function BattleSummaryComponent({deck_ship_id, battle_selected}: ButtleSummaryProps) {
 
     const [deck_ports, ] = useDeckPorts();
     const [ships, ] = useShips();
@@ -101,12 +101,10 @@ export function BattleSummaryComponent({deck_ship_id, battle_selected}: Midnight
         let f_now_hps: number[] = select_min(battle_selected().f_nowhps!, battle_selected().midngiht_f_nowhps!).map((v, i) => v - battle_selected().f_total_damages![i]).map((v) => Math.max(v, 0));
         let e_now_hps: number[] = select_min(battle_selected().e_nowhps!, battle_selected().midngiht_e_nowhps!).map((v, i) => v - battle_selected().e_total_damages![i]).map((v) => Math.max(v, 0));
 
-
-        let f_main_ship_id: number[] = deck_ship_id[battle_selected().deck_id!];
-        // let f_main_nowhps: number[] = battle_selected().f_nowhps!;
-        let f_main_nowhps: number[] = f_now_hps;
-        let f_main_maxhps: number[] = deck_ship_id[battle_selected().deck_id!].map((ship_id) => ships.ships[ship_id].maxhp);;
-        let f_main_damages: number[] = battle_selected().f_total_damages ?? [-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1];
+        let f_main_ship_id: number[] = deck_ship_id[battle_selected().deck_id!].filter((ship_id) => ship_id != -1);
+        let f_main_nowhps: number[] = f_now_hps!.slice(0, f_main_ship_id.length);
+        let f_main_maxhps: number[] = deck_ship_id[battle_selected().deck_id!].slice(0, f_main_ship_id.length).map((ship_id) => ships.ships[ship_id].maxhp);
+        let f_main_damages: number[] = (battle_selected().f_total_damages ?? [-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1]).slice(0, f_main_ship_id.length);
 
         let f_escort_ship_id: number[] = [];
         let f_escort_nowhps: number[] = [];
@@ -172,6 +170,34 @@ export function BattleSummaryComponent({deck_ship_id, battle_selected}: Midnight
             friend_params: friend_params,
             friend_slot: friend_slot,
         };
+        // return {
+        //     f_main_ship_id: [],
+        //     f_main_nowhps: [],
+        //     f_main_maxhps: [],
+        //     f_main_damages: [],
+        //     f_escort_ship_id: [],
+        //     f_escort_nowhps: [],
+        //     f_escort_maxhps: [],
+        //     f_escort_damages: [],
+        //     e_main_ship_id: [],
+        //     e_main_nowhps: [],
+        //     e_main_maxhps: [],
+        //     e_main_damages: [],
+        //     e_main_prams: [[]],
+        //     e_main_slot: [[]],
+        //     e_escort_ship_id: [],
+        //     e_escort_nowhps: [],
+        //     e_escort_maxhps: [],
+        //     e_escort_damages: [],
+        //     e_escrot_params: [[]],
+        //     e_escort_slot: [[]],
+        //     friend_ship_id: [],
+        //     friend_nowhps: [],
+        //     friend_maxhps: [],
+        //     friend_damages: [],
+        //     friend_params: [[]],
+        //     friend_slot: [[]],
+        // };
     });
 
     return (
@@ -194,10 +220,11 @@ export function BattleSummaryComponent({deck_ship_id, battle_selected}: Midnight
                                 </tr>
                             </thead>
                             <tbody>
-                                <For each={[0, 1, 2, 3, 4, 5, 6]}>
+                                <For each={[0, 1, 2, 3, 4, 5, 6].slice(0, Math.max(fleet_info().f_main_ship_id.length, fleet_info().e_main_ship_id.length))}>
                                     {(idx) => 
                                         <tr class="table_hover table_active rounded">
-                                            <Show when={fleet_info().f_main_ship_id.length > idx} fallback={<><td></td><td></td><td></td></>}>
+                                            <Show when={fleet_info().f_main_ship_id.length > idx} fallback={<><td><div class="h-5"></div></td><td></td><td></td></>}>
+                                                {/* <td>{idx}</td><td></td><td></td> */}
                                                 <td>
                                                     <ShipNameComponent ship_id={fleet_info().f_main_ship_id[idx]}></ShipNameComponent>
                                                 </td>
@@ -219,7 +246,7 @@ export function BattleSummaryComponent({deck_ship_id, battle_selected}: Midnight
                                                     {fleet_info().f_main_damages[idx]}
                                                 </td>
                                             </Show>
-                                            <Show when={fleet_info().e_main_ship_id.length > idx} fallback={<><td></td><td></td><td></td></>}>
+                                            <Show when={fleet_info().e_main_ship_id.length > idx} fallback={<><td><div class="h-5"></div></td><td></td><td></td></>}>
                                                 <td>
                                                     <SimpleShipNameComponent ship_id={fleet_info().e_main_ship_id[idx]} ship_param={fleet_info().e_main_prams[idx]} ship_slot={fleet_info().e_main_slot[idx]} ship_max_hp={fleet_info().e_main_maxhps[idx]}></SimpleShipNameComponent>
                                                 </td>
@@ -244,7 +271,7 @@ export function BattleSummaryComponent({deck_ship_id, battle_selected}: Midnight
                                         </tr>
                                     }
                                 </For>
-                                <Show when={deck_ports.combined_flag}>
+                                {/* <Show when={deck_ports.combined_flag}>
                                     <For each={[0, 1, 2, 3, 4, 5]}>
                                         {(idx) => 
                                             <tr class="table_hover table_active rounded">
@@ -328,7 +355,7 @@ export function BattleSummaryComponent({deck_ship_id, battle_selected}: Midnight
                                             </tr>
                                         }
                                     </For>
-                                </Show>
+                                </Show> */}
                             </tbody>
                         </table>
                     </ul>
