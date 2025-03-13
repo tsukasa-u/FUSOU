@@ -44,7 +44,7 @@ pub struct ApiData {
     #[serde(rename = "api_plane_info")]
     pub api_plane_info: Vec<ApiPlaneInfo>,
     #[serde(rename = "api_after_bauxite")]
-    pub api_after_bauxite: i64,
+    pub api_after_bauxite: Option<i64>,
     #[serde(rename = "api_distance")]
     pub api_distance: ApiDistance,
 }
@@ -62,11 +62,11 @@ pub struct ApiPlaneInfo {
     #[serde(rename = "api_slotid")]
     pub api_slotid: i64,
     #[serde(rename = "api_count")]
-    pub api_count: i64,
+    pub api_count: Option<i64>,
     #[serde(rename = "api_max_count")]
-    pub api_max_count: i64,
+    pub api_max_count: Option<i64>,
     #[serde(rename = "api_cond")]
-    pub api_cond: i64,
+    pub api_cond: Option<i64>,
 }
 
 #[derive(Getter, TraitForTest)]
