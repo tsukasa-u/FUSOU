@@ -85,9 +85,9 @@ export function OpeningAntiSubmarineComponent({deck_ship_id, battle_selected}: A
                                                         {(df) => (
                                                             <div class="flex flex-nowarp">
                                                                 <Show when={battle_selected().opening_taisen.at_eflag[at_index()]==1} fallback={
-                                                                    <SimpleHpBar v_now={() => battle_selected().opening_taisen.e_now_hps[at_index()][df]} v_max={() => battle_selected().e_hp_max![at]}></SimpleHpBar>
+                                                                    <SimpleHpBar v_now={() => battle_selected().opening_taisen.e_now_hps[at_index()][df]} v_max={() => battle_selected().e_hp_max![df]}></SimpleHpBar>
                                                                 }>
-                                                                    <SimpleHpBar v_now={() => battle_selected().opening_taisen.f_now_hps[at_index()][df]} v_max={() => ships.ships[deck_ship_id[battle_selected().deck_id!][at]].maxhp}></SimpleHpBar>
+                                                                    <SimpleHpBar v_now={() => battle_selected().opening_taisen.f_now_hps[at_index()][df]} v_max={() => ships.ships[deck_ship_id[battle_selected().deck_id!][df]].maxhp}></SimpleHpBar>
                                                                 </Show>
                                                             </div>
                                                         )}
