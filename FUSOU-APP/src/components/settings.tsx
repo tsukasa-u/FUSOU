@@ -69,6 +69,7 @@ export function SettingsComponent(){
                         window.location.reload();
                     }}>Reload</button>
                 </div>
+
                 <hr class="mt-4 mb-4" />
 
                 <p class="py-2 text-xl font-semibold">Load Data</p>
@@ -193,6 +194,14 @@ export function SettingsComponent(){
                         </div>
                     </div>
                     <span class="h-8"></span>
+                </div>
+
+                <hr class="mt-4 mb-8" />
+
+                <p class="py-2 text-xl font-semibold">Debug</p>
+                <p class="">For Debug</p>
+                <div class="mt-4 flex items-center justify-end">
+                    <button class="btn btn-outline btn-wide" onClick={() => { invoke("open_debug_window"); showFadeToast('setting_toast', "open debug window"); }}>Debug</button>
                 </div>
                 
             </div>

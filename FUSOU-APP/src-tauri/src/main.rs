@@ -62,6 +62,9 @@ async fn main() -> ExitCode {
   let pac_server_shutdown: CustomMenuItem = CustomMenuItem::new("pac-serve-shutdown".to_string(), "Shutdown PAC Server".to_string());
   let delete_registry: CustomMenuItem = CustomMenuItem::new("delete-registry".to_string(), "Delete Registry".to_string());
 
+  #[cfg(TAURI_BUILD_TYPE="DEBUG")]
+  let open_debug_window: CustomMenuItem = CustomMenuItem::new("open-debug-window".to_string(), "Open Debug Window".to_string());
+
   // let restart_proxy: CustomMenuItem = CustomMenuItem::new("restart-proxy".to_string(), "Restart Proxy Server".to_string());
 
   let quit: CustomMenuItem = CustomMenuItem::new("quit".to_string(), "Quit".to_string()).accelerator("CmdOrCtrl+Q".to_string());
@@ -82,11 +85,15 @@ async fn main() -> ExitCode {
 
   let danger_ope_sub_menu: SystemTrayMenu = SystemTrayMenu::new()
     .add_item(CustomMenuItem::new("danger-title".to_string(), "Danger Zone".to_string()).disabled())  
-    .add_native_item(tauri::SystemTrayMenuItem::Separator)
     .add_item(proxy_serve_shutdown)
     .add_item(gprc_serve_shutdown)
     .add_item(pac_server_shutdown)
     .add_item(delete_registry);
+
+  #[cfg(TAURI_BUILD_TYPE="DEBUG")]
+  let danger_ope_sub_menu = danger_ope_sub_menu
+    .add_native_item(tauri::SystemTrayMenuItem::Separator)
+    .add_item(open_debug_window);
 
   let advanced_sub_menu: SystemTrayMenu = SystemTrayMenu::new()
     .add_item(CustomMenuItem::new("advanced-title".to_string(), "Advanced".to_string()).disabled())
@@ -156,6 +163,8 @@ async fn main() -> ExitCode {
       tauri_cmd::launch_with_options,
       tauri_cmd::check_pac_server_health,
       tauri_cmd::check_proxy_server_health,
+      tauri_cmd::open_debug_window,
+      tauri_cmd::close_debug_window,
     ])
     .plugin(tauri_plugin_window_state::Builder::default().build())
     .setup(move |app| {
@@ -314,6 +323,22 @@ async fn main() -> ExitCode {
       },
       SystemTrayEvent::MenuItemClick { id, .. } => {
         match id.as_str() {
+          #[cfg(TAURI_BUILD_TYPE="DEBUG")]
+          "open-debug-window" => {
+            match app.get_window("debug") {
+              Some(debug_window) => {
+                debug_window.show().unwrap();
+              },
+              None => {
+                let _window = tauri::WindowBuilder::new(app, "debug", tauri::WindowUrl::App("/debug".into()))
+                  .fullscreen(false)
+                  .title("fusou-debug")
+                  // .visible(false)
+                  .build()
+                  .unwrap();
+              }
+            }
+          },
           "gprc-serve-shutdown" => {
             let _ = app.tray_handle().get_item("pause").set_title("Pause");
             let _ = app.tray_handle().get_item("pause").set_enabled(false);

@@ -90,6 +90,28 @@ pub async fn close_splashscreen(window: tauri::Window) {
 }
 
 #[tauri::command]
+pub async fn open_debug_window(window: tauri::Window) {
+  match window.get_window("debug") {
+    Some(debug_window) => {
+      debug_window.show().unwrap();
+    },
+    None => {
+      let _window = tauri::WindowBuilder::new(&window.app_handle(), "debug", tauri::WindowUrl::App("/debug".into()))
+        .fullscreen(false)
+        .title("fusou-debug")
+        // .visible(false)
+        .build()
+        .unwrap();
+    }
+  }
+}
+
+#[tauri::command]
+pub async fn close_debug_window(window: tauri::Window) {
+  window.get_window("debug").expect("no window labeled 'debug' found").close().unwrap();
+}
+
+#[tauri::command]
 pub async fn check_pac_server_health(_window: tauri::Window, pac_channel: tauri::State<'_, PacChannel>) -> Result<String, String> {
   match bidirectional_channel::check_health(pac_channel.master.clone()).await {
     Ok(_) => {
