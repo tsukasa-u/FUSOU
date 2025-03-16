@@ -6,6 +6,7 @@ import { Battle } from '../interface/battle';
 import { EquimentComponent } from './equipment';
 import { useAirBases } from '../utility/provider';
 import IconShield from '../icons/shield';
+import { SimpleHpBar } from './simple_hp_bar';
 
 interface AirDamageProps {
     area_id: number;
@@ -54,6 +55,7 @@ export function AirBaseAirAttackComponent({area_id, battle_selected}: AirDamageP
                                 <tr>
                                     <th>From</th>
                                     <th>To</th>
+                                    <th>HP</th>
                                     <th>Attack</th>
                                 </tr>
                             </thead>
@@ -92,6 +94,19 @@ export function AirBaseAirAttackComponent({area_id, battle_selected}: AirDamageP
                                                                             <IconShield class="h-5 w-5"></IconShield>
                                                                         </Show>
                                                                     </div>
+                                                                </Show>
+                                                            </>
+                                                        )}
+                                                    </For>
+                                                </div>
+                                            </td>
+                                            <td>
+                                                <div class="flex flex-col">
+                                                    <For each={attack.e_damage.damages ?? []}>
+                                                        {(_, idx) => (
+                                                            <>
+                                                                <Show when={show_damage()[attack_idx()][idx()]}>
+                                                                    <SimpleHpBar v_now={() => battle_selected().air_base_air_attacks.attacks[attack_idx()].e_damage.now_hps![idx()]} v_max={() => battle_selected().e_hp_max![idx()]}></SimpleHpBar>
                                                                 </Show>
                                                             </>
                                                         )}

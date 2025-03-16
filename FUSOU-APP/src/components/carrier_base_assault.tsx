@@ -7,6 +7,7 @@ import { SimpleShipNameComponent } from './simple_ship_name';
 import { Battle } from '../interface/battle';
 import IconShield from '../icons/shield';
 import { useDeckPorts } from '../utility/provider';
+import { SimpleHpBar } from './simple_hp_bar';
 
 interface AirDamageProps {
     battle_selected: () => Battle;
@@ -66,6 +67,7 @@ export function CarrierBaseAssaultComponent({battle_selected}: AirDamageProps) {
                                 <tr>
                                     <th>From</th>
                                     <th>To</th>
+                                    <th>HP</th>
                                     <th>Attack</th>
                                 </tr>
                             </thead>
@@ -100,6 +102,17 @@ export function CarrierBaseAssaultComponent({battle_selected}: AirDamageProps) {
                                                                     <IconShield class="h-4 w-4"></IconShield>
                                                                 </Show>
                                                             </div>
+                                                        </Show>
+                                                    </>
+                                                )}
+                                            </For>
+                                        </td>
+                                        <td>
+                                            <For each={battle_selected().carrier_base_assault!.e_damage.damages}>
+                                                {(_, idx) => (
+                                                    <>
+                                                        <Show when={show_damage()[0][idx()]}>
+                                                            <SimpleHpBar v_now={() => battle_selected().carrier_base_assault!.e_damage.now_hps[idx()]} v_max={() => battle_selected().e_hp_max![idx()]}></SimpleHpBar>
                                                         </Show>
                                                     </>
                                                 )}

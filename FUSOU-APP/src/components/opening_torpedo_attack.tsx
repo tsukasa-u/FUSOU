@@ -6,6 +6,8 @@ import "../css/divider.css";
 import { SimpleShipNameComponent } from './simple_ship_name';
 import { Battle } from '../interface/battle';
 import IconShield from '../icons/shield';
+import { SimpleHpBar } from './simple_hp_bar';
+import { useShips } from '../utility/provider';
 
 interface TorpedoSubmarineProps {
     deck_ship_id: { [key: number]: number[] };
@@ -27,6 +29,8 @@ interface TorpedoDamages {
 }
 
 export function OpeningTorpedoAttackComponent({deck_ship_id, battle_selected}: TorpedoSubmarineProps) {
+    
+    const[ships, ] = useShips();
     
     const show_torpedo_attack = createMemo<boolean>(() => {
         if (battle_selected() == undefined) return false;
@@ -96,7 +100,9 @@ export function OpeningTorpedoAttackComponent({deck_ship_id, battle_selected}: T
                             <thead>
                                 <tr>
                                     <th>From</th>
+                                    <th>HP</th>
                                     <th>To</th>
+                                    <th>HP</th>
                                     <th>Attack</th>
                                 </tr>
                             </thead>
@@ -119,12 +125,26 @@ export function OpeningTorpedoAttackComponent({deck_ship_id, battle_selected}: T
                                                 </div>
                                             </td>
                                             <td>
+                                                <div class="flex flex-col">
+                                                    <For each={opening_torpedo_damage().frai.dict[frai].ships}>
+                                                        {(ship_id) => (
+                                                            <>
+                                                                <SimpleHpBar v_now={() => battle_selected().opening_raigeki.f_now_hps[ship_id]} v_max={() => ships.ships[deck_ship_id[battle_selected().deck_id!][ship_id]].maxhp}></SimpleHpBar>
+                                                            </>
+                                                        )}
+                                                    </For>
+                                                </div>
+                                            </td>
+                                            <td>
                                                 <div class="flex flex-nowrap">
                                                     <SimpleShipNameComponent ship_id={battle_selected().enemy_ship_id[frai]} ship_max_hp={battle_selected().e_hp_max![frai]} ship_param={battle_selected().e_params![frai]} ship_slot={battle_selected().e_slot![frai]}></SimpleShipNameComponent>
                                                     <Show when={battle_selected().opening_raigeki.e_protect_flag.some(flag => flag == true)}>
                                                         <IconShield class="h-5 w-5"></IconShield>
                                                     </Show>
                                                 </div>
+                                            </td>
+                                            <td>
+                                                <SimpleHpBar v_now={() => battle_selected().opening_raigeki.e_now_hps[frai]} v_max={() => battle_selected().e_hp_max![frai]}></SimpleHpBar>
                                             </td>
                                             <td >
                                                 <div class={
@@ -147,8 +167,24 @@ export function OpeningTorpedoAttackComponent({deck_ship_id, battle_selected}: T
                                             <td>
                                                 <div class="flex flex-col">
                                                     <For each={opening_torpedo_damage().erai.dict[erai].ships}>
-                                                        {(ship_id, _) => (
-                                                            <SimpleShipNameComponent ship_id={battle_selected().enemy_ship_id[ship_id]} ship_max_hp={battle_selected().e_hp_max![ship_id]} ship_param={battle_selected().e_params![ship_id]} ship_slot={battle_selected().e_slot![ship_id]}></SimpleShipNameComponent>
+                                                        {(ship_id, ship_id_index) => (
+                                                            <>
+                                                                <Show when={ship_id_index() > 0}>
+                                                                    <div class="h-px"></div>
+                                                                </Show>
+                                                                <SimpleShipNameComponent ship_id={battle_selected().enemy_ship_id[ship_id]} ship_max_hp={battle_selected().e_hp_max![ship_id]} ship_param={battle_selected().e_params![ship_id]} ship_slot={battle_selected().e_slot![ship_id]}></SimpleShipNameComponent>
+                                                            </>
+                                                        )}
+                                                    </For>
+                                                </div>
+                                            </td>
+                                            <td>
+                                                <div class="flex flex-col">
+                                                    <For each={opening_torpedo_damage().erai.dict[erai].ships}>
+                                                        {(ship_id) => (
+                                                            <>
+                                                                <SimpleHpBar v_now={() => battle_selected().opening_raigeki.e_now_hps[ship_id]} v_max={() => battle_selected().e_hp_max![ship_id]}></SimpleHpBar>
+                                                            </>
                                                         )}
                                                     </For>
                                                 </div>
@@ -160,6 +196,9 @@ export function OpeningTorpedoAttackComponent({deck_ship_id, battle_selected}: T
                                                         <IconShield class="h-5 w-5"></IconShield>
                                                     </Show>
                                                 </div>
+                                            </td>
+                                            <td>
+                                                <SimpleHpBar v_now={() => battle_selected().opening_raigeki.f_now_hps[erai]} v_max={() => ships.ships[deck_ship_id[battle_selected().deck_id!][erai]].maxhp}></SimpleHpBar>
                                             </td>
                                             <td >
                                                 <div class={

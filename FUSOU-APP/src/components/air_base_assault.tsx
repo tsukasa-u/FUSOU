@@ -6,6 +6,7 @@ import { Battle } from '../interface/battle';
 import { EquimentComponent } from './equipment';
 import { useAirBases, useSlotItems } from '../utility/provider';
 import IconShield from '../icons/shield';
+import { SimpleHpBar } from './simple_hp_bar';
 
 interface AirDamageProps {
     area_id: number;
@@ -85,6 +86,7 @@ export function AirBaseAssaultComponent({area_id, battle_selected}: AirDamagePro
                                 <tr>
                                     <th>From</th>
                                     <th>To</th>
+                                    <th>HP</th>
                                     <th>Attack</th>
                                 </tr>
                             </thead>
@@ -119,6 +121,19 @@ export function AirBaseAssaultComponent({area_id, battle_selected}: AirDamagePro
                                                                     <IconShield class="h-4 w-4"></IconShield>
                                                                 </Show>
                                                             </div>
+                                                        </Show>
+                                                    </>
+                                                )}
+                                            </For>
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <div class="flex flex-col">
+                                            <For each={battle_selected().air_base_assault!.e_damage.damages ?? []}>
+                                                {(_, idx) => (
+                                                    <>
+                                                        <Show when={show_damage()[0][idx()]}>
+                                                            <SimpleHpBar v_now={() => battle_selected().air_base_assault!.e_damage.now_hps![idx()]} v_max={() => battle_selected().e_hp_max![idx()]}></SimpleHpBar>
                                                         </Show>
                                                     </>
                                                 )}

@@ -17,6 +17,21 @@ use super::cells::KCS_CELLS;
 // });
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub enum BattleType {
+    AirBaseAssult,
+    CarrierBaseAssault,
+    AirBaseAirAttack,
+    OpeningAirAttack,
+    SupportAttack,
+    OpeningTaisen,
+    OpeningRaigeki,
+    Hougeki(i64),
+    ClosingRaigeki,
+    FriendlyForceAttack,
+    MidnightHougeki,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Battles {
     pub cells: Vec<i64>,
     pub battles: HashMap<i64, Battle>,
@@ -24,6 +39,7 @@ pub struct Battles {
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Battle {
+    pub battle_order: Option<Vec<BattleType>>,
     pub timestamp: Option<i64>,
     pub midnight_timestamp: Option<i64>,
     pub cell_id: i64,
@@ -107,6 +123,7 @@ pub struct AirDamage {
     pub rai_flag: Option<Vec<Option<i64>>>,
     pub bak_flag: Option<Vec<Option<i64>>>,
     pub protect_flag: Option<Vec<bool>>,
+    pub now_hps: Vec<i64>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -127,6 +144,9 @@ pub struct OpeningRaigeki {
     pub ecl_list: Vec<i64>,
     pub f_protect_flag: Vec<bool>,
     pub e_protect_flag: Vec<bool>,
+    pub f_now_hps: Vec<i64>,
+    pub e_now_hps: Vec<i64>,
+
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -139,6 +159,8 @@ pub struct OpeningTaisen {
     pub at_eflag: Vec<i64>,
     pub si_list: Vec<Vec<Option<i64>>>,
     pub protect_flag: Vec<Vec<bool>>,
+    pub f_now_hps: Vec<Vec<i64>>,
+    pub e_now_hps: Vec<Vec<i64>>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -153,6 +175,8 @@ pub struct ClosingRaigeki {
     pub ecl: Vec<i64>,
     pub f_protect_flag: Vec<bool>,
     pub e_protect_flag: Vec<bool>,
+    pub f_now_hps: Vec<i64>,
+    pub e_now_hps: Vec<i64>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -165,6 +189,8 @@ pub struct Hougeki {
     pub at_eflag: Vec<i64>,
     pub si_list: Vec<Vec<Option<i64>>>,
     pub protect_flag: Vec<Vec<bool>>,
+    pub f_now_hps: Vec<Vec<i64>>,
+    pub e_now_hps: Vec<Vec<i64>>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -177,6 +203,8 @@ pub struct MidnightHougeki {
     pub si_list: Option<Vec<Vec<Option<i64>>>>,
     pub sp_list: Option<Vec<i64>>,
     pub protect_flag: Option<Vec<Vec<bool>>>,
+    pub f_now_hps: Vec<Vec<i64>>,
+    pub e_now_hps: Vec<Vec<i64>>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -192,6 +220,7 @@ pub struct SupportHourai {
     pub deck_id: i64,
     pub ship_id: Vec<i64>,
     pub protect_flag: Vec<bool>,
+    pub now_hps: Vec<i64>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -302,6 +331,9 @@ pub fn calc_air_damage(plane_from: Option<Vec<Option<Vec<i64>>>>, stage1: Option
     let f_plane_from: Option<Vec<i64>> = plane_from.clone().and_then(|plane_from| plane_from[0].clone().and_then(|plane_from| Some(plane_from.clone().iter().map(|x| x - 1).collect())));
     let e_plane_from: Option<Vec<i64>> = plane_from.clone().and_then(|plane_from| plane_from[1].clone().and_then(|plane_from| Some(plane_from.clone().iter().map(|x| x - 1).collect())));
     
+    let f_now_hps = vec![0; f_damages.clone().and_then(|f_damages| Some(f_damages.len())).unwrap_or(12)];
+    let e_now_hps = vec![0; e_damages.clone().and_then(|e_damages| Some(e_damages.len())).unwrap_or(12)];
+
     (
         AirDamage {
             plane_from: f_plane_from,
@@ -314,6 +346,7 @@ pub fn calc_air_damage(plane_from: Option<Vec<Option<Vec<i64>>>>, stage1: Option
             rai_flag: combine(&[f_rai_flag, f_rai_flag_combined]),
             bak_flag: combine(&[f_bak_flag, f_bak_flag_combined]),
             protect_flag: combine(&[f_protect, f_protect_combined]),
+            now_hps: f_now_hps,
         },
         AirDamage {
             plane_from: e_plane_from,
@@ -326,6 +359,7 @@ pub fn calc_air_damage(plane_from: Option<Vec<Option<Vec<i64>>>>, stage1: Option
             rai_flag: combine(&[e_rai_flag, e_rai_flag_combined]),
             bak_flag: combine(&[e_bak_flag, e_bak_flag_combined]),
             protect_flag: combine(&[e_protect, e_protect_combined]),
+            now_hps: e_now_hps,
         }
 
     )
@@ -356,6 +390,9 @@ impl From<kcapi_common::common_battle::ApiOpeningTaisen> for OpeningTaisen {
         let cl_list: Vec<Vec<i64>> = opening_taisen.api_cl_list.iter().enumerate().map(|(idx, cl_list)| calc_critical(&damages[idx], cl_list)).collect();
         let protect_flag: Vec<Vec<bool>> = opening_taisen.api_damage.iter().map(|damage| calc_protect_flag(damage)).collect();
 
+        let f_now_hps: Vec<Vec<i64>> = vec![vec![0; 12]; damages.len()];
+        let e_now_hps: Vec<Vec<i64>> = vec![vec![0; 12]; damages.len()];
+
         Self {
             at_list: opening_taisen.api_at_list,
             at_type: opening_taisen.api_at_type,
@@ -365,6 +402,8 @@ impl From<kcapi_common::common_battle::ApiOpeningTaisen> for OpeningTaisen {
             at_eflag: opening_taisen.api_at_eflag,
             si_list: opening_taisen.api_si_list.iter().map(|si_list| calc_si_list(si_list)).collect(),
             protect_flag: protect_flag,
+            f_now_hps: f_now_hps,
+            e_now_hps: e_now_hps,
         }
     }
 }
@@ -391,6 +430,8 @@ impl From<kcapi_common::common_battle::ApiOpeningAtack> for OpeningRaigeki {
             ecl_list: e_cl_list,
             f_protect_flag: f_protect_flag,
             e_protect_flag: e_protect_flag,
+            f_now_hps: vec![0; 12],
+            e_now_hps: vec![0; 12],
         }
     }
 }
@@ -405,6 +446,9 @@ impl From<kcapi_common::common_battle::ApiRaigeki> for ClosingRaigeki {
         let e_cl = calc_critical(&e_damages, &closing_raigeki.api_ecl.iter().map(|&ecl| ecl).collect::<Vec<i64>>());
         let e_protect_flag: Vec<bool> = calc_protect_flag(&closing_raigeki.api_edam);
 
+        let f_now_hps: Vec<i64> = vec![0; f_damages.len()];
+        let e_now_hps: Vec<i64> = vec![0; e_damages.len()];
+
         Self {
             fdam: f_damages,
             edam: e_damages,
@@ -416,6 +460,8 @@ impl From<kcapi_common::common_battle::ApiRaigeki> for ClosingRaigeki {
             ecl: e_cl,
             f_protect_flag: f_protect_flag,
             e_protect_flag: e_protect_flag,
+            f_now_hps: f_now_hps,
+            e_now_hps: e_now_hps,
         }
     }
 }
@@ -472,6 +518,9 @@ impl From<kcapi_common::common_battle::ApiHougeki> for Hougeki {
             }.to_vec()
         }).collect();
 
+        let f_now_hps: Vec<Vec<i64>> = vec![vec![0; 12]; damages.len()];
+        let e_now_hps: Vec<Vec<i64>> = vec![vec![0; 12]; damages.len()];
+
         Self {
             at_list: hougeki.api_at_list,
             at_type: hougeki.api_at_type,
@@ -481,6 +530,8 @@ impl From<kcapi_common::common_battle::ApiHougeki> for Hougeki {
             at_eflag: hougeki.api_at_eflag,
             si_list: si_list,
             protect_flag: protect_flag,
+            f_now_hps: f_now_hps,
+            e_now_hps: e_now_hps,
         }
     }
 }
@@ -559,6 +610,9 @@ impl From<kcapi_common::common_midnight::ApiHougeki> for MidnightHougeki {
             )
         );
 
+        let f_now_hps: Vec<Vec<i64>> = damages.clone().and_then(|damages| Some(vec![vec![0; 12]; damages.len()])).unwrap_or(vec![vec![0; 12]; 0]);
+        let e_now_hps: Vec<Vec<i64>> = damages.clone().and_then(|damages| Some(vec![vec![0; 12]; damages.len()])).unwrap_or(vec![vec![0; 12]; 0]);
+
         Self {
             at_list: hougeki.api_at_list,
             df_list: df_list,
@@ -568,6 +622,8 @@ impl From<kcapi_common::common_midnight::ApiHougeki> for MidnightHougeki {
             si_list: si_list,
             sp_list: hougeki.api_sp_list,
             protect_flag: protect_flag,
+            f_now_hps: f_now_hps,
+            e_now_hps: e_now_hps,
         }
     }
 }
@@ -596,6 +652,7 @@ impl From<kcapi_common::common_battle::ApiSupportHourai> for SupportHourai {
         let damages: Vec<f32> = calc_floor(&support_hourai.api_damage);
         let cl_list: Vec<i64> = calc_critical(&damages, &support_hourai.api_cl_list);
         let protect_flag: Vec<bool> = calc_protect_flag(&damages);
+        let now_hps: Vec<i64> = vec![0; damages.len()];
 
         Self {
             cl_list: cl_list,
@@ -603,6 +660,7 @@ impl From<kcapi_common::common_battle::ApiSupportHourai> for SupportHourai {
             deck_id: support_hourai.api_deck_id,
             ship_id: support_hourai.api_ship_id,
             protect_flag: protect_flag,
+            now_hps: now_hps,
         }
     }
 }
@@ -690,158 +748,262 @@ pub fn calc_dmg(battle: &mut Battle) {
     let mut e_total_damages: Vec<i64> = vec![0; 12];
     let mut friend_total_damages: Vec<i64> = vec![0; 6];
 
-    if let Some(air_base_air_attacks) = &battle.air_base_air_attacks {
-        air_base_air_attacks.attacks.iter().for_each(|air_base_air_attack| {
-            air_base_air_attack.f_damage.damages.clone().unwrap_or(vec![0_f32; 0]).iter().enumerate().for_each(|(idx, &x)| {
-                f_total_damages[idx] += x as i64;
-            });
-        });
-        air_base_air_attacks.attacks.iter().for_each(|air_base_air_attack| {
-            air_base_air_attack.e_damage.damages.clone().unwrap_or(vec![0_f32; 0]).iter().enumerate().for_each(|(idx, &x)| {
-                e_total_damages[idx] += x as i64;
-            });
-        });
+    let f_nowhps: Vec<i64> = battle.f_nowhps.clone().unwrap_or(vec![0; 12]);
+    let e_nowhps: Vec<i64> = battle.e_nowhps.clone().unwrap_or(vec![0; 12]);
+    let midngiht_f_nowhps: Vec<i64> = battle.midngiht_f_nowhps.clone().unwrap_or(vec![0; 12]);
+    let midngiht_e_nowhps: Vec<i64> = battle.midngiht_e_nowhps.clone().unwrap_or(vec![0; 12]);
+    let friend_nowhps: Vec<i64> = battle.friendly_force_attack.clone().and_then(|friendly_force_attack| Some(friendly_force_attack.fleet_info.now_hps.clone())).unwrap_or(vec![0; 6]);
+
+    if battle.battle_order.is_none() {
+        return;
     }
 
-    if let Some(opening_air_attack) = &battle.opening_air_attack {
-        opening_air_attack.f_damage.damages.clone().unwrap_or(vec![0_f32; 0]).iter().enumerate().for_each(|(idx, &x)| {
-            f_total_damages[idx] = f_total_damages[idx] + x as i64;
-        });
-        opening_air_attack.e_damage.damages.clone().unwrap_or(vec![0_f32; 0]).iter().enumerate().for_each(|(idx, &x)| {
-            e_total_damages[idx] = e_total_damages[idx] + x as i64;
-        });
-    }
+    let battle_order:Vec<BattleType> = battle.battle_order.clone().unwrap();
 
-    if let Some(opening_taisen) = &battle.opening_taisen {
-        opening_taisen.at_eflag.iter().enumerate().for_each(|(eflag_idx, &eflag)| {
-            opening_taisen.df_list[eflag_idx].iter().enumerate().for_each(|(df_idx, &df)| {
-                match eflag {
-                    1 => {
-                        f_total_damages[df as usize] += opening_taisen.damage[eflag_idx][df_idx] as i64;
-                    },
-                    0 => {
-                        e_total_damages[df as usize] += opening_taisen.damage[eflag_idx][df_idx] as i64;
-                    },
-                    _ => {},
-                }
-            });
-        });
-    }
-
-    if let Some(opening_raigeki) = &battle.opening_raigeki {
-        opening_raigeki.fdam.iter().enumerate().for_each(|(idx, &x)| {
-            f_total_damages[idx] += x as i64;
-        });
-        opening_raigeki.edam.iter().enumerate().for_each(|(idx, &x)| {
-            e_total_damages[idx] += x as i64;
-        });
-    };
-
-    if let Some(closing_taigeki) = &battle.closing_raigeki {
-        closing_taigeki.fdam.iter().enumerate().for_each(|(idx, &x)| {
-            f_total_damages[idx] += x as i64;
-        });
-        closing_taigeki.edam.iter().enumerate().for_each(|(idx, &x)| {
-            e_total_damages[idx] += x as i64;
-        });
-    }
-    
-    if let Some(hougeki_list) = &battle.hougeki {
-        hougeki_list.iter().for_each(|hougeki_element| {
-            if let Some(hougeki) = hougeki_element {
-                hougeki.at_eflag.iter().enumerate().for_each(|(eflag_idx, &eflag)| {
-                    hougeki.df_list[eflag_idx].iter().enumerate().for_each(|(df_idx, &df)| {
-                        match eflag {
-                            1 => {
-                                f_total_damages[df as usize] += hougeki.damage[eflag_idx][df_idx] as i64;
-                            },
-                            0 => {
-                                e_total_damages[df as usize] += hougeki.damage[eflag_idx][df_idx] as i64;
-                            },
-                            _ => {},
-                        }
+    battle_order.iter().for_each(|battle_order| {
+        match battle_order {
+            BattleType::AirBaseAssult => {
+                if let Some(air_base_assault) = battle.air_base_assault.as_mut() {
+                    // air_base_assault.f_damage.damages.clone().unwrap_or(vec![0_f32; 0]).iter().enumerate().for_each(|(idx, &x)| {
+                    //     f_total_damages[idx] += x as i64;
+                    // });
+                    air_base_assault.e_damage.damages.clone().unwrap_or(vec![0_f32; 0]).iter().enumerate().for_each(|(idx, &x)| {
+                        e_total_damages[idx] += x as i64;
                     });
-                });
-            }
-        });
-    }
 
-    if let Some(support_attack) = &battle.support_attack {
-        if let Some(support_hourai) = &support_attack.support_hourai {
-            support_hourai.damage.iter().enumerate().for_each(|(idx, &x)| {
-                e_total_damages[idx] += x as i64;
-            });
-        }
-        if let Some(support_airatack) = &support_attack.support_airatack {
-            support_airatack.e_damage.damages.clone().unwrap_or(vec![0_f32; 0]).iter().enumerate().for_each(|(idx, &x)| {
-                e_total_damages[idx] += x as i64;
-            });
-        }
-    }
+                    f_nowhps.iter().enumerate().for_each(|(idx, &f_nowhp)| {
+                        air_base_assault.e_damage.now_hps[idx] = f_nowhp - e_total_damages[idx];
+                    });
+                }
+            },
+            BattleType::CarrierBaseAssault => {
+                if let Some(carrier_base_assault) = battle.carrier_base_assault.as_mut() {
+                    // carrier_base_assault.f_damage.damages.clone().unwrap_or(vec![0_f32; 0]).iter().enumerate().for_each(|(idx, &x)| {
+                    //     f_total_damages[idx] += x as i64;
+                    // });
+                    carrier_base_assault.e_damage.damages.clone().unwrap_or(vec![0_f32; 0]).iter().enumerate().for_each(|(idx, &x)| {
+                        e_total_damages[idx] += x as i64;
+                    });
 
-    if let Some(air_base_assault) = &battle.air_base_assault {
-        // air_base_assault.f_damage.damages.clone().unwrap_or(vec![0_f32; 0]).iter().enumerate().for_each(|(idx, &x)| {
-        //     f_total_damages[idx] += x as i64;
-        // });
-        air_base_assault.e_damage.damages.clone().unwrap_or(vec![0_f32; 0]).iter().enumerate().for_each(|(idx, &x)| {
-            e_total_damages[idx] += x as i64;
-        });
-    }
+                    f_nowhps.iter().enumerate().for_each(|(idx, &f_nowhp)| {
+                        carrier_base_assault.e_damage.now_hps[idx] = f_nowhp - e_total_damages[idx];
+                    });
+                }
+            },
+            BattleType::AirBaseAirAttack => {
+                if let Some(air_base_air_attacks) = battle.air_base_air_attacks.as_mut() {
+                    air_base_air_attacks.attacks.iter_mut().for_each(|air_base_air_attack| {
+                        air_base_air_attack.f_damage.damages.clone().unwrap_or(vec![0_f32; 0]).iter().enumerate().for_each(|(idx, &x)| {
+                            f_total_damages[idx] += x as i64;
+                        });
 
-    if let Some(carrier_base_assault) = &battle.carrier_base_assault {
-        // carrier_base_assault.f_damage.damages.clone().unwrap_or(vec![0_f32; 0]).iter().enumerate().for_each(|(idx, &x)| {
-        //     f_total_damages[idx] += x as i64;
-        // });
-        carrier_base_assault.e_damage.damages.clone().unwrap_or(vec![0_f32; 0]).iter().enumerate().for_each(|(idx, &x)| {
-            e_total_damages[idx] += x as i64;
-        });
-    }
+                        f_nowhps.iter().enumerate().for_each(|(idx, &f_nowhp)| {
+                            air_base_air_attack.f_damage.now_hps[idx] = f_nowhp - f_total_damages[idx];
+                        });
+                    });
+                    air_base_air_attacks.attacks.iter_mut().for_each(|air_base_air_attack| {
+                        air_base_air_attack.e_damage.damages.clone().unwrap_or(vec![0_f32; 0]).iter().enumerate().for_each(|(idx, &x)| {
+                            e_total_damages[idx] += x as i64;
+                        });
 
-    if let Some(midnight_hougeki) = &battle.midnight_hougeki {
-        if let Some(at_eflag) = &midnight_hougeki.at_eflag {
-            at_eflag.iter().enumerate().for_each(|(eflag_idx, &eflag)| {
-                if let Some(df_list) = &midnight_hougeki.df_list {
-                    df_list[eflag_idx].iter().enumerate().for_each(|(df_idx, &df)| {
-                        if let Some(damage) = &midnight_hougeki.damage {
+                        e_nowhps.iter().enumerate().for_each(|(idx, &e_nowhp)| {
+                            air_base_air_attack.e_damage.now_hps[idx] = e_nowhp - e_total_damages[idx];
+                        });
+                    });
+                }
+            },
+            BattleType::OpeningAirAttack => {
+                if let Some(opening_air_attack) = battle.opening_air_attack.as_mut() {
+                    opening_air_attack.f_damage.damages.clone().unwrap_or(vec![0_f32; 0]).iter().enumerate().for_each(|(idx, &x)| {
+                        f_total_damages[idx] += x as i64;
+                    });
+                    opening_air_attack.e_damage.damages.clone().unwrap_or(vec![0_f32; 0]).iter().enumerate().for_each(|(idx, &x)| {
+                        e_total_damages[idx] += x as i64;
+                    });
+
+                    println!("{:?}", f_nowhps);
+                    println!("{:?}", e_nowhps);
+                    f_nowhps.iter().enumerate().for_each(|(idx, &f_nowhp)| {
+                        println!("f_nowhp: {:?}", f_nowhp);
+                        println!("f_total_damages: {:?}", f_total_damages);
+                        println!("{:?}", opening_air_attack.f_damage.now_hps);
+                        opening_air_attack.f_damage.now_hps[idx] = f_nowhp - f_total_damages[idx];
+                    });
+                    e_nowhps.iter().enumerate().for_each(|(idx, &e_nowhp)| {
+                        println!("e_nowhp: {:?}", e_nowhp);
+                        println!("e_total_damages: {:?}", e_total_damages);
+                        println!("{:?}", opening_air_attack.e_damage.now_hps);
+                        opening_air_attack.e_damage.now_hps[idx] = e_nowhp - e_total_damages[idx];
+                    });
+                }
+            },
+            BattleType::SupportAttack => {
+                if let Some(support_attack) = battle.support_attack.as_mut() {
+                    if let Some(support_hourai) = support_attack.support_hourai.as_mut() {
+                        support_hourai.damage.iter().enumerate().for_each(|(idx, &x)| {
+                            e_total_damages[idx] += x as i64;
+
+                            support_hourai.now_hps[idx] = e_nowhps[idx] - e_total_damages[idx];
+                        });
+                    }
+                    if let Some(support_airatack) = support_attack.support_airatack.as_mut() {
+                        support_airatack.e_damage.damages.clone().unwrap_or(vec![0_f32; 0]).iter().enumerate().for_each(|(idx, &x)| {
+                            e_total_damages[idx] += x as i64;
+
+                            support_airatack.e_damage.now_hps[idx] = e_nowhps[idx] - e_total_damages[idx];
+                        });
+                    }
+                }
+            },
+            BattleType::OpeningTaisen => {
+                if let Some(opening_taisen) = battle.opening_taisen.as_mut() {
+                    opening_taisen.at_eflag.iter().enumerate().for_each(|(eflag_idx, &eflag)| {
+                        opening_taisen.df_list[eflag_idx].iter().enumerate().for_each(|(df_idx, &df)| {
                             match eflag {
                                 1 => {
-                                    f_total_damages[df as usize] += damage[eflag_idx][df_idx] as i64;
+                                    f_total_damages[df as usize] += opening_taisen.damage[eflag_idx][df_idx] as i64;
                                 },
                                 0 => {
-                                    e_total_damages[df as usize] += damage[eflag_idx][df_idx] as i64;
+                                    e_total_damages[df as usize] += opening_taisen.damage[eflag_idx][df_idx] as i64;
                                 },
                                 _ => {},
                             }
-                        }
+                        });
+
+                        f_nowhps.iter().enumerate().for_each(|(idx, &f_nowhp)| {
+                            opening_taisen.f_now_hps[eflag_idx as usize][idx] = f_nowhp - f_total_damages[idx];
+                        });
+                        e_nowhps.iter().enumerate().for_each(|(idx, &e_nowhp)| {
+                            opening_taisen.e_now_hps[eflag_idx as usize][idx] = e_nowhp - e_total_damages[idx];
+                        });
                     });
                 }
-            });
-        }
-    }
+            },
+            BattleType::OpeningRaigeki => {
+                if let Some(opening_raigeki) = battle.opening_raigeki.as_mut() {
+                    opening_raigeki.fdam.iter().enumerate().for_each(|(idx, &x)| {
+                        f_total_damages[idx] += x as i64;
+                    });
+                    opening_raigeki.edam.iter().enumerate().for_each(|(idx, &x)| {
+                        e_total_damages[idx] += x as i64;
 
-    if let Some(friendly_force_attack) = &battle.friendly_force_attack {
-        if let Some(support_hourai) = &friendly_force_attack.support_hourai {
-            if let Some(at_eflag) = &support_hourai.hougeki.at_eflag {
-                at_eflag.iter().enumerate().for_each(|(eflag_idx, &eflag)| {
-                    if let Some(df_list) = &support_hourai.hougeki.df_list {
-                        df_list[eflag_idx].iter().enumerate().for_each(|(df_idx, &df)| {
-                            if let Some(damage) = &support_hourai.hougeki.damage {
+                    });
+
+                    f_nowhps.iter().enumerate().for_each(|(idx, &f_nowhp)| {
+                        opening_raigeki.f_now_hps[idx] = f_nowhp - f_total_damages[idx];
+                    });
+                    e_nowhps.iter().enumerate().for_each(|(idx, &e_nowhp)| {
+                        opening_raigeki.e_now_hps[idx] = e_nowhp - e_total_damages[idx];
+                    });
+                };
+            },
+            BattleType::Hougeki(x) => {
+                if let Some(hougeki_list) = battle.hougeki.as_mut() {
+                    if let Some(hougeki) = hougeki_list[*x as usize-1].as_mut() {
+                        hougeki.at_eflag.iter().enumerate().for_each(|(eflag_idx, &eflag)| {
+                            hougeki.df_list[eflag_idx].iter().enumerate().for_each(|(df_idx, &df)| {
                                 match eflag {
                                     1 => {
-                                        friend_total_damages[df as usize] += damage[eflag_idx][df_idx] as i64;
+                                        f_total_damages[df as usize] += hougeki.damage[eflag_idx][df_idx] as i64;
                                     },
                                     0 => {
-                                        e_total_damages[df as usize] += damage[eflag_idx][df_idx] as i64;
+                                        e_total_damages[df as usize] += hougeki.damage[eflag_idx][df_idx] as i64;
                                     },
                                     _ => {},
                                 }
+                            });
+
+                            f_nowhps.iter().enumerate().for_each(|(idx, &f_nowhp)| {
+                                hougeki.f_now_hps[eflag_idx as usize][idx] = f_nowhp - f_total_damages[idx];
+                            });
+                            e_nowhps.iter().enumerate().for_each(|(idx, &e_nowhp)| {
+                                hougeki.e_now_hps[eflag_idx as usize][idx] = e_nowhp - e_total_damages[idx];
+                            });
+                        });
+                    }
+                }
+            },
+            BattleType::ClosingRaigeki => {
+                if let Some(closing_taigeki) = battle.closing_raigeki.as_mut() {
+                    closing_taigeki.fdam.iter().enumerate().for_each(|(idx, &x)| {
+                        f_total_damages[idx] += x as i64;
+                    });
+                    closing_taigeki.edam.iter().enumerate().for_each(|(idx, &x)| {
+                        e_total_damages[idx] += x as i64;
+                    });
+
+                    f_nowhps.iter().enumerate().for_each(|(idx, &f_nowhp)| {
+                        closing_taigeki.f_now_hps[idx] = f_nowhp - f_total_damages[idx];
+                    });
+                    e_nowhps.iter().enumerate().for_each(|(idx, &e_nowhp)| {
+                        closing_taigeki.e_now_hps[idx] = e_nowhp - e_total_damages[idx];
+                    });
+                }
+            },
+            BattleType::FriendlyForceAttack => {
+                if let Some(friendly_force_attack) = battle.friendly_force_attack.as_mut() {
+                    if let Some(support_hourai) = friendly_force_attack.support_hourai.as_mut() {
+                        if let Some(at_eflag) = &support_hourai.hougeki.at_eflag {
+                            at_eflag.iter().enumerate().for_each(|(eflag_idx, &eflag)| {
+                                if let Some(df_list) = &support_hourai.hougeki.df_list {
+                                    df_list[eflag_idx].iter().enumerate().for_each(|(df_idx, &df)| {
+                                        if let Some(damage) = &support_hourai.hougeki.damage {
+                                            match eflag {
+                                                1 => {
+                                                    friend_total_damages[df as usize] += damage[eflag_idx][df_idx] as i64;
+                                                },
+                                                0 => {
+                                                    e_total_damages[df as usize] += damage[eflag_idx][df_idx] as i64;
+                                                },
+                                                _ => {},
+                                            }
+                                        }
+                                    });
+
+                                    friend_nowhps.iter().enumerate().for_each(|(idx, &f_nowhp)| {
+                                        support_hourai.hougeki.f_now_hps[eflag_idx as usize][idx] = f_nowhp - f_total_damages[idx];
+                                    });
+                                    midngiht_e_nowhps.iter().enumerate().for_each(|(idx, &e_nowhp)| {
+                                        support_hourai.hougeki.e_now_hps[eflag_idx as usize][idx] = e_nowhp - e_total_damages[idx];
+                                    });
+                                }
+                            });
+                        }
+                    }
+                }
+            },
+            BattleType::MidnightHougeki => {
+                if let Some(midnight_hougeki) = battle.midnight_hougeki.as_mut() {
+                    if let Some(at_eflag) = &midnight_hougeki.at_eflag {
+                        at_eflag.iter().enumerate().for_each(|(eflag_idx, &eflag)| {
+                            if let Some(df_list) = &midnight_hougeki.df_list {
+                                df_list[eflag_idx].iter().enumerate().for_each(|(df_idx, &df)| {
+                                    if let Some(damage) = &midnight_hougeki.damage {
+                                        match eflag {
+                                            1 => {
+                                                f_total_damages[df as usize] += damage[eflag_idx][df_idx] as i64;
+                                            },
+                                            0 => {
+                                                e_total_damages[df as usize] += damage[eflag_idx][df_idx] as i64;
+                                            },
+                                            _ => {},
+                                        }
+                                    }
+                                });
+
+                                midngiht_f_nowhps.iter().enumerate().for_each(|(idx, &f_nowhp)| {
+                                    midnight_hougeki.f_now_hps[eflag_idx as usize][idx] = f_nowhp - f_total_damages[idx];
+                                });
+                                midngiht_e_nowhps.iter().enumerate().for_each(|(idx, &e_nowhp)| {
+                                    midnight_hougeki.e_now_hps[eflag_idx as usize][idx] = e_nowhp - e_total_damages[idx];
+                                });
                             }
                         });
                     }
-                });
-            }
+                }
+            },
         }
-    }
+    });
 
     battle.f_total_damages = Some(f_total_damages);
     battle.e_total_damages = Some(e_total_damages);
@@ -866,7 +1028,21 @@ impl From<kcapi::api_req_sortie::battle::ApiData> for Battle {
 
         let cell_no = KCS_CELLS.lock().and_then(|cells| Ok(cells.last().unwrap_or(&0).clone())).unwrap_or(0);
 
+        let battle_order: Vec<BattleType> = vec![
+            BattleType::AirBaseAssult,
+            BattleType::CarrierBaseAssault,
+            BattleType::AirBaseAirAttack,
+            BattleType::OpeningAirAttack,
+            BattleType::SupportAttack,
+            BattleType::OpeningTaisen,
+            BattleType::OpeningRaigeki,
+            BattleType::Hougeki(1),
+            BattleType::Hougeki(2),
+            BattleType::ClosingRaigeki,
+        ];
+
         let mut ret = Self {
+            battle_order: Some(battle_order),
             timestamp: Some(Local::now().timestamp()),
             midnight_timestamp: None,
             cell_id: cell_no,
@@ -913,7 +1089,13 @@ impl From<kcapi::api_req_battle_midnight::battle::ApiData> for Battle {
 
         let cell_no = KCS_CELLS.lock().and_then(|cells| Ok(cells.last().unwrap_or(&0).clone())).unwrap_or(0);
 
+        let battle_order: Vec<BattleType> = vec![
+            BattleType::FriendlyForceAttack,
+            BattleType::MidnightHougeki,
+        ];
+
         let mut ret = Self {
+            battle_order: Some(battle_order),
             timestamp: None,
             midnight_timestamp: Some(Local::now().timestamp()),
             cell_id: cell_no,
@@ -960,7 +1142,13 @@ impl From<kcapi::api_req_battle_midnight::sp_midnight::ApiData> for Battle {
 
         let cell_no = KCS_CELLS.lock().and_then(|cells| Ok(cells.last().unwrap_or(&0).clone())).unwrap_or(0);
 
+        let battle_order: Vec<BattleType> = vec![
+            BattleType::FriendlyForceAttack,
+            BattleType::MidnightHougeki,
+        ];
+
         let mut ret = Self {
+            battle_order: Some(battle_order),
             timestamp: None,
             midnight_timestamp: Some(Local::now().timestamp()),
             cell_id: cell_no,
@@ -1005,14 +1193,23 @@ impl From<kcapi::api_req_sortie::ld_airbattle::ApiData> for Battle {
         let air_base_air_attacks: Option<AirBaseAirAttacks> = airbattle.api_air_base_attack.and_then(|air_base_air_attack| Some(air_base_air_attack.into()));
         let opening_air_attack: Option<OpeningAirAttack> = Some(airbattle.api_kouku.into());
 
-        // need to research
+        // Need to resarch this
         // let support_attack: Option<SupportAttack> = airbattle.api_support_info.and_then(|support_info| Some(support_info.into()));
         // let air_base_assault: Option<AirBaseAssult> = airbattle.api_air_base_injection.and_then(|air_base_injection| Some(air_base_injection.into()));
         // let carrier_base_assault: Option<CarrierBaseAssault> = airbattle.api_injection_kouku.and_then(|injection_kouku| Some(injection_kouku.into());
+        let support_attack: Option<SupportAttack> = None;
+        let air_base_assault: Option<AirBaseAssult> = None;
+        let carrier_base_assault: Option<CarrierBaseAssault> = None;
 
         let cell_no = KCS_CELLS.lock().and_then(|cells| Ok(cells.last().unwrap_or(&0).clone())).unwrap_or(0);
 
+        let battle_order: Vec<BattleType> = vec![
+            BattleType::AirBaseAirAttack,
+            BattleType::OpeningAirAttack,
+        ];
+
         let mut ret = Self {
+            battle_order: Some(battle_order),
             timestamp: Some(Local::now().timestamp()),
             midnight_timestamp: None,
             cell_id: cell_no,
@@ -1029,11 +1226,11 @@ impl From<kcapi::api_req_sortie::ld_airbattle::ApiData> for Battle {
             forward_observe: None,
             escape_idx: airbattle.api_escape_idx,
             smoke_type: Some(airbattle.api_smoke_type),
-            air_base_assault: None,
-            carrier_base_assault: None,
+            air_base_assault: air_base_assault,
+            carrier_base_assault: carrier_base_assault,
             air_base_air_attacks: air_base_air_attacks,
             opening_air_attack: opening_air_attack,
-            support_attack: None,
+            support_attack: support_attack,
             opening_taisen: None,
             opening_raigeki: None,
             hougeki: None,

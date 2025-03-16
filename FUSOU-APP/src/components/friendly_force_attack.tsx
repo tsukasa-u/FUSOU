@@ -5,6 +5,7 @@ import { SimpleShipNameComponent } from './simple_ship_name';
 import { Battle } from '../interface/battle';
 import { MstEquipmentComponent } from './mst_equipment';
 import IconShield from '../icons/shield';
+import { SimpleHpBar } from './simple_hp_bar';
 
 interface FriendlyForceAttackProps {
     battle_selected: () => Battle;
@@ -50,7 +51,9 @@ export function FriendlyForceAttackComponent({battle_selected}: FriendlyForceAtt
                             <thead>
                                 <tr>
                                     <th>From</th>
+                                    <th>HP</th>
                                     <th>To</th>
+                                    <th>HP</th>
                                     <th>Attack</th>
                                     <th>CI</th>
                                 </tr>
@@ -69,6 +72,13 @@ export function FriendlyForceAttackComponent({battle_selected}: FriendlyForceAtt
                                                     </Show>
                                                 </td>
                                                 <td>
+                                                    <Show when={battle_selected().friendly_force_attack!.support_hourai!.hougeki!.at_eflag![at_index()]==0} fallback={
+                                                        <SimpleHpBar v_now={() => battle_selected().friendly_force_attack!.support_hourai!.hougeki!.e_now_hps[at_index()][at]} v_max={() => battle_selected().e_hp_max![at]}></SimpleHpBar>
+                                                    }>
+                                                        <SimpleHpBar v_now={() => battle_selected().friendly_force_attack!.support_hourai!.hougeki!.f_now_hps![at_index()][at]} v_max={() => battle_selected().friendly_force_attack!.fleet_info.now_hps[at]}></SimpleHpBar>
+                                                    </Show>
+                                                </td>
+                                                <td>
                                                     <div class="flex flex-col">
                                                         <For each={battle_selected().friendly_force_attack!.support_hourai!.hougeki!.df_list![at_index()]}>
                                                             {(df, df_index) => (
@@ -83,6 +93,19 @@ export function FriendlyForceAttackComponent({battle_selected}: FriendlyForceAtt
                                                                         <IconShield class="h-5 w-5"></IconShield>
                                                                     </Show>
                                                                 </div>
+                                                            )}
+                                                        </For>
+                                                    </div>
+                                                </td>
+                                                <td>
+                                                    <div class="flex flex-col">
+                                                        <For each={battle_selected().friendly_force_attack!.support_hourai!.hougeki!.df_list![at_index()]}>
+                                                            {(df) => (
+                                                                <Show when={battle_selected().friendly_force_attack!.support_hourai!.hougeki!.at_eflag![at_index()]==0} fallback={
+                                                                    <SimpleHpBar v_now={() => battle_selected().friendly_force_attack!.support_hourai!.hougeki!.e_now_hps[at_index()][df]} v_max={() => battle_selected().e_hp_max![df]}></SimpleHpBar>
+                                                                }>
+                                                                    <SimpleHpBar v_now={() => battle_selected().friendly_force_attack!.support_hourai!.hougeki!.f_now_hps![at_index()][df]} v_max={() => battle_selected().friendly_force_attack!.fleet_info.now_hps[df]}></SimpleHpBar>
+                                                                </Show>
                                                             )}
                                                         </For>
                                                     </div>

@@ -7,6 +7,8 @@ import { SimpleShipNameComponent } from './simple_ship_name';
 import { Battle } from '../interface/battle';
 import { MstEquipmentComponent } from './mst_equipment';
 import IconShield from '../icons/shield';
+import { SimpleHpBar } from './simple_hp_bar';
+import { useShips } from '../utility/provider';
 
 interface AirDamageProps {
     deck_ship_id: { [key: number]: number[] };
@@ -14,6 +16,9 @@ interface AirDamageProps {
 }
 
 export function OpeningAirAttackComponent({deck_ship_id, battle_selected}: AirDamageProps) {
+
+    const [ships, ] = useShips();
+
     const show_air_attack = createMemo<boolean>(() => {
         if (battle_selected() == undefined) return false;
         if (battle_selected().deck_id == null) return false;
@@ -116,7 +121,9 @@ export function OpeningAirAttackComponent({deck_ship_id, battle_selected}: AirDa
                                 <thead>
                                     <tr>
                                         <th>From</th>
+                                        <th>HP</th>
                                         <th>To</th>
+                                        <th>HP</th>
                                         <th>Attack</th>
                                     </tr>
                                 </thead>
@@ -138,6 +145,17 @@ export function OpeningAirAttackComponent({deck_ship_id, battle_selected}: AirDa
                                                 </div>
                                             </td>
                                             <td>
+                                                <div class="flex flex-col">
+                                                    <For each={battle_selected().opening_air_attack.f_damage.plane_from}>
+                                                        {(ship_idx, idx) => (
+                                                            <>
+                                                                <SimpleHpBar v_now={() => battle_selected().opening_air_attack.f_damage.now_hps![ship_idx]} v_max={() => ships.ships[deck_ship_id[battle_selected().deck_id!][ship_idx]].maxhp}></SimpleHpBar>
+                                                            </>
+                                                        )}
+                                                    </For>
+                                                </div>
+                                            </td>
+                                            <td>
                                                 <For each={battle_selected().opening_air_attack.e_damage.damages}>
                                                     {(_, idx) => (
                                                         <>
@@ -151,6 +169,17 @@ export function OpeningAirAttackComponent({deck_ship_id, battle_selected}: AirDa
                                                                         <IconShield class="h-4 w-4"></IconShield>
                                                                     </Show>
                                                                 </div>
+                                                            </Show>
+                                                        </>
+                                                    )}
+                                                </For>
+                                            </td>
+                                            <td>
+                                                <For each={battle_selected().opening_air_attack.e_damage.damages}>
+                                                    {(_, idx) => (
+                                                        <>
+                                                            <Show when={show_damage()[0][idx()]}>
+                                                                <SimpleHpBar v_now={() => battle_selected().opening_air_attack.e_damage.now_hps![idx()]} v_max={() => battle_selected().e_hp_max![idx()]}></SimpleHpBar>
                                                             </Show>
                                                         </>
                                                     )}
@@ -197,21 +226,17 @@ export function OpeningAirAttackComponent({deck_ship_id, battle_selected}: AirDa
                                                                 </div>
                                                             </>
                                                         )}
-                                                        {/* {(plane_flag, idx) => (
+                                                    </For>
+                                                </div>
+                                            </td>
+                                            <td>
+                                                <div class="flex flex-col">
+                                                    <For each={battle_selected().opening_air_attack.e_damage.plane_from}>
+                                                        {(ship_idx) => (
                                                             <>
-                                                                <Show when={plane_flag != -1}>
-                                                                    <Show when={idx() > 0}>
-                                                                        <div class="h-px"></div>
-                                                                    </Show>
-                                                                    <div class="flex flex-nowrap">
-                                                                        <SimpleShipNameComponent ship_id={battle_selected().enemy_ship_id[idx()]} ship_slot={battle_selected().e_slot![idx()]} ship_param={battle_selected().e_params![idx()]} ship_max_hp={battle_selected().e_hp_max![idx()]}></SimpleShipNameComponent>
-                                                                        <Show when={battle_selected().opening_air_attack.e_damage.protect_flag?.some(flag => flag == true)}>
-                                                                            <IconShield class="h-5 w-5"></IconShield>
-                                                                        </Show>
-                                                                    </div>
-                                                                </Show>
+                                                                <SimpleHpBar v_now={() => battle_selected().opening_air_attack.e_damage.now_hps![ship_idx]} v_max={() => battle_selected().e_hp_max![ship_idx]}></SimpleHpBar>
                                                             </>
-                                                        )} */}
+                                                        )}
                                                     </For>
                                                 </div>
                                             </td>
@@ -224,6 +249,17 @@ export function OpeningAirAttackComponent({deck_ship_id, battle_selected}: AirDa
                                                                     <div class="h-px"></div>
                                                                 </Show>
                                                                 <ShipNameComponent ship_id={deck_ship_id[battle_selected().deck_id!][idx()]}></ShipNameComponent>
+                                                            </Show>
+                                                        </>
+                                                    )}
+                                                </For>
+                                            </td>
+                                            <td>
+                                                <For each={battle_selected().opening_air_attack.f_damage.damages}>
+                                                    {(_, idx) => (
+                                                        <>
+                                                            <Show when={show_damage()[1][idx()]}>
+                                                                <SimpleHpBar v_now={() => battle_selected().opening_air_attack.f_damage.now_hps![idx()]} v_max={() => ships.ships[deck_ship_id[battle_selected().deck_id!][idx()]].maxhp}></SimpleHpBar>
                                                             </Show>
                                                         </>
                                                     )}

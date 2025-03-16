@@ -6,6 +6,8 @@ import "../css/divider.css";
 import { SimpleShipNameComponent } from './simple_ship_name';
 import { Battle } from '../interface/battle';
 import IconShield from '../icons/shield';
+import { SimpleHpBar } from './simple_hp_bar';
+import { useShips } from '../utility/provider';
 
 interface AirDamageProps {
     deck_ship_id: { [key: number]: number[] };
@@ -13,6 +15,9 @@ interface AirDamageProps {
 }
 
 export function SupportAttackComponent({deck_ship_id, battle_selected}: AirDamageProps) {
+
+    const [ships,] = useShips();
+
     const show_support = createMemo<boolean>(() => {
         if (battle_selected() == undefined) return false;
         if (battle_selected().deck_id == null) return false;
@@ -63,7 +68,9 @@ export function SupportAttackComponent({deck_ship_id, battle_selected}: AirDamag
                             <thead>
                                 <tr>
                                     <th>From</th>
+                                    <th>HP</th>
                                     <th>To</th>
+                                    <th>HP</th>
                                     <th>Attack</th>
                                 </tr>
                             </thead>
@@ -72,13 +79,24 @@ export function SupportAttackComponent({deck_ship_id, battle_selected}: AirDamag
                                     <tr class="table_hover table_active rounded">
                                         <td>
                                             <div class="flex flex-col">
-                                                <For each={deck_ship_id[battle_selected()!.support_attack!.support_hourai!.deck_id ?? battle_selected()!.support_attack!.support_hourai!.ship_id]}>
+                                                <For each={deck_ship_id[battle_selected()!.support_attack!.support_hourai!.deck_id] ?? battle_selected()!.support_attack!.support_hourai!.ship_id}>
                                                     {(ship_id, idx) => (
                                                         <>
                                                             <Show when={idx() > 0}>
                                                                 <div class="h-px"></div>
                                                             </Show>
                                                             <ShipNameComponent ship_id={ship_id}></ShipNameComponent>
+                                                        </>
+                                                    )}
+                                                </For>
+                                            </div>
+                                        </td>
+                                        <td>
+                                            <div class="flex flex-col">
+                                                <For each={(deck_ship_id[battle_selected()!.support_attack!.support_hourai!.deck_id] ?? battle_selected()!.support_attack!.support_hourai!.ship_id).filter((ship_id) => ship_id != -1)}>
+                                                    {(ship_id) => (
+                                                        <>
+                                                            <SimpleHpBar v_now={() => ships.ships[ship_id].nowhp} v_max={() => ships.ships[ship_id].maxhp}></SimpleHpBar>
                                                         </>
                                                     )}
                                                 </For>
@@ -101,7 +119,16 @@ export function SupportAttackComponent({deck_ship_id, battle_selected}: AirDamag
                                                 )}
                                             </For>
                                         </td>
-                                        <td >
+                                        <td>
+                                            <For each={battle_selected().enemy_ship_id}>
+                                                {(_, idx) => (
+                                                    <>
+                                                        <SimpleHpBar v_now={() => battle_selected().support_attack!.support_hourai!.now_hps![idx()]} v_max={() => battle_selected().e_hp_max![idx()]}></SimpleHpBar>
+                                                    </>
+                                                )}
+                                            </For>
+                                        </td>
+                                        <td>
                                             <For each={battle_selected().enemy_ship_id}>
                                                 {(_, idx) => (
                                                     <>
@@ -126,7 +153,18 @@ export function SupportAttackComponent({deck_ship_id, battle_selected}: AirDamag
                                                                 <Show when={idx() > 0}>
                                                                     <div class="h-px"></div>
                                                                 </Show>
-                                                                <ShipNameComponent ship_id={deck_ship_id[battle_selected().support_attack!.support_airatack!.deck_id][ship_idx-1]}></ShipNameComponent>
+                                                                <ShipNameComponent ship_id={deck_ship_id[battle_selected().support_attack!.support_airatack!.deck_id][ship_idx]}></ShipNameComponent>
+                                                            </>
+                                                        )}
+                                                    </For>
+                                                </div>
+                                            </td>
+                                            <td>
+                                                <div class="flex flex-col">
+                                                    <For each={battle_selected().support_attack!.support_airatack!.f_damage.plane_from}>
+                                                        {(ship_idx) => (
+                                                            <>
+                                                                <SimpleHpBar v_now={() => ships.ships[deck_ship_id[battle_selected().support_attack!.support_airatack!.deck_id][ship_idx]].nowhp} v_max={() => ships.ships[deck_ship_id[battle_selected().support_attack!.support_airatack!.deck_id][ship_idx]].maxhp}></SimpleHpBar>
                                                             </>
                                                         )}
                                                     </For>
@@ -146,6 +184,17 @@ export function SupportAttackComponent({deck_ship_id, battle_selected}: AirDamag
                                                                         <IconShield class="h-5 w-5"></IconShield>
                                                                     </Show>
                                                                 </div>
+                                                            </Show>
+                                                        </>
+                                                    )}
+                                                </For>
+                                            </td>
+                                            <td>
+                                                <For each={battle_selected().support_attack!.support_airatack!.e_damage.damages}>
+                                                    {(_, idx) => (
+                                                        <>
+                                                            <Show when={show_air_damage()[0][idx()]}>
+                                                                <SimpleHpBar v_now={() => battle_selected().support_attack!.support_airatack!.e_damage.now_hps[idx()]} v_max={() => battle_selected().e_hp_max![idx()]}></SimpleHpBar>
                                                             </Show>
                                                         </>
                                                     )}

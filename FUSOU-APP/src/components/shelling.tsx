@@ -6,6 +6,8 @@ import "../css/divider.css";
 import { SimpleShipNameComponent } from './simple_ship_name';
 import { Battle } from '../interface/battle';
 import IconShield from '../icons/shield';
+import { SimpleHpBar } from './simple_hp_bar';
+import { useShips } from '../utility/provider';
 
 interface AntiSubmarineProps {
     deck_ship_id: { [key: number]: number[] };
@@ -13,6 +15,8 @@ interface AntiSubmarineProps {
 }
 
 export function ShellingComponent({deck_ship_id, battle_selected}: AntiSubmarineProps) {
+
+    const[ships, ] = useShips();
     
     const show_shelling = createMemo<boolean>(() => {
         if (battle_selected() == undefined) return false;
@@ -20,7 +24,6 @@ export function ShellingComponent({deck_ship_id, battle_selected}: AntiSubmarine
         if (battle_selected().hougeki == null) return false;
         return true;
     });
-
 
     return (
         <Show when={show_shelling()}>
@@ -34,7 +37,9 @@ export function ShellingComponent({deck_ship_id, battle_selected}: AntiSubmarine
                             <thead>
                                 <tr>
                                     <th>From</th>
+                                    <th>HP</th>
                                     <th>To</th>
+                                    <th>HP</th>
                                     <th>Attack</th>
                                 </tr>
                             </thead>
@@ -53,6 +58,13 @@ export function ShellingComponent({deck_ship_id, battle_selected}: AntiSubmarine
                                                             </Show>
                                                         </td>
                                                         <td>
+                                                            <Show when={hougeki.at_eflag[at_index()]==0} fallback={
+                                                                <SimpleHpBar v_now={() => hougeki.e_now_hps[at_index()][at]} v_max={() => battle_selected().e_hp_max![at]}></SimpleHpBar>
+                                                            }>
+                                                                <SimpleHpBar v_now={() => hougeki.f_now_hps[at_index()][at]} v_max={() => ships.ships[deck_ship_id[battle_selected().deck_id!][at]].maxhp}></SimpleHpBar>
+                                                            </Show>
+                                                        </td>
+                                                        <td>
                                                             <div class="flex flex-col">
                                                                 <For each={hougeki.df_list[at_index()]}>
                                                                     {(df, df_index) => (
@@ -64,6 +76,21 @@ export function ShellingComponent({deck_ship_id, battle_selected}: AntiSubmarine
                                                                             </Show>
                                                                             <Show when={hougeki.protect_flag![at_index()][df_index()] == true}>
                                                                                 <IconShield class="h-5 w-5"></IconShield>
+                                                                            </Show>
+                                                                        </div>
+                                                                    )}
+                                                                </For>
+                                                            </div>
+                                                        </td>
+                                                        <td>
+                                                            <div class="flex flex-col">
+                                                                <For each={hougeki.df_list[at_index()]}>
+                                                                    {(df) => (
+                                                                        <div class="flex flex-nowarp">
+                                                                            <Show when={hougeki.at_eflag[at_index()]==1} fallback={
+                                                                                <SimpleHpBar v_now={() => hougeki.e_now_hps[at_index()][df]} v_max={() => battle_selected().e_hp_max![df]}></SimpleHpBar>
+                                                                            }>
+                                                                                <SimpleHpBar v_now={() => hougeki.f_now_hps[at_index()][df]} v_max={() => ships.ships[deck_ship_id[battle_selected().deck_id!][df]].maxhp}></SimpleHpBar>
                                                                             </Show>
                                                                         </div>
                                                                     )}
