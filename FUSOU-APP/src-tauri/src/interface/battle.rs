@@ -769,8 +769,8 @@ pub fn calc_dmg(battle: &mut Battle) {
                     //     f_total_damages[idx] += x as i64;
                     // });
 
-                    f_nowhps.iter().enumerate().for_each(|(idx, &f_nowhp)| {
-                        air_base_assault.e_damage.now_hps[idx] = f_nowhp - e_total_damages[idx];
+                    e_nowhps.iter().enumerate().for_each(|(idx, &e_nowhp)| {
+                        air_base_assault.e_damage.now_hps[idx] = e_nowhp - e_total_damages[idx];
                     });
 
                     air_base_assault.e_damage.damages.clone().unwrap_or(vec![0_f32; 0]).iter().enumerate().for_each(|(idx, &x)| {
@@ -784,8 +784,8 @@ pub fn calc_dmg(battle: &mut Battle) {
                     //     f_total_damages[idx] += x as i64;
                     // });
 
-                    f_nowhps.iter().enumerate().for_each(|(idx, &f_nowhp)| {
-                        carrier_base_assault.e_damage.now_hps[idx] = f_nowhp - e_total_damages[idx];
+                    e_nowhps.iter().enumerate().for_each(|(idx, &e_nowhp)| {
+                        carrier_base_assault.e_damage.now_hps[idx] = e_nowhp - e_total_damages[idx];
                     });
 
                     carrier_base_assault.e_damage.damages.clone().unwrap_or(vec![0_f32; 0]).iter().enumerate().for_each(|(idx, &x)| {
