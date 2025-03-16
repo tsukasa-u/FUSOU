@@ -764,15 +764,17 @@ pub fn calc_dmg(battle: &mut Battle) {
         match battle_order {
             BattleType::AirBaseAssult => {
                 if let Some(air_base_assault) = battle.air_base_assault.as_mut() {
+
                     // air_base_assault.f_damage.damages.clone().unwrap_or(vec![0_f32; 0]).iter().enumerate().for_each(|(idx, &x)| {
                     //     f_total_damages[idx] += x as i64;
                     // });
-                    air_base_assault.e_damage.damages.clone().unwrap_or(vec![0_f32; 0]).iter().enumerate().for_each(|(idx, &x)| {
-                        e_total_damages[idx] += x as i64;
-                    });
 
                     f_nowhps.iter().enumerate().for_each(|(idx, &f_nowhp)| {
                         air_base_assault.e_damage.now_hps[idx] = f_nowhp - e_total_damages[idx];
+                    });
+
+                    air_base_assault.e_damage.damages.clone().unwrap_or(vec![0_f32; 0]).iter().enumerate().for_each(|(idx, &x)| {
+                        e_total_damages[idx] += x as i64;
                     });
                 }
             },
@@ -781,76 +783,73 @@ pub fn calc_dmg(battle: &mut Battle) {
                     // carrier_base_assault.f_damage.damages.clone().unwrap_or(vec![0_f32; 0]).iter().enumerate().for_each(|(idx, &x)| {
                     //     f_total_damages[idx] += x as i64;
                     // });
-                    carrier_base_assault.e_damage.damages.clone().unwrap_or(vec![0_f32; 0]).iter().enumerate().for_each(|(idx, &x)| {
-                        e_total_damages[idx] += x as i64;
-                    });
 
                     f_nowhps.iter().enumerate().for_each(|(idx, &f_nowhp)| {
                         carrier_base_assault.e_damage.now_hps[idx] = f_nowhp - e_total_damages[idx];
+                    });
+
+                    carrier_base_assault.e_damage.damages.clone().unwrap_or(vec![0_f32; 0]).iter().enumerate().for_each(|(idx, &x)| {
+                        e_total_damages[idx] += x as i64;
                     });
                 }
             },
             BattleType::AirBaseAirAttack => {
                 if let Some(air_base_air_attacks) = battle.air_base_air_attacks.as_mut() {
                     air_base_air_attacks.attacks.iter_mut().for_each(|air_base_air_attack| {
-                        air_base_air_attack.f_damage.damages.clone().unwrap_or(vec![0_f32; 0]).iter().enumerate().for_each(|(idx, &x)| {
-                            f_total_damages[idx] += x as i64;
-                        });
-
                         f_nowhps.iter().enumerate().for_each(|(idx, &f_nowhp)| {
                             air_base_air_attack.f_damage.now_hps[idx] = f_nowhp - f_total_damages[idx];
                         });
+
+                        air_base_air_attack.f_damage.damages.clone().unwrap_or(vec![0_f32; 0]).iter().enumerate().for_each(|(idx, &x)| {
+                            f_total_damages[idx] += x as i64;
+                        });
                     });
                     air_base_air_attacks.attacks.iter_mut().for_each(|air_base_air_attack| {
-                        air_base_air_attack.e_damage.damages.clone().unwrap_or(vec![0_f32; 0]).iter().enumerate().for_each(|(idx, &x)| {
-                            e_total_damages[idx] += x as i64;
-                        });
-
                         e_nowhps.iter().enumerate().for_each(|(idx, &e_nowhp)| {
                             air_base_air_attack.e_damage.now_hps[idx] = e_nowhp - e_total_damages[idx];
+                        });
+
+                        air_base_air_attack.e_damage.damages.clone().unwrap_or(vec![0_f32; 0]).iter().enumerate().for_each(|(idx, &x)| {
+                            e_total_damages[idx] += x as i64;
                         });
                     });
                 }
             },
             BattleType::OpeningAirAttack => {
                 if let Some(opening_air_attack) = battle.opening_air_attack.as_mut() {
+                    f_nowhps.iter().enumerate().for_each(|(idx, &f_nowhp)| {
+                        opening_air_attack.f_damage.now_hps[idx] = f_nowhp - f_total_damages[idx];
+                    });
+                    e_nowhps.iter().enumerate().for_each(|(idx, &e_nowhp)| {
+                        opening_air_attack.e_damage.now_hps[idx] = e_nowhp - e_total_damages[idx];
+                    });
+
                     opening_air_attack.f_damage.damages.clone().unwrap_or(vec![0_f32; 0]).iter().enumerate().for_each(|(idx, &x)| {
                         f_total_damages[idx] += x as i64;
                     });
                     opening_air_attack.e_damage.damages.clone().unwrap_or(vec![0_f32; 0]).iter().enumerate().for_each(|(idx, &x)| {
                         e_total_damages[idx] += x as i64;
                     });
-
-                    println!("{:?}", f_nowhps);
-                    println!("{:?}", e_nowhps);
-                    f_nowhps.iter().enumerate().for_each(|(idx, &f_nowhp)| {
-                        println!("f_nowhp: {:?}", f_nowhp);
-                        println!("f_total_damages: {:?}", f_total_damages);
-                        println!("{:?}", opening_air_attack.f_damage.now_hps);
-                        opening_air_attack.f_damage.now_hps[idx] = f_nowhp - f_total_damages[idx];
-                    });
-                    e_nowhps.iter().enumerate().for_each(|(idx, &e_nowhp)| {
-                        println!("e_nowhp: {:?}", e_nowhp);
-                        println!("e_total_damages: {:?}", e_total_damages);
-                        println!("{:?}", opening_air_attack.e_damage.now_hps);
-                        opening_air_attack.e_damage.now_hps[idx] = e_nowhp - e_total_damages[idx];
-                    });
                 }
             },
             BattleType::SupportAttack => {
                 if let Some(support_attack) = battle.support_attack.as_mut() {
                     if let Some(support_hourai) = support_attack.support_hourai.as_mut() {
+                        e_nowhps.iter().enumerate().for_each(|(idx, &e_nowhp)| {
+                            support_hourai.now_hps[idx] = e_nowhp - e_total_damages[idx];
+                        });
+
                         support_hourai.damage.iter().enumerate().for_each(|(idx, &x)| {
                             e_total_damages[idx] += x as i64;
-
-                            support_hourai.now_hps[idx] = e_nowhps[idx] - e_total_damages[idx];
                         });
                     }
                     if let Some(support_airatack) = support_attack.support_airatack.as_mut() {
+                        e_nowhps.iter().enumerate().for_each(|(idx, &e_nowhp)| {
+                            support_airatack.e_damage.now_hps[idx] = e_nowhp - e_total_damages[idx];
+                        });
+
                         support_airatack.e_damage.damages.clone().unwrap_or(vec![0_f32; 0]).iter().enumerate().for_each(|(idx, &x)| {
                             e_total_damages[idx] += x as i64;
-
-                            support_airatack.e_damage.now_hps[idx] = e_nowhps[idx] - e_total_damages[idx];
                         });
                     }
                 }
@@ -858,6 +857,13 @@ pub fn calc_dmg(battle: &mut Battle) {
             BattleType::OpeningTaisen => {
                 if let Some(opening_taisen) = battle.opening_taisen.as_mut() {
                     opening_taisen.at_eflag.iter().enumerate().for_each(|(eflag_idx, &eflag)| {
+                        f_nowhps.iter().enumerate().for_each(|(idx, &f_nowhp)| {
+                            opening_taisen.f_now_hps[eflag_idx as usize][idx] = f_nowhp - f_total_damages[idx];
+                        });
+                        e_nowhps.iter().enumerate().for_each(|(idx, &e_nowhp)| {
+                            opening_taisen.e_now_hps[eflag_idx as usize][idx] = e_nowhp - e_total_damages[idx];
+                        });
+
                         opening_taisen.df_list[eflag_idx].iter().enumerate().for_each(|(df_idx, &df)| {
                             match eflag {
                                 1 => {
@@ -869,18 +875,18 @@ pub fn calc_dmg(battle: &mut Battle) {
                                 _ => {},
                             }
                         });
-
-                        f_nowhps.iter().enumerate().for_each(|(idx, &f_nowhp)| {
-                            opening_taisen.f_now_hps[eflag_idx as usize][idx] = f_nowhp - f_total_damages[idx];
-                        });
-                        e_nowhps.iter().enumerate().for_each(|(idx, &e_nowhp)| {
-                            opening_taisen.e_now_hps[eflag_idx as usize][idx] = e_nowhp - e_total_damages[idx];
-                        });
                     });
                 }
             },
             BattleType::OpeningRaigeki => {
                 if let Some(opening_raigeki) = battle.opening_raigeki.as_mut() {
+                    f_nowhps.iter().enumerate().for_each(|(idx, &f_nowhp)| {
+                        opening_raigeki.f_now_hps[idx] = f_nowhp - f_total_damages[idx];
+                    });
+                    e_nowhps.iter().enumerate().for_each(|(idx, &e_nowhp)| {
+                        opening_raigeki.e_now_hps[idx] = e_nowhp - e_total_damages[idx];
+                    });
+
                     opening_raigeki.fdam.iter().enumerate().for_each(|(idx, &x)| {
                         f_total_damages[idx] += x as i64;
                     });
@@ -888,19 +894,19 @@ pub fn calc_dmg(battle: &mut Battle) {
                         e_total_damages[idx] += x as i64;
 
                     });
-
-                    f_nowhps.iter().enumerate().for_each(|(idx, &f_nowhp)| {
-                        opening_raigeki.f_now_hps[idx] = f_nowhp - f_total_damages[idx];
-                    });
-                    e_nowhps.iter().enumerate().for_each(|(idx, &e_nowhp)| {
-                        opening_raigeki.e_now_hps[idx] = e_nowhp - e_total_damages[idx];
-                    });
                 };
             },
             BattleType::Hougeki(x) => {
                 if let Some(hougeki_list) = battle.hougeki.as_mut() {
                     if let Some(hougeki) = hougeki_list[*x as usize-1].as_mut() {
                         hougeki.at_eflag.iter().enumerate().for_each(|(eflag_idx, &eflag)| {
+                            f_nowhps.iter().enumerate().for_each(|(idx, &f_nowhp)| {
+                                hougeki.f_now_hps[eflag_idx as usize][idx] = f_nowhp - f_total_damages[idx];
+                            });
+                            e_nowhps.iter().enumerate().for_each(|(idx, &e_nowhp)| {
+                                hougeki.e_now_hps[eflag_idx as usize][idx] = e_nowhp - e_total_damages[idx];
+                            });
+
                             hougeki.df_list[eflag_idx].iter().enumerate().for_each(|(df_idx, &df)| {
                                 match eflag {
                                     1 => {
@@ -912,31 +918,24 @@ pub fn calc_dmg(battle: &mut Battle) {
                                     _ => {},
                                 }
                             });
-
-                            f_nowhps.iter().enumerate().for_each(|(idx, &f_nowhp)| {
-                                hougeki.f_now_hps[eflag_idx as usize][idx] = f_nowhp - f_total_damages[idx];
-                            });
-                            e_nowhps.iter().enumerate().for_each(|(idx, &e_nowhp)| {
-                                hougeki.e_now_hps[eflag_idx as usize][idx] = e_nowhp - e_total_damages[idx];
-                            });
                         });
                     }
                 }
             },
             BattleType::ClosingRaigeki => {
                 if let Some(closing_taigeki) = battle.closing_raigeki.as_mut() {
-                    closing_taigeki.fdam.iter().enumerate().for_each(|(idx, &x)| {
-                        f_total_damages[idx] += x as i64;
-                    });
-                    closing_taigeki.edam.iter().enumerate().for_each(|(idx, &x)| {
-                        e_total_damages[idx] += x as i64;
-                    });
-
                     f_nowhps.iter().enumerate().for_each(|(idx, &f_nowhp)| {
                         closing_taigeki.f_now_hps[idx] = f_nowhp - f_total_damages[idx];
                     });
                     e_nowhps.iter().enumerate().for_each(|(idx, &e_nowhp)| {
                         closing_taigeki.e_now_hps[idx] = e_nowhp - e_total_damages[idx];
+                    });
+
+                    closing_taigeki.fdam.iter().enumerate().for_each(|(idx, &x)| {
+                        f_total_damages[idx] += x as i64;
+                    });
+                    closing_taigeki.edam.iter().enumerate().for_each(|(idx, &x)| {
+                        e_total_damages[idx] += x as i64;
                     });
                 }
             },
@@ -946,6 +945,13 @@ pub fn calc_dmg(battle: &mut Battle) {
                         if let Some(at_eflag) = &support_hourai.hougeki.at_eflag {
                             at_eflag.iter().enumerate().for_each(|(eflag_idx, &eflag)| {
                                 if let Some(df_list) = &support_hourai.hougeki.df_list {
+                                    friend_nowhps.iter().enumerate().for_each(|(idx, &f_nowhp)| {
+                                        support_hourai.hougeki.f_now_hps[eflag_idx as usize][idx] = f_nowhp - f_total_damages[idx];
+                                    });
+                                    midngiht_e_nowhps.iter().enumerate().for_each(|(idx, &e_nowhp)| {
+                                        support_hourai.hougeki.e_now_hps[eflag_idx as usize][idx] = e_nowhp - e_total_damages[idx];
+                                    });
+
                                     df_list[eflag_idx].iter().enumerate().for_each(|(df_idx, &df)| {
                                         if let Some(damage) = &support_hourai.hougeki.damage {
                                             match eflag {
@@ -959,13 +965,6 @@ pub fn calc_dmg(battle: &mut Battle) {
                                             }
                                         }
                                     });
-
-                                    friend_nowhps.iter().enumerate().for_each(|(idx, &f_nowhp)| {
-                                        support_hourai.hougeki.f_now_hps[eflag_idx as usize][idx] = f_nowhp - f_total_damages[idx];
-                                    });
-                                    midngiht_e_nowhps.iter().enumerate().for_each(|(idx, &e_nowhp)| {
-                                        support_hourai.hougeki.e_now_hps[eflag_idx as usize][idx] = e_nowhp - e_total_damages[idx];
-                                    });
                                 }
                             });
                         }
@@ -977,6 +976,13 @@ pub fn calc_dmg(battle: &mut Battle) {
                     if let Some(at_eflag) = &midnight_hougeki.at_eflag {
                         at_eflag.iter().enumerate().for_each(|(eflag_idx, &eflag)| {
                             if let Some(df_list) = &midnight_hougeki.df_list {
+                                midngiht_f_nowhps.iter().enumerate().for_each(|(idx, &f_nowhp)| {
+                                    midnight_hougeki.f_now_hps[eflag_idx as usize][idx] = f_nowhp - f_total_damages[idx];
+                                });
+                                midngiht_e_nowhps.iter().enumerate().for_each(|(idx, &e_nowhp)| {
+                                    midnight_hougeki.e_now_hps[eflag_idx as usize][idx] = e_nowhp - e_total_damages[idx];
+                                });
+
                                 df_list[eflag_idx].iter().enumerate().for_each(|(df_idx, &df)| {
                                     if let Some(damage) = &midnight_hougeki.damage {
                                         match eflag {
@@ -989,13 +995,6 @@ pub fn calc_dmg(battle: &mut Battle) {
                                             _ => {},
                                         }
                                     }
-                                });
-
-                                midngiht_f_nowhps.iter().enumerate().for_each(|(idx, &f_nowhp)| {
-                                    midnight_hougeki.f_now_hps[eflag_idx as usize][idx] = f_nowhp - f_total_damages[idx];
-                                });
-                                midngiht_e_nowhps.iter().enumerate().for_each(|(idx, &e_nowhp)| {
-                                    midnight_hougeki.e_now_hps[eflag_idx as usize][idx] = e_nowhp - e_total_damages[idx];
                                 });
                             }
                         });
