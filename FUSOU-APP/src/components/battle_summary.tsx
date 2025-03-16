@@ -6,7 +6,7 @@ import "../css/divider.css";
 import { SimpleShipNameComponent } from './simple_ship_name';
 import { Battle } from '../interface/battle';
 import { useDeckPorts, useShips } from '../utility/provider';
-import { HpColorBarComponent } from './hp_color_bar';
+import { SimpleHpBar } from './simple_hp_bar';
 
 interface ButtleSummaryProps {
     deck_ship_id: { [key: number]: number[] };
@@ -142,6 +142,10 @@ export function BattleSummaryComponent({deck_ship_id, battle_selected}: ButtleSu
             f_escort_maxhps = deck_ship_id[battle_selected().deck_id!].map((ship_id) => ships.ships[ship_id].maxhp).slice(6, 12);
             f_escort_damages = (battle_selected().f_total_damages ?? [-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1]).slice(6, 12);
         }
+
+        console.log(battle_selected().enemy_ship_id);
+        console.log(e_escort_ship_id);
+
         return {
             f_main_ship_id: f_main_ship_id,
             f_main_nowhps: f_main_nowhps,
@@ -230,16 +234,7 @@ export function BattleSummaryComponent({deck_ship_id, battle_selected}: ButtleSu
                                                 </td>
                                                 <td>
                                                     <div class="flex-none">
-                                                        <div class="grid h-2.5 w-12 place-content-center">
-                                                            <div class="grid grid-flow-col auto-cols-max gap-1">
-                                                                <div>{ fleet_info().f_main_nowhps[idx] }</div>
-                                                                <div>/</div>
-                                                                <div>{ fleet_info().f_main_maxhps[idx]}</div>
-                                                            </div>
-                                                        </div>
-                                                        <div class="grid h-2.5 w-12 place-content-center">
-                                                            <HpColorBarComponent class="w-12 h-1" v_now={() => fleet_info().f_main_nowhps[idx]} v_max={() => fleet_info().f_main_maxhps[idx]}></HpColorBarComponent>
-                                                        </div>
+                                                        <SimpleHpBar v_now={() => fleet_info().f_main_nowhps[idx]} v_max={() => fleet_info().f_main_maxhps[idx]}></SimpleHpBar>
                                                     </div>
                                                 </td>
                                                 <td>
@@ -252,16 +247,7 @@ export function BattleSummaryComponent({deck_ship_id, battle_selected}: ButtleSu
                                                 </td>
                                                 <td>
                                                     <div class="flex-none">
-                                                        <div class="grid h-2.5 w-12 place-content-center">
-                                                            <div class="grid grid-flow-col auto-cols-max gap-1">
-                                                                <div>{ fleet_info().e_main_nowhps[idx] }</div>
-                                                                <div>/</div>
-                                                                <div>{ fleet_info().e_main_maxhps[idx]}</div>
-                                                            </div>
-                                                        </div>
-                                                        <div class="grid h-2.5 w-12 place-content-center">
-                                                            <HpColorBarComponent class="w-12 h-1" v_now={() => fleet_info().e_main_nowhps[idx]} v_max={() => fleet_info().e_main_maxhps[idx]}></HpColorBarComponent>
-                                                        </div>
+                                                        <SimpleHpBar v_now={() => fleet_info().e_main_nowhps[idx]} v_max={() => fleet_info().e_main_maxhps[idx]}></SimpleHpBar>
                                                     </div>
                                                 </td>
                                                 <td>
@@ -271,26 +257,18 @@ export function BattleSummaryComponent({deck_ship_id, battle_selected}: ButtleSu
                                         </tr>
                                     }
                                 </For>
-                                <Show when={deck_ports.combined_flag}>
-                                    <For each={[0, 1, 2, 3, 4, 5]}>
+                                {/* <Show when={fleet_info().e_escort_ship_id.length > 0 || fleet_info().f_escort_ship_id.length > 0}> */}
+                                    <For each={[0, 1, 2, 3, 4, 5].slice(0, Math.max(fleet_info().f_escort_damages.length, fleet_info().f_escort_damages.length))}>
                                         {(idx) => 
                                             <tr class="table_hover table_active rounded">
+                                                <td>1</td>
                                                 <Show when={fleet_info().f_escort_ship_id.length > idx} fallback={<><td></td><td></td><td></td></>}>
                                                     <td>
                                                         <ShipNameComponent ship_id={fleet_info().f_escort_ship_id[idx]}></ShipNameComponent>
                                                     </td>
                                                     <td>
                                                         <div class="flex-none">
-                                                            <div class="grid h-2.5 w-12 place-content-center">
-                                                                <div class="grid grid-flow-col auto-cols-max gap-1">
-                                                                    <div>{ fleet_info().f_escort_nowhps[idx] }</div>
-                                                                    <div>/</div>
-                                                                    <div>{ fleet_info().f_escort_maxhps[idx]}</div>
-                                                                </div>
-                                                            </div>
-                                                            <div class="grid h-2.5 w-12 place-content-center">
-                                                                <HpColorBarComponent class="w-12 h-1" v_now={() => fleet_info().f_escort_nowhps[idx]} v_max={() => fleet_info().f_escort_maxhps[idx]}></HpColorBarComponent>
-                                                            </div>
+                                                            <SimpleHpBar v_now={() => fleet_info().f_escort_nowhps[idx]} v_max={() => fleet_info().f_escort_maxhps[idx]}></SimpleHpBar>
                                                         </div>
                                                     </td>
                                                     <td>
@@ -303,16 +281,7 @@ export function BattleSummaryComponent({deck_ship_id, battle_selected}: ButtleSu
                                                     </td>
                                                     <td>
                                                         <div class="flex-none">
-                                                            <div class="grid h-2.5 w-12 place-content-center">
-                                                                <div class="grid grid-flow-col auto-cols-max gap-1">
-                                                                    <div>{ fleet_info().e_escort_nowhps[idx] }</div>
-                                                                    <div>/</div>
-                                                                    <div>{ fleet_info().e_escort_maxhps[idx]}</div>
-                                                                </div>
-                                                            </div>
-                                                            <div class="grid h-2.5 w-12 place-content-center">
-                                                                <HpColorBarComponent class="w-12 h-1" v_now={() => fleet_info().e_escort_nowhps[idx]} v_max={() => fleet_info().e_escort_maxhps[idx]}></HpColorBarComponent>
-                                                            </div>
+                                                            <SimpleHpBar v_now={() => fleet_info().e_escort_nowhps[idx]} v_max={() => fleet_info().e_escort_maxhps[idx]}></SimpleHpBar>
                                                         </div>
                                                     </td>
                                                     <td>
@@ -322,7 +291,7 @@ export function BattleSummaryComponent({deck_ship_id, battle_selected}: ButtleSu
                                             </tr>
                                         }
                                     </For>
-                                </Show>
+                                {/* </Show> */}
                                 <Show when={battle_selected().friendly_force_attack != null}>
                                     <For each={[0, 1, 2, 3, 4, 5]}>
                                         {(idx) =>
@@ -333,25 +302,16 @@ export function BattleSummaryComponent({deck_ship_id, battle_selected}: ButtleSu
                                                     </td>
                                                     <td>
                                                         <div class="flex-none">
-                                                            <div class="grid h-2.5 w-12 place-content-center">
-                                                                <div class="grid grid-flow-col auto-cols-max gap-1">
-                                                                    <div>{ fleet_info().friend_nowhps[idx] }</div>
-                                                                    <div>/</div>
-                                                                    <div>{ fleet_info().friend_maxhps[idx]}</div>
-                                                                </div>
-                                                            </div>
-                                                            <div class="grid h-2.5 w-12 place-content-center">
-                                                                <HpColorBarComponent class="w-12 h-1" v_now={() => fleet_info().friend_nowhps[idx]} v_max={() => fleet_info().friend_maxhps[idx]}></HpColorBarComponent>
-                                                            </div>
+                                                            <SimpleHpBar v_now={() => fleet_info().friend_nowhps[idx]} v_max={() => fleet_info().friend_maxhps[idx]}></SimpleHpBar>
                                                         </div>
                                                     </td>
                                                     <td>
                                                         {fleet_info().friend_damages[idx]}
                                                     </td>
+                                                    <td></td>
+                                                    <td></td>
+                                                    <td></td>
                                                 </Show>
-                                                <td></td>
-                                                <td></td>
-                                                <td></td>
                                             </tr>
                                         }
                                     </For>

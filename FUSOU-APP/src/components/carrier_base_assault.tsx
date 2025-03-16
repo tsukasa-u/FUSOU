@@ -27,8 +27,8 @@ export function CarrierBaseAssaultComponent({battle_selected}: AirDamageProps) {
 
     const show_damage = createMemo<boolean[][]>(() => {
         let show_damage: boolean[][] = [
-            [false, false, false, false, false, false, false],
-            [false, false, false, false, false, false, false],
+            [false, false, false, false, false, false, false, false, false, false, false, false, false, false],
+            [false, false, false, false, false, false, false, false, false, false, false, false, false, false],
         ];
         if (battle_selected().carrier_base_assault! == null) return show_damage;
         if (battle_selected().carrier_base_assault!.e_damage.bak_flag) {

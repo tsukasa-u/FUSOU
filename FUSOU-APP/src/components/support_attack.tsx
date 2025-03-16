@@ -28,8 +28,8 @@ export function SupportAttackComponent({deck_ship_id, battle_selected}: AirDamag
 
     const show_air_damage = createMemo<boolean[][]>(() => {
         let show_air_damage: boolean[][] = [
-            [false, false, false, false, false, false, false],
-            [false, false, false, false, false, false, false],
+            [false, false, false, false, false, false, false, false, false, false, false, false, false, false],
+            [false, false, false, false, false, false, false, false, false, false, false, false, false, false],
         ];
         if (battle_selected().support_attack == null) return show_air_damage;
         if (battle_selected().support_attack!.support_airatack == null) return show_air_damage;
