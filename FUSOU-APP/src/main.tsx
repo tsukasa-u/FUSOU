@@ -6,6 +6,7 @@ import { Router, Route } from "@solidjs/router";
 import App from './pages/app.tsx'
 import Start from './pages/start.tsx'
 import NotFound from "./pages/not_found.tsx";
+import Debug from "./pages/debug.tsx";
 
 import './tailwind.css'
 
@@ -15,6 +16,7 @@ render(
             <Route path="/app" component={App} />
             <Route path="/" component={Start} />
             <Route path="*" component={NotFound} />
+            <Route path="/debug" component={Debug} />
         </Router>
     ),
     document.getElementById("root") as HTMLElement
