@@ -6,6 +6,8 @@ import "../css/divider.css";
 import { SimpleShipNameComponent } from './simple_ship_name';
 import { Battle } from '../interface/battle';
 import IconShield from '../icons/shield';
+import { SimpleHpBar } from './simple_hp_bar';
+import { useShips } from '../utility/provider';
 
 interface AntiSubmarineProps {
     deck_ship_id: { [key: number]: number[] };
@@ -14,13 +16,14 @@ interface AntiSubmarineProps {
 
 export function OpeningAntiSubmarineComponent({deck_ship_id, battle_selected}: AntiSubmarineProps) {
     
+    const[ships, ] = useShips();
+    
     const show_anti_submarine = createMemo<boolean>(() => {
         if (battle_selected() == undefined) return false;
         if (battle_selected().deck_id == null) return false;
         if (battle_selected().opening_taisen == null) return false;
         return true;
     });
-
 
     return (
         <Show when={show_anti_submarine()}>
@@ -34,7 +37,9 @@ export function OpeningAntiSubmarineComponent({deck_ship_id, battle_selected}: A
                             <thead>
                                 <tr>
                                     <th>From</th>
+                                    <th>HP</th>
                                     <th>To</th>
+                                    <th>HP</th>
                                     <th>Attack</th>
                                 </tr>
                             </thead>
@@ -50,17 +55,39 @@ export function OpeningAntiSubmarineComponent({deck_ship_id, battle_selected}: A
                                                 </Show>
                                             </td>
                                             <td>
+                                                <Show when={battle_selected().opening_taisen.at_eflag[at_index()]==0} fallback={
+                                                    <SimpleHpBar v_now={() => battle_selected().opening_taisen.e_now_hps[at_index()][at]} v_max={() => battle_selected().e_hp_max![at]}></SimpleHpBar>
+                                                }>
+                                                    <SimpleHpBar v_now={() => battle_selected().opening_taisen.f_now_hps[at_index()][at]} v_max={() => ships.ships[deck_ship_id[battle_selected().deck_id!][at]].maxhp}></SimpleHpBar>
+                                                </Show>
+                                            </td>
+                                            <td>
                                                 <div class="flex flex-col">
                                                     <For each={battle_selected().opening_taisen.df_list[at_index()]}>
                                                         {(df, df_index) => (
                                                             <div class="flex flex-nowarp">
                                                                 <Show when={battle_selected().opening_taisen.at_eflag[at_index()]==1} fallback={
-                                                                    <SimpleShipNameComponent ship_id={battle_selected().enemy_ship_id[df]} ship_slot={battle_selected().e_slot![df]} ship_param={battle_selected().e_params![df]} ship_max_hp={battle_selected().e_hp_max![df]} display={false}></SimpleShipNameComponent>
+                                                                    <SimpleShipNameComponent ship_id={battle_selected().enemy_ship_id[df]} ship_slot={battle_selected().e_slot![df]} ship_param={battle_selected().e_params![df]} ship_max_hp={battle_selected().e_hp_max![df]} display={true}></SimpleShipNameComponent>
                                                                 }>
                                                                     <ShipNameComponent ship_id={deck_ship_id[battle_selected().deck_id!][df]}></ShipNameComponent>
                                                                 </Show>
                                                                 <Show when={battle_selected().opening_taisen.protect_flag[at_index()][df_index()] == true}>
                                                                     <IconShield class="h-5 w-5"></IconShield>
+                                                                </Show>
+                                                            </div>
+                                                        )}
+                                                    </For>
+                                                </div>
+                                            </td>
+                                            <td>
+                                                <div class="flex flex-col">
+                                                    <For each={battle_selected().opening_taisen.df_list[at_index()]}>
+                                                        {(df) => (
+                                                            <div class="flex flex-nowarp">
+                                                                <Show when={battle_selected().opening_taisen.at_eflag[at_index()]==1} fallback={
+                                                                    <SimpleHpBar v_now={() => battle_selected().opening_taisen.e_now_hps[at_index()][df]} v_max={() => battle_selected().e_hp_max![at]}></SimpleHpBar>
+                                                                }>
+                                                                    <SimpleHpBar v_now={() => battle_selected().opening_taisen.f_now_hps[at_index()][df]} v_max={() => ships.ships[deck_ship_id[battle_selected().deck_id!][at]].maxhp}></SimpleHpBar>
                                                                 </Show>
                                                             </div>
                                                         )}

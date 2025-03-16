@@ -86,6 +86,7 @@ export interface SupportHourai {
     deck_id: number,
     ship_id: number[],
     protect_flag: boolean[],
+    now_hps: number[],
 }
 
 
@@ -98,6 +99,8 @@ export interface MidnightHougeki {
     si_list: (number | null)[][] | null,
     sp_list: number[] | null,
     protect_flag: boolean[][] | null,
+    f_now_hps: number[][],
+    e_now_hps: number[][],
 }
 
 export interface AirBaseAirAttacks {
@@ -135,6 +138,7 @@ export interface AirDamage {
     rai_flag: (number | null)[] | null,
     bak_flag: (number | null)[] | null,
     protect_flag: boolean[] | null,
+    now_hps: number[],
 }
 
 export interface OpeningTaisen {
@@ -146,6 +150,8 @@ export interface OpeningTaisen {
     at_eflag: number[],
     si_list: (number | null)[][],
     protect_flag: boolean[][],
+    f_now_hps: number[][],
+    e_now_hps: number[][],
 }
 
 export interface OpeningRaigeki {
@@ -161,6 +167,8 @@ export interface OpeningRaigeki {
     ecl_list: number[],
     f_protect_flag: boolean[],
     e_protect_flag: boolean[],
+    f_now_hps: number[],
+    e_now_hps: number[],
 }
 
 export interface Hougeki {
@@ -172,6 +180,8 @@ export interface Hougeki {
     at_eflag: number[],
     si_list: (number | null)[][],
     protect_flag: boolean[][],
+    f_now_hps: number[][],
+    e_now_hps: number[][],
 }
 
 export interface ClosingRaigeki {
@@ -185,6 +195,8 @@ export interface ClosingRaigeki {
     ecl: number[],
     f_protect_flag: boolean[],
     e_protect_flag: boolean[],
+    f_now_hps: number[],
+    e_now_hps: number[],
 }
 
 export var global_battles: Battles = {
@@ -224,6 +236,7 @@ export var global_battle: Battle = {
             rai_flag: [],
             bak_flag: [],
             protect_flag: [],
+            now_hps: [],
         },
         e_damage: {
             plane_from: [],
@@ -236,6 +249,7 @@ export var global_battle: Battle = {
             rai_flag: [],
             bak_flag: [],
             protect_flag: [],
+            now_hps: [],
         },
     },
     support_attack: {
@@ -245,6 +259,7 @@ export var global_battle: Battle = {
             deck_id: 0,
             ship_id: [],
             protect_flag: [],
+            now_hps: [],
         },
         support_airatack: {
             deck_id: 0,
@@ -260,6 +275,7 @@ export var global_battle: Battle = {
                 rai_flag: [],
                 bak_flag: [],
                 protect_flag: [],
+                now_hps: [],
             },
             e_damage: {
                 plane_from: [],
@@ -272,6 +288,7 @@ export var global_battle: Battle = {
                 rai_flag: [],
                 bak_flag: [],
                 protect_flag: [],
+                now_hps: [],
             },
         },
     },
@@ -284,6 +301,8 @@ export var global_battle: Battle = {
         at_eflag: [],
         si_list: [],
         protect_flag: [],
+        f_now_hps: [],
+        e_now_hps: []
     },
     opening_raigeki: {
         fdam: [],
@@ -298,6 +317,8 @@ export var global_battle: Battle = {
         ecl_list: [],
         f_protect_flag: [],
         e_protect_flag: [],
+        f_now_hps: [],
+        e_now_hps: [],
     },
     hougeki: [],
     closing_raigeki: {
@@ -311,6 +332,8 @@ export var global_battle: Battle = {
         ecl: [],
         f_protect_flag: [],
         e_protect_flag: [],
+        f_now_hps: [],
+        e_now_hps: []
     },
     midngiht_touchplane: [],
     midnight_flare_pos: [],
@@ -323,6 +346,8 @@ export var global_battle: Battle = {
         si_list: [[]],
         sp_list: [],
         protect_flag: [[]],
+        f_now_hps: [],
+        e_now_hps: []
     },
     air_base_assault: null,
     carrier_base_assault: null,

@@ -7,6 +7,8 @@ import { SimpleShipNameComponent } from './simple_ship_name';
 import { Battle } from '../interface/battle';
 import { MstEquipmentComponent } from './mst_equipment';
 import IconShield from '../icons/shield';
+import { SimpleHpBar } from './simple_hp_bar';
+import { useShips } from '../utility/provider';
 
 interface MidnightShellingProps {
     deck_ship_id: { [key: number]: number[] };
@@ -14,6 +16,8 @@ interface MidnightShellingProps {
 }
 
 export function MidnightShellingComponent({deck_ship_id, battle_selected}: MidnightShellingProps) {
+
+    const [ships,] = useShips();
     
     const show_shelling = createMemo<boolean>(() => {
         if (battle_selected() == undefined) return false;
@@ -74,7 +78,9 @@ export function MidnightShellingComponent({deck_ship_id, battle_selected}: Midni
                             <thead>
                                 <tr>
                                     <th>From</th>
+                                    <th>HP</th>
                                     <th>To</th>
+                                    <th>HP</th>
                                     <th>Attack</th>
                                     <th>CI</th>
                                 </tr>
@@ -92,6 +98,13 @@ export function MidnightShellingComponent({deck_ship_id, battle_selected}: Midni
                                                     </Show>
                                                 </td>
                                                 <td>
+                                                    <Show when={battle_selected().midnight_hougeki?.at_eflag![at_index()]==0} fallback={
+                                                        <SimpleHpBar v_now={() => battle_selected().midnight_hougeki!.e_now_hps![at_index()][at]} v_max={() => battle_selected().e_hp_max![at]}></SimpleHpBar>
+                                                    }>
+                                                        <SimpleHpBar v_now={() => battle_selected().midnight_hougeki!.f_now_hps![at_index()][at]} v_max={() => ships.ships[deck_ship_id[battle_selected().deck_id!][at]].maxhp}></SimpleHpBar>
+                                                    </Show>
+                                                </td>
+                                                <td>
                                                     <div class="flex flex-col">
                                                         <For each={battle_selected().midnight_hougeki?.df_list![at_index()]}>
                                                             {(df, df_index) => (
@@ -104,6 +117,21 @@ export function MidnightShellingComponent({deck_ship_id, battle_selected}: Midni
                                                                     <Show when={battle_selected().midnight_hougeki?.protect_flag![at_index()][df_index()] == true}>
                                                                         <IconShield class="h-5 w-5"></IconShield>
                                                                     </Show>
+                                                                </div>
+                                                            )}
+                                                        </For>
+                                                    </div>
+                                                </td>
+                                                <td>
+                                                    <div class="flex flex-col">
+                                                        <For each={battle_selected().midnight_hougeki?.df_list![at_index()]}>
+                                                            {(df) => (
+                                                                <div class="flex flex-nowrap">
+                                                                <Show when={battle_selected().midnight_hougeki?.at_eflag![at_index()]==1} fallback={
+                                                                    <SimpleHpBar v_now={() => battle_selected().midnight_hougeki!.e_now_hps![at_index()][df]} v_max={() => battle_selected().e_hp_max![at]}></SimpleHpBar>
+                                                                }>
+                                                                    <SimpleHpBar v_now={() => battle_selected().midnight_hougeki!.f_now_hps![at_index()][df]} v_max={() => ships.ships[deck_ship_id[battle_selected().deck_id!][df]].maxhp}></SimpleHpBar>
+                                                                </Show>
                                                                 </div>
                                                             )}
                                                         </For>

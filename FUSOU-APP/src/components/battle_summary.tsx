@@ -271,7 +271,7 @@ export function BattleSummaryComponent({deck_ship_id, battle_selected}: ButtleSu
                                         </tr>
                                     }
                                 </For>
-                                {/* <Show when={deck_ports.combined_flag}>
+                                <Show when={deck_ports.combined_flag}>
                                     <For each={[0, 1, 2, 3, 4, 5]}>
                                         {(idx) => 
                                             <tr class="table_hover table_active rounded">
@@ -355,7 +355,7 @@ export function BattleSummaryComponent({deck_ship_id, battle_selected}: ButtleSu
                                             </tr>
                                         }
                                     </For>
-                                </Show> */}
+                                </Show>
                             </tbody>
                         </table>
                     </ul>

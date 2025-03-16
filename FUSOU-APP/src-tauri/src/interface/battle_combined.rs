@@ -1,3 +1,5 @@
+use std::vec;
+
 use chrono::Local;
 
 use crate::kcapi;
@@ -5,6 +7,7 @@ use crate::kcapi;
 use crate::interface::cells::KCS_CELLS;
 use crate::interface::battle::{FriendlyForceAttack, AirBaseAirAttacks, OpeningAirAttack, OpeningTaisen, OpeningRaigeki, ClosingRaigeki, Hougeki, SupportAttack, AirBaseAssult, Battle, MidnightHougeki, CarrierBaseAssault};
 use crate::interface::battle::calc_dmg;
+use crate::interface::battle::BattleType;
 
 impl From<kcapi::api_req_combined_battle::ec_battle::ApiData> for Battle {
     fn from(battle: kcapi::api_req_combined_battle::ec_battle::ApiData) -> Self {
@@ -25,7 +28,22 @@ impl From<kcapi::api_req_combined_battle::ec_battle::ApiData> for Battle {
 
         let cell_no = KCS_CELLS.lock().and_then(|cells| Ok(cells.last().unwrap_or(&0).clone())).unwrap_or(0);
 
+        let battle_order: Vec<BattleType> = vec![
+            BattleType::AirBaseAssult,
+            BattleType::CarrierBaseAssault,
+            BattleType::AirBaseAirAttack,
+            BattleType::OpeningAirAttack,
+            BattleType::SupportAttack,
+            BattleType::OpeningTaisen,
+            BattleType::OpeningRaigeki,
+            BattleType::Hougeki(1),
+            BattleType::ClosingRaigeki,
+            BattleType::Hougeki(2),
+            BattleType::Hougeki(3),
+        ];
+
         let mut ret = Self {
+            battle_order: Some(battle_order),
             timestamp: Some(Local::now().timestamp()),
             midnight_timestamp: None,
             cell_id: cell_no,
@@ -72,7 +90,13 @@ impl From<kcapi::api_req_combined_battle::ec_midnight_battle::ApiData> for Battl
 
         let cell_no = KCS_CELLS.lock().and_then(|cells| Ok(cells.last().unwrap_or(&0).clone())).unwrap_or(0);
 
+        let battle_order: Vec<BattleType> = vec![
+            BattleType::FriendlyForceAttack,
+            BattleType::MidnightHougeki,
+        ];
+
         let mut ret = Self {
+            battle_order: Some(battle_order),
             timestamp: None,
             midnight_timestamp: Some(Local::now().timestamp()),
             cell_id: cell_no,
