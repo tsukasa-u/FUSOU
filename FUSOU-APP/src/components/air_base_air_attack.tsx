@@ -27,7 +27,7 @@ export function AirBaseAirAttackComponent({area_id, battle_selected}: AirDamageP
         let show_damage: boolean[][] = [];
         if (!show_air_attack()) return show_damage;
         battle_selected().air_base_air_attacks.attacks.forEach((attack, attack_idx) => {
-            show_damage.push([false, false, false, false, false, false, false]);
+            show_damage.push([false, false, false, false, false, false, false, false, false, false, false, false, false, false]);
             if (attack.e_damage.bak_flag) {
                 attack.e_damage.bak_flag!.forEach((flag, idx) => {
                     show_damage[attack_idx][idx] ||= flag == 1;
@@ -106,7 +106,7 @@ export function AirBaseAirAttackComponent({area_id, battle_selected}: AirDamageP
                                                         {(_, idx) => (
                                                             <>
                                                                 <Show when={show_damage()[attack_idx()][idx()]}>
-                                                                    <SimpleHpBar v_now={() => battle_selected().air_base_air_attacks.attacks[attack_idx()].e_damage.now_hps![idx()]} v_max={() => battle_selected().e_hp_max![idx()]}></SimpleHpBar>
+                                                                    <SimpleHpBar v_now={() => battle_selected().air_base_air_attacks.attacks[attack_idx()].e_damage.now_hps[idx()]} v_max={() => battle_selected().e_hp_max![idx()]}></SimpleHpBar>
                                                                 </Show>
                                                             </>
                                                         )}

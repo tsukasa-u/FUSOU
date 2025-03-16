@@ -29,8 +29,8 @@ export function OpeningAirAttackComponent({deck_ship_id, battle_selected}: AirDa
 
     const show_damage = createMemo<boolean[][]>(() => {
         let show_damage: boolean[][] = [
-            [false, false, false, false, false, false, false],
-            [false, false, false, false, false, false, false],
+            [false, false, false, false, false, false, false, false, false, false, false, false, false, false],
+            [false, false, false, false, false, false, false, false, false, false, false, false, false, false],
         ];
         if (battle_selected().opening_air_attack == null) return show_damage;
         if (battle_selected().opening_air_attack.e_damage.bak_flag) {
@@ -147,7 +147,7 @@ export function OpeningAirAttackComponent({deck_ship_id, battle_selected}: AirDa
                                             <td>
                                                 <div class="flex flex-col">
                                                     <For each={battle_selected().opening_air_attack.f_damage.plane_from}>
-                                                        {(ship_idx, idx) => (
+                                                        {(ship_idx) => (
                                                             <>
                                                                 <SimpleHpBar v_now={() => battle_selected().opening_air_attack.f_damage.now_hps![ship_idx]} v_max={() => ships.ships[deck_ship_id[battle_selected().deck_id!][ship_idx]].maxhp}></SimpleHpBar>
                                                             </>
