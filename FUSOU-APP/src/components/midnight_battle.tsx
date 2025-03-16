@@ -128,7 +128,7 @@ export function MidnightShellingComponent({deck_ship_id, battle_selected}: Midni
                                                             {(df) => (
                                                                 <div class="flex flex-nowrap">
                                                                 <Show when={battle_selected().midnight_hougeki?.at_eflag![at_index()]==1} fallback={
-                                                                    <SimpleHpBar v_now={() => battle_selected().midnight_hougeki!.e_now_hps![at_index()][df]} v_max={() => battle_selected().e_hp_max![at]}></SimpleHpBar>
+                                                                    <SimpleHpBar v_now={() => battle_selected().midnight_hougeki!.e_now_hps![at_index()][df]} v_max={() => battle_selected().e_hp_max![df]}></SimpleHpBar>
                                                                 }>
                                                                     <SimpleHpBar v_now={() => battle_selected().midnight_hougeki!.f_now_hps![at_index()][df]} v_max={() => ships.ships[deck_ship_id[battle_selected().deck_id!][df]].maxhp}></SimpleHpBar>
                                                                 </Show>
