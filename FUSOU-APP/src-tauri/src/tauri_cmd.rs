@@ -1,4 +1,6 @@
 use std::collections::HashMap;
+use std::fs;
+use std::fs::canonicalize;
 
 use proxy_https::bidirectional_channel;
 use tauri::AppHandle;
@@ -89,6 +91,7 @@ pub async fn close_splashscreen(window: tauri::Window) {
   window.get_window("external").expect("no window labeled 'external' found").show().unwrap();
 }
 
+#[cfg(TAURI_BUILD_TYPE="DEBUG")]
 #[tauri::command]
 pub async fn open_debug_window(window: tauri::Window) {
   match window.get_window("debug") {
@@ -106,9 +109,83 @@ pub async fn open_debug_window(window: tauri::Window) {
   }
 }
 
+#[cfg(TAURI_BUILD_TYPE="DEBUG")]
 #[tauri::command]
 pub async fn close_debug_window(window: tauri::Window) {
   window.get_window("debug").expect("no window labeled 'debug' found").close().unwrap();
+}
+
+#[cfg(TAURI_BUILD_TYPE="DEBUG")]
+#[tauri::command]
+pub async fn read_dir(window: tauri::Window, path: &str) -> Result<(), String> {
+  let dir = fs::read_dir(path);
+  if let Err(e) = dir {
+    return Err(e.to_string());
+  }
+  let dir = dir.unwrap();
+  let mut files: Vec<String> = Vec::new();
+  let mut dirs: Vec<String> = Vec::new();
+
+  if let Ok(canonicalized_path) = canonicalize(path) {
+    dirs.push(canonicalized_path.to_string_lossy().to_string().into());
+
+    if let Some(dir_parent) = canonicalized_path.parent() {
+      dirs.push(dir_parent.to_string_lossy().to_string().into());
+    }
+  }
+
+  for item in dir.into_iter() {
+    match item {
+      Ok(item) => {
+        if let Ok(file_type) = item.file_type() {
+          let item_path = canonicalize(item.path()).unwrap();
+          // let item_path = item.path();
+          if file_type.is_dir() {
+            dirs.push(item_path.to_string_lossy().to_string().into());
+          } else {
+            files.push(item_path.to_string_lossy().to_string().into());
+          }
+        }
+      },
+      Err(e) => {
+        return Err(e.to_string());
+      }
+    }
+  }
+
+  let _ = window.app_handle().emit_to(
+    "debug",
+    "set-debug-api-read-dir",
+    vec![dirs, files]
+  );
+
+  return Ok(());
+}
+
+#[cfg(TAURI_BUILD_TYPE="DEBUG")]
+#[tauri::command]
+pub async fn read_emit_file(window: tauri::Window, path: &str) -> Result<(), String> {
+  use crate::json_parser::{emit_data, struct_selector};
+
+
+  let file = fs::read_to_string(path);
+  if let Err(e) = file {
+    return Err(e.to_string());
+  }
+  let content = file.unwrap();
+
+  let path_string = path.to_string();
+  let path_split_slash: Vec<&str> = path_string.split("/").collect();
+  let path_split_at: Vec<String> = path_split_slash[path_split_slash.len()-1].to_string().split("@").map(|s| s.to_string()).collect();
+  let formated_path = format!("/kcsapi/{}/{}", path_split_at[1], path_split_at[2]);
+
+  if let Ok(emit_data_list) = struct_selector(formated_path, content) {
+    for emit_data_element in emit_data_list {
+        emit_data(&window.app_handle(), emit_data_element);
+    }
+  }
+
+  return Ok(());
 }
 
 #[tauri::command]

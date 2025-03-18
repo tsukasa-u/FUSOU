@@ -641,3 +641,48 @@ export function useAirBases() {
     }
     return context as [AirBases, (value: AirBases) => void];
 }
+
+//-----
+
+
+const DebugApiContext = createContext<(string[][] | { set(data: string[][]): void; })[]>();
+
+export function DebugApiProvider(props: { children: JSX.Element }) {
+    let store_data: string[][] = [[],[]];
+    const [data, setData] = createStore(store_data);
+    const setter = [
+        data,
+        {
+            set(data: string[][]) {
+                setData(data);
+            }
+        }
+    ];
+
+    createEffect(() => {
+        let unlisten_data: UnlistenFn;
+        (async() => {
+            unlisten_data = await listen<string[][]>('set-debug-api-read-dir', event => {
+              setData(event.payload);
+            });
+        })();
+        
+        onCleanup(() => { 
+            if (unlisten_data) unlisten_data();
+        });
+    });
+
+    return (
+        <DebugApiContext.Provider value={setter}>
+            {props.children}
+        </DebugApiContext.Provider>
+    );
+}
+
+export function useDebugApi() {
+    const context = useContext(DebugApiContext);
+    if (!context) {
+      throw new Error("useDebugApi: cannot find a DebugApiContext")
+    }
+    return context as [string[][], (value: string[][]) => void];
+}
