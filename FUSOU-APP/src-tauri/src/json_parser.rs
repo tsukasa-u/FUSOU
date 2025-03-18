@@ -8,7 +8,7 @@ use register_trait::expand_struct_selector;
 // use crate::kcapi;
 use crate::interface::interface::{EmitData, Add, Set};
 
-fn emit_data<R: tauri::Runtime>(handle: &impl tauri::Manager<R>, emit_data: EmitData) {
+pub fn emit_data<R: tauri::Runtime>(handle: &impl tauri::Manager<R>, emit_data: EmitData) {
     match emit_data {
         EmitData::Add(data) => {
             match data {
@@ -111,7 +111,7 @@ fn emit_data<R: tauri::Runtime>(handle: &impl tauri::Manager<R>, emit_data: Emit
 
 // Should I rewrite this attribute marcro to macro_rules!?
 #[expand_struct_selector(path = "./src/kcapi/")]
-fn struct_selector(name: String, data: String) -> Result<Vec<EmitData>,  Box<dyn Error>> {
+pub fn struct_selector(name: String, data: String) -> Result<Vec<EmitData>,  Box<dyn Error>> {
     
     let data_removed_bom: String = data.replace("\u{feff}", "");
     let data_removed_svdata: String = data_removed_bom.replace("svdata=", "");

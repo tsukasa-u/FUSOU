@@ -165,6 +165,8 @@ async fn main() -> ExitCode {
       tauri_cmd::check_proxy_server_health,
       tauri_cmd::open_debug_window,
       tauri_cmd::close_debug_window,
+      tauri_cmd::read_dir,
+      tauri_cmd::read_emit_file,
     ])
     .plugin(tauri_plugin_window_state::Builder::default().build())
     .setup(move |app| {
