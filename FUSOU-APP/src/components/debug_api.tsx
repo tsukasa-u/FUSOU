@@ -9,6 +9,7 @@ import IconChevronRight from "../icons/chevron_right";
 import IconChevronDoubleRight from "../icons/chevron_double_right";
 import IconChevronDoubleLeft from "../icons/chevron_double_left";
 import IconChevronLeft from "../icons/chevron_left";
+import IconSort from "../icons/sort";
 
 export function DebugApi() {
 
@@ -16,6 +17,7 @@ export function DebugApi() {
     const [fileApi, setFileApi] = createSignal<string[]>([]);
     const [pageCounter, setPageCounter] = createSignal<number>(1);
     const [apiCounter, setApiCounter] = createSignal<number>(0);
+    const [checkBoxSignals, setCheckBoxSignals] = createSignal<boolean>(false);
 
     const [debug_api, ] = useDebugApi();
 
@@ -62,6 +64,14 @@ export function DebugApi() {
 
                 <div class="flex flex-nowrap">
                     <div class="w-5/12">
+                        <div class="pb-4">
+                            <button class="btn btn-square bg-base-100" onClick={(e) => {
+                                setCheckBoxSignals(!checkBoxSignals());
+                                setFilecheackSignals(fileExistSignals().map((v) => (v ? checkBoxSignals() : false)));
+                            }}>
+                                <input type="checkbox" class="checkbox checkbox-md" checked={checkBoxSignals()}/>
+                            </button>
+                        </div>
                         <ul class="menu menu-xs bg-base-100 rounded-box w-full">
                             <For each={filecheackSignals}>
                                 {(signal, idx) => (
@@ -83,17 +93,25 @@ export function DebugApi() {
                         <div class="grid grid-cols-4 gap-4 py-4 justify-self-center w-9/12">
                             <button class="btn btn-square bg-base-100" onClick={() => {
                                 setPageCounter(1);
+                                setFilecheackSignals([false, false, false, false, false, false, false, false, false, false]);
+                                setCheckBoxSignals(false);
                             }}><IconChevronDoubleLeft class="h-4" /></button>
                             <button class="btn btn-square bg-base-100" onClick={() => {
                                 if (pageCounter() == 1) return;
                                 setPageCounter(pageCounter() - 1);
+                                setFilecheackSignals([false, false, false, false, false, false, false, false, false, false]);
+                                setCheckBoxSignals(false);
                             }}><IconChevronLeft class="h-4" /></button>
                             <button class="btn btn-square bg-base-100" onClick={() => {
                                 if (pageCounter() == Math.ceil(debug_api[1].length / 10)) return;
                                 setPageCounter(pageCounter() + 1);
+                                setFilecheackSignals([false, false, false, false, false, false, false, false, false, false]);
+                                setCheckBoxSignals(false);
                             }}><IconChevronRight class="h-4" /></button>
                             <button class="btn btn-square bg-base-100" onClick={() => {
                                 setPageCounter(Math.ceil(debug_api[1].length / 10));
+                                setFilecheackSignals([false, false, false, false, false, false, false, false, false, false]);
+                                setCheckBoxSignals(false);
                             }}><IconChevronDoubleRight class="h-4" /></button>
                         </div>
                         <div class="justify-self-center w-28">
@@ -104,7 +122,7 @@ export function DebugApi() {
                     </div>
 
                     <div class="grid grid-rows-1 place-content-center self-center gap-4 w-1/6 p-4 h-36">
-                        <button class="btn btn-square bg-base-100" onClick={() => {
+                        <button class="btn btn-square bg-base-100" style={{"z-index":99}} onClick={() => {
                             // let file_list = fileApi();
                             let file_list: string[] = [];
                             for (const item of fileApi()) {
@@ -120,37 +138,51 @@ export function DebugApi() {
                     </div>
 
                     <div class="w-5/12">
-                        <ul class="menu menu-xs bg-base-100 rounded-box w-full h-full">
-                            <For each={fileApi()}>
-                                {(file, file_idx) => (
-                                    <li>
-                                        <a>{file.split("/").reverse()[0]}
-                                            <span class="w-max"></span>
-                                            <button class="btn btn-circle btn-xs" onClick={() => {
-                                                let file_list: string[] = [];
-                                                for (let i = 0; i < fileApi().length; i++) {
-                                                    if (i != file_idx()) {
-                                                        file_list.push(fileApi()[i]);
+                        <div class="pb-4">
+                            <button class="btn btn-square bg-base-100" onClick={() => {
+                                let file_list: string[] = [];
+                                for (let i = 0; i < fileApi().length; i++) {
+                                    file_list.push(fileApi()[i]);
+                                }
+                                file_list.sort();
+                                setFileApi(file_list);
+                            }}><IconSort class="h-4" /></button>
+                            <span class="px-2"></span>
+                            <button class="btn btn-square bg-base-100" onClick={() => {
+                                let file_list: string[] = [];
+                                setFileApi(file_list);
+                            }}><IconXMark class="h-4" /></button>
+                        </div>
+                        <div class="w-full h-96" style={{"overflow-y": "auto"}}>
+                            <ul class="menu menu-xs bg-base-100 rounded-box w-full h-full">
+                                <For each={fileApi()}>
+                                    {(file, file_idx) => (
+                                        <li>
+                                            <a>{file.split("/").reverse()[0]}
+                                                <span class="w-max"></span>
+                                                <button class="btn btn-circle btn-xs" onClick={() => {
+                                                    let file_list: string[] = [];
+                                                    for (let i = 0; i < fileApi().length; i++) {
+                                                        if (i != file_idx()) {
+                                                            file_list.push(fileApi()[i]);
+                                                        }
                                                     }
-                                                }
-                                                setFileApi(file_list);
-                                            }}>
-                                                <IconXMark class="h-4"/>
-                                            </button>
-                                        </a>
-                                    </li>
-                                )}
-                            </For>
-                        </ul>
+                                                    setFileApi(file_list);
+                                                }}>
+                                                    <IconXMark class="h-4"/>
+                                                </button>
+                                            </a>
+                                        </li>
+                                    )}
+                                </For>
+                            </ul>
+                        </div>
                     </div>
                 </div>
 
                 <hr class="mt-4" />
 
-                <div class="grid grid-cols-3 gap-4 py-4 justify-self-center w-3/6">
-                    <button class="btn bg-base-100" onClick={() => {
-                        setApiCounter(0);
-                    }}>Load API</button>
+                <div class="grid grid-cols-3 gap-4 py-4 justify-self-center w-2/6">
                     <button class="btn bg-base-100" onClick={() => {
                         setApiCounter(0);
                     }}>Reset</button>
