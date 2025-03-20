@@ -42,8 +42,11 @@ interface FleetInfo {
     friend_slot: number[][],
 }
 
-function select_min(a: number[], b: number[]): number[] {
-    if (a == null) return b;
+function select_min(a: number[] | null, b: number[] | null): number[] {
+    if (a == null) {
+        if (b == null) return [-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1];
+        return b;
+    };
     if (b == null) return a;
 
     let ret = [];
@@ -98,8 +101,16 @@ export function BattleSummaryComponent({deck_ship_id, battle_selected}: ButtleSu
             friend_slot: [[]],
         };
 
-        let f_now_hps: number[] = select_min(battle_selected().f_nowhps!, battle_selected().midngiht_f_nowhps!).map((v, i) => v - battle_selected().f_total_damages![i]).map((v) => Math.max(v, 0));
-        let e_now_hps: number[] = select_min(battle_selected().e_nowhps!, battle_selected().midngiht_e_nowhps!).map((v, i) => v - battle_selected().e_total_damages![i]).map((v) => Math.max(v, 0));
+        // let f_now_hps: number[] = select_min(battle_selected().f_nowhps!, battle_selected().midngiht_f_nowhps!).map((v, i) => v - battle_selected().f_total_damages![i]).map((v) => Math.max(v, 0));
+        // let e_now_hps: number[] = select_min(battle_selected().e_nowhps!, battle_selected().midngiht_e_nowhps!).map((v, i) => v - battle_selected().e_total_damages![i]).map((v) => Math.max(v, 0));
+
+        let day_f_now_hps: number[] | null = battle_selected().f_nowhps !== null ? battle_selected().f_nowhps!.map((v, i) => v - battle_selected().f_total_damages![i]).map((v) => Math.max(v, 0)) : null;
+        let day_e_now_hps: number[] | null = battle_selected().e_nowhps !== null ? battle_selected().e_nowhps!.map((v, i) => v - battle_selected().e_total_damages![i]).map((v) => Math.max(v, 0)) : null;
+        let midnight_f_now_hps: number[] | null = battle_selected().midngiht_f_nowhps !== null ? battle_selected().midngiht_f_nowhps!.map((v, i) => v - battle_selected().midnight_f_total_damages![i]).map((v) => Math.max(v, 0)): null;
+        let midnight_e_now_hps: number[] | null = battle_selected().midngiht_e_nowhps !== null ? battle_selected().midngiht_e_nowhps!.map((v, i) => v - battle_selected().midnight_e_total_damages![i]).map((v) => Math.max(v, 0)) : null;
+
+        let f_now_hps: number[] = select_min(day_f_now_hps, midnight_f_now_hps);
+        let e_now_hps: number[] = select_min(day_e_now_hps, midnight_e_now_hps);
 
         let f_main_ship_id: number[] = deck_ship_id[battle_selected().deck_id!].filter((ship_id) => ship_id != -1);
         let f_main_nowhps: number[] = f_now_hps!.slice(0, f_main_ship_id.length);
@@ -142,9 +153,6 @@ export function BattleSummaryComponent({deck_ship_id, battle_selected}: ButtleSu
             f_escort_maxhps = deck_ship_id[battle_selected().deck_id!].map((ship_id) => ships.ships[ship_id].maxhp).slice(6, 12);
             f_escort_damages = (battle_selected().f_total_damages ?? [-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1]).slice(6, 12);
         }
-
-        console.log(battle_selected().enemy_ship_id);
-        console.log(e_escort_ship_id);
 
         return {
             f_main_ship_id: f_main_ship_id,
@@ -258,10 +266,9 @@ export function BattleSummaryComponent({deck_ship_id, battle_selected}: ButtleSu
                                     }
                                 </For>
                                 {/* <Show when={fleet_info().e_escort_ship_id.length > 0 || fleet_info().f_escort_ship_id.length > 0}> */}
-                                    <For each={[0, 1, 2, 3, 4, 5].slice(0, Math.max(fleet_info().f_escort_damages.length, fleet_info().f_escort_damages.length))}>
+                                    <For each={[0, 1, 2, 3, 4, 5].slice(0, Math.max(fleet_info().f_escort_ship_id.length, fleet_info().e_escort_ship_id.length))}>
                                         {(idx) => 
                                             <tr class="table_hover table_active rounded">
-                                                <td>1</td>
                                                 <Show when={fleet_info().f_escort_ship_id.length > idx} fallback={<><td></td><td></td><td></td></>}>
                                                     <td>
                                                         <ShipNameComponent ship_id={fleet_info().f_escort_ship_id[idx]}></ShipNameComponent>
