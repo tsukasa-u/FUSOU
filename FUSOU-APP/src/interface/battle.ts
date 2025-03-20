@@ -3,7 +3,68 @@ export interface Battles {
     battles: {[key: number]: Battle},
 }
 
+export interface EnumAirBaseAssult {AirBaseAssult: any};
+export interface EnumCarrierBaseAssault {CarrierBaseAssault: any};
+export interface EnumAirBaseAirAttack {AirBaseAirAttack: any};
+export interface EnumOpeningAirAttack {OpeningAirAttack: any};
+export interface EnumSupportAttack {SupportAttack: any};
+export interface EnumOpeningTaisen {OpeningTaisen: any};
+export interface EnumOpeningRaigeki {OpeningRaigeki: any};
+export interface EnumHougeki {Hougeki: number};
+export interface EnumClosingRaigeki {ClosingRaigeki: any};
+export interface EnumFriendlyForceAttack {FriendlyForceAttack: any};
+export interface EnumMidnightHougeki {MidnightHougeki: any};
+
+type EnumBattleType = EnumAirBaseAssult | EnumCarrierBaseAssault | EnumAirBaseAirAttack | EnumOpeningAirAttack | EnumSupportAttack | EnumOpeningTaisen | EnumOpeningRaigeki | EnumHougeki | EnumClosingRaigeki | EnumFriendlyForceAttack | EnumMidnightHougeki;
+
+export function implementsEnumAirBaseAssult(arg: EnumBattleType): arg is EnumAirBaseAssult {
+    return arg !== null && typeof arg === "object" && "AirBaseAssult" in arg;
+}
+
+export function implementsEnumCarrierBaseAssault(arg: EnumBattleType): arg is EnumCarrierBaseAssault {
+    return arg !== null && typeof arg === "object" && "CarrierBaseAssault" in arg;
+}
+
+export function implementsEnumAirBaseAirAttack(arg: EnumBattleType): arg is EnumAirBaseAirAttack {
+    return arg !== null && typeof arg === "object" && "AirBaseAirAttack" in arg;
+}
+
+export function implementsEnumOpeningAirAttack(arg: EnumBattleType): arg is EnumOpeningAirAttack {
+    return arg !== null && typeof arg === "object" && "OpeningAirAttack" in arg;
+}
+
+export function implementsEnumSupportAttack(arg: EnumBattleType): arg is EnumSupportAttack {
+    return arg !== null && typeof arg === "object" && "SupportAttack" in arg;
+}
+
+export function implementsEnumOpeningTaisen(arg: EnumBattleType): arg is EnumOpeningTaisen {
+    return arg !== null && typeof arg === "object" && "OpeningTaisen" in arg;
+}
+
+export function implementsEnumOpeningRaigeki(arg: EnumBattleType): arg is EnumOpeningRaigeki {
+    return arg !== null && typeof arg === "object" && "OpeningRaigeki" in arg;
+}
+
+export function implementsEnumHougeki(arg: any): arg is EnumHougeki {
+    return arg !== null && typeof arg === "object" && "Hougeki" in arg;
+}
+
+export function implementsEnumClosingRaigeki(arg: EnumBattleType): arg is EnumClosingRaigeki {
+    return arg !== null && typeof arg === "object" && "ClosingRaigeki" in arg;
+}
+
+export function implementsEnumFriendlyForceAttack(arg: EnumBattleType): arg is EnumFriendlyForceAttack {
+    return arg !== null && typeof arg === "object" && "FriendlyForceAttack" in arg;
+}
+
+export function implementsEnumMidnightHougeki(arg: EnumBattleType): arg is EnumMidnightHougeki {
+    return arg !== null && typeof arg === "object" && "MidnightHougeki" in arg;
+}
+
+
 export interface Battle {
+    battle_order: EnumBattleType[] | null,
+    
     cell_id: number,
     deck_id: number | null,
     formation: number[] | null,
@@ -14,6 +75,8 @@ export interface Battle {
     f_total_damages: number[] | null,
     e_total_damages: number[] | null,
     friend_total_damages: number[] | null,
+    midnight_f_total_damages: number[] | null,
+    midnight_e_total_damages: number[] | null,
     reconnaissance: number[] | null,
     forward_observe: number[] | null,
     escape_idx: number[] | null,
@@ -358,5 +421,8 @@ export var global_battle: Battle = {
     midngiht_e_nowhps: null,
     f_total_damages: null,
     e_total_damages: null,
-    friend_total_damages: null
+    friend_total_damages: null,
+    battle_order: null,
+    midnight_f_total_damages: null,
+    midnight_e_total_damages: null
 };
