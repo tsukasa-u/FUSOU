@@ -1,5 +1,5 @@
 
-import { createStore, reconcile } from "solid-js/store";
+import { createStore } from "solid-js/store";
 import "../css/divider.css";
 import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 import { invoke } from '@tauri-apps/api/tauri'
@@ -65,7 +65,7 @@ export function DebugApi() {
                 <div class="flex flex-nowrap">
                     <div class="w-5/12">
                         <div class="pb-4">
-                            <button class="btn btn-square bg-base-100" onClick={(e) => {
+                            <button class="btn btn-square bg-base-100" onClick={(_e) => {
                                 setCheckBoxSignals(!checkBoxSignals());
                                 setFilecheackSignals(fileExistSignals().map((v) => (v ? checkBoxSignals() : false)));
                             }}>
@@ -158,7 +158,9 @@ export function DebugApi() {
                                 <For each={fileApi()}>
                                     {(file, file_idx) => (
                                         <li>
-                                            <a>{file.split("/").reverse()[0]}
+                                            <a>
+                                                <div class="w-4 text-right">{file_idx()+1}</div>
+                                                {file.split("/").reverse()[0]}
                                                 <span class="w-max"></span>
                                                 <button class="btn btn-circle btn-xs" onClick={() => {
                                                     let file_list: string[] = [];
