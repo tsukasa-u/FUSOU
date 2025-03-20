@@ -113,7 +113,7 @@ export function AirBaseAirAttackComponent({area_id, battle_selected}: AirDamageP
                                                     </For>
                                                 </div>
                                             </td>
-                                            <td >
+                                            <td>
                                                 <div class="flex flex-col">
                                                     <For each={attack.e_damage.damages ?? []}>
                                                         {(dmg, idx) => (
