@@ -9,12 +9,12 @@ import IconShield from '../icons/shield';
 import { SimpleHpBar } from './simple_hp_bar';
 import { useShips } from '../utility/provider';
 
-interface AirDamageProps {
+interface SupportAttackProps {
     deck_ship_id: { [key: number]: number[] };
     battle_selected: () => Battle;
 }
 
-export function SupportAttackComponent({deck_ship_id, battle_selected}: AirDamageProps) {
+export function SupportAttackComponent({deck_ship_id, battle_selected}: SupportAttackProps) {
 
     const [ships,] = useShips();
 
