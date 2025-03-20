@@ -7,6 +7,7 @@ import { SimpleShipNameComponent } from './simple_ship_name';
 import { Battle } from '../interface/battle';
 import { useDeckPorts, useShips } from '../utility/provider';
 import { SimpleHpBar } from './simple_hp_bar';
+import IconFleetNumber from '../icons/fleet_number';
 
 interface ButtleSummaryProps {
     deck_ship_id: { [key: number]: number[] };
@@ -61,6 +62,18 @@ function select_min(a: number[] | null, b: number[] | null): number[] {
     return ret;
 }
 
+function add_array(a: number[], b: number[]): number[] {
+    if (a == null)  a = [0,0,0,0,0,0,0,0,0,0,0,0];
+    if (a.length == 0) a = [0,0,0,0,0,0,0,0,0,0,0,0];
+    if (b == null)  b = [0,0,0,0,0,0,0,0,0,0,0,0];
+    if (b.length == 0) b = [0,0,0,0,0,0,0,0,0,0,0,0];
+    let ret = [];
+    for (let i = 0; i < a.length; i++) {
+        ret.push(a[i] + b[i]);
+    }
+    return ret;
+}
+
 export function BattleSummaryComponent({deck_ship_id, battle_selected}: ButtleSummaryProps) {
 
     const [deck_ports, ] = useDeckPorts();
@@ -109,13 +122,16 @@ export function BattleSummaryComponent({deck_ship_id, battle_selected}: ButtleSu
         let midnight_f_now_hps: number[] | null = battle_selected().midngiht_f_nowhps !== null ? battle_selected().midngiht_f_nowhps!.map((v, i) => v - battle_selected().midnight_f_total_damages![i]).map((v) => Math.max(v, 0)): null;
         let midnight_e_now_hps: number[] | null = battle_selected().midngiht_e_nowhps !== null ? battle_selected().midngiht_e_nowhps!.map((v, i) => v - battle_selected().midnight_e_total_damages![i]).map((v) => Math.max(v, 0)) : null;
 
+        let f_damage: number[] = add_array(battle_selected().f_total_damages ?? [], battle_selected().midnight_f_total_damages ?? []);
+        let e_damage: number[] = add_array(battle_selected().e_total_damages ?? [], battle_selected().midnight_e_total_damages ?? []);
+
         let f_now_hps: number[] = select_min(day_f_now_hps, midnight_f_now_hps);
         let e_now_hps: number[] = select_min(day_e_now_hps, midnight_e_now_hps);
 
         let f_main_ship_id: number[] = deck_ship_id[battle_selected().deck_id!].filter((ship_id) => ship_id != -1);
         let f_main_nowhps: number[] = f_now_hps!.slice(0, f_main_ship_id.length);
         let f_main_maxhps: number[] = deck_ship_id[battle_selected().deck_id!].slice(0, f_main_ship_id.length).map((ship_id) => ships.ships[ship_id].maxhp);
-        let f_main_damages: number[] = (battle_selected().f_total_damages ?? [-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1]).slice(0, f_main_ship_id.length);
+        let f_main_damages: number[] = f_damage.slice(0, f_main_ship_id.length);
 
         let f_escort_ship_id: number[] = [];
         let f_escort_nowhps: number[] = [];
@@ -125,14 +141,14 @@ export function BattleSummaryComponent({deck_ship_id, battle_selected}: ButtleSu
         let e_main_ship_id: number[] = battle_selected().enemy_ship_id.slice(0, 6);
         let e_main_nowhps: number[] = e_now_hps.slice(0, 6);
         let e_main_maxhps: number[] = (battle_selected().e_hp_max ?? []).slice(0, 6);
-        let e_main_damages: number[] = (battle_selected().e_total_damages ?? [-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1]).slice(0, 6);
+        let e_main_damages: number[] = e_damage.slice(0, 6);
         let e_main_prams: number[][] = (battle_selected().e_params ?? []).slice(0, 6);
         let e_main_slot: number[][] = (battle_selected().e_slot ?? []).slice(0, 6);
 
         let e_escort_ship_id: number[] = battle_selected().enemy_ship_id.slice(6, 12);
         let e_escort_nowhps: number[] = e_now_hps.slice(6, 12);
         let e_escort_maxhps: number[] = (battle_selected().e_hp_max ?? []).slice(6, 12);
-        let e_escort_damages: number[] = (battle_selected().e_total_damages ?? [-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1]).slice(6, 12);
+        let e_escort_damages: number[] = e_damage.slice(6, 12);
         let e_escrot_params: number[][] = (battle_selected().e_params ?? []).slice(6, 12);
         let e_escort_slot: number[][] = (battle_selected().e_slot ?? []).slice(6, 12);
 
@@ -147,11 +163,11 @@ export function BattleSummaryComponent({deck_ship_id, battle_selected}: ButtleSu
             f_escort_ship_id = deck_ship_id[battle_selected().deck_id ?? 1].slice(0, 6);
             f_main_nowhps = f_now_hps.slice(0, 6);
             f_main_maxhps = deck_ship_id[battle_selected().deck_id!].map((ship_id) => ships.ships[ship_id].maxhp).slice(0, 6);
-            f_main_damages = (battle_selected().f_total_damages ?? [-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1]).slice(0, 6);
+            f_main_damages = f_damage.slice(0, 6);
             f_escort_ship_id = deck_ship_id[battle_selected().deck_id!].slice(6, 12);
             f_escort_nowhps = f_now_hps.slice(6, 12);
             f_escort_maxhps = deck_ship_id[battle_selected().deck_id!].map((ship_id) => ships.ships[ship_id].maxhp).slice(6, 12);
-            f_escort_damages = (battle_selected().f_total_damages ?? [-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1]).slice(6, 12);
+            f_escort_damages = f_damage.slice(6, 12);
         }
 
         return {
@@ -182,34 +198,6 @@ export function BattleSummaryComponent({deck_ship_id, battle_selected}: ButtleSu
             friend_params: friend_params,
             friend_slot: friend_slot,
         };
-        // return {
-        //     f_main_ship_id: [],
-        //     f_main_nowhps: [],
-        //     f_main_maxhps: [],
-        //     f_main_damages: [],
-        //     f_escort_ship_id: [],
-        //     f_escort_nowhps: [],
-        //     f_escort_maxhps: [],
-        //     f_escort_damages: [],
-        //     e_main_ship_id: [],
-        //     e_main_nowhps: [],
-        //     e_main_maxhps: [],
-        //     e_main_damages: [],
-        //     e_main_prams: [[]],
-        //     e_main_slot: [[]],
-        //     e_escort_ship_id: [],
-        //     e_escort_nowhps: [],
-        //     e_escort_maxhps: [],
-        //     e_escort_damages: [],
-        //     e_escrot_params: [[]],
-        //     e_escort_slot: [[]],
-        //     friend_ship_id: [],
-        //     friend_nowhps: [],
-        //     friend_maxhps: [],
-        //     friend_damages: [],
-        //     friend_params: [[]],
-        //     friend_slot: [[]],
-        // };
     });
 
     return (
@@ -236,9 +224,11 @@ export function BattleSummaryComponent({deck_ship_id, battle_selected}: ButtleSu
                                     {(idx) => 
                                         <tr class="table_hover table_active rounded">
                                             <Show when={fleet_info().f_main_ship_id.length > idx} fallback={<><td><div class="h-5"></div></td><td></td><td></td></>}>
-                                                {/* <td>{idx}</td><td></td><td></td> */}
                                                 <td>
-                                                    <ShipNameComponent ship_id={fleet_info().f_main_ship_id[idx]}></ShipNameComponent>
+                                                    <div class="flex flex-nowrap">
+                                                        <IconFleetNumber class="h-6 -mt-1 pr-1" e_flag={0} fleet_number={1} ship_number={idx+1}></IconFleetNumber>
+                                                        <ShipNameComponent ship_id={fleet_info().f_main_ship_id[idx]}></ShipNameComponent>
+                                                    </div>
                                                 </td>
                                                 <td>
                                                     <div class="flex-none">
@@ -251,7 +241,10 @@ export function BattleSummaryComponent({deck_ship_id, battle_selected}: ButtleSu
                                             </Show>
                                             <Show when={fleet_info().e_main_ship_id.length > idx} fallback={<><td><div class="h-5"></div></td><td></td><td></td></>}>
                                                 <td>
-                                                    <SimpleShipNameComponent ship_id={fleet_info().e_main_ship_id[idx]} ship_param={fleet_info().e_main_prams[idx]} ship_slot={fleet_info().e_main_slot[idx]} ship_max_hp={fleet_info().e_main_maxhps[idx]}></SimpleShipNameComponent>
+                                                    <div class="flex flex-nowrap">
+                                                        <IconFleetNumber class="h-6 -mt-1 pr-1" e_flag={1} fleet_number={1} ship_number={idx+1}></IconFleetNumber>
+                                                        <SimpleShipNameComponent ship_id={fleet_info().e_main_ship_id[idx]} ship_param={fleet_info().e_main_prams[idx]} ship_slot={fleet_info().e_main_slot[idx]} ship_max_hp={fleet_info().e_main_maxhps[idx]}></SimpleShipNameComponent>
+                                                    </div>
                                                 </td>
                                                 <td>
                                                     <div class="flex-none">
@@ -265,40 +258,44 @@ export function BattleSummaryComponent({deck_ship_id, battle_selected}: ButtleSu
                                         </tr>
                                     }
                                 </For>
-                                {/* <Show when={fleet_info().e_escort_ship_id.length > 0 || fleet_info().f_escort_ship_id.length > 0}> */}
-                                    <For each={[0, 1, 2, 3, 4, 5].slice(0, Math.max(fleet_info().f_escort_ship_id.length, fleet_info().e_escort_ship_id.length))}>
-                                        {(idx) => 
-                                            <tr class="table_hover table_active rounded">
-                                                <Show when={fleet_info().f_escort_ship_id.length > idx} fallback={<><td></td><td></td><td></td></>}>
-                                                    <td>
-                                                        <ShipNameComponent ship_id={fleet_info().f_escort_ship_id[idx]}></ShipNameComponent>
-                                                    </td>
-                                                    <td>
-                                                        <div class="flex-none">
-                                                            <SimpleHpBar v_now={() => fleet_info().f_escort_nowhps[idx]} v_max={() => fleet_info().f_escort_maxhps[idx]}></SimpleHpBar>
-                                                        </div>
-                                                    </td>
-                                                    <td>
-                                                        {fleet_info().f_escort_damages[idx]}
-                                                    </td>
-                                                </Show>
-                                                <Show when={fleet_info().e_escort_ship_id.length > idx} fallback={<><td></td><td></td><td></td></>}>
-                                                    <td>
+                                <For each={[0, 1, 2, 3, 4, 5].slice(0, Math.max(fleet_info().f_escort_ship_id.length, fleet_info().e_escort_ship_id.length))}>
+                                    {(idx) => 
+                                        <tr class="table_hover table_active rounded">
+                                            <Show when={fleet_info().f_escort_ship_id.length > idx} fallback={<><td></td><td></td><td></td></>}>
+                                                <td>
+                                                    <div class="flex flex-nowrap">
+                                                        <IconFleetNumber class="h-6 -mt-1 pr-1" e_flag={0} fleet_number={2} ship_number={idx+1}></IconFleetNumber>
+                                                        <ShipNameComponent ship_id={fleet_info().f_main_ship_id[idx]}></ShipNameComponent>
+                                                    </div>
+                                                </td>
+                                                <td>
+                                                    <div class="flex-none">
+                                                        <SimpleHpBar v_now={() => fleet_info().f_escort_nowhps[idx]} v_max={() => fleet_info().f_escort_maxhps[idx]}></SimpleHpBar>
+                                                    </div>
+                                                </td>
+                                                <td>
+                                                    {fleet_info().f_escort_damages[idx]}
+                                                </td>
+                                            </Show>
+                                            <Show when={fleet_info().e_escort_ship_id.length > idx} fallback={<><td></td><td></td><td></td></>}>
+                                                <td>
+                                                    <div class="flex flex-nowrap">
+                                                        <IconFleetNumber class="h-6 -mt-1 pr-1" e_flag={1} fleet_number={2} ship_number={idx+1}></IconFleetNumber>
                                                         <SimpleShipNameComponent ship_id={fleet_info().e_escort_ship_id[idx]} ship_param={fleet_info().e_escrot_params[idx]} ship_slot={fleet_info().e_escort_slot[idx]} ship_max_hp={fleet_info().e_escort_maxhps[idx]}></SimpleShipNameComponent>
-                                                    </td>
-                                                    <td>
-                                                        <div class="flex-none">
-                                                            <SimpleHpBar v_now={() => fleet_info().e_escort_nowhps[idx]} v_max={() => fleet_info().e_escort_maxhps[idx]}></SimpleHpBar>
-                                                        </div>
-                                                    </td>
-                                                    <td>
-                                                        {fleet_info().e_escort_damages[idx]}
-                                                    </td>
-                                                </Show>
-                                            </tr>
-                                        }
-                                    </For>
-                                {/* </Show> */}
+                                                    </div>
+                                                </td>
+                                                <td>
+                                                    <div class="flex-none">
+                                                        <SimpleHpBar v_now={() => fleet_info().e_escort_nowhps[idx]} v_max={() => fleet_info().e_escort_maxhps[idx]}></SimpleHpBar>
+                                                    </div>
+                                                </td>
+                                                <td>
+                                                    {fleet_info().e_escort_damages[idx]}
+                                                </td>
+                                            </Show>
+                                        </tr>
+                                    }
+                                </For>
                                 <Show when={battle_selected().friendly_force_attack != null}>
                                     <For each={[0, 1, 2, 3, 4, 5]}>
                                         {(idx) =>

@@ -748,6 +748,13 @@ impl FriendlyForceAttack {
 // }
 
 pub fn calc_dmg(battle: &mut Battle) {
+    if battle.battle_order.is_none() {
+        return;
+    }
+
+    let mut day_flag: bool = false;
+    let mut midnight_flag: bool = false;
+
     let mut f_total_damages: Vec<i64> = vec![0; 12];
     let mut e_total_damages: Vec<i64> = vec![0; 12];
     let mut friend_total_damages: Vec<i64> = vec![0; 6];
@@ -760,16 +767,13 @@ pub fn calc_dmg(battle: &mut Battle) {
     let midngiht_e_nowhps: Vec<i64> = battle.midngiht_e_nowhps.clone().unwrap_or(vec![0; 12]);
     let friend_nowhps: Vec<i64> = battle.friendly_force_attack.clone().and_then(|friendly_force_attack| Some(friendly_force_attack.fleet_info.now_hps.clone())).unwrap_or(vec![0; 6]);
 
-    if battle.battle_order.is_none() {
-        return;
-    }
-
     let battle_order:Vec<BattleType> = battle.battle_order.clone().unwrap();
 
     battle_order.iter().for_each(|battle_order| {
         match battle_order {
             BattleType::AirBaseAssult(()) => {
                 if let Some(air_base_assault) = battle.air_base_assault.as_mut() {
+                    day_flag = true;    
 
                     // air_base_assault.f_damage.damages.clone().unwrap_or(vec![0_f32; 0]).iter().enumerate().for_each(|(idx, &x)| {
                     //     f_total_damages[idx] += x as i64;
@@ -786,6 +790,8 @@ pub fn calc_dmg(battle: &mut Battle) {
             },
             BattleType::CarrierBaseAssault(()) => {
                 if let Some(carrier_base_assault) = battle.carrier_base_assault.as_mut() {
+                    day_flag = true;
+                    
                     // carrier_base_assault.f_damage.damages.clone().unwrap_or(vec![0_f32; 0]).iter().enumerate().for_each(|(idx, &x)| {
                     //     f_total_damages[idx] += x as i64;
                     // });
@@ -801,6 +807,8 @@ pub fn calc_dmg(battle: &mut Battle) {
             },
             BattleType::AirBaseAirAttack(()) => {
                 if let Some(air_base_air_attacks) = battle.air_base_air_attacks.as_mut() {
+                    day_flag = true;
+                    
                     air_base_air_attacks.attacks.iter_mut().for_each(|air_base_air_attack| {
                         f_nowhps.iter().enumerate().for_each(|(idx, &f_nowhp)| {
                             air_base_air_attack.f_damage.now_hps[idx] = f_nowhp - f_total_damages[idx];
@@ -823,6 +831,8 @@ pub fn calc_dmg(battle: &mut Battle) {
             },
             BattleType::OpeningAirAttack(()) => {
                 if let Some(opening_air_attack) = battle.opening_air_attack.as_mut() {
+                    day_flag = true;
+                    
                     f_nowhps.iter().enumerate().for_each(|(idx, &f_nowhp)| {
                         opening_air_attack.f_damage.now_hps[idx] = f_nowhp - f_total_damages[idx];
                     });
@@ -840,6 +850,8 @@ pub fn calc_dmg(battle: &mut Battle) {
             },
             BattleType::SupportAttack(()) => {
                 if let Some(support_attack) = battle.support_attack.as_mut() {
+                    day_flag = true;
+                    
                     if let Some(support_hourai) = support_attack.support_hourai.as_mut() {
                         e_nowhps.iter().enumerate().for_each(|(idx, &e_nowhp)| {
                             support_hourai.now_hps[idx] = e_nowhp - e_total_damages[idx];
@@ -862,6 +874,8 @@ pub fn calc_dmg(battle: &mut Battle) {
             },
             BattleType::OpeningTaisen(()) => {
                 if let Some(opening_taisen) = battle.opening_taisen.as_mut() {
+                    day_flag = true;
+                    
                     opening_taisen.at_eflag.iter().enumerate().for_each(|(eflag_idx, &eflag)| {
                         f_nowhps.iter().enumerate().for_each(|(idx, &f_nowhp)| {
                             opening_taisen.f_now_hps[eflag_idx as usize][idx] = f_nowhp - f_total_damages[idx];
@@ -886,6 +900,8 @@ pub fn calc_dmg(battle: &mut Battle) {
             },
             BattleType::OpeningRaigeki(()) => {
                 if let Some(opening_raigeki) = battle.opening_raigeki.as_mut() {
+                    day_flag = true;
+                    
                     f_nowhps.iter().enumerate().for_each(|(idx, &f_nowhp)| {
                         opening_raigeki.f_now_hps[idx] = f_nowhp - f_total_damages[idx];
                     });
@@ -904,6 +920,8 @@ pub fn calc_dmg(battle: &mut Battle) {
             },
             BattleType::Hougeki(x) => {
                 if let Some(hougeki_list) = battle.hougeki.as_mut() {
+                    day_flag = true;
+                    
                     if let Some(hougeki) = hougeki_list[*x as usize-1].as_mut() {
                         hougeki.at_eflag.iter().enumerate().for_each(|(eflag_idx, &eflag)| {
                             f_nowhps.iter().enumerate().for_each(|(idx, &f_nowhp)| {
@@ -930,6 +948,8 @@ pub fn calc_dmg(battle: &mut Battle) {
             },
             BattleType::ClosingRaigeki(()) => {
                 if let Some(closing_taigeki) = battle.closing_raigeki.as_mut() {
+                    day_flag = true;
+                    
                     f_nowhps.iter().enumerate().for_each(|(idx, &f_nowhp)| {
                         closing_taigeki.f_now_hps[idx] = f_nowhp - f_total_damages[idx];
                     });
@@ -947,6 +967,8 @@ pub fn calc_dmg(battle: &mut Battle) {
             },
             BattleType::FriendlyForceAttack(()) => {
                 if let Some(friendly_force_attack) = battle.friendly_force_attack.as_mut() {
+                    midnight_flag = true;
+                    
                     if let Some(support_hourai) = friendly_force_attack.support_hourai.as_mut() {
                         if let Some(at_eflag) = &support_hourai.hougeki.at_eflag {
                             at_eflag.iter().enumerate().for_each(|(eflag_idx, &eflag)| {
@@ -979,6 +1001,8 @@ pub fn calc_dmg(battle: &mut Battle) {
             },
             BattleType::MidnightHougeki(()) => {
                 if let Some(midnight_hougeki) = battle.midnight_hougeki.as_mut() {
+                    midnight_flag = true;
+                    
                     if let Some(at_eflag) = &midnight_hougeki.at_eflag {
                         at_eflag.iter().enumerate().for_each(|(eflag_idx, &eflag)| {
                             if let Some(df_list) = &midnight_hougeki.df_list {
@@ -1010,11 +1034,22 @@ pub fn calc_dmg(battle: &mut Battle) {
         }
     });
 
-    battle.f_total_damages = Some(f_total_damages);
-    battle.e_total_damages = Some(e_total_damages);
-    battle.friend_total_damages = Some(friend_total_damages);
-    battle.midnight_f_total_damages = Some(midnight_f_total_damages);
-    battle.midnight_e_total_damages = Some(midnight_e_total_damages);
+    if day_flag {
+       battle.f_total_damages = Some(f_total_damages);
+        battle.e_total_damages = Some(e_total_damages);
+    } else {
+        battle.f_total_damages = None;
+        battle.e_total_damages = None;
+    }
+    if midnight_flag {
+        battle.friend_total_damages = Some(friend_total_damages);
+        battle.midnight_f_total_damages = Some(midnight_f_total_damages);
+        battle.midnight_e_total_damages = Some(midnight_e_total_damages);
+    } else {
+        battle.friend_total_damages = None;
+        battle.midnight_f_total_damages = None;
+        battle.midnight_e_total_damages = None;
+    }
 }
 
 impl From<kcapi::api_req_sortie::battle::ApiData> for Battle {
