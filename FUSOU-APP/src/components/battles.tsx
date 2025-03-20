@@ -1,9 +1,9 @@
 import { /*useBattles,*/ useCells, useDeckPorts, /*useMstShips, useShips*/ } from '../utility/provider';
-import { createEffect, createMemo, createSignal, For, Match, Show, Switch } from 'solid-js';
+import { createEffect, createMemo, createSignal, For, JSX, Match, Show, Switch } from 'solid-js';
 
 import "../css/divider.css";
 import IconChevronRightS from '../icons/chevron_right_s';
-import { Battle } from '../interface/battle';
+import { Battle, implementsEnumAirBaseAirAttack, implementsEnumAirBaseAssult, implementsEnumCarrierBaseAssault, implementsEnumClosingRaigeki, implementsEnumFriendlyForceAttack, implementsEnumHougeki, implementsEnumMidnightHougeki, implementsEnumOpeningAirAttack, implementsEnumOpeningRaigeki, implementsEnumOpeningTaisen, implementsEnumSupportAttack } from '../interface/battle';
 import { OpeningAntiSubmarineComponent } from './opening_anti_submarine';
 import { OpeningTorpedoAttackComponent } from './opening_torpedo_attack';
 import { ClosingTorpedoAttackComponent } from './closing_torpedo_attack';
@@ -56,6 +56,49 @@ export function BattlesComponent() {
 
     const show_cell = createMemo<boolean>(() => {
         return cells.cell_index.length > 0;
+    });
+
+    const battle_history = createMemo<JSX.Element[]>(() => {
+        if (!show_battle()) return [];
+        if (battle_selected().battle_order == null) return [];
+
+        let battle_history: JSX.Element[] = [];
+        battle_selected().battle_order!.forEach((order) => {
+                if (implementsEnumAirBaseAssult(order)) {
+                    battle_history.push(<AirBaseAssaultComponent area_id={cells.maparea_id} battle_selected={battle_selected} />);
+                }
+                if (implementsEnumCarrierBaseAssault(order)) {
+                    battle_history.push(<CarrierBaseAssaultComponent battle_selected={battle_selected} />);
+                }
+                if (implementsEnumAirBaseAirAttack(order)) {
+                    battle_history.push(<AirBaseAirAttackComponent area_id={cells.maparea_id} battle_selected={battle_selected} />);
+                }
+                if (implementsEnumOpeningAirAttack(order)) {
+                    battle_history.push(<OpeningAirAttackComponent deck_ship_id={deck_ship_id()} battle_selected={battle_selected} />);
+                }
+                if (implementsEnumSupportAttack(order)) {
+                    battle_history.push(<SupportAttackComponent deck_ship_id={deck_ship_id()} battle_selected={battle_selected} />);
+                }
+                if (implementsEnumOpeningTaisen(order)) {
+                    battle_history.push(<OpeningAntiSubmarineComponent deck_ship_id={deck_ship_id()} battle_selected={battle_selected} />);
+                }
+                if (implementsEnumOpeningRaigeki(order)) {
+                    battle_history.push(<OpeningTorpedoAttackComponent deck_ship_id={deck_ship_id()} battle_selected={battle_selected} />);
+                }
+                if (implementsEnumClosingRaigeki(order)) {
+                    battle_history.push(<ClosingTorpedoAttackComponent deck_ship_id={deck_ship_id()} battle_selected={battle_selected} />);
+                }
+                if (implementsEnumFriendlyForceAttack(order)) {
+                    battle_history.push(<FriendlyForceAttackComponent battle_selected={battle_selected} />);
+                }
+                if (implementsEnumMidnightHougeki(order)) {
+                    battle_history.push(<MidnightShellingComponent deck_ship_id={deck_ship_id()} battle_selected={battle_selected} />);
+                }
+                if (implementsEnumHougeki(order)) {
+                    battle_history.push(<ShellingComponent deck_ship_id={deck_ship_id()} battle_selected={battle_selected} shelling_idx={order.Hougeki-1} />);
+                }
+        });
+        return battle_history;
     });
 
     return (
@@ -168,7 +211,14 @@ export function BattlesComponent() {
                         <Show when={show_battle()} fallback={<div class="text-xs pl-4 py-1">No Battle Data ...</div>}>
                             <ul class="pl-0">
                                 <BattleSummaryComponent deck_ship_id={deck_ship_id()} battle_selected={battle_selected} />
-                                <AirBaseAssaultComponent area_id={cells.maparea_id} battle_selected={battle_selected} />
+                                <For each={battle_history()}>
+                                    {(battle) => (
+                                        <>
+                                            {battle}
+                                        </>
+                                    )}
+                                </For>
+                                {/* <AirBaseAssaultComponent area_id={cells.maparea_id} battle_selected={battle_selected} />
                                 <CarrierBaseAssaultComponent battle_selected={battle_selected} />
                                 <AirBaseAirAttackComponent area_id={cells.maparea_id} battle_selected={battle_selected} />
                                 <OpeningAirAttackComponent deck_ship_id={deck_ship_id()} battle_selected={battle_selected} />
@@ -178,7 +228,7 @@ export function BattlesComponent() {
                                 <ShellingComponent deck_ship_id={deck_ship_id()} battle_selected={battle_selected} />
                                 <ClosingTorpedoAttackComponent deck_ship_id={deck_ship_id()} battle_selected={battle_selected} />
                                 <FriendlyForceAttackComponent battle_selected={battle_selected} />
-                                <MidnightShellingComponent deck_ship_id={deck_ship_id()} battle_selected={battle_selected} />
+                                <MidnightShellingComponent deck_ship_id={deck_ship_id()} battle_selected={battle_selected} /> */}
                             </ul>
                         </Show>
                     </Show>
