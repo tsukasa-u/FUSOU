@@ -29,15 +29,15 @@ impl From<kcapi::api_req_combined_battle::ec_battle::ApiData> for Battle {
         let cell_no = KCS_CELLS.lock().and_then(|cells| Ok(cells.last().unwrap_or(&0).clone())).unwrap_or(0);
 
         let battle_order: Vec<BattleType> = vec![
-            BattleType::AirBaseAssult,
-            BattleType::CarrierBaseAssault,
-            BattleType::AirBaseAirAttack,
-            BattleType::OpeningAirAttack,
-            BattleType::SupportAttack,
-            BattleType::OpeningTaisen,
-            BattleType::OpeningRaigeki,
+            BattleType::AirBaseAssult(()),
+            BattleType::CarrierBaseAssault(()),
+            BattleType::AirBaseAirAttack(()),
+            BattleType::OpeningAirAttack(()),
+            BattleType::SupportAttack(()),
+            BattleType::OpeningTaisen(()),
+            BattleType::OpeningRaigeki(()),
             BattleType::Hougeki(1),
-            BattleType::ClosingRaigeki,
+            BattleType::ClosingRaigeki(()),
             BattleType::Hougeki(2),
             BattleType::Hougeki(3),
         ];
@@ -56,6 +56,8 @@ impl From<kcapi::api_req_combined_battle::ec_battle::ApiData> for Battle {
             f_total_damages: None,
             e_total_damages: None,
             friend_total_damages: None,
+            midnight_f_total_damages: None,
+            midnight_e_total_damages: None,
             reconnaissance: Some(battle.api_search),
             forward_observe: None,
             escape_idx: None,
@@ -91,8 +93,19 @@ impl From<kcapi::api_req_combined_battle::ec_midnight_battle::ApiData> for Battl
         let cell_no = KCS_CELLS.lock().and_then(|cells| Ok(cells.last().unwrap_or(&0).clone())).unwrap_or(0);
 
         let battle_order: Vec<BattleType> = vec![
-            BattleType::FriendlyForceAttack,
-            BattleType::MidnightHougeki,
+            BattleType::AirBaseAssult(()),
+            BattleType::CarrierBaseAssault(()),
+            BattleType::AirBaseAirAttack(()),
+            BattleType::OpeningAirAttack(()),
+            BattleType::SupportAttack(()),
+            BattleType::OpeningTaisen(()),
+            BattleType::OpeningRaigeki(()),
+            BattleType::Hougeki(1),
+            BattleType::ClosingRaigeki(()),
+            BattleType::Hougeki(2),
+            BattleType::Hougeki(3),
+            BattleType::FriendlyForceAttack(()),
+            BattleType::MidnightHougeki(()),
         ];
 
         let mut ret = Self {
@@ -109,6 +122,8 @@ impl From<kcapi::api_req_combined_battle::ec_midnight_battle::ApiData> for Battl
             f_total_damages: None,
             e_total_damages: None,
             friend_total_damages: None,
+            midnight_f_total_damages: None,
+            midnight_e_total_damages: None,
             reconnaissance: None,
             forward_observe: None,
             escape_idx: battle.api_escape_idx,

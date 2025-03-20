@@ -18,17 +18,17 @@ use super::cells::KCS_CELLS;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum BattleType {
-    AirBaseAssult,
-    CarrierBaseAssault,
-    AirBaseAirAttack,
-    OpeningAirAttack,
-    SupportAttack,
-    OpeningTaisen,
-    OpeningRaigeki,
+    AirBaseAssult(()),
+    CarrierBaseAssault(()),
+    AirBaseAirAttack(()),
+    OpeningAirAttack(()),
+    SupportAttack(()),
+    OpeningTaisen(()),
+    OpeningRaigeki(()),
     Hougeki(i64),
-    ClosingRaigeki,
-    FriendlyForceAttack,
-    MidnightHougeki,
+    ClosingRaigeki(()),
+    FriendlyForceAttack(()),
+    MidnightHougeki(()),
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -52,6 +52,8 @@ pub struct Battle {
     pub f_total_damages: Option<Vec<i64>>,
     pub e_total_damages: Option<Vec<i64>>,
     pub friend_total_damages: Option<Vec<i64>>,
+    pub midnight_f_total_damages: Option<Vec<i64>>,
+    pub midnight_e_total_damages: Option<Vec<i64>>,
     pub reconnaissance: Option<Vec<i64>>,
     pub forward_observe: Option<Vec<i64>>,
     pub escape_idx: Option<Vec<i64>>,
@@ -331,8 +333,10 @@ pub fn calc_air_damage(plane_from: Option<Vec<Option<Vec<i64>>>>, stage1: Option
     let f_plane_from: Option<Vec<i64>> = plane_from.clone().and_then(|plane_from| plane_from[0].clone().and_then(|plane_from| Some(plane_from.clone().iter().map(|x| x - 1).collect())));
     let e_plane_from: Option<Vec<i64>> = plane_from.clone().and_then(|plane_from| plane_from[1].clone().and_then(|plane_from| Some(plane_from.clone().iter().map(|x| x - 1).collect())));
     
-    let f_now_hps = vec![0; f_damages.clone().and_then(|f_damages| Some(f_damages.len())).unwrap_or(12)];
-    let e_now_hps = vec![0; e_damages.clone().and_then(|e_damages| Some(e_damages.len())).unwrap_or(12)];
+    // let f_now_hps = vec![0; f_damages.clone().and_then(|f_damages| Some(f_damages.len())).unwrap_or(12)];
+    // let e_now_hps = vec![0; e_damages.clone().and_then(|e_damages| Some(e_damages.len())).unwrap_or(12)];
+    let f_now_hps = vec![0; 12];
+    let e_now_hps = vec![0; 12];
 
     (
         AirDamage {
@@ -747,6 +751,8 @@ pub fn calc_dmg(battle: &mut Battle) {
     let mut f_total_damages: Vec<i64> = vec![0; 12];
     let mut e_total_damages: Vec<i64> = vec![0; 12];
     let mut friend_total_damages: Vec<i64> = vec![0; 6];
+    let mut midnight_f_total_damages: Vec<i64> = vec![0; 12];
+    let mut midnight_e_total_damages: Vec<i64> = vec![0; 12];
 
     let f_nowhps: Vec<i64> = battle.f_nowhps.clone().unwrap_or(vec![0; 12]);
     let e_nowhps: Vec<i64> = battle.e_nowhps.clone().unwrap_or(vec![0; 12]);
@@ -762,7 +768,7 @@ pub fn calc_dmg(battle: &mut Battle) {
 
     battle_order.iter().for_each(|battle_order| {
         match battle_order {
-            BattleType::AirBaseAssult => {
+            BattleType::AirBaseAssult(()) => {
                 if let Some(air_base_assault) = battle.air_base_assault.as_mut() {
 
                     // air_base_assault.f_damage.damages.clone().unwrap_or(vec![0_f32; 0]).iter().enumerate().for_each(|(idx, &x)| {
@@ -778,7 +784,7 @@ pub fn calc_dmg(battle: &mut Battle) {
                     });
                 }
             },
-            BattleType::CarrierBaseAssault => {
+            BattleType::CarrierBaseAssault(()) => {
                 if let Some(carrier_base_assault) = battle.carrier_base_assault.as_mut() {
                     // carrier_base_assault.f_damage.damages.clone().unwrap_or(vec![0_f32; 0]).iter().enumerate().for_each(|(idx, &x)| {
                     //     f_total_damages[idx] += x as i64;
@@ -793,7 +799,7 @@ pub fn calc_dmg(battle: &mut Battle) {
                     });
                 }
             },
-            BattleType::AirBaseAirAttack => {
+            BattleType::AirBaseAirAttack(()) => {
                 if let Some(air_base_air_attacks) = battle.air_base_air_attacks.as_mut() {
                     air_base_air_attacks.attacks.iter_mut().for_each(|air_base_air_attack| {
                         f_nowhps.iter().enumerate().for_each(|(idx, &f_nowhp)| {
@@ -815,7 +821,7 @@ pub fn calc_dmg(battle: &mut Battle) {
                     });
                 }
             },
-            BattleType::OpeningAirAttack => {
+            BattleType::OpeningAirAttack(()) => {
                 if let Some(opening_air_attack) = battle.opening_air_attack.as_mut() {
                     f_nowhps.iter().enumerate().for_each(|(idx, &f_nowhp)| {
                         opening_air_attack.f_damage.now_hps[idx] = f_nowhp - f_total_damages[idx];
@@ -832,7 +838,7 @@ pub fn calc_dmg(battle: &mut Battle) {
                     });
                 }
             },
-            BattleType::SupportAttack => {
+            BattleType::SupportAttack(()) => {
                 if let Some(support_attack) = battle.support_attack.as_mut() {
                     if let Some(support_hourai) = support_attack.support_hourai.as_mut() {
                         e_nowhps.iter().enumerate().for_each(|(idx, &e_nowhp)| {
@@ -854,7 +860,7 @@ pub fn calc_dmg(battle: &mut Battle) {
                     }
                 }
             },
-            BattleType::OpeningTaisen => {
+            BattleType::OpeningTaisen(()) => {
                 if let Some(opening_taisen) = battle.opening_taisen.as_mut() {
                     opening_taisen.at_eflag.iter().enumerate().for_each(|(eflag_idx, &eflag)| {
                         f_nowhps.iter().enumerate().for_each(|(idx, &f_nowhp)| {
@@ -878,7 +884,7 @@ pub fn calc_dmg(battle: &mut Battle) {
                     });
                 }
             },
-            BattleType::OpeningRaigeki => {
+            BattleType::OpeningRaigeki(()) => {
                 if let Some(opening_raigeki) = battle.opening_raigeki.as_mut() {
                     f_nowhps.iter().enumerate().for_each(|(idx, &f_nowhp)| {
                         opening_raigeki.f_now_hps[idx] = f_nowhp - f_total_damages[idx];
@@ -922,7 +928,7 @@ pub fn calc_dmg(battle: &mut Battle) {
                     }
                 }
             },
-            BattleType::ClosingRaigeki => {
+            BattleType::ClosingRaigeki(()) => {
                 if let Some(closing_taigeki) = battle.closing_raigeki.as_mut() {
                     f_nowhps.iter().enumerate().for_each(|(idx, &f_nowhp)| {
                         closing_taigeki.f_now_hps[idx] = f_nowhp - f_total_damages[idx];
@@ -939,17 +945,17 @@ pub fn calc_dmg(battle: &mut Battle) {
                     });
                 }
             },
-            BattleType::FriendlyForceAttack => {
+            BattleType::FriendlyForceAttack(()) => {
                 if let Some(friendly_force_attack) = battle.friendly_force_attack.as_mut() {
                     if let Some(support_hourai) = friendly_force_attack.support_hourai.as_mut() {
                         if let Some(at_eflag) = &support_hourai.hougeki.at_eflag {
                             at_eflag.iter().enumerate().for_each(|(eflag_idx, &eflag)| {
                                 if let Some(df_list) = &support_hourai.hougeki.df_list {
                                     friend_nowhps.iter().enumerate().for_each(|(idx, &f_nowhp)| {
-                                        support_hourai.hougeki.f_now_hps[eflag_idx as usize][idx] = f_nowhp - f_total_damages[idx];
+                                        support_hourai.hougeki.f_now_hps[eflag_idx as usize][idx] = f_nowhp - friend_total_damages[idx];
                                     });
                                     midngiht_e_nowhps.iter().enumerate().for_each(|(idx, &e_nowhp)| {
-                                        support_hourai.hougeki.e_now_hps[eflag_idx as usize][idx] = e_nowhp - e_total_damages[idx];
+                                        support_hourai.hougeki.e_now_hps[eflag_idx as usize][idx] = e_nowhp - midnight_e_total_damages[idx];
                                     });
 
                                     df_list[eflag_idx].iter().enumerate().for_each(|(df_idx, &df)| {
@@ -959,7 +965,7 @@ pub fn calc_dmg(battle: &mut Battle) {
                                                     friend_total_damages[df as usize] += damage[eflag_idx][df_idx] as i64;
                                                 },
                                                 0 => {
-                                                    e_total_damages[df as usize] += damage[eflag_idx][df_idx] as i64;
+                                                    midnight_e_total_damages[df as usize] += damage[eflag_idx][df_idx] as i64;
                                                 },
                                                 _ => {},
                                             }
@@ -971,26 +977,26 @@ pub fn calc_dmg(battle: &mut Battle) {
                     }
                 }
             },
-            BattleType::MidnightHougeki => {
+            BattleType::MidnightHougeki(()) => {
                 if let Some(midnight_hougeki) = battle.midnight_hougeki.as_mut() {
                     if let Some(at_eflag) = &midnight_hougeki.at_eflag {
                         at_eflag.iter().enumerate().for_each(|(eflag_idx, &eflag)| {
                             if let Some(df_list) = &midnight_hougeki.df_list {
                                 midngiht_f_nowhps.iter().enumerate().for_each(|(idx, &f_nowhp)| {
-                                    midnight_hougeki.f_now_hps[eflag_idx as usize][idx] = f_nowhp - f_total_damages[idx];
+                                    midnight_hougeki.f_now_hps[eflag_idx as usize][idx] = f_nowhp - midnight_f_total_damages[idx];
                                 });
                                 midngiht_e_nowhps.iter().enumerate().for_each(|(idx, &e_nowhp)| {
-                                    midnight_hougeki.e_now_hps[eflag_idx as usize][idx] = e_nowhp - e_total_damages[idx];
+                                    midnight_hougeki.e_now_hps[eflag_idx as usize][idx] = e_nowhp - midnight_e_total_damages[idx];
                                 });
 
                                 df_list[eflag_idx].iter().enumerate().for_each(|(df_idx, &df)| {
                                     if let Some(damage) = &midnight_hougeki.damage {
                                         match eflag {
                                             1 => {
-                                                f_total_damages[df as usize] += damage[eflag_idx][df_idx] as i64;
+                                                midnight_f_total_damages[df as usize] += damage[eflag_idx][df_idx] as i64;
                                             },
                                             0 => {
-                                                e_total_damages[df as usize] += damage[eflag_idx][df_idx] as i64;
+                                                midnight_e_total_damages[df as usize] += damage[eflag_idx][df_idx] as i64;
                                             },
                                             _ => {},
                                         }
@@ -1007,6 +1013,8 @@ pub fn calc_dmg(battle: &mut Battle) {
     battle.f_total_damages = Some(f_total_damages);
     battle.e_total_damages = Some(e_total_damages);
     battle.friend_total_damages = Some(friend_total_damages);
+    battle.midnight_f_total_damages = Some(midnight_f_total_damages);
+    battle.midnight_e_total_damages = Some(midnight_e_total_damages);
 }
 
 impl From<kcapi::api_req_sortie::battle::ApiData> for Battle {
@@ -1028,16 +1036,16 @@ impl From<kcapi::api_req_sortie::battle::ApiData> for Battle {
         let cell_no = KCS_CELLS.lock().and_then(|cells| Ok(cells.last().unwrap_or(&0).clone())).unwrap_or(0);
 
         let battle_order: Vec<BattleType> = vec![
-            BattleType::AirBaseAssult,
-            BattleType::CarrierBaseAssault,
-            BattleType::AirBaseAirAttack,
-            BattleType::OpeningAirAttack,
-            BattleType::SupportAttack,
-            BattleType::OpeningTaisen,
-            BattleType::OpeningRaigeki,
+            BattleType::AirBaseAssult(()),
+            BattleType::CarrierBaseAssault(()),
+            BattleType::AirBaseAirAttack(()),
+            BattleType::OpeningAirAttack(()),
+            BattleType::SupportAttack(()),
+            BattleType::OpeningTaisen(()),
+            BattleType::OpeningRaigeki(()),
             BattleType::Hougeki(1),
             BattleType::Hougeki(2),
-            BattleType::ClosingRaigeki,
+            BattleType::ClosingRaigeki(()),
         ];
 
         let mut ret = Self {
@@ -1054,6 +1062,8 @@ impl From<kcapi::api_req_sortie::battle::ApiData> for Battle {
             f_total_damages: None,
             e_total_damages: None,
             friend_total_damages: None,
+            midnight_f_total_damages: None,
+            midnight_e_total_damages: None,
             reconnaissance: Some(battle.api_search),
             forward_observe: None,
             escape_idx: battle.api_escape_idx,
@@ -1089,8 +1099,18 @@ impl From<kcapi::api_req_battle_midnight::battle::ApiData> for Battle {
         let cell_no = KCS_CELLS.lock().and_then(|cells| Ok(cells.last().unwrap_or(&0).clone())).unwrap_or(0);
 
         let battle_order: Vec<BattleType> = vec![
-            BattleType::FriendlyForceAttack,
-            BattleType::MidnightHougeki,
+            BattleType::AirBaseAssult(()),
+            BattleType::CarrierBaseAssault(()),
+            BattleType::AirBaseAirAttack(()),
+            BattleType::OpeningAirAttack(()),
+            BattleType::SupportAttack(()),
+            BattleType::OpeningTaisen(()),
+            BattleType::OpeningRaigeki(()),
+            BattleType::Hougeki(1),
+            BattleType::Hougeki(2),
+            BattleType::ClosingRaigeki(()),
+            BattleType::FriendlyForceAttack(()),
+            BattleType::MidnightHougeki(()),
         ];
 
         let mut ret = Self {
@@ -1107,6 +1127,8 @@ impl From<kcapi::api_req_battle_midnight::battle::ApiData> for Battle {
             f_total_damages: None,
             e_total_damages: None,
             friend_total_damages: None,
+            midnight_f_total_damages: None,
+            midnight_e_total_damages: None,
             reconnaissance: None,
             forward_observe: None,
             escape_idx: battle.api_escape_idx,
@@ -1142,8 +1164,8 @@ impl From<kcapi::api_req_battle_midnight::sp_midnight::ApiData> for Battle {
         let cell_no = KCS_CELLS.lock().and_then(|cells| Ok(cells.last().unwrap_or(&0).clone())).unwrap_or(0);
 
         let battle_order: Vec<BattleType> = vec![
-            BattleType::FriendlyForceAttack,
-            BattleType::MidnightHougeki,
+            BattleType::FriendlyForceAttack(()),
+            BattleType::MidnightHougeki(()),
         ];
 
         let mut ret = Self {
@@ -1160,6 +1182,8 @@ impl From<kcapi::api_req_battle_midnight::sp_midnight::ApiData> for Battle {
             f_total_damages: None,
             e_total_damages: None,
             friend_total_damages: None,
+            midnight_f_total_damages: None,
+            midnight_e_total_damages: None,
             reconnaissance: None,
             forward_observe: None,
             escape_idx: battle.api_escape_idx,
@@ -1203,8 +1227,8 @@ impl From<kcapi::api_req_sortie::ld_airbattle::ApiData> for Battle {
         let cell_no = KCS_CELLS.lock().and_then(|cells| Ok(cells.last().unwrap_or(&0).clone())).unwrap_or(0);
 
         let battle_order: Vec<BattleType> = vec![
-            BattleType::AirBaseAirAttack,
-            BattleType::OpeningAirAttack,
+            BattleType::AirBaseAirAttack(()),
+            BattleType::OpeningAirAttack(()),
         ];
 
         let mut ret = Self {
@@ -1221,6 +1245,8 @@ impl From<kcapi::api_req_sortie::ld_airbattle::ApiData> for Battle {
             f_total_damages: None,
             e_total_damages: None,
             friend_total_damages: None,
+            midnight_f_total_damages: None,
+            midnight_e_total_damages: None,
             reconnaissance: Some(airbattle.api_search),
             forward_observe: None,
             escape_idx: airbattle.api_escape_idx,
