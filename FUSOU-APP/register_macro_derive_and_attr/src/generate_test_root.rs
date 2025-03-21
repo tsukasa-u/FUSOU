@@ -1,10 +1,8 @@
-
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::DeriveInput;
 
 pub fn generate_test_root(ast: &mut DeriveInput) -> Result<TokenStream, syn::Error> {
-    
     let mut test_implementation = Vec::new();
     match ast.data {
         syn::Data::Struct(_) => {
@@ -82,10 +80,12 @@ pub fn generate_test_root(ast: &mut DeriveInput) -> Result<TokenStream, syn::Err
                     }
                 }
             });
-            
-        },
+        }
         _ => {
-            return Err(syn::Error::new_spanned(&ast.ident, "#[generate_test_root] is only defined for structs, not for enums or unions, etc."));
+            return Err(syn::Error::new_spanned(
+                &ast.ident,
+                "#[generate_test_root] is only defined for structs, not for enums or unions, etc.",
+            ));
         }
     }
 

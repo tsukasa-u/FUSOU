@@ -11,15 +11,19 @@ pub fn edit_pac(path: &str, addr: &str, host: Option<&str>) {
     let re = Regex::new(r"return .PROXY 127\.0\.0\.1:[0-9]+.;\s*//\s*\[REPLACE\s+ADDR\]").unwrap();
     let content = format!("return \"PROXY {}\"; // [REPLACE ADDR]", addr);
     let replaced = re.replace(&pac_file, content).to_string();
-    
+
     if let Some(host) = host {
         let re = Regex::new(r#"if \(shExpMatch\(host, ".*"\)( \|\|\r?\n\s*shExpMatch\(host, ".*"\))*\) \{ // \[REPLACE HOST\]"#).unwrap();
         let content = format!(r#"if (shExpMatch(host, "{}")) {{ // [REPLACE HOST]"#, host);
         let replaced = re.replace(&replaced, content).to_string();
-        
+
         std::fs::write(path, replaced).expect("Unable to write file");
     } else {
-        let parent_path = Path::new(path).parent().expect("failed to get parent").to_str().expect("failed to convert to str");
+        let parent_path = Path::new(path)
+            .parent()
+            .expect("failed to get parent")
+            .to_str()
+            .expect("failed to convert to str");
         std::fs::create_dir_all(parent_path).expect("failed to create dir");
         std::fs::write(path, replaced).expect("Unable to write file");
     }
