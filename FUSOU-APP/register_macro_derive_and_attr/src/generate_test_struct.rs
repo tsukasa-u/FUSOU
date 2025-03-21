@@ -65,7 +65,7 @@ pub fn generate_test_struct(ast: &mut DeriveInput) -> Result<TokenStream, syn::E
                     } else {
                         bytes.copy_from_slice(&ast_bytes[i_8..i_8 + 8]);
                     }
-                    
+
                     u64::from_ne_bytes(bytes)
                 })
                 .collect::<Vec<u64>>();

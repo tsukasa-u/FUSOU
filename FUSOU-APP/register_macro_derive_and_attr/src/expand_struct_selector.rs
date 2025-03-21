@@ -93,7 +93,10 @@ pub fn expand_struct_selector(
     if let syn::ReturnType::Type(_, box_type) = &ast.sig.output {
         if let syn::Type::Path(path) = box_type.deref() {
             if path.qself.is_none()
-                && path.path.leading_colon.is_none() && path.path.segments.len() == 1 && path.path.segments[0].ident.to_string().eq("Result") {
+                && path.path.leading_colon.is_none()
+                && path.path.segments.len() == 1
+                && path.path.segments[0].ident.to_string().eq("Result")
+            {
                 resutlt_out = true;
             }
         }
@@ -120,7 +123,9 @@ pub fn expand_struct_selector(
         if file_type.is_dir() {
             for entry in fs::read_dir(file_path.clone()).unwrap() {
                 let entry = entry.unwrap().path();
-                if entry.to_str().unwrap().ends_with(".rs") && !entry.to_str().unwrap().ends_with("mod.rs") {
+                if entry.to_str().unwrap().ends_with(".rs")
+                    && !entry.to_str().unwrap().ends_with("mod.rs")
+                {
                     // let lit = syn::LitStr::new(&format!("kcsapi/{}/{}", file_path.display(), entry.display()), Span::call_site());
                     let file_name = (
                         file_path.file_stem().unwrap().to_string_lossy().to_string(),
@@ -142,10 +147,16 @@ pub fn expand_struct_selector(
                     if re.is_match(&file_content) {
                         let caps = re.captures(&file_content).unwrap();
                         let Some(s1) = caps.name("arg1") else {
-                            panic!("can not find the arg(1) in register_struct macro in the file({})", entry.to_string_lossy().to_string());
+                            panic!(
+                                "can not find the arg(1) in register_struct macro in the file({})",
+                                entry.to_string_lossy().to_string()
+                            );
                         };
                         let Some(s2) = caps.name("arg2") else {
-                            panic!("can not find the arg(2) in register_struct macro in the file({})", entry.to_string_lossy().to_string());
+                            panic!(
+                                "can not find the arg(2) in register_struct macro in the file({})",
+                                entry.to_string_lossy().to_string()
+                            );
                         };
                         let struct_name = (s1.as_str().to_string(), s2.as_str().to_string());
                         file_list.push((struct_name, file_name));

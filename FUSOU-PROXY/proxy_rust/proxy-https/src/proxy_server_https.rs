@@ -98,9 +98,7 @@ fn log_response(
             let mut buffer: Vec<u8> = Vec::new();
             if !pass && content_type.eq("text/plain") {
                 // this code is for the response not decoded in hudsucker!!
-                match flate2::read::MultiGzDecoder::new(body.as_slice())
-                    .read_to_end(&mut buffer)
-                {
+                match flate2::read::MultiGzDecoder::new(body.as_slice()).read_to_end(&mut buffer) {
                     Ok(_) => {}
                     Err(_) => {
                         buffer = body.clone();
