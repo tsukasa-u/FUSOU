@@ -28,9 +28,9 @@ export function BattlesComponent() {
     const [cell_index_selected, set_cell_index_selected] = createSignal<number>(0);
 
     const deck_ship_id = createMemo<{[key: number]: number[]}>(() => {
-        let deck_ship_id: {[key: number]: number[]} = {};
-        for ( let j of Object.keys(deck_ports.deck_ports) ) {
-            for ( let i of Object.keys(deck_ports.deck_ports[Number(j)].ship) ) {
+        const deck_ship_id: {[key: number]: number[]} = {};
+        for ( const j of Object.keys(deck_ports.deck_ports) ) {
+            for ( const i of Object.keys(deck_ports.deck_ports[Number(j)].ship) ) {
                 if (deck_ship_id[Number(j)] ?? -1 > 0) {
                     deck_ship_id[Number(j)].push(deck_ports.deck_ports[Number(j)].ship[Number(i)]);
                 }
@@ -62,7 +62,7 @@ export function BattlesComponent() {
         if (!show_battle()) return [];
         if (battle_selected().battle_order == null) return [];
 
-        let battle_history: JSX.Element[] = [];
+        const battle_history: JSX.Element[] = [];
         battle_selected().battle_order!.forEach((order) => {
                 if (implementsEnumAirBaseAssult(order)) {
                     battle_history.push(<AirBaseAssaultComponent area_id={cells.maparea_id} battle_selected={battle_selected} />);
