@@ -9,6 +9,7 @@ import IconShield from '../icons/shield';
 import { SimpleHpBar } from './simple_hp_bar';
 import { useDeckPorts, useShips } from '../utility/provider';
 import IconFleetNumber from '../icons/fleet_number';
+import { MstEquipmentComponent } from './mst_equipment';
 
 interface ShellingProps {
     deck_ship_id: { [key: number]: number[] };
@@ -50,6 +51,7 @@ export function ShellingComponent({deck_ship_id, battle_selected, shelling_idx}:
                                     <th>To</th>
                                     <th>HP</th>
                                     <th>Attack</th>
+                                    <th>CI</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -133,6 +135,19 @@ export function ShellingComponent({deck_ship_id, battle_selected, shelling_idx}:
                                                             }>{dmg}</div>
                                                         )}
                                                     </For>
+                                                </div>
+                                            </td>
+                                            <td>
+                                                <div class={hougeki()!.df_list![at_index()].length == 1 ? "flex flex-nowrap" : "flex flex-col"}>
+                                                    <Show when={hougeki()!.si_list![at_index()] != null}>
+                                                        <For each={hougeki()!.si_list![at_index()]}>
+                                                            {(si) => (
+                                                                <Show when={si != null}>
+                                                                    <MstEquipmentComponent equip_id={si ?? 0} name_flag={true} compact={true} show_param={hougeki()!.at_eflag![at_index()] == 0}></MstEquipmentComponent>
+                                                                </Show>
+                                                            )}
+                                                        </For>
+                                                    </Show>
                                                 </div>
                                             </td>
                                         </tr>
