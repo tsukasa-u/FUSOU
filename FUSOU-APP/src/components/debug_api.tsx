@@ -90,7 +90,7 @@ export function DebugApi() {
             <div class="pb-4">
               <button
                 class="btn btn-square bg-base-100"
-                onClick={(_e) => {
+                onClick={() => {
                   setCheckBoxSignals(!checkBoxSignals());
                   setFilecheackSignals(
                     fileExistSignals().map((v) =>

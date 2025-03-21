@@ -71,5 +71,5 @@ export function HpColorBarComponent(
     return color;
   });
 
-  return <>{progress_color_state}</>;
+  return <>{progress_color_state()}</>;
 }

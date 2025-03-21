@@ -1,6 +1,6 @@
 import { ShipNameComponent } from "./ship_name";
 
-import { createMemo, For, Show } from "solid-js";
+import { createMemo, For, Match, Show, Switch } from "solid-js";
 
 import "../css/divider.css";
 import { SimpleShipNameComponent } from "./simple_ship_name";
@@ -107,28 +107,38 @@ export function OpeningAirAttackComponent(props: AirDamageProps) {
           <ul class="pl-0">
             <div class="pl-2 text-xs flex felx-nowarp">
               Air State :{" "}
-              {(() => {
-                switch (
-                  props.battle_selected().opening_air_attack.air_superiority
-                ) {
-                  case 0:
-                    return <div class="text-lime-500 pl-1">Air Supremacy</div>;
-                  case 1:
-                    return (
-                      <div class="text-lime-500 pl-1">Air Superiority</div>
-                    );
-                  // case 2:
-                  //     return <div class="grey-500 pl-1">Air Parity"</div>;
-                  // case 3:
-                  //     return <div class="grey-500 pl-1">Air Denial</div>;
-                  case 4:
-                    return (
-                      <div class="text-red-500 pl-1">Air Incapability</div>
-                    );
-                  default:
-                    return <div class="text-grey-500 pl-1">Unknown</div>;
-                }
-              })()}
+              <Switch fallback={<div />}>
+                <Match
+                  when={
+                    props.battle_selected().opening_air_attack
+                      .air_superiority == 0
+                  }
+                >
+                  <div class="text-lime-500 pl-1">Air Supremacy</div>
+                </Match>
+                <Match
+                  when={
+                    props.battle_selected().opening_air_attack
+                      .air_superiority == 1
+                  }
+                >
+                  <div class="text-lime-500 pl-1">Air Superiority</div>
+                </Match>
+                {/* <Match when={props.battle_selected().opening_air_attack.air_superiority == 2}>
+                  <div class="text-grey-500 pl-1">Air Parity</div>
+                </Match>
+                <Match when={props.battle_selected().opening_air_attack.air_superiority == 3}>
+                  <div class="text-red-500 pl-1">Air Denial</div>
+                </Match> */}
+                <Match
+                  when={
+                    props.battle_selected().opening_air_attack
+                      .air_superiority == 4
+                  }
+                >
+                  <div class="text-red-500 pl-1">Air Incapability</div>
+                </Match>
+              </Switch>
               <div class="divider divider-horizontal mr-0 ml-0" />
               touch : <span class="w-1" />
               <div class="w-6 flex justify-center">

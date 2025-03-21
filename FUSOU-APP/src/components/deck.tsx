@@ -11,7 +11,14 @@ import { IconChevronRightS } from "../icons/chevron_right_s.tsx";
 import { EquimentComponent } from "./equipment.tsx";
 import { ShipNameComponent } from "./ship_name.tsx";
 import { useDeckPorts, useMstShips, useShips } from "../utility/provider.tsx";
-import { createMemo, createSignal, For, JSX, Show } from "solid-js";
+import {
+  createEffect,
+  createMemo,
+  createSignal,
+  For,
+  JSX,
+  Show,
+} from "solid-js";
 // import { globalmst_ships_context_id, global_ship_context_id } from '../app.tsx';
 
 import "../css/divider.css";
@@ -159,16 +166,19 @@ export function DeckComponent(props: DeckPortProps) {
     return states;
   });
 
-  if (moreSiganMap[props.deck_id] == undefined) {
-    moreSiganMap[props.deck_id] = false;
-  }
-  const [moreSignal, setMoreSignal] = createSignal<boolean>(
-    moreSiganMap[props.deck_id],
-  );
+  const [moreSignal, setMoreSignal] = createSignal<boolean>(false);
 
-  if (fleetOpenSignalMap[props.deck_id] == undefined) {
-    fleetOpenSignalMap[props.deck_id] = false;
-  }
+  createEffect(() => {
+    setMoreSignal(moreSiganMap[props.deck_id]);
+
+    if (moreSiganMap[props.deck_id] == undefined) {
+      moreSiganMap[props.deck_id] = false;
+    }
+
+    if (fleetOpenSignalMap[props.deck_id] == undefined) {
+      fleetOpenSignalMap[props.deck_id] = false;
+    }
+  });
 
   return (
     <>
@@ -285,8 +295,8 @@ export function DeckComponent(props: DeckPortProps) {
                       <Show when={moreSignal()}>
                         <div class="flex">
                           <div class="grid grid-cols-5 gap-2 content-center w-52">
-                            {ships.ships[shipId]?.slot?.map(
-                              (slotId, slotId_index) => (
+                            <For each={ships.ships[shipId]?.slot}>
+                              {(slotId, slotId_index) => (
                                 <Show when={slotId > 0}>
                                   <div class="text-base flex justify-center">
                                     <EquimentComponent
@@ -295,14 +305,14 @@ export function DeckComponent(props: DeckPortProps) {
                                       name_flag={false}
                                       onslot={
                                         ships.ships[shipId]?.onsolot[
-                                          slotId_index
+                                          slotId_index()
                                         ]
                                       }
                                     />
                                   </div>
                                 </Show>
-                              ),
-                            )}
+                              )}
+                            </For>
                           </div>
                           <span class="w-2" />
                           <div class="divider divider-horizontal mr-0 ml-0 basis-0 h-auto" />
