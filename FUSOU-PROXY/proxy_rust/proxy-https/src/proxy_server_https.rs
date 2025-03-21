@@ -90,34 +90,32 @@ fn log_response(
     );
 
     if save || !pass {
-        if body.len() == 0 {
+        if body.is_empty() {
             return;
         }
 
         tokio::spawn(async move {
             let mut buffer: Vec<u8> = Vec::new();
-            if !pass {
-                if content_type.eq("text/plain") {
-                    // this code is for the response not decoded in hudsucker!!
-                    match flate2::read::MultiGzDecoder::new(body.as_slice())
-                        .read_to_end(&mut buffer)
-                    {
-                        Ok(_) => {}
-                        Err(_) => {
-                            buffer = body.clone();
-                        }
+            if !pass && content_type.eq("text/plain") {
+                // this code is for the response not decoded in hudsucker!!
+                match flate2::read::MultiGzDecoder::new(body.as_slice())
+                    .read_to_end(&mut buffer)
+                {
+                    Ok(_) => {}
+                    Err(_) => {
+                        buffer = body.clone();
                     }
+                }
 
-                    if let Ok(buffer_string) = String::from_utf8(buffer.clone()) {
-                        let mes = bidirectional_channel::StatusInfo::CONTENT {
-                            path: uri_path.clone(),
-                            content_type: content_type.to_string(),
-                            content: buffer_string,
-                        };
-                        let _ = tx_proxy_log.send(mes).await;
-                    } else {
-                        println!("Failed to convert buffer to string");
-                    }
+                if let Ok(buffer_string) = String::from_utf8(buffer.clone()) {
+                    let mes = bidirectional_channel::StatusInfo::CONTENT {
+                        path: uri_path.clone(),
+                        content_type: content_type.to_string(),
+                        content: buffer_string,
+                    };
+                    let _ = tx_proxy_log.send(mes).await;
+                } else {
+                    println!("Failed to convert buffer to string");
                 }
             }
             if save {
@@ -132,7 +130,7 @@ fn log_response(
 
                     let time_stamped = format!(
                         "kcsapi/{}S{}",
-                        jst.timestamp().to_string(),
+                        jst.timestamp(),
                         uri_path.as_str().replace("/kcsapi", "").replace("/", "@")
                     );
                     fs::write(path_log.join(Path::new(&time_stamped)), buffer)
@@ -376,7 +374,7 @@ pub fn serve_proxy(
         _ => SocketAddr::from(([127, 0, 0, 1], port)),
     };
     let server_proxy = Proxy::builder()
-        .with_addr(addr.clone())
+        .with_addr(addr)
         .with_ca(ca)
         .with_client(client)
         // .with_rustls_client(aws_lc_rs::default_provider())

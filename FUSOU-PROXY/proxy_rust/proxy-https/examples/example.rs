@@ -7,8 +7,6 @@ use hudsucker::{
     tokio_tungstenite::tungstenite::Message,
     *,
 };
-use hyper_rustls::ConfigBuilderExt;
-use hyper_util::client::legacy::connect;
 use std::{net::SocketAddr, time::Duration};
 use tracing::*;
 
@@ -41,7 +39,7 @@ impl HttpHandler for LogHandler {
         let body = collected.to_bytes().clone();
         let full_body = http_body_util::Full::from(body.clone());
         let _body_vec = body.to_vec();
-        if body.len() > 0 {
+        if !body.is_empty() {
             // println!("{:?}", body.slice(0..10));
             println!("{:?}", part.headers);
         } else {
