@@ -1,5 +1,4 @@
 use std::{collections::HashSet, fs::File, hash::RandomState, io::Write, path};
-use confy;
 use serde::{Deserialize, Serialize};
 
 use register_macro_derive_and_attr::add_field;
@@ -52,20 +51,20 @@ pub fn check_struct_defined(target_path: String) {
     let content = diff.clone().collect::<HashSet<&String, RandomState>>();
     
     let mut file = File::create("./tests/struct_defined.log").unwrap();
-    file.write(format!("unregistered struct ({}/{})\n", diff.clone().count(), books.clone().len()).as_bytes()).expect("write failed");
-    file.write(format!("{:#?}\n", content).as_bytes()).expect("write failed");
+    file.write_all(format!("unregistered struct ({}/{})\n", diff.clone().count(), books.clone().len()).as_bytes()).expect("write failed");
+    file.write_all(format!("{:#?}\n", content).as_bytes()).expect("write failed");
 
-    file.write("\n".as_bytes()).expect("write failed");
-    file.write(format!("registered struct ({}/{})\n", cfg_hash_set.clone().len(), books.clone().len()).as_bytes()).expect("write failed");
-    file.write(format!("{:#?}\n", cfg_hash_set).as_bytes()).expect("write failed");
+    file.write_all("\n".as_bytes()).expect("write failed");
+    file.write_all(format!("registered struct ({}/{})\n", cfg_hash_set.clone().len(), books.clone().len()).as_bytes()).expect("write failed");
+    file.write_all(format!("{:#?}\n", cfg_hash_set).as_bytes()).expect("write failed");
 
-    file.write("\n".as_bytes()).expect("write failed");
-    file.write(format!("struct not in test data ({}/{})\n", diff_not_in_data.clone().count(), cfg_hash_set.clone().len()).as_bytes()).expect("write failed");
-    file.write(format!("{:#?}\n", diff_not_in_data).as_bytes()).expect("write failed");
+    file.write_all("\n".as_bytes()).expect("write failed");
+    file.write_all(format!("struct not in test data ({}/{})\n", diff_not_in_data.clone().count(), cfg_hash_set.clone().len()).as_bytes()).expect("write failed");
+    file.write_all(format!("{:#?}\n", diff_not_in_data).as_bytes()).expect("write failed");
     
-    file.write("\n".as_bytes()).expect("write failed");
-    file.write(format!("all struct ({})\n", cfg_hash_set.clone().len()).as_bytes()).expect("write failed");
-    file.write(format!("{:#?}\n", cfg_hash_set).as_bytes()).expect("write failed");
+    file.write_all("\n".as_bytes()).expect("write failed");
+    file.write_all(format!("all struct ({})\n", cfg_hash_set.clone().len()).as_bytes()).expect("write failed");
+    file.write_all(format!("{:#?}\n", cfg_hash_set).as_bytes()).expect("write failed");
 
     if diff.clone().count() > 0 {
         panic!("\x1b[38;5;{}m There are some not implemented struct for test response data ({}/{}) {:#?}\x1b[m", 8, diff.clone().count(), books.len(), content);
