@@ -178,9 +178,8 @@ const category_list: { [key: number]: string } = {
 };
 
 export function IconEquipment(
-  _props: JSX.HTMLAttributes<SVGSVGElement> & EquipmentProps,
+  props: JSX.HTMLAttributes<SVGSVGElement> & EquipmentProps,
 ) {
-  const [props, props] = splitProps(_props, ["icon_number", "category_number"]);
   let primary_color: string = icon_list[props.icon_number ?? 0][0];
   let secondary_color: string = icon_list[props.icon_number ?? 0][1];
 

@@ -95,11 +95,9 @@ export const hideFadeToast = function (id: string) {
 };
 
 export function FadeToast(
-  _props: FadeToastProps & JSX.HTMLAttributes<HTMLDivElement>,
+  props: FadeToastProps & JSX.HTMLAttributes<HTMLDivElement>,
 ) {
-  // useStyles$(toast_style);
 
-  const [props, props] = splitProps(_props, ["toast_id"]);
   return (
     <>
       <div class="toast toast-end" {...props}>
