@@ -78,7 +78,7 @@ export function ShipListComponent() {
   }>({});
   createEffect(() => {
     let check_stype: { [key: string]: boolean } = {};
-    Object.entries(mst_stypes.mst_stypes).forEach(([_, stype]) => {
+    Object.entries(mst_stypes.mst_stypes).forEach(([, stype]) => {
       check_stype[stype.name] = true;
     });
     set_check_stype(check_stype);
@@ -89,7 +89,7 @@ export function ShipListComponent() {
   );
   createEffect(() => {
     let check_name: { [key: number]: boolean } = {};
-    Object.entries(ships.ships).forEach(([ship_id, _]) => {
+    Object.entries(ships.ships).forEach(([ship_id]) => {
       check_name[Number(ship_id)] = true;
     });
     set_check_name(check_name);
@@ -150,10 +150,10 @@ export function ShipListComponent() {
 
   const categorized_ships_keys = createMemo(() => {
     let categorized_ships_keys: { [key: string]: number[] } = {};
-    Object.entries(mst_stypes.mst_stypes).forEach(([_, stype]) => {
+    Object.entries(mst_stypes.mst_stypes).forEach(([, stype]) => {
       categorized_ships_keys[stype.name] = [];
     });
-    Object.entries(ships.ships).forEach(([ship_id, _]) => {
+    Object.entries(ships.ships).forEach(([ship_id]) => {
       let stype =
         mst_stypes.mst_stypes[
           mst_ships.mst_ships[ships.ships[Number(ship_id)].ship_id].stype
@@ -162,7 +162,7 @@ export function ShipListComponent() {
       categorized_ships_keys[stype].push(Number(ship_id));
     });
 
-    Object.entries(mst_stypes.mst_stypes).forEach(([_, stype]) => {
+    Object.entries(mst_stypes.mst_stypes).forEach(([, stype]) => {
       categorized_ships_keys[stype.name] =
         categorized_ships_keys[stype.name].sort(sort_fn);
       if (!set_order())
@@ -921,7 +921,7 @@ export function ShipListComponent() {
               <span class="flex-1" />
               <button
                 class="btn btn-sm btn-ghost mx-0.5 pagination px-3"
-                onClick={(_e) =>
+                onClick={() =>
                   set_pagination(
                     "options",
                     pagination.selected,
@@ -934,7 +934,7 @@ export function ShipListComponent() {
               </button>
               <button
                 class="btn btn-sm btn-ghost mx-0.5 pagination"
-                onClick={(_e) =>
+                onClick={() =>
                   set_pagination(
                     "options",
                     pagination.selected,
@@ -964,7 +964,7 @@ export function ShipListComponent() {
                   >
                     <button
                       class="btn btn-sm btn-square btn-ghost mx-0.5 pagination"
-                      onClick={(_e) =>
+                      onClick={() =>
                         set_pagination(
                           "options",
                           pagination.selected,
@@ -1004,7 +1004,7 @@ export function ShipListComponent() {
                         "btn btn-sm btn-square btn-ghost mx-0.5 pagination" +
                         (index == 0 ? " btn-active" : "")
                       }
-                      onClick={(_e) => {
+                      onClick={() => {
                         set_pagination(
                           "options",
                           pagination.selected,
@@ -1040,7 +1040,7 @@ export function ShipListComponent() {
                   >
                     <button
                       class="btn btn-sm btn-square btn-ghost mx-0.5 pagination"
-                      onClick={(_e) =>
+                      onClick={() =>
                         set_pagination(
                           "options",
                           pagination.selected,
@@ -1060,7 +1060,7 @@ export function ShipListComponent() {
               </For>
               <button
                 class="btn btn-sm btn-ghost mx-0.5 pagination"
-                onClick={(_e) =>
+                onClick={() =>
                   set_pagination(
                     "options",
                     pagination.selected,
@@ -1073,7 +1073,7 @@ export function ShipListComponent() {
               </button>
               <button
                 class="btn btn-sm btn-ghost mx-0.5 pagination"
-                onClick={(_e) =>
+                onClick={() =>
                   set_pagination(
                     "options",
                     pagination.selected,

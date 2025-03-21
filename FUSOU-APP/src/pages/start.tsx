@@ -94,18 +94,18 @@ function Start() {
     setProxyServerHealth(-1);
 
     invoke<string>("check_proxy_server_health")
-      .then((_) => {
+      .then(() => {
         setProxyServerHealth(1);
       })
-      .catch((_e) => {
+      .catch(() => {
         setProxyServerHealth(0);
       });
 
     invoke<string>("check_proxy_server_health")
-      .then((_) => {
+      .then(() => {
         setPacServerHealth(1);
       })
-      .catch((_e) => {
+      .catch(() => {
         setPacServerHealth(0);
       });
   }

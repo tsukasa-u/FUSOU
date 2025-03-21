@@ -3,6 +3,7 @@ import { useMaterials } from "../utility/provider.tsx";
 import { IconMaterial } from "../icons/material.tsx";
 
 import "../css/divider.css";
+import { For } from "solid-js";
 
 export function MaterialsComponent() {
   const icon_material_converter: { [key: number]: number } = {
@@ -27,12 +28,11 @@ export function MaterialsComponent() {
             <li class="h-auto">
               <a class="justify-start gap-0 flex flex-wrap gap-y-1">
                 <div class="justify-start gap-0 flex flex-nowrap">
-                  {Object.values(_materials.materials)
-                    .slice(0, 4)
-                    .map((material, index) => (
+                  <For each={Object.values(_materials.materials).slice(0, 4)}>
+                    {(material, index) => (
                       <>
                         <IconMaterial
-                          item_number={icon_material_converter[index]}
+                          item_number={icon_material_converter[index()]}
                           class="h-5 w-5"
                         />
                         <div class="w-10 flex justify-end pt-0.5">
@@ -40,15 +40,15 @@ export function MaterialsComponent() {
                         </div>
                         <div class="divider divider-horizontal mr-0 ml-0" />
                       </>
-                    ))}
+                    )}
+                  </For>
                 </div>
                 <div class="justify-start gap-0 flex flex-nowrap">
-                  {Object.values(_materials.materials)
-                    .slice(4, 8)
-                    .map((material, index) => (
+                  <For each={Object.values(_materials.materials).slice(4, 8)}>
+                    {(material, index) => (
                       <>
                         <IconMaterial
-                          item_number={icon_material_converter[index + 4]}
+                          item_number={icon_material_converter[index() + 4]}
                           class="h-5 w-5"
                         />
                         <div class="w-10 flex justify-end pt-0.5">
@@ -56,7 +56,8 @@ export function MaterialsComponent() {
                         </div>
                         <div class="divider divider-horizontal mr-0 ml-0" />
                       </>
-                    ))}
+                    )}
+                  </For>
                 </div>
               </a>
             </li>

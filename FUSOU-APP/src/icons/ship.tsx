@@ -1,4 +1,4 @@
-import { JSX } from "solid-js";
+import { createMemo, JSX } from "solid-js";
 
 interface ShipProps {
   ship_stype: number;
@@ -39,16 +39,20 @@ const name_list: { [key: number]: string } = {
   22: "AO", //    Fleet Oiler
 };
 
-export function IconShip(
-  props: JSX.HTMLAttributes<SVGSVGElement> & ShipProps,
-) {
+export function IconShip(props: JSX.HTMLAttributes<SVGSVGElement> & ShipProps) {
   let primary_color: string = icon_list[""];
-  let secondary_color: string = icon_list[props.color ?? ""];
-  if (secondary_color == undefined) {
-    secondary_color = "#000000";
-    console.log("color is undefined", props.color);
-  }
-  let name = name_list[props.ship_stype ?? 0];
+  // let secondary_color: string = icon_list[props.color ?? ""];
+  // if (secondary_color == undefined) {
+  //   secondary_color = "#000000";
+  // }
+  const secondary_color = createMemo(() => {
+    let color = icon_list[props.color ?? ""];
+    if (color == undefined) {
+      color = "#CCCCCC";
+    }
+    return color;
+  });
+  const name = createMemo(() => name_list[props.ship_stype ?? 0]);
 
   return (
     <svg
@@ -65,9 +69,9 @@ export function IconShip(
         font-family="monospace,sans-serif"
         font-weight="400"
         font-size="96"
-        transform={"translate(" + (25 - (name.length - 3) * 24) + " 104)"}
+        transform={"translate(" + (25 - (name().length - 3) * 24) + " 104)"}
       >
-        {name}
+        {name()}
       </text>
       <path
         d="m 9 32 C 9 19.85 18.85 10 31 10 L 167 10 C 179.15 10 189 19.85 189 32 l 0 88 C 189 132.15 179.15 142 167 142 L 31 142 C 18.85 142 9 132.15 9 120 Z"
@@ -88,7 +92,7 @@ export function IconShip(
       />
       <path
         d="M100 124 172 124"
-        stroke={secondary_color}
+        stroke={secondary_color()}
         stroke-width="16"
         stroke-miterlimit="8"
         fill="none"

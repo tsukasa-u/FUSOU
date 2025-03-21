@@ -1,4 +1,4 @@
-import { JSX } from "solid-js";
+import { createMemo, JSX } from "solid-js";
 
 interface MaterialProps {
   item_number: number;
@@ -118,8 +118,11 @@ const item_list: { [key: number]: [string, number] } = {
 export function IconMaterial(
   props: JSX.HTMLAttributes<SVGSVGElement> & MaterialProps,
 ) {
-  let primary_color: string =
-    icon_list[item_list[props.item_number ?? 0][1]][0];
+  // let primary_color: string =
+  //   icon_list[item_list[props.item_number ?? 0][1]][0];
+  const primary_color = createMemo(() => {
+    return icon_list[item_list[props.item_number ?? 0][1]][0];
+  });
 
   return (
     <svg
@@ -150,16 +153,8 @@ export function IconMaterial(
         fill-rule="evenodd"
       />
       <path
-        d="M28 124 76 124"
-        stroke={primary_color}
-        stroke-width="16"
-        stroke-miterlimit="8"
-        fill="none"
-        fill-rule="evenodd"
-      />
-      <path
-        d="M76 124 124 124"
-        stroke={primary_color}
+        d="M28 124 124 124"
+        stroke={primary_color()}
         stroke-width="16"
         stroke-miterlimit="8"
         fill="none"
