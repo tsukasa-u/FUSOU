@@ -168,10 +168,10 @@ pub async fn read_dir(window: tauri::Window, path: &str) -> Result<(), String> {
     let mut dirs: Vec<String> = Vec::new();
 
     if let Ok(canonicalized_path) = canonicalize(path) {
-        dirs.push(canonicalized_path.to_string_lossy().to_string().into());
+        dirs.push(canonicalized_path.to_string_lossy().to_string());
 
         if let Some(dir_parent) = canonicalized_path.parent() {
-            dirs.push(dir_parent.to_string_lossy().to_string().into());
+            dirs.push(dir_parent.to_string_lossy().to_string());
         }
     }
 
@@ -182,9 +182,9 @@ pub async fn read_dir(window: tauri::Window, path: &str) -> Result<(), String> {
                     let item_path = canonicalize(item.path()).unwrap();
                     // let item_path = item.path();
                     if file_type.is_dir() {
-                        dirs.push(item_path.to_string_lossy().to_string().into());
+                        dirs.push(item_path.to_string_lossy().to_string());
                     } else {
-                        files.push(item_path.to_string_lossy().to_string().into());
+                        files.push(item_path.to_string_lossy().to_string());
                     }
                 }
             }
@@ -215,7 +215,6 @@ pub async fn read_emit_file(window: tauri::Window, path: &str) -> Result<(), Str
     let path_string = path.to_string();
     let path_split_slash: Vec<&str> = path_string.split("/").collect();
     let path_split_at: Vec<String> = path_split_slash[path_split_slash.len() - 1]
-        .to_string()
         .split("@")
         .map(|s| s.to_string())
         .collect();

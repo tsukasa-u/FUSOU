@@ -16,7 +16,7 @@ impl BrowserState {
     }
 
     pub fn get_browser(&self) -> Browser {
-        self.0.clone()
+        self.0
     }
 }
 
@@ -55,11 +55,11 @@ pub fn create_external_window(app: &AppHandle, browser: Option<Browser>, browse_
         .title("fusou-viewer")
         .inner_size(1192_f64, 712_f64)
         .visible(false)
-        .initialization_script(&init_script)
+        .initialization_script(init_script)
         .build()
         .expect("error while building external");
     } else {
-        let _ = open_browser(
+        open_browser(
             browser.unwrap(),
             "http://www.dmm.com/netgame/social/-/gadgets/=/app_id=854854/",
         )

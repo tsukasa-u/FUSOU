@@ -89,8 +89,7 @@ where
         if log_map
             .iter()
             .filter(|(key, log)| {
-                (key.0 == "type_value" && log.iter().position(|x| x != "null").is_some())
-                    || key.0 != "type_value"
+                (key.0 == "type_value" && log.iter().any(|x| x != "null")) || key.0 != "type_value"
             })
             .count()
             > 0
