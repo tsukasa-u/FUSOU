@@ -57,93 +57,89 @@ pub fn check_struct_dependency() {
     for file_path in file_path_list {
         let file_path_str = file_path.to_string_lossy().to_string();
 
-        if file_path_str.ends_with(".rs") {
-            if !file_path_str.ends_with("mod.rs") {
-                let mut bookm: StructFieldTypeInfo = StructFieldTypeInfo::new();
+        if file_path_str.ends_with(".rs") && !file_path_str.ends_with("mod.rs") {
+            let mut bookm: StructFieldTypeInfo = StructFieldTypeInfo::new();
 
-                let content = fs::read_to_string(file_path.clone()).expect("failed to read file");
-                let captured = re_struct.captures_iter(&content);
+            let content = fs::read_to_string(file_path.clone()).expect("failed to read file");
+            let captured = re_struct.captures_iter(&content);
 
-                #[cfg(target_os = "windows")]
-                let api_name_splited: Vec<String> = file_path_str
-                    .replace("\\", "/")
-                    .split("/")
-                    .map(|s| s.replace(".rs", ""))
-                    .collect();
-                #[cfg(target_os = "linux")]
-                let api_name_splited: Vec<String> = file_path_str
-                    .split("/")
-                    .map(|s| s.replace(".rs", ""))
-                    .collect();
+            #[cfg(target_os = "windows")]
+            let api_name_splited: Vec<String> = file_path_str
+                .replace("\\", "/")
+                .split("/")
+                .map(|s| s.replace(".rs", ""))
+                .collect();
+            #[cfg(target_os = "linux")]
+            let api_name_splited: Vec<String> = file_path_str
+                .split("/")
+                .map(|s| s.replace(".rs", ""))
+                .collect();
 
-                let api_name_1 = api_name_splited[api_name_splited.len() - 2].clone();
-                let api_name_2 = api_name_splited[api_name_splited.len() - 1].clone();
+            let api_name_1 = api_name_splited[api_name_splited.len() - 2].clone();
+            let api_name_2 = api_name_splited[api_name_splited.len() - 1].clone();
 
-                let use_captured = re_use.captures_iter(&content);
-                let mut use_book: UseInfo = UseInfo::new();
-                for use_cap in use_captured {
-                    if use_cap.get(1).is_none() {
-                        let use_name = use_cap.get(2).unwrap().as_str();
-                        let use_name_last = use_cap.get(use_cap.len() - 1).unwrap().as_str();
-                        use_book.insert(use_name_last.to_string(), use_name.to_string());
-                    }
+            let use_captured = re_use.captures_iter(&content);
+            let mut use_book: UseInfo = UseInfo::new();
+            for use_cap in use_captured {
+                if use_cap.get(1).is_none() {
+                    let use_name = use_cap.get(2).unwrap().as_str();
+                    let use_name_last = use_cap.get(use_cap.len() - 1).unwrap().as_str();
+                    use_book.insert(use_name_last.to_string(), use_name.to_string());
+                }
+            }
+
+            for cap in captured {
+                let mut book: FieldTypeInfo = FieldTypeInfo::new();
+
+                let field_captured = re_struct_field.captures_iter(cap.get(0).unwrap().as_str());
+                for field_cap in field_captured {
+                    let field_type = field_cap.get(3).unwrap().as_str();
+                    let field_rename = field_cap.get(1).unwrap().as_str();
+
+                    let type_captured = re_parse_type.captures(field_type);
+                    let type_name = if let Some(type_cap) = type_captured {
+                        type_cap
+                            .get(type_cap.len() - 1)
+                            .unwrap()
+                            .as_str()
+                            .to_string()
+                    } else {
+                        field_type.to_string()
+                    };
+                    let use_name_full = use_book
+                        .keys()
+                        .filter(|x| type_name.eq(x.to_owned()))
+                        .map(|x| use_book.get(x));
+
+                    let field_type_location = if use_name_full.clone().count() == 1 {
+                        match use_name_full.last().unwrap() {
+                            Some(name_last) => name_last.to_owned(),
+                            None => "_".to_string(),
+                        }
+                    } else {
+                        "_".to_string()
+                    };
+
+                    book.insert(
+                        field_rename.to_string(),
+                        (field_type_location, field_type.to_string(), type_name),
+                    );
                 }
 
-                for cap in captured {
-                    let mut book: FieldTypeInfo = FieldTypeInfo::new();
+                let struct_name_captrued = re_struct_name.captures(cap.get(0).unwrap().as_str());
+                if let Some(struct_name) = struct_name_captrued {
+                    if let Some(struct_name_unwrap) = struct_name.get(2) {
+                        bookm.insert(struct_name_unwrap.as_str().to_string(), book);
 
-                    let field_captured =
-                        re_struct_field.captures_iter(cap.get(0).unwrap().as_str());
-                    for field_cap in field_captured {
-                        let field_type = field_cap.get(3).unwrap().as_str();
-                        let field_rename = field_cap.get(1).unwrap().as_str();
-
-                        let type_captured = re_parse_type.captures(field_type);
-                        let type_name = if let Some(type_cap) = type_captured {
-                            type_cap
-                                .get(type_cap.len() - 1)
-                                .unwrap()
-                                .as_str()
-                                .to_string()
-                        } else {
-                            field_type.to_string()
-                        };
-                        let use_name_full = use_book
-                            .keys()
-                            .filter(|x| type_name.eq(x.to_owned()))
-                            .map(|x| use_book.get(x));
-
-                        let field_type_location = if use_name_full.clone().count() == 1 {
-                            match use_name_full.last().unwrap() {
-                                Some(name_last) => name_last.to_owned(),
-                                None => "_".to_string(),
-                            }
-                        } else {
-                            "_".to_string()
-                        };
-
-                        book.insert(
-                            field_rename.to_string(),
-                            (field_type_location, field_type.to_string(), type_name),
-                        );
-                    }
-
-                    let struct_name_captrued =
-                        re_struct_name.captures(cap.get(0).unwrap().as_str());
-                    if let Some(struct_name) = struct_name_captrued {
-                        if let Some(struct_name_unwrap) = struct_name.get(2) {
-                            bookm.insert(struct_name_unwrap.as_str().to_string(), book);
-
-                            let check_comma_captured =
-                                re_check_comma.captures_iter(&cap.get(0).unwrap().as_str());
-                            for check_comma_cap in check_comma_captured {
-                                println!("\x1b[38;5;{}m add comma at the end of this line({}) in {} ({}/{}.rs) \x1b[m ", 11, check_comma_cap.get(0).unwrap().as_str().replace("\n}", "").replace("\r", ""), struct_name_unwrap.as_str(), api_name_1, api_name_2);
-                            }
+                        let check_comma_captured =
+                            re_check_comma.captures_iter(cap.get(0).unwrap().as_str());
+                        for check_comma_cap in check_comma_captured {
+                            println!("\x1b[38;5;{}m add comma at the end of this line({}) in {} ({}/{}.rs) \x1b[m ", 11, check_comma_cap.get(0).unwrap().as_str().replace("\n}", "").replace("\r", ""), struct_name_unwrap.as_str(), api_name_1, api_name_2);
                         }
                     }
                 }
-                books.insert((api_name_1.clone(), api_name_2.clone()), bookm);
             }
+            books.insert((api_name_1.clone(), api_name_2.clone()), bookm);
         }
     }
 
@@ -369,11 +365,13 @@ pub fn check_struct_dependency() {
                         field_type_location_parse[field_type_location_parse.len() - 1].to_string();
 
                     let key = format!("{}__{}", api_name_1, api_name_2);
-                    if field_type_location_parse_uniq.contains_key(&key) {
+                    if let std::collections::hash_map::Entry::Vacant(e) =
+                        field_type_location_parse_uniq.entry(key.clone())
+                    {
+                        e.insert(vec![struct_name.clone()]);
+                    } else {
                         let value = field_type_location_parse_uniq.get_mut(&key).unwrap();
                         value.push(struct_name.clone());
-                    } else {
-                        field_type_location_parse_uniq.insert(key, vec![struct_name.clone()]);
                     }
 
                     let fields = books
@@ -569,12 +567,13 @@ fn check_dobule_resitering_struct_name(
     double_resitering_struct_name: &HashMap<String, i64>,
     struct_name: &str,
 ) {
-    if struct_name.ne("Root") && struct_name.ne("ApiData") {
-        if double_resitering_struct_name.contains_key(struct_name) {
-            let count = double_resitering_struct_name.get(struct_name).unwrap();
-            if *count > 1 {
-                node_struct_name.set_color(Color::Red);
-            }
+    if struct_name.ne("Root")
+        && struct_name.ne("ApiData")
+        && double_resitering_struct_name.contains_key(struct_name)
+    {
+        let count = double_resitering_struct_name.get(struct_name).unwrap();
+        if *count > 1 {
+            node_struct_name.set_color(Color::Red);
         }
     }
 }
