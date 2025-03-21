@@ -5,26 +5,26 @@
 //!   <img src="https://tsukasa-u.github.io/FUSOU/struct_dependency_svg/api_req_map@start.svg" alt="KC_API_dependency(api_req_map/start)" style="max-width: 2000px;"/>
 //! </div>
 
-use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
-use register_trait::register_struct;
 use register_trait::add_field;
+use register_trait::register_struct;
 
-use register_trait::TraitForTest;
 use register_trait::Getter;
-use register_trait::TraitForRoot;
 use register_trait::TraitForConvert;
+use register_trait::TraitForRoot;
+use register_trait::TraitForTest;
 
 use crate::interface::cells::Cells;
-use crate::interface::interface::{Set, EmitData};
+use crate::interface::interface::{EmitData, Set};
 
-use crate::kcapi_common::common_map::ApiSelectRoute;
-use crate::kcapi_common::common_map::ApiCellFlavor;
-use crate::kcapi_common::common_map::ApiEventmap;
 use crate::kcapi_common::common_map::ApiAirsearch;
+use crate::kcapi_common::common_map::ApiCellFlavor;
 use crate::kcapi_common::common_map::ApiEDeckInfo;
+use crate::kcapi_common::common_map::ApiEventmap;
 use crate::kcapi_common::common_map::ApiHappening;
+use crate::kcapi_common::common_map::ApiSelectRoute;
 
 #[derive(Getter, TraitForTest, TraitForRoot)]
 #[struct_test_case(field_extra, type_value, integration)]
@@ -95,7 +95,7 @@ pub struct ApiData {
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")] 
+#[serde(rename_all = "camelCase")]
 pub struct ApiItemget {
     #[serde(rename = "api_usemst")]
     pub api_usemst: i64,
@@ -135,7 +135,7 @@ impl TraitForConvert for Root {
         Some(vec![
             EmitData::Set(Set::Cells(cells)),
             // EmitData::Set(Set::Battles(battles))
-            ])
+        ])
     }
 }
 
@@ -149,9 +149,8 @@ mod tests {
 
     #[test]
     fn test_deserialize() {
-        
         let mut target_path = "./../../FUSOU-PROXY-DATA/kcsapi".to_string();
-    
+
         dotenv().expect(".env file not found");
         for (key, value) in env::vars() {
             if key.eq("TEST_DATA_PATH") {

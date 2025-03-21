@@ -7,13 +7,13 @@ use std::sync::{LazyLock, Mutex};
 // Is it better to use onecell::sync::Lazy or std::sync::Lazy?
 pub static KCS_AIR_BASE: LazyLock<Mutex<AirBases>> = LazyLock::new(|| {
     Mutex::new(AirBases {
-        bases: HashMap::new()
+        bases: HashMap::new(),
     })
 });
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct AirBases {
-    pub bases: HashMap<i64, AirBase>
+    pub bases: HashMap<i64, AirBase>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -23,7 +23,7 @@ pub struct AirBase {
     pub area_id: i64,
     pub name: String,
     pub distance: i64,
-    pub plane_info: Vec<PlaneInfo>
+    pub plane_info: Vec<PlaneInfo>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -54,9 +54,7 @@ impl From<Vec<kcapi::api_get_member::mapinfo::ApiAirBase>> for AirBases {
         for base in bases {
             base_list.insert((base.api_area_id << 16) | base.api_rid, base.into());
         }
-        Self {
-            bases: base_list
-        }
+        Self { bases: base_list }
     }
 }
 
@@ -68,7 +66,11 @@ impl From<kcapi::api_get_member::mapinfo::ApiAirBase> for AirBase {
             area_id: base.api_area_id,
             name: base.api_name,
             distance: base.api_distance.api_base + base.api_distance.api_bonus,
-            plane_info: base.api_plane_info.into_iter().map(|info| info.into()).collect()
+            plane_info: base
+                .api_plane_info
+                .into_iter()
+                .map(|info| info.into())
+                .collect(),
         }
     }
 }
@@ -81,7 +83,7 @@ impl From<kcapi::api_get_member::mapinfo::ApiPlaneInfo> for PlaneInfo {
             max_count: info.api_max_count,
             count: info.api_count,
             slotid: info.api_slotid,
-            squadron_id: info.api_squadron_id
+            squadron_id: info.api_squadron_id,
         }
     }
 }

@@ -37,7 +37,7 @@ pub fn wrap_notification(app: &AppHandle, content: NotificationContent) {
         .icon(content.icon.as_str())
         .show()
         .expect("unable to show notification");
-    
-        // Notification::new(&app.config().tauri.bundle.identifier).show().expect("unable to show notification");
+
+    // Notification::new(&app.config().tauri.bundle.identifier).show().expect("unable to show notification");
     println!("notification sent")
 }

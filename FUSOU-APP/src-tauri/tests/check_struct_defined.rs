@@ -1,5 +1,5 @@
-use std::{collections::HashSet, fs::File, hash::RandomState, io::Write, path};
 use serde::{Deserialize, Serialize};
+use std::{collections::HashSet, fs::File, hash::RandomState, io::Write, path};
 
 use register_macro_derive_and_attr::add_field;
 
@@ -10,13 +10,12 @@ use register_trait::REGISTER_STRUCT;
 struct TestConfig {}
 
 pub fn check_struct_defined(target_path: String) {
-    
     let target = path::PathBuf::from(target_path);
-    let files = target.read_dir().expect( "read_dir call failed");
+    let files = target.read_dir().expect("read_dir call failed");
     let mut books = HashSet::<String>::new();
     for dir_entry in files {
         let file_path = dir_entry.unwrap().path();
-        let file_path_splited:Vec<&str> = file_path.to_str().unwrap().split("@").collect();
+        let file_path_splited: Vec<&str> = file_path.to_str().unwrap().split("@").collect();
         let mut iter = file_path_splited.iter();
         if iter.next().unwrap().ends_with("S") {
             let mut book = Vec::<String>::new();
@@ -34,12 +33,12 @@ pub fn check_struct_defined(target_path: String) {
                     }
                 }
             }
-            
+
             let s: String = book.join("/");
             books.insert(s);
         }
     }
-    
+
     // let cfg: TestConfig = confy::load_path(path::PathBuf::from("./tests/struct_names")).unwrap();
     let cfg: TestConfig = confy::load(REGISTER_STRUCT, None).unwrap();
 
@@ -49,22 +48,51 @@ pub fn check_struct_defined(target_path: String) {
     let diff_not_in_data = cfg_hash_set.difference(&books);
 
     let content = diff.clone().collect::<HashSet<&String, RandomState>>();
-    
+
     let mut file = File::create("./tests/struct_defined.log").unwrap();
-    file.write_all(format!("unregistered struct ({}/{})\n", diff.clone().count(), books.clone().len()).as_bytes()).expect("write failed");
-    file.write_all(format!("{:#?}\n", content).as_bytes()).expect("write failed");
+    file.write_all(
+        format!(
+            "unregistered struct ({}/{})\n",
+            diff.clone().count(),
+            books.clone().len()
+        )
+        .as_bytes(),
+    )
+    .expect("write failed");
+    file.write_all(format!("{:#?}\n", content).as_bytes())
+        .expect("write failed");
 
     file.write_all("\n".as_bytes()).expect("write failed");
-    file.write_all(format!("registered struct ({}/{})\n", cfg_hash_set.clone().len(), books.clone().len()).as_bytes()).expect("write failed");
-    file.write_all(format!("{:#?}\n", cfg_hash_set).as_bytes()).expect("write failed");
+    file.write_all(
+        format!(
+            "registered struct ({}/{})\n",
+            cfg_hash_set.clone().len(),
+            books.clone().len()
+        )
+        .as_bytes(),
+    )
+    .expect("write failed");
+    file.write_all(format!("{:#?}\n", cfg_hash_set).as_bytes())
+        .expect("write failed");
 
     file.write_all("\n".as_bytes()).expect("write failed");
-    file.write_all(format!("struct not in test data ({}/{})\n", diff_not_in_data.clone().count(), cfg_hash_set.clone().len()).as_bytes()).expect("write failed");
-    file.write_all(format!("{:#?}\n", diff_not_in_data).as_bytes()).expect("write failed");
-    
+    file.write_all(
+        format!(
+            "struct not in test data ({}/{})\n",
+            diff_not_in_data.clone().count(),
+            cfg_hash_set.clone().len()
+        )
+        .as_bytes(),
+    )
+    .expect("write failed");
+    file.write_all(format!("{:#?}\n", diff_not_in_data).as_bytes())
+        .expect("write failed");
+
     file.write_all("\n".as_bytes()).expect("write failed");
-    file.write_all(format!("all struct ({})\n", cfg_hash_set.clone().len()).as_bytes()).expect("write failed");
-    file.write_all(format!("{:#?}\n", cfg_hash_set).as_bytes()).expect("write failed");
+    file.write_all(format!("all struct ({})\n", cfg_hash_set.clone().len()).as_bytes())
+        .expect("write failed");
+    file.write_all(format!("{:#?}\n", cfg_hash_set).as_bytes())
+        .expect("write failed");
 
     if diff.clone().count() > 0 {
         panic!("\x1b[38;5;{}m There are some not implemented struct for test response data ({}/{}) {:#?}\x1b[m", 8, diff.clone().count(), books.len(), content);

@@ -11,9 +11,7 @@ use super::battle::calc_air_damage;
 use super::battle::{AirDamage, Battle};
 
 // Is it better to use onecell::sync::Lazy or std::sync::Lazy?
-pub static KCS_CELLS: LazyLock<Mutex<Vec<i64>>> = LazyLock::new(|| {
-    Mutex::new(Vec::new())
-});
+pub static KCS_CELLS: LazyLock<Mutex<Vec<i64>>> = LazyLock::new(|| Mutex::new(Vec::new()));
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Cells {
@@ -94,7 +92,7 @@ pub struct DestructionBattle {
     pub e_slot: Vec<Vec<i64>>,
     pub f_nowhps: Vec<i64>,
     pub f_maxhps: Vec<i64>,
-    // Need to implement 
+    // Need to implement
     pub air_base_attack: AirBaseAttack,
     pub lost_kind: i64,
 }
@@ -111,14 +109,34 @@ pub struct AirBaseAttack {
 impl From<kcapi::api_req_map::next::ApiAirBaseAttack> for AirBaseAttack {
     fn from(air_base_attack: kcapi::api_req_map::next::ApiAirBaseAttack) -> Self {
         // let (f_damage, e_damage) = TupledAirStages(Some(air_base_attack.api_plane_from.clone()), air_base_attack.api_stage1.clone(), air_base_attack.api_stage2.clone(), air_base_attack.api_stage3.clone(), None).into();
-        let (f_damage, e_damage) = calc_air_damage(Some(air_base_attack.api_plane_from.clone()), air_base_attack.api_stage1.clone(), air_base_attack.api_stage2.clone(), air_base_attack.api_stage3.clone(), None);
-        
+        let (f_damage, e_damage) = calc_air_damage(
+            Some(air_base_attack.api_plane_from.clone()),
+            air_base_attack.api_stage1.clone(),
+            air_base_attack.api_stage2.clone(),
+            air_base_attack.api_stage3.clone(),
+            None,
+        );
+
         Self {
             plane_from: air_base_attack.api_plane_from,
             f_damage: f_damage,
             e_damage: e_damage,
             stage_flag: air_base_attack.api_stage_flag,
-            map_squadron_plane: air_base_attack.api_map_squadron_plane.and_then(|map_plane| Some(map_plane.iter().map(|(k, v)| (k.clone(), v.iter().map(|plane| plane.api_mst_id).collect::<Vec<i64>>())).collect::<HashMap<String, Vec<i64>>>())),
+            map_squadron_plane: air_base_attack
+                .api_map_squadron_plane
+                .and_then(|map_plane| {
+                    Some(
+                        map_plane
+                            .iter()
+                            .map(|(k, v)| {
+                                (
+                                    k.clone(),
+                                    v.iter().map(|plane| plane.api_mst_id).collect::<Vec<i64>>(),
+                                )
+                            })
+                            .collect::<HashMap<String, Vec<i64>>>(),
+                    )
+                }),
         }
     }
 }
@@ -171,12 +189,16 @@ impl From<kcapi::api_req_map::next::ApiDestructionBattle> for DestructionBattle 
 
 impl From<kcapi::api_req_map::next::ApiData> for Cell {
     fn from(cells: kcapi::api_req_map::next::ApiData) -> Self {
-        
         let enemy_deck_info: Option<Vec<EDeckInfo>> = match cells.api_e_deck_info {
-            Some(e_deck_info) => Some(e_deck_info.into_iter().map(|e_deck_info| e_deck_info.into()).collect()),
+            Some(e_deck_info) => Some(
+                e_deck_info
+                    .into_iter()
+                    .map(|e_deck_info| e_deck_info.into())
+                    .collect(),
+            ),
             None => None,
         };
-        
+
         let happening: Option<Happening> = match cells.api_happening {
             Some(happening) => Some(happening.into()),
             None => None,
@@ -188,7 +210,7 @@ impl From<kcapi::api_req_map::next::ApiData> for Cell {
         };
 
         {
-           KCS_CELLS.lock().unwrap().push(cells.api_no.clone());
+            KCS_CELLS.lock().unwrap().push(cells.api_no.clone());
         }
 
         Self {
@@ -222,9 +244,13 @@ impl From<kcapi::api_req_map::start::ApiCellData> for CellData {
 
 impl From<kcapi::api_req_map::start::ApiData> for Cell {
     fn from(cells: kcapi::api_req_map::start::ApiData) -> Self {
-        
         let enemy_deck_info: Option<Vec<EDeckInfo>> = match cells.api_e_deck_info {
-            Some(e_deck_info) => Some(e_deck_info.into_iter().map(|e_deck_info| e_deck_info.into()).collect()),
+            Some(e_deck_info) => Some(
+                e_deck_info
+                    .into_iter()
+                    .map(|e_deck_info| e_deck_info.into())
+                    .collect(),
+            ),
             None => None,
         };
 
@@ -249,12 +275,14 @@ impl From<kcapi::api_req_map::start::ApiData> for Cell {
     }
 }
 
-
 impl From<kcapi::api_req_map::start::ApiData> for Cells {
     fn from(cells: kcapi::api_req_map::start::ApiData) -> Self {
-        
         let cell: Cell = cells.clone().into();
-        let cell_data: Vec<CellData> = cells.api_cell_data.into_iter().map(|cell_data| cell_data.into()).collect();
+        let cell_data: Vec<CellData> = cells
+            .api_cell_data
+            .into_iter()
+            .map(|cell_data| cell_data.into())
+            .collect();
 
         Self {
             maparea_id: cells.api_maparea_id,

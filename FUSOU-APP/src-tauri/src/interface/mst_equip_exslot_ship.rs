@@ -2,17 +2,18 @@ use std::collections::HashMap;
 use std::sync::{LazyLock, Mutex};
 
 // Is it better to use onecell::sync::Lazy or std::sync::Lazy?
-pub(crate) static KCS_MST_EQUIP_EXSLOT_SHIP: LazyLock<Mutex<MstEquipExslotShips>> = LazyLock::new(|| {
-    Mutex::new(MstEquipExslotShips {
-        mst_equip_ships: HashMap::new()
-    })
-});
+pub(crate) static KCS_MST_EQUIP_EXSLOT_SHIP: LazyLock<Mutex<MstEquipExslotShips>> =
+    LazyLock::new(|| {
+        Mutex::new(MstEquipExslotShips {
+            mst_equip_ships: HashMap::new(),
+        })
+    });
 
 use crate::kcapi;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct MstEquipExslotShips {
-    mst_equip_ships: HashMap<String, MstEquipExslotShip>
+    mst_equip_ships: HashMap<String, MstEquipExslotShip>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -35,15 +36,20 @@ impl MstEquipExslotShips {
     }
 }
 
-impl From<HashMap<String, kcapi::api_start2::get_data::ApiMstEquipExslotShip>> for MstEquipExslotShips {
-    fn from(equip_ships: HashMap<String, kcapi::api_start2::get_data::ApiMstEquipExslotShip>) -> Self {
-        let mut equip_ship_map = HashMap::<String, MstEquipExslotShip>::with_capacity(equip_ships.len());
+impl From<HashMap<String, kcapi::api_start2::get_data::ApiMstEquipExslotShip>>
+    for MstEquipExslotShips
+{
+    fn from(
+        equip_ships: HashMap<String, kcapi::api_start2::get_data::ApiMstEquipExslotShip>,
+    ) -> Self {
+        let mut equip_ship_map =
+            HashMap::<String, MstEquipExslotShip>::with_capacity(equip_ships.len());
         // let mut ship_map = HashMap::new();
         for (idx, equip_ship) in equip_ships {
             equip_ship_map.insert(idx, equip_ship.into());
         }
         Self {
-            mst_equip_ships: equip_ship_map
+            mst_equip_ships: equip_ship_map,
         }
     }
 }
@@ -58,4 +64,3 @@ impl From<kcapi::api_start2::get_data::ApiMstEquipExslotShip> for MstEquipExslot
         }
     }
 }
-

@@ -5,20 +5,20 @@
 //!   <img src="https://tsukasa-u.github.io/FUSOU/struct_dependency_svg/api_port@port.svg" alt="KC_API_dependency(api_port/port)" style="max-width: 2000px;"/>
 //! </div>
 
-use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::HashMap;
 
-use register_trait::{register_struct, add_field};
+use register_trait::{add_field, register_struct};
 
-use register_trait:: {TraitForTest, Getter, TraitForRoot, TraitForConvert};
+use register_trait::{Getter, TraitForConvert, TraitForRoot, TraitForTest};
 
+use crate::interface::deck_port::DeckPorts;
 use crate::interface::interface::{EmitData, Set};
 use crate::interface::logs::Logs;
 use crate::interface::material::Materials;
 use crate::interface::n_dock::NDocks;
 use crate::interface::ship::Ships;
-use crate::interface::deck_port::DeckPorts;
 
 #[derive(Getter, TraitForTest, TraitForRoot)]
 #[struct_test_case(field_extra, type_value, integration)]
@@ -392,11 +392,12 @@ impl TraitForConvert for Root {
         let deck_ports: DeckPorts = self.api_data.clone().into();
         deck_ports.restore();
         Some(vec![
-            EmitData::Set(Set::Materials(materials)), 
-            EmitData::Set(Set::Ships(ships)), 
-            EmitData::Set(Set::NDocks(ndocks)), 
-            EmitData::Set(Set::Logs(logs)), 
-            EmitData::Set(Set::DeckPorts(deck_ports))])
+            EmitData::Set(Set::Materials(materials)),
+            EmitData::Set(Set::Ships(ships)),
+            EmitData::Set(Set::NDocks(ndocks)),
+            EmitData::Set(Set::Logs(logs)),
+            EmitData::Set(Set::DeckPorts(deck_ports)),
+        ])
     }
 }
 
@@ -410,9 +411,8 @@ mod tests {
 
     #[test]
     fn test_deserialize() {
-        
         let mut target_path = "./../../FUSOU-PROXY-DATA/kcsapi".to_string();
-    
+
         dotenv().expect(".env file not found");
         for (key, value) in env::vars() {
             if key.eq("TEST_DATA_PATH") {
