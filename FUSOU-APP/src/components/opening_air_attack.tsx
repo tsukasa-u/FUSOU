@@ -256,7 +256,7 @@ export function OpeningAirAttackComponent({deck_ship_id, battle_selected}: AirDa
                                                                     <div class="h-px"></div>
                                                                 </Show>
                                                                 <div class="flex flex-nowrap">
-                                                                    <IconFleetNumber class="h-6 -mt-1 pr-1" e_flag={1} fleet_number={1} ship_number={idx()+1} combined_flag={deck_ports.combined_flag == 1}></IconFleetNumber>
+                                                                    <IconFleetNumber class="h-6 -mt-1 pr-1" e_flag={0} fleet_number={1} ship_number={idx()+1} combined_flag={deck_ports.combined_flag == 1}></IconFleetNumber>
                                                                     <ShipNameComponent ship_id={deck_ship_id[battle_selected().deck_id!][idx()]}></ShipNameComponent>
                                                                     <Show when={battle_selected().opening_air_attack.f_damage.protect_flag?.some(flag => flag == true)}>
                                                                         <IconShield class="h-4 w-4"></IconShield>
