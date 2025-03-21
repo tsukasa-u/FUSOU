@@ -47,21 +47,15 @@ pub fn add_field(attr: TokenStream, ast: &mut DeriveInput) -> Result<TokenStream
 
             match &mut struct_data.fields {
                 syn::Fields::Named(fields) => {
-                    match args.struct_name {
-                        Some(_) => {
-                            fields
-                                .named
-                                .push(syn::Field::parse_named.parse2(tokens_name.into()).unwrap());
-                        }
-                        None => (),
+                    if args.struct_name.is_some() {
+                        fields
+                            .named
+                            .push(syn::Field::parse_named.parse2(tokens_name).unwrap());
                     };
-                    match args.extra {
-                        Some(_) => {
-                            fields
-                                .named
-                                .push(syn::Field::parse_named.parse2(tokens_extra.into()).unwrap());
-                        }
-                        None => (),
+                    if args.extra.is_some() {
+                        fields
+                            .named
+                            .push(syn::Field::parse_named.parse2(tokens_extra).unwrap());
                     };
                 }
                 syn::Fields::Unnamed(_) => todo!(),
