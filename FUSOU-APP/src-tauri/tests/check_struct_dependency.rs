@@ -151,7 +151,7 @@ pub fn check_struct_dependency() {
     }
     
     let mut file = File::create("./tests/struct_dependency.log").unwrap();
-    file.write(format!("{:#?}", books).as_bytes()).expect("write failed");
+    file.write_all(format!("{:#?}", books).as_bytes()).expect("write failed");
     
     let books_vec: ApiFieldTypeInfoVec = create_api_field_type_info_vec_sorted(&books);
     let books_vec_clone = books_vec.clone();
