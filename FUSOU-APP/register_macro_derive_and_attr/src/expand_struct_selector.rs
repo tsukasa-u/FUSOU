@@ -82,7 +82,7 @@ pub fn expand_struct_selector(
         return false;
     });
 
-    if name_in == false {
+    if !name_in {
         return Err(syn::Error::new_spanned(
             ast.sig.inputs.clone(),
             "The function should have the reservedargument named 'name: String'",
@@ -93,17 +93,13 @@ pub fn expand_struct_selector(
     if let syn::ReturnType::Type(_, box_type) = &ast.sig.output {
         if let syn::Type::Path(path) = box_type.deref() {
             if path.qself.is_none()
-                && path.path.leading_colon.is_none()
-                && path.path.segments.len() == 1
-            {
-                if path.path.segments[0].ident.to_string().eq("Result") {
-                    resutlt_out = true;
-                }
+                && path.path.leading_colon.is_none() && path.path.segments.len() == 1 && path.path.segments[0].ident.to_string().eq("Result") {
+                resutlt_out = true;
             }
         }
     }
 
-    if resutlt_out == false {
+    if !resutlt_out {
         return Err(syn::Error::new_spanned(
             ast.sig.output.clone(),
             "The function should return Result<_, Box<dyn std::error::Error>>",
@@ -124,42 +120,40 @@ pub fn expand_struct_selector(
         if file_type.is_dir() {
             for entry in fs::read_dir(file_path.clone()).unwrap() {
                 let entry = entry.unwrap().path();
-                if entry.to_str().unwrap().ends_with(".rs") {
-                    if !entry.to_str().unwrap().ends_with("mod.rs") {
-                        // let lit = syn::LitStr::new(&format!("kcsapi/{}/{}", file_path.display(), entry.display()), Span::call_site());
-                        let file_name = (
-                            file_path.file_stem().unwrap().to_string_lossy().to_string(),
-                            entry.file_stem().unwrap().to_string_lossy().to_string(),
+                if entry.to_str().unwrap().ends_with(".rs") && !entry.to_str().unwrap().ends_with("mod.rs") {
+                    // let lit = syn::LitStr::new(&format!("kcsapi/{}/{}", file_path.display(), entry.display()), Span::call_site());
+                    let file_name = (
+                        file_path.file_stem().unwrap().to_string_lossy().to_string(),
+                        entry.file_stem().unwrap().to_string_lossy().to_string(),
+                    );
+                    let Ok(file_content) = fs::read_to_string(entry.clone()) else {
+                        panic!(
+                            "can not read the file({})",
+                            entry.to_string_lossy().to_string()
                         );
-                        let Ok(file_content) = fs::read_to_string(entry.clone()) else {
-                            panic!(
-                                "can not read the file({})",
-                                entry.to_string_lossy().to_string()
-                            );
-                        };
+                    };
 
-                        let Ok(re) = regex::Regex::new(
-                            r#"#\[(register_macro_derive_and_attr::)?register_struct\(name\s*=\s*\\?\"(?<arg1>[a-zA-Z0-9_]+)/(?<arg2>[a-zA-Z0-9_]+)\\?\"\)\]"#,
-                        ) else {
-                            panic!("can not create regex");
-                        };
+                    let Ok(re) = regex::Regex::new(
+                        r#"#\[(register_macro_derive_and_attr::)?register_struct\(name\s*=\s*\\?\"(?<arg1>[a-zA-Z0-9_]+)/(?<arg2>[a-zA-Z0-9_]+)\\?\"\)\]"#,
+                    ) else {
+                        panic!("can not create regex");
+                    };
 
-                        if re.is_match(&file_content) {
-                            let caps = re.captures(&file_content).unwrap();
-                            let Some(s1) = caps.name("arg1") else {
-                                panic!("can not find the arg(1) in register_struct macro in the file({})", entry.to_string_lossy().to_string());
-                            };
-                            let Some(s2) = caps.name("arg2") else {
-                                panic!("can not find the arg(2) in register_struct macro in the file({})", entry.to_string_lossy().to_string());
-                            };
-                            let struct_name = (s1.as_str().to_string(), s2.as_str().to_string());
-                            file_list.push((struct_name, file_name));
-                        } else {
-                            panic!(
-                                "can not find register_struct macro in the file({})",
-                                entry.to_string_lossy().to_string()
-                            );
-                        }
+                    if re.is_match(&file_content) {
+                        let caps = re.captures(&file_content).unwrap();
+                        let Some(s1) = caps.name("arg1") else {
+                            panic!("can not find the arg(1) in register_struct macro in the file({})", entry.to_string_lossy().to_string());
+                        };
+                        let Some(s2) = caps.name("arg2") else {
+                            panic!("can not find the arg(2) in register_struct macro in the file({})", entry.to_string_lossy().to_string());
+                        };
+                        let struct_name = (s1.as_str().to_string(), s2.as_str().to_string());
+                        file_list.push((struct_name, file_name));
+                    } else {
+                        panic!(
+                            "can not find register_struct macro in the file({})",
+                            entry.to_string_lossy().to_string()
+                        );
                     }
                 }
             }

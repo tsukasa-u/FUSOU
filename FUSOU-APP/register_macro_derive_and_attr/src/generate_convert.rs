@@ -12,7 +12,7 @@ pub struct MacroArgs4GenerateConvert {
 pub fn generate_convert(ast: &mut DeriveInput) -> Result<TokenStream, syn::Error> {
     // panic!("{:?}", ast.attrs);
 
-    let args = MacroArgs4GenerateConvert::from_derive_input(&ast).unwrap();
+    let args = MacroArgs4GenerateConvert::from_derive_input(ast).unwrap();
 
     let mut test_implementation = Vec::new();
     match ast.data {
