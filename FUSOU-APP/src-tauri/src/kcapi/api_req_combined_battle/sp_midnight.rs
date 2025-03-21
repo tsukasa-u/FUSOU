@@ -5,17 +5,17 @@
 //!   <img src="https://tsukasa-u.github.io/FUSOU/struct_dependency_svg/api_req_combined_battle@sp_midnight.svg" alt="KC_API_dependency(api_req_combined_battle/sp_midnight)" style="max-width: 2000px;"/>
 //! </div>
 
-use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::HashMap;
 
-use register_trait::register_struct;
 use register_trait::add_field;
+use register_trait::register_struct;
 
-use register_trait::TraitForTest;
 use register_trait::Getter;
-use register_trait::TraitForRoot;
 use register_trait::TraitForConvert;
+use register_trait::TraitForRoot;
+use register_trait::TraitForTest;
 
 use crate::kcapi_common::common_midnight::ApiHougeki;
 
@@ -99,9 +99,8 @@ mod tests {
 
     #[test]
     fn test_deserialize() {
-        
         let mut target_path = "./../../FUSOU-PROXY-DATA/kcsapi".to_string();
-    
+
         dotenv().expect(".env file not found");
         for (key, value) in env::vars() {
             if key.eq("TEST_DATA_PATH") {

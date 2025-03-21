@@ -5,17 +5,17 @@
 //!   <img src="https://tsukasa-u.github.io/FUSOU/struct_dependency_svg/api_req_map@next.svg" alt="KC_API_dependency(api_req_map/next)" style="max-width: 2000px;"/>
 //! </div>
 
-use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 // use serde_json::Value;
 
-use register_trait::register_struct;
 use register_trait::add_field;
+use register_trait::register_struct;
 
-use register_trait::TraitForTest;
 use register_trait::Getter;
-use register_trait::TraitForRoot;
 use register_trait::TraitForConvert;
+use register_trait::TraitForRoot;
+use register_trait::TraitForTest;
 
 use crate::interface::cells::Cell;
 use crate::interface::interface::{Add, EmitData};
@@ -24,12 +24,12 @@ use crate::kcapi_common::common_air::ApiStage1;
 use crate::kcapi_common::common_air::ApiStage2;
 use crate::kcapi_common::common_air::ApiStage3;
 
-use crate::kcapi_common::common_map::ApiSelectRoute;
-use crate::kcapi_common::common_map::ApiCellFlavor;
-use crate::kcapi_common::common_map::ApiEventmap;
 use crate::kcapi_common::common_map::ApiAirsearch;
+use crate::kcapi_common::common_map::ApiCellFlavor;
 use crate::kcapi_common::common_map::ApiEDeckInfo;
+use crate::kcapi_common::common_map::ApiEventmap;
 use crate::kcapi_common::common_map::ApiHappening;
+use crate::kcapi_common::common_map::ApiSelectRoute;
 
 #[derive(Getter, TraitForTest, TraitForRoot)]
 #[struct_test_case(field_extra, type_value, integration)]
@@ -108,7 +108,7 @@ pub struct ApiData {
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")] 
+#[serde(rename_all = "camelCase")]
 pub struct ApiItemgetEoComment {
     #[serde(rename = "api_usemst")]
     pub api_usemst: i64,
@@ -122,7 +122,7 @@ pub struct ApiItemgetEoComment {
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")] 
+#[serde(rename_all = "camelCase")]
 pub struct ApiDestructionBattle {
     #[serde(rename = "api_formation")]
     pub api_formation: Vec<i64>,
@@ -150,7 +150,7 @@ pub struct ApiDestructionBattle {
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")] 
+#[serde(rename_all = "camelCase")]
 pub struct ApiAirBaseAttack {
     #[serde(rename = "api_stage_flag")]
     pub api_stage_flag: Vec<i64>,
@@ -170,7 +170,7 @@ pub struct ApiAirBaseAttack {
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")] 
+#[serde(rename_all = "camelCase")]
 pub struct ApiMapSquadronPlane {
     #[serde(rename = "api_mst_id")]
     pub api_mst_id: i64,
@@ -182,7 +182,7 @@ pub struct ApiMapSquadronPlane {
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")] 
+#[serde(rename_all = "camelCase")]
 pub struct ApiItemget {
     #[serde(rename = "api_usemst")]
     pub api_usemst: i64,
@@ -200,8 +200,7 @@ impl TraitForConvert for Root {
     type Output = EmitData;
     fn convert(&self) -> Option<Vec<EmitData>> {
         let cell: Cell = self.api_data.clone().into();
-        Some(vec![
-            EmitData::Add(Add::Cell(cell)) ])
+        Some(vec![EmitData::Add(Add::Cell(cell))])
     }
 }
 
@@ -215,9 +214,8 @@ mod tests {
 
     #[test]
     fn test_deserialize() {
-        
         let mut target_path = "./../../FUSOU-PROXY-DATA/kcsapi".to_string();
-    
+
         dotenv().expect(".env file not found");
         for (key, value) in env::vars() {
             if key.eq("TEST_DATA_PATH") {

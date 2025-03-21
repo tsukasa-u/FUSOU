@@ -2,7 +2,7 @@ use crate::kcapi;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Logs {
-    pub message:   Option<Vec<String>>    // メッセージ
+    pub message: Option<Vec<String>>, // メッセージ
 }
 
 impl From<Vec<kcapi::api_port::port::ApiLog>> for Logs {
@@ -12,7 +12,7 @@ impl From<Vec<kcapi::api_port::port::ApiLog>> for Logs {
             message_list.push(log.api_message);
         }
         Self {
-            message: Some(message_list)
+            message: Some(message_list),
         }
     }
 }

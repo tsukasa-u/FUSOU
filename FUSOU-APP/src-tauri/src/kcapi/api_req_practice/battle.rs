@@ -5,25 +5,25 @@
 //!   <img src="https://tsukasa-u.github.io/FUSOU/struct_dependency_svg/api_req_practice@battle.svg" alt="KC_API_dependency(api_req_practice/battle)" style="max-width: 2000px;"/>
 //! </div>
 
-use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::HashMap;
 
-use register_trait::register_struct;
 use register_trait::add_field;
+use register_trait::register_struct;
 
-use register_trait::TraitForTest;
 use register_trait::Getter;
-use register_trait::TraitForRoot;
 use register_trait::TraitForConvert;
+use register_trait::TraitForRoot;
+use register_trait::TraitForTest;
 
 use crate::interface::interface::EmitData;
 
 use crate::kcapi_common::common_air::ApiKouku;
-use crate::kcapi_common::common_battle::ApiRaigeki;
 use crate::kcapi_common::common_battle::ApiHougeki;
-use crate::kcapi_common::common_battle::ApiOpeningTaisen;
 use crate::kcapi_common::common_battle::ApiOpeningAtack;
+use crate::kcapi_common::common_battle::ApiOpeningTaisen;
+use crate::kcapi_common::common_battle::ApiRaigeki;
 
 #[derive(Getter, TraitForTest, TraitForRoot, TraitForConvert)]
 #[convert_output(output = EmitData)]
@@ -149,10 +149,10 @@ pub struct ApiFlavoInfo {
 //         let deck_ports: DeckPorts = self.api_data.api_deck_port.clone().into();
 //         deck_ports.restore();
 //         Some(vec![
-//             EmitData::Set(Set::Materials(materials)), 
-//             EmitData::Set(Set::Ships(ships)), 
-//             EmitData::Set(Set::NDocks(ndocks)), 
-//             EmitData::Set(Set::Logs(logs)), 
+//             EmitData::Set(Set::Materials(materials)),
+//             EmitData::Set(Set::Ships(ships)),
+//             EmitData::Set(Set::NDocks(ndocks)),
+//             EmitData::Set(Set::Logs(logs)),
 //             EmitData::Set(Set::DeckPorts(deck_ports))])
 //     }
 // }
@@ -167,9 +167,8 @@ mod tests {
 
     #[test]
     fn test_deserialize() {
-        
         let mut target_path = "./../../FUSOU-PROXY-DATA/kcsapi".to_string();
-    
+
         dotenv().expect(".env file not found");
         for (key, value) in env::vars() {
             if key.eq("TEST_DATA_PATH") {

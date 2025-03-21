@@ -5,17 +5,17 @@
 //!   <img src="https://tsukasa-u.github.io/FUSOU/struct_dependency_svg/api_req_kaisou@powerup.svg" alt="KC_API_dependency(api_req_kaisou/powerup)" style="max-width: 2000px;"/>
 //! </div>
 
-use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 // use serde_json::Value;
 
-use register_trait::register_struct;
 use register_trait::add_field;
+use register_trait::register_struct;
 
-use register_trait::TraitForTest;
 use register_trait::Getter;
-use register_trait::TraitForRoot;
 use register_trait::TraitForConvert;
+use register_trait::TraitForRoot;
+use register_trait::TraitForTest;
 
 use crate::interface::interface::EmitData;
 
@@ -58,7 +58,7 @@ pub struct ApiData {
 #[serde(rename_all = "camelCase")]
 pub struct ApiUnsetList {
     #[serde(rename = "api_type3No")]
-    pub api_type3_no: i64, 
+    pub api_type3_no: i64,
     #[serde(rename = "api_slot_list")]
     pub api_slot_list: Vec<i64>,
 }
@@ -167,9 +167,8 @@ mod tests {
 
     #[test]
     fn test_deserialize() {
-        
         let mut target_path = "./../../FUSOU-PROXY-DATA/kcsapi".to_string();
-    
+
         dotenv().expect(".env file not found");
         for (key, value) in env::vars() {
             if key.eq("TEST_DATA_PATH") {

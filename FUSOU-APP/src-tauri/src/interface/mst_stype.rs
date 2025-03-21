@@ -4,7 +4,7 @@ use std::sync::{LazyLock, Mutex};
 // Is it better to use onecell::sync::Lazy or std::sync::Lazy?
 pub(crate) static KCS_MST_STYPES: LazyLock<Mutex<MstStypes>> = LazyLock::new(|| {
     Mutex::new(MstStypes {
-        mst_stypes: HashMap::new()
+        mst_stypes: HashMap::new(),
     })
 });
 
@@ -12,7 +12,7 @@ use crate::kcapi;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct MstStypes {
-    mst_stypes: HashMap<i64, MstStype>
+    mst_stypes: HashMap<i64, MstStype>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -43,7 +43,7 @@ impl From<Vec<kcapi::api_start2::get_data::ApiMstStype>> for MstStypes {
             stype_map.insert(stype.api_id, stype.into());
         }
         Self {
-            mst_stypes: stype_map
+            mst_stypes: stype_map,
         }
     }
 }
@@ -58,4 +58,3 @@ impl From<kcapi::api_start2::get_data::ApiMstStype> for MstStype {
         }
     }
 }
-

@@ -5,20 +5,20 @@
 //!   <img src="https://tsukasa-u.github.io/FUSOU/struct_dependency_svg/api_get_member@mapinfo.svg" alt="KC_API_dependency(api_get_member/mapinfo)" style="max-width: 2000px;"/>
 //! </div>
 
-use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 // use serde_json::Value;
 
-use register_trait::register_struct;
 use register_trait::add_field;
+use register_trait::register_struct;
 
-use register_trait::TraitForTest;
 use register_trait::Getter;
-use register_trait::TraitForRoot;
 use register_trait::TraitForConvert;
+use register_trait::TraitForRoot;
+use register_trait::TraitForTest;
 
-use crate::interface::interface::{EmitData, Set};
 use crate::interface::air_base::AirBases;
+use crate::interface::interface::{EmitData, Set};
 
 #[derive(Getter, TraitForTest, TraitForRoot)]
 #[struct_test_case(field_extra, type_value, integration)]
@@ -159,19 +159,14 @@ pub struct ApiAirBaseExpandedInfo {
     pub api_maintenance_level: i64,
 }
 
-
 impl TraitForConvert for Root {
     type Output = EmitData;
     fn convert(&self) -> Option<Vec<EmitData>> {
-        
         let air_bases: AirBases = self.api_data.api_air_base.clone().into();
 
-        Some(vec![
-            EmitData::Set(Set::AirBases(air_bases))
-        ])
+        Some(vec![EmitData::Set(Set::AirBases(air_bases))])
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -183,9 +178,8 @@ mod tests {
 
     #[test]
     fn test_deserialize() {
-        
         let mut target_path = "./../../FUSOU-PROXY-DATA/kcsapi".to_string();
-    
+
         dotenv().expect(".env file not found");
         for (key, value) in env::vars() {
             if key.eq("TEST_DATA_PATH") {
@@ -195,6 +189,10 @@ mod tests {
 
         let pattern_str = "S@api_get_member@mapinfo";
         let log_path = "./src/kcapi/api_get_member/mapinfo.log";
-        simple_root_test::<Root>(target_path.to_string(), pattern_str.to_string(), log_path.to_string());
+        simple_root_test::<Root>(
+            target_path.to_string(),
+            pattern_str.to_string(),
+            log_path.to_string(),
+        );
     }
 }

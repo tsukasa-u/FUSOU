@@ -5,27 +5,27 @@
 //!   <img src="https://tsukasa-u.github.io/FUSOU/struct_dependency_svg/api_req_sortie@battle.svg" alt="KC_API_dependency(api_req_sortie/battle)" style="max-width: 2000px;"/>
 //! </div>
 
-use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 // use serde_json::Value;
 
-use register_trait::{register_struct, add_field};
+use register_trait::{add_field, register_struct};
 
-use register_trait:: {TraitForTest, Getter, TraitForRoot, TraitForConvert};
+use register_trait::{Getter, TraitForConvert, TraitForRoot, TraitForTest};
 
-use crate::interface::interface::{EmitData, Add};
+use crate::interface::interface::{Add, EmitData};
 // use crate::interface::ship::Ships;
 use crate::interface::battle::Battle;
 
-use crate::kcapi_common::common_air::ApiKouku;
-use crate::kcapi_common::common_air::ApiAirBaseInjection;
 use crate::kcapi_common::common_air::ApiAirBaseAttack;
-use crate::kcapi_common::common_battle::ApiRaigeki;
-use crate::kcapi_common::common_battle::ApiHougeki;
-use crate::kcapi_common::common_battle::ApiOpeningTaisen;
-use crate::kcapi_common::common_battle::ApiOpeningAtack;
-use crate::kcapi_common::common_battle::ApiSupportInfo;
+use crate::kcapi_common::common_air::ApiAirBaseInjection;
+use crate::kcapi_common::common_air::ApiKouku;
 use crate::kcapi_common::common_battle::ApiFlavoInfo;
+use crate::kcapi_common::common_battle::ApiHougeki;
+use crate::kcapi_common::common_battle::ApiOpeningAtack;
+use crate::kcapi_common::common_battle::ApiOpeningTaisen;
+use crate::kcapi_common::common_battle::ApiRaigeki;
+use crate::kcapi_common::common_battle::ApiSupportInfo;
 
 #[derive(Getter, TraitForTest, TraitForRoot)]
 #[struct_test_case(field_extra, type_value, integration)]
@@ -125,7 +125,8 @@ impl TraitForConvert for Root {
         let battle: Battle = self.api_data.clone().into();
         Some(vec![
             // EmitData::Add(Add::Ships(ships)),
-            EmitData::Add(Add::Battle(battle))])
+            EmitData::Add(Add::Battle(battle)),
+        ])
     }
 }
 
@@ -139,9 +140,8 @@ mod tests {
 
     #[test]
     fn test_deserialize() {
-        
         let mut target_path = "./../../FUSOU-PROXY-DATA/kcsapi".to_string();
-    
+
         dotenv().expect(".env file not found");
         for (key, value) in env::vars() {
             if key.eq("TEST_DATA_PATH") {

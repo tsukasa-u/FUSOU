@@ -5,17 +5,17 @@
 //!   <img src="https://tsukasa-u.github.io/FUSOU/struct_dependency_svg/api_req_ranking@ranking.svg" alt="KC_API_dependency(api_req_ranking/ranking)" style="max-width: 2000px;"/>
 //! </div>
 
-use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 // use serde_json::Value;
 
-use register_trait::register_struct;
 use register_trait::add_field;
+use register_trait::register_struct;
 
-use register_trait::TraitForTest;
 use register_trait::Getter;
-use register_trait::TraitForRoot;
 use register_trait::TraitForConvert;
+use register_trait::TraitForRoot;
+use register_trait::TraitForTest;
 
 use crate::interface::interface::EmitData;
 
@@ -87,7 +87,7 @@ mod tests {
     #[test]
     fn test_deserialize() {
         let mut target_path = "./../../FUSOU-PROXY-DATA/kcsapi".to_string();
-    
+
         dotenv().expect(".env file not found");
         for (key, value) in env::vars() {
             if key.eq("TEST_DATA_PATH") {
@@ -95,19 +95,18 @@ mod tests {
             }
         }
 
-        let pattern_str =  Regex::new(r".*S@api_req_ranking@[a-z]*").unwrap();
+        let pattern_str = Regex::new(r".*S@api_req_ranking@[a-z]*").unwrap();
         let log_path = "./src/kcapi/api_req_ranking/ranking.log";
 
         let target = path::PathBuf::from(target_path);
-        let files = target.read_dir().expect( "read_dir call failed");
-        let file_list = files.map(|dir_entry| {
-            let file_path = dir_entry.unwrap().path();
-            // file_path.exists();
-            return file_path;
-        })
-        .filter(|file_path| {
-            pattern_str.is_match(file_path.to_str().unwrap())
-        });
+        let files = target.read_dir().expect("read_dir call failed");
+        let file_list = files
+            .map(|dir_entry| {
+                let file_path = dir_entry.unwrap().path();
+                // file_path.exists();
+                return file_path;
+            })
+            .filter(|file_path| pattern_str.is_match(file_path.to_str().unwrap()));
         custom_root_test::<Root>(file_list, log_path.to_string());
     }
 }

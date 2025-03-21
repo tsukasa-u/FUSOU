@@ -3,7 +3,7 @@ use chrono;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct NDocks {
-    pub n_docks: Vec<NDock>
+    pub n_docks: Vec<NDock>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -25,7 +25,7 @@ impl From<Vec<kcapi::api_port::port::ApiNdock>> for NDocks {
             n_dock_list.push(n_dock.into());
         }
         Self {
-            n_docks: n_dock_list
+            n_docks: n_dock_list,
         }
     }
 }

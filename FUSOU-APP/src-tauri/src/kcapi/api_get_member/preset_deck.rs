@@ -5,17 +5,17 @@
 //!   <img src="https://tsukasa-u.github.io/FUSOU/struct_dependency_svg/api_get_member@preset_deck.svg" alt="KC_API_dependency(api_get_member/preset_deck)" style="max-width: 2000px;"/>
 //! </div>
 
-use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 // use serde_json::Value;
 
-use register_trait::register_struct;
 use register_trait::add_field;
+use register_trait::register_struct;
 
-use register_trait::TraitForTest;
 use register_trait::Getter;
-use register_trait::TraitForRoot;
 use register_trait::TraitForConvert;
+use register_trait::TraitForRoot;
+use register_trait::TraitForTest;
 
 use crate::interface::interface::EmitData;
 
@@ -75,9 +75,8 @@ mod tests {
 
     #[test]
     fn test_deserialize() {
-        
         let mut target_path = "./../../FUSOU-PROXY-DATA/kcsapi".to_string();
-    
+
         dotenv().expect(".env file not found");
         for (key, value) in env::vars() {
             if key.eq("TEST_DATA_PATH") {
@@ -87,6 +86,10 @@ mod tests {
 
         let pattern_str = "S@api_get_member@preset_deck";
         let log_path = "./src/kcapi/api_get_member/preset_deck.log";
-        simple_root_test::<Root>(target_path.to_string(), pattern_str.to_string(), log_path.to_string());
+        simple_root_test::<Root>(
+            target_path.to_string(),
+            pattern_str.to_string(),
+            log_path.to_string(),
+        );
     }
 }

@@ -4,7 +4,7 @@ use std::sync::{LazyLock, Mutex};
 // Is it better to use onecell::sync::Lazy or std::sync::Lazy?
 pub(crate) static KCS_MST_SLOT_ITEMS: LazyLock<Mutex<MstSlotItems>> = LazyLock::new(|| {
     Mutex::new(MstSlotItems {
-        mst_slot_items: HashMap::new()
+        mst_slot_items: HashMap::new(),
     })
 });
 
@@ -12,7 +12,7 @@ use crate::kcapi;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct MstSlotItems {
-    mst_slot_items: HashMap<i64, MstSlotItem>
+    mst_slot_items: HashMap<i64, MstSlotItem>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -63,14 +63,13 @@ impl MstSlotItems {
 
 impl From<Vec<kcapi::api_start2::get_data::ApiMstSlotitem>> for MstSlotItems {
     fn from(slot_items: Vec<kcapi::api_start2::get_data::ApiMstSlotitem>) -> Self {
-        
         let mut slot_item_map = HashMap::<i64, MstSlotItem>::with_capacity(slot_items.len());
         // let mut ship_map = HashMap::new();
         for slot_item in slot_items {
             slot_item_map.insert(slot_item.api_id, slot_item.into());
         }
         Self {
-            mst_slot_items: slot_item_map
+            mst_slot_items: slot_item_map,
         }
     }
 }
@@ -121,4 +120,3 @@ impl From<kcapi::api_start2::get_data::ApiMstSlotitem> for MstSlotItem {
         }
     }
 }
-
