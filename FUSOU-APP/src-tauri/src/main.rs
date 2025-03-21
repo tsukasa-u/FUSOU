@@ -346,13 +346,15 @@ async fn main() -> ExitCode {
 
                 let window = app.get_window("main");
                 match window {
-                    Some(window) => if let Ok(false) = window.is_visible() {
-                        window.show().unwrap();
-                        let _ = app
-                            .tray_handle()
-                            .get_item("main-open/close")
-                            .set_title("Close Main Window");
-                    },
+                    Some(window) => {
+                        if let Ok(false) = window.is_visible() {
+                            window.show().unwrap();
+                            let _ = app
+                                .tray_handle()
+                                .get_item("main-open/close")
+                                .set_title("Close Main Window");
+                        }
+                    }
                     None => {
                         let _window = tauri::WindowBuilder::new(
                             app,
@@ -426,8 +428,7 @@ async fn main() -> ExitCode {
                         if let Some(window) = app.get_window("main") {
                             if let Ok(visible) = window.is_visible() {
                                 if visible {
-                                    app
-                                        .get_window("main")
+                                    app.get_window("main")
                                         .expect("no window labeled 'main' found")
                                         .hide()
                                         .unwrap();
@@ -438,8 +439,7 @@ async fn main() -> ExitCode {
                         if let Some(window) = app.get_window("external") {
                             if let Ok(visible) = window.is_visible() {
                                 if visible {
-                                    app
-                                        .get_window("external")
+                                    app.get_window("external")
                                         .expect("no window labeled 'external' found")
                                         .hide()
                                         .unwrap();

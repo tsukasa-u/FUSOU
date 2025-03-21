@@ -6,7 +6,6 @@ use proc_macro::TokenStream;
 use quote::quote;
 use syn::DeriveInput;
 
-
 use serde::{Deserialize, Serialize};
 
 use darling::ast::NestedMeta;

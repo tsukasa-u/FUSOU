@@ -147,7 +147,7 @@ pub fn check_struct_dependency() {
         for (struct_name, field) in fieldm.iter() {
             for (field_name, (_field_type_location, _field_type, type_name)) in field.iter() {
                 if let Some(ret) = books.get(&(api_name_1.clone(), api_name_2.clone())) {
-                    if let Some(_) = ret.get(&type_name.clone()) {
+                    if ret.get(&type_name.clone()).is_some() {
                         books
                             .get_mut(&(api_name_1.clone(), api_name_2.clone()))
                             .unwrap()
@@ -508,7 +508,7 @@ pub fn check_struct_dependency() {
     // println!("{:?}", output);
 }
 
-fn create_writer<'w>(output_bytes: &'w mut Vec<u8>) -> DotWriter<'w> {
+fn create_writer(output_bytes: &mut Vec<u8>) -> DotWriter<'_> {
     let writer: DotWriter<'_> = DotWriter::from(output_bytes);
     writer
 }
@@ -591,7 +591,7 @@ fn set_cluster_edge(
             .port(field_name)
             .position(dot_writer::PortPosition::East),
         end_node_id
-            .port(&type_name)
+            .port(type_name)
             .position(dot_writer::PortPosition::West),
     );
 }

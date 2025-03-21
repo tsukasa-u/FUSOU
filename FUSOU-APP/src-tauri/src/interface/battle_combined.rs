@@ -19,19 +19,22 @@ impl From<kcapi::api_req_combined_battle::ec_battle::ApiData> for Battle {
             Some(battle.api_air_base_attack.into());
         let opening_air_attack: Option<OpeningAirAttack> = Some(battle.api_kouku.into());
         let opening_taisen: Option<OpeningTaisen> = battle
-            .api_opening_taisen.map(|opening_taisen| opening_taisen.into());
+            .api_opening_taisen
+            .map(|opening_taisen| opening_taisen.into());
         let opening_raigeki: Option<OpeningRaigeki> = Some(battle.api_opening_atack.into());
         let closing_taigeki: Option<ClosingRaigeki> = Some(battle.api_raigeki.into());
         let hougeki_1: Option<Hougeki> = Some(battle.api_hougeki1.into());
         let hougeki_2: Option<Hougeki> = Some(battle.api_hougeki2.into());
-        let hougeki_3: Option<Hougeki> =
-            battle.api_hougeki3.map(|hougeki| hougeki.into());
+        let hougeki_3: Option<Hougeki> = battle.api_hougeki3.map(|hougeki| hougeki.into());
         let support_attack: Option<SupportAttack> = battle
-            .api_support_info.map(|support_attack| support_attack.into());
+            .api_support_info
+            .map(|support_attack| support_attack.into());
         let air_base_assault: Option<AirBaseAssult> = battle
-            .api_air_base_injection.map(|air_base_injection| air_base_injection.into());
+            .api_air_base_injection
+            .map(|air_base_injection| air_base_injection.into());
         let carrier_base_assault: Option<CarrierBaseAssault> = battle
-            .api_injection_kouku.map(|injection_kouku| injection_kouku.into());
+            .api_injection_kouku
+            .map(|injection_kouku| injection_kouku.into());
 
         let hougeki: Option<Vec<Option<Hougeki>>> =
             if hougeki_1.is_some() || hougeki_2.is_some() || hougeki_3.is_some() {
@@ -41,7 +44,8 @@ impl From<kcapi::api_req_combined_battle::ec_battle::ApiData> for Battle {
             };
 
         let cell_no = KCS_CELLS
-            .lock().map(|cells| *cells.last().unwrap_or(&0))
+            .lock()
+            .map(|cells| *cells.last().unwrap_or(&0))
             .unwrap_or(0);
 
         let battle_order: Vec<BattleType> = vec![
@@ -115,7 +119,8 @@ impl From<kcapi::api_req_combined_battle::ec_midnight_battle::ApiData> for Battl
             };
 
         let cell_no = KCS_CELLS
-            .lock().map(|cells| *cells.last().unwrap_or(&0))
+            .lock()
+            .map(|cells| *cells.last().unwrap_or(&0))
             .unwrap_or(0);
 
         let battle_order: Vec<BattleType> = vec![
