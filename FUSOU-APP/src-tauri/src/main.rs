@@ -331,7 +331,7 @@ async fn main() -> ExitCode {
 
                     let _ = event
                         .window()
-                        .set_size(external_window_size_before.lock().unwrap().clone());
+                        .set_size(*external_window_size_before.lock().unwrap());
                 }
             }
             _ => {}
@@ -346,15 +346,12 @@ async fn main() -> ExitCode {
 
                 let window = app.get_window("main");
                 match window {
-                    Some(window) => match window.is_visible() {
-                        Ok(false) => {
-                            let _ = window.show().unwrap();
-                            let _ = app
-                                .tray_handle()
-                                .get_item("main-open/close")
-                                .set_title("Close Main Window");
-                        }
-                        _ => {}
+                    Some(window) => if let Ok(false) = window.is_visible() {
+                        window.show().unwrap();
+                        let _ = app
+                            .tray_handle()
+                            .get_item("main-open/close")
+                            .set_title("Close Main Window");
                     },
                     None => {
                         let _window = tauri::WindowBuilder::new(
@@ -429,7 +426,7 @@ async fn main() -> ExitCode {
                         if let Some(window) = app.get_window("main") {
                             if let Ok(visible) = window.is_visible() {
                                 if visible {
-                                    let _ = app
+                                    app
                                         .get_window("main")
                                         .expect("no window labeled 'main' found")
                                         .hide()
@@ -441,7 +438,7 @@ async fn main() -> ExitCode {
                         if let Some(window) = app.get_window("external") {
                             if let Ok(visible) = window.is_visible() {
                                 if visible {
-                                    let _ = app
+                                    app
                                         .get_window("external")
                                         .expect("no window labeled 'external' found")
                                         .hide()
@@ -482,11 +479,8 @@ async fn main() -> ExitCode {
                         let window = app.get_window("main");
                         match window {
                             Some(window) => {
-                                match window.is_visible() {
-                                    Ok(false) => {
-                                        window.show().unwrap();
-                                    }
-                                    _ => {}
+                                if let Ok(false) = window.is_visible() {
+                                    window.show().unwrap();
                                 }
                                 tauri_cmd::set_launch_page(app);
                             }
@@ -507,14 +501,14 @@ async fn main() -> ExitCode {
                         match window {
                             Some(window) => match window.is_visible() {
                                 Ok(true) => {
-                                    let _ = window.hide().unwrap();
+                                    window.hide().unwrap();
                                     let _ = app
                                         .tray_handle()
                                         .get_item("main-open/close")
                                         .set_title("Open Main Window");
                                 }
                                 Ok(false) => {
-                                    let _ = window.show().unwrap();
+                                    window.show().unwrap();
                                     let _ = app
                                         .tray_handle()
                                         .get_item("main-open/close")
@@ -543,14 +537,14 @@ async fn main() -> ExitCode {
                         match window {
                             Some(window) => match window.is_visible() {
                                 Ok(true) => {
-                                    let _ = window.hide().unwrap();
+                                    window.hide().unwrap();
                                     let _ = app
                                         .tray_handle()
                                         .get_item("external-open/close")
                                         .set_title("Open WebView");
                                 }
                                 Ok(false) => {
-                                    let _ = window.show().unwrap();
+                                    window.show().unwrap();
                                     let _ = app
                                         .tray_handle()
                                         .get_item("external-open/close")
@@ -562,7 +556,7 @@ async fn main() -> ExitCode {
                                 // let _window = tauri::WindowBuilder::new(app, "main", tauri::WindowUrl::App("index.html".into()))
                                 //   .build()
                                 //   .unwrap();
-                                crate::external::create_external_window(&app, None, true);
+                                crate::external::create_external_window(app, None, true);
                                 let _ = app
                                     .tray_handle()
                                     .get_item("external-open/close")
@@ -572,30 +566,27 @@ async fn main() -> ExitCode {
                     }
                     _ => {
                         let submenu: Vec<&str> = id.as_str().split("-").collect();
-                        match submenu.get(0) {
-                            Some(&"sm1") => {
-                                vec!["default", "firefox", "chrome", "opera"]
-                                    .iter()
-                                    .for_each(|&item| {
-                                        // return true if the selecte menu tile match the current item in the vec!["default", "firefox", "chrome", "opera"]
-                                        let _ = app
-                                            .tray_handle()
-                                            .get_item(&format!("select-{}", item))
-                                            .set_selected(submenu.get(1).unwrap().eq(&item));
-                                    });
+                        if let Some(&"sm1") = submenu.first() {
+                            ["default", "firefox", "chrome", "opera"]
+                                .iter()
+                                .for_each(|&item| {
+                                    // return true if the selecte menu tile match the current item in the vec!["default", "firefox", "chrome", "opera"]
+                                    let _ = app
+                                        .tray_handle()
+                                        .get_item(&format!("select-{}", item))
+                                        .set_selected(submenu.get(1).unwrap().eq(&item));
+                                });
 
-                                let mut browser = SHARED_BROWSER.lock().unwrap();
-                                browser.set_browser(
-                                    &(match submenu.get(1) {
-                                        Some(&"default") => Browser::default().to_owned(),
-                                        Some(&"firefox") => Browser::Firefox.to_owned(),
-                                        Some(&"chrome") => Browser::Chrome.to_owned(),
-                                        Some(&"opera") => Browser::Opera.to_owned(),
-                                        _ => Browser::default().to_owned(),
-                                    }),
-                                );
-                            }
-                            _ => {}
+                            let mut browser = SHARED_BROWSER.lock().unwrap();
+                            browser.set_browser(
+                                &(match submenu.get(1) {
+                                    Some(&"default") => Browser::default().to_owned(),
+                                    Some(&"firefox") => Browser::Firefox.to_owned(),
+                                    Some(&"chrome") => Browser::Chrome.to_owned(),
+                                    Some(&"opera") => Browser::Opera.to_owned(),
+                                    _ => Browser::default().to_owned(),
+                                }),
+                            );
                         }
                     }
                 }

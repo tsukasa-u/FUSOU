@@ -81,9 +81,9 @@ impl From<kcapi::api_start2::get_data::ApiMstSlotitem> for MstSlotItem {
         let mut taibaku = 0;
         let mut geigeki = 0;
         if slot_item.api_type[2] == 48 {
-            geigeki = kaihi.clone();
+            geigeki = kaihi;
             kaihi = 0;
-            taibaku = meityu.clone();
+            taibaku = meityu;
             meityu = 0;
         }
         Self {
@@ -110,8 +110,8 @@ impl From<kcapi::api_start2::get_data::ApiMstSlotitem> for MstSlotItem {
             luck: slot_item.api_luck,
             leng: slot_item.api_leng,
             rare: slot_item.api_rare,
-            taibaku: taibaku,
-            geigeki: geigeki,
+            taibaku,
+            geigeki,
             broken: slot_item.api_broken,
             usebull: slot_item.api_usebull,
             version: slot_item.api_version,
