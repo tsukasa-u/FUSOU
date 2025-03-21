@@ -13,21 +13,15 @@ pub fn parse(ty: syn::Type) -> Result<String, syn::Error> {
 }
 
 pub fn psrse_type_path(ty: syn::TypePath) -> Result<String, syn::Error> {
-    match ty.qself {
-        Some(_) => {
-            return Err(syn::Error::new_spanned(ty, "Self type is not supported"));
-        }
-        None => {}
+    if let Some(_) = ty.qself {
+        return Err(syn::Error::new_spanned(ty, "Self type is not supported"));
     }
 
-    match ty.path.leading_colon {
-        Some(_) => {
-            return Err(syn::Error::new_spanned(
-                ty,
-                "Absolute path is not supported",
-            ));
-        }
-        None => {}
+    if ty.path.leading_colon.is_some() {
+        return Err(syn::Error::new_spanned(
+            ty,
+            "Absolute path is not supported",
+        ));
     }
 
     let mut type_indent: String = String::from("");
@@ -38,7 +32,7 @@ pub fn psrse_type_path(ty: syn::TypePath) -> Result<String, syn::Error> {
         _ => {
             for (i, path_segment) in ty.path.segments.iter().enumerate() {
                 if i > 0 {
-                    type_indent.push_str(",");
+                    type_indent.push(',');
                 }
 
                 let ident = &path_segment.ident;
@@ -74,7 +68,7 @@ pub fn psrse_type_path(ty: syn::TypePath) -> Result<String, syn::Error> {
                             _ => {
                                 for (j, arg) in args.iter().enumerate() {
                                     if j > 0 {
-                                        type_indent.push_str(",");
+                                        type_indent.push(',');
                                     }
                                     match arg.to_owned() {
                                         syn::GenericArgument::Lifetime(lifetime) => {
@@ -125,7 +119,7 @@ pub fn psrse_type_path(ty: syn::TypePath) -> Result<String, syn::Error> {
                                 }
                             }
                         }
-                        type_indent.push_str(">");
+                        type_indent.push('>');
                     }
                     syn::PathArguments::Parenthesized(ParenthesizedGenericArguments { .. }) => {
                         return Err(syn::Error::new_spanned(

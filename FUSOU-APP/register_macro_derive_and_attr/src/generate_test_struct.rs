@@ -29,7 +29,7 @@ pub struct MacroArgs4GenerateTestStruct {
 
 // pub fn generate_test_struct(attr: TokenStream, ast: &mut DeriveInput) -> Result<TokenStream, syn::Error> {
 pub fn generate_test_struct(ast: &mut DeriveInput) -> Result<TokenStream, syn::Error> {
-    let args = MacroArgs4GenerateTestStruct::from_derive_input(&ast).unwrap();
+    let args = MacroArgs4GenerateTestStruct::from_derive_input(ast).unwrap();
 
     let ast_str = format!("{:?}", ast.clone());
 
@@ -65,8 +65,8 @@ pub fn generate_test_struct(ast: &mut DeriveInput) -> Result<TokenStream, syn::E
                     } else {
                         bytes.copy_from_slice(&ast_bytes[i_8..i_8 + 8]);
                     }
-                    let u64_bytes = u64::from_ne_bytes(bytes);
-                    u64_bytes
+                    
+                    u64::from_ne_bytes(bytes)
                 })
                 .collect::<Vec<u64>>();
             let struct_data_u64_slice = struct_data_vec_u64.as_slice();
@@ -81,141 +81,132 @@ pub fn generate_test_struct(ast: &mut DeriveInput) -> Result<TokenStream, syn::E
                 // return Err(syn::Error::new_spanned(&ast.ident, "The struct is already defined."));
             }
 
-            match args.field_extra {
-                Some(_) => {
-                    test_implementation.push(quote! {
-                        fn test_extra(&self, log_map: &mut register_trait::LogMapType) {
-                            let extra_field = self.extra.clone();
-                            // assert!(extra_field.is_empty(), "\x1b[38;5;{}m extra field is not empty: {:?}\x1b[m ", 8, extra_field);
-                            if !extra_field.is_empty() {
-                                println!("\x1b[38;5;{}m extra field is not empty: {:?}\x1b[m ", 8, extra_field);
-                                let key = ("field_extra".to_string(), stringify!(#struct_name).to_string(), "extra".to_string());
-                                if !log_map.contains_key(&key) {
-                                    log_map.insert(key.clone(), Vec::new());
-                                }
-                                let mut log_vec = log_map.get_mut(&key).unwrap();
-                                log_vec.push(format!("{:?}", format!("extra field is not empty: {:?}", extra_field)));
+            if args.field_extra.is_some() {
+                test_implementation.push(quote! {
+                    fn test_extra(&self, log_map: &mut register_trait::LogMapType) {
+                        let extra_field = self.extra.clone();
+                        // assert!(extra_field.is_empty(), "\x1b[38;5;{}m extra field is not empty: {:?}\x1b[m ", 8, extra_field);
+                        if !extra_field.is_empty() {
+                            println!("\x1b[38;5;{}m extra field is not empty: {:?}\x1b[m ", 8, extra_field);
+                            let key = ("field_extra".to_string(), stringify!(#struct_name).to_string(), "extra".to_string());
+                            if !log_map.contains_key(&key) {
+                                log_map.insert(key.clone(), Vec::new());
                             }
-                        }
-                    });
-                }
-                None => (),
-            };
-
-            match args.type_value {
-                Some(_) => {
-                    let mut assertions = Vec::new();
-                    for field in &struct_data.fields {
-                        let ident = field.ident.as_ref().unwrap();
-                        let ty = &field.ty;
-
-                        if ident.clone().to_string() != "extra" {
-                            let result_type_str = parse_type_path::parse(ty.to_owned());
-                            match result_type_str {
-                                Ok(type_str) => {
-                                    assertions.push(
-                                        parse_type_path::expand_children_from_self(
-                                            type_str,
-                                            0,
-                                            Ident::new(&format!("{}", ident.clone().to_string()), proc_macro2::Span::call_site()),
-                                            &|x: &proc_macro2::Ident| {
-                                                return quote! {
-                                                    if #x.is_value() {
-                                                        // assert!(!#x.is_null(), "{} in {} is null", stringify!(#ident), stringify!(#struct_name));
-                                                        // assert!(!#x.is_boolean(), "{} in {} is a boolean", stringify!(#ident), stringify!(#struct_name));
-                                                        // assert!(!#x.is_number(), "{} in {} is a number", stringify!(#ident), stringify!(#struct_name));
-                                                        // assert!(!#x.is_string(), "{} in {} is a string", stringify!(#ident), stringify!(#struct_name));
-                                                        // assert!(!#x.is_array(), "{} in {} is an array", stringify!(#ident), stringify!(#struct_name));
-                                                        // assert!(!#x.is_object(), "{} in {} is an object", stringify!(#ident), stringify!(#struct_name));
-                                                        // assert!(false, "unknown type: {:?}", #x);
-
-                                                        let key = ("type_value".to_string(), stringify!(#struct_name).to_string(), stringify!(#ident).to_string());
-                                                        if !log_map.contains_key(&key) {
-                                                            log_map.insert(key.clone(), Vec::new());
-                                                        }
-
-                                                        let mut log_vec = log_map.get_mut(&key).unwrap();
-                                                        if #x.is_null() {
-                                                            log_vec.push("null".to_string());
-                                                        } else if #x.is_boolean() {
-                                                            log_vec.push("boolean".to_string());
-                                                        } else if #x.is_number() {
-                                                            log_vec.push(format!("number:{:?}", #x));
-                                                        } else if #x.is_string() {
-                                                            log_vec.push("string".to_string());
-                                                        } else if #x.is_array() {
-                                                            log_vec.push(format!("array:{:?}", #x));
-                                                        } else if #x.is_object() {
-                                                            log_vec.push(format!("object:{:?}", #x));
-                                                        } else {
-                                                            log_vec.push(format!("unknown:{:?}", #x));
-                                                        }
-                                                        log_vec.sort();
-                                                        log_vec.dedup();
-                                                    }
-                                                };
-                                            }
-                                        )
-                                    );
-                                }
-                                Err(err) => {
-                                    return Err(err);
-                                }
-                            }
+                            let mut log_vec = log_map.get_mut(&key).unwrap();
+                            log_vec.push(format!("{:?}", format!("extra field is not empty: {:?}", extra_field)));
                         }
                     }
-                    test_implementation.push(quote! {
-                        fn test_type_value(&self, log_map: &mut register_trait::LogMapType) {
-                            #(#assertions)*
-                        }
-                    });
-                }
-                None => (),
+                });
             };
 
-            match args.integration {
-                Some(_) => {
-                    let mut assertions = Vec::new();
-                    for field in &struct_data.fields {
-                        let ident = field.ident.as_ref().unwrap();
-                        let ty = &field.ty;
+            if args.type_value.is_some() {
+                let mut assertions = Vec::new();
+                for field in &struct_data.fields {
+                    let ident = field.ident.as_ref().unwrap();
+                    let ty = &field.ty;
 
-                        if ident.clone().to_string() != "extra" {
-                            let result_type_str = parse_type_path::parse(ty.to_owned());
-                            match result_type_str {
-                                Ok(type_str) => {
-                                    assertions.push(parse_type_path::expand_children_from_self(
+                    if ident.clone() != "extra" {
+                        let result_type_str = parse_type_path::parse(ty.to_owned());
+                        match result_type_str {
+                            Ok(type_str) => {
+                                assertions.push(
+                                    parse_type_path::expand_children_from_self(
                                         type_str,
                                         0,
-                                        Ident::new(
-                                            &format!("{}", ident.clone().to_string()),
-                                            proc_macro2::Span::call_site(),
-                                        ),
+                                        Ident::new(&format!("{}", ident.clone()), proc_macro2::Span::call_site()),
                                         &|x: &proc_macro2::Ident| {
                                             return quote! {
-                                                if !#x.is_value() {
-                                                    #x.test_extra(log_map);
-                                                    #x.test_type_value(log_map);
-                                                    #x.test_integration(log_map);
+                                                if #x.is_value() {
+                                                    // assert!(!#x.is_null(), "{} in {} is null", stringify!(#ident), stringify!(#struct_name));
+                                                    // assert!(!#x.is_boolean(), "{} in {} is a boolean", stringify!(#ident), stringify!(#struct_name));
+                                                    // assert!(!#x.is_number(), "{} in {} is a number", stringify!(#ident), stringify!(#struct_name));
+                                                    // assert!(!#x.is_string(), "{} in {} is a string", stringify!(#ident), stringify!(#struct_name));
+                                                    // assert!(!#x.is_array(), "{} in {} is an array", stringify!(#ident), stringify!(#struct_name));
+                                                    // assert!(!#x.is_object(), "{} in {} is an object", stringify!(#ident), stringify!(#struct_name));
+                                                    // assert!(false, "unknown type: {:?}", #x);
+
+                                                    let key = ("type_value".to_string(), stringify!(#struct_name).to_string(), stringify!(#ident).to_string());
+                                                    if !log_map.contains_key(&key) {
+                                                        log_map.insert(key.clone(), Vec::new());
+                                                    }
+
+                                                    let mut log_vec = log_map.get_mut(&key).unwrap();
+                                                    if #x.is_null() {
+                                                        log_vec.push("null".to_string());
+                                                    } else if #x.is_boolean() {
+                                                        log_vec.push("boolean".to_string());
+                                                    } else if #x.is_number() {
+                                                        log_vec.push(format!("number:{:?}", #x));
+                                                    } else if #x.is_string() {
+                                                        log_vec.push("string".to_string());
+                                                    } else if #x.is_array() {
+                                                        log_vec.push(format!("array:{:?}", #x));
+                                                    } else if #x.is_object() {
+                                                        log_vec.push(format!("object:{:?}", #x));
+                                                    } else {
+                                                        log_vec.push(format!("unknown:{:?}", #x));
+                                                    }
+                                                    log_vec.sort();
+                                                    log_vec.dedup();
                                                 }
                                             };
-                                        },
-                                    ));
-                                }
-                                Err(err) => {
-                                    return Err(err);
-                                }
+                                        }
+                                    )
+                                );
+                            }
+                            Err(err) => {
+                                return Err(err);
                             }
                         }
                     }
-
-                    test_implementation.push(quote! {
-                        fn test_integration(&self, log_map: &mut register_trait::LogMapType) {
-                            #(#assertions)*
-                        }
-                    });
                 }
-                None => (),
+                test_implementation.push(quote! {
+                    fn test_type_value(&self, log_map: &mut register_trait::LogMapType) {
+                        #(#assertions)*
+                    }
+                });
+            };
+
+            if args.integration.is_some() {
+                let mut assertions = Vec::new();
+                for field in &struct_data.fields {
+                    let ident = field.ident.as_ref().unwrap();
+                    let ty = &field.ty;
+
+                    if ident.clone() != "extra" {
+                        let result_type_str = parse_type_path::parse(ty.to_owned());
+                        match result_type_str {
+                            Ok(type_str) => {
+                                assertions.push(parse_type_path::expand_children_from_self(
+                                    type_str,
+                                    0,
+                                    Ident::new(
+                                        &format!("{}", ident.clone()),
+                                        proc_macro2::Span::call_site(),
+                                    ),
+                                    &|x: &proc_macro2::Ident| {
+                                        return quote! {
+                                            if !#x.is_value() {
+                                                #x.test_extra(log_map);
+                                                #x.test_type_value(log_map);
+                                                #x.test_integration(log_map);
+                                            }
+                                        };
+                                    },
+                                ));
+                            }
+                            Err(err) => {
+                                return Err(err);
+                            }
+                        }
+                    }
+                }
+
+                test_implementation.push(quote! {
+                    fn test_integration(&self, log_map: &mut register_trait::LogMapType) {
+                        #(#assertions)*
+                    }
+                });
             };
         }
         _ => {
