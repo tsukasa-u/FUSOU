@@ -8,7 +8,7 @@
 //     ships: Ships;
 //     mst_ships: MstShips;
 // }
- 
+
 // export const Dock = component$<NDockProps>(({ nDock , ships, mst_ships}) => {
 
 //     useStylesScoped$(`

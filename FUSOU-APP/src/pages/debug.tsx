@@ -4,18 +4,17 @@ import { DebugApi } from "../components/debug_api";
 import { DebugApiProvider } from "../utility/provider";
 
 function Debug() {
-  
-    createEffect(location_route);
-  
-    return (
-        <>
-            <div class="bg-base-200 h-lvh">
-                <DebugApiProvider>
-                    <DebugApi />
-                </DebugApiProvider>
-            </div>
-        </>
-    );
-  }
-  
-  export default Debug;
+  createEffect(location_route);
+
+  return (
+    <>
+      <div class="bg-base-200 h-lvh">
+        <DebugApiProvider>
+          <DebugApi />
+        </DebugApiProvider>
+      </div>
+    </>
+  );
+}
+
+export default Debug;
