@@ -110,10 +110,7 @@ impl From<kcapi::api_port::port::ApiShip> for Ship {
             sakuteki: Some(ship.api_sakuteki),
             lucky: Some(ship.api_lucky),
             sally_area: ship.api_sally_area,
-            sp_effect_items: match ship.api_sp_effect_items {
-                Some(items) => Some(items.into()),
-                None => None,
-            },
+            sp_effect_items: ship.api_sp_effect_items.map(|items| items.into()),
         }
     }
 }

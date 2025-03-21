@@ -19,23 +19,19 @@ impl From<kcapi::api_req_combined_battle::ec_battle::ApiData> for Battle {
             Some(battle.api_air_base_attack.into());
         let opening_air_attack: Option<OpeningAirAttack> = Some(battle.api_kouku.into());
         let opening_taisen: Option<OpeningTaisen> = battle
-            .api_opening_taisen
-            .and_then(|opening_taisen| Some(opening_taisen.into()));
+            .api_opening_taisen.map(|opening_taisen| opening_taisen.into());
         let opening_raigeki: Option<OpeningRaigeki> = Some(battle.api_opening_atack.into());
         let closing_taigeki: Option<ClosingRaigeki> = Some(battle.api_raigeki.into());
         let hougeki_1: Option<Hougeki> = Some(battle.api_hougeki1.into());
         let hougeki_2: Option<Hougeki> = Some(battle.api_hougeki2.into());
         let hougeki_3: Option<Hougeki> =
-            battle.api_hougeki3.and_then(|hougeki| Some(hougeki.into()));
+            battle.api_hougeki3.map(|hougeki| hougeki.into());
         let support_attack: Option<SupportAttack> = battle
-            .api_support_info
-            .and_then(|support_attack| Some(support_attack.into()));
+            .api_support_info.map(|support_attack| support_attack.into());
         let air_base_assault: Option<AirBaseAssult> = battle
-            .api_air_base_injection
-            .and_then(|air_base_injection| Some(air_base_injection.into()));
+            .api_air_base_injection.map(|air_base_injection| air_base_injection.into());
         let carrier_base_assault: Option<CarrierBaseAssault> = battle
-            .api_injection_kouku
-            .and_then(|injection_kouku| Some(injection_kouku.into()));
+            .api_injection_kouku.map(|injection_kouku| injection_kouku.into());
 
         let hougeki: Option<Vec<Option<Hougeki>>> =
             if hougeki_1.is_some() || hougeki_2.is_some() || hougeki_3.is_some() {
@@ -45,8 +41,7 @@ impl From<kcapi::api_req_combined_battle::ec_battle::ApiData> for Battle {
             };
 
         let cell_no = KCS_CELLS
-            .lock()
-            .and_then(|cells| Ok(cells.last().unwrap_or(&0).clone()))
+            .lock().map(|cells| *cells.last().unwrap_or(&0))
             .unwrap_or(0);
 
         let battle_order: Vec<BattleType> = vec![
@@ -83,14 +78,14 @@ impl From<kcapi::api_req_combined_battle::ec_battle::ApiData> for Battle {
             forward_observe: None,
             escape_idx: None,
             smoke_type: Some(battle.api_smoke_type),
-            air_base_assault: air_base_assault,
-            carrier_base_assault: carrier_base_assault,
-            air_base_air_attacks: air_base_air_attacks,
-            opening_air_attack: opening_air_attack,
-            support_attack: support_attack,
-            opening_taisen: opening_taisen,
-            opening_raigeki: opening_raigeki,
-            hougeki: hougeki,
+            air_base_assault,
+            carrier_base_assault,
+            air_base_air_attacks,
+            opening_air_attack,
+            support_attack,
+            opening_taisen,
+            opening_raigeki,
+            hougeki,
             closing_raigeki: closing_taigeki,
             friendly_force_attack: None,
             midnight_flare_pos: None,
@@ -120,8 +115,7 @@ impl From<kcapi::api_req_combined_battle::ec_midnight_battle::ApiData> for Battl
             };
 
         let cell_no = KCS_CELLS
-            .lock()
-            .and_then(|cells| Ok(cells.last().unwrap_or(&0).clone()))
+            .lock().map(|cells| *cells.last().unwrap_or(&0))
             .unwrap_or(0);
 
         let battle_order: Vec<BattleType> = vec![
@@ -169,10 +163,10 @@ impl From<kcapi::api_req_combined_battle::ec_midnight_battle::ApiData> for Battl
             opening_raigeki: None,
             hougeki: None,
             closing_raigeki: None,
-            friendly_force_attack: friendly_force_attack,
+            friendly_force_attack,
             midnight_flare_pos: Some(battle.api_flare_pos),
             midngiht_touchplane: Some(battle.api_touch_plane),
-            midnight_hougeki: midnight_hougeki,
+            midnight_hougeki,
             f_nowhps: None,
             e_nowhps: None,
             midngiht_f_nowhps: Some(battle.api_f_nowhps),

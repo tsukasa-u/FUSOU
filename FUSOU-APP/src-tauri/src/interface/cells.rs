@@ -119,14 +119,11 @@ impl From<kcapi::api_req_map::next::ApiAirBaseAttack> for AirBaseAttack {
 
         Self {
             plane_from: air_base_attack.api_plane_from,
-            f_damage: f_damage,
-            e_damage: e_damage,
+            f_damage,
+            e_damage,
             stage_flag: air_base_attack.api_stage_flag,
             map_squadron_plane: air_base_attack
-                .api_map_squadron_plane
-                .and_then(|map_plane| {
-                    Some(
-                        map_plane
+                .api_map_squadron_plane.map(|map_plane| map_plane
                             .iter()
                             .map(|(k, v)| {
                                 (
@@ -134,9 +131,7 @@ impl From<kcapi::api_req_map::next::ApiAirBaseAttack> for AirBaseAttack {
                                     v.iter().map(|plane| plane.api_mst_id).collect::<Vec<i64>>(),
                                 )
                             })
-                            .collect::<HashMap<String, Vec<i64>>>(),
-                    )
-                }),
+                            .collect::<HashMap<String, Vec<i64>>>()),
         }
     }
 }
@@ -189,28 +184,17 @@ impl From<kcapi::api_req_map::next::ApiDestructionBattle> for DestructionBattle 
 
 impl From<kcapi::api_req_map::next::ApiData> for Cell {
     fn from(cells: kcapi::api_req_map::next::ApiData) -> Self {
-        let enemy_deck_info: Option<Vec<EDeckInfo>> = match cells.api_e_deck_info {
-            Some(e_deck_info) => Some(
-                e_deck_info
+        let enemy_deck_info: Option<Vec<EDeckInfo>> = cells.api_e_deck_info.map(|e_deck_info| e_deck_info
                     .into_iter()
                     .map(|e_deck_info| e_deck_info.into())
-                    .collect(),
-            ),
-            None => None,
-        };
+                    .collect());
 
-        let happening: Option<Happening> = match cells.api_happening {
-            Some(happening) => Some(happening.into()),
-            None => None,
-        };
+        let happening: Option<Happening> = cells.api_happening.map(|happening| happening.into());
 
-        let destruction_battle: Option<DestructionBattle> = match cells.api_destruction_battle {
-            Some(destruction_battle) => Some(destruction_battle.into()),
-            None => None,
-        };
+        let destruction_battle: Option<DestructionBattle> = cells.api_destruction_battle.map(|destruction_battle| destruction_battle.into());
 
         {
-            KCS_CELLS.lock().unwrap().push(cells.api_no.clone());
+            KCS_CELLS.lock().unwrap().push(cells.api_no);
         }
 
         Self {
@@ -224,8 +208,8 @@ impl From<kcapi::api_req_map::next::ApiData> for Cell {
             e_deck_info: enemy_deck_info,
             limit_state: cells.api_limit_state,
             m1: cells.api_m1,
-            destruction_battle: destruction_battle,
-            happening: happening,
+            destruction_battle,
+            happening,
         }
     }
 }
@@ -244,18 +228,13 @@ impl From<kcapi::api_req_map::start::ApiCellData> for CellData {
 
 impl From<kcapi::api_req_map::start::ApiData> for Cell {
     fn from(cells: kcapi::api_req_map::start::ApiData) -> Self {
-        let enemy_deck_info: Option<Vec<EDeckInfo>> = match cells.api_e_deck_info {
-            Some(e_deck_info) => Some(
-                e_deck_info
+        let enemy_deck_info: Option<Vec<EDeckInfo>> = cells.api_e_deck_info.map(|e_deck_info| e_deck_info
                     .into_iter()
                     .map(|e_deck_info| e_deck_info.into())
-                    .collect(),
-            ),
-            None => None,
-        };
+                    .collect());
 
         {
-            KCS_CELLS.lock().unwrap().push(cells.api_no.clone());
+            KCS_CELLS.lock().unwrap().push(cells.api_no);
         }
 
         Self {
@@ -289,10 +268,10 @@ impl From<kcapi::api_req_map::start::ApiData> for Cells {
             mapinfo_no: cells.api_mapinfo_no,
             bosscell_no: cells.api_bosscell_no,
             bosscomp: cells.api_bosscomp,
-            cells: vec![(cell.no.clone(), cell.clone())].into_iter().collect(),
+            cells: vec![(cell.no, cell.clone())].into_iter().collect(),
             cell_index: vec![cell.no],
             event_map: cells.api_eventmap.map(|eventmap| eventmap.into()),
-            cell_data: cell_data,
+            cell_data,
             battles: HashMap::new(),
         }
     }
