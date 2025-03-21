@@ -37,6 +37,7 @@ import { Cell, Cells, global_cells } from "../interface/cells";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
 import { AirBases, global_air_bases } from "../interface/map_info";
 
+// eslint-disable-next-line no-unused-vars
 const ShipsContext = createContext<(Ships | { set(data: Ships): void })[]>();
 
 export function ShipsProvider(props: { children: JSX.Element }) {
@@ -91,11 +92,12 @@ export function useShips() {
   if (!context) {
     throw new Error("useShips: cannot find a ShipsContext");
   }
+  // eslint-disable-next-line no-unused-vars
   return context as [Ships, (value: Ships) => void];
 }
 
-const MstShipsContext =
-  createContext<(MstShips | { set(data: MstShips): void })[]>();
+// eslint-disable-next-line no-unused-vars
+const MstShipsContext = createContext<(MstShips | { set(data: MstShips): void })[]>();
 
 export function MstShipsProvider(props: { children: JSX.Element }) {
   const [data, setData] = createStore(global_mst_ships);
@@ -133,11 +135,12 @@ export function useMstShips() {
   if (!context) {
     throw new Error("useContext: cannot find a MstShipsContext");
   }
+  // eslint-disable-next-line no-unused-vars
   return context as [MstShips, (value: MstShips) => void];
 }
 
-const SlotItemsContext =
-  createContext<(SlotItems | { set(data: SlotItems): void })[]>();
+// eslint-disable-next-line no-unused-vars
+const SlotItemsContext = createContext<(SlotItems | { set(data: SlotItems): void })[]>();
 
 export function SlotItemsProvider(props: { children: JSX.Element }) {
   const [data, setData] = createStore(global_slotitems);
@@ -175,11 +178,12 @@ export function useSlotItems() {
   if (!context) {
     throw new Error("useSlotItems: cannot find a SlotItemsContext");
   }
+  // eslint-disable-next-line no-unused-vars
   return context as [SlotItems, (value: SlotItems) => void];
 }
 
-const MstSlotItemsContext =
-  createContext<(MstSlotitems | { set(data: MstSlotitems): void })[]>();
+// eslint-disable-next-line no-unused-vars
+const MstSlotItemsContext = createContext<(MstSlotitems | { set(data: MstSlotitems): void })[]>();
 
 export function MstSlotItemsProvider(props: { children: JSX.Element }) {
   const [data, setData] = createStore(global_mst_slot_items);
@@ -220,13 +224,12 @@ export function useMstSlotItems() {
   if (!context) {
     throw new Error("useMstSlotItems: cannot find a MstSlotItemsContext");
   }
+  // eslint-disable-next-line no-unused-vars
   return context as [MstSlotitems, (value: MstSlotitems) => void];
 }
 
-const MstEquipExslotShipsContext =
-  createContext<
-    (MstEquipExslotShips | { set(data: MstEquipExslotShips): void })[]
-  >();
+// eslint-disable-next-line no-unused-vars
+const MstEquipExslotShipsContext = createContext<(MstEquipExslotShips | { set(data: MstEquipExslotShips): void })[]>();
 
 export function MstEquipExslotShipsProvider(props: { children: JSX.Element }) {
   const [data, setData] = createStore(global_mst_equip_exslot_ships);
@@ -269,13 +272,12 @@ export function useMstEquipExslotShips() {
       "useMstEquipExslotShips: cannot find a MstEquipExslotShipsContext",
     );
   }
+  // eslint-disable-next-line no-unused-vars
   return context as [MstEquipExslotShips, (value: MstEquipExslotShips) => void];
 }
 
-const MstSlotItemEquipTypesContext =
-  createContext<
-    (MstSlotItemEquipTypes | { set(data: MstSlotItemEquipTypes): void })[]
-  >();
+// eslint-disable-next-line no-unused-vars
+const MstSlotItemEquipTypesContext = createContext<(MstSlotItemEquipTypes | { set(data: MstSlotItemEquipTypes): void })[]>();
 
 export function MstSlotItemEquipTypesProvider(props: {
   children: JSX.Element;
@@ -320,14 +322,12 @@ export function useMstSlotItemEquipTypes() {
       "useMstSlotItemEquipTypes: cannot find a MstSlotItemEquipTypesContext",
     );
   }
-  return context as [
-    MstSlotItemEquipTypes,
-    (value: MstSlotItemEquipTypes) => void,
-  ];
+  // eslint-disable-next-line no-unused-vars
+  return context as [MstSlotItemEquipTypes, (value: MstSlotItemEquipTypes) => void];
 }
 
-const MstEquipShipsContext =
-  createContext<(MstEquipShips | { set(data: MstEquipShips): void })[]>();
+// eslint-disable-next-line no-unused-vars
+const MstEquipShipsContext = createContext<(MstEquipShips | { set(data: MstEquipShips): void })[]>();
 
 export function MstEquipShipsProvider(props: { children: JSX.Element }) {
   const [data, setData] = createStore(global_mst_equip_ships);
@@ -368,11 +368,12 @@ export function useMstEquipShips() {
   if (!context) {
     throw new Error("useMstEquipShips: cannot find a MstEquipShipsContext");
   }
+  // eslint-disable-next-line no-unused-vars
   return context as [MstEquipShips, (value: MstEquipShips) => void];
 }
 
-const MstStypesContext =
-  createContext<(MstStypes | { set(data: MstStypes): void })[]>();
+// eslint-disable-next-line no-unused-vars
+const MstStypesContext = createContext<(MstStypes | { set(data: MstStypes): void })[]>();
 
 export function MstStypesProvider(props: { children: JSX.Element }) {
   const [data, setData] = createStore(global_mst_stypes);
@@ -410,11 +411,12 @@ export function useMstStypes() {
   if (!context) {
     throw new Error("useMstStypes: cannot find a MstStypesContext");
   }
+  // eslint-disable-next-line no-unused-vars
   return context as [MstStypes, (value: MstStypes) => void];
 }
 
-const MstUseItemsContext =
-  createContext<(MstUseItems | { set(data: MstUseItems): void })[]>();
+// eslint-disable-next-line no-unused-vars
+const MstUseItemsContext = createContext<(MstUseItems | { set(data: MstUseItems): void })[]>();
 
 export function MstUseItemsProvider(props: { children: JSX.Element }) {
   const [data, setData] = createStore(global_mst_useitems);
@@ -455,11 +457,12 @@ export function useMstUseItems() {
   if (!context) {
     throw new Error("useMstUseItems: cannot find a MstUseItemsContext");
   }
+  // eslint-disable-next-line no-unused-vars
   return context as [MstUseItems, (value: MstUseItems) => void];
 }
 
-const MaterialsContext =
-  createContext<(Materials | { set(data: Materials): void })[]>();
+// eslint-disable-next-line no-unused-vars
+const MaterialsContext = createContext<(Materials | { set(data: Materials): void })[]>();
 
 export function MaterialsProvider(props: { children: JSX.Element }) {
   const [data, setData] = createStore<Materials>(global_materials);
@@ -512,11 +515,12 @@ export function useMaterials() {
   if (!context) {
     throw new Error("useMaterials: cannot find a MaterialsContext");
   }
+  // eslint-disable-next-line no-unused-vars
   return context as [Materials, (value: Materials) => void];
 }
 
-const DeckPortsContext =
-  createContext<(DeckPorts | { set(data: DeckPorts): void })[]>();
+// eslint-disable-next-line no-unused-vars
+const DeckPortsContext = createContext<(DeckPorts | { set(data: DeckPorts): void })[]>();
 
 export function DeckPortsProvider(props: { children: JSX.Element }) {
   const [data, setData] = createStore(global_deck_ports);
@@ -554,6 +558,7 @@ export function useDeckPorts() {
   if (!context) {
     throw new Error("useDeckPorts: cannot find a DeckPortsContext");
   }
+  // eslint-disable-next-line no-unused-vars
   return context as [DeckPorts, (value: DeckPorts) => void];
 }
 
@@ -617,6 +622,7 @@ export function useDeckPorts() {
 //     return context as [Battles, (value: Battles) => void];
 // }
 
+// eslint-disable-next-line no-unused-vars
 const CellsContext = createContext<(Cells | { set(data: Cells): void })[]>();
 
 export function CellsContextProvider(props: { children: JSX.Element }) {
@@ -648,9 +654,7 @@ export function CellsContextProvider(props: { children: JSX.Element }) {
       unlisten_data_add_battle = await listen<Battle>(
         "add-kcs-battle",
         (event) => {
-          if (data.battles.hasOwnProperty(event.payload.cell_id)) {
-            // if (String(event.payload.cell_id) in Object.keys(data.battles)) {
-            // if (data.cell_index[data.cell_index.length - 1] == event.payload.cell_id) {
+          if (Object.prototype.hasOwnProperty.call(data.battles, event.payload.cell_id)) {
             Object.entries(event.payload).forEach(([key, value]) => {
               if (value !== null && typeof value === "object") {
                 setData(
@@ -687,11 +691,12 @@ export function useCells() {
   if (!context) {
     throw new Error("useBattle: cannot find a CellsContext");
   }
+  // eslint-disable-next-line no-unused-vars
   return context as [Cells, (value: Cells) => void];
 }
 
-const AirBasesContext =
-  createContext<(AirBases | { set(data: AirBases): void })[]>();
+// eslint-disable-next-line no-unused-vars
+const AirBasesContext = createContext<(AirBases | { set(data: AirBases): void })[]>();
 
 export function AirBasesProvider(props: { children: JSX.Element }) {
   const [data, setData] = createStore(global_air_bases);
@@ -729,13 +734,14 @@ export function useAirBases() {
   if (!context) {
     throw new Error("useAirBases: cannot find a AirBasesContext");
   }
+  // eslint-disable-next-line no-unused-vars
   return context as [AirBases, (value: AirBases) => void];
 }
 
 //-----
 
-const DebugApiContext =
-  createContext<(string[][] | { set(data: string[][]): void })[]>();
+// eslint-disable-next-line no-unused-vars
+const DebugApiContext = createContext<(string[][] | { set(data: string[][]): void })[]>();
 
 export function DebugApiProvider(props: { children: JSX.Element }) {
   let store_data: string[][] = [[], []];
@@ -777,5 +783,6 @@ export function useDebugApi() {
   if (!context) {
     throw new Error("useDebugApi: cannot find a DebugApiContext");
   }
+  // eslint-disable-next-line no-unused-vars
   return context as [string[][], (value: string[][]) => void];
 }
