@@ -8,6 +8,7 @@ import { Battle } from '../interface/battle';
 import IconShield from '../icons/shield';
 import { useDeckPorts } from '../utility/provider';
 import { SimpleHpBar } from './simple_hp_bar';
+import IconFleetNumber from '../icons/fleet_number';
 
 interface AirDamageProps {
     battle_selected: () => Battle;
@@ -82,7 +83,10 @@ export function CarrierBaseAssaultComponent({battle_selected}: AirDamageProps) {
                                                             <Show when={idx() > 0}>
                                                                 <div class="h-px"></div>
                                                             </Show>
-                                                            <ShipNameComponent ship_id={deck_ports.deck_ports[battle_selected().deck_id!].ship[ship_idx]}></ShipNameComponent>
+                                                            <div class="flex flex-nowrap">
+                                                                <IconFleetNumber class="h-6 -mt-1 pr-1" e_flag={1} fleet_number={1} ship_number={ship_idx+1} combined_flag={deck_ports.combined_flag == 1}></IconFleetNumber>
+                                                                <ShipNameComponent ship_id={deck_ports.deck_ports[battle_selected().deck_id!].ship[ship_idx]}></ShipNameComponent>
+                                                            </div>
                                                         </>
                                                     )}
                                                 </For>
@@ -97,6 +101,7 @@ export function CarrierBaseAssaultComponent({battle_selected}: AirDamageProps) {
                                                                 <div class="h-px"></div>
                                                             </Show>
                                                             <div class="flex flex-nowrap">
+                                                                <IconFleetNumber class="h-6 -mt-1 pr-1" e_flag={1} fleet_number={1} ship_number={idx()+1} combined_flag={battle_selected().enemy_ship_id.length == 12}></IconFleetNumber>
                                                                 <SimpleShipNameComponent ship_id={battle_selected().enemy_ship_id[idx()]} ship_slot={battle_selected().e_slot![idx()]} ship_param={battle_selected().e_params![idx()]} ship_max_hp={battle_selected().e_hp_max![idx()]}></SimpleShipNameComponent>
                                                                 <Show when={battle_selected().carrier_base_assault!.e_damage.protect_flag?.some(flag => flag == true)}>
                                                                     <IconShield class="h-4 w-4"></IconShield>

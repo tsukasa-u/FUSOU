@@ -4,15 +4,23 @@ interface FleetNumberProps {
   e_flag: number;
   fleet_number: number;
   ship_number: number;
+  combined_flag?: boolean | null;
 }
  
-export function IconFleetNumber({e_flag, fleet_number, ship_number, ...props}: JSX.HTMLAttributes<SVGSVGElement> & FleetNumberProps) {
+export function IconFleetNumber({e_flag, fleet_number, ship_number, combined_flag, ...props}: JSX.HTMLAttributes<SVGSVGElement> & FleetNumberProps) {
 
   let primary_color: string = "#000000";
   if (e_flag == 0) {
     primary_color = "#2D9C45";
   } else if (e_flag == 1) {
     primary_color = "#FF100C";
+  }
+
+  if (combined_flag == true) {
+    if (ship_number > 6) {
+      fleet_number += 1;
+      ship_number -= 6;
+    }
   }
 
   return (

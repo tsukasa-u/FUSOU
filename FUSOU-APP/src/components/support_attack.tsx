@@ -8,6 +8,7 @@ import { Battle } from '../interface/battle';
 import IconShield from '../icons/shield';
 import { SimpleHpBar } from './simple_hp_bar';
 import { useShips } from '../utility/provider';
+import IconFleetNumber from '../icons/fleet_number';
 
 interface SupportAttackProps {
     deck_ship_id: { [key: number]: number[] };
@@ -85,7 +86,10 @@ export function SupportAttackComponent({deck_ship_id, battle_selected}: SupportA
                                                             <Show when={idx() > 0}>
                                                                 <div class="h-px"></div>
                                                             </Show>
-                                                            <ShipNameComponent ship_id={ship_id}></ShipNameComponent>
+                                                            <div class="flex flex-nowrap">
+                                                                <IconFleetNumber class="h-6 -mt-1 pr-1" e_flag={0} fleet_number={1} ship_number={idx() + 1} combined_flag={false}></IconFleetNumber>
+                                                                <ShipNameComponent ship_id={ship_id}></ShipNameComponent>
+                                                            </div>
                                                         </>
                                                     )}
                                                 </For>
@@ -110,6 +114,7 @@ export function SupportAttackComponent({deck_ship_id, battle_selected}: SupportA
                                                             <div class="h-px"></div>
                                                         </Show>
                                                         <div class="flex flex-nowrap">
+                                                            <IconFleetNumber class="h-6 -mt-1 pr-1" e_flag={1} fleet_number={1} ship_number={idx() + 1} combined_flag={battle_selected().enemy_ship_id.length == 12}></IconFleetNumber>
                                                             <SimpleShipNameComponent ship_id={ship_id} ship_max_hp={battle_selected().e_hp_max![idx()]} ship_param={battle_selected().e_params![idx()]} ship_slot={battle_selected().e_slot![idx()]}></SimpleShipNameComponent>
                                                             <Show when={battle_selected().support_attack!.support_hourai!.protect_flag.some(flag => flag == true)}>
                                                                 <IconShield class="h-5 w-5"></IconShield>
@@ -147,13 +152,18 @@ export function SupportAttackComponent({deck_ship_id, battle_selected}: SupportA
                                         <tr class="table_hover table_active rounded">
                                             <td>
                                                 <div class="flex flex-col">
-                                                    <For each={battle_selected().support_attack!.support_airatack!.f_damage.plane_from}>
-                                                        {(ship_idx, idx) => (
+                                                {/* <For each={battle_selected().support_attack!.support_airatack!.f_damage.plane_from}> */}
+                                                    <For each={deck_ship_id[battle_selected()!.support_attack!.support_airatack!.deck_id] ?? battle_selected()!.support_attack!.support_airatack!.ship_id}>
+                                                        {(ship_id, idx) => (
                                                             <>
                                                                 <Show when={idx() > 0}>
                                                                     <div class="h-px"></div>
                                                                 </Show>
-                                                                <ShipNameComponent ship_id={deck_ship_id[battle_selected().support_attack!.support_airatack!.deck_id][ship_idx]}></ShipNameComponent>
+                                                                <div class="flex flex-nowrap">
+                                                                    <IconFleetNumber class="h-6 -mt-1 pr-1" e_flag={0} fleet_number={1} ship_number={idx() + 1} combined_flag={false}></IconFleetNumber>
+                                                                    <ShipNameComponent ship_id={ship_id}></ShipNameComponent>
+                                                                </div>
+                                                                {/* <ShipNameComponent ship_id={deck_ship_id[battle_selected().support_attack!.support_airatack!.deck_id][ship_idx]}></ShipNameComponent> */}
                                                             </>
                                                         )}
                                                     </For>
@@ -161,10 +171,12 @@ export function SupportAttackComponent({deck_ship_id, battle_selected}: SupportA
                                             </td>
                                             <td>
                                                 <div class="flex flex-col">
-                                                    <For each={battle_selected().support_attack!.support_airatack!.f_damage.plane_from}>
-                                                        {(ship_idx) => (
+                                                    <For each={deck_ship_id[battle_selected()!.support_attack!.support_airatack!.deck_id] ?? battle_selected()!.support_attack!.support_airatack!.ship_id}>
+                                                    {/* <For each={battle_selected().support_attack!.support_airatack!.f_damage.plane_from}> */}
+                                                        {(ship_id) => (
                                                             <>
-                                                                <SimpleHpBar v_now={() => ships.ships[deck_ship_id[battle_selected().support_attack!.support_airatack!.deck_id][ship_idx]].nowhp} v_max={() => ships.ships[deck_ship_id[battle_selected().support_attack!.support_airatack!.deck_id][ship_idx]].maxhp}></SimpleHpBar>
+                                                                {/* <SimpleHpBar v_now={() => ships.ships[deck_ship_id[battle_selected().support_attack!.support_airatack!.deck_id][ship_idx]].nowhp} v_max={() => ships.ships[deck_ship_id[battle_selected().support_attack!.support_airatack!.deck_id][ship_idx]].maxhp}></SimpleHpBar> */}
+                                                                <SimpleHpBar v_now={() => ships.ships[ship_id].nowhp} v_max={() => ships.ships[ship_id].maxhp}></SimpleHpBar>
                                                             </>
                                                         )}
                                                     </For>
@@ -179,6 +191,7 @@ export function SupportAttackComponent({deck_ship_id, battle_selected}: SupportA
                                                                     <div class="h-px"></div>
                                                                 </Show>
                                                                 <div class="flex flex-nowrap">
+                                                                    <IconFleetNumber class="h-6 -mt-1 pr-1" e_flag={1} fleet_number={1} ship_number={idx() + 1} combined_flag={battle_selected().enemy_ship_id.length == 12}></IconFleetNumber>
                                                                     <SimpleShipNameComponent ship_id={battle_selected().enemy_ship_id[idx()]} ship_slot={battle_selected().e_slot![idx()]} ship_param={battle_selected().e_params![idx()]} ship_max_hp={battle_selected().e_hp_max![idx()]}></SimpleShipNameComponent>
                                                                     <Show when={battle_selected().support_attack!.support_airatack!.e_damage.protect_flag?.some(flag => flag == true)}>
                                                                         <IconShield class="h-5 w-5"></IconShield>

@@ -7,6 +7,7 @@ import { EquimentComponent } from './equipment';
 import { useAirBases } from '../utility/provider';
 import IconShield from '../icons/shield';
 import { SimpleHpBar } from './simple_hp_bar';
+import IconFleetNumber from '../icons/fleet_number';
 
 interface AirDamageProps {
     area_id: number;
@@ -89,6 +90,7 @@ export function AirBaseAirAttackComponent({area_id, battle_selected}: AirDamageP
                                                                         <div class="h-px"></div>
                                                                     </Show>
                                                                     <div class="flex flex-nowrap">
+                                                                        <IconFleetNumber class="h-6 -mt-1 pr-1" e_flag={1} fleet_number={1} ship_number={idx()+1} combined_flag={battle_selected().enemy_ship_id.length == 12}></IconFleetNumber>
                                                                         <SimpleShipNameComponent ship_id={battle_selected().enemy_ship_id[idx()]} ship_max_hp={battle_selected().e_hp_max![idx()]} ship_param={battle_selected().e_params![idx()]} ship_slot={battle_selected().e_slot![idx()]}></SimpleShipNameComponent>
                                                                         <Show when={battle_selected().air_base_air_attacks.attacks[attack_idx()].e_damage.protect_flag?.some(flag => flag == true)}>
                                                                             <IconShield class="h-5 w-5"></IconShield>
