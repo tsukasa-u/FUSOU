@@ -292,10 +292,13 @@ impl From<kcapi_common::common_air::ApiAirBaseAttack> for AirBaseAirAttack {
         Self {
             stage_flag: air_base_air_attack.api_stage_flag,
             squadron_plane: air_base_air_attack
-                .api_squadron_plane.map(|squadron_planes| squadron_planes
-                            .iter()
-                            .map(|squadron_plane| squadron_plane.api_mst_id)
-                            .collect()),
+                .api_squadron_plane
+                .map(|squadron_planes| {
+                    squadron_planes
+                        .iter()
+                        .map(|squadron_plane| squadron_plane.api_mst_id)
+                        .collect()
+                }),
             base_id: air_base_air_attack.api_base_id,
             f_damage,
             e_damage,
@@ -321,71 +324,77 @@ pub fn calc_air_damage(
     stage3: Option<kcapi_common::common_air::ApiStage3>,
     stage3_combined: Option<kcapi_common::common_air::ApiStage3>,
 ) -> (AirDamage, AirDamage) {
-    let f_damages: Option<Vec<f32>> = stage3.clone().and_then(|stage3| {
-        stage3
-            .api_fdam.map(|f_damages| calc_floor(&f_damages))
-    });
-    let e_damages: Option<Vec<f32>> = stage3.clone().and_then(|stage3| {
-        stage3
-            .api_edam.map(|e_damages| calc_floor(&e_damages))
-    });
+    let f_damages: Option<Vec<f32>> = stage3
+        .clone()
+        .and_then(|stage3| stage3.api_fdam.map(|f_damages| calc_floor(&f_damages)));
+    let e_damages: Option<Vec<f32>> = stage3
+        .clone()
+        .and_then(|stage3| stage3.api_edam.map(|e_damages| calc_floor(&e_damages)));
     let f_damages_combined: Option<Vec<f32>> =
         stage3_combined.clone().and_then(|stage3_combined| {
             stage3_combined
-                .api_fdam.map(|f_damages| calc_floor(&f_damages))
+                .api_fdam
+                .map(|f_damages| calc_floor(&f_damages))
         });
     let e_damages_combined: Option<Vec<f32>> =
         stage3_combined.clone().and_then(|stage3_combined| {
             stage3_combined
-                .api_edam.map(|e_damages| calc_floor(&e_damages))
+                .api_edam
+                .map(|e_damages| calc_floor(&e_damages))
         });
 
     let f_cl: Option<Vec<i64>> = stage3.clone().and_then(|stage3| {
-        stage3.api_fcl_flag.map(|f_cl| calc_critical(
-                &f_damages.clone().unwrap_or(vec![0_f32; f_cl.len()]),
-                &f_cl,
-            ))
+        stage3
+            .api_fcl_flag
+            .map(|f_cl| calc_critical(&f_damages.clone().unwrap_or(vec![0_f32; f_cl.len()]), &f_cl))
     });
     let e_cl: Option<Vec<i64>> = stage3.clone().and_then(|stage3| {
-        stage3.api_ecl_flag.map(|e_cl| calc_critical(
-                &e_damages.clone().unwrap_or(vec![0_f32; e_cl.len()]),
-                &e_cl,
-            ))
+        stage3
+            .api_ecl_flag
+            .map(|e_cl| calc_critical(&e_damages.clone().unwrap_or(vec![0_f32; e_cl.len()]), &e_cl))
     });
     let f_cl_combined: Option<Vec<i64>> = stage3_combined.clone().and_then(|stage3_combined| {
-        stage3_combined.api_fcl_flag.map(|f_cl| calc_critical(
+        stage3_combined.api_fcl_flag.map(|f_cl| {
+            calc_critical(
                 &f_damages_combined
                     .clone()
                     .unwrap_or(vec![0_f32; f_cl.len()]),
                 &f_cl,
-            ))
+            )
+        })
     });
     let e_cl_combined: Option<Vec<i64>> = stage3_combined.clone().and_then(|stage3_combined| {
-        stage3_combined.api_ecl_flag.map(|e_cl| calc_critical(
+        stage3_combined.api_ecl_flag.map(|e_cl| {
+            calc_critical(
                 &e_damages_combined
                     .clone()
                     .unwrap_or(vec![0_f32; e_cl.len()]),
                 &e_cl,
-            ))
+            )
+        })
     });
 
     let f_protect: Option<Vec<bool>> = stage3.clone().and_then(|stage3| {
         stage3
-            .api_fdam.map(|f_damages| calc_protect_flag(&f_damages))
+            .api_fdam
+            .map(|f_damages| calc_protect_flag(&f_damages))
     });
     let e_protect: Option<Vec<bool>> = stage3.clone().and_then(|stage3| {
         stage3
-            .api_edam.map(|e_damages| calc_protect_flag(&e_damages))
+            .api_edam
+            .map(|e_damages| calc_protect_flag(&e_damages))
     });
     let f_protect_combined: Option<Vec<bool>> =
         stage3_combined.clone().and_then(|stage3_combined| {
             stage3_combined
-                .api_fdam.map(|f_damages| calc_protect_flag(&f_damages))
+                .api_fdam
+                .map(|f_damages| calc_protect_flag(&f_damages))
         });
     let e_protect_combined: Option<Vec<bool>> =
         stage3_combined.clone().and_then(|stage3_combined| {
             stage3_combined
-                .api_edam.map(|e_damages| calc_protect_flag(&e_damages))
+                .api_edam
+                .map(|e_damages| calc_protect_flag(&e_damages))
         });
 
     let f_sp: Option<Vec<Option<Vec<i64>>>> =
@@ -423,11 +432,13 @@ pub fn calc_air_damage(
 
     let f_plane_from: Option<Vec<i64>> = plane_from.clone().and_then(|plane_from| {
         plane_from[0]
-            .clone().map(|plane_from| plane_from.clone().iter().map(|x| x - 1).collect())
+            .clone()
+            .map(|plane_from| plane_from.clone().iter().map(|x| x - 1).collect())
     });
     let e_plane_from: Option<Vec<i64>> = plane_from.clone().and_then(|plane_from| {
         plane_from[1]
-            .clone().map(|plane_from| plane_from.clone().iter().map(|x| x - 1).collect())
+            .clone()
+            .map(|plane_from| plane_from.clone().iter().map(|x| x - 1).collect())
     });
 
     // let f_now_hps = vec![0; f_damages.clone().and_then(|f_damages| Some(f_damages.len())).unwrap_or(12)];
@@ -438,15 +449,16 @@ pub fn calc_air_damage(
     (
         AirDamage {
             plane_from: f_plane_from,
-            touch_plane: stage1.clone().and_then(|stage1| {
-                stage1
-                    .api_touch_plane.map(|touch_plane| touch_plane[0])
-            }),
+            touch_plane: stage1
+                .clone()
+                .and_then(|stage1| stage1.api_touch_plane.map(|touch_plane| touch_plane[0])),
             loss_plane1: stage1
-                .clone().map(|stage1| stage1.api_f_lostcount)
+                .clone()
+                .map(|stage1| stage1.api_f_lostcount)
                 .unwrap_or(0),
             loss_plane2: stage2
-                .clone().map(|stage2| stage2.api_f_lostcount)
+                .clone()
+                .map(|stage2| stage2.api_f_lostcount)
                 .unwrap_or(0),
             damages: combine(&[f_damages, f_damages_combined]),
             cl: combine(&[f_cl, f_cl_combined]),
@@ -458,15 +470,16 @@ pub fn calc_air_damage(
         },
         AirDamage {
             plane_from: e_plane_from,
-            touch_plane: stage1.clone().and_then(|stage1| {
-                stage1
-                    .api_touch_plane.map(|touch_plane| touch_plane[1])
-            }),
+            touch_plane: stage1
+                .clone()
+                .and_then(|stage1| stage1.api_touch_plane.map(|touch_plane| touch_plane[1])),
             loss_plane1: stage1
-                .clone().map(|stage1| stage1.api_e_lostcount)
+                .clone()
+                .map(|stage1| stage1.api_e_lostcount)
                 .unwrap_or(0),
             loss_plane2: stage2
-                .clone().map(|stage2| stage2.api_e_lostcount.unwrap_or(0))
+                .clone()
+                .map(|stage2| stage2.api_e_lostcount.unwrap_or(0))
                 .unwrap_or(0),
             damages: combine(&[e_damages, e_damages_combined]),
             cl: combine(&[e_cl, e_cl_combined]),
@@ -512,11 +525,7 @@ impl From<kcapi_common::common_air::ApiKouku> for OpeningAirAttack {
 
 impl From<kcapi_common::common_battle::ApiOpeningTaisen> for OpeningTaisen {
     fn from(opening_taisen: kcapi_common::common_battle::ApiOpeningTaisen) -> Self {
-        let damages: Vec<Vec<f32>> = opening_taisen
-            .api_damage
-            .iter()
-            .map(calc_floor)
-            .collect();
+        let damages: Vec<Vec<f32>> = opening_taisen.api_damage.iter().map(calc_floor).collect();
         let cl_list: Vec<Vec<i64>> = opening_taisen
             .api_cl_list
             .iter()
@@ -566,7 +575,8 @@ impl From<kcapi_common::common_battle::ApiOpeningAtack> for OpeningRaigeki {
                 .iter()
                 .map(|fcl_list| {
                     fcl_list
-                        .clone().map(|fcl| calc_max_critical(&fcl))
+                        .clone()
+                        .map(|fcl| calc_max_critical(&fcl))
                         .unwrap_or(0)
                 })
                 .collect::<Vec<i64>>(),
@@ -579,7 +589,8 @@ impl From<kcapi_common::common_battle::ApiOpeningAtack> for OpeningRaigeki {
                 .iter()
                 .map(|ecl_list| {
                     ecl_list
-                        .clone().map(|ecl| calc_max_critical(&ecl))
+                        .clone()
+                        .map(|ecl| calc_max_critical(&ecl))
                         .unwrap_or(0)
                 })
                 .collect::<Vec<i64>>(),
@@ -605,18 +616,10 @@ impl From<kcapi_common::common_battle::ApiOpeningAtack> for OpeningRaigeki {
 impl From<kcapi_common::common_battle::ApiRaigeki> for ClosingRaigeki {
     fn from(closing_raigeki: kcapi_common::common_battle::ApiRaigeki) -> Self {
         let f_damages: Vec<f32> = calc_floor(&closing_raigeki.api_fdam);
-        let f_cl = calc_critical(
-            &f_damages,
-            &closing_raigeki
-                .api_fcl.to_vec(),
-        );
+        let f_cl = calc_critical(&f_damages, &closing_raigeki.api_fcl.to_vec());
         let f_protect_flag: Vec<bool> = calc_protect_flag(&closing_raigeki.api_fdam);
         let e_damages: Vec<f32> = calc_floor(&closing_raigeki.api_edam);
-        let e_cl = calc_critical(
-            &e_damages,
-            &closing_raigeki
-                .api_ecl.to_vec(),
-        );
+        let e_cl = calc_critical(&e_damages, &closing_raigeki.api_ecl.to_vec());
         let e_protect_flag: Vec<bool> = calc_protect_flag(&closing_raigeki.api_edam);
 
         let f_now_hps: Vec<i64> = vec![0; f_damages.len()];
@@ -641,11 +644,7 @@ impl From<kcapi_common::common_battle::ApiRaigeki> for ClosingRaigeki {
 
 impl From<kcapi_common::common_battle::ApiHougeki> for Hougeki {
     fn from(hougeki: kcapi_common::common_battle::ApiHougeki) -> Self {
-        let si_list: Vec<Vec<Option<i64>>> = hougeki
-            .api_si_list
-            .iter()
-            .map(calc_si_list)
-            .collect();
+        let si_list: Vec<Vec<Option<i64>>> = hougeki.api_si_list.iter().map(calc_si_list).collect();
 
         let damages: Vec<Vec<f32>> = hougeki
             .api_damage
@@ -747,103 +746,111 @@ impl From<kcapi_common::common_battle::ApiHougeki> for Hougeki {
 
 impl From<kcapi_common::common_midnight::ApiHougeki> for MidnightHougeki {
     fn from(hougeki: kcapi_common::common_midnight::ApiHougeki) -> Self {
-        let si_list: Option<Vec<Vec<Option<i64>>>> = hougeki.api_si_list.map(|api_si_list| api_si_list
-                    .iter()
-                    .map(|si_list| {
-                        calc_si_list(&si_list.iter().map(|si| Some(si.to_owned())).collect())
-                    })
-                    .collect());
+        let si_list: Option<Vec<Vec<Option<i64>>>> = hougeki.api_si_list.map(|api_si_list| {
+            api_si_list
+                .iter()
+                .map(|si_list| {
+                    calc_si_list(&si_list.iter().map(|si| Some(si.to_owned())).collect())
+                })
+                .collect()
+        });
 
         let damages: Option<Vec<Vec<f32>>> = hougeki.api_damage.clone().and_then(|api_damage| {
             hougeki.api_df_list.clone().and_then(|df_list| {
-                hougeki.api_sp_list.clone().map(|api_sp_list| api_damage
-                            .iter()
-                            .enumerate()
-                            .map(|(idx, damage)| remove_m1(damage, &df_list[idx]))
-                            .enumerate()
-                            .map(|(idx, damages)| match api_sp_list[idx] {
-                                0 | 1 => damages,
-                                n if n < 100 => {
-                                    let df_0 = df_list[idx][0];
-                                    if df_list[idx].iter().all(|x| *x == df_0) {
-                                        return vec![damages.iter().fold(0_f32, |acc, y| acc + *y)];
-                                    } else {
-                                        return damages;
-                                    }
+                hougeki.api_sp_list.clone().map(|api_sp_list| {
+                    api_damage
+                        .iter()
+                        .enumerate()
+                        .map(|(idx, damage)| remove_m1(damage, &df_list[idx]))
+                        .enumerate()
+                        .map(|(idx, damages)| match api_sp_list[idx] {
+                            0 | 1 => damages,
+                            n if n < 100 => {
+                                let df_0 = df_list[idx][0];
+                                if df_list[idx].iter().all(|x| *x == df_0) {
+                                    return vec![damages.iter().fold(0_f32, |acc, y| acc + *y)];
+                                } else {
+                                    return damages;
                                 }
-                                _ => damages,
-                            })
-                            .map(|damages| calc_floor(&damages))
-                            .collect())
+                            }
+                            _ => damages,
+                        })
+                        .map(|damages| calc_floor(&damages))
+                        .collect()
+                })
             })
         });
 
         let cl_list: Option<Vec<Vec<i64>>> = hougeki.api_cl_list.and_then(|api_cl_list| {
             damages.clone().and_then(|damages| {
                 hougeki.api_df_list.clone().and_then(|df_list| {
-                    hougeki.api_sp_list.clone().map(|api_sp_list| api_cl_list
-                                .iter()
-                                .enumerate()
-                                .map(|(idx, cl_list)| remove_m1(cl_list, &df_list[idx]))
-                                .enumerate()
-                                .map(|(idx, cl_list)| match api_sp_list[idx] {
-                                    0 | 1 => cl_list,
-                                    n if n < 100 => {
-                                        let df_0 = df_list[idx][0];
-                                        if df_list[idx].iter().all(|x| *x == df_0) {
-                                            return vec![cl_list
-                                                .iter()
-                                                .max()
-                                                .unwrap_or(&0)
-                                                .to_owned()];
-                                        } else {
-                                            return cl_list;
-                                        }
+                    hougeki.api_sp_list.clone().map(|api_sp_list| {
+                        api_cl_list
+                            .iter()
+                            .enumerate()
+                            .map(|(idx, cl_list)| remove_m1(cl_list, &df_list[idx]))
+                            .enumerate()
+                            .map(|(idx, cl_list)| match api_sp_list[idx] {
+                                0 | 1 => cl_list,
+                                n if n < 100 => {
+                                    let df_0 = df_list[idx][0];
+                                    if df_list[idx].iter().all(|x| *x == df_0) {
+                                        return vec![cl_list.iter().max().unwrap_or(&0).to_owned()];
+                                    } else {
+                                        return cl_list;
                                     }
-                                    _ => cl_list,
-                                })
-                                .enumerate()
-                                .map(|(idx, cl_list)| calc_critical(&damages[idx], &cl_list))
-                                .collect())
+                                }
+                                _ => cl_list,
+                            })
+                            .enumerate()
+                            .map(|(idx, cl_list)| calc_critical(&damages[idx], &cl_list))
+                            .collect()
+                    })
                 })
             })
         });
 
         let protect_flag: Option<Vec<Vec<bool>>> = hougeki.api_damage.and_then(|api_damage| {
-            hougeki.api_df_list.clone().map(|df_list| api_damage
-                        .iter()
-                        .enumerate()
-                        .map(|(idx, damage)| remove_m1(damage, &df_list[idx]))
-                        .map(|damage| calc_protect_flag(&damage))
-                        .collect())
+            hougeki.api_df_list.clone().map(|df_list| {
+                api_damage
+                    .iter()
+                    .enumerate()
+                    .map(|(idx, damage)| remove_m1(damage, &df_list[idx]))
+                    .map(|damage| calc_protect_flag(&damage))
+                    .collect()
+            })
         });
 
         let df_list: Option<Vec<Vec<i64>>> = hougeki.api_df_list.and_then(|api_df_list| {
-            hougeki.api_sp_list.clone().map(|api_sp_list| api_df_list
-                        .iter()
-                        .enumerate()
-                        .map(|(idx, df_list)| remove_m1(df_list, &api_df_list[idx]))
-                        .enumerate()
-                        .map(|(idx, df_list)| match api_sp_list[idx] {
-                            0 | 1 => df_list,
-                            n if n < 100 => {
-                                let df_0 = df_list[0];
-                                if df_list.iter().all(|x| *x == df_0) {
-                                    return vec![df_0];
-                                } else {
-                                    return df_list;
-                                }
+            hougeki.api_sp_list.clone().map(|api_sp_list| {
+                api_df_list
+                    .iter()
+                    .enumerate()
+                    .map(|(idx, df_list)| remove_m1(df_list, &api_df_list[idx]))
+                    .enumerate()
+                    .map(|(idx, df_list)| match api_sp_list[idx] {
+                        0 | 1 => df_list,
+                        n if n < 100 => {
+                            let df_0 = df_list[0];
+                            if df_list.iter().all(|x| *x == df_0) {
+                                return vec![df_0];
+                            } else {
+                                return df_list;
                             }
-                            _ => df_list,
-                        })
-                        .collect())
+                        }
+                        _ => df_list,
+                    })
+                    .collect()
+            })
         });
 
         let f_now_hps: Vec<Vec<i64>> = damages
-            .clone().map(|damages| vec![vec![0; 12]; damages.len()])
+            .clone()
+            .map(|damages| vec![vec![0; 12]; damages.len()])
             .unwrap_or(vec![vec![0; 12]; 0]);
         let e_now_hps: Vec<Vec<i64>> = damages
-            .clone().map(|damages| vec![vec![0; 12]; damages.len()])
+            .clone()
+            .map(|damages| vec![vec![0; 12]; damages.len()])
             .unwrap_or(vec![vec![0; 12]; 0]);
 
         Self {
@@ -863,8 +870,12 @@ impl From<kcapi_common::common_midnight::ApiHougeki> for MidnightHougeki {
 
 impl From<kcapi_common::common_battle::ApiSupportInfo> for SupportAttack {
     fn from(support_info: kcapi_common::common_battle::ApiSupportInfo) -> Self {
-        let support_hourai: Option<SupportHourai> = support_info.api_support_hourai.map(|support_hourai| support_hourai.into());
-        let support_airatack: Option<SupportAiratack> = support_info.api_support_airatack.map(|support_airatack| support_airatack.into());
+        let support_hourai: Option<SupportHourai> = support_info
+            .api_support_hourai
+            .map(|support_hourai| support_hourai.into());
+        let support_airatack: Option<SupportAiratack> = support_info
+            .api_support_airatack
+            .map(|support_airatack| support_airatack.into());
         Self {
             support_hourai,
             support_airatack,
@@ -938,10 +949,7 @@ impl From<kcapi_common::common_air::ApiKouku> for CarrierBaseAssault {
             value.api_stage3.clone(),
             value.api_stage3_combined.clone(),
         );
-        Self {
-            f_damage,
-            e_damage,
-        }
+        Self { f_damage, e_damage }
     }
 }
 
@@ -963,10 +971,7 @@ impl From<kcapi_common::common_midnight::ApiFriendlyBattle> for FriendlySupportH
     fn from(friendly_support_hourai: kcapi_common::common_midnight::ApiFriendlyBattle) -> Self {
         let flare_pos: Vec<i64> = friendly_support_hourai.api_flare_pos;
         let hougeki: MidnightHougeki = friendly_support_hourai.api_hougeki.into();
-        Self {
-            flare_pos,
-            hougeki,
-        }
+        Self { flare_pos, hougeki }
     }
 }
 
@@ -1013,7 +1018,8 @@ pub fn calc_dmg(battle: &mut Battle) {
     let midngiht_e_nowhps: Vec<i64> = battle.midngiht_e_nowhps.clone().unwrap_or(vec![0; 12]);
     let friend_nowhps: Vec<i64> = battle
         .friendly_force_attack
-        .clone().map(|friendly_force_attack| friendly_force_attack.fleet_info.now_hps.clone())
+        .clone()
+        .map(|friendly_force_attack| friendly_force_attack.fleet_info.now_hps.clone())
         .unwrap_or(vec![0; 6]);
 
     let battle_order: Vec<BattleType> = battle.battle_order.clone().unwrap();
@@ -1319,13 +1325,13 @@ pub fn calc_dmg(battle: &mut Battle) {
                                         .iter()
                                         .enumerate()
                                         .for_each(|(idx, &f_nowhp)| {
-                                            support_hourai.hougeki.f_now_hps[eflag_idx]
-                                                [idx] = f_nowhp - friend_total_damages[idx];
+                                            support_hourai.hougeki.f_now_hps[eflag_idx][idx] =
+                                                f_nowhp - friend_total_damages[idx];
                                         });
                                     midngiht_e_nowhps.iter().enumerate().for_each(
                                         |(idx, &e_nowhp)| {
-                                            support_hourai.hougeki.e_now_hps[eflag_idx]
-                                                [idx] = e_nowhp - midnight_e_total_damages[idx];
+                                            support_hourai.hougeki.e_now_hps[eflag_idx][idx] =
+                                                e_nowhp - midnight_e_total_damages[idx];
                                         },
                                     );
 
@@ -1421,26 +1427,30 @@ pub fn calc_dmg(battle: &mut Battle) {
 impl From<kcapi::api_req_sortie::battle::ApiData> for Battle {
     fn from(battle: kcapi::api_req_sortie::battle::ApiData) -> Self {
         let air_base_air_attacks: Option<AirBaseAirAttacks> = battle
-            .api_air_base_attack.map(|air_base_air_attack| air_base_air_attack.into());
+            .api_air_base_attack
+            .map(|air_base_air_attack| air_base_air_attack.into());
         let opening_air_attack: Option<OpeningAirAttack> = Some(battle.api_kouku.into());
         let opening_taisen: Option<OpeningTaisen> = battle
-            .api_opening_taisen.map(|opening_taisen| opening_taisen.into());
+            .api_opening_taisen
+            .map(|opening_taisen| opening_taisen.into());
         let opening_raigeki: Option<OpeningRaigeki> = battle
-            .api_opening_atack.map(|opening_attack| opening_attack.into());
+            .api_opening_atack
+            .map(|opening_attack| opening_attack.into());
         let closing_taigeki: Option<ClosingRaigeki> = battle
-            .api_raigeki.map(|closing_raigeki| closing_raigeki.into());
-        let hougeki_1: Option<Hougeki> =
-            battle.api_hougeki1.map(|hougeki| hougeki.into());
-        let hougeki_2: Option<Hougeki> =
-            battle.api_hougeki2.map(|hougeki| hougeki.into());
-        let hougeki_3: Option<Hougeki> =
-            battle.api_hougeki3.map(|hougeki| hougeki.into());
+            .api_raigeki
+            .map(|closing_raigeki| closing_raigeki.into());
+        let hougeki_1: Option<Hougeki> = battle.api_hougeki1.map(|hougeki| hougeki.into());
+        let hougeki_2: Option<Hougeki> = battle.api_hougeki2.map(|hougeki| hougeki.into());
+        let hougeki_3: Option<Hougeki> = battle.api_hougeki3.map(|hougeki| hougeki.into());
         let support_attack: Option<SupportAttack> = battle
-            .api_support_info.map(|support_info| support_info.into());
+            .api_support_info
+            .map(|support_info| support_info.into());
         let air_base_assault: Option<AirBaseAssult> = battle
-            .api_air_base_injection.map(|air_base_injection| air_base_injection.into());
+            .api_air_base_injection
+            .map(|air_base_injection| air_base_injection.into());
         let carrier_base_assault: Option<CarrierBaseAssault> = battle
-            .api_injection_kouku.map(|injection_kouku| injection_kouku.into());
+            .api_injection_kouku
+            .map(|injection_kouku| injection_kouku.into());
 
         let hougeki: Option<Vec<Option<Hougeki>>> =
             if hougeki_1.is_some() || hougeki_2.is_some() || hougeki_3.is_some() {
@@ -1450,7 +1460,8 @@ impl From<kcapi::api_req_sortie::battle::ApiData> for Battle {
             };
 
         let cell_no = KCS_CELLS
-            .lock().map(|cells| *cells.last().unwrap_or(&0))
+            .lock()
+            .map(|cells| *cells.last().unwrap_or(&0))
             .unwrap_or(0);
 
         let battle_order: Vec<BattleType> = vec![
@@ -1523,7 +1534,8 @@ impl From<kcapi::api_req_battle_midnight::battle::ApiData> for Battle {
             };
 
         let cell_no = KCS_CELLS
-            .lock().map(|cells| *cells.last().unwrap_or(&0))
+            .lock()
+            .map(|cells| *cells.last().unwrap_or(&0))
             .unwrap_or(0);
 
         let battle_order: Vec<BattleType> = vec![
@@ -1590,7 +1602,8 @@ impl From<kcapi::api_req_battle_midnight::sp_midnight::ApiData> for Battle {
         let friendly_force_attack: Option<FriendlyForceAttack> = None;
 
         let cell_no = KCS_CELLS
-            .lock().map(|cells| *cells.last().unwrap_or(&0))
+            .lock()
+            .map(|cells| *cells.last().unwrap_or(&0))
             .unwrap_or(0);
 
         let battle_order: Vec<BattleType> = vec![
@@ -1644,7 +1657,8 @@ impl From<kcapi::api_req_battle_midnight::sp_midnight::ApiData> for Battle {
 impl From<kcapi::api_req_sortie::ld_airbattle::ApiData> for Battle {
     fn from(airbattle: kcapi::api_req_sortie::ld_airbattle::ApiData) -> Self {
         let air_base_air_attacks: Option<AirBaseAirAttacks> = airbattle
-            .api_air_base_attack.map(|air_base_air_attack| air_base_air_attack.into());
+            .api_air_base_attack
+            .map(|air_base_air_attack| air_base_air_attack.into());
         let opening_air_attack: Option<OpeningAirAttack> = Some(airbattle.api_kouku.into());
 
         // Need to resarch this
@@ -1656,7 +1670,8 @@ impl From<kcapi::api_req_sortie::ld_airbattle::ApiData> for Battle {
         let carrier_base_assault: Option<CarrierBaseAssault> = None;
 
         let cell_no = KCS_CELLS
-            .lock().map(|cells| *cells.last().unwrap_or(&0))
+            .lock()
+            .map(|cells| *cells.last().unwrap_or(&0))
             .unwrap_or(0);
 
         let battle_order: Vec<BattleType> = vec![
