@@ -8,14 +8,8 @@ interface FleetNumberProps {
 }
 
 export function IconFleetNumber(
-  _props: JSX.HTMLAttributes<SVGSVGElement> & FleetNumberProps,
+  props: JSX.HTMLAttributes<SVGSVGElement> & FleetNumberProps,
 ) {
-  const [props, props] = splitProps(_props, [
-    "e_flag",
-    "fleet_number",
-    "ship_number",
-    "combined_flag",
-  ]);
   let primary_color: string = "#000000";
   if (props.e_flag == 0) {
     primary_color = "#2D9C45";
@@ -25,8 +19,8 @@ export function IconFleetNumber(
 
   if (props.combined_flag == true) {
     if (props.ship_number > 6) {
-      fleet_number += 1;
-      ship_number -= 6;
+      props.fleet_number += 1;
+      props.ship_number -= 6;
     }
   }
 

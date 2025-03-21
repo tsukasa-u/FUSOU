@@ -40,9 +40,8 @@ const name_list: { [key: number]: string } = {
 };
 
 export function IconShip(
-  _props: JSX.HTMLAttributes<SVGSVGElement> & ShipProps,
+  props: JSX.HTMLAttributes<SVGSVGElement> & ShipProps,
 ) {
-  const [props, props] = splitProps(_props, ["ship_stype", "color"]);
   let primary_color: string = icon_list[""];
   let secondary_color: string = icon_list[props.color ?? ""];
   if (secondary_color == undefined) {

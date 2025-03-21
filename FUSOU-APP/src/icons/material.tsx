@@ -116,9 +116,8 @@ const item_list: { [key: number]: [string, number] } = {
 };
 
 export function IconMaterial(
-  _props: JSX.HTMLAttributes<SVGSVGElement> & MaterialProps,
+  props: JSX.HTMLAttributes<SVGSVGElement> & MaterialProps,
 ) {
-  const [props, props] = splitProps(_props, ["item_number"]);
   let primary_color: string =
     icon_list[item_list[props.item_number ?? 0][1]][0];
 
