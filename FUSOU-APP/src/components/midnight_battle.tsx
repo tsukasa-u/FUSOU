@@ -8,7 +8,8 @@ import { Battle } from '../interface/battle';
 import { MstEquipmentComponent } from './mst_equipment';
 import IconShield from '../icons/shield';
 import { SimpleHpBar } from './simple_hp_bar';
-import { useShips } from '../utility/provider';
+import { useDeckPorts, useShips } from '../utility/provider';
+import IconFleetNumber from '../icons/fleet_number';
 
 interface MidnightShellingProps {
     deck_ship_id: { [key: number]: number[] };
@@ -18,6 +19,7 @@ interface MidnightShellingProps {
 export function MidnightShellingComponent({deck_ship_id, battle_selected}: MidnightShellingProps) {
 
     const [ships,] = useShips();
+    const [deck_ports,] = useDeckPorts();
     
     const show_shelling = createMemo<boolean>(() => {
         if (battle_selected() == undefined) return false;
@@ -91,11 +93,19 @@ export function MidnightShellingComponent({deck_ship_id, battle_selected}: Midni
                                         {(at, at_index) => (
                                             <tr class="table_hover table_active rounded">
                                                 <td>
-                                                    <Show when={battle_selected().midnight_hougeki?.at_eflag![at_index()]==0} fallback={
-                                                        <SimpleShipNameComponent ship_id={battle_selected().enemy_ship_id[at]} ship_param={battle_selected().e_params![at]} ship_slot={battle_selected().e_slot![at]} ship_max_hp={battle_selected().e_hp_max![at]} ></SimpleShipNameComponent>
-                                                    }>
-                                                        <ShipNameComponent ship_id={deck_ship_id[battle_selected().deck_id!][at]}></ShipNameComponent>
-                                                    </Show>
+                                                    <div class="flex flex-nowrap">
+                                                        <Show when={battle_selected().midnight_hougeki?.at_eflag![at_index()]==0} fallback={
+                                                            <>
+                                                                <IconFleetNumber class="h-6 -mt-1 pr-1" e_flag={1} fleet_number={1} ship_number={at+1} combined_flag={battle_selected().enemy_ship_id.length == 12}></IconFleetNumber>
+                                                                <SimpleShipNameComponent ship_id={battle_selected().enemy_ship_id[at]} ship_param={battle_selected().e_params![at]} ship_slot={battle_selected().e_slot![at]} ship_max_hp={battle_selected().e_hp_max![at]} ></SimpleShipNameComponent>
+                                                            </>
+                                                        }>
+                                                            <>
+                                                                <IconFleetNumber class="h-6 -mt-1 pr-1" e_flag={0} fleet_number={1} ship_number={at+1} combined_flag={deck_ports.combined_flag == 1}></IconFleetNumber>
+                                                                <ShipNameComponent ship_id={deck_ship_id[battle_selected().deck_id!][at]}></ShipNameComponent>
+                                                            </>
+                                                        </Show>
+                                                    </div>
                                                 </td>
                                                 <td>
                                                     <Show when={battle_selected().midnight_hougeki?.at_eflag![at_index()]==0} fallback={
@@ -109,10 +119,16 @@ export function MidnightShellingComponent({deck_ship_id, battle_selected}: Midni
                                                         <For each={battle_selected().midnight_hougeki?.df_list![at_index()]}>
                                                             {(df, df_index) => (
                                                                 <div class="flex flex-nowrap">
-                                                                    <Show when={battle_selected().midnight_hougeki?.at_eflag![at_index()]==1 && df != -1} fallback={
-                                                                        <SimpleShipNameComponent ship_id={battle_selected().enemy_ship_id[df]} ship_param={battle_selected().e_params![df]} ship_slot={battle_selected().e_slot![df]} ship_max_hp={battle_selected().e_hp_max![df]}></SimpleShipNameComponent>
+                                                                    <Show when={battle_selected().midnight_hougeki?.at_eflag![at_index()]==1} fallback={
+                                                                        <>
+                                                                            <IconFleetNumber class="h-6 -mt-1 pr-1" e_flag={1} fleet_number={1} ship_number={df+1} combined_flag={battle_selected().enemy_ship_id.length == 12}></IconFleetNumber>
+                                                                            <SimpleShipNameComponent ship_id={battle_selected().enemy_ship_id[df]} ship_param={battle_selected().e_params![df]} ship_slot={battle_selected().e_slot![df]} ship_max_hp={battle_selected().e_hp_max![df]}></SimpleShipNameComponent>
+                                                                        </>
                                                                     }>
-                                                                        <ShipNameComponent ship_id={deck_ship_id[battle_selected().deck_id!][df]}></ShipNameComponent>
+                                                                        <>
+                                                                            <IconFleetNumber class="h-6 -mt-1 pr-1" e_flag={0} fleet_number={1} ship_number={df+1} combined_flag={deck_ports.combined_flag == 1}></IconFleetNumber>
+                                                                            <ShipNameComponent ship_id={deck_ship_id[battle_selected().deck_id!][df]}></ShipNameComponent>
+                                                                        </>
                                                                     </Show>
                                                                     <Show when={battle_selected().midnight_hougeki?.protect_flag![at_index()][df_index()] == true}>
                                                                         <IconShield class="h-5 w-5"></IconShield>

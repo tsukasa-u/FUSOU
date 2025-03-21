@@ -7,7 +7,8 @@ import { SimpleShipNameComponent } from './simple_ship_name';
 import { Battle } from '../interface/battle';
 import IconShield from '../icons/shield';
 import { SimpleHpBar } from './simple_hp_bar';
-import { useShips } from '../utility/provider';
+import { useDeckPorts, useShips } from '../utility/provider';
+import IconFleetNumber from '../icons/fleet_number';
 
 interface ShellingProps {
     deck_ship_id: { [key: number]: number[] };
@@ -17,7 +18,8 @@ interface ShellingProps {
 
 export function ShellingComponent({deck_ship_id, battle_selected, shelling_idx}: ShellingProps) {
 
-    const[ships, ] = useShips();
+    const [ships, ] = useShips();
+    const [deck_ports, ] = useDeckPorts();
     
     const show_shelling = createMemo<boolean>(() => {
         if (battle_selected() == undefined) return false;
@@ -55,11 +57,19 @@ export function ShellingComponent({deck_ship_id, battle_selected, shelling_idx}:
                                     {(at, at_index) => (
                                         <tr class="table_hover table_active rounded">
                                             <td>
-                                                <Show when={hougeki()!.at_eflag[at_index()]==0} fallback={
-                                                    <SimpleShipNameComponent ship_id={battle_selected().enemy_ship_id[at]} ship_max_hp={battle_selected().e_hp_max![at]} ship_param={battle_selected().e_params![at]} ship_slot={battle_selected().e_slot![at]}></SimpleShipNameComponent>
-                                                }>
-                                                    <ShipNameComponent ship_id={deck_ship_id[battle_selected().deck_id!][at]}></ShipNameComponent>
-                                                </Show>
+                                                <div class="flex flex-nowarp">
+                                                    <Show when={hougeki()!.at_eflag[at_index()]==0} fallback={
+                                                        <>
+                                                            <IconFleetNumber class="h-6 -mt-1 pr-1" e_flag={1} fleet_number={1} ship_number={at+1} combined_flag={battle_selected().enemy_ship_id.length == 12}></IconFleetNumber>
+                                                            <SimpleShipNameComponent ship_id={battle_selected().enemy_ship_id[at]} ship_max_hp={battle_selected().e_hp_max![at]} ship_param={battle_selected().e_params![at]} ship_slot={battle_selected().e_slot![at]}></SimpleShipNameComponent>
+                                                        </>
+                                                    }>
+                                                        <>
+                                                            <IconFleetNumber class="h-6 -mt-1 pr-1" e_flag={0} fleet_number={1} ship_number={at+1} combined_flag={deck_ports.combined_flag == 1}></IconFleetNumber>
+                                                            <ShipNameComponent ship_id={deck_ship_id[battle_selected().deck_id!][at]}></ShipNameComponent>
+                                                        </>
+                                                    </Show>
+                                                </div>
                                             </td>
                                             <td>
                                                 <Show when={hougeki()!.at_eflag[at_index()]==0} fallback={
@@ -74,9 +84,15 @@ export function ShellingComponent({deck_ship_id, battle_selected, shelling_idx}:
                                                         {(df, df_index) => (
                                                             <div class="flex flex-nowarp">
                                                                 <Show when={hougeki()!.at_eflag[at_index()]==1} fallback={
-                                                                    <SimpleShipNameComponent ship_id={battle_selected().enemy_ship_id[df]} ship_max_hp={battle_selected().e_hp_max![df]} ship_param={battle_selected().e_params![df]} ship_slot={battle_selected().e_slot![df]}></SimpleShipNameComponent>
+                                                                    <>
+                                                                        <IconFleetNumber class="h-6 -mt-1 pr-1" e_flag={1} fleet_number={1} ship_number={df+1} combined_flag={battle_selected().enemy_ship_id.length == 12}></IconFleetNumber>
+                                                                        <SimpleShipNameComponent ship_id={battle_selected().enemy_ship_id[df]} ship_max_hp={battle_selected().e_hp_max![df]} ship_param={battle_selected().e_params![df]} ship_slot={battle_selected().e_slot![df]}></SimpleShipNameComponent>
+                                                                    </>
                                                                 }>
-                                                                    <ShipNameComponent ship_id={deck_ship_id[battle_selected().deck_id!][df]}></ShipNameComponent>
+                                                                    <>
+                                                                        <IconFleetNumber class="h-6 -mt-1 pr-1" e_flag={0} fleet_number={1} ship_number={df+1} combined_flag={deck_ports.combined_flag == 1}></IconFleetNumber>
+                                                                        <ShipNameComponent ship_id={deck_ship_id[battle_selected().deck_id!][df]}></ShipNameComponent>
+                                                                    </>
                                                                 </Show>
                                                                 <Show when={hougeki()!.protect_flag![at_index()][df_index()] == true}>
                                                                     <IconShield class="h-5 w-5"></IconShield>

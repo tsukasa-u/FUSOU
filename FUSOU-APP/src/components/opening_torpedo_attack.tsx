@@ -7,7 +7,8 @@ import { SimpleShipNameComponent } from './simple_ship_name';
 import { Battle } from '../interface/battle';
 import IconShield from '../icons/shield';
 import { SimpleHpBar } from './simple_hp_bar';
-import { useShips } from '../utility/provider';
+import { useDeckPorts, useShips } from '../utility/provider';
+import IconFleetNumber from '../icons/fleet_number';
 
 interface TorpedoSubmarineProps {
     deck_ship_id: { [key: number]: number[] };
@@ -30,7 +31,8 @@ interface TorpedoDamages {
 
 export function OpeningTorpedoAttackComponent({deck_ship_id, battle_selected}: TorpedoSubmarineProps) {
     
-    const[ships, ] = useShips();
+    const [ships, ] = useShips();
+    const [deck_ports, ] = useDeckPorts();
     
     const show_torpedo_attack = createMemo<boolean>(() => {
         if (battle_selected() == undefined) return false;
@@ -118,7 +120,10 @@ export function OpeningTorpedoAttackComponent({deck_ship_id, battle_selected}: T
                                                                 <Show when={ship_id_index() > 0}>
                                                                     <div class="h-px"></div>
                                                                 </Show>
-                                                                <ShipNameComponent ship_id={deck_ship_id[battle_selected().deck_id!][ship_id]}></ShipNameComponent>
+                                                                <div class="flex flex-nowrap">
+                                                                    <IconFleetNumber class="h-6 -mt-1 pr-1" e_flag={0} fleet_number={1} ship_number={ship_id + 1} combined_flag={deck_ports.combined_flag == 1}></IconFleetNumber>
+                                                                    <ShipNameComponent ship_id={deck_ship_id[battle_selected().deck_id!][ship_id]}></ShipNameComponent>
+                                                                </div>
                                                             </>
                                                         )}
                                                     </For>
@@ -137,6 +142,7 @@ export function OpeningTorpedoAttackComponent({deck_ship_id, battle_selected}: T
                                             </td>
                                             <td>
                                                 <div class="flex flex-nowrap">
+                                                    <IconFleetNumber class="h-6 -mt-1 pr-1" e_flag={1} fleet_number={1} ship_number={frai + 1} combined_flag={battle_selected().enemy_ship_id.length == 12}></IconFleetNumber>
                                                     <SimpleShipNameComponent ship_id={battle_selected().enemy_ship_id[frai]} ship_max_hp={battle_selected().e_hp_max![frai]} ship_param={battle_selected().e_params![frai]} ship_slot={battle_selected().e_slot![frai]}></SimpleShipNameComponent>
                                                     <Show when={battle_selected().opening_raigeki.e_protect_flag.some(flag => flag == true)}>
                                                         <IconShield class="h-5 w-5"></IconShield>
@@ -172,7 +178,10 @@ export function OpeningTorpedoAttackComponent({deck_ship_id, battle_selected}: T
                                                                 <Show when={ship_id_index() > 0}>
                                                                     <div class="h-px"></div>
                                                                 </Show>
-                                                                <SimpleShipNameComponent ship_id={battle_selected().enemy_ship_id[ship_id]} ship_max_hp={battle_selected().e_hp_max![ship_id]} ship_param={battle_selected().e_params![ship_id]} ship_slot={battle_selected().e_slot![ship_id]}></SimpleShipNameComponent>
+                                                                <div class="flex flex-nowrap">
+                                                                    <IconFleetNumber class="h-6 -mt-1 pr-1" e_flag={1} fleet_number={1} ship_number={ship_id + 1} combined_flag={battle_selected().enemy_ship_id.length == 12}></IconFleetNumber>
+                                                                    <SimpleShipNameComponent ship_id={battle_selected().enemy_ship_id[ship_id]} ship_max_hp={battle_selected().e_hp_max![ship_id]} ship_param={battle_selected().e_params![ship_id]} ship_slot={battle_selected().e_slot![ship_id]}></SimpleShipNameComponent>
+                                                                </div>
                                                             </>
                                                         )}
                                                     </For>
@@ -191,6 +200,7 @@ export function OpeningTorpedoAttackComponent({deck_ship_id, battle_selected}: T
                                             </td>
                                             <td>
                                                 <div class="flex flex-nowrap">
+                                                    <IconFleetNumber class="h-6 -mt-1 pr-1" e_flag={0} fleet_number={1} ship_number={erai + 1} combined_flag={deck_ports.combined_flag == 1}></IconFleetNumber>
                                                     <ShipNameComponent ship_id={deck_ship_id[battle_selected().deck_id!][erai]}></ShipNameComponent>
                                                     <Show when={battle_selected().opening_raigeki.f_protect_flag.some(flag => flag == true)}>
                                                         <IconShield class="h-5 w-5"></IconShield>

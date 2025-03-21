@@ -8,7 +8,8 @@ import { Battle } from '../interface/battle';
 import { MstEquipmentComponent } from './mst_equipment';
 import IconShield from '../icons/shield';
 import { SimpleHpBar } from './simple_hp_bar';
-import { useShips } from '../utility/provider';
+import { useDeckPorts, useShips } from '../utility/provider';
+import IconFleetNumber from '../icons/fleet_number';
 
 interface AirDamageProps {
     deck_ship_id: { [key: number]: number[] };
@@ -18,6 +19,7 @@ interface AirDamageProps {
 export function OpeningAirAttackComponent({deck_ship_id, battle_selected}: AirDamageProps) {
 
     const [ships, ] = useShips();
+    const [deck_ports, ] = useDeckPorts();
 
     const show_air_attack = createMemo<boolean>(() => {
         if (battle_selected() == undefined) return false;
@@ -138,7 +140,10 @@ export function OpeningAirAttackComponent({deck_ship_id, battle_selected}: AirDa
                                                                 <Show when={idx() > 0}>
                                                                     <div class="h-px"></div>
                                                                 </Show>
-                                                                <ShipNameComponent ship_id={deck_ship_id[battle_selected().deck_id!][ship_idx]}></ShipNameComponent>
+                                                                <div class="flex flex-nowrap">
+                                                                    <IconFleetNumber class="h-6 -mt-1 pr-1" e_flag={0} fleet_number={1} ship_number={ship_idx+1} combined_flag={deck_ports.combined_flag == 1}></IconFleetNumber>
+                                                                    <ShipNameComponent ship_id={deck_ship_id[battle_selected().deck_id!][ship_idx]}></ShipNameComponent>
+                                                                </div>
                                                             </>
                                                         )}
                                                     </For>
@@ -164,6 +169,7 @@ export function OpeningAirAttackComponent({deck_ship_id, battle_selected}: AirDa
                                                                     <div class="h-px"></div>
                                                                 </Show>
                                                                 <div class="flex flex-nowrap">
+                                                                    <IconFleetNumber class="h-6 -mt-1 pr-1" e_flag={1} fleet_number={1} ship_number={idx()+1} combined_flag={battle_selected().enemy_ship_id.length == 12}></IconFleetNumber>
                                                                     <SimpleShipNameComponent ship_id={battle_selected().enemy_ship_id[idx()]} ship_slot={battle_selected().e_slot![idx()]} ship_param={battle_selected().e_params![idx()]} ship_max_hp={battle_selected().e_hp_max![idx()]}></SimpleShipNameComponent>
                                                                     <Show when={battle_selected().opening_air_attack.e_damage.protect_flag?.some(flag => flag == true)}>
                                                                         <IconShield class="h-4 w-4"></IconShield>
@@ -222,6 +228,7 @@ export function OpeningAirAttackComponent({deck_ship_id, battle_selected}: AirDa
                                                                     <div class="h-px"></div>
                                                                 </Show>
                                                                 <div class="flex flex-nowrap">
+                                                                    <IconFleetNumber class="h-6 -mt-1 pr-1" e_flag={1} fleet_number={1} ship_number={ship_idx+1} combined_flag={battle_selected().enemy_ship_id.length == 12}></IconFleetNumber>
                                                                     <SimpleShipNameComponent ship_id={battle_selected().enemy_ship_id[ship_idx]} ship_slot={battle_selected().e_slot![ship_idx]} ship_param={battle_selected().e_params![ship_idx]} ship_max_hp={battle_selected().e_hp_max![ship_idx]}></SimpleShipNameComponent>
                                                                 </div>
                                                             </>
@@ -248,7 +255,13 @@ export function OpeningAirAttackComponent({deck_ship_id, battle_selected}: AirDa
                                                                 <Show when={idx() > 0}>
                                                                     <div class="h-px"></div>
                                                                 </Show>
-                                                                <ShipNameComponent ship_id={deck_ship_id[battle_selected().deck_id!][idx()]}></ShipNameComponent>
+                                                                <div class="flex flex-nowrap">
+                                                                    <IconFleetNumber class="h-6 -mt-1 pr-1" e_flag={1} fleet_number={1} ship_number={idx()+1} combined_flag={deck_ports.combined_flag == 1}></IconFleetNumber>
+                                                                    <ShipNameComponent ship_id={deck_ship_id[battle_selected().deck_id!][idx()]}></ShipNameComponent>
+                                                                    <Show when={battle_selected().opening_air_attack.f_damage.protect_flag?.some(flag => flag == true)}>
+                                                                        <IconShield class="h-4 w-4"></IconShield>
+                                                                    </Show>
+                                                                </div>
                                                             </Show>
                                                         </>
                                                     )}
