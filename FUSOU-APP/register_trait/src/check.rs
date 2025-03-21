@@ -228,7 +228,7 @@ fn write_log_check_number_size(log_path: String, log_map: &LogMapNumberSize) -> 
     let local: chrono::DateTime<chrono::Local> = chrono::Local::now();
     writeln!(file, "check number size result [{}]", local)
         .expect(&format!("\x1b[38;5;{}m cannot write.\x1b[m ", 8));
-    file.write(format!("{:#?}", log_map).as_bytes())
+    file.write_all(format!("{:#?}", log_map).as_bytes())
         .expect(&format!("\x1b[38;5;{}m cannot write.\x1b[m ", 8));
     // for ((struct_name, field_name, type_name), log) in log_map.iter() {
     //     writeln!(file, "{} / {} / {}: {:#?}", test_name, struct_name, field_name, log).expect(&format!("\x1b[38;5;{}m cannot write.\x1b[m ", 8));
