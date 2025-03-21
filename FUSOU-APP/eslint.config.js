@@ -4,11 +4,12 @@ import js from "@eslint/js";
 // import tseslint from "typescript-eslint";
 import * as tsParser from "@typescript-eslint/parser";
 import solid from "eslint-plugin-solid/configs/typescript";
+import { env } from "process";
 
 
 export default defineConfig([
   { files: ["**/*.{js,mjs,cjs,ts}"] },
-  { files: ["**/*.{js,mjs,cjs,ts}"], languageOptions: { globals: globals.browser } },
+  { files: ["**/*.{js,mjs,cjs,ts,tsx}"], languageOptions: { globals: globals.browser } },
   { files: ["**/*.{js,mjs,cjs,ts}"], plugins: { js }, extends: ["js/recommended"] },
   // tseslint.configs.recommended,
   js.configs.recommended,
