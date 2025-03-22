@@ -195,7 +195,7 @@ pub fn check_struct_dependency() {
 
                 for (struct_name, fields) in fieldm.iter() {
                     let node_struct_name_id = {
-                        let mut node_struct_name = cluster.node_named(&format!(
+                        let mut node_struct_name = cluster.node_named(format!(
                             "{}__{}__{}",
                             api_name_1, api_name_2, struct_name
                         ));
@@ -300,7 +300,7 @@ pub fn check_struct_dependency() {
                 set_cluster(&mut cluster, api_name_1, api_name_2);
                 for (struct_name, fields) in fieldm.iter() {
                     let node_struct_name_id = {
-                        let mut node_struct_name = cluster.node_named(&format!(
+                        let mut node_struct_name = cluster.node_named(format!(
                             "{}__{}__{}",
                             api_name_1, api_name_2, struct_name
                         ));
@@ -415,7 +415,7 @@ pub fn check_struct_dependency() {
                         .get(struct_name)
                         .unwrap();
                     let node_struct_name_id = {
-                        let mut node_struct_name = cluster.node_named(&format!(
+                        let mut node_struct_name = cluster.node_named(format!(
                             "{}__{}__{}",
                             api_name_1, api_name_2, struct_name
                         ));
