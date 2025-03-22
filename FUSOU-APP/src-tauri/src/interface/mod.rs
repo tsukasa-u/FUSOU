@@ -16,3 +16,5 @@ pub mod mst_use_item;
 pub mod n_dock;
 pub mod ship;
 pub mod slot_item;
+
+pub mod interface;
