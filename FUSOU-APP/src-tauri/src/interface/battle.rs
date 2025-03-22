@@ -847,11 +847,17 @@ impl From<kcapi_common::common_midnight::ApiHougeki> for MidnightHougeki {
         let f_now_hps: Vec<Vec<i64>> = damages
             .clone()
             .map(|damages| vec![vec![0; 12]; damages.len()])
-            .unwrap_or(vec![vec![0; 12]; 0]);
+            .unwrap_or({
+                vec![0; 12];
+                vec![] as Vec<Vec<i64>>
+            });
         let e_now_hps: Vec<Vec<i64>> = damages
             .clone()
             .map(|damages| vec![vec![0; 12]; damages.len()])
-            .unwrap_or(vec![vec![0; 12]; 0]);
+            .unwrap_or({
+                vec![0; 12];
+                vec![] as Vec<Vec<i64>>
+            });
 
         Self {
             at_list: hougeki.api_at_list,

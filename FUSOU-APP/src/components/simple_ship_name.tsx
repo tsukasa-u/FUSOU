@@ -32,7 +32,7 @@ export function SimpleShipNameComponent(props: ShipNameProps) {
 
   return (
     <>
-      <Show when={props.display == true}>
+      <Show when={props.display !== false}>
         <div
           class="flex flex-nowarp w-full"
           onClick={() => {
