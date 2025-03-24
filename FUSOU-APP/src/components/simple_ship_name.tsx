@@ -22,12 +22,6 @@ const show_modal = (ship_id: number) => {
 };
 
 export function SimpleShipNameComponent(props: ShipNameProps) {
-  if (props.display === false) {
-    // need to replace the currect code
-    // this is a dummy code for pass the build
-    return <></>;
-  }
-
   const [_mst_ships] = useMstShips();
 
   const mst_ship = createMemo(() => {
@@ -38,28 +32,150 @@ export function SimpleShipNameComponent(props: ShipNameProps) {
 
   return (
     <>
-      <div
-        class="flex flex-nowarp w-full"
-        onClick={() => {
-          set_show_dialog(true);
-          show_modal(props.ship_id);
-        }}
-      >
-        <div>
-          <IconShip
-            class="h-5 -mt-0.5 pr-2"
-            ship_stype={mst_ship().stype ?? 0}
-            color={mst_ship().yomi}
-          />
+      <Show when={props.display !== false}>
+        <div
+          class="flex flex-nowarp w-full"
+          onClick={() => {
+            set_show_dialog(true);
+            show_modal(props.ship_id);
+          }}
+        >
+          <div>
+            <IconShip
+              class="h-5 -mt-0.5 pr-2"
+              ship_stype={mst_ship().stype ?? 0}
+              color={mst_ship().yomi}
+            />
+          </div>
+          <div class="truncate">{mst_ship()?.name ?? "Unknown"}</div>
         </div>
-        <div class="truncate">{mst_ship()?.name ?? "Unknown"}</div>
-      </div>
-      <Show when={show_dialog()}>
-        <dialog id={"deck_ship_name_modal_" + props.ship_id} class="modal">
-          <div class="modal-box bg-base-100 modal-box-width">
-            <form method="dialog">
+        <Show when={show_dialog()}>
+          <dialog id={"deck_ship_name_modal_" + props.ship_id} class="modal">
+            <div class="modal-box bg-base-100 modal-box-width">
+              <form method="dialog">
+                <button
+                  class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2"
+                  onClick={() => {
+                    let sleep = (ms: number) =>
+                      new Promise((resolve) => setTimeout(resolve, ms));
+                    (async () => {
+                      await sleep(10);
+                      set_show_dialog(false);
+                    })();
+                  }}
+                >
+                  <IconXMark class="h-6 w-6" />
+                </button>
+              </form>
+              <div class="flex justify-start">
+                <h3 class="font-bold text-base pl-2 truncate">
+                  {mst_ship()?.name ?? "Unknown"}
+                </h3>
+              </div>
+              <div class="pt-2">
+                <table class="table table-xs">
+                  <caption class="truncate">Equipment</caption>
+                  <tbody>
+                    <For each={props.ship_slot} fallback={<></>}>
+                      {(slot_ele, index) => {
+                        return (
+                          <>
+                            <tr class="flex table_active table_hover rounded rounded items-center w-full">
+                              <th class="flex-none w-4">S{index() + 1}</th>
+                              <td class="flex-none w-12 pl-4 h-7 mt-1 w-full">
+                                <Show when={slot_ele > 0}>
+                                  <MstEquipmentComponent
+                                    equip_id={slot_ele}
+                                    name_flag={false}
+                                    compact={false}
+                                  />
+                                </Show>
+                              </td>
+                            </tr>
+                          </>
+                        );
+                      }}
+                    </For>
+                  </tbody>
+                </table>
+                <div class="h-2" />
+                <table class="table table-xs">
+                  <caption class="truncate">Ship Status</caption>
+                  <tbody>
+                    <tr class="flex table_active table_hover rounded">
+                      <th class="truncate flex-1 w-2">Durability</th>
+                      <td class="flex-none w-12 flex justify-end pr-4">
+                        {props.ship_max_hp ?? ""}
+                      </td>
+                      <th class="truncate flex-1 w-2">Fire Power</th>
+                      <td class="flex-none w-12 flex justify-end pr-4">
+                        {props.ship_param !== null
+                          ? (props.ship_param![0] ?? 0)
+                          : ""}
+                      </td>
+                    </tr>
+                    <tr class="flex table_active table_hover rounded">
+                      <th class="truncate flex-1 w-2">Armor</th>
+                      <td class="flex-none w-12 flex justify-end pr-4">
+                        {props.ship_param !== null
+                          ? (props.ship_param![3] ?? 0)
+                          : ""}
+                      </td>
+                      <th class="truncate flex-1 w-2">Torpedo</th>
+                      <td class="flex-none w-12 flex justify-end pr-4">
+                        {props.ship_param !== null
+                          ? (props.ship_param![1] ?? 0)
+                          : ""}
+                      </td>
+                    </tr>
+                    <tr class="flex table_active table_hover rounded">
+                      <th class="truncate flex-1 w-2">Evasion</th>
+                      <td class="flex-none w-12 flex justify-end pr-4">
+                        unknown
+                      </td>
+                      <th class="truncate flex-1 w-2">Anti-Air</th>
+                      <td class="flex-none w-12 flex justify-end pr-4">
+                        {props.ship_param !== null
+                          ? (props.ship_param![2] ?? 0)
+                          : ""}
+                      </td>
+                    </tr>
+                    <tr class="flex table_active table_hover rounded">
+                      <th class="truncate flex-1 w-2">Aircraft installed</th>
+                      <td class="flex-none w-12 flex justify-end pr-4">
+                        unknown
+                      </td>
+                      <th class="truncate flex-1 w-2">Anti-Submarine</th>
+                      <td class="flex-none w-12 flex justify-end pr-4">
+                        unknown
+                      </td>
+                    </tr>
+                    <tr class="flex table_active table_hover rounded">
+                      <th class="truncate flex-1 w-2">Speed</th>
+                      <td class="flex-none w-12 flex justify-end pr-4">
+                        unknown
+                      </td>
+                      <th class="truncate flex-1 w-2">Reconnaissance</th>
+                      <td class="flex-none w-12 flex justify-end pr-4">
+                        unknown
+                      </td>
+                    </tr>
+                    <tr class="flex table_active table_hover rounded">
+                      <th class="truncate flex-1 w-2">Range</th>
+                      <td class="flex-none w-12 flex justify-end pr-4">
+                        unknown
+                      </td>
+                      <th class="truncate flex-1 w-2">Luck</th>
+                      <td class="flex-none w-12 flex justify-end pr-4">
+                        unknown
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            <form method="dialog" class="modal-backdrop">
               <button
-                class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2"
                 onClick={() => {
                   let sleep = (ms: number) =>
                     new Promise((resolve) => setTimeout(resolve, ms));
@@ -69,131 +185,11 @@ export function SimpleShipNameComponent(props: ShipNameProps) {
                   })();
                 }}
               >
-                <IconXMark class="h-6 w-6" />
+                close
               </button>
             </form>
-            <div class="flex justify-start">
-              <h3 class="font-bold text-base pl-2 truncate">
-                {mst_ship()?.name ?? "Unknown"}
-              </h3>
-            </div>
-            <div class="pt-2">
-              <table class="table table-xs">
-                <caption class="truncate">Equipment</caption>
-                <tbody>
-                  <For each={props.ship_slot} fallback={<></>}>
-                    {(slot_ele, index) => {
-                      return (
-                        <>
-                          <tr class="flex table_active table_hover rounded rounded items-center w-full">
-                            <th class="flex-none w-4">S{index() + 1}</th>
-                            <td class="flex-none w-12 pl-4 h-7 mt-1 w-full">
-                              <Show when={slot_ele > 0}>
-                                <MstEquipmentComponent
-                                  equip_id={slot_ele}
-                                  name_flag={false}
-                                  compact={false}
-                                />
-                              </Show>
-                            </td>
-                          </tr>
-                        </>
-                      );
-                    }}
-                  </For>
-                </tbody>
-              </table>
-              <div class="h-2" />
-              <table class="table table-xs">
-                <caption class="truncate">Ship Status</caption>
-                <tbody>
-                  <tr class="flex table_active table_hover rounded">
-                    <th class="truncate flex-1 w-2">Durability</th>
-                    <td class="flex-none w-12 flex justify-end pr-4">
-                      {props.ship_max_hp ?? ""}
-                    </td>
-                    <th class="truncate flex-1 w-2">Fire Power</th>
-                    <td class="flex-none w-12 flex justify-end pr-4">
-                      {props.ship_param !== null
-                        ? (props.ship_param![0] ?? 0)
-                        : ""}
-                    </td>
-                  </tr>
-                  <tr class="flex table_active table_hover rounded">
-                    <th class="truncate flex-1 w-2">Armor</th>
-                    <td class="flex-none w-12 flex justify-end pr-4">
-                      {props.ship_param !== null
-                        ? (props.ship_param![3] ?? 0)
-                        : ""}
-                    </td>
-                    <th class="truncate flex-1 w-2">Torpedo</th>
-                    <td class="flex-none w-12 flex justify-end pr-4">
-                      {props.ship_param !== null
-                        ? (props.ship_param![1] ?? 0)
-                        : ""}
-                    </td>
-                  </tr>
-                  <tr class="flex table_active table_hover rounded">
-                    <th class="truncate flex-1 w-2">Evasion</th>
-                    <td class="flex-none w-12 flex justify-end pr-4">
-                      unknown
-                    </td>
-                    <th class="truncate flex-1 w-2">Anti-Air</th>
-                    <td class="flex-none w-12 flex justify-end pr-4">
-                      {props.ship_param !== null
-                        ? (props.ship_param![2] ?? 0)
-                        : ""}
-                    </td>
-                  </tr>
-                  <tr class="flex table_active table_hover rounded">
-                    <th class="truncate flex-1 w-2">Aircraft installed</th>
-                    <td class="flex-none w-12 flex justify-end pr-4">
-                      unknown
-                    </td>
-                    <th class="truncate flex-1 w-2">Anti-Submarine</th>
-                    <td class="flex-none w-12 flex justify-end pr-4">
-                      unknown
-                    </td>
-                  </tr>
-                  <tr class="flex table_active table_hover rounded">
-                    <th class="truncate flex-1 w-2">Speed</th>
-                    <td class="flex-none w-12 flex justify-end pr-4">
-                      unknown
-                    </td>
-                    <th class="truncate flex-1 w-2">Reconnaissance</th>
-                    <td class="flex-none w-12 flex justify-end pr-4">
-                      unknown
-                    </td>
-                  </tr>
-                  <tr class="flex table_active table_hover rounded">
-                    <th class="truncate flex-1 w-2">Range</th>
-                    <td class="flex-none w-12 flex justify-end pr-4">
-                      unknown
-                    </td>
-                    <th class="truncate flex-1 w-2">Luck</th>
-                    <td class="flex-none w-12 flex justify-end pr-4">
-                      unknown
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-          <form method="dialog" class="modal-backdrop">
-            <button
-              onClick={() => {
-                let sleep = (ms: number) =>
-                  new Promise((resolve) => setTimeout(resolve, ms));
-                (async () => {
-                  await sleep(10);
-                  set_show_dialog(false);
-                })();
-              }}
-            >
-              close
-            </button>
-          </form>
-        </dialog>
+          </dialog>
+        </Show>
       </Show>
     </>
   );

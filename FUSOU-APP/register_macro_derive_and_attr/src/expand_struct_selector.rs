@@ -114,14 +114,44 @@ pub fn expand_struct_selector(
         body.push(quote! { #s});
     }
 
-    let mut file_list = Vec::new();
-    let paths = fs::read_dir(args.path).unwrap();
-    for path in paths {
-        let file_path = path.unwrap().path();
-        let metadata = fs::metadata(file_path.clone()).unwrap();
+    let mut file_list: Vec<((String, String), (String, String))> = Vec::new();
+    if !args.path.exists() {
+        return Err(syn::Error::new_spanned(
+            ast.sig.output.clone(),
+            "The path is not exist",
+        ));
+    }
+    let paths = fs::read_dir(args.path);
+    if paths.is_err() {
+        return Err(syn::Error::new_spanned(
+            ast.sig.output.clone(),
+            "The path is not exist",
+        ));
+    }
+    let paths = paths.unwrap();
+
+    let Ok(re) = regex::Regex::new(
+        r#"#\[(register_macro_derive_and_attr::)?register_struct\(name\s*=\s*\\?\"(?<arg1>[a-zA-Z0-9_]+)/(?<arg2>[a-zA-Z0-9_]+)\\?\"\)\]"#,
+    ) else {
+        panic!("can not create regex");
+    };
+
+    for file_path in paths.flatten().map(|entry| entry.path()) {
+        let metadata = fs::metadata(file_path.clone()).expect(&format!(
+            "can not get metadata of the file({})",
+            file_path.display()
+        ));
         let file_type = metadata.file_type();
         if file_type.is_dir() {
-            for entry in fs::read_dir(file_path.clone()).unwrap() {
+            let file_dir = fs::read_dir(file_path.clone());
+            if file_dir.is_err() {
+                continue;
+            }
+            let file_dir = file_dir.unwrap();
+            for entry in file_dir {
+                if entry.is_err() {
+                    continue;
+                }
                 let entry = entry.unwrap().path();
                 if entry.to_str().unwrap().ends_with(".rs")
                     && !entry.to_str().unwrap().ends_with("mod.rs")
@@ -136,12 +166,6 @@ pub fn expand_struct_selector(
                             "can not read the file({})",
                             entry.to_string_lossy().to_string()
                         );
-                    };
-
-                    let Ok(re) = regex::Regex::new(
-                        r#"#\[(register_macro_derive_and_attr::)?register_struct\(name\s*=\s*\\?\"(?<arg1>[a-zA-Z0-9_]+)/(?<arg2>[a-zA-Z0-9_]+)\\?\"\)\]"#,
-                    ) else {
-                        panic!("can not create regex");
                     };
 
                     if re.is_match(&file_content) {

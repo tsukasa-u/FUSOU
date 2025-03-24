@@ -89,7 +89,7 @@ export function EquipmentListComponent() {
       return;
     let _check_equip_types: { [key: string]: boolean } = {};
     Object.entries(mst_slot_items_equip_types.mst_slotitem_equip_types).forEach(
-      ([_, mst_slotitem_equip_types]) => {
+      ([, mst_slotitem_equip_types]) => {
         _check_equip_types[mst_slotitem_equip_types.name] = true;
       },
     );
@@ -101,7 +101,7 @@ export function EquipmentListComponent() {
   );
   createEffect(() => {
     let check_name: { [key: number]: boolean } = {};
-    Object.entries(slot_items.slot_items).forEach(([slot_item_id, _]) => {
+    Object.entries(slot_items.slot_items).forEach(([slot_item_id]) => {
       check_name[Number(slot_item_id)] = true;
     });
     set_check_name(check_name);
@@ -240,7 +240,7 @@ export function EquipmentListComponent() {
       return categorized_equips_keys;
 
     Object.entries(mst_slot_items_equip_types.mst_slotitem_equip_types).forEach(
-      ([_, equip_types]) => {
+      ([, equip_types]) => {
         categorized_equips_keys[equip_types.name] = [];
       },
     );
@@ -254,7 +254,7 @@ export function EquipmentListComponent() {
     });
 
     Object.entries(mst_slot_items_equip_types.mst_slotitem_equip_types).forEach(
-      ([_, equip_types]) => {
+      ([, equip_types]) => {
         categorized_equips_keys[equip_types.name] =
           categorized_equips_keys[equip_types.name].sort(sort_fn);
         if (!set_order())
@@ -1065,7 +1065,7 @@ export function EquipmentListComponent() {
               <span class="flex-1" />
               <button
                 class="btn btn-sm btn-ghost mx-0.5 pagination px-3"
-                onClick={(_e) =>
+                onClick={() =>
                   set_pagination(
                     "options",
                     pagination.selected,
@@ -1078,7 +1078,7 @@ export function EquipmentListComponent() {
               </button>
               <button
                 class="btn btn-sm btn-ghost mx-0.5 pagination"
-                onClick={(_e) =>
+                onClick={() =>
                   set_pagination(
                     "options",
                     pagination.selected,
@@ -1108,7 +1108,7 @@ export function EquipmentListComponent() {
                   >
                     <button
                       class="btn btn-sm btn-square btn-ghost mx-0.5 pagination"
-                      onClick={(_e) =>
+                      onClick={() =>
                         set_pagination(
                           "options",
                           pagination.selected,
@@ -1148,7 +1148,7 @@ export function EquipmentListComponent() {
                         "btn btn-sm btn-square btn-ghost mx-0.5 pagination" +
                         (index == 0 ? " btn-active" : "")
                       }
-                      onClick={(_e) => {
+                      onClick={() => {
                         set_pagination(
                           "options",
                           pagination.selected,
@@ -1184,7 +1184,7 @@ export function EquipmentListComponent() {
                   >
                     <button
                       class="btn btn-sm btn-square btn-ghost mx-0.5 pagination"
-                      onClick={(_e) =>
+                      onClick={() =>
                         set_pagination(
                           "options",
                           pagination.selected,
@@ -1204,7 +1204,7 @@ export function EquipmentListComponent() {
               </For>
               <button
                 class="btn btn-sm btn-ghost mx-0.5 pagination"
-                onClick={(_e) =>
+                onClick={() =>
                   set_pagination(
                     "options",
                     pagination.selected,
@@ -1217,7 +1217,7 @@ export function EquipmentListComponent() {
               </button>
               <button
                 class="btn btn-sm btn-ghost mx-0.5 pagination"
-                onClick={(_e) =>
+                onClick={() =>
                   set_pagination(
                     "options",
                     pagination.selected,

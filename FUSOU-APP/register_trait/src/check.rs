@@ -26,9 +26,8 @@ where
     T: Getter,
 {
     fn check_number(&self, log_map: &mut LogMapNumberSize, key: Option<(String, String, String)>) {
-        match self {
-            Some(v) => v.check_number(log_map, key.clone()),
-            None => {}
+        if let Some(v) = self {
+            v.check_number(log_map, key.clone())
         }
     }
 }

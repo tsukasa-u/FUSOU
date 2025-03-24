@@ -123,7 +123,7 @@ export function OpeningTorpedoAttackComponent(props: TorpedoSubmarineProps) {
               </thead>
               <tbody>
                 <For each={opening_torpedo_damage().frai.list}>
-                  {(frai, _) => (
+                  {(frai) => (
                     <tr class="table_hover table_active rounded">
                       <td>
                         <div class="flex flex-col">
@@ -251,7 +251,7 @@ export function OpeningTorpedoAttackComponent(props: TorpedoSubmarineProps) {
                   )}
                 </For>
                 <For each={opening_torpedo_damage().erai.list}>
-                  {(erai, _) => (
+                  {(erai) => (
                     <tr class="table_hover table_active rounded">
                       <td>
                         <div class="flex flex-col">

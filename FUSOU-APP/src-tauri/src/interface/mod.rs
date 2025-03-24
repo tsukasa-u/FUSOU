@@ -17,4 +17,5 @@ pub mod n_dock;
 pub mod ship;
 pub mod slot_item;
 
+#[allow(clippy::module_inception)]
 pub mod interface;

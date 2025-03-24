@@ -6,9 +6,8 @@ interface ColorBarProps {
 }
 
 export function HpColorBarComponent(
-  _props: ColorBarProps & JSX.HTMLAttributes<HTMLProgressElement>,
+  props: ColorBarProps & JSX.HTMLAttributes<HTMLProgressElement>,
 ) {
-  const [props, props] = splitProps(_props, ["v_now", "v_max"]);
   const progress_color_state = createMemo(() => {
     let props_expand = {
       ...props,
@@ -72,5 +71,5 @@ export function HpColorBarComponent(
     return color;
   });
 
-  return <>{progress_color_state}</>;
+  return <>{progress_color_state()}</>;
 }
