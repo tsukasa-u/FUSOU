@@ -95,6 +95,8 @@ pub struct DestructionBattle {
     // Need to implement
     pub air_base_attack: AirBaseAttack,
     pub lost_kind: i64,
+    pub f_total_damages: Option<Vec<i64>>,
+    pub e_total_damages: Option<Vec<i64>>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -184,6 +186,8 @@ impl From<kcapi::api_req_map::next::ApiDestructionBattle> for DestructionBattle 
             f_maxhps: destruction_battle.api_f_maxhps,
             air_base_attack: destruction_battle.api_air_base_attack.into(),
             lost_kind: destruction_battle.api_lost_kind,
+            f_total_damages: None,
+            e_total_damages: None,
         }
     }
 }
@@ -202,12 +206,12 @@ impl From<kcapi::api_req_map::next::ApiData> for Cell {
             .api_happening
             .and_then(|happening| Some(happening.into()));
 
-        // let destruction_battle: Option<DestructionBattle> = cells
-        //     .api_destruction_battle
-        //     .map(|destruction_battle| destruction_battle.into());
-        let destruction_battle: Option<DestructionBattle> = cells
-            .api_destruction_battle
-            .and_then(|destruction_battle| Some(destruction_battle.into()));
+        let destruction_battle: Option<DestructionBattle> =
+            cells.api_destruction_battle.and_then(|destruction_battle| {
+                let mut destruction_battle: DestructionBattle = destruction_battle.into();
+                calc_dmg(&mut destruction_battle);
+                Some(destruction_battle)
+            });
 
         {
             KCS_CELLS.lock().unwrap().push(cells.api_no);
@@ -293,4 +297,47 @@ impl From<kcapi::api_req_map::start::ApiData> for Cells {
             battles: HashMap::new(),
         }
     }
+}
+
+pub fn calc_dmg(destruction_battle: &mut DestructionBattle) {
+    let mut f_total_damages: Vec<i64> = vec![0; 6];
+    let mut e_total_damages: Vec<i64> = vec![0; 6];
+
+    let f_nowhps: Vec<i64> = destruction_battle.f_nowhps.clone();
+    let e_nowhps: Vec<i64> = destruction_battle.e_nowhps.clone();
+
+    f_nowhps.iter().enumerate().for_each(|(idx, &f_nowhp)| {
+        destruction_battle.air_base_attack.f_damage.now_hps[idx] = f_nowhp - f_total_damages[idx];
+    });
+
+    e_nowhps.iter().enumerate().for_each(|(idx, &e_nowhp)| {
+        destruction_battle.air_base_attack.e_damage.now_hps[idx] = e_nowhp - e_total_damages[idx];
+    });
+
+    destruction_battle
+        .air_base_attack
+        .f_damage
+        .damages
+        .clone()
+        .unwrap_or(vec![0_f32; 0])
+        .iter()
+        .enumerate()
+        .for_each(|(idx, &x)| {
+            f_total_damages[idx] += x as i64;
+        });
+
+    destruction_battle
+        .air_base_attack
+        .e_damage
+        .damages
+        .clone()
+        .unwrap_or(vec![0_f32; 0])
+        .iter()
+        .enumerate()
+        .for_each(|(idx, &x)| {
+            e_total_damages[idx] += x as i64;
+        });
+
+    destruction_battle.f_total_damages = Some(f_total_damages);
+    destruction_battle.e_total_damages = Some(e_total_damages);
 }
