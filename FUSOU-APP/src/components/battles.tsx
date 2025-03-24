@@ -42,6 +42,7 @@ import { AirBaseAssaultComponent } from "./air_base_assault";
 import { CarrierBaseAssaultComponent } from "./carrier_base_assault";
 import { BattleSummaryComponent } from "./battle_summary";
 import { DestructionBattleComponent } from "./destruction_battle";
+import { DestructionBattleSummaryComponent } from "./destruction_battle_summary";
 
 export function BattlesComponent() {
   // const [battles, ] = useBattles();
@@ -186,6 +187,10 @@ export function BattlesComponent() {
     return battle_history;
   });
 
+  const cell = createMemo(() => {
+    return cells.cells[cells.cell_index[cell_index_selected()]];
+  });
+
   return (
     <>
       <li>
@@ -229,7 +234,8 @@ export function BattlesComponent() {
                   )}
                 </For>
               </div>
-              <DestructionBattleComponent area_id={cells.maparea_id} cell_index_selected={cell_index_selected} />
+              <DestructionBattleSummaryComponent area_id={cells.maparea_id} cell={cell} />
+              <DestructionBattleComponent area_id={cells.maparea_id} cell={cell} />
               <Show when={show_battle()}>
                 <div
                   class="flex felx-nowrap text-xs py-0.5 tooltip tooltip-right"
