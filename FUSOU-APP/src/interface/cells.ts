@@ -66,6 +66,8 @@ export interface DestructionBattle {
 }
 
 export interface ApiAirBaseAttack {
+
+  air_superiority: number | null;
   stage_flag: number[];
   squadron_plane: (number | null)[] | null;
   f_damage: AirDamage;
