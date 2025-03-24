@@ -508,7 +508,7 @@ export function DestructionBattleComponent(props: DestructionBattleProps) {
                       >
                         {(_, idx) => (
                           <>
-                            <Show when={show_damage()[0][idx()]}>
+                            <Show when={show_damage()[1][idx()]}>
                               <SimpleHpBar
                                 v_now={() =>
                                   cell().destruction_battle!.air_base_attack

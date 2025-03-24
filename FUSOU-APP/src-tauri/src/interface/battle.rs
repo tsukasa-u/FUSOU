@@ -1030,19 +1030,31 @@ pub fn calc_dmg(battle: &mut Battle) {
 
     let battle_order: Vec<BattleType> = battle.battle_order.clone().unwrap();
 
-    battle_order.iter().for_each(|battle_order| {
-        match battle_order {
+    battle_order
+        .iter()
+        .for_each(|battle_order| match battle_order {
             BattleType::AirBaseAssult(()) => {
                 if let Some(air_base_assault) = battle.air_base_assault.as_mut() {
                     day_flag = true;
 
-                    // air_base_assault.f_damage.damages.clone().unwrap_or(vec![0_f32; 0]).iter().enumerate().for_each(|(idx, &x)| {
-                    //     f_total_damages[idx] += x as i64;
-                    // });
+                    f_nowhps.iter().enumerate().for_each(|(idx, &f_nowhp)| {
+                        air_base_assault.f_damage.now_hps[idx] = f_nowhp - f_total_damages[idx];
+                    });
 
                     e_nowhps.iter().enumerate().for_each(|(idx, &e_nowhp)| {
                         air_base_assault.e_damage.now_hps[idx] = e_nowhp - e_total_damages[idx];
                     });
+
+                    air_base_assault
+                        .f_damage
+                        .damages
+                        .clone()
+                        .unwrap_or(vec![0_f32; 0])
+                        .iter()
+                        .enumerate()
+                        .for_each(|(idx, &x)| {
+                            f_total_damages[idx] += x as i64;
+                        });
 
                     air_base_assault
                         .e_damage
@@ -1060,13 +1072,24 @@ pub fn calc_dmg(battle: &mut Battle) {
                 if let Some(carrier_base_assault) = battle.carrier_base_assault.as_mut() {
                     day_flag = true;
 
-                    // carrier_base_assault.f_damage.damages.clone().unwrap_or(vec![0_f32; 0]).iter().enumerate().for_each(|(idx, &x)| {
-                    //     f_total_damages[idx] += x as i64;
-                    // });
+                    f_nowhps.iter().enumerate().for_each(|(idx, &f_nowhp)| {
+                        carrier_base_assault.f_damage.now_hps[idx] = f_nowhp - f_total_damages[idx];
+                    });
 
                     e_nowhps.iter().enumerate().for_each(|(idx, &e_nowhp)| {
                         carrier_base_assault.e_damage.now_hps[idx] = e_nowhp - e_total_damages[idx];
                     });
+
+                    carrier_base_assault
+                        .f_damage
+                        .damages
+                        .clone()
+                        .unwrap_or(vec![0_f32; 0])
+                        .iter()
+                        .enumerate()
+                        .for_each(|(idx, &x)| {
+                            f_total_damages[idx] += x as i64;
+                        });
 
                     carrier_base_assault
                         .e_damage
@@ -1409,8 +1432,7 @@ pub fn calc_dmg(battle: &mut Battle) {
                     }
                 }
             }
-        }
-    });
+        });
 
     if day_flag {
         battle.f_total_damages = Some(f_total_damages);

@@ -63,6 +63,8 @@ export interface DestructionBattle {
   f_maxhps: number[];
   air_base_attack: ApiAirBaseAttack;
   lost_kind: number;
+  f_total_damages: number[] | null;
+  e_total_damages: number[] | null;
 }
 
 export interface ApiAirBaseAttack {
