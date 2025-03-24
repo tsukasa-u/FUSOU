@@ -13,7 +13,7 @@ pub fn parse(ty: syn::Type) -> Result<String, syn::Error> {
 }
 
 pub fn psrse_type_path(ty: syn::TypePath) -> Result<String, syn::Error> {
-    if let Some(_) = ty.qself {
+    if ty.qself.is_some() {
         return Err(syn::Error::new_spanned(ty, "Self type is not supported"));
     }
 
@@ -46,14 +46,11 @@ pub fn psrse_type_path(ty: syn::TypePath) -> Result<String, syn::Error> {
                         args,
                         ..
                     }) => {
-                        match colon2_token {
-                            Some(path_seq) => {
-                                return Err(syn::Error::new_spanned(
-                                    path_seq,
-                                    "Colon2 is not supported",
-                                ));
-                            }
-                            None => {}
+                        if let Some(path_seq) = colon2_token {
+                            return Err(syn::Error::new_spanned(
+                                path_seq,
+                                "Colon2 is not supported",
+                            ));
                         }
 
                         type_indent.push_str(&format!("{}<", ident));

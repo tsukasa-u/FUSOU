@@ -14,7 +14,7 @@ use darling::FromMeta;
 use std::sync::{LazyLock, Mutex};
 
 // Is it better to use onecell::sync::Lazy or std::sync::Lazy?
-static STRUCT_NAMES: LazyLock<Mutex<HashSet<String, RandomState>>> =
+pub static STRUCT_NAMES: LazyLock<Mutex<HashSet<String, RandomState>>> =
     LazyLock::new(|| Mutex::new(HashSet::new()));
 
 #[derive(Default, Serialize, Deserialize, Debug)]

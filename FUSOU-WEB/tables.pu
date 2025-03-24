@@ -100,7 +100,6 @@ entity ship {
   taisen [対潜]
   sakuteki [索敵]
   lucky [運]
-  sally_area [出撃海域],
   sp_effect_items [海色リボン, 白たすき]
 }
 
@@ -245,6 +244,13 @@ entity battle {
   midnight_hougeki: Option<MidnightHougeki>,
   f_nowhps [味方艦現在HP]
   e_nowhps [敵艦現在HP]
+}
+
+entity air_base_assault {
+  +id [PK]
+  --
+  air_base_id [基地Id]
+  air_base_attack [基地攻撃]
 }
 
 entity happening {

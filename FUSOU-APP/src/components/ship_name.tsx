@@ -103,7 +103,7 @@ export function ShipNameComponent(props: ShipNameProps) {
       return parameter_map;
 
     for (const i of [1, 2]) {
-      let sp_effect_item = _ships.ships[props.ship_id].sp_effect_items.items[i];
+      let sp_effect_item = _ships.ships[props.ship_id]?.sp_effect_items!.items[i];
       if (sp_effect_item) {
         parameter_map.soukou += sp_effect_item.souk ?? 0;
         parameter_map.raisou += sp_effect_item.raig ?? 0;

@@ -90,7 +90,7 @@ export function DebugApi() {
             <div class="pb-4">
               <button
                 class="btn btn-square bg-base-100"
-                onClick={(_e) => {
+                onClick={() => {
                   setCheckBoxSignals(!checkBoxSignals());
                   setFilecheackSignals(
                     fileExistSignals().map((v) =>
@@ -250,11 +250,12 @@ export function DebugApi() {
                 // let file_list = fileApi();
                 let file_list: string[] = [];
                 for (const item of fileApi()) {
-                  file_list.push(item);
+                  if (item !== undefined && item !== null && item !== "") file_list.push(item);
                 }
                 for (let i = 0; i < filecheackSignals.length; i++) {
                   if (filecheackSignals[i] && fileExistSignals()[i]) {
-                    file_list.push(debug_api[1][i + (pageCounter() - 1) * 10]);
+                    let file = debug_api[1][i + (pageCounter() - 1) * 10];
+                    if (file !== undefined && file !== null && file !== "") file_list.push(file);
                   }
                 }
                 setFileApi(file_list);

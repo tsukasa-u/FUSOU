@@ -96,8 +96,9 @@ export function useShips() {
   return context as [Ships, (value: Ships) => void];
 }
 
-// eslint-disable-next-line no-unused-vars
-const MstShipsContext = createContext<(MstShips | { set(data: MstShips): void })[]>();
+const MstShipsContext =
+  // eslint-disable-next-line no-unused-vars
+  createContext<(MstShips | { set(data: MstShips): void })[]>();
 
 export function MstShipsProvider(props: { children: JSX.Element }) {
   const [data, setData] = createStore(global_mst_ships);
@@ -139,8 +140,9 @@ export function useMstShips() {
   return context as [MstShips, (value: MstShips) => void];
 }
 
-// eslint-disable-next-line no-unused-vars
-const SlotItemsContext = createContext<(SlotItems | { set(data: SlotItems): void })[]>();
+const SlotItemsContext =
+  // eslint-disable-next-line no-unused-vars
+  createContext<(SlotItems | { set(data: SlotItems): void })[]>();
 
 export function SlotItemsProvider(props: { children: JSX.Element }) {
   const [data, setData] = createStore(global_slotitems);
@@ -182,8 +184,9 @@ export function useSlotItems() {
   return context as [SlotItems, (value: SlotItems) => void];
 }
 
-// eslint-disable-next-line no-unused-vars
-const MstSlotItemsContext = createContext<(MstSlotitems | { set(data: MstSlotitems): void })[]>();
+const MstSlotItemsContext =
+  // eslint-disable-next-line no-unused-vars
+  createContext<(MstSlotitems | { set(data: MstSlotitems): void })[]>();
 
 export function MstSlotItemsProvider(props: { children: JSX.Element }) {
   const [data, setData] = createStore(global_mst_slot_items);
@@ -228,8 +231,10 @@ export function useMstSlotItems() {
   return context as [MstSlotitems, (value: MstSlotitems) => void];
 }
 
-// eslint-disable-next-line no-unused-vars
-const MstEquipExslotShipsContext = createContext<(MstEquipExslotShips | { set(data: MstEquipExslotShips): void })[]>();
+const MstEquipExslotShipsContext = createContext<
+  // eslint-disable-next-line no-unused-vars
+  (MstEquipExslotShips | { set(data: MstEquipExslotShips): void })[]
+>();
 
 export function MstEquipExslotShipsProvider(props: { children: JSX.Element }) {
   const [data, setData] = createStore(global_mst_equip_exslot_ships);
@@ -276,8 +281,10 @@ export function useMstEquipExslotShips() {
   return context as [MstEquipExslotShips, (value: MstEquipExslotShips) => void];
 }
 
-// eslint-disable-next-line no-unused-vars
-const MstSlotItemEquipTypesContext = createContext<(MstSlotItemEquipTypes | { set(data: MstSlotItemEquipTypes): void })[]>();
+const MstSlotItemEquipTypesContext = createContext<
+  // eslint-disable-next-line no-unused-vars
+  (MstSlotItemEquipTypes | { set(data: MstSlotItemEquipTypes): void })[]
+>();
 
 export function MstSlotItemEquipTypesProvider(props: {
   children: JSX.Element;
@@ -322,12 +329,17 @@ export function useMstSlotItemEquipTypes() {
       "useMstSlotItemEquipTypes: cannot find a MstSlotItemEquipTypesContext",
     );
   }
-  // eslint-disable-next-line no-unused-vars
-  return context as [MstSlotItemEquipTypes, (value: MstSlotItemEquipTypes) => void];
+
+  return context as [
+    MstSlotItemEquipTypes,
+    // eslint-disable-next-line no-unused-vars
+    (data: MstSlotItemEquipTypes) => void,
+  ];
 }
 
-// eslint-disable-next-line no-unused-vars
-const MstEquipShipsContext = createContext<(MstEquipShips | { set(data: MstEquipShips): void })[]>();
+const MstEquipShipsContext =
+  // eslint-disable-next-line no-unused-vars
+  createContext<(MstEquipShips | { set(data: MstEquipShips): void })[]>();
 
 export function MstEquipShipsProvider(props: { children: JSX.Element }) {
   const [data, setData] = createStore(global_mst_equip_ships);
@@ -372,8 +384,9 @@ export function useMstEquipShips() {
   return context as [MstEquipShips, (value: MstEquipShips) => void];
 }
 
-// eslint-disable-next-line no-unused-vars
-const MstStypesContext = createContext<(MstStypes | { set(data: MstStypes): void })[]>();
+const MstStypesContext =
+  // eslint-disable-next-line no-unused-vars
+  createContext<(MstStypes | { set(data: MstStypes): void })[]>();
 
 export function MstStypesProvider(props: { children: JSX.Element }) {
   const [data, setData] = createStore(global_mst_stypes);
@@ -415,8 +428,9 @@ export function useMstStypes() {
   return context as [MstStypes, (value: MstStypes) => void];
 }
 
-// eslint-disable-next-line no-unused-vars
-const MstUseItemsContext = createContext<(MstUseItems | { set(data: MstUseItems): void })[]>();
+const MstUseItemsContext =
+  // eslint-disable-next-line no-unused-vars
+  createContext<(MstUseItems | { set(data: MstUseItems): void })[]>();
 
 export function MstUseItemsProvider(props: { children: JSX.Element }) {
   const [data, setData] = createStore(global_mst_useitems);
@@ -461,8 +475,9 @@ export function useMstUseItems() {
   return context as [MstUseItems, (value: MstUseItems) => void];
 }
 
-// eslint-disable-next-line no-unused-vars
-const MaterialsContext = createContext<(Materials | { set(data: Materials): void })[]>();
+const MaterialsContext =
+  // eslint-disable-next-line no-unused-vars
+  createContext<(Materials | { set(data: Materials): void })[]>();
 
 export function MaterialsProvider(props: { children: JSX.Element }) {
   const [data, setData] = createStore<Materials>(global_materials);
@@ -519,8 +534,9 @@ export function useMaterials() {
   return context as [Materials, (value: Materials) => void];
 }
 
-// eslint-disable-next-line no-unused-vars
-const DeckPortsContext = createContext<(DeckPorts | { set(data: DeckPorts): void })[]>();
+const DeckPortsContext =
+  // eslint-disable-next-line no-unused-vars
+  createContext<(DeckPorts | { set(data: DeckPorts): void })[]>();
 
 export function DeckPortsProvider(props: { children: JSX.Element }) {
   const [data, setData] = createStore(global_deck_ports);
@@ -647,14 +663,21 @@ export function CellsContextProvider(props: { children: JSX.Element }) {
           setData(event.payload);
         },
       );
+      // eslint-disable-next-line solid/reactivity
       unlisten_data_add_cell = await listen<Cell>("add-kcs-cell", (event) => {
         setData("cells", event.payload.no, event.payload);
         setData("cell_index", data.cell_index.length, event.payload.no);
       });
       unlisten_data_add_battle = await listen<Battle>(
         "add-kcs-battle",
+        // eslint-disable-next-line solid/reactivity
         (event) => {
-          if (Object.prototype.hasOwnProperty.call(data.battles, event.payload.cell_id)) {
+          if (
+            Object.prototype.hasOwnProperty.call(
+              data.battles,
+              event.payload.cell_id,
+            )
+          ) {
             Object.entries(event.payload).forEach(([key, value]) => {
               if (value !== null && typeof value === "object") {
                 setData(
@@ -695,8 +718,9 @@ export function useCells() {
   return context as [Cells, (value: Cells) => void];
 }
 
-// eslint-disable-next-line no-unused-vars
-const AirBasesContext = createContext<(AirBases | { set(data: AirBases): void })[]>();
+const AirBasesContext =
+  // eslint-disable-next-line no-unused-vars
+  createContext<(AirBases | { set(data: AirBases): void })[]>();
 
 export function AirBasesProvider(props: { children: JSX.Element }) {
   const [data, setData] = createStore(global_air_bases);
@@ -740,8 +764,9 @@ export function useAirBases() {
 
 //-----
 
-// eslint-disable-next-line no-unused-vars
-const DebugApiContext = createContext<(string[][] | { set(data: string[][]): void })[]>();
+const DebugApiContext =
+  // eslint-disable-next-line no-unused-vars
+  createContext<(string[][] | { set(data: string[][]): void })[]>();
 
 export function DebugApiProvider(props: { children: JSX.Element }) {
   let store_data: string[][] = [[], []];
