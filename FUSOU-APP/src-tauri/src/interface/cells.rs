@@ -99,6 +99,7 @@ pub struct DestructionBattle {
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct AirBaseAttack {
+    pub air_superiority: Option<i64>,
     pub plane_from: Vec<Option<Vec<i64>>>,
     pub f_damage: AirDamage,
     pub e_damage: AirDamage,
@@ -118,6 +119,10 @@ impl From<kcapi::api_req_map::next::ApiAirBaseAttack> for AirBaseAttack {
         );
 
         Self {
+            air_superiority: air_base_attack
+                .api_stage1
+                .clone()
+                .and_then(|stage1| stage1.api_disp_seiku),
             plane_from: air_base_attack.api_plane_from,
             f_damage,
             e_damage,
@@ -192,11 +197,17 @@ impl From<kcapi::api_req_map::next::ApiData> for Cell {
                 .collect()
         });
 
-        let happening: Option<Happening> = cells.api_happening.map(|happening| happening.into());
+        // let happening: Option<Happening> = cells.api_happening.map(|happening| happening.into());
+        let happening: Option<Happening> = cells
+            .api_happening
+            .and_then(|happening| Some(happening.into()));
 
+        // let destruction_battle: Option<DestructionBattle> = cells
+        //     .api_destruction_battle
+        //     .map(|destruction_battle| destruction_battle.into());
         let destruction_battle: Option<DestructionBattle> = cells
             .api_destruction_battle
-            .map(|destruction_battle| destruction_battle.into());
+            .and_then(|destruction_battle| Some(destruction_battle.into()));
 
         {
             KCS_CELLS.lock().unwrap().push(cells.api_no);

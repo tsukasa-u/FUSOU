@@ -41,6 +41,7 @@ import { FriendlyForceAttackComponent } from "./friendly_force_attack";
 import { AirBaseAssaultComponent } from "./air_base_assault";
 import { CarrierBaseAssaultComponent } from "./carrier_base_assault";
 import { BattleSummaryComponent } from "./battle_summary";
+import { DestructionBattleComponent } from "./destruction_battle";
 
 export function BattlesComponent() {
   // const [battles, ] = useBattles();
@@ -228,6 +229,7 @@ export function BattlesComponent() {
                   )}
                 </For>
               </div>
+              <DestructionBattleComponent area_id={cells.maparea_id} cell_index_selected={cell_index_selected} />
               <Show when={show_battle()}>
                 <div
                   class="flex felx-nowrap text-xs py-0.5 tooltip tooltip-right"
