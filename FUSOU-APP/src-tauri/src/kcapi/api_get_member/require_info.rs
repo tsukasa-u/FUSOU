@@ -22,7 +22,7 @@ use crate::interface::slot_item::SlotItems;
 #[register_struct(name = "api_get_member/require_info")]
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Root {
+pub struct Res {
     #[serde(rename = "api_result")]
     pub api_result: i64,
     #[serde(rename = "api_result_msg")]
@@ -157,7 +157,7 @@ pub struct ApiOssSetting {
     pub api_oss_items: Vec<i64>,
 }
 
-impl TraitForConvert for Root {
+impl TraitForConvert for Res {
     type Output = EmitData;
     fn convert(&self) -> Option<Vec<EmitData>> {
         let slot_item: SlotItems = self.api_data.api_slot_item.clone().into();
@@ -188,7 +188,7 @@ mod tests {
 
         let pattern_str = "S@api_get_member@require_info";
         let log_path = "./src/kcapi/api_get_member/require_info.log";
-        simple_root_test::<Root>(
+        simple_root_test::<Res>(
             target_path.to_string(),
             pattern_str.to_string(),
             log_path.to_string(),

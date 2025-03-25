@@ -37,7 +37,7 @@ use crate::kcapi_common::common_map::ApiSelectRoute;
 #[register_struct(name = "api_req_map/next")]
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Root {
+pub struct Res {
     #[serde(rename = "api_result")]
     pub api_result: i64,
     #[serde(rename = "api_result_msg")]
@@ -196,7 +196,7 @@ pub struct ApiItemget {
     pub api_icon_id: i64,
 }
 
-impl TraitForConvert for Root {
+impl TraitForConvert for Res {
     type Output = EmitData;
     fn convert(&self) -> Option<Vec<EmitData>> {
         let cell: Cell = self.api_data.clone().into();
@@ -225,6 +225,6 @@ mod tests {
 
         let pattern_str = "S@api_req_map@next";
         let log_path = "./src/kcapi/api_req_map/next.log";
-        simple_root_test::<Root>(target_path, pattern_str.to_string(), log_path.to_string());
+        simple_root_test::<Res>(target_path, pattern_str.to_string(), log_path.to_string());
     }
 }

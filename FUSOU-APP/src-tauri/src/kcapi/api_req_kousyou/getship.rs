@@ -26,7 +26,7 @@ use crate::interface::interface::EmitData;
 #[register_struct(name = "api_req_kousyou/getship")]
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Root {
+pub struct Res {
     #[serde(rename = "api_result")]
     pub api_result: i64,
     #[serde(rename = "api_result_msg")]
@@ -186,6 +186,6 @@ mod tests {
 
         let pattern_str = "S@api_req_kousyou@getship";
         let log_path = "./src/kcapi/api_req_kousyou/getship.log";
-        simple_root_test::<Root>(target_path, pattern_str.to_string(), log_path.to_string());
+        simple_root_test::<Res>(target_path, pattern_str.to_string(), log_path.to_string());
     }
 }

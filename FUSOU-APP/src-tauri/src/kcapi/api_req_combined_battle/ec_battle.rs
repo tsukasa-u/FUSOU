@@ -36,7 +36,7 @@ use crate::interface::interface::EmitData;
 #[register_struct(name = "api_req_combined_battle/ec_battle")]
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Root {
+pub struct Res {
     #[serde(rename = "api_result")]
     pub api_result: i64,
     #[serde(rename = "api_result_msg")]
@@ -129,7 +129,7 @@ pub struct ApiData {
     pub api_air_base_injection: Option<ApiAirBaseInjection>,
 }
 
-impl TraitForConvert for Root {
+impl TraitForConvert for Res {
     type Output = EmitData;
     fn convert(&self) -> Option<Vec<EmitData>> {
         let battle: Battle = self.api_data.clone().into();
@@ -158,6 +158,6 @@ mod tests {
 
         let pattern_str = "S@api_req_combined_battle@ec_battle";
         let log_path = "./src/kcapi/api_req_combined_battle/ec_battle.log";
-        simple_root_test::<Root>(target_path, pattern_str.to_string(), log_path.to_string());
+        simple_root_test::<Res>(target_path, pattern_str.to_string(), log_path.to_string());
     }
 }
