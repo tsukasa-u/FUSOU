@@ -28,7 +28,7 @@ use crate::interface::mst_use_item::MstUseItems;
 #[register_struct(name = "api_start2/getData")]
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Root {
+pub struct Res {
     #[serde(rename = "api_result")]
     pub api_result: i64,
     #[serde(rename = "api_result_msg")]
@@ -641,7 +641,7 @@ pub struct ApiMstFurniture {
     pub api_active_flag: i64,
 }
 
-impl TraitForConvert for Root {
+impl TraitForConvert for Res {
     type Output = EmitData;
     fn convert(&self) -> Option<Vec<EmitData>> {
         // need to add other fields
@@ -703,7 +703,7 @@ mod tests {
 
         let pattern_str = "S@api_start2@getData";
         let log_path = "./src/kcapi/api_start2/getData.log";
-        simple_root_test::<Root>(target_path, pattern_str.to_string(), log_path.to_string());
+        simple_root_test::<Res>(target_path, pattern_str.to_string(), log_path.to_string());
     }
 
     #[test]
@@ -719,7 +719,7 @@ mod tests {
 
         let pattern_str = "S@api_start2@getData";
         let log_path = "./src/kcapi/api_start2/getData_check_number.log";
-        simple_root_check_number_size::<Root>(
+        simple_root_check_number_size::<Res>(
             target_path,
             pattern_str.to_string(),
             log_path.to_string(),

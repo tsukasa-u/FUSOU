@@ -26,7 +26,7 @@ use crate::interface::interface::EmitData;
 #[register_struct(name = "api_req_ranking/mxltvkpyuklh")]
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Root {
+pub struct Res {
     #[serde(rename = "api_result")]
     pub api_result: i64,
     #[serde(rename = "api_result_msg")]
@@ -107,6 +107,6 @@ mod tests {
                 return file_path;
             })
             .filter(|file_path| pattern_str.is_match(file_path.to_str().unwrap()));
-        custom_root_test::<Root>(file_list, log_path.to_string());
+        custom_root_test::<Res>(file_list, log_path.to_string());
     }
 }
