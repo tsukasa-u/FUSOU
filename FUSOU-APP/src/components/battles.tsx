@@ -211,8 +211,8 @@ export function BattlesComponent() {
             when={show_cell()}
             fallback={<div class="text-xs pl-4 py-1">No Cell Data ...</div>}
           >
-            <ul class="pl-2">
-              <div class="flex flex-row">
+            <ul class="pl-0">
+              <div class="flex flex-row pl-2">
                 <div class="h-4 mt-px pt-px">cells</div>
                 <IconChevronRightS class="h-4 w-4 m-1 " />
                 <For each={cells.cell_index}>
@@ -238,7 +238,7 @@ export function BattlesComponent() {
               <DestructionBattleComponent area_id={cells.maparea_id} cell={cell} />
               <Show when={show_battle()}>
                 <div
-                  class="flex felx-nowrap text-xs py-0.5 tooltip tooltip-right"
+                  class="flex felx-nowrap text-xs py-0.5 tooltip tooltip-right pl-2"
                   data-tip={battle_selected().reconnaissance}
                 >
                   Search : <span class="w-1" />
@@ -280,7 +280,7 @@ export function BattlesComponent() {
                   </Show>
                 </div>
                 <div
-                  class="flex felx-nowrap text-xs py-0.5 tooltip tooltip-right"
+                  class="flex felx-nowrap text-xs py-0.5 tooltip tooltip-right pl-2"
                   data-tip={battle_selected().formation}
                 >
                   Formation : <span class="w-1" />

@@ -62,11 +62,23 @@ export function DestructionBattleSummaryComponent(props: ButtleSummaryProps) {
       };
     if (show_summary() == false) return ret;
 
-    let f_base_id: number[] = Object.keys(props.cell()
-        .destruction_battle!.air_base_attack
-        .map_squadron_plane!).map((base_id) => {
-            return (props.area_id << 16) | Number(base_id);
-        });
+    // let f_base_id: number[] = Object.keys(props.cell()
+    //     .destruction_battle!.air_base_attack
+    //     .map_squadron_plane!).map((base_id) => {
+    //         return (props.area_id << 16) | Number(base_id);
+    //     });
+
+    let f_base_id: number[] = [];
+    Object.entries(air_bases.bases).forEach(([base_id, base]) => {
+        // if ((Number(base_id) & (props.area_id << 16)) != 0) {
+            // if (base.action_kind = ) {
+            if (base.area_id == props.area_id) {
+                f_base_id.push(Number(base_id));
+            }
+            // }
+        // }
+    });
+    
     let f_base_nowhps: number[] = props.cell().destruction_battle!.f_nowhps.map((hp, i) => hp - props.cell().destruction_battle!.f_total_damages![i]);
     let f_base_maxhps: number[] = props.cell().destruction_battle!.f_maxhps;
     let f_base_damages: number[] = props.cell().destruction_battle!.f_total_damages!;
@@ -138,7 +150,7 @@ export function DestructionBattleSummaryComponent(props: ButtleSummaryProps) {
                             <div class="flex flex-nowrap">
                               {
                                 air_bases.bases[
-                                  (props.area_id << 16) | (idx + 1)
+                                    fleet_info().f_base_id[idx]
                                 ].name
                               }
                             </div>

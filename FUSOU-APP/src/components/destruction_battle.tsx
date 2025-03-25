@@ -109,7 +109,7 @@ export function DestructionBattleComponent(props: DestructionBattleProps) {
         <details open={true}>
           <summary>Destruction Battle</summary>
           <div
-            class="flex felx-nowrap text-xs py-0.5"
+            class="flex felx-nowrap text-xs py-0.5 pl-4"
           >
             Formation : <span class="w-1" />
             <For each={props.cell().destruction_battle!.formation.slice(0, 2)}>
