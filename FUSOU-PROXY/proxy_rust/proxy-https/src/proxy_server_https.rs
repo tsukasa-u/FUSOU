@@ -1,4 +1,4 @@
-use http::{response::Parts, HeaderName, Uri};
+use http::{request, response, HeaderName, Uri};
 use http_body_util::BodyExt;
 use hudsucker::{
     certificate_authority::RcgenAuthority,
@@ -26,7 +26,7 @@ use std::os::windows::fs::MetadataExt;
 use crate::bidirectional_channel;
 
 fn log_response(
-    parts: Parts,
+    parts: response::Parts,
     body: Vec<u8>,
     uri: Uri,
     tx_proxy_log: bidirectional_channel::Master<bidirectional_channel::StatusInfo>,
@@ -106,7 +106,7 @@ fn log_response(
                 }
 
                 if let Ok(buffer_string) = String::from_utf8(buffer.clone()) {
-                    let mes = bidirectional_channel::StatusInfo::CONTENT {
+                    let mes = bidirectional_channel::StatusInfo::RESPONSE {
                         path: uri_path.clone(),
                         content_type: content_type.to_string(),
                         content: buffer_string,
@@ -167,6 +167,132 @@ fn log_response(
     }
 }
 
+fn log_request(
+    parts: request::Parts,
+    body: Vec<u8>,
+    uri: Uri,
+    tx_proxy_log: bidirectional_channel::Master<bidirectional_channel::StatusInfo>,
+    save_path: String,
+) {
+    let mut content_type: String = String::new();
+    let mut _content_length: i64 = -1;
+
+    const HEADER_NAME_CONTENT_TYPE: HeaderName = HeaderName::from_static("content-type");
+    const HEADER_NAME_CONTENT_LENGTH: HeaderName = HeaderName::from_static("content-length");
+    {
+        for (key, value) in parts.headers {
+            match key {
+                Some(HEADER_NAME_CONTENT_TYPE) => {
+                    content_type = value.to_str().unwrap().to_string();
+                }
+                Some(HEADER_NAME_CONTENT_LENGTH) => {
+                    _content_length = value.to_str().unwrap().parse::<i64>().unwrap();
+                }
+                _ => {}
+            };
+        }
+    }
+
+    let pass: bool = match content_type.as_str() {
+        "application/x-www-form-urlencoded" => false,
+        _ => true,
+    };
+
+    let save: bool = match content_type.as_str() {
+        "application/x-www-form-urlencoded" => true,
+        _ => false,
+    };
+
+    let utc = Utc::now().naive_utc();
+    let jst = Tokyo.from_utc_datetime(&utc);
+
+    let re_uri = regex::Regex::new(r"https+://.*\.kancolle-server\.com").unwrap();
+    let uri_path = re_uri.replace(uri.path(), "").to_string();
+
+    println!(
+        "{} method: {:?}, path:{:?}, content-type:{:?}",
+        format!("{}", jst.format("%Y-%m-%d %H:%M:%S.%3f %Z")),
+        parts.method,
+        uri_path,
+        content_type
+    );
+
+    if save || !pass {
+        if body.is_empty() {
+            return;
+        }
+
+        tokio::spawn(async move {
+            let mut buffer: Vec<u8> = Vec::new();
+            if !pass && content_type.eq("application/x-www-form-urlencoded") {
+                //     // this code is for the response not decoded in hudsucker!!
+                buffer = body.clone();
+
+                if let Ok(buffer_string) = String::from_utf8(buffer.clone()) {
+                    let mes = bidirectional_channel::StatusInfo::REQUEST {
+                        path: uri_path.clone(),
+                        content_type: content_type.to_string(),
+                        content: buffer_string,
+                    };
+                    let _ = tx_proxy_log.send(mes).await;
+                } else {
+                    println!("Failed to convert buffer to string");
+                }
+            }
+            if save {
+                let path_log = Path::new(save_path.as_str());
+
+                if content_type.eq("application/x-www-form-urlencoded")
+                    && uri_path.as_str().starts_with("/kcsapi")
+                {
+                    let parent = Path::new("kcsapi");
+                    let path_parent = path_log.join(parent);
+                    if !path_parent.exists() {
+                        fs::create_dir_all(path_parent).expect("Failed to create directory");
+                    }
+
+                    let time_stamped = format!(
+                        "kcsapi/{}Q{}",
+                        jst.timestamp(),
+                        uri_path.as_str().replace("/kcsapi", "").replace("/", "@")
+                    );
+                    // println!("{:?}", buffer);
+                    fs::write(path_log.join(Path::new(&time_stamped)), buffer)
+                        .expect("Failed to write file");
+                } else {
+                    let path_removed = uri_path.as_str().replacen("/", "", 1);
+                    if let Some(parent) = Path::new(path_removed.as_str()).parent() {
+                        let path_parent = path_log.join(parent);
+                        if !path_parent.exists() {
+                            fs::create_dir_all(path_parent).expect("Failed to create directory");
+                        }
+                    }
+
+                    let file_log_path = path_log.join(Path::new(path_removed.as_str()));
+
+                    if !file_log_path.exists() {
+                        fs::write(file_log_path, body.clone().clone())
+                            .expect("Failed to write file");
+                    } else {
+                        let file_log_metadata =
+                            fs::metadata(file_log_path.clone()).expect("Failed to get metadata");
+                        #[cfg(target_os = "linux")]
+                        if file_log_metadata.len() == 0 {
+                            fs::write(file_log_path, body.clone().clone())
+                                .expect("Failed to write file");
+                        }
+                        #[cfg(target_os = "windows")]
+                        if file_log_metadata.file_size() == 0 {
+                            fs::write(file_log_path, body.clone().clone())
+                                .expect("Failed to write file");
+                        }
+                    }
+                }
+            }
+        });
+    }
+}
+
 #[derive(Clone)]
 struct LogHandler {
     request_uri: Uri,
@@ -175,13 +301,41 @@ struct LogHandler {
 }
 
 impl HttpHandler for LogHandler {
+    // async fn handle_request(
+    //     &mut self,
+    //     _ctx: &HttpContext,
+    //     req: Request<Body>,
+    // ) -> RequestOrResponse {
+    //     self.request_uri = req.uri().clone();
+    //     req.into()
+    // }
+
     async fn handle_request(
         &mut self,
         _ctx: &HttpContext,
         req: Request<Body>,
     ) -> RequestOrResponse {
         self.request_uri = req.uri().clone();
-        req.into()
+
+        let (part, body) = req.into_parts();
+
+        let collected = body.collect().await.unwrap();
+        let body = collected.to_bytes().clone();
+        let full_body = http_body_util::Full::from(body.clone());
+
+        let body_vec = body.to_vec();
+        log_request(
+            part.clone(),
+            body_vec,
+            self.request_uri.clone(),
+            self.tx_proxy_log.clone(),
+            self.save_path.clone(),
+        );
+
+        let reconstructed_body = hudsucker::Body::from(full_body);
+        let reconstructed_resquest = Request::from_parts(part, reconstructed_body);
+
+        return hudsucker::RequestOrResponse::Request(reconstructed_resquest);
     }
 
     async fn handle_response(&mut self, _ctx: &HttpContext, res: Response<Body>) -> Response<Body> {

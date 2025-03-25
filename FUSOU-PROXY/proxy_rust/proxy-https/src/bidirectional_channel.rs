@@ -14,7 +14,12 @@ pub enum StatusInfo {
         status: String,
         message: String,
     },
-    CONTENT {
+    RESPONSE {
+        path: String,
+        content_type: String,
+        content: String,
+    },
+    REQUEST {
         path: String,
         content_type: String,
         content: String,
