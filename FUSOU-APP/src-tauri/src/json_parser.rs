@@ -164,34 +164,6 @@ pub fn struct_selector_resquest(
     };
 }
 
-// pub fn struct_selector_resquest(
-//     name: String,
-//     data: String,
-// ) -> Result<Vec<EmitData>, Box<dyn Error>> {
-//     let data_removed_bom: String = data.replace("\u{feff}", "");
-//     let root_wrap: Result<
-//         crate::kcapi::api_port::air_corps_cond_recovery_with_timer::Req,
-//         serde_qs::Error,
-//     > = serde_qs::from_str(&data_removed_bom);
-//     match root_wrap {
-//         Ok(root) => match root.convert() {
-//             Some(emit_data_list) => {
-//                 return Ok(emit_data_list);
-//             }
-//             None => {
-//                 return Ok(Vec::new());
-//             }
-//         },
-//         Err(e) => {
-//             println!(
-//                 "\x1b[38;5;{}m Failed to parse JSON({:?}): {}\x1b[m ",
-//                 8, name, e
-//             );
-//             return Err(Box::new(e));
-//         }
-//     };
-// }
-
 async fn response_parser<R: tauri::Runtime>(
     handle: &impl tauri::Manager<R>,
     mut slave: bidirectional_channel::Slave<bidirectional_channel::StatusInfo>,
