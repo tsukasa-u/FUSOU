@@ -27,9 +27,20 @@ use crate::interface::interface::{EmitData /*Add*/};
 #[add_field(extra)]
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Req {}
+pub struct Req {
+    #[serde(rename = "api_token")]
+    pub api_token: String,
+    #[serde(rename = "api_verno")]
+    pub api_verno: String,
+    #[serde(rename = "api_kind")]
+    pub api_kind: String,
+    #[serde(rename = "api_onslot")]
+    pub api_onslot: String,
+    #[serde(rename = "api_id_items")]
+    pub api_id_items: String,
+}
 
-#[derive(Getter, TraitForTest, TraitForRoot, )]
+#[derive(Getter, TraitForTest, TraitForRoot)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[register_struct(name = "api_req_hokyu/charge")]
@@ -107,10 +118,18 @@ mod tests {
 
         let pattern_str = "S@api_req_hokyu@charge";
         let log_path = "./src/kcapi/api_req_hokyu/charge@S.log";
-        simple_root_test::<Res>(target_path.clone(), pattern_str.to_string(), log_path.to_string());
+        simple_root_test::<Res>(
+            target_path.clone(),
+            pattern_str.to_string(),
+            log_path.to_string(),
+        );
 
         let pattern_str = "Q@api_req_hokyu@charge";
         let log_path = "./src/kcapi/api_req_hokyu/charge@Q.log";
-        simple_root_test::<Req>(target_path.clone(), pattern_str.to_string(), log_path.to_string());
+        simple_root_test::<Req>(
+            target_path.clone(),
+            pattern_str.to_string(),
+            log_path.to_string(),
+        );
     }
 }
