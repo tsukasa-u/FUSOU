@@ -711,7 +711,11 @@ mod tests {
 
         let pattern_str = "S@api_start2@getData";
         let log_path = "./src/kcapi/api_start2/getData@S.log";
-        simple_root_test::<Res>(target_path, pattern_str.to_string(), log_path.to_string());
+        simple_root_test::<Res>(target_path.clone(), pattern_str.to_string(), log_path.to_string());
+
+        let pattern_str = "S@api_start2@get_option_setting";
+        let log_path = "./src/kcapi/api_start2/get_data@Q.log";
+        simple_root_test::<Req>(target_path.clone(), pattern_str.to_string(), log_path.to_string());
     }
 
     #[test]
@@ -728,7 +732,7 @@ mod tests {
         let pattern_str = "S@api_start2@getData";
         let log_path = "./src/kcapi/api_start2/getData_check_number@S.log";
         simple_root_check_number_size::<Res>(
-            target_path,
+            target_path.clone(),
             pattern_str.to_string(),
             log_path.to_string(),
         );

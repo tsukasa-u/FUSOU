@@ -110,6 +110,10 @@ mod tests {
 
         let pattern_str = "S@api_req_air_corps@set_plane";
         let log_path = "./src/kcapi/api_req_air_corps/set_plane@S.log";
-        simple_root_test::<Res>(target_path, pattern_str.to_string(), log_path.to_string());
+        simple_root_test::<Res>(target_path.clone(), pattern_str.to_string(), log_path.to_string());
+
+        let pattern_str = "S@api_start2@get_option_setting";
+        let log_path = "./src/kcapi/api_req_air_corps/set_plane@Q.log";
+        simple_root_test::<Req>(target_path.clone(), pattern_str.to_string(), log_path.to_string());
     }
 }
