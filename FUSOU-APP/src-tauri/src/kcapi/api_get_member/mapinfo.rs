@@ -20,7 +20,15 @@ use register_trait::TraitForTest;
 use crate::interface::air_base::AirBases;
 use crate::interface::interface::{EmitData, Set};
 
-#[derive(Getter, TraitForTest, TraitForRoot)]
+#[derive(Getter, TraitForTest, TraitForRoot, TraitForConvert)]
+#[convert_output(output = EmitData)]
+#[struct_test_case(field_extra, type_value, integration)]
+#[add_field(extra)]
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Req {}
+
+#[derive(Getter, TraitForTest, TraitForRoot, )]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[register_struct(name = "api_get_member/mapinfo")]
