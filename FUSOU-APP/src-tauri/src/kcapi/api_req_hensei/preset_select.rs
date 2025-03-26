@@ -25,7 +25,16 @@ use crate::interface::interface::EmitData;
 #[add_field(extra)]
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Req {}
+pub struct Req {
+    #[serde(rename = "api_token")]
+    pub api_token: String,
+    #[serde(rename = "api_verno")]
+    pub api_verno: String,
+    #[serde(rename = "api_deck_id")]
+    pub api_deck_id: i64,
+    #[serde(rename = "api_preset_no")]
+    pub api_preset_no: String,
+}
 
 #[derive(Getter, TraitForTest, TraitForRoot, TraitForConvert)]
 #[convert_output(output = EmitData)]
@@ -86,10 +95,18 @@ mod tests {
 
         let pattern_str = "S@api_req_hensei@preset_select";
         let log_path = "./src/kcapi/api_req_hensei/preset_select@S.log";
-        simple_root_test::<Res>(target_path.clone(), pattern_str.to_string(), log_path.to_string());
+        simple_root_test::<Res>(
+            target_path.clone(),
+            pattern_str.to_string(),
+            log_path.to_string(),
+        );
 
         let pattern_str = "Q@api_req_hensei@preset_select";
         let log_path = "./src/kcapi/api_req_hensei/preset_select@Q.log";
-        simple_root_test::<Req>(target_path.clone(), pattern_str.to_string(), log_path.to_string());
+        simple_root_test::<Req>(
+            target_path.clone(),
+            pattern_str.to_string(),
+            log_path.to_string(),
+        );
     }
 }
