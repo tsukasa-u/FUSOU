@@ -24,6 +24,14 @@ use crate::interface::interface::EmitData;
 #[convert_output(output = EmitData)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Req {}
+
+#[derive(Getter, TraitForTest, TraitForRoot, TraitForConvert)]
+#[convert_output(output = EmitData)]
+#[struct_test_case(field_extra, type_value, integration)]
+#[add_field(extra)]
 #[register_struct(name = "api_get_member/picture_book")]
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

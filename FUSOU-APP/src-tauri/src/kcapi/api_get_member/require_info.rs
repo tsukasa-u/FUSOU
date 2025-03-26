@@ -16,7 +16,15 @@ use register_trait::{Getter, TraitForConvert, TraitForRoot, TraitForTest};
 use crate::interface::interface::{EmitData, Set};
 use crate::interface::slot_item::SlotItems;
 
-#[derive(Getter, TraitForTest, TraitForRoot)]
+#[derive(Getter, TraitForTest, TraitForRoot, TraitForConvert)]
+#[convert_output(output = EmitData)]
+#[struct_test_case(field_extra, type_value, integration)]
+#[add_field(extra)]
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Req {}
+
+#[derive(Getter, TraitForTest, TraitForRoot, )]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[register_struct(name = "api_get_member/require_info")]

@@ -22,7 +22,15 @@ use crate::interface::mst_slot_item_equip_type::MstSlotItemEquipTypes;
 use crate::interface::mst_stype::MstStypes;
 use crate::interface::mst_use_item::MstUseItems;
 
-#[derive(Getter, TraitForTest, TraitForRoot)]
+#[derive(Getter, TraitForTest, TraitForRoot, TraitForConvert)]
+#[convert_output(output = EmitData)]
+#[struct_test_case(field_extra, type_value, integration)]
+#[add_field(extra)]
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Req {}
+
+#[derive(Getter, TraitForTest, TraitForRoot, )]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[register_struct(name = "api_start2/getData")]
