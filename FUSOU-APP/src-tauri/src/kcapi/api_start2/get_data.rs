@@ -713,7 +713,7 @@ mod tests {
         let log_path = "./src/kcapi/api_start2/getData@S.log";
         simple_root_test::<Res>(target_path.clone(), pattern_str.to_string(), log_path.to_string());
 
-        let pattern_str = "S@api_start2@get_option_setting";
+        let pattern_str = "Q@api_start2@get_data";
         let log_path = "./src/kcapi/api_start2/get_data@Q.log";
         simple_root_test::<Req>(target_path.clone(), pattern_str.to_string(), log_path.to_string());
     }

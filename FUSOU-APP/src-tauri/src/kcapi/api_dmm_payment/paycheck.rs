@@ -6,8 +6,8 @@
 //! </div>
 
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 // use serde_json::Value;
+use std::collections::HashMap;
 
 use register_trait::add_field;
 use register_trait::register_struct;
@@ -74,9 +74,13 @@ mod tests {
 
         let pattern_str = "S@api_dmm_payment@paycheck";
         let log_path = "./src/kcapi/api_dmm_payment/paycheck@S.log";
-        simple_root_test::<Res>(target_path.clone(), pattern_str.to_string(), log_path.to_string());
+        simple_root_test::<Res>(
+            target_path.clone(),
+            pattern_str.to_string(),
+            log_path.to_string(),
+        );
 
-        let pattern_str = "S@api_start2@get_option_setting";
+        let pattern_str = "Q@api_dmm_payment@paycheck";
         let log_path = "./src/kcapi/api_dmm_payment/paycheck@Q.log";
         simple_root_test::<Req>(
             target_path.clone(),
