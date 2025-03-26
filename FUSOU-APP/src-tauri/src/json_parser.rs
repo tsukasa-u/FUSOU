@@ -111,10 +111,13 @@ pub fn emit_data<R: tauri::Runtime>(handle: &impl tauri::Manager<R>, emit_data: 
 
 // Should I rewrite this attribute marcro to macro_rules!?
 #[expand_struct_selector(path = "./src/kcapi/")]
-pub fn struct_selector(name: String, data: String) -> Result<Vec<EmitData>, Box<dyn Error>> {
+pub fn struct_selector_response(
+    name: String,
+    data: String,
+) -> Result<Vec<EmitData>, Box<dyn Error>> {
     let data_removed_bom: String = data.replace("\u{feff}", "");
     let data_removed_svdata: String = data_removed_bom.replace("svdata=", "");
-    let root_wrap: Result<kcsapi_lib::Root, serde_json::Error> =
+    let root_wrap: Result<kcsapi_lib::Res, serde_json::Error> =
         serde_json::from_str(&data_removed_svdata);
     match root_wrap {
         Ok(root) => match root.convert() {
@@ -135,6 +138,60 @@ pub fn struct_selector(name: String, data: String) -> Result<Vec<EmitData>, Box<
     };
 }
 
+#[expand_struct_selector(path = "./src/kcapi/")]
+pub fn struct_selector_resquest(
+    name: String,
+    data: String,
+) -> Result<Vec<EmitData>, Box<dyn Error>> {
+    let data_removed_bom: String = data.replace("\u{feff}", "");
+    let root_wrap: Result<kcsapi_lib::Req, serde_qs::Error> = serde_qs::from_str(&data_removed_bom);
+    match root_wrap {
+        Ok(root) => match root.convert() {
+            Some(emit_data_list) => {
+                return Ok(emit_data_list);
+            }
+            None => {
+                return Ok(Vec::new());
+            }
+        },
+        Err(e) => {
+            println!(
+                "\x1b[38;5;{}m Failed to parse JSON({:?}): {}\x1b[m ",
+                8, name, e
+            );
+            return Err(Box::new(e));
+        }
+    };
+}
+
+// pub fn struct_selector_resquest(
+//     name: String,
+//     data: String,
+// ) -> Result<Vec<EmitData>, Box<dyn Error>> {
+//     let data_removed_bom: String = data.replace("\u{feff}", "");
+//     let root_wrap: Result<
+//         crate::kcapi::api_port::air_corps_cond_recovery_with_timer::Req,
+//         serde_qs::Error,
+//     > = serde_qs::from_str(&data_removed_bom);
+//     match root_wrap {
+//         Ok(root) => match root.convert() {
+//             Some(emit_data_list) => {
+//                 return Ok(emit_data_list);
+//             }
+//             None => {
+//                 return Ok(Vec::new());
+//             }
+//         },
+//         Err(e) => {
+//             println!(
+//                 "\x1b[38;5;{}m Failed to parse JSON({:?}): {}\x1b[m ",
+//                 8, name, e
+//             );
+//             return Err(Box::new(e));
+//         }
+//     };
+// }
+
 async fn response_parser<R: tauri::Runtime>(
     handle: &impl tauri::Manager<R>,
     mut slave: bidirectional_channel::Slave<bidirectional_channel::StatusInfo>,
@@ -147,10 +204,20 @@ async fn response_parser<R: tauri::Runtime>(
                     None => {
                         println!("Received None message");
                     },
-                    Some(bidirectional_channel::StatusInfo::CONTENT { path, content_type: _, content }) => {
+                    Some(bidirectional_channel::StatusInfo::RESPONSE { path, content_type: _, content }) => {
                         let handle_clone = handle.app_handle();
                         tokio::task::spawn(async move {
-                            if let Ok(emit_data_list) = struct_selector(path, content) {
+                            if let Ok(emit_data_list) = struct_selector_response(path, content) {
+                                for emit_data_element in emit_data_list {
+                                    emit_data(&handle_clone, emit_data_element);
+                                }
+                            };
+                        });
+                    },
+                    Some(bidirectional_channel::StatusInfo::REQUEST { path, content_type: _, content }) => {
+                        let handle_clone = handle.app_handle();
+                        tokio::task::spawn(async move {
+                            if let Ok(emit_data_list) = struct_selector_resquest(path, content) {
                                 for emit_data_element in emit_data_list {
                                     emit_data(&handle_clone, emit_data_element);
                                 }
