@@ -204,7 +204,7 @@ pub async fn read_dir(window: tauri::Window, path: &str) -> Result<(), String> {
 #[cfg(TAURI_BUILD_TYPE = "DEBUG")]
 #[tauri::command]
 pub async fn read_emit_file(window: tauri::Window, path: &str) -> Result<(), String> {
-    use crate::json_parser::{emit_data, struct_selector_response};
+    use crate::json_parser::{emit_data, struct_selector_response, struct_selector_resquest};
 
     let file = fs::read_to_string(path);
     if let Err(e) = file {
@@ -220,10 +220,22 @@ pub async fn read_emit_file(window: tauri::Window, path: &str) -> Result<(), Str
         .collect();
     let formated_path = format!("/kcsapi/{}/{}", path_split_at[1], path_split_at[2]);
 
-    if let Ok(emit_data_list) = struct_selector_response(formated_path, content) {
-        for emit_data_element in emit_data_list {
-            emit_data(&window.app_handle(), emit_data_element);
+    match path_split_at[0].as_str() {
+        s if s.ends_with("S") => {
+            if let Ok(emit_data_list) = struct_selector_response(formated_path, content) {
+                for emit_data_element in emit_data_list {
+                    emit_data(&window.app_handle(), emit_data_element);
+                }
+            }
         }
+        s if s.ends_with("Q") => {
+            if let Ok(emit_data_list) = struct_selector_resquest(formated_path, content) {
+                for emit_data_element in emit_data_list {
+                    emit_data(&window.app_handle(), emit_data_element);
+                }
+            }
+        }
+        _ => {}
     }
 
     return Ok(());
