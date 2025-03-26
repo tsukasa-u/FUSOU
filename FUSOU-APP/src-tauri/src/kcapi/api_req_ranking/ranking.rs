@@ -104,7 +104,7 @@ mod tests {
         }
 
         let pattern_str = Regex::new(r".*S@api_req_ranking@[a-z]*").unwrap();
-        let log_path = "./src/kcapi/api_req_ranking/ranking.log";
+        let log_path = "./src/kcapi/api_req_ranking/ranking@S.log";
 
         let target = path::PathBuf::from(target_path);
         let files = target.read_dir().expect("read_dir call failed");

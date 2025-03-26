@@ -61,7 +61,7 @@ mod tests {
         }
 
         let pattern_str = "S@api_req_kaisou@remodeling";
-        let log_path = "./src/kcapi/api_req_kaisou/remodeling.log";
+        let log_path = "./src/kcapi/api_req_kaisou/remodeling@S.log";
         simple_root_test::<Res>(target_path, pattern_str.to_string(), log_path.to_string());
     }
 }

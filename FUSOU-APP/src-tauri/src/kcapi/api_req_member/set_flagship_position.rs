@@ -61,7 +61,7 @@ mod tests {
         }
 
         let pattern_str = "S@api_req_member@set_flagship_position";
-        let log_path = "./src/kcapi/api_req_member/set_flagship_position.log";
+        let log_path = "./src/kcapi/api_req_member/set_flagship_position@S.log";
         simple_root_test::<Res>(target_path, pattern_str.to_string(), log_path.to_string());
     }
 }

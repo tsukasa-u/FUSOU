@@ -189,7 +189,7 @@ mod tests {
         }
 
         let pattern_str = "S@api_get_member@ship_deck";
-        let log_path = "./src/kcapi/api_get_member/ship_deck.log";
+        let log_path = "./src/kcapi/api_get_member/ship_deck@S.log";
         simple_root_test::<Res>(
             target_path.to_string(),
             pattern_str.to_string(),

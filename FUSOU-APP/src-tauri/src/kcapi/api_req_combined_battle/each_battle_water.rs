@@ -167,7 +167,7 @@ mod tests {
         }
 
         let pattern_str = "S@api_req_combined_battle@each_battle_water";
-        let log_path = "./src/kcapi/api_req_combined_battle/each_battle_water.log";
+        let log_path = "./src/kcapi/api_req_combined_battle/each_battle_water@S.log";
         simple_root_test::<Res>(target_path, pattern_str.to_string(), log_path.to_string());
     }
 }

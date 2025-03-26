@@ -148,7 +148,7 @@ mod tests {
         }
 
         let pattern_str = "S@api_get_member@picture_book";
-        let log_path = "./src/kcapi/api_get_member/picture_book.log";
+        let log_path = "./src/kcapi/api_get_member/picture_book@S.log";
         simple_root_test::<Res>(
             target_path.to_string(),
             pattern_str.to_string(),

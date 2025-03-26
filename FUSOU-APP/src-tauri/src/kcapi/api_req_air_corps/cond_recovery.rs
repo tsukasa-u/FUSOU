@@ -107,7 +107,7 @@ mod tests {
         }
 
         let pattern_str = "S@api_req_air_corps@cond_recovery";
-        let log_path = "./src/kcapi/api_req_air_corps/cond_recovery.log";
+        let log_path = "./src/kcapi/api_req_air_corps/cond_recovery@S.log";
         simple_root_test::<Res>(
             target_path.to_string(),
             pattern_str.to_string(),
