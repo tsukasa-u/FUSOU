@@ -93,7 +93,7 @@ mod tests {
         }
 
         let pattern_str = "S@api_start2@get_option_setting";
-        let log_path = "./src/kcapi/api_start2/get_option_setting.log";
+        let log_path = "./src/kcapi/api_start2/get_option_setting@S.log";
         simple_root_test::<Res>(target_path, pattern_str.to_string(), log_path.to_string());
     }
 }
