@@ -78,8 +78,12 @@ mod tests {
 
         let pattern_str = "S@api_get_member@material";
         let log_path = "./src/kcapi/api_get_member/material@S.log";
-        simple_root_test::<Res>(
-            target_path.to_string(),
+        simple_root_test::<Res>(target_path.clone(), pattern_str.to_string(), log_path.to_string());
+
+        let pattern_str = "S@api_start2@get_option_setting";
+        let log_path = "./src/kcapi/api_get_member/material@Q.log";
+        simple_root_test::<Req>(
+            target_path.clone(),
             pattern_str.to_string(),
             log_path.to_string(),
         );
