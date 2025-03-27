@@ -91,6 +91,10 @@ pub struct ApiData {
     pub api_flare_pos: Vec<i64>,
     #[serde(rename = "api_hougeki")]
     pub api_hougeki: ApiHougeki,
+    #[serde(rename = "api_escape_idx")]
+    pub api_escape_idx: Option<Vec<i64>>,
+    #[serde(rename = "api_escape_idx_combined")]
+    pub api_escape_idx_combined: Option<Vec<i64>>,
 }
 
 // #[derive(Getter, TraitForTest)]
@@ -138,10 +142,18 @@ mod tests {
 
         let pattern_str = "S@api_req_combined_battle@midnight_battle";
         let log_path = "./src/kcapi/api_req_combined_battle/midnight_battle@S.log";
-        simple_root_test::<Res>(target_path.clone(), pattern_str.to_string(), log_path.to_string());
+        simple_root_test::<Res>(
+            target_path.clone(),
+            pattern_str.to_string(),
+            log_path.to_string(),
+        );
 
         let pattern_str = "Q@api_req_combined_battle@midnight_battle";
         let log_path = "./src/kcapi/api_req_combined_battle/midnight_battle@Q.log";
-        simple_root_test::<Req>(target_path.clone(), pattern_str.to_string(), log_path.to_string());
+        simple_root_test::<Req>(
+            target_path.clone(),
+            pattern_str.to_string(),
+            log_path.to_string(),
+        );
     }
 }

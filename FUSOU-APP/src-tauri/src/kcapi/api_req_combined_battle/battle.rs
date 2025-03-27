@@ -18,6 +18,7 @@ use register_trait::TraitForRoot;
 use register_trait::TraitForTest;
 
 use crate::kcapi_common::common_air::ApiAirBaseAttack;
+use crate::kcapi_common::common_air::ApiAirBaseInjection;
 use crate::kcapi_common::common_air::ApiKouku;
 use crate::kcapi_common::common_battle::ApiHougeki;
 use crate::kcapi_common::common_battle::ApiOpeningAtack;
@@ -125,6 +126,14 @@ pub struct ApiData {
     pub api_hougeki2: Option<ApiHougeki>,
     #[serde(rename = "api_hougeki3")]
     pub api_hougeki3: Option<ApiHougeki>,
+    #[serde(rename = "api_injection_kouku")]
+    pub api_injection_kouku: Option<ApiKouku>,
+    #[serde(rename = "api_air_base_injection")]
+    pub api_air_base_injection: Option<ApiAirBaseInjection>,
+    #[serde(rename = "api_escape_idx")]
+    pub api_escape_idx: Option<Vec<i64>>,
+    #[serde(rename = "api_escape_idx_combined")]
+    pub api_escape_idx_combined: Option<Vec<i64>>,
 }
 
 #[cfg(test)]
@@ -148,10 +157,18 @@ mod tests {
 
         let pattern_str = "S@api_req_combined_battle@battle";
         let log_path = "./src/kcapi/api_req_combined_battle/battle@S.log";
-        simple_root_test::<Res>(target_path.clone(), pattern_str.to_string(), log_path.to_string());
+        simple_root_test::<Res>(
+            target_path.clone(),
+            pattern_str.to_string(),
+            log_path.to_string(),
+        );
 
         let pattern_str = "Q@api_req_combined_battle@battle";
         let log_path = "./src/kcapi/api_req_combined_battle/battle@Q.log";
-        simple_root_test::<Req>(target_path.clone(), pattern_str.to_string(), log_path.to_string());
+        simple_root_test::<Req>(
+            target_path.clone(),
+            pattern_str.to_string(),
+            log_path.to_string(),
+        );
     }
 }

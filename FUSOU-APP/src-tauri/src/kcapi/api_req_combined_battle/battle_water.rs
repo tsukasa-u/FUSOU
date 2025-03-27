@@ -6,7 +6,7 @@
 //! </div>
 
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+// use serde_json::Value;
 use std::collections::HashMap;
 
 use register_trait::add_field;
@@ -18,11 +18,13 @@ use register_trait::TraitForRoot;
 use register_trait::TraitForTest;
 
 use crate::kcapi_common::common_air::ApiAirBaseAttack;
+use crate::kcapi_common::common_air::ApiAirBaseInjection;
 use crate::kcapi_common::common_air::ApiKouku;
 use crate::kcapi_common::common_battle::ApiHougeki;
 use crate::kcapi_common::common_battle::ApiOpeningAtack;
 use crate::kcapi_common::common_battle::ApiOpeningTaisen;
 use crate::kcapi_common::common_battle::ApiRaigeki;
+use crate::kcapi_common::common_battle::ApiSupportInfo;
 
 use crate::interface::interface::EmitData;
 
@@ -101,7 +103,7 @@ pub struct ApiData {
     #[serde(rename = "api_support_flag")]
     pub api_support_flag: i64,
     #[serde(rename = "api_support_info")]
-    pub api_support_info: Value,
+    pub api_support_info: Option<ApiSupportInfo>,
     #[serde(rename = "api_opening_taisen_flag")]
     pub api_opening_taisen_flag: i64,
     #[serde(rename = "api_opening_taisen")]
@@ -122,8 +124,14 @@ pub struct ApiData {
     pub api_raigeki: Option<ApiRaigeki>,
     #[serde(rename = "api_air_base_attack")]
     pub api_air_base_attack: Option<Vec<ApiAirBaseAttack>>,
+    #[serde(rename = "api_escape_idx")]
+    pub api_escape_idx: Option<Vec<i64>>,
     #[serde(rename = "api_escape_idx_combined")]
     pub api_escape_idx_combined: Option<Vec<i64>>,
+    #[serde(rename = "api_injection_kouku")]
+    pub api_injection_kouku: Option<ApiKouku>,
+    #[serde(rename = "api_air_base_injection")]
+    pub api_air_base_injection: Option<ApiAirBaseInjection>,
 }
 
 #[cfg(test)]
@@ -147,10 +155,18 @@ mod tests {
 
         let pattern_str = "S@api_req_combined_battle@battle_water";
         let log_path = "./src/kcapi/api_req_combined_battle/battle_water@S.log";
-        simple_root_test::<Res>(target_path.clone(), pattern_str.to_string(), log_path.to_string());
+        simple_root_test::<Res>(
+            target_path.clone(),
+            pattern_str.to_string(),
+            log_path.to_string(),
+        );
 
         let pattern_str = "Q@api_req_combined_battle@battle_water";
         let log_path = "./src/kcapi/api_req_combined_battle/battle_water@Q.log";
-        simple_root_test::<Req>(target_path.clone(), pattern_str.to_string(), log_path.to_string());
+        simple_root_test::<Req>(
+            target_path.clone(),
+            pattern_str.to_string(),
+            log_path.to_string(),
+        );
     }
 }
