@@ -137,6 +137,8 @@ pub struct ApiData {
     pub api_injection_kouku: Option<ApiKouku>,
     #[serde(rename = "api_air_base_injection")]
     pub api_air_base_injection: Option<ApiAirBaseInjection>,
+    #[serde(rename = "api_combat_ration")]
+    pub api_combat_ration: Option<Vec<i64>>,
 }
 
 #[cfg(test)]
