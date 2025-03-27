@@ -135,6 +135,7 @@ export interface Battle {
   forward_observe: number[] | null;
   escape_idx: number[] | null;
   smoke_type: number | null;
+  combat_ration: number[] | null;
   air_base_assault: AirBaseAssult | null;
   carrier_base_assault: CarrierBaseAssault | null;
   air_base_air_attacks: AirBaseAirAttacks;
@@ -478,4 +479,5 @@ export var global_battle: Battle = {
   battle_order: null,
   midnight_f_total_damages: null,
   midnight_e_total_damages: null,
+  combat_ration: null
 };
