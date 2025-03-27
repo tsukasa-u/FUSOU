@@ -139,6 +139,8 @@ pub struct ApiData {
     pub api_escape_idx: Option<Vec<i64>>,
     #[serde(rename = "api_escape_idx_combined")]
     pub api_escape_idx_combined: Option<Vec<i64>>,
+    #[serde(rename = "api_combat_ration")]
+    pub api_combat_ration: Option<Vec<i64>>,
 }
 
 #[cfg(test)]
