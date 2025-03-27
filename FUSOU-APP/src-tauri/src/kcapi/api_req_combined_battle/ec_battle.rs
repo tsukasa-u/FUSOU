@@ -36,7 +36,12 @@ use crate::interface::interface::EmitData;
 #[add_field(extra)]
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Req {}
+pub struct Req {
+    #[serde(rename = "api_token")]
+    pub api_token: String,
+    #[serde(rename = "api_verno")]
+    pub api_verno: String,
+}
 
 #[derive(Getter, TraitForTest, TraitForRoot)]
 #[struct_test_case(field_extra, type_value, integration)]
