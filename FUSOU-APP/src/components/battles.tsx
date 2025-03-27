@@ -371,6 +371,22 @@ export function BattlesComponent() {
                     </Match>
                   </Switch>
                 </div>
+                <Show when={battle_selected().smoke_type !== null && battle_selected().smoke_type !== 0}>
+                  <div class="flex felx-nowrap text-xs py-0.5 pl-2">
+                    Smoke Type : <span class="w-1" />
+                    <Switch fallback={<div>_</div>}>
+                      <Match when={battle_selected().smoke_type == 1}>
+                        <div>Signle</div>
+                      </Match>
+                      <Match when={battle_selected().smoke_type == 2}>
+                        <div>Double</div>
+                      </Match>
+                      <Match when={battle_selected().smoke_type == 3}>
+                        <div>Triple</div>
+                      </Match>
+                    </Switch>
+                  </div>
+                </Show>
               </Show>
             </ul>
             <Show
