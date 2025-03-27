@@ -38,7 +38,7 @@ use crate::interface::interface::EmitData;
 #[serde(rename_all = "camelCase")]
 pub struct Req {}
 
-#[derive(Getter, TraitForTest, TraitForRoot, )]
+#[derive(Getter, TraitForTest, TraitForRoot)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[register_struct(name = "api_req_combined_battle/ec_battle")]
@@ -135,6 +135,8 @@ pub struct ApiData {
     pub api_injection_kouku: Option<ApiKouku>,
     #[serde(rename = "api_air_base_injection")]
     pub api_air_base_injection: Option<ApiAirBaseInjection>,
+    #[serde(rename = "api_escape_idx")]
+    pub api_escape_idx: Option<Vec<i64>>,
 }
 
 impl TraitForConvert for Res {
@@ -166,10 +168,18 @@ mod tests {
 
         let pattern_str = "S@api_req_combined_battle@ec_battle";
         let log_path = "./src/kcapi/api_req_combined_battle/ec_battle@S.log";
-        simple_root_test::<Res>(target_path.clone(), pattern_str.to_string(), log_path.to_string());
+        simple_root_test::<Res>(
+            target_path.clone(),
+            pattern_str.to_string(),
+            log_path.to_string(),
+        );
 
         let pattern_str = "Q@api_req_combined_battle@ec_battle";
         let log_path = "./src/kcapi/api_req_combined_battle/ec_battle@Q.log";
-        simple_root_test::<Req>(target_path.clone(), pattern_str.to_string(), log_path.to_string());
+        simple_root_test::<Req>(
+            target_path.clone(),
+            pattern_str.to_string(),
+            log_path.to_string(),
+        );
     }
 }
