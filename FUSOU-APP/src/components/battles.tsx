@@ -43,6 +43,7 @@ import { CarrierBaseAssaultComponent } from "./carrier_base_assault";
 import { BattleSummaryComponent } from "./battle_summary";
 import { DestructionBattleComponent } from "./destruction_battle";
 import { DestructionBattleSummaryComponent } from "./destruction_battle_summary";
+import { EquimentComponent } from "./equipment";
 
 export function BattlesComponent() {
   // const [battles, ] = useBattles();
@@ -387,6 +388,31 @@ export function BattlesComponent() {
                     </Switch>
                   </div>
                 </Show>
+                <div class="flex felx-nowrap text-xs py-0.5 pl-2">
+                  <Show when={battle_selected().smoke_type !== null && battle_selected().smoke_type !== 0}>
+                      Smoke Type : <span class="w-1" />
+                      <Switch fallback={<div>_</div>}>
+                        <Match when={battle_selected().smoke_type == 1}>
+                          <div>Signle</div>
+                        </Match>
+                        <Match when={battle_selected().smoke_type == 2}>
+                          <div>Double</div>
+                        </Match>
+                        <Match when={battle_selected().smoke_type == 3}>
+                          <div>Triple</div>
+                        </Match>
+                      </Switch>
+                  </Show>
+                  <Show when={battle_selected().combat_ration != null}>
+                    <div class="divider divider-horizontal mr-0 ml-0" />
+                    Combat Ration : <span class="w-1" />
+                    <For each={battle_selected().combat_ration}>
+                      {(ration) => (
+                        <div><EquimentComponent slot_id={ration} name_flag={false} /></div>
+                      )}
+                    </For>
+                  </Show>
+                </div>
               </Show>
             </ul>
             <Show
