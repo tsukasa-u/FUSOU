@@ -33,7 +33,18 @@ use crate::kcapi_common::common_battle::ApiSupportInfo;
 #[add_field(extra)]
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Req {}
+pub struct Req {
+    #[serde(rename = "api_token")]
+    pub api_token: String,
+    #[serde(rename = "api_verno")]
+    pub api_verno: String,
+    #[serde(rename = "api_formation")]
+    pub api_formation: String,
+    #[serde(rename = "api_recovery_type")]
+    pub api_recovery_type: String,
+    #[serde(rename = "api_smoke_flag")]
+    pub api_smoke_flag: Option<String>,
+}
 
 #[derive(Getter, TraitForTest, TraitForRoot)]
 #[struct_test_case(field_extra, type_value, integration)]
@@ -124,6 +135,8 @@ pub struct ApiData {
     pub api_injection_kouku: Option<ApiKouku>,
     #[serde(rename = "api_air_base_injection")]
     pub api_air_base_injection: Option<ApiAirBaseInjection>,
+    #[serde(rename = "api_combat_ration")]
+    pub api_combat_ration: Option<Vec<i64>>,
 }
 
 impl TraitForConvert for Res {
