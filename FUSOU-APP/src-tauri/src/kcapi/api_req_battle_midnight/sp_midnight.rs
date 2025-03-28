@@ -34,9 +34,13 @@ pub struct Req {
     pub api_token: String,
     #[serde(rename = "api_verno")]
     pub api_verno: String,
+    #[serde(rename = "api_recovery_type")]
+    pub api_recovery_type: String,
+    #[serde(rename = "api_formation")]
+    pub api_formation: String,
 }
 
-#[derive(Getter, TraitForTest, TraitForRoot, )]
+#[derive(Getter, TraitForTest, TraitForRoot)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[register_struct(name = "api_req_battle_midnight/sp_midnight")]
@@ -130,10 +134,18 @@ mod tests {
 
         let pattern_str = "S@api_req_battle_midnight@sp_midnight";
         let log_path = "./src/kcapi/api_req_battle_midnight/sp_midnight@S.log";
-        simple_root_test::<Res>(target_path.clone(), pattern_str.to_string(), log_path.to_string());
+        simple_root_test::<Res>(
+            target_path.clone(),
+            pattern_str.to_string(),
+            log_path.to_string(),
+        );
 
         let pattern_str = "Q@api_req_battle_midnight@sp_midnight";
         let log_path = "./src/kcapi/api_req_battle_midnight/sp_midnight@Q.log";
-        simple_root_test::<Req>(target_path.clone(), pattern_str.to_string(), log_path.to_string());
+        simple_root_test::<Req>(
+            target_path.clone(),
+            pattern_str.to_string(),
+            log_path.to_string(),
+        );
     }
 }

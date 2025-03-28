@@ -42,13 +42,15 @@ pub struct Req {
     #[serde(rename = "api_l_value[0]")]
     pub api_l_value_0: Option<String>,
     #[serde(rename = "api_l_value[1]")]
-    pub api_l_value_2: Option<String>,
-    #[serde(rename = "api_l_value[2]")]
-    pub api_l_value_3: Option<String>,
-    #[serde(rename = "api_l_value[3]")]
-    pub api_l_value_4: Option<String>,
-    #[serde(rename = "api_l_value[4]")]
     pub api_l_value_1: Option<String>,
+    #[serde(rename = "api_l_value[2]")]
+    pub api_l_value_2: Option<String>,
+    #[serde(rename = "api_l_value[3]")]
+    pub api_l_value_3: Option<String>,
+    #[serde(rename = "api_l_value[4]")]
+    pub api_l_value_4: Option<String>,
+    #[serde(rename = "api_l_value[5]")]
+    pub api_l_value_5: Option<String>,
     #[serde(rename = "api_l_value3[0]")]
     pub api_l_value3_0: Option<String>,
     #[serde(rename = "api_l_value3[1]")]
@@ -57,6 +59,10 @@ pub struct Req {
     pub api_l_value3_2: Option<String>,
     #[serde(rename = "api_l_value3[3]")]
     pub api_l_value3_3: Option<String>,
+    #[serde(rename = "api_l_value3[4]")]
+    pub api_l_value3_4: Option<String>,
+    #[serde(rename = "api_l_value3[5]")]
+    pub api_l_value3_5: Option<String>,
 }
 
 #[derive(Getter, TraitForTest, TraitForRoot, TraitForConvert)]
