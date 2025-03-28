@@ -44,6 +44,7 @@ import { BattleSummaryComponent } from "./battle_summary";
 import { DestructionBattleComponent } from "./destruction_battle";
 import { DestructionBattleSummaryComponent } from "./destruction_battle_summary";
 import { EquimentComponent } from "./equipment";
+import { MstEquipmentComponent } from "./mst_equipment";
 
 export function BattlesComponent() {
   // const [battles, ] = useBattles();
@@ -389,28 +390,33 @@ export function BattlesComponent() {
                   </div>
                 </Show>
                 <div class="flex felx-nowrap text-xs py-0.5 pl-2">
-                  <Show when={battle_selected().smoke_type !== null && battle_selected().smoke_type !== 0}>
-                      Smoke Type : <span class="w-1" />
-                      <Switch fallback={<div>_</div>}>
-                        <Match when={battle_selected().smoke_type == 1}>
-                          <div>Signle</div>
-                        </Match>
-                        <Match when={battle_selected().smoke_type == 2}>
-                          <div>Double</div>
-                        </Match>
-                        <Match when={battle_selected().smoke_type == 3}>
-                          <div>Triple</div>
-                        </Match>
-                      </Switch>
+                  Smoke Type : <span class="w-1" />
+                  <Show when={battle_selected().smoke_type !== null && battle_selected().smoke_type !== 0} fallback={<div>_</div>}>
+                    <Switch fallback={<div>_</div>}>
+                      <Match when={battle_selected().smoke_type == 1}>
+                        <div>Signle</div>
+                      </Match>
+                      <Match when={battle_selected().smoke_type == 2}>
+                        <div>Double</div>
+                      </Match>
+                      <Match when={battle_selected().smoke_type == 3}>
+                        <div>Triple</div>
+                      </Match>
+                    </Switch>
                   </Show>
-                  <Show when={battle_selected().combat_ration != null}>
-                    <div class="divider divider-horizontal mr-0 ml-0" />
-                    Combat Ration : <span class="w-1" />
+                  <div class="divider divider-horizontal mr-0 ml-0" />
+                  Combat Ration : <span class="w-1" />
+                  <Show when={battle_selected().combat_ration != null} fallback={<div>_</div>}>
                     <For each={battle_selected().combat_ration}>
                       {(ration) => (
                         <div><EquimentComponent slot_id={ration} name_flag={false} /></div>
                       )}
                     </For>
+                  </Show>
+                  <div class="divider divider-horizontal mr-0 ml-0" />
+                  Balloon : <span class="w-1" />
+                  <Show when={battle_selected().balloon_flag == 1} fallback={<div>_</div>}>
+                    <MstEquipmentComponent equip_id={513} compact={true} show_param={true} name_flag={true}/>
                   </Show>
                 </div>
               </Show>
