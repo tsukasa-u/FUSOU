@@ -30,6 +30,18 @@ pub struct Req {
     pub api_token: String,
     #[serde(rename = "api_verno")]
     pub api_verno: String,
+    #[serde(rename = "api_set_slot_kind")]
+    pub api_set_slot_kind: String,
+    #[serde(rename = "api_set_idx")]
+    pub api_set_idx: String,
+    #[serde(rename = "api_set_ship")]
+    pub api_set_ship: String,
+    #[serde(rename = "api_unset_idx")]
+    pub api_unset_idx: String,
+    #[serde(rename = "api_unset_slot_kind")]
+    pub api_unset_slot_kind: String,
+    #[serde(rename = "api_unset_ship")]
+    pub api_unset_ship: String,
 }
 
 #[derive(Getter, TraitForTest, TraitForRoot, TraitForConvert)]
@@ -271,10 +283,18 @@ mod tests {
 
         let pattern_str = "S@api_req_kaisou@slot_deprive";
         let log_path = "./src/kcapi/api_req_kaisou/slot_deprive@S.log";
-        simple_root_test::<Res>(target_path.clone(), pattern_str.to_string(), log_path.to_string());
+        simple_root_test::<Res>(
+            target_path.clone(),
+            pattern_str.to_string(),
+            log_path.to_string(),
+        );
 
         let pattern_str = "Q@api_req_kaisou@slot_deprive";
         let log_path = "./src/kcapi/api_req_kaisou/slot_deprive@Q.log";
-        simple_root_test::<Req>(target_path.clone(), pattern_str.to_string(), log_path.to_string());
+        simple_root_test::<Req>(
+            target_path.clone(),
+            pattern_str.to_string(),
+            log_path.to_string(),
+        );
     }
 }

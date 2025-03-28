@@ -37,6 +37,44 @@ pub struct Req {
     pub api_token: String,
     #[serde(rename = "api_verno")]
     pub api_verno: String,
+    #[serde(rename = "api_btime")]
+    pub api_btime: String,
+    #[serde(rename = "api_l_value[0]")]
+    pub api_l_value_0: String,
+    #[serde(rename = "api_l_value[1]")]
+    pub api_l_value_1: String,
+    #[serde(rename = "api_l_value[2]")]
+    pub api_l_value_2: String,
+    #[serde(rename = "api_l_value[3]")]
+    pub api_l_value_3: String,
+    #[serde(rename = "api_l_value[4]")]
+    pub api_l_value_4: String,
+    #[serde(rename = "api_l_value[5]")]
+    pub api_l_value_5: String,
+    #[serde(rename = "api_l_value3[0]")]
+    pub api_l_value3_0: String,
+    #[serde(rename = "api_l_value3[1]")]
+    pub api_l_value3_1: String,
+    #[serde(rename = "api_l_value3[2]")]
+    pub api_l_value3_2: String,
+    #[serde(rename = "api_l_value3[3]")]
+    pub api_l_value3_3: String,
+    #[serde(rename = "api_l_value3[4]")]
+    pub api_l_value3_4: String,
+    #[serde(rename = "api_l_value3[5]")]
+    pub api_l_value3_5: String,
+    #[serde(rename = "api_l_value4[0]")]
+    pub api_l_value4_0: String,
+    #[serde(rename = "api_l_value4[1]")]
+    pub api_l_value4_1: String,
+    #[serde(rename = "api_l_value4[2]")]
+    pub api_l_value4_2: String,
+    #[serde(rename = "api_l_value4[3]")]
+    pub api_l_value4_3: String,
+    #[serde(rename = "api_l_value4[4]")]
+    pub api_l_value4_4: String,
+    #[serde(rename = "api_l_value4[5]")]
+    pub api_l_value4_5: String,
 }
 
 #[derive(Getter, TraitForTest, TraitForRoot, TraitForConvert)]
@@ -190,10 +228,18 @@ mod tests {
 
         let pattern_str = "S@api_req_combined_battle@battleresult";
         let log_path = "./src/kcapi/api_req_combined_battle/battleresult@S.log";
-        simple_root_test::<Res>(target_path.clone(), pattern_str.to_string(), log_path.to_string());
+        simple_root_test::<Res>(
+            target_path.clone(),
+            pattern_str.to_string(),
+            log_path.to_string(),
+        );
 
         let pattern_str = "Q@api_req_combined_battle@battleresult";
         let log_path = "./src/kcapi/api_req_combined_battle/battleresult@Q.log";
-        simple_root_test::<Req>(target_path.clone(), pattern_str.to_string(), log_path.to_string());
+        simple_root_test::<Req>(
+            target_path.clone(),
+            pattern_str.to_string(),
+            log_path.to_string(),
+        );
     }
 }

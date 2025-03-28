@@ -44,6 +44,8 @@ pub struct Req {
     pub api_verno: String,
     #[serde(rename = "api_recovery_type")]
     pub api_recovery_type: String,
+    #[serde(rename = "api_cell_id")]
+    pub api_cell_id: Option<String>,
 }
 
 #[derive(Getter, TraitForTest, TraitForRoot)]

@@ -46,6 +46,8 @@ pub struct Req {
     pub api_smoke_flag: Option<String>,
     #[serde(rename = "api_ration_flag")]
     pub api_ration_flag: Option<String>,
+    #[serde(rename = "api_start")]
+    pub api_start: Option<String>,
 }
 
 #[derive(Getter, TraitForTest, TraitForRoot)]
