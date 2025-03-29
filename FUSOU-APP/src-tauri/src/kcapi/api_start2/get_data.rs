@@ -1,27 +1,47 @@
-use std::collections::HashMap;
+//! # kanColle API
+//! KC APIs are also dependent on kcapi::kcapi_common.
+//! The dependency graph of the APIs is shown below.
+//! <div style="height: 80vh; overflow: scroll;">
+//!   <img src="https://tsukasa-u.github.io/FUSOU/struct_dependency_svg/api_start2@get_data.svg" alt="KC_API_dependency(api_start2/get_data)" style="max-width: 2000px;"/>
+//! </div>
+
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 // use serde_json::Value;
 
-use register_trait::{register_struct, add_field};
+use register_trait::{add_field, register_struct};
 
-use register_trait::{TraitForTest, Getter, TraitForRoot, TraitForConvert};
+use register_trait::{Getter, TraitForConvert, TraitForRoot, TraitForTest};
 
 use crate::interface::interface::{EmitData, Set};
+use crate::interface::mst_equip_exslot_ship::MstEquipExslotShips;
+use crate::interface::mst_equip_ship::MstEquipShips;
 use crate::interface::mst_ship::MstShips;
 use crate::interface::mst_slot_item::MstSlotItems;
 use crate::interface::mst_slot_item_equip_type::MstSlotItemEquipTypes;
-use crate::interface::mst_equip_exslot_ship::MstEquipExslotShips;
-use crate::interface::mst_equip_ship::MstEquipShips;
 use crate::interface::mst_stype::MstStypes;
 use crate::interface::mst_use_item::MstUseItems;
 
-#[derive(Getter, TraitForTest, TraitForRoot)]
+#[derive(Getter, TraitForTest, TraitForRoot, TraitForConvert)]
+#[convert_output(output = EmitData)]
+#[struct_test_case(field_extra, type_value, integration)]
+#[add_field(extra)]
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Req {
+    #[serde(rename = "api_token")]
+    pub api_token: String,
+    #[serde(rename = "api_verno")]
+    pub api_verno: String,
+}
+
+#[derive(Getter, TraitForTest, TraitForRoot, )]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[register_struct(name = "api_start2/getData")]
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Root {
+pub struct Res {
     #[serde(rename = "api_result")]
     pub api_result: i64,
     #[serde(rename = "api_result_msg")]
@@ -634,7 +654,7 @@ pub struct ApiMstFurniture {
     pub api_active_flag: i64,
 }
 
-impl TraitForConvert for Root {
+impl TraitForConvert for Res {
     type Output = EmitData;
     fn convert(&self) -> Option<Vec<EmitData>> {
         // need to add other fields
@@ -644,10 +664,12 @@ impl TraitForConvert for Root {
         let mst_slot_items: MstSlotItems = self.api_data.api_mst_slotitem.clone().into();
         mst_slot_items.restore();
 
-        let mst_equip_exslot_ship: MstEquipExslotShips = self.api_data.api_mst_equip_exslot_ship.clone().into();
+        let mst_equip_exslot_ship: MstEquipExslotShips =
+            self.api_data.api_mst_equip_exslot_ship.clone().into();
         mst_equip_exslot_ship.restore();
 
-        let mst_slot_item_equip_type: MstSlotItemEquipTypes = self.api_data.api_mst_slotitem_equiptype.clone().into();
+        let mst_slot_item_equip_type: MstSlotItemEquipTypes =
+            self.api_data.api_mst_slotitem_equiptype.clone().into();
         mst_slot_item_equip_type.restore();
 
         let mst_equip_ship: MstEquipShips = self.api_data.api_mst_equip_ship.clone().into();
@@ -659,17 +681,23 @@ impl TraitForConvert for Root {
         let mst_use_item: MstUseItems = self.api_data.api_mst_useitem.clone().into();
         mst_use_item.restore();
 
-
         Some(vec![
-            EmitData::Set(Set::MstShips(mst_ships)), 
-            EmitData::Set(Set::MstSlotItems(mst_slot_items))
+            EmitData::Set(Set::MstShips(mst_ships)),
+            EmitData::Set(Set::MstSlotItems(mst_slot_items)),
+            EmitData::Set(Set::MstEquipExslotShips(mst_equip_exslot_ship)),
+            EmitData::Set(Set::MstSlotItemEquipTypes(mst_slot_item_equip_type)),
+            EmitData::Set(Set::MstEquipShips(mst_equip_ship)),
+            EmitData::Set(Set::MstStypes(mst_stype)),
+            EmitData::Set(Set::MstUseItems(mst_use_item)),
         ])
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use register_trait::simple_root_check_number_size;
     use register_trait::simple_root_test;
+    // use crate::util::type_of;
 
     use super::*;
     use dotenvy::dotenv;
@@ -677,9 +705,8 @@ mod tests {
 
     #[test]
     fn test_deserialize() {
-        
         let mut target_path = "./../../FUSOU-PROXY-DATA/kcsapi".to_string();
-    
+
         dotenv().expect(".env file not found");
         for (key, value) in env::vars() {
             if key.eq("TEST_DATA_PATH") {
@@ -688,7 +715,31 @@ mod tests {
         }
 
         let pattern_str = "S@api_start2@getData";
-        let log_path = "./src/kcapi/api_start2/getData.log";
-        simple_root_test::<Root>(target_path, pattern_str.to_string(), log_path.to_string());
+        let log_path = "./src/kcapi/api_start2/getData@S.log";
+        simple_root_test::<Res>(target_path.clone(), pattern_str.to_string(), log_path.to_string());
+
+        let pattern_str = "Q@api_start2@get_data";
+        let log_path = "./src/kcapi/api_start2/get_data@Q.log";
+        simple_root_test::<Req>(target_path.clone(), pattern_str.to_string(), log_path.to_string());
+    }
+
+    #[test]
+    fn test_possible_values() {
+        let mut target_path = "./../../FUSOU-PROXY-DATA/kcsapi".to_string();
+
+        dotenv().expect(".env file not found");
+        for (key, value) in env::vars() {
+            if key.eq("TEST_DATA_PATH") {
+                target_path = value.clone();
+            }
+        }
+
+        let pattern_str = "S@api_start2@getData";
+        let log_path = "./src/kcapi/api_start2/getData_check_number@S.log";
+        simple_root_check_number_size::<Res>(
+            target_path.clone(),
+            pattern_str.to_string(),
+            log_path.to_string(),
+        );
     }
 }

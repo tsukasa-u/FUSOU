@@ -4,7 +4,7 @@ use std::sync::{LazyLock, Mutex};
 // Is it better to use onecell::sync::Lazy or std::sync::Lazy?
 pub(crate) static KCS_MST_SLOT_ITEMS: LazyLock<Mutex<MstSlotItems>> = LazyLock::new(|| {
     Mutex::new(MstSlotItems {
-        mst_slot_items: HashMap::new()
+        mst_slot_items: HashMap::new(),
     })
 });
 
@@ -12,7 +12,7 @@ use crate::kcapi;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct MstSlotItems {
-    mst_slot_items: HashMap<i64, MstSlotItem>
+    mst_slot_items: HashMap<i64, MstSlotItem>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -40,6 +40,8 @@ pub struct MstSlotItem {
     pub luck: i64,
     pub leng: i64,
     pub rare: i64,
+    pub taibaku: i64,
+    pub geigeki: i64,
     pub broken: Vec<i64>,
     pub usebull: String,
     pub version: Option<i64>,
@@ -61,20 +63,29 @@ impl MstSlotItems {
 
 impl From<Vec<kcapi::api_start2::get_data::ApiMstSlotitem>> for MstSlotItems {
     fn from(slot_items: Vec<kcapi::api_start2::get_data::ApiMstSlotitem>) -> Self {
-        
         let mut slot_item_map = HashMap::<i64, MstSlotItem>::with_capacity(slot_items.len());
         // let mut ship_map = HashMap::new();
         for slot_item in slot_items {
             slot_item_map.insert(slot_item.api_id, slot_item.into());
         }
         Self {
-            mst_slot_items: slot_item_map
+            mst_slot_items: slot_item_map,
         }
     }
 }
 
 impl From<kcapi::api_start2::get_data::ApiMstSlotitem> for MstSlotItem {
     fn from(slot_item: kcapi::api_start2::get_data::ApiMstSlotitem) -> Self {
+        let mut kaihi = slot_item.api_houk;
+        let mut meityu = slot_item.api_houm;
+        let mut taibaku = 0;
+        let mut geigeki = 0;
+        if slot_item.api_type[2] == 48 {
+            geigeki = kaihi;
+            kaihi = 0;
+            taibaku = meityu;
+            meityu = 0;
+        }
         Self {
             id: slot_item.api_id,
             sortno: slot_item.api_sortno,
@@ -89,9 +100,9 @@ impl From<kcapi::api_start2::get_data::ApiMstSlotitem> for MstSlotItem {
             tyku: slot_item.api_tyku,
             tais: slot_item.api_tais,
             atap: slot_item.api_atap,
-            houm: slot_item.api_houm,
+            houm: meityu,
             raim: slot_item.api_raim,
-            houk: slot_item.api_houk,
+            houk: kaihi,
             raik: slot_item.api_raik,
             bakk: slot_item.api_bakk,
             saku: slot_item.api_saku,
@@ -99,6 +110,8 @@ impl From<kcapi::api_start2::get_data::ApiMstSlotitem> for MstSlotItem {
             luck: slot_item.api_luck,
             leng: slot_item.api_leng,
             rare: slot_item.api_rare,
+            taibaku,
+            geigeki,
             broken: slot_item.api_broken,
             usebull: slot_item.api_usebull,
             version: slot_item.api_version,
@@ -107,4 +120,3 @@ impl From<kcapi::api_start2::get_data::ApiMstSlotitem> for MstSlotItem {
         }
     }
 }
-

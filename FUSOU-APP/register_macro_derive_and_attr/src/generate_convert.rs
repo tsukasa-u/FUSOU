@@ -1,4 +1,3 @@
-
 use darling::FromDeriveInput;
 use proc_macro::TokenStream;
 use quote::{quote, ToTokens};
@@ -11,11 +10,10 @@ pub struct MacroArgs4GenerateConvert {
 }
 
 pub fn generate_convert(ast: &mut DeriveInput) -> Result<TokenStream, syn::Error> {
-    
     // panic!("{:?}", ast.attrs);
 
-    let args = MacroArgs4GenerateConvert::from_derive_input(&ast).unwrap();
-    
+    let args = MacroArgs4GenerateConvert::from_derive_input(ast).unwrap();
+
     let mut test_implementation = Vec::new();
     match ast.data {
         syn::Data::Struct(_) => {
@@ -29,10 +27,12 @@ pub fn generate_convert(ast: &mut DeriveInput) -> Result<TokenStream, syn::Error
                     type Output = #output_token;
                 }
             });
-            
-        },
+        }
         _ => {
-            return Err(syn::Error::new_spanned(&ast.ident, "#[generate_test_root] is only defined for structs, not for enums or unions, etc."));
+            return Err(syn::Error::new_spanned(
+                &ast.ident,
+                "#[generate_test_root] is only defined for structs, not for enums or unions, etc.",
+            ));
         }
     }
 

@@ -1,0 +1,28 @@
+[package]
+name = "proxy-https"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+http-body-util = "0.1.0"
+hudsucker = "0.23.0"
+hyper = "1.5.2"
+hyper-rustls = "0.27.0"
+regex = "1.10.6"
+tokio = { version = "^1.24.2", features = ["macros", "rt-multi-thread"] }
+chrono = "0.4.31"
+chrono-tz = "0.10.0"
+http = "1.1.0"
+rustls-native-certs = "0.8.0"
+warp = "0.3.7"
+flate2 = "1.0.35"
+
+[dev-dependencies]
+tracing = { version = "0.1.35", features = ["log"] }
+tracing-subscriber = "0.3.8"
+
+[[example]]
+name = "example"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(TAURI_BUILD_DEBUG)'] }

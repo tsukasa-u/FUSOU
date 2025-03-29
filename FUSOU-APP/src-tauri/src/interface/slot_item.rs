@@ -6,13 +6,13 @@ use crate::kcapi;
 // Is it better to use onecell::sync::Lazy or std::sync::Lazy?
 pub(crate) static KCS_SLOT_ITEMS: LazyLock<Mutex<SlotItems>> = LazyLock::new(|| {
     Mutex::new(SlotItems {
-        slot_items: HashMap::new()
+        slot_items: HashMap::new(),
     })
 });
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SlotItems {
-    slot_items: HashMap<i64, SlotItem>
+    slot_items: HashMap<i64, SlotItem>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -43,7 +43,7 @@ impl From<Vec<kcapi::api_get_member::require_info::ApiSlotItem>> for SlotItems {
             slot_item_map.insert(slot_item.api_id, slot_item.into());
         }
         Self {
-            slot_items: slot_item_map
+            slot_items: slot_item_map,
         }
     }
 }

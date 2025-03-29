@@ -1,0 +1,13 @@
+@media (hover: hover) {
+    :not(#fakeID) .modal-box:active {
+        cursor: default;
+        --tw-text-opacity: 0;
+        color: var(--fallback-nc, oklch(var(--n) / var(--tw-text-opacity)))
+    }
+}
+
+:not(#fakeID) .modal-box:active {
+    cursor: default;
+    --tw-text-opacity: 1;
+    color: var(--fallback-nc, oklch(var(--n) / var(--tw-text-opacity)))
+}

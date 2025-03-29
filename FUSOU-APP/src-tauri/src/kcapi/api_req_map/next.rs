@@ -1,25 +1,60 @@
-use std::collections::HashMap;
+//! # kanColle API
+//! KC APIs are also dependent on kcapi::kcapi_common.
+//! The dependency graph of the APIs is shown below.
+//! <div style="height: 80vh; overflow: scroll;">
+//!   <img src="https://tsukasa-u.github.io/FUSOU/struct_dependency_svg/api_req_map@next.svg" alt="KC_API_dependency(api_req_map/next)" style="max-width: 2000px;"/>
+//! </div>
+
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use std::collections::HashMap;
+// use serde_json::Value;
 
-use register_trait::register_struct;
 use register_trait::add_field;
+use register_trait::register_struct;
 
-use register_trait::TraitForTest;
 use register_trait::Getter;
-use register_trait::TraitForRoot;
 use register_trait::TraitForConvert;
+use register_trait::TraitForRoot;
+use register_trait::TraitForTest;
 
-use crate::interface::interface::EmitData;
+use crate::interface::cells::Cell;
+use crate::interface::interface::{Add, EmitData};
+
+use crate::kcapi_common::common_air::ApiStage1;
+use crate::kcapi_common::common_air::ApiStage2;
+use crate::kcapi_common::common_air::ApiStage3;
+
+use crate::kcapi_common::common_map::ApiAirsearch;
+use crate::kcapi_common::common_map::ApiCellFlavor;
+use crate::kcapi_common::common_map::ApiEDeckInfo;
+use crate::kcapi_common::common_map::ApiEventmap;
+use crate::kcapi_common::common_map::ApiHappening;
+use crate::kcapi_common::common_map::ApiSelectRoute;
 
 #[derive(Getter, TraitForTest, TraitForRoot, TraitForConvert)]
 #[convert_output(output = EmitData)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Req {
+    #[serde(rename = "api_token")]
+    pub api_token: String,
+    #[serde(rename = "api_verno")]
+    pub api_verno: String,
+    #[serde(rename = "api_recovery_type")]
+    pub api_recovery_type: String,
+    #[serde(rename = "api_cell_id")]
+    pub api_cell_id: Option<String>,
+}
+
+#[derive(Getter, TraitForTest, TraitForRoot)]
+#[struct_test_case(field_extra, type_value, integration)]
+#[add_field(extra)]
 #[register_struct(name = "api_req_map/next")]
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Root {
+pub struct Res {
     #[serde(rename = "api_result")]
     pub api_result: i64,
     #[serde(rename = "api_result_msg")]
@@ -90,41 +125,21 @@ pub struct ApiData {
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")] 
+#[serde(rename_all = "camelCase")]
 pub struct ApiItemgetEoComment {
     #[serde(rename = "api_usemst")]
-    api_usemst: i64,
+    pub api_usemst: i64,
     #[serde(rename = "api_id")]
-    api_id: i64,
+    pub api_id: i64,
     #[serde(rename = "api_getcount")]
-    api_getcount: i64,
+    pub api_getcount: i64,
 }
 
 #[derive(Getter, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")] 
-pub struct ApiHappening {
-    #[serde(rename = "api_type")]
-    api_type: i64,
-    #[serde(rename = "api_count")]
-    api_count: i64,
-    #[serde(rename = "api_usemst")]
-    api_usemst: i64,
-    #[serde(rename = "api_mst_id")]
-    api_mst_id: i64,
-    #[serde(rename = "api_icon_id")]
-    api_icon_id: i64,
-    #[serde(rename = "api_dentan")]
-    api_dentan: i64,
-}
-
-#[derive(Getter, TraitForTest)]
-#[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")] 
+#[serde(rename_all = "camelCase")]
 pub struct ApiDestructionBattle {
     #[serde(rename = "api_formation")]
     pub api_formation: Vec<i64>,
@@ -152,7 +167,7 @@ pub struct ApiDestructionBattle {
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")] 
+#[serde(rename_all = "camelCase")]
 pub struct ApiAirBaseAttack {
     #[serde(rename = "api_stage_flag")]
     pub api_stage_flag: Vec<i64>,
@@ -163,7 +178,7 @@ pub struct ApiAirBaseAttack {
     #[serde(rename = "api_stage1")]
     pub api_stage1: Option<ApiStage1>,
     #[serde(rename = "api_stage2")]
-    pub api_stage2: Option<Value>,
+    pub api_stage2: Option<ApiStage2>,
     #[serde(rename = "api_stage3")]
     pub api_stage3: Option<ApiStage3>,
 }
@@ -172,55 +187,7 @@ pub struct ApiAirBaseAttack {
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")] 
-pub struct ApiStage1 {
-    #[serde(rename = "api_f_count")]
-    pub api_f_count: i64,
-    #[serde(rename = "api_f_lostcount")]
-    pub api_f_lostcount: i64,
-    #[serde(rename = "api_e_count")]
-    pub api_e_count: i64,
-    #[serde(rename = "api_e_lostcount")]
-    pub api_e_lostcount: i64,
-    #[serde(rename = "api_disp_seiku")]
-    pub api_disp_seiku: i64,
-    #[serde(rename = "api_touch_plane")]
-    pub api_touch_plane: Vec<i64>,
-}
-
-#[derive(Getter, TraitForTest)]
-#[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")] 
-pub struct ApiStage3 {
-    #[serde(rename = "api_frai_flag")]
-    pub api_frai_flag: Vec<i64>,
-    #[serde(rename = "api_erai_flag")]
-    pub api_erai_flag: Vec<i64>,
-    #[serde(rename = "api_fbak_flag")]
-    pub api_fbak_flag: Vec<i64>,
-    #[serde(rename = "api_ebak_flag")]
-    pub api_ebak_flag: Vec<i64>,
-    #[serde(rename = "api_fcl_flag")]
-    pub api_fcl_flag: Vec<i64>,
-    #[serde(rename = "api_ecl_flag")]
-    pub api_ecl_flag: Vec<i64>,
-    #[serde(rename = "api_edam")]
-    pub api_edam: Vec<i64>,
-    #[serde(rename = "api_fdam")]
-    pub api_fdam: Vec<i64>,
-    #[serde(rename = "api_e_sp_list")]
-    pub api_e_sp_list: Vec<Option<i64>>,
-    #[serde(rename = "api_f_sp_list")]
-    pub api_f_sp_list: Vec<Option<i64>>,
-}
-
-#[derive(Getter, TraitForTest)]
-#[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")] 
+#[serde(rename_all = "camelCase")]
 pub struct ApiMapSquadronPlane {
     #[serde(rename = "api_mst_id")]
     pub api_mst_id: i64,
@@ -232,21 +199,7 @@ pub struct ApiMapSquadronPlane {
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")] 
-pub struct ApiEventmap {
-    #[serde(rename = "api_max_maphp")]
-    api_max_maphp: i64,
-    #[serde(rename = "api_now_maphp")]
-    api_now_maphp: i64,
-    #[serde(rename = "api_dmg")]
-    api_dmg: i64,
-}
-
-#[derive(Getter, TraitForTest)]
-#[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")] 
+#[serde(rename_all = "camelCase")]
 pub struct ApiItemget {
     #[serde(rename = "api_usemst")]
     pub api_usemst: i64,
@@ -260,50 +213,12 @@ pub struct ApiItemget {
     pub api_icon_id: i64,
 }
 
-#[derive(Getter, TraitForTest)]
-#[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ApiCellFlavor {
-    #[serde(rename = "api_type")]
-    pub api_type: i64,
-    #[serde(rename = "api_message")]
-    pub api_message: String,
-}
-
-#[derive(Getter, TraitForTest)]
-#[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ApiSelectRoute {
-    #[serde(rename = "api_select_cells")]
-    pub api_select_cells: Vec<i64>,
-}
-
-#[derive(Getter, TraitForTest)]
-#[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ApiAirsearch {
-    #[serde(rename = "api_plane_type")]
-    pub api_plane_type: i64,
-    #[serde(rename = "api_result")]
-    pub api_result: i64,
-}
-
-#[derive(Getter, TraitForTest)]
-#[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ApiEDeckInfo {
-    #[serde(rename = "api_kind")]
-    pub api_kind: i64,
-    #[serde(rename = "api_ship_ids")]
-    pub api_ship_ids: Vec<i64>,
+impl TraitForConvert for Res {
+    type Output = EmitData;
+    fn convert(&self) -> Option<Vec<EmitData>> {
+        let cell: Cell = self.api_data.clone().into();
+        Some(vec![EmitData::Add(Add::Cell(cell))])
+    }
 }
 
 #[cfg(test)]
@@ -316,9 +231,8 @@ mod tests {
 
     #[test]
     fn test_deserialize() {
-        
         let mut target_path = "./../../FUSOU-PROXY-DATA/kcsapi".to_string();
-    
+
         dotenv().expect(".env file not found");
         for (key, value) in env::vars() {
             if key.eq("TEST_DATA_PATH") {
@@ -327,7 +241,19 @@ mod tests {
         }
 
         let pattern_str = "S@api_req_map@next";
-        let log_path = "./src/kcapi/api_req_map/next.log";
-        simple_root_test::<Root>(target_path, pattern_str.to_string(), log_path.to_string());
+        let log_path = "./src/kcapi/api_req_map/next@S.log";
+        simple_root_test::<Res>(
+            target_path.clone(),
+            pattern_str.to_string(),
+            log_path.to_string(),
+        );
+
+        let pattern_str = "Q@api_req_map@next";
+        let log_path = "./src/kcapi/api_req_map/next@Q.log";
+        simple_root_test::<Req>(
+            target_path.clone(),
+            pattern_str.to_string(),
+            log_path.to_string(),
+        );
     }
 }

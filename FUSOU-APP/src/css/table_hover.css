@@ -1,0 +1,9 @@
+@media (hover: hover) {
+    .table_hover:hover:not(.table_actived) {
+        background-color: var(--fallback-bc, oklch(var(--bc) / 0.1));
+    }
+}
+
+.table_hover:hover:not(.table_actived) {
+    background-color: var(--fallback-bc, oklch(var(--bc) / 0.1));
+}

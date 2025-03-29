@@ -1,25 +1,50 @@
-use std::collections::HashMap;
+//! # kanColle API
+//! KC APIs are also dependent on kcapi::kcapi_common.
+//! The dependency graph of the APIs is shown below.
+//! <div style="height: 80vh; overflow: scroll;">
+//!   <img src="https://tsukasa-u.github.io/FUSOU/struct_dependency_svg/api_req_battle_midnight@battle.svg" alt="KC_API_dependency(api_req_battle_midnight/battle)" style="max-width: 2000px;"/>
+//! </div>
+
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use std::collections::HashMap;
+// use serde_json::Value;
 
-use register_trait::register_struct;
 use register_trait::add_field;
+use register_trait::register_struct;
 
-use register_trait::TraitForTest;
 use register_trait::Getter;
-use register_trait::TraitForRoot;
 use register_trait::TraitForConvert;
+use register_trait::TraitForRoot;
+use register_trait::TraitForTest;
 
-use crate::interface::interface::EmitData;
+use crate::kcapi_common::common_midnight::ApiFriendlyBattle;
+use crate::kcapi_common::common_midnight::ApiFriendlyInfo;
+use crate::kcapi_common::common_midnight::ApiHougeki;
+
+use crate::interface::interface::{Add, EmitData};
+// use crate::interface::interface::Ships;
+use crate::interface::battle::Battle;
 
 #[derive(Getter, TraitForTest, TraitForRoot, TraitForConvert)]
 #[convert_output(output = EmitData)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Req {
+    #[serde(rename = "api_token")]
+    pub api_token: String,
+    #[serde(rename = "api_verno")]
+    pub api_verno: String,
+}
+
+#[derive(Getter, TraitForTest, TraitForRoot, )]
+#[struct_test_case(field_extra, type_value, integration)]
+#[add_field(extra)]
 #[register_struct(name = "api_req_battle_midnight/battle")]
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Root {
+pub struct Res {
     #[serde(rename = "api_result")]
     pub api_result: i64,
     #[serde(rename = "api_result_msg")]
@@ -76,68 +101,16 @@ pub struct ApiData {
     pub api_friendly_info: Option<ApiFriendlyInfo>,
 }
 
-#[derive(Getter, TraitForTest)]
-#[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ApiFriendlyInfo {
-    #[serde(rename = "api_production_type")]
-    pub api_production_type: i64,
-    #[serde(rename = "api_ship_id")]
-    pub api_ship_id: Vec<i64>,
-    #[serde(rename = "api_ship_lv")]
-    pub api_ship_lv: Vec<i64>,
-    #[serde(rename = "api_nowhps")]
-    pub api_nowhps: Vec<i64>,
-    #[serde(rename = "api_maxhps")]
-    pub api_maxhps: Vec<i64>,
-    #[serde(rename = "api_Slot")]
-    pub api_slot: Vec<Vec<i64>>,
-    #[serde(rename = "api_slot_ex")]
-    pub api_slot_ex: Vec<i64>,
-    #[serde(rename = "api_Param")]
-    pub api_param: Vec<Vec<i64>>,
-    #[serde(rename = "api_voice_id")]
-    pub api_voice_id: Vec<i64>,
-    #[serde(rename = "api_voice_p_no")]
-    pub api_voice_p_no: Vec<i64>,
-}
-
-#[derive(Getter, TraitForTest)]
-#[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ApiFriendlyBattle {
-    #[serde(rename = "api_flare_pos")]
-    pub api_flare_pos: Vec<i64>,
-    #[serde(rename = "api_hougeki")]
-    pub api_hougeki: ApiHougeki,
-}
-
-#[derive(Getter, TraitForTest)]
-#[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ApiHougeki {
-    #[serde(rename = "api_at_eflag")]
-    pub api_at_eflag: Option<Vec<i64>>,
-    #[serde(rename = "api_at_list")]
-    pub api_at_list: Option<Vec<i64>>,
-    #[serde(rename = "api_n_mother_list")]
-    pub api_n_mother_list: Option<Vec<i64>>,
-    #[serde(rename = "api_df_list")]
-    pub api_df_list: Option<Vec<Vec<i64>>>,
-    #[serde(rename = "api_si_list")]
-    pub api_si_list: Option<Vec<Vec<Value>>>,
-    #[serde(rename = "api_cl_list")]
-    pub api_cl_list: Option<Vec<Vec<i64>>>,
-    #[serde(rename = "api_sp_list")]
-    pub api_sp_list: Option<Vec<i64>>,
-    #[serde(rename = "api_damage")]
-    pub api_damage: Option<Vec<Vec<f64>>>,
+impl TraitForConvert for Res {
+    type Output = EmitData;
+    fn convert(&self) -> Option<Vec<EmitData>> {
+        // let ships: Ships = self.api_data.clone().into();
+        let battle: Battle = self.api_data.clone().into();
+        Some(vec![
+            // EmitData::Add(Add::Ships(ships)),
+            EmitData::Add(Add::Battle(battle)),
+        ])
+    }
 }
 
 #[cfg(test)]
@@ -150,9 +123,8 @@ mod tests {
 
     #[test]
     fn test_deserialize() {
-        
         let mut target_path = "./../../FUSOU-PROXY-DATA/kcsapi".to_string();
-    
+
         dotenv().expect(".env file not found");
         for (key, value) in env::vars() {
             if key.eq("TEST_DATA_PATH") {
@@ -161,7 +133,11 @@ mod tests {
         }
 
         let pattern_str = "S@api_req_battle_midnight@battle";
-        let log_path = "./src/kcapi/api_req_battle_midnight/battle.log";
-        simple_root_test::<Root>(target_path, pattern_str.to_string(), log_path.to_string());
+        let log_path = "./src/kcapi/api_req_battle_midnight/battle@S.log";
+        simple_root_test::<Res>(target_path.clone(), pattern_str.to_string(), log_path.to_string());
+
+        let pattern_str = "Q@api_req_battle_midnight@battle";
+        let log_path = "./src/kcapi/api_req_battle_midnight/battle@Q.log";
+        simple_root_test::<Req>(target_path.clone(), pattern_str.to_string(), log_path.to_string());
     }
 }

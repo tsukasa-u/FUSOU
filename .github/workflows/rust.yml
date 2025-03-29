@@ -1,0 +1,88 @@
+name: Rust
+
+on:
+  # push:
+  #   branches:
+  #     - main
+  pull_request:
+    branches:
+      - main
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    env:
+      SCCACHE_GHA_ENABLED: "true"
+      RUSTC_WRAPPER: "sccache"
+    defaults:
+      run:
+        working-directory: ./FUSOU-APP/src-tauri
+    steps:
+    - uses: actions/checkout@v4
+    - name: Setup Ubuntu for tauri@v1
+      run: |
+        sudo apt update && \
+        sudo apt install -y libwebkit2gtk-4.0-dev 
+    - name: Run sccache-cache
+      uses: mozilla-actions/sccache-action@v0.0.7
+    - name: Build
+      run: cargo build --verbose
+
+  doc:
+    runs-on: ubuntu-22.04
+    env:
+      SCCACHE_GHA_ENABLED: "true"
+      RUSTC_WRAPPER: "sccache"
+    defaults:
+      run:
+        working-directory: ./FUSOU-APP/src-tauri
+    needs: build
+    steps:
+    - uses: actions/checkout@v4
+    - name: Setup Ubuntu for tauir@v1 & Graphviz
+      run: |
+        sudo apt update && \
+        sudo apt install -y libwebkit2gtk-4.0-dev && \
+        sudo apt install -y graphviz
+    - name: Run sccache-cache
+      uses: mozilla-actions/sccache-action@v0.0.7
+    - name: export dependencies dot
+      run: cargo test --all test_struct_dependency
+    - name: check if dot is created
+      run: ls ./tests/struct_dependency_dot
+    - name: export dependencies svg
+      run: sudo ./tests/export_svg.sh
+    - name: check if svg is created
+      run: ls ./tests/struct_dependency_svg
+    - name: Clean docs folder
+      run: cargo clean --doc
+    - name: Build docs
+      run: cargo doc --no-deps -p app -p proxy-https -p register_trait -p register_macro_derive_and_attr 
+    - name: Add redirect
+      run: echo '<meta http-equiv="refresh" content="0;url=app/index.html">' > target/doc/index.html
+    - name: Remove lock file
+      run: rm target/doc/.lock
+    - name: move struct dependency svg
+      run: mv -f ./tests/struct_dependency_svg ./target/doc/struct_dependency_svg
+    - name: Upload artifact
+      uses: actions/upload-pages-artifact@v3
+      with:
+        path: ./FUSOU-APP/src-tauri/target/doc
+
+  deploy:
+    needs: doc
+    permissions:
+      pages: write
+      id-token: write
+      pull-requests: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
