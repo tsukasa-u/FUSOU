@@ -20,7 +20,6 @@ fn target_path() -> String {
 
 #[test]
 fn test_struct_defined() {
-
     let target_path = target_path();
 
     check_struct_defined::check_struct_defined(target_path);
@@ -28,6 +27,5 @@ fn test_struct_defined() {
 
 #[test]
 fn test_struct_dependency() {
-
     check_struct_dependency::check_struct_dependency();
 }

@@ -5,19 +5,40 @@
 //!   <img src="https://tsukasa-u.github.io/FUSOU/struct_dependency_svg/api_req_kaisou@powerup.svg" alt="KC_API_dependency(api_req_kaisou/powerup)" style="max-width: 2000px;"/>
 //! </div>
 
-use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 // use serde_json::Value;
 
-use register_trait::register_struct;
 use register_trait::add_field;
+use register_trait::register_struct;
 
-use register_trait::TraitForTest;
 use register_trait::Getter;
-use register_trait::TraitForRoot;
 use register_trait::TraitForConvert;
+use register_trait::TraitForRoot;
+use register_trait::TraitForTest;
 
 use crate::interface::interface::EmitData;
+
+#[derive(Getter, TraitForTest, TraitForRoot, TraitForConvert)]
+#[convert_output(output = EmitData)]
+#[struct_test_case(field_extra, type_value, integration)]
+#[add_field(extra)]
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Req {
+    #[serde(rename = "api_token")]
+    pub api_token: String,
+    #[serde(rename = "api_verno")]
+    pub api_verno: String,
+    #[serde(rename = "api_slot_dest_flag")]
+    pub api_slot_dest_flag: String,
+    #[serde(rename = "api_limited_feed_type")]
+    pub api_limited_feed_type: String,
+    #[serde(rename = "api_id")]
+    pub api_id: String,
+    #[serde(rename = "api_id_items")]
+    pub api_id_items: String,
+}
 
 #[derive(Getter, TraitForTest, TraitForRoot, TraitForConvert)]
 #[convert_output(output = EmitData)]
@@ -26,7 +47,7 @@ use crate::interface::interface::EmitData;
 #[register_struct(name = "api_req_kaisou/powerup")]
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Root {
+pub struct Res {
     #[serde(rename = "api_result")]
     pub api_result: i64,
     #[serde(rename = "api_result_msg")]
@@ -58,7 +79,7 @@ pub struct ApiData {
 #[serde(rename_all = "camelCase")]
 pub struct ApiUnsetList {
     #[serde(rename = "api_type3No")]
-    pub api_type3_no: i64, 
+    pub api_type3_no: i64,
     #[serde(rename = "api_slot_list")]
     pub api_slot_list: Vec<i64>,
 }
@@ -167,9 +188,8 @@ mod tests {
 
     #[test]
     fn test_deserialize() {
-        
         let mut target_path = "./../../FUSOU-PROXY-DATA/kcsapi".to_string();
-    
+
         dotenv().expect(".env file not found");
         for (key, value) in env::vars() {
             if key.eq("TEST_DATA_PATH") {
@@ -178,7 +198,19 @@ mod tests {
         }
 
         let pattern_str = "S@api_req_kaisou@powerup";
-        let log_path = "./src/kcapi/api_req_kaisou/powerup.log";
-        simple_root_test::<Root>(target_path, pattern_str.to_string(), log_path.to_string());
+        let log_path = "./src/kcapi/api_req_kaisou/powerup@S.log";
+        simple_root_test::<Res>(
+            target_path.clone(),
+            pattern_str.to_string(),
+            log_path.to_string(),
+        );
+
+        let pattern_str = "Q@api_req_kaisou@powerup";
+        let log_path = "./src/kcapi/api_req_kaisou/powerup@Q.log";
+        simple_root_test::<Req>(
+            target_path.clone(),
+            pattern_str.to_string(),
+            log_path.to_string(),
+        );
     }
 }

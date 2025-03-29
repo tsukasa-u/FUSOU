@@ -5,20 +5,33 @@
 //!   <img src="https://tsukasa-u.github.io/FUSOU/struct_dependency_svg/api_get_member@mapinfo.svg" alt="KC_API_dependency(api_get_member/mapinfo)" style="max-width: 2000px;"/>
 //! </div>
 
-use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 // use serde_json::Value;
 
-use register_trait::register_struct;
 use register_trait::add_field;
+use register_trait::register_struct;
 
-use register_trait::TraitForTest;
 use register_trait::Getter;
-use register_trait::TraitForRoot;
 use register_trait::TraitForConvert;
+use register_trait::TraitForRoot;
+use register_trait::TraitForTest;
 
-use crate::interface::interface::{EmitData, Set};
 use crate::interface::air_base::AirBases;
+use crate::interface::interface::{EmitData, Set};
+
+#[derive(Getter, TraitForTest, TraitForRoot, TraitForConvert)]
+#[convert_output(output = EmitData)]
+#[struct_test_case(field_extra, type_value, integration)]
+#[add_field(extra)]
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Req {
+    #[serde(rename = "api_token")]
+    pub api_token: String,
+    #[serde(rename = "api_verno")]
+    pub api_verno: String,
+}
 
 #[derive(Getter, TraitForTest, TraitForRoot)]
 #[struct_test_case(field_extra, type_value, integration)]
@@ -26,7 +39,7 @@ use crate::interface::air_base::AirBases;
 #[register_struct(name = "api_get_member/mapinfo")]
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Root {
+pub struct Res {
     #[serde(rename = "api_result")]
     pub api_result: i64,
     #[serde(rename = "api_result_msg")]
@@ -159,19 +172,14 @@ pub struct ApiAirBaseExpandedInfo {
     pub api_maintenance_level: i64,
 }
 
-
-impl TraitForConvert for Root {
+impl TraitForConvert for Res {
     type Output = EmitData;
     fn convert(&self) -> Option<Vec<EmitData>> {
-        
         let air_bases: AirBases = self.api_data.api_air_base.clone().into();
 
-        Some(vec![
-            EmitData::Set(Set::AirBases(air_bases))
-        ])
+        Some(vec![EmitData::Set(Set::AirBases(air_bases))])
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -183,9 +191,8 @@ mod tests {
 
     #[test]
     fn test_deserialize() {
-        
         let mut target_path = "./../../FUSOU-PROXY-DATA/kcsapi".to_string();
-    
+
         dotenv().expect(".env file not found");
         for (key, value) in env::vars() {
             if key.eq("TEST_DATA_PATH") {
@@ -194,7 +201,19 @@ mod tests {
         }
 
         let pattern_str = "S@api_get_member@mapinfo";
-        let log_path = "./src/kcapi/api_get_member/mapinfo.log";
-        simple_root_test::<Root>(target_path.to_string(), pattern_str.to_string(), log_path.to_string());
+        let log_path = "./src/kcapi/api_get_member/mapinfo@S.log";
+        simple_root_test::<Res>(
+            target_path.clone(),
+            pattern_str.to_string(),
+            log_path.to_string(),
+        );
+
+        let pattern_str = "Q@api_get_member@mapinfo";
+        let log_path = "./src/kcapi/api_get_member/mapinfo@Q.log";
+        simple_root_test::<Req>(
+            target_path.clone(),
+            pattern_str.to_string(),
+            log_path.to_string(),
+        );
     }
 }

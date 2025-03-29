@@ -4,12 +4,33 @@ use quote::quote;
 use syn::DeriveInput;
 
 pub fn generate_test_root(ast: &mut DeriveInput) -> Result<TokenStream, syn::Error> {
-    
     let mut test_implementation = Vec::new();
     match ast.data {
         syn::Data::Struct(_) => {
             let struct_name = ast.ident.clone();
             let (impl_generics, type_generics, where_clause) = &ast.generics.split_for_impl();
+
+            let struct_name_str = struct_name.clone().to_string();
+            let serde_from_str = match struct_name_str.as_str() {
+                "Res" => {
+                    quote! {
+                        let data_removed_bom: String = data.replace("\u{feff}", "");
+                        let data_removed_svdata: String = data_removed_bom.replace("svdata=", "");
+                        let root_wrap: Result<#struct_name, serde_json::Error> = serde_json::from_str(data_removed_svdata.as_str());
+                    }
+                }
+                "Req" => {
+                    quote! {
+                        let data_removed_bom: String = data.replace("\u{feff}", "");
+                        let data_removed_svdata: String = data_removed_bom.replace("svdata=", "");
+                        let root_wrap: Result<#struct_name, serde_qs::Error> = serde_qs::from_str(data_removed_svdata.as_str());
+                    }
+                }
+                _ => return Err(syn::Error::new_spanned(
+                    &ast.ident,
+                    "#[generate_test_root] is only defined for structs(Res, Req), not for others.",
+                )),
+            };
 
             test_implementation.push(quote! {
                 impl #impl_generics TraitForRoot for #struct_name #type_generics #where_clause {
@@ -22,9 +43,10 @@ pub fn generate_test_root(ast: &mut DeriveInput) -> Result<TokenStream, syn::Err
                             let data_wrap = std::fs::read_to_string(file_path.clone());
                             match data_wrap {
                                 Ok(data) => {
-                                    let data_removed_bom: String = data.replace("\u{feff}", "");
-                                    let data_removed_svdata: String = data_removed_bom.replace("svdata=", "");
-                                    let root_wrap: Result<#struct_name, serde_json::Error> = serde_json::from_str(data_removed_svdata.as_str());
+                                    // let data_removed_bom: String = data.replace("\u{feff}", "");
+                                    // let data_removed_svdata: String = data_removed_bom.replace("svdata=", "");
+                                    // let root_wrap: Result<#struct_name, serde_json::Error> = serde_json::from_str(data_removed_svdata.as_str());
+                                    #serde_from_str
                                     match root_wrap {
                                         Ok(root) => {
                                             root.test_extra(&mut log_map);
@@ -82,10 +104,12 @@ pub fn generate_test_root(ast: &mut DeriveInput) -> Result<TokenStream, syn::Err
                     }
                 }
             });
-            
-        },
+        }
         _ => {
-            return Err(syn::Error::new_spanned(&ast.ident, "#[generate_test_root] is only defined for structs, not for enums or unions, etc."));
+            return Err(syn::Error::new_spanned(
+                &ast.ident,
+                "#[generate_test_root] is only defined for structs, not for enums or unions, etc.",
+            ));
         }
     }
 

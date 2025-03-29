@@ -5,16 +5,29 @@
 //!   <img src="https://tsukasa-u.github.io/FUSOU/struct_dependency_svg/api_get_member@require_info.svg" alt="KC_API_dependency(api_get_member/require_info)" style="max-width: 2000px;"/>
 //! </div>
 
-use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 // use serde_json::Value;
 
-use register_trait::{register_struct, add_field};
+use register_trait::{add_field, register_struct};
 
-use register_trait::{TraitForTest, Getter, TraitForRoot, TraitForConvert};
+use register_trait::{Getter, TraitForConvert, TraitForRoot, TraitForTest};
 
 use crate::interface::interface::{EmitData, Set};
 use crate::interface::slot_item::SlotItems;
+
+#[derive(Getter, TraitForTest, TraitForRoot, TraitForConvert)]
+#[convert_output(output = EmitData)]
+#[struct_test_case(field_extra, type_value, integration)]
+#[add_field(extra)]
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Req {
+    #[serde(rename = "api_token")]
+    pub api_token: String,
+    #[serde(rename = "api_verno")]
+    pub api_verno: String,
+}
 
 #[derive(Getter, TraitForTest, TraitForRoot)]
 #[struct_test_case(field_extra, type_value, integration)]
@@ -22,7 +35,7 @@ use crate::interface::slot_item::SlotItems;
 #[register_struct(name = "api_get_member/require_info")]
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Root {
+pub struct Res {
     #[serde(rename = "api_result")]
     pub api_result: i64,
     #[serde(rename = "api_result_msg")]
@@ -157,7 +170,7 @@ pub struct ApiOssSetting {
     pub api_oss_items: Vec<i64>,
 }
 
-impl TraitForConvert for Root {
+impl TraitForConvert for Res {
     type Output = EmitData;
     fn convert(&self) -> Option<Vec<EmitData>> {
         let slot_item: SlotItems = self.api_data.api_slot_item.clone().into();
@@ -177,9 +190,8 @@ mod tests {
 
     #[test]
     fn test_deserialize() {
-        
         let mut target_path = "./../../FUSOU-PROXY-DATA/kcsapi".to_string();
-    
+
         dotenv().expect(".env file not found");
         for (key, value) in env::vars() {
             if key.eq("TEST_DATA_PATH") {
@@ -188,7 +200,19 @@ mod tests {
         }
 
         let pattern_str = "S@api_get_member@require_info";
-        let log_path = "./src/kcapi/api_get_member/require_info.log";
-        simple_root_test::<Root>(target_path.to_string(), pattern_str.to_string(), log_path.to_string());
+        let log_path = "./src/kcapi/api_get_member/require_info@S.log";
+        simple_root_test::<Res>(
+            target_path.clone(),
+            pattern_str.to_string(),
+            log_path.to_string(),
+        );
+
+        let pattern_str = "Q@api_get_member@require_info";
+        let log_path = "./src/kcapi/api_get_member/require_info@Q.log";
+        simple_root_test::<Req>(
+            target_path.clone(),
+            pattern_str.to_string(),
+            log_path.to_string(),
+        );
     }
 }

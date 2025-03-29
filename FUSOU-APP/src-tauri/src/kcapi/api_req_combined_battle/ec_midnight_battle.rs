@@ -5,33 +5,46 @@
 //!   <img src="https://tsukasa-u.github.io/FUSOU/struct_dependency_svg/api_req_combined_battle@ec_midnight_battle.svg" alt="KC_API_dependency(api_req_combined_battle/ec_midnight_battle)" style="max-width: 2000px;"/>
 //! </div>
 
-use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 // use serde_json::Value;
 
-use register_trait::register_struct;
 use register_trait::add_field;
+use register_trait::register_struct;
 
-use register_trait::TraitForTest;
 use register_trait::Getter;
-use register_trait::TraitForRoot;
 use register_trait::TraitForConvert;
+use register_trait::TraitForRoot;
+use register_trait::TraitForTest;
 
 use crate::interface::battle::Battle;
 use crate::interface::interface::Add;
-use crate::kcapi_common::common_midnight::ApiHougeki;
 use crate::kcapi_common::common_midnight::ApiFriendlyBattle;
 use crate::kcapi_common::common_midnight::ApiFriendlyInfo;
+use crate::kcapi_common::common_midnight::ApiHougeki;
 
 use crate::interface::interface::EmitData;
 
-#[derive(Getter, TraitForTest, TraitForRoot)]
+#[derive(Getter, TraitForTest, TraitForRoot, TraitForConvert)]
+#[convert_output(output = EmitData)]
+#[struct_test_case(field_extra, type_value, integration)]
+#[add_field(extra)]
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Req {
+    #[serde(rename = "api_token")]
+    pub api_token: String,
+    #[serde(rename = "api_verno")]
+    pub api_verno: String,
+}
+
+#[derive(Getter, TraitForTest, TraitForRoot, )]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[register_struct(name = "api_req_combined_battle/ec_midnight_battle")]
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Root {
+pub struct Res {
     #[serde(rename = "api_result")]
     pub api_result: i64,
     #[serde(rename = "api_result_msg")]
@@ -110,14 +123,13 @@ pub struct ApiData {
     pub api_friendly_info: Option<ApiFriendlyInfo>,
 }
 
-impl TraitForConvert for Root {
+impl TraitForConvert for Res {
     type Output = EmitData;
     fn convert(&self) -> Option<Vec<EmitData>> {
         let battle: Battle = self.api_data.clone().into();
         Some(vec![EmitData::Add(Add::Battle(battle))])
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -129,9 +141,8 @@ mod tests {
 
     #[test]
     fn test_deserialize() {
-        
         let mut target_path = "./../../FUSOU-PROXY-DATA/kcsapi".to_string();
-    
+
         dotenv().expect(".env file not found");
         for (key, value) in env::vars() {
             if key.eq("TEST_DATA_PATH") {
@@ -140,7 +151,11 @@ mod tests {
         }
 
         let pattern_str = "S@api_req_combined_battle@ec_midnight_battle";
-        let log_path = "./src/kcapi/api_req_combined_battle/ec_midnight_battle.log";
-        simple_root_test::<Root>(target_path, pattern_str.to_string(), log_path.to_string());
+        let log_path = "./src/kcapi/api_req_combined_battle/ec_midnight_battle@S.log";
+        simple_root_test::<Res>(target_path.clone(), pattern_str.to_string(), log_path.to_string());
+
+        let pattern_str = "Q@api_req_combined_battle@ec_midnight_battle";
+        let log_path = "./src/kcapi/api_req_combined_battle/ec_midnight_battle@Q.log";
+        simple_root_test::<Req>(target_path.clone(), pattern_str.to_string(), log_path.to_string());
     }
 }

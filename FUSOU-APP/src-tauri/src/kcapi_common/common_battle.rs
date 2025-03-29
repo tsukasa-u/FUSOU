@@ -1,5 +1,5 @@
-use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 // use serde_json::Value;
 
 use super::common_air::ApiSupportAiratack;
@@ -7,8 +7,8 @@ use super::custom_type::DuoType;
 
 use register_trait::add_field;
 
-use register_trait::TraitForTest;
 use register_trait::Getter;
+use register_trait::TraitForTest;
 
 #[derive(Getter, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
@@ -49,7 +49,7 @@ pub struct ApiHougeki {
     #[serde(rename = "api_df_list")]
     pub api_df_list: Vec<Vec<i64>>,
     #[serde(rename = "api_si_list")]
-    pub api_si_list: Vec<Vec<Option<DuoType<i64, String>>>>, 
+    pub api_si_list: Vec<Vec<Option<DuoType<i64, String>>>>,
     #[serde(rename = "api_cl_list")]
     pub api_cl_list: Vec<Vec<i64>>,
     #[serde(rename = "api_damage")]
@@ -113,7 +113,6 @@ pub struct ApiSupportInfo {
     #[serde(rename = "api_support_hourai")]
     pub api_support_hourai: Option<ApiSupportHourai>,
 }
-
 
 #[derive(Getter, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]

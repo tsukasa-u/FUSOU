@@ -1,10 +1,10 @@
-use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 use register_trait::add_field;
 
-use register_trait::TraitForTest;
 use register_trait::Getter;
+use register_trait::TraitForTest;
 
 #[derive(Getter, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
@@ -15,7 +15,6 @@ pub struct ApiSelectRoute {
     #[serde(rename = "api_select_cells")]
     pub api_select_cells: Vec<i64>,
 }
-
 
 #[derive(Getter, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
@@ -71,7 +70,7 @@ pub struct ApiEDeckInfo {
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")] 
+#[serde(rename_all = "camelCase")]
 pub struct ApiHappening {
     #[serde(rename = "api_type")]
     pub api_type: i64,

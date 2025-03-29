@@ -4,7 +4,7 @@ use std::sync::{LazyLock, Mutex};
 // Is it better to use onecell::sync::Lazy or std::sync::Lazy?
 pub(crate) static KCS_MST_SHIPS: LazyLock<Mutex<MstShips>> = LazyLock::new(|| {
     Mutex::new(MstShips {
-        mst_ships: HashMap::new()
+        mst_ships: HashMap::new(),
     })
 });
 
@@ -12,7 +12,7 @@ use crate::kcapi;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct MstShips {
-    mst_ships: HashMap<i64, MstShip>
+    mst_ships: HashMap<i64, MstShip>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -46,7 +46,7 @@ pub struct MstShip {
     pub fuel_max: Option<i64>,
     pub bull_max: Option<i64>,
     pub voicef: Option<i64>,
-    pub tais: Option<Vec<i64>>
+    pub tais: Option<Vec<i64>>,
 }
 
 impl MstShips {
@@ -69,7 +69,7 @@ impl From<Vec<kcapi::api_start2::get_data::ApiMstShip>> for MstShips {
             ship_map.insert(ship.api_id, ship.into());
         }
         Self {
-            mst_ships: ship_map
+            mst_ships: ship_map,
         }
     }
 }
@@ -106,8 +106,7 @@ impl From<kcapi::api_start2::get_data::ApiMstShip> for MstShip {
             fuel_max: ship.api_fuel_max,
             bull_max: ship.api_bull_max,
             voicef: ship.api_voicef,
-            tais: ship.api_tais
+            tais: ship.api_tais,
         }
     }
 }
-

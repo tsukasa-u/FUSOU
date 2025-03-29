@@ -67,8 +67,15 @@ impl From<kcapi::api_port::port::ApiData> for DeckPorts {
         let mut deck_ports: DeckPorts = api_data.api_deck_port.clone().into();
         deck_ports.combined_flag = api_data.api_combined_flag;
         if deck_ports.combined_flag.is_some_and(|flag| flag > 0) {
-            if let Some(deck_port) =  deck_ports.deck_ports.get_mut(&1) {
-                deck_port.ship = Some([api_data.api_deck_port[0].api_ship.clone(), api_data.api_deck_port[1].api_ship.clone()].concat().to_vec())
+            if let Some(deck_port) = deck_ports.deck_ports.get_mut(&1) {
+                deck_port.ship = Some(
+                    [
+                        api_data.api_deck_port[0].api_ship.clone(),
+                        api_data.api_deck_port[1].api_ship.clone(),
+                    ]
+                    .concat()
+                    .to_vec(),
+                )
             }
         }
         deck_ports

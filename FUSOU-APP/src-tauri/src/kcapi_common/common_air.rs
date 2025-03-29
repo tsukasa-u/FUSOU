@@ -1,11 +1,11 @@
-use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 // use serde_json::Value;
 
 use register_trait::add_field;
 
-use register_trait::TraitForTest;
 use register_trait::Getter;
+use register_trait::TraitForTest;
 
 #[derive(Getter, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]

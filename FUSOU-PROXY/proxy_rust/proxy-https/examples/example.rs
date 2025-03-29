@@ -7,8 +7,6 @@ use hudsucker::{
     tokio_tungstenite::tungstenite::Message,
     *,
 };
-use hyper_rustls::ConfigBuilderExt;
-use hyper_util::client::legacy::connect;
 use std::{net::SocketAddr, time::Duration};
 use tracing::*;
 
@@ -34,14 +32,14 @@ impl HttpHandler for LogHandler {
     async fn handle_response(&mut self, _ctx: &HttpContext, res: Response<Body>) -> Response<Body> {
         // println!("{:?}", res);
         // res.body_mut();
-        let (part , body) = res.into_parts();
+        let (part, body) = res.into_parts();
         // let _res = decode_response(res).unwrap();
-        
+
         let collected = body.collect().await.unwrap();
         let body = collected.to_bytes().clone();
         let full_body = http_body_util::Full::from(body.clone());
         let _body_vec = body.to_vec();
-        if body.len() > 0 {
+        if !body.is_empty() {
             // println!("{:?}", body.slice(0..10));
             println!("{:?}", part.headers);
         } else {
@@ -78,12 +76,12 @@ async fn main() {
         .expect("Failed to sign CA certificate");
 
     let ca = RcgenAuthority::new(key_pair, ca_cert, 1_000, aws_lc_rs::default_provider());
-    
+
     let mut http = hyper_util::client::legacy::connect::HttpConnector::new();
     http.enforce_http(false);
     // http.set_connect_timeout(Some(Duration::from_secs(5)));
     http.set_keepalive_interval(Some(Duration::from_secs(20)));
-    
+
     let tls_root_store = {
         // use "rustls-native-certs" crate
         let mut roots = rustls::RootCertStore::empty();
@@ -104,8 +102,8 @@ async fn main() {
         .enable_http1()
         .wrap_connector(http);
 
-
-    let client = hyper_util::client::legacy::Client::builder(hyper_util::rt::TokioExecutor::new()).build(https);
+    let client = hyper_util::client::legacy::Client::builder(hyper_util::rt::TokioExecutor::new())
+        .build(https);
 
     let proxy = Proxy::builder()
         .with_addr(SocketAddr::from(([127, 0, 0, 1], 3000)))
@@ -121,7 +119,7 @@ async fn main() {
     println!("Proxy listening on 127.0.0.1:3000");
 
     println!("set proxy address to http://localhost:3000 and install root ca ca_cert.der on click to trusted root ca");
-    
+
     println!("Press Ctrl+C to shutdown");
 
     if let Err(e) = proxy.start().await {

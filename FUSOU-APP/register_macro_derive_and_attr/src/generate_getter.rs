@@ -1,12 +1,5 @@
-
-use std::any::{Any, TypeId};
-use std::collections::HashSet;
-use std::hash::RandomState;
-use std::string;
-use std::sync::{LazyLock, Mutex};
-
 use proc_macro::TokenStream;
-use quote::{quote, ToTokens};
+use quote::quote;
 use syn::DeriveInput;
 
 // static METHOD_NAME: LazyLock<Mutex<HashSet<TypeId, RandomState>>> = LazyLock::new(|| {
@@ -14,7 +7,6 @@ use syn::DeriveInput;
 // });
 
 pub fn generate_getter(ast: &mut DeriveInput) -> Result<TokenStream, syn::Error> {
-    
     let struct_name = &ast.ident;
     // let mut get_fields = Vec::new();
     let mut filed_check_number = Vec::new();
@@ -23,13 +15,13 @@ pub fn generate_getter(ast: &mut DeriveInput) -> Result<TokenStream, syn::Error>
         syn::Data::Struct(ref mut struct_data) => {
             // let is_defined = METHOD_NAME.lock().unwrap().contains(&struct_data.clone().type_id());
             // if is_defined {
-                for field in &struct_data.fields {
-                    let ident = field.ident.as_ref().unwrap();
-                    let ty = &field.ty.to_token_stream();
-                    // let method_name: proc_macro2::TokenStream = format!("get_{}", ident.to_string()).parse().unwrap();
-                    // filed_names.push(ident.clone());
+            for field in &struct_data.fields {
+                let ident = field.ident.as_ref().unwrap();
+                // let ty = &field.ty.to_token_stream();
+                // let method_name: proc_macro2::TokenStream = format!("get_{}", ident.to_string()).parse().unwrap();
+                // filed_names.push(ident.clone());
 
-                    filed_check_number.push(quote! {
+                filed_check_number.push(quote! {
                         // println!("{}", stringify!(#ty));
                         // if self.#ident.is_number() {
                             // let key = (register_trait::util::type_of(self), stringify!(#ident).to_string(), register_trait::util::type_of(self.#ident));
@@ -47,17 +39,20 @@ pub fn generate_getter(ast: &mut DeriveInput) -> Result<TokenStream, syn::Error>
 
                         self.#ident.check_number(log_map, Some(key));
                     });
-    
-                    // get_fields.push(quote! {
-                    //     pub fn #method_name(&self) -> #ty {
-                    //         self.#ident.clone()
-                    //     }
-                    // });
-                }
+
+                // get_fields.push(quote! {
+                //     pub fn #method_name(&self) -> #ty {
+                //         self.#ident.clone()
+                //     }
+                // });
+            }
             // }
-        },
+        }
         _ => {
-            return Err(syn::Error::new_spanned(&ast.ident, "#[generate_getter] is only defined for structs, not for enums or unions, etc."));
+            return Err(syn::Error::new_spanned(
+                &ast.ident,
+                "#[generate_getter] is only defined for structs, not for enums or unions, etc.",
+            ));
         }
     }
     let (impl_generics, ty_generics, where_clause) = ast.generics.split_for_impl();
@@ -90,7 +85,7 @@ pub fn generate_getter(ast: &mut DeriveInput) -> Result<TokenStream, syn::Error>
                 //         }
                 //     }
                 // )*
-    
+
                 // #(
                 //     let returned_log_map = self.#filed_names.check_number();
                 //     println!("{:?}", returned_log_map);

@@ -5,26 +5,47 @@
 //!   <img src="https://tsukasa-u.github.io/FUSOU/struct_dependency_svg/api_req_map@start.svg" alt="KC_API_dependency(api_req_map/start)" style="max-width: 2000px;"/>
 //! </div>
 
-use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
-use register_trait::register_struct;
 use register_trait::add_field;
+use register_trait::register_struct;
 
-use register_trait::TraitForTest;
 use register_trait::Getter;
-use register_trait::TraitForRoot;
 use register_trait::TraitForConvert;
+use register_trait::TraitForRoot;
+use register_trait::TraitForTest;
 
 use crate::interface::cells::Cells;
-use crate::interface::interface::{Set, EmitData};
+use crate::interface::interface::{EmitData, Set};
 
-use crate::kcapi_common::common_map::ApiSelectRoute;
-use crate::kcapi_common::common_map::ApiCellFlavor;
-use crate::kcapi_common::common_map::ApiEventmap;
 use crate::kcapi_common::common_map::ApiAirsearch;
+use crate::kcapi_common::common_map::ApiCellFlavor;
 use crate::kcapi_common::common_map::ApiEDeckInfo;
+use crate::kcapi_common::common_map::ApiEventmap;
 use crate::kcapi_common::common_map::ApiHappening;
+use crate::kcapi_common::common_map::ApiSelectRoute;
+
+#[derive(Getter, TraitForTest, TraitForRoot, TraitForConvert)]
+#[convert_output(output = EmitData)]
+#[struct_test_case(field_extra, type_value, integration)]
+#[add_field(extra)]
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Req {
+    #[serde(rename = "api_token")]
+    pub api_token: String,
+    #[serde(rename = "api_verno")]
+    pub api_verno: String,
+    #[serde(rename = "api_mapinfo_no")]
+    pub api_mapinfo_no: String,
+    #[serde(rename = "api_deck_id")]
+    pub api_deck_id: String,
+    #[serde(rename = "api_serial_cid")]
+    pub api_serial_cid: String,
+    #[serde(rename = "api_maparea_id")]
+    pub api_maparea_id: String,
+}
 
 #[derive(Getter, TraitForTest, TraitForRoot)]
 #[struct_test_case(field_extra, type_value, integration)]
@@ -32,7 +53,7 @@ use crate::kcapi_common::common_map::ApiHappening;
 #[register_struct(name = "api_req_map/start")]
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Root {
+pub struct Res {
     #[serde(rename = "api_result")]
     pub api_result: i64,
     #[serde(rename = "api_result_msg")]
@@ -95,7 +116,7 @@ pub struct ApiData {
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")] 
+#[serde(rename_all = "camelCase")]
 pub struct ApiItemget {
     #[serde(rename = "api_usemst")]
     pub api_usemst: i64,
@@ -127,7 +148,7 @@ pub struct ApiCellData {
     pub api_distance: Option<i64>,
 }
 
-impl TraitForConvert for Root {
+impl TraitForConvert for Res {
     type Output = EmitData;
     fn convert(&self) -> Option<Vec<EmitData>> {
         let cells: Cells = self.api_data.clone().into();
@@ -135,7 +156,7 @@ impl TraitForConvert for Root {
         Some(vec![
             EmitData::Set(Set::Cells(cells)),
             // EmitData::Set(Set::Battles(battles))
-            ])
+        ])
     }
 }
 
@@ -149,9 +170,8 @@ mod tests {
 
     #[test]
     fn test_deserialize() {
-        
         let mut target_path = "./../../FUSOU-PROXY-DATA/kcsapi".to_string();
-    
+
         dotenv().expect(".env file not found");
         for (key, value) in env::vars() {
             if key.eq("TEST_DATA_PATH") {
@@ -160,7 +180,19 @@ mod tests {
         }
 
         let pattern_str = "S@api_req_map@start";
-        let log_path = "./src/kcapi/api_req_map/start.log";
-        simple_root_test::<Root>(target_path, pattern_str.to_string(), log_path.to_string());
+        let log_path = "./src/kcapi/api_req_map/start@S.log";
+        simple_root_test::<Res>(
+            target_path.clone(),
+            pattern_str.to_string(),
+            log_path.to_string(),
+        );
+
+        let pattern_str = "Q@api_req_map@start";
+        let log_path = "./src/kcapi/api_req_map/start@Q.log";
+        simple_root_test::<Req>(
+            target_path.clone(),
+            pattern_str.to_string(),
+            log_path.to_string(),
+        );
     }
 }

@@ -5,19 +5,50 @@
 //!   <img src="https://tsukasa-u.github.io/FUSOU/struct_dependency_svg/api_req_member@set_oss_condition.svg" alt="KC_API_dependency(api_req_member/set_oss_condition)" style="max-width: 2000px;"/>
 //! </div>
 
-use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 // use serde_json::Value;
 
-use register_trait::register_struct;
 use register_trait::add_field;
+use register_trait::register_struct;
 
-use register_trait::TraitForTest;
 use register_trait::Getter;
-use register_trait::TraitForRoot;
 use register_trait::TraitForConvert;
+use register_trait::TraitForRoot;
+use register_trait::TraitForTest;
 
 use crate::interface::interface::EmitData;
+
+#[derive(Getter, TraitForTest, TraitForRoot, TraitForConvert)]
+#[convert_output(output = EmitData)]
+#[struct_test_case(field_extra, type_value, integration)]
+#[add_field(extra)]
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Req {
+    #[serde(rename = "api_token")]
+    pub api_token: String,
+    #[serde(rename = "api_verno")]
+    pub api_verno: String,
+    #[serde(rename = "api_language_type")]
+    pub api_language_type: String,
+    #[serde(rename = "api_oss_items[0]")]
+    pub api_oss_items_0: String,
+    #[serde(rename = "api_oss_items[1]")]
+    pub api_oss_items_1: String,
+    #[serde(rename = "api_oss_items[2]")]
+    pub api_oss_items_2: String,
+    #[serde(rename = "api_oss_items[3]")]
+    pub api_oss_items_3: String,
+    #[serde(rename = "api_oss_items[4]")]
+    pub api_oss_items_4: String,
+    #[serde(rename = "api_oss_items[5]")]
+    pub api_oss_items_5: String,
+    #[serde(rename = "api_oss_items[6]")]
+    pub api_oss_items_6: String,
+    #[serde(rename = "api_oss_items[7]")]
+    pub api_oss_items_7: String,
+}
 
 #[derive(Getter, TraitForTest, TraitForRoot, TraitForConvert)]
 #[convert_output(output = EmitData)]
@@ -26,7 +57,7 @@ use crate::interface::interface::EmitData;
 #[register_struct(name = "api_req_member/set_oss_condition")]
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Root {
+pub struct Res {
     #[serde(rename = "api_result")]
     pub api_result: i64,
     #[serde(rename = "api_result_msg")]
@@ -43,9 +74,8 @@ mod tests {
 
     #[test]
     fn test_deserialize() {
-        
         let mut target_path = "./../../FUSOU-PROXY-DATA/kcsapi".to_string();
-    
+
         dotenv().expect(".env file not found");
         for (key, value) in env::vars() {
             if key.eq("TEST_DATA_PATH") {
@@ -54,7 +84,19 @@ mod tests {
         }
 
         let pattern_str = "S@api_req_member@set_oss_condition";
-        let log_path = "./src/kcapi/api_req_member/set_oss_condition.log";
-        simple_root_test::<Root>(target_path, pattern_str.to_string(), log_path.to_string());
+        let log_path = "./src/kcapi/api_req_member/set_oss_condition@S.log";
+        simple_root_test::<Res>(
+            target_path.clone(),
+            pattern_str.to_string(),
+            log_path.to_string(),
+        );
+
+        let pattern_str = "Q@api_req_member@set_oss_condition";
+        let log_path = "./src/kcapi/api_req_member/set_oss_condition@Q.log";
+        simple_root_test::<Req>(
+            target_path.clone(),
+            pattern_str.to_string(),
+            log_path.to_string(),
+        );
     }
 }

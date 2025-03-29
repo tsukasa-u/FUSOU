@@ -5,17 +5,17 @@
 //!   <img src="https://tsukasa-u.github.io/FUSOU/struct_dependency_svg/api_req_combined_battle@each_battle_water.svg" alt="KC_API_dependency(api_req_combined_battle/each_battle_water)" style="max-width: 2000px;"/>
 //! </div>
 
-use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+// use serde_json::Value;
+use std::collections::HashMap;
 
-use register_trait::register_struct;
 use register_trait::add_field;
+use register_trait::register_struct;
 
-use register_trait::TraitForTest;
 use register_trait::Getter;
-use register_trait::TraitForRoot;
 use register_trait::TraitForConvert;
+use register_trait::TraitForRoot;
+use register_trait::TraitForTest;
 
 use crate::kcapi_common::common_air::ApiAirBaseAttack;
 use crate::kcapi_common::common_air::ApiKouku;
@@ -23,11 +23,25 @@ use crate::kcapi_common::common_battle::ApiHougeki;
 use crate::kcapi_common::common_battle::ApiOpeningAtack;
 use crate::kcapi_common::common_battle::ApiOpeningTaisen;
 use crate::kcapi_common::common_battle::ApiRaigeki;
-use crate::kcapi_common::common_battle::ApiSupportHourai;
-use crate::kcapi_common::common_battle::ApiSupportInfo;
+// use crate::kcapi_common::common_battle::ApiSupportHourai;
+use crate::kcapi_common::common_air::ApiAirBaseInjection;
 use crate::kcapi_common::common_battle::ApiFlavorInfo;
+use crate::kcapi_common::common_battle::ApiSupportInfo;
 
 use crate::interface::interface::EmitData;
+
+#[derive(Getter, TraitForTest, TraitForRoot, TraitForConvert)]
+#[convert_output(output = EmitData)]
+#[struct_test_case(field_extra, type_value, integration)]
+#[add_field(extra)]
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Req {
+    #[serde(rename = "api_token")]
+    pub api_token: String,
+    #[serde(rename = "api_verno")]
+    pub api_verno: String,
+}
 
 #[derive(Getter, TraitForTest, TraitForRoot, TraitForConvert)]
 #[convert_output(output = EmitData)]
@@ -36,7 +50,7 @@ use crate::interface::interface::EmitData;
 #[register_struct(name = "api_req_combined_battle/each_battle_water")]
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Root {
+pub struct Res {
     #[serde(rename = "api_result")]
     pub api_result: i64,
     #[serde(rename = "api_result_msg")]
@@ -120,7 +134,7 @@ pub struct ApiData {
     #[serde(rename = "api_opening_taisen_flag")]
     pub api_opening_taisen_flag: i64,
     #[serde(rename = "api_opening_taisen")]
-    pub api_opening_taisen: Value,
+    pub api_opening_taisen: Option<ApiOpeningTaisen>,
     #[serde(rename = "api_opening_flag")]
     pub api_opening_flag: i64,
     #[serde(rename = "api_opening_atack")]
@@ -137,6 +151,12 @@ pub struct ApiData {
     pub api_raigeki: ApiRaigeki,
     #[serde(rename = "api_air_base_rescue_type")]
     pub api_air_base_rescue_type: Option<i64>,
+    #[serde(rename = "api_injection_kouku")]
+    pub api_injection_kouku: Option<ApiKouku>,
+    #[serde(rename = "api_air_base_injection")]
+    pub api_air_base_injection: Option<ApiAirBaseInjection>,
+    #[serde(rename = "api_combat_ration")]
+    pub api_combat_ration: Option<Vec<i64>>,
 }
 
 #[cfg(test)]
@@ -149,9 +169,8 @@ mod tests {
 
     #[test]
     fn test_deserialize() {
-        
         let mut target_path = "./../../FUSOU-PROXY-DATA/kcsapi".to_string();
-    
+
         dotenv().expect(".env file not found");
         for (key, value) in env::vars() {
             if key.eq("TEST_DATA_PATH") {
@@ -160,7 +179,19 @@ mod tests {
         }
 
         let pattern_str = "S@api_req_combined_battle@each_battle_water";
-        let log_path = "./src/kcapi/api_req_combined_battle/each_battle_water.log";
-        simple_root_test::<Root>(target_path, pattern_str.to_string(), log_path.to_string());
+        let log_path = "./src/kcapi/api_req_combined_battle/each_battle_water@S.log";
+        simple_root_test::<Res>(
+            target_path.clone(),
+            pattern_str.to_string(),
+            log_path.to_string(),
+        );
+
+        let pattern_str = "Q@api_req_combined_battle@each_battle_water";
+        let log_path = "./src/kcapi/api_req_combined_battle/each_battle_water@Q.log";
+        simple_root_test::<Req>(
+            target_path.clone(),
+            pattern_str.to_string(),
+            log_path.to_string(),
+        );
     }
 }
