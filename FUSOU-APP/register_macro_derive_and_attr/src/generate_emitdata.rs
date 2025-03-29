@@ -1,10 +1,8 @@
-
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::DeriveInput;
 
 pub fn generate_emitdata(ast: &mut DeriveInput) -> Result<TokenStream, syn::Error> {
-    
     let mut test_implementation = Vec::new();
     match ast.data {
         syn::Data::Enum(_) => {
@@ -14,8 +12,7 @@ pub fn generate_emitdata(ast: &mut DeriveInput) -> Result<TokenStream, syn::Erro
             test_implementation.push(quote! {
                 impl #impl_generics TraitForEmitData for #enum_name #type_generics #where_clause {}
             });
-            
-        },
+        }
         _ => {
             return Err(syn::Error::new_spanned(&ast.ident, "#[derive(TraitForEmitData)] is only defined for enum, not for struct or unions, etc."));
         }

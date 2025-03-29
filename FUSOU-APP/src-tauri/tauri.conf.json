@@ -8,7 +8,7 @@
   },
   "package": {
     "productName": "fusou-app",
-    "version": "0.1.0"
+    "version": "0.1.4"
   },
   "tauri": {
     "allowlist": {
@@ -31,7 +31,7 @@
         "icons/icon.icns",
         "icons/icon.ico"
       ],
-      "identifier": "com.tauri.dev",
+      "identifier": "fusou.dev",
       "longDescription": "",
       "macOS": {
         "entitlements": null,
@@ -40,7 +40,9 @@
         "providerShortName": null,
         "signingIdentity": null
       },
-      "resources": [],
+      "resources": [
+        "./resources/*"
+      ],
       "shortDescription": "",
       "targets": "all",
       "windows": {
@@ -57,19 +59,21 @@
     },
     "windows": [
       {
+        "label": "main",
         "fullscreen": false,
         "height": 600,
         "resizable": true,
         "title": "fusou-app",
         "width": 800,
-        "visible": false
+        "visible": false,
+        "fileDropEnabled": false
       }
     ],
     "systemTray": {
       "iconPath": "icons/128x128.png",
       "iconAsTemplate": true,
       "menuOnLeftClick": true,
-      "title": "vitetuarinpmsample"
+      "title": "fusou-system-tray"
     }
   }
 }

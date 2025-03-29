@@ -1,17 +1,43 @@
-use std::collections::HashMap;
+//! # kanColle API
+//! KC APIs are also dependent on kcapi::kcapi_common.
+//! The dependency graph of the APIs is shown below.
+//! <div style="height: 80vh; overflow: scroll;">
+//!   <img src="https://tsukasa-u.github.io/FUSOU/struct_dependency_svg/api_port@port.svg" alt="KC_API_dependency(api_port/port)" style="max-width: 2000px;"/>
+//! </div>
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::HashMap;
 
-use register_trait::{register_struct, add_field};
+use register_trait::{add_field, register_struct};
 
-use register_trait:: {TraitForTest, Getter, TraitForRoot, TraitForConvert};
+use register_trait::{Getter, TraitForConvert, TraitForRoot, TraitForTest};
 
+use crate::interface::deck_port::DeckPorts;
 use crate::interface::interface::{EmitData, Set};
 use crate::interface::logs::Logs;
 use crate::interface::material::Materials;
 use crate::interface::n_dock::NDocks;
 use crate::interface::ship::Ships;
-use crate::interface::deck_port::DeckPorts;
+
+#[derive(Getter, TraitForTest, TraitForRoot, TraitForConvert)]
+#[convert_output(output = EmitData)]
+#[struct_test_case(field_extra, type_value, integration)]
+#[add_field(extra)]
+#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Req {
+    #[serde(rename = "api_token")]
+    pub api_token: String,
+    #[serde(rename = "api_verno")]
+    pub api_verno: String,
+    #[serde(rename = "api_port")]
+    pub api_port: String,
+    #[serde(rename = "api_sort_key")]
+    pub api_sort_key: String,
+    #[serde(rename = "spi_sort_order")]
+    pub api_sort_order: String,
+}
 
 #[derive(Getter, TraitForTest, TraitForRoot)]
 #[struct_test_case(field_extra, type_value, integration)]
@@ -19,7 +45,7 @@ use crate::interface::deck_port::DeckPorts;
 #[register_struct(name = "api_port/port")]
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Root {
+pub struct Res {
     #[serde(rename = "api_result")]
     pub api_result: i64,
     #[serde(rename = "api_result_msg")]
@@ -63,7 +89,7 @@ pub struct ApiData {
     #[serde(rename = "api_friendly_setting")]
     pub api_friendly_setting: Option<ApiFriendlySetting>,
     #[serde(rename = "api_plane_info")]
-    pub api_plane_info: Option<ApiPlaneInfo>
+    pub api_plane_info: Option<ApiPlaneInfo>,
 }
 
 #[derive(Getter, TraitForTest)]
@@ -371,35 +397,26 @@ pub struct ApiLog {
 #[serde(rename_all = "camelCase")]
 pub struct ApiFurnitureAffectItems {
     #[serde(rename = "api_payitem_dict")]
-    pub api_payitem_dict: ApiPayitemDict,
+    pub api_payitem_dict: HashMap<String, i64>,
 }
 
-#[derive(Getter, TraitForTest)]
-#[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ApiPayitemDict {
-    // need to fix!
-    #[serde(rename = "21")]
-    pub n21: i64,
-}
-
-impl TraitForConvert for Root {
+impl TraitForConvert for Res {
     type Output = EmitData;
     fn convert(&self) -> Option<Vec<EmitData>> {
         let materials: Materials = self.api_data.api_material.clone().into();
         let ships: Ships = self.api_data.api_ship.clone().into();
         let ndocks: NDocks = self.api_data.api_ndock.clone().into();
         let logs: Logs = self.api_data.api_log.clone().into();
-        let deck_ports: DeckPorts = self.api_data.api_deck_port.clone().into();
+        // let deck_ports: DeckPorts = self.api_data.api_deck_port.clone().into();
+        let deck_ports: DeckPorts = self.api_data.clone().into();
         deck_ports.restore();
         Some(vec![
-            EmitData::Set(Set::Materials(materials)), 
-            EmitData::Set(Set::Ships(ships)), 
-            EmitData::Set(Set::NDocks(ndocks)), 
-            EmitData::Set(Set::Logs(logs)), 
-            EmitData::Set(Set::DeckPorts(deck_ports))])
+            EmitData::Set(Set::Materials(materials)),
+            EmitData::Set(Set::Ships(ships)),
+            EmitData::Set(Set::NDocks(ndocks)),
+            EmitData::Set(Set::Logs(logs)),
+            EmitData::Set(Set::DeckPorts(deck_ports)),
+        ])
     }
 }
 
@@ -413,9 +430,8 @@ mod tests {
 
     #[test]
     fn test_deserialize() {
-        
         let mut target_path = "./../../FUSOU-PROXY-DATA/kcsapi".to_string();
-    
+
         dotenv().expect(".env file not found");
         for (key, value) in env::vars() {
             if key.eq("TEST_DATA_PATH") {
@@ -424,7 +440,19 @@ mod tests {
         }
 
         let pattern_str = "S@api_port@port";
-        let log_path = "./src/kcapi/api_port/port.log";
-        simple_root_test::<Root>(target_path, pattern_str.to_string(), log_path.to_string());
+        let log_path = "./src/kcapi/api_port/port@S.log";
+        simple_root_test::<Res>(
+            target_path.clone(),
+            pattern_str.to_string(),
+            log_path.to_string(),
+        );
+
+        let pattern_str = "Q@api_port@port";
+        let log_path = "./src/kcapi/api_port/port@Q.log";
+        simple_root_test::<Req>(
+            target_path.clone(),
+            pattern_str.to_string(),
+            log_path.to_string(),
+        );
     }
 }

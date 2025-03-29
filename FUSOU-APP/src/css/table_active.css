@@ -1,0 +1,25 @@
+@media (hover: hover) {
+    :not(#fakeID) .table_active:active {
+        cursor: default;
+        --tw-bg-opacity: 1;
+        background-color: var(--fallback-n, oklch(var(--n) / var(--tw-bg-opacity)));
+        --tw-text-opacity: 1;
+        color: var(--fallback-nc, oklch(var(--nc) / var(--tw-text-opacity)))
+    }
+}
+
+:not(#fakeID) .table_active:active {
+    cursor: default;
+    --tw-bg-opacity: 1;
+    background-color: var(--fallback-n, oklch(var(--n) / var(--tw-bg-opacity)));
+    --tw-text-opacity: 1;
+    color: var(--fallback-nc, oklch(var(--nc) / var(--tw-text-opacity)))
+}
+
+.table_actived {
+    cursor: default;
+    --tw-bg-opacity: 0;
+    background-color: var(--fallback-n, oklch(var(--n) / var(--tw-bg-opacity)));
+    --tw-text-opacity: 0;
+    color: var(--fallback-nc, oklch(var(--nc) / var(--tw-text-opacity)))
+}

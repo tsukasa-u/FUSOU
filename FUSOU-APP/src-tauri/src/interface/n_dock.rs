@@ -3,7 +3,7 @@ use chrono;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct NDocks {
-    pub n_docks: Vec<NDock>
+    pub n_docks: Vec<NDock>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -20,12 +20,12 @@ pub struct NDock {
 impl From<Vec<kcapi::api_port::port::ApiNdock>> for NDocks {
     fn from(n_docks: Vec<kcapi::api_port::port::ApiNdock>) -> Self {
         let mut n_dock_list = Vec::with_capacity(4);
-        let local_time = chrono::Utc::now().timestamp();
+        // let local_time = chrono::Utc::now().timestamp();
         for n_dock in n_docks {
             n_dock_list.push(n_dock.into());
         }
         Self {
-            n_docks: n_dock_list
+            n_docks: n_dock_list,
         }
     }
 }
@@ -35,8 +35,8 @@ impl From<kcapi::api_port::port::ApiNdock> for NDock {
         let local_time = chrono::Utc::now().timestamp();
         Self {
             ship_id: n_dock.api_ship_id,
-            complete_time: n_dock.api_complete_time.clone(),
-            counter: n_dock.api_complete_time - local_time.clone(),
+            complete_time: n_dock.api_complete_time,
+            counter: n_dock.api_complete_time - local_time,
             item1: n_dock.api_item1,
             item2: n_dock.api_item2,
             item3: n_dock.api_item3,

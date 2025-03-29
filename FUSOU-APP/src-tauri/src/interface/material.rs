@@ -14,8 +14,17 @@ impl From<Vec<kcapi::api_port::port::ApiMaterial>> for Materials {
             ret.insert(idx, materials[idx].api_value);
         }
 
-        Self {
-            materials: ret
+        Self { materials: ret }
+    }
+}
+
+impl From<kcapi::api_req_hokyu::charge::ApiData> for Materials {
+    fn from(data: kcapi::api_req_hokyu::charge::ApiData) -> Self {
+        let mut ret = HashMap::with_capacity(8);
+        for idx in 0..4 {
+            ret.insert(idx, data.api_material[idx]);
         }
+
+        Self { materials: ret }
     }
 }
