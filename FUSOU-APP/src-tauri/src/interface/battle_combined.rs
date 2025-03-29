@@ -5,6 +5,7 @@ use chrono::Local;
 use crate::kcapi;
 
 use crate::interface::battle::calc_dmg;
+use crate::interface::battle::calc_escape_idx;
 use crate::interface::battle::BattleType;
 use crate::interface::battle::{
     AirBaseAirAttacks, AirBaseAssult, Battle, CarrierBaseAssault, ClosingRaigeki,
@@ -62,6 +63,8 @@ impl From<kcapi::api_req_combined_battle::ec_battle::ApiData> for Battle {
             BattleType::Hougeki(3),
         ];
 
+        let escape_idx_combined: Option<Vec<i64>> = calc_escape_idx(battle.api_escape_idx, None);
+
         let mut ret = Self {
             battle_order: Some(battle_order),
             timestamp: Some(Local::now().timestamp()),
@@ -79,7 +82,7 @@ impl From<kcapi::api_req_combined_battle::ec_battle::ApiData> for Battle {
             midnight_f_total_damages: None,
             midnight_e_total_damages: None,
             reconnaissance: Some(battle.api_search),
-            escape_idx: battle.api_escape_idx,
+            escape_idx: escape_idx_combined,
             smoke_type: Some(battle.api_smoke_type),
             combat_ration: battle.api_combat_ration,
             balloon_flag: Some(battle.api_balloon_cell),
@@ -140,6 +143,8 @@ impl From<kcapi::api_req_combined_battle::ec_midnight_battle::ApiData> for Battl
             BattleType::MidnightHougeki(()),
         ];
 
+        let escape_idx_combined: Option<Vec<i64>> = calc_escape_idx(battle.api_escape_idx, None);
+
         let mut ret = Self {
             battle_order: Some(battle_order),
             timestamp: None,
@@ -157,7 +162,7 @@ impl From<kcapi::api_req_combined_battle::ec_midnight_battle::ApiData> for Battl
             midnight_f_total_damages: None,
             midnight_e_total_damages: None,
             reconnaissance: None,
-            escape_idx: battle.api_escape_idx,
+            escape_idx: escape_idx_combined,
             smoke_type: Some(battle.api_smoke_type),
             combat_ration: None,
             balloon_flag: Some(battle.api_balloon_cell),
@@ -769,25 +774,5 @@ impl From<kcapi::api_req_combined_battle::sp_midnight::ApiData> for Battle {
         };
         calc_dmg(&mut ret);
         return ret;
-    }
-}
-
-fn calc_escape_idx(
-    escape_idx: Option<Vec<i64>>,
-    escape_idx_combine: Option<Vec<i64>>,
-) -> Option<Vec<i64>> {
-    let escape_idx_combined_unwrap: Vec<i64> = [
-        escape_idx.unwrap_or(vec![]),
-        escape_idx_combine
-            .unwrap_or(vec![])
-            .iter()
-            .map(|idx| *idx + 6)
-            .collect(),
-    ]
-    .concat();
-    if escape_idx_combined_unwrap.is_empty() {
-        None
-    } else {
-        Some(escape_idx_combined_unwrap)
     }
 }

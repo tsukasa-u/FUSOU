@@ -1506,6 +1506,8 @@ impl From<kcapi::api_req_sortie::battle::ApiData> for Battle {
             BattleType::ClosingRaigeki(()),
         ];
 
+        let escape_idx_combined: Option<Vec<i64>> = calc_escape_idx(battle.api_escape_idx, None);
+
         let mut ret = Self {
             battle_order: Some(battle_order),
             timestamp: Some(Local::now().timestamp()),
@@ -1523,7 +1525,7 @@ impl From<kcapi::api_req_sortie::battle::ApiData> for Battle {
             midnight_f_total_damages: None,
             midnight_e_total_damages: None,
             reconnaissance: Some(battle.api_search),
-            escape_idx: battle.api_escape_idx,
+            escape_idx: escape_idx_combined,
             smoke_type: Some(battle.api_smoke_type),
             combat_ration: battle.api_combat_ration,
             balloon_flag: Some(battle.api_balloon_cell),
@@ -1583,6 +1585,8 @@ impl From<kcapi::api_req_battle_midnight::battle::ApiData> for Battle {
             BattleType::MidnightHougeki(()),
         ];
 
+        let escape_idx_combined: Option<Vec<i64>> = calc_escape_idx(battle.api_escape_idx, None);
+
         let mut ret = Self {
             battle_order: Some(battle_order),
             timestamp: None,
@@ -1600,7 +1604,7 @@ impl From<kcapi::api_req_battle_midnight::battle::ApiData> for Battle {
             midnight_f_total_damages: None,
             midnight_e_total_damages: None,
             reconnaissance: None,
-            escape_idx: battle.api_escape_idx,
+            escape_idx: escape_idx_combined,
             smoke_type: Some(battle.api_smoke_type),
             combat_ration: None,
             balloon_flag: Some(battle.api_balloon_cell),
@@ -1642,6 +1646,8 @@ impl From<kcapi::api_req_battle_midnight::sp_midnight::ApiData> for Battle {
             BattleType::MidnightHougeki(()),
         ];
 
+        let escape_idx_combined: Option<Vec<i64>> = calc_escape_idx(battle.api_escape_idx, None);
+
         let mut ret = Self {
             battle_order: Some(battle_order),
             timestamp: None,
@@ -1659,7 +1665,7 @@ impl From<kcapi::api_req_battle_midnight::sp_midnight::ApiData> for Battle {
             midnight_f_total_damages: None,
             midnight_e_total_damages: None,
             reconnaissance: None,
-            escape_idx: battle.api_escape_idx,
+            escape_idx: escape_idx_combined,
             smoke_type: Some(battle.api_smoke_type),
             combat_ration: None,
             balloon_flag: Some(battle.api_balloon_cell),
@@ -1711,6 +1717,8 @@ impl From<kcapi::api_req_sortie::ld_airbattle::ApiData> for Battle {
             BattleType::OpeningAirAttack(()),
         ];
 
+        let escape_idx_combined: Option<Vec<i64>> = calc_escape_idx(airbattle.api_escape_idx, None);
+
         let mut ret = Self {
             battle_order: Some(battle_order),
             timestamp: Some(Local::now().timestamp()),
@@ -1728,7 +1736,7 @@ impl From<kcapi::api_req_sortie::ld_airbattle::ApiData> for Battle {
             midnight_f_total_damages: None,
             midnight_e_total_damages: None,
             reconnaissance: Some(airbattle.api_search),
-            escape_idx: airbattle.api_escape_idx,
+            escape_idx: escape_idx_combined,
             smoke_type: Some(airbattle.api_smoke_type),
             combat_ration: None,
             balloon_flag: Some(airbattle.api_balloon_cell),
@@ -1826,4 +1834,27 @@ where
             }
         })
         .collect::<Vec<T>>()
+}
+
+pub fn calc_escape_idx(
+    escape_idx: Option<Vec<i64>>,
+    escape_idx_combine: Option<Vec<i64>>,
+) -> Option<Vec<i64>> {
+    let escape_idx_combined_unwrap: Vec<i64> = [
+        escape_idx.unwrap_or(vec![]),
+        escape_idx_combine
+            .unwrap_or(vec![])
+            .iter()
+            .map(|idx| *idx + 6)
+            .collect(),
+    ]
+    .concat()
+    .iter()
+    .map(|v| *v - 1)
+    .collect();
+    if escape_idx_combined_unwrap.is_empty() {
+        None
+    } else {
+        Some(escape_idx_combined_unwrap)
+    }
 }
