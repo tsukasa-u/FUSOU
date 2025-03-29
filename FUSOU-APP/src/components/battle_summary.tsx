@@ -182,8 +182,6 @@ export function BattleSummaryComponent(props: ButtleSummaryProps) {
       }
     });
 
-    console.log(f_escape);
-
     let f_main_ship_id: number[] = props.deck_ship_id[
       props.battle_selected().deck_id!
     ].filter((ship_id) => ship_id != -1);
