@@ -221,7 +221,7 @@ export function DeckComponent(props: DeckPortProps) {
                 <Show when={shipId > 0}>
                   <li class="h-auto">
                     <a class="justify-start gap-x-0 gap-y-1 flex flex-wrap">
-                      <div class="justify-start gap-0 flex ">
+                      <div class="justify-start gap-0 flex">
                         <div class="pl-2 pr-0.5 truncate flex-1 min-w-12 content-center">
                           <div class="w-24 h-max">
                             <ShipNameComponent ship_id={shipId} />
