@@ -61,7 +61,7 @@ jobs:
           libxdo-dev \
           libssl-dev \
           libayatana-appindicator3-dev \
-          librsvg2-dev \
+          librsvg2-dev  && \
         sudo apt install -y graphviz
     - name: Run sccache-cache
       uses: mozilla-actions/sccache-action@v0.0.9
