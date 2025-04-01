@@ -23,8 +23,7 @@ confy = "0.6.1"
 regex = "1.9.6"
 tokio = { version = "1.38.0", features = ["full"] }
 webbrowser = "1.0.1"
-arboard = "3.4.0"
-register_macro_derive_and_attr = { path = "./../register_macro_derive_and_attr" }
+# arboard = "3.4.0"
 register_trait = { path = "./../register_trait" }
 proxy-https = { path = "./../../FUSOU-PROXY/proxy_rust/proxy-https" }
 chrono = "0.4.31"

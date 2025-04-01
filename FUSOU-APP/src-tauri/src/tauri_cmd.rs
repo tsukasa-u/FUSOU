@@ -1,6 +1,4 @@
 use std::collections::HashMap;
-use std::error::Error;
-use std::f32::consts::E;
 use std::fs;
 use std::fs::canonicalize;
 
@@ -8,7 +6,6 @@ use proxy_https::bidirectional_channel;
 use tauri::AppHandle;
 use tauri::Emitter;
 use tauri::Manager;
-use tauri::Url;
 
 use crate::external::create_external_window;
 use crate::interface::mst_equip_exslot_ship::KCS_MST_EQUIP_EXSLOT_SHIP;
