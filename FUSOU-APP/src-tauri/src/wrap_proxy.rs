@@ -3,6 +3,7 @@ use proxy_https::{
     bidirectional_channel::{Master, Slave, StatusInfo},
     edit_pac::edit_pac,
 };
+use tauri::Url;
 
 use crate::cmd;
 
@@ -34,7 +35,7 @@ pub fn serve_proxy(
     proxy_bidirectional_channel_slave: Slave<StatusInfo>,
     proxy_log_bidirectional_channel_master: Master<StatusInfo>,
     pac_bidirectional_channel_slave: Slave<StatusInfo>,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<Url, Box<dyn std::error::Error>> {
     proxy_https::proxy_server_https::check_ca(ca_path.clone());
 
     cmd::add_store();
@@ -72,16 +73,13 @@ pub fn serve_proxy(
     } else {
         Some(proxy_target.as_str())
     };
-    edit_pac(
-        pac_path.as_str(),
-        proxy_addr.unwrap().to_string().as_str(),
-        host,
-    );
+    let proxy_addr_string = proxy_addr.unwrap().to_string();
+    edit_pac(pac_path.as_str(), proxy_addr_string.clone().as_str(), host);
 
     cmd::add_pac(&format!(
         "http://localhost:{}/proxy.pac",
         pac_addr.unwrap().port()
     ));
 
-    return Ok(());
+    return Ok(Url::parse(&format!("http://{}", proxy_addr_string)).unwrap());
 }
