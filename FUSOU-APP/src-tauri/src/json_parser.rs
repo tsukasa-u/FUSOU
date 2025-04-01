@@ -1,4 +1,6 @@
 use std::error::Error;
+use tauri::Emitter;
+use tauri::Manager;
 // use proxy::bidirectional_channel;
 use proxy_https::bidirectional_channel;
 use register_trait::TraitForConvert;
@@ -8,7 +10,7 @@ use register_trait::expand_struct_selector;
 // use crate::kcapi;
 use crate::interface::interface::{Add, EmitData, Set};
 
-pub fn emit_data<R: tauri::Runtime>(handle: &impl tauri::Manager<R>, emit_data: EmitData) {
+pub fn emit_data(handle: &tauri::AppHandle, emit_data: EmitData) {
     match emit_data {
         EmitData::Add(data) => {
             match data {
@@ -164,8 +166,8 @@ pub fn struct_selector_resquest(
     };
 }
 
-async fn response_parser<R: tauri::Runtime>(
-    handle: &impl tauri::Manager<R>,
+async fn response_parser(
+    handle: &tauri::AppHandle,
     mut slave: bidirectional_channel::Slave<bidirectional_channel::StatusInfo>,
     mut proxy_log_slave: bidirectional_channel::Slave<bidirectional_channel::StatusInfo>,
 ) {
@@ -177,7 +179,7 @@ async fn response_parser<R: tauri::Runtime>(
                         println!("Received None message");
                     },
                     Some(bidirectional_channel::StatusInfo::RESPONSE { path, content_type: _, content }) => {
-                        let handle_clone = handle.app_handle();
+                        let handle_clone = handle.clone();
                         tokio::task::spawn(async move {
                             if let Ok(emit_data_list) = struct_selector_response(path, content) {
                                 for emit_data_element in emit_data_list {
@@ -187,7 +189,7 @@ async fn response_parser<R: tauri::Runtime>(
                         });
                     },
                     Some(bidirectional_channel::StatusInfo::REQUEST { path, content_type: _, content }) => {
-                        let handle_clone = handle.app_handle();
+                        let handle_clone = handle.clone();
                         tokio::task::spawn(async move {
                             if let Ok(emit_data_list) = struct_selector_resquest(path, content) {
                                 for emit_data_element in emit_data_list {
@@ -230,11 +232,11 @@ async fn response_parser<R: tauri::Runtime>(
     println!("Shutting Response parser");
 }
 
-pub fn serve_reponse_parser<R: tauri::Runtime>(
-    handle: &impl tauri::Manager<R>,
+pub fn serve_reponse_parser(
+    handle: &tauri::AppHandle,
     slave: bidirectional_channel::Slave<bidirectional_channel::StatusInfo>,
     proxy_log_slave: bidirectional_channel::Slave<bidirectional_channel::StatusInfo>,
 ) {
-    let handle_clone = handle.app_handle();
+    let handle_clone = handle.clone();
     tokio::task::spawn(async move { response_parser(&handle_clone, slave, proxy_log_slave).await });
 }

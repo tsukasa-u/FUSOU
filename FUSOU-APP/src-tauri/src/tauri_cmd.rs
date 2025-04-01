@@ -4,6 +4,7 @@ use std::fs::canonicalize;
 
 use proxy_https::bidirectional_channel;
 use tauri::AppHandle;
+use tauri::Emitter;
 use tauri::Manager;
 
 use crate::external::create_external_window;
@@ -25,6 +26,8 @@ use crate::wrap_proxy::ProxyLogChannel;
 use crate::wrap_proxy::ResponseParseChannel;
 // use crate::RESOURCES_DIR;
 // use crate::ROAMING_DIR;
+
+use crate::PROXY_ADDRESS;
 
 #[tauri::command]
 pub async fn get_mst_ships(window: tauri::Window) {
@@ -96,7 +99,7 @@ pub async fn get_mst_useitems(window: tauri::Window) {
 pub async fn show_splashscreen(window: tauri::Window) {
     // Show splashscreen
     window
-        .get_window("splashscreen")
+        .get_webview_window("splashscreen")
         .expect("no window labeled 'splashscreen' found")
         .show()
         .unwrap();
@@ -107,18 +110,18 @@ pub async fn show_splashscreen(window: tauri::Window) {
 pub async fn close_splashscreen(window: tauri::Window) {
     // Close splashscreen
     window
-        .get_window("splashscreen")
+        .get_webview_window("splashscreen")
         .expect("no window labeled 'splashscreen' found")
         .close()
         .unwrap();
     // Show main window
     window
-        .get_window("main")
+        .get_webview_window("main")
         .expect("no window labeled 'main' found")
         .show()
         .unwrap();
     window
-        .get_window("external")
+        .get_webview_window("external")
         .expect("no window labeled 'external' found")
         .show()
         .unwrap();
@@ -127,15 +130,15 @@ pub async fn close_splashscreen(window: tauri::Window) {
 #[cfg(TAURI_BUILD_TYPE = "DEBUG")]
 #[tauri::command]
 pub async fn open_debug_window(window: tauri::Window) {
-    match window.get_window("debug") {
+    match window.get_webview_window("debug") {
         Some(debug_window) => {
             debug_window.show().unwrap();
         }
         None => {
-            let _window = tauri::WindowBuilder::new(
-                &window.app_handle(),
+            let _window = tauri::WebviewWindowBuilder::new(
+                window.app_handle(),
                 "debug",
-                tauri::WindowUrl::App("/debug".into()),
+                tauri::WebviewUrl::App("/debug".into()),
             )
             .fullscreen(false)
             .title("fusou-debug")
@@ -150,7 +153,7 @@ pub async fn open_debug_window(window: tauri::Window) {
 #[tauri::command]
 pub async fn close_debug_window(window: tauri::Window) {
     window
-        .get_window("debug")
+        .get_webview_window("debug")
         .expect("no window labeled 'debug' found")
         .close()
         .unwrap();
@@ -224,14 +227,14 @@ pub async fn read_emit_file(window: tauri::Window, path: &str) -> Result<(), Str
         s if s.ends_with("S") => {
             if let Ok(emit_data_list) = struct_selector_response(formated_path, content) {
                 for emit_data_element in emit_data_list {
-                    emit_data(&window.app_handle(), emit_data_element);
+                    emit_data(window.app_handle(), emit_data_element);
                 }
             }
         }
         s if s.ends_with("Q") => {
             if let Ok(emit_data_list) = struct_selector_resquest(formated_path, content) {
                 for emit_data_element in emit_data_list {
-                    emit_data(&window.app_handle(), emit_data_element);
+                    emit_data(window.app_handle(), emit_data_element);
                 }
             }
         }
@@ -274,150 +277,150 @@ pub async fn launch_with_options(
 ) -> Result<(), ()> {
     println!("{:?}", options);
 
-    if let Some(&flag) = options.get("run_proxy_server") {
-        if flag != 0 {
-            if let Some(&server_index) = options.get("server") {
-                let server_address = match server_index {
-                    -1 => Some(""),
-                    1 => Some("w01y.kancolle-server.com"), // 横須賀鎮守府
-                    2 => Some("w02k.kancolle-server.com"), // 新呉鎮守府
-                    3 => Some("w03s.kancolle-server.com"), // 佐世保鎮守府
-                    4 => Some("w04m.kancolle-server.com"), // 舞鶴鎮守府
-                    5 => Some("w05o.kancolle-server.com"), // 大湊警備府
-                    6 => Some("w06k.kancolle-server.com"), // トラック泊地
-                    7 => Some("w07l.kancolle-server.com"), // リンガ泊地
-                    8 => Some("w08r.kancolle-server.com"), // ラバウル基地
-                    9 => Some("w09s.kancolle-server.com"), // ショートランド泊地
-                    10 => Some("w10b.kancolle-server.com"), // ブイン基地
-                    11 => Some("w11t.kancolle-server.com"), // タウイタウイ泊地
-                    12 => Some("w12p.kancolle-server.com"), // パラオ泊地
-                    13 => Some("w13b.kancolle-server.com"), // ブルネイ泊地
-                    14 => Some("w14h.kancolle-server.com"), // 単冠湾泊地
-                    15 => Some("w15p.kancolle-server.com"), // 幌筵泊地
-                    16 => Some("w16s.kancolle-server.com"), // 宿毛湾泊地
-                    17 => Some("w17k.kancolle-server.com"), // 鹿屋基地
-                    18 => Some("w18i.kancolle-server.com"), // 岩川基地
-                    19 => Some("w19s.kancolle-server.com"), // 佐伯湾泊地
-                    20 => Some("w20h.kancolle-server.com"), // 柱島泊地
-                    // 0 => Some("http://203.104.209.71"),  // 横須賀鎮守府
-                    // 1 => Some("http://203.104.209.87"),  // 新呉鎮守府
-                    // 2 => Some("http://125.6.184.215"),   // 佐世保鎮守府
-                    // 3 => Some("http://203.104.209.183"), //  舞鶴鎮守府
-                    // 4 => Some("http://203.104.209.150"), //  大湊警備府
-                    // 5 => Some("http://203.104.209.134"), //  トラック泊地
-                    // 6 => Some("http://203.104.209.167"), //  リンガ泊地
-                    // 7 => Some("http://203.104.209.199"), //  ラバウル基地
-                    // 8 => Some("http://125.6.189.7"),     // ショートランド泊地
-                    // 0 => Some("http://125.6.189.39"),   // ブイン基地
-                    // 10 => Some("http://125.6.189.71"),   // タウイタウイ泊地
-                    // 11 => Some("http://125.6.189.103"),  // パラオ泊地
-                    // 12 => Some("http://125.6.189.135"),  // ブルネイ泊地
-                    // 13 => Some("http://125.6.189.167"),  // 単冠湾泊地
-                    // 14 => Some("http://125.6.189.247"),  // 宿毛湾泊地
-                    // 15 => Some("http://125.6.189.215"),  // 幌筵泊地
-                    // 16 => Some("http://203.104.209.23"), //  鹿屋基地
-                    // 17 => Some("http://203.104.209.39"), //  岩川基地
-                    // 18 => Some("http://203.104.209.55"), //  佐伯湾泊地
-                    // 19 => Some("http://203.104.209.102"),// 柱島泊地
-                    _ => None,
-                };
-                if let Some(server_address) = server_address {
-                    #[cfg(TAURI_BUILD_TYPE = "DEBUG")]
-                    let pac_path =
-                        "./../../FUSOU-PROXY/proxy_rust/proxy-https/proxy.pac".to_string();
-                    #[cfg(TAURI_BUILD_TYPE = "RELEASE")]
-                    let pac_path = ROAMING_DIR
-                        .get()
-                        .expect("ROAMING_DIR not found")
-                        .join("./resources/pac/proxy.pac")
-                        .as_path()
-                        .to_str()
-                        .expect("failed to convert str")
-                        .to_string();
-                    // let pac_path = window.app_handle().path_resolver().resolve_resource("./resources/pac/proxy.pac").expect("failed to resolve resources/pac/proxy dir").as_path().to_str().expect("failed to convert str").to_string();
+    let proxy_addr = {
+        if let Some(&flag) = options.get("run_proxy_server") {
+            if flag != 0 {
+                if let Some(&server_index) = options.get("server") {
+                    let server_address = match server_index {
+                        -1 => Some(""),
+                        1 => Some("w01y.kancolle-server.com"), // 横須賀鎮守府
+                        2 => Some("w02k.kancolle-server.com"), // 新呉鎮守府
+                        3 => Some("w03s.kancolle-server.com"), // 佐世保鎮守府
+                        4 => Some("w04m.kancolle-server.com"), // 舞鶴鎮守府
+                        5 => Some("w05o.kancolle-server.com"), // 大湊警備府
+                        6 => Some("w06k.kancolle-server.com"), // トラック泊地
+                        7 => Some("w07l.kancolle-server.com"), // リンガ泊地
+                        8 => Some("w08r.kancolle-server.com"), // ラバウル基地
+                        9 => Some("w09s.kancolle-server.com"), // ショートランド泊地
+                        10 => Some("w10b.kancolle-server.com"), // ブイン基地
+                        11 => Some("w11t.kancolle-server.com"), // タウイタウイ泊地
+                        12 => Some("w12p.kancolle-server.com"), // パラオ泊地
+                        13 => Some("w13b.kancolle-server.com"), // ブルネイ泊地
+                        14 => Some("w14h.kancolle-server.com"), // 単冠湾泊地
+                        15 => Some("w15p.kancolle-server.com"), // 幌筵泊地
+                        16 => Some("w16s.kancolle-server.com"), // 宿毛湾泊地
+                        17 => Some("w17k.kancolle-server.com"), // 鹿屋基地
+                        18 => Some("w18i.kancolle-server.com"), // 岩川基地
+                        19 => Some("w19s.kancolle-server.com"), // 佐伯湾泊地
+                        20 => Some("w20h.kancolle-server.com"), // 柱島泊地
+                        _ => None,
+                    };
+                    if let Some(server_address) = server_address {
+                        #[cfg(TAURI_BUILD_TYPE = "DEBUG")]
+                        let pac_path =
+                            "./../../FUSOU-PROXY/proxy_rust/proxy-https/proxy.pac".to_string();
+                        #[cfg(TAURI_BUILD_TYPE = "RELEASE")]
+                        let pac_path = ROAMING_DIR
+                            .get()
+                            .expect("ROAMING_DIR not found")
+                            .join("./resources/pac/proxy.pac")
+                            .as_path()
+                            .to_str()
+                            .expect("failed to convert str")
+                            .to_string();
+                        // let pac_path = window.app_handle().path_resolver().resolve_resource("./resources/pac/proxy.pac").expect("failed to resolve resources/pac/proxy dir").as_path().to_str().expect("failed to convert str").to_string();
 
-                    #[cfg(TAURI_BUILD_TYPE = "DEBUG")]
-                    let save_path = "./../../FUSOU-PROXY-DATA".to_string();
-                    #[cfg(TAURI_BUILD_TYPE = "RELEASE")]
-                    let save_path = directories::UserDirs::new()
-                        .expect("failed to get user dirs")
-                        .document_dir()
-                        .expect("failed to get doc dirs")
-                        .join("FUSOU-PROXY-DATA")
-                        .as_path()
-                        .to_str()
-                        .expect("failed to convert str")
-                        .to_string();
+                        #[cfg(TAURI_BUILD_TYPE = "DEBUG")]
+                        let save_path = "./../../FUSOU-PROXY-DATA".to_string();
+                        #[cfg(TAURI_BUILD_TYPE = "RELEASE")]
+                        let save_path = directories::UserDirs::new()
+                            .expect("failed to get user dirs")
+                            .document_dir()
+                            .expect("failed to get doc dirs")
+                            .join("FUSOU-PROXY-DATA")
+                            .as_path()
+                            .to_str()
+                            .expect("failed to convert str")
+                            .to_string();
 
-                    #[cfg(TAURI_BUILD_TYPE = "DEBUG")]
-                    let ca_path = "./ca/".to_string();
-                    #[cfg(TAURI_BUILD_TYPE = "RELEASE")]
-                    let ca_path = ROAMING_DIR
-                        .get()
-                        .expect("ROAMING_DIR not found")
-                        .join("./resources/ca")
-                        .as_path()
-                        .to_str()
-                        .expect("failed to convert str")
-                        .to_string();
-                    // let ca_path =  window.app_handle().path_resolver().resolve_resource("./resources/ca").expect("failed to resolve app_local_data_dir").as_path().to_str().expect("failed to convert str").to_string();
+                        #[cfg(TAURI_BUILD_TYPE = "DEBUG")]
+                        let ca_path = "./ca/".to_string();
+                        #[cfg(TAURI_BUILD_TYPE = "RELEASE")]
+                        let ca_path = ROAMING_DIR
+                            .get()
+                            .expect("ROAMING_DIR not found")
+                            .join("./resources/ca")
+                            .as_path()
+                            .to_str()
+                            .expect("failed to convert str")
+                            .to_string();
+                        // let ca_path =  window.app_handle().path_resolver().resolve_resource("./resources/ca").expect("failed to resolve app_local_data_dir").as_path().to_str().expect("failed to convert str").to_string();
 
-                    println!("save address: {}", save_path);
-                    println!("ca path: {}", ca_path);
-                    println!("pac path: {}", pac_path);
+                        println!("save address: {}", save_path);
+                        println!("ca path: {}", ca_path);
+                        println!("pac path: {}", pac_path);
 
-                    wrap_proxy::serve_proxy(
-                        server_address.to_string(),
-                        save_path,
-                        pac_path,
-                        ca_path,
-                        proxy_channel.slave.clone(),
-                        proxy_log_channel.master.clone(),
-                        pac_channel.slave.clone(),
-                    )
-                    .unwrap();
+                        let addr = wrap_proxy::serve_proxy(
+                            server_address.to_string(),
+                            save_path,
+                            pac_path,
+                            ca_path,
+                            proxy_channel.slave.clone(),
+                            proxy_log_channel.master.clone(),
+                            pac_channel.slave.clone(),
+                        );
+                        match addr {
+                            Ok(addr) => {
+                                PROXY_ADDRESS.set(addr.clone());
+                                Some(addr)
+                            }
+                            Err(e) => {
+                                println!("Error: {}", e.to_string());
+                                return Err(());
+                            }
+                        }
+                    } else {
+                        None
+                    }
+                } else {
+                    None
                 }
+            } else {
+                None
             }
+        } else {
+            None
         }
-    }
+    };
+
     if let Some(&flag) = options.get("open_app") {
         if flag != 0 {
             json_parser::serve_reponse_parser(
-                &window.app_handle(),
+                window.app_handle(),
                 response_parse_channel.slave.clone(),
                 proxy_log_channel.slave.clone(),
             );
             window
-                .get_window("main")
+                .get_webview_window("main")
                 .expect("no window labeled 'main' found")
                 .show()
                 .unwrap();
-            let _ = window
-                .app_handle()
-                .tray_handle()
-                .get_item("main-open/close")
-                .set_title("Close Main Window");
+            // let _ = window
+            //     .app_handle()
+            //     .tray_handle()
+            //     .get_item("main-open/close")
+            //     .set_title("Close Main Window");
         } else {
-            window
-                .get_window("main")
-                .expect("no window labeled 'main' found")
-                .close()
-                .unwrap();
-            let _ = window
-                .app_handle()
-                .tray_handle()
-                .get_item("main-open/close")
-                .set_title("Open Main Window");
+            // window
+            //     .get_webview_window("main")
+            //     .expect("no window labeled 'main' found")
+            //     .close()
+            //     .unwrap();
+            // let _ = window
+            //     .app_handle()
+            //     .tray_handle()
+            //     .get_item("main-open/close")
+            //     .set_title("Open Main Window");
         }
     }
     if let Some(&flag) = options.get("open_kancolle") {
         if flag != 0 {
             if let Some(&browse_webview) = options.get("open_kancolle_with_webview") {
                 if browse_webview != 0 {
-                    create_external_window(&window.app_handle(), None, true);
+                    create_external_window(window.app_handle(), None, true, proxy_addr);
                 } else {
                     let browser = SHARED_BROWSER.lock().unwrap().get_browser();
-                    create_external_window(&window.app_handle(), Some(browser), false);
+                    create_external_window(window.app_handle(), Some(browser), false, proxy_addr);
                 }
             }
         }
@@ -429,5 +432,5 @@ pub async fn launch_with_options(
 //--------------------------------------------------------------
 
 pub fn set_launch_page(app: &AppHandle) {
-    let _ = app.emit_to::<()>("main", "set-main-page-launch", ());
+    let _ = app.emit_to("main", "set-main-page-launch", ());
 }
