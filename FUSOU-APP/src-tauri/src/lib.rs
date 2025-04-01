@@ -2,19 +2,18 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 // #![recursion_limit = "256"]
 
-use arboard::Clipboard;
+// use arboard::Clipboard;
 use core::time;
 use std::path::PathBuf;
-use std::process::ExitCode;
 use std::sync::Mutex;
+use tauri::Manager;
 use tauri::{
     menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     Url,
 };
-use tauri::{AppHandle, Manager};
 use tokio::sync::{mpsc, OnceCell};
-use webbrowser::{open_browser, Browser};
+use webbrowser::open_browser;
 
 mod cmd;
 mod interface;
