@@ -1,7 +1,7 @@
 import { createStore } from "solid-js/store";
 import "../css/divider.css";
 import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
-import { invoke } from "@tauri-apps/api/tauri";
+import { invoke } from "@tauri-apps/api/core";
 import { useDebugApi } from "../utility/provider";
 import { IconXMark } from "../icons/X-mark";
 import IconChevronRight from "../icons/chevron_right";

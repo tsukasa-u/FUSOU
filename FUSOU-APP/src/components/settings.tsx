@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/tauri";
+import { invoke } from "@tauri-apps/api/core";
 import { FadeToast, showFadeToast } from "./fade_toast";
 import { For } from "solid-js";
 
