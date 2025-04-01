@@ -62,6 +62,12 @@ on Linux(Ubuntu), you have to install additional library
 apt install libsoup-gnome2.4-dev libjavascriptcoregtk-4.0-dev libwebkit2gtk-4.0-dev
 ```
 
+for v2, install library as tauri installation gaide and additionally install this library
+```
+apt install libayatana-appindicator3-dev
+apt install  librsvg2-dev
+```
+
 ### 4. launch tauri
 run on terminal
 ```
