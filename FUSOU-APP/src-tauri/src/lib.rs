@@ -2,21 +2,24 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 // #![recursion_limit = "256"]
 
-use arboard::Clipboard;
+// use arboard::Clipboard;
 use core::time;
 use std::path::PathBuf;
-use std::process::ExitCode;
 use std::sync::Mutex;
-use tauri::{AppHandle, CustomMenuItem, Manager, SystemTray, SystemTrayEvent, SystemTrayMenu};
+use tauri::Manager;
+use tauri::{
+    menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder},
+    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+    Url,
+};
 use tokio::sync::{mpsc, OnceCell};
-use webbrowser::{open_browser, Browser};
+use webbrowser::open_browser;
 
 mod cmd;
 mod interface;
 mod json_parser;
 mod kcapi;
 mod kcapi_common;
-mod notification;
 
 mod discord;
 mod external;
@@ -33,6 +36,8 @@ static RESOURCES_DIR: OnceCell<PathBuf> = OnceCell::const_new();
 
 #[cfg(TAURI_BUILD_TYPE = "RELEASE")]
 static ROAMING_DIR: OnceCell<PathBuf> = OnceCell::const_new();
+
+static PROXY_ADDRESS: OnceCell<Url> = OnceCell::const_new();
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -55,112 +60,6 @@ pub fn run() {
     let (shutdown_tx, mut shutdown_rx) = mpsc::channel::<()>(1);
 
     // let shared_browser = Arc::new(Mutex::new(BrowserState::new()));
-
-    let proxy_serve_shutdown: CustomMenuItem = CustomMenuItem::new(
-        "proxy-serve-shutdown".to_string(),
-        "Shutdown Proxy Server".to_string(),
-    );
-    let gprc_serve_shutdown: CustomMenuItem = CustomMenuItem::new(
-        "gprc-serve-shutdown".to_string(),
-        "Shutdown gRPC Server".to_string(),
-    )
-    .disabled();
-    let pac_server_shutdown: CustomMenuItem = CustomMenuItem::new(
-        "pac-serve-shutdown".to_string(),
-        "Shutdown PAC Server".to_string(),
-    );
-    let delete_registry: CustomMenuItem =
-        CustomMenuItem::new("delete-registry".to_string(), "Delete Registry".to_string());
-
-    #[cfg(TAURI_BUILD_TYPE = "DEBUG")]
-    let open_debug_window: CustomMenuItem = CustomMenuItem::new(
-        "open-debug-window".to_string(),
-        "Open Debug Window".to_string(),
-    );
-
-    // let restart_proxy: CustomMenuItem = CustomMenuItem::new("restart-proxy".to_string(), "Restart Proxy Server".to_string());
-
-    let quit: CustomMenuItem = CustomMenuItem::new("quit".to_string(), "Quit".to_string())
-        .accelerator("CmdOrCtrl+Q".to_string());
-    let pause: CustomMenuItem =
-        CustomMenuItem::new("pause".to_string(), "Pause".to_string()).selected();
-    let title: CustomMenuItem =
-        CustomMenuItem::new("title".to_string(), "FUSOU".to_string()).disabled();
-    let external_open_close: CustomMenuItem = CustomMenuItem::new(
-        "external-open/close".to_string(),
-        "Open WebView".to_string(),
-    );
-    let main_open_close: CustomMenuItem = CustomMenuItem::new(
-        "main-open/close".to_string(),
-        "Open Main Window".to_string(),
-    );
-    let visit_website: CustomMenuItem =
-        CustomMenuItem::new("visit-website".to_string(), "Visit Website".to_string());
-    let open_launch_page: CustomMenuItem = CustomMenuItem::new(
-        "open-launch-page".to_string(),
-        "Open Launch Page".to_string(),
-    );
-
-    let browser_sub_menu: SystemTrayMenu = SystemTrayMenu::new()
-        .add_item(
-            CustomMenuItem::new("select-default".to_string(), "Default".to_string()).selected(),
-        )
-        .add_item(
-            CustomMenuItem::new("select-firefox".to_string(), "Firefox".to_string()).disabled(),
-        )
-        .add_item(CustomMenuItem::new("select-chrome".to_string(), "Chrome".to_string()).disabled())
-        .add_item(CustomMenuItem::new("select-opera".to_string(), "Opera".to_string()).disabled())
-        .add_native_item(tauri::SystemTrayMenuItem::Separator)
-        .add_item(CustomMenuItem::new(
-            "copy-url".to_string(),
-            "Copy URL".to_string(),
-        ));
-
-    let danger_ope_sub_menu: SystemTrayMenu = SystemTrayMenu::new()
-        .add_item(
-            CustomMenuItem::new("danger-title".to_string(), "Danger Zone".to_string()).disabled(),
-        )
-        .add_item(proxy_serve_shutdown)
-        .add_item(gprc_serve_shutdown)
-        .add_item(pac_server_shutdown)
-        .add_item(delete_registry);
-
-    #[cfg(TAURI_BUILD_TYPE = "DEBUG")]
-    let danger_ope_sub_menu = danger_ope_sub_menu
-        .add_native_item(tauri::SystemTrayMenuItem::Separator)
-        .add_item(open_debug_window);
-
-    let advanced_sub_menu: SystemTrayMenu = SystemTrayMenu::new()
-        .add_item(
-            CustomMenuItem::new("advanced-title".to_string(), "Advanced".to_string()).disabled(),
-        )
-        .add_native_item(tauri::SystemTrayMenuItem::Separator)
-        .add_submenu(tauri::SystemTraySubmenu::new(
-            "Select browser".to_string(),
-            browser_sub_menu,
-        ))
-        .add_submenu(tauri::SystemTraySubmenu::new(
-            "Danger Zone".to_string(),
-            danger_ope_sub_menu,
-        ));
-
-    let tray_menu = SystemTrayMenu::new()
-        .add_item(title)
-        .add_native_item(tauri::SystemTrayMenuItem::Separator)
-        .add_item(visit_website)
-        .add_item(main_open_close)
-        .add_item(external_open_close)
-        .add_item(open_launch_page)
-        .add_native_item(tauri::SystemTrayMenuItem::Separator)
-        .add_submenu(tauri::SystemTraySubmenu::new(
-            "Advanced".to_string(),
-            advanced_sub_menu,
-        ))
-        .add_native_item(tauri::SystemTrayMenuItem::Separator)
-        .add_item(pause)
-        .add_item(quit);
-
-    let system_tray = SystemTray::new().with_menu(tray_menu).with_tooltip("FUSOU");
 
     let external_window_size_before = Mutex::new(tauri::PhysicalSize::<u32> {
         width: 1200,
@@ -189,6 +88,8 @@ pub fn run() {
         slave: response_parse_channel_slave.clone(),
     };
 
+    let mut ctx = tauri::generate_context!();
+
     tauri::Builder::default()
         .manage(manege_pac_channel)
         .manage(manage_proxy_channel)
@@ -214,6 +115,8 @@ pub fn run() {
             tauri_cmd::read_emit_file,
         ])
         .plugin(tauri_plugin_window_state::Builder::default().build())
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_shell::init())
         .setup(move |app| {
             #[cfg(TAURI_BUILD_TYPE = "DEBUG")]
             RESOURCES_DIR
@@ -243,30 +146,315 @@ pub fn run() {
                 }
                 None => return Err("Failed to get app data directory".into()),
             }
+            let danger_ope_sub_menu_title =
+                MenuItemBuilder::with_id("danger-title".to_string(), "Danger Zone".to_string())
+                    .enabled(false)
+                    .build(app)
+                    .unwrap();
+            let proxy_serve_shutdown = MenuItemBuilder::with_id(
+                "proxy-serve-shutdown".to_string(),
+                "Shutdown Proxy Server".to_string(),
+            )
+            .build(app)
+            .unwrap();
+            let pac_server_shutdown = MenuItemBuilder::with_id(
+                "pac-serve-shutdown".to_string(),
+                "Shutdown PAC Server".to_string(),
+            )
+            .build(app)
+            .unwrap();
+            let delete_registry = MenuItemBuilder::with_id(
+                "delete-registry".to_string(),
+                "Delete Registry".to_string(),
+            )
+            .build(app)
+            .unwrap();
 
-            // create_external_window(&app, browser);
-            // let _window = app.get_window("main").unwrap().close().unwrap();
+            #[cfg(TAURI_BUILD_TYPE = "DEBUG")]
+            let open_debug_window = MenuItemBuilder::with_id(
+                "open-debug-window".to_string(),
+                "Open Debug Window".to_string(),
+            )
+            .build(app)
+            .unwrap();
 
-            // start proxy server
-            // let save_path = "./../../FUSOU-PROXY-DATA".to_string();
-            // let proxy_addr = proxy::proxy_server::serve_proxy(proxy_target.to_string(), 0, proxy_bidirectional_channel_slave, proxy_log_bidirectional_channel_master, save_path);
+            let quit = MenuItemBuilder::with_id("quit".to_string(), "Quit".to_string())
+                .build(app)
+                .unwrap();
+            let title = MenuItemBuilder::with_id("title".to_string(), "FUSOU".to_string())
+                .enabled(false)
+                .build(app)
+                .unwrap();
+            let external_open_close = MenuItemBuilder::with_id(
+                "external-open/close".to_string(),
+                "Open WebView".to_string(),
+            )
+            .build(app)
+            .unwrap();
+            let main_open_close = MenuItemBuilder::with_id(
+                "main-open/close".to_string(),
+                "Open Main Window".to_string(),
+            )
+            .build(app)
+            .unwrap();
+            let visit_website =
+                MenuItemBuilder::with_id("visit-website".to_string(), "Visit Website".to_string())
+                    .build(app)
+                    .unwrap();
+            let open_launch_page = MenuItemBuilder::with_id(
+                "open-launch-page".to_string(),
+                "Open Launch Page".to_string(),
+            )
+            .build(app)
+            .unwrap();
 
-            // if proxy_addr.is_err() {
-            //   return Err("Failed to start proxy server".into());
-            // }
+            let danger_ope_sub_menu = SubmenuBuilder::new(app, "Danger Zone")
+                .item(&danger_ope_sub_menu_title)
+                .item(&proxy_serve_shutdown)
+                .item(&pac_server_shutdown)
+                .item(&delete_registry);
 
-            // // start pac server
-            // let pac_addr = proxy::pac_server::serve_pac_file(pac_path.clone(), 0, pac_bidirectional_channel_slave);
+            #[cfg(TAURI_BUILD_TYPE = "DEBUG")]
+            let danger_ope_sub_menu = danger_ope_sub_menu.separator().item(&open_debug_window);
 
-            // if pac_addr.is_err() {
-            //   return Err("Failed to start pac server".into());
-            // }
+            let danger_ope_sub_menu = danger_ope_sub_menu.build().unwrap();
 
-            // proxy::edit_pac::edit_pac(&pac_path, proxy_addr.unwrap().to_string().as_str());
+            let adavanced_title =
+                MenuItemBuilder::with_id("advanced-title".to_string(), "Advanced".to_string())
+                    .enabled(false)
+                    .build(app)
+                    .unwrap();
 
-            // cmd_pac_tauri::add_pac(&format!("http://localhost:{}/proxy.pac", pac_addr.unwrap().port()));
+            let advanced_sub_menu = SubmenuBuilder::new(app, "Adavanced")
+                // .item(&adavanced_title)
+                // .separator()
+                .item(&danger_ope_sub_menu)
+                .build()
+                .unwrap();
 
-            // json_parser::serve_reponse_parser(&app.handle(), response_parse_channel_slave, proxy_log_bidirectional_channel_slave);
+            let tray_menu = MenuBuilder::new(app)
+                .item(&title)
+                .separator()
+                .item(&visit_website)
+                .item(&main_open_close)
+                .item(&external_open_close)
+                .item(&open_launch_page)
+                .separator()
+                .item(&advanced_sub_menu)
+                .separator()
+                .item(&quit)
+                .build()
+                .unwrap();
+
+            let system_tray = TrayIconBuilder::new()
+                .menu(&tray_menu)
+                .tooltip("FUSOU")
+                .on_tray_icon_event(|tray, event| {
+                    if let TrayIconEvent::Click {
+                        button: MouseButton::Left,
+                        button_state: MouseButtonState::Up,
+                        ..
+                    } = event
+                    {
+                        let app = tray.app_handle();
+                        // if let Some(webview_window) = app.get_webview_window("main") {
+                        //     let _ = webview_window.show();
+                        //     let _ = webview_window.set_focus();
+                        // }
+                        let window = app.get_webview_window("main");
+                        match window {
+                            Some(window) => {
+                                if let Ok(false) = window.is_visible() {
+                                    window.show().unwrap();
+                                }
+                            }
+                            None => {
+                                let _window = tauri::WebviewWindowBuilder::new(
+                                    app,
+                                    "main",
+                                    tauri::WebviewUrl::App("index.html".into()),
+                                )
+                                .title("fusou-app")
+                                .build()
+                                .unwrap();
+                            }
+                        }
+
+                        println!("system tray received a left click");
+                    }
+                })
+                .on_menu_event(move |tray, event| {
+                    match event.id().as_ref() {
+                        #[cfg(TAURI_BUILD_TYPE = "DEBUG")]
+                        "open-debug-window" => match tray.get_webview_window("debug") {
+                            Some(debug_window) => {
+                                debug_window.show().unwrap();
+                            }
+                            None => {
+                                let _window = tauri::WebviewWindowBuilder::new(
+                                    tray.app_handle(),
+                                    "debug",
+                                    tauri::WebviewUrl::App("/debug".into()),
+                                )
+                                .fullscreen(false)
+                                .title("fusou-debug")
+                                .build()
+                                .unwrap();
+                            }
+                        },
+                        "proxy-serve-shutdown" => {}
+                        "quit" => {
+                            if let Some(window) = tray.get_webview_window("main") {
+                                if let Ok(visible) = window.is_visible() {
+                                    if visible {
+                                        tray.get_webview_window("main")
+                                            .expect("no window labeled 'main' found")
+                                            .hide()
+                                            .unwrap();
+                                    }
+                                }
+                            }
+
+                            if let Some(window) = tray.get_webview_window("external") {
+                                if let Ok(visible) = window.is_visible() {
+                                    if visible {
+                                        tray.get_webview_window("external")
+                                            .expect("no window labeled 'external' found")
+                                            .hide()
+                                            .unwrap();
+                                    }
+                                }
+                            }
+
+                            // let _ = app
+                            //     .tray_handle()
+                            //     .get_item("main-open/close")
+                            //     .set_enabled(false);
+                            // let _ = app.tray_handle().get_item("quit").set_enabled(false);
+                            // let _ = app
+                            //     .tray_handle()
+                            //     .get_item("advanced-title")
+                            //     .set_enabled(false);
+                            main_open_close.set_enabled(false);
+                            quit.set_enabled(false);
+                            adavanced_title.set_enabled(false);
+
+                            cmd::remove_pac();
+
+                            // discord::close();
+
+                            let shutdown_tx_clone = shutdown_tx.clone();
+                            tauri::async_runtime::spawn(async move {
+                                let _ = shutdown_tx_clone.send(()).await;
+                            });
+                        }
+                        "visit-website" => {
+                            let browser = SHARED_BROWSER.lock().unwrap().get_browser();
+                            let _ = open_browser(browser, "https://github.com/tsukasa-u").is_ok();
+                        }
+                        "open-launch-page" => {
+                            let window = tray.get_webview_window("main");
+                            match window {
+                                Some(window) => {
+                                    if let Ok(false) = window.is_visible() {
+                                        window.show().unwrap();
+                                    }
+                                    tauri_cmd::set_launch_page(tray.app_handle());
+                                }
+                                None => {
+                                    let _window = tauri::WebviewWindowBuilder::new(
+                                        tray.app_handle(),
+                                        "main",
+                                        tauri::WebviewUrl::App("index.html".into()),
+                                    )
+                                    .title("fusou-app")
+                                    .build()
+                                    .unwrap();
+                                }
+                            }
+                        }
+                        "main-open/close" => {
+                            let window = tray.get_webview_window("main");
+                            match window {
+                                Some(window) => match window.is_visible() {
+                                    Ok(true) => {
+                                        // window.hide().unwrap();
+                                        // // let _ = app
+                                        // //     .tray_handle()
+                                        // //     .get_item("main-open/close")
+                                        // //     .set_title("Open Main Window");
+                                        // main_open_close.set_text("Open Main Window");
+                                    }
+                                    Ok(false) => {
+                                        window.show().unwrap();
+                                        // // let _ = app
+                                        // //     .tray_handle()
+                                        // //     .get_item("main-open/close")
+                                        // //     .set_title("Close Main Window");
+                                        // main_open_close.set_text("Close Main Window");
+                                    }
+                                    _ => {}
+                                },
+                                None => {
+                                    let _window = tauri::WebviewWindowBuilder::new(
+                                        tray.app_handle(),
+                                        "main",
+                                        tauri::WebviewUrl::App("index.html".into()),
+                                    )
+                                    .title("fusou-app")
+                                    .build()
+                                    .unwrap();
+                                    // // let _ = app
+                                    // //     .tray_handle()
+                                    // //     .get_item("main-open/close")
+                                    // //     .set_title("Close Main Window");
+                                    // main_open_close.set_text("Close Main Window");
+                                }
+                            }
+                        }
+                        "external-open/close" => {
+                            let window = tray.get_webview_window("external");
+                            match window {
+                                Some(window) => match window.is_visible() {
+                                    Ok(true) => {
+                                        // window.hide().unwrap();
+                                        // // let _ = app
+                                        // //     .tray_handle()
+                                        // //     .get_item("external-open/close")
+                                        // //     .set_title("Open WebView");
+                                        // external_open_close.set_text("Open WebView");
+                                    }
+                                    Ok(false) => {
+                                        window.show().unwrap();
+                                        // // let _ = app
+                                        // //     .tray_handle()
+                                        // //     .get_item("external-open/close")
+                                        // //     .set_title("Close WebView");
+                                        // external_open_close.set_text("Close WebView");
+                                    }
+                                    _ => {}
+                                },
+                                None => {
+                                    let proxy_addr = PROXY_ADDRESS.get().map(|addr| addr.clone());
+                                    crate::external::create_external_window(
+                                        tray.app_handle(),
+                                        None,
+                                        true,
+                                        proxy_addr,
+                                    );
+                                    // // let _ = app
+                                    // //     .tray_handle()
+                                    // //     .get_item("external-open/close")
+                                    // //     .set_title("Close WebView");
+                                    // external_open_close.set_text("Close WebView");
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                })
+                .build(app)
+                .unwrap();
 
             // discord::connect();
             // // discord::set_activity("experimental implementation", "playing KanColle with FUSOU");
@@ -276,7 +464,7 @@ pub fn run() {
                 proxy_bidirectional_channel_master.clone();
             let pac_bidirectional_channel_master_clone = pac_bidirectional_channel_master.clone();
             let response_parse_channel_master_clone = response_parse_channel_master.clone();
-            let app_handle = app.handle();
+            let app_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 let _ = shutdown_rx.recv().await;
                 // is it needed to add select! for timeout?
@@ -288,32 +476,34 @@ pub fn run() {
 
                 tokio::time::sleep(time::Duration::from_millis(2000)).await;
                 app_handle.exit(0_i32);
+                // app.handle().exit(0_i32);
             });
             return Ok(());
         })
-        .system_tray(system_tray)
-        // .on_page_load(|window, _ | {
-        //   let _ = window.app_handle().tray_handle().get_item("open").set_title("close");
-        // })
-        .on_window_event(move |event| match event.event() {
-            tauri::WindowEvent::CloseRequested { .. } => {
-                let _ = event
-                    .window()
-                    .app_handle()
-                    .tray_handle()
-                    .get_item("main-open/close")
-                    .set_title("Open Main Window");
-            }
+        .on_window_event(move |window, event| match event {
+            tauri::WindowEvent::CloseRequested { api, .. } => match window.label() {
+                "main" => {
+                    window.hide().unwrap();
+                    api.prevent_close();
+                }
+                "external" => {
+                    window.close().unwrap();
+                }
+                "debug" => {
+                    window.close().unwrap();
+                }
+                _ => {}
+            },
             tauri::WindowEvent::Resized(size) => {
-                if event.window().label().eq("external") {
-                    if let Ok(is_maximized) = event.window().is_maximized() {
+                if window.label().eq("external") {
+                    if let Ok(is_maximized) = window.is_maximized() {
                         if is_maximized {
                             external_window_size_before.lock().unwrap().height = size.height;
                             external_window_size_before.lock().unwrap().width = size.width;
                             return;
                         }
                     }
-                    if let Ok(is_minimized) = event.window().is_minimized() {
+                    if let Ok(is_minimized) = window.is_minimized() {
                         if is_minimized {
                             return;
                         }
@@ -329,283 +519,11 @@ pub fn run() {
                         external_window_size_before.lock().unwrap().height = size.height;
                     }
 
-                    let _ = event
-                        .window()
-                        .set_size(*external_window_size_before.lock().unwrap());
+                    let _ = window.set_size(*external_window_size_before.lock().unwrap());
                 }
             }
             _ => {}
         })
-        .on_system_tray_event(move |app: &AppHandle, event: SystemTrayEvent| match event {
-            SystemTrayEvent::LeftClick {
-                position: _,
-                size: _,
-                ..
-            } => {
-                // notification::wrap_notification(app, notification::NotificationContent::default());
-
-                let window = app.get_window("main");
-                match window {
-                    Some(window) => {
-                        if let Ok(false) = window.is_visible() {
-                            window.show().unwrap();
-                            let _ = app
-                                .tray_handle()
-                                .get_item("main-open/close")
-                                .set_title("Close Main Window");
-                        }
-                    }
-                    None => {
-                        let _window = tauri::WindowBuilder::new(
-                            app,
-                            "main",
-                            tauri::WindowUrl::App("index.html".into()),
-                        )
-                        .title("fusou-app")
-                        .build()
-                        .unwrap();
-                        let _ = app
-                            .tray_handle()
-                            .get_item("main-open/close")
-                            .set_title("Close Main Window");
-                    }
-                }
-
-                println!("system tray received a left click");
-            }
-            SystemTrayEvent::RightClick {
-                position: _,
-                size: _,
-                ..
-            } => {
-                println!("system tray received a right click");
-            }
-            SystemTrayEvent::DoubleClick {
-                position: _,
-                size: _,
-                ..
-            } => {
-                println!("system tray received a double click");
-            }
-            SystemTrayEvent::MenuItemClick { id, .. } => {
-                match id.as_str() {
-                    #[cfg(TAURI_BUILD_TYPE = "DEBUG")]
-                    "open-debug-window" => {
-                        match app.get_window("debug") {
-                            Some(debug_window) => {
-                                debug_window.show().unwrap();
-                            }
-                            None => {
-                                let _window = tauri::WindowBuilder::new(
-                                    app,
-                                    "debug",
-                                    tauri::WindowUrl::App("/debug".into()),
-                                )
-                                .fullscreen(false)
-                                .title("fusou-debug")
-                                // .visible(false)
-                                .build()
-                                .unwrap();
-                            }
-                        }
-                    }
-                    "gprc-serve-shutdown" => {
-                        let _ = app.tray_handle().get_item("pause").set_title("Pause");
-                        let _ = app.tray_handle().get_item("pause").set_enabled(false);
-                        // gprc_server::gprc_stop_with_thread(wg.clone(), tx_master_gprc.clone());
-                        // let _ = app.tray_handle().get_item("gprc-serve-shutdown").set_title("Shutdown gRPC Server");
-                        // let _ = app.tray_handle().get_item("proxy-serve-shutdown").set_title("Shutdown Proxy Server");
-                    }
-                    "proxy-serve-shutdown" => {
-                        let _ = app.tray_handle().get_item("pause").set_title("Pause");
-                        let _ = app.tray_handle().get_item("pause").set_enabled(false);
-                        // let _ = app.tray_handle().get_item("gprc-serve-shutdown").set_title("Shutdown gRPC Server");
-                        // let _ = app.tray_handle().get_item("proxy-serve-shutdown").set_title("Shutdown Proxy Server");
-                    }
-                    "quit" => {
-                        // let pac_bidirectional_channel_master_clone = pac_bidirectional_channel_master.clone();
-                        // let proxy_bidirectional_channel_master_clone = proxy_bidirectional_channel_master.clone();
-                        if let Some(window) = app.get_window("main") {
-                            if let Ok(visible) = window.is_visible() {
-                                if visible {
-                                    app.get_window("main")
-                                        .expect("no window labeled 'main' found")
-                                        .hide()
-                                        .unwrap();
-                                }
-                            }
-                        }
-
-                        if let Some(window) = app.get_window("external") {
-                            if let Ok(visible) = window.is_visible() {
-                                if visible {
-                                    app.get_window("external")
-                                        .expect("no window labeled 'external' found")
-                                        .hide()
-                                        .unwrap();
-                                }
-                            }
-                        }
-
-                        let _ = app
-                            .tray_handle()
-                            .get_item("main-open/close")
-                            .set_enabled(false);
-                        let _ = app.tray_handle().get_item("quit").set_enabled(false);
-                        let _ = app.tray_handle().get_item("pause").set_enabled(false);
-                        let _ = app
-                            .tray_handle()
-                            .get_item("advanced-title")
-                            .set_enabled(false);
-
-                        cmd::remove_pac();
-
-                        // discord::close();
-
-                        let shutdown_tx_clone = shutdown_tx.clone();
-                        tauri::async_runtime::spawn(async move {
-                            let _ = shutdown_tx_clone.send(()).await;
-                        });
-                    }
-                    "copy-url" => {
-                        let mut clipboard = Clipboard::new().unwrap();
-                        clipboard.set_text("https://github.com/tsukasa-u").unwrap();
-                    }
-                    "visit-website" => {
-                        let browser = SHARED_BROWSER.lock().unwrap().get_browser();
-                        let _ = open_browser(browser, "https://github.com/tsukasa-u").is_ok();
-                    }
-                    "open-launch-page" => {
-                        let window = app.get_window("main");
-                        match window {
-                            Some(window) => {
-                                if let Ok(false) = window.is_visible() {
-                                    window.show().unwrap();
-                                }
-                                tauri_cmd::set_launch_page(app);
-                            }
-                            None => {
-                                let _window = tauri::WindowBuilder::new(
-                                    app,
-                                    "main",
-                                    tauri::WindowUrl::App("index.html".into()),
-                                )
-                                .title("fusou-app")
-                                .build()
-                                .unwrap();
-                            }
-                        }
-                    }
-                    "main-open/close" => {
-                        let window = app.get_window("main");
-                        match window {
-                            Some(window) => match window.is_visible() {
-                                Ok(true) => {
-                                    window.hide().unwrap();
-                                    let _ = app
-                                        .tray_handle()
-                                        .get_item("main-open/close")
-                                        .set_title("Open Main Window");
-                                }
-                                Ok(false) => {
-                                    window.show().unwrap();
-                                    let _ = app
-                                        .tray_handle()
-                                        .get_item("main-open/close")
-                                        .set_title("Close Main Window");
-                                }
-                                _ => {}
-                            },
-                            None => {
-                                let _window = tauri::WindowBuilder::new(
-                                    app,
-                                    "main",
-                                    tauri::WindowUrl::App("index.html".into()),
-                                )
-                                .title("fusou-app")
-                                .build()
-                                .unwrap();
-                                let _ = app
-                                    .tray_handle()
-                                    .get_item("main-open/close")
-                                    .set_title("Close Main Window");
-                            }
-                        }
-                    }
-                    "external-open/close" => {
-                        let window = app.get_window("external");
-                        match window {
-                            Some(window) => match window.is_visible() {
-                                Ok(true) => {
-                                    window.hide().unwrap();
-                                    let _ = app
-                                        .tray_handle()
-                                        .get_item("external-open/close")
-                                        .set_title("Open WebView");
-                                }
-                                Ok(false) => {
-                                    window.show().unwrap();
-                                    let _ = app
-                                        .tray_handle()
-                                        .get_item("external-open/close")
-                                        .set_title("Close WebView");
-                                }
-                                _ => {}
-                            },
-                            None => {
-                                // let _window = tauri::WindowBuilder::new(app, "main", tauri::WindowUrl::App("index.html".into()))
-                                //   .build()
-                                //   .unwrap();
-                                crate::external::create_external_window(app, None, true);
-                                let _ = app
-                                    .tray_handle()
-                                    .get_item("external-open/close")
-                                    .set_title("Close WebView");
-                            }
-                        }
-                    }
-                    _ => {
-                        let submenu: Vec<&str> = id.as_str().split("-").collect();
-                        if let Some(&"sm1") = submenu.first() {
-                            ["default", "firefox", "chrome", "opera"]
-                                .iter()
-                                .for_each(|&item| {
-                                    // return true if the selecte menu tile match the current item in the vec!["default", "firefox", "chrome", "opera"]
-                                    let _ = app
-                                        .tray_handle()
-                                        .get_item(&format!("select-{}", item))
-                                        .set_selected(submenu.get(1).unwrap().eq(&item));
-                                });
-
-                            let mut browser = SHARED_BROWSER.lock().unwrap();
-                            browser.set_browser(
-                                &(match submenu.get(1) {
-                                    Some(&"default") => Browser::default().to_owned(),
-                                    Some(&"firefox") => Browser::Firefox.to_owned(),
-                                    Some(&"chrome") => Browser::Chrome.to_owned(),
-                                    Some(&"opera") => Browser::Opera.to_owned(),
-                                    _ => Browser::default().to_owned(),
-                                }),
-                            );
-                        }
-                    }
-                }
-            }
-            _ => {}
-        })
-        .build(tauri::generate_context!())
-        .expect("error while building tauri application")
-        .run(move |_app_handle, event| match event {
-            tauri::RunEvent::ExitRequested { api, .. } => {
-                api.prevent_exit();
-            }
-            tauri::RunEvent::Exit => {
-                println!("exit");
-            }
-            _ => {}
-        });
-
-    // wg.wait().await;
-
-    return ExitCode::SUCCESS;
+        .run(ctx)
+        .expect("error while building tauri application");
 }
