@@ -1,5 +1,5 @@
 use std::sync::{LazyLock, Mutex};
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Manager, Url};
 use webbrowser::{open_browser, Browser};
 
 #[derive(Debug, Default)]
@@ -23,9 +23,14 @@ impl BrowserState {
 pub static SHARED_BROWSER: LazyLock<Mutex<BrowserState>> =
     LazyLock::new(|| Mutex::new(BrowserState::new()));
 
-pub fn create_external_window(app: &AppHandle, browser: Option<Browser>, browse_webview: bool) {
+pub fn create_external_window(
+    app: &AppHandle,
+    browser: Option<Browser>,
+    browse_webview: bool,
+    proxy_addr: Option<Url>,
+) {
     if browse_webview {
-        if let Some(window) = app.get_window("external") {
+        if let Some(window) = app.get_webview_window("external") {
             match window.is_visible() {
                 Ok(visible) => {
                     if !visible {
@@ -42,22 +47,27 @@ pub fn create_external_window(app: &AppHandle, browser: Option<Browser>, browse_
         // let init_script = fs::read_to_string("./../src/init_script.js").expect("Unable to read init_script.js");
         let init_script = include_str!(".././../src/init_script.js");
 
-        let _external = tauri::WindowBuilder::new(
+        let mut external = tauri::WebviewWindowBuilder::new(
             app,
             "external",
-            tauri::WindowUrl::External(
+            tauri::WebviewUrl::External(
                 "http://www.dmm.com/netgame/social/-/gadgets/=/app_id=854854/"
                     .parse()
                     .unwrap(),
             ),
-        )
-        .fullscreen(false)
-        .title("fusou-viewer")
-        .inner_size(1192_f64, 712_f64)
-        .visible(false)
-        .initialization_script(init_script)
-        .build()
-        .expect("error while building external");
+        );
+
+        // if proxy_addr.is_some() {
+        //     external = external.proxy_url(proxy_addr.expect("proxy_addr is None"))
+        // }
+        let _ = external
+            .fullscreen(false)
+            .title("fusou-viewer")
+            .inner_size(1192_f64, 712_f64)
+            .visible(false)
+            .initialization_script(init_script)
+            .build()
+            .expect("error while building external");
     } else {
         open_browser(
             browser.unwrap(),

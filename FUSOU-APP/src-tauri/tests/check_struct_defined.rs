@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::{collections::HashSet, fs::File, hash::RandomState, io::Write, path};
 
-use register_macro_derive_and_attr::add_field;
+use register_trait::add_field;
 
 use register_trait::REGISTER_STRUCT;
 
