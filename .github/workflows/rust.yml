@@ -13,7 +13,7 @@ env:
 
 jobs:
   build:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     env:
       SCCACHE_GHA_ENABLED: "true"
       RUSTC_WRAPPER: "sccache"
@@ -25,14 +25,22 @@ jobs:
     - name: Setup Ubuntu for tauri@v1
       run: |
         sudo apt update && \
-        sudo apt install -y libwebkit2gtk-4.0-dev 
+        sudo apt install -y libwebkit2gtk-4.1-dev \
+          build-essential \
+          curl \
+          wget \
+          file \
+          libxdo-dev \
+          libssl-dev \
+          libayatana-appindicator3-dev \
+          librsvg2-dev
     - name: Run sccache-cache
       uses: mozilla-actions/sccache-action@v0.0.9
     - name: Build
       run: cargo build --verbose
 
   doc:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     env:
       SCCACHE_GHA_ENABLED: "true"
       RUSTC_WRAPPER: "sccache"
@@ -45,7 +53,15 @@ jobs:
     - name: Setup Ubuntu for tauir@v1 & Graphviz
       run: |
         sudo apt update && \
-        sudo apt install -y libwebkit2gtk-4.0-dev && \
+        sudo apt install -y libwebkit2gtk-4.1-dev \
+          build-essential \
+          curl \
+          wget \
+          file \
+          libxdo-dev \
+          libssl-dev \
+          libayatana-appindicator3-dev \
+          librsvg2-dev \
         sudo apt install -y graphviz
     - name: Run sccache-cache
       uses: mozilla-actions/sccache-action@v0.0.9
@@ -81,7 +97,7 @@ jobs:
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
