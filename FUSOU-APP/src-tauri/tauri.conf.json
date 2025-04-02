@@ -45,7 +45,7 @@
   },
   "productName": "fusou-app",
   "mainBinaryName": "fusou-app",
-  "version": "0.1.4",
+  "version": "0.2.0",
   "identifier": "fusou.dev",
   "plugins": {},
   "app": {
@@ -61,12 +61,6 @@
         "useHttpsScheme": true
       }
     ],
-    "trayIcon": {
-      "iconPath": "icons/128x128.png",
-      "iconAsTemplate": true,
-      "menuOnLeftClick": true,
-      "title": "fusou-system-tray"
-    },
     "security": {
       "csp": null
     }

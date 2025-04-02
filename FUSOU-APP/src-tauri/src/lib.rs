@@ -249,6 +249,15 @@ pub fn run() {
             let system_tray = TrayIconBuilder::new()
                 .menu(&tray_menu)
                 .tooltip("FUSOU")
+                // .icon(tauri::image::Image::new(
+                //     include_bytes!("../icons/128x128.png"),
+                //     128,
+                //     128,
+                // ))
+                .icon_as_template(false)
+                .title("fusou-system-tray")
+                .show_menu_on_left_click(true)
+                .icon(app.default_window_icon().unwrap().clone())
                 .on_tray_icon_event(|tray, event| {
                     if let TrayIconEvent::Click {
                         button: MouseButton::Left,
