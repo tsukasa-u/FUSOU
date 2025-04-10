@@ -40,7 +40,11 @@
     "vite-plugin-solid": "^2.11.6"
   },
   "dependencies": {
+    "@solid-primitives/cookies": "^0.0.1",
     "@solidjs/router": "^0.15.3",
+    "@supabase/auth-ui-shared": "^0.1.8",
+    "@supabase/auth-ui-solid": "^0.3.8",
+    "@supabase/supabase-js": "^2.49.4",
     "@tauri-apps/api": "^2.4.0",
     "d3": "^7.9.0",
     "solid-js": "^1.9.5"

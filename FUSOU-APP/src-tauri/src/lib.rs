@@ -16,6 +16,7 @@ use tokio::sync::{mpsc, OnceCell};
 use webbrowser::open_browser;
 
 mod cmd;
+mod database;
 mod interface;
 mod json_parser;
 mod kcapi;
@@ -109,6 +110,7 @@ pub fn run() {
             tauri_cmd::launch_with_options,
             tauri_cmd::check_pac_server_health,
             tauri_cmd::check_proxy_server_health,
+            tauri_cmd::open_auth_window,
             tauri_cmd::open_debug_window,
             tauri_cmd::close_debug_window,
             tauri_cmd::read_dir,
@@ -147,36 +149,36 @@ pub fn run() {
                 None => return Err("Failed to get app data directory".into()),
             }
             let danger_ope_sub_menu_title =
-                MenuItemBuilder::with_id("danger-title".to_string(), "Danger Zone".to_string())
+                MenuItemBuilder::with_id("danger-title".to_string(), "Danger Zone")
                     .enabled(false)
                     .build(app)
                     .unwrap();
             let proxy_serve_shutdown = MenuItemBuilder::with_id(
                 "proxy-serve-shutdown".to_string(),
-                "Shutdown Proxy Server".to_string(),
+                "Shutdown Proxy Server",
             )
             .build(app)
             .unwrap();
-            let pac_server_shutdown = MenuItemBuilder::with_id(
-                "pac-serve-shutdown".to_string(),
-                "Shutdown PAC Server".to_string(),
-            )
-            .build(app)
-            .unwrap();
-            let delete_registry = MenuItemBuilder::with_id(
-                "delete-registry".to_string(),
-                "Delete Registry".to_string(),
-            )
-            .build(app)
-            .unwrap();
+            let pac_server_shutdown =
+                MenuItemBuilder::with_id("pac-serve-shutdown".to_string(), "Shutdown PAC Server")
+                    .build(app)
+                    .unwrap();
+            let delete_registry =
+                MenuItemBuilder::with_id("delete-registry".to_string(), "Delete Registry")
+                    .build(app)
+                    .unwrap();
 
             #[cfg(TAURI_BUILD_TYPE = "DEBUG")]
-            let open_debug_window = MenuItemBuilder::with_id(
-                "open-debug-window".to_string(),
-                "Open Debug Window".to_string(),
-            )
-            .build(app)
-            .unwrap();
+            let open_debug_window =
+                MenuItemBuilder::with_id("open-debug-window".to_string(), "Open Debug Window")
+                    .build(app)
+                    .unwrap();
+
+            #[cfg(TAURI_BUILD_TYPE = "DEBUG")]
+            let open_auth_window =
+                MenuItemBuilder::with_id("open-auth-window".to_string(), "Open Auth Window")
+                    .build(app)
+                    .unwrap();
 
             let quit = MenuItemBuilder::with_id("quit".to_string(), "Quit".to_string())
                 .build(app)
@@ -185,28 +187,22 @@ pub fn run() {
                 .enabled(false)
                 .build(app)
                 .unwrap();
-            let external_open_close = MenuItemBuilder::with_id(
-                "external-open/close".to_string(),
-                "Open WebView".to_string(),
-            )
-            .build(app)
-            .unwrap();
-            let main_open_close = MenuItemBuilder::with_id(
-                "main-open/close".to_string(),
-                "Open Main Window".to_string(),
-            )
-            .build(app)
-            .unwrap();
-            let visit_website =
-                MenuItemBuilder::with_id("visit-website".to_string(), "Visit Website".to_string())
+            let external_open_close =
+                MenuItemBuilder::with_id("external-open/close".to_string(), "Open WebView")
                     .build(app)
                     .unwrap();
-            let open_launch_page = MenuItemBuilder::with_id(
-                "open-launch-page".to_string(),
-                "Open Launch Page".to_string(),
-            )
-            .build(app)
-            .unwrap();
+            let main_open_close =
+                MenuItemBuilder::with_id("main-open/close".to_string(), "Open Main Window")
+                    .build(app)
+                    .unwrap();
+            let visit_website =
+                MenuItemBuilder::with_id("visit-website".to_string(), "Visit Website")
+                    .build(app)
+                    .unwrap();
+            let open_launch_page =
+                MenuItemBuilder::with_id("open-launch-page".to_string(), "Open Launch Page")
+                    .build(app)
+                    .unwrap();
 
             let danger_ope_sub_menu = SubmenuBuilder::new(app, "Danger Zone")
                 .item(&danger_ope_sub_menu_title)
@@ -215,12 +211,15 @@ pub fn run() {
                 .item(&delete_registry);
 
             #[cfg(TAURI_BUILD_TYPE = "DEBUG")]
-            let danger_ope_sub_menu = danger_ope_sub_menu.separator().item(&open_debug_window);
+            let danger_ope_sub_menu = danger_ope_sub_menu
+                .separator()
+                .item(&open_debug_window)
+                .item(&open_auth_window);
 
             let danger_ope_sub_menu = danger_ope_sub_menu.build().unwrap();
 
             let adavanced_title =
-                MenuItemBuilder::with_id("advanced-title".to_string(), "Advanced".to_string())
+                MenuItemBuilder::with_id("advanced-title".to_string(), "Advanced")
                     .enabled(false)
                     .build(app)
                     .unwrap();
@@ -307,6 +306,23 @@ pub fn run() {
                                 )
                                 .fullscreen(false)
                                 .title("fusou-debug")
+                                .build()
+                                .unwrap();
+                            }
+                        },
+                        #[cfg(TAURI_BUILD_TYPE = "DEBUG")]
+                        "open-auth-window" => match tray.get_webview_window("auth") {
+                            Some(debug_window) => {
+                                debug_window.show().unwrap();
+                            }
+                            None => {
+                                let _window = tauri::WebviewWindowBuilder::new(
+                                    tray.app_handle(),
+                                    "auth",
+                                    tauri::WebviewUrl::App("/auth".into()),
+                                )
+                                .fullscreen(false)
+                                .title("fusou-auth")
                                 .build()
                                 .unwrap();
                             }

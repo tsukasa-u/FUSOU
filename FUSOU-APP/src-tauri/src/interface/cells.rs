@@ -1,17 +1,29 @@
+use once_cell::sync::Lazy;
 use std::collections::HashMap;
+use std::sync::Mutex;
 
 use chrono::Local;
 
 use crate::kcapi;
 use crate::kcapi_common;
 
-use std::sync::{LazyLock, Mutex};
-
 use super::battle::calc_air_damage;
 use super::battle::{AirDamage, Battle};
 
-// Is it better to use onecell::sync::Lazy or std::sync::Lazy?
-pub static KCS_CELLS: LazyLock<Mutex<Vec<i64>>> = LazyLock::new(|| Mutex::new(Vec::new()));
+pub static KCS_CELLS_INDEX: Lazy<Mutex<Vec<i64>>> = Lazy::new(|| Mutex::new(Vec::new()));
+pub static KCS_CELLS: Lazy<Mutex<Cells>> = Lazy::new(|| {
+    Mutex::new(Cells {
+        maparea_id: 0,
+        mapinfo_no: 0,
+        bosscell_no: 0,
+        bosscomp: 0,
+        cells: HashMap::new(),
+        cell_index: Vec::new(),
+        event_map: None,
+        cell_data: Vec::new(),
+        battles: HashMap::new(),
+    })
+});
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Cells {
@@ -24,6 +36,18 @@ pub struct Cells {
     pub event_map: Option<Eventmap>,
     pub cell_data: Vec<CellData>,
     pub battles: HashMap<i64, Battle>,
+}
+
+impl Cells {
+    pub fn load() -> Self {
+        let cells = KCS_CELLS.lock().unwrap();
+        cells.clone()
+    }
+
+    pub fn restore(&self) {
+        let mut cells = KCS_CELLS.lock().unwrap();
+        *cells = self.clone();
+    }
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -48,6 +72,14 @@ pub struct Cell {
     pub m1: Option<i64>,
     pub destruction_battle: Option<DestructionBattle>,
     pub happening: Option<Happening>,
+}
+
+impl Cell {
+    pub fn add_or(&self) {
+        let mut cells = KCS_CELLS.lock().unwrap();
+        cells.cells.insert(self.no, self.clone());
+        cells.cell_index.push(self.no);
+    }
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -202,19 +234,17 @@ impl From<kcapi::api_req_map::next::ApiData> for Cell {
         });
 
         // let happening: Option<Happening> = cells.api_happening.map(|happening| happening.into());
-        let happening: Option<Happening> = cells
-            .api_happening
-            .and_then(|happening| Some(happening.into()));
+        let happening: Option<Happening> = cells.api_happening.map(|happening| happening.into());
 
         let destruction_battle: Option<DestructionBattle> =
-            cells.api_destruction_battle.and_then(|destruction_battle| {
+            cells.api_destruction_battle.map(|destruction_battle| {
                 let mut destruction_battle: DestructionBattle = destruction_battle.into();
                 calc_dmg(&mut destruction_battle);
-                Some(destruction_battle)
+                destruction_battle
             });
 
         {
-            KCS_CELLS.lock().unwrap().push(cells.api_no);
+            KCS_CELLS_INDEX.lock().unwrap().push(cells.api_no);
         }
 
         Self {
@@ -256,7 +286,7 @@ impl From<kcapi::api_req_map::start::ApiData> for Cell {
         });
 
         {
-            KCS_CELLS.lock().unwrap().push(cells.api_no);
+            KCS_CELLS_INDEX.lock().unwrap().push(cells.api_no);
         }
 
         Self {

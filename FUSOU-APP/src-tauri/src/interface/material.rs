@@ -1,6 +1,14 @@
+// use once_cell::sync::Lazy;
 use std::collections::HashMap;
+// use std::sync::Mutex;
 
 use crate::kcapi;
+
+// pub static KCS_MATERIALS: Lazy<Mutex<Materials>> = Lazy::new(|| {
+//     Mutex::new(Materials {
+//         materials: HashMap::new(),
+//     })
+// });
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Materials {

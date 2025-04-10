@@ -16,6 +16,9 @@ import IconCheckBoxGreen from "../icons/check_box_green";
 import IconCheckBoxRed from "../icons/check_box_red";
 
 import { location_route } from "../utility/location";
+import { supabase } from "../utility/supadata";
+import { useAuth } from "../utility/provider";
+import { redirect, useNavigate } from "@solidjs/router";
 
 let launch_options: { [key: string]: number } = {
   run_proxy_server: 1,
@@ -89,6 +92,10 @@ function Start() {
   const [pacServerHealth, setPacServerHealth] = createSignal<number>(-1);
   const [proxyServerHealth, setProxyServerHealth] = createSignal<number>(-1);
 
+  const [authData, setAuthData] = useAuth();
+
+  const navigate = useNavigate();
+
   function check_server_status() {
     setPacServerHealth(-1);
     setProxyServerHealth(-1);
@@ -111,6 +118,19 @@ function Start() {
   }
 
   createEffect(() => {
+
+    supabase.auth.getSession().then(({ data, error }) => {
+      if (error) {
+        console.error("Error getting session:", error);
+      } else {
+        if (data.session == null) {
+        
+          if (!authData.logined && !authData.noAuth) {
+              navigate("/auth");
+          }
+        }
+      }
+    });
     check_server_status();
   });
 
