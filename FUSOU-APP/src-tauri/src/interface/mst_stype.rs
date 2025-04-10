@@ -1,8 +1,8 @@
+use once_cell::sync::Lazy;
 use std::collections::HashMap;
-use std::sync::{LazyLock, Mutex};
+use std::sync::Mutex;
 
-// Is it better to use onecell::sync::Lazy or std::sync::Lazy?
-pub(crate) static KCS_MST_STYPES: LazyLock<Mutex<MstStypes>> = LazyLock::new(|| {
+pub(crate) static KCS_MST_STYPES: Lazy<Mutex<MstStypes>> = Lazy::new(|| {
     Mutex::new(MstStypes {
         mst_stypes: HashMap::new(),
     })

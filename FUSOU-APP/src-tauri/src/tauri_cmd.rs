@@ -7,12 +7,14 @@ use tauri::AppHandle;
 use tauri::Emitter;
 use tauri::Manager;
 
+use reqwest::Client;
+
 use crate::external::create_external_window;
 use crate::interface::mst_equip_exslot_ship::KCS_MST_EQUIP_EXSLOT_SHIP;
 use crate::interface::mst_equip_ship::KCS_MST_EQUIP_SHIP;
 use crate::interface::mst_ship::KCS_MST_SHIPS;
 use crate::interface::mst_slot_item::KCS_MST_SLOT_ITEMS;
-use crate::interface::mst_slot_item_equip_type::KCS_MST_EQUIPTYPES;
+use crate::interface::mst_slot_item_equip_type::KCS_MST_SLOT_ITEM_EQUIP_TYPES;
 use crate::interface::mst_stype::KCS_MST_STYPES;
 use crate::interface::mst_use_item::KCS_MST_USEITEMS;
 use crate::interface::slot_item::KCS_SLOT_ITEMS;
@@ -63,7 +65,7 @@ pub async fn get_mst_equip_exslot_ships(window: tauri::Window) {
 
 #[tauri::command]
 pub async fn get_mst_slotitem_equip_types(window: tauri::Window) {
-    let data = KCS_MST_EQUIPTYPES.lock().unwrap();
+    let data = KCS_MST_SLOT_ITEM_EQUIP_TYPES.lock().unwrap();
     let _ =
         window
             .app_handle()
@@ -125,6 +127,46 @@ pub async fn close_splashscreen(window: tauri::Window) {
         .expect("no window labeled 'external' found")
         .show()
         .unwrap();
+}
+
+pub async fn upload_google_drive(
+    window: tauri::Window,
+    access_token: String,
+    file_path: String,
+    file_name: String,
+) {
+    let sheets_response = Client::new()
+        .get("https://sheets.googleapis.com/v4/spreadsheets/{your spreadsheet id}/values/A1:C")
+        .bearer_auth(access_token)
+        .send()
+        .await
+        .unwrap();
+}
+
+#[tauri::command]
+pub async fn set_access_token(window: tauri::Window, access_token: String) {}
+
+#[cfg(TAURI_BUILD_TYPE = "DEBUG")]
+#[tauri::command]
+pub async fn open_auth_window(window: tauri::Window) {
+    match window.get_webview_window("auth") {
+        Some(auth_window) => {
+            auth_window.show().unwrap();
+        }
+        None => {
+            let _window = tauri::WebviewWindowBuilder::new(
+                window.app_handle(),
+                "auth",
+                tauri::WebviewUrl::App("/auth".into()),
+            )
+            .devtools(true)
+            .fullscreen(false)
+            .title("fusou-auth")
+            // .visible(false)
+            .build()
+            .unwrap();
+        }
+    }
 }
 
 #[cfg(TAURI_BUILD_TYPE = "DEBUG")]

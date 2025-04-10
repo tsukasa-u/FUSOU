@@ -1,11 +1,10 @@
+use once_cell::sync::Lazy;
 use std::collections::HashMap;
+use std::sync::Mutex;
 
 use crate::kcapi;
 
-use std::sync::{LazyLock, Mutex};
-
-// Is it better to use onecell::sync::Lazy or std::sync::Lazy?
-pub static KCS_DECKS: LazyLock<Mutex<DeckPorts>> = LazyLock::new(|| {
+pub static KCS_DECKS: Lazy<Mutex<DeckPorts>> = Lazy::new(|| {
     Mutex::new(DeckPorts {
         deck_ports: HashMap::new(),
         combined_flag: None,

@@ -5,7 +5,7 @@ import {
   createEffect,
   onCleanup,
 } from "solid-js";
-import { createStore, Part } from "solid-js/store";
+import { createStore, Part, SetStoreFunction } from "solid-js/store";
 import {
   DeckPorts,
   Materials,
@@ -36,6 +36,7 @@ import { Battle } from "../interface/battle";
 import { Cell, Cells, global_cells } from "../interface/cells";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
 import { AirBases, global_air_bases } from "../interface/map_info";
+import { supabase } from "./supadata";
 
 // eslint-disable-next-line no-unused-vars
 const ShipsContext = createContext<(Ships | { set(data: Ships): void })[]>();
@@ -578,66 +579,6 @@ export function useDeckPorts() {
   return context as [DeckPorts, (value: DeckPorts) => void];
 }
 
-// const BattleContext = createContext<(Battles | { set(data: Battles): void; })[]>();
-
-// export function BattleContextProvider(props: { children: JSX.Element }) {
-//     const [data, setData] = createStore(global_battles);
-//     const setter = [
-//         data,
-//         {
-//             set(data: Battles) {
-//                 setData(data);
-//             }
-//         }
-//     ];
-
-//     createEffect(() => {
-//         let unlisten_data_set: UnlistenFn;
-//         let unlisten_data_add: UnlistenFn;
-//         (async() => {
-//             unlisten_data_set = await listen<Battles>('set-kcs-battles', event => {
-//               setData(event.payload);
-//             });
-//             unlisten_data_add = await listen<Battle>('add-kcs-battle', event => {
-//                 if (data.cells[data.cells.length - 1] == event.payload.cell_id) {
-//                     Object.entries(event.payload).forEach(([key, value]) => {
-//                         if ( value !== null && typeof value === 'object' ) {
-//                             setData("battles", event.payload.cell_id, key as Part<Battle, keyof Battle>,  value);
-//                         }
-//                     });
-//                 } else {
-//                     setData("battles", event.payload.cell_id, event.payload);
-//                     // need to change the method? but it works
-//                     setData("cells", (cell_index: number[]) => {
-//                         cell_index.push(event.payload.cell_id);
-//                         let cell_index_copy : number[] = cell_index.slice();
-//                         return cell_index_copy;
-//                     });
-//                 }
-//             });
-//         })();
-
-//         onCleanup(() => {
-//             if (unlisten_data_set) unlisten_data_set();
-//             if (unlisten_data_add) unlisten_data_add();
-//         });
-//     });
-
-//     return (
-//         <BattleContext.Provider value={setter}>
-//             {props.children}
-//         </BattleContext.Provider>
-//     );
-// }
-
-// export function useBattles() {
-//     const context = useContext(BattleContext);
-//     if (!context) {
-//       throw new Error("useBattle: cannot find a BattleContext")
-//     }
-//     return context as [Battles, (value: Battles) => void];
-// }
-
 // eslint-disable-next-line no-unused-vars
 const CellsContext = createContext<(Cells | { set(data: Cells): void })[]>();
 
@@ -761,6 +702,71 @@ export function useAirBases() {
   // eslint-disable-next-line no-unused-vars
   return context as [AirBases, (value: AirBases) => void];
 }
+//-----
+
+type AuthContextType = {
+  accessToken: string | null;
+  userName: string | null;
+  userImage: string | null;
+  userMail: string | null;
+  noAuth: boolean;
+  logined: boolean;
+}
+const AuthContext =
+  // eslint-disable-next-line no-unused-vars
+  createContext<(AuthContextType | SetStoreFunction<AuthContextType>)[]>();
+
+export function AuthProvider(props: { children: JSX.Element }) {
+  let store_data: AuthContextType = {
+    accessToken: null,
+    userName: null,
+    userImage: null,
+    userMail: null,
+    noAuth: false,
+    logined: false,
+  };
+  const [data, setData] = createStore(store_data);
+  const setter = [
+    data,
+    setData
+  ];
+
+  
+  createEffect(() => {
+    supabase.auth.getSession().then(({ data }) => {
+      if (data.session !== null) {
+        setData("accessToken", data.session.access_token);
+        setData("userName", data.session.user.user_metadata.full_name);
+        setData("userImage", data.session.user.user_metadata.avatar_url);
+        setData("userMail", data.session.user.email!);
+        setData("noAuth", false);
+        setData("logined", true);
+      } else {
+        setData("logined", false);
+        setData("accessToken", null);
+        setData("userName", null);
+        setData("userImage", null);
+      }
+    }
+    );
+  });
+
+  return (
+    <AuthContext.Provider value={setter}>
+      {props.children}
+    </AuthContext.Provider>
+  );
+}
+
+export function useAuth() {
+  const context = useContext(AuthContext);
+  if (!context) {
+    throw new Error("useAuth: cannot find a AuthContext");
+  }
+  // eslint-disable-next-line no-unused-vars
+  return context as [AuthContextType, SetStoreFunction<AuthContextType>];
+}
+
 
 //-----
 

@@ -1,6 +1,5 @@
 use super::air_base::AirBases;
 use super::battle::Battle;
-use super::battle::Battles;
 use super::cells::{Cell, Cells};
 use super::deck_port::DeckPorts;
 use super::logs::Logs;
@@ -20,6 +19,7 @@ use super::slot_item::SlotItems;
 pub enum EmitData {
     Add(Add),
     Set(Set),
+    Identifier(Identifier),
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -48,7 +48,6 @@ pub enum Set {
     SlotItems(SlotItems),
     Logs(Logs),
     AirBases(AirBases),
-    Battles(Battles),
     Cells(Cells),
     MstShips(MstShips),
     MstSlotItems(MstSlotItems),
@@ -58,4 +57,11 @@ pub enum Set {
     MstStypes(MstStypes),
     MstUseItems(MstUseItems),
     Dammy(()),
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub enum Identifier {
+    Port(()),
+    GetData(()),
+    RequireInfo(()),
 }
