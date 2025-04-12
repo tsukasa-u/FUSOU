@@ -13,7 +13,7 @@ pub static KCS_SHIPS: Lazy<Mutex<Ships>> = Lazy::new(|| {
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Ships {
-    ships: HashMap<i64, Ship>,
+    pub ships: HashMap<i64, Ship>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -47,7 +47,7 @@ pub struct Ship {
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct SpEffectItems {
-    items: HashMap<i64, SpEffectItem>,
+    pub items: HashMap<i64, SpEffectItem>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

@@ -1,14 +1,18 @@
-use apache_avro::{AvroSchema, Codec, Writer};
+use apache_avro::AvroSchema;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::database::battle::Battle;
+use crate::database::table::Table;
+
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema)]
 pub struct Cells {
+    pub uuid: Uuid,
     pub maparea_id: i64,
     pub mapinfo_no: i64,
     pub cell_index: Vec<i64>,
     pub battle_index: Vec<i64>,
-    pub battles: Vec<Uuid>,
+    pub battles: Vec<Option<Uuid>>,
 }
 
 // impl From<Cells> for Result<Vec<u8>, apache_avro::Error> {
@@ -23,16 +27,28 @@ pub struct Cells {
 
 // impl From<crate::interface::cells::Cells> for Cells {
 //     fn from(cells: crate::interface::cells::Cells) -> Self {
-//         Self {
-//             maparea_id: cells.maparea_id,
-//             mapinfo_no: cells.mapinfo_no,
-//             cell_index: cells.cell_index,
-//             battle_index: cells.battles.keys().cloned().collect(),
-//             battles: cells
-//                 .battles
-//                 .values()
-//                 .map(|battle| Uuid::new_v4())
-//                 .collect(),
-//         }
 //     }
 // }
+
+impl Cells {
+    pub fn new_ret_uuid(data: crate::interface::cells::Cells, table: &mut Table) -> Option<Uuid> {
+        let new_uuid = Uuid::new_v4();
+        let new_battle = data
+            .battles
+            .values()
+            .map(|battle| Battle::new_ret_uuid(battle.clone(), table))
+            .collect();
+
+        let new_data = Cells {
+            uuid: new_uuid,
+            maparea_id: data.maparea_id,
+            mapinfo_no: data.mapinfo_no,
+            cell_index: data.cell_index,
+            battle_index: data.battles.keys().cloned().collect(),
+            battles: new_battle,
+        };
+
+        table.cells.push(new_data);
+        return Some(new_uuid);
+    }
+}

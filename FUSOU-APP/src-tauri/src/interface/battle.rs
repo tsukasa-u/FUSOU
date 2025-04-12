@@ -24,6 +24,25 @@ pub enum BattleType {
     MidnightHougeki(()),
 }
 
+impl From<BattleType> for i64 {
+    fn from(air_base_air_attack: BattleType) -> Self {
+        match air_base_air_attack {
+            BattleType::AirBaseAssult(()) => 1 << 3,
+            BattleType::CarrierBaseAssault(()) => 2 << 3,
+            BattleType::AirBaseAirAttack(()) => 3 << 3,
+            BattleType::OpeningAirAttack(()) => 4 << 3,
+            BattleType::SupportAttack(()) => 5 << 3,
+            BattleType::OpeningTaisen(()) => 6 << 3,
+            BattleType::OpeningRaigeki(()) => 7 << 3,
+            BattleType::Hougeki(x) if (0..=2).contains(&x) => 8 << 3 | x,
+            BattleType::Hougeki(_) => 8 << 3 | 0x111,
+            BattleType::ClosingRaigeki(()) => 9 << 3,
+            BattleType::FriendlyForceAttack(()) => 10 << 3,
+            BattleType::MidnightHougeki(()) => 11 << 3,
+        }
+    }
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Battles {
     pub cells: Vec<i64>,

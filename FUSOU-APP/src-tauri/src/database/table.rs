@@ -4,13 +4,13 @@ use uuid::Uuid;
 
 use crate::database::airbase::{AirBase, PlaneInfo};
 use crate::database::battle::{
-    AirBaseAirAttack, AirBaseAirAttackList, AirBaseAssult, CarrierBaseAssault, ClosingRaigeki,
-    FriendlySupportHourai, FriendlySupportHouraiList, Hougeki, HougekiList, MidnightHougeki,
-    MidnightHougekiList, OpeningAirAttack, OpeningRaigeki, OpeningTaisen, OpeningTaisenList,
-    SupportAiratack, SupportHourai,
+    AirBaseAirAttack, AirBaseAirAttackList, AirBaseAssult, Battle, CarrierBaseAssault,
+    ClosingRaigeki, FriendlySupportHourai, FriendlySupportHouraiList, Hougeki, HougekiList,
+    MidnightHougeki, MidnightHougekiList, OpeningAirAttack, OpeningRaigeki, OpeningTaisen,
+    OpeningTaisenList, SupportAiratack, SupportHourai,
 };
 use crate::database::cell::Cells;
-use crate::database::deck::{EnemyDeck, FriendDeck, OwnDeck};
+use crate::database::deck::{EnemyDeck, FriendDeck, OwnDeck, SupportDeck};
 use crate::database::ship::{EnemyShip, FriendShip, OwnShip};
 use crate::database::slotitem::{EnemySlotItem, FriendSlotItem, OwnSlotItem};
 
@@ -26,6 +26,7 @@ pub struct Table {
     pub enemy_ship: Vec<EnemyShip>,
     pub friend_ship: Vec<FriendShip>,
     pub own_deck: Vec<OwnDeck>,
+    pub support_deck: Vec<SupportDeck>,
     pub enemy_deck: Vec<EnemyDeck>,
     pub friend_deck: Vec<FriendDeck>,
     pub airbase_airattack: Vec<AirBaseAirAttack>,
@@ -45,4 +46,5 @@ pub struct Table {
     pub opening_taisen_list: Vec<OpeningTaisenList>,
     pub support_airatack: Vec<SupportAiratack>,
     pub support_hourai: Vec<SupportHourai>,
+    pub battle: Vec<Battle>,
 }

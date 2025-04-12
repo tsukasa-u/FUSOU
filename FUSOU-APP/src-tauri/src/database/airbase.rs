@@ -1,13 +1,15 @@
-use apache_avro::AvroSchema;
+use apache_avro::{AvroSchema, Codec, Writer};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::database::slotitem::OwnSlotItem;
 use crate::database::table::Table;
+
 use crate::interface::slot_item::KCS_SLOT_ITEMS;
 
-use super::slotitem::OwnSlotItem;
+use register_trait::TraitForEncode;
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct AirBase {
     pub uuid: Uuid,
     pub action_kind: i64,
@@ -36,7 +38,7 @@ impl AirBase {
     }
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema)]
 pub struct PlaneInfo {
     pub uuid: Uuid,
     pub cond: Option<i64>,
@@ -52,28 +54,22 @@ impl PlaneInfo {
         table: &mut Table,
     ) -> Option<Uuid> {
         let slot_items = KCS_SLOT_ITEMS.lock().unwrap();
-        let slot_item = slot_items.slot_items.get(&data.slotid);
+        let slot_item = slot_items.slot_items.get(&data.slotid)?;
 
-        let ret = match slot_item {
-            Some(slot_item) => {
-                let new_uuid: Uuid = Uuid::new_v4();
-                let new_slot_item = OwnSlotItem::new_ret_uuid(slot_item.clone(), table);
+        let new_uuid: Uuid = Uuid::new_v4();
+        let new_slot_item = OwnSlotItem::new_ret_uuid(slot_item.clone(), table);
 
-                let new_plane_info: PlaneInfo = PlaneInfo {
-                    uuid: new_uuid,
-                    cond: data.cond,
-                    state: data.state,
-                    max_count: data.max_count,
-                    count: data.count,
-                    slotid: new_slot_item,
-                };
-
-                table.plane_info.push(new_plane_info);
-                Some(new_uuid)
-            }
-            None => None,
+        let new_plane_info: PlaneInfo = PlaneInfo {
+            uuid: new_uuid,
+            cond: data.cond,
+            state: data.state,
+            max_count: data.max_count,
+            count: data.count,
+            slotid: new_slot_item,
         };
 
-        return ret;
+        table.plane_info.push(new_plane_info);
+
+        return Some(new_uuid);
     }
 }

@@ -31,12 +31,40 @@ impl OwnSlotItem {
 
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema)]
 pub struct EnemySlotItem {
-    pub id: i64,
+    pub uuid: Uuid,
     pub mst_slotitem_id: i64,
+}
+
+impl EnemySlotItem {
+    pub fn new_ret_uuid(data: i64, table: &mut Table) -> Uuid {
+        let new_uuid = Uuid::new_v4();
+        let new_data: EnemySlotItem = EnemySlotItem {
+            uuid: new_uuid,
+            mst_slotitem_id: data,
+        };
+
+        table.enemy_slotitem.push(new_data);
+
+        return new_uuid;
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema)]
 pub struct FriendSlotItem {
-    pub id: i64,
+    pub id: Uuid,
     pub mst_slotitem_id: i64,
+}
+
+impl FriendSlotItem {
+    pub fn new_ret_uuid(data: i64, table: &mut Table) -> Uuid {
+        let new_uuid = Uuid::new_v4();
+        let new_data: FriendSlotItem = FriendSlotItem {
+            id: new_uuid,
+            mst_slotitem_id: data,
+        };
+
+        table.friend_slotitem.push(new_data);
+
+        return new_uuid;
+    }
 }
