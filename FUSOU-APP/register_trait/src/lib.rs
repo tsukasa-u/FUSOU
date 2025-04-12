@@ -6,6 +6,7 @@ use std::path::PathBuf;
 pub use register_macro_derive_and_attr::Getter;
 pub use register_macro_derive_and_attr::TraitForConvert;
 pub use register_macro_derive_and_attr::TraitForEmitData;
+pub use register_macro_derive_and_attr::TraitForEncode;
 pub use register_macro_derive_and_attr::TraitForRoot;
 pub use register_macro_derive_and_attr::TraitForTest;
 
@@ -83,3 +84,5 @@ pub trait TraitForConvert {
 pub trait Getter {
     fn check_number(&self, _: &mut LogMapNumberSize, _: Option<(String, String, String)>) {}
 }
+
+pub trait TraitForEncode {}

@@ -5,4 +5,6 @@ pub mod deck;
 pub mod ship;
 pub mod slotitem;
 
+pub mod encode;
+
 pub mod table;
