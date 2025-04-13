@@ -31,6 +31,8 @@ use crate::wrap_proxy::ResponseParseChannel;
 
 use crate::PROXY_ADDRESS;
 
+use crate::google_drive::USER_ACCESS_TOKEN;
+
 #[tauri::command]
 pub async fn get_mst_ships(window: tauri::Window) {
     let data = KCS_MST_SHIPS.lock().unwrap();
@@ -144,7 +146,10 @@ pub async fn upload_google_drive(
 }
 
 #[tauri::command]
-pub async fn set_access_token(window: tauri::Window, access_token: String) {}
+pub async fn set_access_token(_window: tauri::Window, access_token: String) {
+    let mut token = USER_ACCESS_TOKEN.lock().unwrap();
+    *token = Some(access_token.clone());
+}
 
 #[cfg(TAURI_BUILD_TYPE = "DEBUG")]
 #[tauri::command]

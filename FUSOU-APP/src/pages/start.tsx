@@ -16,7 +16,7 @@ import IconCheckBoxGreen from "../icons/check_box_green";
 import IconCheckBoxRed from "../icons/check_box_red";
 
 import { location_route } from "../utility/location";
-import { supabase } from "../utility/supadata";
+import { supabase } from "../utility/supabase";
 import { useAuth } from "../utility/provider";
 import { redirect, useNavigate } from "@solidjs/router";
 

@@ -24,6 +24,7 @@ mod kcapi_common;
 
 mod discord;
 mod external;
+mod google_drive;
 mod tauri_cmd;
 mod util;
 mod wrap_proxy;
@@ -110,10 +111,16 @@ pub fn run() {
             tauri_cmd::launch_with_options,
             tauri_cmd::check_pac_server_health,
             tauri_cmd::check_proxy_server_health,
+            tauri_cmd::set_access_token,
+            #[cfg(TAURI_BUILD_TYPE = "DEBUG")]
             tauri_cmd::open_auth_window,
+            #[cfg(TAURI_BUILD_TYPE = "DEBUG")]
             tauri_cmd::open_debug_window,
+            #[cfg(TAURI_BUILD_TYPE = "DEBUG")]
             tauri_cmd::close_debug_window,
+            #[cfg(TAURI_BUILD_TYPE = "DEBUG")]
             tauri_cmd::read_dir,
+            #[cfg(TAURI_BUILD_TYPE = "DEBUG")]
             tauri_cmd::read_emit_file,
         ])
         .plugin(tauri_plugin_window_state::Builder::default().build())
@@ -180,6 +187,12 @@ pub fn run() {
                     .build(app)
                     .unwrap();
 
+            #[cfg(TAURI_BUILD_TYPE = "DEBUG")]
+            let debug_google_drive =
+                MenuItemBuilder::with_id("debug-google-drive".to_string(), "Debug Google Drive")
+                    .build(app)
+                    .unwrap();
+
             let quit = MenuItemBuilder::with_id("quit".to_string(), "Quit".to_string())
                 .build(app)
                 .unwrap();
@@ -214,7 +227,8 @@ pub fn run() {
             let danger_ope_sub_menu = danger_ope_sub_menu
                 .separator()
                 .item(&open_debug_window)
-                .item(&open_auth_window);
+                .item(&open_auth_window)
+                .item(&debug_google_drive);
 
             let danger_ope_sub_menu = danger_ope_sub_menu.build().unwrap();
 
@@ -327,6 +341,21 @@ pub fn run() {
                                 .unwrap();
                             }
                         },
+                        #[cfg(TAURI_BUILD_TYPE = "DEBUG")]
+                        "debug-google-drive" => {
+                            println!("debug-google-drive");
+                            // tauri::async_runtime::spawn_blocking(async || {
+                            //     println!("start google drive");
+                            //     let mut hub = crate::google_drive::create_clinent().await.unwrap();
+                            //     crate::google_drive::get_drive_file_list(&mut hub).await;
+                            // });
+                            tokio::spawn(async move {
+                                // タスクを記述する
+                                println!("start google drive");
+                                let mut hub = crate::google_drive::create_clinent().await.unwrap();
+                                crate::google_drive::get_drive_file_list(&mut hub).await;
+                            });
+                        }
                         "proxy-serve-shutdown" => {}
                         "quit" => {
                             if let Some(window) = tray.get_webview_window("main") {
@@ -460,7 +489,7 @@ pub fn run() {
                                     _ => {}
                                 },
                                 None => {
-                                    let proxy_addr = PROXY_ADDRESS.get().map(|addr| addr.clone());
+                                    let proxy_addr = PROXY_ADDRESS.get().cloned();
                                     crate::external::create_external_window(
                                         tray.app_handle(),
                                         None,
