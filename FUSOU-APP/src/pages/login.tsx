@@ -1,6 +1,6 @@
 import { createEffect, createSignal, Show } from "solid-js";
 import { location_route } from "../utility/location";
-import { supabase } from "../utility/supadata";
+import { supabase } from "../utility/supabase";
 import { useAuth } from "../utility/provider";
 import { useNavigate } from "@solidjs/router";
 

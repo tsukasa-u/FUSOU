@@ -36,7 +36,8 @@ import { Battle } from "../interface/battle";
 import { Cell, Cells, global_cells } from "../interface/cells";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
 import { AirBases, global_air_bases } from "../interface/map_info";
-import { supabase } from "./supadata";
+import { supabase } from "./supabase";
+import { invoke } from "@tauri-apps/api/core";
 
 // eslint-disable-next-line no-unused-vars
 const ShipsContext = createContext<(Ships | { set(data: Ships): void })[]>();
@@ -741,6 +742,9 @@ export function AuthProvider(props: { children: JSX.Element }) {
         setData("userMail", data.session.user.email!);
         setData("noAuth", false);
         setData("logined", true);
+
+        invoke("set_access_token", {
+          access_token: data.session.access_token});
       } else {
         setData("logined", false);
         setData("accessToken", null);
