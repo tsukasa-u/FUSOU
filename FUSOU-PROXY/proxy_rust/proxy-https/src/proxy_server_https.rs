@@ -12,6 +12,7 @@ use std::{
     io::Read,
     net::{IpAddr, Ipv4Addr, SocketAddr},
     path::Path,
+    sync::OnceLock,
     time::Duration,
 };
 
@@ -75,8 +76,8 @@ fn log_response(
         _ => true,
     };
 
-    let utc = Utc::now().naive_utc();
-    let jst = Tokyo.from_utc_datetime(&utc);
+    let utc: chrono::NaiveDateTime = Utc::now().naive_utc();
+    let jst: chrono::DateTime<chrono_tz::Tz> = Tokyo.from_utc_datetime(&utc);
 
     let re_uri = regex::Regex::new(r"https+://.*\.kancolle-server\.com").unwrap();
     let uri_path = re_uri.replace(uri.path(), "").to_string();
@@ -467,6 +468,16 @@ fn available_port() -> std::io::Result<u16> {
     }
 }
 
+static CRYPTO_PROVIDER_LOCK: OnceLock<()> = OnceLock::new();
+
+fn setup_default_crypto_provider() {
+    CRYPTO_PROVIDER_LOCK.get_or_init(|| {
+        rustls::crypto::ring::default_provider()
+            .install_default()
+            .expect("Failed to install rustls crypto provider")
+    });
+}
+
 pub fn serve_proxy(
     port: u16,
     mut slave: bidirectional_channel::Slave<bidirectional_channel::StatusInfo>,
@@ -474,6 +485,8 @@ pub fn serve_proxy(
     log_save_path: String,
     ca_save_path: String,
 ) -> Result<SocketAddr, Box<dyn std::error::Error>> {
+    setup_default_crypto_provider();
+
     let ca_dir = Path::new(ca_save_path.as_str());
     let entity_cert = ca_dir.join("entity_cert.pem");
     let entity_key = ca_dir.join("entity_key.pem");
