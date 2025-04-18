@@ -2,6 +2,8 @@
 use std::collections::HashMap;
 // use std::sync::Mutex;
 
+use serde::{Deserialize, Serialize};
+
 use crate::kcapi;
 
 // pub static KCS_MATERIALS: Lazy<Mutex<Materials>> = Lazy::new(|| {
@@ -10,7 +12,7 @@ use crate::kcapi;
 //     })
 // });
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Materials {
     pub materials: HashMap<usize, i64>,
 }
@@ -18,9 +20,12 @@ pub struct Materials {
 impl From<Vec<kcapi::api_port::port::ApiMaterial>> for Materials {
     fn from(materials: Vec<kcapi::api_port::port::ApiMaterial>) -> Self {
         let mut ret = HashMap::with_capacity(8);
-        for idx in 0..8 {
-            ret.insert(idx, materials[idx].api_value);
+        for (idx, material) in materials.iter().enumerate() {
+            ret.insert(idx, material.api_value);
         }
+        // for idx in 0..8 {
+        //     ret.insert(idx, materials[idx].api_value);
+        // }
 
         Self { materials: ret }
     }
@@ -29,9 +34,12 @@ impl From<Vec<kcapi::api_port::port::ApiMaterial>> for Materials {
 impl From<kcapi::api_req_hokyu::charge::ApiData> for Materials {
     fn from(data: kcapi::api_req_hokyu::charge::ApiData) -> Self {
         let mut ret = HashMap::with_capacity(8);
-        for idx in 0..4 {
-            ret.insert(idx, data.api_material[idx]);
+        for (idx, material) in data.api_material.iter().enumerate() {
+            ret.insert(idx, *material);
         }
+        // for idx in 0..4 {
+        //     ret.insert(idx, data.api_material[idx]);
+        // }
 
         Self { materials: ret }
     }

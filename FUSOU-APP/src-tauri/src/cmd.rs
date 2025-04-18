@@ -1,5 +1,6 @@
 // use tauri::api::process::Command;
 use std::process::Command;
+use tauri_plugin_shell::ShellExt;
 
 #[cfg(TAURI_BUILD_TYPE = "DEBUG")]
 use proxy_https::pac_server::PATH_PROXY_CRATE;

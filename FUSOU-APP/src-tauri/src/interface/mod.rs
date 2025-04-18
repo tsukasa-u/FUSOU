@@ -17,5 +17,10 @@ pub mod n_dock;
 pub mod ship;
 pub mod slot_item;
 
+pub mod mst_maparea;
+pub mod mst_mapinfo;
+pub mod mst_ship_graph;
+pub mod mst_ship_upgrade;
+
 #[allow(clippy::module_inception)]
 pub mod interface;

@@ -3,24 +3,26 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::database::ship::{EnemyShip, EnemyShipProps, FriendShip, FriendShipProps, OwnShip};
-use crate::database::table::Table;
-use crate::interface::deck_port::KCS_DECKS;
-use crate::interface::ship::KCS_SHIPS;
+use crate::database::table::PortTable;
+use crate::interface::deck_port::DeckPorts;
+use crate::interface::ship::Ships;
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema)]
+use register_trait::TraitForEncode;
+
+#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct OwnDeck {
     pub ship_ids: Vec<Option<Uuid>>,
     pub combined_flag: Option<i64>,
 }
 
 impl OwnDeck {
-    pub fn new_ret_uuid(data: i64, table: &mut Table) -> Option<Uuid> {
+    pub fn new_ret_uuid(data: i64, table: &mut PortTable) -> Option<Uuid> {
         let new_uuid = Uuid::new_v4();
 
-        let decks = KCS_DECKS.lock().unwrap();
+        let decks = DeckPorts::load();
         let deck = decks.deck_ports.get(&data)?;
 
-        let ships = KCS_SHIPS.lock().unwrap();
+        let ships = Ships::load();
         let new_ship_ids = deck.ship.clone().map(|ship_ids| {
             let ret: Vec<Option<Uuid>> = ship_ids
                 .into_iter()
@@ -45,19 +47,19 @@ impl OwnDeck {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct SupportDeck {
     pub ship_ids: Vec<Option<Uuid>>,
 }
 
 impl SupportDeck {
-    pub fn new_ret_uuid(data: i64, table: &mut Table) -> Option<Uuid> {
+    pub fn new_ret_uuid(data: i64, table: &mut PortTable) -> Option<Uuid> {
         let new_uuid = Uuid::new_v4();
 
-        let decks = KCS_DECKS.lock().unwrap();
+        let decks = DeckPorts::load();
         let deck = decks.deck_ports.get(&data)?;
 
-        let ships = KCS_SHIPS.lock().unwrap();
+        let ships = Ships::load();
         let new_ship_ids = deck.ship.clone().map(|ship_ids| {
             let ret: Vec<Option<Uuid>> = ship_ids
                 .into_iter()
@@ -81,13 +83,16 @@ impl SupportDeck {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct EnemyDeck {
     pub ship_ids: Vec<Uuid>,
 }
 
 impl EnemyDeck {
-    pub fn new_ret_uuid(data: crate::interface::battle::Battle, table: &mut Table) -> Option<Uuid> {
+    pub fn new_ret_uuid(
+        data: crate::interface::battle::Battle,
+        table: &mut PortTable,
+    ) -> Option<Uuid> {
         let new_uuid = Uuid::new_v4();
 
         let new_ship_ids = data
@@ -121,7 +126,7 @@ impl EnemyDeck {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct FriendDeck {
     pub ship_ids: Vec<Uuid>,
 }
@@ -129,7 +134,7 @@ pub struct FriendDeck {
 impl FriendDeck {
     pub fn new_ret_uuid(
         data: crate::interface::battle::FriendlyForceInfo,
-        table: &mut Table,
+        table: &mut PortTable,
     ) -> Option<Uuid> {
         let new_uuid = Uuid::new_v4();
 

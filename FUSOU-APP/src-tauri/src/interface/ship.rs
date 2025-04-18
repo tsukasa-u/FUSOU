@@ -2,6 +2,8 @@ use once_cell::sync::Lazy;
 use std::collections::HashMap;
 use std::sync::Mutex;
 
+use serde::{Deserialize, Serialize};
+
 use crate::kcapi;
 // use crate::interface::deck_port::KCS_DECKS;
 
@@ -11,12 +13,12 @@ pub static KCS_SHIPS: Lazy<Mutex<Ships>> = Lazy::new(|| {
     })
 });
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Ships {
     pub ships: HashMap<i64, Ship>,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Ship {
     pub id: i64,
     pub ship_id: Option<i64>,
@@ -45,12 +47,12 @@ pub struct Ship {
     pub sp_effect_items: Option<SpEffectItems>,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SpEffectItems {
     pub items: HashMap<i64, SpEffectItem>,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SpEffectItem {
     pub kind: i64,
     pub raig: Option<i64>,

@@ -2,6 +2,8 @@ use once_cell::sync::Lazy;
 use std::collections::HashMap;
 use std::sync::Mutex;
 
+use serde::{Deserialize, Serialize};
+
 use crate::kcapi;
 
 pub static KCS_AIR_BASE: Lazy<Mutex<AirBases>> = Lazy::new(|| {
@@ -10,12 +12,12 @@ pub static KCS_AIR_BASE: Lazy<Mutex<AirBases>> = Lazy::new(|| {
     })
 });
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AirBases {
     pub bases: HashMap<i64, AirBase>,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AirBase {
     pub rid: i64,
     pub action_kind: i64,
@@ -25,7 +27,7 @@ pub struct AirBase {
     pub plane_info: Vec<PlaneInfo>,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlaneInfo {
     pub cond: Option<i64>,
     pub state: i64,

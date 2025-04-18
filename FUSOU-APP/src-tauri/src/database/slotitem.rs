@@ -2,9 +2,11 @@ use apache_avro::AvroSchema;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::database::table::Table;
+use crate::database::table::PortTable;
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema)]
+use register_trait::TraitForEncode;
+
+#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct OwnSlotItem {
     pub uuid: Uuid,
     pub mst_slotitem_id: i64,
@@ -13,7 +15,10 @@ pub struct OwnSlotItem {
 }
 
 impl OwnSlotItem {
-    pub fn new_ret_uuid(data: crate::interface::slot_item::SlotItem, table: &mut Table) -> Uuid {
+    pub fn new_ret_uuid(
+        data: crate::interface::slot_item::SlotItem,
+        table: &mut PortTable,
+    ) -> Uuid {
         let new_uuid: Uuid = Uuid::new_v4();
 
         let new_data: OwnSlotItem = OwnSlotItem {
@@ -29,14 +34,14 @@ impl OwnSlotItem {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct EnemySlotItem {
     pub uuid: Uuid,
     pub mst_slotitem_id: i64,
 }
 
 impl EnemySlotItem {
-    pub fn new_ret_uuid(data: i64, table: &mut Table) -> Uuid {
+    pub fn new_ret_uuid(data: i64, table: &mut PortTable) -> Uuid {
         let new_uuid = Uuid::new_v4();
         let new_data: EnemySlotItem = EnemySlotItem {
             uuid: new_uuid,
@@ -49,14 +54,14 @@ impl EnemySlotItem {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct FriendSlotItem {
     pub id: Uuid,
     pub mst_slotitem_id: i64,
 }
 
 impl FriendSlotItem {
-    pub fn new_ret_uuid(data: i64, table: &mut Table) -> Uuid {
+    pub fn new_ret_uuid(data: i64, table: &mut PortTable) -> Uuid {
         let new_uuid = Uuid::new_v4();
         let new_data: FriendSlotItem = FriendSlotItem {
             id: new_uuid,

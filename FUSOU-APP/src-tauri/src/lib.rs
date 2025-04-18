@@ -29,6 +29,11 @@ mod tauri_cmd;
 mod util;
 mod wrap_proxy;
 
+mod supabase;
+
+#[cfg(TAURI_BUILD_TYPE = "DEBUG")]
+mod test;
+
 // use proxy::bidirectional_channel::{BidirectionalChannel, StatusInfo};
 use proxy_https::bidirectional_channel::{request_shutdown, BidirectionalChannel, StatusInfo};
 
@@ -90,7 +95,7 @@ pub fn run() {
         slave: response_parse_channel_slave.clone(),
     };
 
-    let mut ctx = tauri::generate_context!();
+    let ctx = tauri::generate_context!();
 
     tauri::Builder::default()
         .manage(manege_pac_channel)
@@ -193,10 +198,10 @@ pub fn run() {
                     .build(app)
                     .unwrap();
 
-            let quit = MenuItemBuilder::with_id("quit".to_string(), "Quit".to_string())
+            let quit = MenuItemBuilder::with_id("quit".to_string(), "Quit")
                 .build(app)
                 .unwrap();
-            let title = MenuItemBuilder::with_id("title".to_string(), "FUSOU".to_string())
+            let title = MenuItemBuilder::with_id("title".to_string(), "FUSOU")
                 .enabled(false)
                 .build(app)
                 .unwrap();
@@ -259,7 +264,7 @@ pub fn run() {
                 .build()
                 .unwrap();
 
-            let system_tray = TrayIconBuilder::new()
+            let _system_tray = TrayIconBuilder::new()
                 .menu(&tray_menu)
                 .tooltip("FUSOU")
                 // .icon(tauri::image::Image::new(
@@ -344,17 +349,7 @@ pub fn run() {
                         #[cfg(TAURI_BUILD_TYPE = "DEBUG")]
                         "debug-google-drive" => {
                             println!("debug-google-drive");
-                            // tauri::async_runtime::spawn_blocking(async || {
-                            //     println!("start google drive");
-                            //     let mut hub = crate::google_drive::create_clinent().await.unwrap();
-                            //     crate::google_drive::get_drive_file_list(&mut hub).await;
-                            // });
-                            tokio::spawn(async move {
-                                // タスクを記述する
-                                println!("start google drive");
-                                let mut hub = crate::google_drive::create_clinent().await.unwrap();
-                                crate::google_drive::get_drive_file_list(&mut hub).await;
-                            });
+                            test::test();
                         }
                         "proxy-serve-shutdown" => {}
                         "quit" => {
@@ -389,9 +384,9 @@ pub fn run() {
                             //     .tray_handle()
                             //     .get_item("advanced-title")
                             //     .set_enabled(false);
-                            main_open_close.set_enabled(false);
-                            quit.set_enabled(false);
-                            adavanced_title.set_enabled(false);
+                            let _ = main_open_close.set_enabled(false);
+                            let _ = quit.set_enabled(false);
+                            let _ = adavanced_title.set_enabled(false);
 
                             cmd::remove_pac();
 
