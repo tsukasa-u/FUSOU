@@ -2,6 +2,8 @@ use once_cell::sync::Lazy;
 use std::collections::HashMap;
 use std::sync::Mutex;
 
+use serde::{Deserialize, Serialize};
+
 use crate::kcapi;
 
 pub(crate) static KCS_SLOT_ITEMS: Lazy<Mutex<SlotItems>> = Lazy::new(|| {
@@ -10,12 +12,12 @@ pub(crate) static KCS_SLOT_ITEMS: Lazy<Mutex<SlotItems>> = Lazy::new(|| {
     })
 });
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SlotItems {
     pub slot_items: HashMap<i64, SlotItem>,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SlotItem {
     pub id: i64,
     pub slotitem_id: i64,

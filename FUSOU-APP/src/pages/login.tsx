@@ -3,6 +3,7 @@ import { location_route } from "../utility/location";
 import { supabase } from "../utility/supabase";
 import { useAuth } from "../utility/provider";
 import { useNavigate } from "@solidjs/router";
+import { invoke } from "@tauri-apps/api/core";
 
 function Login() {
   createEffect(location_route);
@@ -14,24 +15,42 @@ function Login() {
     const { data, error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
+        scopes: 'https://www.googleapis.com/auth/drive.file',
         redirectTo: `${window.location.origin}/`,
+        queryParams: {
+          prompt: 'consent',
+          access_type: 'offline',
+        },
       },
     });
     if (error) {
       console.error('Error logging in:', error);
     } else {
       supabase.auth.getSession().then(({ data, error }) => {
+        console.log("session", data.session);
         if (error) {
           console.error('Error getting session:', error);
         } else {
           if (data.session !== null) {
             setAuthData({
-              accessToken: data.session.access_token,
+              accessToken: data.session.provider_token,
               userName: data.session.user.user_metadata.full_name,
               userImage: data.session.user.user_metadata.picture,
               userMail: data.session.user.user_metadata.email,
               noAuth: false,
               logined: true,
+            });
+
+            invoke("set_access_token", {
+                accessToken: data.session.provider_token, 
+                refreshToken: data.session.provider_refresh_token,
+                expireIn: data.session.expires_in,
+                expireAt: data.session.expires_at,
+                tokenType: data.session.token_type,
+              }).then(() => {
+              console.log("access_token set");
+            }).catch((err) => {
+              console.error("access_token set error", err);
             });
           }
         }

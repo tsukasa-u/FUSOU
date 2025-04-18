@@ -3,12 +3,14 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::database::slotitem::{EnemySlotItem, FriendSlotItem, OwnSlotItem};
-use crate::database::table::Table;
+use crate::database::table::PortTable;
 
-use crate::interface::ship::KCS_SHIPS;
-use crate::interface::slot_item::KCS_SLOT_ITEMS;
+use crate::interface::ship::Ships;
+use crate::interface::slot_item::SlotItems;
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema)]
+use register_trait::TraitForEncode;
+
+#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct OwnShip {
     pub uuid: Uuid,
     pub ship_id: Option<i64>,
@@ -36,17 +38,17 @@ pub struct OwnShip {
 }
 
 impl OwnShip {
-    pub fn new_ret_uuid(data: i64, table: &mut Table) -> Option<Uuid> {
+    pub fn new_ret_uuid(data: i64, table: &mut PortTable) -> Option<Uuid> {
         let new_uuid: Uuid = Uuid::new_v4();
 
-        let ships = KCS_SHIPS.lock().unwrap();
+        let ships = Ships::load();
         let ship = ships.ships.get(&data)?;
 
-        let slot_item = KCS_SLOT_ITEMS.lock().unwrap();
+        let slot_item = SlotItems::load();
         let new_slot = ship.slot.clone().map(|slot| {
             slot.iter()
                 .map(|slot_id| {
-                    let slot_item = slot_item.slot_items.get(&slot_id)?;
+                    let slot_item = slot_item.slot_items.get(slot_id)?;
                     return Some(OwnSlotItem::new_ret_uuid(slot_item.clone(), table));
                 })
                 .collect()
@@ -86,7 +88,7 @@ impl OwnShip {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct EnemyShip {
     pub uuid: Uuid,
     pub mst_ship_id: Option<i64>,
@@ -109,7 +111,7 @@ pub type EnemyShipProps = (
     Option<i64>,      // mst_id
 );
 impl EnemyShip {
-    pub fn new_ret_uuid(data: EnemyShipProps, table: &mut Table) -> Uuid {
+    pub fn new_ret_uuid(data: EnemyShipProps, table: &mut PortTable) -> Uuid {
         let new_uuid: Uuid = Uuid::new_v4();
 
         let new_slot = data.3.clone().map(|slot| {
@@ -145,7 +147,7 @@ pub type FriendShipProps = (
     Option<Vec<i64>>, // 火力 雷装 対空 装甲
     Option<i64>,      // mst_id
 );
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct FriendShip {
     pub uuid: Uuid,
     pub mst_ship_id: Option<i64>,
@@ -161,7 +163,7 @@ pub struct FriendShip {
 }
 
 impl FriendShip {
-    pub fn new_ret_uuid(data: FriendShipProps, table: &mut Table) -> Uuid {
+    pub fn new_ret_uuid(data: FriendShipProps, table: &mut PortTable) -> Uuid {
         let new_uuid: Uuid = Uuid::new_v4();
 
         let new_slot = data.3.clone().map(|slot| {

@@ -16,7 +16,11 @@ use register_trait::{Getter, TraitForConvert, TraitForRoot, TraitForTest};
 use crate::interface::interface::{EmitData, Identifier, Set};
 use crate::interface::mst_equip_exslot_ship::MstEquipExslotShips;
 use crate::interface::mst_equip_ship::MstEquipShips;
+use crate::interface::mst_maparea::MstMapAreas;
+use crate::interface::mst_mapinfo::MstMapInfos;
 use crate::interface::mst_ship::MstShips;
+use crate::interface::mst_ship_graph::MstShipGraphs;
+use crate::interface::mst_ship_upgrade::MstShipUpgrades;
 use crate::interface::mst_slot_item::MstSlotItems;
 use crate::interface::mst_slot_item_equip_type::MstSlotItemEquipTypes;
 use crate::interface::mst_stype::MstStypes;
@@ -674,6 +678,11 @@ impl TraitForConvert for Res {
 
         let mst_use_item: MstUseItems = self.api_data.api_mst_useitem.clone().into();
 
+        let mst_ship_graphs: MstShipGraphs = self.api_data.api_mst_shipgraph.clone().into();
+        let mst_map_areas: MstMapAreas = self.api_data.api_mst_maparea.clone().into();
+        let mst_map_infos: MstMapInfos = self.api_data.api_mst_mapinfo.clone().into();
+        let mst_ship_upgrades: MstShipUpgrades = self.api_data.api_mst_shipupgrade.clone().into();
+
         Some(vec![
             EmitData::Set(Set::MstShips(mst_ships)),
             EmitData::Set(Set::MstSlotItems(mst_slot_items)),
@@ -682,6 +691,10 @@ impl TraitForConvert for Res {
             EmitData::Set(Set::MstEquipShips(mst_equip_ship)),
             EmitData::Set(Set::MstStypes(mst_stype)),
             EmitData::Set(Set::MstUseItems(mst_use_item)),
+            EmitData::Set(Set::MstShipGraphs(mst_ship_graphs)),
+            EmitData::Set(Set::MstMapAreas(mst_map_areas)),
+            EmitData::Set(Set::MstMapInfos(mst_map_infos)),
+            EmitData::Set(Set::MstShipUpgrades(mst_ship_upgrades)),
             EmitData::Identifier(Identifier::GetData(())),
         ])
     }

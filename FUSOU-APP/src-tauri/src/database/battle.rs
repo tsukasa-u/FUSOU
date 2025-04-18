@@ -4,14 +4,16 @@ use uuid::Uuid;
 
 use crate::database::airbase::AirBase;
 use crate::database::deck::SupportDeck;
-use crate::database::table::Table;
-use crate::interface::air_base::KCS_AIR_BASE;
-use crate::interface::deck_port::KCS_DECKS;
-use crate::interface::ship::KCS_SHIPS;
+use crate::database::table::PortTable;
+use crate::interface::air_base::AirBases;
+use crate::interface::deck_port::DeckPorts;
+use crate::interface::ship::Ships;
 
 use super::deck::{EnemyDeck, FriendDeck, OwnDeck};
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema)]
+use register_trait::TraitForEncode;
+
+#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct HougekiList {
     pub uuid: Uuid,
     pub hougeki: Vec<Vec<Uuid>>,
@@ -20,7 +22,7 @@ pub struct HougekiList {
 impl HougekiList {
     pub fn new_ret_uuid(
         data: Vec<Option<crate::interface::battle::Hougeki>>,
-        table: &mut Table,
+        table: &mut PortTable,
     ) -> Option<Uuid> {
         if data.iter().all(|x| x.is_none()) {
             return None;
@@ -42,9 +44,16 @@ impl HougekiList {
 
         return Some(new_uuid);
     }
+
+    // pub fn encode(data: Vec<HougekiList>) -> Result<Vec<u8>, apache_avro::Error> {
+    //     let schema = HougekiList::get_schema();
+    //     let mut writer = Writer::with_codec(&schema, Vec::new(), Codec::Deflate);
+    //     writer.append_ser(data)?;
+    //     writer.into_inner()
+    // }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct Hougeki {
     pub uuid: Uuid,
     pub at: i64,
@@ -60,7 +69,10 @@ pub struct Hougeki {
 }
 
 impl Hougeki {
-    pub fn new_ret_uuid(data: crate::interface::battle::Hougeki, table: &mut Table) -> Vec<Uuid> {
+    pub fn new_ret_uuid(
+        data: crate::interface::battle::Hougeki,
+        table: &mut PortTable,
+    ) -> Vec<Uuid> {
         let data_len = data.at_list.len();
         let new_uuid_list = (0..data_len)
             .map(|i| {
@@ -88,9 +100,16 @@ impl Hougeki {
 
         return new_uuid_list;
     }
+
+    // pub fn encode(data: Vec<HougekiList>) -> Result<Vec<u8>, apache_avro::Error> {
+    //     let schema = HougekiList::get_schema();
+    //     let mut writer = Writer::with_codec(&schema, Vec::new(), Codec::Deflate);
+    //     writer.append_ser(data)?;
+    //     writer.into_inner()
+    // }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct MidnightHougekiList {
     pub uuid: Uuid,
     pub f_flare_pos: Option<i64>,
@@ -101,7 +120,10 @@ pub struct MidnightHougekiList {
 }
 
 impl MidnightHougekiList {
-    pub fn new_ret_uuid(data: crate::interface::battle::Battle, table: &mut Table) -> Option<Uuid> {
+    pub fn new_ret_uuid(
+        data: crate::interface::battle::Battle,
+        table: &mut PortTable,
+    ) -> Option<Uuid> {
         let new_uuid = Uuid::new_v4();
         let new_midnight_hougeki = data
             .midnight_hougeki
@@ -130,7 +152,7 @@ impl MidnightHougekiList {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct MidnightHougeki {
     pub uuid: Uuid,
     pub at: Option<i64>,
@@ -147,7 +169,7 @@ pub struct MidnightHougeki {
 impl MidnightHougeki {
     pub fn new_ret_uuid(
         data: crate::interface::battle::MidnightHougeki,
-        table: &mut Table,
+        table: &mut PortTable,
     ) -> Option<Vec<Uuid>> {
         let ret = match data.at_list {
             Some(_) => {
@@ -186,14 +208,17 @@ impl MidnightHougeki {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct OpeningTaisenList {
     pub uuid: Uuid,
     pub opening_taisen: Vec<Uuid>,
 }
 
 impl OpeningTaisenList {
-    pub fn new_ret_uuid(data: crate::interface::battle::OpeningTaisen, table: &mut Table) -> Uuid {
+    pub fn new_ret_uuid(
+        data: crate::interface::battle::OpeningTaisen,
+        table: &mut PortTable,
+    ) -> Uuid {
         let new_uuid = Uuid::new_v4();
         let new_opening_taisen = OpeningTaisen::new_ret_uuid(data, table);
 
@@ -208,7 +233,7 @@ impl OpeningTaisenList {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct OpeningTaisen {
     pub uuid: Uuid,
     pub at: i64,
@@ -226,7 +251,7 @@ pub struct OpeningTaisen {
 impl OpeningTaisen {
     pub fn new_ret_uuid(
         data: crate::interface::battle::OpeningTaisen,
-        table: &mut Table,
+        table: &mut PortTable,
     ) -> Vec<Uuid> {
         let data_len = data.at_list.clone().len();
         let new_uuid_list = (0..data_len)
@@ -257,7 +282,7 @@ impl OpeningTaisen {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct ClosingRaigeki {
     pub uuid: Uuid,
     pub f_dam: Vec<i64>,
@@ -273,7 +298,10 @@ pub struct ClosingRaigeki {
 }
 
 impl ClosingRaigeki {
-    pub fn new_ret_uuid(data: crate::interface::battle::ClosingRaigeki, table: &mut Table) -> Uuid {
+    pub fn new_ret_uuid(
+        data: crate::interface::battle::ClosingRaigeki,
+        table: &mut PortTable,
+    ) -> Uuid {
         let new_uuid = Uuid::new_v4();
 
         let new_data = ClosingRaigeki {
@@ -296,7 +324,7 @@ impl ClosingRaigeki {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct OpeningRaigeki {
     pub uuid: Uuid,
     pub f_dam: Vec<i64>,
@@ -312,7 +340,10 @@ pub struct OpeningRaigeki {
 }
 
 impl OpeningRaigeki {
-    pub fn new_ret_uuid(data: crate::interface::battle::OpeningRaigeki, table: &mut Table) -> Uuid {
+    pub fn new_ret_uuid(
+        data: crate::interface::battle::OpeningRaigeki,
+        table: &mut PortTable,
+    ) -> Uuid {
         let new_uuid = Uuid::new_v4();
 
         let new_data = OpeningRaigeki {
@@ -335,7 +366,7 @@ impl OpeningRaigeki {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct OpeningAirAttack {
     pub uuid: Uuid,
     pub f_plane_from: Option<Vec<i64>>,
@@ -366,7 +397,7 @@ pub struct OpeningAirAttack {
 impl OpeningAirAttack {
     pub fn new_ret_uuid(
         data: crate::interface::battle::OpeningAirAttack,
-        table: &mut Table,
+        table: &mut PortTable,
     ) -> Uuid {
         let new_uuid = Uuid::new_v4();
 
@@ -403,7 +434,7 @@ impl OpeningAirAttack {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct AirBaseAirAttackList {
     pub uuid: Uuid,
     pub air_base_air_attack: Vec<Uuid>,
@@ -412,7 +443,7 @@ pub struct AirBaseAirAttackList {
 impl AirBaseAirAttackList {
     pub fn new_ret_uuid(
         data: crate::interface::battle::AirBaseAirAttacks,
-        table: &mut Table,
+        table: &mut PortTable,
     ) -> Uuid {
         let new_uuid = Uuid::new_v4();
 
@@ -435,7 +466,7 @@ impl AirBaseAirAttackList {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct AirBaseAirAttack {
     pub uuid: Uuid,
     pub f_plane_from: Option<Vec<i64>>,
@@ -465,9 +496,9 @@ pub struct AirBaseAirAttack {
 impl AirBaseAirAttack {
     pub fn new_ret_uuid(
         data: crate::interface::battle::AirBaseAirAttack,
-        table: &mut Table,
+        table: &mut PortTable,
     ) -> Option<Uuid> {
-        let air_bases = KCS_AIR_BASE.lock().unwrap();
+        let air_bases = AirBases::load();
         let air_base = air_bases.bases.get(&data.base_id)?;
 
         let new_uuid = Uuid::new_v4();
@@ -505,7 +536,7 @@ impl AirBaseAirAttack {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct AirBaseAssult {
     pub uuid: Uuid,
     pub squadron_plane: Vec<i64>,
@@ -532,7 +563,10 @@ pub struct AirBaseAssult {
 }
 
 impl AirBaseAssult {
-    pub fn new_ret_uuid(data: crate::interface::battle::AirBaseAssult, table: &mut Table) -> Uuid {
+    pub fn new_ret_uuid(
+        data: crate::interface::battle::AirBaseAssult,
+        table: &mut PortTable,
+    ) -> Uuid {
         let new_uuid = Uuid::new_v4();
 
         let new_data = AirBaseAssult {
@@ -566,7 +600,7 @@ impl AirBaseAssult {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct CarrierBaseAssault {
     pub uuid: Uuid,
     pub f_plane_from: Option<Vec<i64>>,
@@ -594,7 +628,7 @@ pub struct CarrierBaseAssault {
 impl CarrierBaseAssault {
     pub fn new_ret_uuid(
         data: crate::interface::battle::CarrierBaseAssault,
-        table: &mut Table,
+        table: &mut PortTable,
     ) -> Uuid {
         let new_uuid = Uuid::new_v4();
 
@@ -628,7 +662,7 @@ impl CarrierBaseAssault {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct SupportHourai {
     pub uuid: Uuid,
     pub f_cl: Vec<i64>,
@@ -644,11 +678,11 @@ pub struct SupportHourai {
 impl SupportHourai {
     pub fn new_ret_uuid(
         data: crate::interface::battle::SupportHourai,
-        table: &mut Table,
+        table: &mut PortTable,
     ) -> Option<Uuid> {
         let new_uuid = Uuid::new_v4();
 
-        let decks = KCS_DECKS.lock().unwrap();
+        let decks = DeckPorts::load();
         let deck = decks.deck_ports.get(&data.deck_id)?;
 
         deck.ship.as_ref()?;
@@ -656,7 +690,7 @@ impl SupportHourai {
             return None;
         }
 
-        let ships = KCS_SHIPS.lock().unwrap();
+        let ships = Ships::load();
 
         let new_f_now_hps = deck
             .ship
@@ -699,7 +733,7 @@ impl SupportHourai {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct SupportAiratack {
     pub uuid: Uuid,
     pub f_plane_from: Option<Vec<i64>>,
@@ -725,11 +759,11 @@ pub struct SupportAiratack {
 impl SupportAiratack {
     pub fn new_ret_uuid(
         data: crate::interface::battle::SupportAiratack,
-        table: &mut Table,
+        table: &mut PortTable,
     ) -> Option<Uuid> {
         let new_uuid = Uuid::new_v4();
 
-        let decks = KCS_DECKS.lock().unwrap();
+        let decks = DeckPorts::load();
         let deck = decks.deck_ports.get(&data.deck_id)?;
 
         deck.ship.as_ref()?;
@@ -737,7 +771,7 @@ impl SupportAiratack {
             return None;
         }
 
-        let ships = KCS_SHIPS.lock().unwrap();
+        let ships = Ships::load();
 
         let new_f_now_hps = deck
             .ship
@@ -788,7 +822,7 @@ impl SupportAiratack {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct FriendlySupportHouraiList {
     pub f_flare_pos: Option<i64>,
     pub e_flare_pos: Option<i64>,
@@ -798,7 +832,7 @@ pub struct FriendlySupportHouraiList {
 impl FriendlySupportHouraiList {
     pub fn new_ret_uuid(
         data: crate::interface::battle::FriendlySupportHourai,
-        table: &mut Table,
+        table: &mut PortTable,
     ) -> Option<Uuid> {
         let new_uuid = Uuid::new_v4();
         let new_hourai_list = FriendlySupportHourai::new_ret_uuid(data.hougeki, table);
@@ -831,7 +865,7 @@ impl FriendlySupportHouraiList {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct FriendlySupportHourai {
     pub uuid: Uuid,
     pub at: Option<i64>,
@@ -848,7 +882,7 @@ pub struct FriendlySupportHourai {
 impl FriendlySupportHourai {
     pub fn new_ret_uuid(
         data: crate::interface::battle::MidnightHougeki,
-        table: &mut Table,
+        table: &mut PortTable,
     ) -> Option<Vec<Uuid>> {
         let ret = match data.at_list {
             Some(_) => {
@@ -887,7 +921,7 @@ impl FriendlySupportHourai {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct Battle {
     pub uuid: Uuid,
     pub battle_order: Vec<i64>,
@@ -929,7 +963,10 @@ pub struct Battle {
 }
 
 impl Battle {
-    pub fn new_ret_uuid(data: crate::interface::battle::Battle, table: &mut Table) -> Option<Uuid> {
+    pub fn new_ret_uuid(
+        data: crate::interface::battle::Battle,
+        table: &mut PortTable,
+    ) -> Option<Uuid> {
         let new_uuid = Uuid::new_v4();
 
         let new_battle_order: Vec<i64> = data
@@ -1025,22 +1062,10 @@ impl Battle {
             })
             .unwrap_or(None);
         let new_midnight_hougeki = MidnightHougekiList::new_ret_uuid(data.clone(), table);
-        let new_f_nowhps = data
-            .clone()
-            .f_nowhps
-            .map(|nowhps| nowhps.iter().map(|x| *x as i64).collect());
-        let new_e_nowhps = data
-            .clone()
-            .e_nowhps
-            .map(|nowhps| nowhps.iter().map(|x| *x as i64).collect());
-        let new_midngiht_f_nowhps = data
-            .clone()
-            .midngiht_f_nowhps
-            .map(|nowhps| nowhps.iter().map(|x| *x as i64).collect());
-        let new_midngiht_e_nowhps = data
-            .clone()
-            .midngiht_e_nowhps
-            .map(|nowhps| nowhps.iter().map(|x| *x as i64).collect());
+        let new_f_nowhps = data.clone().f_nowhps;
+        let new_e_nowhps = data.clone().e_nowhps;
+        let new_midngiht_f_nowhps = data.clone().midngiht_f_nowhps;
+        let new_midngiht_e_nowhps = data.clone().midngiht_e_nowhps;
 
         let new_data = Battle {
             uuid: new_uuid,

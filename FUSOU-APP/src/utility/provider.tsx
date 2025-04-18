@@ -742,9 +742,6 @@ export function AuthProvider(props: { children: JSX.Element }) {
         setData("userMail", data.session.user.email!);
         setData("noAuth", false);
         setData("logined", true);
-
-        invoke("set_access_token", {
-          access_token: data.session.access_token});
       } else {
         setData("logined", false);
         setData("accessToken", null);

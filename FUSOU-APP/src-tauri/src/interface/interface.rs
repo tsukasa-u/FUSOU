@@ -6,7 +6,11 @@ use super::logs::Logs;
 use super::material::Materials;
 use super::mst_equip_exslot_ship::MstEquipExslotShips;
 use super::mst_equip_ship::MstEquipShips;
+use super::mst_maparea::MstMapAreas;
+use super::mst_mapinfo::MstMapInfos;
 use super::mst_ship::MstShips;
+use super::mst_ship_graph::MstShipGraphs;
+use super::mst_ship_upgrade::MstShipUpgrades;
 use super::mst_slot_item::MstSlotItems;
 use super::mst_slot_item_equip_type::MstSlotItemEquipTypes;
 use super::mst_stype::MstStypes;
@@ -15,14 +19,16 @@ use super::n_dock::NDocks;
 use super::ship::Ships;
 use super::slot_item::SlotItems;
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum EmitData {
     Add(Add),
     Set(Set),
     Identifier(Identifier),
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Add {
     Materials(Materials),
     // DeckPorts(DeckPorts),
@@ -38,7 +44,7 @@ pub enum Add {
     Dammy(()),
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Set {
     Materials(Materials),
     DeckPorts(DeckPorts),
@@ -56,10 +62,14 @@ pub enum Set {
     MstSlotItemEquipTypes(MstSlotItemEquipTypes),
     MstStypes(MstStypes),
     MstUseItems(MstUseItems),
+    MstMapInfos(MstMapInfos),
+    MstMapAreas(MstMapAreas),
+    MstShipGraphs(MstShipGraphs),
+    MstShipUpgrades(MstShipUpgrades),
     Dammy(()),
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Identifier {
     Port(()),
     GetData(()),

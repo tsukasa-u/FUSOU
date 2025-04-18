@@ -1,11 +1,11 @@
-use apache_avro::{AvroSchema, Codec, Writer};
+use apache_avro::AvroSchema;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::database::slotitem::OwnSlotItem;
-use crate::database::table::Table;
+use crate::database::table::PortTable;
 
-use crate::interface::slot_item::KCS_SLOT_ITEMS;
+use crate::interface::slot_item::SlotItems;
 
 use register_trait::TraitForEncode;
 
@@ -18,7 +18,7 @@ pub struct AirBase {
 }
 
 impl AirBase {
-    pub fn new_ret_uuid(data: crate::interface::air_base::AirBase, table: &mut Table) -> Uuid {
+    pub fn new_ret_uuid(data: crate::interface::air_base::AirBase, table: &mut PortTable) -> Uuid {
         let new_uuid = Uuid::new_v4();
         let new_plane_info = data
             .plane_info
@@ -38,7 +38,7 @@ impl AirBase {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct PlaneInfo {
     pub uuid: Uuid,
     pub cond: Option<i64>,
@@ -51,9 +51,9 @@ pub struct PlaneInfo {
 impl PlaneInfo {
     pub fn new_ret_uuid(
         data: crate::interface::air_base::PlaneInfo,
-        table: &mut Table,
+        table: &mut PortTable,
     ) -> Option<Uuid> {
-        let slot_items = KCS_SLOT_ITEMS.lock().unwrap();
+        let slot_items = SlotItems::load();
         let slot_item = slot_items.slot_items.get(&data.slotid)?;
 
         let new_uuid: Uuid = Uuid::new_v4();

@@ -7,95 +7,87 @@ use tauri::AppHandle;
 use tauri::Emitter;
 use tauri::Manager;
 
-use reqwest::Client;
-
 use crate::external::create_external_window;
-use crate::interface::mst_equip_exslot_ship::KCS_MST_EQUIP_EXSLOT_SHIP;
-use crate::interface::mst_equip_ship::KCS_MST_EQUIP_SHIP;
-use crate::interface::mst_ship::KCS_MST_SHIPS;
-use crate::interface::mst_slot_item::KCS_MST_SLOT_ITEMS;
-use crate::interface::mst_slot_item_equip_type::KCS_MST_SLOT_ITEM_EQUIP_TYPES;
-use crate::interface::mst_stype::KCS_MST_STYPES;
-use crate::interface::mst_use_item::KCS_MST_USEITEMS;
-use crate::interface::slot_item::KCS_SLOT_ITEMS;
+use crate::google_drive::{UserAccessTokenInfo, USER_ACCESS_TOKEN};
+use crate::interface::mst_equip_exslot_ship::MstEquipExslotShips;
+use crate::interface::mst_equip_ship::MstEquipShips;
+use crate::interface::mst_ship::MstShips;
+use crate::interface::mst_slot_item::MstSlotItems;
+use crate::interface::mst_slot_item_equip_type::MstSlotItemEquipTypes;
+use crate::interface::mst_stype::MstStypes;
+use crate::interface::mst_use_item::MstUseItems;
+use crate::interface::slot_item::SlotItems;
 
 use crate::external::SHARED_BROWSER;
 use crate::json_parser;
-use crate::wrap_proxy;
-use crate::wrap_proxy::PacChannel;
-use crate::wrap_proxy::ProxyChannel;
-use crate::wrap_proxy::ProxyLogChannel;
-use crate::wrap_proxy::ResponseParseChannel;
+use crate::wrap_proxy::{self, PacChannel, ProxyChannel, ProxyLogChannel, ResponseParseChannel};
 // use crate::RESOURCES_DIR;
 // use crate::ROAMING_DIR;
 
 use crate::PROXY_ADDRESS;
 
-use crate::google_drive::USER_ACCESS_TOKEN;
-
 #[tauri::command]
 pub async fn get_mst_ships(window: tauri::Window) {
-    let data = KCS_MST_SHIPS.lock().unwrap();
+    let data = MstShips::load();
     let _ = window
         .app_handle()
-        .emit_to("main", "set-kcs-mst-ships", (*data).clone());
+        .emit_to("main", "set-kcs-mst-ships", data);
 }
 
 #[tauri::command]
 pub async fn get_mst_slot_items(window: tauri::Window) {
-    let data = KCS_MST_SLOT_ITEMS.lock().unwrap();
+    let data = MstSlotItems::load();
     let _ = window
         .app_handle()
-        .emit_to("main", "set-kcs-mst-slot-items", (*data).clone());
+        .emit_to("main", "set-kcs-mst-slot-items", data);
 }
 
 #[tauri::command]
 pub async fn get_slot_items(window: tauri::Window) {
-    let data = KCS_SLOT_ITEMS.lock().unwrap();
+    let data = SlotItems::load();
     let _ = window
         .app_handle()
-        .emit_to("main", "set-kcs-slot-items", (*data).clone());
+        .emit_to("main", "set-kcs-slot-items", data);
 }
 
 #[tauri::command]
 pub async fn get_mst_equip_exslot_ships(window: tauri::Window) {
-    let data = KCS_MST_EQUIP_EXSLOT_SHIP.lock().unwrap();
+    let data = MstEquipExslotShips::load();
     let _ = window
         .app_handle()
-        .emit_to("main", "set-kcs-mst-equip-exslot-ships", (*data).clone());
+        .emit_to("main", "set-kcs-mst-equip-exslot-ships", data);
 }
 
 #[tauri::command]
 pub async fn get_mst_slotitem_equip_types(window: tauri::Window) {
-    let data = KCS_MST_SLOT_ITEM_EQUIP_TYPES.lock().unwrap();
-    let _ =
-        window
-            .app_handle()
-            .emit_to("main", "set-kcs-mst-slot-item-equip-types", (*data).clone());
+    let data = MstSlotItemEquipTypes::load();
+    let _ = window
+        .app_handle()
+        .emit_to("main", "set-kcs-mst-slot-item-equip-types", data);
 }
 
 #[tauri::command]
 pub async fn get_mst_equip_ships(window: tauri::Window) {
-    let data = KCS_MST_EQUIP_SHIP.lock().unwrap();
+    let data = MstEquipShips::load();
     let _ = window
         .app_handle()
-        .emit_to("main", "set-kcs-mst-equip-ships", (*data).clone());
+        .emit_to("main", "set-kcs-mst-equip-ships", data);
 }
 
 #[tauri::command]
 pub async fn get_mst_stypes(window: tauri::Window) {
-    let data = KCS_MST_STYPES.lock().unwrap();
+    let data = MstStypes::load();
     let _ = window
         .app_handle()
-        .emit_to("main", "set-kcs-mst-stypes", (*data).clone());
+        .emit_to("main", "set-kcs-mst-stypes", data);
 }
 
 #[tauri::command]
 pub async fn get_mst_useitems(window: tauri::Window) {
-    let data = KCS_MST_USEITEMS.lock().unwrap();
+    let data = MstUseItems::load();
     let _ = window
         .app_handle()
-        .emit_to("main", "set-kcs-mst-use-items", (*data).clone());
+        .emit_to("main", "set-kcs-mst-use-items", data);
 }
 
 #[allow(dead_code)]
@@ -131,24 +123,25 @@ pub async fn close_splashscreen(window: tauri::Window) {
         .unwrap();
 }
 
-pub async fn upload_google_drive(
-    window: tauri::Window,
-    access_token: String,
-    file_path: String,
-    file_name: String,
-) {
-    let sheets_response = Client::new()
-        .get("https://sheets.googleapis.com/v4/spreadsheets/{your spreadsheet id}/values/A1:C")
-        .bearer_auth(access_token)
-        .send()
-        .await
-        .unwrap();
-}
-
 #[tauri::command]
-pub async fn set_access_token(_window: tauri::Window, access_token: String) {
-    let mut token = USER_ACCESS_TOKEN.lock().unwrap();
-    *token = Some(access_token.clone());
+pub async fn set_access_token(
+    access_token: &str,
+    refresh_token: &str,
+    expire_in: i64,
+    expire_at: i64,
+    token_type: &str,
+) -> Result<(), ()> {
+    println!("set access token: {}", access_token);
+    let mut local_access_token = USER_ACCESS_TOKEN.lock().unwrap();
+    let info = UserAccessTokenInfo {
+        access_token: access_token.to_owned(),
+        refresh_token: refresh_token.to_owned(),
+        expires_in: expire_in,
+        expires_at: expire_at,
+        token_type: token_type.to_owned(),
+    };
+    *local_access_token = Some(info);
+    Ok(())
 }
 
 #[cfg(TAURI_BUILD_TYPE = "DEBUG")]
@@ -408,11 +401,11 @@ pub async fn launch_with_options(
                         );
                         match addr {
                             Ok(addr) => {
-                                PROXY_ADDRESS.set(addr.clone());
+                                let _ = PROXY_ADDRESS.set(addr.clone());
                                 Some(addr)
                             }
                             Err(e) => {
-                                println!("Error: {}", e.to_string());
+                                println!("Error: {}", e);
                                 return Err(());
                             }
                         }

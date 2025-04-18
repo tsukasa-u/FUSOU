@@ -2,6 +2,11 @@ use once_cell::sync::Lazy;
 use std::collections::HashMap;
 use std::sync::Mutex;
 
+use apache_avro::AvroSchema;
+use serde::{Deserialize, Serialize};
+
+use register_trait::TraitForEncode;
+
 pub(crate) static KCS_MST_EQUIP_EXSLOT_SHIP: Lazy<Mutex<MstEquipExslotShips>> = Lazy::new(|| {
     Mutex::new(MstEquipExslotShips {
         mst_equip_ships: HashMap::new(),
@@ -10,12 +15,12 @@ pub(crate) static KCS_MST_EQUIP_EXSLOT_SHIP: Lazy<Mutex<MstEquipExslotShips>> = 
 
 use crate::kcapi;
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MstEquipExslotShips {
-    mst_equip_ships: HashMap<String, MstEquipExslotShip>,
+    pub mst_equip_ships: HashMap<String, MstEquipExslotShip>,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, AvroSchema, TraitForEncode)]
 pub struct MstEquipExslotShip {
     pub ship_ids: Option<HashMap<String, i64>>,
     pub stypes: Option<HashMap<String, i64>>,

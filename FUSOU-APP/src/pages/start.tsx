@@ -118,16 +118,35 @@ function Start() {
   }
 
   createEffect(() => {
+    // navigate("/auth");
+    
 
     supabase.auth.getSession().then(({ data, error }) => {
       if (error) {
         console.error("Error getting session:", error);
+        // navigate("/auth");
       } else {
         if (data.session == null) {
         
           if (!authData.logined && !authData.noAuth) {
               navigate("/auth");
           }
+        } else {
+          if (data.session.provider_token == null || data.session.provider_token == "" || data.session.provider_token == undefined) {
+            navigate("/auth");
+          }
+          console.log("access_token", data);
+          invoke("set_access_token", {
+            accessToken: data.session.provider_token, 
+            refreshToken: data.session.provider_refresh_token,
+            expireIn: data.session.expires_in,
+            expireAt: data.session.expires_at,
+            tokenType: data.session.token_type,
+          }).then(() => {
+            console.log("access_token set");
+          }).catch((err) => {
+            console.error("access_token set error", err);
+          });
         }
       }
     });

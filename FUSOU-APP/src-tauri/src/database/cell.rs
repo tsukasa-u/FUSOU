@@ -3,9 +3,11 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::database::battle::Battle;
-use crate::database::table::Table;
+use crate::database::table::PortTable;
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema)]
+use register_trait::TraitForEncode;
+
+#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct Cells {
     pub uuid: Uuid,
     pub maparea_id: i64,
@@ -31,7 +33,10 @@ pub struct Cells {
 // }
 
 impl Cells {
-    pub fn new_ret_uuid(data: crate::interface::cells::Cells, table: &mut Table) -> Option<Uuid> {
+    pub fn new_ret_uuid(
+        data: crate::interface::cells::Cells,
+        table: &mut PortTable,
+    ) -> Option<Uuid> {
         let new_uuid = Uuid::new_v4();
         let new_battle = data
             .battles

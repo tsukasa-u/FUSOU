@@ -10,6 +10,8 @@ use crate::kcapi_common;
 use super::battle::calc_air_damage;
 use super::battle::{AirDamage, Battle};
 
+use serde::{Deserialize, Serialize};
+
 pub static KCS_CELLS_INDEX: Lazy<Mutex<Vec<i64>>> = Lazy::new(|| Mutex::new(Vec::new()));
 pub static KCS_CELLS: Lazy<Mutex<Cells>> = Lazy::new(|| {
     Mutex::new(Cells {
@@ -25,7 +27,7 @@ pub static KCS_CELLS: Lazy<Mutex<Cells>> = Lazy::new(|| {
     })
 });
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Cells {
     pub maparea_id: i64,
     pub mapinfo_no: i64,
@@ -48,9 +50,35 @@ impl Cells {
         let mut cells = KCS_CELLS.lock().unwrap();
         *cells = self.clone();
     }
+
+    pub fn reset() {
+        let mut cells = KCS_CELLS.lock().unwrap();
+        cells.cells.clear();
+        cells.cell_index.clear();
+        cells.event_map = None;
+        cells.cell_data.clear();
+        cells.battles.clear();
+        cells.maparea_id = 0;
+        cells.mapinfo_no = 0;
+        cells.bosscell_no = 0;
+        cells.bosscomp = 0;
+    }
+
+    pub fn reset_flag() -> bool {
+        let cells = KCS_CELLS.lock().unwrap();
+        return cells.maparea_id == 0
+            && cells.mapinfo_no == 0
+            && cells.bosscell_no == 0
+            && cells.bosscomp == 0
+            && cells.cells.is_empty()
+            && cells.cell_index.is_empty()
+            && cells.event_map.is_none()
+            && cells.cell_data.is_empty()
+            && cells.battles.is_empty();
+    }
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Cell {
     pub timestamp: Option<i64>,
     pub rashin_id: i64,
@@ -82,7 +110,7 @@ impl Cell {
     }
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CellData {
     pub id: i64,
     pub no: i64,
@@ -91,14 +119,14 @@ pub struct CellData {
     pub distance: Option<i64>,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Eventmap {
     pub max_maphp: i64,
     pub now_maphp: i64,
     pub dmg: i64,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Happening {
     // type: i64,
     pub count: i64,
@@ -108,13 +136,13 @@ pub struct Happening {
     pub dentan: i64,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EDeckInfo {
     pub kind: i64,
     pub ship_ids: Vec<i64>,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DestructionBattle {
     pub formation: Vec<i64>,
     pub ship_ke: Vec<i64>,
@@ -131,7 +159,7 @@ pub struct DestructionBattle {
     pub e_total_damages: Option<Vec<i64>>,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AirBaseAttack {
     pub air_superiority: Option<i64>,
     pub plane_from: Vec<Option<Vec<i64>>>,

@@ -4,6 +4,8 @@ use std::sync::Mutex;
 
 use crate::kcapi;
 
+use serde::{Deserialize, Serialize};
+
 pub static KCS_DECKS: Lazy<Mutex<DeckPorts>> = Lazy::new(|| {
     Mutex::new(DeckPorts {
         deck_ports: HashMap::new(),
@@ -11,13 +13,13 @@ pub static KCS_DECKS: Lazy<Mutex<DeckPorts>> = Lazy::new(|| {
     })
 });
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeckPorts {
     pub deck_ports: HashMap<i64, DeckPort>,
     pub combined_flag: Option<i64>,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeckPort {
     pub id: i64,
     pub name: String,

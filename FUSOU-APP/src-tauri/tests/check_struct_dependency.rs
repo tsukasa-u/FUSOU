@@ -28,11 +28,9 @@ pub fn check_struct_dependency() {
 
     let sub_target = path::PathBuf::from(sub_target_path);
     let sub_folders = sub_target.read_dir().expect("read_dir call failed");
-    for entry in sub_folders {
-        if let Ok(file_entry) = entry {
-            let file_path = file_entry.path();
-            file_path_list.push(file_path);
-        }
+    for entry in sub_folders.flatten() {
+        let file_path = entry.path();
+        file_path_list.push(file_path);
     }
 
     let target = path::PathBuf::from(target_path);
@@ -44,11 +42,9 @@ pub fn check_struct_dependency() {
 
             if dir_entry_path.clone().is_dir() {
                 let files = dir_entry_path.read_dir().expect("read_dir call failed");
-                for entry in files {
-                    if let Ok(file_entry) = entry {
-                        let file_path = file_entry.path();
-                        file_path_list.push(file_path);
-                    }
+                for entry in files.flatten() {
+                    let file_path = entry.path();
+                    file_path_list.push(file_path);
                 }
             }
         }
@@ -195,10 +191,8 @@ pub fn check_struct_dependency() {
 
                 for (struct_name, fields) in fieldm.iter() {
                     let node_struct_name_id = {
-                        let mut node_struct_name = cluster.node_named(format!(
-                            "{}__{}__{}",
-                            api_name_1, api_name_2, struct_name
-                        ));
+                        let mut node_struct_name = cluster
+                            .node_named(format!("{}__{}__{}", api_name_1, api_name_2, struct_name));
                         set_node_struct_name(&mut node_struct_name, struct_name, fields);
                         check_dobule_resitering_struct_name(
                             &mut node_struct_name,
@@ -257,13 +251,11 @@ pub fn check_struct_dependency() {
                 }
             }
             for (from, to) in edge_list {
-                let to_node = struct_node_list.get(&to.0);
-                if to_node.is_some() {
+                if let Some(to_node) = struct_node_list.get(&to.0) {
                     deps_graph
                         .edge(
                             from.position(dot_writer::PortPosition::East),
                             to_node
-                                .unwrap()
                                 .clone()
                                 .port(&to.1)
                                 .position(dot_writer::PortPosition::West),
@@ -300,10 +292,8 @@ pub fn check_struct_dependency() {
                 set_cluster(&mut cluster, api_name_1, api_name_2);
                 for (struct_name, fields) in fieldm.iter() {
                     let node_struct_name_id = {
-                        let mut node_struct_name = cluster.node_named(format!(
-                            "{}__{}__{}",
-                            api_name_1, api_name_2, struct_name
-                        ));
+                        let mut node_struct_name = cluster
+                            .node_named(format!("{}__{}__{}", api_name_1, api_name_2, struct_name));
                         set_node_struct_name(&mut node_struct_name, struct_name, fields);
 
                         node_struct_name.id()
@@ -415,10 +405,8 @@ pub fn check_struct_dependency() {
                         .get(struct_name)
                         .unwrap();
                     let node_struct_name_id = {
-                        let mut node_struct_name = cluster.node_named(format!(
-                            "{}__{}__{}",
-                            api_name_1, api_name_2, struct_name
-                        ));
+                        let mut node_struct_name = cluster
+                            .node_named(format!("{}__{}__{}", api_name_1, api_name_2, struct_name));
                         set_node_struct_name(&mut node_struct_name, struct_name, fields);
 
                         node_struct_name.id()
@@ -461,13 +449,11 @@ pub fn check_struct_dependency() {
             }
 
             for (from, to) in edge_list {
-                let to_node = struct_node_list.get(&to.0);
-                if to_node.is_some() {
+                if let Some(to_node) = struct_node_list.get(&to.0) {
                     deps_graph
                         .edge(
                             from.position(dot_writer::PortPosition::East),
                             to_node
-                                .unwrap()
                                 .clone()
                                 .port(&to.1)
                                 .position(dot_writer::PortPosition::West),
@@ -513,7 +499,7 @@ fn create_writer(output_bytes: &mut Vec<u8>) -> DotWriter<'_> {
     writer
 }
 
-fn create_deps_graph<'w>(writer: &'w mut DotWriter<'w>) -> Scope<'w, '_> {
+fn create_deps_graph<'w>(writer: &'w mut DotWriter<'w>) -> Scope<'w, 'w> {
     let mut deps_graph: Scope = writer.digraph();
     deps_graph.set_rank_direction(dot_writer::RankDirection::LeftRight);
     deps_graph

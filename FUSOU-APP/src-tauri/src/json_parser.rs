@@ -6,8 +6,14 @@ use register_trait::TraitForConvert;
 
 use register_trait::expand_struct_selector;
 
+use crate::database::table::GetDataTable;
+use crate::database::table::PortTable;
+use crate::interface::cells::Cells;
+
 // use crate::kcapi;
+use crate::google_drive;
 use crate::interface::interface::{Add, EmitData, Identifier, Set};
+use crate::supabase;
 
 pub fn emit_data(handle: &tauri::AppHandle, emit_data: EmitData) {
     match emit_data {
@@ -89,14 +95,119 @@ pub fn emit_data(handle: &tauri::AppHandle, emit_data: EmitData) {
                 data.restore();
                 let _ = handle.emit_to("main", "set-kcs-cells", data);
             }
+            Set::MstMapAreas(data) => {
+                data.restore();
+            }
+            Set::MstMapInfos(data) => {
+                data.restore();
+            }
+            Set::MstShipGraphs(data) => {
+                data.restore();
+            }
+            Set::MstShipUpgrades(data) => {
+                data.restore();
+            }
             Set::Dammy(_) => {
                 let _ = handle.emit_to("main", "set-kcs-dammy", ());
             }
         },
         EmitData::Identifier(data) => match data {
-            Identifier::Port(_) => {}
+            Identifier::Port(_) => {
+                let cells = Cells::load();
+                let port_table = PortTable::new(cells);
+                Cells::reset();
+                tauri::async_runtime::spawn(async move {
+                    match port_table.encode() {
+                        Ok(port_table_encode) => {
+                            let pariod_tag = supabase::get_period_tag().await;
+                            let hub = crate::google_drive::create_client().await;
+                            match hub {
+                                Some(mut hub) => {
+                                    let folder_name = vec!["fusou".to_string(), pariod_tag.clone()];
+                                    let folder_id =
+                                        google_drive::check_or_create_folder_hierarchical(
+                                            &mut hub,
+                                            folder_name,
+                                            Some("root".to_string()),
+                                        )
+                                        .await;
+
+                                    let result = google_drive::write_port_table(
+                                        &mut hub,
+                                        folder_id,
+                                        port_table_encode,
+                                    )
+                                    .await;
+                                    if result.is_none() {
+                                        println!(
+                                            "\x1b[38;5;{}m Failed to write port table\x1b[m ",
+                                            8
+                                        );
+                                    }
+                                }
+                                None => {
+                                    println!(
+                                        "\x1b[38;5;{}m Failed to create google drive client\x1b[m ",
+                                        8
+                                    );
+                                }
+                            };
+                        }
+                        Err(e) => {
+                            println!("\x1b[38;5;{}m Failed to encode port table: {}\x1b[m ", 8, e);
+                        }
+                    }
+                });
+            }
             Identifier::RequireInfo(_) => {}
-            Identifier::GetData(_) => {}
+            Identifier::GetData(_) => {
+                let get_data_table = GetDataTable::new();
+                tauri::async_runtime::spawn(async move {
+                    match get_data_table.encode() {
+                        Ok(get_data_table_encode) => {
+                            let pariod_tag = supabase::get_period_tag().await;
+                            let hub = crate::google_drive::create_client().await;
+                            match hub {
+                                Some(mut hub) => {
+                                    let folder_name = vec!["fusou".to_string(), pariod_tag.clone()];
+                                    let folder_id =
+                                        google_drive::check_or_create_folder_hierarchical(
+                                            &mut hub,
+                                            folder_name,
+                                            Some("root".to_string()),
+                                        )
+                                        .await;
+
+                                    let result = google_drive::write_get_data_table(
+                                        &mut hub,
+                                        folder_id,
+                                        get_data_table_encode,
+                                    )
+                                    .await;
+                                    if result.is_none() {
+                                        println!(
+                                            "\x1b[38;5;{}m Failed to write get data table\x1b[m ",
+                                            8
+                                        );
+                                    }
+                                }
+                                None => {
+                                    println!(
+                                        "\x1b[38;5;{}m Failed to create google drive client\x1b[m ",
+                                        8
+                                    );
+                                }
+                            };
+                        }
+                        Err(e) => {
+                            println!(
+                                "\x1b[38;5;{}m Failed to encode get data table: {}\x1b[m ",
+                                8, e
+                            );
+                        }
+                    }
+                });
+            }
         },
     }
 }
