@@ -35,6 +35,9 @@ importers:
       '@tauri-apps/api':
         specifier: ^2.4.0
         version: 2.4.0
+      '@tauri-apps/plugin-deep-link':
+        specifier: ^2.2.1
+        version: 2.2.1
       d3:
         specifier: ^7.9.0
         version: 7.9.0
@@ -657,6 +660,9 @@ packages:
     resolution: {integrity: sha512-Esg7s20tuSULd2YF3lmtMa1vF7yr5eh/TlBHXjEyrC+XSD9aBxHVoXb6oz7oKybDY9Jf9OiBa0bf2PbybcmOLA==}
     engines: {node: '>= 10'}
     hasBin: true
+
+  '@tauri-apps/plugin-deep-link@2.2.1':
+    resolution: {integrity: sha512-8skZ6qIH/kWaV8d6jj3aPvvkIOuqkVk0APRDey9n9N3Ueu3n4MIbuxpAKR2EdoAyQxnXxPTNVyjw2D35/vfGyg==}
 
   '@tsconfig/node10@1.0.11':
     resolution: {integrity: sha512-DcRjDCujK/kCk/cUe8Xz8ZSpm8mS3mNNpta+jGCA6USEDfktlNvm1+IuZ9eTcDbNk41BHwpHHeW+N1lKCz4zOw==}
@@ -2327,6 +2333,10 @@ snapshots:
       '@tauri-apps/cli-win32-arm64-msvc': 2.4.0
       '@tauri-apps/cli-win32-ia32-msvc': 2.4.0
       '@tauri-apps/cli-win32-x64-msvc': 2.4.0
+
+  '@tauri-apps/plugin-deep-link@2.2.1':
+    dependencies:
+      '@tauri-apps/api': 2.4.0
 
   '@tsconfig/node10@1.0.11': {}
 
