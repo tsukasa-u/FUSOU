@@ -40,11 +40,8 @@ pub static GOOGLE_FOLDER_IDS: OnceCell<HashMap<String, String>> = OnceCell::cons
 
 #[derive(Debug, Clone)]
 pub struct UserAccessTokenInfo {
-    pub access_token: String,
     pub refresh_token: String,
-    pub expires_in: i64,
-    pub expires_at: i64,
-    pub token_type: String,
+    pub token_type: Option<String>,
 }
 
 const SCOPES: &[&str; 1] = &["https://www.googleapis.com/auth/drive.file"];
@@ -54,6 +51,24 @@ pub static USER_ACCESS_TOKEN: Lazy<Mutex<Option<UserAccessTokenInfo>>> =
 pub static USER_GOOGLE_AUTH: OnceCell<
     Authenticator<hyper_rustls::HttpsConnector<hyper_util::client::legacy::connect::HttpConnector>>,
 > = OnceCell::const_new();
+
+pub fn set_refresh_token(refresh_token: String, token_type: String) -> Result<(), ()> {
+    if refresh_token.is_empty() || token_type.is_empty() {
+        return Err(());
+    }
+    println!("set refresh token: {}", refresh_token);
+    let mut local_access_token = USER_ACCESS_TOKEN.lock().unwrap();
+    let info = UserAccessTokenInfo {
+        refresh_token: refresh_token.to_owned(),
+        token_type: if token_type == "Bearer" {
+            Some(token_type.to_owned())
+        } else {
+            Some("Bearer".to_owned())
+        },
+    };
+    *local_access_token = Some(info);
+    Ok(())
+}
 
 pub static SURVICE_ACCESS_TOKEN: Lazy<Mutex<Option<String>>> = Lazy::new(|| Mutex::new(None));
 
@@ -84,7 +99,8 @@ pub async fn create_auth(
         .unwrap()
         .clone()
         .unwrap()
-        .token_type;
+        .token_type
+        .unwrap_or("Bearer".to_string());
 
     let secret = yup_oauth2::authorized_user::AuthorizedUserSecret {
         client_id: dotenv!("GOOGLE_CLIENT_ID").to_string(),
@@ -141,7 +157,7 @@ pub async fn create_client() -> Option<
     return Some(hub);
 }
 
-#[cfg(TAURI_BUILD_TYPE = "DEBUG")]
+#[cfg(dev)]
 pub async fn get_drive_file_list(
     hub: &mut DriveHub<
         hyper_rustls::HttpsConnector<hyper_util::client::legacy::connect::HttpConnector>,
@@ -523,10 +539,6 @@ pub async fn write_port_table(
         })
         .await
         .clone();
-
-    if crate::interface::cells::Cells::reset_flag() {
-        return None;
-    }
 
     if let Some(folder_id) = folder_id_list.get(&Cells::get_table_name()) {
         create_file(

@@ -8,6 +8,7 @@ import Start from "./pages/start.tsx";
 import NotFound from "./pages/not_found.tsx";
 import Debug from "./pages/debug.tsx";
 import Login from "./pages/login.tsx";
+import Close from "./pages/close.tsx";
 
 import "./tailwind.css";
 import { AuthProvider } from "./utility/provider.tsx";
@@ -22,6 +23,7 @@ render(
         <Route path="*" component={NotFound} />
         <Route path="/debug" component={Debug} />
         <Route path="/auth" component={Login} />
+        <Route path="/close" component={Close} />
       </Router>
     </AuthProvider>
   ),

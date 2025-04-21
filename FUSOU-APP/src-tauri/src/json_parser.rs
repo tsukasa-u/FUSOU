@@ -113,56 +113,62 @@ pub fn emit_data(handle: &tauri::AppHandle, emit_data: EmitData) {
         },
         EmitData::Identifier(data) => match data {
             Identifier::Port(_) => {
-                let cells = Cells::load();
-                let port_table = PortTable::new(cells);
-                Cells::reset();
-                tauri::async_runtime::spawn(async move {
-                    match port_table.encode() {
-                        Ok(port_table_encode) => {
-                            let pariod_tag = supabase::get_period_tag().await;
-                            let hub = crate::google_drive::create_client().await;
-                            match hub {
-                                Some(mut hub) => {
-                                    let folder_name = vec!["fusou".to_string(), pariod_tag.clone()];
-                                    let folder_id =
-                                        google_drive::check_or_create_folder_hierarchical(
+                if Cells::reset_flag() {
+                    let cells = Cells::load();
+                    let port_table = PortTable::new(cells);
+                    Cells::reset();
+                    tokio::task::spawn(async move {
+                        match port_table.encode() {
+                            Ok(port_table_encode) => {
+                                let pariod_tag = supabase::get_period_tag().await;
+                                let hub = crate::google_drive::create_client().await;
+                                match hub {
+                                    Some(mut hub) => {
+                                        let folder_name =
+                                            vec!["fusou".to_string(), pariod_tag.clone()];
+                                        let folder_id =
+                                            google_drive::check_or_create_folder_hierarchical(
+                                                &mut hub,
+                                                folder_name,
+                                                Some("root".to_string()),
+                                            )
+                                            .await;
+
+                                        let result = google_drive::write_port_table(
                                             &mut hub,
-                                            folder_name,
-                                            Some("root".to_string()),
+                                            folder_id,
+                                            port_table_encode,
                                         )
                                         .await;
-
-                                    let result = google_drive::write_port_table(
-                                        &mut hub,
-                                        folder_id,
-                                        port_table_encode,
-                                    )
-                                    .await;
-                                    if result.is_none() {
+                                        if result.is_none() {
+                                            println!(
+                                                "\x1b[38;5;{}m Failed to write port table\x1b[m ",
+                                                8
+                                            );
+                                        }
+                                    }
+                                    None => {
                                         println!(
-                                            "\x1b[38;5;{}m Failed to write port table\x1b[m ",
+                                            "\x1b[38;5;{}m Failed to create google drive client\x1b[m ",
                                             8
                                         );
                                     }
-                                }
-                                None => {
-                                    println!(
-                                        "\x1b[38;5;{}m Failed to create google drive client\x1b[m ",
-                                        8
-                                    );
-                                }
-                            };
+                                };
+                            }
+                            Err(e) => {
+                                println!(
+                                    "\x1b[38;5;{}m Failed to encode port table: {}\x1b[m ",
+                                    8, e
+                                );
+                            }
                         }
-                        Err(e) => {
-                            println!("\x1b[38;5;{}m Failed to encode port table: {}\x1b[m ", 8, e);
-                        }
-                    }
-                });
+                    });
+                }
             }
             Identifier::RequireInfo(_) => {}
             Identifier::GetData(_) => {
                 let get_data_table = GetDataTable::new();
-                tauri::async_runtime::spawn(async move {
+                tokio::task::spawn(async move {
                     match get_data_table.encode() {
                         Ok(get_data_table_encode) => {
                             let pariod_tag = supabase::get_period_tag().await;

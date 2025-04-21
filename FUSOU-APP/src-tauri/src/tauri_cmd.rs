@@ -7,8 +7,10 @@ use tauri::AppHandle;
 use tauri::Emitter;
 use tauri::Manager;
 
+use crate::auth_server;
+use crate::auth_server::AuthChannel;
 use crate::external::create_external_window;
-use crate::google_drive::{UserAccessTokenInfo, USER_ACCESS_TOKEN};
+use crate::google_drive;
 use crate::interface::mst_equip_exslot_ship::MstEquipExslotShips;
 use crate::interface::mst_equip_ship::MstEquipShips;
 use crate::interface::mst_ship::MstShips;
@@ -21,10 +23,12 @@ use crate::interface::slot_item::SlotItems;
 use crate::external::SHARED_BROWSER;
 use crate::json_parser;
 use crate::wrap_proxy::{self, PacChannel, ProxyChannel, ProxyLogChannel, ResponseParseChannel};
-// use crate::RESOURCES_DIR;
-// use crate::ROAMING_DIR;
 
-use crate::PROXY_ADDRESS;
+#[cfg(any(not(dev), check_release))]
+use crate::RESOURCES_DIR;
+
+#[cfg(any(not(dev), check_release))]
+use crate::ROAMING_DIR;
 
 #[tauri::command]
 pub async fn get_mst_ships(window: tauri::Window) {
@@ -123,28 +127,20 @@ pub async fn close_splashscreen(window: tauri::Window) {
         .unwrap();
 }
 
-#[tauri::command]
-pub async fn set_access_token(
-    access_token: &str,
-    refresh_token: &str,
-    expire_in: i64,
-    expire_at: i64,
-    token_type: &str,
-) -> Result<(), ()> {
-    println!("set access token: {}", access_token);
-    let mut local_access_token = USER_ACCESS_TOKEN.lock().unwrap();
-    let info = UserAccessTokenInfo {
-        access_token: access_token.to_owned(),
-        refresh_token: refresh_token.to_owned(),
-        expires_in: expire_in,
-        expires_at: expire_at,
-        token_type: token_type.to_owned(),
-    };
-    *local_access_token = Some(info);
-    Ok(())
+#[tauri::command(rename_all = "snake_case")]
+pub async fn set_refresh_token(_window: tauri::Window, token: String) -> Result<(), ()> {
+    let split_token: Vec<String> = token.split("&").map(|s| s.to_string()).collect();
+    let refresh_token = split_token.get(0);
+    let token_type = split_token.get(1);
+    if refresh_token.is_none() || token_type.is_none() {
+        return Err(());
+    }
+    let refresh_token = refresh_token.unwrap();
+    let token_type = token_type.unwrap();
+    return google_drive::set_refresh_token(refresh_token.to_string(), token_type.to_string());
 }
 
-#[cfg(TAURI_BUILD_TYPE = "DEBUG")]
+#[cfg(dev)]
 #[tauri::command]
 pub async fn open_auth_window(window: tauri::Window) {
     match window.get_webview_window("auth") {
@@ -167,7 +163,7 @@ pub async fn open_auth_window(window: tauri::Window) {
     }
 }
 
-#[cfg(TAURI_BUILD_TYPE = "DEBUG")]
+#[cfg(dev)]
 #[tauri::command]
 pub async fn open_debug_window(window: tauri::Window) {
     match window.get_webview_window("debug") {
@@ -189,7 +185,7 @@ pub async fn open_debug_window(window: tauri::Window) {
     }
 }
 
-#[cfg(TAURI_BUILD_TYPE = "DEBUG")]
+#[cfg(dev)]
 #[tauri::command]
 pub async fn close_debug_window(window: tauri::Window) {
     window
@@ -199,7 +195,7 @@ pub async fn close_debug_window(window: tauri::Window) {
         .unwrap();
 }
 
-#[cfg(TAURI_BUILD_TYPE = "DEBUG")]
+#[cfg(dev)]
 #[tauri::command]
 pub async fn read_dir(window: tauri::Window, path: &str) -> Result<(), String> {
     let dir = fs::read_dir(path);
@@ -244,7 +240,7 @@ pub async fn read_dir(window: tauri::Window, path: &str) -> Result<(), String> {
     return Ok(());
 }
 
-#[cfg(TAURI_BUILD_TYPE = "DEBUG")]
+#[cfg(dev)]
 #[tauri::command]
 pub async fn read_emit_file(window: tauri::Window, path: &str) -> Result<(), String> {
     use crate::json_parser::{emit_data, struct_selector_response, struct_selector_resquest};
@@ -282,6 +278,24 @@ pub async fn read_emit_file(window: tauri::Window, path: &str) -> Result<(), Str
     }
 
     return Ok(());
+}
+
+#[tauri::command]
+pub async fn open_auth_page(
+    _window: tauri::Window,
+    port: i64,
+    auth_channel: tauri::State<'_, AuthChannel>,
+) -> Result<(), ()> {
+    let addr = auth_server::serve_auth(0, auth_channel.slave.clone());
+
+    let result = webbrowser::open(format!("http://localhost:{}/login", addr.port()).as_str())
+        .map_err(|e| e.to_string());
+
+    if let Err(e) = result {
+        println!("Error: {}", e);
+        return Err(());
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -346,10 +360,10 @@ pub async fn launch_with_options(
                         _ => None,
                     };
                     if let Some(server_address) = server_address {
-                        #[cfg(TAURI_BUILD_TYPE = "DEBUG")]
+                        #[cfg(dev)]
                         let pac_path =
                             "./../../FUSOU-PROXY/proxy_rust/proxy-https/proxy.pac".to_string();
-                        #[cfg(TAURI_BUILD_TYPE = "RELEASE")]
+                        #[cfg(any(not(dev), check_release))]
                         let pac_path = ROAMING_DIR
                             .get()
                             .expect("ROAMING_DIR not found")
@@ -360,11 +374,12 @@ pub async fn launch_with_options(
                             .to_string();
                         // let pac_path = window.app_handle().path_resolver().resolve_resource("./resources/pac/proxy.pac").expect("failed to resolve resources/pac/proxy dir").as_path().to_str().expect("failed to convert str").to_string();
 
-                        #[cfg(TAURI_BUILD_TYPE = "DEBUG")]
+                        #[cfg(dev)]
                         let save_path = "./../../FUSOU-PROXY-DATA".to_string();
-                        #[cfg(TAURI_BUILD_TYPE = "RELEASE")]
-                        let save_path = directories::UserDirs::new()
-                            .expect("failed to get user dirs")
+                        #[cfg(any(not(dev), check_release))]
+                        let save_path = window
+                            .app_handle()
+                            .path()
                             .document_dir()
                             .expect("failed to get doc dirs")
                             .join("FUSOU-PROXY-DATA")
@@ -373,9 +388,9 @@ pub async fn launch_with_options(
                             .expect("failed to convert str")
                             .to_string();
 
-                        #[cfg(TAURI_BUILD_TYPE = "DEBUG")]
+                        #[cfg(dev)]
                         let ca_path = "./ca/".to_string();
-                        #[cfg(TAURI_BUILD_TYPE = "RELEASE")]
+                        #[cfg(any(not(dev), check_release))]
                         let ca_path = ROAMING_DIR
                             .get()
                             .expect("ROAMING_DIR not found")
@@ -398,12 +413,10 @@ pub async fn launch_with_options(
                             proxy_channel.slave.clone(),
                             proxy_log_channel.master.clone(),
                             pac_channel.slave.clone(),
+                            window.app_handle(),
                         );
                         match addr {
-                            Ok(addr) => {
-                                let _ = PROXY_ADDRESS.set(addr.clone());
-                                Some(addr)
-                            }
+                            Ok(addr) => Some(addr),
                             Err(e) => {
                                 println!("Error: {}", e);
                                 return Err(());
@@ -457,10 +470,10 @@ pub async fn launch_with_options(
         if flag != 0 {
             if let Some(&browse_webview) = options.get("open_kancolle_with_webview") {
                 if browse_webview != 0 {
-                    create_external_window(window.app_handle(), None, true, proxy_addr);
+                    create_external_window(window.app_handle(), None, true);
                 } else {
                     let browser = SHARED_BROWSER.lock().unwrap().get_browser();
-                    create_external_window(window.app_handle(), Some(browser), false, proxy_addr);
+                    create_external_window(window.app_handle(), Some(browser), false);
                 }
             }
         }
