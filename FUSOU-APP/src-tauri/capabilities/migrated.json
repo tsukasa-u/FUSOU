@@ -6,6 +6,36 @@
     "main"
   ],
   "permissions": [
-    "core:default"
+    "core:default",
+    "deep-link:allow-get-current",
+    "deep-link:default",
+    "deep-link:allow-register",
+    "log:default",
+    "window-state:default",
+    "shell:default",
+    {
+      "identifier": "fs:scope",
+      "allow": [
+        {
+          "path": "$APPDATA"
+        },
+        {
+          "path": "$APPDATA/**"
+        },
+        {
+          "path": "$RESOURCE"
+        },
+        {
+          "path": "$RESOURCE/**"
+        },
+        {
+          "path": "$HOME"
+        },
+        {
+          "path": "$HOME/**"
+        }
+      ]
+    },
+    "fs:default"
   ]
 }
