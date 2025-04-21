@@ -30,3 +30,5 @@ FUSOU-PROXY/proxy_rust/proxy-https/proxy.pac
 FUSOU-APP/src/pages/vanilla/env.js
 
 FUSOU-APP/src-tauri/gen/schemas/
+
+FUSOU-APP/src-tauri/gen/
