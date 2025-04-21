@@ -27,7 +27,7 @@ pub struct ResponseParseChannel {
     pub slave: Slave<StatusInfo>,
 }
 
-pub fn serve_proxy(
+pub fn serve_proxy<R>(
     proxy_target: String,
     save_path: String,
     pac_path: String,
@@ -35,10 +35,14 @@ pub fn serve_proxy(
     proxy_bidirectional_channel_slave: Slave<StatusInfo>,
     proxy_log_bidirectional_channel_master: Master<StatusInfo>,
     pac_bidirectional_channel_slave: Slave<StatusInfo>,
-) -> Result<Url, Box<dyn std::error::Error>> {
+    app: &tauri::AppHandle<R>,
+) -> Result<Url, Box<dyn std::error::Error>>
+where
+    R: tauri::Runtime,
+{
     proxy_https::proxy_server_https::check_ca(ca_path.clone());
 
-    cmd::add_store();
+    cmd::add_store(app);
 
     // start proxy server
     // let save_path = "./../../FUSOU-PROXY-DATA".to_string();
@@ -76,10 +80,10 @@ pub fn serve_proxy(
     let proxy_addr_string = proxy_addr.unwrap().to_string();
     edit_pac(pac_path.as_str(), proxy_addr_string.clone().as_str(), host);
 
-    cmd::add_pac(&format!(
-        "http://localhost:{}/proxy.pac",
-        pac_addr.unwrap().port()
-    ));
+    cmd::add_pac(
+        format!("http://localhost:{}/proxy.pac", pac_addr.unwrap().port()),
+        app,
+    );
 
     return Ok(Url::parse(&format!("http://{}", proxy_addr_string)).unwrap());
 }

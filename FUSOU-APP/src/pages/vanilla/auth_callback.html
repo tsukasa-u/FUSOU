@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>Fusou Auth</title>
+        <link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css" />
+        <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+        <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    </head>
+    <body>
+        <div class="bg-base-200 h-screen flex justify-center">
+            <div class="min-w-sm max-w-md bg-base-100 h-screen">
+                <div class="p-10">
+                    <h1 class="text-3xl font-bold text-center">Auth</h1>
+                    <div class="h-4"></div>
+                    <div class="h-4"></div>
+
+                    <hr class="border-1 border-base-300" />
+                    <div class="h-4"></div>
+                    <div class="h-4"></div>
+
+                    <div id="auth_result"></div>
+                    <!-- <h1 class="text-2xl text-center">close to return app</h1>
+                    <div class="h-4"></div>
+                    <div class="h-4"></div> -->
+                    <!-- <a class="btn" href="fusou://auth?provider_refresh_token=" + providerRefreshToken() + "&provider=google&supabase_access_token=" + accessToken() + "&supabase_refresh_token=" + refreshToken()>
+                        In order to continue, please click here to launch the app
+                    </a> -->
+
+                </div>
+            </div>
+        </div>
+        <script type="module">
+            import { supabase } from "./supabase.js";
+
+            let providerRefreshToken = null;
+            let accessToken = null;
+            let refreshToken = null;
+
+            supabase.auth.getSession().then(async ({ data, error }) => {
+                const result_div = document.getElementById("auth_result");
+                if (error) {
+                    console.error('Error getting session:', error);
+                    result_div.innerHTML += "<div class='text-center'>failed to authorize</div>";
+                    result_div.innerHTML += "<div class='h-8'></div>";
+                    result_div.innerHTML += "<div class='text-red-500 rounded bg-base-200 border-[1.5px] border-base-300 w-full py-2 px-4 text-md'>failed to authorize<div class='h-2'></div><div class='text-base-content rounded bg-base-100 border-[1.5px] border-base-300 w-full py-2 px-4 text-sm'>" + error.message + "</div></div>";
+                } else {
+                    // console.log(data);
+                    providerRefreshToken = data.session.provider_refresh_token;
+                    accessToken = data.session.access_token;
+                    refreshToken = data.session.refresh_token;
+
+                    result_div.innerHTML += "<div class='text-center'>Authentication successful</div>";
+                    result_div.innerHTML += "<div class='h-8'></div>";
+                    supabase
+                    .from('users')
+                    .insert([
+                        { id: data.session?.user.id, user_unique_id: null, provider_refresh_token: data.session?.provider_refresh_token },
+                    ])
+                    .select().then(({ data, error }) => {
+                        if (error) {
+                            console.error('Error inserting refresh token:', error);
+                            result_div.innerHTML += "<div class='text-red-500 rounded bg-base-200 border-[1.5px] border-base-300 w-full py-2 px-4 text-md'>failed to register refresh token<div class='h-2'></div><div class='text-base-content rounded bg-base-100 border-[1.5px] border-base-300 w-full py-2 px-4 text-sm'>" + error.message + "</div></div>";
+                        } else {
+                            console.log('Refresh token inserted successfully:', data);
+                            result_div.innerHTML += "<div class='text-success text-center'>refresh token registeration successful</div>";
+                        }
+                    });
+
+                    window.location.href = "fusou://auth?provider_refresh_token=" + providerRefreshToken + "&provider=google&supabase_access_token=" + accessToken + "&supabase_refresh_token=" + refreshToken
+                }
+            });
+        </script>
+    </body>
+</html>

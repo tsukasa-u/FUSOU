@@ -3,7 +3,7 @@ import { location_route } from "../utility/location";
 import { supabase } from "../utility/supabase";
 import { useAuth } from "../utility/provider";
 import { useNavigate } from "@solidjs/router";
-import { invoke } from "@tauri-apps/api/core";
+// import { invoke } from "@tauri-apps/api/core";
 
 function Login() {
   createEffect(location_route);
@@ -11,12 +11,11 @@ function Login() {
   const [authData, setAuthData] = useAuth();
 
   const handleLogin = async () => {
-    setAuthData("noAuth", false);
     const { data, error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
         scopes: 'https://www.googleapis.com/auth/drive.file',
-        redirectTo: `${window.location.origin}/`,
+        redirectTo: `${window.location.origin}/close`,
         queryParams: {
           prompt: 'consent',
           access_type: 'offline',
@@ -27,35 +26,18 @@ function Login() {
       console.error('Error logging in:', error);
     } else {
       supabase.auth.getSession().then(({ data, error }) => {
-        console.log("session", data.session);
+        // console.log("session", data.session);
         if (error) {
           console.error('Error getting session:', error);
         } else {
           if (data.session !== null) {
             setAuthData({
               accessToken: data.session.provider_token,
-              userName: data.session.user.user_metadata.full_name,
-              userImage: data.session.user.user_metadata.picture,
-              userMail: data.session.user.user_metadata.email,
-              noAuth: false,
-              logined: true,
-            });
-
-            invoke("set_access_token", {
-                accessToken: data.session.provider_token, 
-                refreshToken: data.session.provider_refresh_token,
-                expireIn: data.session.expires_in,
-                expireAt: data.session.expires_at,
-                tokenType: data.session.token_type,
-              }).then(() => {
-              console.log("access_token set");
-            }).catch((err) => {
-              console.error("access_token set error", err);
+              refreshToken: data.session.refresh_token,
             });
           }
         }
-      }
-      );
+      });
     }
   };
 
@@ -64,14 +46,14 @@ function Login() {
     if (error) {
       console.error('Error logging out:', error);
     } else {
-      setAuthData({
-        accessToken: null,
-        userName: null,
-        userImage: null,
-        userMail: null,
-        noAuth: true,
-        logined: false,
-      })
+      // setAuthData({
+      //   accessToken: null,
+      //   userName: null,
+      //   userImage: null,
+      //   userMail: null,
+      //   noAuth: true,
+      //   logined: false,
+      // })
     }
   };
 
@@ -101,13 +83,13 @@ function Login() {
             <h1 class="text-3xl font-bold text-center">Login</h1>
             <div class="h-4"></div>
             <div class="h-4"></div>
-            <Show when={authData.userMail !== null && authData.userImage !== null}>
+            {/* <Show when={authData.userMail !== null && authData.userImage !== null}>
               <h2 class="text-xl text-center">Welcome back!</h2>
               <div class="flex flex-nowrap items-center rounded-box border-[1px] border-[#e5e5e5] bg-base-100 px-2 pb-4">
                 <img src={authData.userImage!} alt="User Avatar" class="rounded-full w-8 h-8 mx-auto mt-4" />
                 <h2 class="text-xl font-semibold text-center mt-4 mx-auto -ml-8">{authData.userMail}</h2>
               </div>
-            </Show>
+            </Show> */}
             <div class="h-4"></div>
             <div class="h-4"></div>
 
@@ -119,17 +101,17 @@ function Login() {
               Login with Google
             </button>
 
-            <Show when={authData.userMail !== null}>
+            {/* <Show when={authData.userMail !== null}>
               <div class="divider">OR</div>
 
               <button class="btn bg-white text-black border-[#e5e5e5] w-full" onClick={handleLogout}>
                 Logout {authData.userMail}
               </button>
-            </Show>
+            </Show> */}
 
             <div class="h-16"></div>
             <div class="h-full"></div>
-            <Show when={document.referrer.split("?")[0].endsWith("/")}>
+            {/* <Show when={document.referrer.split("?")[0].endsWith("/")}>
               <button
                 class="btn w-full" 
                 onclick={() => {
@@ -141,7 +123,7 @@ function Login() {
               >
                 Skip with no Sign In
               </button>
-            </Show>
+            </Show> */}
           </div>
         </div>
       </div>

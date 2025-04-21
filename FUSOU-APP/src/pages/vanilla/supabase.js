@@ -1,13 +1,12 @@
-
-import { createClient } from '@supabase/supabase-js'
-// import 'dotenv/config'
+import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm'
+import { env } from "./env.js";
 
 export const supabase = createClient(
-  import.meta.env.VITE_SUPABASE_URL, 
-  import.meta.env.VITE_SUPABASE_ANON_KEY!
+  env.SUPABASE_URL, 
+  env.SUPABASE_ANON_KEY
 );
 
-export const getRefreshToken = async (user_id: string) => {
+export const getRefreshToken = async (user_id) => {
   const { data, error } = await supabase.from('users')
     .select('provider_refresh_token')
     .eq('id', user_id)

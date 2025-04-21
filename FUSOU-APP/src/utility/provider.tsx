@@ -37,7 +37,7 @@ import { Cell, Cells, global_cells } from "../interface/cells";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
 import { AirBases, global_air_bases } from "../interface/map_info";
 import { supabase } from "./supabase";
-import { invoke } from "@tauri-apps/api/core";
+// import { invoke } from "@tauri-apps/api/core";
 
 // eslint-disable-next-line no-unused-vars
 const ShipsContext = createContext<(Ships | { set(data: Ships): void })[]>();
@@ -707,11 +707,7 @@ export function useAirBases() {
 
 type AuthContextType = {
   accessToken: string | null;
-  userName: string | null;
-  userImage: string | null;
-  userMail: string | null;
-  noAuth: boolean;
-  logined: boolean;
+  refreshToken: string | null;
 }
 const AuthContext =
   // eslint-disable-next-line no-unused-vars
@@ -720,11 +716,7 @@ const AuthContext =
 export function AuthProvider(props: { children: JSX.Element }) {
   let store_data: AuthContextType = {
     accessToken: null,
-    userName: null,
-    userImage: null,
-    userMail: null,
-    noAuth: false,
-    logined: false,
+    refreshToken: null,
   };
   const [data, setData] = createStore(store_data);
   const setter = [
@@ -733,23 +725,42 @@ export function AuthProvider(props: { children: JSX.Element }) {
   ];
 
   
+  // createEffect(() => {
+  //   supabase.auth.getSession().then(({ data }) => {
+  //     if (data.session !== null) {
+  //       setData("accessToken", data.session.access_token);
+  //       setData("userName", data.session.user.user_metadata.full_name);
+  //       setData("userImage", data.session.user.user_metadata.avatar_url);
+  //       setData("userMail", data.session.user.email!);
+  //       setData("noAuth", false);
+  //       setData("logined", true);
+  //     } else {
+  //       setData("logined", false);
+  //       setData("accessToken", null);
+  //       setData("userName", null);
+  //       setData("userImage", null);
+  //     }
+  //   }
+  //   );
+  // });
+
   createEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
-      if (data.session !== null) {
-        setData("accessToken", data.session.access_token);
-        setData("userName", data.session.user.user_metadata.full_name);
-        setData("userImage", data.session.user.user_metadata.avatar_url);
-        setData("userMail", data.session.user.email!);
-        setData("noAuth", false);
-        setData("logined", true);
-      } else {
-        setData("logined", false);
-        setData("accessToken", null);
-        setData("userName", null);
-        setData("userImage", null);
-      }
-    }
-    );
+    let unlisten_data: UnlistenFn;
+    (async () => {
+      unlisten_data = await listen<string[]>(
+        "set-supabase-tokens",
+        (event) => {
+          setData({
+            accessToken: event.payload[0],
+            refreshToken: event.payload[1],
+          });
+        },
+      );
+    })();
+
+    onCleanup(() => {
+      if (unlisten_data) unlisten_data();
+    });
   });
 
   return (

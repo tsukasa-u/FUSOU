@@ -16,9 +16,13 @@ import IconCheckBoxGreen from "../icons/check_box_green";
 import IconCheckBoxRed from "../icons/check_box_red";
 
 import { location_route } from "../utility/location";
-import { supabase } from "../utility/supabase";
+import { getRefreshToken, supabase } from "../utility/supabase";
 import { useAuth } from "../utility/provider";
-import { redirect, useNavigate } from "@solidjs/router";
+// import { redirect, useNavigate } from "@solidjs/router";
+// import {
+//   onOpenUrl,
+//   getCurrent as getCurrentDeepLinkUrls,
+// } from "@tauri-apps/plugin-deep-link";
 
 let launch_options: { [key: string]: number } = {
   run_proxy_server: 1,
@@ -71,6 +75,14 @@ let server_list: { [key: string]: string } = {
   //     // "柱島泊地":	"203.104.209.102",
 };
 
+function open_auth_page() {
+  invoke("open_auth_page", { port: Number(window.location.port)}).then(() => {
+    console.log("open auth page");
+  }).catch((err) => {
+    console.error("open auth page error", err);
+  });
+}
+
 function Start() {
   createEffect(location_route);
 
@@ -94,7 +106,7 @@ function Start() {
 
   const [authData, setAuthData] = useAuth();
 
-  const navigate = useNavigate();
+  // const navigate = useNavigate();
 
   function check_server_status() {
     setPacServerHealth(-1);
@@ -118,35 +130,53 @@ function Start() {
   }
 
   createEffect(() => {
-    // navigate("/auth");
-    
+    if (authData.accessToken !== null && authData.refreshToken !== null) {
+      supabase.auth.setSession({
+        access_token: authData.accessToken,
+        refresh_token: authData.refreshToken,
+      }).then(({ data, error }) => {
+        if (error) {
+          console.error("Error setting session:", error);
+        } else {
+          console.log("Session set successfully:", data);
+        }
+      });
+    }
+  });
+
+  createEffect(() => {
 
     supabase.auth.getSession().then(({ data, error }) => {
+      console.log("session", data, error);
       if (error) {
         console.error("Error getting session:", error);
-        // navigate("/auth");
+        open_auth_page();
       } else {
         if (data.session == null) {
-        
-          if (!authData.logined && !authData.noAuth) {
-              navigate("/auth");
-          }
+          open_auth_page();
         } else {
-          if (data.session.provider_token == null || data.session.provider_token == "" || data.session.provider_token == undefined) {
-            navigate("/auth");
+          if (data.session.user == null) {
+            open_auth_page();
+          } else {
+            getRefreshToken(data.session.user.id).then((refreshToken) => {
+              if (refreshToken !== null) {
+                // console.log("refresh_token", refreshToken);
+                let token: string = refreshToken + "&" + data.session.token_type;
+                console.log("refresh_token", token);
+                invoke("set_refresh_token", {
+                  token: token
+                }).then(() => {
+                  console.log("refresh_token set");
+                }).catch((err) => {
+                  console.error("refresh_token error", err);
+                });
+              } else {
+                console.error("Error getting refresh token");
+              }
+            }).catch((error) => {
+              console.error("Error getting refresh token:", error);
+            });
           }
-          console.log("access_token", data);
-          invoke("set_access_token", {
-            accessToken: data.session.provider_token, 
-            refreshToken: data.session.provider_refresh_token,
-            expireIn: data.session.expires_in,
-            expireAt: data.session.expires_at,
-            tokenType: data.session.token_type,
-          }).then(() => {
-            console.log("access_token set");
-          }).catch((err) => {
-            console.error("access_token set error", err);
-          });
         }
       }
     });
@@ -434,7 +464,7 @@ function Start() {
               class={start_button_class()}
               href="/app"
               onClick={() => {
-                invoke("launch_with_options", { options: launch_options });
+                invoke("launch_with_options", { options: launch_options })
               }}
             >
               Start

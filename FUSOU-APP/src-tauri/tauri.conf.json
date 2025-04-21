@@ -43,11 +43,18 @@
       }
     }
   },
-  "productName": "fusou-app",
-  "mainBinaryName": "fusou-app",
+  "productName": "fusou",
+  "mainBinaryName": "fusou",
   "version": "0.2.0",
   "identifier": "fusou.dev",
-  "plugins": {},
+  "plugins": {
+    "deep-link": {
+      "schema": "fusou",
+      "desktop": {
+        "schemes": ["fusou"]
+      }
+    }
+  },
   "app": {
     "windows": [
       {
