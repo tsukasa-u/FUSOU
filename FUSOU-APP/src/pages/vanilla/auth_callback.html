@@ -7,6 +7,7 @@
         <link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css" />
         <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
         <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+        <script src="https://cdn.jsdelivr.net/npm/clipboard@2.0.11/dist/clipboard.min.js"></script>
     </head>
     <body>
         <div class="bg-base-200 h-screen flex justify-center">
@@ -66,11 +67,54 @@
                             console.log('Refresh token inserted successfully:', data);
                             result_div.innerHTML += "<div class='text-success text-center'>refresh token registeration successful</div>";
                         }
-                    });
 
-                    window.location.href = "fusou://auth?provider_refresh_token=" + providerRefreshToken + "&provider=google&supabase_access_token=" + accessToken + "&supabase_refresh_token=" + refreshToken
+                        let params = "provider_refresh_token=" + providerRefreshToken + "&provider=google&supabase_access_token=" + accessToken + "&supabase_refresh_token=" + refreshToken;
+                        let href = `fusou://auth?${params}`;
+
+                        result_div.innerHTML += "<div class='h-8'></div>";
+                        result_div.innerHTML += `<h1 class='text-xl text-center'><a href='${href}' class='btn btn-link'>Click to return app</a></h1>`;
+                        result_div.innerHTML += "<div class='divider text-xl'>OR</div>";
+                        result_div.innerHTML += "<div class='text-xl text-center'>Copy and past Tokens</div>";
+                        result_div.innerHTML += 
+                        `<fieldset class='fieldset'>
+                            <legend class='fieldset-legend'>provider refresh token & access token & refresh token</legend>
+                            <div class='join'>
+                                <input id="tokens" type='text' style='cursor: default' class='input join-item' value='${params}' readonly disabled />
+                                <button id="copy-button" class='btn btn-ghost join-item rounded-box p-2 items-center justify-center' ><label class='swap' id='copy-swap-id'>
+                                    <div class='swap-off'><svg class='w-4 h-4' aria-hidden='true' xmlns='http://www.w3.org/2000/svg' fill='currentColor' viewBox='0 0 18 20'><path d='M16 1h-3.278A1.992 1.992 0 0 0 11 0H7a1.993 1.993 0 0 0-1.722 1H2a2 2 0 0 0-2 2v15a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V3a2 2 0 0 0-2-2Zm-3 14H5a1 1 0 0 1 0-2h8a1 1 0 0 1 0 2Zm0-4H5a1 1 0 0 1 0-2h8a1 1 0 1 1 0 2Zm0-5H5a1 1 0 0 1 0-2h2V2h4v2h2a1 1 0 1 1 0 2Z'/></svg></div>
+                                    <div class='swap-on'><svg class='w-4 h-4 text-success' aria-hidden='true' xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 16 12'><path stroke='currentColor' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M1 5.917 5.724 10.5 15 1.5'/></svg></div>
+                                </label></button>
+                            </div>
+                            <p class='label'>past in the cell at launch page</p>
+                        </fieldset>`;
+                        window.location.href = href;
+                    });
                 }
             });
+        </script>
+        <script>
+            // const copy_button = document.getElementById("copy-button");
+            // copy_button.addEventListener("click", copy_token);
+
+            const copy_token = (e) => {
+                console.log(e);
+                const swap_label = document.getElementById("copy-swap-id");
+                swap_label.classList.add("swap-active");
+
+                const input_text = document.getElementById("tokens");
+                if (navigator.clipboard) {
+                    navigator.clipboard.writeText(input_text.value);
+                }
+                else {
+                    input_text.select();
+                    document.execCommand('copy');
+                }
+                new Promise((resolve, reject) => {
+                    setTimeout(() => resolve(), 2000);
+                }).then(() => {
+                    swap_label.remove("swap-active");
+                })
+            };
         </script>
     </body>
 </html>
