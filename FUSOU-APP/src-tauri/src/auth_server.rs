@@ -2,7 +2,7 @@ use std::{net::SocketAddr, sync::OnceLock};
 
 use warp::Filter;
 
-use proxy_https::bidirectional_channel::{self, Master, Slave, StatusInfo};
+use proxy_https::bidirectional_channel::{self, Slave, StatusInfo};
 
 static AUTH_ADDR: OnceLock<SocketAddr> = OnceLock::new();
 

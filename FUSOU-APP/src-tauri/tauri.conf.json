@@ -60,7 +60,7 @@
       {
         "label": "main",
         "fullscreen": false,
-        "height": 600,
+        "height": 640,
         "resizable": true,
         "title": "fusou-app",
         "width": 800,

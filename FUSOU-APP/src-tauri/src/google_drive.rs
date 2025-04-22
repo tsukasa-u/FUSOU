@@ -60,10 +60,10 @@ pub fn set_refresh_token(refresh_token: String, token_type: String) -> Result<()
     let mut local_access_token = USER_ACCESS_TOKEN.lock().unwrap();
     let info = UserAccessTokenInfo {
         refresh_token: refresh_token.to_owned(),
-        token_type: if token_type == "Bearer" {
+        token_type: if token_type == "bearer" {
             Some(token_type.to_owned())
         } else {
-            Some("Bearer".to_owned())
+            Some("bearer".to_owned())
         },
     };
     *local_access_token = Some(info);

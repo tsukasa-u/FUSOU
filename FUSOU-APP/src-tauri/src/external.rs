@@ -1,5 +1,5 @@
 use std::sync::{LazyLock, Mutex};
-use tauri::{AppHandle, Manager, Url};
+use tauri::{AppHandle, Manager};
 use webbrowser::{open_browser, Browser};
 
 #[derive(Debug, Default)]

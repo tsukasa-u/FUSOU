@@ -482,6 +482,14 @@ pub async fn launch_with_options(
     return Ok(());
 }
 
+#[tauri::command]
+pub async fn check_open_window(window: tauri::Window, label: &str) -> Result<bool, ()> {
+    return match window.get_webview_window(label) {
+        Some(win) => Ok(win.is_visible().unwrap_or(false)),
+        None => Err(()),
+    };
+}
+
 //--------------------------------------------------------------
 
 pub fn set_launch_page(app: &AppHandle) {

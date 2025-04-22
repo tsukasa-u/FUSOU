@@ -1,4 +1,4 @@
-import { createEffect, createSignal, Show } from "solid-js";
+import { createEffect, Show } from "solid-js";
 import { location_route } from "../utility/location";
 import { supabase } from "../utility/supabase";
 import { useAuth } from "../utility/provider";
@@ -83,13 +83,6 @@ function Login() {
             <h1 class="text-3xl font-bold text-center">Login</h1>
             <div class="h-4"></div>
             <div class="h-4"></div>
-            {/* <Show when={authData.userMail !== null && authData.userImage !== null}>
-              <h2 class="text-xl text-center">Welcome back!</h2>
-              <div class="flex flex-nowrap items-center rounded-box border-[1px] border-[#e5e5e5] bg-base-100 px-2 pb-4">
-                <img src={authData.userImage!} alt="User Avatar" class="rounded-full w-8 h-8 mx-auto mt-4" />
-                <h2 class="text-xl font-semibold text-center mt-4 mx-auto -ml-8">{authData.userMail}</h2>
-              </div>
-            </Show> */}
             <div class="h-4"></div>
             <div class="h-4"></div>
 
@@ -101,29 +94,8 @@ function Login() {
               Login with Google
             </button>
 
-            {/* <Show when={authData.userMail !== null}>
-              <div class="divider">OR</div>
-
-              <button class="btn bg-white text-black border-[#e5e5e5] w-full" onClick={handleLogout}>
-                Logout {authData.userMail}
-              </button>
-            </Show> */}
-
             <div class="h-16"></div>
             <div class="h-full"></div>
-            {/* <Show when={document.referrer.split("?")[0].endsWith("/")}>
-              <button
-                class="btn w-full" 
-                onclick={() => {
-                  if (!authData.logined) {
-                    setAuthData("noAuth", true);
-                  }
-                  navigate("/");
-                }}
-              >
-                Skip with no Sign In
-              </button>
-            </Show> */}
           </div>
         </div>
       </div>
