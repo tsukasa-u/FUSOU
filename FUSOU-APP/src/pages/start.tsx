@@ -76,10 +76,14 @@ let server_list: { [key: string]: string } = {
 };
 
 function open_auth_page() {
-  invoke("open_auth_page", { port: Number(window.location.port)}).then(() => {
-    console.log("open auth page");
-  }).catch((err) => {
-    console.error("open auth page error", err);
+  invoke("check_open_window", { label: "main" }).then((flag) => {
+    if (flag) {
+      invoke("open_auth_page", { port: Number(window.location.port) }).then(() => {
+        console.log("open auth page");
+      }).catch((err) => {
+        console.error("open auth page error", err);
+      });
+    }
   });
 }
 
@@ -103,6 +107,8 @@ function Start() {
 
   const [pacServerHealth, setPacServerHealth] = createSignal<number>(-1);
   const [proxyServerHealth, setProxyServerHealth] = createSignal<number>(-1);
+
+  const [advancesSettingsCollapse, setAdavncedSettingsCollpse] = createSignal<boolean>(false);
 
   const [authData, setAuthData] = useAuth();
 
@@ -160,9 +166,7 @@ function Start() {
           } else {
             getRefreshToken(data.session.user.id).then((refreshToken) => {
               if (refreshToken !== null) {
-                // console.log("refresh_token", refreshToken);
                 let token: string = refreshToken + "&" + data.session.token_type;
-                console.log("refresh_token", token);
                 invoke("set_refresh_token", {
                   token: token
                 }).then(() => {
@@ -456,6 +460,48 @@ function Start() {
                     </div> */}
             </div>
           </div>
+              <div tabindex="0" class={"collapse collapse-arrow" + (advancesSettingsCollapse() ? " collapse-open" : " collapse-close")}>
+                <div class="collapse-title text-lg font-semibold leading-4 text-slate-700" onClick={() => setAdavncedSettingsCollpse(!advancesSettingsCollapse())}>Advanced Settings</div>
+                <div class="collapse-content text-sm mx-4">
+                  <div class="font-semibold text-slate-700">Set provider (provider) (access/refresh) tokens</div>
+                  <fieldset class="fieldset">
+                    <legend class="fieldset-legen">input tokens for new session</legend>
+                    <div class="flex flex-nowarp align-center">
+                      <input id="tokens" type="text" class="w-full input input-sm focus-within:outline-0 focus:outline-0" placeholder="provider_refresh_token=***&access_token=****&refresh_token=***" />
+                      <kbd class="kbd kbd-sm">ctrl</kbd>
+                      <div class="self-center text-sm px-1">+</div>
+                      <kbd class="kbd kbd-sm">V</kbd>
+                    </div>
+                  </fieldset>
+
+                <div class="mt-4 flex items-center justify-end">
+                  <span class="flex-auto" />
+                  <div class="form-control flex-none">
+                    <div class="btn btn-sm border-base-300 border-1" onClick={() => {
+                      const input_text: HTMLInputElement | null = document.getElementById("tokens") as HTMLInputElement;
+                      if (input_text == null) return;
+
+                      let tokens = input_text.value?.split('&')!;
+                      let supabase_access_token = tokens[2].split('=');
+                      let supabase_refresh_token = tokens[3].split('=');
+                      let provider_refresh_token = tokens[0].split('=');
+
+                      if (supabase_access_token[0] != "supabase_access_token") return;
+                      if (supabase_refresh_token[0] != "supabase_refresh_token") return;
+                      if (provider_refresh_token[0] != "provider_refresh_token") return;
+
+
+                      setAuthData({
+                        accessToken: supabase_access_token[1],
+                        refreshToken: supabase_refresh_token[1],
+                      });
+
+                      invoke("set_refresh_token", {token: provider_refresh_token + "&bearer"})
+                    }}>Set Token</div>
+                  </div>
+                </div>
+                </div>
+              </div>
           <div class="divider mt-0 mb-0 w-11/12 justify-self-center" />
           <div class="h-8" />
           <div class="flex justify-center">

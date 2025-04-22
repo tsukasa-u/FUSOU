@@ -136,6 +136,7 @@ pub fn run() {
             tauri_cmd::check_proxy_server_health,
             tauri_cmd::set_refresh_token,
             tauri_cmd::open_auth_page,
+            tauri_cmd::check_open_window,
             #[cfg(dev)]
             tauri_cmd::open_auth_window,
             #[cfg(dev)]

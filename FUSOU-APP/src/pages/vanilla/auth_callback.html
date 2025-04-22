@@ -22,13 +22,6 @@
                     <div class="h-4"></div>
 
                     <div id="auth_result"></div>
-                    <!-- <h1 class="text-2xl text-center">close to return app</h1>
-                    <div class="h-4"></div>
-                    <div class="h-4"></div> -->
-                    <!-- <a class="btn" href="fusou://auth?provider_refresh_token=" + providerRefreshToken() + "&provider=google&supabase_access_token=" + accessToken() + "&supabase_refresh_token=" + refreshToken()>
-                        In order to continue, please click here to launch the app
-                    </a> -->
-
                 </div>
             </div>
         </div>
@@ -47,7 +40,6 @@
                     result_div.innerHTML += "<div class='h-8'></div>";
                     result_div.innerHTML += "<div class='text-red-500 rounded bg-base-200 border-[1.5px] border-base-300 w-full py-2 px-4 text-md'>failed to authorize<div class='h-2'></div><div class='text-base-content rounded bg-base-100 border-[1.5px] border-base-300 w-full py-2 px-4 text-sm'>" + error.message + "</div></div>";
                 } else {
-                    // console.log(data);
                     providerRefreshToken = data.session.provider_refresh_token;
                     accessToken = data.session.access_token;
                     refreshToken = data.session.refresh_token;
@@ -78,13 +70,13 @@
                         result_div.innerHTML += 
                         `<fieldset class='fieldset'>
                             <legend class='fieldset-legend'>provider refresh token & access token & refresh token</legend>
-                            <div class='join'>
-                                <input id="tokens" type='text' style='cursor: default' class='input join-item' value='${params}' readonly disabled />
-                                <button id="copy-button" class='btn btn-ghost join-item rounded-box p-2 items-center justify-center' ><label class='swap' id='copy-swap-id'>
+                            <label class="input">
+                                <input id="tokens" type='text' style='cursor: default' class='input' value='${params}' readonly disabled />
+                                <button id="copy-button" class='btn btn-ghost rounded-box p-2 items-center justify-center label' onclick="copy_token()"><label class='swap' id='copy-swap-id'>
                                     <div class='swap-off'><svg class='w-4 h-4' aria-hidden='true' xmlns='http://www.w3.org/2000/svg' fill='currentColor' viewBox='0 0 18 20'><path d='M16 1h-3.278A1.992 1.992 0 0 0 11 0H7a1.993 1.993 0 0 0-1.722 1H2a2 2 0 0 0-2 2v15a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V3a2 2 0 0 0-2-2Zm-3 14H5a1 1 0 0 1 0-2h8a1 1 0 0 1 0 2Zm0-4H5a1 1 0 0 1 0-2h8a1 1 0 1 1 0 2Zm0-5H5a1 1 0 0 1 0-2h2V2h4v2h2a1 1 0 1 1 0 2Z'/></svg></div>
                                     <div class='swap-on'><svg class='w-4 h-4 text-success' aria-hidden='true' xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 16 12'><path stroke='currentColor' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M1 5.917 5.724 10.5 15 1.5'/></svg></div>
                                 </label></button>
-                            </div>
+                            </label>
                             <p class='label'>past in the cell at launch page</p>
                         </fieldset>`;
                         window.location.href = href;
@@ -93,11 +85,7 @@
             });
         </script>
         <script>
-            // const copy_button = document.getElementById("copy-button");
-            // copy_button.addEventListener("click", copy_token);
-
-            const copy_token = (e) => {
-                console.log(e);
+            const copy_token = () => {
                 const swap_label = document.getElementById("copy-swap-id");
                 swap_label.classList.add("swap-active");
 
@@ -112,7 +100,7 @@
                 new Promise((resolve, reject) => {
                     setTimeout(() => resolve(), 2000);
                 }).then(() => {
-                    swap_label.remove("swap-active");
+                    swap_label.classList.remove("swap-active");
                 })
             };
         </script>
