@@ -36,17 +36,18 @@ pub async fn get_period_tag() -> String {
                 return "0".to_string();
             }
 
-            let latest_tag = tags.iter().max_by_key(|tag| tag.1).map(|tag| tag.1);
+            let now_timestamp = chrono::Utc::now().timestamp();
+
+            let latest_tag = tags
+                .iter()
+                .filter(|(_, time)| time.timestamp() < now_timestamp)
+                .max_by_key(|(_, time)| time.timestamp())
+                .map(|(_, time)| *time);
             if latest_tag.is_none() {
                 println!("No latest tag found.");
                 return "0".to_string();
             }
             let latest_tag = latest_tag.unwrap();
-
-            if chrono::Utc::now().timestamp() < latest_tag.timestamp() {
-                println!("Latest tag is expired.");
-                return "0".to_string();
-            }
 
             let yyyy_mm_dd = latest_tag
                 .with_timezone(&chrono_tz::Asia::Tokyo)

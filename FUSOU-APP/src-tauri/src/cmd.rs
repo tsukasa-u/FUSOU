@@ -130,7 +130,7 @@ where
     R: tauri::Runtime,
 {
     #[cfg(dev)]
-    let ca_path = "./ca/ca_cert.pem".to_string();
+    let ca_path = format!("{}/{}", env!("CARGO_MANIFEST_DIR"), "ca/ca_cert.pem");
     #[cfg(any(not(dev), check_release))]
     let ca_path = ROAMING_DIR
         .get()
@@ -169,6 +169,8 @@ where
         .expect("cmd_path not found")
         .to_string();
 
+    println!("{}", cmd_path.clone());
+    println!("{}", ca_path.clone());
     let app_handle = app.clone();
     tauri::async_runtime::spawn(async move {
         let output = app_handle
