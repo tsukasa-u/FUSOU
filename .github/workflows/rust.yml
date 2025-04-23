@@ -76,7 +76,6 @@ jobs:
         echo VITE_GOOGLE_CLIENT_ID=${{ secrets.GOOGLE_CLIENT_ID }} >> ../.env
         echo VITE_GOOGLE_CLIENT_SECRET=${{ secrets.GOOGLE_CLIENT_SECRET }} >> ../.env
         echo "export const env = { SUPABASE_URL: ${{ secrets.SUPABASE_URL }}, SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}}" > ../src/pages/vanilla/env.js
-        cat ../src/pages/vanilla/env.js
     - name: check vanilla
       run: ls ./src/pages/vanilla
     - name: Setup Ubuntu for tauri@v1 & Graphviz
