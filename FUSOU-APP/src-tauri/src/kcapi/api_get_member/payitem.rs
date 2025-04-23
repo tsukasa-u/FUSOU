@@ -5,7 +5,7 @@
 //!   <img src="https://tsukasa-u.github.io/FUSOU/struct_dependency_svg/api_get_member@payitem.svg" alt="KC_API_dependency(api_get_member/payitem)" style="max-width: 2000px;"/>
 //! </div>
 
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::collections::HashMap;
 // use serde_json::Value;
 
@@ -23,7 +23,7 @@ use crate::interface::interface::EmitData;
 #[convert_output(output = EmitData)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Req {
     #[serde(rename = "api_token")]
@@ -37,7 +37,7 @@ pub struct Req {
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[register_struct(name = "api_get_member/payitem")]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Res {
     #[serde(rename = "api_result")]
@@ -51,7 +51,7 @@ pub struct Res {
 #[derive(Getter, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiData {
     #[serde(rename = "api_payitem_id")]
@@ -89,7 +89,11 @@ mod tests {
 
         let pattern_str = "S@api_get_member@payitem";
         let log_path = "./src/kcapi/api_get_member/payitem@S.log";
-        simple_root_test::<Res>(target_path.clone(), pattern_str.to_string(), log_path.to_string());
+        simple_root_test::<Res>(
+            target_path.clone(),
+            pattern_str.to_string(),
+            log_path.to_string(),
+        );
 
         let pattern_str = "Q@api_get_member@payitem";
         let log_path = "./src/kcapi/api_get_member/payitem@Q.log";

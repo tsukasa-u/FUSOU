@@ -1,23 +1,24 @@
+use once_cell::sync::Lazy;
 use std::collections::HashMap;
+use std::sync::Mutex;
+
+use serde::{Deserialize, Serialize};
 
 use crate::kcapi;
 // use crate::interface::deck_port::KCS_DECKS;
 
-use std::sync::{LazyLock, Mutex};
-
-// Is it better to use onecell::sync::Lazy or std::sync::Lazy?
-pub static KCS_SHIPS: LazyLock<Mutex<Ships>> = LazyLock::new(|| {
+pub static KCS_SHIPS: Lazy<Mutex<Ships>> = Lazy::new(|| {
     Mutex::new(Ships {
         ships: HashMap::new(),
     })
 });
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Ships {
-    ships: HashMap<i64, Ship>,
+    pub ships: HashMap<i64, Ship>,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Ship {
     pub id: i64,
     pub ship_id: Option<i64>,
@@ -46,12 +47,12 @@ pub struct Ship {
     pub sp_effect_items: Option<SpEffectItems>,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SpEffectItems {
-    items: HashMap<i64, SpEffectItem>,
+    pub items: HashMap<i64, SpEffectItem>,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SpEffectItem {
     pub kind: i64,
     pub raig: Option<i64>,
@@ -62,13 +63,55 @@ pub struct SpEffectItem {
 
 impl Ships {
     pub fn load() -> Self {
-        let stype_map = KCS_SHIPS.lock().unwrap();
-        stype_map.clone()
+        let ship_map = KCS_SHIPS.lock().unwrap();
+        ship_map.clone()
     }
 
     pub fn restore(&self) {
-        let mut stype_map = KCS_SHIPS.lock().unwrap();
-        *stype_map = self.clone();
+        let mut ship_map = KCS_SHIPS.lock().unwrap();
+        *ship_map = self.clone();
+    }
+
+    pub fn add_or(&self) {
+        let mut ship_map = KCS_SHIPS.lock().unwrap();
+        for (key, ship) in self.ships.iter() {
+            match ship_map.ships.get(key) {
+                Some(v) => {
+                    let ship_or = Ship {
+                        id: ship.id,
+                        ship_id: ship.ship_id.or(v.ship_id),
+                        lv: ship.lv.or(v.lv),
+                        exp: ship.exp.clone().or(v.exp.clone()),
+                        nowhp: ship.nowhp.or(v.nowhp),
+                        maxhp: ship.maxhp.or(v.maxhp),
+                        soku: ship.soku.or(v.soku),
+                        leng: ship.leng.or(v.leng),
+                        slot: ship.slot.clone().or(v.slot.clone()),
+                        onsolot: ship.onsolot.clone().or(v.onsolot.clone()),
+                        slot_ex: ship.slot_ex.or(v.slot_ex),
+                        fuel: ship.fuel.or(v.fuel),
+                        bull: ship.bull.or(v.bull),
+                        slotnum: ship.slotnum.or(v.slotnum),
+                        cond: ship.cond.or(v.cond),
+                        karyoku: ship.karyoku.clone().or(v.karyoku.clone()),
+                        raisou: ship.raisou.clone().or(v.raisou.clone()),
+                        taiku: ship.taiku.clone().or(v.taiku.clone()),
+                        soukou: ship.soukou.clone().or(v.soukou.clone()),
+                        kaihi: ship.kaihi.clone().or(v.kaihi.clone()),
+                        taisen: ship.taisen.clone().or(v.taisen.clone()),
+                        sakuteki: ship.sakuteki.clone().or(v.sakuteki.clone()),
+                        lucky: ship.lucky.clone().or(v.lucky.clone()),
+                        sally_area: ship.sally_area.or(v.sally_area),
+                        sp_effect_items: ship.sp_effect_items.clone().or(v.sp_effect_items.clone()),
+                    };
+                    ship_map.ships.insert(*key, ship_or);
+                }
+                None => {
+                    ship_map.ships.insert(*key, ship.clone());
+                }
+            }
+            // ship_map.ships.insert(*key, value.clone());
+        }
     }
 }
 

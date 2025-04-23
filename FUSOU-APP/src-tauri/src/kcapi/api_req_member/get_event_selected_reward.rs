@@ -5,7 +5,7 @@
 //!   <img src="https://tsukasa-u.github.io/FUSOU/struct_dependency_svg/api_req_member@get_event_selected_reward.svg" alt="KC_API_dependency(api_req_member/get_event_selected_reward)" style="max-width: 2000px;"/>
 //! </div>
 
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::collections::HashMap;
 // use serde_json::Value;
 
@@ -23,7 +23,7 @@ use crate::interface::interface::EmitData;
 #[convert_output(output = EmitData)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Req {
     #[serde(rename = "api_token")]
@@ -37,7 +37,7 @@ pub struct Req {
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[register_struct(name = "api_req_member/get_event_selected_reward")]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Res {
     #[serde(rename = "api_data")]
@@ -51,7 +51,7 @@ pub struct Res {
 #[derive(Getter, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiData {
     #[serde(rename = "api_get_item_list")]
@@ -61,7 +61,7 @@ pub struct ApiData {
 #[derive(Getter, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiGetItemList {
     #[serde(rename = "api_item_no")]
@@ -95,10 +95,18 @@ mod tests {
 
         let pattern_str = "S@api_req_member@get_event_selected_reward";
         let log_path = "./src/kcapi/api_req_member/get_event_selected_reward@S.log";
-        simple_root_test::<Res>(target_path.clone(), pattern_str.to_string(), log_path.to_string());
+        simple_root_test::<Res>(
+            target_path.clone(),
+            pattern_str.to_string(),
+            log_path.to_string(),
+        );
 
         let pattern_str = "Q@api_req_member@get_event_selected_reward";
         let log_path = "./src/kcapi/api_req_member/get_event_selected_reward@Q.log";
-        simple_root_test::<Req>(target_path.clone(), pattern_str.to_string(), log_path.to_string());
+        simple_root_test::<Req>(
+            target_path.clone(),
+            pattern_str.to_string(),
+            log_path.to_string(),
+        );
     }
 }

@@ -1,12 +1,14 @@
 use crate::kcapi;
 use chrono;
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NDocks {
     pub n_docks: Vec<NDock>,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NDock {
     pub ship_id: i64,
     pub complete_time: i64,

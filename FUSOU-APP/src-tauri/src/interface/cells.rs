@@ -1,19 +1,33 @@
+use once_cell::sync::Lazy;
 use std::collections::HashMap;
+use std::sync::Mutex;
 
 use chrono::Local;
 
 use crate::kcapi;
 use crate::kcapi_common;
 
-use std::sync::{LazyLock, Mutex};
-
 use super::battle::calc_air_damage;
 use super::battle::{AirDamage, Battle};
 
-// Is it better to use onecell::sync::Lazy or std::sync::Lazy?
-pub static KCS_CELLS: LazyLock<Mutex<Vec<i64>>> = LazyLock::new(|| Mutex::new(Vec::new()));
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub static KCS_CELLS_INDEX: Lazy<Mutex<Vec<i64>>> = Lazy::new(|| Mutex::new(Vec::new()));
+pub static KCS_CELLS: Lazy<Mutex<Cells>> = Lazy::new(|| {
+    Mutex::new(Cells {
+        maparea_id: 0,
+        mapinfo_no: 0,
+        bosscell_no: 0,
+        bosscomp: 0,
+        cells: HashMap::new(),
+        cell_index: Vec::new(),
+        event_map: None,
+        cell_data: Vec::new(),
+        battles: HashMap::new(),
+    })
+});
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Cells {
     pub maparea_id: i64,
     pub mapinfo_no: i64,
@@ -26,7 +40,45 @@ pub struct Cells {
     pub battles: HashMap<i64, Battle>,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+impl Cells {
+    pub fn load() -> Self {
+        let cells = KCS_CELLS.lock().unwrap();
+        cells.clone()
+    }
+
+    pub fn restore(&self) {
+        let mut cells = KCS_CELLS.lock().unwrap();
+        *cells = self.clone();
+    }
+
+    pub fn reset() {
+        let mut cells = KCS_CELLS.lock().unwrap();
+        cells.cells.clear();
+        cells.cell_index.clear();
+        cells.event_map = None;
+        cells.cell_data.clear();
+        cells.battles.clear();
+        cells.maparea_id = 0;
+        cells.mapinfo_no = 0;
+        cells.bosscell_no = 0;
+        cells.bosscomp = 0;
+    }
+
+    pub fn reset_flag() -> bool {
+        let cells = KCS_CELLS.lock().unwrap();
+        return cells.maparea_id == 0
+            && cells.mapinfo_no == 0
+            && cells.bosscell_no == 0
+            && cells.bosscomp == 0
+            && cells.cells.is_empty()
+            && cells.cell_index.is_empty()
+            && cells.event_map.is_none()
+            && cells.cell_data.is_empty()
+            && cells.battles.is_empty();
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Cell {
     pub timestamp: Option<i64>,
     pub rashin_id: i64,
@@ -50,7 +102,15 @@ pub struct Cell {
     pub happening: Option<Happening>,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+impl Cell {
+    pub fn add_or(&self) {
+        let mut cells = KCS_CELLS.lock().unwrap();
+        cells.cells.insert(self.no, self.clone());
+        cells.cell_index.push(self.no);
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CellData {
     pub id: i64,
     pub no: i64,
@@ -59,14 +119,14 @@ pub struct CellData {
     pub distance: Option<i64>,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Eventmap {
     pub max_maphp: i64,
     pub now_maphp: i64,
     pub dmg: i64,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Happening {
     // type: i64,
     pub count: i64,
@@ -76,13 +136,13 @@ pub struct Happening {
     pub dentan: i64,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EDeckInfo {
     pub kind: i64,
     pub ship_ids: Vec<i64>,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DestructionBattle {
     pub formation: Vec<i64>,
     pub ship_ke: Vec<i64>,
@@ -99,7 +159,7 @@ pub struct DestructionBattle {
     pub e_total_damages: Option<Vec<i64>>,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AirBaseAttack {
     pub air_superiority: Option<i64>,
     pub plane_from: Vec<Option<Vec<i64>>>,
@@ -202,19 +262,17 @@ impl From<kcapi::api_req_map::next::ApiData> for Cell {
         });
 
         // let happening: Option<Happening> = cells.api_happening.map(|happening| happening.into());
-        let happening: Option<Happening> = cells
-            .api_happening
-            .and_then(|happening| Some(happening.into()));
+        let happening: Option<Happening> = cells.api_happening.map(|happening| happening.into());
 
         let destruction_battle: Option<DestructionBattle> =
-            cells.api_destruction_battle.and_then(|destruction_battle| {
+            cells.api_destruction_battle.map(|destruction_battle| {
                 let mut destruction_battle: DestructionBattle = destruction_battle.into();
                 calc_dmg(&mut destruction_battle);
-                Some(destruction_battle)
+                destruction_battle
             });
 
         {
-            KCS_CELLS.lock().unwrap().push(cells.api_no);
+            KCS_CELLS_INDEX.lock().unwrap().push(cells.api_no);
         }
 
         Self {
@@ -256,7 +314,7 @@ impl From<kcapi::api_req_map::start::ApiData> for Cell {
         });
 
         {
-            KCS_CELLS.lock().unwrap().push(cells.api_no);
+            KCS_CELLS_INDEX.lock().unwrap().push(cells.api_no);
         }
 
         Self {

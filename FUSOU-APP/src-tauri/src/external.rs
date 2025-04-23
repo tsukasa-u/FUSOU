@@ -1,5 +1,5 @@
 use std::sync::{LazyLock, Mutex};
-use tauri::{AppHandle, Manager, Url};
+use tauri::{AppHandle, Manager};
 use webbrowser::{open_browser, Browser};
 
 #[derive(Debug, Default)]
@@ -23,12 +23,7 @@ impl BrowserState {
 pub static SHARED_BROWSER: LazyLock<Mutex<BrowserState>> =
     LazyLock::new(|| Mutex::new(BrowserState::new()));
 
-pub fn create_external_window(
-    app: &AppHandle,
-    browser: Option<Browser>,
-    browse_webview: bool,
-    proxy_addr: Option<Url>,
-) {
+pub fn create_external_window(app: &AppHandle, browser: Option<Browser>, browse_webview: bool) {
     if browse_webview {
         if let Some(window) = app.get_webview_window("external") {
             match window.is_visible() {
@@ -47,7 +42,7 @@ pub fn create_external_window(
         // let init_script = fs::read_to_string("./../src/init_script.js").expect("Unable to read init_script.js");
         let init_script = include_str!(".././../src/init_script.js");
 
-        let mut external = tauri::WebviewWindowBuilder::new(
+        let external = tauri::WebviewWindowBuilder::new(
             app,
             "external",
             tauri::WebviewUrl::External(

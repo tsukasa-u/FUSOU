@@ -1,6 +1,8 @@
 // use crate::kcapi;
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Mission {
     pub mission_id: i64,
     pub complete_time: u64,

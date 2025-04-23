@@ -1,21 +1,23 @@
+use once_cell::sync::Lazy;
 use std::collections::HashMap;
-use std::sync::{LazyLock, Mutex};
+use std::sync::Mutex;
+
+use serde::{Deserialize, Serialize};
 
 use crate::kcapi;
 
-// Is it better to use onecell::sync::Lazy or std::sync::Lazy?
-pub(crate) static KCS_SLOT_ITEMS: LazyLock<Mutex<SlotItems>> = LazyLock::new(|| {
+pub(crate) static KCS_SLOT_ITEMS: Lazy<Mutex<SlotItems>> = Lazy::new(|| {
     Mutex::new(SlotItems {
         slot_items: HashMap::new(),
     })
 });
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SlotItems {
-    slot_items: HashMap<i64, SlotItem>,
+    pub slot_items: HashMap<i64, SlotItem>,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SlotItem {
     pub id: i64,
     pub slotitem_id: i64,

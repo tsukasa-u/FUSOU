@@ -16,6 +16,13 @@ import IconCheckBoxGreen from "../icons/check_box_green";
 import IconCheckBoxRed from "../icons/check_box_red";
 
 import { location_route } from "../utility/location";
+import { getRefreshToken, supabase } from "../utility/supabase";
+import { useAuth } from "../utility/provider";
+// import { redirect, useNavigate } from "@solidjs/router";
+// import {
+//   onOpenUrl,
+//   getCurrent as getCurrentDeepLinkUrls,
+// } from "@tauri-apps/plugin-deep-link";
 
 let launch_options: { [key: string]: number } = {
   run_proxy_server: 1,
@@ -68,6 +75,18 @@ let server_list: { [key: string]: string } = {
   //     // "柱島泊地":	"203.104.209.102",
 };
 
+function open_auth_page() {
+  invoke("check_open_window", { label: "main" }).then((flag) => {
+    if (flag) {
+      invoke("open_auth_page").then(() => {
+        console.log("open auth page");
+      }).catch((err) => {
+        console.error("open auth page error", err);
+      });
+    }
+  });
+}
+
 function Start() {
   createEffect(location_route);
 
@@ -88,6 +107,12 @@ function Start() {
 
   const [pacServerHealth, setPacServerHealth] = createSignal<number>(-1);
   const [proxyServerHealth, setProxyServerHealth] = createSignal<number>(-1);
+
+  const [advancesSettingsCollapse, setAdavncedSettingsCollpse] = createSignal<boolean>(false);
+
+  const [authData, setAuthData] = useAuth();
+
+  // const navigate = useNavigate();
 
   function check_server_status() {
     setPacServerHealth(-1);
@@ -111,6 +136,54 @@ function Start() {
   }
 
   createEffect(() => {
+    if (authData.accessToken !== null && authData.refreshToken !== null) {
+      supabase.auth.setSession({
+        access_token: authData.accessToken,
+        refresh_token: authData.refreshToken,
+      }).then(({ data, error }) => {
+        if (error) {
+          console.error("Error setting session:", error);
+        } else {
+          console.log("Session set successfully:", data);
+        }
+      });
+    }
+  });
+
+  createEffect(() => {
+
+    supabase.auth.getSession().then(({ data, error }) => {
+      console.log("session", data, error);
+      if (error) {
+        console.error("Error getting session:", error);
+        open_auth_page();
+      } else {
+        if (data.session == null) {
+          open_auth_page();
+        } else {
+          if (data.session.user == null) {
+            open_auth_page();
+          } else {
+            getRefreshToken(data.session.user.id).then((refreshToken) => {
+              if (refreshToken !== null) {
+                let token: string = refreshToken + "&" + data.session.token_type;
+                invoke("set_refresh_token", {
+                  token: token
+                }).then(() => {
+                  console.log("refresh_token set");
+                }).catch((err) => {
+                  console.error("refresh_token error", err);
+                });
+              } else {
+                console.error("Error getting refresh token");
+              }
+            }).catch((error) => {
+              console.error("Error getting refresh token:", error);
+            });
+          }
+        }
+      }
+    });
     check_server_status();
   });
 
@@ -387,6 +460,48 @@ function Start() {
                     </div> */}
             </div>
           </div>
+              <div tabindex="0" class={"collapse collapse-arrow" + (advancesSettingsCollapse() ? " collapse-open" : " collapse-close")}>
+                <div class="collapse-title text-lg font-semibold leading-4 text-slate-700" onClick={() => setAdavncedSettingsCollpse(!advancesSettingsCollapse())}>Advanced Settings</div>
+                <div class="collapse-content text-sm mx-4">
+                  <div class="font-semibold text-slate-700">Set provider (provider) (access/refresh) tokens</div>
+                  <fieldset class="fieldset">
+                    <legend class="fieldset-legen">input tokens for new session</legend>
+                    <div class="flex flex-nowarp align-center">
+                      <input id="tokens" type="text" class="w-full input input-sm focus-within:outline-0 focus:outline-0" placeholder="provider_refresh_token=***&access_token=****&refresh_token=***" />
+                      <kbd class="kbd kbd-sm">ctrl</kbd>
+                      <div class="self-center text-sm px-1">+</div>
+                      <kbd class="kbd kbd-sm">V</kbd>
+                    </div>
+                  </fieldset>
+
+                <div class="mt-4 flex items-center justify-end">
+                  <span class="flex-auto" />
+                  <div class="form-control flex-none">
+                    <div class="btn btn-sm border-base-300 border-1" onClick={() => {
+                      const input_text: HTMLInputElement | null = document.getElementById("tokens") as HTMLInputElement;
+                      if (input_text == null) return;
+
+                      let tokens = input_text.value?.split('&')!;
+                      let supabase_access_token = tokens[2].split('=');
+                      let supabase_refresh_token = tokens[3].split('=');
+                      let provider_refresh_token = tokens[0].split('=');
+
+                      if (supabase_access_token[0] != "supabase_access_token") return;
+                      if (supabase_refresh_token[0] != "supabase_refresh_token") return;
+                      if (provider_refresh_token[0] != "provider_refresh_token") return;
+
+
+                      setAuthData({
+                        accessToken: supabase_access_token[1],
+                        refreshToken: supabase_refresh_token[1],
+                      });
+
+                      invoke("set_refresh_token", {token: provider_refresh_token + "&bearer"})
+                    }}>Set Token</div>
+                  </div>
+                </div>
+                </div>
+              </div>
           <div class="divider mt-0 mb-0 w-11/12 justify-self-center" />
           <div class="h-8" />
           <div class="flex justify-center">
@@ -395,7 +510,7 @@ function Start() {
               class={start_button_class()}
               href="/app"
               onClick={() => {
-                invoke("launch_with_options", { options: launch_options });
+                invoke("launch_with_options", { options: launch_options })
               }}
             >
               Start

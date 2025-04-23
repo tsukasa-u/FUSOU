@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::vec;
 
 use chrono::Local;
 
@@ -7,16 +6,12 @@ use crate::kcapi;
 use crate::kcapi_common;
 use crate::kcapi_common::custom_type::DuoType;
 
-// use std::sync::{LazyLock, Mutex};
-
 use super::cells::KCS_CELLS;
+use super::cells::KCS_CELLS_INDEX;
 
-// // Is it better to use onecell::sync::Lazy or std::sync::Lazy?
-// pub static KCS_BATTLE: LazyLock<Mutex<Battles>> = LazyLock::new(|| {
-//     Mutex::new( Battles::new())
-// });
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum BattleType {
     AirBaseAssult(()),
     CarrierBaseAssault(()),
@@ -31,13 +26,32 @@ pub enum BattleType {
     MidnightHougeki(()),
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+impl From<BattleType> for i64 {
+    fn from(air_base_air_attack: BattleType) -> Self {
+        match air_base_air_attack {
+            BattleType::AirBaseAssult(()) => 1 << 3,
+            BattleType::CarrierBaseAssault(()) => 2 << 3,
+            BattleType::AirBaseAirAttack(()) => 3 << 3,
+            BattleType::OpeningAirAttack(()) => 4 << 3,
+            BattleType::SupportAttack(()) => 5 << 3,
+            BattleType::OpeningTaisen(()) => 6 << 3,
+            BattleType::OpeningRaigeki(()) => 7 << 3,
+            BattleType::Hougeki(x) if (0..=2).contains(&x) => (8 << 3) | x,
+            BattleType::Hougeki(_) => (8 << 3) | 0x111,
+            BattleType::ClosingRaigeki(()) => 9 << 3,
+            BattleType::FriendlyForceAttack(()) => 10 << 3,
+            BattleType::MidnightHougeki(()) => 11 << 3,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Battles {
     pub cells: Vec<i64>,
     pub battles: HashMap<i64, Battle>,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Battle {
     pub battle_order: Option<Vec<BattleType>>,
     pub timestamp: Option<i64>,
@@ -79,25 +93,141 @@ pub struct Battle {
     pub midngiht_e_nowhps: Option<Vec<i64>>,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+impl Battle {
+    pub fn add_or(&self) {
+        let mut battles = KCS_CELLS.lock().unwrap();
+        match battles.battles.get(&self.cell_id) {
+            Some(battle) => {
+                let battle_or = Battle {
+                    battle_order: battle.battle_order.clone().or(self.battle_order.clone()),
+                    timestamp: battle.timestamp.or(self.timestamp),
+                    midnight_timestamp: battle
+                        .clone()
+                        .midnight_timestamp
+                        .or(self.midnight_timestamp),
+                    cell_id: battle.cell_id,
+                    deck_id: battle.deck_id.or(self.deck_id),
+                    formation: battle.formation.clone().or(self.formation.clone()),
+                    enemy_ship_id: battle.enemy_ship_id.clone().or(self.enemy_ship_id.clone()),
+                    e_params: battle.e_params.clone().or(self.e_params.clone()),
+                    e_slot: battle.e_slot.clone().or(self.e_slot.clone()),
+                    e_hp_max: battle.e_hp_max.clone().or(self.e_hp_max.clone()),
+                    f_total_damages: battle
+                        .f_total_damages
+                        .clone()
+                        .or(self.f_total_damages.clone()),
+                    e_total_damages: battle
+                        .e_total_damages
+                        .clone()
+                        .or(self.e_total_damages.clone()),
+                    friend_total_damages: battle
+                        .friend_total_damages
+                        .clone()
+                        .or(self.friend_total_damages.clone()),
+                    midnight_f_total_damages: battle
+                        .midnight_f_total_damages
+                        .clone()
+                        .or(self.midnight_f_total_damages.clone()),
+                    midnight_e_total_damages: battle
+                        .midnight_e_total_damages
+                        .clone()
+                        .or(self.midnight_e_total_damages.clone()),
+                    reconnaissance: battle
+                        .reconnaissance
+                        .clone()
+                        .or(self.reconnaissance.clone()),
+                    escape_idx: battle.escape_idx.clone().or(self.escape_idx.clone()),
+                    smoke_type: battle.smoke_type.or(self.smoke_type),
+                    combat_ration: battle.combat_ration.clone().or(self.combat_ration.clone()),
+                    balloon_flag: battle.balloon_flag.or(self.balloon_flag),
+                    air_base_assault: battle
+                        .air_base_assault
+                        .clone()
+                        .or(self.air_base_assault.clone()),
+                    carrier_base_assault: battle
+                        .carrier_base_assault
+                        .clone()
+                        .or(self.carrier_base_assault.clone()),
+                    air_base_air_attacks: battle
+                        .air_base_air_attacks
+                        .clone()
+                        .or(self.air_base_air_attacks.clone()),
+                    opening_air_attack: battle
+                        .opening_air_attack
+                        .clone()
+                        .or(self.opening_air_attack.clone()),
+                    support_attack: battle
+                        .support_attack
+                        .clone()
+                        .or(self.support_attack.clone()),
+                    opening_taisen: battle
+                        .opening_taisen
+                        .clone()
+                        .or(self.opening_taisen.clone()),
+                    opening_raigeki: battle
+                        .opening_raigeki
+                        .clone()
+                        .or(self.opening_raigeki.clone()),
+                    hougeki: battle.hougeki.clone().or(self.hougeki.clone()),
+                    closing_raigeki: battle
+                        .closing_raigeki
+                        .clone()
+                        .or(self.closing_raigeki.clone()),
+                    friendly_force_attack: battle
+                        .friendly_force_attack
+                        .clone()
+                        .or(self.friendly_force_attack.clone()),
+                    midnight_flare_pos: battle
+                        .midnight_flare_pos
+                        .clone()
+                        .or(self.midnight_flare_pos.clone()),
+                    midngiht_touchplane: battle
+                        .midngiht_touchplane
+                        .clone()
+                        .or(self.midngiht_touchplane.clone()),
+                    midnight_hougeki: battle
+                        .midnight_hougeki
+                        .clone()
+                        .or(self.midnight_hougeki.clone()),
+                    f_nowhps: battle.f_nowhps.clone().or(self.f_nowhps.clone()),
+                    e_nowhps: battle.e_nowhps.clone().or(self.e_nowhps.clone()),
+                    midngiht_f_nowhps: battle
+                        .midngiht_f_nowhps
+                        .clone()
+                        .or(self.midngiht_f_nowhps.clone()),
+                    midngiht_e_nowhps: battle
+                        .midngiht_e_nowhps
+                        .clone()
+                        .or(self.midngiht_e_nowhps.clone()),
+                };
+                battles.battles.insert(self.cell_id, battle_or);
+            }
+            None => {
+                battles.battles.insert(self.cell_id, self.clone());
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CarrierBaseAssault {
     pub f_damage: AirDamage,
     pub e_damage: AirDamage,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AirBaseAssult {
     pub squadron_plane: Vec<i64>,
     pub f_damage: AirDamage,
     pub e_damage: AirDamage,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AirBaseAirAttacks {
     pub attacks: Vec<AirBaseAirAttack>,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AirBaseAirAttack {
     pub stage_flag: Vec<i64>,
     pub squadron_plane: Option<Vec<Option<i64>>>,
@@ -106,7 +236,7 @@ pub struct AirBaseAirAttack {
     pub e_damage: AirDamage,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OpeningAirAttack {
     pub air_superiority: Option<i64>,
     pub air_fire: Option<AirFire>,
@@ -114,7 +244,7 @@ pub struct OpeningAirAttack {
     pub e_damage: AirDamage,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AirDamage {
     pub plane_from: Option<Vec<i64>>,
     pub touch_plane: Option<i64>,
@@ -129,13 +259,13 @@ pub struct AirDamage {
     pub now_hps: Vec<i64>,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AirFire {
     pub use_item: Vec<i64>,
     pub idx: i64,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OpeningRaigeki {
     pub fdam: Vec<f32>,
     pub edam: Vec<f32>,
@@ -151,7 +281,7 @@ pub struct OpeningRaigeki {
     pub e_now_hps: Vec<i64>,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OpeningTaisen {
     pub at_list: Vec<i64>,
     pub at_type: Vec<i64>,
@@ -165,7 +295,7 @@ pub struct OpeningTaisen {
     pub e_now_hps: Vec<Vec<i64>>,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClosingRaigeki {
     pub fdam: Vec<f32>,
     pub edam: Vec<f32>,
@@ -181,7 +311,7 @@ pub struct ClosingRaigeki {
     pub e_now_hps: Vec<i64>,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Hougeki {
     pub at_list: Vec<i64>,
     pub at_type: Vec<i64>,
@@ -195,7 +325,7 @@ pub struct Hougeki {
     pub e_now_hps: Vec<Vec<i64>>,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MidnightHougeki {
     pub at_list: Option<Vec<i64>>,
     pub df_list: Option<Vec<Vec<i64>>>,
@@ -209,13 +339,13 @@ pub struct MidnightHougeki {
     pub e_now_hps: Vec<Vec<i64>>,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SupportAttack {
     pub support_hourai: Option<SupportHourai>,
     pub support_airatack: Option<SupportAiratack>,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SupportHourai {
     pub cl_list: Vec<i64>,
     pub damage: Vec<f32>,
@@ -225,7 +355,7 @@ pub struct SupportHourai {
     pub now_hps: Vec<i64>,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SupportAiratack {
     pub deck_id: i64,
     pub ship_id: Vec<i64>,
@@ -233,20 +363,20 @@ pub struct SupportAiratack {
     pub e_damage: AirDamage,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FriendlyForceAttack {
     pub fleet_info: FriendlyForceInfo,
     pub support_hourai: Option<FriendlySupportHourai>,
     // pub support_airatack: Option<FriendlySupportAiratack>,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FriendlySupportHourai {
     pub flare_pos: Vec<i64>,
     pub hougeki: MidnightHougeki,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FriendlyForceInfo {
     pub slot_ex: Vec<i64>,
     pub max_hps: Vec<i64>,
@@ -257,7 +387,7 @@ pub struct FriendlyForceInfo {
     pub slot: Vec<Vec<i64>>,
 }
 
-// #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+// #[derive(Debug, Clone, Serialize, Deserialize)]
 // pub struct FriendlySupportAiratack {
 //     pub stage_flag: Vec<i64>,
 //     pub f_damage: AirDamage,
@@ -1488,7 +1618,7 @@ impl From<kcapi::api_req_sortie::battle::ApiData> for Battle {
                 None
             };
 
-        let cell_no = KCS_CELLS
+        let cell_no = KCS_CELLS_INDEX
             .lock()
             .map(|cells| *cells.last().unwrap_or(&0))
             .unwrap_or(0);
@@ -1565,7 +1695,7 @@ impl From<kcapi::api_req_battle_midnight::battle::ApiData> for Battle {
                 None
             };
 
-        let cell_no = KCS_CELLS
+        let cell_no = KCS_CELLS_INDEX
             .lock()
             .map(|cells| *cells.last().unwrap_or(&0))
             .unwrap_or(0);
@@ -1636,7 +1766,7 @@ impl From<kcapi::api_req_battle_midnight::sp_midnight::ApiData> for Battle {
         let midnight_hougeki: Option<MidnightHougeki> = Some(battle.api_hougeki.into());
         let friendly_force_attack: Option<FriendlyForceAttack> = None;
 
-        let cell_no = KCS_CELLS
+        let cell_no = KCS_CELLS_INDEX
             .lock()
             .map(|cells| *cells.last().unwrap_or(&0))
             .unwrap_or(0);
@@ -1707,7 +1837,7 @@ impl From<kcapi::api_req_sortie::ld_airbattle::ApiData> for Battle {
         let air_base_assault: Option<AirBaseAssult> = None;
         let carrier_base_assault: Option<CarrierBaseAssault> = None;
 
-        let cell_no = KCS_CELLS
+        let cell_no = KCS_CELLS_INDEX
             .lock()
             .map(|cells| *cells.last().unwrap_or(&0))
             .unwrap_or(0);
@@ -1801,10 +1931,7 @@ fn calc_si_list(si_list: &Vec<Option<DuoType<i64, String>>>) -> Vec<Option<i64>>
                         Some(*num)
                     }
                 }
-                DuoType::Type2(string) => match string.parse::<i64>() {
-                    Ok(num) => Some(num),
-                    Err(_) => None,
-                },
+                DuoType::Type2(string) => string.parse::<i64>().ok(),
             },
             None => None,
         })
@@ -1841,9 +1968,9 @@ pub fn calc_escape_idx(
     escape_idx_combine: Option<Vec<i64>>,
 ) -> Option<Vec<i64>> {
     let escape_idx_combined_unwrap: Vec<i64> = [
-        escape_idx.unwrap_or(vec![]),
+        escape_idx.unwrap_or_default(),
         escape_idx_combine
-            .unwrap_or(vec![])
+            .unwrap_or_default()
             .iter()
             .map(|idx| *idx + 6)
             .collect(),

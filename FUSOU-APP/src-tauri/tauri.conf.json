@@ -43,17 +43,24 @@
       }
     }
   },
-  "productName": "fusou-app",
-  "mainBinaryName": "fusou-app",
-  "version": "0.1.4",
+  "productName": "fusou",
+  "mainBinaryName": "fusou",
+  "version": "0.2.1",
   "identifier": "fusou.dev",
-  "plugins": {},
+  "plugins": {
+    "deep-link": {
+      "schema": "fusou",
+      "desktop": {
+        "schemes": ["fusou"]
+      }
+    }
+  },
   "app": {
     "windows": [
       {
         "label": "main",
         "fullscreen": false,
-        "height": 600,
+        "height": 640,
         "resizable": true,
         "title": "fusou-app",
         "width": 800,
@@ -61,12 +68,6 @@
         "useHttpsScheme": true
       }
     ],
-    "trayIcon": {
-      "iconPath": "icons/128x128.png",
-      "iconAsTemplate": true,
-      "menuOnLeftClick": true,
-      "title": "fusou-system-tray"
-    },
     "security": {
       "csp": null
     }

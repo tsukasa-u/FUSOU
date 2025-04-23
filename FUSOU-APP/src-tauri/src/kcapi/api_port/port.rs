@@ -5,7 +5,7 @@
 //!   <img src="https://tsukasa-u.github.io/FUSOU/struct_dependency_svg/api_port@port.svg" alt="KC_API_dependency(api_port/port)" style="max-width: 2000px;"/>
 //! </div>
 
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::Value;
 use std::collections::HashMap;
 
@@ -14,7 +14,7 @@ use register_trait::{add_field, register_struct};
 use register_trait::{Getter, TraitForConvert, TraitForRoot, TraitForTest};
 
 use crate::interface::deck_port::DeckPorts;
-use crate::interface::interface::{EmitData, Set};
+use crate::interface::interface::{EmitData, Identifier, Set};
 use crate::interface::logs::Logs;
 use crate::interface::material::Materials;
 use crate::interface::n_dock::NDocks;
@@ -24,7 +24,7 @@ use crate::interface::ship::Ships;
 #[convert_output(output = EmitData)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Req {
     #[serde(rename = "api_token")]
@@ -43,7 +43,7 @@ pub struct Req {
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[register_struct(name = "api_port/port")]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Res {
     #[serde(rename = "api_result")]
@@ -57,7 +57,7 @@ pub struct Res {
 #[derive(Getter, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiData {
     #[serde(rename = "api_event_object")]
@@ -95,7 +95,7 @@ pub struct ApiData {
 #[derive(Getter, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiPlaneInfo {
     #[serde(rename = "api_base_convert_slot")]
@@ -107,7 +107,7 @@ pub struct ApiPlaneInfo {
 #[derive(Getter, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiUnsetSlot {
     #[serde(rename = "api_type3No")]
@@ -119,7 +119,7 @@ pub struct ApiUnsetSlot {
 #[derive(Getter, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiFriendlySetting {
     #[serde(rename = "api_request_flag")]
@@ -131,7 +131,7 @@ pub struct ApiFriendlySetting {
 #[derive(Getter, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiEventObject {
     #[serde(rename = "api_c_num")]
@@ -145,7 +145,7 @@ pub struct ApiEventObject {
 #[derive(Getter, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiMaterial {
     #[serde(rename = "api_member_id")]
@@ -159,7 +159,7 @@ pub struct ApiMaterial {
 #[derive(Getter, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiDeckPort {
     #[serde(rename = "api_member_id")]
@@ -181,7 +181,7 @@ pub struct ApiDeckPort {
 #[derive(Getter, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiNdock {
     #[serde(rename = "api_member_id")]
@@ -209,7 +209,7 @@ pub struct ApiNdock {
 #[derive(Getter, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiShip {
     #[serde(rename = "api_id")]
@@ -283,7 +283,7 @@ pub struct ApiShip {
 #[derive(Getter, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiSpEffectItem {
     #[serde(rename = "api_kind")]
@@ -301,7 +301,7 @@ pub struct ApiSpEffectItem {
 #[derive(Getter, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiBasic {
     #[serde(rename = "api_member_id")]
@@ -377,7 +377,7 @@ pub struct ApiBasic {
 #[derive(Getter, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiLog {
     #[serde(rename = "api_no")]
@@ -393,7 +393,7 @@ pub struct ApiLog {
 #[derive(Getter, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiFurnitureAffectItems {
     #[serde(rename = "api_payitem_dict")]
@@ -409,13 +409,14 @@ impl TraitForConvert for Res {
         let logs: Logs = self.api_data.api_log.clone().into();
         // let deck_ports: DeckPorts = self.api_data.api_deck_port.clone().into();
         let deck_ports: DeckPorts = self.api_data.clone().into();
-        deck_ports.restore();
+
         Some(vec![
             EmitData::Set(Set::Materials(materials)),
             EmitData::Set(Set::Ships(ships)),
             EmitData::Set(Set::NDocks(ndocks)),
             EmitData::Set(Set::Logs(logs)),
             EmitData::Set(Set::DeckPorts(deck_ports)),
+            EmitData::Identifier(Identifier::Port(())),
         ])
     }
 }

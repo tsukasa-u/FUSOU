@@ -5,7 +5,7 @@
 //!   <img src="https://tsukasa-u.github.io/FUSOU/struct_dependency_svg/api_get_member@require_info.svg" alt="KC_API_dependency(api_get_member/require_info)" style="max-width: 2000px;"/>
 //! </div>
 
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::collections::HashMap;
 // use serde_json::Value;
 
@@ -13,14 +13,14 @@ use register_trait::{add_field, register_struct};
 
 use register_trait::{Getter, TraitForConvert, TraitForRoot, TraitForTest};
 
-use crate::interface::interface::{EmitData, Set};
+use crate::interface::interface::{EmitData, Identifier, Set};
 use crate::interface::slot_item::SlotItems;
 
 #[derive(Getter, TraitForTest, TraitForRoot, TraitForConvert)]
 #[convert_output(output = EmitData)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Req {
     #[serde(rename = "api_token")]
@@ -33,7 +33,7 @@ pub struct Req {
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[register_struct(name = "api_get_member/require_info")]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Res {
     #[serde(rename = "api_result")]
@@ -47,7 +47,7 @@ pub struct Res {
 #[derive(Getter, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiData {
     #[serde(rename = "api_basic")]
@@ -75,7 +75,7 @@ pub struct ApiData {
 #[derive(Getter, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiBasic {
     #[serde(rename = "api_member_id")]
@@ -87,7 +87,7 @@ pub struct ApiBasic {
 #[derive(Getter, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiSlotItem {
     #[serde(rename = "api_id")]
@@ -105,7 +105,7 @@ pub struct ApiSlotItem {
 #[derive(Getter, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiKdock {
     #[serde(rename = "api_id")]
@@ -133,7 +133,7 @@ pub struct ApiKdock {
 #[derive(Getter, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiUseitem {
     #[serde(rename = "api_id")]
@@ -145,7 +145,7 @@ pub struct ApiUseitem {
 #[derive(Getter, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiFurniture {
     #[serde(rename = "api_id")]
@@ -161,7 +161,7 @@ pub struct ApiFurniture {
 #[derive(Getter, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiOssSetting {
     #[serde(rename = "api_language_type")]
@@ -174,9 +174,11 @@ impl TraitForConvert for Res {
     type Output = EmitData;
     fn convert(&self) -> Option<Vec<EmitData>> {
         let slot_item: SlotItems = self.api_data.api_slot_item.clone().into();
-        slot_item.restore();
 
-        Some(vec![EmitData::Set(Set::SlotItems(slot_item))])
+        Some(vec![
+            EmitData::Set(Set::SlotItems(slot_item)),
+            EmitData::Identifier(Identifier::RequireInfo(())),
+        ])
     }
 }
 

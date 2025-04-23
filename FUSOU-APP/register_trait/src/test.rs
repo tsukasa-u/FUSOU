@@ -41,12 +41,8 @@ fn write_log_test(log_path: String, log_map: &LogMapType) -> usize {
     let local: chrono::DateTime<chrono::Local> = chrono::Local::now();
     writeln!(file, "test result [{}]", local)
         .expect(&format!("\x1b[38;5;{}m cannot write.\x1b[m ", 8));
-    writeln!(
-        file,
-        "{} / {} / {} / {}",
-        "test_name", "struct_name", "field_name", "found types"
-    )
-    .expect(&format!("\x1b[38;5;{}m cannot write.\x1b[m ", 8));
+    writeln!(file, "test_name / struct_name / field_name / found types")
+        .expect(&format!("\x1b[38;5;{}m cannot write.\x1b[m ", 8));
 
     for ((test_name, struct_name, field_name), log) in log_map.iter() {
         writeln!(

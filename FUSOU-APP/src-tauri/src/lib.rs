@@ -2,20 +2,21 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 // #![recursion_limit = "256"]
 
-// use arboard::Clipboard;
+use tauri_plugin_deep_link::DeepLinkExt;
+
 use core::time;
 use std::path::PathBuf;
 use std::sync::Mutex;
-use tauri::Manager;
 use tauri::{
     menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    Url,
+    Emitter, Manager, Url,
 };
 use tokio::sync::{mpsc, OnceCell};
 use webbrowser::open_browser;
 
 mod cmd;
+mod database;
 mod interface;
 mod json_parser;
 mod kcapi;
@@ -23,9 +24,16 @@ mod kcapi_common;
 
 mod discord;
 mod external;
+mod google_drive;
 mod tauri_cmd;
 mod util;
 mod wrap_proxy;
+
+mod auth_server;
+mod supabase;
+
+#[cfg(dev)]
+mod test;
 
 // use proxy::bidirectional_channel::{BidirectionalChannel, StatusInfo};
 use proxy_https::bidirectional_channel::{request_shutdown, BidirectionalChannel, StatusInfo};
@@ -34,10 +42,8 @@ use crate::external::SHARED_BROWSER;
 
 static RESOURCES_DIR: OnceCell<PathBuf> = OnceCell::const_new();
 
-#[cfg(TAURI_BUILD_TYPE = "RELEASE")]
+#[cfg(any(not(dev), check_release))]
 static ROAMING_DIR: OnceCell<PathBuf> = OnceCell::const_new();
-
-static PROXY_ADDRESS: OnceCell<Url> = OnceCell::const_new();
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -57,6 +63,10 @@ pub fn run() {
     let response_parse_channel_slave = response_parse_channel.clone_slave();
     let response_parse_channel_master = response_parse_channel.clone_master();
 
+    let auth_bidirectional_channel = BidirectionalChannel::<StatusInfo>::new(1);
+    let auth_bidirectional_channel_slave = auth_bidirectional_channel.clone_slave();
+    let auth_bidirectional_channel_master = auth_bidirectional_channel.clone_master();
+
     let (shutdown_tx, mut shutdown_rx) = mpsc::channel::<()>(1);
 
     // let shared_browser = Arc::new(Mutex::new(BrowserState::new()));
@@ -68,7 +78,7 @@ pub fn run() {
 
     // let browser = shared_browser.lock().unwrap().get_browser();
 
-    let manege_pac_channel = wrap_proxy::PacChannel {
+    let manage_pac_channel = wrap_proxy::PacChannel {
         master: pac_bidirectional_channel_master.clone(),
         slave: pac_bidirectional_channel_slave.clone(),
     };
@@ -88,13 +98,28 @@ pub fn run() {
         slave: response_parse_channel_slave.clone(),
     };
 
-    let mut ctx = tauri::generate_context!();
+    let manage_auth_channel = auth_server::AuthChannel {
+        // master: auth_bidirectional_channel_master.clone(),
+        slave: auth_bidirectional_channel_slave.clone(),
+    };
+
+    let ctx = tauri::generate_context!();
 
     tauri::Builder::default()
-        .manage(manege_pac_channel)
+        .plugin(tauri_plugin_fs::init())
+        .plugin(
+            tauri_plugin_log::Builder::new()
+                .targets([
+                    // tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Stdout),
+                    // tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Webview),
+                ])
+                .build(),
+        )
+        .manage(manage_pac_channel)
         .manage(manage_proxy_channel)
         .manage(manage_proxy_log_channel)
         .manage(manage_response_parse_channel)
+        .manage(manage_auth_channel)
         .invoke_handler(tauri::generate_handler![
             // tauri_cmd::close_splashscreen,
             // tauri_cmd::show_splashscreen,
@@ -109,104 +134,164 @@ pub fn run() {
             tauri_cmd::launch_with_options,
             tauri_cmd::check_pac_server_health,
             tauri_cmd::check_proxy_server_health,
+            tauri_cmd::set_refresh_token,
+            tauri_cmd::open_auth_page,
+            tauri_cmd::check_open_window,
+            #[cfg(dev)]
+            tauri_cmd::open_auth_window,
+            #[cfg(dev)]
             tauri_cmd::open_debug_window,
+            #[cfg(dev)]
             tauri_cmd::close_debug_window,
+            #[cfg(dev)]
             tauri_cmd::read_dir,
+            #[cfg(dev)]
             tauri_cmd::read_emit_file,
         ])
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_shell::init())
+        // .plugin(tauri_plugin_devtools::init())
+        .plugin(tauri_plugin_deep_link::init())
+        .plugin(tauri_plugin_single_instance::init(
+            move |app, argv, _cwd| {
+                if let Some(path) = argv.get(1) {
+                    let url = Url::parse(path).unwrap();
+
+                    let mut providrer_refresh_token = String::new();
+                    let mut supabase_refresh_token = String::new();
+                    let mut supabase_access_token = String::new();
+
+                    url.query_pairs().for_each(|(key, value)| {
+                        // println!("key: {}, value: {}", key, value);
+                        if key.eq("provider_refresh_token") {
+                            providrer_refresh_token = value.to_string();
+                        } else if key.eq("supabase_refresh_token") {
+                            supabase_refresh_token = value.to_string();
+                        } else if key.eq("supabase_access_token") {
+                            supabase_access_token = value.to_string();
+                        }
+                    });
+                    if !providrer_refresh_token.is_empty() {
+                        let token_type = "Bearer";
+                        let _ = google_drive::set_refresh_token(
+                            providrer_refresh_token,
+                            token_type.to_owned(),
+                        );
+                    }
+                    if !supabase_refresh_token.is_empty() && !supabase_access_token.is_empty() {
+                        app.emit_to(
+                            "main",
+                            "set-supabase-tokens",
+                            vec![&supabase_access_token, &supabase_refresh_token],
+                        )
+                        .unwrap();
+                    }
+                }
+
+                let singleton_window = app.get_webview_window("main").unwrap();
+
+                singleton_window.show().unwrap();
+
+                if singleton_window.is_minimized().unwrap() {
+                    singleton_window.unminimize().unwrap();
+                }
+
+                if !singleton_window.is_focused().unwrap() {
+                    singleton_window.set_focus().unwrap();
+                }
+
+                println!("single instance: {:?}", argv.clone().get(1).unwrap());
+            },
+        ))
         .setup(move |app| {
-            #[cfg(TAURI_BUILD_TYPE = "DEBUG")]
+            #[cfg(any(target_os = "linux", all(debug_assertions, windows)))]
+            app.deep_link().register_all()?;
+
+            app.deep_link().on_open_url(|event| {
+                dbg!(event.urls());
+            });
+
+            #[cfg(dev)]
             RESOURCES_DIR
                 .set(PathBuf::from(env!("CARGO_MANIFEST_DIR")))
                 .unwrap();
-            #[cfg(TAURI_BUILD_TYPE = "RELEASE")]
-            match app.path_resolver().resource_dir() {
-                Some(path) => {
+            #[cfg(any(not(dev), check_release))]
+            match app.path().resource_dir() {
+                Ok(path) => {
                     RESOURCES_DIR.set(path.join("resources")).unwrap();
-                    println!(
-                        "app_local_data_dir: {:?}",
-                        app.path_resolver().app_local_data_dir()
-                    );
-                    println!("app_cache_dir: {:?}", app.path_resolver().app_cache_dir());
-                    println!("app_data_dir: {:?}", app.path_resolver().app_data_dir());
-                    println!("app_log_dir: {:?}", app.path_resolver().app_log_dir());
-                    println!("app_config_dir: {:?}", app.path_resolver().app_config_dir());
-                    println!("resource_dir: {:?}", app.path_resolver().resource_dir());
                 }
-                None => return Err("Failed to get app data directory".into()),
+                Err(e) => return Err(e.into()),
             }
 
-            #[cfg(TAURI_BUILD_TYPE = "RELEASE")]
-            match app.path_resolver().app_data_dir() {
-                Some(path) => {
+            #[cfg(any(not(dev), check_release))]
+            match app.path().app_data_dir() {
+                Ok(path) => {
                     ROAMING_DIR.set(path.clone()).unwrap();
                 }
-                None => return Err("Failed to get app data directory".into()),
+                Err(e) => return Err(e.into()),
             }
             let danger_ope_sub_menu_title =
-                MenuItemBuilder::with_id("danger-title".to_string(), "Danger Zone".to_string())
+                MenuItemBuilder::with_id("danger-title".to_string(), "Danger Zone")
                     .enabled(false)
                     .build(app)
                     .unwrap();
             let proxy_serve_shutdown = MenuItemBuilder::with_id(
                 "proxy-serve-shutdown".to_string(),
-                "Shutdown Proxy Server".to_string(),
+                "Shutdown Proxy Server",
             )
             .build(app)
             .unwrap();
-            let pac_server_shutdown = MenuItemBuilder::with_id(
-                "pac-serve-shutdown".to_string(),
-                "Shutdown PAC Server".to_string(),
-            )
-            .build(app)
-            .unwrap();
-            let delete_registry = MenuItemBuilder::with_id(
-                "delete-registry".to_string(),
-                "Delete Registry".to_string(),
-            )
-            .build(app)
-            .unwrap();
+            let pac_server_shutdown =
+                MenuItemBuilder::with_id("pac-serve-shutdown".to_string(), "Shutdown PAC Server")
+                    .build(app)
+                    .unwrap();
+            let delete_registry =
+                MenuItemBuilder::with_id("delete-registry".to_string(), "Delete Registry")
+                    .build(app)
+                    .unwrap();
 
-            #[cfg(TAURI_BUILD_TYPE = "DEBUG")]
-            let open_debug_window = MenuItemBuilder::with_id(
-                "open-debug-window".to_string(),
-                "Open Debug Window".to_string(),
-            )
-            .build(app)
-            .unwrap();
+            #[cfg(dev)]
+            let open_debug_window =
+                MenuItemBuilder::with_id("open-debug-window".to_string(), "Open Debug Window")
+                    .build(app)
+                    .unwrap();
 
-            let quit = MenuItemBuilder::with_id("quit".to_string(), "Quit".to_string())
+            #[cfg(dev)]
+            let open_auth_window =
+                MenuItemBuilder::with_id("open-auth-window".to_string(), "Open Auth Window")
+                    .build(app)
+                    .unwrap();
+
+            #[cfg(dev)]
+            let debug_google_drive =
+                MenuItemBuilder::with_id("debug-google-drive".to_string(), "Debug Google Drive")
+                    .build(app)
+                    .unwrap();
+
+            let quit = MenuItemBuilder::with_id("quit".to_string(), "Quit")
                 .build(app)
                 .unwrap();
-            let title = MenuItemBuilder::with_id("title".to_string(), "FUSOU".to_string())
+            let title = MenuItemBuilder::with_id("title".to_string(), "FUSOU")
                 .enabled(false)
                 .build(app)
                 .unwrap();
-            let external_open_close = MenuItemBuilder::with_id(
-                "external-open/close".to_string(),
-                "Open WebView".to_string(),
-            )
-            .build(app)
-            .unwrap();
-            let main_open_close = MenuItemBuilder::with_id(
-                "main-open/close".to_string(),
-                "Open Main Window".to_string(),
-            )
-            .build(app)
-            .unwrap();
-            let visit_website =
-                MenuItemBuilder::with_id("visit-website".to_string(), "Visit Website".to_string())
+            let external_open_close =
+                MenuItemBuilder::with_id("external-open/close".to_string(), "Open WebView")
                     .build(app)
                     .unwrap();
-            let open_launch_page = MenuItemBuilder::with_id(
-                "open-launch-page".to_string(),
-                "Open Launch Page".to_string(),
-            )
-            .build(app)
-            .unwrap();
+            let main_open_close =
+                MenuItemBuilder::with_id("main-open/close".to_string(), "Open Main Window")
+                    .build(app)
+                    .unwrap();
+            let visit_website =
+                MenuItemBuilder::with_id("visit-website".to_string(), "Visit Website")
+                    .build(app)
+                    .unwrap();
+            let open_launch_page =
+                MenuItemBuilder::with_id("open-launch-page".to_string(), "Open Launch Page")
+                    .build(app)
+                    .unwrap();
 
             let danger_ope_sub_menu = SubmenuBuilder::new(app, "Danger Zone")
                 .item(&danger_ope_sub_menu_title)
@@ -214,13 +299,17 @@ pub fn run() {
                 .item(&pac_server_shutdown)
                 .item(&delete_registry);
 
-            #[cfg(TAURI_BUILD_TYPE = "DEBUG")]
-            let danger_ope_sub_menu = danger_ope_sub_menu.separator().item(&open_debug_window);
+            #[cfg(dev)]
+            let danger_ope_sub_menu = danger_ope_sub_menu
+                .separator()
+                .item(&open_debug_window)
+                .item(&open_auth_window)
+                .item(&debug_google_drive);
 
             let danger_ope_sub_menu = danger_ope_sub_menu.build().unwrap();
 
             let adavanced_title =
-                MenuItemBuilder::with_id("advanced-title".to_string(), "Advanced".to_string())
+                MenuItemBuilder::with_id("advanced-title".to_string(), "Advanced")
                     .enabled(false)
                     .build(app)
                     .unwrap();
@@ -246,9 +335,18 @@ pub fn run() {
                 .build()
                 .unwrap();
 
-            let system_tray = TrayIconBuilder::new()
+            let _system_tray = TrayIconBuilder::new()
                 .menu(&tray_menu)
                 .tooltip("FUSOU")
+                // .icon(tauri::image::Image::new(
+                //     include_bytes!("../icons/128x128.png"),
+                //     128,
+                //     128,
+                // ))
+                .icon_as_template(false)
+                .title("fusou-system-tray")
+                .show_menu_on_left_click(true)
+                .icon(app.default_window_icon().unwrap().clone())
                 .on_tray_icon_event(|tray, event| {
                     if let TrayIconEvent::Click {
                         button: MouseButton::Left,
@@ -285,7 +383,7 @@ pub fn run() {
                 })
                 .on_menu_event(move |tray, event| {
                     match event.id().as_ref() {
-                        #[cfg(TAURI_BUILD_TYPE = "DEBUG")]
+                        #[cfg(dev)]
                         "open-debug-window" => match tray.get_webview_window("debug") {
                             Some(debug_window) => {
                                 debug_window.show().unwrap();
@@ -302,6 +400,28 @@ pub fn run() {
                                 .unwrap();
                             }
                         },
+                        #[cfg(dev)]
+                        "open-auth-window" => match tray.get_webview_window("auth") {
+                            Some(debug_window) => {
+                                debug_window.show().unwrap();
+                            }
+                            None => {
+                                let _window = tauri::WebviewWindowBuilder::new(
+                                    tray.app_handle(),
+                                    "auth",
+                                    tauri::WebviewUrl::App("/auth".into()),
+                                )
+                                .fullscreen(false)
+                                .title("fusou-auth")
+                                .build()
+                                .unwrap();
+                            }
+                        },
+                        #[cfg(dev)]
+                        "debug-google-drive" => {
+                            println!("debug-google-drive");
+                            test::test();
+                        }
                         "proxy-serve-shutdown" => {}
                         "quit" => {
                             if let Some(window) = tray.get_webview_window("main") {
@@ -335,11 +455,11 @@ pub fn run() {
                             //     .tray_handle()
                             //     .get_item("advanced-title")
                             //     .set_enabled(false);
-                            main_open_close.set_enabled(false);
-                            quit.set_enabled(false);
-                            adavanced_title.set_enabled(false);
+                            let _ = main_open_close.set_enabled(false);
+                            let _ = quit.set_enabled(false);
+                            let _ = adavanced_title.set_enabled(false);
 
-                            cmd::remove_pac();
+                            cmd::remove_pac(tray.app_handle());
 
                             // discord::close();
 
@@ -435,12 +555,10 @@ pub fn run() {
                                     _ => {}
                                 },
                                 None => {
-                                    let proxy_addr = PROXY_ADDRESS.get().map(|addr| addr.clone());
                                     crate::external::create_external_window(
                                         tray.app_handle(),
                                         None,
                                         true,
-                                        proxy_addr,
                                     );
                                     // // let _ = app
                                     // //     .tray_handle()
@@ -464,6 +582,7 @@ pub fn run() {
                 proxy_bidirectional_channel_master.clone();
             let pac_bidirectional_channel_master_clone = pac_bidirectional_channel_master.clone();
             let response_parse_channel_master_clone = response_parse_channel_master.clone();
+            let auth_bidirectional_channel_master_clone = auth_bidirectional_channel_master.clone();
             let app_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 let _ = shutdown_rx.recv().await;
@@ -472,11 +591,12 @@ pub fn run() {
                     request_shutdown(proxy_bidirectional_channel_master_clone),
                     request_shutdown(pac_bidirectional_channel_master_clone),
                     request_shutdown(response_parse_channel_master_clone),
+                    request_shutdown(auth_bidirectional_channel_master_clone),
                 );
 
                 tokio::time::sleep(time::Duration::from_millis(2000)).await;
+                app_handle.cleanup_before_exit();
                 app_handle.exit(0_i32);
-                // app.handle().exit(0_i32);
             });
             return Ok(());
         })

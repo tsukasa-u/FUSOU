@@ -1,113 +1,220 @@
 use std::error::Error;
 use tauri::Emitter;
-use tauri::Manager;
 // use proxy::bidirectional_channel;
 use proxy_https::bidirectional_channel;
 use register_trait::TraitForConvert;
 
 use register_trait::expand_struct_selector;
 
+use crate::database::table::GetDataTable;
+use crate::database::table::PortTable;
+use crate::interface::cells::Cells;
+
 // use crate::kcapi;
-use crate::interface::interface::{Add, EmitData, Set};
+use crate::google_drive;
+use crate::interface::interface::{Add, EmitData, Identifier, Set};
+use crate::supabase;
 
 pub fn emit_data(handle: &tauri::AppHandle, emit_data: EmitData) {
     match emit_data {
-        EmitData::Add(data) => {
-            match data {
-                Add::Materials(data) => {
-                    // println!("Materials: {:?}", data.clone());
-                    let _ = handle.emit_to("main", "add-kcs-materials", data);
-                }
-                Add::Ships(data) => {
-                    // println!("Ships: {:?}", data);
-                    let _ = handle.emit_to("main", "add-kcs-ships", data);
-                }
-                Add::Battle(data) => {
-                    // println!("Battle: {:?}", data);
-                    let _ = handle.emit_to("main", "add-kcs-battle", data);
-                }
-                Add::Cell(data) => {
-                    // println!("Cell: {:?}", data);
-                    let _ = handle.emit_to("main", "add-kcs-cell", data);
-                }
-                Add::Dammy(_) => {
-                    // println!("Dammy");
-                    let _ = handle.emit_to("main", "add-kcs-dammy", ());
+        EmitData::Add(data) => match data {
+            Add::Materials(data) => {
+                let _ = handle.emit_to("main", "add-kcs-materials", data);
+            }
+            Add::Ships(data) => {
+                data.add_or();
+                let _ = handle.emit_to("main", "add-kcs-ships", data);
+            }
+            Add::Battle(data) => {
+                data.add_or();
+                let _ = handle.emit_to("main", "add-kcs-battle", data);
+            }
+            Add::Cell(data) => {
+                data.add_or();
+                let _ = handle.emit_to("main", "add-kcs-cell", data);
+            }
+            Add::Dammy(_) => {
+                let _ = handle.emit_to("main", "add-kcs-dammy", ());
+            }
+        },
+        EmitData::Set(data) => match data {
+            Set::DeckPorts(data) => {
+                data.restore();
+                let _ = handle.emit_to("main", "set-kcs-deck-ports", data);
+            }
+            Set::Materials(data) => {
+                let _ = handle.emit_to("main", "set-kcs-materials", data);
+            }
+            Set::Ships(data) => {
+                data.restore();
+                let _ = handle.emit_to("main", "set-kcs-ships", data);
+            }
+            Set::SlotItems(data) => {
+                data.restore();
+                let _ = handle.emit_to("main", "set-kcs-slot-items", data);
+            }
+            Set::NDocks(data) => {
+                let _ = handle.emit_to("main", "set-kcs-n-docks", data);
+            }
+            Set::Logs(data) => {
+                let _ = handle.emit_to("main", "set-kcs-logs", data);
+            }
+            Set::AirBases(data) => {
+                data.restore();
+                let _ = handle.emit_to("main", "set-kcs-air-bases", data);
+            }
+            Set::MstShips(data) => {
+                data.restore();
+                let _ = handle.emit_to("main", "set-kcs-mst-ships", data);
+            }
+            Set::MstSlotItems(data) => {
+                data.restore();
+                let _ = handle.emit_to("main", "set-kcs-mst-slot-items", data);
+            }
+            Set::MstEquipExslotShips(data) => {
+                data.restore();
+                let _ = handle.emit_to("main", "set-kcs-mst-equip-exslot-ships", data);
+            }
+            Set::MstEquipShips(data) => {
+                data.restore();
+                let _ = handle.emit_to("main", "set-kcs-mst-equip-ships", data);
+            }
+            Set::MstStypes(data) => {
+                data.restore();
+                let _ = handle.emit_to("main", "set-kcs-mst-stypes", data);
+            }
+            Set::MstUseItems(data) => {
+                data.restore();
+                let _ = handle.emit_to("main", "set-kcs-mst-use-items", data);
+            }
+            Set::MstSlotItemEquipTypes(data) => {
+                data.restore();
+                let _ = handle.emit_to("main", "set-kcs-mst-slot-item-equip-types", data);
+            }
+            Set::Cells(data) => {
+                data.restore();
+                let _ = handle.emit_to("main", "set-kcs-cells", data);
+            }
+            Set::MstMapAreas(data) => {
+                data.restore();
+            }
+            Set::MstMapInfos(data) => {
+                data.restore();
+            }
+            Set::MstShipGraphs(data) => {
+                data.restore();
+            }
+            Set::MstShipUpgrades(data) => {
+                data.restore();
+            }
+            Set::Dammy(_) => {
+                let _ = handle.emit_to("main", "set-kcs-dammy", ());
+            }
+        },
+        EmitData::Identifier(data) => match data {
+            Identifier::Port(_) => {
+                if Cells::reset_flag() {
+                    let cells = Cells::load();
+                    let port_table = PortTable::new(cells);
+                    Cells::reset();
+                    tokio::task::spawn(async move {
+                        match port_table.encode() {
+                            Ok(port_table_encode) => {
+                                let pariod_tag = supabase::get_period_tag().await;
+                                let hub = crate::google_drive::create_client().await;
+                                match hub {
+                                    Some(mut hub) => {
+                                        let folder_name =
+                                            vec!["fusou".to_string(), pariod_tag.clone()];
+                                        let folder_id =
+                                            google_drive::check_or_create_folder_hierarchical(
+                                                &mut hub,
+                                                folder_name,
+                                                Some("root".to_string()),
+                                            )
+                                            .await;
+
+                                        let result = google_drive::write_port_table(
+                                            &mut hub,
+                                            folder_id,
+                                            port_table_encode,
+                                        )
+                                        .await;
+                                        if result.is_none() {
+                                            println!(
+                                                "\x1b[38;5;{}m Failed to write port table\x1b[m ",
+                                                8
+                                            );
+                                        }
+                                    }
+                                    None => {
+                                        println!(
+                                            "\x1b[38;5;{}m Failed to create google drive client\x1b[m ",
+                                            8
+                                        );
+                                    }
+                                };
+                            }
+                            Err(e) => {
+                                println!(
+                                    "\x1b[38;5;{}m Failed to encode port table: {}\x1b[m ",
+                                    8, e
+                                );
+                            }
+                        }
+                    });
                 }
             }
-        }
-        EmitData::Set(data) => {
-            match data {
-                Set::DeckPorts(data) => {
-                    // println!("DeckPorts: {:?}", data);
-                    let _ = handle.emit_to("main", "set-kcs-deck-ports", data);
-                }
-                Set::Materials(data) => {
-                    // println!("Materials: {:?}", data.clone());
-                    let _ = handle.emit_to("main", "set-kcs-materials", data);
-                }
-                Set::Ships(data) => {
-                    // println!("Ships: {:?}", data);
-                    let _ = handle.emit_to("main", "set-kcs-ships", data);
-                }
-                Set::SlotItems(data) => {
-                    // println!("SlotItems: {:?}", data);
-                    let _ = handle.emit_to("main", "set-kcs-slot-items", data);
-                }
-                Set::NDocks(data) => {
-                    // println!("NDocks: {:?}", data);
-                    let _ = handle.emit_to("main", "set-kcs-n-docks", data);
-                }
-                Set::Logs(data) => {
-                    // println!("Logs: {:?}", data);
-                    let _ = handle.emit_to("main", "set-kcs-logs", data);
-                }
-                Set::AirBases(data) => {
-                    // println!("AirBases: {:?}", data);
-                    let _ = handle.emit_to("main", "set-kcs-air-bases", data);
-                }
-                Set::MstShips(data) => {
-                    // println!("MstShips: {:?}", data);
-                    let _ = handle.emit_to("main", "set-kcs-mst-ships", data);
-                }
-                Set::MstSlotItems(data) => {
-                    // println!("MstSlotItems: {:?}", data);
-                    let _ = handle.emit_to("main", "set-kcs-mst-slot-items", data);
-                }
-                Set::MstEquipExslotShips(data) => {
-                    // println!("MstEquipExslotShips: {:?}", data);
-                    let _ = handle.emit_to("main", "set-kcs-mst-equip-exslot-ships", data);
-                }
-                Set::MstEquipShips(data) => {
-                    // println!("MstEquipShips: {:?}", data);
-                    let _ = handle.emit_to("main", "set-kcs-mst-equip-ships", data);
-                }
-                Set::MstStypes(data) => {
-                    // println!("MstStypes: {:?}", data);
-                    let _ = handle.emit_to("main", "set-kcs-mst-stypes", data);
-                }
-                Set::MstUseItems(data) => {
-                    // println!("MstUseItems: {:?}", data);
-                    let _ = handle.emit_to("main", "set-kcs-mst-use-items", data);
-                }
-                Set::MstSlotItemEquipTypes(data) => {
-                    // println!("MstSlotItemEquipTypes: {:?}", data);
-                    let _ = handle.emit_to("main", "set-kcs-mst-slot-item-equip-types", data);
-                }
-                Set::Battles(data) => {
-                    // println!("Battle: {:?}", data);
-                    let _ = handle.emit_to("main", "set-kcs-battles", data);
-                }
-                Set::Cells(data) => {
-                    // println!("Cells: {:?}", data);
-                    let _ = handle.emit_to("main", "set-kcs-cells", data);
-                }
-                Set::Dammy(_) => {
-                    // println!("Dammy");
-                    let _ = handle.emit_to("main", "set-kcs-dammy", ());
-                }
+            Identifier::RequireInfo(_) => {}
+            Identifier::GetData(_) => {
+                let get_data_table = GetDataTable::new();
+                tokio::task::spawn(async move {
+                    match get_data_table.encode() {
+                        Ok(get_data_table_encode) => {
+                            let pariod_tag = supabase::get_period_tag().await;
+                            let hub = crate::google_drive::create_client().await;
+                            match hub {
+                                Some(mut hub) => {
+                                    let folder_name = vec!["fusou".to_string(), pariod_tag.clone()];
+                                    let folder_id =
+                                        google_drive::check_or_create_folder_hierarchical(
+                                            &mut hub,
+                                            folder_name,
+                                            Some("root".to_string()),
+                                        )
+                                        .await;
+
+                                    let result = google_drive::write_get_data_table(
+                                        &mut hub,
+                                        folder_id,
+                                        get_data_table_encode,
+                                    )
+                                    .await;
+                                    if result.is_none() {
+                                        println!(
+                                            "\x1b[38;5;{}m Failed to write get data table\x1b[m ",
+                                            8
+                                        );
+                                    }
+                                }
+                                None => {
+                                    println!(
+                                        "\x1b[38;5;{}m Failed to create google drive client\x1b[m ",
+                                        8
+                                    );
+                                }
+                            };
+                        }
+                        Err(e) => {
+                            println!(
+                                "\x1b[38;5;{}m Failed to encode get data table: {}\x1b[m ",
+                                8, e
+                            );
+                        }
+                    }
+                });
             }
-        }
+        },
     }
 }
 
@@ -140,6 +247,7 @@ pub fn struct_selector_response(
     };
 }
 
+// Should I rewrite this attribute marcro to macro_rules!?
 #[expand_struct_selector(path = "./src/kcapi/")]
 pub fn struct_selector_resquest(
     name: String,

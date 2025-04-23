@@ -1,4 +1,4 @@
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::collections::HashMap;
 // use serde_json::Value;
 
@@ -10,7 +10,7 @@ use register_trait::TraitForTest;
 #[derive(Getter, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiStage1 {
     #[serde(rename = "api_f_count")]
@@ -30,7 +30,7 @@ pub struct ApiStage1 {
 #[derive(Getter, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiStage2 {
     #[serde(rename = "api_f_count")]
@@ -48,7 +48,7 @@ pub struct ApiStage2 {
 #[derive(Getter, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiAirFire {
     #[serde(rename = "api_idx")]
@@ -62,7 +62,7 @@ pub struct ApiAirFire {
 #[derive(Getter, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiStage3 {
     #[serde(rename = "api_frai_flag")]
@@ -90,7 +90,7 @@ pub struct ApiStage3 {
 #[derive(Getter, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiKouku {
     #[serde(rename = "api_plane_from")]
@@ -108,7 +108,7 @@ pub struct ApiKouku {
 #[derive(Getter, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiAirBaseAttack {
     #[serde(rename = "api_stage1")]
@@ -132,7 +132,7 @@ pub struct ApiAirBaseAttack {
 #[derive(Getter, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiSquadronPlane {
     #[serde(rename = "api_mst_id")]
@@ -144,7 +144,7 @@ pub struct ApiSquadronPlane {
 #[derive(Getter, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiAirBaseInjection {
     #[serde(rename = "api_plane_from")]
@@ -164,7 +164,7 @@ pub struct ApiAirBaseInjection {
 #[derive(Getter, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiAirBaseData {
     #[serde(rename = "api_mst_id")]
@@ -176,7 +176,7 @@ pub struct ApiAirBaseData {
 #[derive(Getter, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiSupportAiratack {
     #[serde(rename = "api_deck_id")]

@@ -7,91 +7,91 @@ use tauri::AppHandle;
 use tauri::Emitter;
 use tauri::Manager;
 
+use crate::auth_server;
+use crate::auth_server::AuthChannel;
 use crate::external::create_external_window;
-use crate::interface::mst_equip_exslot_ship::KCS_MST_EQUIP_EXSLOT_SHIP;
-use crate::interface::mst_equip_ship::KCS_MST_EQUIP_SHIP;
-use crate::interface::mst_ship::KCS_MST_SHIPS;
-use crate::interface::mst_slot_item::KCS_MST_SLOT_ITEMS;
-use crate::interface::mst_slot_item_equip_type::KCS_MST_EQUIPTYPES;
-use crate::interface::mst_stype::KCS_MST_STYPES;
-use crate::interface::mst_use_item::KCS_MST_USEITEMS;
-use crate::interface::slot_item::KCS_SLOT_ITEMS;
+use crate::google_drive;
+use crate::interface::mst_equip_exslot_ship::MstEquipExslotShips;
+use crate::interface::mst_equip_ship::MstEquipShips;
+use crate::interface::mst_ship::MstShips;
+use crate::interface::mst_slot_item::MstSlotItems;
+use crate::interface::mst_slot_item_equip_type::MstSlotItemEquipTypes;
+use crate::interface::mst_stype::MstStypes;
+use crate::interface::mst_use_item::MstUseItems;
+use crate::interface::slot_item::SlotItems;
 
 use crate::external::SHARED_BROWSER;
 use crate::json_parser;
-use crate::wrap_proxy;
-use crate::wrap_proxy::PacChannel;
-use crate::wrap_proxy::ProxyChannel;
-use crate::wrap_proxy::ProxyLogChannel;
-use crate::wrap_proxy::ResponseParseChannel;
-// use crate::RESOURCES_DIR;
-// use crate::ROAMING_DIR;
+use crate::wrap_proxy::{self, PacChannel, ProxyChannel, ProxyLogChannel, ResponseParseChannel};
 
-use crate::PROXY_ADDRESS;
+#[cfg(any(not(dev), check_release))]
+use crate::RESOURCES_DIR;
+
+#[cfg(any(not(dev), check_release))]
+use crate::ROAMING_DIR;
 
 #[tauri::command]
 pub async fn get_mst_ships(window: tauri::Window) {
-    let data = KCS_MST_SHIPS.lock().unwrap();
+    let data = MstShips::load();
     let _ = window
         .app_handle()
-        .emit_to("main", "set-kcs-mst-ships", (*data).clone());
+        .emit_to("main", "set-kcs-mst-ships", data);
 }
 
 #[tauri::command]
 pub async fn get_mst_slot_items(window: tauri::Window) {
-    let data = KCS_MST_SLOT_ITEMS.lock().unwrap();
+    let data = MstSlotItems::load();
     let _ = window
         .app_handle()
-        .emit_to("main", "set-kcs-mst-slot-items", (*data).clone());
+        .emit_to("main", "set-kcs-mst-slot-items", data);
 }
 
 #[tauri::command]
 pub async fn get_slot_items(window: tauri::Window) {
-    let data = KCS_SLOT_ITEMS.lock().unwrap();
+    let data = SlotItems::load();
     let _ = window
         .app_handle()
-        .emit_to("main", "set-kcs-slot-items", (*data).clone());
+        .emit_to("main", "set-kcs-slot-items", data);
 }
 
 #[tauri::command]
 pub async fn get_mst_equip_exslot_ships(window: tauri::Window) {
-    let data = KCS_MST_EQUIP_EXSLOT_SHIP.lock().unwrap();
+    let data = MstEquipExslotShips::load();
     let _ = window
         .app_handle()
-        .emit_to("main", "set-kcs-mst-equip-exslot-ships", (*data).clone());
+        .emit_to("main", "set-kcs-mst-equip-exslot-ships", data);
 }
 
 #[tauri::command]
 pub async fn get_mst_slotitem_equip_types(window: tauri::Window) {
-    let data = KCS_MST_EQUIPTYPES.lock().unwrap();
-    let _ =
-        window
-            .app_handle()
-            .emit_to("main", "set-kcs-mst-slot-item-equip-types", (*data).clone());
+    let data = MstSlotItemEquipTypes::load();
+    let _ = window
+        .app_handle()
+        .emit_to("main", "set-kcs-mst-slot-item-equip-types", data);
 }
 
 #[tauri::command]
 pub async fn get_mst_equip_ships(window: tauri::Window) {
-    let data = KCS_MST_EQUIP_SHIP.lock().unwrap();
+    let data = MstEquipShips::load();
     let _ = window
         .app_handle()
-        .emit_to("main", "set-kcs-mst-equip-ships", (*data).clone());
+        .emit_to("main", "set-kcs-mst-equip-ships", data);
 }
 
 #[tauri::command]
 pub async fn get_mst_stypes(window: tauri::Window) {
-    let data = KCS_MST_STYPES.lock().unwrap();
+    let data = MstStypes::load();
     let _ = window
         .app_handle()
-        .emit_to("main", "set-kcs-mst-stypes", (*data).clone());
+        .emit_to("main", "set-kcs-mst-stypes", data);
 }
 
 #[tauri::command]
 pub async fn get_mst_useitems(window: tauri::Window) {
-    let data = KCS_MST_USEITEMS.lock().unwrap();
+    let data = MstUseItems::load();
     let _ = window
         .app_handle()
-        .emit_to("main", "set-kcs-mst-use-items", (*data).clone());
+        .emit_to("main", "set-kcs-mst-use-items", data);
 }
 
 #[allow(dead_code)]
@@ -127,7 +127,44 @@ pub async fn close_splashscreen(window: tauri::Window) {
         .unwrap();
 }
 
-#[cfg(TAURI_BUILD_TYPE = "DEBUG")]
+#[tauri::command(rename_all = "snake_case")]
+pub async fn set_refresh_token(_window: tauri::Window, token: String) -> Result<(), ()> {
+    let split_token: Vec<String> = token.split("&").map(|s| s.to_string()).collect();
+    #[allow(clippy::get_first)]
+    let refresh_token = split_token.get(0);
+    let token_type = split_token.get(1);
+    if refresh_token.is_none() || token_type.is_none() {
+        return Err(());
+    }
+    let refresh_token = refresh_token.unwrap();
+    let token_type = token_type.unwrap();
+    return google_drive::set_refresh_token(refresh_token.to_string(), token_type.to_string());
+}
+
+#[cfg(dev)]
+#[tauri::command]
+pub async fn open_auth_window(window: tauri::Window) {
+    match window.get_webview_window("auth") {
+        Some(auth_window) => {
+            auth_window.show().unwrap();
+        }
+        None => {
+            let _window = tauri::WebviewWindowBuilder::new(
+                window.app_handle(),
+                "auth",
+                tauri::WebviewUrl::App("/auth".into()),
+            )
+            .devtools(true)
+            .fullscreen(false)
+            .title("fusou-auth")
+            // .visible(false)
+            .build()
+            .unwrap();
+        }
+    }
+}
+
+#[cfg(dev)]
 #[tauri::command]
 pub async fn open_debug_window(window: tauri::Window) {
     match window.get_webview_window("debug") {
@@ -149,7 +186,7 @@ pub async fn open_debug_window(window: tauri::Window) {
     }
 }
 
-#[cfg(TAURI_BUILD_TYPE = "DEBUG")]
+#[cfg(dev)]
 #[tauri::command]
 pub async fn close_debug_window(window: tauri::Window) {
     window
@@ -159,7 +196,7 @@ pub async fn close_debug_window(window: tauri::Window) {
         .unwrap();
 }
 
-#[cfg(TAURI_BUILD_TYPE = "DEBUG")]
+#[cfg(dev)]
 #[tauri::command]
 pub async fn read_dir(window: tauri::Window, path: &str) -> Result<(), String> {
     let dir = fs::read_dir(path);
@@ -204,7 +241,7 @@ pub async fn read_dir(window: tauri::Window, path: &str) -> Result<(), String> {
     return Ok(());
 }
 
-#[cfg(TAURI_BUILD_TYPE = "DEBUG")]
+#[cfg(dev)]
 #[tauri::command]
 pub async fn read_emit_file(window: tauri::Window, path: &str) -> Result<(), String> {
     use crate::json_parser::{emit_data, struct_selector_response, struct_selector_resquest};
@@ -245,6 +282,23 @@ pub async fn read_emit_file(window: tauri::Window, path: &str) -> Result<(), Str
 }
 
 #[tauri::command]
+pub async fn open_auth_page(
+    _window: tauri::Window,
+    auth_channel: tauri::State<'_, AuthChannel>,
+) -> Result<(), ()> {
+    let addr = auth_server::serve_auth(0, auth_channel.slave.clone());
+
+    let result = webbrowser::open(format!("http://localhost:{}/login", addr.port()).as_str())
+        .map_err(|e| e.to_string());
+
+    if let Err(e) = result {
+        println!("Error: {}", e);
+        return Err(());
+    }
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn check_pac_server_health(
     _window: tauri::Window,
     pac_channel: tauri::State<'_, PacChannel>,
@@ -277,7 +331,7 @@ pub async fn launch_with_options(
 ) -> Result<(), ()> {
     println!("{:?}", options);
 
-    let proxy_addr = {
+    let _proxy_addr = {
         if let Some(&flag) = options.get("run_proxy_server") {
             if flag != 0 {
                 if let Some(&server_index) = options.get("server") {
@@ -306,10 +360,10 @@ pub async fn launch_with_options(
                         _ => None,
                     };
                     if let Some(server_address) = server_address {
-                        #[cfg(TAURI_BUILD_TYPE = "DEBUG")]
+                        #[cfg(dev)]
                         let pac_path =
                             "./../../FUSOU-PROXY/proxy_rust/proxy-https/proxy.pac".to_string();
-                        #[cfg(TAURI_BUILD_TYPE = "RELEASE")]
+                        #[cfg(any(not(dev), check_release))]
                         let pac_path = ROAMING_DIR
                             .get()
                             .expect("ROAMING_DIR not found")
@@ -320,11 +374,12 @@ pub async fn launch_with_options(
                             .to_string();
                         // let pac_path = window.app_handle().path_resolver().resolve_resource("./resources/pac/proxy.pac").expect("failed to resolve resources/pac/proxy dir").as_path().to_str().expect("failed to convert str").to_string();
 
-                        #[cfg(TAURI_BUILD_TYPE = "DEBUG")]
+                        #[cfg(dev)]
                         let save_path = "./../../FUSOU-PROXY-DATA".to_string();
-                        #[cfg(TAURI_BUILD_TYPE = "RELEASE")]
-                        let save_path = directories::UserDirs::new()
-                            .expect("failed to get user dirs")
+                        #[cfg(any(not(dev), check_release))]
+                        let save_path = window
+                            .app_handle()
+                            .path()
                             .document_dir()
                             .expect("failed to get doc dirs")
                             .join("FUSOU-PROXY-DATA")
@@ -333,9 +388,9 @@ pub async fn launch_with_options(
                             .expect("failed to convert str")
                             .to_string();
 
-                        #[cfg(TAURI_BUILD_TYPE = "DEBUG")]
+                        #[cfg(dev)]
                         let ca_path = "./ca/".to_string();
-                        #[cfg(TAURI_BUILD_TYPE = "RELEASE")]
+                        #[cfg(any(not(dev), check_release))]
                         let ca_path = ROAMING_DIR
                             .get()
                             .expect("ROAMING_DIR not found")
@@ -358,14 +413,12 @@ pub async fn launch_with_options(
                             proxy_channel.slave.clone(),
                             proxy_log_channel.master.clone(),
                             pac_channel.slave.clone(),
+                            window.app_handle(),
                         );
                         match addr {
-                            Ok(addr) => {
-                                PROXY_ADDRESS.set(addr.clone());
-                                Some(addr)
-                            }
+                            Ok(addr) => Some(addr),
                             Err(e) => {
-                                println!("Error: {}", e.to_string());
+                                println!("Error: {}", e);
                                 return Err(());
                             }
                         }
@@ -417,16 +470,24 @@ pub async fn launch_with_options(
         if flag != 0 {
             if let Some(&browse_webview) = options.get("open_kancolle_with_webview") {
                 if browse_webview != 0 {
-                    create_external_window(window.app_handle(), None, true, proxy_addr);
+                    create_external_window(window.app_handle(), None, true);
                 } else {
                     let browser = SHARED_BROWSER.lock().unwrap().get_browser();
-                    create_external_window(window.app_handle(), Some(browser), false, proxy_addr);
+                    create_external_window(window.app_handle(), Some(browser), false);
                 }
             }
         }
     }
 
     return Ok(());
+}
+
+#[tauri::command]
+pub async fn check_open_window(window: tauri::Window, label: &str) -> Result<bool, ()> {
+    return match window.get_webview_window(label) {
+        Some(win) => Ok(win.is_visible().unwrap_or(false)),
+        None => Err(()),
+    };
 }
 
 //--------------------------------------------------------------

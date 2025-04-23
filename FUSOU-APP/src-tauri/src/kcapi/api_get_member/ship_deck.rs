@@ -5,7 +5,7 @@
 //!   <img src="https://tsukasa-u.github.io/FUSOU/struct_dependency_svg/api_get_member@ship_deck.svg" alt="KC_API_dependency(api_get_member/ship_deck)" style="max-width: 2000px;"/>
 //! </div>
 
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::collections::HashMap;
 // use serde_json::Value;
 
@@ -23,7 +23,7 @@ use crate::interface::interface::EmitData;
 #[convert_output(output = EmitData)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Req {
     #[serde(rename = "api_token")]
@@ -39,7 +39,7 @@ pub struct Req {
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[register_struct(name = "api_get_member/ship_deck")]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Res {
     #[serde(rename = "api_result")]
@@ -53,7 +53,7 @@ pub struct Res {
 #[derive(Getter, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiData {
     #[serde(rename = "api_ship_data")]
@@ -65,7 +65,7 @@ pub struct ApiData {
 #[derive(Getter, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiShipData {
     #[serde(rename = "api_id")]
@@ -139,7 +139,7 @@ pub struct ApiShipData {
 #[derive(Getter, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiSpEffectItems {
     #[serde(rename = "api_kind")]
@@ -157,7 +157,7 @@ pub struct ApiSpEffectItems {
 #[derive(Getter, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiDeckData {
     #[serde(rename = "api_member_id")]

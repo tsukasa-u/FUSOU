@@ -15,10 +15,8 @@
     "clippy:fix": "cd src-tauri && cargo clippy --fix -- -A clippy::needless_return -A clippy::ptr_arg",
     "rustfmt": "cd src-tauri && cargo fmt --all --check --verbose",
     "rustfmt:fix": "cd src-tauri && cargo fmt --all",
-    "set_debug:windows": "Set TAURI_BUILD_DEBUG=DEBUG",
-    "set_debug:linux": "export TAURI_BUILD_DEBUG=DEBUG",
-    "set_release:windows": "Set TAURI_BUILD_DEBUG=RELEASE",
-    "set_release:linux": "export TAURI_BUILD_DEBUG=RELEASE"
+    "checkl": "set CHECK_RELESE=CHECK",
+    "uncheckl" :"set CHECK_RELESE=NO_CHECK"
   },
   "devDependencies": {
     "@eslint/js": "^9.23.0",
@@ -40,9 +38,15 @@
     "vite-plugin-solid": "^2.11.6"
   },
   "dependencies": {
+    "@solid-primitives/cookies": "^0.0.1",
     "@solidjs/router": "^0.15.3",
+    "@supabase/auth-ui-shared": "^0.1.8",
+    "@supabase/auth-ui-solid": "^0.3.8",
+    "@supabase/supabase-js": "^2.49.4",
     "@tauri-apps/api": "^2.4.0",
+    "@tauri-apps/plugin-deep-link": "^2.2.1",
     "d3": "^7.9.0",
+    "dotenv": "^16.5.0",
     "solid-js": "^1.9.5"
   }
 }

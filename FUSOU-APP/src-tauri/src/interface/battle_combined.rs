@@ -12,7 +12,7 @@ use crate::interface::battle::{
     FriendlyForceAttack, Hougeki, MidnightHougeki, OpeningAirAttack, OpeningRaigeki, OpeningTaisen,
     SupportAttack,
 };
-use crate::interface::cells::KCS_CELLS;
+use crate::interface::cells::KCS_CELLS_INDEX;
 
 impl From<kcapi::api_req_combined_battle::ec_battle::ApiData> for Battle {
     fn from(battle: kcapi::api_req_combined_battle::ec_battle::ApiData) -> Self {
@@ -44,7 +44,7 @@ impl From<kcapi::api_req_combined_battle::ec_battle::ApiData> for Battle {
                 None
             };
 
-        let cell_no = KCS_CELLS
+        let cell_no = KCS_CELLS_INDEX
             .lock()
             .map(|cells| *cells.last().unwrap_or(&0))
             .unwrap_or(0);
@@ -122,7 +122,7 @@ impl From<kcapi::api_req_combined_battle::ec_midnight_battle::ApiData> for Battl
                 None
             };
 
-        let cell_no = KCS_CELLS
+        let cell_no = KCS_CELLS_INDEX
             .lock()
             .map(|cells| *cells.last().unwrap_or(&0))
             .unwrap_or(0);
@@ -223,7 +223,7 @@ impl From<kcapi::api_req_combined_battle::battle_water::ApiData> for Battle {
                 None
             };
 
-        let cell_no = KCS_CELLS
+        let cell_no = KCS_CELLS_INDEX
             .lock()
             .map(|cells| *cells.last().unwrap_or(&0))
             .unwrap_or(0);
@@ -321,7 +321,7 @@ impl From<kcapi::api_req_combined_battle::battle::ApiData> for Battle {
                 None
             };
 
-        let cell_no = KCS_CELLS
+        let cell_no = KCS_CELLS_INDEX
             .lock()
             .map(|cells| *cells.last().unwrap_or(&0))
             .unwrap_or(0);
@@ -417,7 +417,7 @@ impl From<kcapi::api_req_combined_battle::each_battle_water::ApiData> for Battle
                 None
             };
 
-        let cell_no = KCS_CELLS
+        let cell_no = KCS_CELLS_INDEX
             .lock()
             .map(|cells| *cells.last().unwrap_or(&0))
             .unwrap_or(0);
@@ -514,7 +514,7 @@ impl From<kcapi::api_req_combined_battle::each_battle::ApiData> for Battle {
                 None
             };
 
-        let cell_no = KCS_CELLS
+        let cell_no = KCS_CELLS_INDEX
             .lock()
             .map(|cells| *cells.last().unwrap_or(&0))
             .unwrap_or(0);
@@ -596,7 +596,7 @@ impl From<kcapi::api_req_combined_battle::ld_airbattle::ApiData> for Battle {
         let air_base_assault: Option<AirBaseAssult> = None;
         let carrier_base_assault: Option<CarrierBaseAssault> = None;
 
-        let cell_no = KCS_CELLS
+        let cell_no = KCS_CELLS_INDEX
             .lock()
             .map(|cells| *cells.last().unwrap_or(&0))
             .unwrap_or(0);
@@ -658,7 +658,7 @@ impl From<kcapi::api_req_combined_battle::midnight_battle::ApiData> for Battle {
         let midnight_hougeki: Option<MidnightHougeki> = Some(battle.api_hougeki.into());
         let friendly_force_attack: Option<FriendlyForceAttack> = None;
 
-        let cell_no = KCS_CELLS
+        let cell_no = KCS_CELLS_INDEX
             .lock()
             .map(|cells| *cells.last().unwrap_or(&0))
             .unwrap_or(0);
@@ -720,7 +720,7 @@ impl From<kcapi::api_req_combined_battle::sp_midnight::ApiData> for Battle {
         let midnight_hougeki: Option<MidnightHougeki> = Some(battle.api_hougeki.into());
         let friendly_force_attack: Option<FriendlyForceAttack> = None;
 
-        let cell_no = KCS_CELLS
+        let cell_no = KCS_CELLS_INDEX
             .lock()
             .map(|cells| *cells.last().unwrap_or(&0))
             .unwrap_or(0);

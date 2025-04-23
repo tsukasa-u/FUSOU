@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>Fusou Auth</title>
+        <link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css" />
+        <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+        <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+        <script src="supabase.js"></script>
+    </head>
+    <body>
+        <div class="bg-base-200 h-screen flex justify-center">
+            <div class="min-w-sm max-w-md bg-base-100 h-screen">
+                <div class="p-10">
+                <h1 class="text-3xl font-bold text-center">Login</h1>
+                <div class="h-4"></div>
+                <div class="h-4"></div>
+
+                <p class="text-center">Login to your account</p>
+                <div class="h-4"></div>
+
+                <button class="btn bg-white text-black border-[#e5e5e5] w-full" id="login_button">
+                    <svg aria-label="Google logo" width="16" height="16" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><g><path d="m0 0H512V512H0" fill="#fff"></path><path fill="#34a853" d="M153 292c30 82 118 95 171 60h62v48A192 192 0 0190 341"></path><path fill="#4285f4" d="m386 400a140 175 0 0053-179H260v74h102q-7 37-38 57"></path><path fill="#fbbc02" d="m90 341a208 200 0 010-171l63 49q-12 37 0 73"></path><path fill="#ea4335" d="m153 219c22-69 116-109 179-50l55-54c-78-75-230-72-297 55"></path></g></svg>
+                    Login with Google
+                </button>
+
+                <div class="divider">OR</div>
+
+                <div class="bg-white text-black w-full flex justify-center">
+                    <div class="py-2 w-min text-nowrap">
+                        Close to Skip Sign In
+                    </div>
+                </div>
+
+                <div class="h-4"></div>
+                <div class="h-4"></div>
+
+                <div class="rounded bg-base-200 border-[1.5px] border-base-300 w-full py-2 px-4 text-md">
+                    Infomation for Log In with Google
+                    <div class="h-2"></div>
+                    <div class="rounded bg-base-100 border-[1.5px] border-base-300 w-full py-2 px-4 text-sm">
+                        you can collect and save battle data on cloud strage(Google Drive) with Log In google account.<br>
+                        you can also play without login google account, but you can't save data on cloud.
+                    </div>
+                </div>
+
+                <div class="h-16"></div>
+                <div class="h-full"></div>
+                </div>
+            </div>
+
+        </div>
+        <script type="module">
+            import { supabase } from "./supabase.js";
+
+            const handleLogin = async () => {
+                const { data, error } = await supabase.auth.signInWithOAuth({
+                provider: 'google',
+                options: {
+                    scopes: 'https://www.googleapis.com/auth/drive.file',
+                    redirectTo: `${window.location.origin}/auth_callback`,
+                    queryParams: {
+                        prompt: 'consent',
+                        access_type: 'offline',
+                    },
+                },
+                });
+            };
+
+            const login_button = document.getElementById("login_button");
+            login_button.addEventListener("click", handleLogin);
+        </script>
+
+  </body>
+</html>

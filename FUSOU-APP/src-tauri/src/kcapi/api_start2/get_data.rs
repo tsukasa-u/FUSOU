@@ -5,7 +5,7 @@
 //!   <img src="https://tsukasa-u.github.io/FUSOU/struct_dependency_svg/api_start2@get_data.svg" alt="KC_API_dependency(api_start2/get_data)" style="max-width: 2000px;"/>
 //! </div>
 
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::collections::HashMap;
 // use serde_json::Value;
 
@@ -13,10 +13,14 @@ use register_trait::{add_field, register_struct};
 
 use register_trait::{Getter, TraitForConvert, TraitForRoot, TraitForTest};
 
-use crate::interface::interface::{EmitData, Set};
+use crate::interface::interface::{EmitData, Identifier, Set};
 use crate::interface::mst_equip_exslot_ship::MstEquipExslotShips;
 use crate::interface::mst_equip_ship::MstEquipShips;
+use crate::interface::mst_maparea::MstMapAreas;
+use crate::interface::mst_mapinfo::MstMapInfos;
 use crate::interface::mst_ship::MstShips;
+use crate::interface::mst_ship_graph::MstShipGraphs;
+use crate::interface::mst_ship_upgrade::MstShipUpgrades;
 use crate::interface::mst_slot_item::MstSlotItems;
 use crate::interface::mst_slot_item_equip_type::MstSlotItemEquipTypes;
 use crate::interface::mst_stype::MstStypes;
@@ -26,7 +30,7 @@ use crate::interface::mst_use_item::MstUseItems;
 #[convert_output(output = EmitData)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Req {
     #[serde(rename = "api_token")]
@@ -35,11 +39,11 @@ pub struct Req {
     pub api_verno: String,
 }
 
-#[derive(Getter, TraitForTest, TraitForRoot, )]
+#[derive(Getter, TraitForTest, TraitForRoot)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[register_struct(name = "api_start2/getData")]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Res {
     #[serde(rename = "api_result")]
@@ -53,7 +57,7 @@ pub struct Res {
 #[derive(Getter, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiData {
     #[serde(rename = "api_mst_ship")]
@@ -101,7 +105,7 @@ pub struct ApiData {
 #[derive(Getter, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiMstStype {
     #[serde(rename = "api_id")]
@@ -121,7 +125,7 @@ pub struct ApiMstStype {
 #[derive(Getter, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiMstShip {
     #[serde(rename = "api_id")]
@@ -189,7 +193,7 @@ pub struct ApiMstShip {
 #[derive(Getter, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiMstShipgraph {
     #[serde(rename = "api_id")]
@@ -245,7 +249,7 @@ pub struct ApiMstShipgraph {
 #[derive(Getter, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiMstSlotitemEquiptype {
     #[serde(rename = "api_id")]
@@ -259,7 +263,7 @@ pub struct ApiMstSlotitemEquiptype {
 #[derive(Getter, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiMstEquipExslotShip {
     #[serde(rename = "api_ship_ids")]
@@ -275,7 +279,7 @@ pub struct ApiMstEquipExslotShip {
 #[derive(Getter, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiMstSlotitem {
     #[serde(rename = "api_id")]
@@ -339,7 +343,7 @@ pub struct ApiMstSlotitem {
 #[derive(Getter, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiMstFurnituregraph {
     #[serde(rename = "api_id")]
@@ -357,7 +361,7 @@ pub struct ApiMstFurnituregraph {
 #[derive(Getter, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiMstUseitem {
     #[serde(rename = "api_id")]
@@ -377,7 +381,7 @@ pub struct ApiMstUseitem {
 #[derive(Getter, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiMstPayitem {
     #[serde(rename = "api_id")]
@@ -399,7 +403,7 @@ pub struct ApiMstPayitem {
 #[derive(Getter, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiMstItemShop {
     #[serde(rename = "api_cabinet_1")]
@@ -411,7 +415,7 @@ pub struct ApiMstItemShop {
 #[derive(Getter, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiMstMaparea {
     #[serde(rename = "api_id")]
@@ -425,7 +429,7 @@ pub struct ApiMstMaparea {
 #[derive(Getter, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiMstMapinfo {
     #[serde(rename = "api_id")]
@@ -455,7 +459,7 @@ pub struct ApiMstMapinfo {
 #[derive(Getter, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiMstMapbgm {
     #[serde(rename = "api_id")]
@@ -475,7 +479,7 @@ pub struct ApiMstMapbgm {
 #[derive(Getter, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiMstMission {
     #[serde(rename = "api_id")]
@@ -517,7 +521,7 @@ pub struct ApiMstMission {
 #[derive(Getter, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiMstConst {
     #[serde(rename = "api_parallel_quest_max")]
@@ -531,7 +535,7 @@ pub struct ApiMstConst {
 #[derive(Getter, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiParallelQuestMax {
     #[serde(rename = "api_string_value")]
@@ -543,7 +547,7 @@ pub struct ApiParallelQuestMax {
 #[derive(Getter, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiBokoMaxShips {
     #[serde(rename = "api_string_value")]
@@ -555,7 +559,7 @@ pub struct ApiBokoMaxShips {
 #[derive(Getter, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiDpflagQuest {
     #[serde(rename = "api_string_value")]
@@ -567,7 +571,7 @@ pub struct ApiDpflagQuest {
 #[derive(Getter, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiMstShipupgrade {
     #[serde(rename = "api_id")]
@@ -601,7 +605,7 @@ pub struct ApiMstShipupgrade {
 #[derive(Getter, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiMstBgm {
     #[serde(rename = "api_id")]
@@ -613,7 +617,7 @@ pub struct ApiMstBgm {
 #[derive(Getter, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiMstEquipShip {
     #[serde(rename = "api_ship_id")]
@@ -625,7 +629,7 @@ pub struct ApiMstEquipShip {
 #[derive(Getter, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiMstFurniture {
     #[serde(rename = "api_id")]
@@ -659,27 +663,25 @@ impl TraitForConvert for Res {
     fn convert(&self) -> Option<Vec<EmitData>> {
         // need to add other fields
         let mst_ships: MstShips = self.api_data.api_mst_ship.clone().into();
-        mst_ships.restore();
 
         let mst_slot_items: MstSlotItems = self.api_data.api_mst_slotitem.clone().into();
-        mst_slot_items.restore();
 
         let mst_equip_exslot_ship: MstEquipExslotShips =
             self.api_data.api_mst_equip_exslot_ship.clone().into();
-        mst_equip_exslot_ship.restore();
 
         let mst_slot_item_equip_type: MstSlotItemEquipTypes =
             self.api_data.api_mst_slotitem_equiptype.clone().into();
-        mst_slot_item_equip_type.restore();
 
         let mst_equip_ship: MstEquipShips = self.api_data.api_mst_equip_ship.clone().into();
-        mst_equip_ship.restore();
 
         let mst_stype: MstStypes = self.api_data.api_mst_stype.clone().into();
-        mst_stype.restore();
 
         let mst_use_item: MstUseItems = self.api_data.api_mst_useitem.clone().into();
-        mst_use_item.restore();
+
+        let mst_ship_graphs: MstShipGraphs = self.api_data.api_mst_shipgraph.clone().into();
+        let mst_map_areas: MstMapAreas = self.api_data.api_mst_maparea.clone().into();
+        let mst_map_infos: MstMapInfos = self.api_data.api_mst_mapinfo.clone().into();
+        let mst_ship_upgrades: MstShipUpgrades = self.api_data.api_mst_shipupgrade.clone().into();
 
         Some(vec![
             EmitData::Set(Set::MstShips(mst_ships)),
@@ -689,6 +691,11 @@ impl TraitForConvert for Res {
             EmitData::Set(Set::MstEquipShips(mst_equip_ship)),
             EmitData::Set(Set::MstStypes(mst_stype)),
             EmitData::Set(Set::MstUseItems(mst_use_item)),
+            EmitData::Set(Set::MstShipGraphs(mst_ship_graphs)),
+            EmitData::Set(Set::MstMapAreas(mst_map_areas)),
+            EmitData::Set(Set::MstMapInfos(mst_map_infos)),
+            EmitData::Set(Set::MstShipUpgrades(mst_ship_upgrades)),
+            EmitData::Identifier(Identifier::GetData(())),
         ])
     }
 }
@@ -716,11 +723,19 @@ mod tests {
 
         let pattern_str = "S@api_start2@getData";
         let log_path = "./src/kcapi/api_start2/getData@S.log";
-        simple_root_test::<Res>(target_path.clone(), pattern_str.to_string(), log_path.to_string());
+        simple_root_test::<Res>(
+            target_path.clone(),
+            pattern_str.to_string(),
+            log_path.to_string(),
+        );
 
         let pattern_str = "Q@api_start2@get_data";
         let log_path = "./src/kcapi/api_start2/get_data@Q.log";
-        simple_root_test::<Req>(target_path.clone(), pattern_str.to_string(), log_path.to_string());
+        simple_root_test::<Req>(
+            target_path.clone(),
+            pattern_str.to_string(),
+            log_path.to_string(),
+        );
     }
 
     #[test]

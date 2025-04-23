@@ -1,8 +1,13 @@
+use once_cell::sync::Lazy;
 use std::collections::HashMap;
-use std::sync::{LazyLock, Mutex};
+use std::sync::Mutex;
 
-// Is it better to use onecell::sync::Lazy or std::sync::Lazy?
-pub(crate) static KCS_MST_STYPES: LazyLock<Mutex<MstStypes>> = LazyLock::new(|| {
+use apache_avro::AvroSchema;
+use serde::{Deserialize, Serialize};
+
+use register_trait::TraitForEncode;
+
+pub(crate) static KCS_MST_STYPES: Lazy<Mutex<MstStypes>> = Lazy::new(|| {
     Mutex::new(MstStypes {
         mst_stypes: HashMap::new(),
     })
@@ -10,12 +15,12 @@ pub(crate) static KCS_MST_STYPES: LazyLock<Mutex<MstStypes>> = LazyLock::new(|| 
 
 use crate::kcapi;
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MstStypes {
-    mst_stypes: HashMap<i64, MstStype>,
+    pub mst_stypes: HashMap<i64, MstStype>,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, AvroSchema, TraitForEncode)]
 pub struct MstStype {
     pub id: i64,
     pub sortno: i64,

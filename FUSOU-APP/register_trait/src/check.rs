@@ -1,3 +1,4 @@
+use std::collections::hash_map;
 use std::collections::HashMap;
 
 use crate::Getter;
@@ -61,16 +62,16 @@ impl Getter for i8 {
     fn check_number(&self, log_map: &mut LogMapNumberSize, key: Option<(String, String, String)>) {
         if let Some(key) = key {
             let bit_size = (0usize..7)
-                .rposition(|x| ((*self).abs() as u8 & (1u8 << x)) != 0)
+                .rposition(|x| ((*self).unsigned_abs() & (1u8 << x)) != 0)
                 .unwrap_or(0) as i64
                 + 1i64;
-            if log_map.contains_key(&key) {
+            if let hash_map::Entry::Vacant(e) = log_map.entry(key.clone()) {
+                e.insert(vec![*self as i64, *self as i64, bit_size]);
+            } else {
                 let value = log_map.get_mut(&key).unwrap();
                 value[0] = value[0].min(*self as i64);
                 value[1] = value[1].max(*self as i64);
                 value[2] = value[2].max(bit_size);
-            } else {
-                log_map.insert(key, vec![*self as i64, *self as i64, bit_size]);
             }
         }
     }
@@ -79,16 +80,16 @@ impl Getter for i16 {
     fn check_number(&self, log_map: &mut LogMapNumberSize, key: Option<(String, String, String)>) {
         if let Some(key) = key {
             let bit_size = (0usize..15)
-                .rposition(|x| ((*self).abs() as u16 & (1u16 << x)) != 0)
+                .rposition(|x| ((*self).unsigned_abs() & (1u16 << x)) != 0)
                 .unwrap_or(0) as i64
                 + 1i64;
-            if log_map.contains_key(&key) {
+            if let hash_map::Entry::Vacant(e) = log_map.entry(key.clone()) {
+                e.insert(vec![*self as i64, *self as i64, bit_size]);
+            } else {
                 let value = log_map.get_mut(&key).unwrap();
                 value[0] = value[0].min(*self as i64);
                 value[1] = value[1].max(*self as i64);
                 value[2] = value[2].max(bit_size);
-            } else {
-                log_map.insert(key, vec![*self as i64, *self as i64, bit_size]);
             }
         }
     }
@@ -97,16 +98,16 @@ impl Getter for i32 {
     fn check_number(&self, log_map: &mut LogMapNumberSize, key: Option<(String, String, String)>) {
         if let Some(key) = key {
             let bit_size = (0usize..31)
-                .rposition(|x| ((*self).abs() as u32 & (1u32 << x)) != 0)
+                .rposition(|x| ((*self).unsigned_abs() & (1u32 << x)) != 0)
                 .unwrap_or(0) as i64
                 + 1i64;
-            if log_map.contains_key(&key) {
+            if let hash_map::Entry::Vacant(e) = log_map.entry(key.clone()) {
+                e.insert(vec![*self as i64, *self as i64, bit_size]);
+            } else {
                 let value = log_map.get_mut(&key).unwrap();
                 value[0] = value[0].min(*self as i64);
                 value[1] = value[1].max(*self as i64);
                 value[2] = value[2].max(bit_size);
-            } else {
-                log_map.insert(key, vec![*self as i64, *self as i64, bit_size]);
             }
         }
     }
@@ -115,23 +116,23 @@ impl Getter for i64 {
     fn check_number(&self, log_map: &mut LogMapNumberSize, key: Option<(String, String, String)>) {
         if let Some(key) = key {
             let bit_size = (0usize..64)
-                .rposition(|x| ((*self).abs() as u64 & (1u64 << x)) != 0)
+                .rposition(|x| ((*self).unsigned_abs() & (1u64 << x)) != 0)
                 .unwrap_or(0) as i64
                 + 1i64;
-            if log_map.contains_key(&key) {
-                let value = log_map.get_mut(&key).unwrap();
-                value[0] = value[0].min(*self as i64);
-                value[1] = value[1].max(*self as i64);
-                value[2] = value[2].max(bit_size);
+            if let hash_map::Entry::Vacant(e) = log_map.entry(key.clone()) {
+                e.insert(vec![*self, *self, bit_size]);
             } else {
-                log_map.insert(key, vec![*self as i64, *self as i64, bit_size]);
+                let value = log_map.get_mut(&key).unwrap();
+                value[0] = value[0].min(*self);
+                value[1] = value[1].max(*self);
+                value[2] = value[2].max(bit_size);
             }
         }
     }
 }
 impl Getter for i128 {
     fn check_number(&self, _: &mut LogMapNumberSize, _: Option<(String, String, String)>) {
-        println!("{}", "not implemented");
+        println!("not implemented");
     }
 }
 
@@ -141,13 +142,13 @@ impl Getter for u8 {
             let bit_size = (0usize..8)
                 .rposition(|x| (*self & (1u8 << x)) != 0)
                 .unwrap_or(0) as i64;
-            if log_map.contains_key(&key) {
+            if let hash_map::Entry::Vacant(e) = log_map.entry(key.clone()) {
+                e.insert(vec![*self as i64, *self as i64, bit_size]);
+            } else {
                 let value = log_map.get_mut(&key).unwrap();
                 value[0] = value[0].min(*self as i64);
                 value[1] = value[1].max(*self as i64);
                 value[2] = value[2].max(bit_size);
-            } else {
-                log_map.insert(key, vec![*self as i64, *self as i64, bit_size]);
             }
         }
     }
@@ -158,13 +159,13 @@ impl Getter for u16 {
             let bit_size = (0usize..16)
                 .rposition(|x| (*self & (1u16 << x)) != 0)
                 .unwrap_or(0) as i64;
-            if log_map.contains_key(&key) {
+            if let hash_map::Entry::Vacant(e) = log_map.entry(key.clone()) {
+                e.insert(vec![*self as i64, *self as i64, bit_size]);
+            } else {
                 let value = log_map.get_mut(&key).unwrap();
                 value[0] = value[0].min(*self as i64);
                 value[1] = value[1].max(*self as i64);
                 value[2] = value[2].max(bit_size);
-            } else {
-                log_map.insert(key, vec![*self as i64, *self as i64, bit_size]);
             }
         }
     }
@@ -175,13 +176,13 @@ impl Getter for u32 {
             let bit_size = (0usize..32)
                 .rposition(|x| (*self & (1u32 << x)) != 0)
                 .unwrap_or(0) as i64;
-            if log_map.contains_key(&key) {
+            if let hash_map::Entry::Vacant(e) = log_map.entry(key.clone()) {
+                e.insert(vec![*self as i64, *self as i64, bit_size]);
+            } else {
                 let value = log_map.get_mut(&key).unwrap();
                 value[0] = value[0].min(*self as i64);
                 value[1] = value[1].max(*self as i64);
                 value[2] = value[2].max(bit_size);
-            } else {
-                log_map.insert(key, vec![*self as i64, *self as i64, bit_size]);
             }
         }
     }
@@ -192,13 +193,13 @@ impl Getter for u64 {
             let bit_size = (0usize..64)
                 .rposition(|x| (*self & (1u64 << x)) != 0)
                 .unwrap_or(0) as i64;
-            if log_map.contains_key(&key) {
+            if let hash_map::Entry::Vacant(e) = log_map.entry(key.clone()) {
+                e.insert(vec![*self as i64, *self as i64, bit_size]);
+            } else {
                 let value = log_map.get_mut(&key).unwrap();
                 value[0] = value[0].min(*self as i64);
                 value[1] = value[1].max(*self as i64);
                 value[2] = value[2].max(bit_size);
-            } else {
-                log_map.insert(key, vec![*self as i64, *self as i64, bit_size]);
             }
         }
     }
@@ -206,7 +207,7 @@ impl Getter for u64 {
 
 impl Getter for u128 {
     fn check_number(&self, _: &mut LogMapNumberSize, _: Option<(String, String, String)>) {
-        println!("{}", "not implemented");
+        println!("not implemented");
     }
 }
 

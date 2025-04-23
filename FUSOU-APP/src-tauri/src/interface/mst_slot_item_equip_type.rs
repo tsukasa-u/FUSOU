@@ -1,9 +1,14 @@
+use once_cell::sync::Lazy;
 use std::collections::HashMap;
-use std::sync::{LazyLock, Mutex};
+use std::sync::Mutex;
 
-// Is it better to use onecell::sync::Lazy or std::sync::Lazy?
-pub(crate) static KCS_MST_EQUIPTYPES: LazyLock<Mutex<MstSlotItemEquipTypes>> =
-    LazyLock::new(|| {
+use apache_avro::AvroSchema;
+use serde::{Deserialize, Serialize};
+
+use register_trait::TraitForEncode;
+
+pub(crate) static KCS_MST_SLOT_ITEM_EQUIP_TYPES: Lazy<Mutex<MstSlotItemEquipTypes>> =
+    Lazy::new(|| {
         Mutex::new(MstSlotItemEquipTypes {
             mst_slotitem_equip_types: HashMap::new(),
         })
@@ -11,12 +16,12 @@ pub(crate) static KCS_MST_EQUIPTYPES: LazyLock<Mutex<MstSlotItemEquipTypes>> =
 
 use crate::kcapi;
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MstSlotItemEquipTypes {
-    mst_slotitem_equip_types: HashMap<i64, MstSlotItemEquipType>,
+    pub mst_slotitem_equip_types: HashMap<i64, MstSlotItemEquipType>,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, AvroSchema, TraitForEncode)]
 pub struct MstSlotItemEquipType {
     pub id: i64,
     pub name: String,
@@ -24,12 +29,12 @@ pub struct MstSlotItemEquipType {
 
 impl MstSlotItemEquipTypes {
     pub fn load() -> Self {
-        let equip_type_map = KCS_MST_EQUIPTYPES.lock().unwrap();
+        let equip_type_map = KCS_MST_SLOT_ITEM_EQUIP_TYPES.lock().unwrap();
         equip_type_map.clone()
     }
 
     pub fn restore(&self) {
-        let mut equip_type_map = KCS_MST_EQUIPTYPES.lock().unwrap();
+        let mut equip_type_map = KCS_MST_SLOT_ITEM_EQUIP_TYPES.lock().unwrap();
         *equip_type_map = self.clone();
     }
 }
