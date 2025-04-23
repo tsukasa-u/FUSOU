@@ -78,7 +78,7 @@ let server_list: { [key: string]: string } = {
 function open_auth_page() {
   invoke("check_open_window", { label: "main" }).then((flag) => {
     if (flag) {
-      invoke("open_auth_page", { port: Number(window.location.port) }).then(() => {
+      invoke("open_auth_page").then(() => {
         console.log("open auth page");
       }).catch((err) => {
         console.error("open auth page error", err);

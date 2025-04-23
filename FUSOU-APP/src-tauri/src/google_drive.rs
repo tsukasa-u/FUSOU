@@ -116,9 +116,8 @@ pub async fn create_auth(
         .await
         .expect("failed to create authenticator");
 
-    match auth.token(SCOPES).await {
-        Err(e) => println!("error: {:?}", e),
-        Ok(t) => {}
+    if let Err(e) = auth.token(SCOPES).await {
+        println!("error: {:?}", e)
     }
 
     return auth;
@@ -135,12 +134,9 @@ pub async fn create_client() -> Option<
         .await
         .clone();
 
-    match auth.force_refreshed_token(SCOPES).await {
-        Err(e) => {
-            println!("error: {:?}", e);
-            return None;
-        }
-        Ok(t) => {}
+    if let Err(e) = auth.force_refreshed_token(SCOPES).await {
+        println!("error: {:?}", e);
+        return None;
     }
 
     let client = hyper_util::client::legacy::Client::builder(hyper_util::rt::TokioExecutor::new())

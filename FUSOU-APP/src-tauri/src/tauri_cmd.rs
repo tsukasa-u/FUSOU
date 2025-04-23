@@ -130,6 +130,7 @@ pub async fn close_splashscreen(window: tauri::Window) {
 #[tauri::command(rename_all = "snake_case")]
 pub async fn set_refresh_token(_window: tauri::Window, token: String) -> Result<(), ()> {
     let split_token: Vec<String> = token.split("&").map(|s| s.to_string()).collect();
+    #[allow(clippy::get_first)]
     let refresh_token = split_token.get(0);
     let token_type = split_token.get(1);
     if refresh_token.is_none() || token_type.is_none() {
@@ -283,7 +284,6 @@ pub async fn read_emit_file(window: tauri::Window, path: &str) -> Result<(), Str
 #[tauri::command]
 pub async fn open_auth_page(
     _window: tauri::Window,
-    port: i64,
     auth_channel: tauri::State<'_, AuthChannel>,
 ) -> Result<(), ()> {
     let addr = auth_server::serve_auth(0, auth_channel.slave.clone());
@@ -331,7 +331,7 @@ pub async fn launch_with_options(
 ) -> Result<(), ()> {
     println!("{:?}", options);
 
-    let proxy_addr = {
+    let _proxy_addr = {
         if let Some(&flag) = options.get("run_proxy_server") {
             if flag != 0 {
                 if let Some(&server_index) = options.get("server") {
