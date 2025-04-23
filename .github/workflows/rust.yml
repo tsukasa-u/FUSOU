@@ -25,12 +25,12 @@ jobs:
     - name: Setup env
       run: |
         touch ./.env
-        echo DISCORD_CLIENT_ID=${{ vars.DISCORD_CLIENT_ID }} >> ./.env
-        echo GOOGLE_CLIENT_SECRET=${{ vars.GOOGLE_CLIENT_SECRET }} >> ./.env
-        echo GOOGLE_CLIENT_ID=${{ vars.GOOGLE_CLIENT_ID }} >> ./.env
-        echo SUPABASE_DATABASE_URL=${{ vars.SUPABASE_DATABASE_URL }}  >> ./.env
+        echo DISCORD_CLIENT_ID=${{ secrets.DISCORD_CLIENT_ID }} >> ./.env
+        echo GOOGLE_CLIENT_SECRET=${{ secrets.GOOGLE_CLIENT_SECRET }} >> ./.env
+        echo GOOGLE_CLIENT_ID=${{ secrets.GOOGLE_CLIENT_ID }} >> ./.env
+        echo SUPABASE_DATABASE_URL=${{ secrets.SUPABASE_DATABASE_URL }}  >> ./.env
         cat ./.env
-        echo "VITE_SUPABASE_URL=${{ vars.SUPABASE_URL }}\nVITE_SUPABASE_ANON_KEY=${{ vars.SUPABASE_ANON_KEY }}\nVITE_GOOGLE_CLIENT_ID=${{ vars.GOOGLE_CLIENT_ID }}\nVITE_GOOGLE_CLIENT_SECRET=${{ vars.GOOGLE_CLIENT_SECRET }}" > ../.env
+        echo "VITE_SUPABASE_URL=${{ secrets.SUPABASE_URL }}\nVITE_SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}\nVITE_GOOGLE_CLIENT_ID=${{ secrets.GOOGLE_CLIENT_ID }}\nVITE_GOOGLE_CLIENT_SECRET=${{ secrets.GOOGLE_CLIENT_SECRET }}" > ../.env
     - name: Setup Ubuntu for tauri@v1
       run: |
         sudo apt update && \
