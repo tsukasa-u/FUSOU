@@ -37,6 +37,8 @@ pub fn create_external_window(app: &AppHandle, browser: Option<Browser>, browse_
                 }
             }
             return;
+        } else {
+            println!("can not get webview windows \"external\"");
         }
 
         // let init_script = fs::read_to_string("./../src/init_script.js").expect("Unable to read init_script.js");
@@ -55,7 +57,7 @@ pub fn create_external_window(app: &AppHandle, browser: Option<Browser>, browse_
         // if proxy_addr.is_some() {
         //     external = external.proxy_url(proxy_addr.expect("proxy_addr is None"))
         // }
-        let _ = external
+        let external_result = external
             .fullscreen(false)
             .title("fusou-viewer")
             .inner_size(1192_f64, 712_f64)
@@ -63,6 +65,9 @@ pub fn create_external_window(app: &AppHandle, browser: Option<Browser>, browse_
             .initialization_script(init_script)
             .build()
             .expect("error while building external");
+        external_result
+            .show()
+            .expect("can not show external window");
     } else {
         open_browser(
             browser.unwrap(),

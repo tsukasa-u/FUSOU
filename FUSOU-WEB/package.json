@@ -1,0 +1,20 @@
+{
+  "name": "fusou-web",
+  "type": "module",
+  "version": "0.0.1",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "astro": "astro"
+  },
+  "dependencies": {
+    "@astrojs/cloudflare": "^12.5.1",
+    "@astrojs/solid-js": "^5.0.9",
+    "@tailwindcss/vite": "^4.1.4",
+    "astro": "^5.7.5",
+    "daisyui": "^5.0.28",
+    "solid-js": "^1.9.5",
+    "tailwindcss": "^4.1.4"
+  }
+}

@@ -135,7 +135,7 @@ where
     let ca_path = ROAMING_DIR
         .get()
         .expect("ROAMING_DIR not found")
-        .join("ca/ca_cert.pem")
+        .join("resources/ca/ca_cert.pem")
         .as_path()
         .to_str()
         .expect("ca_path not found")
