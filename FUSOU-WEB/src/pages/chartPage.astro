@@ -1,0 +1,15 @@
+---
+import LandingPageLayout from '../layouts/Layout.astro';
+import Navigation from '../components/Navigation.astro';
+import MyChart from '../components/chartSample.tsx'
+
+---
+
+<LandingPageLayout>
+	<div class="static">
+        <div class="h-16"></div>
+        <MyChart client:only="solid-js" />
+        <!-- <MyChart /> -->
+		<Navigation />
+	</div>
+</LandingPageLayout>

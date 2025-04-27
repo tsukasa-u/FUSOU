@@ -1,0 +1,928 @@
+"","trainer.name","number.of.pokemon","exp_pokemon1","exp_pokemon2","exp_pokemon3","exp_pokemon4","exp_pokemon5","exp_pokemon6","x","pokemon1","pokemon2","pokemon3","pokemon4","pokemon5","pokemon6","level_pokemon1","level_pokemon2","level_pokemon3","level_pokemon4","level_pokemon5","level_pokemon6","max.level","gym.section","total_EXP"
+"1","Youngster Tristan",1,60,0,0,0,0,0,1,"Starly",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,60
+"2","Youngster Logan",1,65,0,0,0,0,0,2,"Burmy",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,65
+"3","Lass Natalie",1,62,0,0,0,0,0,3,"Bidoof",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,62
+"4","Youngster Michael",2,81,69,0,0,0,0,4,"Kricketot","Zubat",NA,NA,NA,NA,7,6,NA,NA,NA,NA,7,0,150
+"5","Camper",1,61,0,0,0,0,0,5,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"6","Camper",1,61,0,0,0,0,0,6,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"7","Picnicker",1,61,0,0,0,0,0,7,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"8","Picnicker",1,61,0,0,0,0,0,8,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"9","Youngster",1,61,0,0,0,0,0,9,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"10","Youngster Tyler",1,34,0,0,0,0,0,10,"Magikarp",NA,NA,NA,NA,NA,8,NA,NA,NA,NA,NA,8,0,34
+"11","Lass Samantha",1,102,0,0,0,0,0,11,"Budew",NA,NA,NA,NA,NA,7,NA,NA,NA,NA,NA,7,0,102
+"12","Lass Sarah",1,90,0,0,0,0,0,12,"Shinx",NA,NA,NA,NA,NA,7,NA,NA,NA,NA,NA,7,0,90
+"13","Bug Catcher Brandon",2,116,127,0,0,0,0,13,"Wurmple","Kricketot",NA,NA,NA,NA,10,11,NA,NA,NA,NA,11,1,243
+"14","Aroma Lady Taylor",2,131,160,0,0,0,0,14,"Budew","Cherubi",NA,NA,NA,NA,9,11,NA,NA,NA,NA,11,1,291
+"15","Twins Liv & Liz",2,283,283,0,0,0,0,15,"Pachirisu","Pachirisu",NA,NA,NA,NA,11,11,NA,NA,NA,NA,11,1,566
+"16","Camper Jacob",1,456,0,0,0,0,0,16,"Ponyta",NA,NA,NA,NA,NA,14,NA,NA,NA,NA,NA,14,1,456
+"17","Picnicker Siena",2,149,309,0,0,0,0,17,"Bidoof","Pachirisu",NA,NA,NA,NA,12,12,NA,NA,NA,NA,12,1,458
+"18","Hiker Daniel",3,156,172,188,0,0,0,18,"Geodude","Geodude","Geodude",NA,NA,NA,10,11,12,NA,NA,NA,12,1,516
+"19","Hiker Nicholas",1,324,0,0,0,0,0,19,"Onix",NA,NA,NA,NA,NA,14,NA,NA,NA,NA,NA,14,1,324
+"20","Battle Girl Kelsey",1,241,0,0,0,0,0,20,"Machop",NA,NA,NA,NA,NA,15,NA,NA,NA,NA,NA,15,1,241
+"21","Aroma Lady Elizabeth",1,456,0,0,0,0,0,21,"Roselia",NA,NA,NA,NA,NA,14,NA,NA,NA,NA,NA,14,1,456
+"22","Fisherman Andrew",6,34,43,51,51,60,69,22,"Magikarp","Magikarp","Magikarp","Magikarp","Magikarp","Magikarp",8,10,12,12,14,16,16,1,308
+"23","Fisherman Joseph",1,404,0,0,0,0,0,23,"Goldeen",NA,NA,NA,NA,NA,17,NA,NA,NA,NA,NA,17,1,404
+"24","Fisherman Zachary",3,60,381,60,0,0,0,24,"Magikarp","Goldeen","Magikarp",NA,NA,NA,14,16,14,NA,NA,NA,16,1,501
+"25","Cyclist Axel",1,369,0,0,0,0,0,25,"Pikachu",NA,NA,NA,NA,NA,21,NA,NA,NA,NA,NA,21,2,369
+"26","Cyclist James",1,684,0,0,0,0,0,26,"Ponyta",NA,NA,NA,NA,NA,21,NA,NA,NA,NA,NA,21,2,684
+"27","Cyclist John",2,216,484,0,0,0,0,27,"Starly","Staravia",NA,NA,NA,NA,18,20,NA,NA,NA,NA,20,2,700
+"28","Cyclist Ryan",1,270,0,0,0,0,0,28,"Shinx",NA,NA,NA,NA,NA,21,NA,NA,NA,NA,NA,21,2,270
+"29","Cyclist Megan",1,508,0,0,0,0,0,29,"Staravia",NA,NA,NA,NA,NA,21,NA,NA,NA,NA,NA,21,2,508
+"30","Cyclist Nicole",3,204,216,228,0,0,0,30,"Starly","Starly","Starly",NA,NA,NA,17,18,19,NA,NA,NA,19,2,648
+"31","Cyclist Kayla",1,369,0,0,0,0,0,31,"Pikachu",NA,NA,NA,NA,NA,21,NA,NA,NA,NA,NA,21,2,369
+"32","Cyclist Rachel",2,651,231,0,0,0,0,32,"Ponyta","Shinx",NA,NA,NA,NA,20,18,NA,NA,NA,NA,20,2,882
+"33","Youngster Austin",3,289,451,486,0,0,0,33,"Buizel","Luxio","Gligar",NA,NA,NA,18,18,21,NA,NA,NA,21,2,1226
+"34","Camper Anthony",1,306,0,0,0,0,0,34,"Chimchar",NA,NA,NA,NA,NA,22,NA,NA,NA,NA,NA,22,3,306
+"35","Picnicker Lauren",1,566,0,0,0,0,0,35,"Pachirisu",NA,NA,NA,NA,NA,22,NA,NA,NA,NA,NA,22,3,566
+"36","Hiker Kevin",4,266,266,440,297,0,0,36,"Geodude","Geodude","Onix","Geodude",NA,NA,17,17,19,19,NA,NA,19,2,1269
+"37","Hiker Justin",2,313,463,0,0,0,0,37,"Geodude","Nosepass",NA,NA,NA,NA,20,20,NA,NA,NA,NA,20,2,776
+"38","Battle Girl Helen",2,338,410,0,0,0,0,38,"Machop","Meditite",NA,NA,NA,NA,21,21,NA,NA,NA,NA,21,2,748
+"39","Hiker Robert",1,509,0,0,0,0,0,39,"Nosepass",NA,NA,NA,NA,NA,22,NA,NA,NA,NA,NA,22,3,509
+"40","Hiker Alexander",2,1091,1697,0,0,0,0,40,"Graveler","Probopass",NA,NA,NA,NA,38,40,NA,NA,NA,NA,40,7,2788
+"41","Hiker Jonathan",1,509,0,0,0,0,0,41,"Onix",NA,NA,NA,NA,NA,22,NA,NA,NA,NA,NA,22,3,509
+"42","Black Belt Kyle",1,370,0,0,0,0,0,42,"Machop",NA,NA,NA,NA,NA,23,NA,NA,NA,NA,NA,23,3,370
+"43","Fisherman Cody",2,651,1513,0,0,0,0,43,"Barboach","Gyarados",NA,NA,NA,NA,33,33,NA,NA,NA,NA,33,5,2164
+"44","Aroma Lady Hannah",2,586,297,0,0,0,0,44,"Roselia","Combee",NA,NA,NA,NA,18,22,NA,NA,NA,NA,22,3,883
+"45","Artist William",2,0,291,0,0,0,0,45,"Mime","Bonsly",NA,NA,NA,NA,20,20,NA,NA,NA,NA,20,2,291
+"46","Pokemon Breeder Albert",4,291,291,180,394,0,0,46,"Budew","Bonsly","Pichu","Eevee",NA,NA,20,20,20,20,NA,NA,20,2,1156
+"47","Pokemon Breeder Jennifer",4,291,0,159,394,0,0,47,"Budew","Mime","Cleffa","Eevee",NA,NA,20,20,20,20,NA,NA,20,2,844
+"48","Cowgirl Shelley",1,749,0,0,0,0,0,48,"Ponyta",NA,NA,NA,NA,NA,23,NA,NA,NA,NA,NA,23,3,749
+"49","Jogger Richard",1,577,0,0,0,0,0,49,"Luxio",NA,NA,NA,NA,NA,23,NA,NA,NA,NA,NA,23,3,577
+"50","Pokefan",1,61,0,0,0,0,0,50,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"51","Pokefan",1,61,0,0,0,0,0,51,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"52","Youngster",1,61,0,0,0,0,0,52,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"53","Poke Kid Danielle",1,198,0,0,0,0,0,53,"Pichu",NA,NA,NA,NA,NA,22,NA,NA,NA,NA,NA,22,3,198
+"54","Fisherman",1,61,0,0,0,0,0,54,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"55","Young Couple Ty & Sue",2,414,370,0,0,0,0,55,"Buneary","Buizel",NA,NA,NA,NA,23,23,NA,NA,NA,NA,23,3,784
+"56","Pokemon Breeder Kahlil",2,522,1257,0,0,0,0,56,"Elekid","Happiny",NA,NA,NA,NA,23,23,NA,NA,NA,NA,23,3,1779
+"57","Pokemon Breeder Amber",2,577,365,0,0,0,0,57,"Magby","Togepi",NA,NA,NA,NA,23,23,NA,NA,NA,NA,23,3,942
+"58","Cowgirl",1,61,0,0,0,0,0,58,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"59","Jogger",1,61,0,0,0,0,0,59,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"60","Pokefan",1,61,0,0,0,0,0,60,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"61","Pokefan",1,61,0,0,0,0,0,61,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"62","Ace Trainer",1,61,0,0,0,0,0,62,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"63","Ace Trainer",1,61,0,0,0,0,0,63,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"64","Waitress",1,61,0,0,0,0,0,64,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"65","Twins Teri & Tia",2,404,335,0,0,0,0,65,"Pikachu","Clefairy",NA,NA,NA,NA,23,23,NA,NA,NA,NA,23,3,739
+"66","Ace Trainer Ernest",3,1282,1315,852,0,0,0,66,"Scyther","Probopass","Luxio",NA,NA,NA,32,31,34,NA,NA,NA,34,5,3449
+"67","Ace Trainer Alyssa",3,645,1022,997,0,0,0,67,"Aipom","Girafarig","Grotle",NA,NA,NA,32,32,33,NA,NA,NA,33,5,2664
+"68","Veteran Brian",3,1138,1042,514,0,0,0,68,"Tangela","Ponyta","Buizel",NA,NA,NA,32,32,32,NA,NA,NA,32,4,2694
+"69","Black Belt Adam",1,1064,0,0,0,0,0,69,"Machoke",NA,NA,NA,NA,NA,34,NA,NA,NA,NA,NA,34,5,1064
+"70","Ninja Boy Joel",4,336,708,491,1063,0,0,70,"Zubat","Skorupi","Stunky","Golbat",NA,NA,29,29,29,29,NA,NA,29,4,2598
+"71","Ninja Boy Nathan",2,525,1136,0,0,0,0,71,"Stunky","Golbat",NA,NA,NA,NA,31,31,NA,NA,NA,NA,31,4,1661
+"72","Ninja Boy Davido",1,1124,0,0,0,0,0,72,"Mothim",NA,NA,NA,NA,NA,33,NA,NA,NA,NA,NA,33,5,1124
+"73","Dragon Tamer Patrick",1,488,0,0,0,0,0,73,"Gible",NA,NA,NA,NA,NA,34,NA,NA,NA,NA,NA,34,5,488
+"74","Bird Keeper Brianna",2,385,1146,0,0,0,0,74,"Hoothoot","Noctowl",NA,NA,NA,NA,31,33,NA,NA,NA,NA,33,5,1531
+"75","Double Team Zac & Jen",2,1651,941,0,0,0,0,75,"Gyarados","Raichu",NA,NA,NA,NA,36,36,NA,NA,NA,NA,36,5,2592
+"76","Bird Keeper Alexandra",2,204,211,0,0,0,0,76,"Starly","Hoothoot",NA,NA,NA,NA,17,17,NA,NA,NA,NA,17,1,415
+"77","Battle Girl",1,61,0,0,0,0,0,77,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"78","Ninja Boy Zach",3,162,162,162,0,0,0,78,"Zubat","Zubat","Zubat",NA,NA,NA,14,14,14,NA,NA,NA,14,1,486
+"79","Black Belt Sean",3,551,604,970,0,0,0,79,"Croagunk","Meditite","Machoke",NA,NA,NA,31,31,31,NA,NA,NA,31,4,2125
+"80","Ninja Boy Nick",2,782,534,0,0,0,0,80,"Skorupi","Croagunk",NA,NA,NA,NA,32,30,NA,NA,NA,NA,32,4,1316
+"81","Bird Keeper Katherine",1,1180,0,0,0,0,0,81,"Noctowl",NA,NA,NA,NA,NA,34,NA,NA,NA,NA,NA,34,5,1180
+"82","Rich Boy Jason",0,827,0,0,0,0,0,82,"Prinplup",NA,NA,NA,NA,NA,27,NA,NA,NA,NA,NA,27,3,827
+"83","Lady Melissa",0,393,0,0,0,0,0,83,"Cherubi",NA,NA,NA,NA,NA,27,NA,NA,NA,NA,NA,27,3,393
+"84","Gentleman Jeremy",0,619,0,0,0,0,0,84,"Chatot",NA,NA,NA,NA,NA,27,NA,NA,NA,NA,NA,27,3,619
+"85","Socialite Reina",0,879,0,0,0,0,0,85,"Roselia",NA,NA,NA,NA,NA,27,NA,NA,NA,NA,NA,27,3,879
+"86","Beauty",1,61,0,0,0,0,0,86,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"87","Collector",1,61,0,0,0,0,0,87,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"88","Policeman Bobby",2,298,418,0,0,0,0,88,"Hoothoot","Machop",NA,NA,NA,NA,24,26,NA,NA,NA,NA,26,3,716
+"89","Policeman Alex",2,311,402,0,0,0,0,89,"Hoothoot","Machop",NA,NA,NA,NA,25,25,NA,NA,NA,NA,25,3,713
+"90","Policeman Dylan",2,323,386,0,0,0,0,90,"Hoothoot","Machop",NA,NA,NA,NA,26,24,NA,NA,NA,NA,26,3,709
+"91","Fisherman Juan",1,1330,0,0,0,0,0,91,"Gyarados",NA,NA,NA,NA,NA,29,NA,NA,NA,NA,NA,29,4,1330
+"92","Fisherman Josh",2,642,642,0,0,0,0,92,"Goldeen","Goldeen",NA,NA,NA,NA,27,27,NA,NA,NA,NA,27,3,1284
+"93","Fisherman Travis",4,473,493,1192,493,0,0,93,"Barboach","Barboach","Gyarados","Barboach",NA,NA,24,25,26,25,NA,NA,26,3,2651
+"94","Pokemon Ranger Taylor",2,984,752,0,0,0,0,94,"Carnivine","Luxio",NA,NA,NA,NA,28,30,NA,NA,NA,NA,30,4,1736
+"95","Pokemon Ranger Jeffery",1,943,0,0,0,0,0,95,"Monferno",NA,NA,NA,NA,NA,31,NA,NA,NA,NA,NA,31,4,943
+"96","Pokemon Ranger Allison",2,360,1218,0,0,0,0,96,"Marill","Leafeon",NA,NA,NA,NA,29,29,NA,NA,NA,NA,29,4,1578
+"97","Pokemon Ranger",1,61,0,0,0,0,0,97,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"98","Scientist",1,61,0,0,0,0,0,98,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"99","Scientist Stefano",0,932,0,0,0,0,0,99,"Kadabra",NA,NA,NA,NA,NA,30,NA,NA,NA,NA,NA,30,4,932
+"100","Youngster",1,61,0,0,0,0,0,100,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"101","Youngster",1,61,0,0,0,0,0,101,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"102","Policeman Caleb",2,286,434,0,0,0,0,102,"Hoothoot","Machop",NA,NA,NA,NA,23,27,NA,NA,NA,NA,27,3,720
+"103","Swimmer Sheltin",3,1467,1467,1467,0,0,0,103,"Gyarados","Gyarados","Gyarados",NA,NA,NA,32,32,32,NA,NA,NA,32,4,4401
+"104","Swimmer Evan",2,1193,1268,0,0,0,0,104,"Golduck","Golduck",NA,NA,NA,NA,32,34,NA,NA,NA,NA,34,5,2461
+"105","Swimmer Haley",2,531,1148,0,0,0,0,105,"Psyduck","Azumarill",NA,NA,NA,NA,31,35,NA,NA,NA,NA,35,5,1679
+"106","Swimmer Mary",2,636,1160,0,0,0,0,106,"Finneon","Pelipper",NA,NA,NA,NA,33,33,NA,NA,NA,NA,33,5,1796
+"107","Tuber Jared",3,391,391,407,0,0,0,107,"Shellos","Shellos","Shellos",NA,NA,NA,25,25,26,NA,NA,NA,26,3,1189
+"108","Tuber Chelsea",1,348,0,0,0,0,0,108,"Marill",NA,NA,NA,NA,NA,28,NA,NA,NA,NA,NA,28,4,348
+"109","Battle Girl",1,61,0,0,0,0,0,109,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"110","Sailor Paul",3,698,1089,1064,0,0,0,110,"Tentacool","Pelipper","Machoke",NA,NA,NA,31,31,34,NA,NA,NA,34,5,2851
+"111","Fisherman Kenneth",3,418,418,1284,0,0,0,111,"Remoraid","Remoraid","Gyarados",NA,NA,NA,25,25,28,NA,NA,NA,28,4,2120
+"112","Sis and Bro",2,61,61,0,0,0,0,112,"Rattata","Rattata",NA,NA,NA,NA,5,5,NA,NA,NA,NA,5,0,122
+"113","Ruin Maniac Bryan",2,370,552,0,0,0,0,113,"Bronzor","Cranidos",NA,NA,NA,NA,24,26,NA,NA,NA,NA,26,3,922
+"114","Ruin Maniac Ronald",1,573,0,0,0,0,0,114,"Shieldon",NA,NA,NA,NA,NA,27,NA,NA,NA,NA,NA,27,3,573
+"115","Hiker",1,61,0,0,0,0,0,115,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"116","Veteran",1,61,0,0,0,0,0,116,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"117","Camper",1,61,0,0,0,0,0,117,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"118","Picnicker",1,61,0,0,0,0,0,118,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"119","Psychic Mitchell",2,540,808,0,0,0,0,119,"Duskull","Kadabra",NA,NA,NA,NA,26,26,NA,NA,NA,NA,26,3,1348
+"120","Psychic Abigail",3,365,680,810,0,0,0,120,"Chingling","Drifloon","Kirlia",NA,NA,NA,23,25,27,NA,NA,NA,27,3,1855
+"121","PI Carlos",1,714,0,0,0,0,0,121,"Goldeen",NA,NA,NA,NA,NA,30,NA,NA,NA,NA,NA,30,4,714
+"122","Guitarist",1,61,0,0,0,0,0,122,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"123","PI",1,61,0,0,0,0,0,123,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"124","Beauty",1,61,0,0,0,0,0,124,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"125","Beauty",1,61,0,0,0,0,0,125,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"126","Black Belt",1,61,0,0,0,0,0,126,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"127","Black Belt Gregory",3,370,370,370,0,0,0,127,"Machop","Machop","Machop",NA,NA,NA,23,23,23,NA,NA,NA,23,3,1110
+"128","Black Belt Derek",1,462,0,0,0,0,0,128,"Croagunk",NA,NA,NA,NA,NA,26,NA,NA,NA,NA,NA,26,3,462
+"129","Black Belt Nathaniel",3,374,468,386,0,0,0,129,"Croagunk","Meditite","Machop",NA,NA,NA,21,24,24,NA,NA,NA,24,3,1228
+"130","Jogger Scott",1,605,0,0,0,0,0,130,"Staravia",NA,NA,NA,NA,NA,25,NA,NA,NA,NA,NA,25,3,605
+"131","Bird Keeper",1,61,0,0,0,0,0,131,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"132","Ace Trainer Blake",2,1554,1543,0,0,0,0,132,"Ambipom","Porygon2",NA,NA,NA,NA,39,40,NA,NA,NA,NA,40,7,3097
+"133","Ace Trainer Garrett",3,0,1496,1563,0,0,0,133,"Mr.","Dusclops","Scyther",NA,NA,NA,37,39,39,NA,NA,NA,39,6,3059
+"134","Ace Trainer Laura",1,1521,0,0,0,0,0,134,"Tropius",NA,NA,NA,NA,NA,42,NA,NA,NA,NA,NA,42,7,1521
+"135","Ace Trainer Maria",3,1417,1605,1099,0,0,0,135,"Golduck","Rapidash","Sudowoodo",NA,NA,NA,38,39,38,NA,NA,NA,39,6,4121
+"136","Skier Bradley",3,571,602,1011,0,0,0,136,"Snorunt","Swinub","Snover",NA,NA,NA,36,36,36,NA,NA,NA,36,5,2184
+"137","Skier Edward",1,1103,0,0,0,0,0,137,"Sneasel",NA,NA,NA,NA,NA,39,NA,NA,NA,NA,NA,39,6,1103
+"138","Skier Kaitlyn",2,602,1067,0,0,0,0,138,"Swinub","Snover",NA,NA,NA,NA,36,38,NA,NA,NA,NA,38,6,1669
+"139","Skier Andrea",1,1095,0,0,0,0,0,139,"Snover",NA,NA,NA,NA,NA,39,NA,NA,NA,NA,NA,39,6,1095
+"140","Ace Trainer Dalton",2,1337,1431,0,0,0,0,140,"Electabuzz","Magmar",NA,NA,NA,NA,40,40,NA,NA,NA,NA,40,7,2768
+"141","Ace Trainer Olivia",3,1140,1421,684,0,0,0,141,"Kirlia","Seaking","Buneary",NA,NA,NA,38,39,38,NA,NA,NA,39,6,3245
+"142","Skier Shawn",3,982,1011,1039,0,0,0,142,"Snover","Snover","Snover",NA,NA,NA,35,36,37,NA,NA,NA,37,6,3032
+"143","Skier Bjorn",2,602,1075,0,0,0,0,143,"Swinub","Sneasel",NA,NA,NA,NA,36,38,NA,NA,NA,NA,38,6,1677
+"144","Skier Lexie",2,1269,1554,0,0,0,0,144,"Piloswine","Glaceon",NA,NA,NA,NA,37,37,NA,NA,NA,NA,37,6,2823
+"145","Skier Madison",1,618,0,0,0,0,0,145,"Snorunt",NA,NA,NA,NA,NA,39,NA,NA,NA,NA,NA,39,6,618
+"146","Ninja Boy Matthew",1,1429,0,0,0,0,0,146,"Golbat",NA,NA,NA,NA,NA,39,NA,NA,NA,NA,NA,39,6,1429
+"147","Ninja Boy Ethan",2,904,1356,0,0,0,0,147,"Skorupi","Golbat",NA,NA,NA,NA,37,37,NA,NA,NA,NA,37,6,2260
+"148","Black Belt Luke",3,658,571,1158,0,0,0,148,"Croagunk","Riolu","Machoke",NA,NA,NA,37,37,37,NA,NA,NA,37,6,2387
+"149","Swimmer",1,61,0,0,0,0,0,149,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"150","Swimmer",1,61,0,0,0,0,0,150,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"151","Swimmer",1,61,0,0,0,0,0,151,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"152","Swimmer",1,61,0,0,0,0,0,152,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"153","Fisherman Miguel",2,1513,1513,0,0,0,0,153,"Gyarados","Gyarados",NA,NA,NA,NA,33,33,NA,NA,NA,NA,33,5,3026
+"154","Fisherman Luc",5,485,485,501,1422,518,0,154,"Remoraid","Remoraid","Remoraid","Gyarados","Remoraid",NA,29,29,30,31,31,NA,31,4,3411
+"155","Sis and Bro",2,61,61,0,0,0,0,155,"Rattata","Rattata",NA,NA,NA,NA,5,5,NA,NA,NA,NA,5,0,122
+"156","Swimmer",1,61,0,0,0,0,0,156,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"157","Swimmer",1,61,0,0,0,0,0,157,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"158","Swimmer",1,61,0,0,0,0,0,158,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"159","Swimmer Adrian",3,535,675,1195,0,0,0,159,"Remoraid","Tentacool","Octillery",NA,NA,NA,32,30,34,NA,NA,NA,34,5,2405
+"160","Swimmer Erik",1,1538,0,0,0,0,0,160,"Tentacruel",NA,NA,NA,NA,NA,35,NA,NA,NA,NA,NA,35,5,1538
+"161","Swimmer Vincent",2,1160,1245,0,0,0,0,161,"Pelipper","Gastrodon",NA,NA,NA,NA,33,33,NA,NA,NA,NA,33,5,2405
+"162","Swimmer Jessica",4,714,714,737,1202,0,0,162,"Goldeen","Goldeen","Goldeen","Seaking",NA,NA,30,30,31,33,NA,NA,33,5,3367
+"163","Swimmer Erica",1,675,0,0,0,0,0,163,"Finneon",NA,NA,NA,NA,NA,35,NA,NA,NA,NA,NA,35,5,675
+"164","Swimmer Katelyn",3,514,1049,1166,0,0,0,164,"Buizel","Medicham","Seaking",NA,NA,NA,32,32,32,NA,NA,NA,32,4,2729
+"165","Sis and Bro",2,61,61,0,0,0,0,165,"Rattata","Rattata",NA,NA,NA,NA,5,5,NA,NA,NA,NA,5,0,122
+"166","Swimmer Dillon",2,552,1259,0,0,0,0,166,"Remoraid","Floatzel",NA,NA,NA,NA,33,33,NA,NA,NA,NA,33,5,1811
+"167","Swimmer Vanessa",1,1305,0,0,0,0,0,167,"Golduck",NA,NA,NA,NA,NA,35,NA,NA,NA,NA,NA,35,5,1305
+"168","Fisherman Cory",3,579,617,656,0,0,0,168,"Finneon","Finneon","Finneon",NA,NA,NA,30,32,34,NA,NA,NA,34,5,1852
+"169","Ruin Maniac",1,61,0,0,0,0,0,169,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"170","Ace Trainer Jake",2,1290,1149,0,0,0,0,170,"Staraptor","Girafarig",NA,NA,NA,NA,35,36,NA,NA,NA,NA,36,5,2439
+"171","Ace Trainer Shannon",3,969,1115,1335,0,0,0,171,"Cherrim","Azumarill","Lopunny",NA,NA,NA,34,34,35,NA,NA,NA,35,5,3419
+"172","Fisherman Brett",3,184,810,549,0,0,0,172,"Magikarp","Finneon","Feebas",NA,NA,NA,43,42,42,NA,NA,NA,43,7,1543
+"173","Fisherman Alec",2,180,2064,0,0,0,0,173,"Magikarp","Gyarados",NA,NA,NA,NA,42,45,NA,NA,NA,NA,45,7,2244
+"174","Fisherman George",4,176,791,685,1926,0,0,174,"Magikarp","Finneon","Remoraid","Gyarados",NA,NA,41,41,41,42,NA,NA,42,7,3578
+"175","Fisherman Cole",3,1972,669,1972,0,0,0,175,"Gyarados","Remoraid","Gyarados",NA,NA,NA,43,40,43,NA,NA,NA,43,7,4613
+"176","Roughneck",1,61,0,0,0,0,0,176,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"177","Roughneck",1,61,0,0,0,0,0,177,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"178","Guitarist",1,61,0,0,0,0,0,178,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"179","Clown",1,61,0,0,0,0,0,179,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"180","Sailor Luther",3,562,1314,1622,0,0,0,180,"Wingull","Machoke","Gastrodon",NA,NA,NA,41,42,43,NA,NA,NA,43,7,3498
+"181","Artist",1,61,0,0,0,0,0,181,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"182","Young Couple",2,61,61,0,0,0,0,182,"Rattata","Rattata",NA,NA,NA,NA,5,5,NA,NA,NA,NA,5,0,122
+"183","Swimmer Wesley",2,1640,1889,0,0,0,0,183,"Floatzel","Tentacruel",NA,NA,NA,NA,43,43,NA,NA,NA,NA,43,7,3529
+"184","Swimmer Ricardo",1,1977,0,0,0,0,0,184,"Tentacruel",NA,NA,NA,NA,NA,45,NA,NA,NA,NA,NA,45,7,1977
+"185","Swimmer Francisco",2,922,1678,0,0,0,0,185,"Tentacool","Golduck",NA,NA,NA,NA,41,45,NA,NA,NA,NA,45,7,2600
+"186","Swimmer Colton",3,549,1546,1546,0,0,0,186,"Wingull","Octillery","Pelipper",NA,NA,NA,40,44,44,NA,NA,NA,44,7,3641
+"187","Swimmer Troy",1,2064,0,0,0,0,0,187,"Gyarados",NA,NA,NA,NA,NA,45,NA,NA,NA,NA,NA,45,7,2064
+"188","Swimmer Oscar",3,949,702,1548,0,0,0,188,"Mantyke","Remoraid","Mantine",NA,NA,NA,41,42,43,NA,NA,NA,43,7,3199
+"189","Swimmer Miranda",1,1504,0,0,0,0,0,189,"Lumineon",NA,NA,NA,NA,NA,45,NA,NA,NA,NA,NA,45,7,1504
+"190","Swimmer Aubree",2,1069,1410,0,0,0,0,190,"Bibarel","Azumarill",NA,NA,NA,NA,43,43,NA,NA,NA,NA,43,7,2479
+"191","Swimmer Paige",3,510,576,1603,0,0,0,191,"Marill","Wingull","Golduck",NA,NA,NA,41,42,43,NA,NA,NA,43,7,2689
+"192","Swimmer Crystal",2,576,1603,0,0,0,0,192,"Wingull","Seaking",NA,NA,NA,NA,42,44,NA,NA,NA,NA,44,7,2179
+"193","Swimmer Cassandra",2,1471,1476,0,0,0,0,193,"Lumineon","Pelipper",NA,NA,NA,NA,44,42,NA,NA,NA,NA,44,7,2947
+"194","Swimmer Gabrielle",1,1678,0,0,0,0,0,194,"Golduck",NA,NA,NA,NA,NA,45,NA,NA,NA,NA,NA,45,7,1678
+"195","Worker Colin",2,94,129,0,0,0,0,195,"Geodude","Machop",NA,NA,NA,NA,6,8,NA,NA,NA,NA,8,0,223
+"196","Worker Mason",1,141,0,0,0,0,0,196,"Geodude",NA,NA,NA,NA,NA,9,NA,NA,NA,NA,NA,9,0,141
+"197","Worker",1,61,0,0,0,0,0,197,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"198","Scientist",1,61,0,0,0,0,0,198,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"199","Scientist",1,61,0,0,0,0,0,199,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"200","Scientist",1,61,0,0,0,0,0,200,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"201","Bug Catcher Jack",3,127,201,518,0,0,0,201,"Wurmple","Silcoon","Beautifly",NA,NA,NA,11,13,15,NA,NA,NA,15,1,846
+"202","Bug Catcher Philip",3,127,201,518,0,0,0,202,"Wurmple","Cascoon","Dustox",NA,NA,NA,11,13,15,NA,NA,NA,15,1,846
+"203","Bug Catcher Donald",2,183,183,0,0,0,0,203,"Burmy","Burmy",NA,NA,NA,NA,14,14,NA,NA,NA,NA,14,1,366
+"204","Lass Briana",1,411,0,0,0,0,0,204,"Pachirisu",NA,NA,NA,NA,NA,16,NA,NA,NA,NA,NA,16,1,411
+"205","Psychic Elijah",1,273,0,0,0,0,0,205,"Abra",NA,NA,NA,NA,NA,17,NA,NA,NA,NA,NA,17,1,273
+"206","Psychic Lindsey",1,273,0,0,0,0,0,206,"Abra",NA,NA,NA,NA,NA,17,NA,NA,NA,NA,NA,17,1,273
+"207","Young Couple",2,61,61,0,0,0,0,207,"Rattata","Rattata",NA,NA,NA,NA,5,5,NA,NA,NA,NA,5,0,122
+"208","Worker",1,61,0,0,0,0,0,208,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"209","Worker",1,61,0,0,0,0,0,209,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"210","Worker",1,61,0,0,0,0,0,210,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"211","Ace Trainer",1,61,0,0,0,0,0,211,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"212","Ace Trainer",1,61,0,0,0,0,0,212,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"213","Ace Trainer",1,61,0,0,0,0,0,213,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"214","Ace Trainer",1,61,0,0,0,0,0,214,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"215","Veteran",1,61,0,0,0,0,0,215,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"216","Veteran",1,61,0,0,0,0,0,216,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"217","Psychic",1,61,0,0,0,0,0,217,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"218","Psychic",1,61,0,0,0,0,0,218,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"219","Dragon Tamer",1,61,0,0,0,0,0,219,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"220","Sailor",1,61,0,0,0,0,0,220,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"221","School Kid",1,61,0,0,0,0,0,221,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"222","School Kid",1,61,0,0,0,0,0,222,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"223","Young Couple",2,61,61,0,0,0,0,223,"Rattata","Rattata",NA,NA,NA,NA,5,5,NA,NA,NA,NA,5,0,122
+"224","Ace Trainer Omar",3,1996,1567,2047,0,0,0,224,"Mamoswine","Mothim","Rampardos",NA,NA,NA,45,46,48,NA,NA,NA,48,8,5610
+"225","Ace Trainer Henry",2,2055,1687,0,0,0,0,225,"Rhydon","Carnivine",NA,NA,NA,NA,47,48,NA,NA,NA,NA,48,8,3742
+"226","Ace Trainer Mariah",3,2459,1843,2170,0,0,0,226,"Blissey","Glalie","Magnezone",NA,NA,NA,45,46,48,NA,NA,NA,48,8,6472
+"227","Ace Trainer Sydney",2,1299,2139,0,0,0,0,227,"Clefable","Torterra",NA,NA,NA,NA,47,48,NA,NA,NA,NA,48,8,3438
+"228","Veteran Edgar",3,1824,2080,2070,0,0,0,228,"Porygon-Z","Tangrowth","Empoleon",NA,NA,NA,46,46,46,NA,NA,NA,46,8,5974
+"229","Veteran Clayton",2,1732,1944,0,0,0,0,229,"Staraptor","Lickilicky",NA,NA,NA,NA,47,47,NA,NA,NA,NA,47,8,3676
+"230","Dragon Tamer Ondrej",2,1813,1450,0,0,0,0,230,"Altaria","Gabite",NA,NA,NA,NA,45,47,NA,NA,NA,NA,47,8,3263
+"231","Dragon Tamer Clinton",3,617,714,1450,0,0,0,231,"Gible","Swablu","Gabite",NA,NA,NA,43,45,47,NA,NA,NA,47,8,2781
+"232","Black Belt David",2,1470,1554,0,0,0,0,232,"Steelix","Steelix",NA,NA,NA,NA,35,37,NA,NA,NA,NA,37,6,3024
+"233","Bird Keeper Hana",2,1562,1148,0,0,0,0,233,"Noctowl","Togetic",NA,NA,NA,NA,45,47,NA,NA,NA,NA,47,8,2710
+"234","Psychic Bryce",3,1161,2050,1873,0,0,0,234,"Haunter","Gardevoir","Gengar",NA,NA,NA,43,46,46,NA,NA,NA,46,8,5084
+"235","Psychic Valencia",3,1386,1678,2070,0,0,0,235,"Chimecho","Absol","Dusknoir",NA,NA,NA,44,45,46,NA,NA,NA,46,8,5134
+"236","Double Team Jo & Pat",2,1671,2057,0,0,0,0,236,"Lumineon","Rapidash",NA,NA,NA,NA,50,50,NA,NA,NA,NA,50,8,3728
+"237","Double Team Al & Kay",2,1843,1993,0,0,0,0,237,"Staraptor","Ambipom",NA,NA,NA,NA,50,50,NA,NA,NA,NA,50,8,3836
+"238","Youngster",1,61,0,0,0,0,0,238,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"239","Lass",1,61,0,0,0,0,0,239,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"240","Veteran Grant",3,525,1253,976,0,0,0,240,"Riolu","Staraptor","Graveler",NA,NA,NA,34,34,34,NA,NA,NA,34,5,2754
+"241","Fisherman",1,61,0,0,0,0,0,241,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"242","Sailor",1,61,0,0,0,0,0,242,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"243","Beauty",1,61,0,0,0,0,0,243,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"244","Youngster Jonathon",1,172,0,0,0,0,0,244,"Geodude",NA,NA,NA,NA,NA,11,NA,NA,NA,NA,NA,11,1,172
+"245","Youngster Darius",2,141,208,0,0,0,0,245,"Geodude","Onix",NA,NA,NA,NA,9,9,NA,NA,NA,NA,9,0,349
+"246","Leader Roark",0,188,278,297,0,0,0,246,"Geodude","Onix","Cranidos",NA,NA,NA,12,12,14,NA,NA,NA,14,1,763
+"247","Rival",2,84,123,0,0,0,0,247,"Starly","Turtwig",NA,NA,NA,NA,7,9,NA,NA,NA,NA,9,0,207
+"248","Rival",2,84,125,0,0,0,0,248,"Starly","Chimchar",NA,NA,NA,NA,7,9,NA,NA,NA,NA,9,0,209
+"249","Rival",2,84,127,0,0,0,0,249,"Starly","Piplup",NA,NA,NA,NA,7,9,NA,NA,NA,NA,9,0,211
+"250","Leader Byron",0,1276,1596,0,0,0,0,250,"Magneton","Steelix","Bastiodon",NA,NA,NA,37,38,NA,NA,NA,NA,38,6,2872
+"251","Ace Trainer",1,61,0,0,0,0,0,251,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"252","Camper",1,61,0,0,0,0,0,252,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"253","Camper",1,61,0,0,0,0,0,253,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"254","Camper",1,61,0,0,0,0,0,254,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"255","Camper",1,61,0,0,0,0,0,255,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"256","Worker Jackson",3,648,648,648,0,0,0,256,"Magnemite","Magnemite","Magnemite",NA,NA,NA,34,34,34,NA,NA,NA,34,5,1944
+"257","Worker Gary",1,706,0,0,0,0,0,257,"Magnemite",NA,NA,NA,NA,NA,37,NA,NA,NA,NA,NA,37,6,706
+"258","Black Belt Philip",1,1251,0,0,0,0,0,258,"Machoke",NA,NA,NA,NA,NA,40,NA,NA,NA,NA,NA,40,7,1251
+"259","Aroma Lady Jenna",3,219,233,248,0,0,0,259,"Budew","Budew","Budew",NA,NA,NA,15,16,17,NA,NA,NA,17,1,700
+"260","Aroma Lady Angela",1,619,0,0,0,0,0,260,"Roselia",NA,NA,NA,NA,NA,19,NA,NA,NA,NA,NA,19,2,619
+"261","Elite Four Aaron",0,2079,2100,2014,2186,0,0,261,"Yanmega","Scizor","Vespiquen","Heracross","Drapion",NA,49,49,50,51,NA,NA,51,8,8379
+"262","Elite Four Bertha",0,1693,2181,2206,1972,0,0,262,"Whiscash","Gliscor","Hippowdon","Golem","Rhyperior",NA,50,53,52,52,NA,NA,53,8,8052
+"263","Elite Four Flint",0,2273,2334,2181,2463,0,0,263,"Houndoom","Flareon","Rapidash","Infernape","Magmortar",NA,52,55,53,55,NA,NA,55,8,9251
+"264","Elite Four Lucian",0,0,2322,2175,2232,0,0,264,"Mr.","Espeon","Bronzong","Alakazam","Gallade",NA,53,55,54,56,NA,NA,56,8,6729
+"265","Camper Curtis",2,84,90,0,0,0,0,265,"Starly","Shinx",NA,NA,NA,NA,7,7,NA,NA,NA,NA,7,0,174
+"266","Camper",3,550,550,550,0,0,0,266,"Gastly","Gastly","Gastly",NA,NA,NA,27,27,27,NA,NA,NA,27,3,1650
+"267","Champion Cynthia",0,2088,2535,2829,2623,2647,0,267,"Spiritomb","Roserade","Togekiss","Lucario","Milotic","Garchomp",58,58,60,60,58,NA,60,8,12722
+"268","Ace Trainer Sergio",2,1151,1188,0,0,0,0,268,"Snover","Sneasel",NA,NA,NA,NA,41,42,NA,NA,NA,NA,42,7,2339
+"269","Ace Trainer Isaiah",1,1509,0,0,0,0,0,269,"Piloswine",NA,NA,NA,NA,NA,44,NA,NA,NA,NA,NA,44,7,1509
+"270","Ace Trainer Savannah",3,618,634,1683,0,0,0,270,"Snorunt","Snorunt","Glalie",NA,NA,NA,39,40,42,NA,NA,NA,42,7,2935
+"271","Ace Trainer Alicia",2,1131,1216,0,0,0,0,271,"Sneasel","Sneasel",NA,NA,NA,NA,40,43,NA,NA,NA,NA,43,7,2347
+"272","Collector Douglas",3,1013,1008,1018,0,0,0,272,"Jolteon","Vaporeon","Flareon",NA,NA,NA,24,24,24,NA,NA,NA,24,3,3039
+"273","Collector Brady",6,513,747,662,738,374,760,273,"Skorupi","Tangela","Yanma","Carnivine","Croagunk","Tropius",21,21,21,21,21,21,21,2,3794
+"274","Collector Ivan",1,855,0,0,0,0,0,274,"Togetic",NA,NA,NA,NA,NA,35,NA,NA,NA,NA,NA,35,5,855
+"275","Collector Fernando",1,1071,0,0,0,0,0,275,"Heracross",NA,NA,NA,NA,NA,25,NA,NA,NA,NA,NA,25,3,1071
+"276","Collector Edwin",1,504,0,0,0,0,0,276,"Munchlax",NA,NA,NA,NA,NA,25,NA,NA,NA,NA,NA,25,3,504
+"277","Dragon Tamer Hayden",2,2256,1860,0,0,0,0,277,"Altaria","Seadra",NA,NA,NA,NA,56,56,NA,NA,NA,NA,56,8,4116
+"278","Ace Trainer Dennis",3,555,386,1093,0,0,0,278,"Gligar","Buizel","Drifblim",NA,NA,NA,24,24,25,NA,NA,NA,25,3,2034
+"279","Ace Trainer Cesar",1,1714,0,0,0,0,0,279,"Scizor",NA,NA,NA,NA,NA,40,NA,NA,NA,NA,NA,40,7,1714
+"280","Ace Trainer Allen",3,428,448,648,0,0,0,280,"Gastly","Gastly","Haunter",NA,NA,NA,21,22,24,NA,NA,NA,24,3,1524
+"281","Ace Trainer Zachery",2,1571,1656,0,0,0,0,281,"Electabuzz","Magneton",NA,NA,NA,NA,47,48,NA,NA,NA,NA,48,8,3227
+"282","Ace Trainer Ruben",2,1692,2614,0,0,0,0,282,"Nuzleaf","Gyarados",NA,NA,NA,NA,56,57,NA,NA,NA,NA,57,8,4306
+"283","Ace Trainer Breanna",3,540,555,586,0,0,0,283,"Bronzor","Bronzor","Bronzor",NA,NA,NA,35,36,38,NA,NA,NA,38,6,1681
+"284","Ace Trainer Catherine",2,621,756,0,0,0,0,284,"Haunter","Misdreavus",NA,NA,NA,NA,23,24,NA,NA,NA,NA,24,3,1377
+"285","Ace Trainer Destiny",2,1571,1255,0,0,0,0,285,"Electabuzz","Raichu",NA,NA,NA,NA,47,48,NA,NA,NA,NA,48,8,2826
+"286","Ace Trainer Jamie",1,2700,0,0,0,0,0,286,"Metagross",NA,NA,NA,NA,NA,60,NA,NA,NA,NA,NA,60,8,2700
+"287","Ace Trainer Maya",3,782,360,680,0,0,0,287,"Roselia","Ralts","Lickitung",NA,NA,NA,24,24,25,NA,NA,NA,25,3,1822
+"288","Psychic Maxwell",2,1827,1458,0,0,0,0,288,"Misdreavus","Haunter",NA,NA,NA,NA,58,54,NA,NA,NA,NA,58,8,3285
+"289","Psychic Brittney",2,1202,2272,0,0,0,0,289,"Drowzee","Alakazam",NA,NA,NA,NA,55,57,NA,NA,NA,NA,57,8,3474
+"290","Belle & Pa Ava & Matt",2,782,987,0,0,0,0,290,"Ponyta","Rapidash",NA,NA,NA,NA,24,24,NA,NA,NA,NA,24,3,1769
+"291","Rancher",1,61,0,0,0,0,0,291,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"292","Rancher Marco",1,782,0,0,0,0,0,292,"Ponyta",NA,NA,NA,NA,NA,24,NA,NA,NA,NA,NA,24,3,782
+"293","Fisherman Erick",3,666,1129,1422,0,0,0,293,"Goldeen","Seaking","Gyarados",NA,NA,NA,28,31,31,NA,NA,NA,31,4,3217
+"294","Twins Emma & Lil",2,321,0,0,0,0,0,294,"Bonsly","Mime",NA,NA,NA,NA,22,22,NA,NA,NA,NA,22,3,321
+"295","Commander Mars",2,174,0,0,0,0,0,295,"Zubat","Purugly",NA,NA,NA,NA,15,NA,NA,NA,NA,NA,15,1,174
+"296","Galactic Grunt",1,220,0,0,0,0,0,296,"Stunky",NA,NA,NA,NA,NA,13,NA,NA,NA,NA,NA,13,1,220
+"297","Galactic Grunt",2,127,127,0,0,0,0,297,"Zubat","Zubat",NA,NA,NA,NA,11,11,NA,NA,NA,NA,11,1,254
+"298","Galactic Grunt",1,150,0,0,0,0,0,298,"Zubat",NA,NA,NA,NA,NA,13,NA,NA,NA,NA,NA,13,1,150
+"299","Galactic Grunt",2,167,186,0,0,0,0,299,"Glameow","Stunky",NA,NA,NA,NA,11,11,NA,NA,NA,NA,11,1,353
+"300","Guitarist Tony",2,1124,629,0,0,0,0,300,"Kricketune","Magnemite",NA,NA,NA,NA,33,33,NA,NA,NA,NA,33,5,1753
+"301","Guitarist Jerry",3,839,1103,1103,0,0,0,301,"Magnemite","Luxio","Luxio",NA,NA,NA,44,44,44,NA,NA,NA,44,7,3045
+"302","Guitarist Preston",2,1128,1128,0,0,0,0,302,"Luxio","Luxio",NA,NA,NA,NA,45,45,NA,NA,NA,NA,45,7,2256
+"303","Guitarist Lonnie",1,1229,0,0,0,0,0,303,"Raichu",NA,NA,NA,NA,NA,47,NA,NA,NA,NA,NA,47,8,1229
+"304","Ruin Maniac Calvin",2,355,488,0,0,0,0,304,"Bronzor","Shieldon",NA,NA,NA,NA,23,23,NA,NA,NA,NA,23,3,843
+"305","Ruin Maniac Larry",1,2467,0,0,0,0,0,305,"Aerodactyl",NA,NA,NA,NA,NA,57,NA,NA,NA,NA,NA,57,8,2467
+"306","Jogger Wyatt",1,422,0,0,0,0,0,306,"Pikachu",NA,NA,NA,NA,NA,24,NA,NA,NA,NA,NA,24,3,422
+"307","Jogger Craig",2,552,602,0,0,0,0,307,"Luxio","Luxio",NA,NA,NA,NA,22,24,NA,NA,NA,NA,24,3,1154
+"308","Jogger Raul",1,557,0,0,0,0,0,308,"Staravia",NA,NA,NA,NA,NA,23,NA,NA,NA,NA,NA,23,3,557
+"309","Black Belt Colby",3,720,782,845,0,0,0,309,"Machoke","Machoke","Machoke",NA,NA,NA,23,25,27,NA,NA,NA,27,3,2347
+"310","Black Belt Darren",3,402,488,782,0,0,0,310,"Machop","Meditite","Machoke",NA,NA,NA,25,25,25,NA,NA,NA,25,3,1672
+"311","Black Belt Rafael",2,462,813,0,0,0,0,311,"Croagunk","Machoke",NA,NA,NA,NA,26,26,NA,NA,NA,NA,26,3,1275
+"312","Black Belt Jeffery",1,1200,0,0,0,0,0,312,"Heracross",NA,NA,NA,NA,NA,28,NA,NA,NA,NA,NA,28,4,1200
+"313","Black Belt Carl",2,1072,1757,0,0,0,0,313,"Tyrogue","Hitmonlee",NA,NA,NA,NA,55,59,NA,NA,NA,NA,59,8,2829
+"314","Black Belt Ricky",1,1596,0,0,0,0,0,314,"Steelix",NA,NA,NA,NA,NA,38,NA,NA,NA,NA,NA,38,6,1596
+"315","Leader Gardenia",0,274,570,0,0,0,0,315,"Turtwig","Cherrim","Roserade",NA,NA,NA,20,20,NA,NA,NA,NA,20,2,844
+"316","Leader Wake",0,1513,998,0,0,0,0,316,"Gyarados","Quagsire","Floatzel",NA,NA,NA,33,34,NA,NA,NA,NA,34,5,2511
+"317","Leader Maylene",3,546,907,1399,0,0,0,317,"Meditite","Machoke","Lucario",NA,NA,NA,28,29,32,NA,NA,NA,32,4,2852
+"318","Leader Fantina",0,499,648,0,0,0,0,318,"Duskull","Haunter","Mismagius",NA,NA,NA,24,24,NA,NA,NA,NA,24,3,1147
+"319","Leader Candice",0,1131,1371,1926,0,0,0,319,"Sneasel","Piloswine","Abomasnow","Froslass",NA,NA,40,40,42,NA,NA,NA,42,7,4428
+"320","Leader Volkner",0,1942,1203,1995,0,0,0,320,"Jolteon","Raichu","Luxray","Electivire",NA,NA,46,46,48,NA,NA,NA,48,8,5140
+"321","Lass",1,61,0,0,0,0,0,321,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"322","Lass Madeline",1,137,0,0,0,0,0,322,"Psyduck",NA,NA,NA,NA,NA,8,NA,NA,NA,NA,NA,8,0,137
+"323","Lass Kaitlin",4,50,58,48,64,0,0,323,"Bidoof","Budew","Starly","Abra",NA,NA,4,4,4,4,NA,NA,4,0,220
+"324","Lass Caroline",2,248,554,0,0,0,0,324,"Cherubi","Roselia",NA,NA,NA,NA,17,17,NA,NA,NA,NA,17,1,802
+"325","Lass Molly",1,724,0,0,0,0,0,325,"Misdreavus",NA,NA,NA,NA,NA,23,NA,NA,NA,NA,NA,23,3,724
+"326","Hiker Louis",2,219,417,0,0,0,0,326,"Geodude","Onix",NA,NA,NA,NA,14,18,NA,NA,NA,NA,18,2,636
+"327","Parasol Lady Alexa",2,642,671,0,0,0,0,327,"Goldeen","Bibarel",NA,NA,NA,NA,27,27,NA,NA,NA,NA,27,3,1313
+"328","Parasol Lady Sabrina",2,290,822,0,0,0,0,328,"Wooper","Quagsire",NA,NA,NA,NA,26,28,NA,NA,NA,NA,28,4,1112
+"329","Picnicker Diana",1,112,0,0,0,0,0,329,"Bidoof",NA,NA,NA,NA,NA,9,NA,NA,NA,NA,NA,9,0,112
+"330","Picnicker",2,762,882,0,0,0,0,330,"Drifloon","Misdreavus",NA,NA,NA,NA,28,28,NA,NA,NA,NA,28,4,1644
+"331","Poke Kid Meghan",4,738,738,738,738,0,0,331,"Pikachu","Pikachu","Pikachu","Pikachu",NA,NA,42,42,42,42,NA,NA,42,7,2952
+"332","Policeman Danny",2,323,450,0,0,0,0,332,"Hoothoot","Machop",NA,NA,NA,NA,26,28,NA,NA,NA,NA,28,4,773
+"333","Policeman Thomas",2,1493,1345,0,0,0,0,333,"Noctowl","Machoke",NA,NA,NA,NA,43,43,NA,NA,NA,NA,43,7,2838
+"334","Rich Boy",1,61,0,0,0,0,0,334,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"335","Rich Boy Trey",0,1871,0,0,0,0,0,335,"Luxray",NA,NA,NA,NA,NA,45,NA,NA,NA,NA,NA,45,7,1871
+"336","Lady",1,61,0,0,0,0,0,336,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"337","Sailor Marc",1,1041,0,0,0,0,0,337,"Mantyke",NA,NA,NA,NA,NA,45,NA,NA,NA,NA,NA,45,7,1041
+"338","Sailor Skyler",2,741,1064,0,0,0,0,338,"Mantyke","Machoke",NA,NA,NA,NA,32,34,NA,NA,NA,NA,34,5,1805
+"339","Sailor Damian",2,425,1089,0,0,0,0,339,"Wingull","Pelipper",NA,NA,NA,NA,31,31,NA,NA,NA,NA,31,4,1514
+"340","School Kid Chance",0,468,0,0,0,0,0,340,"Gastly",NA,NA,NA,NA,NA,23,NA,NA,NA,NA,NA,23,3,468
+"341","School Kid Forrest",0,1622,0,0,0,0,0,341,"Magneton",NA,NA,NA,NA,NA,47,NA,NA,NA,NA,NA,47,8,1622
+"342","School Kid Harrison",0,72,0,0,0,0,0,342,"Starly",NA,NA,NA,NA,NA,6,NA,NA,NA,NA,NA,6,0,72
+"343","School Kid Mackenzie",0,572,572,0,0,0,0,343,"Drifloon","Drifloon",NA,NA,NA,NA,21,21,NA,NA,NA,NA,21,2,1144
+"344","School Kid Tiera",0,1209,0,0,0,0,0,344,"Pachirisu",NA,NA,NA,NA,NA,47,NA,NA,NA,NA,NA,47,8,1209
+"345","School Kid Christine",0,75,0,0,0,0,0,345,"Bidoof",NA,NA,NA,NA,NA,6,NA,NA,NA,NA,NA,6,0,75
+"346","Beauty Cyndy",1,441,0,0,0,0,0,346,"Glameow",NA,NA,NA,NA,NA,29,NA,NA,NA,NA,NA,29,4,441
+"347","Beauty",1,61,0,0,0,0,0,347,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"348","Beauty",1,619,0,0,0,0,0,348,"Roselia",NA,NA,NA,NA,NA,19,NA,NA,NA,NA,NA,19,2,619
+"349","Skier",1,61,0,0,0,0,0,349,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"350","Skier",1,61,0,0,0,0,0,350,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"351","Swimmer",1,61,0,0,0,0,0,351,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"352","Swimmer",1,61,0,0,0,0,0,352,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"353","Swimmer",1,61,0,0,0,0,0,353,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"354","Swimmer",1,61,0,0,0,0,0,354,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"355","Youngster Dallas",1,103,0,0,0,0,0,355,"Shinx",NA,NA,NA,NA,NA,8,NA,NA,NA,NA,NA,8,0,103
+"356","Youngster Sebastian",1,129,0,0,0,0,0,356,"Machop",NA,NA,NA,NA,NA,8,NA,NA,NA,NA,NA,8,0,129
+"357","Youngster Donny",2,407,599,0,0,0,0,357,"Gastly","Drifloon",NA,NA,NA,NA,20,22,NA,NA,NA,NA,22,3,1006
+"358","Tuber Trenton",2,485,516,0,0,0,0,358,"Shellos","Shellos",NA,NA,NA,NA,31,33,NA,NA,NA,NA,33,5,1001
+"359","Tuber Conner",1,735,0,0,0,0,0,359,"Remoraid",NA,NA,NA,NA,NA,44,NA,NA,NA,NA,NA,44,7,735
+"360","Tuber Mariel",2,385,410,0,0,0,0,360,"Marill","Marill",NA,NA,NA,NA,31,33,NA,NA,NA,NA,33,5,795
+"361","Tuber Holly",1,735,0,0,0,0,0,361,"Remoraid",NA,NA,NA,NA,NA,44,NA,NA,NA,NA,NA,44,7,735
+"362","Veteran Armando",3,1783,1454,1524,0,0,0,362,"Muk","Mightyena","Lickitung",NA,NA,NA,53,53,56,NA,NA,NA,56,8,4761
+"363","Waiter",1,61,0,0,0,0,0,363,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"364","Waiter",1,61,0,0,0,0,0,364,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"365","Waiter",1,61,0,0,0,0,0,365,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"366","Waitress Kati",1,364,0,0,0,0,0,366,"Clefairy",NA,NA,NA,NA,NA,25,NA,NA,NA,NA,NA,25,3,364
+"367","Worker Gerardo",2,668,668,0,0,0,0,367,"Magnemite","Magnemite",NA,NA,NA,NA,35,35,NA,NA,NA,NA,35,5,1336
+"368","Interviewers Roxy & Oli",2,114,90,0,0,0,0,368,"Magnemite","Ralts",NA,NA,NA,NA,6,6,NA,NA,NA,NA,6,0,204
+"369","Cameraman Tevin",1,96,0,0,0,0,0,369,"Machop",NA,NA,NA,NA,NA,6,NA,NA,NA,NA,NA,6,0,96
+"370","Reporter Kinsey",1,77,0,0,0,0,0,370,"Shinx",NA,NA,NA,NA,NA,6,NA,NA,NA,NA,NA,6,0,77
+"371","Idol Grace",1,87,0,0,0,0,0,371,"Clefairy",NA,NA,NA,NA,NA,6,NA,NA,NA,NA,NA,6,0,87
+"372","Battle Girl Tyler",1,1246,0,0,0,0,0,372,"Medicham",NA,NA,NA,NA,NA,38,NA,NA,NA,NA,NA,38,6,1246
+"373","Bird Keeper Autumn",2,1238,1979,0,0,0,0,373,"Murkrow","Xatu",NA,NA,NA,NA,54,54,NA,NA,NA,NA,54,8,3217
+"374","Pokemon Breeder",1,61,0,0,0,0,0,374,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"375","Pokemon Breeder",1,61,0,0,0,0,0,375,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"376","Cameraman",1,61,0,0,0,0,0,376,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"377","Camper Zackary",1,282,0,0,0,0,0,377,"Aipom",NA,NA,NA,NA,NA,14,NA,NA,NA,NA,NA,14,1,282
+"378","Camper Lawrence",2,685,1373,0,0,0,0,378,"Aipom","Floatzel",NA,NA,NA,NA,34,36,NA,NA,NA,NA,36,5,2058
+"379","Camper Diego",1,443,0,0,0,0,0,379,"Aipom",NA,NA,NA,NA,NA,22,NA,NA,NA,NA,NA,22,3,443
+"380","Camper Parker",2,321,257,0,0,0,0,380,"Buizel","Shinx",NA,NA,NA,NA,20,20,NA,NA,NA,NA,20,2,578
+"381","Collector Dean",2,1140,1140,0,0,0,0,381,"Umbreon","Espeon",NA,NA,NA,NA,27,27,NA,NA,NA,NA,27,3,2280
+"382","Collector Jamal",1,752,0,0,0,0,0,382,"Porygon",NA,NA,NA,NA,NA,27,NA,NA,NA,NA,NA,27,3,752
+"383","Collector Terry",1,316,0,0,0,0,0,383,"Gible",NA,NA,NA,NA,NA,22,NA,NA,NA,NA,NA,22,3,316
+"384","Pokefan",1,61,0,0,0,0,0,384,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"385","Pokefan",1,61,0,0,0,0,0,385,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"386","Dragon Tamer Joe",2,747,1728,0,0,0,0,386,"Dratini","Gabite",NA,NA,NA,NA,52,56,NA,NA,NA,NA,56,8,2475
+"387","Ace Trainer",1,61,0,0,0,0,0,387,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"388","Ace Trainer Jonah",3,1028,1327,774,0,0,0,388,"Quagsire","Staraptor","Hippopotas",NA,NA,NA,35,36,38,NA,NA,NA,38,6,3129
+"389","Ace Trainer Micah",2,1803,2172,0,0,0,0,389,"Metang","Ludicolo",NA,NA,NA,NA,55,56,NA,NA,NA,NA,56,8,3975
+"390","Ace Trainer Arthur",3,2037,1840,1768,0,0,0,390,"Gastrodon","Beedrill","Electrode",NA,NA,NA,54,54,55,NA,NA,NA,55,8,5645
+"391","Ace Trainer",1,61,0,0,0,0,0,391,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"392","Ace Trainer Brenda",3,1449,1080,1148,0,0,0,392,"Lopunny","Kirlia","Medicham",NA,NA,NA,38,36,35,NA,NA,NA,38,6,3677
+"393","Ace Trainer Brandi",2,1435,2138,0,0,0,0,393,"Marowak","Kangaskhan",NA,NA,NA,NA,54,57,NA,NA,NA,NA,57,8,3573
+"394","Ace Trainer Clarice",3,1908,2060,2532,0,0,0,394,"Swalot","Ninetales","Magnezone",NA,NA,NA,53,54,56,NA,NA,NA,56,8,6500
+"395","Psychic Kody",1,332,0,0,0,0,0,395,"Meditite",NA,NA,NA,NA,NA,17,NA,NA,NA,NA,NA,17,1,332
+"396","Psychic Landon",2,1102,2192,0,0,0,0,396,"Shuppet","Alakazam",NA,NA,NA,NA,53,55,NA,NA,NA,NA,55,8,3294
+"397","Psychic Deandre",1,2520,0,0,0,0,0,397,"Dusknoir",NA,NA,NA,NA,NA,56,NA,NA,NA,NA,NA,56,8,2520
+"398","Psychic Rachael",1,291,0,0,0,0,0,398,"Psyduck",NA,NA,NA,NA,NA,17,NA,NA,NA,NA,NA,17,1,291
+"399","Psychic Desiree",2,0,2164,0,0,0,0,399,"Mr.","Mismagius",NA,NA,NA,NA,54,54,NA,NA,NA,NA,54,8,2164
+"400","Psychic Kendra",3,1638,1404,2239,0,0,0,400,"Chimecho","Haunter","Gengar",NA,NA,NA,52,52,55,NA,NA,NA,55,8,5281
+"401","Fisherman Walter",1,1117,0,0,0,0,0,401,"Whiscash",NA,NA,NA,NA,NA,33,NA,NA,NA,NA,NA,33,5,1117
+"402","Gentleman",1,61,0,0,0,0,0,402,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"403","Galactic Boss Cyrus",0,1245,1923,0,0,0,0,403,"Sneasel","Crobat","Honchkrow",NA,NA,NA,44,44,NA,NA,NA,NA,44,7,3168
+"404","Galactic Boss Cyrus",0,1967,1883,2011,2109,0,0,404,"Houndoom","Honchkrow","Crobat","Gyarados","Weavile",NA,45,47,46,46,NA,NA,47,8,7970
+"405","Commander Mars",3,1392,586,0,0,0,0,405,"Golbat","Bronzor","Purugly",NA,NA,NA,38,38,NA,NA,NA,NA,38,6,1978
+"406","Commander Jupiter",2,243,0,0,0,0,0,406,"Zubat","Skuntank",NA,NA,NA,NA,21,NA,NA,NA,NA,NA,21,2,243
+"407","Commander Jupiter",3,679,1612,0,0,0,0,407,"Bronzor","Golbat","Skuntank",NA,NA,NA,44,44,NA,NA,NA,NA,44,7,2291
+"408","Commander Saturn",3,1392,586,0,0,0,0,408,"Golbat","Bronzor","Toxicroak",NA,NA,NA,38,38,NA,NA,NA,NA,38,6,1978
+"409","Commander Saturn",3,1539,648,0,0,0,0,409,"Golbat","Bronzor","Toxicroak",NA,NA,NA,42,42,NA,NA,NA,NA,42,7,2187
+"410","Galactic Grunt",2,197,288,0,0,0,0,410,"Zubat","Stunky",NA,NA,NA,NA,17,17,NA,NA,NA,NA,17,1,485
+"411","Galactic Grunt",1,61,0,0,0,0,0,411,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"412","Galactic Grunt",1,338,0,0,0,0,0,412,"Croagunk",NA,NA,NA,NA,NA,19,NA,NA,NA,NA,NA,19,2,338
+"413","Galactic Grunt",1,61,0,0,0,0,0,413,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"414","Galactic Grunt",1,186,0,0,0,0,0,414,"Stunky",NA,NA,NA,NA,NA,11,NA,NA,NA,NA,NA,11,1,186
+"415","Galactic Grunt",1,167,0,0,0,0,0,415,"Glameow",NA,NA,NA,NA,NA,11,NA,NA,NA,NA,NA,11,1,167
+"416","Galactic Grunt",2,782,1099,0,0,0,0,416,"Houndour","Golbat",NA,NA,NA,NA,32,30,NA,NA,NA,NA,32,4,1881
+"417","Galactic Grunt",1,1356,0,0,0,0,0,417,"Golbat",NA,NA,NA,NA,NA,37,NA,NA,NA,NA,NA,37,6,1356
+"418","Galactic Grunt",4,587,502,559,806,0,0,418,"Croagunk","Glameow","Stunky","Houndour",NA,NA,33,33,33,33,NA,NA,33,5,2454
+"419","Galactic Grunt",1,658,0,0,0,0,0,419,"Croagunk",NA,NA,NA,NA,NA,37,NA,NA,NA,NA,NA,37,6,658
+"420","Galactic Grunt",2,592,855,0,0,0,0,420,"Stunky","Houndour",NA,NA,NA,NA,35,35,NA,NA,NA,NA,35,5,1447
+"421","Galactic Grunt",2,185,274,0,0,0,0,421,"Zubat","Glameow",NA,NA,NA,NA,16,18,NA,NA,NA,NA,18,2,459
+"422","Galactic Grunt",1,289,0,0,0,0,0,422,"Glameow",NA,NA,NA,NA,NA,19,NA,NA,NA,NA,NA,19,2,289
+"423","Galactic Grunt",3,271,285,243,0,0,0,423,"Stunky","Croagunk","Glameow",NA,NA,NA,16,16,16,NA,NA,NA,16,1,799
+"424","Galactic Grunt",1,61,0,0,0,0,0,424,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"425","Galactic Grunt",2,532,802,0,0,0,0,425,"Glameow","Murkrow",NA,NA,NA,NA,35,35,NA,NA,NA,NA,35,5,1334
+"426","Galactic Grunt",3,502,1209,825,0,0,0,426,"Glameow","Golbat","Murkrow",NA,NA,NA,33,33,36,NA,NA,NA,36,5,2536
+"427","Galactic Grunt",2,831,548,0,0,0,0,427,"Houndour","Glameow",NA,NA,NA,NA,34,36,NA,NA,NA,NA,36,5,1379
+"428","Galactic Grunt",1,624,0,0,0,0,0,428,"Glameow",NA,NA,NA,NA,NA,41,NA,NA,NA,NA,NA,41,7,624
+"429","Galactic Grunt",1,61,0,0,0,0,0,429,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"430","Galactic Grunt",2,1429,953,0,0,0,0,430,"Golbat","Houndour",NA,NA,NA,NA,39,39,NA,NA,NA,NA,39,6,2382
+"431","Guitarist Arturo",1,81,0,0,0,0,0,431,"Kricketot",NA,NA,NA,NA,NA,7,NA,NA,NA,NA,NA,7,0,81
+"432","Guitarist",1,61,0,0,0,0,0,432,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"433","Guitarist",1,61,0,0,0,0,0,433,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"434","Guitarist",1,61,0,0,0,0,0,434,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"435","Guitarist",1,61,0,0,0,0,0,435,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"436","Guitarist",1,61,0,0,0,0,0,436,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"437","Idol",1,61,0,0,0,0,0,437,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"438","Idol",1,61,0,0,0,0,0,438,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"439","Idol",1,61,0,0,0,0,0,439,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"440","Idol",1,61,0,0,0,0,0,440,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"441","Ruin Maniac",1,61,0,0,0,0,0,441,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"442","Ruin Maniac Harry",3,432,463,494,0,0,0,442,"Bronzor","Bronzor","Bronzor",NA,NA,NA,28,30,32,NA,NA,NA,32,4,1389
+"443","Ruin Maniac Gerald",2,297,324,0,0,0,0,443,"Geodude","Bronzor",NA,NA,NA,NA,19,21,NA,NA,NA,NA,21,2,621
+"444","Black Belt Miles",1,1985,0,0,0,0,0,444,"Machamp",NA,NA,NA,NA,NA,48,NA,NA,NA,NA,NA,48,8,1985
+"445","Black Belt Kendal",1,1474,0,0,0,0,0,445,"Toxicroak",NA,NA,NA,NA,NA,38,NA,NA,NA,NA,NA,38,6,1474
+"446","Black Belt Eddie",3,809,1658,2463,0,0,0,446,"Mankey","Machoke","Infernape",NA,NA,NA,51,53,55,NA,NA,NA,55,8,4930
+"447","Black Belt Willie",2,2314,2233,0,0,0,0,447,"Heracross","Machamp",NA,NA,NA,NA,54,54,NA,NA,NA,NA,54,8,4547
+"448","Socialite",1,61,0,0,0,0,0,448,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"449","Lass",1,61,0,0,0,0,0,449,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"450","Lass Cassidy",1,396,0,0,0,0,0,450,"Buneary",NA,NA,NA,NA,NA,22,NA,NA,NA,NA,NA,22,3,396
+"451","Hiker Theodore",2,417,463,0,0,0,0,451,"Onix","Onix",NA,NA,NA,NA,18,20,NA,NA,NA,NA,20,2,880
+"452","Hiker Damon",3,810,764,1428,0,0,0,452,"Nosepass","Onix","Steelix",NA,NA,NA,35,33,34,NA,NA,NA,35,5,3002
+"453","Hiker Maurice",2,1005,1012,0,0,0,0,453,"Graveler","Rhyhorn",NA,NA,NA,NA,35,35,NA,NA,NA,NA,35,5,2017
+"454","Hiker Reginald",2,313,313,0,0,0,0,454,"Geodude","Geodude",NA,NA,NA,NA,20,20,NA,NA,NA,NA,20,2,626
+"455","Hiker Lorenzo",1,509,0,0,0,0,0,455,"Onix",NA,NA,NA,NA,NA,22,NA,NA,NA,NA,NA,22,3,509
+"456","Picnicker Karina",1,198,0,0,0,0,0,456,"Piplup",NA,NA,NA,NA,NA,14,NA,NA,NA,NA,NA,14,1,198
+"457","Picnicker Summer",1,967,0,0,0,0,0,457,"Raichu",NA,NA,NA,NA,NA,37,NA,NA,NA,NA,NA,37,6,967
+"458","Picnicker Tori",1,377,0,0,0,0,0,458,"Psyduck",NA,NA,NA,NA,NA,22,NA,NA,NA,NA,NA,22,3,377
+"459","Picnicker Ana",1,273,0,0,0,0,0,459,"Hoothoot",NA,NA,NA,NA,NA,22,NA,NA,NA,NA,NA,22,3,273
+"460","Clown Lee",1,0,0,0,0,0,0,460,"Mime",NA,NA,NA,NA,NA,6,NA,NA,NA,NA,NA,6,0,0
+"461","Clown",1,61,0,0,0,0,0,461,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"462","Clown",1,61,0,0,0,0,0,462,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"463","Clown",1,61,0,0,0,0,0,463,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"464","Clown",1,61,0,0,0,0,0,464,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"465","Poke Kid Ariel",3,27,27,27,0,0,0,465,"Pichu","Pichu","Pichu",NA,NA,NA,3,3,3,NA,NA,NA,3,0,81
+"466","Policeman",1,61,0,0,0,0,0,466,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"467","Rich Boy",1,61,0,0,0,0,0,467,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"468","Rich Boy",1,61,0,0,0,0,0,468,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"469","Lady",1,61,0,0,0,0,0,469,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"470","Rival",4,605,370,749,816,0,0,470,"Staravia","Buizel","Ponyta","Grotle",NA,NA,25,23,23,27,NA,NA,27,3,2540
+"471","Rival",4,605,370,749,822,0,0,471,"Staravia","Buizel","Roselia","Monferno",NA,NA,25,23,23,27,NA,NA,27,3,2546
+"472","Rival",4,605,749,749,827,0,0,472,"Staravia","Roselia","Ponyta","Prinplup",NA,NA,25,23,23,27,NA,NA,27,3,2930
+"473","Rival",4,823,514,1042,1088,0,0,473,"Staravia","Buizel","Ponyta","Grotle",NA,NA,34,32,32,36,NA,NA,36,5,3467
+"474","Rival",4,823,514,1042,1095,0,0,474,"Staravia","Buizel","Roselia","Monferno",NA,NA,34,32,32,36,NA,NA,36,5,3474
+"475","Rival",4,823,1042,1042,1103,0,0,475,"Staravia","Roselia","Ponyta","Prinplup",NA,NA,34,32,32,36,NA,NA,36,5,4010
+"476","Rival",5,1327,1335,1586,1440,1694,0,476,"Staraptor","Floatzel","Heracross","Rapidash","Torterra",NA,36,35,37,35,38,NA,38,6,7382
+"477","Rival",5,1327,1335,1586,1530,1702,0,477,"Staraptor","Floatzel","Heracross","Roserade","Infernape",NA,36,35,37,35,38,NA,38,6,7480
+"478","Rival",5,1327,1530,1586,1440,1710,0,478,"Staraptor","Roserade","Heracross","Rapidash","Empoleon",NA,36,35,37,35,38,NA,38,6,7593
+"479","Rival",6,1769,1793,2057,1934,1617,2273,479,"Staraptor","Floatzel","Heracross","Rapidash","Snorlax","Torterra",48,47,48,47,49,51,51,8,11443
+"480","Rival",6,1769,1793,2057,2055,1617,2284,480,"Staraptor","Floatzel","Heracross","Roserade","Snorlax","Infernape",48,47,48,47,49,51,51,8,11575
+"481","Rival",6,1769,2055,2057,1934,1617,2295,481,"Staraptor","Roserade","Heracross","Rapidash","Snorlax","Empoleon",48,47,48,47,49,51,51,8,11727
+"482","Sailor Zachariah",3,1406,1314,1659,0,0,0,482,"Pelipper","Machoke","Gastrodon",NA,NA,NA,40,42,44,NA,NA,NA,44,7,4379
+"483","Sailor Samson",3,398,469,1156,0,0,0,483,"Wingull","Shellos","Golduck",NA,NA,NA,29,30,31,NA,NA,NA,31,4,2023
+"484","School Kid",1,61,0,0,0,0,0,484,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"485","School Kid",1,61,0,0,0,0,0,485,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"486","Scientist Shaun",0,572,808,0,0,0,0,486,"Magnemite","Kadabra",NA,NA,NA,NA,30,26,NA,NA,NA,NA,30,4,1380
+"487","Scientist",1,61,0,0,0,0,0,487,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"488","Ninja Boy Fabian",2,551,551,0,0,0,0,488,"Croagunk","Croagunk",NA,NA,NA,NA,31,31,NA,NA,NA,NA,31,4,1102
+"489","Ninja Boy Brennan",2,347,782,0,0,0,0,489,"Zubat","Skorupi",NA,NA,NA,NA,30,32,NA,NA,NA,NA,32,4,1129
+"490","Ninja Boy Bruce",1,559,0,0,0,0,0,490,"Stunky",NA,NA,NA,NA,NA,33,NA,NA,NA,NA,NA,33,5,559
+"491","Beauty Devon",3,0,0,0,0,0,0,491,"Wormadam","Wormadam","Wormadam",NA,NA,NA,24,24,24,NA,NA,NA,24,3,0
+"492","Beauty Nicola",1,1716,0,0,0,0,0,492,"Lopunny",NA,NA,NA,NA,NA,45,NA,NA,NA,NA,NA,45,7,1716
+"493","Swimmer",1,61,0,0,0,0,0,493,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"494","Swimmer Claire",1,1335,0,0,0,0,0,494,"Floatzel",NA,NA,NA,NA,NA,35,NA,NA,NA,NA,NA,35,5,1335
+"495","Youngster",1,61,0,0,0,0,0,495,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"496","Youngster Wayne",3,412,313,651,0,0,0,496,"Staravia","Shellos","Ponyta",NA,NA,NA,17,20,20,NA,NA,NA,20,2,1376
+"497","Tuber Jacky",1,795,0,0,0,0,0,497,"Bibarel",NA,NA,NA,NA,NA,32,NA,NA,NA,NA,NA,32,4,795
+"498","Tuber Caitlyn",3,191,360,1016,0,0,0,498,"Azurill","Marill","Azumarill",NA,NA,NA,27,29,31,NA,NA,NA,31,4,1567
+"499","Veteran Terrell",3,1454,2361,1968,0,0,0,499,"Parasect","Rhydon","Magmar",NA,NA,NA,53,54,55,NA,NA,NA,55,8,5783
+"500","Veteran Brenden",3,1365,2476,2291,0,0,0,500,"Forretress","Gyarados","Hippowdon",NA,NA,NA,54,54,54,NA,NA,NA,54,8,6132
+"501","Waiter",1,61,0,0,0,0,0,501,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"502","Worker",1,61,0,0,0,0,0,502,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"503","Worker Noel",2,648,687,0,0,0,0,503,"Magnemite","Magnemite",NA,NA,NA,NA,34,36,NA,NA,NA,NA,36,5,1335
+"504","Worker Braden",1,1554,0,0,0,0,0,504,"Steelix",NA,NA,NA,NA,NA,37,NA,NA,NA,NA,NA,37,6,1554
+"505","Worker Brendon",3,516,516,1126,0,0,0,505,"Geodude","Geodude","Machoke",NA,NA,NA,33,33,36,NA,NA,NA,36,5,2158
+"506","Worker Quentin",3,648,546,976,0,0,0,506,"Magnemite","Machop","Graveler",NA,NA,NA,34,34,34,NA,NA,NA,34,5,2170
+"507","Galactic Grunt",1,1502,0,0,0,0,0,507,"Golbat",NA,NA,NA,NA,NA,41,NA,NA,NA,NA,NA,41,7,1502
+"508","Galactic Grunt",2,928,917,0,0,0,0,508,"Houndour","Murkrow",NA,NA,NA,NA,38,40,NA,NA,NA,NA,40,7,1845
+"509","Galactic Grunt",1,694,0,0,0,0,0,509,"Stunky",NA,NA,NA,NA,NA,41,NA,NA,NA,NA,NA,41,7,694
+"510","Galactic Grunt",3,563,871,694,0,0,0,510,"Glameow","Murkrow","Croagunk",NA,NA,NA,37,38,39,NA,NA,NA,39,6,2128
+"511","Galactic Grunt",1,61,0,0,0,0,0,511,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"512","Galactic Grunt",2,894,660,0,0,0,0,512,"Murkrow","Stunky",NA,NA,NA,NA,39,39,NA,NA,NA,NA,39,6,1554
+"513","Galactic Grunt",2,1466,1392,0,0,0,0,513,"Golbat","Golbat",NA,NA,NA,NA,40,38,NA,NA,NA,NA,40,7,2858
+"514","Galactic Grunt",2,643,711,0,0,0,0,514,"Stunky","Croagunk",NA,NA,NA,NA,38,40,NA,NA,NA,NA,40,7,1354
+"515","Galactic Grunt",1,986,0,0,0,0,0,515,"Murkrow",NA,NA,NA,NA,NA,43,NA,NA,NA,NA,NA,43,7,986
+"516","Galactic Grunt",3,977,1466,977,0,0,0,516,"Houndour","Golbat","Houndour",NA,NA,NA,40,40,40,NA,NA,NA,40,7,3420
+"517","Galactic Grunt",2,711,1466,0,0,0,0,517,"Stunky","Golbat",NA,NA,NA,NA,42,40,NA,NA,NA,NA,42,7,2177
+"518","Galactic Grunt",3,676,677,747,0,0,0,518,"Croagunk","Stunky","Croagunk",NA,NA,NA,38,40,42,NA,NA,NA,42,7,2100
+"519","Galactic Grunt",1,1576,0,0,0,0,0,519,"Golbat",NA,NA,NA,NA,NA,43,NA,NA,NA,NA,NA,43,7,1576
+"520","Galactic Grunt",2,624,1502,0,0,0,0,520,"Glameow","Golbat",NA,NA,NA,NA,41,41,NA,NA,NA,NA,41,7,2126
+"521","Galactic Grunt",2,694,765,0,0,0,0,521,"Croagunk","Croagunk",NA,NA,NA,NA,39,43,NA,NA,NA,NA,43,7,1459
+"522","Galactic Grunt",3,676,643,578,0,0,0,522,"Croagunk","Stunky","Glameow",NA,NA,NA,38,38,38,NA,NA,NA,38,6,1897
+"523","Galactic Grunt",1,728,0,0,0,0,0,523,"Stunky",NA,NA,NA,NA,NA,43,NA,NA,NA,NA,NA,43,7,728
+"524","Galactic Grunt",3,894,639,894,0,0,0,524,"Murkrow","Glameow","Murkrow",NA,NA,NA,39,42,39,NA,NA,NA,42,7,2427
+"525","Galactic Grunt",2,977,639,0,0,0,0,525,"Houndour","Glameow",NA,NA,NA,NA,40,42,NA,NA,NA,NA,42,7,1616
+"526","Galactic Grunt",3,1429,711,940,0,0,0,526,"Golbat","Croagunk","Murkrow",NA,NA,NA,39,40,41,NA,NA,NA,41,7,3080
+"527","Galactic Grunt",2,694,624,0,0,0,0,527,"Stunky","Glameow",NA,NA,NA,NA,41,41,NA,NA,NA,NA,41,7,1318
+"528","Commander Mars",3,679,1612,0,0,0,0,528,"Bronzor","Golbat","Purugly",NA,NA,NA,44,44,NA,NA,NA,NA,44,7,2291
+"529","Roughneck Kirby",1,182,0,0,0,0,0,529,"Cleffa",NA,NA,NA,NA,NA,23,NA,NA,NA,NA,NA,23,3,182
+"530","Pokefan Leonard",0,0,0,0,0,0,0,530,"Pichu","Pichu","Pikachu",NA,NA,NA,NA,NA,NA,NA,NA,NA,-Inf,0,0
+"531","Pokefan Rebekah",0,0,0,0,0,0,0,531,"Bonsly",NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,-Inf,0,0
+"532","Youngster Oliver",3,681,375,482,0,0,0,532,"Mothim","Barboach","Chatot",NA,NA,NA,20,19,21,NA,NA,NA,21,2,1538
+"533","Belle & Pa Beth & Bob",2,749,749,0,0,0,0,533,"Ponyta","Ponyta",NA,NA,NA,NA,23,23,NA,NA,NA,NA,23,3,1498
+"534","Young Couple Mike & Nat",2,527,724,0,0,0,0,534,"Murkrow","Misdreavus",NA,NA,NA,NA,23,23,NA,NA,NA,NA,23,3,1251
+"535","Aroma Lady Alison",1,912,0,0,0,0,0,535,"Roselia",NA,NA,NA,NA,NA,28,NA,NA,NA,NA,NA,28,4,912
+"536","Artist Ismael",1,954,0,0,0,0,0,536,"Kricketune",NA,NA,NA,NA,NA,28,NA,NA,NA,NA,NA,28,4,954
+"537","Pokemon Breeder Kaylee",3,524,323,412,0,0,0,537,"Aipom","Marill","Swablu",NA,NA,NA,26,26,26,NA,NA,NA,26,3,1259
+"538","Cameraman Darryl",2,496,0,0,0,0,0,538,"Magnemite","Mr.",NA,NA,NA,NA,26,26,NA,NA,NA,NA,26,3,496
+"539","Collector Eugene",1,366,0,0,0,0,0,539,"Feebas",NA,NA,NA,NA,NA,28,NA,NA,NA,NA,NA,28,4,366
+"540","Pokefan Meredith",2,0,0,0,0,0,0,540,"Pichu","Pachirisu",NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,-Inf,0,0
+"541","PI Kendrick",1,897,0,0,0,0,0,541,"Rhyhorn",NA,NA,NA,NA,NA,31,NA,NA,NA,NA,NA,31,4,897
+"542","Gentleman Leonardo",0,619,0,0,0,0,0,542,"Chatot",NA,NA,NA,NA,NA,27,NA,NA,NA,NA,NA,27,3,619
+"543","Socialite Rebecca",0,1059,0,0,0,0,0,543,"Purugly",NA,NA,NA,NA,NA,27,NA,NA,NA,NA,NA,27,3,1059
+"544","Lass Blythe",2,396,450,0,0,0,0,544,"Chingling","Buneary",NA,NA,NA,NA,25,25,NA,NA,NA,NA,25,3,846
+"545","Rich Boy Roman",0,708,0,0,0,0,0,545,"Lickitung",NA,NA,NA,NA,NA,26,NA,NA,NA,NA,NA,26,3,708
+"546","Lady Kylie",0,190,379,0,0,0,0,546,"Cleffa","Clefairy",NA,NA,NA,NA,24,26,NA,NA,NA,NA,26,3,569
+"547","Reporter Valerie",1,780,0,0,0,0,0,547,"Kirlia",NA,NA,NA,NA,NA,26,NA,NA,NA,NA,NA,26,3,780
+"548","School Kid Esteban",0,763,0,0,0,0,0,548,"Quagsire",NA,NA,NA,NA,NA,26,NA,NA,NA,NA,NA,26,3,763
+"549","Scientist Emilio",0,839,0,0,0,0,0,549,"Kadabra",NA,NA,NA,NA,NA,27,NA,NA,NA,NA,NA,27,3,839
+"550","Beauty Gabriella",1,501,0,0,0,0,0,550,"Finneon",NA,NA,NA,NA,NA,26,NA,NA,NA,NA,NA,26,3,501
+"551","Beauty Harley",1,446,0,0,0,0,0,551,"Psyduck",NA,NA,NA,NA,NA,26,NA,NA,NA,NA,NA,26,3,446
+"552","Veteran Emanuel",2,876,432,0,0,0,0,552,"Machoke","Bronzor",NA,NA,NA,NA,28,28,NA,NA,NA,NA,28,4,1308
+"553","Ruin Maniac Karl",3,297,328,355,0,0,0,553,"Geodude","Geodude","Bronzor",NA,NA,NA,19,21,23,NA,NA,NA,23,3,980
+"554","Bird Keeper Audrey",3,645,1068,2027,0,0,0,554,"Taillow","Farfetch'd","Pidgeot",NA,NA,NA,51,53,55,NA,NA,NA,55,8,3740
+"555","Bird Keeper Geneva",2,1909,2089,0,0,0,0,555,"Fearow","Xatu",NA,NA,NA,NA,55,57,NA,NA,NA,NA,57,8,3998
+"556","Bird Keeper Krystal",3,1332,1979,2048,0,0,0,556,"Staravia","Fearow","Noctowl",NA,NA,NA,55,57,59,NA,NA,NA,59,8,5359
+"557","Dragon Tamer Geoffrey",2,1635,2216,0,0,0,0,557,"Gabite","Altaria",NA,NA,NA,NA,53,55,NA,NA,NA,NA,55,8,3851
+"558","Dragon Tamer Darien",1,2803,0,0,0,0,0,558,"Dragonite",NA,NA,NA,NA,NA,60,NA,NA,NA,NA,NA,60,8,2803
+"559","Dragon Tamer Keegan",2,860,1539,0,0,0,0,559,"Trapinch","Vibrava",NA,NA,NA,NA,55,57,NA,NA,NA,NA,57,8,2399
+"560","Dragon Tamer Stanley",2,790,2296,0,0,0,0,560,"Dratini","Altaria",NA,NA,NA,NA,55,57,NA,NA,NA,NA,57,8,3086
+"561","Dragon Tamer Drake",3,818,1759,1759,0,0,0,561,"Gible","Gabite","Dragonair",NA,NA,NA,57,57,57,NA,NA,NA,57,8,4336
+"562","Dragon Tamer Kenny",3,1087,1759,1539,0,0,0,562,"Bagon","Shelgon","Vibrava",NA,NA,NA,57,57,57,NA,NA,NA,57,8,4385
+"563","Ace Trainer Rodolfo",2,2440,1512,0,0,0,0,563,"Starmie","Vibrava",NA,NA,NA,NA,55,56,NA,NA,NA,NA,56,8,3952
+"564","Ace Trainer Saul",1,2758,0,0,0,0,0,564,"Tauros",NA,NA,NA,NA,NA,61,NA,NA,NA,NA,NA,61,8,2758
+"565","Ace Trainer Jose",3,2088,1956,2052,0,0,0,565,"Golduck","Sandslash","Manectric",NA,NA,NA,56,56,57,NA,NA,NA,57,8,6096
+"566","Ace Trainer Felix",2,2110,2616,0,0,0,0,566,"Dusclops","Salamence",NA,NA,NA,NA,55,56,NA,NA,NA,NA,56,8,4726
+"567","Ace Trainer Quinn",2,2357,1872,0,0,0,0,567,"Pinsir","Lanturn",NA,NA,NA,NA,55,56,NA,NA,NA,NA,56,8,4229
+"568","Ace Trainer Graham",2,1072,1770,0,0,0,0,568,"Tyrogue","Hitmonchan",NA,NA,NA,NA,55,59,NA,NA,NA,NA,59,8,2842
+"569","Ace Trainer Keenan",3,1852,1939,2263,0,0,0,569,"Primeape","Electabuzz","Banette",NA,NA,NA,58,58,59,NA,NA,NA,59,8,6054
+"570","Ace Trainer Stefan",2,1790,2719,0,0,0,0,570,"Pupitar","Torterra",NA,NA,NA,NA,58,61,NA,NA,NA,NA,61,8,4509
+"571","Ace Trainer Skylar",3,1566,2516,2038,0,0,0,571,"Loudred","Rampardos","Pelipper",NA,NA,NA,58,59,58,NA,NA,NA,59,8,6120
+"572","Ace Trainer Abel",2,2364,2623,0,0,0,0,572,"Glalie","Crobat",NA,NA,NA,NA,59,60,NA,NA,NA,NA,60,8,4987
+"573","Ace Trainer Deanna",2,1379,2028,0,0,0,0,573,"Flaaffy","Tropius",NA,NA,NA,NA,55,56,NA,NA,NA,NA,56,8,3407
+"574","Ace Trainer Moira",3,1956,2112,2308,0,0,0,574,"Sandslash","Gastrodon","Claydol",NA,NA,NA,56,56,57,NA,NA,NA,57,8,6376
+"575","Ace Trainer Dana",2,1509,1680,0,0,0,0,575,"Mightyena","Kirlia",NA,NA,NA,NA,55,56,NA,NA,NA,NA,56,8,3189
+"576","Ace Trainer Mikayla",3,1980,1776,2088,0,0,0,576,"Seviper","Persian","Absol",NA,NA,NA,56,56,56,NA,NA,NA,56,8,5844
+"577","Ace Trainer Meagan",2,1686,2660,0,0,0,0,577,"Delcatty","Abomasnow",NA,NA,NA,NA,57,58,NA,NA,NA,NA,58,8,4346
+"578","Ace Trainer Sandra",3,1803,1412,2060,0,0,0,578,"Dugtrio","Raichu","Ninetales",NA,NA,NA,55,54,54,NA,NA,NA,55,8,5275
+"579","Ace Trainer Kassandra",3,2187,1342,2453,0,0,0,579,"Jumpluff","Onix","Ampharos",NA,NA,NA,58,58,59,NA,NA,NA,59,8,5982
+"580","Ace Trainer Jasmin",1,2667,0,0,0,0,0,580,"Drapion",NA,NA,NA,NA,NA,61,NA,NA,NA,NA,NA,61,8,2667
+"581","Ace Trainer Natasha",3,1355,2630,1902,0,0,0,581,"Wigglytuff","Gardevoir","Medicham",NA,NA,NA,58,59,58,NA,NA,NA,59,8,5887
+"582","Ace Trainer Monique",3,2411,2390,2386,0,0,0,582,"Luxray","Ursaring","Gliscor",NA,NA,NA,58,59,58,NA,NA,NA,59,8,7187
+"583","Psychic Corbin",2,2052,2496,0,0,0,0,583,"Xatu","Gallade",NA,NA,NA,NA,56,56,NA,NA,NA,NA,56,8,4548
+"584","Psychic Sterling",2,1832,2630,0,0,0,0,584,"Solrock","Gallade",NA,NA,NA,NA,57,59,NA,NA,NA,NA,59,8,4462
+"585","Psychic Daisy",2,1103,1968,0,0,0,0,585,"Slowpoke","Slowbro",NA,NA,NA,NA,52,56,NA,NA,NA,NA,56,8,3071
+"586","Psychic Chelsey",2,1832,2630,0,0,0,0,586,"Lunatone","Gardevoir",NA,NA,NA,NA,57,59,NA,NA,NA,NA,59,8,4462
+"587","Black Belt Davon",3,1053,1007,2357,0,0,0,587,"Tyrogue","Makuhita","Machamp",NA,NA,NA,54,54,57,NA,NA,NA,57,8,4417
+"588","Black Belt Griffin",2,2051,1902,0,0,0,0,588,"Breloom","Medicham",NA,NA,NA,NA,58,58,NA,NA,NA,NA,58,8,3953
+"589","Black Belt Ray",2,2051,2250,0,0,0,0,589,"Breloom","Toxicroak",NA,NA,NA,NA,58,58,NA,NA,NA,NA,58,8,4301
+"590","Black Belt Jarrett",1,2481,0,0,0,0,0,590,"Machamp",NA,NA,NA,NA,NA,60,NA,NA,NA,NA,NA,60,8,2481
+"591","Pokemon Ranger Kyler",3,1155,1945,2610,0,0,0,591,"Exeggcute","Zangoose","Empoleon",NA,NA,NA,55,55,58,NA,NA,NA,58,8,5710
+"592","Pokemon Ranger Deshawn",3,984,1527,2060,0,0,0,592,"Spinda","Kecleon","Granbull",NA,NA,NA,54,54,54,NA,NA,NA,54,8,4571
+"593","Pokemon Ranger Dwayne",3,1944,2013,2187,0,0,0,593,"Skarmory","Golduck","Donphan",NA,NA,NA,54,54,54,NA,NA,NA,54,8,6144
+"594","Pokemon Ranger Ashlee",2,1509,1732,0,0,0,0,594,"Linoone","Arbok",NA,NA,NA,NA,55,55,NA,NA,NA,NA,55,8,3241
+"595","Pokemon Ranger Felicia",2,1719,2250,0,0,0,0,595,"Skiploom","Lopunny",NA,NA,NA,NA,59,59,NA,NA,NA,NA,59,8,3969
+"596","Pokemon Ranger Krista",2,1857,1515,0,0,0,0,596,"Lairon","Marowak",NA,NA,NA,NA,57,57,NA,NA,NA,NA,57,8,3372
+"597","Swimmer Glenn",2,1863,1488,0,0,0,0,597,"Octillery","Poliwhirl",NA,NA,NA,NA,53,53,NA,NA,NA,NA,53,8,3351
+"598","Swimmer Kurt",3,1257,1213,2384,0,0,0,598,"Krabby","Corphish","Kingler",NA,NA,NA,51,51,54,NA,NA,NA,54,8,4854
+"599","Swimmer Sam",2,1454,1999,0,0,0,0,599,"Sealeo","Gastrodon",NA,NA,NA,NA,53,53,NA,NA,NA,NA,53,8,3453
+"600","Swimmer Wade",3,999,999,2100,0,0,0,600,"Carvanha","Carvanha","Sharpedo",NA,NA,NA,53,53,56,NA,NA,NA,56,8,4098
+"601","Swimmer Joanna",2,1226,2534,0,0,0,0,601,"Luvdisc","Lapras",NA,NA,NA,NA,52,54,NA,NA,NA,NA,54,8,3760
+"602","Swimmer Sophia",2,2078,1908,0,0,0,0,602,"Delibird","Mantine",NA,NA,NA,NA,53,53,NA,NA,NA,NA,53,8,3986
+"603","Swimmer Mallory",2,702,1632,0,0,0,0,603,"Surskit","Lombre",NA,NA,NA,NA,52,54,NA,NA,NA,NA,54,8,2334
+"604","Swimmer Lydia",3,671,868,1585,0,0,0,604,"Marill","Spheal","Wailmer",NA,NA,NA,54,54,54,NA,NA,NA,54,8,3124
+"605","Veteran",1,61,0,0,0,0,0,605,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"606","Veteran Harlan",3,1417,2535,2288,0,0,0,606,"Raticate","Drifblim","Shiftry",NA,NA,NA,57,58,59,NA,NA,NA,59,8,6240
+"607","Rival",6,806,1548,1526,1800,1646,1961,607,"Munchlax","Staraptor","Floatzel","Heracross","Rapidash","Torterra",40,42,40,42,40,44,44,7,9287
+"608","Pokemon Trainer Cheryl",1,1093,0,0,0,0,0,608,"Chansey",NA,NA,NA,NA,NA,20,NA,NA,NA,NA,NA,20,2,1093
+"609","Pokemon Trainer Riley",1,1792,0,0,0,0,0,609,"Lucario",NA,NA,NA,NA,NA,41,NA,NA,NA,NA,NA,41,7,1792
+"610","Pokemon Trainer Marley",1,2693,0,0,0,0,0,610,"Arcanine",NA,NA,NA,NA,NA,59,NA,NA,NA,NA,NA,59,8,2693
+"611","Pokemon Trainer Buck",1,2552,0,0,0,0,0,611,"Claydol",NA,NA,NA,NA,NA,63,NA,NA,NA,NA,NA,63,8,2552
+"612","Pokemon Trainer Mira",1,808,0,0,0,0,0,612,"Kadabra",NA,NA,NA,NA,NA,26,NA,NA,NA,NA,NA,26,3,808
+"613","Pokemon Trainer Lucas",0,178,0,0,0,0,0,613,"Turtwig",NA,NA,NA,NA,NA,13,NA,NA,NA,NA,NA,13,1,178
+"614","Pokemon Trainer Lucas",0,181,0,0,0,0,0,614,"Chimchar",NA,NA,NA,NA,NA,13,NA,NA,NA,NA,NA,13,1,181
+"615","Pokemon Trainer Lucas",0,184,0,0,0,0,0,615,"Piplup",NA,NA,NA,NA,NA,13,NA,NA,NA,NA,NA,13,1,184
+"616","Pokemon Trainer Dawn",0,178,0,0,0,0,0,616,"Turtwig",NA,NA,NA,NA,NA,13,NA,NA,NA,NA,NA,13,1,178
+"617","Pokemon Trainer Dawn",0,181,0,0,0,0,0,617,"Chimchar",NA,NA,NA,NA,NA,13,NA,NA,NA,NA,NA,13,1,181
+"618","Pokemon Trainer Dawn",0,184,0,0,0,0,0,618,"Piplup",NA,NA,NA,NA,NA,13,NA,NA,NA,NA,NA,13,1,184
+"619","Rival",6,806,1548,1526,1800,1749,1971,619,"Munchlax","Staraptor","Floatzel","Heracross","Roserade","Infernape",40,42,40,42,40,44,44,7,9400
+"620","Rival",6,806,1548,1749,1800,1646,1980,620,"Munchlax","Staraptor","Roserade","Heracross","Rapidash","Empoleon",40,42,40,42,40,44,44,7,9529
+"621","Pokemon Trainer Lucas",3,364,777,827,0,0,0,621,"Clefairy","Kadabra","Prinplup",NA,NA,NA,25,25,27,NA,NA,NA,27,3,1968
+"622","Pokemon Trainer Lucas",3,364,777,816,0,0,0,622,"Clefairy","Kadabra","Grotle",NA,NA,NA,25,25,27,NA,NA,NA,27,3,1957
+"623","Pokemon Trainer Lucas",3,364,777,822,0,0,0,623,"Clefairy","Kadabra","Monferno",NA,NA,NA,25,25,27,NA,NA,NA,27,3,1963
+"624","Pokemon Trainer Dawn",3,364,777,827,0,0,0,624,"Clefairy","Kadabra","Prinplup",NA,NA,NA,25,25,27,NA,NA,NA,27,3,1968
+"625","Pokemon Trainer Dawn",3,364,777,816,0,0,0,625,"Clefairy","Kadabra","Grotle",NA,NA,NA,25,25,27,NA,NA,NA,27,3,1957
+"626","Pokemon Trainer Dawn",3,364,777,822,0,0,0,626,"Clefairy","Kadabra","Monferno",NA,NA,NA,25,25,27,NA,NA,NA,27,3,1963
+"627","Aroma Lady Elizabeth",1,782,0,0,0,0,0,627,"Roselia",NA,NA,NA,NA,NA,24,NA,NA,NA,NA,NA,24,3,782
+"628","Aroma Lady Elizabeth",1,1140,0,0,0,0,0,628,"Roselia",NA,NA,NA,NA,NA,35,NA,NA,NA,NA,NA,35,5,1140
+"629","Aroma Lady Elizabeth",1,2361,0,0,0,0,0,629,"Roserade",NA,NA,NA,NA,NA,54,NA,NA,NA,NA,NA,54,8,2361
+"630","Artist William",2,0,955,0,0,0,0,630,"Mr.","Sudowoodo",NA,NA,NA,NA,33,33,NA,NA,NA,NA,33,5,955
+"631","Artist William",2,0,1244,0,0,0,0,631,"Mr.","Sudowoodo",NA,NA,NA,NA,43,43,NA,NA,NA,NA,43,7,1244
+"632","Artist William",3,1363,0,1649,0,0,0,632,"Smeargle","Mr.","Sudowoodo",NA,NA,NA,60,57,57,NA,NA,NA,60,8,3012
+"633","Battle Girl Helen",2,448,370,0,0,0,0,633,"Meditite","Machop",NA,NA,NA,NA,23,23,NA,NA,NA,NA,23,3,818
+"634","Battle Girl Helen",2,1443,1377,0,0,0,0,634,"Medicham","Machoke",NA,NA,NA,NA,44,44,NA,NA,NA,NA,44,7,2820
+"635","Battle Girl Helen",2,1967,2481,0,0,0,0,635,"Medicham","Machamp",NA,NA,NA,NA,60,60,NA,NA,NA,NA,60,8,4448
+"636","Bird Keeper Brianna",2,1527,1527,0,0,0,0,636,"Noctowl","Noctowl",NA,NA,NA,NA,44,44,NA,NA,NA,NA,44,7,3054
+"637","Bird Keeper Brianna",3,2124,2048,2048,0,0,0,637,"Skarmory","Noctowl","Noctowl",NA,NA,NA,59,59,59,NA,NA,NA,59,8,6220
+"638","Bird Keeper Audrey",3,1148,2048,2248,0,0,0,638,"Farfetch'd","Swellow","Pidgeot",NA,NA,NA,57,59,61,NA,NA,NA,61,8,5444
+"639","Pokemon Breeder Albert",4,1042,466,562,631,0,0,639,"Roselia","Bonsly","Pikachu","Eevee",NA,NA,32,32,32,32,NA,NA,32,4,2701
+"640","Pokemon Breeder Albert",4,1368,1215,738,1773,0,0,640,"Roselia","Sudowoodo","Pikachu","Umbreon",NA,NA,42,42,42,42,NA,NA,42,7,5094
+"641","Pokemon Breeder Albert",4,2229,1475,1333,2153,0,0,641,"Roserade","Sudowoodo","Raichu","Umbreon",NA,NA,51,51,51,51,NA,NA,51,8,7190
+"642","Pokemon Breeder Jennifer",4,1042,0,466,631,0,0,642,"Roselia","Mime","Clefairy","Eevee",NA,NA,32,32,32,32,NA,NA,32,4,2139
+"643","Pokemon Breeder Jennifer",4,1335,0,597,1731,0,0,643,"Roselia","Mr.","Clefairy","Espeon",NA,NA,41,41,41,41,NA,NA,41,7,3663
+"644","Pokemon Breeder Jennifer",4,2186,0,1382,2111,0,0,644,"Roserade","Mr.","Clefable","Espeon",NA,NA,50,50,50,50,NA,NA,50,8,5679
+"645","Camper Zackary",1,483,0,0,0,0,0,645,"Aipom",NA,NA,NA,NA,NA,24,NA,NA,NA,NA,NA,24,3,483
+"646","Camper Zackary",1,1395,0,0,0,0,0,646,"Ambipom",NA,NA,NA,NA,NA,35,NA,NA,NA,NA,NA,35,5,1395
+"647","Camper Zackary",2,2073,1293,0,0,0,0,647,"Ambipom","Bibarel",NA,NA,NA,NA,52,52,NA,NA,NA,NA,52,8,3366
+"648","Ace Trainer Dalton",2,2303,2303,0,0,0,0,648,"Electivire","Magmortar",NA,NA,NA,NA,54,54,NA,NA,NA,NA,54,8,4606
+"649","Ace Trainer Olivia",3,2318,2040,1983,0,0,0,649,"Gardevoir","Seaking","Lopunny",NA,NA,NA,52,56,52,NA,NA,NA,56,8,6341
+"650","Collector Ivan",1,2546,0,0,0,0,0,650,"Togekiss",NA,NA,NA,NA,NA,54,NA,NA,NA,NA,NA,54,8,2546
+"651","Cowgirl",1,61,0,0,0,0,0,651,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"652","Cowgirl",1,61,0,0,0,0,0,652,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"653","Cyclist John",2,775,1253,0,0,0,0,653,"Staravia","Staraptor",NA,NA,NA,NA,32,34,NA,NA,NA,NA,34,5,2028
+"654","Cyclist John",2,1585,1585,0,0,0,0,654,"Staraptor","Staraptor",NA,NA,NA,NA,43,43,NA,NA,NA,NA,43,7,3170
+"655","Cyclist John",3,1148,1964,2175,0,0,0,655,"Farfetch'd","Dodrio","Staraptor",NA,NA,NA,57,58,59,NA,NA,NA,59,8,5287
+"656","Cyclist Kayla",1,615,0,0,0,0,0,656,"Pikachu",NA,NA,NA,NA,NA,35,NA,NA,NA,NA,NA,35,5,615
+"657","Cyclist Kayla",1,1176,0,0,0,0,0,657,"Raichu",NA,NA,NA,NA,NA,45,NA,NA,NA,NA,NA,45,7,1176
+"658","Cyclist Kayla",3,1491,1491,1516,0,0,0,658,"Plusle","Minun","Raichu",NA,NA,NA,58,58,58,NA,NA,NA,58,8,4498
+"659","Dragon Tamer Patrick",1,1419,0,0,0,0,0,659,"Gabite",NA,NA,NA,NA,NA,46,NA,NA,NA,NA,NA,46,8,1419
+"660","Dragon Tamer Patrick",3,1882,1882,1882,0,0,0,660,"Shelgon","Gabite","Dragonair",NA,NA,NA,61,61,61,NA,NA,NA,61,8,5646
+"661","Dragon Tamer Hayden",2,2417,2661,0,0,0,0,661,"Altaria","Kingdra",NA,NA,NA,NA,60,60,NA,NA,NA,NA,60,8,5078
+"662","Dragon Tamer Geoffrey",2,2377,2850,0,0,0,0,662,"Altaria","Garchomp",NA,NA,NA,NA,59,61,NA,NA,NA,NA,61,8,5227
+"663","Ace Trainer Jake",2,1990,1756,0,0,0,0,663,"Staraptor","Girafarig",NA,NA,NA,NA,54,55,NA,NA,NA,NA,55,8,3746
+"664","Ace Trainer Dennis",3,1018,1678,1967,0,0,0,664,"Gligar","Floatzel","Drifblim",NA,NA,NA,44,44,45,NA,NA,NA,45,7,4663
+"665","Ace Trainer Dennis",3,2510,2327,2579,0,0,0,665,"Gliscor","Floatzel","Drifblim",NA,NA,NA,61,61,59,NA,NA,NA,61,8,7416
+"666","Ace Trainer Rodolfo",2,2706,2617,0,0,0,0,666,"Starmie","Flygon",NA,NA,NA,NA,61,62,NA,NA,NA,NA,62,8,5323
+"667","Ace Trainer Saul",1,2848,0,0,0,0,0,667,"Tauros",NA,NA,NA,NA,NA,63,NA,NA,NA,NA,NA,63,8,2848
+"668","Ace Trainer Shannon",3,1482,1705,2136,0,0,0,668,"Cherrim","Azumarill","Lopunny",NA,NA,NA,52,52,56,NA,NA,NA,56,8,5323
+"669","Ace Trainer Maya",3,1433,1320,1225,0,0,0,669,"Roselia","Kirlia","Lickitung",NA,NA,NA,44,44,45,NA,NA,NA,45,7,3978
+"670","Ace Trainer Maya",3,2579,2719,2523,0,0,0,670,"Roserade","Gardevoir","Lickilicky",NA,NA,NA,59,61,61,NA,NA,NA,61,8,7821
+"671","Ace Trainer Deanna",2,2536,2245,0,0,0,0,671,"Ampharos","Tropius",NA,NA,NA,NA,61,62,NA,NA,NA,NA,62,8,4781
+"672","Ace Trainer Moira",3,2061,2225,2430,0,0,0,672,"Sandslash","Gastrodon","Claydol",NA,NA,NA,59,59,60,NA,NA,NA,60,8,6716
+"673","Psychic Mitchell",2,1688,1367,0,0,0,0,673,"Dusclops","Kadabra",NA,NA,NA,NA,44,44,NA,NA,NA,NA,44,7,3055
+"674","Psychic Mitchell",3,2073,2352,2655,0,0,0,674,"Grumpig","Alakazam","Dusknoir",NA,NA,NA,59,59,59,NA,NA,NA,59,8,7080
+"675","Psychic Maxwell",2,1827,2524,0,0,0,0,675,"Misdreavus","Gengar",NA,NA,NA,NA,58,62,NA,NA,NA,NA,62,8,4351
+"676","Psychic Corbin",2,2199,2674,0,0,0,0,676,"Xatu","Gallade",NA,NA,NA,NA,60,60,NA,NA,NA,NA,60,8,4873
+"677","Psychic Abigail",3,1292,1880,2006,0,0,0,677,"Chimecho","Drifblim","Gardevoir",NA,NA,NA,41,43,45,NA,NA,NA,45,7,5178
+"678","Psychic Abigail",3,1796,2579,2719,0,0,0,678,"Chimecho","Drifblim","Gardevoir",NA,NA,NA,57,59,61,NA,NA,NA,61,8,7094
+"679","Psychic Brittney",2,2086,2431,0,0,0,0,679,"Hypno","Alakazam",NA,NA,NA,NA,59,61,NA,NA,NA,NA,61,8,4517
+"680","Psychic Daisy",2,2038,2179,0,0,0,0,680,"Slowbro","Slowking",NA,NA,NA,NA,58,62,NA,NA,NA,NA,62,8,4217
+"681","Rancher Marco",2,1368,1810,0,0,0,0,681,"Ponyta","Rapidash",NA,NA,NA,NA,42,44,NA,NA,NA,NA,44,7,3178
+"682","Rancher Marco",4,1824,2443,2577,2386,0,0,682,"Ponyta","Miltank","Tauros","Rapidash",NA,NA,56,57,57,58,NA,NA,58,8,9230
+"683","Fisherman Joseph",1,1275,0,0,0,0,0,683,"Seaking",NA,NA,NA,NA,NA,35,NA,NA,NA,NA,NA,35,5,1275
+"684","Fisherman Joseph",1,1967,0,0,0,0,0,684,"Seaking",NA,NA,NA,NA,NA,54,NA,NA,NA,NA,NA,54,8,1967
+"685","Fisherman Miguel",3,2339,2339,1792,0,0,0,685,"Gyarados","Gyarados","Octillery",NA,NA,NA,51,51,51,NA,NA,NA,51,8,6470
+"686","Fisherman Alec",2,2293,2476,0,0,0,0,686,"Gyarados","Gyarados",NA,NA,NA,NA,50,54,NA,NA,NA,NA,54,8,4769
+"687","Twins Teri & Tia",2,773,641,0,0,0,0,687,"Pikachu","Clefairy",NA,NA,NA,NA,44,44,NA,NA,NA,NA,44,7,1414
+"688","Twins Teri & Tia",2,1569,1659,0,0,0,0,688,"Raichu","Clefable",NA,NA,NA,NA,60,60,NA,NA,NA,NA,60,8,3228
+"689","PI Carlos",1,1749,0,0,0,0,0,689,"Seaking",NA,NA,NA,NA,NA,48,NA,NA,NA,NA,NA,48,8,1749
+"690","PI Carlos",1,2331,0,0,0,0,0,690,"Seaking",NA,NA,NA,NA,NA,64,NA,NA,NA,NA,NA,64,8,2331
+"691","Gentleman Jeremy",0,802,0,0,0,0,0,691,"Chatot",NA,NA,NA,NA,NA,35,NA,NA,NA,NA,NA,35,5,802
+"692","Gentleman Jeremy",0,1032,0,0,0,0,0,692,"Chatot",NA,NA,NA,NA,NA,45,NA,NA,NA,NA,NA,45,7,1032
+"693","Gentleman Jeremy",0,1399,0,0,0,0,0,693,"Chatot",NA,NA,NA,NA,NA,61,NA,NA,NA,NA,NA,61,8,1399
+"694","Guitarist Tony",2,1772,1794,0,0,0,0,694,"Kricketune","Magneton",NA,NA,NA,NA,52,52,NA,NA,NA,NA,52,8,3566
+"695","Ruin Maniac Harry",3,679,870,870,0,0,0,695,"Bronzor","Shieldon","Cranidos",NA,NA,NA,44,41,41,NA,NA,NA,44,7,2419
+"696","Ruin Maniac Harry",3,2132,2132,2135,0,0,0,696,"Bastiodon","Rampardos","Bronzong",NA,NA,NA,50,50,53,NA,NA,NA,53,8,6399
+"697","Jogger Craig",2,1078,1078,0,0,0,0,697,"Luxio","Luxio",NA,NA,NA,NA,43,43,NA,NA,NA,NA,43,7,2156
+"698","Jogger Craig",2,2453,2453,0,0,0,0,698,"Luxray","Luxray",NA,NA,NA,NA,59,59,NA,NA,NA,NA,59,8,4906
+"699","Black Belt Philip",1,2275,0,0,0,0,0,699,"Machamp",NA,NA,NA,NA,NA,55,NA,NA,NA,NA,NA,55,8,2275
+"700","Black Belt Davon",3,1745,2326,2440,0,0,0,700,"Hitmontop","Hariyama","Machamp",NA,NA,NA,59,59,59,NA,NA,NA,59,8,6511
+"701","Socialite Reina",0,1466,0,0,0,0,0,701,"Roselia",NA,NA,NA,NA,NA,45,NA,NA,NA,NA,NA,45,7,1466
+"702","Socialite Reina",0,1987,0,0,0,0,0,702,"Roselia",NA,NA,NA,NA,NA,61,NA,NA,NA,NA,NA,61,8,1987
+"703","Lass Samantha",1,350,0,0,0,0,0,703,"Budew",NA,NA,NA,NA,NA,24,NA,NA,NA,NA,NA,24,3,350
+"704","Lass Samantha",2,1138,1075,0,0,0,0,704,"Beautifly","Roselia",NA,NA,NA,NA,33,33,NA,NA,NA,NA,33,5,2213
+"705","Lass Samantha",3,688,1661,1760,0,0,0,705,"Combee","Roselia","Beautifly",NA,NA,NA,51,51,51,NA,NA,NA,51,8,4109
+"706","Lass Madeline",2,377,396,0,0,0,0,706,"Psyduck","Buneary",NA,NA,NA,NA,22,22,NA,NA,NA,NA,22,3,773
+"707","Lass Madeline",2,1230,594,0,0,0,0,707,"Golduck","Buneary",NA,NA,NA,NA,33,33,NA,NA,NA,NA,33,5,1824
+"708","Lass Madeline",2,1603,1640,0,0,0,0,708,"Golduck","Lopunny",NA,NA,NA,NA,43,43,NA,NA,NA,NA,43,7,3243
+"709","Hiker Theodore",2,741,1428,0,0,0,0,709,"Onix","Steelix",NA,NA,NA,NA,32,34,NA,NA,NA,NA,34,5,2169
+"710","Hiker Theodore",2,1764,1848,0,0,0,0,710,"Steelix","Steelix",NA,NA,NA,NA,42,44,NA,NA,NA,NA,44,7,3612
+"711","Hiker Theodore",3,2100,2478,2390,0,0,0,711,"Camerupt","Steelix","Donphan",NA,NA,NA,56,59,59,NA,NA,NA,59,8,6968
+"712","Bug Catcher Brandon",2,724,784,0,0,0,0,712,"Dustox","Kricketune",NA,NA,NA,NA,21,23,NA,NA,NA,NA,23,3,1508
+"713","Bug Catcher Brandon",3,1035,1090,1362,0,0,0,713,"Dustox","Kricketune","Scyther",NA,NA,NA,30,32,34,NA,NA,NA,34,5,3487
+"714","Bug Catcher Brandon",3,1690,1738,2271,0,0,0,714,"Dustox","Kricketune","Scizor",NA,NA,NA,49,51,53,NA,NA,NA,53,8,5699
+"715","Parasol Lady Alexa",2,785,820,0,0,0,0,715,"Goldeen","Bibarel",NA,NA,NA,NA,33,33,NA,NA,NA,NA,33,5,1605
+"716","Parasol Lady Alexa",3,1782,1044,1530,0,0,0,716,"Hippowdon","Bibarel","Seaking",NA,NA,NA,42,42,42,NA,NA,NA,42,7,4356
+"717","Parasol Lady Alexa",4,2121,1243,1800,1821,0,0,717,"Hippowdon","Bibarel","Mantine","Seaking",NA,NA,50,50,50,50,NA,NA,50,8,6985
+"718","Picnicker Karina",1,339,0,0,0,0,0,718,"Piplup",NA,NA,NA,NA,NA,24,NA,NA,NA,NA,NA,24,3,339
+"719","Picnicker Karina",1,1072,0,0,0,0,0,719,"Prinplup",NA,NA,NA,NA,NA,35,NA,NA,NA,NA,NA,35,5,1072
+"720","Picnicker Karina",1,2430,0,0,0,0,0,720,"Empoleon",NA,NA,NA,NA,NA,54,NA,NA,NA,NA,NA,54,8,2430
+"721","Poke Kid Danielle",1,597,0,0,0,0,0,721,"Pikachu",NA,NA,NA,NA,NA,34,NA,NA,NA,NA,NA,34,5,597
+"722","Poke Kid Danielle",1,773,0,0,0,0,0,722,"Pikachu",NA,NA,NA,NA,NA,44,NA,NA,NA,NA,NA,44,7,773
+"723","Poke Kid Danielle",1,1386,0,0,0,0,0,723,"Raichu",NA,NA,NA,NA,NA,53,NA,NA,NA,NA,NA,53,8,1386
+"724","Policeman Danny",2,398,1064,0,0,0,0,724,"Hoothoot","Machoke",NA,NA,NA,NA,32,34,NA,NA,NA,NA,34,5,1462
+"725","Policeman Danny",2,1458,1377,0,0,0,0,725,"Noctowl","Machoke",NA,NA,NA,NA,42,44,NA,NA,NA,NA,44,7,2835
+"726","Policeman Danny",2,1770,2192,0,0,0,0,726,"Noctowl","Machamp",NA,NA,NA,NA,51,53,NA,NA,NA,NA,53,8,3962
+"727","Rich Boy Trey",0,2245,0,0,0,0,0,727,"Luxray",NA,NA,NA,NA,NA,54,NA,NA,NA,NA,NA,54,8,2245
+"728","Rich Boy Trey",0,2536,0,0,0,0,0,728,"Luxray",NA,NA,NA,NA,NA,61,NA,NA,NA,NA,NA,61,8,2536
+"729","Lady Melissa",0,998,0,0,0,0,0,729,"Cherrim",NA,NA,NA,NA,NA,35,NA,NA,NA,NA,NA,35,5,998
+"730","Lady Melissa",0,1282,0,0,0,0,0,730,"Cherrim",NA,NA,NA,NA,NA,45,NA,NA,NA,NA,NA,45,7,1282
+"731","Lady Melissa",0,920,1653,2287,0,0,0,731,"Hoppip","Cherrim","Bellossom",NA,NA,NA,58,58,58,NA,NA,NA,58,8,4860
+"732","Pokemon Ranger Taylor",2,1195,1497,0,0,0,0,732,"Carnivine","Luxray",NA,NA,NA,NA,34,36,NA,NA,NA,NA,36,5,2692
+"733","Pokemon Ranger Taylor",2,1546,1912,0,0,0,0,733,"Carnivine","Luxray",NA,NA,NA,NA,44,46,NA,NA,NA,NA,46,8,3458
+"734","Pokemon Ranger Taylor",3,2109,2577,2187,0,0,0,734,"Carnivine","Luxray","Dewgong",NA,NA,NA,60,62,58,NA,NA,NA,62,8,6873
+"735","Pokemon Ranger Kyler",3,2051,2726,2458,0,0,0,735,"Zangoose","Exeggutor","Poliwrath",NA,NA,NA,58,60,62,NA,NA,NA,62,8,7235
+"736","Pokemon Ranger Allison",2,1148,1470,0,0,0,0,736,"Azumarill","Leafeon",NA,NA,NA,NA,35,35,NA,NA,NA,NA,35,5,2618
+"737","Pokemon Ranger Allison",2,1475,1890,0,0,0,0,737,"Azumarill","Leafeon",NA,NA,NA,NA,45,45,NA,NA,NA,NA,45,7,3365
+"738","Pokemon Ranger Allison",2,2000,2562,0,0,0,0,738,"Azumarill","Leafeon",NA,NA,NA,NA,61,61,NA,NA,NA,NA,61,8,4562
+"739","Pokemon Ranger Ashlee",3,1646,2057,1890,0,0,0,739,"Linoone","Butterfree","Arbok",NA,NA,NA,60,60,60,NA,NA,NA,60,8,5593
+"740","Sailor Marc",2,1872,1627,0,0,0,0,740,"Mantine","Machoke",NA,NA,NA,NA,52,52,NA,NA,NA,NA,52,8,3499
+"741","Sailor Marc",3,2088,1815,1939,0,0,0,741,"Mantine","Machoke","Lanturn",NA,NA,NA,58,58,58,NA,NA,NA,58,8,5842
+"742","Sailor Zachariah",3,1968,2481,2187,0,0,0,742,"Pelipper","Machamp","Gastrodon",NA,NA,NA,56,60,58,NA,NA,NA,60,8,6636
+"743","Scientist Shaun",0,687,994,0,0,0,0,743,"Magnemite","Kadabra",NA,NA,NA,NA,36,32,NA,NA,NA,NA,36,5,1681
+"744","Scientist Shaun",0,1587,1305,0,0,0,0,744,"Magneton","Kadabra",NA,NA,NA,NA,46,42,NA,NA,NA,NA,46,8,2892
+"745","Scientist Shaun",0,1898,2033,0,0,0,0,745,"Magneton","Alakazam",NA,NA,NA,NA,55,51,NA,NA,NA,NA,55,8,3931
+"746","Ninja Boy Zach",3,370,1173,1173,0,0,0,746,"Zubat","Golbat","Golbat",NA,NA,NA,32,32,32,NA,NA,NA,32,4,2716
+"747","Ninja Boy Zach",3,1539,1539,1539,0,0,0,747,"Golbat","Golbat","Golbat",NA,NA,NA,42,42,42,NA,NA,NA,42,7,4617
+"748","Ninja Boy Zach",3,1869,2229,2229,0,0,0,748,"Golbat","Crobat","Crobat",NA,NA,NA,51,51,51,NA,NA,NA,51,8,6327
+"749","Beauty Cyndy",1,685,0,0,0,0,0,749,"Glameow",NA,NA,NA,NA,NA,45,NA,NA,NA,NA,NA,45,7,685
+"750","Beauty Cyndy",3,872,822,898,0,0,0,750,"Meowth","Skitty","Glameow",NA,NA,NA,59,59,59,NA,NA,NA,59,8,2592
+"751","Skier Edward",1,1273,0,0,0,0,0,751,"Sneasel",NA,NA,NA,NA,NA,45,NA,NA,NA,NA,NA,45,7,1273
+"752","Skier Edward",1,1527,0,0,0,0,0,752,"Sneasel",NA,NA,NA,NA,NA,54,NA,NA,NA,NA,NA,54,8,1527
+"753","Skier Bjorn",2,1474,1216,0,0,0,0,753,"Piloswine","Sneasel",NA,NA,NA,NA,43,43,NA,NA,NA,NA,43,7,2690
+"754","Skier Bjorn",3,2196,2473,2661,0,0,0,754,"Delibird","Weavile","Mamoswine",NA,NA,NA,56,58,60,NA,NA,NA,60,8,7330
+"755","Skier Andrea",1,2064,0,0,0,0,0,755,"Abomasnow",NA,NA,NA,NA,NA,45,NA,NA,NA,NA,NA,45,7,2064
+"756","Skier Andrea",1,2476,0,0,0,0,0,756,"Abomasnow",NA,NA,NA,NA,NA,54,NA,NA,NA,NA,NA,54,8,2476
+"757","Skier Madison",1,714,0,0,0,0,0,757,"Snorunt",NA,NA,NA,NA,NA,45,NA,NA,NA,NA,NA,45,7,714
+"758","Skier Madison",1,2164,0,0,0,0,0,758,"Froslass",NA,NA,NA,NA,NA,54,NA,NA,NA,NA,NA,54,8,2164
+"759","Swimmer Wesley",3,1221,2174,2504,0,0,0,759,"Qwilfish","Floatzel","Tentacruel",NA,NA,NA,57,57,57,NA,NA,NA,57,8,5899
+"760","Swimmer Francisco",3,1939,2461,2636,0,0,0,760,"Golduck","Relicanth","Tentacruel",NA,NA,NA,52,58,60,NA,NA,NA,60,8,7036
+"761","Swimmer Glenn",2,2038,2379,0,0,0,0,761,"Octillery","Politoed",NA,NA,NA,NA,58,60,NA,NA,NA,NA,60,8,4417
+"762","Swimmer Miranda",2,1226,1972,0,0,0,0,762,"Shellder","Lumineon",NA,NA,NA,NA,59,59,NA,NA,NA,NA,59,8,3198
+"763","Swimmer Crystal",3,1644,2149,2073,0,0,0,763,"Wailmer","Seaking","Pelipper",NA,NA,NA,56,59,59,NA,NA,NA,59,8,5866
+"764","Swimmer Joanna",3,1344,1404,2769,0,0,0,764,"Luvdisc","Corsola","Lapras",NA,NA,NA,57,58,59,NA,NA,NA,59,8,5517
+"765","Youngster Tristan",1,581,0,0,0,0,0,765,"Staravia",NA,NA,NA,NA,NA,24,NA,NA,NA,NA,NA,24,3,581
+"766","Youngster Tristan",1,1290,0,0,0,0,0,766,"Staraptor",NA,NA,NA,NA,NA,35,NA,NA,NA,NA,NA,35,5,1290
+"767","Youngster Tristan",1,1659,0,0,0,0,0,767,"Staraptor",NA,NA,NA,NA,NA,45,NA,NA,NA,NA,NA,45,7,1659
+"768","Youngster Dallas",2,552,547,0,0,0,0,768,"Luxio","Bibarel",NA,NA,NA,NA,22,22,NA,NA,NA,NA,22,3,1099
+"769","Youngster Dallas",3,802,795,919,0,0,0,769,"Luxio","Bibarel","Graveler",NA,NA,NA,32,32,32,NA,NA,NA,32,4,2516
+"770","Youngster Dallas",4,2079,1243,1896,1843,0,0,770,"Luxray","Bibarel","Golem","Staraptor",NA,NA,50,50,50,50,NA,NA,50,8,7061
+"771","Tuber Jared",3,501,501,501,0,0,0,771,"Shellos","Shellos","Shellos",NA,NA,NA,32,32,32,NA,NA,NA,32,4,1503
+"772","Tuber Jared",3,1923,1923,1923,0,0,0,772,"Gastrodon","Gastrodon","Gastrodon",NA,NA,NA,51,51,51,NA,NA,NA,51,8,5769
+"773","Tuber Chelsea",1,1443,0,0,0,0,0,773,"Azumarill",NA,NA,NA,NA,NA,44,NA,NA,NA,NA,NA,44,7,1443
+"774","Veteran Brian",3,1565,1810,1678,0,0,0,774,"Tangela","Rapidash","Floatzel",NA,NA,NA,44,44,44,NA,NA,NA,44,7,5053
+"775","Tuber Chelsea",1,1738,0,0,0,0,0,775,"Azumarill",NA,NA,NA,NA,NA,53,NA,NA,NA,NA,NA,53,8,1738
+"776","Veteran Brian",3,2289,2469,2713,0,0,0,776,"Floatzel","Rapidash","Tangrowth",NA,NA,NA,60,60,60,NA,NA,NA,60,8,7471
+"777","Veteran Armando",3,1960,2200,2790,0,0,0,777,"Ninjask","Absol","Slaking",NA,NA,NA,59,59,62,NA,NA,NA,62,8,6950
+"778","Veteran",1,61,0,0,0,0,0,778,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"779","Cameraman",1,61,0,0,0,0,0,779,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"780","Cameraman",1,61,0,0,0,0,0,780,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"781","Cameraman",1,61,0,0,0,0,0,781,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"782","Cameraman",1,61,0,0,0,0,0,782,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"783","Cameraman",1,61,0,0,0,0,0,783,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"784","Guitarist",1,61,0,0,0,0,0,784,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"785","Guitarist",1,61,0,0,0,0,0,785,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"786","Guitarist",1,61,0,0,0,0,0,786,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"787","Guitarist",1,61,0,0,0,0,0,787,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"788","Guitarist",1,61,0,0,0,0,0,788,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"789","Guitarist",1,61,0,0,0,0,0,789,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"790","Idol",1,61,0,0,0,0,0,790,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"791","Idol",1,61,0,0,0,0,0,791,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"792","Idol",1,61,0,0,0,0,0,792,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"793","Idol",1,61,0,0,0,0,0,793,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"794","Idol",1,61,0,0,0,0,0,794,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"795","Interviewers",2,61,61,0,0,0,0,795,"Rattata","Rattata",NA,NA,NA,NA,5,5,NA,NA,NA,NA,5,0,122
+"796","Interviewers",2,61,61,0,0,0,0,796,"Rattata","Rattata",NA,NA,NA,NA,5,5,NA,NA,NA,NA,5,0,122
+"797","Interviewers",2,61,61,0,0,0,0,797,"Rattata","Rattata",NA,NA,NA,NA,5,5,NA,NA,NA,NA,5,0,122
+"798","Interviewers",2,61,61,0,0,0,0,798,"Rattata","Rattata",NA,NA,NA,NA,5,5,NA,NA,NA,NA,5,0,122
+"799","Clown",1,61,0,0,0,0,0,799,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"800","Clown",1,61,0,0,0,0,0,800,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"801","Clown",1,61,0,0,0,0,0,801,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"802","Clown",1,61,0,0,0,0,0,802,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"803","Clown",1,61,0,0,0,0,0,803,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"804","Poke Kid",1,61,0,0,0,0,0,804,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"805","Poke Kid",1,61,0,0,0,0,0,805,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"806","Poke Kid",1,61,0,0,0,0,0,806,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"807","Poke Kid",1,61,0,0,0,0,0,807,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"808","Policeman",1,61,0,0,0,0,0,808,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"809","Reporter",1,61,0,0,0,0,0,809,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"810","Reporter",1,61,0,0,0,0,0,810,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"811","Reporter",1,61,0,0,0,0,0,811,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"812","Reporter",1,61,0,0,0,0,0,812,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"813","Scientist",1,61,0,0,0,0,0,813,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"814","Swimmer",1,61,0,0,0,0,0,814,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"815","Waiter",1,61,0,0,0,0,0,815,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"816","Worker",1,61,0,0,0,0,0,816,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"817","Youngster",2,463,266,0,0,0,0,817,"Munchlax","Kricketot",NA,NA,NA,NA,23,23,NA,NA,NA,NA,23,3,729
+"818","Lass",2,335,0,0,0,0,0,818,"Bonsly","Mime",NA,NA,NA,NA,23,24,NA,NA,NA,NA,24,3,335
+"819","Youngster",2,1023,643,0,0,0,0,819,"Weavile","Pachirisu",NA,NA,NA,NA,24,25,NA,NA,NA,NA,25,3,1666
+"820","Youngster",2,370,532,0,0,0,0,820,"Buizel","Mantyke",NA,NA,NA,NA,23,23,NA,NA,NA,NA,23,3,902
+"821","Lass",2,527,617,0,0,0,0,821,"Chatot","Pachirisu",NA,NA,NA,NA,23,24,NA,NA,NA,NA,24,3,1144
+"822","Youngster",2,278,712,0,0,0,0,822,"Kricketot","Cherrim",NA,NA,NA,NA,24,25,NA,NA,NA,NA,25,3,990
+"823","Youngster",2,591,463,0,0,0,0,823,"Pachirisu","Munchlax",NA,NA,NA,NA,23,23,NA,NA,NA,NA,23,3,1054
+"824","Lass",2,276,298,0,0,0,0,824,"Starly","Bidoof",NA,NA,NA,NA,23,24,NA,NA,NA,NA,24,3,574
+"825","Youngster",2,550,712,0,0,0,0,825,"Chatot","Cherrim",NA,NA,NA,NA,24,25,NA,NA,NA,NA,25,3,1262
+"826","Tower Tycoon",1,61,0,0,0,0,0,826,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"827","Ace Trainer Anton",1,1763,0,0,0,0,0,827,"Glalie",NA,NA,NA,NA,NA,44,NA,NA,NA,NA,NA,44,7,1763
+"828","Ace Trainer Brenna",3,1131,634,1151,0,0,0,828,"Sneasel","Snorunt","Snover",NA,NA,NA,40,40,41,NA,NA,NA,41,7,2916
+"829","Scientist Darrius",0,1620,0,0,0,0,0,829,"Porygon2",NA,NA,NA,NA,NA,42,NA,NA,NA,NA,NA,42,7,1620
+"830","Scientist Fredrick",0,1200,1243,0,0,0,0,830,"Kirlia","Kadabra",NA,NA,NA,NA,40,40,NA,NA,NA,NA,40,7,2443
+"831","Scientist Travon",0,621,0,0,0,0,0,831,"Kadabra",NA,NA,NA,NA,NA,20,NA,NA,NA,NA,NA,20,2,621
+"832","Poke Kid Janet",2,738,738,0,0,0,0,832,"Pikachu","Pikachu",NA,NA,NA,NA,42,42,NA,NA,NA,NA,42,7,1476
+"833","Galactic Grunt",1,61,0,0,0,0,0,833,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"834","Galactic Grunt",1,61,0,0,0,0,0,834,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"835","Galactic Grunt",3,393,831,1246,0,0,0,835,"Zubat","Houndour","Golbat",NA,NA,NA,34,34,34,NA,NA,NA,34,5,2470
+"836","Galactic Grunt",3,517,576,605,0,0,0,836,"Glameow","Stunky","Croagunk",NA,NA,NA,34,34,34,NA,NA,NA,34,5,1698
+"837","Rival",0,2248,2250,2614,2427,2079,0,837,"Staraptor","Floatzel","Heracross","Rapidash","Snorlax","Torterra",61,59,61,59,63,NA,63,8,11618
+"838","Rival",0,2248,2250,2614,2579,2079,0,838,"Staraptor","Floatzel","Heracross","Roserade","Snorlax","Infernape",61,59,61,59,63,NA,63,8,11770
+"839","Rival",0,2248,2579,2614,2427,2079,0,839,"Staraptor","Roserade","Heracross","Rapidash","Snorlax","Empoleon",61,59,61,59,63,NA,63,8,11947
+"840","Rival",0,2617,2632,3043,2839,2409,0,840,"Staraptor","Floatzel","Heracross","Rapidash","Snorlax","Torterra",71,69,71,69,73,NA,73,8,13540
+"841","Rival",0,2617,2632,3043,3016,2409,0,841,"Staraptor","Floatzel","Heracross","Roserade","Snorlax","Infernape",71,69,71,69,73,NA,73,8,13717
+"842","Rival",0,2617,3016,3043,2839,2409,0,842,"Staraptor","Roserade","Heracross","Rapidash","Snorlax","Empoleon",71,69,71,69,73,NA,73,8,13924
+"843","Galactic Grunt",1,198,0,0,0,0,0,843,"Glameow",NA,NA,NA,NA,NA,13,NA,NA,NA,NA,NA,13,1,198
+"844","Worker Dillan",2,530,1032,0,0,0,0,844,"Machop","Machoke",NA,NA,NA,NA,33,33,NA,NA,NA,NA,33,5,1562
+"845","Worker Holden",3,610,610,610,0,0,0,845,"Magnemite","Magnemite","Magnemite",NA,NA,NA,32,32,32,NA,NA,NA,32,4,1830
+"846","Worker Conrad",1,1252,0,0,0,0,0,846,"Magmar",NA,NA,NA,NA,NA,35,NA,NA,NA,NA,NA,35,5,1252
+"847","Galactic Grunt",1,551,0,0,0,0,0,847,"Croagunk",NA,NA,NA,NA,NA,31,NA,NA,NA,NA,NA,31,4,551
+"848","Galactic Grunt",2,278,440,0,0,0,0,848,"Zubat","Stunky",NA,NA,NA,NA,24,26,NA,NA,NA,NA,26,3,718
+"849","Galactic Grunt",2,278,462,0,0,0,0,849,"Zubat","Croagunk",NA,NA,NA,NA,24,26,NA,NA,NA,NA,26,3,740
+"850","Rival",1,69,0,0,0,0,0,850,"Turtwig",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,69
+"851","Rival",1,70,0,0,0,0,0,851,"Chimchar",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,70
+"852","Rival",1,71,0,0,0,0,0,852,"Piplup",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,71
+"853","Leader Candice",0,2644,2706,2797,2524,0,0,853,"Weavile","Mamoswine","Abomasnow","Froslass","Glaceon",NA,62,61,61,63,NA,NA,63,8,10671
+"854","Leader Maylene",5,1833,2066,2192,2647,2885,0,854,"Hitmontop","Medicham","Breloom","Machamp","Lucario",NA,62,63,62,64,66,NA,66,8,11623
+"855","Leader Volkner",0,2575,1595,2577,2106,0,0,855,"Jolteon","Raichu","Luxray","Lanturn","Electivire",NA,61,61,62,63,NA,NA,63,8,8853
+"856","Leader Byron",0,2196,2562,2803,2686,0,0,856,"Skarmory","Steelix","Magnezone","Bastiodon","Aggron",NA,61,61,62,63,NA,NA,63,8,10247
+"857","Leader Gardenia",0,2301,1767,2405,2808,0,0,857,"Jumpluff","Cherrim","Bellossom","Torterra","Roserade",NA,61,62,61,63,NA,NA,63,8,9281
+"858","Leader Roark",0,2684,2588,2314,2686,0,0,858,"Aerodactyl","Probopass","Golem","Rampardos","Tyranitar",NA,62,61,61,63,NA,NA,63,8,10272
+"859","Leader Wake",0,2288,1791,2843,2403,0,0,859,"Sharpedo","Quagsire","Gyarados","Floatzel","Ludicolo",NA,61,61,62,63,NA,NA,63,8,9325
+"860","Leader Fantina",0,2340,2667,2790,2524,0,0,860,"Banette","Drifblim","Dusknoir","Mismagius","Gengar",NA,61,61,62,63,NA,NA,63,8,10321
+"861","Pokemon Trainer Riley",0,2274,2470,2790,2943,0,0,861,"Absol","Ursaring","Metagross","Salamence","Lucario",NA,61,61,62,63,NA,NA,63,8,10477
+"862","Pokemon Trainer Buck",0,1046,2617,2104,2835,0,0,862,"Shuckle","Umbreon","Torkoal","Dusknoir","Claydol",NA,61,62,61,63,NA,NA,63,8,8602
+"863","Pokemon Trainer Marley",0,2026,1961,2710,2686,0,0,863,"Ninjask","Electrode","Crobat","Weavile","Arcanine",NA,61,61,62,63,NA,NA,63,8,9383
+"864","Pokemon Trainer Mira",0,2418,2484,2803,2970,0,0,864,"Porygon-Z","Gengar","Magnezone","Togekiss","Alakazam",NA,61,61,62,63,NA,NA,63,8,10675
+"865","Pokemon Trainer Cheryl",0,2314,2667,2445,2781,0,0,865,"Wobbuffet","Drifblim","Hariyama","Wailord","Blissey",NA,61,61,62,63,NA,NA,63,8,10207
+"866","Elite Four Aaron",0,2758,2786,2659,2871,0,0,866,"Yanmega","Scizor","Vespiquen","Heracross","Drapion",NA,65,65,66,67,NA,NA,67,8,11074
+"867","Elite Four Bertha",0,2235,2839,2885,2579,0,0,867,"Whiscash","Gliscor","Hippowdon","Golem","Rhyperior",NA,66,69,68,68,NA,NA,69,8,10538
+"868","Elite Four Flint",0,2973,3012,2839,3180,0,0,868,"Houndoom","Flareon","Rapidash","Infernape","Magmortar",NA,68,71,69,71,NA,NA,71,8,12004
+"869","Elite Four Lucian",0,0,2997,2820,2870,0,0,869,"Mr.","Espeon","Bronzong","Alakazam","Gallade",NA,69,71,70,72,NA,NA,72,8,8687
+"870","Champion Cynthia",0,2664,3235,3583,3322,3378,0,870,"Spiritomb","Roserade","Togekiss","Lucario","Milotic","Garchomp",74,74,76,76,74,NA,76,8,16182
+"871","Rival",0,2985,3013,3471,3250,2739,0,871,"Staraptor","Floatzel","Heracross","Rapidash","Snorlax","Torterra",81,79,81,79,83,NA,83,8,15458
+"872","Rival",0,2985,3013,3471,3453,2739,0,872,"Staraptor","Floatzel","Heracross","Roserade","Snorlax","Infernape",81,79,81,79,83,NA,83,8,15661
+"873","Rival",0,2985,3453,3471,3250,2739,0,873,"Staraptor","Roserade","Heracross","Rapidash","Snorlax","Empoleon",81,79,81,79,83,NA,83,8,15898
+"874","Cameraman Tevin",2,0,354,0,0,0,0,874,"Mime","Machop",NA,NA,NA,NA,20,22,NA,NA,NA,NA,22,3,354
+"875","Cameraman Tevin",3,572,0,1064,0,0,0,875,"Magnemite","Mr.","Machoke",NA,NA,NA,30,32,34,NA,NA,NA,34,5,1636
+"876","Cameraman Tevin",4,801,1449,0,1408,0,0,876,"Magnemite","Magneton","Mr.","Machoke",NA,NA,42,42,43,45,NA,NA,45,7,3658
+"877","Guitarist Arturo",1,784,0,0,0,0,0,877,"Kricketune",NA,NA,NA,NA,NA,23,NA,NA,NA,NA,NA,23,3,784
+"878","Guitarist Arturo",1,1192,0,0,0,0,0,878,"Kricketune",NA,NA,NA,NA,NA,35,NA,NA,NA,NA,NA,35,5,1192
+"879","Guitarist Arturo",1,1601,0,0,0,0,0,879,"Kricketune",NA,NA,NA,NA,NA,47,NA,NA,NA,NA,NA,47,8,1601
+"880","Idol Grace",2,306,306,0,0,0,0,880,"Clefairy","Clefairy",NA,NA,NA,NA,21,21,NA,NA,NA,NA,21,2,612
+"881","Idol Grace",3,466,466,466,0,0,0,881,"Clefairy","Clefairy","Clefairy",NA,NA,NA,32,32,32,NA,NA,NA,32,4,1398
+"882","Idol Grace",4,627,627,627,627,0,0,882,"Clefairy","Clefairy","Clefairy","Clefairy",NA,NA,43,43,43,43,NA,NA,43,7,2508
+"883","Interviewers Roxy & Oli",2,439,345,0,0,0,0,883,"Magnemite","Ralts",NA,NA,NA,NA,23,23,NA,NA,NA,NA,23,3,784
+"884","Interviewers Roxy & Oli",2,668,1050,0,0,0,0,884,"Magnemite","Kirlia",NA,NA,NA,NA,35,35,NA,NA,NA,NA,35,5,1718
+"885","Interviewers Roxy & Oli",2,1622,2095,0,0,0,0,885,"Magneton","Gardevoir",NA,NA,NA,NA,47,47,NA,NA,NA,NA,47,8,3717
+"886","Clown Lee",1,0,0,0,0,0,0,886,"Mime",NA,NA,NA,NA,NA,23,NA,NA,NA,NA,NA,23,3,0
+"887","Clown Lee",2,0,1025,0,0,0,0,887,"Mr.","Kadabra",NA,NA,NA,NA,33,33,NA,NA,NA,NA,33,5,1025
+"888","Clown Lee",3,0,1367,1754,0,0,0,888,"Mr.","Kadabra","Ambipom",NA,NA,NA,44,44,44,NA,NA,NA,44,7,3121
+"889","Poke Kid Ariel",3,171,334,334,0,0,0,889,"Pichu","Pikachu","Pikachu",NA,NA,NA,19,19,19,NA,NA,NA,19,2,839
+"890","Poke Kid Ariel",3,279,545,545,0,0,0,890,"Pichu","Pikachu","Pikachu",NA,NA,NA,31,31,31,NA,NA,NA,31,4,1369
+"891","Poke Kid Ariel",3,387,756,756,0,0,0,891,"Pichu","Pikachu","Pikachu",NA,NA,NA,43,43,43,NA,NA,NA,43,7,1899
+"892","Rich Boy Liam",0,0,0,0,0,0,0,892,"Blissey",NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,-Inf,0,0
+"893","Lady Celeste",0,0,0,0,0,0,0,893,"Blissey",NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,NA,-Inf,0,0
+"894","Reporter Kinsey",2,283,599,0,0,0,0,894,"Shinx","Drifloon",NA,NA,NA,NA,22,22,NA,NA,NA,NA,22,3,882
+"895","Reporter Kinsey",2,898,827,0,0,0,0,895,"Drifloon","Luxio",NA,NA,NA,NA,33,33,NA,NA,NA,NA,33,5,1725
+"896","Reporter Kinsey",2,1967,1871,0,0,0,0,896,"Drifblim","Luxray",NA,NA,NA,NA,45,45,NA,NA,NA,NA,45,7,3838
+"897","Maid Belinda",1,364,0,0,0,0,0,897,"Clefairy",NA,NA,NA,NA,NA,25,NA,NA,NA,NA,NA,25,3,364
+"898","Maid Sophie",1,393,0,0,0,0,0,898,"Clefairy",NA,NA,NA,NA,NA,27,NA,NA,NA,NA,NA,27,3,393
+"899","Maid Emily",1,423,0,0,0,0,0,899,"Clefairy",NA,NA,NA,NA,NA,29,NA,NA,NA,NA,NA,29,4,423
+"900","Maid Elena",1,452,0,0,0,0,0,900,"Clefairy",NA,NA,NA,NA,NA,31,NA,NA,NA,NA,NA,31,4,452
+"901","Maid Clare",1,481,0,0,0,0,0,901,"Clefairy",NA,NA,NA,NA,NA,33,NA,NA,NA,NA,NA,33,5,481
+"902","Hall Matron",1,61,0,0,0,0,0,902,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"903","Factory Head",1,61,0,0,0,0,0,903,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"904","Arcade Star",1,61,0,0,0,0,0,904,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"905","Castle Valet",1,61,0,0,0,0,0,905,"Rattata",NA,NA,NA,NA,NA,5,NA,NA,NA,NA,NA,5,0,61
+"906","Cameraman Tevin",4,1656,1656,0,2109,0,0,906,"Magneton","Magneton","Mr.","Machamp",NA,NA,48,48,49,51,NA,NA,51,8,5421
+"907","Guitarist Arturo",1,1806,0,0,0,0,0,907,"Kricketune",NA,NA,NA,NA,NA,53,NA,NA,NA,NA,NA,53,8,1806
+"908","Idol Grace",5,699,699,699,699,699,0,908,"Clefairy","Clefairy","Clefairy","Clefairy","Clefairy",NA,48,48,48,48,48,NA,48,8,3495
+"909","Interviewers Roxy & Oli",2,2396,2362,0,0,0,0,909,"Magnezone","Gardevoir",NA,NA,NA,NA,53,53,NA,NA,NA,NA,53,8,4758
+"910","Clown Lee",3,0,1993,1993,0,0,0,910,"Mr.","Alakazam","Ambipom",NA,NA,NA,50,50,50,NA,NA,NA,50,8,3986
+"911","Poke Kid Ariel",3,441,861,1281,0,0,0,911,"Pichu","Pikachu","Raichu",NA,NA,NA,49,49,49,NA,NA,NA,49,8,2583
+"912","Reporter Kinsey",2,2229,2120,0,0,0,0,912,"Drifblim","Luxray",NA,NA,NA,NA,51,51,NA,NA,NA,NA,51,8,4349
+"913","Galactic Boss Cyrus",0,962,1246,0,0,0,0,913,"Sneasel","Golbat","Murkrow",NA,NA,NA,34,34,NA,NA,NA,NA,34,5,2208
+"914","Cameraman Tevin",4,1863,1863,0,2357,0,0,914,"Magneton","Magneton","Mr.","Machamp",NA,NA,54,54,55,57,NA,NA,57,8,6083
+"915","Guitarist Arturo",1,2010,0,0,0,0,0,915,"Kricketune",NA,NA,NA,NA,NA,59,NA,NA,NA,NA,NA,59,8,2010
+"916","Idol Grace",6,772,772,772,772,772,772,916,"Clefairy","Clefairy","Clefairy","Clefairy","Clefairy","Clefairy",53,53,53,53,53,53,53,8,4632
+"917","Interviewers Roxy & Oli",2,2668,2630,0,0,0,0,917,"Magnezone","Gardevoir",NA,NA,NA,NA,59,59,NA,NA,NA,NA,59,8,5298
+"918","Clown Lee",3,0,2232,2232,0,0,0,918,"Mr.","Alakazam","Ambipom",NA,NA,NA,56,56,56,NA,NA,NA,56,8,4464
+"919","Poke Kid Ariel",3,495,966,1438,0,0,0,919,"Pichu","Pikachu","Raichu",NA,NA,NA,55,55,55,NA,NA,NA,55,8,2899
+"920","Reporter Kinsey",2,2492,2370,0,0,0,0,920,"Drifblim","Luxray",NA,NA,NA,NA,57,57,NA,NA,NA,NA,57,8,4862
+"921","Leader Volkner",0,2328,2364,0,0,0,0,921,"Luxray","Jolteon","Electivire",NA,NA,NA,56,56,NA,NA,NA,NA,56,8,4692
+"922","Elite Four Flint",0,2448,2376,0,0,0,0,922,"Houndoom","Flareon","Magmortar",NA,NA,NA,56,56,NA,NA,NA,NA,56,8,4824
+"923","Rival",6,1953,1983,2271,2139,1782,2496,923,"Staraptor","Floatzel","Heracross","Rapidash","Snorlax","Torterra",53,52,53,52,54,56,56,8,12624
+"924","Rival",6,1953,1983,2271,2273,1782,2508,924,"Staraptor","Floatzel","Heracross","Roserade","Snorlax","Infernape",53,52,53,52,54,56,56,8,12770
+"925","Rival",6,1953,2273,2271,2139,1782,2520,925,"Staraptor","Roserade","Heracross","Rapidash","Snorlax","Empoleon",53,52,53,52,54,56,56,8,12938
+"926","Commander Mars",3,2337,2125,0,0,0,0,926,"Bronzong","Golbat","Purugly",NA,NA,NA,58,58,NA,NA,NA,NA,58,8,4462
+"927","Commander Jupiter",3,2337,2125,0,0,0,0,927,"Bronzong","Golbat","Skuntank",NA,NA,NA,58,58,NA,NA,NA,NA,58,8,4462
