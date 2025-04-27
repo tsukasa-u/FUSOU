@@ -13,7 +13,7 @@ import sitemap from '@astrojs/sitemap';
 // https://astro.build/config
 // @ts-ignore
 export default defineConfig({
-  site: "https://613a41d7.fusou.pages.dev/",
+  site: "https://dev.fusou.pages.dev/",
   // @ts-ignore
   integrations: [solidJs(), partytown(), sitemap()],
   adapter: cloudflare(),
