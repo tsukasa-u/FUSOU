@@ -1,8 +1,9 @@
 ---
+import HeroImg from '../assets/hero_bg.webp';
 ---
 <div
   class="hero min-h-screen absolute top-0 left-0"
-  style="background-image:  url('/src/assets/sample5.png');"
+  style={"background-image:  url('" + HeroImg.src + "');"}
 >
   <!-- <div class="hero-overlay"></div> -->
   <div class="hero-content text-center">
@@ -19,7 +20,3 @@
     </div>
   </div>
 </div>
-
-<style>
-  
-</style>
