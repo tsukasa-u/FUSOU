@@ -119,7 +119,7 @@ const MyChart = () => {
 
     const [chartData] = createResource(async () => {
         try {
-            const csv_res = await fetch('http://localhost:4321/src/data_set/pokmon-platinum-exp-and-leveling-analysis-dataset/exp_types.csv')
+            const csv_res = await fetch('/public/data_set/pokmon-platinum-exp-and-leveling-analysis-dataset/exp_types.csv')
                 .then(response => response.text())
                 .then((data) => {
                     return data.split('\n').map((s) => {
