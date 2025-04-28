@@ -120,6 +120,9 @@ importers:
       '@duckdb/node-api':
         specifier: 1.2.2-alpha.18
         version: 1.2.2-alpha.18
+      '@supabase/supabase-js':
+        specifier: ^2.49.4
+        version: 2.49.4
       '@tailwindcss/vite':
         specifier: ^4.1.4
         version: 4.1.4(vite@6.3.3(@types/node@22.5.0)(jiti@2.4.2)(lightningcss@1.29.2)(yaml@2.7.0))

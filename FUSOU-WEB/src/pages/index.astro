@@ -1,5 +1,5 @@
 ---
-import LandingPageLayout from '../layouts/Layout.astro';
+import PageLayout from '../layouts/Layout.astro';
 import Navigation from '../components/Navigation.astro';
 import Hero from '../components/Hero.astro';
 
@@ -7,10 +7,10 @@ import Hero from '../components/Hero.astro';
 // Don't want to use any of this? Delete everything in this file, the `assets`, `components`, and `layouts` directories, and start fresh.
 ---
 
-<LandingPageLayout>
+<PageLayout>
 	<div class="static">
 		<Hero />
 		<Navigation />
 		<!-- <Welcome /> -->
 	</div>
-</LandingPageLayout>
+</PageLayout>

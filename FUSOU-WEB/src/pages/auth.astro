@@ -1,15 +1,14 @@
 ---
 import PageLayout from '../layouts/Layout.astro';
 import Navigation from '../components/Navigation.astro';
-import MyChart from '../components/chartSample.tsx'
+import AuthComponent from '../components/Auth.astro';
 
 ---
 
 <PageLayout>
 	<div class="static">
         <div class="h-16"></div>
-        <MyChart client:only="solid-js" />
-        <!-- <MyChart /> -->
+        <AuthComponent />
 		<Navigation />
 	</div>
 </PageLayout>
