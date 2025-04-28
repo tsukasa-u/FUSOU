@@ -22,8 +22,8 @@ export default defineConfig({
     // @ts-ignore
     plugins: [tailwindcss()],
     define: {
-      "import.meta.env.PUBLIC_SUPABASE_URL": JSON.stringify(process.env.PUBLIC_SUPABASE_URL),
-      "import.meta.env.PUBLIC_SUPABASE_ANON_KEY": JSON.stringify(process.env.PUBLIC_SUPABASE_ANON_KEY),
+      "import.meta.env.SUPABASE_URL": JSON.stringify(process.env.SUPABASE_URL),
+      "import.meta.env.SUPABASE_ANON_KEY": JSON.stringify(process.env.SUPABASE_ANON_KEY),
     }
   },
 });
