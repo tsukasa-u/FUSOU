@@ -19,7 +19,7 @@ export const POST: APIRoute = async ({ request, cookies, redirect }) => {
         provider: 'google',
         options: {
             scopes: 'https://www.googleapis.com/auth/drive.file',
-            redirectTo: `${url_origin}/api/auth/callback`,
+            redirectTo: `${import.meta.env.PUBLIC_SITE_URL}/api/auth/callback`,
         },
         });
 
@@ -32,7 +32,7 @@ export const POST: APIRoute = async ({ request, cookies, redirect }) => {
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: provider as Provider,
         options: {
-          redirectTo: `${url_origin}/api/auth/callback`,
+          redirectTo: `${import.meta.env.PUBLIC_SITE_URL}/api/auth/callback`,
         },
       });
   
