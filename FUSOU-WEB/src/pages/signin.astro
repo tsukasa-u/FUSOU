@@ -1,0 +1,33 @@
+---
+import Layout from "../layouts/Layout.astro";
+import Navigation from '../components/Navigation.astro';
+
+const { cookies, redirect } = Astro;
+
+const accessToken = cookies.get("sb-access-token");
+const refreshToken = cookies.get("sb-refresh-token");
+
+if (accessToken && refreshToken) {
+  return redirect("/dashboard");
+}
+---
+
+<Layout title="Sign in">
+	<div class="static">
+        <div class="h-16"></div>
+
+        <h1 class="text-3xl text-center p-4">Sign in</h1>
+        <p class="text-center">New here? <a href="/register">Create an account</a></p>
+        <form action="/api/auth/signin" method="post" class="max-w-md">
+          <label for="email">Email</label>
+          <input type="email" name="email" id="email" />
+          <label for="password">Password</label>
+          <input type="password" name="password" id="password" />
+          <button type="submit" class="btn btn-wide">Login</button>
+          <div class="divider">OR</div>
+          <button value="google" name="provider" type="submit" class="btn btn-wide">Sign in with Google</button>
+        </form>
+
+		<Navigation />
+	</div>
+</Layout>

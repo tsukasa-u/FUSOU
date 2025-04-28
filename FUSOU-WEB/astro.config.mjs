@@ -16,9 +16,14 @@ export default defineConfig({
   site: "https://dev.fusou.pages.dev/",
   // @ts-ignore
   integrations: [solidJs(), partytown(), sitemap()],
+  output: 'server',
   adapter: cloudflare(),
   vite: {
     // @ts-ignore
     plugins: [tailwindcss()],
+    define: {
+      "process.env.SUPABASE_URL": JSON.stringify(process.env.SUPABASE_URL),
+      "process.env.SUPABASE_ANON_KEY": JSON.stringify(process.env.SUPABASE_ANON_KEY),      
+    }
   },
 });
