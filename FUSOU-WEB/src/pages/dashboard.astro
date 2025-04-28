@@ -11,11 +11,12 @@ if (!accessToken || !refreshToken) {
 }
 
 let session;
-// try {
-//   session = await supabase.auth.setSession({
-//     refresh_token: refreshToken.value,
-//     access_token: accessToken.value,
-//   });
+try {
+    console.log(supabase);
+  session = await supabase.auth.setSession({
+    refresh_token: refreshToken.value,
+    access_token: accessToken.value,
+  });
 //   if (session.error) {
 //     Astro.cookies.delete("sb-access-token", {
 //       path: "/",
@@ -25,15 +26,15 @@ let session;
 //     });
 //     return Astro.redirect("/signin");
 //   }
-// } catch (error) {
-//   Astro.cookies.delete("sb-access-token", {
-//     path: "/",
-//   });
-//   Astro.cookies.delete("sb-refresh-token", {
-//     path: "/",
-//   });
-//   return Astro.redirect("/signin");
-// }
+} catch (error) {
+  Astro.cookies.delete("sb-access-token", {
+    path: "/",
+  });
+  Astro.cookies.delete("sb-refresh-token", {
+    path: "/",
+  });
+  return Astro.redirect("/signin");
+}
 
 // const email = session.data.user?.email;
 const email = undefined;
