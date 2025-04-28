@@ -36,17 +36,29 @@ try {
   return Astro.redirect("/signin");
 }
 
-// const email = session.data.user?.email;
-const email = undefined;
+const email = session.data.user?.email;
 ---
 <Layout title="dashboard">
-	<div class="static">
+    <div class="static h-full">
         <div class="h-16"></div>
-  <h1>Welcome {email}</h1>
-  <p>We are happy to see you here</p>
-  <form action="/api/auth/signout">
-    <button type="submit">Sign out</button>
-  </form>
-  <Navigation />
+
+        <div class="flex justify-center h-full ">
+            <div class="card w-96 h-min shadow-xl place-self-center -mt-16">
+                <div class="card-body">
+                    <h1 class="text-xl text-center">Welcome {email}</h1>
+
+                    <div class="h-8" />
+
+                    <form action="/api/auth/signout">
+                        <div class="text-center text-xl">Return Page</div>
+                        <div class="divider">OR</div>
+                        <button class="btn bg-white text-black border-[#e5e5e5] w-full" type="submit">
+                            Sign out
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    <Navigation />
 </div>
 </Layout>
