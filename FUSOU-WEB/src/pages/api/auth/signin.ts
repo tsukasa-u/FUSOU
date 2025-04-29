@@ -6,8 +6,8 @@ export const POST: APIRoute = async ({ request, cookies, redirect }) => {
   const formData = await request.formData();
   // const url_origin = request.url.match(/http[s]?:\/\/[^:\/]+(:[0-9]+)?/g)![0];
   
-  const url_origin = request.url;
-  // const url_origin = import.meta.env.PUBLIC_SITE_URL;
+  // const url_origin = request.url;
+  const url_origin = import.meta.env.PUBLIC_SITE_URL;
   
   // const email = formData.get("email")?.toString();
   // const password = formData.get("password")?.toString();
