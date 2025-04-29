@@ -1,0 +1,64 @@
+---
+import Layout from "../layouts/Layout.astro";
+import Navigation from '../components/Navigation.astro';
+import { supabase } from "../lib/supabase";
+
+const accessToken = Astro.cookies.get("sb-access-token");
+const refreshToken = Astro.cookies.get("sb-refresh-token");
+
+if (!accessToken || !refreshToken) {
+  return Astro.redirect("/signin");
+}
+
+let session;
+try {
+    console.log(supabase);
+  session = await supabase.auth.setSession({
+    refresh_token: refreshToken.value,
+    access_token: accessToken.value,
+  });
+  if (session.error) {
+    Astro.cookies.delete("sb-access-token", {
+      path: "/",
+    });
+    Astro.cookies.delete("sb-refresh-token", {
+      path: "/",
+    });
+    return Astro.redirect("/signin");
+  }
+} catch (error) {
+  Astro.cookies.delete("sb-access-token", {
+    path: "/",
+  });
+  Astro.cookies.delete("sb-refresh-token", {
+    path: "/",
+  });
+  return Astro.redirect("/signin");
+}
+
+const email = session.data.user?.email;
+---
+<Layout title="dashboard">
+    <div class="static h-full">
+        <div class="h-16"></div>
+
+        <div class="flex justify-center h-full ">
+            <div class="card w-96 h-min shadow-xl place-self-center -mt-16">
+                <div class="card-body">
+                    <h1 class="text-xl text-center">Welcome {email}</h1>
+
+                    <div class="h-8" />
+
+                    <form action="/api/auth/signout">
+                        <div class="text-center text-xl">Return Page</div>
+                        <div class="divider">OR</div>
+                        <button class="btn bg-white text-black border-[#e5e5e5] w-full" type="submit">
+                            Sign out
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    <Navigation />
+</div>
+</Layout>
