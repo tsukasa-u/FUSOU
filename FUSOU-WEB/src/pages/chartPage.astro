@@ -1,15 +1,77 @@
 ---
-import PageLayout from '../layouts/Layout.astro';
-import Navigation from '../components/Navigation.astro';
-import MyChart from '../components/chartSample.tsx'
-
+import PageLayout from "../layouts/Layout.astro";
+import Navigation from "../components/Navigation.astro";
+import MyChart from "../components/chartSample.tsx";
 ---
 
 <PageLayout>
-	<div class="static">
-        <div class="h-16"></div>
-        <MyChart client:only="solid-js" />
-        <!-- <MyChart /> -->
-		<Navigation />
-	</div>
+  <div class="static">
+    <!-- <div class="h-16"></div> -->
+    <div class="drawer lg:drawer-open md:drawer-open absolute top-0 left-0">
+      <input id="my-drawer-2" type="checkbox" class="drawer-toggle" />
+      <div class="drawer-content flex flex-col items-center justify-center">
+        <!-- Page content here -->
+        <div class="drawer drawer-end lg:drawer-open">
+          <input id="my-drawer-4" type="checkbox" class="drawer-toggle" />
+          <div class="drawer-content flex flex-col items-center justify-center">
+            <div class="h-fit overflow-auto">
+              <div class="h-16"></div>
+
+              <MyChart client:only="solid-js" />
+            </div>
+            <!-- Page content here -->
+            <!-- <label for="my-drawer-4" class="drawer-button btn btn-primary"
+              >Open drawer</label
+            > -->
+            <!-- <label
+              for="my-drawer-2"
+              class="btn btn-primary drawer-button lg:hidden"
+            >
+              Open drawer
+            </label> -->
+          </div>
+          <div class="drawer-side">
+            <label
+              for="my-drawer-4"
+              aria-label="close sidebar"
+              class="drawer-overlay"
+              style="background-color:transparent"></label>
+            <div class="bg-base-100 py-4 px-4 w-64 h-full">
+              <ul
+                class="menu text-base-content px-4 w-full border-gray-400 h-full"
+              >
+                <!-- Sidebar content here -->
+                <li class="h-16"><a></a></li>
+                <li><a>Load Data</a></li>
+                <li><a>Slect Items</a></li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="drawer-side">
+        <label
+          for="my-drawer-2"
+          aria-label="close sidebar"
+          class="drawer-overlay"
+          style="background-color:transparent"></label>
+        <div class="bg-base-100 py-4 px-4 w-64 h-full">
+          <ul
+            class="menu text-base-content px-4 w-full border-dashed border-r border-gray-400 h-full"
+          >
+            <!-- Sidebar content here -->
+            <li class="h-16"><a></a></li>
+            <li><a>Sample1</a></li>
+            <li><a>Sample2</a></li>
+            <li><a>Sample3</a></li>
+            <li><a>Sample4</a></li>
+            <li><a>Sample5</a></li>
+            <li><a>Add New Page<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512" class="size-4 text-nuetral"><!--!Font Awesome Free 6.7.2 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free Copyright 2025 Fonticons, Inc.--><path d="M256 80c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 144L48 224c-17.7 0-32 14.3-32 32s14.3 32 32 32l144 0 0 144c0 17.7 14.3 32 32 32s32-14.3 32-32l0-144 144 0c17.7 0 32-14.3 32-32s-14.3-32-32-32l-144 0 0-144z"/></svg></a></li>
+          </ul>
+        </div>
+      </div>
+    </div>
+    <!-- <MyChart /> -->
+    <Navigation />
+  </div>
 </PageLayout>
