@@ -177,7 +177,7 @@ const MyChart = () => {
     
 
     return (
-        <div class="w-2/5">
+        <div class="w-full flex justify-center">
             <ChartMemo />
             <Show when={chartData.loading}>
                 <p>Loading...</p>
