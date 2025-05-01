@@ -120,6 +120,9 @@ importers:
       '@duckdb/node-api':
         specifier: 1.2.2-alpha.18
         version: 1.2.2-alpha.18
+      '@nanostores/solid':
+        specifier: ^0.5.0
+        version: 0.5.0(nanostores@1.0.1)(solid-js@1.9.5)
       '@supabase/supabase-js':
         specifier: ^2.49.4
         version: 2.49.4
@@ -135,6 +138,9 @@ importers:
       daisyui:
         specifier: ^5.0.28
         version: 5.0.28
+      nanostores:
+        specifier: ^1.0.1
+        version: 1.0.1
       solid-chartjs:
         specifier: ^1.3.11
         version: 1.3.11(chart.js@4.4.9)(solid-js@1.9.5)
@@ -864,6 +870,12 @@ packages:
 
   '@kurkle/color@0.3.4':
     resolution: {integrity: sha512-M5UknZPHRu3DEDWoipU6sE8PdkZ6Z/S+v4dD+Ke8IaNlpdSQah50lz1KtcFBa2vsdOnwbbnxJwVM4wty6udA5w==}
+
+  '@nanostores/solid@0.5.0':
+    resolution: {integrity: sha512-bui454Om+smaCFK259D618i01Rb0w+o9uVcwZWlZqMOOQZXuqPR6azyF7tA++skBUlTDty4sB9XDt/1HDsh/CA==}
+    peerDependencies:
+      nanostores: ^0.9.0 || ^0.10.0 || ^0.11.0
+      solid-js: ^1.6.0
 
   '@nodelib/fs.scandir@2.1.5':
     resolution: {integrity: sha512-vq24Bq3ym5HEQm2NKCr3yXDwjc7vTsEThRDnkp2DK9p1uqLR+DHurm/NOTo0KG7HYHU7eppKZj3MyqYuMBf62g==}
@@ -2464,6 +2476,10 @@ packages:
     engines: {node: ^10 || ^12 || ^13.7 || ^14 || >=15.0.1}
     hasBin: true
 
+  nanostores@1.0.1:
+    resolution: {integrity: sha512-kNZ9xnoJYKg/AfxjrVL4SS0fKX++4awQReGqWnwTRHxeHGZ1FJFVgTqr/eMrNQdp0Tz7M7tG/TDaX8QfHDwVCw==}
+    engines: {node: ^20.0.0 || >=22.0.0}
+
   natural-compare@1.4.0:
     resolution: {integrity: sha512-OWND8ei3VtNC9h7V60qff3SVobHr996CTwgxubgyQYEpg290h9J0buyECNNJexkFm5sOajh5G116RYA1c8ZMSw==}
 
@@ -4041,6 +4057,11 @@ snapshots:
       '@jridgewell/sourcemap-codec': 1.5.0
 
   '@kurkle/color@0.3.4': {}
+
+  '@nanostores/solid@0.5.0(nanostores@1.0.1)(solid-js@1.9.5)':
+    dependencies:
+      nanostores: 1.0.1
+      solid-js: 1.9.5
 
   '@nodelib/fs.scandir@2.1.5':
     dependencies:
@@ -5919,6 +5940,8 @@ snapshots:
       thenify-all: 1.6.0
 
   nanoid@3.3.11: {}
+
+  nanostores@1.0.1: {}
 
   natural-compare@1.4.0: {}
 
