@@ -62,7 +62,7 @@ export default function SidePage() {
             <div class="flex-1"></div>
             <div class="dropdown dropdown-end">
               <div tabindex="0" role="button">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 512" class="size-4 text-base-content" fill="currentColor" stroke="currentColor">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 512" class="size-4 text-base-content">
                   {/* <!--!Font Awesome Free 6.7.2 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free Copyright 2025 Fonticons, Inc.--> */}
                   <path d="M64 360a56 56 0 1 0 0 112 56 56 0 1 0 0-112zm0-160a56 56 0 1 0 0 112 56 56 0 1 0 0-112zM120 96A56 56 0 1 0 8 96a56 56 0 1 0 112 0z" />
                 </svg>
@@ -83,7 +83,7 @@ export default function SidePage() {
         <a onClick={() => show_modal("add_page_modal", set_show_add_page_dialog)}>
           <div>Add New Page</div>
           <div></div>
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512" class="size-4 text-base-content" fill="currentColor" stroke="currentColor">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512" class="size-4 text-base-content">
             {/* <!--!Font Awesome Free 6.7.2 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free Copyright 2025 Fonticons, Inc.--> */}
             <path d="M256 80c0-17.7-14.3-32-32-32s-32 14.3-32 32l0 144L48 224c-17.7 0-32 14.3-32 32s14.3 32 32 32l144 0 0 144c0 17.7 14.3 32 32 32s32-14.3 32-32l0-144 144 0c17.7 0 32-14.3 32-32s-14.3-32-32-32l-144 0 0-144z" />
           </svg>
