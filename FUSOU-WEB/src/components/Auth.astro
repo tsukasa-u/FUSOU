@@ -43,7 +43,7 @@
 </div>
 
 <script>
-    import { supabase } from '../lib/supabase';
+    import { supabase } from '../utility/supabase.ts';
     
     export const handleLogin = async () => {
         const { data, error } = await supabase.auth.signInWithOAuth({
