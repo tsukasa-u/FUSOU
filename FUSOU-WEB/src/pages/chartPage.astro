@@ -3,7 +3,6 @@ import PageLayout from "../layouts/Layout.astro";
 import Navigation from "../components/Navigation.astro";
 import MyChart from "../components/solid/chartSample.tsx";
 import SidePage from "../components/solid/sidePage";
-import LoadDataComponent from "../components/solid/loadData"
 ---
 
 <PageLayout>
@@ -15,22 +14,9 @@ import LoadDataComponent from "../components/solid/loadData"
         <!-- Page content here -->
         <div class="drawer drawer-end lg:drawer-open">
           <input id="my-drawer-4" type="checkbox" class="drawer-toggle" />
-          <div class="drawer-content flex items-center justify-center">
-            <div class="overflow-auto">
+          <div class="drawer-content flex flex-col items-center justify-center">
+            <div class="h-fit overflow-auto">
               <div class="h-16"></div>
-
-              <LoadDataComponent client:only="solid-js" />
-
-            <!-- <div class="tabs tabs-border w-full">
-                <input type="radio" name="my_tabs_2" class="tab" aria-label="Tab 1" checked={true}/>
-                <div class="tab-content border-base-300 bg-base-100 p-10 w-full">Tab content 1</div>
-
-                <input type="radio" name="my_tabs_2" class="tab" aria-label="Tab 2" />
-                <div class="tab-content border-base-300 bg-base-100 p-10 w-full">Tab content 2</div>
-
-                <input type="radio" name="my_tabs_2" class="tab" aria-label="Tab 3" />
-                <div class="tab-content border-base-300 bg-base-100 p-10 w-full">Tab content 3</div>
-            </div> -->
 
               <MyChart client:only="solid-js" />
             </div>
