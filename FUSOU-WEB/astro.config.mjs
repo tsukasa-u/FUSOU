@@ -25,6 +25,10 @@ export default defineConfig({
       "import.meta.env.PUBLIC_SUPABASE_URL": JSON.stringify(process.env.PUBLIC_SUPABASE_URL),
       "import.meta.env.PUBLIC_SUPABASE_ANON_KEY": JSON.stringify(process.env.PUBLIC_SUPABASE_ANON_KEY),
       "import.meta.env.PUBLIC_SITE_URL": JSON.stringify(process.env.PUBLIC_SITE_URL),
+      "import.meta.env.GOOGLE_CLIENT_ID": JSON.stringify(process.env.GOOGLE_CLIENT_ID),
+      "import.meta.env.GOOGLE_CLIENT_SECRET ": JSON.stringify(process.env.GOOGLE_CLIENT_SECRET),
+      "import.meta.env.SUPABASE_DATABASE_URL ": JSON.stringify(process.env.SUPABASE_DATABASE_URL),
+      "import.meta.env.BETTER_AUTH_SECRET": JSON.stringify(process.env.BETTER_AUTH_SECRET),
     }
   },
 });
