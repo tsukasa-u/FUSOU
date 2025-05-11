@@ -1,6 +1,8 @@
 ---
+const filled: boolean = Astro.props.filled;
+const css_filled = filled ? "bg-navbar" : "bg-base-100"
 ---
-<div class="navbar shadow-sm fixed top-0 left-0 bg-navbar" style="z-index:99">
+<div class=`navbar shadow-sm z-10 fixed top-0 left-0 ${css_filled}`>
   <div class="flex-1">
     <a class="btn btn-ghost text-xl" href="/">FUSOU</a>
     <div class="tooltip tooltip-bottom" data-tip="GitHub">

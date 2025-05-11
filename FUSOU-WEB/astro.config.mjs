@@ -10,12 +10,14 @@ import partytown from '@astrojs/partytown';
 
 import sitemap from '@astrojs/sitemap';
 
+import icon from "astro-icon";
+
 // https://astro.build/config
 // @ts-ignore
 export default defineConfig({
   site: "https://dev.fusou.pages.dev/",
   // @ts-ignore
-  integrations: [solidJs(), partytown(), sitemap()],
+  integrations: [solidJs(), partytown(), sitemap(), icon()],
   output: 'server',
   adapter: cloudflare(),
   vite: {

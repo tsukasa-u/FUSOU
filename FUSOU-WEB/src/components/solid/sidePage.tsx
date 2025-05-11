@@ -79,6 +79,7 @@ export default function SidePage() {
           </div>
         </li>
       ))}
+
       <li>
         <a onClick={() => show_modal("add_page_modal", set_show_add_page_dialog)}>
           <div>Add New Page</div>
