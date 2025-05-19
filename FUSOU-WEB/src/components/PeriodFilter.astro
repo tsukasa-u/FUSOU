@@ -1,0 +1,254 @@
+---
+const kc_update = ["2025-03-07", "2025-04-23", "2025-05-12"];
+---
+
+<div class="join join-vertical w-full rounded-sm ">
+    <div class="border-1 border-base-300 px-6 py-6 join-item">
+        <form class="filter" id="period_fillter_form">
+            <input class="btn btn-square" type="reset" value="×" />
+            <input
+                class="btn period-fillter-radio"
+                type="radio"
+                name="frameworks"
+                aria-label="All Period"
+            />
+            {
+                kc_update.map((p) => (
+                    <input
+                        class="btn period-fillter-radio"
+                        type="radio"
+                        name="frameworks"
+                        aria-label={p}
+                        checked={false}
+                    />
+                ))
+            }
+        </form>
+
+        <div class="divider">OR</div>
+
+        <!-- <div class="join relative">
+        </div> -->
+        <div class="flex">
+            <button
+                popovertarget="cally-popover1"
+                class="input w-80 rounded-l-sm rounded-r-none"
+                id="cally1"
+                style="anchor-name:--cally1"
+            >
+                Pick a date
+            </button>
+            <button id="reset-cally1" class="btn rounded-r-sm rounded-l-none">Reset</button>
+          </div>
+        <div
+            popover
+            id="cally-popover1"
+            class="dropdown bg-base-100 rounded-box shadow-lg"
+            style="position-anchor:--cally1"
+        >
+            <calendar-range
+                class="cally"
+                min="2025-03-07"
+                max={new Date().toLocaleDateString("sv-SE")}
+                showOutsideDays={true}
+            >
+                <svg
+                    aria-label="Previous"
+                    class="fill-current size-4"
+                    slot="previous"
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 24 24"
+                    ><path fill="currentColor" d="M15.75 19.5 8.25 12l7.5-7.5"
+                    ></path></svg
+                >
+                <svg
+                    aria-label="Next"
+                    class="fill-current size-4"
+                    slot="next"
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 24 24"
+                    ><path fill="currentColor" d="m8.25 4.5 7.5 7.5-7.5 7.5"
+                    ></path></svg
+                >
+                <calendar-month></calendar-month>
+            </calendar-range>
+        </div>
+
+        <div class="flex justify-end">
+            <button id="apply-period-fillter" class="btn btn-info w-40"
+                >Apply Period</button
+            >
+        </div>
+    </div>
+    <div class="border-1 border-base-300 px-6 py-6 join-item hidden">
+
+    </div>
+</div>
+
+<script>
+    const kc_update = ["2025-03-07", "2025-04-23", "2025-05-12"];
+    import { setPageData, getPageData } from "./states/persistentPageData";
+    import { sidePageSlected } from "./states/sidePageMap";
+
+    sidePageSlected.subscribe((selected) => {
+        if (selected.id !== "") {
+            let period = getPageData(selected.id)?.period;
+            Object.values(
+                window.document.getElementsByClassName("period-fillter-radio")!,
+            ).forEach((radio) => {
+                if (period?.type == 1) {
+                    if (
+                        (period.range.length > 1 &&
+                            radio.ariaLabel == "All Period") ||
+                        (period.range.length == 1 &&
+                            radio.ariaLabel == period.range[0])
+                    ) {
+                        (radio as HTMLInputElement).checked = true;
+                    }
+                } else {
+                    (radio as HTMLInputElement).checked = false;
+                }
+            });
+
+            if (period?.type == 2) {
+                let start_range = period?.range[0];
+                let end_range_pre_index = kc_update.findIndex(
+                    (v) => v == period?.range[period?.range.length - 1],
+                );
+                let end_range =
+                    end_range_pre_index == -1 ||
+                    end_range_pre_index == kc_update.length - 1
+                        ? new Date().toLocaleDateString("sv-SE")
+                        : kc_update[end_range_pre_index + 1];
+                window.document.getElementById("cally1")!.innerText =
+                    `${start_range} 12:00 JST / ${end_range} 12:00 JST`;
+            } else {
+                window.document.getElementById("cally1")!.innerText =
+                    "Pick a date";
+            }
+        }
+    });
+
+    let period_fillter = window.document.getElementById(
+        "apply-period-fillter",
+    )!;
+    period_fillter.addEventListener("click", (e) => {
+        let period_range: string[] = [];
+        let fillter_type = null;
+        let fillter_radio = Object.values(
+            window.document.getElementsByClassName("period-fillter-radio")!,
+        ).filter((element) => (element as HTMLInputElement).checked);
+
+        if (fillter_radio.length == 1) {
+            let label = fillter_radio[0].ariaLabel!;
+            if (label == "All Period") {
+                period_range = kc_update;
+            } else {
+                period_range = [label];
+            }
+            fillter_type = 1;
+        } else {
+            let filter_calender = window.document
+                .getElementById("cally1")
+                ?.innerText.split(" / ")
+                .map((s) => Date.parse(s.replace(" 12:00 JST", "")));
+            if (filter_calender?.length == 2) {
+                let kc_update_date = kc_update
+                    .concat([new Date().toLocaleDateString("sv-SE")])
+                    .map((d) => [d, Date.parse(d)] as [string, number]);
+
+                period_range = kc_update_date
+                    .filter(
+                        ([d, d_parsed]) =>
+                            filter_calender[0] <= Number(d_parsed) &&
+                            Number(d_parsed) < filter_calender[1],
+                    )
+                    .map(([d, d_parsed]) => d);
+            }
+            fillter_type = 2;
+        }
+
+        let pagedata = getPageData(sidePageSlected.get().id);
+        setPageData({
+            ...pagedata,
+            period: { type: fillter_type, range: period_range },
+        });
+    });
+</script>
+
+<script type="module" src="https://unpkg.com/cally"></script>
+
+<script type="module">
+    const calendar_range = window.document.querySelector("calendar-range");
+    const date_picker = window.document.getElementById("cally1");
+    const reset_picker = window.document.getElementById("reset-cally1");
+
+    reset_picker.addEventListener("click", (e) => {
+        date_picker.innerText = "Pick a date";
+    });
+
+    calendar_range.addEventListener("click", (event) => {
+        if (event.target.slot == "previous" || event.target.slot == "next")
+            return;
+
+        let range_info = calendar_range;
+        if (range_info._props.value !== "") {
+            let splited = range_info._props.value
+                .split("/")
+                .map((s) => s.replace(" 12:00 JST", "").concat(" 12:00 JST"));
+            range_info._props.value = `${splited[0]} / ${splited[1]}`;
+        }
+        date_picker.innerText = range_info._props.value;
+    });
+
+    const available = ["2025-03-07", "2025-04-23", "2025-05-12"];
+    calendar_range.getDayParts = (date) =>
+        available.includes(date.toLocaleDateString("sv-SE")) ? "kc-update" : "";
+    calendar_range.isDateDisallowed = (date) =>
+        ![...available, new Date().toLocaleDateString("sv-SE")].includes(
+            date.toLocaleDateString("sv-SE"),
+        );
+</script>
+
+<style>
+    calendar-range {
+        &::part(button):focus-visible {
+            outline: 2px solid #ff4500;
+        }
+    }
+
+    calendar-month {
+        --color-accent: #ff4500;
+        --color-text-on-accent: #ffffff;
+
+        &::part(kc-update) {
+            color: #ffffff;
+            background: var(--color-blue-600);
+        }
+
+        &::part(button) {
+            border-radius: 3px;
+        }
+
+        &::part(range-inner) {
+            border-radius: 0;
+            background-color: var(--color-orange-600);
+        }
+
+        &::part(range-start) {
+            border-start-end-radius: 0;
+            border-end-end-radius: 0;
+            background-color: var(--color-orange-600);
+        }
+
+        &::part(range-end) {
+            border-start-start-radius: 0;
+            border-end-start-radius: 0;
+            background-color: var(--color-orange-600);
+        }
+
+        &::part(range-start range-end) {
+            border-radius: 3px;
+        }
+    }
+</style>

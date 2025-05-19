@@ -1,16 +1,24 @@
 import { useStore } from '@nanostores/solid';
-import { sidePageItems, addSidePageItem, deleteSidePageItem } from '../states/sidePageMap';
-import { createSignal, createUniqueId, Show, type Setter } from 'solid-js';
+import { sidePageSlected, setSidePageSlected, deleteSidePageSlected } from '../states/sidePageMap';
+import { createEffect, createSignal, createUniqueId, Show, type Setter } from 'solid-js';
+import { PageData, setPageData, getPageData, deletePageData, type PageInfo } from '../states/persistentPageData';
 
 export default function SidePage() {
 
-  const $sidePageItems = useStore(sidePageItems);
+  // const $sidePageItems = useStore(PageData);
+  const $sidePageSlected = useStore(sidePageSlected);
+  const $pageData = useStore(PageData);
 
   const [show_add_page_dialog, set_show_add_page_dialog] = createSignal(false);
   const [show_rename_page_dialog, set_show_rename_page_dialog] = createSignal(false);
   const [rename_index, set_rename_index] = createSignal("");
   const [show_add_error_msg, set_show_add_error_msg] = createSignal(0);
   const [add_page_title, set_add_page_title] = createSignal("");
+  const [side_page_selected, set_side_page_selected] = createSignal("");
+
+  createEffect(() => {
+    setSidePageSlected(side_page_selected())
+  });
 
   const show_modal = (name: string, fn: Setter<boolean>) => {
     fn(true);
@@ -30,10 +38,17 @@ export default function SidePage() {
   }
 
   const duplicate = (id: string) => {
-    addSidePageItem({
-      id: createUniqueId(),
-      name: $sidePageItems()[id].name + "-copy"
-    })
+    let duplicate_id = createUniqueId()
+    // addSidePageItem({
+    //   id: duplicate_id,
+    //   name: $sidePageItems()[id].name + "-copy"
+    // });
+    let page_data = getPageData(id);
+    setPageData({
+      ...page_data,
+      id: duplicate_id,
+      name: page_data.name + "-copy",
+    });
   }
 
   const check_name = (): string => {
@@ -41,10 +56,10 @@ export default function SidePage() {
     if (add_page_title().length == 0) {
       page_title = "Untitled"
     }
-    if (Object.values($sidePageItems()).some((v) => v.name == page_title) || page_title == "Untitled") {
+    if ($pageData().some((v) => v.name == page_title) || page_title == "Untitled") {
       let index = 1
       page_title = page_title + "-" + index;
-      while (Object.values($sidePageItems()).some((v) => v.name == page_title)) {
+      while ($pageData().some((v) => v.name == page_title)) {
         index += 1;
         page_title = page_title.replace(/(.*)(-[0-9]+)/, `$1-`) + String(index);
       }
@@ -55,13 +70,13 @@ export default function SidePage() {
 
   return (
     <>
-      {Object.entries($sidePageItems()).map(([unique_id, sidePageItem]) => (
+      {$pageData().map((v) => [v.id, v] as [string, PageInfo]).map(([unique_id, sidePageItem]) => (
         <li>
-          <div class="flex flex-nowrap">
-            <div class="truncate">{sidePageItem.name}</div>
-            <div class="flex-1"></div>
-            <div class="dropdown dropdown-end">
-              <div tabindex="0" role="button">
+          <div class={side_page_selected() == unique_id ? "join bg-orange-500 p-0" : "join p-0"}>
+            <div class="truncate join-item py-2 px-3" onClick={() => { set_side_page_selected(unique_id) }}>{sidePageItem.name}</div>
+            <div class="flex-1 join-item" onClick={() => { set_side_page_selected(unique_id) }}></div>
+            <div class="dropdown dropdown-end join-item">
+              <div tabindex="0" role="button" class="h-9 w-10 flex justify-center items-center">
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 512" class="size-4 text-base-content">
                   {/* <!--!Font Awesome Free 6.7.2 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free Copyright 2025 Fonticons, Inc.--> */}
                   <path d="M64 360a56 56 0 1 0 0 112 56 56 0 1 0 0-112zm0-160a56 56 0 1 0 0 112 56 56 0 1 0 0-112zM120 96A56 56 0 1 0 8 96a56 56 0 1 0 112 0z" />
@@ -69,7 +84,10 @@ export default function SidePage() {
               </div>
               <ul tabindex="0" class="dropdown-content menu bg-base-100 rounded-box z-1 w-52 p-2 shadow-sm">
                 <li><a onClick={() => duplicate(unique_id)}>Duplicate</a></li>
-                <li><a onClick={() => deleteSidePageItem(unique_id)}>Delete</a></li>
+                <li><a onClick={() => {
+                  deletePageData(unique_id);
+                  deleteSidePageSlected();
+                }}>Delete</a></li>
                 <li><a onClick={() => {
                   set_rename_index(unique_id);
                   show_modal("rename_dialog", set_show_rename_page_dialog);
@@ -101,7 +119,7 @@ export default function SidePage() {
             <p class="py-4">Enter a new page name</p>
             <fieldset class="fieldset">
               <input type="text" placeholder="Untitled" class="input w-full focus:outline-0" onInput={(e) => {
-                let check_result = Object.values($sidePageItems()).some((v) => v.name == e.target.value)
+                let check_result = $pageData().some((v) => v.name == e.target.value)
                 set_show_add_error_msg(check_result ? 1 : 0)
                 set_add_page_title(e.target.value);
               }} />
@@ -120,12 +138,19 @@ export default function SidePage() {
                     onClick={() => {
                       hide_modal(set_show_add_page_dialog);
                       let page_title = check_name();
-                      addSidePageItem(
-                        {
-                          id: createUniqueId(),
-                          name: page_title
-                        }
-                      )
+                      let unique_id = createUniqueId()
+                      // addSidePageItem(
+                      //   {
+                      //     id: createUniqueId(),
+                      //     name: page_title
+                      //   }
+                      // );
+                      let page_data = getPageData(unique_id);
+                      setPageData({
+                        ...page_data,
+                        id: unique_id,
+                        name: page_title,
+                      });
                     }}>Create</button>
                 </div>
               </form>
@@ -146,8 +171,8 @@ export default function SidePage() {
             <h3 class="text-lg font-bold">Rename page name</h3>
             <p class="py-4">Enter a new page name</p>
             <fieldset class="fieldset">
-              <input type="text" placeholder="Untitled" class="input w-full focus:outline-0" value={$sidePageItems()[rename_index()].name} onInput={(e) => {
-                let check_result = Object.values($sidePageItems()).some((v) => v.name == e.target.value)
+              <input type="text" placeholder="Untitled" class="input w-full focus:outline-0" value={getPageData(rename_index()).name} onInput={(e) => {
+                let check_result = $pageData().some((v) => v.name == e.target.value)
                 set_show_add_error_msg(check_result ? 1 : 0)
                 set_add_page_title(e.target.value);
               }} />
@@ -166,13 +191,18 @@ export default function SidePage() {
                     onClick={() => {
                       hide_modal(set_show_rename_page_dialog);
                       let page_title = check_name();
-                      console.log(page_title);
-                      addSidePageItem(
-                        {
-                          id: rename_index(),
-                          name: page_title
-                        }
-                      )
+                      // console.log(page_title);
+                      // addSidePageItem(
+                      //   {
+                      //     id: rename_index(),
+                      //     name: page_title
+                      //   }
+                      // )
+                      let page_data = getPageData(rename_index());
+                      setPageData({
+                        ...page_data,
+                        name: page_title,
+                      });
                     }}>Done</button>
                 </div>
               </form>

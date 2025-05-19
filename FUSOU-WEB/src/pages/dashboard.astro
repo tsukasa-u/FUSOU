@@ -147,6 +147,7 @@ Astro.cookies.set("stored-sb-provider-refresh-token", { data: validProviderRefre
                     data-provider={session?.data.session?.user.app_metadata.provider}
                     data-username={session?.data.session?.user.user_metadata.name}
                     data-email={session?.data.user?.email}
+                    data-date={Date.now()}
                   />
                 </li>
               ))
@@ -200,8 +201,9 @@ Astro.cookies.set("stored-sb-provider-refresh-token", { data: validProviderRefre
       const username = this.dataset.username!;
       const providerToken = this.dataset.providerToken!;
       const providerRefreshToken = this.dataset.providerRefreshToken!;
+      const date = this.dataset.date!;
 
-      setSession({ id: createUniqueId(), accessToken, refreshToken, email, provider, username, providerToken, providerRefreshToken})
+      setSession({ id: createUniqueId(), accessToken, refreshToken, email, provider, username, providerToken, providerRefreshToken, date});
     }
   }
 
