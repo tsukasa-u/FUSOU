@@ -4,13 +4,17 @@ import { MaterialSymbolsLightStorage } from '../../icons/solid/MaterialSymbolsLi
 import { IconGoogleDrive } from '../../icons/solid/google_drive';
 import { useStore } from '@nanostores/solid';
 // import { Sessions, getSession } from '../states/supabaseSeetionMap';
-import { Sessions } from '../states/persistentSupabaseSessionAtom';
+import { Sessions, setSession } from '../states/persistentSupabaseSessionAtom';
 import { IconGoogle } from '../../icons/solid/google';
-import { check_file } from '../../db/googleDrive'
+import { check_file, refreshToken } from '../../db/googleDrive'
+import { getPageData, PageData, setPageData, type PageStrageInfo } from '../states/persistentPageData';
+import { sidePageSlected } from '../states/sidePageMap';
 
 export default function LoadDataComponent() {
 
   const $Sessions = useStore(Sessions);
+  const $PageData = useStore(PageData);
+  const $sidePageSlected = useStore(sidePageSlected);
 
   const [show_select_provider_dialog, set_show_select_provider_dialog] = createSignal(false);
   const [show_select_accounts_dialog, set_show_select_accounts_dialog] = createSignal(false);
@@ -44,6 +48,8 @@ export default function LoadDataComponent() {
       await sleep(10);
     })();
   }
+
+  console.log($PageData().find((v) => v.id == $sidePageSlected().id))
 
   return <>
     <div class="tabs tabs-border w-full ">
@@ -163,11 +169,18 @@ export default function LoadDataComponent() {
             </div>
             <div class="h-2"></div>
             <div class="flex justify-end">
-              <button class="btn btn-info" onClick={async () => {
+              <button class="btn btn-info w-40" onClick={async () => {
+                let storage_data: PageStrageInfo[] = [];
                 $Sessions().forEach(async (session, index) => {
 
                   if (select_account_checkbox[index]) {
-                    let [result, status, message] = await check_file($Sessions()[index].providerToken, "fusou");
+                    let refreshedToken = await refreshToken($Sessions()[index].providerRefreshToken);
+                    if (refreshedToken.newRefreshToken) {
+                      setSession({ ...$Sessions()[index], providerRefreshToken: refreshedToken.newRefreshToken, providerToken: refreshedToken.accessToken })
+                    } else {
+                      setSession({ ...$Sessions()[index], providerToken: refreshedToken.accessToken })
+                    }
+                    let [result, message] = await check_file($Sessions()[index].providerToken, "fusou");
                     if (result) {
                       set_load_data_result(index, { result: true, err: "" });
                     } else {
@@ -176,8 +189,21 @@ export default function LoadDataComponent() {
                   } else {
                     set_load_data_result(index, null);
                   }
+                  storage_data.push({
+                    id: $Sessions()[index].id,
+                    email: $Sessions()[index].email,
+                    provider: $Sessions()[index].provider,
+                    fillter: select_account_checkbox[index],
+                    access_token: $Sessions()[index].providerToken,
+                    refresh_token: $Sessions()[index].providerRefreshToken,
+                  })
                 });
-              }}>Import Data</button>
+                let pagedata = getPageData(sidePageSlected.get().id);
+                setPageData({
+                  ...pagedata,
+                  storage: storage_data,
+                })
+              }}>Register Storage</button>
             </div>
           </div>
 

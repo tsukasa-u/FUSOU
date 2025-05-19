@@ -9,15 +9,17 @@ export type SessionInfo = {
     username: string,
     providerToken: string,
     providerRefreshToken: string,
+    date: string,
 }
 export const Sessions = persistentAtom<SessionInfo[]>('FUSOU-persistentSupabaseSession', [], {
     encode: JSON.stringify,
     decode: JSON.parse,
 });
 
-type ItemDisplayInfo = Pick<SessionInfo, 'id' | 'accessToken' | 'refreshToken' | 'email' | 'provider' | 'username' | 'providerToken' | 'providerRefreshToken'>;
-export function setSession({ id, accessToken, refreshToken, email, provider, username, providerToken, providerRefreshToken }: ItemDisplayInfo) {
-    Sessions.set([...Sessions.get(), { id, accessToken, refreshToken, email, provider, username,  providerToken, providerRefreshToken }]);
+type ItemDisplayInfo = Pick<SessionInfo, 'id' | 'accessToken' | 'refreshToken' | 'email' | 'provider' | 'username' | 'providerToken' | 'providerRefreshToken' | 'date'>;
+export function setSession({ id, accessToken, refreshToken, email, provider, username, providerToken, providerRefreshToken, date }: ItemDisplayInfo) {
+    let value = Sessions.get().filter((v) => v.id != id);
+    Sessions.set([...value, { id, accessToken, refreshToken, email, provider, username,  providerToken, providerRefreshToken, date }]);
 }
 
 export function resetSession() {

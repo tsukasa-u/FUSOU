@@ -23,6 +23,19 @@ export async function listGoogleDriveFilesWebClient(accessToken: string) {
     }
 }
 
+export async function refreshToken(refreshToken: string) {
+    let response = await fetch(import.meta.env.PUBLIC_SITE_URL + "/api/auth/google/refresh_token",
+        {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                refreshToken: refreshToken
+            }),
+        }).then((response) => response.json());
+
+    return response;
+}
+
 export async function listGoogleDriveFoldersWebClient(accessToken: string) {
     try {
         const response = await fetch('https://www.googleapis.com/drive/v3/files?q=mimeType%3D%27application%2Fvnd.google-apps.folder%27%20and%20%27root%27%20in%20parents%20and%20trashed%20%3D%20false&corpora=user', {
@@ -58,17 +71,21 @@ export async function check_file(accessToken: string, folder_name: string, paren
         if (!response.ok) {
             let res_text = await response.text();
             console.error('Google Drive API error:', response.status, res_text);
-            return [null, response.status, JSON.parse(res_text).error.message];
+            return [null, JSON.parse(res_text).error.message];
         }
 
         const data = await response.json();
         if (data.files.length > 1) {
             console.error('duplicate files are existed')
         }
-        // console.log('Google Drive Folders:', data.files);
-        return [data.files[0], response.status, null];
+        return [data.files[0], null];
     } catch (error) {
         console.error('Error listing Google Drive files:', error);
-        return [null, null, error];
+        return [null, error];
     }
 }
+
+export async function check_period(accessToken: string, folder_name: string, parent: string) {
+    return check_file(accessToken, folder_name, parent,  "application%2Fvnd.google-apps.folder")
+}
+
