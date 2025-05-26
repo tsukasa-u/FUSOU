@@ -7,6 +7,8 @@ import LoadDataComponent from "../components/solid/loadData";
 import { supabase } from "../lib/supabase";
 import PeriodFilter from "../components/PeriodFilter.astro";
 import { Icon } from "astro-icon/components";
+import VTable from "../components/react/vtable";
+import { ChartComponent } from "../components/react/chart"
 
 let storedAccessToken = Astro.cookies.get("stored-sb-access-token");
 let storedRefreshToken = Astro.cookies.get("stored-sb-refresh-token");
@@ -138,8 +140,8 @@ Astro.cookies.set(
           </div>
         </div>
       </div>
-      <div class="h-full min-w-4xl flex-1 bg-base-100">
-        <div class="absolute top-16 w-4xl">
+      <div class="h-full min-w-4xl max-lg:min-w-[calc(100dvw)] flex-1 bg-base-300">
+        <div class="absolute top-16 max-lg:ml-[calc(max(8px,calc(100dvw-var(--container-4xl))/2))] w-4xl max-lg:w-[min(calc(100dvw-16px),var(--container-4xl))] bg-base-100">
           <div
             class="sticky top-16 bottom-0 w-full h-12 py-3 px-6 bg-base-100 hidden max-xl:block"
           >
@@ -208,7 +210,15 @@ Astro.cookies.set(
                 </h1>
                 <PeriodFilter />
               </div>
-              <MyChart client:only="solid-js" />
+              <div id="load-data">
+                <div class="h-8"></div>
+                <h1 class="text-2xl font-semibold py-2">
+                  <a href="#load-data">Load Data</a>
+                </h1>
+                <VTable client:only="react"/>
+              </div>
+              <ChartComponent client:only="react" />
+              <!-- <MyChart client:only="solid-js" /> -->
             </div>
           </div>
         </div>
@@ -224,6 +234,7 @@ Astro.cookies.set(
               >
                 <li><a href="#register-storage">Register Storage</a></li>
                 <li><a href="#select-period">Slect Period</a></li>
+                <li><a href="#load-data">Load Data</a></li>
               </ul>
             </div>
           </div>
