@@ -9,12 +9,17 @@ use crate::interface::slot_item::SlotItems;
 
 use register_trait::TraitForEncode;
 
+use super::slotitem::OwnSlotItemId;
+
+pub type AirBaseId = Uuid;
+pub type PlaneInfoId = Uuid;
+
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct AirBase {
-    pub uuid: Uuid,
+    pub uuid: AirBaseId,
     pub action_kind: i64,
     pub distance: i64,
-    pub plane_info: Vec<Uuid>,
+    pub plane_info: Vec<PlaneInfoId>,
 }
 
 impl AirBase {
@@ -40,12 +45,12 @@ impl AirBase {
 
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct PlaneInfo {
-    pub uuid: Uuid,
+    pub uuid: PlaneInfoId,
     pub cond: Option<i64>,
     pub state: i64,
     pub max_count: Option<i64>,
     pub count: Option<i64>,
-    pub slotid: Uuid,
+    pub slotid: OwnSlotItemId,
 }
 
 impl PlaneInfo {

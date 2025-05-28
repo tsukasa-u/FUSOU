@@ -2,19 +2,21 @@ use apache_avro::AvroSchema;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::database::battle::Battle;
+use crate::database::battle::{Battle, BattleId};
 use crate::database::table::PortTable;
 
 use register_trait::TraitForEncode;
 
+type CellsId = Uuid;
+
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct Cells {
-    pub uuid: Uuid,
+    pub uuid: CellsId,
     pub maparea_id: i64,
     pub mapinfo_no: i64,
     pub cell_index: Vec<i64>,
     pub battle_index: Vec<i64>,
-    pub battles: Vec<Option<Uuid>>,
+    pub battles: Vec<Option<BattleId>>,
 }
 
 // impl From<Cells> for Result<Vec<u8>, apache_avro::Error> {

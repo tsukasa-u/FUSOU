@@ -9,14 +9,36 @@ use crate::interface::air_base::AirBases;
 use crate::interface::deck_port::DeckPorts;
 use crate::interface::ship::Ships;
 
-use super::deck::{EnemyDeck, FriendDeck, OwnDeck};
+use super::{
+    airbase::AirBaseId,
+    deck::{EnemyDeck, EnemyDeckId, FriendDeck, FriendDeckId, OwnDeck, OwnDeckId, SupportDeckId},
+};
 
 use register_trait::TraitForEncode;
 
+pub type BattleId = Uuid;
+pub type HougekiListId = Uuid;
+pub type HougekiId = Uuid;
+pub type MidnightHougekiListId = Uuid;
+pub type MidnightHougekiId = Uuid;
+pub type OpeningTaisenListId = Uuid;
+pub type OpeningTaisenId = Uuid;
+pub type ClosingRaigekiId = Uuid;
+pub type OpeningRaigekiId = Uuid;
+pub type OpeningAirAttackId = Uuid;
+pub type AirBaseAirAttackListId = Uuid;
+pub type AirBaseAirAttackId = Uuid;
+pub type AirBaseAssultId = Uuid;
+pub type CarrierBaseAssaultId = Uuid;
+pub type SupportHouraiId = Uuid;
+pub type FriendlySupportHouraiId = Uuid;
+pub type SupportAiratackId = Uuid;
+pub type FriendlySupportHouraiListId = Uuid;
+
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct HougekiList {
-    pub uuid: Uuid,
-    pub hougeki: Vec<Vec<Uuid>>,
+    pub uuid: HougekiListId,
+    pub hougeki: Vec<Vec<HougekiId>>,
 }
 
 impl HougekiList {
@@ -55,7 +77,7 @@ impl HougekiList {
 
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct Hougeki {
-    pub uuid: Uuid,
+    pub uuid: HougekiId,
     pub at: i64,
     pub at_type: i64,
     pub df: Vec<i64>,
@@ -111,12 +133,12 @@ impl Hougeki {
 
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct MidnightHougekiList {
-    pub uuid: Uuid,
+    pub uuid: MidnightHougekiListId,
     pub f_flare_pos: Option<i64>,
     pub f_touch_plane: Option<i64>,
     pub e_flare_pos: Option<i64>,
     pub e_touch_plane: Option<i64>,
-    pub midnight_hougeki: Option<Vec<Uuid>>,
+    pub midnight_hougeki: Option<Vec<MidnightHougekiId>>,
 }
 
 impl MidnightHougekiList {
@@ -154,7 +176,7 @@ impl MidnightHougekiList {
 
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct MidnightHougeki {
-    pub uuid: Uuid,
+    pub uuid: MidnightHougekiId,
     pub at: Option<i64>,
     pub df: Option<Vec<i64>>,
     pub cl: Option<Vec<i64>>,
@@ -210,8 +232,8 @@ impl MidnightHougeki {
 
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct OpeningTaisenList {
-    pub uuid: Uuid,
-    pub opening_taisen: Vec<Uuid>,
+    pub uuid: OpeningTaisenListId,
+    pub opening_taisen: Vec<OpeningTaisenId>,
 }
 
 impl OpeningTaisenList {
@@ -235,7 +257,7 @@ impl OpeningTaisenList {
 
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct OpeningTaisen {
-    pub uuid: Uuid,
+    pub uuid: OpeningTaisenId,
     pub at: i64,
     pub at_type: i64,
     pub df: Vec<i64>,
@@ -284,7 +306,7 @@ impl OpeningTaisen {
 
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct ClosingRaigeki {
-    pub uuid: Uuid,
+    pub uuid: ClosingRaigekiId,
     pub f_dam: Vec<i64>,
     pub e_dam: Vec<i64>,
     pub f_rai: Vec<i64>,
@@ -326,7 +348,7 @@ impl ClosingRaigeki {
 
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct OpeningRaigeki {
-    pub uuid: Uuid,
+    pub uuid: OpeningRaigekiId,
     pub f_dam: Vec<i64>,
     pub e_dam: Vec<i64>,
     pub f_rai: Vec<Option<Vec<i64>>>,
@@ -368,7 +390,7 @@ impl OpeningRaigeki {
 
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct OpeningAirAttack {
-    pub uuid: Uuid,
+    pub uuid: OpeningAirAttackId,
     pub f_plane_from: Option<Vec<i64>>,
     pub f_touch_plane: Option<i64>,
     pub f_loss_plane1: i64,
@@ -436,8 +458,8 @@ impl OpeningAirAttack {
 
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct AirBaseAirAttackList {
-    pub uuid: Uuid,
-    pub air_base_air_attack: Vec<Uuid>,
+    pub uuid: AirBaseAirAttackListId,
+    pub air_base_air_attack: Vec<AirBaseAirAttackId>,
 }
 
 impl AirBaseAirAttackList {
@@ -468,7 +490,7 @@ impl AirBaseAirAttackList {
 
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct AirBaseAirAttack {
-    pub uuid: Uuid,
+    pub uuid: AirBaseAirAttackId,
     pub f_plane_from: Option<Vec<i64>>,
     pub f_touch_plane: Option<i64>,
     pub f_loss_plane1: i64,
@@ -489,7 +511,7 @@ pub struct AirBaseAirAttack {
     pub e_bak_flag: Option<Vec<Option<i64>>>,
     pub e_protect_flag: Option<Vec<bool>>,
     pub e_now_hps: Vec<i64>,
-    pub airbase_id: Uuid,
+    pub airbase_id: AirBaseId,
     pub squadron_plane: Option<Vec<Option<i64>>>,
 }
 
@@ -538,7 +560,7 @@ impl AirBaseAirAttack {
 
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct AirBaseAssult {
-    pub uuid: Uuid,
+    pub uuid: AirBaseAssultId,
     pub squadron_plane: Vec<i64>,
     pub f_plane_from: Option<Vec<i64>>,
     pub f_touch_plane: Option<i64>,
@@ -602,7 +624,7 @@ impl AirBaseAssult {
 
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct CarrierBaseAssault {
-    pub uuid: Uuid,
+    pub uuid: CarrierBaseAssaultId,
     pub f_plane_from: Option<Vec<i64>>,
     pub f_touch_plane: Option<i64>,
     pub f_loss_plane1: i64,
@@ -664,7 +686,7 @@ impl CarrierBaseAssault {
 
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct SupportHourai {
-    pub uuid: Uuid,
+    pub uuid: SupportHouraiId,
     pub f_cl: Vec<i64>,
     pub f_damage: Vec<i64>,
     pub f_protect_flag: Vec<bool>,
@@ -735,7 +757,7 @@ impl SupportHourai {
 
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct SupportAiratack {
-    pub uuid: Uuid,
+    pub uuid: SupportAiratackId,
     pub f_plane_from: Option<Vec<i64>>,
     pub f_touch_plane: Option<i64>,
     pub f_loss_plane: i64,
@@ -824,9 +846,10 @@ impl SupportAiratack {
 
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct FriendlySupportHouraiList {
+    pub uuid: FriendlySupportHouraiListId,
     pub f_flare_pos: Option<i64>,
     pub e_flare_pos: Option<i64>,
-    pub hourai_list: Option<Vec<Uuid>>,
+    pub hourai_list: Option<Vec<FriendlySupportHouraiId>>,
 }
 
 impl FriendlySupportHouraiList {
@@ -847,6 +870,7 @@ impl FriendlySupportHouraiList {
         };
 
         let new_data = FriendlySupportHouraiList {
+            uuid: new_uuid,
             f_flare_pos: new_f_flare_pos,
             e_flare_pos: new_e_flare_pos,
             hourai_list: new_hourai_list,
@@ -867,7 +891,7 @@ impl FriendlySupportHouraiList {
 
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct FriendlySupportHourai {
-    pub uuid: Uuid,
+    pub uuid: FriendlySupportHouraiId,
     pub at: Option<i64>,
     pub df: Option<Vec<i64>>,
     pub cl: Option<Vec<i64>>,
@@ -923,15 +947,15 @@ impl FriendlySupportHourai {
 
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct Battle {
-    pub uuid: Uuid,
+    pub uuid: BattleId,
     pub battle_order: Vec<i64>,
     pub timestamp: Option<i64>,
     pub midnight_timestamp: Option<i64>,
     pub cell_id: i64,
-    pub f_deck_id: Option<Uuid>,
-    pub e_deck_id: Option<Uuid>,
-    pub friend_deck_id: Option<Uuid>,
-    pub support_deck_id: Option<Uuid>,
+    pub f_deck_id: Option<OwnDeckId>,
+    pub e_deck_id: Option<EnemyDeckId>,
+    pub friend_deck_id: Option<FriendDeckId>,
+    pub support_deck_id: Option<SupportDeckId>,
     pub f_formation: Option<i64>,
     pub e_formation: Option<i64>,
     pub f_total_damages: Option<Vec<i64>>,
@@ -945,17 +969,17 @@ pub struct Battle {
     pub smoke_type: Option<i64>,
     pub f_combat_ration: Option<Vec<i64>>,
     pub balloon_flag: Option<i64>,
-    pub air_base_assault: Option<Uuid>,
-    pub carrier_base_assault: Option<Uuid>,
-    pub air_base_air_attacks: Option<Uuid>,
-    pub opening_air_attack: Option<Uuid>,
-    pub support_attack: Option<Uuid>,
-    pub opening_taisen: Option<Uuid>,
-    pub opening_raigeki: Option<Uuid>,
-    pub hougeki: Option<Uuid>,
-    pub closing_raigeki: Option<Uuid>,
-    pub friendly_force_attack: Option<Uuid>,
-    pub midnight_hougeki: Option<Uuid>,
+    pub air_base_assault: Option<AirBaseAssultId>,
+    pub carrier_base_assault: Option<CarrierBaseAssaultId>,
+    pub air_base_air_attacks: Option<AirBaseAirAttackListId>,
+    pub opening_air_attack: Option<OpeningAirAttackId>,
+    pub support_attack: Option<SupportDeckId>,
+    pub opening_taisen: Option<OpeningTaisenListId>,
+    pub opening_raigeki: Option<OpeningRaigekiId>,
+    pub hougeki: Option<HougekiListId>,
+    pub closing_raigeki: Option<ClosingRaigekiId>,
+    pub friendly_force_attack: Option<FriendlySupportHouraiListId>,
+    pub midnight_hougeki: Option<MidnightHougekiListId>,
     pub f_nowhps: Option<Vec<i64>>,
     pub e_nowhps: Option<Vec<i64>>,
     pub midngiht_f_nowhps: Option<Vec<i64>>,
