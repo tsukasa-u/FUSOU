@@ -1,15 +1,369 @@
 ---
-import PageLayout from '../layouts/Layout.astro';
-import Navigation from '../components/Navigation.astro';
-import MyChart from '../components/chartSample.tsx'
+import PageLayout from "../layouts/Layout.astro";
+import Navigation from "../components/Navigation.astro";
+import MyChart from "../components/solid/chartSample.tsx";
+import SidePage from "../components/solid/sidePage";
+import LoadDataComponent from "../components/solid/loadData";
+import { supabase } from "../lib/supabase";
+import PeriodFilter from "../components/PeriodFilter.astro";
+import { Icon } from "astro-icon/components";
+import VTable from "../components/react/vtable";
+import { ChartComponent } from "../components/react/chart"
 
+let storedAccessToken = Astro.cookies.get("stored-sb-access-token");
+let storedRefreshToken = Astro.cookies.get("stored-sb-refresh-token");
+let storedProviderToken = Astro.cookies.get("stored-sb-provider-token");
+let storedProviderRefreshToken = Astro.cookies.get(
+  "stored-sb-provider-refresh-token",
+);
+
+if (
+  !storedAccessToken ||
+  !storedRefreshToken ||
+  !storedProviderToken ||
+  !storedProviderRefreshToken
+) {
+  Astro.cookies.set("stored-sb-access-token", { data: [] }, { path: "/" });
+  Astro.cookies.set("stored-sb-refresh-token", { data: [] }, { path: "/" });
+  Astro.cookies.set("stored-sb-provider-token", { data: [] }, { path: "/" });
+  Astro.cookies.set(
+    "stored-sb-provider-refresh-token",
+    { data: [] },
+    { path: "/" },
+  );
+  storedAccessToken = Astro.cookies.get("stored-sb-access-token");
+  storedRefreshToken = Astro.cookies.get("stored-sb-refresh-token");
+  storedProviderToken = Astro.cookies.get("stored-sb-provider-token");
+  storedProviderRefreshToken = Astro.cookies.get(
+    "stored-sb-provider-refresh-token",
+  );
+}
+
+type storedToken = { data: string[] };
+let accessTokenList = (storedAccessToken?.json() as storedToken).data;
+const refreshTokenList = (storedRefreshToken?.json() as storedToken).data;
+const providerTokenList = (storedProviderToken?.json() as storedToken).data;
+const providerRefreshTokenList = (
+  storedProviderRefreshToken?.json() as storedToken
+).data;
+
+let validAccessTokenList = [];
+let validRefreshTokenList = [];
+let validProviderTokenList = [];
+let validProviderRefreshTokenList = [];
+let validSessionList = [];
+
+const tokenListLength = accessTokenList.length;
+for (let i = 0; i < tokenListLength; i++) {
+  try {
+    const session = await supabase.auth.setSession({
+      refresh_token: refreshTokenList[i],
+      access_token: accessTokenList[i],
+    });
+    if (session.error) {
+      try {
+        const session = await supabase.auth.refreshSession({
+          refresh_token: refreshTokenList[i],
+        });
+        if (session.error) continue;
+        accessTokenList[i] = session.data.session?.access_token!;
+        continue;
+      } catch (error) {
+        continue;
+      }
+    }
+    validAccessTokenList.push(accessTokenList[i]);
+    validRefreshTokenList.push(refreshTokenList[i]);
+    validSessionList.push(session);
+    validProviderTokenList.push(providerTokenList[i]);
+    validProviderRefreshTokenList.push(providerRefreshTokenList[i]);
+  } catch (error) {
+    continue;
+  }
+}
+
+Astro.cookies.set(
+  "stored-sb-access-token",
+  { data: validAccessTokenList },
+  { path: "/" },
+);
+Astro.cookies.set(
+  "stored-sb-refresh-token",
+  { data: validRefreshTokenList },
+  { path: "/" },
+);
+Astro.cookies.set(
+  "stored-sb-provider-token",
+  { data: validProviderTokenList },
+  { path: "/" },
+);
+Astro.cookies.set(
+  "stored-sb-provider-refresh-token",
+  { data: validProviderRefreshTokenList },
+  { path: "/" },
+);
 ---
 
 <PageLayout>
-	<div class="static">
-        <div class="h-16"></div>
-        <MyChart client:only="solid-js" />
-        <!-- <MyChart /> -->
-		<Navigation />
-	</div>
+  <!-- <div> -->
+  <div class="isolate h-full">
+    {
+      validSessionList.map((session, idx) => (
+        <astro-data-account-info
+          data-access-token={session?.data.session?.access_token}
+          data-refresh-token={session?.data.session?.refresh_token}
+          data-provider-token={validProviderTokenList[idx]}
+          data-provider-refresh-token={validProviderRefreshTokenList[idx]}
+          data-provider={session?.data.session?.user.app_metadata.provider}
+          data-username={session?.data.session?.user.user_metadata.name}
+          data-email={session?.data.user?.email}
+          data-date={Date.now()}
+          class="hidden"
+        />
+      ))
+    }
+    <Navigation filled={false} />
+    <div class="h-full flex bg-base-200">
+      <div class="h-full flex-1"></div>
+      <div class="h-full w-2xs max-xl:hidden">
+        <div
+          class="absolute top-16 mx-3 w-[calc(var(--container-2xs)-var(--spacing)*6)] h-[calc(100dvh-(var(--spacing)*16))]"
+        >
+          <div class="sticky top-16 bottom-0 overflow-y-auto w-full h-full">
+            <div class="bg-base-100 w-64 h-full w-full">
+              <ul
+                class="menu text-base-content px-4 w-content w-full grid grid-cols pt-8 py-16"
+              >
+                <SidePage client:only="solid-js" />
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="h-full min-w-4xl max-lg:min-w-[calc(100dvw)] flex-1 bg-base-300">
+        <div class="absolute top-16 max-lg:ml-[calc(max(8px,calc(100dvw-var(--container-4xl))/2))] w-4xl max-lg:w-[min(calc(100dvw-16px),var(--container-4xl))] bg-base-100">
+          <div
+            class="sticky top-16 bottom-0 w-full h-12 py-3 px-6 bg-base-100 hidden max-xl:block"
+          >
+            <div class="flex items-center">
+              <label class="swap">
+                <input
+                  type="checkbox"
+                  id="open-close-sidepages"
+                  checked={false}
+                />
+                <Icon name="close" class="text-2xl swap-on my-auto" />
+                <Icon name="menu" class="text-2xl swap-off my-auto" />
+                <h1 class="text-xl pl-10">Menu</h1>
+              </label>
+            </div>
+          </div>
+          <div class="h-px bg-base-200 hidden max-xl:block"></div>
+          <div
+            id="sidepage-content"
+            class="sticky top-16 max-xl:top-[calc(var(--spacing)*28+1px] bottom-0 overflow-y-auto w-full h-[calc(100dvh-(var(--spacing)*16))] max-xl:h-[calc(100dvh-var(--spacing)*28-1px)] hidden"
+          >
+            <ul
+              class="menu text-base-content px-4 w-content w-full grid grid-cols pt-8 py-16"
+            >
+              <SidePage client:only="solid-js" />
+            </ul>
+          </div>
+          <div
+            id="mainpage-notfound"
+            class="sticky top-16 max-xl:top-[calc(var(--spacing)*28+1px] bottom-0 overflow-y-auto w-full h-[calc(100dvh-(var(--spacing)*16))] max-xl:h-[calc(100dvh-var(--spacing)*28-1px)] flex justify-center items-center"
+          >
+            <div class="place-items-center">
+              <h1 class="text-2xl">No Page Found</h1><p>
+                Create or Select Page on Menu
+              </p>
+              <div class="h-[calc(100dvh/10)]"></div>
+            </div>
+          </div>
+          <div
+            id="mainpage-content"
+            class="sticky top-16 max-xl:top-[calc(var(--spacing)*28+1px] bottom-0 overflow-y-auto w-full h-[calc(100dvh-(var(--spacing)*16))] max-xl:h-[calc(100dvh-var(--spacing)*28-1px)] hidden"
+          >
+            <div class="w-full px-8">
+              <div class="-mx-4">
+                <div class="h-4"></div>
+                <input
+                  id="page-title"
+                  type="text"
+                  placeholder=""
+                  class="input input-ghost input-xl w-full text-3xl font-bold"
+                  value="Template-1"
+                />
+              </div>
+              <div id="register-storage">
+                <div class="h-4"></div>
+                <h1 class="text-2xl font-semibold py-2">
+                  <a href="#register-storage">Register Storage</a>
+                </h1>
+                <LoadDataComponent client:only="solid-js" />
+              </div>
+
+              <div id="select-period">
+                <div class="h-8"></div>
+                <h1 class="text-2xl font-semibold py-2">
+                  <a href="#select-period">Select Period</a>
+                </h1>
+                <PeriodFilter />
+              </div>
+              <div id="load-data">
+                <div class="h-8"></div>
+                <h1 class="text-2xl font-semibold py-2">
+                  <a href="#load-data">Load Data</a>
+                </h1>
+                <VTable client:only="react"/>
+              </div>
+              <ChartComponent client:only="react" />
+              <!-- <MyChart client:only="solid-js" /> -->
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="h-full w-2xs max-2xl:hidden">
+        <div
+          class="absolute top-16 mx-3 w-[calc(var(--container-2xs)-var(--spacing)*6)] h-[calc(100dvh-(var(--spacing)*16))]"
+        >
+          <div class="sticky top-16 bottom-0 overflow-y-auto w-full h-full">
+            <div class="bg-base-100 w-64 h-full w-full">
+              <ul
+                class="menu text-base-content px-4 w-content w-full grid grid-cols pt-8 py-16"
+              >
+                <li><a href="#register-storage">Register Storage</a></li>
+                <li><a href="#select-period">Slect Period</a></li>
+                <li><a href="#load-data">Load Data</a></li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="h-full flex-1"></div>
+    </div>
+  </div>
+  <!-- </div> -->
 </PageLayout>
+
+<script>
+  import { createUniqueId } from "solid-js";
+  import {
+    resetSession,
+    setSession,
+  } from "../components/states/persistentSupabaseSessionAtom";
+  resetSession();
+
+  class AstroDataAccountInfo extends HTMLElement {
+    constructor() {
+      super();
+      const accessToken = this.dataset.accessToken!;
+      const refreshToken = this.dataset.refreshToken!;
+      const email = this.dataset.email!;
+      const provider = this.dataset.provider!;
+      const username = this.dataset.username!;
+      const providerToken = this.dataset.providerToken!;
+      const providerRefreshToken = this.dataset.providerRefreshToken!;
+      const date = this.dataset.date!;
+
+      setSession({
+        id: createUniqueId(),
+        accessToken,
+        refreshToken,
+        email,
+        provider,
+        username,
+        providerToken,
+        providerRefreshToken,
+        date,
+      });
+    }
+  }
+
+  customElements.define("astro-data-account-info", AstroDataAccountInfo);
+</script>
+
+<script>
+  let sidepage_menu = window.document.getElementById(
+    "open-close-sidepages",
+  )! as HTMLInputElement;
+  sidepage_menu.addEventListener("input", () => {
+    let sidepage_menu = window.document.getElementById(
+      "open-close-sidepages",
+    )! as HTMLInputElement;
+    let mainpage_content = window.document.getElementById("mainpage-content")!;
+    let sidepage_content = window.document.getElementById("sidepage-content")!;
+    let mainpage_notfound =
+      window.document.getElementById("mainpage-notfound")!;
+    if (sidepage_menu.checked) {
+      mainpage_content.classList.add("max-xl:hidden");
+      mainpage_notfound.classList.add("max-xl:hidden");
+      sidepage_content.classList.add("max-xl:block");
+    } else {
+      mainpage_content.classList.remove("max-xl:hidden");
+      mainpage_notfound.classList.remove("max-xl:hidden");
+      sidepage_content.classList.remove("max-xl:block");
+    }
+  });
+</script>
+
+<script>
+  import { sidePageSlected } from "../components/states/sidePageMap";
+  import {
+    setPageData,
+    getPageData,
+  } from "../components/states/persistentPageData";
+  let page_title = window.document.getElementById(
+    "page-title",
+  )! as HTMLInputElement;
+  page_title.addEventListener("change", (e) => {
+    // addSidePageItem({id: sidePageSlected.get().id, name: (e.target! as any).value})
+    let page_data = getPageData(sidePageSlected.get().id);
+    setPageData({ ...page_data, name: (e.target! as any).value });
+  });
+</script>
+
+<script>
+  import { PageData, getPageData } from "../components/states/persistentPageData";
+  import { sidePageSlected } from "../components/states/sidePageMap";
+
+  PageData.subscribe((pagedata) => {
+    let page_title = window.document.getElementById(
+      "page-title",
+    )! as HTMLInputElement;
+    let page_data = getPageData(sidePageSlected.get().id);
+    if (page_data) {
+      page_title.value = page_data.name;
+    }
+  });
+
+  sidePageSlected.subscribe((selected) => {
+    let mainpage_content = window.document.getElementById("mainpage-content")!;
+    let mainpage_notfound =
+      window.document.getElementById("mainpage-notfound")!;
+    let page_title = window.document.getElementById(
+      "page-title",
+    )! as HTMLInputElement;
+    if (selected.id == "") {
+      mainpage_content.classList.add("hidden");
+      mainpage_notfound.classList.remove("hidden");
+    } else {
+      mainpage_content.classList.remove("hidden");
+      mainpage_notfound.classList.add("hidden");
+      // page_title.value = sidePageItems.get()[selected.id].name;
+      page_title.value = getPageData(selected.id).name;
+
+      let sidepage_menu = window.document.getElementById(
+        "open-close-sidepages",
+      )! as HTMLInputElement;
+      let sidepage_content =
+        window.document.getElementById("sidepage-content")!;
+      if (sidepage_menu.checked) {
+        sidepage_menu.checked = false;
+        mainpage_content.classList.remove("max-xl:hidden");
+        mainpage_notfound.classList.remove("max-xl:hidden");
+        sidepage_content.classList.remove("max-xl:block");
+      }
+    }
+  });
+</script>

@@ -1,64 +1,211 @@
 ---
 import Layout from "../layouts/Layout.astro";
-import Navigation from '../components/Navigation.astro';
+import Navigation from "../components/Navigation.astro";
 import { supabase } from "../lib/supabase";
+import { Icon } from "astro-icon/components";
 
 const accessToken = Astro.cookies.get("sb-access-token");
 const refreshToken = Astro.cookies.get("sb-refresh-token");
+const providerToken = Astro.cookies.get("sb-provider-token");
+const providerRefreshToken = Astro.cookies.get("sb-provider-refresh-token");
 
-if (!accessToken || !refreshToken) {
-  return Astro.redirect("/signin");
+let storedAccessToken = Astro.cookies.get("stored-sb-access-token");
+let storedRefreshToken = Astro.cookies.get("stored-sb-refresh-token");
+let storedProviderToken = Astro.cookies.get("stored-sb-provider-token");
+let storedProviderRefreshToken = Astro.cookies.get("stored-sb-provider-refresh-token");
+
+if (!storedAccessToken || !storedRefreshToken || !storedProviderToken || !storedProviderRefreshToken) {
+  Astro.cookies.set("stored-sb-access-token", { data: [] }, { path: "/" });
+  Astro.cookies.set("stored-sb-refresh-token", { data: [] }, { path: "/" });
+  Astro.cookies.set("stored-sb-provider-token", { data: [] }, { path: "/" });
+  Astro.cookies.set("stored-sb-provider-refresh-token", { data: [] }, { path: "/" });
+  storedAccessToken = Astro.cookies.get("stored-sb-access-token");
+  storedRefreshToken = Astro.cookies.get("stored-sb-refresh-token");
+  storedProviderToken = Astro.cookies.get("stored-sb-provider-token");
+  storedProviderRefreshToken = Astro.cookies.get("stored-sb-provider-refresh-token");
 }
 
-let session;
-try {
-    console.log(supabase);
-  session = await supabase.auth.setSession({
-    refresh_token: refreshToken.value,
-    access_token: accessToken.value,
-  });
-  if (session.error) {
-    Astro.cookies.delete("sb-access-token", {
-      path: "/",
+type storedToken = { data: string[] };
+let accessTokenList = (storedAccessToken?.json() as storedToken).data;
+const refreshTokenList = (storedRefreshToken?.json() as storedToken).data;
+const providerTokenList = (storedProviderToken?.json() as storedToken).data;
+const providerRefreshTokenList = (storedProviderRefreshToken?.json() as storedToken).data;
+
+let currentSession = null;
+if (refreshToken && accessToken && providerToken && providerRefreshToken) {
+  try {
+    const session = await supabase.auth.setSession({
+      refresh_token: refreshToken.value,
+      access_token: accessToken.value,
     });
-    Astro.cookies.delete("sb-refresh-token", {
-      path: "/",
-    });
+    if (session.error) {
+      Astro.cookies.delete("sb-access-token", { path: "/" });
+      Astro.cookies.delete("sb-refresh-token", { path: "/" });
+      Astro.cookies.delete("sb-provider-token", { path: "/" });
+      Astro.cookies.delete("sb-provider-refresh-token", { path: "/" });
+      return Astro.redirect("/signin");
+    }
+    currentSession = session;
+  } catch (error) {
+    Astro.cookies.delete("sb-access-token", { path: "/" });
+    Astro.cookies.delete("sb-refresh-token", { path: "/" });
+    Astro.cookies.delete("sb-provider-token", { path: "/" });
+    Astro.cookies.delete("sb-provider-refresh-token", { path: "/" });
     return Astro.redirect("/signin");
   }
-} catch (error) {
-  Astro.cookies.delete("sb-access-token", {
-    path: "/",
-  });
-  Astro.cookies.delete("sb-refresh-token", {
-    path: "/",
-  });
-  return Astro.redirect("/signin");
 }
 
-const email = session.data.user?.email;
+let validAccessTokenList = [];
+let validRefreshTokenList = [];
+let validProviderTokenList = [];
+let validProviderRefreshTokenList = [];
+let validSessionList = [];
+
+const tokenListLength = accessTokenList.length;
+for (let i = 0; i < tokenListLength; i++) {
+  try {
+    const session = await supabase.auth.setSession({
+      refresh_token: refreshTokenList[i],
+      access_token: accessTokenList[i],
+    });
+    if (session.error) {
+      try {
+        const session = await supabase.auth.refreshSession({
+          refresh_token: refreshTokenList[i],
+        });
+        if (session.error) continue;
+        currentSession = session;
+        accessTokenList[i] = session.data.session?.access_token!;
+        continue;
+      } catch (error) {
+        continue;
+      }
+    }
+    if (currentSession) {
+      if (session.data.user?.email == currentSession.data.user?.email) continue;
+    }
+    validAccessTokenList.push(accessTokenList[i]);
+    validRefreshTokenList.push(refreshTokenList[i]);
+    validSessionList.push(session);
+    validProviderTokenList.push(providerTokenList[i]);
+    validProviderRefreshTokenList.push(providerRefreshTokenList[i]);
+  } catch (error) {
+    continue;
+  }
+}
+
+if (currentSession && accessToken && refreshToken && providerToken && providerRefreshToken) {
+  validSessionList.push(currentSession);
+  validAccessTokenList.push(accessToken.value);
+  validRefreshTokenList.push(refreshToken.value);
+  validProviderTokenList.push(providerToken.value);
+  validProviderRefreshTokenList.push(providerRefreshToken.value);
+} else {
+  if (validAccessTokenList.length == 0 || validRefreshTokenList.length == 0 || validSessionList.length == 0 || validProviderTokenList.length == 0 || validProviderRefreshTokenList.length == 0) {
+    return Astro.redirect("/signin");
+  }
+}
+
+Astro.cookies.set("stored-sb-access-token", { data: validAccessTokenList }, { path: "/" });
+Astro.cookies.set("stored-sb-refresh-token", { data: validRefreshTokenList }, { path: "/" });
+Astro.cookies.set("stored-sb-provider-token", { data: validProviderTokenList }, { path: "/" });
+Astro.cookies.set("stored-sb-provider-refresh-token", { data: validProviderRefreshTokenList }, { path: "/" });
 ---
+
 <Layout title="dashboard">
-    <div class="static h-full">
-        <div class="h-16"></div>
+  <div class="static h-full">
+    <div class="h-16"></div>
 
-        <div class="flex justify-center h-full ">
-            <div class="card w-96 h-min shadow-xl place-self-center -mt-16">
-                <div class="card-body">
-                    <h1 class="text-xl text-center">Welcome {email}</h1>
+    <div class="flex justify-center h-full">
+      <div class="card w-96 h-min shadow-xl place-self-center -mt-16">
+        <div class="card-body">
+          <h1 class="text-3xl text-center py-2">Account is authorized</h1>
+          <ul class="list bg-base-100 rounded-box shadow-md">
+            <li class="p-4 pb-2 text-xs opacity-60 tracking-wide">
+              your accounts
+            </li>
+            {
+              validSessionList.map((session, idx) => (
+                <li class="list-row">
+                  <div>
+                    <Icon
+                      name={session?.data.session?.user.app_metadata.provider}
+                      class="size-10"
+                    />
+                  </div>
+                  <div>
+                    <div>{session?.data.session?.user.user_metadata.name}</div>
+                    <div class="text-xs font-semibold opacity-60">
+                      {session?.data.user?.email}
+                    </div>
+                  </div>
+                  <astro-data-account-info
+                    data-access-token={session?.data.session?.access_token}
+                    data-refresh-token={session?.data.session?.refresh_token}
+                    data-provider-token={validProviderTokenList[idx]}
+                    data-provider-refresh-token={validProviderRefreshTokenList[idx]}
+                    data-provider={session?.data.session?.user.app_metadata.provider}
+                    data-username={session?.data.session?.user.user_metadata.name}
+                    data-email={session?.data.user?.email}
+                    data-date={Date.now()}
+                  />
+                </li>
+              ))
+            }
+          </ul>
 
-                    <div class="h-8" />
+          <div class="h-8"></div>
 
-                    <form action="/api/auth/signout">
-                        <div class="text-center text-xl">Return Page</div>
-                        <div class="divider">OR</div>
-                        <button class="btn bg-white text-black border-[#e5e5e5] w-full" type="submit">
-                            Sign out
-                        </button>
-                    </form>
-                </div>
-            </div>
+          <div class="text-center text-xl">Add other Account</div>
+          <div class="h-1"></div>
+          <form action="/api/auth/signin" method="post">
+            <button
+              class="btn bg-white text-black border-[#e5e5e5] w-full"
+              value="google"
+              name="provider"
+              type="submit"
+            >
+              <Icon name="google" class="size-6" />
+              <div class="w-36 text-start">Login with Google</div>
+            </button>
+          </form>
+
+          <form action="/api/auth/signout">
+            <div class="divider">OR</div>
+            <button
+              class="btn bg-white text-black border-[#e5e5e5] w-full"
+              type="submit"
+            >
+              Sign out
+            </button>
+          </form>
         </div>
+      </div>
+    </div>
     <Navigation />
-</div>
+  </div>
 </Layout>
+
+<script>
+  import { createUniqueId } from "solid-js";
+  import { resetSession, setSession } from "../components/states/persistentSupabaseSessionAtom";
+  resetSession();
+
+  class AstroDataAccountInfo extends HTMLElement {
+    constructor() {
+      super();
+      const accessToken = this.dataset.accessToken!;
+      const refreshToken = this.dataset.refreshToken!;
+      const email = this.dataset.email!;
+      const provider = this.dataset.provider!;
+      const username = this.dataset.username!;
+      const providerToken = this.dataset.providerToken!;
+      const providerRefreshToken = this.dataset.providerRefreshToken!;
+      const date = this.dataset.date!;
+
+      setSession({ id: createUniqueId(), accessToken, refreshToken, email, provider, username, providerToken, providerRefreshToken, date});
+    }
+  }
+
+  customElements.define("astro-data-account-info", AstroDataAccountInfo);
+</script>

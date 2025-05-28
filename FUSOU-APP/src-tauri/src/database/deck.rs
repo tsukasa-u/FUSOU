@@ -2,16 +2,25 @@ use apache_avro::AvroSchema;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::database::ship::{EnemyShip, EnemyShipProps, FriendShip, FriendShipProps, OwnShip};
+use crate::database::ship::{
+    EnemyShip, EnemyShipId, EnemyShipProps, FriendShip, FriendShipId, FriendShipProps, OwnShip,
+    OwnShipId,
+};
 use crate::database::table::PortTable;
 use crate::interface::deck_port::DeckPorts;
 use crate::interface::ship::Ships;
 
 use register_trait::TraitForEncode;
 
+pub type OwnDeckId = Uuid;
+pub type SupportDeckId = Uuid;
+pub type EnemyDeckId = Uuid;
+pub type FriendDeckId = Uuid;
+
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct OwnDeck {
-    pub ship_ids: Vec<Option<Uuid>>,
+    pub uuid: OwnDeckId,
+    pub ship_ids: Vec<Option<OwnShipId>>,
     pub combined_flag: Option<i64>,
 }
 
@@ -37,6 +46,7 @@ impl OwnDeck {
         })?;
 
         let new_data = OwnDeck {
+            uuid: new_uuid,
             ship_ids: new_ship_ids,
             combined_flag: decks.combined_flag,
         };
@@ -49,7 +59,8 @@ impl OwnDeck {
 
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct SupportDeck {
-    pub ship_ids: Vec<Option<Uuid>>,
+    pub uuid: SupportDeckId,
+    pub ship_ids: Vec<Option<OwnShipId>>,
 }
 
 impl SupportDeck {
@@ -74,6 +85,7 @@ impl SupportDeck {
         })?;
 
         let new_data = SupportDeck {
+            uuid: new_uuid,
             ship_ids: new_ship_ids,
         };
 
@@ -85,7 +97,8 @@ impl SupportDeck {
 
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct EnemyDeck {
-    pub ship_ids: Vec<Uuid>,
+    pub uuid: EnemyDeckId,
+    pub ship_ids: Vec<EnemyShipId>,
 }
 
 impl EnemyDeck {
@@ -118,6 +131,7 @@ impl EnemyDeck {
             .unwrap_or_default();
 
         let new_data = EnemyDeck {
+            uuid: new_uuid,
             ship_ids: new_ship_ids,
         };
         table.enemy_deck.push(new_data);
@@ -128,7 +142,8 @@ impl EnemyDeck {
 
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct FriendDeck {
-    pub ship_ids: Vec<Uuid>,
+    pub uuid: FriendDeckId,
+    pub ship_ids: Vec<FriendShipId>,
 }
 
 impl FriendDeck {
@@ -158,6 +173,7 @@ impl FriendDeck {
             .collect();
 
         let new_data = FriendDeck {
+            uuid: new_uuid,
             ship_ids: new_ship_ids,
         };
         table.friend_deck.push(new_data);
