@@ -6,9 +6,13 @@ use crate::database::table::PortTable;
 
 use register_trait::TraitForEncode;
 
+pub type OwnSlotItemId = Uuid;
+pub type EnemySlotItemId = Uuid;
+pub type FriendSlotItemId = Uuid;
+
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct OwnSlotItem {
-    pub uuid: Uuid,
+    pub uuid: OwnSlotItemId,
     pub mst_slotitem_id: i64,
     pub level: i64,
     pub alv: Option<i64>,
@@ -36,7 +40,7 @@ impl OwnSlotItem {
 
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct EnemySlotItem {
-    pub uuid: Uuid,
+    pub uuid: EnemySlotItemId,
     pub mst_slotitem_id: i64,
 }
 
@@ -56,7 +60,7 @@ impl EnemySlotItem {
 
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct FriendSlotItem {
-    pub id: Uuid,
+    pub uuid: FriendSlotItemId,
     pub mst_slotitem_id: i64,
 }
 
@@ -64,7 +68,7 @@ impl FriendSlotItem {
     pub fn new_ret_uuid(data: i64, table: &mut PortTable) -> Uuid {
         let new_uuid = Uuid::new_v4();
         let new_data: FriendSlotItem = FriendSlotItem {
-            id: new_uuid,
+            uuid: new_uuid,
             mst_slotitem_id: data,
         };
 
