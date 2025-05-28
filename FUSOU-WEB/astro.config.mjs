@@ -40,5 +40,10 @@ export default defineConfig({
         process.env.PUBLIC_SITE_URL
       ),
     },
+    resolve: {
+      alias: import.meta.env.PROD && {
+        "react-dom/server": "react-dom/server.edge",
+      },
+    },
   },
 });
