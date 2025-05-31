@@ -57,7 +57,16 @@ pub fn check_struct_dependency() {
             let mut bookm: StructFieldTypeInfo = StructFieldTypeInfo::new();
 
             let content = fs::read_to_string(file_path.clone()).expect("failed to read file");
-            let captured = re_struct.captures_iter(&content);
+
+            let use_captured = re_use.captures_iter(&content);
+            let mut use_book: UseInfo = UseInfo::new();
+            for use_cap in use_captured {
+                if use_cap.get(1).is_none() {
+                    let use_name = use_cap.get(2).unwrap().as_str();
+                    let use_name_last = use_cap.get(use_cap.len() - 1).unwrap().as_str();
+                    use_book.insert(use_name_last.to_string(), use_name.to_string());
+                }
+            }
 
             #[cfg(target_os = "windows")]
             let api_name_splited: Vec<String> = file_path_str
@@ -74,16 +83,7 @@ pub fn check_struct_dependency() {
             let api_name_1 = api_name_splited[api_name_splited.len() - 2].clone();
             let api_name_2 = api_name_splited[api_name_splited.len() - 1].clone();
 
-            let use_captured = re_use.captures_iter(&content);
-            let mut use_book: UseInfo = UseInfo::new();
-            for use_cap in use_captured {
-                if use_cap.get(1).is_none() {
-                    let use_name = use_cap.get(2).unwrap().as_str();
-                    let use_name_last = use_cap.get(use_cap.len() - 1).unwrap().as_str();
-                    use_book.insert(use_name_last.to_string(), use_name.to_string());
-                }
-            }
-
+            let captured = re_struct.captures_iter(&content);
             for cap in captured {
                 let mut book: FieldTypeInfo = FieldTypeInfo::new();
 
@@ -142,18 +142,18 @@ pub fn check_struct_dependency() {
     for ((api_name_1, api_name_2), fieldm) in books.clone().iter() {
         for (struct_name, field) in fieldm.iter() {
             for (field_name, (_field_type_location, _field_type, type_name)) in field.iter() {
-                if let Some(ret) = books.get(&(api_name_1.clone(), api_name_2.clone())) {
-                    if ret.get(&type_name.clone()).is_some() {
-                        books
-                            .get_mut(&(api_name_1.clone(), api_name_2.clone()))
-                            .unwrap()
-                            .get_mut(struct_name)
-                            .unwrap()
-                            .get_mut(field_name)
-                            .unwrap()
-                            .0 = "self".to_string();
-                    }
+                // if let Some(ret) = books.get(&(api_name_1.clone(), api_name_2.clone())) {
+                if fieldm.get(&type_name.clone()).is_some() {
+                    books
+                        .get_mut(&(api_name_1.clone(), api_name_2.clone()))
+                        .unwrap()
+                        .get_mut(struct_name)
+                        .unwrap()
+                        .get_mut(field_name)
+                        .unwrap()
+                        .0 = "self".to_string();
                 }
+                // }
             }
         }
     }
@@ -228,22 +228,22 @@ pub fn check_struct_dependency() {
                             }
                             s if s.starts_with("crate") => {
                                 let key = get_crate_node_key(field_type_location);
-                                if struct_node_list.contains_key(&key) {
-                                    let node_field_type_id =
-                                        struct_node_list.get(&key).unwrap().clone();
-                                    set_cluster_edge(
-                                        &mut cluster,
-                                        &node_struct_name_id,
-                                        &node_field_type_id,
-                                        field_name,
-                                        type_name,
-                                    );
-                                } else {
-                                    edge_list.push((
-                                        node_struct_name_id.clone().port(field_name),
-                                        (key, type_name.to_owned()),
-                                    ));
-                                }
+                                // if struct_node_list.contains_key(&key) {
+                                //     let node_field_type_id =
+                                //         struct_node_list.get(&key).unwrap().clone();
+                                //     set_cluster_edge(
+                                //         &mut cluster,
+                                //         &node_struct_name_id,
+                                //         &node_field_type_id,
+                                //         field_name,
+                                //         type_name,
+                                //     );
+                                // } else {
+                                edge_list.push((
+                                    node_struct_name_id.clone().port(field_name),
+                                    (key, type_name.to_owned()),
+                                ));
+                                // }
                             }
                             _ => {}
                         }
@@ -361,7 +361,9 @@ pub fn check_struct_dependency() {
                         e.insert(vec![struct_name.clone()]);
                     } else {
                         let value = field_type_location_parse_uniq.get_mut(&key).unwrap();
-                        value.push(struct_name.clone());
+                        if !value.contains(&struct_name) {
+                            value.push(struct_name.clone());
+                        }
                     }
 
                     let fields = books
