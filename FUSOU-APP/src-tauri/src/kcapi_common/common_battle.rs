@@ -2,8 +2,8 @@ use serde::Deserialize;
 use std::collections::HashMap;
 // use serde_json::Value;
 
-use super::common_air::ApiSupportAiratack;
-use super::custom_type::DuoType;
+use crate::kcapi_common::common_air::ApiSupportAiratack;
+use crate::kcapi_common::custom_type::DuoType;
 
 use register_trait::add_field;
 
