@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::database::table::PortTable;
+use crate::database::table::DATABASE_TABLE_VERSION;
 
 use register_trait::TraitForEncode;
 
@@ -12,6 +13,7 @@ pub type FriendSlotItemId = Uuid;
 
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct OwnSlotItem {
+    pub version: String,
     pub uuid: OwnSlotItemId,
     pub mst_slotitem_id: i64,
     pub level: i64,
@@ -26,6 +28,7 @@ impl OwnSlotItem {
         let new_uuid: Uuid = Uuid::new_v4();
 
         let new_data: OwnSlotItem = OwnSlotItem {
+            version: DATABASE_TABLE_VERSION.to_string(),
             uuid: new_uuid,
             mst_slotitem_id: data.slotitem_id,
             level: data.level,
@@ -40,6 +43,7 @@ impl OwnSlotItem {
 
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct EnemySlotItem {
+    pub version: String,
     pub uuid: EnemySlotItemId,
     pub mst_slotitem_id: i64,
 }
@@ -48,6 +52,7 @@ impl EnemySlotItem {
     pub fn new_ret_uuid(data: i64, table: &mut PortTable) -> Uuid {
         let new_uuid = Uuid::new_v4();
         let new_data: EnemySlotItem = EnemySlotItem {
+            version: DATABASE_TABLE_VERSION.to_string(),
             uuid: new_uuid,
             mst_slotitem_id: data,
         };
@@ -60,6 +65,7 @@ impl EnemySlotItem {
 
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct FriendSlotItem {
+    pub version: String,
     pub uuid: FriendSlotItemId,
     pub mst_slotitem_id: i64,
 }
@@ -68,6 +74,7 @@ impl FriendSlotItem {
     pub fn new_ret_uuid(data: i64, table: &mut PortTable) -> Uuid {
         let new_uuid = Uuid::new_v4();
         let new_data: FriendSlotItem = FriendSlotItem {
+            version: DATABASE_TABLE_VERSION.to_string(),
             uuid: new_uuid,
             mst_slotitem_id: data,
         };

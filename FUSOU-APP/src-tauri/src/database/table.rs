@@ -1,9 +1,11 @@
+use dotenvy_macro::dotenv;
+
 use crate::database::airbase::{AirBase, PlaneInfo};
 use crate::database::battle::{
     AirBaseAirAttack, AirBaseAirAttackList, AirBaseAssult, Battle, CarrierBaseAssault,
     ClosingRaigeki, FriendlySupportHourai, FriendlySupportHouraiList, Hougeki, HougekiList,
     MidnightHougeki, MidnightHougekiList, OpeningAirAttack, OpeningRaigeki, OpeningTaisen,
-    OpeningTaisenList, SupportAiratack, SupportHourai,
+    OpeningTaisenList, SupportAirattack, SupportHourai,
 };
 use crate::database::cell::Cells;
 use crate::database::deck::{EnemyDeck, FriendDeck, OwnDeck, SupportDeck};
@@ -22,6 +24,8 @@ use crate::interface::mst_slot_item::{MstSlotItem, MstSlotItems};
 use crate::interface::mst_slot_item_equip_type::{MstSlotItemEquipType, MstSlotItemEquipTypes};
 use crate::interface::mst_stype::{MstStype, MstStypes};
 use crate::interface::mst_use_item::{MstUseItem, MstUseItems};
+
+pub const DATABASE_TABLE_VERSION: &str = dotenv!("DATABASE_TABLE_VERSION");
 
 #[derive(Debug, Clone, Default)]
 pub struct PortTable {
@@ -53,7 +57,7 @@ pub struct PortTable {
     pub opening_raigeki: Vec<OpeningRaigeki>,
     pub opening_taisen: Vec<OpeningTaisen>,
     pub opening_taisen_list: Vec<OpeningTaisenList>,
-    pub support_airatack: Vec<SupportAiratack>,
+    pub support_airattack: Vec<SupportAirattack>,
     pub support_hourai: Vec<SupportHourai>,
     pub battle: Vec<Battle>,
 }
@@ -88,7 +92,7 @@ pub struct PortTableEncode {
     pub opening_raigeki: Vec<u8>,
     pub opening_taisen: Vec<u8>,
     pub opening_taisen_list: Vec<u8>,
-    pub support_airatack: Vec<u8>,
+    pub support_airattack: Vec<u8>,
     pub support_hourai: Vec<u8>,
     pub battle: Vec<u8>,
 }
@@ -233,9 +237,9 @@ impl OpeningTaisenList {
         "opening_taisen_list".to_string()
     }
 }
-impl SupportAiratack {
+impl SupportAirattack {
     pub fn get_table_name() -> String {
-        "support_airatack".to_string()
+        "support_airattack".to_string()
     }
 }
 impl SupportHourai {
@@ -284,7 +288,7 @@ impl PortTable {
         let opening_raigeki = encode(self.opening_raigeki.clone())?;
         let opening_taisen = encode(self.opening_taisen.clone())?;
         let opening_taisen_list = encode(self.opening_taisen_list.clone())?;
-        let support_airatack = encode(self.support_airatack.clone())?;
+        let support_airattack = encode(self.support_airattack.clone())?;
         let support_hourai = encode(self.support_hourai.clone())?;
         let battle = encode(self.battle.clone())?;
 
@@ -319,7 +323,7 @@ impl PortTable {
             opening_raigeki,
             opening_taisen,
             opening_taisen_list,
-            support_airatack,
+            support_airattack,
             support_hourai,
             battle,
         };

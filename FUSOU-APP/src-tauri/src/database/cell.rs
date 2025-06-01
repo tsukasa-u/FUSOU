@@ -2,8 +2,10 @@ use apache_avro::AvroSchema;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::database::battle::{Battle, BattleId};
+use crate::database::battle::Battle;
+use crate::database::battle::BattleId;
 use crate::database::table::PortTable;
+use crate::database::table::DATABASE_TABLE_VERSION;
 
 use register_trait::TraitForEncode;
 
@@ -11,6 +13,7 @@ type CellsId = Uuid;
 
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct Cells {
+    pub version: String,
     pub uuid: CellsId,
     pub maparea_id: i64,
     pub mapinfo_no: i64,
@@ -47,6 +50,7 @@ impl Cells {
             .collect();
 
         let new_data = Cells {
+            version: DATABASE_TABLE_VERSION.to_string(),
             uuid: new_uuid,
             maparea_id: data.maparea_id,
             mapinfo_no: data.mapinfo_no,

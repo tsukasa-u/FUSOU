@@ -3,16 +3,20 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::database::airbase::AirBase;
+use crate::database::airbase::AirBaseId;
+use crate::database::deck::EnemyDeck;
+use crate::database::deck::EnemyDeckId;
+use crate::database::deck::FriendDeck;
+use crate::database::deck::FriendDeckId;
+use crate::database::deck::OwnDeck;
+use crate::database::deck::OwnDeckId;
 use crate::database::deck::SupportDeck;
+use crate::database::deck::SupportDeckId;
 use crate::database::table::PortTable;
+use crate::database::table::DATABASE_TABLE_VERSION;
 use crate::interface::air_base::AirBases;
 use crate::interface::deck_port::DeckPorts;
 use crate::interface::ship::Ships;
-
-use super::{
-    airbase::AirBaseId,
-    deck::{EnemyDeck, EnemyDeckId, FriendDeck, FriendDeckId, OwnDeck, OwnDeckId, SupportDeckId},
-};
 
 use register_trait::TraitForEncode;
 
@@ -32,11 +36,12 @@ pub type AirBaseAssultId = Uuid;
 pub type CarrierBaseAssaultId = Uuid;
 pub type SupportHouraiId = Uuid;
 pub type FriendlySupportHouraiId = Uuid;
-pub type SupportAiratackId = Uuid;
+pub type SupportAirattackId = Uuid;
 pub type FriendlySupportHouraiListId = Uuid;
 
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct HougekiList {
+    pub version: String,
     pub uuid: HougekiListId,
     pub hougeki: Vec<Vec<HougekiId>>,
 }
@@ -58,6 +63,7 @@ impl HougekiList {
             .collect();
 
         let new_data = HougekiList {
+            version: DATABASE_TABLE_VERSION.to_string(),
             uuid: new_uuid,
             hougeki: new_hougeki,
         };
@@ -77,6 +83,7 @@ impl HougekiList {
 
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct Hougeki {
+    pub version: String,
     pub uuid: HougekiId,
     pub at: i64,
     pub at_type: i64,
@@ -101,6 +108,7 @@ impl Hougeki {
                 let new_uuid = Uuid::new_v4();
 
                 let new_data = Hougeki {
+                    version: DATABASE_TABLE_VERSION.to_string(),
                     uuid: new_uuid,
                     at: data.at_list[i],
                     at_type: data.at_type[i],
@@ -133,6 +141,7 @@ impl Hougeki {
 
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct MidnightHougekiList {
+    pub version: String,
     pub uuid: MidnightHougekiListId,
     pub f_flare_pos: Option<i64>,
     pub f_touch_plane: Option<i64>,
@@ -151,6 +160,7 @@ impl MidnightHougekiList {
             .midnight_hougeki
             .and_then(|midnight_hougeki| MidnightHougeki::new_ret_uuid(midnight_hougeki, table));
         let new_data = MidnightHougekiList {
+            version: DATABASE_TABLE_VERSION.to_string(),
             uuid: new_uuid,
             f_flare_pos: data.midnight_flare_pos.clone().map(|pos| pos[0]),
             f_touch_plane: data.midngiht_touchplane.clone().map(|plane| plane[0]),
@@ -176,6 +186,7 @@ impl MidnightHougekiList {
 
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct MidnightHougeki {
+    pub version: String,
     pub uuid: MidnightHougekiId,
     pub at: Option<i64>,
     pub df: Option<Vec<i64>>,
@@ -201,6 +212,7 @@ impl MidnightHougeki {
                         let new_uuid = Uuid::new_v4();
 
                         let new_data = MidnightHougeki {
+                            version: DATABASE_TABLE_VERSION.to_string(),
                             uuid: new_uuid,
                             at: data.at_list.clone().map(|x| x[i]),
                             df: data.df_list.clone().map(|x| x[i].clone()),
@@ -232,6 +244,7 @@ impl MidnightHougeki {
 
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct OpeningTaisenList {
+    pub version: String,
     pub uuid: OpeningTaisenListId,
     pub opening_taisen: Vec<OpeningTaisenId>,
 }
@@ -245,6 +258,7 @@ impl OpeningTaisenList {
         let new_opening_taisen = OpeningTaisen::new_ret_uuid(data, table);
 
         let new_data = OpeningTaisenList {
+            version: DATABASE_TABLE_VERSION.to_string(),
             uuid: new_uuid,
             opening_taisen: new_opening_taisen,
         };
@@ -257,6 +271,7 @@ impl OpeningTaisenList {
 
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct OpeningTaisen {
+    pub version: String,
     pub uuid: OpeningTaisenId,
     pub at: i64,
     pub at_type: i64,
@@ -281,6 +296,7 @@ impl OpeningTaisen {
                 let new_uuid = Uuid::new_v4();
 
                 let new_data = OpeningTaisen {
+                    version: DATABASE_TABLE_VERSION.to_string(),
                     uuid: new_uuid,
                     at: data.at_list.clone()[i],
                     at_type: data.at_list.clone()[i],
@@ -306,6 +322,7 @@ impl OpeningTaisen {
 
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct ClosingRaigeki {
+    pub version: String,
     pub uuid: ClosingRaigekiId,
     pub f_dam: Vec<i64>,
     pub e_dam: Vec<i64>,
@@ -327,6 +344,7 @@ impl ClosingRaigeki {
         let new_uuid = Uuid::new_v4();
 
         let new_data = ClosingRaigeki {
+            version: DATABASE_TABLE_VERSION.to_string(),
             uuid: new_uuid,
             f_dam: data.fdam.iter().map(|x| *x as i64).collect(),
             e_dam: data.edam.iter().map(|x| *x as i64).collect(),
@@ -348,6 +366,7 @@ impl ClosingRaigeki {
 
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct OpeningRaigeki {
+    pub version: String,
     pub uuid: OpeningRaigekiId,
     pub f_dam: Vec<i64>,
     pub e_dam: Vec<i64>,
@@ -369,6 +388,7 @@ impl OpeningRaigeki {
         let new_uuid = Uuid::new_v4();
 
         let new_data = OpeningRaigeki {
+            version: DATABASE_TABLE_VERSION.to_string(),
             uuid: new_uuid,
             f_dam: data.fdam.iter().map(|x| *x as i64).collect(),
             e_dam: data.edam.iter().map(|x| *x as i64).collect(),
@@ -390,6 +410,7 @@ impl OpeningRaigeki {
 
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct OpeningAirAttack {
+    pub version: String,
     pub uuid: OpeningAirAttackId,
     pub f_plane_from: Option<Vec<i64>>,
     pub f_touch_plane: Option<i64>,
@@ -424,6 +445,7 @@ impl OpeningAirAttack {
         let new_uuid = Uuid::new_v4();
 
         let new_data = OpeningAirAttack {
+            version: DATABASE_TABLE_VERSION.to_string(),
             uuid: new_uuid,
             f_plane_from: data.f_damage.plane_from,
             f_touch_plane: data.f_damage.touch_plane,
@@ -458,6 +480,7 @@ impl OpeningAirAttack {
 
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct AirBaseAirAttackList {
+    pub version: String,
     pub uuid: AirBaseAirAttackListId,
     pub air_base_air_attack: Vec<AirBaseAirAttackId>,
 }
@@ -478,6 +501,7 @@ impl AirBaseAirAttackList {
             .collect();
 
         let new_data = AirBaseAirAttackList {
+            version: DATABASE_TABLE_VERSION.to_string(),
             uuid: new_uuid,
             air_base_air_attack: new_air_base_air_attack,
         };
@@ -490,6 +514,7 @@ impl AirBaseAirAttackList {
 
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct AirBaseAirAttack {
+    pub version: String,
     pub uuid: AirBaseAirAttackId,
     pub f_plane_from: Option<Vec<i64>>,
     pub f_touch_plane: Option<i64>,
@@ -527,6 +552,7 @@ impl AirBaseAirAttack {
         let new_airbase_id = AirBase::new_ret_uuid(air_base.clone(), table);
 
         let new_data = AirBaseAirAttack {
+            version: DATABASE_TABLE_VERSION.to_string(),
             uuid: new_uuid,
             f_plane_from: data.f_damage.plane_from,
             f_touch_plane: data.f_damage.touch_plane,
@@ -560,6 +586,7 @@ impl AirBaseAirAttack {
 
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct AirBaseAssult {
+    pub version: String,
     pub uuid: AirBaseAssultId,
     pub squadron_plane: Vec<i64>,
     pub f_plane_from: Option<Vec<i64>>,
@@ -592,6 +619,7 @@ impl AirBaseAssult {
         let new_uuid = Uuid::new_v4();
 
         let new_data = AirBaseAssult {
+            version: DATABASE_TABLE_VERSION.to_string(),
             uuid: new_uuid,
             squadron_plane: data.squadron_plane,
             f_plane_from: data.f_damage.plane_from,
@@ -624,6 +652,7 @@ impl AirBaseAssult {
 
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct CarrierBaseAssault {
+    pub version: String,
     pub uuid: CarrierBaseAssaultId,
     pub f_plane_from: Option<Vec<i64>>,
     pub f_touch_plane: Option<i64>,
@@ -655,6 +684,7 @@ impl CarrierBaseAssault {
         let new_uuid = Uuid::new_v4();
 
         let new_data = CarrierBaseAssault {
+            version: DATABASE_TABLE_VERSION.to_string(),
             uuid: new_uuid,
             f_plane_from: data.f_damage.plane_from,
             f_touch_plane: data.f_damage.touch_plane,
@@ -686,6 +716,7 @@ impl CarrierBaseAssault {
 
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct SupportHourai {
+    pub version: String,
     pub uuid: SupportHouraiId,
     pub f_cl: Vec<i64>,
     pub f_damage: Vec<i64>,
@@ -738,6 +769,7 @@ impl SupportHourai {
         new_vec_false.fill(false);
 
         let new_data = SupportHourai {
+            version: DATABASE_TABLE_VERSION.to_string(),
             uuid: new_uuid,
             f_cl: new_vec_0.clone(),
             f_damage: new_vec_0,
@@ -756,8 +788,9 @@ impl SupportHourai {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
-pub struct SupportAiratack {
-    pub uuid: SupportAiratackId,
+pub struct SupportAirattack {
+    pub version: String,
+    pub uuid: SupportAirattackId,
     pub f_plane_from: Option<Vec<i64>>,
     pub f_touch_plane: Option<i64>,
     pub f_loss_plane: i64,
@@ -778,7 +811,7 @@ pub struct SupportAiratack {
     pub e_now_hps: Vec<i64>,
 }
 
-impl SupportAiratack {
+impl SupportAirattack {
     pub fn new_ret_uuid(
         data: crate::interface::battle::SupportAiratack,
         table: &mut PortTable,
@@ -818,7 +851,8 @@ impl SupportAiratack {
         let mut new_vec_false = Vec::with_capacity(deck_len);
         new_vec_false.fill(false);
 
-        let new_data = SupportAiratack {
+        let new_data = SupportAirattack {
+            version: DATABASE_TABLE_VERSION.to_string(),
             uuid: new_uuid,
             f_plane_from: data.f_damage.plane_from,
             f_touch_plane: data.f_damage.touch_plane,
@@ -839,13 +873,14 @@ impl SupportAiratack {
             e_protect_flag: data.e_damage.protect_flag,
             e_now_hps: data.e_damage.now_hps,
         };
-        table.support_airatack.push(new_data);
+        table.support_airattack.push(new_data);
         return Some(new_uuid);
     }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct FriendlySupportHouraiList {
+    pub version: String,
     pub uuid: FriendlySupportHouraiListId,
     pub f_flare_pos: Option<i64>,
     pub e_flare_pos: Option<i64>,
@@ -870,6 +905,7 @@ impl FriendlySupportHouraiList {
         };
 
         let new_data = FriendlySupportHouraiList {
+            version: DATABASE_TABLE_VERSION.to_string(),
             uuid: new_uuid,
             f_flare_pos: new_f_flare_pos,
             e_flare_pos: new_e_flare_pos,
@@ -891,6 +927,7 @@ impl FriendlySupportHouraiList {
 
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct FriendlySupportHourai {
+    pub version: String,
     pub uuid: FriendlySupportHouraiId,
     pub at: Option<i64>,
     pub df: Option<Vec<i64>>,
@@ -916,6 +953,7 @@ impl FriendlySupportHourai {
                         let new_uuid = Uuid::new_v4();
 
                         let new_data = MidnightHougeki {
+                            version: DATABASE_TABLE_VERSION.to_string(),
                             uuid: new_uuid,
                             at: data.at_list.clone().map(|x| x[i]),
                             df: data.df_list.clone().map(|x| x[i].clone()),
@@ -947,6 +985,7 @@ impl FriendlySupportHourai {
 
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct Battle {
+    pub version: String,
     pub uuid: BattleId,
     pub battle_order: Vec<i64>,
     pub timestamp: Option<i64>,
@@ -973,7 +1012,8 @@ pub struct Battle {
     pub carrier_base_assault: Option<CarrierBaseAssaultId>,
     pub air_base_air_attacks: Option<AirBaseAirAttackListId>,
     pub opening_air_attack: Option<OpeningAirAttackId>,
-    pub support_attack: Option<SupportDeckId>,
+    pub support_hourai: Option<SupportHouraiId>,
+    pub support_airattack: Option<SupportAirattackId>,
     pub opening_taisen: Option<OpeningTaisenListId>,
     pub opening_raigeki: Option<OpeningRaigekiId>,
     pub hougeki: Option<HougekiListId>,
@@ -1044,18 +1084,40 @@ impl Battle {
             .clone()
             .opening_air_attack
             .map(|attack| OpeningAirAttack::new_ret_uuid(attack, table));
-        let new_support_attack = data
+        // let new_support_attack = data
+        //     .clone()
+        //     .support_attack
+        //     .clone()
+        //     .map(|attack| {
+        //         if let Some(air) = attack.support_airattack {
+        //             SupportAirattack::new_ret_uuid(air, table)
+        //         } else if let Some(hourai) = attack.support_hourai {
+        //             SupportHourai::new_ret_uuid(hourai, table)
+        //         } else {
+        //             None
+        //         }
+        //     })
+        //     .unwrap_or(None);
+        let new_support_hourai = data
             .clone()
             .support_attack
             .clone()
             .map(|attack| {
-                if let Some(air) = attack.support_airatack {
-                    SupportAiratack::new_ret_uuid(air, table)
-                } else if let Some(hourai) = attack.support_hourai {
-                    SupportHourai::new_ret_uuid(hourai, table)
-                } else {
-                    None
-                }
+                attack
+                    .support_hourai
+                    .map(|hourai| SupportHourai::new_ret_uuid(hourai, table))
+                    .unwrap_or(None)
+            })
+            .unwrap_or(None);
+        let new_support_airattack = data
+            .clone()
+            .support_attack
+            .clone()
+            .map(|attack| {
+                attack
+                    .support_airatack
+                    .map(|airattack| SupportAirattack::new_ret_uuid(airattack, table))
+                    .unwrap_or(None)
             })
             .unwrap_or(None);
         let new_opening_taisen = data
@@ -1092,6 +1154,7 @@ impl Battle {
         let new_midngiht_e_nowhps = data.clone().midngiht_e_nowhps;
 
         let new_data = Battle {
+            version: DATABASE_TABLE_VERSION.to_string(),
             uuid: new_uuid,
             battle_order: new_battle_order,
             timestamp: data.clone().timestamp,
@@ -1118,7 +1181,9 @@ impl Battle {
             carrier_base_assault: new_carrier_base_assault,
             air_base_air_attacks: new_air_base_air_attacks,
             opening_air_attack: new_opening_air_attack,
-            support_attack: new_support_attack,
+            // support_attack: new_support_attack,
+            support_hourai: new_support_hourai,
+            support_airattack: new_support_airattack,
             opening_taisen: new_opening_taisen,
             opening_raigeki: new_opening_raigeki,
             hougeki: new_hougeki,

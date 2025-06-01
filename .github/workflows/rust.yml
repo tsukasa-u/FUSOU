@@ -21,36 +21,37 @@ jobs:
       run:
         working-directory: ./FUSOU-APP/src-tauri
     steps:
-    - uses: actions/checkout@v4
-    - name: Setup env
-      run: |
-        touch ./.env
-        echo DISCORD_CLIENT_ID=${{ secrets.DISCORD_CLIENT_ID }} >> ./.env
-        echo GOOGLE_CLIENT_SECRET=${{ secrets.GOOGLE_CLIENT_SECRET }} >> ./.env
-        echo GOOGLE_CLIENT_ID=${{ secrets.GOOGLE_CLIENT_ID }} >> ./.env
-        echo SUPABASE_DATABASE_URL=${{ secrets.SUPABASE_DATABASE_URL }}  >> ./.env
-        touch ../.env
-        echo VITE_SUPABASE_URL=${{ secrets.SUPABASE_URL }} >> ../.env
-        echo VITE_SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }} >> ../.env
-        echo VITE_GOOGLE_CLIENT_ID=${{ secrets.GOOGLE_CLIENT_ID }} >> ../.env
-        echo VITE_GOOGLE_CLIENT_SECRET=${{ secrets.GOOGLE_CLIENT_SECRET }} >> ../.env
-        echo "export const env = { SUPABASE_URL: ${{ secrets.SUPABASE_URL }}, SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}}" > ../src/pages/vanilla/env.js
-    - name: Setup Ubuntu for tauri@v1
-      run: |
-        sudo apt update && \
-        sudo apt install -y libwebkit2gtk-4.1-dev \
-          build-essential \
-          curl \
-          wget \
-          file \
-          libxdo-dev \
-          libssl-dev \
-          libayatana-appindicator3-dev \
-          librsvg2-dev
-    - name: Run sccache-cache
-      uses: mozilla-actions/sccache-action@v0.0.9
-    - name: Build
-      run: cargo build --verbose
+      - uses: actions/checkout@v4
+      - name: Setup env
+        run: |
+          touch ./.env
+          echo DISCORD_CLIENT_ID=${{ secrets.DISCORD_CLIENT_ID }} >> ./.env
+          echo GOOGLE_CLIENT_SECRET=${{ secrets.GOOGLE_CLIENT_SECRET }} >> ./.env
+          echo GOOGLE_CLIENT_ID=${{ secrets.GOOGLE_CLIENT_ID }} >> ./.env
+          echo SUPABASE_DATABASE_URL=${{ secrets.SUPABASE_DATABASE_URL }}  >> ./.env
+          echo DATABASE_TABLE_VERSION=${{ vars.DATABASE_TABLE_VERSION }}  >> ./.env
+          touch ../.env
+          echo VITE_SUPABASE_URL=${{ secrets.SUPABASE_URL }} >> ../.env
+          echo VITE_SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }} >> ../.env
+          echo VITE_GOOGLE_CLIENT_ID=${{ secrets.GOOGLE_CLIENT_ID }} >> ../.env
+          echo VITE_GOOGLE_CLIENT_SECRET=${{ secrets.GOOGLE_CLIENT_SECRET }} >> ../.env
+          echo "export const env = { SUPABASE_URL: ${{ secrets.SUPABASE_URL }}, SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}}" > ../src/pages/vanilla/env.js
+      - name: Setup Ubuntu for tauri@v1
+        run: |
+          sudo apt update
+          sudo apt install -y libwebkit2gtk-4.1-dev \
+            build-essential \
+            curl \
+            wget \
+            file \
+            libxdo-dev \
+            libssl-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev
+      - name: Run sccache-cache
+        uses: mozilla-actions/sccache-action@v0.0.9
+      - name: Build
+        run: cargo build --verbose
 
   doc:
     runs-on: ubuntu-latest
@@ -62,57 +63,58 @@ jobs:
         working-directory: ./FUSOU-APP/src-tauri
     needs: build
     steps:
-    - uses: actions/checkout@v4
-    - name: Setup env
-      run: |
-        touch ./.env
-        echo DISCORD_CLIENT_ID=${{ secrets.DISCORD_CLIENT_ID }} >> ./.env
-        echo GOOGLE_CLIENT_SECRET=${{ secrets.GOOGLE_CLIENT_SECRET }} >> ./.env
-        echo GOOGLE_CLIENT_ID=${{ secrets.GOOGLE_CLIENT_ID }} >> ./.env
-        echo SUPABASE_DATABASE_URL=${{ secrets.SUPABASE_DATABASE_URL }}  >> ./.env
-        touch ../.env
-        echo VITE_SUPABASE_URL=${{ secrets.SUPABASE_URL }} >> ../.env
-        echo VITE_SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }} >> ../.env
-        echo VITE_GOOGLE_CLIENT_ID=${{ secrets.GOOGLE_CLIENT_ID }} >> ../.env
-        echo VITE_GOOGLE_CLIENT_SECRET=${{ secrets.GOOGLE_CLIENT_SECRET }} >> ../.env
-        echo "export const env = { SUPABASE_URL: ${{ secrets.SUPABASE_URL }}, SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}}" > ../src/pages/vanilla/env.js
-    - name: Setup Ubuntu for tauri@v1 & Graphviz
-      run: |
-        sudo apt update && \
-        sudo apt install -y libwebkit2gtk-4.1-dev \
-          build-essential \
-          curl \
-          wget \
-          file \
-          libxdo-dev \
-          libssl-dev \
-          libayatana-appindicator3-dev \
-          librsvg2-dev  && \
-        sudo apt install -y graphviz
-    - name: Run sccache-cache
-      uses: mozilla-actions/sccache-action@v0.0.9
-    - name: export dependencies dot
-      run: cargo test --all test_struct_dependency
-    - name: check if dot is created
-      run: ls ./tests/struct_dependency_dot
-    - name: export dependencies svg
-      run: sudo ./tests/export_svg.sh
-    - name: check if svg is created
-      run: ls ./tests/struct_dependency_svg
-    - name: Clean docs folder
-      run: cargo clean --doc
-    - name: Build docs
-      run: cargo doc --no-deps -p app -p proxy-https -p register_trait -p register_macro_derive_and_attr --document-private-items
-    - name: Add redirect
-      run: echo '<meta http-equiv="refresh" content="0;url=app/index.html">' > target/doc/index.html
-    - name: Remove lock file
-      run: rm target/doc/.lock
-    - name: move struct dependency svg
-      run: mv -f ./tests/struct_dependency_svg ./target/doc/struct_dependency_svg
-    - name: Upload artifact
-      uses: actions/upload-pages-artifact@v3
-      with:
-        path: ./FUSOU-APP/src-tauri/target/doc
+      - uses: actions/checkout@v4
+      - name: Setup env
+        run: |
+          touch ./.env
+          echo DISCORD_CLIENT_ID=${{ secrets.DISCORD_CLIENT_ID }} >> ./.env
+          echo GOOGLE_CLIENT_SECRET=${{ secrets.GOOGLE_CLIENT_SECRET }} >> ./.env
+          echo GOOGLE_CLIENT_ID=${{ secrets.GOOGLE_CLIENT_ID }} >> ./.env
+          echo SUPABASE_DATABASE_URL=${{ secrets.SUPABASE_DATABASE_URL }}  >> ./.env
+          echo DATABASE_TABLE_VERSION=${{ vars.DATABASE_TABLE_VERSION }}  >> ./.env
+          touch ../.env
+          echo VITE_SUPABASE_URL=${{ secrets.SUPABASE_URL }} >> ../.env
+          echo VITE_SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }} >> ../.env
+          echo VITE_GOOGLE_CLIENT_ID=${{ secrets.GOOGLE_CLIENT_ID }} >> ../.env
+          echo VITE_GOOGLE_CLIENT_SECRET=${{ secrets.GOOGLE_CLIENT_SECRET }} >> ../.env
+          echo "export const env = { SUPABASE_URL: ${{ secrets.SUPABASE_URL }}, SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}}" > ../src/pages/vanilla/env.js
+      - name: Setup Ubuntu for tauri@v1 & Graphviz
+        run: |
+          sudo apt update
+          sudo apt install -y libwebkit2gtk-4.1-dev \
+            build-essential \
+            curl \
+            wget \
+            file \
+            libxdo-dev \
+            libssl-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev
+          sudo apt install -y graphviz
+      - name: Run sccache-cache
+        uses: mozilla-actions/sccache-action@v0.0.9
+      - name: export dependencies dot
+        run: |
+          cargo test --all test_struct_dependency
+          cargo test --all test_database_dependency
+      - name: export dependencies svg
+        run: sudo ./tests/export_svg.sh
+      - name: Clean docs folder
+        run: cargo clean --doc
+      - name: Build docs
+        run: cargo doc --no-deps -p app -p proxy-https -p register_trait -p register_macro_derive_and_attr --document-private-items
+      - name: Add redirect
+        run: echo '<meta http-equiv="refresh" content="0;url=app/index.html">' > target/doc/index.html
+      - name: Remove lock file
+        run: rm target/doc/.lock
+      - name: move struct dependency svg
+        run: |
+          mv -f ./tests/struct_dependency_svg ./target/doc/struct_dependency_svg
+          mv -f ./tests/database_dependency_svg ./target/doc/database_dependency_svg
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./FUSOU-APP/src-tauri/target/doc
 
   deploy:
     needs: doc

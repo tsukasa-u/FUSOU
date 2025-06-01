@@ -2,10 +2,14 @@ use apache_avro::AvroSchema;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::database::slotitem::{
-    EnemySlotItem, EnemySlotItemId, FriendSlotItem, FriendSlotItemId, OwnSlotItem, OwnSlotItemId,
-};
+use crate::database::slotitem::EnemySlotItem;
+use crate::database::slotitem::EnemySlotItemId;
+use crate::database::slotitem::FriendSlotItem;
+use crate::database::slotitem::FriendSlotItemId;
+use crate::database::slotitem::OwnSlotItem;
+use crate::database::slotitem::OwnSlotItemId;
 use crate::database::table::PortTable;
+use crate::database::table::DATABASE_TABLE_VERSION;
 
 use crate::interface::ship::Ships;
 use crate::interface::slot_item::SlotItems;
@@ -18,6 +22,7 @@ pub type FriendShipId = Uuid;
 
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct OwnShip {
+    pub version: String,
     pub uuid: OwnShipId,
     pub ship_id: Option<i64>,
     pub lv: Option<i64>,                          // レベル
@@ -61,6 +66,7 @@ impl OwnShip {
         });
 
         let new_data: OwnShip = OwnShip {
+            version: DATABASE_TABLE_VERSION.to_string(),
             uuid: new_uuid,
             ship_id: ship.ship_id,
             lv: ship.lv,
@@ -96,6 +102,7 @@ impl OwnShip {
 
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct EnemyShip {
+    pub version: String,
     pub uuid: EnemyShipId,
     pub mst_ship_id: Option<i64>,
     pub lv: Option<i64>,                    // レベル
@@ -127,6 +134,7 @@ impl EnemyShip {
         });
 
         let new_data: EnemyShip = EnemyShip {
+            version: DATABASE_TABLE_VERSION.to_string(),
             uuid: new_uuid,
             lv: data.0,
             nowhp: data.1,
@@ -155,6 +163,7 @@ pub type FriendShipProps = (
 );
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct FriendShip {
+    pub version: String,
     pub uuid: FriendShipId,
     pub mst_ship_id: Option<i64>,
     pub lv: Option<i64>,                     // レベル
@@ -179,6 +188,7 @@ impl FriendShip {
         });
 
         let new_data: FriendShip = FriendShip {
+            version: DATABASE_TABLE_VERSION.to_string(),
             uuid: new_uuid,
             lv: data.0,
             nowhp: data.1,
