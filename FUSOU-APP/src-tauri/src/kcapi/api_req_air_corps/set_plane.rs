@@ -30,6 +30,14 @@ pub struct Req {
     pub api_token: String,
     #[serde(rename = "api_verno")]
     pub api_verno: String,
+    #[serde(rename = "api_item_id")]
+    pub api_item_id: String,
+    #[serde(rename = "api_squadron_id")]
+    pub api_squadron_id: String,
+    #[serde(rename = "api_area_id")]
+    pub api_area_id: String,
+    #[serde(rename = "api_base_id")]
+    pub api_base_id: String,
 }
 
 #[derive(Getter, TraitForTest, TraitForRoot, TraitForConvert)]

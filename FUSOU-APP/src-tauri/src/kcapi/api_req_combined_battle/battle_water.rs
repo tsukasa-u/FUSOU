@@ -20,6 +20,7 @@ use register_trait::TraitForTest;
 use crate::kcapi_common::common_air::ApiAirBaseAttack;
 use crate::kcapi_common::common_air::ApiAirBaseInjection;
 use crate::kcapi_common::common_air::ApiKouku;
+use crate::kcapi_common::common_battle::ApiFlavorInfo;
 use crate::kcapi_common::common_battle::ApiHougeki;
 use crate::kcapi_common::common_battle::ApiOpeningAtack;
 use crate::kcapi_common::common_battle::ApiOpeningTaisen;
@@ -39,6 +40,12 @@ pub struct Req {
     pub api_token: String,
     #[serde(rename = "api_verno")]
     pub api_verno: String,
+    #[serde(rename = "api_formation")]
+    pub api_formation: String,
+    #[serde(rename = "api_recovery_type")]
+    pub api_recovery_type: String,
+    #[serde(rename = "api_start")]
+    pub api_start: Option<String>,
 }
 
 #[derive(Getter, TraitForTest, TraitForRoot, TraitForConvert)]
@@ -139,6 +146,8 @@ pub struct ApiData {
     pub api_air_base_injection: Option<ApiAirBaseInjection>,
     #[serde(rename = "api_combat_ration")]
     pub api_combat_ration: Option<Vec<i64>>,
+    #[serde(rename = "api_flavor_info")]
+    pub api_flavor_info: Option<Vec<ApiFlavorInfo>>,
 }
 
 #[cfg(test)]

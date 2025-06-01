@@ -30,6 +30,8 @@ pub struct Req {
     pub api_token: String,
     #[serde(rename = "api_verno")]
     pub api_verno: String,
+    #[serde(rename = "api_id")]
+    pub api_id: String,
 }
 
 #[derive(Getter, TraitForTest, TraitForRoot, TraitForConvert)]
@@ -116,6 +118,8 @@ pub struct ApiData {
     pub api_locked: i64,
     #[serde(rename = "api_locked_equip")]
     pub api_locked_equip: i64,
+    #[serde(rename = "api_sally_area")]
+    pub api_sally_area: Option<i64>,
 }
 
 #[cfg(test)]

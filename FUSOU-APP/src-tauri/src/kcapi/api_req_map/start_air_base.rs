@@ -31,9 +31,9 @@ pub struct Req {
     #[serde(rename = "api_verno")]
     pub api_verno: String,
     #[serde(rename = "api_strike_point_1")]
-    pub api_strike_point_1: String,
+    pub api_strike_point_1: Option<String>,
     #[serde(rename = "api_strike_point_2")]
-    pub api_strike_point_2: String,
+    pub api_strike_point_2: Option<String>,
 }
 
 #[derive(Getter, TraitForTest, TraitForRoot, TraitForConvert)]
