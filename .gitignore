@@ -24,6 +24,8 @@ FUSOU-APP/src-tauri/ca/*
 
 /FUSOU-APP/src-tauri/tests/struct_dependency_dot/*.dot
 /FUSOU-APP/src-tauri/tests/struct_dependency_svg/*.svg
+/FUSOU-APP/src-tauri/tests/database_dependency_dot/*.dot
+/FUSOU-APP/src-tauri/tests/database_dependency_svg/*.svg
 FUSOU-APP/tsconfig.tsbuildinfo
 FUSOU-PROXY/proxy_rust/proxy-https/proxy.pac
 
