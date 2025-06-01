@@ -1,9 +1,9 @@
 use apache_avro::AvroSchema;
-use dotenvy_macro::dotenv;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::database::table::PortTable;
+use crate::database::table::DATABASE_TABLE_VERSION;
 
 use register_trait::TraitForEncode;
 
@@ -28,7 +28,7 @@ impl OwnSlotItem {
         let new_uuid: Uuid = Uuid::new_v4();
 
         let new_data: OwnSlotItem = OwnSlotItem {
-            version: dotenv!("DATABASE_TABLE_VERSION").to_string(),
+            version: DATABASE_TABLE_VERSION.to_string(),
             uuid: new_uuid,
             mst_slotitem_id: data.slotitem_id,
             level: data.level,
@@ -52,7 +52,7 @@ impl EnemySlotItem {
     pub fn new_ret_uuid(data: i64, table: &mut PortTable) -> Uuid {
         let new_uuid = Uuid::new_v4();
         let new_data: EnemySlotItem = EnemySlotItem {
-            version: dotenv!("DATABASE_TABLE_VERSION").to_string(),
+            version: DATABASE_TABLE_VERSION.to_string(),
             uuid: new_uuid,
             mst_slotitem_id: data,
         };
@@ -74,7 +74,7 @@ impl FriendSlotItem {
     pub fn new_ret_uuid(data: i64, table: &mut PortTable) -> Uuid {
         let new_uuid = Uuid::new_v4();
         let new_data: FriendSlotItem = FriendSlotItem {
-            version: dotenv!("DATABASE_TABLE_VERSION").to_string(),
+            version: DATABASE_TABLE_VERSION.to_string(),
             uuid: new_uuid,
             mst_slotitem_id: data,
         };

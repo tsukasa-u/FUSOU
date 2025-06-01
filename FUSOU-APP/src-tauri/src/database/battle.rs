@@ -1,5 +1,4 @@
 use apache_avro::AvroSchema;
-use dotenvy_macro::dotenv;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -14,6 +13,7 @@ use crate::database::deck::OwnDeckId;
 use crate::database::deck::SupportDeck;
 use crate::database::deck::SupportDeckId;
 use crate::database::table::PortTable;
+use crate::database::table::DATABASE_TABLE_VERSION;
 use crate::interface::air_base::AirBases;
 use crate::interface::deck_port::DeckPorts;
 use crate::interface::ship::Ships;
@@ -63,7 +63,7 @@ impl HougekiList {
             .collect();
 
         let new_data = HougekiList {
-            version: dotenv!("DATABASE_TABLE_VERSION").to_string(),
+            version: DATABASE_TABLE_VERSION.to_string(),
             uuid: new_uuid,
             hougeki: new_hougeki,
         };
@@ -108,7 +108,7 @@ impl Hougeki {
                 let new_uuid = Uuid::new_v4();
 
                 let new_data = Hougeki {
-                    version: dotenv!("DATABASE_TABLE_VERSION").to_string(),
+                    version: DATABASE_TABLE_VERSION.to_string(),
                     uuid: new_uuid,
                     at: data.at_list[i],
                     at_type: data.at_type[i],
@@ -160,7 +160,7 @@ impl MidnightHougekiList {
             .midnight_hougeki
             .and_then(|midnight_hougeki| MidnightHougeki::new_ret_uuid(midnight_hougeki, table));
         let new_data = MidnightHougekiList {
-            version: dotenv!("DATABASE_TABLE_VERSION").to_string(),
+            version: DATABASE_TABLE_VERSION.to_string(),
             uuid: new_uuid,
             f_flare_pos: data.midnight_flare_pos.clone().map(|pos| pos[0]),
             f_touch_plane: data.midngiht_touchplane.clone().map(|plane| plane[0]),
@@ -212,7 +212,7 @@ impl MidnightHougeki {
                         let new_uuid = Uuid::new_v4();
 
                         let new_data = MidnightHougeki {
-                            version: dotenv!("DATABASE_TABLE_VERSION").to_string(),
+                            version: DATABASE_TABLE_VERSION.to_string(),
                             uuid: new_uuid,
                             at: data.at_list.clone().map(|x| x[i]),
                             df: data.df_list.clone().map(|x| x[i].clone()),
@@ -258,7 +258,7 @@ impl OpeningTaisenList {
         let new_opening_taisen = OpeningTaisen::new_ret_uuid(data, table);
 
         let new_data = OpeningTaisenList {
-            version: dotenv!("DATABASE_TABLE_VERSION").to_string(),
+            version: DATABASE_TABLE_VERSION.to_string(),
             uuid: new_uuid,
             opening_taisen: new_opening_taisen,
         };
@@ -296,7 +296,7 @@ impl OpeningTaisen {
                 let new_uuid = Uuid::new_v4();
 
                 let new_data = OpeningTaisen {
-                    version: dotenv!("DATABASE_TABLE_VERSION").to_string(),
+                    version: DATABASE_TABLE_VERSION.to_string(),
                     uuid: new_uuid,
                     at: data.at_list.clone()[i],
                     at_type: data.at_list.clone()[i],
@@ -344,7 +344,7 @@ impl ClosingRaigeki {
         let new_uuid = Uuid::new_v4();
 
         let new_data = ClosingRaigeki {
-            version: dotenv!("DATABASE_TABLE_VERSION").to_string(),
+            version: DATABASE_TABLE_VERSION.to_string(),
             uuid: new_uuid,
             f_dam: data.fdam.iter().map(|x| *x as i64).collect(),
             e_dam: data.edam.iter().map(|x| *x as i64).collect(),
@@ -388,7 +388,7 @@ impl OpeningRaigeki {
         let new_uuid = Uuid::new_v4();
 
         let new_data = OpeningRaigeki {
-            version: dotenv!("DATABASE_TABLE_VERSION").to_string(),
+            version: DATABASE_TABLE_VERSION.to_string(),
             uuid: new_uuid,
             f_dam: data.fdam.iter().map(|x| *x as i64).collect(),
             e_dam: data.edam.iter().map(|x| *x as i64).collect(),
@@ -445,7 +445,7 @@ impl OpeningAirAttack {
         let new_uuid = Uuid::new_v4();
 
         let new_data = OpeningAirAttack {
-            version: dotenv!("DATABASE_TABLE_VERSION").to_string(),
+            version: DATABASE_TABLE_VERSION.to_string(),
             uuid: new_uuid,
             f_plane_from: data.f_damage.plane_from,
             f_touch_plane: data.f_damage.touch_plane,
@@ -501,7 +501,7 @@ impl AirBaseAirAttackList {
             .collect();
 
         let new_data = AirBaseAirAttackList {
-            version: dotenv!("DATABASE_TABLE_VERSION").to_string(),
+            version: DATABASE_TABLE_VERSION.to_string(),
             uuid: new_uuid,
             air_base_air_attack: new_air_base_air_attack,
         };
@@ -552,7 +552,7 @@ impl AirBaseAirAttack {
         let new_airbase_id = AirBase::new_ret_uuid(air_base.clone(), table);
 
         let new_data = AirBaseAirAttack {
-            version: dotenv!("DATABASE_TABLE_VERSION").to_string(),
+            version: DATABASE_TABLE_VERSION.to_string(),
             uuid: new_uuid,
             f_plane_from: data.f_damage.plane_from,
             f_touch_plane: data.f_damage.touch_plane,
@@ -619,7 +619,7 @@ impl AirBaseAssult {
         let new_uuid = Uuid::new_v4();
 
         let new_data = AirBaseAssult {
-            version: dotenv!("DATABASE_TABLE_VERSION").to_string(),
+            version: DATABASE_TABLE_VERSION.to_string(),
             uuid: new_uuid,
             squadron_plane: data.squadron_plane,
             f_plane_from: data.f_damage.plane_from,
@@ -684,7 +684,7 @@ impl CarrierBaseAssault {
         let new_uuid = Uuid::new_v4();
 
         let new_data = CarrierBaseAssault {
-            version: dotenv!("DATABASE_TABLE_VERSION").to_string(),
+            version: DATABASE_TABLE_VERSION.to_string(),
             uuid: new_uuid,
             f_plane_from: data.f_damage.plane_from,
             f_touch_plane: data.f_damage.touch_plane,
@@ -769,7 +769,7 @@ impl SupportHourai {
         new_vec_false.fill(false);
 
         let new_data = SupportHourai {
-            version: dotenv!("DATABASE_TABLE_VERSION").to_string(),
+            version: DATABASE_TABLE_VERSION.to_string(),
             uuid: new_uuid,
             f_cl: new_vec_0.clone(),
             f_damage: new_vec_0,
@@ -852,7 +852,7 @@ impl SupportAirattack {
         new_vec_false.fill(false);
 
         let new_data = SupportAirattack {
-            version: dotenv!("DATABASE_TABLE_VERSION").to_string(),
+            version: DATABASE_TABLE_VERSION.to_string(),
             uuid: new_uuid,
             f_plane_from: data.f_damage.plane_from,
             f_touch_plane: data.f_damage.touch_plane,
@@ -905,7 +905,7 @@ impl FriendlySupportHouraiList {
         };
 
         let new_data = FriendlySupportHouraiList {
-            version: dotenv!("DATABASE_TABLE_VERSION").to_string(),
+            version: DATABASE_TABLE_VERSION.to_string(),
             uuid: new_uuid,
             f_flare_pos: new_f_flare_pos,
             e_flare_pos: new_e_flare_pos,
@@ -953,7 +953,7 @@ impl FriendlySupportHourai {
                         let new_uuid = Uuid::new_v4();
 
                         let new_data = MidnightHougeki {
-                            version: dotenv!("DATABASE_TABLE_VERSION").to_string(),
+                            version: DATABASE_TABLE_VERSION.to_string(),
                             uuid: new_uuid,
                             at: data.at_list.clone().map(|x| x[i]),
                             df: data.df_list.clone().map(|x| x[i].clone()),
@@ -1154,7 +1154,7 @@ impl Battle {
         let new_midngiht_e_nowhps = data.clone().midngiht_e_nowhps;
 
         let new_data = Battle {
-            version: dotenv!("DATABASE_TABLE_VERSION").to_string(),
+            version: DATABASE_TABLE_VERSION.to_string(),
             uuid: new_uuid,
             battle_order: new_battle_order,
             timestamp: data.clone().timestamp,
