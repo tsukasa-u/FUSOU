@@ -150,6 +150,8 @@ pub struct ApiData {
     pub api_escape_idx: Option<Vec<i64>>,
     #[serde(rename = "api_combat_ration")]
     pub api_combat_ration: Option<Vec<i64>>,
+    #[serde(rename = "api_air_base_rescue_type")]
+    pub api_air_base_rescue_type: Option<i64>,
 }
 
 impl TraitForConvert for Res {

@@ -41,6 +41,12 @@ pub struct Req {
     pub api_token: String,
     #[serde(rename = "api_verno")]
     pub api_verno: String,
+    #[serde(rename = "api_formation")]
+    pub api_formation: String,
+    #[serde(rename = "api_recovery_type")]
+    pub api_recovery_type: String,
+    #[serde(rename = "api_start")]
+    pub api_start: Option<String>,
 }
 
 #[derive(Getter, TraitForTest, TraitForRoot, TraitForConvert)]
@@ -122,7 +128,7 @@ pub struct ApiData {
     #[serde(rename = "api_search")]
     pub api_search: Vec<i64>,
     #[serde(rename = "api_air_base_attack")]
-    pub api_air_base_attack: Vec<ApiAirBaseAttack>,
+    pub api_air_base_attack: Option<Vec<ApiAirBaseAttack>>,
     #[serde(rename = "api_stage_flag")]
     pub api_stage_flag: Vec<i64>,
     #[serde(rename = "api_kouku")]

@@ -30,6 +30,10 @@ pub struct Req {
     pub api_token: String,
     #[serde(rename = "api_verno")]
     pub api_verno: String,
+    #[serde(rename = "api_base_id")]
+    pub api_base_id: String,
+    #[serde(rename = "api_area_id")]
+    pub api_area_id: String,
 }
 
 #[derive(Getter, TraitForTest, TraitForRoot, TraitForConvert)]
@@ -119,8 +123,8 @@ mod tests {
             log_path.to_string(),
         );
 
-        let pattern_str = "Q@api_port@air_corps_cond_recovery_with_timer";
-        let log_path = "./src/kcapi/api_port/air_corps_cond_recovery_with_timer@Q.log";
+        let pattern_str = "Q@api_port@airCorpsCondRecoveryWithTimer";
+        let log_path = "./src/kcapi/api_port/airCorpsCondRecoveryWithTimer@Q.log";
         simple_root_test::<Req>(
             target_path.clone(),
             pattern_str.to_string(),

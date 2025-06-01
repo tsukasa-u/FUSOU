@@ -197,7 +197,6 @@ pub fn check_database_dependency() {
                             }
                             s if s.starts_with("crate") && s.ends_with("Id") => {
                                 let key = get_crate_node_key_remove_id(field_type_location);
-                                println!("{:?}", key);
                                 edge_list.push((
                                     node_struct_name_id.clone().port(field_name),
                                     (key, type_name.to_owned()),
