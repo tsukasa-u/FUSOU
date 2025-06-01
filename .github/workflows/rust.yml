@@ -70,6 +70,7 @@ jobs:
           echo GOOGLE_CLIENT_SECRET=${{ secrets.GOOGLE_CLIENT_SECRET }} >> ./.env
           echo GOOGLE_CLIENT_ID=${{ secrets.GOOGLE_CLIENT_ID }} >> ./.env
           echo SUPABASE_DATABASE_URL=${{ secrets.SUPABASE_DATABASE_URL }}  >> ./.env
+          echo SUPABASE_DATABASE_URL=${{ vars.DATABASE_TABLE_VERSION }}  >> ./.env
           touch ../.env
           echo VITE_SUPABASE_URL=${{ secrets.SUPABASE_URL }} >> ../.env
           echo VITE_SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }} >> ../.env
