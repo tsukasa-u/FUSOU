@@ -1,5 +1,4 @@
 use apache_avro::AvroSchema;
-use dotenvy_macro::dotenv;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -12,6 +11,7 @@ use crate::database::ship::FriendShipProps;
 use crate::database::ship::OwnShip;
 use crate::database::ship::OwnShipId;
 use crate::database::table::PortTable;
+use crate::database::table::DATABASE_TABLE_VERSION;
 use crate::interface::deck_port::DeckPorts;
 use crate::interface::ship::Ships;
 
@@ -52,7 +52,7 @@ impl OwnDeck {
         })?;
 
         let new_data = OwnDeck {
-            version: dotenv!("DATABASE_TABLE_VERSION").to_string(),
+            version: DATABASE_TABLE_VERSION.to_string(),
             uuid: new_uuid,
             ship_ids: new_ship_ids,
             combined_flag: decks.combined_flag,
@@ -93,7 +93,7 @@ impl SupportDeck {
         })?;
 
         let new_data = SupportDeck {
-            version: dotenv!("DATABASE_TABLE_VERSION").to_string(),
+            version: DATABASE_TABLE_VERSION.to_string(),
             uuid: new_uuid,
             ship_ids: new_ship_ids,
         };
@@ -141,7 +141,7 @@ impl EnemyDeck {
             .unwrap_or_default();
 
         let new_data = EnemyDeck {
-            version: dotenv!("DATABASE_TABLE_VERSION").to_string(),
+            version: DATABASE_TABLE_VERSION.to_string(),
             uuid: new_uuid,
             ship_ids: new_ship_ids,
         };
@@ -185,7 +185,7 @@ impl FriendDeck {
             .collect();
 
         let new_data = FriendDeck {
-            version: dotenv!("DATABASE_TABLE_VERSION").to_string(),
+            version: DATABASE_TABLE_VERSION.to_string(),
             uuid: new_uuid,
             ship_ids: new_ship_ids,
         };

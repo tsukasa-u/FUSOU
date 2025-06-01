@@ -1,11 +1,11 @@
 use apache_avro::AvroSchema;
-use dotenvy_macro::dotenv;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::database::battle::Battle;
 use crate::database::battle::BattleId;
 use crate::database::table::PortTable;
+use crate::database::table::DATABASE_TABLE_VERSION;
 
 use register_trait::TraitForEncode;
 
@@ -50,7 +50,7 @@ impl Cells {
             .collect();
 
         let new_data = Cells {
-            version: dotenv!("DATABASE_TABLE_VERSION").to_string(),
+            version: DATABASE_TABLE_VERSION.to_string(),
             uuid: new_uuid,
             maparea_id: data.maparea_id,
             mapinfo_no: data.mapinfo_no,

@@ -1,5 +1,4 @@
 use apache_avro::AvroSchema;
-use dotenvy_macro::dotenv;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -10,6 +9,7 @@ use crate::database::slotitem::FriendSlotItemId;
 use crate::database::slotitem::OwnSlotItem;
 use crate::database::slotitem::OwnSlotItemId;
 use crate::database::table::PortTable;
+use crate::database::table::DATABASE_TABLE_VERSION;
 
 use crate::interface::ship::Ships;
 use crate::interface::slot_item::SlotItems;
@@ -66,7 +66,7 @@ impl OwnShip {
         });
 
         let new_data: OwnShip = OwnShip {
-            version: dotenv!("DATABASE_TABLE_VERSION").to_string(),
+            version: DATABASE_TABLE_VERSION.to_string(),
             uuid: new_uuid,
             ship_id: ship.ship_id,
             lv: ship.lv,
@@ -134,7 +134,7 @@ impl EnemyShip {
         });
 
         let new_data: EnemyShip = EnemyShip {
-            version: dotenv!("DATABASE_TABLE_VERSION").to_string(),
+            version: DATABASE_TABLE_VERSION.to_string(),
             uuid: new_uuid,
             lv: data.0,
             nowhp: data.1,
@@ -188,7 +188,7 @@ impl FriendShip {
         });
 
         let new_data: FriendShip = FriendShip {
-            version: dotenv!("DATABASE_TABLE_VERSION").to_string(),
+            version: DATABASE_TABLE_VERSION.to_string(),
             uuid: new_uuid,
             lv: data.0,
             nowhp: data.1,

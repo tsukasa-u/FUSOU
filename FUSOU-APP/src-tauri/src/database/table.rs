@@ -1,3 +1,5 @@
+use dotenvy_macro::dotenv;
+
 use crate::database::airbase::{AirBase, PlaneInfo};
 use crate::database::battle::{
     AirBaseAirAttack, AirBaseAirAttackList, AirBaseAssult, Battle, CarrierBaseAssault,
@@ -22,6 +24,8 @@ use crate::interface::mst_slot_item::{MstSlotItem, MstSlotItems};
 use crate::interface::mst_slot_item_equip_type::{MstSlotItemEquipType, MstSlotItemEquipTypes};
 use crate::interface::mst_stype::{MstStype, MstStypes};
 use crate::interface::mst_use_item::{MstUseItem, MstUseItems};
+
+pub const DATABASE_TABLE_VERSION: &str = dotenv!("DATABASE_TABLE_VERSION");
 
 #[derive(Debug, Clone, Default)]
 pub struct PortTable {
