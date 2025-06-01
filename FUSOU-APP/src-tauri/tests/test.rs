@@ -1,6 +1,7 @@
 use dotenvy::dotenv;
 use std::env;
 
+mod check_database_dependency;
 mod check_struct_defined;
 mod check_struct_dependency;
 pub mod util;
@@ -28,4 +29,9 @@ fn test_struct_defined() {
 #[test]
 fn test_struct_dependency() {
     check_struct_dependency::check_struct_dependency();
+}
+
+#[test]
+fn test_database_dependency() {
+    check_database_dependency::check_database_dependency();
 }

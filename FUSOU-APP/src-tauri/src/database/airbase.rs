@@ -1,21 +1,22 @@
 use apache_avro::AvroSchema;
+use dotenvy_macro::dotenv;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::database::slotitem::OwnSlotItem;
+use crate::database::slotitem::OwnSlotItemId;
 use crate::database::table::PortTable;
 
 use crate::interface::slot_item::SlotItems;
 
 use register_trait::TraitForEncode;
 
-use super::slotitem::OwnSlotItemId;
-
 pub type AirBaseId = Uuid;
 pub type PlaneInfoId = Uuid;
 
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct AirBase {
+    pub version: String,
     pub uuid: AirBaseId,
     pub action_kind: i64,
     pub distance: i64,
@@ -31,6 +32,7 @@ impl AirBase {
             .filter_map(|plane_info| PlaneInfo::new_ret_uuid(plane_info.clone(), table))
             .collect();
         let new_air_base = AirBase {
+            version: dotenv!("DATABASE_TABLE_VERSION").to_string(),
             uuid: new_uuid,
             action_kind: data.action_kind,
             distance: data.distance,
@@ -45,6 +47,7 @@ impl AirBase {
 
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct PlaneInfo {
+    pub version: String,
     pub uuid: PlaneInfoId,
     pub cond: Option<i64>,
     pub state: i64,
@@ -65,6 +68,7 @@ impl PlaneInfo {
         let new_slot_item = OwnSlotItem::new_ret_uuid(slot_item.clone(), table);
 
         let new_plane_info: PlaneInfo = PlaneInfo {
+            version: dotenv!("DATABASE_TABLE_VERSION").to_string(),
             uuid: new_uuid,
             cond: data.cond,
             state: data.state,

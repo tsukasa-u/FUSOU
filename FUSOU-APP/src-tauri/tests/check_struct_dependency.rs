@@ -13,7 +13,7 @@ pub fn check_struct_dependency() {
     let re_struct = regex::Regex::new(r#"\n(pub\s+)?struct [A-Za-z0-9]+ \{[^\}]*\}"#).unwrap();
     let re_struct_name =
         regex::Regex::new(r#"\n(pub\s+)?struct ([A-Za-z0-9]+) \{[^\}]*\}"#).unwrap();
-    let re_struct_field = regex::Regex::new(r#"\#\[serde\(rename = \"([A-Za-z0-9_]+)\"\)\]\s*(pub)? [a-z_0-9]+\s?:\s?([A-Za-z0-9<>,\s]+),\r?\n"#).unwrap();
+    let re_struct_field = regex::Regex::new(r#"\#\[serde\(rename = \"([A-Za-z0-9_]+)\"\)\]\s*(pub)? [a-z_0-9]+\s?:\s?([A-Za-z0-9<>,\s]+),\s*(\/\/[^\r\n]*)?\r?\n"#).unwrap();
     let re_use =
         regex::Regex::new(r#"(//\s+)?use\s+(([A-Za-z0-9_]+::)*([A-Za-z0-9_]+));"#).unwrap();
     let re_parse_type =
@@ -555,7 +555,8 @@ fn check_dobule_resitering_struct_name(
     double_resitering_struct_name: &HashMap<String, i64>,
     struct_name: &str,
 ) {
-    if struct_name.ne("Root")
+    if struct_name.ne("Res")
+        && struct_name.ne("Req")
         && struct_name.ne("ApiData")
         && double_resitering_struct_name.contains_key(struct_name)
     {
