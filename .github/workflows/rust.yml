@@ -38,7 +38,7 @@ jobs:
           echo "export const env = { SUPABASE_URL: ${{ secrets.SUPABASE_URL }}, SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}}" > ../src/pages/vanilla/env.js
       - name: Setup Ubuntu for tauri@v1
         run: |
-          sudo apt update && \
+          sudo apt update
           sudo apt install -y libwebkit2gtk-4.1-dev \
             build-essential \
             curl \
@@ -80,7 +80,7 @@ jobs:
           echo "export const env = { SUPABASE_URL: ${{ secrets.SUPABASE_URL }}, SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}}" > ../src/pages/vanilla/env.js
       - name: Setup Ubuntu for tauri@v1 & Graphviz
         run: |
-          sudo apt update && \
+          sudo apt update
           sudo apt install -y libwebkit2gtk-4.1-dev \
             build-essential \
             curl \
@@ -89,12 +89,14 @@ jobs:
             libxdo-dev \
             libssl-dev \
             libayatana-appindicator3-dev \
-            librsvg2-dev  && \
+            librsvg2-dev
           sudo apt install -y graphviz
       - name: Run sccache-cache
         uses: mozilla-actions/sccache-action@v0.0.9
       - name: export dependencies dot
-        run: cargo test --all test_struct_dependency
+        run: |
+          cargo test --all test_struct_dependency
+          cargo test --all test_database_dependency
       - name: export dependencies svg
         run: sudo ./tests/export_svg.sh
       - name: Clean docs folder
@@ -106,7 +108,9 @@ jobs:
       - name: Remove lock file
         run: rm target/doc/.lock
       - name: move struct dependency svg
-        run: mv -f ./tests/struct_dependency_svg ./target/doc/struct_dependency_svg && mv -f ./tests/database_dependency_svg ./target/doc/database_dependency_svg
+        run: |
+          mv -f ./tests/struct_dependency_svg ./target/doc/struct_dependency_svg
+          mv -f ./tests/database_dependency_svg ./target/doc/database_dependency_svg
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
