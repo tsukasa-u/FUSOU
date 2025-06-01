@@ -17,7 +17,7 @@ use crate::database::battle::{
     AirBaseAirAttack, AirBaseAirAttackList, AirBaseAssult, Battle, CarrierBaseAssault,
     ClosingRaigeki, FriendlySupportHourai, FriendlySupportHouraiList, Hougeki, HougekiList,
     MidnightHougeki, MidnightHougekiList, OpeningAirAttack, OpeningRaigeki, OpeningTaisen,
-    OpeningTaisenList, SupportAiratack, SupportHourai,
+    OpeningTaisenList, SupportAirattack, SupportHourai,
 };
 use crate::database::cell::Cells;
 use crate::database::deck::{EnemyDeck, FriendDeck, OwnDeck, SupportDeck};
@@ -496,7 +496,7 @@ pub async fn write_port_table(
                 EnemyDeck::get_table_name(),
                 FriendDeck::get_table_name(),
                 SupportDeck::get_table_name(),
-                SupportAiratack::get_table_name(),
+                SupportAirattack::get_table_name(),
                 OpeningAirAttack::get_table_name(),
                 OpeningRaigeki::get_table_name(),
                 OpeningTaisen::get_table_name(),
@@ -816,12 +816,12 @@ pub async fn write_port_table(
         )
         .await?;
     }
-    if let Some(folder_id) = folder_id_list.get(&SupportAiratack::get_table_name()) {
+    if let Some(folder_id) = folder_id_list.get(&SupportAirattack::get_table_name()) {
         create_file(
             hub,
             file_name.clone(),
             mime_type.clone(),
-            table.support_airatack.as_slice(),
+            table.support_airattack.as_slice(),
             Some(folder_id.clone()),
         )
         .await?;

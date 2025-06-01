@@ -1,11 +1,16 @@
 use apache_avro::AvroSchema;
+use dotenvy_macro::dotenv;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::database::ship::{
-    EnemyShip, EnemyShipId, EnemyShipProps, FriendShip, FriendShipId, FriendShipProps, OwnShip,
-    OwnShipId,
-};
+use crate::database::ship::EnemyShip;
+use crate::database::ship::EnemyShipId;
+use crate::database::ship::EnemyShipProps;
+use crate::database::ship::FriendShip;
+use crate::database::ship::FriendShipId;
+use crate::database::ship::FriendShipProps;
+use crate::database::ship::OwnShip;
+use crate::database::ship::OwnShipId;
 use crate::database::table::PortTable;
 use crate::interface::deck_port::DeckPorts;
 use crate::interface::ship::Ships;
@@ -19,6 +24,7 @@ pub type FriendDeckId = Uuid;
 
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct OwnDeck {
+    pub version: String,
     pub uuid: OwnDeckId,
     pub ship_ids: Vec<Option<OwnShipId>>,
     pub combined_flag: Option<i64>,
@@ -46,6 +52,7 @@ impl OwnDeck {
         })?;
 
         let new_data = OwnDeck {
+            version: dotenv!("DATABASE_TABLE_VERSION").to_string(),
             uuid: new_uuid,
             ship_ids: new_ship_ids,
             combined_flag: decks.combined_flag,
@@ -59,6 +66,7 @@ impl OwnDeck {
 
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct SupportDeck {
+    pub version: String,
     pub uuid: SupportDeckId,
     pub ship_ids: Vec<Option<OwnShipId>>,
 }
@@ -85,6 +93,7 @@ impl SupportDeck {
         })?;
 
         let new_data = SupportDeck {
+            version: dotenv!("DATABASE_TABLE_VERSION").to_string(),
             uuid: new_uuid,
             ship_ids: new_ship_ids,
         };
@@ -97,6 +106,7 @@ impl SupportDeck {
 
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct EnemyDeck {
+    pub version: String,
     pub uuid: EnemyDeckId,
     pub ship_ids: Vec<EnemyShipId>,
 }
@@ -131,6 +141,7 @@ impl EnemyDeck {
             .unwrap_or_default();
 
         let new_data = EnemyDeck {
+            version: dotenv!("DATABASE_TABLE_VERSION").to_string(),
             uuid: new_uuid,
             ship_ids: new_ship_ids,
         };
@@ -142,6 +153,7 @@ impl EnemyDeck {
 
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct FriendDeck {
+    pub version: String,
     pub uuid: FriendDeckId,
     pub ship_ids: Vec<FriendShipId>,
 }
@@ -173,6 +185,7 @@ impl FriendDeck {
             .collect();
 
         let new_data = FriendDeck {
+            version: dotenv!("DATABASE_TABLE_VERSION").to_string(),
             uuid: new_uuid,
             ship_ids: new_ship_ids,
         };
