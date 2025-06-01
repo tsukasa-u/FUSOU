@@ -390,7 +390,7 @@ impl From<kcapi::api_req_combined_battle::battle::ApiData> for Battle {
 impl From<kcapi::api_req_combined_battle::each_battle_water::ApiData> for Battle {
     fn from(battle: kcapi::api_req_combined_battle::each_battle_water::ApiData) -> Self {
         let air_base_air_attacks: Option<AirBaseAirAttacks> =
-            Some(battle.api_air_base_attack.into());
+            battle.api_air_base_attack.map(|attack| attack.into());
         let opening_air_attack: Option<OpeningAirAttack> = Some(battle.api_kouku.into());
         let opening_taisen: Option<OpeningTaisen> = battle
             .api_opening_taisen

@@ -32,6 +32,10 @@ pub struct Req {
     pub api_verno: String,
     #[serde(rename = "api_quest_id")]
     pub api_quest_id: String,
+    #[serde(rename = "api_select_no")]
+    pub api_select_no: Option<String>,
+    #[serde(rename = "api_select_no2")]
+    pub api_select_no2: Option<String>,
 }
 
 #[derive(Getter, TraitForTest, TraitForRoot, TraitForConvert)]

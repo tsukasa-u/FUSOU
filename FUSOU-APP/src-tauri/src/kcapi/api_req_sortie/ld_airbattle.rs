@@ -41,6 +41,8 @@ pub struct Req {
     pub api_recovery_type: String,
     #[serde(rename = "api_start")]
     pub api_start: Option<String>,
+    #[serde(rename = "api_smoke_flag")]
+    pub api_smoke_flag: Option<String>,
 }
 
 #[derive(Getter, TraitForTest, TraitForRoot)]

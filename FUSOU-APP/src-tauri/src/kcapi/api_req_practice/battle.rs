@@ -42,6 +42,8 @@ pub struct Req {
     pub api_formation_id: String,
     #[serde(rename = "api_enemy_id")]
     pub api_enemy_id: String,
+    #[serde(rename = "api_start")]
+    pub api_start: Option<String>,
 }
 
 #[derive(Getter, TraitForTest, TraitForRoot, TraitForConvert)]

@@ -26,12 +26,16 @@ use crate::interface::interface::EmitData;
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Req {
-    #[serde(rename = "api_result")]
-    pub api_result: i64,
-    #[serde(rename = "api_result_msg")]
-    pub api_result_msg: String,
-    #[serde(rename = "api_data")]
-    pub api_data: ReqApiData,
+    #[serde(rename = "api_token")]
+    pub api_token: String,
+    #[serde(rename = "api_verno")]
+    pub api_verno: String,
+    // #[serde(rename = "api_result")]
+    // pub api_result: i64,
+    // #[serde(rename = "api_result_msg")]
+    // pub api_result_msg: String,
+    // #[serde(rename = "api_data")]
+    // pub api_data: ReqApiData,
 }
 
 #[derive(Getter, TraitForTest)]

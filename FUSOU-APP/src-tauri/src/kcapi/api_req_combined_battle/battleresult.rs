@@ -51,30 +51,42 @@ pub struct Req {
     pub api_l_value_4: String,
     #[serde(rename = "api_l_value[5]")]
     pub api_l_value_5: String,
+    #[serde(rename = "api_l_value2[0]")]
+    pub api_l_value2_0: Option<String>,
+    #[serde(rename = "api_l_value2[1]")]
+    pub api_l_value2_1: Option<String>,
+    #[serde(rename = "api_l_value2[2]")]
+    pub api_l_value2_2: Option<String>,
+    #[serde(rename = "api_l_value2[3]")]
+    pub api_l_value2_3: Option<String>,
+    #[serde(rename = "api_l_value2[4]")]
+    pub api_l_value2_4: Option<String>,
+    #[serde(rename = "api_l_value2[5]")]
+    pub api_l_value2_5: Option<String>,
     #[serde(rename = "api_l_value3[0]")]
-    pub api_l_value3_0: String,
+    pub api_l_value3_0: Option<String>,
     #[serde(rename = "api_l_value3[1]")]
-    pub api_l_value3_1: String,
+    pub api_l_value3_1: Option<String>,
     #[serde(rename = "api_l_value3[2]")]
-    pub api_l_value3_2: String,
+    pub api_l_value3_2: Option<String>,
     #[serde(rename = "api_l_value3[3]")]
-    pub api_l_value3_3: String,
+    pub api_l_value3_3: Option<String>,
     #[serde(rename = "api_l_value3[4]")]
-    pub api_l_value3_4: String,
+    pub api_l_value3_4: Option<String>,
     #[serde(rename = "api_l_value3[5]")]
-    pub api_l_value3_5: String,
+    pub api_l_value3_5: Option<String>,
     #[serde(rename = "api_l_value4[0]")]
-    pub api_l_value4_0: String,
+    pub api_l_value4_0: Option<String>,
     #[serde(rename = "api_l_value4[1]")]
-    pub api_l_value4_1: String,
+    pub api_l_value4_1: Option<String>,
     #[serde(rename = "api_l_value4[2]")]
-    pub api_l_value4_2: String,
+    pub api_l_value4_2: Option<String>,
     #[serde(rename = "api_l_value4[3]")]
-    pub api_l_value4_3: String,
+    pub api_l_value4_3: Option<String>,
     #[serde(rename = "api_l_value4[4]")]
-    pub api_l_value4_4: String,
+    pub api_l_value4_4: Option<String>,
     #[serde(rename = "api_l_value4[5]")]
-    pub api_l_value4_5: String,
+    pub api_l_value4_5: Option<String>,
 }
 
 #[derive(Getter, TraitForTest, TraitForRoot, TraitForConvert)]
