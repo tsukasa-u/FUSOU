@@ -1,3 +1,4 @@
+#[cfg(feature = "graphviz")]
 use dot_writer::{Attributes, Color, DotWriter, Node, NodeId, PortId, Scope, Shape, Style};
 use std::{
     collections::HashMap,
@@ -5,6 +6,8 @@ use std::{
     io::Write,
     path::{self, PathBuf}, /*process::Command*/
 };
+#[cfg(feature = "cytoscape")]
+use uuid::Uuid;
 
 pub fn check_database_dependency() {
     let sub_target_path = "./src/database".to_string();
@@ -152,6 +155,7 @@ pub fn check_database_dependency() {
     let books_vec: ApiFieldTypeInfoVec = create_api_field_type_info_vec_sorted(&books);
     let books_vec_clone = books_vec.clone();
 
+    #[cfg(feature = "graphviz")]
     {
         let mut struct_node_list: HashMap<String, NodeId> = HashMap::new();
         let mut edge_list: Vec<(PortId, (String, String))> = Vec::new();
@@ -228,13 +232,147 @@ pub fn check_database_dependency() {
         file.write_all(output_bytes.as_slice())
             .expect("write failed");
     }
+
+    #[cfg(feature = "cytoscape")]
+    {
+        // id label
+        let mut mod_list: Vec<(String, String)> = Vec::new();
+        // id label parent
+        let mut table_list: Vec<(String, String, String)> = Vec::new();
+        // id label parent value
+        let mut field_list: Vec<(String, String, String, String)> = Vec::new();
+        // id source target
+        let mut edge_list: Vec<(String, String, String)> = Vec::new();
+        for ((api_name_1, api_name_2), fieldm) in books_vec_clone {
+            let mod_name_id = format!("{}__{}", api_name_1, api_name_2);
+            let mod_name = api_name_2.to_string();
+            mod_list.push((mod_name_id.clone(), mod_name));
+
+            for (struct_name, fields) in fieldm.iter() {
+                let node_struct_name_id =
+                    format!("{}__{}__{}", api_name_1, api_name_2, struct_name);
+                table_list.push((
+                    node_struct_name_id.clone(),
+                    struct_name.clone(),
+                    mod_name_id.clone(),
+                ));
+                let node_struct_name_field_id =
+                    format!("{}__{}__{}__name", api_name_1, api_name_2, struct_name);
+                field_list.push((
+                    node_struct_name_field_id,
+                    struct_name.clone(),
+                    node_struct_name_id.clone(),
+                    "".to_string(),
+                ));
+
+                for (field_name, (field_type_location, _field_type, type_name)) in fields.iter() {
+                    let field_name_id = format!(
+                        "{}__{}__{}__{}",
+                        api_name_1, api_name_2, struct_name, field_name
+                    );
+                    field_list.push((
+                        field_name_id.clone(),
+                        field_name.clone(),
+                        node_struct_name_id.clone(),
+                        _field_type.clone(),
+                    ));
+
+                    match field_type_location.to_string().as_str() {
+                        "self" => {
+                            let edge_id = Uuid::new_v4().to_string();
+                            let key = type_name.replace("Id", "");
+                            let type_name_id =
+                                format!("{}__{}__{}__name", api_name_1, api_name_2, key);
+                            if field_name_id.replace("uuid", "name").ne(&type_name_id) {
+                                edge_list.push((edge_id, field_name_id.clone(), type_name_id));
+                            }
+                        }
+                        s if s.starts_with("crate") && s.ends_with("Id") => {
+                            let edge_id = Uuid::new_v4().to_string();
+                            let key = get_crate_node_key_remove_id(field_type_location);
+                            let type_name_id = format!("{}__name", key);
+                            edge_list.push((edge_id, field_name_id.clone(), type_name_id));
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+
+        let mut element_json_list: Vec<ElementRootJson> = Vec::new();
+        for (id, label) in mod_list.iter() {
+            let element = ElementRootJson {
+                data: ElementDataJson {
+                    id: id.to_string(),
+                    label: Some(label.to_string()),
+                    value: None,
+                    parent: None,
+                    source: None,
+                    target: None,
+                    identifier: "mod".to_string(),
+                },
+            };
+            element_json_list.push(element);
+        }
+        for (id, label, parent) in table_list.iter() {
+            let element = ElementRootJson {
+                data: ElementDataJson {
+                    id: id.to_string(),
+                    label: Some(label.to_string()),
+                    value: None,
+                    parent: Some(parent.to_string()),
+                    source: None,
+                    target: None,
+                    identifier: "table".to_string(),
+                },
+            };
+            element_json_list.push(element);
+        }
+        for (id, label, parent, value) in field_list.iter() {
+            let element = ElementRootJson {
+                data: ElementDataJson {
+                    id: id.to_string(),
+                    label: Some(label.to_string()),
+                    value: Some(value.to_string()),
+                    parent: Some(parent.to_string()),
+                    source: None,
+                    target: None,
+                    identifier: "field".to_string(),
+                },
+            };
+            element_json_list.push(element);
+        }
+        for (id, source, target) in edge_list.iter() {
+            let element = ElementRootJson {
+                data: ElementDataJson {
+                    id: id.to_string(),
+                    label: None,
+                    value: None,
+                    parent: None,
+                    source: Some(source.to_string()),
+                    target: Some(target.to_string()),
+                    identifier: "edge".to_string(),
+                },
+            };
+            element_json_list.push(element);
+        }
+
+        std::fs::create_dir_all("./tests/database_dependency_json").expect("create dir failed");
+        let mut file = File::create("./tests/database_dependency_json/all.json").unwrap();
+
+        let output_bytes: String = serde_json::to_string(&element_json_list).unwrap();
+        file.write_all(output_bytes.as_bytes())
+            .expect("write failed");
+    }
 }
 
+#[cfg(feature = "graphviz")]
 fn create_writer(output_bytes: &mut Vec<u8>) -> DotWriter<'_> {
     let writer: DotWriter<'_> = DotWriter::from(output_bytes);
     writer
 }
 
+#[cfg(feature = "graphviz")]
 fn create_deps_graph<'w>(writer: &'w mut DotWriter<'w>) -> Scope<'w, 'w> {
     let mut deps_graph: Scope = writer.digraph();
     deps_graph.set_rank_direction(dot_writer::RankDirection::LeftRight);
@@ -248,6 +386,7 @@ fn create_api_field_type_info_vec_sorted(books: &ApiFieldTypeInfo) -> ApiFieldTy
     books_vec
 }
 
+#[cfg(feature = "graphviz")]
 fn set_cluster(cluster: &mut Scope, api_name_1: &str, api_name_2: &str) {
     cluster.set_label(&format!("{} / {}", api_name_1, api_name_2));
     cluster
@@ -258,6 +397,7 @@ fn set_cluster(cluster: &mut Scope, api_name_1: &str, api_name_2: &str) {
         .set_color(Color::Gray20);
 }
 
+#[cfg(feature = "graphviz")]
 fn get_struct_label(fields: &FieldTypeInfo) -> String {
     fields.iter().fold(
         "".to_string(),
@@ -275,6 +415,7 @@ fn get_struct_label(fields: &FieldTypeInfo) -> String {
     )
 }
 
+#[cfg(feature = "graphviz")]
 fn set_node_struct_name(node_struct_name: &mut Node, struct_name: &str, fields: &FieldTypeInfo) {
     let struct_label: String = get_struct_label(fields);
     node_struct_name.set_label(&format!(
@@ -284,6 +425,7 @@ fn set_node_struct_name(node_struct_name: &mut Node, struct_name: &str, fields: 
     node_struct_name.set_shape(Shape::Record);
 }
 
+#[cfg(feature = "graphviz")]
 fn set_cluster_edge(
     cluster: &mut Scope,
     start_node_id: &NodeId,
@@ -302,6 +444,7 @@ fn set_cluster_edge(
     );
 }
 
+#[cfg(feature = "graphviz")]
 fn get_self_node_field_type_id(
     cluster: &mut Scope,
     struct_node_list: &HashMap<String, NodeId>,
@@ -341,3 +484,21 @@ type FieldTypeInfo = HashMap<String, (String, String, String)>;
 type StructFieldTypeInfo = HashMap<String, FieldTypeInfo>;
 type ApiFieldTypeInfo = HashMap<ApiNamePair, StructFieldTypeInfo>;
 type ApiFieldTypeInfoVec<'a> = Vec<(&'a ApiNamePair, &'a StructFieldTypeInfo)>;
+
+#[cfg(feature = "cytoscape")]
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
+struct ElementRootJson {
+    data: ElementDataJson,
+}
+
+#[cfg(feature = "cytoscape")]
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
+struct ElementDataJson {
+    id: String,
+    parent: Option<String>,
+    label: Option<String>,
+    value: Option<String>,
+    source: Option<String>,
+    target: Option<String>,
+    identifier: String,
+}
