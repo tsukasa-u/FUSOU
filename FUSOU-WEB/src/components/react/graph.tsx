@@ -74,7 +74,6 @@ export const elems = [
       parent: "table-a",
       label: "Field A",
     },
-    grabbable: false,
   },
   {
     data: {
@@ -82,7 +81,6 @@ export const elems = [
       parent: "table-a",
       label: "Field B",
     },
-    grabbable: false,
   },
   {
     data: {
@@ -90,7 +88,6 @@ export const elems = [
       parent: "table-a",
       label: "Field C",
     },
-    grabbable: false,
   },
   {
     data: {
@@ -98,7 +95,6 @@ export const elems = [
       parent: "table-a",
       label: "Field D",
     },
-    grabbable: false,
   },
   // Edges
   {
