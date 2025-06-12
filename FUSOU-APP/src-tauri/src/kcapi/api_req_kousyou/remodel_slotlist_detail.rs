@@ -1,9 +1,8 @@
-//! # kanColle API
-//! KC APIs are also dependent on kcapi::kcapi_common.
-//! The dependency graph of the APIs is shown below.
-//! <div style="height: 80vh; overflow: scroll;">
-//!   <img src="https://tsukasa-u.github.io/FUSOU/struct_dependency_svg/api_req_kousyou@remodel_slotlist_detail.svg" alt="KC_API_dependency(api_req_kousyou/remodel_slotlist_detail)" style="max-width: 2000px;"/>
-//! </div>
+#![doc = "# kanColle API"]
+#![doc = "KC APIs are also dependent on kcapi::kcapi_common."]
+#![doc = "The dependency graph of the APIs is shown below."]
+#![doc = register_trait::insert_svg!(path="./tests/struct_dependency_svg/api_req_kousyou@remodel_slotlist_detail.svg", id="kc-dependency-svg-embed", style="border: 1px solid black; height:80vh; width:100%", role="img", aria_label="KC_API_dependency(api_req_kousyou/remodel_slotlist_detail)")]
+#![doc = include_str!("../../js/svg_pan_zoom.html")]
 
 use serde::Deserialize;
 use std::collections::HashMap;
