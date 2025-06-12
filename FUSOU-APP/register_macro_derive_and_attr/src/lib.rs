@@ -4,6 +4,7 @@ use proc_macro::TokenStream;
 use syn::{DeriveInput, ItemFn};
 
 mod add_field;
+mod doc_util;
 mod expand_struct_selector;
 mod generate_convert;
 mod generate_emitdata;
@@ -14,6 +15,15 @@ mod generate_test_struct;
 mod register_struct;
 
 mod parse_type_path;
+
+#[proc_macro]
+pub fn insert_svg(attr: TokenStream) -> TokenStream {
+    let result = doc_util::insert_svg(attr);
+    match result {
+        Ok(generated) => generated,
+        Err(err) => err.to_compile_error().into(),
+    }
+}
 
 #[proc_macro_attribute]
 pub fn expand_struct_selector(attr: TokenStream, item: TokenStream) -> TokenStream {

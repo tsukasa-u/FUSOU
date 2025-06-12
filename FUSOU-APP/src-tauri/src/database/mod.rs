@@ -1,7 +1,6 @@
-//! # Database Dependency
-//! <div style="height: 80vh; overflow: scroll;">
-//!   <img src="https://tsukasa-u.github.io/FUSOU/database_dependency_svg/all.svg" alt="KC_API_dependency(all)" style="max-width: 2000px;"/>
-//! </div>
+#![doc = "# Database Dependency"]
+#![doc = register_trait::insert_svg!(path="./tests/database_dependency_svg/all.svg", id="kc-dependency-svg-embed", style="border: 1px solid black; height:80vh; width:100%")]
+#![doc = include_str!("../js/svg_pan_zoom.html")]
 
 pub mod airbase;
 pub mod battle;
