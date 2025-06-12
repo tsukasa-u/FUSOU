@@ -14,6 +14,8 @@ pub struct MacroArgsInsertSVG {
     path: path::PathBuf,
     id: Option<String>,
     style: Option<String>,
+    role: Option<String>,
+    aria_label: Option<String>,
 }
 
 pub fn insert_svg(attr: TokenStream) -> Result<TokenStream, syn::Error> {
@@ -77,7 +79,25 @@ pub fn insert_svg(attr: TokenStream) -> Result<TokenStream, syn::Error> {
         None => contents_add_id,
     };
 
-    let contents_formated = format!("r##\"{}\"##", contents_add_style);
+    let contents_add_role = match args.role {
+        Some(role) => {
+            let contents_add_role =
+                re_svg.replace(&contents_add_style, format!("<svg srole=\"{}\"", role));
+            contents_add_role
+        }
+        None => contents_add_style,
+    };
+
+    let contents_add_label = match args.aria_label {
+        Some(label) => {
+            let contents_add_label =
+                re_svg.replace(&contents_add_role, format!("<svg aria-label=\"{}\"", label));
+            contents_add_label
+        }
+        None => contents_add_role,
+    };
+
+    let contents_formated = format!("r##\"{}\"##", contents_add_label);
 
     return match contents_formated.parse() {
         Ok(s) => Ok(s),
