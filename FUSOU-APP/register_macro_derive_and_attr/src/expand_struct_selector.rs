@@ -198,12 +198,12 @@ pub fn expand_struct_selector(
     let mut match_list = Vec::new();
     for (s1, s2) in &file_list {
         let lit = syn::LitStr::new(&format!("/kcsapi/{}/{}", s1.0, s1.1), Span::call_site());
-        // let use_ident = syn::Ident::new(&format!("kcapi::{}::{}::Root;",s1 ,s2), Span::call_site());
+        // let use_ident = syn::Ident::new(&format!("kcapi_main::{}::{}::Root;",s1 ,s2), Span::call_site());
         let ident_s2_0 = syn::Ident::new(&s2.0, Span::call_site());
         let ident_s2_1 = syn::Ident::new(&s2.1, Span::call_site());
         match_list.push(quote! {
             #lit => {
-                use crate::kcapi::#ident_s2_0::#ident_s2_1 as kcsapi_lib;
+                use kc_api::kcapi_main::#ident_s2_0::#ident_s2_1 as kcsapi_lib;
                 #(#body)*
             },
         });

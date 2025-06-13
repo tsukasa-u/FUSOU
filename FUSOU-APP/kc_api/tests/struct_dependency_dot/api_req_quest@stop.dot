@@ -1,0 +1,9 @@
+digraph {
+  rankdir=LR;
+  subgraph cluster_0 {
+    label="api_req_quest / stop";
+    node [style="filled", color=white, style="solid", color=gray20];
+    api_req_quest__stop__Res [label="<Res> Res  | { api_result_msg | <api_result_msg> String } | { api_result | <api_result> i64 }", shape=record];
+    api_req_quest__stop__Req [label="<Req> Req  | { api_token | <api_token> String } | { api_quest_id | <api_quest_id> String } | { api_verno | <api_verno> String }", shape=record];
+  }
+}

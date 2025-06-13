@@ -16,11 +16,11 @@ use tokio::sync::{mpsc, OnceCell};
 use webbrowser::open_browser;
 
 mod cmd;
-mod database;
-mod interface;
+use kc_api::database;
+use kc_api::interface;
 mod json_parser;
-mod kcapi;
-mod kcapi_common;
+// mod kcapi;
+// mod kcapi_common;
 
 mod discord;
 mod external;

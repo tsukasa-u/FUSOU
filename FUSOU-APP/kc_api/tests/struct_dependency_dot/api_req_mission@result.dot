@@ -1,0 +1,15 @@
+digraph {
+  rankdir=LR;
+  subgraph cluster_0 {
+    label="api_req_mission / result";
+    node [style="filled", color=white, style="solid", color=gray20];
+    api_req_mission__result__Req [label="<Req> Req  | { api_token | <api_token> String } | { api_deck_id | <api_deck_id> String } | { api_verno | <api_verno> String }", shape=record];
+    api_req_mission__result__ApiGetItem [label="<ApiGetItem> ApiGetItem  | { api_useitem_id | <api_useitem_id> i64 } | { api_useitem_name | <api_useitem_name> Option\<String\> } | { api_useitem_count | <api_useitem_count> i64 }", shape=record];
+    api_req_mission__result__Res [label="<Res> Res  | { api_result | <api_result> i64 } | { api_result_msg | <api_result_msg> String } | { api_data | <api_data> ApiData }", shape=record];
+    api_req_mission__result__ApiData;
+    api_req_mission__result__Res:api_data:e -> api_req_mission__result__ApiData:ApiData:w;
+    api_req_mission__result__ApiData [label="<ApiData> ApiData  | { api_quest_level | <api_quest_level> i64 } | { api_useitem_flag | <api_useitem_flag> Vec\<i64\> } | { api_get_item1 | <api_get_item1> Option\<ApiGetItem\> } | { api_maparea_name | <api_maparea_name> String } | { api_quest_name | <api_quest_name> String } | { api_clear_result | <api_clear_result> i64 } | { api_get_exp | <api_get_exp> i64 } | { api_ship_id | <api_ship_id> Vec\<i64\> } | { api_get_item2 | <api_get_item2> Option\<ApiGetItem\> } | { api_member_lv | <api_member_lv> i64 } | { api_detail | <api_detail> String } | { api_get_ship_exp | <api_get_ship_exp> Vec\<i64\> } | { api_get_material | <api_get_material> Option\<DuoType\<Vec\<i64\>, i64\>\> } | { api_get_exp_lvup | <api_get_exp_lvup> Vec\<Vec\<i64\>\> } | { api_member_exp | <api_member_exp> i64 }", shape=record];
+    api_req_mission__result__ApiData:api_get_item1:e -> api_req_mission__result__ApiGetItem:ApiGetItem:w;
+    api_req_mission__result__ApiData:api_get_item2:e -> api_req_mission__result__ApiGetItem:ApiGetItem:w;
+  }
+}

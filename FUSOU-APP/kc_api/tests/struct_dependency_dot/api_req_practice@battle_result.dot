@@ -1,0 +1,15 @@
+digraph {
+  rankdir=LR;
+  subgraph cluster_0 {
+    label="api_req_practice / battle_result";
+    node [style="filled", color=white, style="solid", color=gray20];
+    api_req_practice__battle_result__Res [label="<Res> Res  | { api_result_msg | <api_result_msg> String } | { api_result | <api_result> i64 } | { api_data | <api_data> ApiData }", shape=record];
+    api_req_practice__battle_result__ApiData;
+    api_req_practice__battle_result__Res:api_data:e -> api_req_practice__battle_result__ApiData:ApiData:w;
+    api_req_practice__battle_result__ApiData [label="<ApiData> ApiData  | { api_get_base_exp | <api_get_base_exp> i64 } | { api_enemy_info | <api_enemy_info> ApiEnemyInfo } | { api_get_ship_exp | <api_get_ship_exp> Vec\<i64\> } | { api_get_exp | <api_get_exp> i64 } | { api_mvp | <api_mvp> i64 } | { api_get_exp_lvup | <api_get_exp_lvup> Vec\<Vec\<i64\>\> } | { api_member_lv | <api_member_lv> i64 } | { api_win_rank | <api_win_rank> String } | { api_member_exp | <api_member_exp> i64 } | { api_ship_id | <api_ship_id> Vec\<i64\> }", shape=record];
+    api_req_practice__battle_result__ApiEnemyInfo;
+    api_req_practice__battle_result__ApiData:api_enemy_info:e -> api_req_practice__battle_result__ApiEnemyInfo:ApiEnemyInfo:w;
+    api_req_practice__battle_result__ApiEnemyInfo [label="<ApiEnemyInfo> ApiEnemyInfo  | { api_deck_name | <api_deck_name> String } | { api_level | <api_level> i64 } | { api_user_name | <api_user_name> String } | { api_rank | <api_rank> String }", shape=record];
+    api_req_practice__battle_result__Req [label="<Req> Req  | { api_verno | <api_verno> String } | { api_token | <api_token> String }", shape=record];
+  }
+}

@@ -1,0 +1,11 @@
+digraph {
+  rankdir=LR;
+  subgraph cluster_0 {
+    label="api_get_member / slot_item";
+    node [style="filled", color=white, style="solid", color=gray20];
+    api_get_member__slot_item__ApiData [label="<ApiData> ApiData  | { api_locked | <api_locked> i64 } | { api_level | <api_level> i64 } | { api_alv | <api_alv> Option\<i64\> } | { api_slotitem_id | <api_slotitem_id> i64 } | { api_id | <api_id> i64 }", shape=record];
+    api_get_member__slot_item__Res [label="<Res> Res  | { api_result | <api_result> i64 } | { api_result_msg | <api_result_msg> String } | { api_data | <api_data> Vec\<ApiData\> }", shape=record];
+    api_get_member__slot_item__Res:api_data:e -> api_get_member__slot_item__ApiData:ApiData:w;
+    api_get_member__slot_item__Req [label="<Req> Req  | { api_verno | <api_verno> String } | { api_token | <api_token> String }", shape=record];
+  }
+}

@@ -1,0 +1,9 @@
+digraph {
+  rankdir=LR;
+  subgraph cluster_0 {
+    label="api_req_member / set_oss_condition";
+    node [style="filled", color=white, style="solid", color=gray20];
+    api_req_member__set_oss_condition__Res [label="<Res> Res  | { api_result | <api_result> i64 } | { api_result_msg | <api_result_msg> String }", shape=record];
+    api_req_member__set_oss_condition__Req [label="<Req> Req  | { api_token | <api_token> String } | { api_language_type | <api_language_type> String } | { api_verno | <api_verno> String }", shape=record];
+  }
+}

@@ -1,0 +1,11 @@
+digraph {
+  rankdir=LR;
+  subgraph cluster_0 {
+    label="api_req_member / payitemuse";
+    node [style="filled", color=white, style="solid", color=gray20];
+    api_req_member__payitemuse__Req [label="<Req> Req  | { api_force_flag | <api_force_flag> String } | { api_payitem_id | <api_payitem_id> String } | { api_token | <api_token> String } | { api_verno | <api_verno> String }", shape=record];
+    api_req_member__payitemuse__ApiData [label="<ApiData> ApiData  | { api_max_chara | <api_max_chara> Option\<i64\> } | { api_max_slotitem | <api_max_slotitem> Option\<i64\> } | { api_flag | <api_flag> Option\<i64\> } | { api_caution_flag | <api_caution_flag> i64 }", shape=record];
+    api_req_member__payitemuse__Res [label="<Res> Res  | { api_result_msg | <api_result_msg> String } | { api_data | <api_data> ApiData } | { api_result | <api_result> i64 }", shape=record];
+    api_req_member__payitemuse__Res:api_data:e -> api_req_member__payitemuse__ApiData:ApiData:w;
+  }
+}
