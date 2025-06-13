@@ -42,7 +42,7 @@ pub fn insert_svg(attr: TokenStream) -> Result<TokenStream, syn::Error> {
             ));
         } else {
             let error_msg = "failed to load svg file";
-            return match error_msg.parse() {
+            return match format!("r##\"{}\"##", error_msg).parse() {
                 Ok(s) => Ok(s),
                 Err(e) => Err(syn::Error::new_spanned(e.to_string(), "faild to parse")),
             };
