@@ -1,3 +1,4 @@
+/** @jsxImportSource react */
 import {
   Chart as ChartJS,
   LinearScale,

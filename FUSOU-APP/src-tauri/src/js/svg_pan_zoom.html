@@ -1,0 +1,20 @@
+<script type="module">
+  import svgPanZoom from "https://cdn.jsdelivr.net/npm/svg-pan-zoom@3.6.2/+esm";
+  let nIntervId;
+  window.addEventListener("load", function () {
+    nIntervId = setInterval(function () {
+      try {
+        svgPanZoom(window.document.getElementById("kc-dependency-svg-embed"), {
+          zoomEnabled: true,
+          controlIconsEnabled: true,
+          zoomScaleSensitivity: 0.5,
+          minZoom: 1,
+          maxZoom: 100,
+        });
+        clearInterval(nIntervId);
+      } catch (e) {
+        console.log("error", e);
+      }
+    }, 500);
+  });
+</script>

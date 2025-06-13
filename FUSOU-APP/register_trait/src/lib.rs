@@ -12,6 +12,7 @@ pub use register_macro_derive_and_attr::TraitForTest;
 
 pub use register_macro_derive_and_attr::add_field;
 pub use register_macro_derive_and_attr::expand_struct_selector;
+pub use register_macro_derive_and_attr::insert_svg;
 pub use register_macro_derive_and_attr::register_struct;
 
 pub use serde_json::Value;

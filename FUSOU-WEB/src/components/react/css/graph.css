@@ -1,0 +1,40 @@
+
+#cy {
+  width: 100%;
+  height: 100dvh;
+  /* position: relative;
+  margin: auto; */
+  background: #fafafa;
+  background-image: radial-gradient(#dedede 1px, transparent 0);
+  background-size: 32px 32px;
+}
+
+
+/*Ovveride Navigator border and background:*/
+.cytoscape-navigator {
+  border: 2px solid #eeeeee !important;
+  background: white !important;
+  height: 25dvh !important;
+  width: 25dvw !important;
+  margin-bottom: 24px;
+  margin-right: 24px;
+  border-radius: 5px;
+}
+
+/*Add border to View container:*/
+.cytoscape-navigator .cytoscape-navigatorView {
+  border: 2px solid #9e9e9e;
+  background: transparent;
+}
+
+/*Overide overlay container when mouse is over Navigator*/
+.cytoscape-navigator:hover /*.cytoscape-navigatorOverlay*/ {
+  border: 2px solid #bebebe !important;
+  background: transparent;
+}
+
+/*Overide view's container when mouse is over view*/
+.cytoscape-navigator.mouseover-view .cytoscape-navigatorView {
+    border-radius: 5px;
+  background-color: rgba(127, 127, 127, 0.3);
+}

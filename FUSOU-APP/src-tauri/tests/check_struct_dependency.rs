@@ -1,3 +1,4 @@
+#[cfg(feature = "graphviz")]
 use dot_writer::{Attributes, Color, DotWriter, Node, NodeId, PortId, Scope, Shape, Style};
 use std::{
     collections::HashMap,
@@ -5,6 +6,8 @@ use std::{
     io::Write,
     path::{self, PathBuf}, /*process::Command*/
 };
+#[cfg(feature = "cytoscape")]
+use uuid::Uuid;
 
 pub fn check_struct_dependency() {
     let target_path = "./src/kcapi".to_string();
@@ -177,6 +180,7 @@ pub fn check_struct_dependency() {
     let books_vec: ApiFieldTypeInfoVec = create_api_field_type_info_vec_sorted(&books);
     let books_vec_clone = books_vec.clone();
 
+    #[cfg(feature = "graphviz")]
     {
         let mut struct_node_list: HashMap<String, NodeId> = HashMap::new();
         let mut edge_list: Vec<(PortId, (String, String))> = Vec::new();
@@ -272,206 +276,352 @@ pub fn check_struct_dependency() {
             .expect("write failed");
     }
 
-    let binding = books_vec.clone();
-    let books_vec_common = binding
-        .iter()
-        .filter(|x| x.0 .0.ne("kcapi_common"))
-        .collect::<Vec<_>>();
-    // let books_vec_not_common = books_vec.clone().iter().filter(|x| x.0.0.eq("kcapi_common")).collect::<Vec<_>>();
+    #[cfg(feature = "cytoscape")]
+    {
+        // id label
+        let mut mod_list: Vec<(String, String)> = Vec::new();
+        // id label parent
+        let mut table_list: Vec<(String, String, String)> = Vec::new();
+        // id label parent value
+        let mut field_list: Vec<(String, String, String, String)> = Vec::new();
+        // id source target
+        let mut edge_list: Vec<(String, String, String)> = Vec::new();
+        for ((api_name_1, api_name_2), fieldm) in books_vec_clone {
+            let mod_name_id = format!("{}__{}", api_name_1, api_name_2);
+            let mod_name = format!("{} / {}", api_name_1, api_name_2);
+            mod_list.push((mod_name_id.clone(), mod_name));
 
-    for ((api_name_1, api_name_2), fieldm) in books_vec_common {
-        let mut struct_node_list: HashMap<String, NodeId> = HashMap::new();
-        let mut edge_list: Vec<(PortId, (String, String))> = Vec::new();
-        let mut output_bytes: Vec<u8> = Vec::new();
-        let mut field_type_location_parse_list = Vec::new();
-        {
-            let mut writer: DotWriter = create_writer(&mut output_bytes);
-            let mut deps_graph: Scope = create_deps_graph(&mut writer);
-            {
-                let mut cluster: Scope<'_, '_> = deps_graph.cluster();
-                set_cluster(&mut cluster, api_name_1, api_name_2);
-                for (struct_name, fields) in fieldm.iter() {
-                    let node_struct_name_id = {
-                        let mut node_struct_name = cluster
-                            .node_named(format!("{}__{}__{}", api_name_1, api_name_2, struct_name));
-                        set_node_struct_name(&mut node_struct_name, struct_name, fields);
+            for (struct_name, fields) in fieldm.iter() {
+                let node_struct_name_id =
+                    format!("{}__{}__{}", api_name_1, api_name_2, struct_name);
+                table_list.push((
+                    node_struct_name_id.clone(),
+                    struct_name.clone(),
+                    mod_name_id.clone(),
+                ));
+                let node_struct_name_field_id =
+                    format!("{}__{}__{}__name", api_name_1, api_name_2, struct_name);
+                field_list.push((
+                    node_struct_name_field_id,
+                    struct_name.clone(),
+                    node_struct_name_id.clone(),
+                    "".to_string(),
+                ));
 
-                        node_struct_name.id()
-                    };
-                    struct_node_list.insert(
-                        format!("{}__{}__{}", api_name_1, api_name_2, struct_name),
-                        node_struct_name_id.clone(),
+                for (field_name, (field_type_location, _field_type, type_name)) in fields.iter() {
+                    let field_name_id = format!(
+                        "{}__{}__{}__{}",
+                        api_name_1, api_name_2, struct_name, field_name
                     );
-
-                    for (field_name, (field_type_location, _field_type, type_name)) in fields.iter()
-                    {
-                        match field_type_location.to_string().as_str() {
-                            "self" => {
-                                let node_field_type_id = get_self_node_field_type_id(
-                                    &mut cluster,
-                                    &struct_node_list,
-                                    api_name_1,
-                                    api_name_2,
-                                    type_name,
-                                );
-                                set_cluster_edge(
-                                    &mut cluster,
-                                    &node_struct_name_id,
-                                    &node_field_type_id,
-                                    field_name,
-                                    type_name,
-                                );
-                            }
-                            s if s.starts_with("crate") => {
-                                let field_type_location_parse =
-                                    field_type_location.split("::").collect::<Vec<&str>>();
-                                field_type_location_parse_list.push(field_type_location_parse);
-                                let key = get_crate_node_key(field_type_location);
-                                edge_list.push((
-                                    node_struct_name_id.clone().port(field_name),
-                                    (key, type_name.to_owned()),
-                                ));
-                            }
-                            _ => {}
-                        }
-                    }
-                }
-            }
-
-            let mut field_type_location_parse_uniq: HashMap<String, Vec<String>> = HashMap::new();
-            let mut field_type_location_list = field_type_location_parse_list.clone();
-            loop {
-                if field_type_location_list.is_empty() {
-                    break;
-                }
-                let field_type_location_list_clone = field_type_location_list.clone();
-                field_type_location_list.clear();
-                for field_type_location_parse in &field_type_location_list_clone {
-                    let api_name_1 =
-                        field_type_location_parse[field_type_location_parse.len() - 3].to_string();
-                    let api_name_2 =
-                        field_type_location_parse[field_type_location_parse.len() - 2].to_string();
-                    let struct_name =
-                        field_type_location_parse[field_type_location_parse.len() - 1].to_string();
-
-                    let key = format!("{}__{}", api_name_1, api_name_2);
-                    if let std::collections::hash_map::Entry::Vacant(e) =
-                        field_type_location_parse_uniq.entry(key.clone())
-                    {
-                        e.insert(vec![struct_name.clone()]);
-                    } else {
-                        let value = field_type_location_parse_uniq.get_mut(&key).unwrap();
-                        if !value.contains(&struct_name) {
-                            value.push(struct_name.clone());
-                        }
-                    }
-
-                    let fields = books
-                        .get(&(api_name_1.clone(), api_name_2.clone()))
-                        .unwrap()
-                        .get(&struct_name)
-                        .unwrap();
-
-                    for (_field_name, (field_type_location, _field_type, type_name)) in
-                        fields.iter()
-                    {
-                        match field_type_location.to_string().as_str() {
-                            "self" => {
-                                field_type_location_list.push(vec![
-                                    field_type_location_parse[field_type_location_parse.len() - 3],
-                                    &field_type_location_parse[field_type_location_parse.len() - 2],
-                                    &type_name,
-                                ]);
-                            }
-                            s if s.starts_with("crate") => {
-                                field_type_location_list
-                                    .push(field_type_location.split("::").collect::<Vec<&str>>());
-                            }
-                            _ => {}
-                        }
-                    }
-                }
-            }
-
-            for (api_name, struct_vec) in field_type_location_parse_uniq.iter() {
-                let api_name_1_2 = api_name.split("__").collect::<Vec<&str>>();
-                let api_name_1 = api_name_1_2[0].to_string();
-                let api_name_2 = api_name_1_2[1].to_string();
-
-                let mut cluster: Scope<'_, '_> = deps_graph.cluster();
-                set_cluster(&mut cluster, &api_name_1, &api_name_2);
-                for struct_name in struct_vec {
-                    let fields = books
-                        .get(&(api_name_1.clone(), api_name_2.clone()))
-                        .unwrap()
-                        .get(struct_name)
-                        .unwrap();
-                    let node_struct_name_id = {
-                        let mut node_struct_name = cluster
-                            .node_named(format!("{}__{}__{}", api_name_1, api_name_2, struct_name));
-                        set_node_struct_name(&mut node_struct_name, struct_name, fields);
-
-                        node_struct_name.id()
-                    };
-                    struct_node_list.insert(
-                        format!("{}__{}__{}", api_name_1, api_name_2, struct_name),
+                    field_list.push((
+                        field_name_id.clone(),
+                        field_name.clone(),
                         node_struct_name_id.clone(),
-                    );
+                        _field_type.clone(),
+                    ));
 
-                    for (field_name, (field_type_location, _field_type, type_name)) in fields.iter()
-                    {
-                        match field_type_location.to_string().as_str() {
-                            "self" => {
-                                let node_field_type_id = get_self_node_field_type_id(
-                                    &mut cluster,
-                                    &struct_node_list,
-                                    &api_name_1,
-                                    &api_name_2,
-                                    type_name,
-                                );
-                                set_cluster_edge(
-                                    &mut cluster,
-                                    &node_struct_name_id,
-                                    &node_field_type_id,
-                                    field_name,
-                                    type_name,
-                                );
-                            }
-                            s if s.starts_with("crate") => {
-                                let key = get_crate_node_key(field_type_location);
-                                edge_list.push((
-                                    node_struct_name_id.clone().port(field_name),
-                                    (key, type_name.to_owned()),
-                                ));
-                            }
-                            _ => {}
+                    match field_type_location.to_string().as_str() {
+                        "self" => {
+                            let edge_id = Uuid::new_v4().to_string();
+                            let type_name_id =
+                                format!("{}__{}__{}__name", api_name_1, api_name_2, type_name);
+                            edge_list.push((edge_id, field_name_id.clone(), type_name_id));
                         }
+                        s if s.starts_with("crate") && s.ends_with("Id") => {
+                            let edge_id = Uuid::new_v4().to_string();
+                            let key = get_crate_node_key(field_type_location);
+                            let type_name_id =
+                                format!("{}__{}__{}__name", api_name_1, api_name_2, key);
+                            edge_list.push((edge_id, field_name_id.clone(), type_name_id));
+                        }
+                        _ => {}
                     }
-                }
-            }
-
-            for (from, to) in edge_list {
-                if let Some(to_node) = struct_node_list.get(&to.0) {
-                    deps_graph
-                        .edge(
-                            from.position(dot_writer::PortPosition::East),
-                            to_node
-                                .clone()
-                                .port(&to.1)
-                                .position(dot_writer::PortPosition::West),
-                        )
-                        .attributes();
                 }
             }
         }
 
-        let mut file = File::create(format!(
-            "./tests/struct_dependency_dot/{}@{}.dot",
-            api_name_1, api_name_2
-        ))
-        .unwrap();
-        file.write_all(output_bytes.as_slice())
+        let mut element_json_list: Vec<ElementRootJson> = Vec::new();
+        for (id, label) in mod_list.iter() {
+            let element = ElementRootJson {
+                data: ElementDataJson {
+                    id: id.to_string(),
+                    label: Some(label.to_string()),
+                    value: None,
+                    parent: None,
+                    source: None,
+                    target: None,
+                    identifier: "mod".to_string(),
+                },
+            };
+            element_json_list.push(element);
+        }
+        for (id, label, parent) in table_list.iter() {
+            let element = ElementRootJson {
+                data: ElementDataJson {
+                    id: id.to_string(),
+                    label: Some(label.to_string()),
+                    value: None,
+                    parent: Some(parent.to_string()),
+                    source: None,
+                    target: None,
+                    identifier: "table".to_string(),
+                },
+            };
+            element_json_list.push(element);
+        }
+        for (id, label, parent, value) in field_list.iter() {
+            let element = ElementRootJson {
+                data: ElementDataJson {
+                    id: id.to_string(),
+                    label: Some(label.to_string()),
+                    value: Some(value.to_string()),
+                    parent: Some(parent.to_string()),
+                    source: None,
+                    target: None,
+                    identifier: "field".to_string(),
+                },
+            };
+            element_json_list.push(element);
+        }
+        for (id, source, target) in edge_list.iter() {
+            let element = ElementRootJson {
+                data: ElementDataJson {
+                    id: id.to_string(),
+                    label: None,
+                    value: None,
+                    parent: None,
+                    source: Some(source.to_string()),
+                    target: Some(target.to_string()),
+                    identifier: "edge".to_string(),
+                },
+            };
+            element_json_list.push(element);
+        }
+
+        std::fs::create_dir_all("./tests/struct_dependency_json").expect("create dir failed");
+        let mut file = File::create("./tests/struct_dependency_json/all.json").unwrap();
+
+        let output_bytes: String = serde_json::to_string(&element_json_list).unwrap();
+        file.write_all(output_bytes.as_bytes())
             .expect("write failed");
+    }
+
+    #[cfg(feature = "graphviz")]
+    {
+        let binding = books_vec.clone();
+        let books_vec_common = binding
+            .iter()
+            .filter(|x| x.0 .0.ne("kcapi_common"))
+            .collect::<Vec<_>>();
+        // let books_vec_not_common = books_vec.clone().iter().filter(|x| x.0.0.eq("kcapi_common")).collect::<Vec<_>>();
+
+        for ((api_name_1, api_name_2), fieldm) in books_vec_common {
+            let mut struct_node_list: HashMap<String, NodeId> = HashMap::new();
+            let mut edge_list: Vec<(PortId, (String, String))> = Vec::new();
+            let mut output_bytes: Vec<u8> = Vec::new();
+            let mut field_type_location_parse_list = Vec::new();
+            {
+                let mut writer: DotWriter = create_writer(&mut output_bytes);
+                let mut deps_graph: Scope = create_deps_graph(&mut writer);
+                {
+                    let mut cluster: Scope<'_, '_> = deps_graph.cluster();
+                    set_cluster(&mut cluster, api_name_1, api_name_2);
+                    for (struct_name, fields) in fieldm.iter() {
+                        let node_struct_name_id = {
+                            let mut node_struct_name = cluster.node_named(format!(
+                                "{}__{}__{}",
+                                api_name_1, api_name_2, struct_name
+                            ));
+                            set_node_struct_name(&mut node_struct_name, struct_name, fields);
+
+                            node_struct_name.id()
+                        };
+                        struct_node_list.insert(
+                            format!("{}__{}__{}", api_name_1, api_name_2, struct_name),
+                            node_struct_name_id.clone(),
+                        );
+
+                        for (field_name, (field_type_location, _field_type, type_name)) in
+                            fields.iter()
+                        {
+                            match field_type_location.to_string().as_str() {
+                                "self" => {
+                                    let node_field_type_id = get_self_node_field_type_id(
+                                        &mut cluster,
+                                        &struct_node_list,
+                                        api_name_1,
+                                        api_name_2,
+                                        type_name,
+                                    );
+                                    set_cluster_edge(
+                                        &mut cluster,
+                                        &node_struct_name_id,
+                                        &node_field_type_id,
+                                        field_name,
+                                        type_name,
+                                    );
+                                }
+                                s if s.starts_with("crate") => {
+                                    let field_type_location_parse =
+                                        field_type_location.split("::").collect::<Vec<&str>>();
+                                    field_type_location_parse_list.push(field_type_location_parse);
+                                    let key = get_crate_node_key(field_type_location);
+                                    edge_list.push((
+                                        node_struct_name_id.clone().port(field_name),
+                                        (key, type_name.to_owned()),
+                                    ));
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                }
+
+                let mut field_type_location_parse_uniq: HashMap<String, Vec<String>> =
+                    HashMap::new();
+                let mut field_type_location_list = field_type_location_parse_list.clone();
+                loop {
+                    if field_type_location_list.is_empty() {
+                        break;
+                    }
+                    let field_type_location_list_clone = field_type_location_list.clone();
+                    field_type_location_list.clear();
+                    for field_type_location_parse in &field_type_location_list_clone {
+                        let api_name_1 = field_type_location_parse
+                            [field_type_location_parse.len() - 3]
+                            .to_string();
+                        let api_name_2 = field_type_location_parse
+                            [field_type_location_parse.len() - 2]
+                            .to_string();
+                        let struct_name = field_type_location_parse
+                            [field_type_location_parse.len() - 1]
+                            .to_string();
+
+                        let key = format!("{}__{}", api_name_1, api_name_2);
+                        if let std::collections::hash_map::Entry::Vacant(e) =
+                            field_type_location_parse_uniq.entry(key.clone())
+                        {
+                            e.insert(vec![struct_name.clone()]);
+                        } else {
+                            let value = field_type_location_parse_uniq.get_mut(&key).unwrap();
+                            if !value.contains(&struct_name) {
+                                value.push(struct_name.clone());
+                            }
+                        }
+
+                        let fields = books
+                            .get(&(api_name_1.clone(), api_name_2.clone()))
+                            .unwrap()
+                            .get(&struct_name)
+                            .unwrap();
+
+                        for (_field_name, (field_type_location, _field_type, type_name)) in
+                            fields.iter()
+                        {
+                            match field_type_location.to_string().as_str() {
+                                "self" => {
+                                    field_type_location_list.push(vec![
+                                        field_type_location_parse
+                                            [field_type_location_parse.len() - 3],
+                                        &field_type_location_parse
+                                            [field_type_location_parse.len() - 2],
+                                        &type_name,
+                                    ]);
+                                }
+                                s if s.starts_with("crate") => {
+                                    field_type_location_list.push(
+                                        field_type_location.split("::").collect::<Vec<&str>>(),
+                                    );
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                }
+
+                for (api_name, struct_vec) in field_type_location_parse_uniq.iter() {
+                    let api_name_1_2 = api_name.split("__").collect::<Vec<&str>>();
+                    let api_name_1 = api_name_1_2[0].to_string();
+                    let api_name_2 = api_name_1_2[1].to_string();
+
+                    let mut cluster: Scope<'_, '_> = deps_graph.cluster();
+                    set_cluster(&mut cluster, &api_name_1, &api_name_2);
+                    for struct_name in struct_vec {
+                        let fields = books
+                            .get(&(api_name_1.clone(), api_name_2.clone()))
+                            .unwrap()
+                            .get(struct_name)
+                            .unwrap();
+                        let node_struct_name_id = {
+                            let mut node_struct_name = cluster.node_named(format!(
+                                "{}__{}__{}",
+                                api_name_1, api_name_2, struct_name
+                            ));
+                            set_node_struct_name(&mut node_struct_name, struct_name, fields);
+
+                            node_struct_name.id()
+                        };
+                        struct_node_list.insert(
+                            format!("{}__{}__{}", api_name_1, api_name_2, struct_name),
+                            node_struct_name_id.clone(),
+                        );
+
+                        for (field_name, (field_type_location, _field_type, type_name)) in
+                            fields.iter()
+                        {
+                            match field_type_location.to_string().as_str() {
+                                "self" => {
+                                    let node_field_type_id = get_self_node_field_type_id(
+                                        &mut cluster,
+                                        &struct_node_list,
+                                        &api_name_1,
+                                        &api_name_2,
+                                        type_name,
+                                    );
+                                    set_cluster_edge(
+                                        &mut cluster,
+                                        &node_struct_name_id,
+                                        &node_field_type_id,
+                                        field_name,
+                                        type_name,
+                                    );
+                                }
+                                s if s.starts_with("crate") => {
+                                    let key = get_crate_node_key(field_type_location);
+                                    edge_list.push((
+                                        node_struct_name_id.clone().port(field_name),
+                                        (key, type_name.to_owned()),
+                                    ));
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                }
+
+                for (from, to) in edge_list {
+                    if let Some(to_node) = struct_node_list.get(&to.0) {
+                        deps_graph
+                            .edge(
+                                from.position(dot_writer::PortPosition::East),
+                                to_node
+                                    .clone()
+                                    .port(&to.1)
+                                    .position(dot_writer::PortPosition::West),
+                            )
+                            .attributes();
+                    }
+                }
+            }
+
+            let mut file = File::create(format!(
+                "./tests/struct_dependency_dot/{}@{}.dot",
+                api_name_1, api_name_2
+            ))
+            .unwrap();
+            file.write_all(output_bytes.as_slice())
+                .expect("write failed");
+        }
     }
 
     // Command::new("dot")
@@ -496,11 +646,13 @@ pub fn check_struct_dependency() {
     // println!("{:?}", output);
 }
 
+#[cfg(feature = "graphviz")]
 fn create_writer(output_bytes: &mut Vec<u8>) -> DotWriter<'_> {
     let writer: DotWriter<'_> = DotWriter::from(output_bytes);
     writer
 }
 
+#[cfg(feature = "graphviz")]
 fn create_deps_graph<'w>(writer: &'w mut DotWriter<'w>) -> Scope<'w, 'w> {
     let mut deps_graph: Scope = writer.digraph();
     deps_graph.set_rank_direction(dot_writer::RankDirection::LeftRight);
@@ -514,6 +666,7 @@ fn create_api_field_type_info_vec_sorted(books: &ApiFieldTypeInfo) -> ApiFieldTy
     books_vec
 }
 
+#[cfg(feature = "graphviz")]
 fn set_cluster(cluster: &mut Scope, api_name_1: &str, api_name_2: &str) {
     cluster.set_label(&format!("{} / {}", api_name_1, api_name_2));
     cluster
@@ -524,6 +677,7 @@ fn set_cluster(cluster: &mut Scope, api_name_1: &str, api_name_2: &str) {
         .set_color(Color::Gray20);
 }
 
+#[cfg(feature = "graphviz")]
 fn get_struct_label(fields: &FieldTypeInfo) -> String {
     fields.iter().fold(
         "".to_string(),
@@ -541,6 +695,7 @@ fn get_struct_label(fields: &FieldTypeInfo) -> String {
     )
 }
 
+#[cfg(feature = "graphviz")]
 fn set_node_struct_name(node_struct_name: &mut Node, struct_name: &str, fields: &FieldTypeInfo) {
     let struct_label: String = get_struct_label(fields);
     node_struct_name.set_label(&format!(
@@ -550,6 +705,7 @@ fn set_node_struct_name(node_struct_name: &mut Node, struct_name: &str, fields: 
     node_struct_name.set_shape(Shape::Record);
 }
 
+#[cfg(feature = "graphviz")]
 fn check_dobule_resitering_struct_name(
     node_struct_name: &mut Node,
     double_resitering_struct_name: &HashMap<String, i64>,
@@ -567,6 +723,7 @@ fn check_dobule_resitering_struct_name(
     }
 }
 
+#[cfg(feature = "graphviz")]
 fn set_cluster_edge(
     cluster: &mut Scope,
     start_node_id: &NodeId,
@@ -585,6 +742,7 @@ fn set_cluster_edge(
     );
 }
 
+#[cfg(feature = "graphviz")]
 fn get_self_node_field_type_id(
     cluster: &mut Scope,
     struct_node_list: &HashMap<String, NodeId>,
@@ -619,3 +777,21 @@ type FieldTypeInfo = HashMap<String, (String, String, String)>;
 type StructFieldTypeInfo = HashMap<String, FieldTypeInfo>;
 type ApiFieldTypeInfo = HashMap<ApiNamePair, StructFieldTypeInfo>;
 type ApiFieldTypeInfoVec<'a> = Vec<(&'a ApiNamePair, &'a StructFieldTypeInfo)>;
+
+#[cfg(feature = "cytoscape")]
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
+struct ElementRootJson {
+    data: ElementDataJson,
+}
+
+#[cfg(feature = "cytoscape")]
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
+struct ElementDataJson {
+    id: String,
+    parent: Option<String>,
+    label: Option<String>,
+    value: Option<String>,
+    source: Option<String>,
+    target: Option<String>,
+    identifier: String,
+}
