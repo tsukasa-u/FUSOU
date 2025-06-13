@@ -16,6 +16,7 @@ pub struct MacroArgsInsertSVG {
     style: Option<String>,
     role: Option<String>,
     aria_label: Option<String>,
+    path_panic: Option<bool>,
 }
 
 pub fn insert_svg(attr: TokenStream) -> Result<TokenStream, syn::Error> {
@@ -33,7 +34,9 @@ pub fn insert_svg(attr: TokenStream) -> Result<TokenStream, syn::Error> {
         }
     };
 
-    if !fs::exists(args.path.clone()).expect("Can not check existence of file") {
+    if !fs::exists(args.path.clone()).expect("Can not check existence of file")
+        && args.path_panic.unwrap_or(false)
+    {
         return Err(syn::Error::new_spanned(
             format!("path=\"{}\"", args.path.clone().to_str().unwrap_or("???")),
             "the file is not exist",
