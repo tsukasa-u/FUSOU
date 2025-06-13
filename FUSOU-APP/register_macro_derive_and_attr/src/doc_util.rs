@@ -34,13 +34,19 @@ pub fn insert_svg(attr: TokenStream) -> Result<TokenStream, syn::Error> {
         }
     };
 
-    if !fs::exists(args.path.clone()).expect("Can not check existence of file")
-        && args.path_panic.unwrap_or(false)
-    {
-        return Err(syn::Error::new_spanned(
-            format!("path=\"{}\"", args.path.clone().to_str().unwrap_or("???")),
-            "the file is not exist",
-        ));
+    if !fs::exists(args.path.clone()).expect("Can not check existence of file") {
+        if args.path_panic.unwrap_or(false) {
+            return Err(syn::Error::new_spanned(
+                format!("path=\"{}\"", args.path.clone().to_str().unwrap_or("???")),
+                "the file is not exist",
+            ));
+        } else {
+            let error_msg = "failed to load svg file";
+            return match error_msg.parse() {
+                Ok(s) => Ok(s),
+                Err(e) => Err(syn::Error::new_spanned(e.to_string(), "faild to parse")),
+            };
+        }
     }
 
     let mut f = fs::File::open(args.path).expect("file not found");
@@ -104,6 +110,6 @@ pub fn insert_svg(attr: TokenStream) -> Result<TokenStream, syn::Error> {
 
     return match contents_formated.parse() {
         Ok(s) => Ok(s),
-        Err(e) => Err(syn::Error::new_spanned(e.to_string(), "error")),
+        Err(e) => Err(syn::Error::new_spanned(e.to_string(), "failed to parse")),
     };
 }
