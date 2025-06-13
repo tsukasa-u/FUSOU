@@ -1,0 +1,16 @@
+digraph {
+  rankdir=LR;
+  subgraph cluster_0 {
+    label="api_req_air_corps / set_plane";
+    node [style="filled", color=white, style="solid", color=gray20];
+    api_req_air_corps__set_plane__ApiPlaneInfo [label="<ApiPlaneInfo> ApiPlaneInfo  | { api_slotid | <api_slotid> i64 } | { api_cond | <api_cond> Option\<i64\> } | { api_squadron_id | <api_squadron_id> i64 } | { api_state | <api_state> i64 } | { api_count | <api_count> Option\<i64\> } | { api_max_count | <api_max_count> Option\<i64\> }", shape=record];
+    api_req_air_corps__set_plane__Req [label="<Req> Req  | { api_area_id | <api_area_id> String } | { api_squadron_id | <api_squadron_id> String } | { api_base_id | <api_base_id> String } | { api_item_id | <api_item_id> String } | { api_token | <api_token> String } | { api_verno | <api_verno> String }", shape=record];
+    api_req_air_corps__set_plane__ApiDistance [label="<ApiDistance> ApiDistance  | { api_base | <api_base> i64 } | { api_bonus | <api_bonus> i64 }", shape=record];
+    api_req_air_corps__set_plane__Res [label="<Res> Res  | { api_data | <api_data> ApiData } | { api_result | <api_result> i64 } | { api_result_msg | <api_result_msg> String }", shape=record];
+    api_req_air_corps__set_plane__ApiData;
+    api_req_air_corps__set_plane__Res:api_data:e -> api_req_air_corps__set_plane__ApiData:ApiData:w;
+    api_req_air_corps__set_plane__ApiData [label="<ApiData> ApiData  | { api_after_bauxite | <api_after_bauxite> Option\<i64\> } | { api_distance | <api_distance> ApiDistance } | { api_plane_info | <api_plane_info> Vec\<ApiPlaneInfo\> }", shape=record];
+    api_req_air_corps__set_plane__ApiData:api_distance:e -> api_req_air_corps__set_plane__ApiDistance:ApiDistance:w;
+    api_req_air_corps__set_plane__ApiData:api_plane_info:e -> api_req_air_corps__set_plane__ApiPlaneInfo:ApiPlaneInfo:w;
+  }
+}

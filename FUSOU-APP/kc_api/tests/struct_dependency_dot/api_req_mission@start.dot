@@ -1,0 +1,11 @@
+digraph {
+  rankdir=LR;
+  subgraph cluster_0 {
+    label="api_req_mission / start";
+    node [style="filled", color=white, style="solid", color=gray20];
+    api_req_mission__start__Req [label="<Req> Req  | { api_serial_cid | <api_serial_cid> String } | { api_mission | <api_mission> String } | { api_token | <api_token> String } | { api_mission_id | <api_mission_id> String } | { api_verno | <api_verno> String } | { api_deck_id | <api_deck_id> String }", shape=record];
+    api_req_mission__start__ApiData [label="<ApiData> ApiData  | { api_complatetime | <api_complatetime> i64 } | { api_complatetime_str | <api_complatetime_str> String }", shape=record];
+    api_req_mission__start__Res [label="<Res> Res  | { api_data | <api_data> ApiData } | { api_result | <api_result> i64 } | { api_result_msg | <api_result_msg> String }", shape=record];
+    api_req_mission__start__Res:api_data:e -> api_req_mission__start__ApiData:ApiData:w;
+  }
+}

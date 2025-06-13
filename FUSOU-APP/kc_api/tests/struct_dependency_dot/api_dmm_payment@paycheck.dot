@@ -1,0 +1,16 @@
+digraph {
+  rankdir=LR;
+  subgraph cluster_0 {
+    label="api_dmm_payment / paycheck";
+    node [style="filled", color=white, style="solid", color=gray20];
+    api_dmm_payment__paycheck__ReqApiData [label="<ReqApiData> ReqApiData  | { api_volume_setting | <api_volume_setting> Option\<ApiVolumeSetting\> } | { api_skin_id | <api_skin_id> i64 }", shape=record];
+    api_dmm_payment__paycheck__ApiVolumeSetting;
+    api_dmm_payment__paycheck__ReqApiData:api_volume_setting:e -> api_dmm_payment__paycheck__ApiVolumeSetting:ApiVolumeSetting:w;
+    api_dmm_payment__paycheck__ApiVolumeSetting [label="<ApiVolumeSetting> ApiVolumeSetting  | { api_voice | <api_voice> i64 } | { api_bgm | <api_bgm> i64 } | { api_se | <api_se> i64 } | { api_duty | <api_duty> i64 } | { api_be_left | <api_be_left> i64 }", shape=record];
+    api_dmm_payment__paycheck__Req [label="<Req> Req  | { api_token | <api_token> String } | { api_verno | <api_verno> String }", shape=record];
+    api_dmm_payment__paycheck__Res [label="<Res> Res  | { api_data | <api_data> ApiData } | { api_result_msg | <api_result_msg> String } | { api_result | <api_result> i64 }", shape=record];
+    api_dmm_payment__paycheck__ApiData;
+    api_dmm_payment__paycheck__Res:api_data:e -> api_dmm_payment__paycheck__ApiData:ApiData:w;
+    api_dmm_payment__paycheck__ApiData [label="<ApiData> ApiData  | { api_check_value | <api_check_value> i64 }", shape=record];
+  }
+}

@@ -1,0 +1,18 @@
+digraph {
+  rankdir=LR;
+  subgraph cluster_0 {
+    label="api_get_member / questlist";
+    node [style="filled", color=white, style="solid", color=gray20];
+    api_get_member__questlist__Res [label="<Res> Res  | { api_result | <api_result> Option\<i64\> } | { api_result_msg | <api_result_msg> String } | { api_data | <api_data> ApiData }", shape=record];
+    api_get_member__questlist__ApiData;
+    api_get_member__questlist__Res:api_data:e -> api_get_member__questlist__ApiData:ApiData:w;
+    api_get_member__questlist__ApiCList [label="<ApiCList> ApiCList  | { api_c_flag | <api_c_flag> i64 } | { api_progress_flag | <api_progress_flag> i64 } | { api_no | <api_no> i64 } | { api_state | <api_state> i64 }", shape=record];
+    api_get_member__questlist__ApiSelectRewards [label="<ApiSelectRewards> ApiSelectRewards  | { api_mst_id | <api_mst_id> i64 } | { api_count | <api_count> i64 } | { api_slotitem_level | <api_slotitem_level> Option\<i64\> } | { api_kind | <api_kind> i64 } | { api_no | <api_no> i64 }", shape=record];
+    api_get_member__questlist__Req [label="<Req> Req  | { api_tab_id | <api_tab_id> String } | { api_token | <api_token> String } | { api_verno | <api_verno> String }", shape=record];
+    api_get_member__questlist__ApiList [label="<ApiList> ApiList  | { api_state | <api_state> i64 } | { api_voice_id | <api_voice_id> i64 } | { api_invalid_flag | <api_invalid_flag> i64 } | { api_title | <api_title> String } | { api_select_rewards | <api_select_rewards> Option\<Vec\<Vec\<ApiSelectRewards\>\>\> } | { api_category | <api_category> i64 } | { api_no | <api_no> i64 } | { api_type | <api_type> i64 } | { api_label_type | <api_label_type> i64 } | { api_get_material | <api_get_material> Vec\<i64\> } | { api_progress_flag | <api_progress_flag> i64 } | { api_lost_badges | <api_lost_badges> Option\<i64\> } | { api_bonus_flag | <api_bonus_flag> i64 } | { api_detail | <api_detail> String }", shape=record];
+    api_get_member__questlist__ApiList:api_select_rewards:e -> api_get_member__questlist__ApiSelectRewards:ApiSelectRewards:w;
+    api_get_member__questlist__ApiData [label="<ApiData> ApiData  | { api_completed_kind | <api_completed_kind> i64 } | { api_exec_type | <api_exec_type> i64 } | { api_c_list | <api_c_list> Option\<Vec\<ApiCList\>\> } | { api_count | <api_count> i64 } | { api_list | <api_list> Option\<Vec\<ApiList\>\> } | { api_exec_count | <api_exec_count> i64 }", shape=record];
+    api_get_member__questlist__ApiData:api_c_list:e -> api_get_member__questlist__ApiCList:ApiCList:w;
+    api_get_member__questlist__ApiData:api_list:e -> api_get_member__questlist__ApiList:ApiList:w;
+  }
+}

@@ -1,0 +1,22 @@
+digraph {
+  rankdir=LR;
+  subgraph cluster_0 {
+    label="api_get_member / record";
+    node [style="filled", color=white, style="solid", color=gray20];
+    api_get_member__record__ApiAirBaseExpandedInfo [label="<ApiAirBaseExpandedInfo> ApiAirBaseExpandedInfo  | { api_area_id | <api_area_id> i64 } | { api_maintenance_level | <api_maintenance_level> i64 }", shape=record];
+    api_get_member__record__ApiPractice [label="<ApiPractice> ApiPractice  | { api_rate | <api_rate> String } | { api_win | <api_win> String } | { api_lose | <api_lose> String }", shape=record];
+    api_get_member__record__Res [label="<Res> Res  | { api_result | <api_result> i64 } | { api_result_msg | <api_result_msg> String } | { api_data | <api_data> ApiData }", shape=record];
+    api_get_member__record__ApiData;
+    api_get_member__record__Res:api_data:e -> api_get_member__record__ApiData:ApiData:w;
+    api_get_member__record__Req [label="<Req> Req  | { api_verno | <api_verno> String } | { api_token | <api_token> String }", shape=record];
+    api_get_member__record__ApiData [label="<ApiData> ApiData  | { api_cmt | <api_cmt> String } | { api_mission | <api_mission> ApiMission } | { api_furniture | <api_furniture> i64 } | { api_practice | <api_practice> ApiPractice } | { api_air_base_expanded_info | <api_air_base_expanded_info> Vec\<ApiAirBaseExpandedInfo\> } | { api_war | <api_war> ApiWar } | { api_slotitem | <api_slotitem> Vec\<i64\> } | { api_material_max | <api_material_max> i64 } | { api_rank | <api_rank> i64 } | { api_kdoc | <api_kdoc> i64 } | { api_friend | <api_friend> i64 } | { api_level | <api_level> i64 } | { api_ship | <api_ship> Vec\<i64\> } | { api_nickname | <api_nickname> String } | { api_large_dock | <api_large_dock> i64 } | { api_cmt_id | <api_cmt_id> String } | { api_member_id | <api_member_id> i64 } | { api_deck | <api_deck> i64 } | { api_ndoc | <api_ndoc> i64 } | { api_complate | <api_complate> Vec\<String\> } | { api_experience | <api_experience> Vec\<i64\> } | { api_nickname_id | <api_nickname_id> String } | { api_photo_url | <api_photo_url> String }", shape=record];
+    api_get_member__record__ApiMission;
+    api_get_member__record__ApiData:api_mission:e -> api_get_member__record__ApiMission:ApiMission:w;
+    api_get_member__record__ApiData:api_practice:e -> api_get_member__record__ApiPractice:ApiPractice:w;
+    api_get_member__record__ApiData:api_air_base_expanded_info:e -> api_get_member__record__ApiAirBaseExpandedInfo:ApiAirBaseExpandedInfo:w;
+    api_get_member__record__ApiWar;
+    api_get_member__record__ApiData:api_war:e -> api_get_member__record__ApiWar:ApiWar:w;
+    api_get_member__record__ApiWar [label="<ApiWar> ApiWar  | { api_rate | <api_rate> String } | { api_lose | <api_lose> String } | { api_win | <api_win> String }", shape=record];
+    api_get_member__record__ApiMission [label="<ApiMission> ApiMission  | { api_success | <api_success> String } | { api_rate | <api_rate> String } | { api_count | <api_count> String }", shape=record];
+  }
+}

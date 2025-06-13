@@ -1,0 +1,12 @@
+digraph {
+  rankdir=LR;
+  subgraph cluster_0 {
+    label="api_req_kousyou / destroyship";
+    node [style="filled", color=white, style="solid", color=gray20];
+    api_req_kousyou__destroyship__Req [label="<Req> Req  | { api_verno | <api_verno> String } | { api_slot_dest_flag | <api_slot_dest_flag> String } | { api_ship_id | <api_ship_id> String } | { api_token | <api_token> String }", shape=record];
+    api_req_kousyou__destroyship__Res [label="<Res> Res  | { api_result_msg | <api_result_msg> String } | { api_data | <api_data> ApiData } | { api_result | <api_result> i64 }", shape=record];
+    api_req_kousyou__destroyship__ApiData;
+    api_req_kousyou__destroyship__Res:api_data:e -> api_req_kousyou__destroyship__ApiData:ApiData:w;
+    api_req_kousyou__destroyship__ApiData [label="<ApiData> ApiData  | { api_material | <api_material> Vec\<i64\> } | { api_unset_list | <api_unset_list> Option\<HashMap\<String, Vec\<i64\>\>\> }", shape=record];
+  }
+}

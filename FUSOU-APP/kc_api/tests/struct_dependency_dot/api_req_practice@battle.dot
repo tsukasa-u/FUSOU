@@ -1,0 +1,49 @@
+digraph {
+  rankdir=LR;
+  subgraph cluster_0 {
+    label="api_req_practice / battle";
+    node [style="filled", color=white, style="solid", color=gray20];
+    api_req_practice__battle__Res [label="<Res> Res  | { api_data | <api_data> ApiData } | { api_result_msg | <api_result_msg> String } | { api_result | <api_result> i64 }", shape=record];
+    api_req_practice__battle__ApiData;
+    api_req_practice__battle__Res:api_data:e -> api_req_practice__battle__ApiData:ApiData:w;
+    api_req_practice__battle__ApiData [label="<ApiData> ApiData  | { api_ship_ke | <api_ship_ke> Vec\<i64\> } | { api_eParam | <api_eParam> Vec\<Vec\<i64\>\> } | { api_ship_lv | <api_ship_lv> Vec\<i64\> } | { api_eSlot | <api_eSlot> Vec\<Vec\<i64\>\> } | { api_hourai_flag | <api_hourai_flag> Vec\<i64\> } | { api_midnight_flag | <api_midnight_flag> i64 } | { api_formation | <api_formation> Vec\<i64\> } | { api_e_nowhps | <api_e_nowhps> Vec\<i64\> } | { api_balloon_cell | <api_balloon_cell> i64 } | { api_fParam | <api_fParam> Vec\<Vec\<i64\>\> } | { api_opening_taisen_flag | <api_opening_taisen_flag> i64 } | { api_hougeki2 | <api_hougeki2> Option\<ApiHougeki\> } | { api_atoll_cell | <api_atoll_cell> i64 } | { api_raigeki | <api_raigeki> Option\<ApiRaigeki\> } | { api_stage_flag | <api_stage_flag> Vec\<i64\> } | { api_flavor_info | <api_flavor_info> Option\<Vec\<ApiFlavoInfo\>\> } | { api_injection_kouku | <api_injection_kouku> Option\<ApiKouku\> } | { api_hougeki1 | <api_hougeki1> Option\<ApiHougeki\> } | { api_search | <api_search> Vec\<i64\> } | { api_opening_taisen | <api_opening_taisen> Option\<ApiOpeningTaisen\> } | { api_opening_atack | <api_opening_atack> Option\<ApiOpeningAtack\> } | { api_smoke_type | <api_smoke_type> i64 } | { api_kouku | <api_kouku> ApiKouku } | { api_hougeki3 | <api_hougeki3> Value } | { api_deck_id | <api_deck_id> i64 } | { api_f_nowhps | <api_f_nowhps> Vec\<i64\> } | { api_e_effect_list | <api_e_effect_list> Vec\<Vec\<i64\>\> } | { api_opening_flag | <api_opening_flag> i64 } | { api_e_maxhps | <api_e_maxhps> Vec\<i64\> } | { api_f_maxhps | <api_f_maxhps> Vec\<i64\> }", shape=record];
+    api_req_practice__battle__ApiFlavoInfo;
+    api_req_practice__battle__ApiData:api_flavor_info:e -> api_req_practice__battle__ApiFlavoInfo:ApiFlavoInfo:w;
+    api_req_practice__battle__ApiFlavoInfo [label="<ApiFlavoInfo> ApiFlavoInfo  | { api_ship_name | <api_ship_name> String } | { api_pos_y | <api_pos_y> String } | { api_boss_ship_id | <api_boss_ship_id> String } | { api_type | <api_type> String } | { api_data | <api_data> String } | { api_class_name | <api_class_name> String } | { api_pos_x | <api_pos_x> String } | { api_voice_id | <api_voice_id> String } | { api_message | <api_message> String }", shape=record];
+    api_req_practice__battle__Req [label="<Req> Req  | { api_enemy_id | <api_enemy_id> String } | { api_deck_id | <api_deck_id> String } | { api_formation_id | <api_formation_id> String } | { api_start | <api_start> Option\<String\> } | { api_verno | <api_verno> String } | { api_token | <api_token> String }", shape=record];
+  }
+  subgraph cluster_1 {
+    label="kcapi_common / common_air";
+    node [style="filled", color=white, style="solid", color=gray20];
+    kcapi_common__common_air__ApiKouku [label="<ApiKouku> ApiKouku  | { api_stage1 | <api_stage1> Option\<ApiStage1\> } | { api_stage2 | <api_stage2> Option\<ApiStage2\> } | { api_stage3_combined | <api_stage3_combined> Option\<ApiStage3\> } | { api_plane_from | <api_plane_from> Option\<Vec\<Option\<Vec\<i64\>\>\>\> } | { api_stage3 | <api_stage3> Option\<ApiStage3\> }", shape=record];
+    kcapi_common__common_air__ApiStage1;
+    kcapi_common__common_air__ApiKouku:api_stage1:e -> kcapi_common__common_air__ApiStage1:ApiStage1:w;
+    kcapi_common__common_air__ApiStage2;
+    kcapi_common__common_air__ApiKouku:api_stage2:e -> kcapi_common__common_air__ApiStage2:ApiStage2:w;
+    kcapi_common__common_air__ApiStage3;
+    kcapi_common__common_air__ApiKouku:api_stage3_combined:e -> kcapi_common__common_air__ApiStage3:ApiStage3:w;
+    kcapi_common__common_air__ApiStage3;
+    kcapi_common__common_air__ApiKouku:api_stage3:e -> kcapi_common__common_air__ApiStage3:ApiStage3:w;
+    kcapi_common__common_air__ApiStage1 [label="<ApiStage1> ApiStage1  | { api_disp_seiku | <api_disp_seiku> Option\<i64\> } | { api_f_count | <api_f_count> i64 } | { api_e_count | <api_e_count> i64 } | { api_f_lostcount | <api_f_lostcount> i64 } | { api_e_lostcount | <api_e_lostcount> i64 } | { api_touch_plane | <api_touch_plane> Option\<Vec\<i64\>\> }", shape=record];
+    kcapi_common__common_air__ApiStage2 [label="<ApiStage2> ApiStage2  | { api_f_count | <api_f_count> i64 } | { api_f_lostcount | <api_f_lostcount> i64 } | { api_e_count | <api_e_count> Option\<i64\> } | { api_e_lostcount | <api_e_lostcount> Option\<i64\> } | { api_air_fire | <api_air_fire> Option\<ApiAirFire\> }", shape=record];
+    kcapi_common__common_air__ApiAirFire;
+    kcapi_common__common_air__ApiStage2:api_air_fire:e -> kcapi_common__common_air__ApiAirFire:ApiAirFire:w;
+    kcapi_common__common_air__ApiStage3 [label="<ApiStage3> ApiStage3  | { api_frai_flag | <api_frai_flag> Option\<Vec\<Option\<i64\>\>\> } | { api_fcl_flag | <api_fcl_flag> Option\<Vec\<i64\>\> } | { api_ebak_flag | <api_ebak_flag> Option\<Vec\<Option\<i64\>\>\> } | { api_edam | <api_edam> Option\<Vec\<f32\>\> } | { api_f_sp_list | <api_f_sp_list> Option\<Vec\<Option\<Vec\<i64\>\>\>\> } | { api_fbak_flag | <api_fbak_flag> Option\<Vec\<Option\<i64\>\>\> } | { api_fdam | <api_fdam> Option\<Vec\<f32\>\> } | { api_erai_flag | <api_erai_flag> Option\<Vec\<Option\<i64\>\>\> } | { api_e_sp_list | <api_e_sp_list> Option\<Vec\<Option\<Vec\<i64\>\>\>\> } | { api_ecl_flag | <api_ecl_flag> Option\<Vec\<i64\>\> }", shape=record];
+    kcapi_common__common_air__ApiAirFire [label="<ApiAirFire> ApiAirFire  | { api_idx | <api_idx> i64 } | { api_kind | <api_kind> i64 } | { api_use_items | <api_use_items> Vec\<i64\> }", shape=record];
+  }
+  subgraph cluster_2 {
+    label="kcapi_common / common_battle";
+    node [style="filled", color=white, style="solid", color=gray20];
+    kcapi_common__common_battle__ApiHougeki [label="<ApiHougeki> ApiHougeki  | { api_cl_list | <api_cl_list> Vec\<Vec\<i64\>\> } | { api_damage | <api_damage> Vec\<Vec\<f32\>\> } | { api_df_list | <api_df_list> Vec\<Vec\<i64\>\> } | { api_at_list | <api_at_list> Vec\<i64\> } | { api_at_eflag | <api_at_eflag> Vec\<i64\> } | { api_at_type | <api_at_type> Vec\<i64\> } | { api_si_list | <api_si_list> Vec\<Vec\<Option\<DuoType\<i64, String\>\>\>\> }", shape=record];
+    kcapi_common__common_battle__ApiRaigeki [label="<ApiRaigeki> ApiRaigeki  | { api_fydam | <api_fydam> Vec\<i64\> } | { api_fcl | <api_fcl> Vec\<i64\> } | { api_eydam | <api_eydam> Vec\<i64\> } | { api_fdam | <api_fdam> Vec\<f32\> } | { api_edam | <api_edam> Vec\<f32\> } | { api_frai | <api_frai> Vec\<i64\> } | { api_erai | <api_erai> Vec\<i64\> } | { api_ecl | <api_ecl> Vec\<i64\> }", shape=record];
+    kcapi_common__common_battle__ApiOpeningTaisen [label="<ApiOpeningTaisen> ApiOpeningTaisen  | { api_df_list | <api_df_list> Vec\<Vec\<i64\>\> } | { api_cl_list | <api_cl_list> Vec\<Vec\<i64\>\> } | { api_at_list | <api_at_list> Vec\<i64\> } | { api_damage | <api_damage> Vec\<Vec\<f32\>\> } | { api_si_list | <api_si_list> Vec\<Vec\<Option\<DuoType\<i64, String\>\>\>\> } | { api_at_type | <api_at_type> Vec\<i64\> } | { api_at_eflag | <api_at_eflag> Vec\<i64\> }", shape=record];
+    kcapi_common__common_battle__ApiOpeningAtack [label="<ApiOpeningAtack> ApiOpeningAtack  | { api_fdam | <api_fdam> Vec\<f32\> } | { api_edam | <api_edam> Vec\<f32\> } | { api_eydam_list_items | <api_eydam_list_items> Vec\<Option\<Vec\<i64\>\>\> } | { api_frai_list_items | <api_frai_list_items> Vec\<Option\<Vec\<i64\>\>\> } | { api_erai_list_items | <api_erai_list_items> Vec\<Option\<Vec\<i64\>\>\> } | { api_ecl_list_items | <api_ecl_list_items> Vec\<Option\<Vec\<i64\>\>\> } | { api_fydam_list_items | <api_fydam_list_items> Vec\<Option\<Vec\<i64\>\>\> } | { api_fcl_list_items | <api_fcl_list_items> Vec\<Option\<Vec\<i64\>\>\> }", shape=record];
+  }
+  api_req_practice__battle__ApiData:api_hougeki2:e -> kcapi_common__common_battle__ApiHougeki:ApiHougeki:w;
+  api_req_practice__battle__ApiData:api_raigeki:e -> kcapi_common__common_battle__ApiRaigeki:ApiRaigeki:w;
+  api_req_practice__battle__ApiData:api_injection_kouku:e -> kcapi_common__common_air__ApiKouku:ApiKouku:w;
+  api_req_practice__battle__ApiData:api_hougeki1:e -> kcapi_common__common_battle__ApiHougeki:ApiHougeki:w;
+  api_req_practice__battle__ApiData:api_opening_taisen:e -> kcapi_common__common_battle__ApiOpeningTaisen:ApiOpeningTaisen:w;
+  api_req_practice__battle__ApiData:api_opening_atack:e -> kcapi_common__common_battle__ApiOpeningAtack:ApiOpeningAtack:w;
+  api_req_practice__battle__ApiData:api_kouku:e -> kcapi_common__common_air__ApiKouku:ApiKouku:w;
+}

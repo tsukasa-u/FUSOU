@@ -1,0 +1,11 @@
+digraph {
+  rankdir=LR;
+  subgraph cluster_0 {
+    label="api_req_furniture / music_list";
+    node [style="filled", color=white, style="solid", color=gray20];
+    api_req_furniture__music_list__Req [label="<Req> Req  | { api_token | <api_token> String } | { api_verno | <api_verno> String }", shape=record];
+    api_req_furniture__music_list__ApiData [label="<ApiData> ApiData  | { api_description | <api_description> String } | { api_loops | <api_loops> i64 } | { api_name | <api_name> String } | { api_bgm_id | <api_bgm_id> i64 } | { api_id | <api_id> i64 } | { api_use_coin | <api_use_coin> i64 } | { api_bgm_flag | <api_bgm_flag> i64 }", shape=record];
+    api_req_furniture__music_list__Res [label="<Res> Res  | { api_data | <api_data> Vec\<ApiData\> } | { api_result | <api_result> i64 } | { api_result_msg | <api_result_msg> String }", shape=record];
+    api_req_furniture__music_list__Res:api_data:e -> api_req_furniture__music_list__ApiData:ApiData:w;
+  }
+}
