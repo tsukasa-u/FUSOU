@@ -105,9 +105,15 @@ jobs:
           cargo test --all test_struct_dependency
           cargo test --all test_database_dependency
       - name: export dependencies svg
-        run: sudo ./tests/export_svg.sh
+        run: |
+          ls
+          ls test
+          sudo ./tests/export_svg.sh
       - name: return directory
-        run: cd ../src-tauri
+        run: |
+          pwd
+          cd ../src-tauri
+          pwd
       - name: Clean docs folder
         run: cargo clean --doc
       - name: Build docs
