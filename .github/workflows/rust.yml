@@ -105,7 +105,7 @@ jobs:
           cd ../kc_api
           ls 
           ls tests
-          sudo ./tests/export_svg.sh
+          sudo sh ./tests/export_svg.sh
       - name: Clean docs folder
         run: cargo clean --doc
       - name: Build docs
