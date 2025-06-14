@@ -1,9 +1,0 @@
-digraph {
-  rankdir=LR;
-  subgraph cluster_0 {
-    label="api_req_nyukyo / start";
-    node [style="filled", color=white, style="solid", color=gray20];
-    api_req_nyukyo__start__Req [label="<Req> Req  | { api_ship_id | <api_ship_id> String } | { api_ndock_id | <api_ndock_id> String } | { api_highspeed | <api_highspeed> String } | { api_token | <api_token> String } | { api_verno | <api_verno> String }", shape=record];
-    api_req_nyukyo__start__Res [label="<Res> Res  | { api_result_msg | <api_result_msg> String } | { api_result | <api_result> i64 }", shape=record];
-  }
-}

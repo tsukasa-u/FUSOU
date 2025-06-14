@@ -1,9 +1,0 @@
-digraph {
-  rankdir=LR;
-  subgraph cluster_0 {
-    label="api_req_furniture / change";
-    node [style="filled", color=white, style="solid", color=gray20];
-    api_req_furniture__change__Req [label="<Req> Req  | { api_verno | <api_verno> String } | { api_window | <api_window> String } | { api_desk | <api_desk> String } | { api_token | <api_token> String } | { api_floor | <api_floor> String } | { api_wallpaper | <api_wallpaper> String } | { api_shelf | <api_shelf> String } | { api_wallhanging | <api_wallhanging> String }", shape=record];
-    api_req_furniture__change__Res [label="<Res> Res  | { api_result | <api_result> i64 } | { api_result_msg | <api_result_msg> String }", shape=record];
-  }
-}

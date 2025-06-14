@@ -1,9 +1,0 @@
-digraph {
-  rankdir=LR;
-  subgraph cluster_0 {
-    label="api_req_member / set_friendly_request";
-    node [style="filled", color=white, style="solid", color=gray20];
-    api_req_member__set_friendly_request__Res [label="<Res> Res  | { api_result_msg | <api_result_msg> String } | { api_result | <api_result> i64 }", shape=record];
-    api_req_member__set_friendly_request__Req [label="<Req> Req  | { api_token | <api_token> String } | { api_verno | <api_verno> String } | { api_request_flag | <api_request_flag> String } | { api_request_type | <api_request_type> String }", shape=record];
-  }
-}
