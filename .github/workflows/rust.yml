@@ -103,9 +103,7 @@ jobs:
       - name: export dependencies svg
         run: |
           cd ../kc_api
-          ls 
-          ls tests
-          sudo sh ./tests/export_svg.sh
+          sudo ./tests/export_svg.sh
       - name: Clean docs folder
         run: cargo clean --doc
       - name: Build docs
