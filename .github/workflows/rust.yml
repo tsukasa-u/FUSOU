@@ -95,25 +95,15 @@ jobs:
           sudo apt install -y graphviz
       - name: Run sccache-cache
         uses: mozilla-actions/sccache-action@v0.0.9
-      - name: change directory
-        run: |
-          pwd
-          cd ../kc_api
-          pwd
       - name: export dependencies dot
         run: |
+          cd ../kc_api
           cargo test --all test_struct_dependency
           cargo test --all test_database_dependency
       - name: export dependencies svg
         run: |
-          ls
-          ls test
+          cd ../kc_api
           sudo ./tests/export_svg.sh
-      - name: return directory
-        run: |
-          pwd
-          cd ../src-tauri
-          pwd
       - name: Clean docs folder
         run: cargo clean --doc
       - name: Build docs
