@@ -3,6 +3,11 @@
   "version": "1.0.0",
   "description": "",
   "main": "index.js",
+  "engines": {
+    "node": "22.16.x",
+    "npm": "10.9.x",
+    "pnpm": ">=9.5.x"
+  },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },

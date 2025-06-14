@@ -29,14 +29,15 @@ jobs:
           echo GOOGLE_CLIENT_SECRET=${{ secrets.GOOGLE_CLIENT_SECRET }} >> ./.env
           echo GOOGLE_CLIENT_ID=${{ secrets.GOOGLE_CLIENT_ID }} >> ./.env
           echo SUPABASE_DATABASE_URL=${{ secrets.SUPABASE_DATABASE_URL }}  >> ./.env
-          echo DATABASE_TABLE_VERSION=${{ vars.DATABASE_TABLE_VERSION }}  >> ./.env
+          touch ../kc_api/.env
+          echo DATABASE_TABLE_VERSION=${{ vars.DATABASE_TABLE_VERSION }}  >> ../kc_api/.env
           touch ../.env
           echo VITE_SUPABASE_URL=${{ secrets.SUPABASE_URL }} >> ../.env
           echo VITE_SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }} >> ../.env
           echo VITE_GOOGLE_CLIENT_ID=${{ secrets.GOOGLE_CLIENT_ID }} >> ../.env
           echo VITE_GOOGLE_CLIENT_SECRET=${{ secrets.GOOGLE_CLIENT_SECRET }} >> ../.env
           echo "export const env = { SUPABASE_URL: ${{ secrets.SUPABASE_URL }}, SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}}" > ../src/pages/vanilla/env.js
-      - name: Setup Ubuntu for tauri@v1
+      - name: Setup Ubuntu for tauri@v2
         run: |
           sudo apt update
           sudo apt install -y libwebkit2gtk-4.1-dev \
@@ -71,14 +72,15 @@ jobs:
           echo GOOGLE_CLIENT_SECRET=${{ secrets.GOOGLE_CLIENT_SECRET }} >> ./.env
           echo GOOGLE_CLIENT_ID=${{ secrets.GOOGLE_CLIENT_ID }} >> ./.env
           echo SUPABASE_DATABASE_URL=${{ secrets.SUPABASE_DATABASE_URL }}  >> ./.env
-          echo DATABASE_TABLE_VERSION=${{ vars.DATABASE_TABLE_VERSION }}  >> ./.env
+          touch ../kc_api/.env
+          echo DATABASE_TABLE_VERSION=${{ vars.DATABASE_TABLE_VERSION }}  >> ../kc_api/.env
           touch ../.env
           echo VITE_SUPABASE_URL=${{ secrets.SUPABASE_URL }} >> ../.env
           echo VITE_SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }} >> ../.env
           echo VITE_GOOGLE_CLIENT_ID=${{ secrets.GOOGLE_CLIENT_ID }} >> ../.env
           echo VITE_GOOGLE_CLIENT_SECRET=${{ secrets.GOOGLE_CLIENT_SECRET }} >> ../.env
           echo "export const env = { SUPABASE_URL: ${{ secrets.SUPABASE_URL }}, SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}}" > ../src/pages/vanilla/env.js
-      - name: Setup Ubuntu for tauri@v1 & Graphviz
+      - name: Setup Ubuntu for tauri@v2 & Graphviz
         run: |
           sudo apt update
           sudo apt install -y libwebkit2gtk-4.1-dev \
@@ -95,22 +97,25 @@ jobs:
         uses: mozilla-actions/sccache-action@v0.0.9
       - name: export dependencies dot
         run: |
+          cd ../kc_api
           cargo test --all test_struct_dependency
           cargo test --all test_database_dependency
       - name: export dependencies svg
-        run: sudo ./tests/export_svg.sh
+        run: |
+          cd ../kc_api
+          sudo ./tests/export_svg.sh
       - name: Clean docs folder
         run: cargo clean --doc
       - name: Build docs
-        run: cargo doc --no-deps -p app -p proxy-https -p register_trait -p register_macro_derive_and_attr --document-private-items
+        run: cargo doc --no-deps -p kc_api -p app -p proxy-https -p register_trait -p register_macro_derive_and_attr --document-private-items
       - name: Add redirect
         run: echo '<meta http-equiv="refresh" content="0;url=app/index.html">' > target/doc/index.html
       - name: Remove lock file
         run: rm target/doc/.lock
       - name: move struct dependency svg
         run: |
-          mv -f ./tests/struct_dependency_svg ./target/doc/struct_dependency_svg
-          mv -f ./tests/database_dependency_svg ./target/doc/database_dependency_svg
+          mv -f ../kc_api/tests/struct_dependency_svg ./target/doc/struct_dependency_svg
+          mv -f ../kc_api/tests/database_dependency_svg ./target/doc/database_dependency_svg
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:

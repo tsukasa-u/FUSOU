@@ -12,29 +12,29 @@ use std::sync::Mutex;
 use tokio::sync::OnceCell;
 use uuid::Uuid;
 
-use crate::database::airbase::{AirBase, PlaneInfo};
-use crate::database::battle::{
+use kc_api::database::airbase::{AirBase, PlaneInfo};
+use kc_api::database::battle::{
     AirBaseAirAttack, AirBaseAirAttackList, AirBaseAssult, Battle, CarrierBaseAssault,
     ClosingRaigeki, FriendlySupportHourai, FriendlySupportHouraiList, Hougeki, HougekiList,
     MidnightHougeki, MidnightHougekiList, OpeningAirAttack, OpeningRaigeki, OpeningTaisen,
     OpeningTaisenList, SupportAirattack, SupportHourai,
 };
-use crate::database::cell::Cells;
-use crate::database::deck::{EnemyDeck, FriendDeck, OwnDeck, SupportDeck};
-use crate::database::ship::{EnemyShip, FriendShip, OwnShip};
-use crate::database::slotitem::{EnemySlotItem, FriendSlotItem, OwnSlotItem};
+use kc_api::database::cell::Cells;
+use kc_api::database::deck::{EnemyDeck, FriendDeck, OwnDeck, SupportDeck};
+use kc_api::database::ship::{EnemyShip, FriendShip, OwnShip};
+use kc_api::database::slotitem::{EnemySlotItem, FriendSlotItem, OwnSlotItem};
 
-use crate::interface::mst_equip_exslot_ship::MstEquipExslotShip;
-use crate::interface::mst_equip_ship::MstEquipShip;
-use crate::interface::mst_maparea::MstMapArea;
-use crate::interface::mst_mapinfo::MstMapInfo;
-use crate::interface::mst_ship::MstShip;
-use crate::interface::mst_ship_graph::MstShipGraph;
-use crate::interface::mst_ship_upgrade::MstShipUpgrade;
-use crate::interface::mst_slot_item::MstSlotItem;
-use crate::interface::mst_slot_item_equip_type::MstSlotItemEquipType;
-use crate::interface::mst_stype::MstStype;
-use crate::interface::mst_use_item::MstUseItem;
+use kc_api::interface::mst_equip_exslot_ship::MstEquipExslotShip;
+use kc_api::interface::mst_equip_ship::MstEquipShip;
+use kc_api::interface::mst_maparea::MstMapArea;
+use kc_api::interface::mst_mapinfo::MstMapInfo;
+use kc_api::interface::mst_ship::MstShip;
+use kc_api::interface::mst_ship_graph::MstShipGraph;
+use kc_api::interface::mst_ship_upgrade::MstShipUpgrade;
+use kc_api::interface::mst_slot_item::MstSlotItem;
+use kc_api::interface::mst_slot_item_equip_type::MstSlotItemEquipType;
+use kc_api::interface::mst_stype::MstStype;
+use kc_api::interface::mst_use_item::MstUseItem;
 
 pub static GOOGLE_FOLDER_IDS: OnceCell<HashMap<String, String>> = OnceCell::const_new();
 

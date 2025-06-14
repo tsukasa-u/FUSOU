@@ -8,12 +8,12 @@ use register_trait::expand_struct_selector;
 
 use crate::database::table::GetDataTable;
 use crate::database::table::PortTable;
-use crate::interface::cells::Cells;
+use kc_api::interface::cells::Cells;
 
 // use crate::kcapi;
 use crate::google_drive;
-use crate::interface::interface::{Add, EmitData, Identifier, Set};
 use crate::supabase;
+use kc_api::interface::interface::{Add, EmitData, Identifier, Set};
 
 pub fn emit_data(handle: &tauri::AppHandle, emit_data: EmitData) {
     match emit_data {
@@ -219,7 +219,7 @@ pub fn emit_data(handle: &tauri::AppHandle, emit_data: EmitData) {
 }
 
 // Should I rewrite this attribute marcro to macro_rules!?
-#[expand_struct_selector(path = "./src/kcapi/")]
+#[expand_struct_selector(path = "./../kc_api/src/kcapi_main")]
 pub fn struct_selector_response(
     name: String,
     data: String,
@@ -248,7 +248,7 @@ pub fn struct_selector_response(
 }
 
 // Should I rewrite this attribute marcro to macro_rules!?
-#[expand_struct_selector(path = "./src/kcapi/")]
+#[expand_struct_selector(path = "./../kc_api/src/kcapi_main")]
 pub fn struct_selector_resquest(
     name: String,
     data: String,
