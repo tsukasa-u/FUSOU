@@ -1,9 +1,0 @@
-digraph {
-  rankdir=LR;
-  subgraph cluster_0 {
-    label="api_req_kaisou / slotset_ex";
-    node [style="filled", color=white, style="solid", color=gray20];
-    api_req_kaisou__slotset_ex__Res [label="<Res> Res  | { api_result | <api_result> i64 } | { api_result_msg | <api_result_msg> String }", shape=record];
-    api_req_kaisou__slotset_ex__Req [label="<Req> Req  | { api_verno | <api_verno> String } | { api_id | <api_id> String } | { api_item_id | <api_item_id> String } | { api_token | <api_token> String }", shape=record];
-  }
-}

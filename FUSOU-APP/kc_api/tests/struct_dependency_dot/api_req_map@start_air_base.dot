@@ -1,9 +1,0 @@
-digraph {
-  rankdir=LR;
-  subgraph cluster_0 {
-    label="api_req_map / start_air_base";
-    node [style="filled", color=white, style="solid", color=gray20];
-    api_req_map__start_air_base__Res [label="<Res> Res  | { api_result_msg | <api_result_msg> String } | { api_result | <api_result> i64 }", shape=record];
-    api_req_map__start_air_base__Req [label="<Req> Req  | { api_strike_point_1 | <api_strike_point_1> Option\<String\> } | { api_strike_point_2 | <api_strike_point_2> Option\<String\> } | { api_verno | <api_verno> String } | { api_token | <api_token> String }", shape=record];
-  }
-}

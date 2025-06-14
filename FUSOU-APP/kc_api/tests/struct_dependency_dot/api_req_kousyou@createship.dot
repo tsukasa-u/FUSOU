@@ -1,9 +1,0 @@
-digraph {
-  rankdir=LR;
-  subgraph cluster_0 {
-    label="api_req_kousyou / createship";
-    node [style="filled", color=white, style="solid", color=gray20];
-    api_req_kousyou__createship__Res [label="<Res> Res  | { api_result_msg | <api_result_msg> String } | { api_result | <api_result> i64 }", shape=record];
-    api_req_kousyou__createship__Req [label="<Req> Req  | { api_highspeed | <api_highspeed> String } | { api_item1 | <api_item1> String } | { api_item2 | <api_item2> String } | { api_item5 | <api_item5> String } | { api_kdock_id | <api_kdock_id> String } | { api_item3 | <api_item3> String } | { api_verno | <api_verno> String } | { api_item4 | <api_item4> String } | { api_large_flag | <api_large_flag> String } | { api_token | <api_token> String }", shape=record];
-  }
-}
