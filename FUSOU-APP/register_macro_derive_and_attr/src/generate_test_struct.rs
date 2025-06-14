@@ -83,6 +83,7 @@ pub fn generate_test_struct(ast: &mut DeriveInput) -> Result<TokenStream, syn::E
 
             if args.field_extra.is_some() {
                 test_implementation.push(quote! {
+                    #[cfg(test)]
                     fn test_extra(&self, log_map: &mut register_trait::LogMapType) {
                         let extra_field = self.extra.clone();
                         // assert!(extra_field.is_empty(), "\x1b[38;5;{}m extra field is not empty: {:?}\x1b[m ", 8, extra_field);
