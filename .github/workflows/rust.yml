@@ -96,7 +96,10 @@ jobs:
       - name: Run sccache-cache
         uses: mozilla-actions/sccache-action@v0.0.9
       - name: change directory
-        run: cd ../kc_api
+        run: |
+          pwd
+          cd ../kc_api
+          pwd
       - name: export dependencies dot
         run: |
           cargo test --all test_struct_dependency
