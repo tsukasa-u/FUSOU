@@ -19,7 +19,7 @@
     "@faker-js/faker": "^9.8.0",
     "@nanostores/persistent": "^1.0.0",
     "@nanostores/solid": "^1.0.0",
-    "@supabase/supabase-js": "^2.50.0",
+    "@supabase/supabase-js": "2.49.4",
     "@tailwindcss/vite": "^4.1.8",
     "@types/cytoscape": "^3.21.9",
     "@types/cytoscape-dagre": "^2.3.3",
