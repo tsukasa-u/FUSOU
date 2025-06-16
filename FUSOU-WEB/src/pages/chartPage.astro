@@ -124,59 +124,68 @@ Astro.cookies.set(
     }
     <Navigation filled={false} />
     <div class="h-full flex bg-base-100">
-      <div class="h-full flex-1"></div>
-      <div class="h-full w-2xs max-xl:hidden">
+      <!-- <div class="h-full flex-1 bg-base-100"> -->
+      <div class="absolute top-16 w-full bg-base-100">
         <div
-          class="absolute top-16 mx-3 w-[calc(var(--container-2xs)-var(--spacing)*6)] h-[calc(100dvh-(var(--spacing)*16))]"
-        >
-          <div class="sticky top-16 bottom-0 overflow-y-auto w-full h-full">
-            <div class="bg-base-100 w-64 h-full w-full">
-              <ul
-                class="menu text-base-content px-4 w-content w-full grid grid-cols pt-8 py-16"
-              >
-                <SidePage client:only="solid-js" />
-              </ul>
-            </div>
-          </div>
-        </div>
-      </div>
-      <div
-        class="h-full min-w-4xl max-lg:min-w-[calc(100dvw)] flex-1 bg-base-100"
-      >
-        <div
-          class="absolute top-16 max-lg:ml-[calc(max(8px,calc(100dvw-var(--container-4xl))/2))] w-4xl max-lg:w-[min(calc(100dvw-16px),var(--container-4xl))] bg-base-100"
+          class="sticky top-16 bottom-0 w-full h-[calc(var(--spacing)*12+1px] pt-3"
         >
           <div
-            class="sticky top-16 bottom-0 w-full h-12 py-3 px-6 bg-base-100 hidden max-xl:block border-x-1 border-base-300"
+            class="flex items-center pl-4 pb-2 bg-base-100 hidden max-xl:block max-xl:ml-[calc(max(8px,calc(100dvw-var(--container-4xl))/2))] max-xl:w-[min(calc(100dvw-32px),var(--container-4xl))]"
           >
-            <div class="flex items-center">
-              <label class="swap">
-                <input
-                  type="checkbox"
-                  id="open-close-sidepages"
-                  checked={false}
-                />
-                <Icon name="close" class="text-2xl swap-on my-auto" />
-                <Icon name="menu" class="text-2xl swap-off my-auto" />
-                <h1 class="text-xl pl-10">Menu</h1>
-              </label>
-            </div>
+            <label class="swap">
+              <input
+                type="checkbox"
+                id="open-close-sidepages"
+                checked={false}
+              />
+              <Icon name="close" class="text-2xl swap-on my-auto" />
+              <Icon name="menu" class="text-2xl swap-off my-auto" />
+              <h1 class="text-xl pl-10">Menu</h1>
+            </label>
           </div>
           <div class="h-px bg-base-200 hidden max-xl:block"></div>
-          <div
-            id="sidepage-content"
-            class="sticky top-16 max-xl:top-[calc(var(--spacing)*28+1px] bottom-0 overflow-y-auto w-full h-[calc(100dvh-(var(--spacing)*16))] max-xl:h-[calc(100dvh-var(--spacing)*28-1px)] hidden border-x-1 border-base-300"
+        </div>
+        <div
+          id="sidepage-content"
+          class="sticky top-16 max-xl:top-[calc(var(--spacing)*28+1px] bottom-0 overflow-y-auto w-full h-[calc(100dvh-(var(--spacing)*16))] max-xl:h-[calc(100dvh-var(--spacing)*28-1px)] hidden max-xl:ml-[calc(max(8px,calc(100dvw-var(--container-4xl))/2))] max-xl:w-[min(calc(100dvw-32px),var(--container-4xl))]"
+          style="scrollbar-gutter: stable;"
+        >
+          <ul
+            class="menu text-base-content px-4 w-content w-full grid grid-cols pt-8 py-16"
           >
-            <ul
-              class="menu text-base-content px-4 w-content w-full grid grid-cols pt-8 py-16"
+            <SidePage client:only="solid-js" />
+          </ul>
+        </div>
+        <div
+          id="mainpage-control"
+          class="sticky top-16 max-xl:top-[calc(var(--spacing)*28+1px] bottom-0 overflow-y-auto w-full h-[calc(100dvh-(var(--spacing)*16))] max-xl:h-[calc(100dvh-var(--spacing)*28-1px)] flex"
+          style="scrollbar-gutter: stable;"
+        >
+          <div class="h-full flex-1"></div>
+          <div
+            class="h-full w-2xs max-xl:hidden sticky top-0 border-r-1 border-base-300"
+          >
+            <div
+              class="mx-3 w-[calc(var(--container-2xs)-var(--spacing)*6)] h-[calc(100dvh-(var(--spacing)*16))]"
             >
-              <SidePage client:only="solid-js" />
-            </ul>
+              <div
+                class="sticky top-16 bottom-0 overflow-y-auto w-full h-full"
+                style="scrollbar-gutter: stable;"
+              >
+                <div class="bg-base-100 w-64 h-full w-full">
+                  <ul
+                    class="menu text-base-content px-4 w-content w-full grid grid-cols pt-8 py-16"
+                  >
+                    <SidePage client:only="solid-js" />
+                  </ul>
+                </div>
+              </div>
+            </div>
           </div>
-          <div>
+          <div class="w-4xl bg-base-100">
             <div
               id="mainpage-notfound"
-              class="sticky top-16 max-xl:top-[calc(var(--spacing)*28+1px] bottom-0 overflow-y-auto w-full h-[calc(100dvh-(var(--spacing)*16))] max-xl:h-[calc(100dvh-var(--spacing)*28-1px)] flex justify-center items-center border-x-1 border-base-300"
+              class="w-full h-full flex justify-center items-center"
             >
               <div class="place-items-center">
                 <h1 class="text-2xl">No Page Found</h1><p>
@@ -187,11 +196,11 @@ Astro.cookies.set(
             </div>
             <div
               id="mainpage-content"
-              class="sticky top-16 max-xl:top-[calc(var(--spacing)*28+1px] bottom-0 overflow-y-auto w-full h-[calc(100dvh-(var(--spacing)*16))] max-xl:h-[calc(100dvh-var(--spacing)*28-1px)] hidden border-x-1 border-base-300"
+              class="hidden max-lg:xl-[calc(max(8px,calc(100dvw-var(--container-4xl))/2))] max-xl:w-[min(calc(100dvw-32px),var(--container-4xl))]"
             >
               <div class="w-full px-8">
                 <div class="-mx-4">
-                  <div class="h-4"></div>
+                  <div class="h-6"></div>
                   <input
                     id="page-title"
                     type="text"
@@ -209,14 +218,14 @@ Astro.cookies.set(
                 </div>
 
                 <div id="select-period">
-                  <div class="h-8"></div>
+                  <div class="h-6"></div>
                   <h1 class="text-2xl font-semibold py-2">
                     <a href="#select-period">Select Period</a>
                   </h1>
                   <PeriodFilter />
                 </div>
                 <div id="load-data">
-                  <div class="h-8"></div>
+                  <div class="h-6"></div>
                   <h1 class="text-2xl font-semibold py-2">
                     <a href="#load-data">Load Data</a>
                   </h1>
@@ -227,26 +236,35 @@ Astro.cookies.set(
               </div>
             </div>
           </div>
-        </div>
-      </div>
-      <div class="h-full w-2xs max-2xl:hidden">
-        <div
-          class="absolute top-16 mx-3 w-[calc(var(--container-2xs)-var(--spacing)*6)] h-[calc(100dvh-(var(--spacing)*16))]"
-        >
-          <div class="sticky top-16 bottom-0 overflow-y-auto w-full h-full">
-            <div class="bg-base-100 w-64 h-full w-full">
-              <ul
-                class="menu text-base-content px-4 w-content w-full grid grid-cols pt-8 py-16"
+          <div
+            class="h-full w-2xs max-2xl:hidden sticky top-0 border-l-1 border-base-300"
+          >
+            <div
+              class="mx-3 w-[calc(var(--container-2xs)-var(--spacing)*6)] h-[calc(100dvh-(var(--spacing)*16))]"
+            >
+              <div
+                class="bottom-0 overflow-y-auto w-full h-full"
+                style="scrollbar-gutter: stable;"
               >
-                <li><a href="#register-storage">Register Storage</a></li>
-                <li><a href="#select-period">Slect Period</a></li>
-                <li><a href="#load-data">Load Data</a></li>
-              </ul>
+                <div class="bg-base-100 w-64 h-full w-full">
+                  <ul
+                    class="menu text-base-content px-4 w-content w-full grid grid-cols pt-8 py-16"
+                  >
+                    <li>
+                      <a href="#register-storage">Register Storage</a>
+                    </li>
+                    <li><a href="#select-period">Slect Period</a></li>
+                    <li><a href="#load-data">Load Data</a></li>
+                  </ul>
+                </div>
+              </div>
             </div>
           </div>
+          <div class="h-full flex-1"></div>
+          <div class="w-1 h-100"></div>
         </div>
       </div>
-      <div class="h-full flex-1"></div>
+      <!-- </div> -->
     </div>
   </div>
   <!-- </div> -->
@@ -299,15 +317,18 @@ Astro.cookies.set(
     )! as HTMLInputElement;
     let mainpage_content = window.document.getElementById("mainpage-content")!;
     let sidepage_content = window.document.getElementById("sidepage-content")!;
+    let mainpage_control = window.document.getElementById("mainpage-control")!;
     let mainpage_notfound =
       window.document.getElementById("mainpage-notfound")!;
     if (sidepage_menu.checked) {
       mainpage_content.classList.add("max-xl:hidden");
       mainpage_notfound.classList.add("max-xl:hidden");
+      mainpage_control.classList.add("max-xl:hidden");
       sidepage_content.classList.add("max-xl:block");
     } else {
       mainpage_content.classList.remove("max-xl:hidden");
       mainpage_notfound.classList.remove("max-xl:hidden");
+      mainpage_control.classList.remove("max-xl:hidden");
       sidepage_content.classList.remove("max-xl:block");
     }
   });
@@ -367,10 +388,13 @@ Astro.cookies.set(
       )! as HTMLInputElement;
       let sidepage_content =
         window.document.getElementById("sidepage-content")!;
+      let mainpage_control =
+        window.document.getElementById("mainpage-control")!;
       if (sidepage_menu.checked) {
         sidepage_menu.checked = false;
         mainpage_content.classList.remove("max-xl:hidden");
         mainpage_notfound.classList.remove("max-xl:hidden");
+        mainpage_control.classList.remove("max-xl:hidden");
         sidepage_content.classList.remove("max-xl:block");
       }
     }
