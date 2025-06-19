@@ -44,8 +44,8 @@ jobs:
         uses: mozilla-actions/sccache-action@v0.0.9
       - name: export dependencies dot
         run: |
-          cargo test --all test_struct_dependency
-          cargo test --all test_database_dependency
+          dotenvx run -f ../kc_api/.env -f .env --verbose --overload -- cargo test --all test_struct_dependency
+          dotenvx run -f ../kc_api/.env -f .env --verbose --overload -- cargo test --all test_database_dependency
         working-directory: ./FUSOU-APP/kc_api
       - name: export dependencies svg
         run: sudo ./tests/export_svg.sh
