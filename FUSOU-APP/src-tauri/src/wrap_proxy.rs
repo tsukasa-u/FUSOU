@@ -36,6 +36,7 @@ pub fn serve_proxy<R>(
     proxy_log_bidirectional_channel_master: Master<StatusInfo>,
     pac_bidirectional_channel_slave: Slave<StatusInfo>,
     app: &tauri::AppHandle<R>,
+    file_prefix: Option<String>,
 ) -> Result<Url, Box<dyn std::error::Error>>
 where
     R: tauri::Runtime,
@@ -53,6 +54,7 @@ where
         proxy_log_bidirectional_channel_master,
         save_path,
         ca_path,
+        file_prefix.unwrap_or("".to_string()),
     );
 
     if proxy_addr.is_err() {

@@ -4,16 +4,18 @@ use uuid::Uuid;
 
 use crate::database::battle::Battle;
 use crate::database::battle::BattleId;
+use crate::database::env_info::EnvInfoId;
 use crate::database::table::PortTable;
 use crate::database::table::DATABASE_TABLE_VERSION;
 
 use register_trait::TraitForEncode;
 
-type CellsId = Uuid;
+pub type CellsId = Uuid;
 
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct Cells {
     pub version: String,
+    pub env_uuid: EnvInfoId,
     pub uuid: CellsId,
     pub maparea_id: i64,
     pub mapinfo_no: i64,
@@ -22,35 +24,22 @@ pub struct Cells {
     pub battles: Vec<Option<BattleId>>,
 }
 
-// impl From<Cells> for Result<Vec<u8>, apache_avro::Error> {
-//     fn from(cells: Cells) -> Self {
-//         let schema = Cells::get_schema();
-
-//         let mut writer = Writer::with_codec(&schema, Vec::new(), Codec::Deflate);
-//         writer.append_ser(cells)?;
-//         writer.into_inner()
-//     }
-// }
-
-// impl From<crate::interface::cells::Cells> for Cells {
-//     fn from(cells: crate::interface::cells::Cells) -> Self {
-//     }
-// }
-
 impl Cells {
     pub fn new_ret_uuid(
         data: crate::interface::cells::Cells,
         table: &mut PortTable,
+        env_uuid: EnvInfoId,
     ) -> Option<Uuid> {
         let new_uuid = Uuid::new_v4();
         let new_battle = data
             .battles
             .values()
-            .map(|battle| Battle::new_ret_uuid(battle.clone(), table))
+            .map(|battle| Battle::new_ret_uuid(battle.clone(), table, env_uuid))
             .collect();
 
         let new_data = Cells {
             version: DATABASE_TABLE_VERSION.to_string(),
+            env_uuid,
             uuid: new_uuid,
             maparea_id: data.maparea_id,
             mapinfo_no: data.mapinfo_no,

@@ -2,6 +2,7 @@ use apache_avro::AvroSchema;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::database::env_info::EnvInfoId;
 use crate::database::slotitem::EnemySlotItem;
 use crate::database::slotitem::EnemySlotItemId;
 use crate::database::slotitem::FriendSlotItem;
@@ -23,6 +24,7 @@ pub type FriendShipId = Uuid;
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct OwnShip {
     pub version: String,
+    pub env_uuid: EnvInfoId,
     pub uuid: OwnShipId,
     pub ship_id: Option<i64>,
     pub lv: Option<i64>,                          // レベル
@@ -49,7 +51,7 @@ pub struct OwnShip {
 }
 
 impl OwnShip {
-    pub fn new_ret_uuid(data: i64, table: &mut PortTable) -> Option<Uuid> {
+    pub fn new_ret_uuid(data: i64, table: &mut PortTable, env_uuid: EnvInfoId) -> Option<Uuid> {
         let new_uuid: Uuid = Uuid::new_v4();
 
         let ships = Ships::load();
@@ -60,13 +62,18 @@ impl OwnShip {
             slot.iter()
                 .map(|slot_id| {
                     let slot_item = slot_item.slot_items.get(slot_id)?;
-                    return Some(OwnSlotItem::new_ret_uuid(slot_item.clone(), table));
+                    return Some(OwnSlotItem::new_ret_uuid(
+                        slot_item.clone(),
+                        table,
+                        env_uuid,
+                    ));
                 })
                 .collect()
         });
 
         let new_data: OwnShip = OwnShip {
             version: DATABASE_TABLE_VERSION.to_string(),
+            env_uuid,
             uuid: new_uuid,
             ship_id: ship.ship_id,
             lv: ship.lv,
@@ -103,6 +110,7 @@ impl OwnShip {
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct EnemyShip {
     pub version: String,
+    pub env_uuid: EnvInfoId,
     pub uuid: EnemyShipId,
     pub mst_ship_id: Option<i64>,
     pub lv: Option<i64>,                    // レベル
@@ -124,17 +132,18 @@ pub type EnemyShipProps = (
     Option<i64>,      // mst_id
 );
 impl EnemyShip {
-    pub fn new_ret_uuid(data: EnemyShipProps, table: &mut PortTable) -> Uuid {
+    pub fn new_ret_uuid(data: EnemyShipProps, table: &mut PortTable, env_uuid: EnvInfoId) -> Uuid {
         let new_uuid: Uuid = Uuid::new_v4();
 
         let new_slot = data.3.clone().map(|slot| {
             slot.iter()
-                .map(|slot_id| EnemySlotItem::new_ret_uuid(*slot_id, table))
+                .map(|slot_id| EnemySlotItem::new_ret_uuid(*slot_id, table, env_uuid))
                 .collect()
         });
 
         let new_data: EnemyShip = EnemyShip {
             version: DATABASE_TABLE_VERSION.to_string(),
+            env_uuid,
             uuid: new_uuid,
             lv: data.0,
             nowhp: data.1,
@@ -164,6 +173,7 @@ pub type FriendShipProps = (
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct FriendShip {
     pub version: String,
+    pub env_uuid: EnvInfoId,
     pub uuid: FriendShipId,
     pub mst_ship_id: Option<i64>,
     pub lv: Option<i64>,                     // レベル
@@ -178,17 +188,18 @@ pub struct FriendShip {
 }
 
 impl FriendShip {
-    pub fn new_ret_uuid(data: FriendShipProps, table: &mut PortTable) -> Uuid {
+    pub fn new_ret_uuid(data: FriendShipProps, table: &mut PortTable, env_uuid: EnvInfoId) -> Uuid {
         let new_uuid: Uuid = Uuid::new_v4();
 
         let new_slot = data.3.clone().map(|slot| {
             slot.iter()
-                .map(|slot_id| FriendSlotItem::new_ret_uuid(*slot_id, table))
+                .map(|slot_id| FriendSlotItem::new_ret_uuid(*slot_id, table, env_uuid))
                 .collect()
         });
 
         let new_data: FriendShip = FriendShip {
             version: DATABASE_TABLE_VERSION.to_string(),
+            env_uuid,
             uuid: new_uuid,
             lv: data.0,
             nowhp: data.1,

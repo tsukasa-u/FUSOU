@@ -10,6 +10,7 @@ use crate::database::battle::{
 use crate::database::cell::Cells;
 use crate::database::deck::{EnemyDeck, FriendDeck, OwnDeck, SupportDeck};
 use crate::database::encode::encode;
+use crate::database::env_info::{EnvInfo, UserEnv};
 use crate::database::ship::{EnemyShip, FriendShip, OwnShip};
 use crate::database::slotitem::{EnemySlotItem, FriendSlotItem, OwnSlotItem};
 
@@ -30,6 +31,7 @@ pub const DATABASE_TABLE_VERSION: &str = std::env!("DATABASE_TABLE_VERSION");
 
 #[derive(Debug, Clone, Default)]
 pub struct PortTable {
+    pub env_info: Vec<EnvInfo>,
     pub cells: Vec<Cells>,
     pub airbase: Vec<AirBase>,
     pub plane_info: Vec<PlaneInfo>,
@@ -65,6 +67,7 @@ pub struct PortTable {
 
 #[derive(Debug, Clone, Default)]
 pub struct PortTableEncode {
+    pub env_info: Vec<u8>,
     pub cells: Vec<u8>,
     pub airbase: Vec<u8>,
     pub plane_info: Vec<u8>,
@@ -98,6 +101,11 @@ pub struct PortTableEncode {
     pub battle: Vec<u8>,
 }
 
+impl EnvInfo {
+    pub fn get_table_name() -> String {
+        "env_info".to_string()
+    }
+}
 impl Cells {
     pub fn get_table_name() -> String {
         "cells".to_string()
@@ -255,9 +263,14 @@ impl Battle {
 }
 
 impl PortTable {
-    pub fn new(interface_cells: crate::interface::cells::Cells) -> PortTable {
+    pub fn new(
+        interface_cells: crate::interface::cells::Cells,
+        user_env: UserEnv,
+        timestamp: i64,
+    ) -> PortTable {
         let mut table = PortTable::default();
-        let _cells_uuid = Cells::new_ret_uuid(interface_cells, &mut table);
+        let env_uuid = EnvInfo::new_ret_uuid((user_env, timestamp), &mut table);
+        let _cells_uuid = Cells::new_ret_uuid(interface_cells, &mut table, env_uuid);
         return table;
     }
 
@@ -294,8 +307,10 @@ impl PortTable {
         let battle = encode(self.battle.clone())?;
 
         let cells = encode(self.cells.clone())?;
+        let env_info = encode(self.env_info.clone())?;
 
         let table_encode = PortTableEncode {
+            env_info,
             cells,
             airbase,
             plane_info,
