@@ -706,19 +706,9 @@ mod tests {
     // use crate::util::type_of;
 
     use super::*;
-    use dotenvy::dotenv;
-    use std::env;
-
     #[test]
     fn test_deserialize() {
-        let mut target_path = "./../../FUSOU-PROXY-DATA/kcsapi".to_string();
-
-        dotenv().expect(".env file not found");
-        for (key, value) in env::vars() {
-            if key.eq("TEST_DATA_PATH") {
-                target_path = value.clone();
-            }
-        }
+        let target_path = std::env::var("TEST_DATA_PATH").expect("failed to get env data");
 
         let pattern_str = "S@api_start2@getData";
         let log_path = "./src/kcapi_main/api_start2/getData@S.log";
@@ -739,14 +729,7 @@ mod tests {
 
     #[test]
     fn test_possible_values() {
-        let mut target_path = "./../../FUSOU-PROXY-DATA/kcsapi".to_string();
-
-        dotenv().expect(".env file not found");
-        for (key, value) in env::vars() {
-            if key.eq("TEST_DATA_PATH") {
-                target_path = value.clone();
-            }
-        }
+        let target_path = std::env::var("TEST_DATA_PATH").expect("failed to get env data");
 
         let pattern_str = "S@api_start2@getData";
         let log_path = "./src/kcapi_main/api_start2/getData_check_number@S.log";
