@@ -44,8 +44,8 @@ jobs:
         uses: mozilla-actions/sccache-action@v0.0.9
       - name: export dependencies dot
         run: |
-          dotenvx run -- cargo test --all test_struct_dependency
-          dotenvx run -- cargo test --all test_database_dependency
+          cargo test --all test_struct_dependency
+          cargo test --all test_database_dependency
         working-directory: ./FUSOU-APP/kc_api
       - name: export dependencies svg
         run: sudo ./tests/export_svg.sh
@@ -53,7 +53,7 @@ jobs:
       - name: Clean docs folder
         run: cargo clean --doc
       - name: Build docs
-        run: dotenvx run -- cargo doc --no-deps -p kc_api -p app -p proxy-https -p register_trait -p register_macro_derive_and_attr --document-private-items
+        run: dotenvx run -f ../kc_api/.env -f .env --verbose --overload -- cargo doc --no-deps -p kc_api -p app -p proxy-https -p register_trait -p register_macro_derive_and_attr --document-private-items
       - name: Add redirect
         run: echo '<meta http-equiv="refresh" content="0;url=app/index.html">' > target/doc/index.html
       - name: Remove lock file
