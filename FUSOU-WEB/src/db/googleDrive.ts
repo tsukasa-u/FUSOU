@@ -27,16 +27,15 @@ export async function listGoogleDriveFilesWebClient(accessToken: string) {
 }
 
 export async function refreshToken(refreshToken: string) {
-  let response = await fetch(
-    import.meta.env.PUBLIC_SITE_URL + "/api/auth/google/refresh_token",
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        refreshToken: refreshToken,
-      }),
-    }
-  ).then((response) => response.json());
+  const url_origin = import.meta.env.PUBLIC_SITE_URL;
+  // const url_origin = process.env.PUBLIC_SITE_URL;
+  let response = await fetch(url_origin + "/api/auth/google/refresh_token", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      refreshToken: refreshToken,
+    }),
+  }).then((response) => response.json());
 
   return response;
 }

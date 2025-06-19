@@ -2,12 +2,14 @@ import { createClient } from "@supabase/supabase-js";
 
 export const supabase = createClient(
   import.meta.env.PUBLIC_SUPABASE_URL,
+  // process.env.PUBLIC_SUPABASE_URL,
   import.meta.env.PUBLIC_SUPABASE_ANON_KEY,
+  // process.env.PUBLIC_SUPABASE_ANON_KEY,
   {
     auth: {
       flowType: "pkce",
     },
-  },
+  }
 );
 
 // import { createClient } from '@supabase/supabase-js'
@@ -21,7 +23,7 @@ export const supabase = createClient(
 //     request: Request
 // }, headers: Headers) => {
 //     const supabaseClient = createClient(
-//       context.cloudflare.env.SUPABASE_URL, 
+//       context.cloudflare.env.SUPABASE_URL,
 //       context.cloudflare.env.SUPABASE_KEY,
 //     )
 //     return supabaseClient

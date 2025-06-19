@@ -1,5 +1,5 @@
 {
-  "name": "FUSOU",
+  "name": "fusou",
   "version": "1.0.0",
   "description": "",
   "main": "index.js",
@@ -9,13 +9,16 @@
     "pnpm": ">=9.5.x"
   },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "env.encrypt": "dotenvx encrypt -fk .env.keys -f ./FUSOU-WEB/.env -f ./FUSOU-APP/kc_api/.env -f ./FUSOU-APP/src-tauri/.env -f ./FUSOU-APP/.env",
+    "env.decrypt": "dotenvx decrypt -fk .env.keys -f ./FUSOU-WEB/.env -f ./FUSOU-APP/kc_api/.env -f ./FUSOU-APP/src-tauri/.env -f ./FUSOU-APP/.env",
+    "env.ls": "dotenvx ls"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "packageManager": "pnpm@9.5.0+sha512.140036830124618d624a2187b50d04289d5a087f326c9edfc0ccd733d76c4f52c3a313d4fc148794a2a9d81553016004e6742e8cf850670268a7387fc220c903",
   "devDependencies": {
+    "@dotenvx/dotenvx": "^1.44.2",
     "ts-node": "^10.9.2",
     "typescript": "^5.8.2"
   }

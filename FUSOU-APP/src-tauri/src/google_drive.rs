@@ -1,6 +1,6 @@
 use chrono::{TimeZone, Utc};
 use chrono_tz::Asia::Tokyo;
-use dotenvy_macro::dotenv;
+// use dotenvy_macro::dotenv;
 use google_drive3::hyper_rustls;
 use google_drive3::hyper_util;
 use google_drive3::yup_oauth2;
@@ -103,8 +103,10 @@ pub async fn create_auth(
         .unwrap_or("Bearer".to_string());
 
     let secret = yup_oauth2::authorized_user::AuthorizedUserSecret {
-        client_id: dotenv!("GOOGLE_CLIENT_ID").to_string(),
-        client_secret: dotenv!("GOOGLE_CLIENT_SECRET").to_string(),
+        // client_id: dotenv!("GOOGLE_CLIENT_ID").to_string(),
+        client_id: std::env!("GOOGLE_CLIENT_ID").to_string(),
+        // client_secret: dotenv!("GOOGLE_CLIENT_SECRET").to_string(),
+        client_secret: std::env!("GOOGLE_CLIENT_SECRET").to_string(),
         refresh_token: provider_refresh_token,
         key_type: token_type,
     };

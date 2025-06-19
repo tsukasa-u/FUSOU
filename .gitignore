@@ -17,7 +17,6 @@ node_modules/
 .VSCodeCounter/
 FUSOU.code-workspace
 test_data/
-.env
 FUSOU-PROXY-DATA*/
 error_logs/
 FUSOU-APP/src-tauri/ca/*
@@ -36,3 +35,4 @@ FUSOU-APP/src/pages/vanilla/env.js
 FUSOU-APP/src-tauri/gen/schemas/
 
 FUSOU-APP/src-tauri/gen/
+.env.keys
