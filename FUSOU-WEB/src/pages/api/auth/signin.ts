@@ -6,6 +6,7 @@ export const POST: APIRoute = async ({ request, cookies, redirect }) => {
   const formData = await request.formData();
 
   const url_origin = import.meta.env.PUBLIC_SITE_URL;
+  // const url_origin = process.env.PUBLIC_SITE_URL;
 
   const provider = formData.get("provider")?.toString();
 
@@ -13,15 +14,14 @@ export const POST: APIRoute = async ({ request, cookies, redirect }) => {
 
   if (provider && validProviders.includes(provider)) {
     if (provider == "google") {
-
       const { data, error } = await supabase.auth.signInWithOAuth({
-        provider: 'google',
+        provider: "google",
         options: {
-          scopes: 'https://www.googleapis.com/auth/drive.file',
+          scopes: "https://www.googleapis.com/auth/drive.file",
           redirectTo: `${url_origin}/api/auth/callback`,
           queryParams: {
-            prompt: 'consent',
-            access_type: 'offline',
+            prompt: "consent",
+            access_type: "offline",
           },
         },
       });

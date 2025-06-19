@@ -1,4 +1,4 @@
-use dotenvy_macro::dotenv;
+// use dotenvy_macro::dotenv;
 use sqlx::postgres::PgPoolOptions;
 use sqlx::types::chrono;
 use std::sync::OnceLock;
@@ -8,7 +8,8 @@ static SUPABASE_DATABASE_URL: OnceLock<&str> = OnceLock::new();
 static KC_PERIOD_TAG: OnceCell<String> = OnceCell::const_new();
 
 pub fn get_supabase_database_url() -> &'static str {
-    SUPABASE_DATABASE_URL.get_or_init(|| dotenv!("SUPABASE_DATABASE_URL"))
+    // SUPABASE_DATABASE_URL.get_or_init(|| dotenv!("SUPABASE_DATABASE_URL"))
+    SUPABASE_DATABASE_URL.get_or_init(|| std::env!("SUPABASE_DATABASE_URL"))
 }
 
 pub async fn get_period_tag() -> String {

@@ -16,7 +16,8 @@
     "rustfmt": "cd src-tauri && cargo fmt --all --check --verbose",
     "rustfmt:fix": "cd src-tauri && cargo fmt --all",
     "checkl": "set CHECK_RELESE=CHECK",
-    "uncheckl" :"set CHECK_RELESE=NO_CHECK"
+    "uncheckl": "set CHECK_RELESE=NO_CHECK",
+    "tauri": "dotenvx run -fk ../.env.keys -f .env -f kc_api/.env -f src-tauri/.env --verbose --overload -- tauri"
   },
   "devDependencies": {
     "@eslint/js": "^9.23.0",
@@ -40,8 +41,6 @@
   "dependencies": {
     "@solid-primitives/cookies": "^0.0.1",
     "@solidjs/router": "^0.15.3",
-    "@supabase/auth-ui-shared": "^0.1.8",
-    "@supabase/auth-ui-solid": "^0.3.8",
     "@supabase/supabase-js": "^2.49.4",
     "@tauri-apps/api": "^2.4.0",
     "@tauri-apps/plugin-deep-link": "^2.2.1",
