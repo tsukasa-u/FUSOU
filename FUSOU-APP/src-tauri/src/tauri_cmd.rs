@@ -22,6 +22,7 @@ use crate::interface::slot_item::SlotItems;
 
 use crate::external::SHARED_BROWSER;
 use crate::json_parser;
+use crate::util;
 use crate::wrap_proxy::{self, PacChannel, ProxyChannel, ProxyLogChannel, ResponseParseChannel};
 
 #[cfg(any(not(dev), check_release))]
@@ -405,6 +406,8 @@ pub async fn launch_with_options(
                         println!("ca path: {}", ca_path);
                         println!("pac path: {}", pac_path);
 
+                        let file_prefix = util::get_user_env_id().await;
+
                         let addr = wrap_proxy::serve_proxy(
                             server_address.to_string(),
                             save_path,
@@ -414,6 +417,7 @@ pub async fn launch_with_options(
                             proxy_log_channel.master.clone(),
                             pac_channel.slave.clone(),
                             window.app_handle(),
+                            Some(file_prefix),
                         );
                         match addr {
                             Ok(addr) => Some(addr),

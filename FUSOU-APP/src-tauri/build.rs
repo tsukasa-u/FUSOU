@@ -16,7 +16,7 @@ fn main() {
     // echo "export const env = { SUPABASE_URL: ${{ secrets.SUPABASE_URL }}, SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}}" > ../src/pages/vanilla/env.js
     {
         let path = "../src/pages/vanilla/env.js";
-        let mut file = File::create(path).expect("file not found.");
+        let mut file = File::create(path).expect("failed to create file.");
 
         writeln!(
             file,

@@ -32,6 +32,7 @@ fn log_response(
     uri: Uri,
     tx_proxy_log: bidirectional_channel::Master<bidirectional_channel::StatusInfo>,
     save_path: String,
+    file_prefix: String,
 ) {
     let mut content_type: String = String::new();
     let mut _content_length: i64 = -1;
@@ -128,7 +129,8 @@ fn log_response(
                     }
 
                     let time_stamped = format!(
-                        "kcsapi/{}S{}",
+                        "kcsapi/{}_{}S{}",
+                        file_prefix,
                         jst.timestamp(),
                         uri_path.as_str().replace("/kcsapi", "").replace("/", "@")
                     );
@@ -174,6 +176,7 @@ fn log_request(
     uri: Uri,
     tx_proxy_log: bidirectional_channel::Master<bidirectional_channel::StatusInfo>,
     save_path: String,
+    file_prefix: String,
 ) {
     let mut content_type: String = String::new();
     let mut _content_length: i64 = -1;
@@ -253,7 +256,8 @@ fn log_request(
                     }
 
                     let time_stamped = format!(
-                        "kcsapi/{}Q{}",
+                        "kcsapi/{}_{}Q{}",
+                        file_prefix,
                         jst.timestamp(),
                         uri_path.as_str().replace("/kcsapi", "").replace("/", "@")
                     );
@@ -299,6 +303,7 @@ struct LogHandler {
     request_uri: Uri,
     tx_proxy_log: bidirectional_channel::Master<bidirectional_channel::StatusInfo>,
     save_path: String,
+    file_prefix: String,
 }
 
 impl HttpHandler for LogHandler {
@@ -331,6 +336,7 @@ impl HttpHandler for LogHandler {
             self.request_uri.clone(),
             self.tx_proxy_log.clone(),
             self.save_path.clone(),
+            self.file_prefix.clone(),
         );
 
         let reconstructed_body = hudsucker::Body::from(full_body);
@@ -353,6 +359,7 @@ impl HttpHandler for LogHandler {
             self.request_uri.clone(),
             self.tx_proxy_log.clone(),
             self.save_path.clone(),
+            self.file_prefix.clone(),
         );
 
         let reconstructed_body = hudsucker::Body::from(full_body);
@@ -484,6 +491,7 @@ pub fn serve_proxy(
     tx_proxy_log: bidirectional_channel::Master<bidirectional_channel::StatusInfo>,
     log_save_path: String,
     ca_save_path: String,
+    file_prefix: String,
 ) -> Result<SocketAddr, Box<dyn std::error::Error>> {
     setup_default_crypto_provider();
 
@@ -547,6 +555,7 @@ pub fn serve_proxy(
             tx_proxy_log: tx_proxy_log.clone(),
             request_uri: Uri::default(),
             save_path: log_save_path.clone(),
+            file_prefix: file_prefix.clone(),
         })
         .with_graceful_shutdown(async move {
             loop {

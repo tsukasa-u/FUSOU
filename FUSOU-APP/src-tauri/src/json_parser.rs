@@ -8,6 +8,7 @@ use register_trait::expand_struct_selector;
 
 use crate::database::table::GetDataTable;
 use crate::database::table::PortTable;
+use crate::util::get_user_env_id;
 use kc_api::interface::cells::Cells;
 
 // use crate::kcapi;
@@ -115,9 +116,11 @@ pub fn emit_data(handle: &tauri::AppHandle, emit_data: EmitData) {
             Identifier::Port(_) => {
                 if Cells::reset_flag() {
                     let cells = Cells::load();
-                    let port_table = PortTable::new(cells);
-                    Cells::reset();
                     tokio::task::spawn(async move {
+                        let user_env = get_user_env_id().await;
+                        let timestamp = chrono::Utc::now().timestamp();
+                        let port_table = PortTable::new(cells, user_env, timestamp);
+                        Cells::reset();
                         match port_table.encode() {
                             Ok(port_table_encode) => {
                                 let pariod_tag = supabase::get_period_tag().await;

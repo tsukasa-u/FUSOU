@@ -2,6 +2,7 @@ use apache_avro::AvroSchema;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::database::env_info::EnvInfoId;
 use crate::database::ship::EnemyShip;
 use crate::database::ship::EnemyShipId;
 use crate::database::ship::EnemyShipProps;
@@ -25,13 +26,14 @@ pub type FriendDeckId = Uuid;
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct OwnDeck {
     pub version: String,
+    pub env_uuid: EnvInfoId,
     pub uuid: OwnDeckId,
     pub ship_ids: Vec<Option<OwnShipId>>,
     pub combined_flag: Option<i64>,
 }
 
 impl OwnDeck {
-    pub fn new_ret_uuid(data: i64, table: &mut PortTable) -> Option<Uuid> {
+    pub fn new_ret_uuid(data: i64, table: &mut PortTable, env_uuid: EnvInfoId) -> Option<Uuid> {
         let new_uuid = Uuid::new_v4();
 
         let decks = DeckPorts::load();
@@ -44,7 +46,7 @@ impl OwnDeck {
                 .map(|ship_id| {
                     let ship = ships.ships.get(&ship_id)?;
                     let ship_id = ship.ship_id?;
-                    let new_ship = OwnShip::new_ret_uuid(ship_id, table);
+                    let new_ship = OwnShip::new_ret_uuid(ship_id, table, env_uuid);
                     return new_ship;
                 })
                 .collect();
@@ -53,6 +55,7 @@ impl OwnDeck {
 
         let new_data = OwnDeck {
             version: DATABASE_TABLE_VERSION.to_string(),
+            env_uuid,
             uuid: new_uuid,
             ship_ids: new_ship_ids,
             combined_flag: decks.combined_flag,
@@ -67,12 +70,13 @@ impl OwnDeck {
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct SupportDeck {
     pub version: String,
+    pub env_uuid: EnvInfoId,
     pub uuid: SupportDeckId,
     pub ship_ids: Vec<Option<OwnShipId>>,
 }
 
 impl SupportDeck {
-    pub fn new_ret_uuid(data: i64, table: &mut PortTable) -> Option<Uuid> {
+    pub fn new_ret_uuid(data: i64, table: &mut PortTable, env_uuid: EnvInfoId) -> Option<Uuid> {
         let new_uuid = Uuid::new_v4();
 
         let decks = DeckPorts::load();
@@ -85,7 +89,7 @@ impl SupportDeck {
                 .map(|ship_id| {
                     let ship = ships.ships.get(&ship_id)?;
                     let ship_id = ship.ship_id?;
-                    let new_ship = OwnShip::new_ret_uuid(ship_id, table);
+                    let new_ship = OwnShip::new_ret_uuid(ship_id, table, env_uuid);
                     return new_ship;
                 })
                 .collect();
@@ -94,6 +98,7 @@ impl SupportDeck {
 
         let new_data = SupportDeck {
             version: DATABASE_TABLE_VERSION.to_string(),
+            env_uuid,
             uuid: new_uuid,
             ship_ids: new_ship_ids,
         };
@@ -107,6 +112,7 @@ impl SupportDeck {
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct EnemyDeck {
     pub version: String,
+    pub env_uuid: EnvInfoId,
     pub uuid: EnemyDeckId,
     pub ship_ids: Vec<EnemyShipId>,
 }
@@ -115,6 +121,7 @@ impl EnemyDeck {
     pub fn new_ret_uuid(
         data: crate::interface::battle::Battle,
         table: &mut PortTable,
+        env_uuid: EnvInfoId,
     ) -> Option<Uuid> {
         let new_uuid = Uuid::new_v4();
 
@@ -133,7 +140,7 @@ impl EnemyDeck {
                             data.e_params.clone().map(|param| param[i].clone()),
                             Some(*ship_id),
                         );
-                        let new_ship = EnemyShip::new_ret_uuid(props, table);
+                        let new_ship = EnemyShip::new_ret_uuid(props, table, env_uuid);
                         return new_ship;
                     })
                     .collect()
@@ -142,6 +149,7 @@ impl EnemyDeck {
 
         let new_data = EnemyDeck {
             version: DATABASE_TABLE_VERSION.to_string(),
+            env_uuid,
             uuid: new_uuid,
             ship_ids: new_ship_ids,
         };
@@ -154,6 +162,7 @@ impl EnemyDeck {
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
 pub struct FriendDeck {
     pub version: String,
+    pub env_uuid: EnvInfoId,
     pub uuid: FriendDeckId,
     pub ship_ids: Vec<FriendShipId>,
 }
@@ -162,6 +171,7 @@ impl FriendDeck {
     pub fn new_ret_uuid(
         data: crate::interface::battle::FriendlyForceInfo,
         table: &mut PortTable,
+        env_uuid: EnvInfoId,
     ) -> Option<Uuid> {
         let new_uuid = Uuid::new_v4();
 
@@ -179,13 +189,14 @@ impl FriendDeck {
                     Some(data.params[i].clone()),
                     Some(*ship_id),
                 );
-                let new_ship = FriendShip::new_ret_uuid(friend_props, table);
+                let new_ship = FriendShip::new_ret_uuid(friend_props, table, env_uuid);
                 return new_ship;
             })
             .collect();
 
         let new_data = FriendDeck {
             version: DATABASE_TABLE_VERSION.to_string(),
+            env_uuid,
             uuid: new_uuid,
             ship_ids: new_ship_ids,
         };
