@@ -406,7 +406,7 @@ pub async fn launch_with_options(
                         println!("ca path: {}", ca_path);
                         println!("pac path: {}", pac_path);
 
-                        let file_prefix = util::get_user_env_id();
+                        let file_prefix = util::get_user_env_id().await;
 
                         let addr = wrap_proxy::serve_proxy(
                             server_address.to_string(),
