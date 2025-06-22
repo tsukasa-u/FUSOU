@@ -36,3 +36,4 @@ FUSOU-APP/src-tauri/gen/schemas/
 
 FUSOU-APP/src-tauri/gen/
 .env.keys
+FUSOU-APP/src-tauri/user/ENV_UNIQ_ID
