@@ -9,7 +9,7 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  doc:
+  build:
     runs-on: ubuntu-latest
     env:
       SCCACHE_GHA_ENABLED: "true"
