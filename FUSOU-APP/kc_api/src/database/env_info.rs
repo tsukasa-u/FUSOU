@@ -28,7 +28,9 @@ impl EnvInfo {
         let new_uuid: Uuid = Uuid::new_v4();
 
         let new_data: EnvInfo = EnvInfo {
-            version: DATABASE_TABLE_VERSION.to_string(),
+            version: DATABASE_TABLE_VERSION
+                .expect("failed to get table version")
+                .to_string(),
             uuid: new_uuid,
             user_env_unique: data.0,
             timestamp: data.1,

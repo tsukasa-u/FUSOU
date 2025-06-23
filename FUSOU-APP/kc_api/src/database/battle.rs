@@ -66,7 +66,9 @@ impl HougekiList {
             .collect();
 
         let new_data = HougekiList {
-            version: DATABASE_TABLE_VERSION.to_string(),
+            version: DATABASE_TABLE_VERSION
+                .expect("failed to get table version")
+                .to_string(),
             env_uuid,
             uuid: new_uuid,
             hougeki: new_hougeki,
@@ -114,7 +116,9 @@ impl Hougeki {
                 let new_uuid = Uuid::new_v4();
 
                 let new_data = Hougeki {
-                    version: DATABASE_TABLE_VERSION.to_string(),
+                    version: DATABASE_TABLE_VERSION
+                        .expect("failed to get table version")
+                        .to_string(),
                     env_uuid,
                     uuid: new_uuid,
                     at: data.at_list[i],
@@ -169,7 +173,9 @@ impl MidnightHougekiList {
             MidnightHougeki::new_ret_uuid(midnight_hougeki, table, env_uuid)
         });
         let new_data = MidnightHougekiList {
-            version: DATABASE_TABLE_VERSION.to_string(),
+            version: DATABASE_TABLE_VERSION
+                .expect("failed to get table version")
+                .to_string(),
             env_uuid,
             uuid: new_uuid,
             f_flare_pos: data.midnight_flare_pos.clone().map(|pos| pos[0]),
@@ -224,7 +230,9 @@ impl MidnightHougeki {
                         let new_uuid = Uuid::new_v4();
 
                         let new_data = MidnightHougeki {
-                            version: DATABASE_TABLE_VERSION.to_string(),
+                            version: DATABASE_TABLE_VERSION
+                                .expect("failed to get table version")
+                                .to_string(),
                             env_uuid,
                             uuid: new_uuid,
                             at: data.at_list.clone().map(|x| x[i]),
@@ -273,7 +281,9 @@ impl OpeningTaisenList {
         let new_opening_taisen = OpeningTaisen::new_ret_uuid(data, table, env_uuid);
 
         let new_data = OpeningTaisenList {
-            version: DATABASE_TABLE_VERSION.to_string(),
+            version: DATABASE_TABLE_VERSION
+                .expect("failed to get table version")
+                .to_string(),
             env_uuid,
             uuid: new_uuid,
             opening_taisen: new_opening_taisen,
@@ -314,7 +324,9 @@ impl OpeningTaisen {
                 let new_uuid = Uuid::new_v4();
 
                 let new_data = OpeningTaisen {
-                    version: DATABASE_TABLE_VERSION.to_string(),
+                    version: DATABASE_TABLE_VERSION
+                        .expect("failed to get table version")
+                        .to_string(),
                     env_uuid,
                     uuid: new_uuid,
                     at: data.at_list.clone()[i],
@@ -365,7 +377,9 @@ impl ClosingRaigeki {
         let new_uuid = Uuid::new_v4();
 
         let new_data = ClosingRaigeki {
-            version: DATABASE_TABLE_VERSION.to_string(),
+            version: DATABASE_TABLE_VERSION
+                .expect("failed to get table version")
+                .to_string(),
             env_uuid,
             uuid: new_uuid,
             f_dam: data.fdam.iter().map(|x| *x as i64).collect(),
@@ -412,7 +426,9 @@ impl OpeningRaigeki {
         let new_uuid = Uuid::new_v4();
 
         let new_data = OpeningRaigeki {
-            version: DATABASE_TABLE_VERSION.to_string(),
+            version: DATABASE_TABLE_VERSION
+                .expect("failed to get table version")
+                .to_string(),
             env_uuid,
             uuid: new_uuid,
             f_dam: data.fdam.iter().map(|x| *x as i64).collect(),
@@ -472,7 +488,9 @@ impl OpeningAirAttack {
         let new_uuid = Uuid::new_v4();
 
         let new_data = OpeningAirAttack {
-            version: DATABASE_TABLE_VERSION.to_string(),
+            version: DATABASE_TABLE_VERSION
+                .expect("failed to get table version")
+                .to_string(),
             env_uuid,
             uuid: new_uuid,
             f_plane_from: data.f_damage.plane_from,
@@ -531,7 +549,9 @@ impl AirBaseAirAttackList {
             .collect();
 
         let new_data = AirBaseAirAttackList {
-            version: DATABASE_TABLE_VERSION.to_string(),
+            version: DATABASE_TABLE_VERSION
+                .expect("failed to get table version")
+                .to_string(),
             env_uuid,
             uuid: new_uuid,
             air_base_air_attack: new_air_base_air_attack,
@@ -585,7 +605,9 @@ impl AirBaseAirAttack {
         let new_airbase_id = AirBase::new_ret_uuid(air_base.clone(), table, env_uuid);
 
         let new_data = AirBaseAirAttack {
-            version: DATABASE_TABLE_VERSION.to_string(),
+            version: DATABASE_TABLE_VERSION
+                .expect("failed to get table version")
+                .to_string(),
             env_uuid,
             uuid: new_uuid,
             f_plane_from: data.f_damage.plane_from,
@@ -655,7 +677,9 @@ impl AirBaseAssult {
         let new_uuid = Uuid::new_v4();
 
         let new_data = AirBaseAssult {
-            version: DATABASE_TABLE_VERSION.to_string(),
+            version: DATABASE_TABLE_VERSION
+                .expect("failed to get table version")
+                .to_string(),
             env_uuid,
             uuid: new_uuid,
             squadron_plane: data.squadron_plane,
@@ -723,7 +747,9 @@ impl CarrierBaseAssault {
         let new_uuid = Uuid::new_v4();
 
         let new_data = CarrierBaseAssault {
-            version: DATABASE_TABLE_VERSION.to_string(),
+            version: DATABASE_TABLE_VERSION
+                .expect("failed to get table version")
+                .to_string(),
             env_uuid,
             uuid: new_uuid,
             f_plane_from: data.f_damage.plane_from,
@@ -811,7 +837,9 @@ impl SupportHourai {
         new_vec_false.fill(false);
 
         let new_data = SupportHourai {
-            version: DATABASE_TABLE_VERSION.to_string(),
+            version: DATABASE_TABLE_VERSION
+                .expect("failed to get table version")
+                .to_string(),
             env_uuid,
             uuid: new_uuid,
             f_cl: new_vec_0.clone(),
@@ -897,7 +925,9 @@ impl SupportAirattack {
         new_vec_false.fill(false);
 
         let new_data = SupportAirattack {
-            version: DATABASE_TABLE_VERSION.to_string(),
+            version: DATABASE_TABLE_VERSION
+                .expect("failed to get table version")
+                .to_string(),
             env_uuid,
             uuid: new_uuid,
             f_plane_from: data.f_damage.plane_from,
@@ -953,7 +983,9 @@ impl FriendlySupportHouraiList {
         };
 
         let new_data = FriendlySupportHouraiList {
-            version: DATABASE_TABLE_VERSION.to_string(),
+            version: DATABASE_TABLE_VERSION
+                .expect("failed to get table version")
+                .to_string(),
             env_uuid,
             uuid: new_uuid,
             f_flare_pos: new_f_flare_pos,
@@ -1004,7 +1036,9 @@ impl FriendlySupportHourai {
                         let new_uuid = Uuid::new_v4();
 
                         let new_data = MidnightHougeki {
-                            version: DATABASE_TABLE_VERSION.to_string(),
+                            version: DATABASE_TABLE_VERSION
+                                .expect("failed to get table version")
+                                .to_string(),
                             env_uuid,
                             uuid: new_uuid,
                             at: data.at_list.clone().map(|x| x[i]),
@@ -1208,7 +1242,9 @@ impl Battle {
         let new_midngiht_e_nowhps = data.clone().midngiht_e_nowhps;
 
         let new_data = Battle {
-            version: DATABASE_TABLE_VERSION.to_string(),
+            version: DATABASE_TABLE_VERSION
+                .expect("failed to get table version")
+                .to_string(),
             env_uuid,
             uuid: new_uuid,
             battle_order: new_battle_order,

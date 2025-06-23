@@ -26,7 +26,7 @@ pub async fn get_user_env_id() -> String {
             let file_path_binding = directory_path.join("./ENV_UNIQ_ID");
             let file_path = file_path_binding.as_path();
 
-            let new_uuid = if fs::exists(file_path).expect("failed to check the file existence") {
+            if fs::exists(file_path).expect("failed to check the file existence") {
                 let mut file = fs::File::open(file_path).expect("file not found");
                 let mut contents = String::new();
                 file.read_to_string(&mut contents)
@@ -38,9 +38,7 @@ pub async fn get_user_env_id() -> String {
                 let new_uuid = Uuid::new_v4().to_string();
                 writeln!(file, "{}", new_uuid).expect("cannot write.");
                 new_uuid
-            };
-
-            new_uuid
+            }
         })
         .await
         .clone()

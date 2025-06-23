@@ -38,7 +38,9 @@ impl AirBase {
             .filter_map(|plane_info| PlaneInfo::new_ret_uuid(plane_info.clone(), table, env_uuid))
             .collect();
         let new_air_base = AirBase {
-            version: DATABASE_TABLE_VERSION.to_string(),
+            version: DATABASE_TABLE_VERSION
+                .expect("failed to get table version")
+                .to_string(),
             env_uuid,
             uuid: new_uuid,
             action_kind: data.action_kind,
@@ -77,7 +79,9 @@ impl PlaneInfo {
         let new_slot_item = OwnSlotItem::new_ret_uuid(slot_item.clone(), table, env_uuid);
 
         let new_plane_info: PlaneInfo = PlaneInfo {
-            version: DATABASE_TABLE_VERSION.to_string(),
+            version: DATABASE_TABLE_VERSION
+                .expect("failed to get table version")
+                .to_string(),
             uuid: new_uuid,
             env_uuid,
             cond: data.cond,

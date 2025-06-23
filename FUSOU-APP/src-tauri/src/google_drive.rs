@@ -74,7 +74,7 @@ pub fn set_refresh_token(refresh_token: String, token_type: String) -> Result<()
         proxy_https::proxy_server_https::setup_default_crypto_provider();
         let hub = crate::google_drive::create_client().await;
         if hub.is_none() {
-            auth_server::open_auth_page();
+            let _ = auth_server::open_auth_page();
         }
     });
     Ok(())
@@ -114,9 +114,13 @@ pub async fn create_auth(
 
     let secret = yup_oauth2::authorized_user::AuthorizedUserSecret {
         // client_id: dotenv!("GOOGLE_CLIENT_ID").to_string(),
-        client_id: std::env!("GOOGLE_CLIENT_ID").to_string(),
+        client_id: std::option_env!("GOOGLE_CLIENT_ID")
+            .expect("failed to get google client id")
+            .to_string(),
         // client_secret: dotenv!("GOOGLE_CLIENT_SECRET").to_string(),
-        client_secret: std::env!("GOOGLE_CLIENT_SECRET").to_string(),
+        client_secret: std::option_env!("GOOGLE_CLIENT_SECRET")
+            .expect("failed to get google client secret")
+            .to_string(),
         refresh_token: provider_refresh_token,
         key_type: token_type,
     };
@@ -166,6 +170,7 @@ pub async fn create_client() -> Option<
 }
 
 #[cfg(dev)]
+#[allow(dead_code)]
 pub async fn get_drive_file_list(
     hub: &mut DriveHub<
         hyper_rustls::HttpsConnector<hyper_util::client::legacy::connect::HttpConnector>,

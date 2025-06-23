@@ -72,7 +72,9 @@ impl OwnShip {
         });
 
         let new_data: OwnShip = OwnShip {
-            version: DATABASE_TABLE_VERSION.to_string(),
+            version: DATABASE_TABLE_VERSION
+                .expect("failed to get table version")
+                .to_string(),
             env_uuid,
             uuid: new_uuid,
             ship_id: ship.ship_id,
@@ -142,7 +144,9 @@ impl EnemyShip {
         });
 
         let new_data: EnemyShip = EnemyShip {
-            version: DATABASE_TABLE_VERSION.to_string(),
+            version: DATABASE_TABLE_VERSION
+                .expect("failed to get table version")
+                .to_string(),
             env_uuid,
             uuid: new_uuid,
             lv: data.0,
@@ -198,7 +202,9 @@ impl FriendShip {
         });
 
         let new_data: FriendShip = FriendShip {
-            version: DATABASE_TABLE_VERSION.to_string(),
+            version: DATABASE_TABLE_VERSION
+                .expect("failed to get table version")
+                .to_string(),
             env_uuid,
             uuid: new_uuid,
             lv: data.0,

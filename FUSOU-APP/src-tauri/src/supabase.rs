@@ -9,7 +9,9 @@ static KC_PERIOD_TAG: OnceCell<String> = OnceCell::const_new();
 
 pub fn get_supabase_database_url() -> &'static str {
     // SUPABASE_DATABASE_URL.get_or_init(|| dotenv!("SUPABASE_DATABASE_URL"))
-    SUPABASE_DATABASE_URL.get_or_init(|| std::env!("SUPABASE_DATABASE_URL"))
+    SUPABASE_DATABASE_URL.get_or_init(|| {
+        std::option_env!("SUPABASE_DATABASE_URL").expect("failed to get supabase database url")
+    })
 }
 
 pub async fn get_period_tag() -> String {

@@ -8,6 +8,7 @@ use tauri::Emitter;
 use tauri::Manager;
 
 use crate::auth_server;
+#[cfg(feature = "auth-local-server")]
 use crate::auth_server::AuthChannel;
 use crate::external::create_external_window;
 use crate::google_drive;
@@ -282,23 +283,25 @@ pub async fn read_emit_file(window: tauri::Window, path: &str) -> Result<(), Str
     return Ok(());
 }
 
-// #[tauri::command]
-// pub async fn open_auth_page(
-//     _window: tauri::Window,
-//     auth_channel: tauri::State<'_, AuthChannel>,
-// ) -> Result<(), ()> {
-//     let addr = auth_server::serve_auth(0, auth_channel.slave.clone());
+#[cfg(feature = "auth-local-server")]
+#[tauri::command]
+pub async fn open_auth_page(
+    _window: tauri::Window,
+    auth_channel: tauri::State<'_, AuthChannel>,
+) -> Result<(), ()> {
+    let addr = auth_server::serve_auth(0, auth_channel.slave.clone());
 
-//     let result = webbrowser::open(format!("http://localhost:{}/login", addr.port()).as_str())
-//         .map_err(|e| e.to_string());
+    let result = webbrowser::open(format!("http://localhost:{}/login", addr.port()).as_str())
+        .map_err(|e| e.to_string());
 
-//     if let Err(e) = result {
-//         println!("Error: {}", e);
-//         return Err(());
-//     }
-//     Ok(())
-// }
+    if let Err(e) = result {
+        println!("Error: {}", e);
+        return Err(());
+    }
+    Ok(())
+}
 
+#[cfg(not(feature = "auth-local-server"))]
 #[tauri::command]
 pub async fn open_auth_page(_window: tauri::Window) -> Result<(), ()> {
     let result = auth_server::open_auth_page();

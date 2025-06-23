@@ -1,16 +1,22 @@
+#[cfg(feature = "auth-local-server")]
 use std::{net::SocketAddr, sync::OnceLock};
 
+#[cfg(feature = "auth-local-server")]
 use warp::Filter;
 
+#[cfg(feature = "auth-local-server")]
 use proxy_https::bidirectional_channel::{self, Slave, StatusInfo};
 
+#[cfg(feature = "auth-local-server")]
 static AUTH_ADDR: OnceLock<SocketAddr> = OnceLock::new();
 
+#[cfg(feature = "auth-local-server")]
 pub struct AuthChannel {
     // pub master: Master<StatusInfo>,
     pub slave: Slave<StatusInfo>,
 }
 
+#[cfg(feature = "auth-local-server")]
 pub fn serve_auth(
     port: u16,
     mut slave: bidirectional_channel::Slave<bidirectional_channel::StatusInfo>,
@@ -84,12 +90,13 @@ pub fn serve_auth(
     });
 }
 
+#[cfg(not(feature = "auth-local-server"))]
 pub fn open_auth_page() -> Result<(), String> {
 
-    let result: Result<(), String> =
-        webbrowser::open("http://localhost:4321/signinLocalApp").map_err(|e| e.to_string());
+    // let result: Result<(), String> =
+    //     webbrowser::open("http://localhost:4321/signinLocalApp").map_err(|e| e.to_string());
 
-    // let result =
-    //     webbrowser::open("https://fusou.pages.dev/signinLocalApp").map_err(|e| e.to_string());
+    let result =
+        webbrowser::open("https://fusou.pages.dev/signinLocalApp").map_err(|e| e.to_string());
     return result;
 }

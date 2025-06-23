@@ -1,6 +1,5 @@
-use std::env;
-use std::fs::File;
-use std::io::Write;
+#[cfg(feature = "auth-local-server")]
+use std::{env, fs::File, io::Write};
 
 fn main() {
     println!("cargo::rustc-check-cfg=cfg(check_release)");
@@ -14,6 +13,7 @@ fn main() {
     // }
 
     // echo "export const env = { SUPABASE_URL: ${{ secrets.SUPABASE_URL }}, SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}}" > ../src/pages/vanilla/env.js
+    #[cfg(feature = "auth-local-server")]
     {
         let path = "../src/pages/vanilla/env.js";
         let mut file = File::create(path).expect("failed to create file.");
