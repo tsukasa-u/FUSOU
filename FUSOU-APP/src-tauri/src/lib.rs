@@ -63,8 +63,11 @@ pub fn run() {
     let response_parse_channel_slave = response_parse_channel.clone_slave();
     let response_parse_channel_master = response_parse_channel.clone_master();
 
+    #[cfg(feature = "auth-local-server")]
     let auth_bidirectional_channel = BidirectionalChannel::<StatusInfo>::new(1);
+    #[cfg(feature = "auth-local-server")]
     let auth_bidirectional_channel_slave = auth_bidirectional_channel.clone_slave();
+    #[cfg(feature = "auth-local-server")]
     let auth_bidirectional_channel_master = auth_bidirectional_channel.clone_master();
 
     let (shutdown_tx, mut shutdown_rx) = mpsc::channel::<()>(1);
@@ -98,6 +101,7 @@ pub fn run() {
         slave: response_parse_channel_slave.clone(),
     };
 
+    #[cfg(feature = "auth-local-server")]
     let manage_auth_channel = auth_server::AuthChannel {
         // master: auth_bidirectional_channel_master.clone(),
         slave: auth_bidirectional_channel_slave.clone(),
@@ -105,7 +109,8 @@ pub fn run() {
 
     let ctx = tauri::generate_context!();
 
-    tauri::Builder::default()
+    #[allow(unused_mut)]
+    let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_fs::init())
         .plugin(
             tauri_plugin_log::Builder::new()
@@ -118,8 +123,14 @@ pub fn run() {
         .manage(manage_pac_channel)
         .manage(manage_proxy_channel)
         .manage(manage_proxy_log_channel)
-        .manage(manage_response_parse_channel)
-        .manage(manage_auth_channel)
+        .manage(manage_response_parse_channel);
+
+    #[cfg(feature = "auth-local-server")]
+    {
+        builder = builder.manage(manage_auth_channel);
+    }
+
+    builder
         .invoke_handler(tauri::generate_handler![
             // tauri_cmd::close_splashscreen,
             // tauri_cmd::show_splashscreen,
@@ -582,16 +593,24 @@ pub fn run() {
                 proxy_bidirectional_channel_master.clone();
             let pac_bidirectional_channel_master_clone = pac_bidirectional_channel_master.clone();
             let response_parse_channel_master_clone = response_parse_channel_master.clone();
+            #[cfg(feature = "auth-local-server")]
             let auth_bidirectional_channel_master_clone = auth_bidirectional_channel_master.clone();
             let app_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 let _ = shutdown_rx.recv().await;
                 // is it needed to add select! for timeout?
+                #[cfg(feature = "auth-local-server")]
                 let _ = tokio::join!(
                     request_shutdown(proxy_bidirectional_channel_master_clone),
                     request_shutdown(pac_bidirectional_channel_master_clone),
                     request_shutdown(response_parse_channel_master_clone),
                     request_shutdown(auth_bidirectional_channel_master_clone),
+                );
+                #[cfg(not(feature = "auth-local-server"))]
+                let _ = tokio::join!(
+                    request_shutdown(proxy_bidirectional_channel_master_clone),
+                    request_shutdown(pac_bidirectional_channel_master_clone),
+                    request_shutdown(response_parse_channel_master_clone),
                 );
 
                 tokio::time::sleep(time::Duration::from_millis(2000)).await;

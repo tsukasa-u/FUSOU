@@ -54,7 +54,9 @@ impl OwnDeck {
         })?;
 
         let new_data = OwnDeck {
-            version: DATABASE_TABLE_VERSION.to_string(),
+            version: DATABASE_TABLE_VERSION
+                .expect("failed to get table version")
+                .to_string(),
             env_uuid,
             uuid: new_uuid,
             ship_ids: new_ship_ids,
@@ -97,7 +99,9 @@ impl SupportDeck {
         })?;
 
         let new_data = SupportDeck {
-            version: DATABASE_TABLE_VERSION.to_string(),
+            version: DATABASE_TABLE_VERSION
+                .expect("failed to get table version")
+                .to_string(),
             env_uuid,
             uuid: new_uuid,
             ship_ids: new_ship_ids,
@@ -148,7 +152,9 @@ impl EnemyDeck {
             .unwrap_or_default();
 
         let new_data = EnemyDeck {
-            version: DATABASE_TABLE_VERSION.to_string(),
+            version: DATABASE_TABLE_VERSION
+                .expect("failed to get table version")
+                .to_string(),
             env_uuid,
             uuid: new_uuid,
             ship_ids: new_ship_ids,
@@ -195,7 +201,9 @@ impl FriendDeck {
             .collect();
 
         let new_data = FriendDeck {
-            version: DATABASE_TABLE_VERSION.to_string(),
+            version: DATABASE_TABLE_VERSION
+                .expect("failed to get table version")
+                .to_string(),
             env_uuid,
             uuid: new_uuid,
             ship_ids: new_ship_ids,

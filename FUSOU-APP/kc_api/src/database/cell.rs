@@ -38,7 +38,9 @@ impl Cells {
             .collect();
 
         let new_data = Cells {
-            version: DATABASE_TABLE_VERSION.to_string(),
+            version: DATABASE_TABLE_VERSION
+                .expect("failed to get table version")
+                .to_string(),
             env_uuid,
             uuid: new_uuid,
             maparea_id: data.maparea_id,

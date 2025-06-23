@@ -27,7 +27,8 @@ use crate::interface::mst_stype::{MstStype, MstStypes};
 use crate::interface::mst_use_item::{MstUseItem, MstUseItems};
 
 // pub const DATABASE_TABLE_VERSION: &str = dotenv!("DATABASE_TABLE_VERSION");
-pub const DATABASE_TABLE_VERSION: &str = std::env!("DATABASE_TABLE_VERSION");
+#[deny(warnings)]
+pub const DATABASE_TABLE_VERSION: Option<&'static str> = std::option_env!("DATABASE_TABLE_VERSION");
 
 #[derive(Debug, Clone, Default)]
 pub struct PortTable {

@@ -9,7 +9,6 @@ use register_trait::TraitForConvert;
 use crate::auth_server;
 use crate::database::table::GetDataTable;
 use crate::database::table::PortTable;
-use crate::tauri_cmd::open_auth_page;
 use crate::util::get_user_env_id;
 use kc_api::interface::cells::Cells;
 
@@ -157,7 +156,7 @@ pub fn emit_data(handle: &tauri::AppHandle, emit_data: EmitData) {
                                             "\x1b[38;5;{}m Failed to create google drive client\x1b[m ",
                                             8
                                         );
-                                        auth_server::open_auth_page();
+                                        let _ = auth_server::open_auth_page();
                                     }
                                 };
                             }

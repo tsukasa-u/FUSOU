@@ -31,7 +31,9 @@ impl OwnSlotItem {
         let new_uuid: Uuid = Uuid::new_v4();
 
         let new_data: OwnSlotItem = OwnSlotItem {
-            version: DATABASE_TABLE_VERSION.to_string(),
+            version: DATABASE_TABLE_VERSION
+                .expect("failed to get table version")
+                .to_string(),
             env_uuid,
             uuid: new_uuid,
             mst_slotitem_id: data.slotitem_id,
@@ -57,7 +59,9 @@ impl EnemySlotItem {
     pub fn new_ret_uuid(data: i64, table: &mut PortTable, env_uuid: EnvInfoId) -> Uuid {
         let new_uuid = Uuid::new_v4();
         let new_data: EnemySlotItem = EnemySlotItem {
-            version: DATABASE_TABLE_VERSION.to_string(),
+            version: DATABASE_TABLE_VERSION
+                .expect("failed to get table version")
+                .to_string(),
             env_uuid,
             uuid: new_uuid,
             mst_slotitem_id: data,
@@ -81,7 +85,9 @@ impl FriendSlotItem {
     pub fn new_ret_uuid(data: i64, table: &mut PortTable, env_uuid: EnvInfoId) -> Uuid {
         let new_uuid = Uuid::new_v4();
         let new_data: FriendSlotItem = FriendSlotItem {
-            version: DATABASE_TABLE_VERSION.to_string(),
+            version: DATABASE_TABLE_VERSION
+                .expect("failed to get table version")
+                .to_string(),
             env_uuid,
             uuid: new_uuid,
             mst_slotitem_id: data,

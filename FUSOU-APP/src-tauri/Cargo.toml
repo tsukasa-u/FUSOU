@@ -52,6 +52,9 @@ regex = "1.9.6"
 # DO NOT REMOVE!!
 custom-protocol = [ "tauri/custom-protocol" ]
 
+default = []
+auth-local-server = []
+
 [lib]
 name = "app_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
