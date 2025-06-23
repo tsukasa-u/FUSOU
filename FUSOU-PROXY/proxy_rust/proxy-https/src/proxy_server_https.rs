@@ -128,13 +128,27 @@ fn log_response(
                         fs::create_dir_all(path_parent).expect("Failed to create directory");
                     }
 
-                    let time_stamped = format!(
-                        "kcsapi/{}_{}S{}",
-                        file_prefix,
-                        jst.timestamp(),
+                    // let time_stamped = format!(
+                    //     "kcsapi/{}_{}S{}",
+                    //     file_prefix,
+                    //     jst.timestamp(),
+                    //     uri_path.as_str().replace("/kcsapi", "").replace("/", "@")
+                    // );
+
+                    let time_formated = format!(
+                        "kcsapi/{}S{}",
+                        jst.format("%Y%m%d_%H%M%S%3f"),
                         uri_path.as_str().replace("/kcsapi", "").replace("/", "@")
                     );
-                    fs::write(path_log.join(Path::new(&time_stamped)), buffer)
+                    let metadata_string = format!(
+                        "---\nProxyApp: {}\nTimestamp: {}\nEnvId: {}\n---\n",
+                        "FUSOU",
+                        jst.timestamp(),
+                        file_prefix
+                    );
+                    let metadata_buffer = metadata_string.as_bytes();
+                    let combined_buffer = [metadata_buffer, buffer.as_slice()].concat();
+                    fs::write(path_log.join(Path::new(&time_formated)), combined_buffer)
                         .expect("Failed to write file");
                 } else {
                     let path_removed = uri_path.as_str().replacen("/", "", 1);
@@ -255,14 +269,27 @@ fn log_request(
                         fs::create_dir_all(path_parent).expect("Failed to create directory");
                     }
 
-                    let time_stamped = format!(
-                        "kcsapi/{}_{}Q{}",
-                        file_prefix,
-                        jst.timestamp(),
+                    // let time_stamped = format!(
+                    //     "kcsapi/{}_{}Q{}",
+                    //     file_prefix,
+                    //     jst.timestamp(),
+                    //     uri_path.as_str().replace("/kcsapi", "").replace("/", "@")
+                    // );
+
+                    let time_formated = format!(
+                        "kcsapi/{}Q{}",
+                        jst.format("%Y%m%d_%H%M%S%3f"),
                         uri_path.as_str().replace("/kcsapi", "").replace("/", "@")
                     );
-                    // println!("{:?}", buffer);
-                    fs::write(path_log.join(Path::new(&time_stamped)), buffer)
+                    let metadata_string = format!(
+                        "---\nProxyApp: {}\nTimestamp: {}\nEnvId: {}\n---\n",
+                        "FUSOU",
+                        jst.timestamp(),
+                        file_prefix
+                    );
+                    let metadata_buffer = metadata_string.as_bytes();
+                    let combined_buffer = [metadata_buffer, buffer.as_slice()].concat();
+                    fs::write(path_log.join(Path::new(&time_formated)), combined_buffer)
                         .expect("Failed to write file");
                 } else {
                     let path_removed = uri_path.as_str().replacen("/", "", 1);
@@ -477,7 +504,7 @@ fn available_port() -> std::io::Result<u16> {
 
 static CRYPTO_PROVIDER_LOCK: OnceLock<()> = OnceLock::new();
 
-fn setup_default_crypto_provider() {
+pub fn setup_default_crypto_provider() {
     CRYPTO_PROVIDER_LOCK.get_or_init(|| {
         rustls::crypto::ring::default_provider()
             .install_default()

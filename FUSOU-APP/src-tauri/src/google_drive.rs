@@ -36,6 +36,8 @@ use kc_api::interface::mst_slot_item_equip_type::MstSlotItemEquipType;
 use kc_api::interface::mst_stype::MstStype;
 use kc_api::interface::mst_use_item::MstUseItem;
 
+use crate::auth_server;
+
 pub static GOOGLE_FOLDER_IDS: OnceCell<HashMap<String, String>> = OnceCell::const_new();
 
 #[derive(Debug, Clone)]
@@ -56,6 +58,7 @@ pub fn set_refresh_token(refresh_token: String, token_type: String) -> Result<()
     if refresh_token.is_empty() || token_type.is_empty() {
         return Err(());
     }
+
     println!("set refresh token: {}", refresh_token);
     let mut local_access_token = USER_ACCESS_TOKEN.lock().unwrap();
     let info = UserAccessTokenInfo {
@@ -67,6 +70,13 @@ pub fn set_refresh_token(refresh_token: String, token_type: String) -> Result<()
         },
     };
     *local_access_token = Some(info);
+    tokio::task::spawn(async move {
+        proxy_https::proxy_server_https::setup_default_crypto_provider();
+        let hub = crate::google_drive::create_client().await;
+        if hub.is_none() {
+            auth_server::open_auth_page();
+        }
+    });
     Ok(())
 }
 

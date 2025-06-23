@@ -83,3 +83,13 @@ pub fn serve_auth(
         return addr;
     });
 }
+
+pub fn open_auth_page() -> Result<(), String> {
+
+    let result: Result<(), String> =
+        webbrowser::open("http://localhost:4321/signinLocalApp").map_err(|e| e.to_string());
+
+    // let result =
+    //     webbrowser::open("https://fusou.pages.dev/signinLocalApp").map_err(|e| e.to_string());
+    return result;
+}

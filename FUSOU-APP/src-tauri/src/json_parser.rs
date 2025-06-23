@@ -1,13 +1,15 @@
+use regex::Regex;
 use std::error::Error;
 use tauri::Emitter;
 // use proxy::bidirectional_channel;
 use proxy_https::bidirectional_channel;
+use register_trait::expand_struct_selector;
 use register_trait::TraitForConvert;
 
-use register_trait::expand_struct_selector;
-
+use crate::auth_server;
 use crate::database::table::GetDataTable;
 use crate::database::table::PortTable;
+use crate::tauri_cmd::open_auth_page;
 use crate::util::get_user_env_id;
 use kc_api::interface::cells::Cells;
 
@@ -155,6 +157,7 @@ pub fn emit_data(handle: &tauri::AppHandle, emit_data: EmitData) {
                                             "\x1b[38;5;{}m Failed to create google drive client\x1b[m ",
                                             8
                                         );
+                                        auth_server::open_auth_page();
                                     }
                                 };
                             }
@@ -229,8 +232,20 @@ pub fn struct_selector_response(
 ) -> Result<Vec<EmitData>, Box<dyn Error>> {
     let data_removed_bom: String = data.replace("\u{feff}", "");
     let data_removed_svdata: String = data_removed_bom.replace("svdata=", "");
+
+    #[cfg(dev)]
+    let re_metadata = Regex::new(r"---\r?\n.*\r?\n.*\r?\n.*\r?\n.*\s*---\r?\n").unwrap();
+
+    #[cfg(dev)]
+    let data_removed_metadata: String = re_metadata.replace(&data_removed_svdata, "").to_string();
+
+    #[cfg(dev)]
+    let root_wrap: Result<kcsapi_lib::Res, serde_json::Error> =
+        serde_json::from_str(&data_removed_metadata);
+    #[cfg(any(not(dev), check_release))]
     let root_wrap: Result<kcsapi_lib::Res, serde_json::Error> =
         serde_json::from_str(&data_removed_svdata);
+
     match root_wrap {
         Ok(root) => match root.convert() {
             Some(emit_data_list) => {
@@ -242,7 +257,7 @@ pub fn struct_selector_response(
         },
         Err(e) => {
             println!(
-                "\x1b[38;5;{}m Failed to parse JSON({:?}): {}\x1b[m ",
+                "\x1b[38;5;{}m Failed to parse Res JSON({:?}): {}\x1b[m ",
                 8, name, e
             );
             return Err(Box::new(e));
@@ -257,7 +272,19 @@ pub fn struct_selector_resquest(
     data: String,
 ) -> Result<Vec<EmitData>, Box<dyn Error>> {
     let data_removed_bom: String = data.replace("\u{feff}", "");
+
+    #[cfg(dev)]
+    let re_metadata = Regex::new(r"---\r?\n.*\r?\n.*\r?\n.*\r?\n.*\s*---\r?\n").unwrap();
+
+    #[cfg(dev)]
+    let data_removed_metadata: String = re_metadata.replace(&data_removed_bom, "").to_string();
+
+    #[cfg(dev)]
+    let root_wrap: Result<kcsapi_lib::Req, serde_qs::Error> =
+        serde_qs::from_str(&data_removed_metadata);
+    #[cfg(any(not(dev), check_release))]
     let root_wrap: Result<kcsapi_lib::Req, serde_qs::Error> = serde_qs::from_str(&data_removed_bom);
+
     match root_wrap {
         Ok(root) => match root.convert() {
             Some(emit_data_list) => {
@@ -269,7 +296,7 @@ pub fn struct_selector_resquest(
         },
         Err(e) => {
             println!(
-                "\x1b[38;5;{}m Failed to parse JSON({:?}): {}\x1b[m ",
+                "\x1b[38;5;{}m Failed to parse Req JSON({:?}): {}\x1b[m ",
                 8, name, e
             );
             return Err(Box::new(e));

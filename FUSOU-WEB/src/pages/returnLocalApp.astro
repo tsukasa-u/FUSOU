@@ -1,0 +1,250 @@
+---
+import Layout from "../layouts/Layout.astro";
+import Navigation from "../components/Navigation.astro";
+import { supabase } from "../lib/supabase";
+import { Icon } from "astro-icon/components";
+
+const accessToken = Astro.cookies.get("sb-access-token");
+const refreshToken = Astro.cookies.get("sb-refresh-token");
+const providerToken = Astro.cookies.get("sb-provider-token");
+const providerRefreshToken = Astro.cookies.get("sb-provider-refresh-token");
+const provider = Astro.cookies.get("sb-provider");
+
+let error_message = null;
+let return_params = null;
+let return_href = null;
+let set_session_error_flag = null;
+let sb_insert_error_flag = null;
+let sb_insert_success_flag = null;
+let session = null;
+
+if (
+  refreshToken &&
+  accessToken &&
+  providerToken &&
+  providerRefreshToken &&
+  provider
+) {
+  try {
+    session = await supabase.auth.setSession({
+      refresh_token: refreshToken.value,
+      access_token: accessToken.value,
+    });
+    if (session.error) {
+      error_message = session.error.message;
+      set_session_error_flag = true;
+    } else {
+      await supabase
+        .from("users")
+        .upsert([
+          {
+            id: session.data.session?.user.id,
+            provider: provider.value,
+            provider_refresh_token: providerRefreshToken.value,
+          },
+        ])
+        .select()
+        .then(({ data, error }) => {
+          if (error) {
+            error_message = error.message;
+            sb_insert_error_flag = true;
+          } else {
+            sb_insert_success_flag = true;
+          }
+
+          return_params =
+            "provider_refresh_token=" +
+            providerRefreshToken +
+            "&provider=google&supabase_access_token=" +
+            accessToken +
+            "&supabase_refresh_token=" +
+            refreshToken;
+          return_href = `fusou://auth?${return_params}`;
+        });
+    }
+  } catch (error) {
+    error_message = error.message;
+  }
+}
+Astro.cookies.delete("sb-access-token", { path: "/" });
+Astro.cookies.delete("sb-refresh-token", { path: "/" });
+Astro.cookies.delete("sb-provider-token", { path: "/" });
+Astro.cookies.delete("sb-provider-refresh-token", { path: "/" });
+Astro.cookies.delete("sb-provider", { path: "/" });
+---
+
+<Layout title="Auth Local App">
+  <div class="h-16"></div>
+
+  <div class="bg-base-200 h-screen flex justify-center">
+    <div class="min-w-sm max-w-md bg-base-100 h-screen">
+      <div class="p-10">
+        <h1 class="text-3xl font-bold text-center">Auth</h1>
+        <div class="h-4"></div>
+        <div class="h-4"></div>
+
+        <hr class="border-1 border-base-300" />
+        <div class="h-4"></div>
+        <div class="h-4"></div>
+
+        <div id="set_session_error" class="hidden">
+          <div class="text-center">failed to authorize</div>
+          <div class="h-8"></div>
+          <div
+            class="text-red-500 rounded bg-base-200 border-[1.5px] border-base-300 w-full py-2 px-4 text-md"
+          >
+            failed to authorize<div class="h-2"></div><div
+              class="text-base-content rounded bg-base-100 border-[1.5px] border-base-300 w-full py-2 px-4 text-sm"
+            >
+              {error_message}
+            </div>
+          </div>
+        </div>
+
+        <div id="set_session_success">
+          <div class="text-center">Authentication successful</div>
+          <div class="h-8"></div>
+          <div id="sb_insert_error" class="hidden">
+            <div
+              class="text-red-500 rounded bg-base-200 border-[1.5px] border-base-300 w-full py-2 px-4 text-md"
+            >
+              failed to register refresh token
+              <div class="h-2"></div>
+              <div
+                class="text-base-content rounded bg-base-100 border-[1.5px] border-base-300 w-full py-2 px-4 text-sm"
+              >
+                {error_message}
+              </div>
+            </div>
+          </div>
+          <div id="sb_insert_success" class="hidden">
+            <div class="text-success text-center">
+              refresh token registeration successful
+            </div>
+          </div>
+          <div>
+            <div class="h-8"></div>
+            <h1 class="text-xl text-center">
+              <a href={return_href} class="btn btn-link">Click to return app</a>
+            </h1>
+            <div class="divider text-xl">OR</div>
+            <div class="text-xl text-center">Copy and past Tokens</div>
+            <fieldset class="fieldset">
+              <legend class="fieldset-legend"
+                >provider refresh token & access token & refresh token</legend
+              >
+              <label class="input">
+                <input
+                  id="tokens"
+                  type="text"
+                  style="cursor: default"
+                  class="input"
+                  value={return_params}
+                  readonly
+                  disabled
+                />
+                <button
+                  id="copy-button"
+                  class="btn btn-ghost rounded-box p-2 items-center justify-center label"
+                  onclick="copy_token()"
+                  ><label class="swap" id="copy-swap-id">
+                    <div class="swap-off">
+                      <svg
+                        class="w-4 h-4"
+                        aria-hidden="true"
+                        xmlns="http://www.w3.org/2000/svg"
+                        fill="currentColor"
+                        viewBox="0 0 18 20"
+                        ><path
+                          d="M16 1h-3.278A1.992 1.992 0 0 0 11 0H7a1.993 1.993 0 0 0-1.722 1H2a2 2 0 0 0-2 2v15a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V3a2 2 0 0 0-2-2Zm-3 14H5a1 1 0 0 1 0-2h8a1 1 0 0 1 0 2Zm0-4H5a1 1 0 0 1 0-2h8a1 1 0 1 1 0 2Zm0-5H5a1 1 0 0 1 0-2h2V2h4v2h2a1 1 0 1 1 0 2Z"
+                        ></path></svg
+                      >
+                    </div>
+                    <div class="swap-on">
+                      <svg
+                        class="w-4 h-4 text-success"
+                        aria-hidden="true"
+                        xmlns="http://www.w3.org/2000/svg"
+                        fill="none"
+                        viewBox="0 0 16 12"
+                        ><path
+                          stroke="currentColor"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          stroke-width="2"
+                          d="M1 5.917 5.724 10.5 15 1.5"></path></svg
+                      >
+                    </div>
+                  </label></button
+                >
+              </label>
+              <p class="label">past in the cell at launch page</p>
+            </fieldset>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <astro-data-auth_props
+    data-set-session-error-flag={set_session_error_flag}
+    data-sb-insert-error-flag={sb_insert_error_flag}
+    data-sb-insert-success-flag={sb_insert_success_flag}
+    data-return-href={return_href}></astro-data-auth_props>
+</Layout>
+<Navigation />
+
+<script>
+  class AstroDataAuthProps extends HTMLElement {
+    constructor() {
+      super();
+      const setSessionErrorFlag = this.dataset.setSessionErrorFlag!;
+      const sbInsertErrorFlag = this.dataset.sbInsertErrorFlag;
+      const sbInsertSuccessFlag = this.dataset.sbInsertSuccessFlag;
+      const returnHref = this.dataset.returnHref;
+
+      window.addEventListener("DOMContentLoaded", () => {
+        if (setSessionErrorFlag == "true") {
+          document
+            .getElementById("set_session_error")
+            .classList.remove("hidden");
+        }
+        if (sbInsertErrorFlag == "true")
+          document.getElementById("sb_insert_error").classList.remove("hidden");
+        if (sbInsertSuccessFlag == "true")
+          document
+            .getElementById("sb_insert_success")
+            .classList.remove("hidden");
+      });
+
+      window.addEventListener("load", () => {
+        window.location.href = returnHref;
+      });
+    }
+  }
+
+  customElements.define("astro-data-auth_props", AstroDataAuthProps);
+</script>
+
+<script
+  is:inline
+  src="https://cdn.jsdelivr.net/npm/clipboard@2.0.11/dist/clipboard.min.js"
+></script>
+<script>
+  const copy_token = () => {
+    // const swap_label = document.getElementById("copy-swap-id");
+    // swap_label.classList.add("swap-active");
+    // const input_text = document.getElementById("tokens")!;
+    // if (navigator.clipboard) {
+    //   navigator.clipboard.writeText(input_text.value);
+    // } else {
+    //   input_text.select();
+    //   document.execCommand("copy");
+    // }
+    // new Promise<void>((resolve, reject) => {
+    //   setTimeout(() => resolve(), 2000);
+    // }).then(() => {
+    //   swap_label.classList.remove("swap-active");
+    // });
+  };
+</script>
