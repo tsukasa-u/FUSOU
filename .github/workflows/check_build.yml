@@ -16,7 +16,7 @@ jobs:
       RUSTC_WRAPPER: "sccache"
     defaults:
       run:
-        working-directory: ./FUSOU-APP/src-tauri
+        working-directory: ./packages/FUSOU-APP/src-tauri
     steps:
       - uses: actions/checkout@v4
       - name: Setup Ubuntu for tauri@v2
