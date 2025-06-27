@@ -15,10 +15,9 @@ Cargo.lock
 
 node_modules/
 .VSCodeCounter/
-FUSOU.code-workspace
-test_data/
+!FUSOU.code-workspace
+*.code-workspace
 FUSOU-PROXY-DATA*/
-error_logs/
 FUSOU-APP/src-tauri/ca/*
 
 /FUSOU-APP/kc_api/tests/struct_dependency_dot/*.dot
@@ -37,3 +36,6 @@ FUSOU-APP/src-tauri/gen/schemas/
 FUSOU-APP/src-tauri/gen/
 .env.keys
 FUSOU-APP/src-tauri/user/ENV_UNIQ_ID
+
+*storybook.log
+storybook-static
