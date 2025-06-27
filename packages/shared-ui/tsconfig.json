@@ -1,0 +1,17 @@
+{
+  "extends": "../../tsconfig.json", // ルートのtsconfigを継承
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "composite": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "experimentalDecorators": true,
+    "useDefineForClassFields": false,
+    "noEmit": false,
+    "moduleResolution": "bundler",
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["node_modules", "dist", "src/**/*.stories.ts"] // ストーリーファイルはビルド対象から除外
+}
