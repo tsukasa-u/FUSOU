@@ -1,0 +1,37 @@
+{
+  "name": "shared-ui",
+  "version": "1.0.0",
+  "description": "Common UI components built with Lit",
+  "main": "dist/index.js",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "storybook": "storybook dev -p 6006",
+    "build-storybook": "storybook build"
+  },
+  "type": "module",
+  "keywords": [
+    "web-components",
+    "lit",
+    "shared-ui"
+  ],
+  "devDependencies": {
+    "@chromatic-com/storybook": "4.0.1",
+    "@storybook/addon-a11y": "9.0.13",
+    "@storybook/addon-docs": "9.0.13",
+    "@storybook/addon-vitest": "9.0.13",
+    "@storybook/builder-vite": "^9.0.13",
+    "@storybook/web-components-vite": "^9.0.13",
+    "@vitest/browser": "^3.2.4",
+    "@vitest/coverage-v8": "^3.2.4",
+    "playwright": "^1.53.1",
+    "storybook": "9.0.13",
+    "vitest": "^3.2.4"
+  },
+  "dependencies": {
+    "@tailwindcss/vite": "^4.1.11",
+    "daisyui": "^5.0.43",
+    "lit": "^3.3.0",
+    "tailwindcss": "^4.1.11"
+  }
+}
