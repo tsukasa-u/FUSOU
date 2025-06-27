@@ -1,0 +1,17 @@
+[package]
+name = "proxy"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+warp = "^0.3"
+tokio = { version = "1", features = ["full"] }
+tokio-macros = "2.4.0"
+hyper = "1.4.1"
+warp-reverse-proxy = "1.0.0"
+regex = "1.10.6"
+flate2 = "1.0.32"
+chrono = "0.4.31"
+chrono-tz = "0.10.0"
+reqwest = "^0.11"
+rcgen = "0.13.1"
