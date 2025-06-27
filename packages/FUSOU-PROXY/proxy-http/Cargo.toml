@@ -13,7 +13,7 @@ regex = "1.10.6"
 flate2 = "1.0.32"
 chrono = "0.4.31"
 chrono-tz = "0.10.0"
-reqwest = "^0.11"
+reqwest = { version = "0.12", default-features = false }
 rcgen = "0.13.1"
 
 
