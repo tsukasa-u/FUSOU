@@ -6,7 +6,6 @@
 
 use serde::Deserialize;
 use serde_json::Value;
-use std::collections::HashMap;
 
 use register_trait::add_field;
 use register_trait::register_struct;

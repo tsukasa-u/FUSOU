@@ -162,6 +162,7 @@ pub fn generate_test_struct(ast: &mut DeriveInput) -> Result<TokenStream, syn::E
                     }
                 }
                 test_implementation.push(quote! {
+                    #[cfg(test)]
                     fn test_type_value(&self, log_map: &mut register_trait::LogMapType) {
                         #(#assertions)*
                     }
@@ -204,6 +205,7 @@ pub fn generate_test_struct(ast: &mut DeriveInput) -> Result<TokenStream, syn::E
                 }
 
                 test_implementation.push(quote! {
+                    #[cfg(test)]
                     fn test_integration(&self, log_map: &mut register_trait::LogMapType) {
                         #(#assertions)*
                     }
@@ -218,6 +220,7 @@ pub fn generate_test_struct(ast: &mut DeriveInput) -> Result<TokenStream, syn::E
     let (impl_generics, ty_generics, where_clause) = ast.generics.split_for_impl();
 
     let expanded = quote! {
+        #[cfg(test)]
         impl #impl_generics TraitForTest for #struct_name #ty_generics #where_clause {
             #(#test_implementation)*
         }

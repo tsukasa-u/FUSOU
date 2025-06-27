@@ -1,7 +1,4 @@
 use serde::Deserialize;
-#[cfg(test)]
-use std::collections::HashMap;
-// use serde_json::Value;
 
 use crate::kcapi_common::common_air::ApiSupportAiratack;
 use crate::kcapi_common::custom_type::DuoType;

@@ -5,8 +5,6 @@
 #![doc = include_str!("../../js/svg_pan_zoom.html")]
 
 use serde::Deserialize;
-// use serde_json::Value;
-use std::collections::HashMap;
 
 use register_trait::add_field;
 use register_trait::register_struct;
@@ -17,14 +15,13 @@ use register_trait::TraitForRoot;
 use register_trait::TraitForTest;
 
 use crate::kcapi_common::common_air::ApiAirBaseAttack;
+use crate::kcapi_common::common_air::ApiAirBaseInjection;
 use crate::kcapi_common::common_air::ApiKouku;
+use crate::kcapi_common::common_battle::ApiFlavorInfo;
 use crate::kcapi_common::common_battle::ApiHougeki;
 use crate::kcapi_common::common_battle::ApiOpeningAtack;
 use crate::kcapi_common::common_battle::ApiOpeningTaisen;
 use crate::kcapi_common::common_battle::ApiRaigeki;
-// use crate::kcapi_common::common_battle::ApiSupportHourai;
-use crate::kcapi_common::common_air::ApiAirBaseInjection;
-use crate::kcapi_common::common_battle::ApiFlavorInfo;
 use crate::kcapi_common::common_battle::ApiSupportInfo;
 
 use crate::interface::interface::EmitData;

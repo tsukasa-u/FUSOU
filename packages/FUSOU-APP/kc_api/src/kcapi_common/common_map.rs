@@ -1,7 +1,4 @@
 use serde::Deserialize;
-#[cfg(test)]
-use std::collections::HashMap;
-// use serde_json::Value;
 
 use register_trait::add_field;
 

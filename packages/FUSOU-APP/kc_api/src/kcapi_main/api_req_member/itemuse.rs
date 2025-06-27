@@ -5,8 +5,6 @@
 #![doc = include_str!("../../js/svg_pan_zoom.html")]
 
 use serde::Deserialize;
-use std::collections::HashMap;
-// use serde_json::Value;
 
 use register_trait::add_field;
 use register_trait::register_struct;
@@ -64,7 +62,7 @@ pub struct ApiData {
     #[serde(rename = "api_flag")]
     pub api_flag: i64,
     #[serde(rename = "api_getitem")]
-    pub api_getitem: Option<Vec<ApiGetitem>>,
+    pub api_getitem: Option<Vec<Option<ApiGetitem>>>,
     #[serde(rename = "api_material")]
     pub api_material: Option<Vec<i64>>,
 }

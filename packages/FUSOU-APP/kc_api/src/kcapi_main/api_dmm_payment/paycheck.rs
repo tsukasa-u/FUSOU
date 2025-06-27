@@ -5,8 +5,6 @@
 #![doc = include_str!("../../js/svg_pan_zoom.html")]
 
 use serde::Deserialize;
-// use serde_json::Value;
-use std::collections::HashMap;
 
 use register_trait::add_field;
 use register_trait::register_struct;

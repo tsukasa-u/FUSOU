@@ -19,7 +19,7 @@ jobs:
       RUSTC_WRAPPER: "sccache"
     defaults:
       run:
-        working-directory: ./FUSOU-APP/src-tauri
+        working-directory: ./packages/FUSOU-APP/src-tauri
     steps:
       - uses: actions/checkout@v4
       - name: Setup Ubuntu for tauri@v2 & Graphviz
@@ -46,10 +46,10 @@ jobs:
         run: |
           dotenvx run -f ../kc_api/.env -f .env --verbose --overload -- cargo test --all test_struct_dependency
           dotenvx run -f ../kc_api/.env -f .env --verbose --overload -- cargo test --all test_database_dependency
-        working-directory: ./FUSOU-APP/kc_api
+        working-directory: ./packages/FUSOU-APP/kc_api
       - name: export dependencies svg
         run: sudo ./tests/export_svg.sh
-        working-directory: ./FUSOU-APP/kc_api
+        working-directory: ./packages/FUSOU-APP/kc_api
       - name: Clean docs folder
         run: cargo clean --doc
       - name: Build docs
@@ -65,7 +65,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: ./FUSOU-APP/src-tauri/target/doc
+          path: ./packages/FUSOU-APP/src-tauri/target/doc
 
   deploy:
     needs: doc

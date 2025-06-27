@@ -5,8 +5,6 @@
 #![doc = include_str!("../../js/svg_pan_zoom.html")]
 
 use serde::Deserialize;
-use std::collections::HashMap;
-// use serde_json::Value;
 
 use crate::kcapi_common::custom_type::DuoType;
 

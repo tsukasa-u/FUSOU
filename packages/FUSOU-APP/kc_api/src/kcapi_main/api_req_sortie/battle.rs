@@ -5,16 +5,13 @@
 #![doc = include_str!("../../js/svg_pan_zoom.html")]
 
 use serde::Deserialize;
-use std::collections::HashMap;
-// use serde_json::Value;
 
 use register_trait::{add_field, register_struct};
 
 use register_trait::{Getter, TraitForConvert, TraitForRoot, TraitForTest};
 
-use crate::interface::interface::{Add, EmitData};
-// use crate::interface::ship::Ships;
 use crate::interface::battle::Battle;
+use crate::interface::interface::{Add, EmitData};
 
 use crate::kcapi_common::common_air::ApiAirBaseAttack;
 use crate::kcapi_common::common_air::ApiAirBaseInjection;

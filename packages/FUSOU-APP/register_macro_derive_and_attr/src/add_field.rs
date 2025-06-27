@@ -39,9 +39,8 @@ pub fn add_field(attr: TokenStream, ast: &mut DeriveInput) -> Result<TokenStream
 
             let tokens_extra = match args.extra {
                 Some(_) => quote! {
-                    #[cfg(test)]
                     #[serde(flatten, rename = "extra")]
-                    pub extra: HashMap<String, serde_json::Value>
+                    extra: std::collections::HashMap<String, serde_json::Value>
                 },
                 None => quote! {},
             };

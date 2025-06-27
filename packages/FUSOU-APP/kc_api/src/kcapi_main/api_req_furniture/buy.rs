@@ -5,8 +5,6 @@
 #![doc = include_str!("../../js/svg_pan_zoom.html")]
 
 use serde::Deserialize;
-use std::collections::HashMap;
-// use serde_json::Value;
 
 use register_trait::add_field;
 use register_trait::register_struct;
@@ -33,6 +31,8 @@ pub struct Req {
     pub api_type: String,
     #[serde(rename = "api_no")]
     pub api_no: String,
+    #[serde(rename = "api_discount_flag")]
+    pub api_discount_flag: Option<String>,
 }
 
 #[derive(Getter, TraitForTest, TraitForRoot, TraitForConvert)]

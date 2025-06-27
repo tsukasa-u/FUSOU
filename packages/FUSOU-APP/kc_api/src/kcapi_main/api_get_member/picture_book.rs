@@ -4,10 +4,8 @@
 #![doc = register_trait::insert_svg!(path="./tests/struct_dependency_svg/api_get_member@picture_book.svg", id="kc-dependency-svg-embed", style="border: 1px solid black; height:80vh; width:100%", role="img", aria_label="KC_API_dependency(api_get_member/picture_book)")]
 #![doc = include_str!("../../js/svg_pan_zoom.html")]
 
-use serde::Deserialize;
-use std::collections::HashMap;
-// use serde_json::Value;
 use crate::kcapi_common::custom_type::DuoType;
+use serde::Deserialize;
 
 use register_trait::add_field;
 use register_trait::register_struct;

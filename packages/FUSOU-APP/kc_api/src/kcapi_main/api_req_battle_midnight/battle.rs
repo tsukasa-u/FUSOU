@@ -5,8 +5,6 @@
 #![doc = include_str!("../../js/svg_pan_zoom.html")]
 
 use serde::Deserialize;
-use std::collections::HashMap;
-// use serde_json::Value;
 
 use register_trait::add_field;
 use register_trait::register_struct;
@@ -20,9 +18,8 @@ use crate::kcapi_common::common_midnight::ApiFriendlyBattle;
 use crate::kcapi_common::common_midnight::ApiFriendlyInfo;
 use crate::kcapi_common::common_midnight::ApiHougeki;
 
-use crate::interface::interface::{Add, EmitData};
-// use crate::interface::interface::Ships;
 use crate::interface::battle::Battle;
+use crate::interface::interface::{Add, EmitData};
 
 #[derive(Getter, TraitForTest, TraitForRoot, TraitForConvert)]
 #[convert_output(output = EmitData)]

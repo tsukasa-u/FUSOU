@@ -1,4 +1,3 @@
-
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::DeriveInput;
@@ -16,14 +15,16 @@ pub fn generate_test_root(ast: &mut DeriveInput) -> Result<TokenStream, syn::Err
                     quote! {
                         let data_removed_bom: String = data.replace("\u{feff}", "");
                         let data_removed_svdata: String = data_removed_bom.replace("svdata=", "");
-                        let root_wrap: Result<#struct_name, serde_json::Error> = serde_json::from_str(data_removed_svdata.as_str());
+                        let data_removed_metadata: String = re_metadata.replace(&data_removed_svdata, "").to_string();
+                        let root_wrap: Result<#struct_name, serde_json::Error> = serde_json::from_str(data_removed_metadata.as_str());
                     }
                 }
                 "Req" => {
                     quote! {
                         let data_removed_bom: String = data.replace("\u{feff}", "");
                         let data_removed_svdata: String = data_removed_bom.replace("svdata=", "");
-                        let root_wrap: Result<#struct_name, serde_qs::Error> = serde_qs::from_str(data_removed_svdata.as_str());
+                        let data_removed_metadata: String = re_metadata.replace(&data_removed_svdata, "").to_string();
+                        let root_wrap: Result<#struct_name, serde_qs::Error> = serde_qs::from_str(data_removed_metadata.as_str());
                     }
                 }
                 _ => return Err(syn::Error::new_spanned(
@@ -33,12 +34,15 @@ pub fn generate_test_root(ast: &mut DeriveInput) -> Result<TokenStream, syn::Err
             };
 
             test_implementation.push(quote! {
+                #[cfg(test)]
                 impl #impl_generics TraitForRoot for #struct_name #type_generics #where_clause {
 
                     // fn test_deserialize<I, T>(iter_file_path: I) where I: Iterator<Item = std::path::PathBuf>, T: TraitForRoot {
                     fn test_deserialize<I>(iter_file_path: I) -> register_trait::LogMapType where I: Iterator<Item = std::path::PathBuf> {
 
-                        let mut log_map: register_trait::LogMapType = HashMap::new();
+                        let mut log_map: register_trait::LogMapType = std::collections::HashMap::new();
+                        let re_metadata = regex::Regex::new(r"---\r?\n.*\r?\n.*\r?\n.*\r?\n.*\s*---\r?\n").unwrap();
+
                         for file_path in iter_file_path {
                             let data_wrap = std::fs::read_to_string(file_path.clone());
                             match data_wrap {
@@ -82,14 +86,18 @@ pub fn generate_test_root(ast: &mut DeriveInput) -> Result<TokenStream, syn::Err
 
                     fn check_number_size<I>(iter_file_path: I) -> register_trait::LogMapNumberSize where I: Iterator<Item = std::path::PathBuf> {
 
-                        let mut log_map: register_trait::LogMapNumberSize = HashMap::new();
+                        let mut log_map: register_trait::LogMapNumberSize = std::collections::HashMap::new();
+                        let re_metadata = regex::Regex::new(r"---\r?\n.*\r?\n.*\r?\n.*\r?\n.*\s*---\r?\n").unwrap();
+                        
                         for file_path in iter_file_path {
                             let data_wrap = std::fs::read_to_string(file_path.clone());
                             match data_wrap {
                                 Ok(data) => {
                                     let data_removed_bom: String = data.replace("\u{feff}", "");
                                     let data_removed_svdata: String = data_removed_bom.replace("svdata=", "");
-                                    let root_wrap: Result<#struct_name, serde_json::Error> = serde_json::from_str(data_removed_svdata.as_str());
+                                    let data_removed_metadata: String = re_metadata.replace(&data_removed_svdata, "").to_string();
+
+                                    let root_wrap: Result<#struct_name, serde_json::Error> = serde_json::from_str(data_removed_metadata.as_str());
                                     match root_wrap {
                                         Ok(root) => {
                                             root.check_number(&mut log_map, None);
