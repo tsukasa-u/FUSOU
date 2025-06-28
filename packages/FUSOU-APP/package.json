@@ -17,7 +17,8 @@
     "rustfmt:fix": "cd src-tauri && cargo fmt --all",
     "checkl": "set CHECK_RELESE=CHECK",
     "uncheckl": "set CHECK_RELESE=NO_CHECK",
-    "tauri": "dotenvx run -fk ../.env.keys -f .env -f kc_api/.env -f src-tauri/.env --verbose --overload -- tauri"
+    "tauri": "dotenvx run -fk ../.env.keys -f .env -f kc_api/.env -f src-tauri/.env --verbose --overload -- tauri",
+    "kc_api.cargo": "cd kc_api && dotenvx run -fk ../../.env.keys -f .env --verbose --overload -- cargo"
   },
   "devDependencies": {
     "@eslint/js": "^9.23.0",

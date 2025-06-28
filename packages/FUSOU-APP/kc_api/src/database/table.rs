@@ -14,7 +14,9 @@ use crate::database::env_info::{EnvInfo, UserEnv};
 use crate::database::ship::{EnemyShip, FriendShip, OwnShip};
 use crate::database::slotitem::{EnemySlotItem, FriendSlotItem, OwnSlotItem};
 
+use crate::interface::mst_equip_exslot::{MstEquipExslot, MstEquipExslots};
 use crate::interface::mst_equip_exslot_ship::{MstEquipExslotShip, MstEquipExslotShips};
+use crate::interface::mst_equip_limit_exslot::{MstEquipLimitExslot, MstEquipLimitExslots};
 use crate::interface::mst_equip_ship::{MstEquipShip, MstEquipShips};
 use crate::interface::mst_maparea::{MstMapArea, MstMapAreas};
 use crate::interface::mst_mapinfo::{MstMapInfo, MstMapInfos};
@@ -357,6 +359,8 @@ pub struct GetDataTable {
     pub mst_ship: Vec<MstShip>,
     pub mst_slot_item: Vec<MstSlotItem>,
     pub mst_equip_exslot_ship: Vec<MstEquipExslotShip>,
+    pub mst_equip_exslot: Vec<MstEquipExslot>,
+    pub mst_equip_limit_exslot: Vec<MstEquipLimitExslot>,
     pub mst_slot_item_equip_type: Vec<MstSlotItemEquipType>,
     pub mst_equip_ship: Vec<MstEquipShip>,
     pub mst_stype: Vec<MstStype>,
@@ -371,6 +375,8 @@ pub struct GetDataTableEncode {
     pub mst_ship: Vec<u8>,
     pub mst_slot_item: Vec<u8>,
     pub mst_equip_exslot_ship: Vec<u8>,
+    pub mst_equip_exslot: Vec<u8>,
+    pub mst_equip_limit_exslot: Vec<u8>,
     pub mst_slot_item_equip_type: Vec<u8>,
     pub mst_equip_ship: Vec<u8>,
     pub mst_stype: Vec<u8>,
@@ -431,6 +437,16 @@ impl MstEquipExslotShip {
         "mst_equip_exslot_ships".to_string()
     }
 }
+impl MstEquipExslot {
+    pub fn get_table_name() -> String {
+        "mst_equip_exslot".to_string()
+    }
+}
+impl MstEquipLimitExslot {
+    pub fn get_table_name() -> String {
+        "mst_equip_limit_exslot".to_string()
+    }
+}
 impl MstEquipShip {
     pub fn get_table_name() -> String {
         "mst_equip_ships".to_string()
@@ -447,6 +463,16 @@ impl GetDataTable {
             .collect();
         let mst_equip_exslot_ship = MstEquipExslotShips::load()
             .mst_equip_ships
+            .values()
+            .cloned()
+            .collect();
+        let mst_equip_exslot = MstEquipExslots::load()
+            .mst_equip_exslots
+            .values()
+            .cloned()
+            .collect();
+        let mst_equip_limit_exslot = MstEquipLimitExslots::load()
+            .mst_equip_limit_exslots
             .values()
             .cloned()
             .collect();
@@ -491,6 +517,8 @@ impl GetDataTable {
             mst_ship,
             mst_slot_item,
             mst_equip_exslot_ship,
+            mst_equip_exslot,
+            mst_equip_limit_exslot,
             mst_slot_item_equip_type,
             mst_equip_ship,
             mst_stype,
@@ -507,6 +535,8 @@ impl GetDataTable {
         let mst_ship = encode(self.mst_ship.clone())?;
         let mst_slot_item = encode(self.mst_slot_item.clone())?;
         let mst_equip_exslot_ship = encode(self.mst_equip_exslot_ship.clone())?;
+        let mst_equip_exslot = encode(self.mst_equip_exslot.clone())?;
+        let mst_equip_limit_exslot = encode(self.mst_equip_limit_exslot.clone())?;
         let mst_slot_item_equip_type = encode(self.mst_slot_item_equip_type.clone())?;
         let mst_equip_ship = encode(self.mst_equip_ship.clone())?;
         let mst_stype = encode(self.mst_stype.clone())?;
@@ -520,6 +550,8 @@ impl GetDataTable {
             mst_ship,
             mst_slot_item,
             mst_equip_exslot_ship,
+            mst_equip_exslot,
+            mst_equip_limit_exslot,
             mst_slot_item_equip_type,
             mst_equip_ship,
             mst_stype,

@@ -4,7 +4,9 @@ use super::cells::{Cell, Cells};
 use super::deck_port::DeckPorts;
 use super::logs::Logs;
 use super::material::Materials;
+use super::mst_equip_exslot::MstEquipExslots;
 use super::mst_equip_exslot_ship::MstEquipExslotShips;
+use super::mst_equip_limit_exslot::MstEquipLimitExslots;
 use super::mst_equip_ship::MstEquipShips;
 use super::mst_maparea::MstMapAreas;
 use super::mst_mapinfo::MstMapInfos;
@@ -58,6 +60,8 @@ pub enum Set {
     MstShips(MstShips),
     MstSlotItems(MstSlotItems),
     MstEquipExslotShips(MstEquipExslotShips),
+    MstEquipExslots(MstEquipExslots),
+    MstEquipLimitExslots(MstEquipLimitExslots),
     MstEquipShips(MstEquipShips),
     MstSlotItemEquipTypes(MstSlotItemEquipTypes),
     MstStypes(MstStypes),

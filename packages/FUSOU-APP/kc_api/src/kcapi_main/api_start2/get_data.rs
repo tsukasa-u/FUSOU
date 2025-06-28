@@ -6,14 +6,16 @@
 
 use serde::Deserialize;
 use std::collections::HashMap;
-// use serde_json::Value;
 
 use register_trait::{add_field, register_struct};
 
 use register_trait::{Getter, TraitForConvert, TraitForRoot, TraitForTest};
 
 use crate::interface::interface::{EmitData, Identifier, Set};
+use crate::interface::mst_equip_exslot::MstEquipExslots;
 use crate::interface::mst_equip_exslot_ship::MstEquipExslotShips;
+#[cfg(feature = "20250627")]
+use crate::interface::mst_equip_limit_exslot::MstEquipLimitExslots;
 use crate::interface::mst_equip_ship::MstEquipShips;
 use crate::interface::mst_maparea::MstMapAreas;
 use crate::interface::mst_mapinfo::MstMapInfos;
@@ -95,8 +97,15 @@ pub struct ApiData {
     pub api_mst_shipupgrade: Vec<ApiMstShipupgrade>,
     #[serde(rename = "api_mst_bgm")]
     pub api_mst_bgm: Vec<ApiMstBgm>,
+    #[cfg(not(feature = "20250627"))]
     #[serde(rename = "api_mst_equip_ship")]
     pub api_mst_equip_ship: Vec<ApiMstEquipShip>,
+    #[cfg(feature = "20250627")]
+    #[serde(rename = "api_mst_equip_ship")]
+    pub api_mst_equip_ship: HashMap<i64, ApiMstEquipShip>,
+    // 20250627
+    #[serde(rename = "api_mst_equip_limit_exslot")]
+    pub api_mst_equip_limit_exslot: Option<HashMap<i64, Vec<i64>>>,
     #[serde(rename = "api_mst_furniture")]
     pub api_mst_furniture: Vec<ApiMstFurniture>,
 }
@@ -619,10 +628,15 @@ pub struct ApiMstBgm {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiMstEquipShip {
+    #[cfg(not(feature = "20250627"))]
     #[serde(rename = "api_ship_id")]
     pub api_ship_id: i64,
+    #[cfg(not(feature = "20250627"))]
     #[serde(rename = "api_equip_type")]
     pub api_equip_type: Vec<i64>,
+    #[cfg(feature = "20250627")]
+    #[serde(rename = "api_equip_type")]
+    pub api_equip_type: HashMap<i64, Option<Vec<i64>>>,
 }
 
 #[derive(Getter, TraitForTest)]
@@ -673,6 +687,11 @@ impl TraitForConvert for Res {
 
         let mst_equip_ship: MstEquipShips = self.api_data.api_mst_equip_ship.clone().into();
 
+        #[cfg(feature = "20250627")]
+        let mst_equip_limit_exslot: MstEquipLimitExslots = self.api_data.clone().into();
+
+        let mst_equip_exslot: MstEquipExslots = self.api_data.clone().into();
+
         let mst_stype: MstStypes = self.api_data.api_mst_stype.clone().into();
 
         let mst_use_item: MstUseItems = self.api_data.api_mst_useitem.clone().into();
@@ -688,6 +707,8 @@ impl TraitForConvert for Res {
             EmitData::Set(Set::MstEquipExslotShips(mst_equip_exslot_ship)),
             EmitData::Set(Set::MstSlotItemEquipTypes(mst_slot_item_equip_type)),
             EmitData::Set(Set::MstEquipShips(mst_equip_ship)),
+            EmitData::Set(Set::MstEquipLimitExslots(mst_equip_limit_exslot)),
+            EmitData::Set(Set::MstEquipExslots(mst_equip_exslot)),
             EmitData::Set(Set::MstStypes(mst_stype)),
             EmitData::Set(Set::MstUseItems(mst_use_item)),
             EmitData::Set(Set::MstShipGraphs(mst_ship_graphs)),
