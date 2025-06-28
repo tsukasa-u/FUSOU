@@ -48,7 +48,10 @@ jobs:
           dotenvx run -f ../kc_api/.env -f .env --verbose --overload -- cargo test --all test_database_dependency
         working-directory: ./packages/FUSOU-APP/kc_api
       - name: export dependencies svg
-        run: sudo ./tests/export_svg.sh
+        run: |
+          cat  ./tests/export_svg.sh
+          chmod +x ./tests/export_svg.sh
+          sudo ./tests/export_svg.sh
         working-directory: ./packages/FUSOU-APP/kc_api
       - name: Clean docs folder
         run: cargo clean --doc
