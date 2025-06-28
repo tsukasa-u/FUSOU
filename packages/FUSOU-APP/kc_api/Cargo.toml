@@ -21,6 +21,9 @@ regex = "1.9.6"
 dot-writer = "0.1.3"
 
 [features]
-default = [ "graphviz" ]
+default = [ "graphviz", "from20250627" ]
 graphviz = []
 cytoscape = []
+
+from20250627 = ["20250627"]
+20250627 = []

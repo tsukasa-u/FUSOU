@@ -109,6 +109,12 @@ pub fn emit_data(handle: &tauri::AppHandle, emit_data: EmitData) {
             Set::MstShipUpgrades(data) => {
                 data.restore();
             }
+            Set::MstEquipExslots(data) => {
+                data.restore();
+            }
+            Set::MstEquipLimitExslots(data) => {
+                data.restore();
+            }
             Set::Dammy(_) => {
                 let _ = handle.emit_to("main", "set-kcs-dammy", ());
             }
