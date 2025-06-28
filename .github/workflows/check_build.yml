@@ -1,0 +1,42 @@
+name: check build
+
+on:
+  push:
+    branches:
+      - dev
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      SCCACHE_GHA_ENABLED: "true"
+      RUSTC_WRAPPER: "sccache"
+    defaults:
+      run:
+        working-directory: ./packages/FUSOU-APP/src-tauri
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Ubuntu for tauri@v2
+        run: |
+          sudo apt update
+          sudo apt install -y libwebkit2gtk-4.1-dev \
+            build-essential \
+            curl \
+            wget \
+            file \
+            libxdo-dev \
+            libssl-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev
+      - name: Setup dotenvx
+        run: |
+          sudo apt install -y curl
+          curl -sfS https://dotenvx.sh | sh
+          DOTENV_PRIVATE_KEY=${{ secrets.DOTENV_PRIVATE_KEY }}
+      - name: Run sccache-cache
+        uses: mozilla-actions/sccache-action@v0.0.9
+      - name: Build
+        run: dotenvx run -f ../kc_api/.env -f .env --verbose --overload -- cargo build --verbose --release

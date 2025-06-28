@@ -1,3 +1,4 @@
 packages:
-  - "./FUSOU-APP/**"
-  - "./FUSOU-WEB/**"
+  - "./packages/FUSOU-APP/**"
+  - "./packages/FUSOU-WEB/**"
+  - "./packages/shard_ui/**"

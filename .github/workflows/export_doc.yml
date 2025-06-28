@@ -1,0 +1,86 @@
+name: export doc
+
+on:
+  # push:
+  #   branches:
+  #     - main
+  pull_request:
+    branches:
+      - main
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  doc:
+    runs-on: ubuntu-latest
+    env:
+      SCCACHE_GHA_ENABLED: "true"
+      RUSTC_WRAPPER: "sccache"
+    defaults:
+      run:
+        working-directory: ./packages/FUSOU-APP/src-tauri
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Ubuntu for tauri@v2 & Graphviz
+        run: |
+          sudo apt update
+          sudo apt install -y libwebkit2gtk-4.1-dev \
+            build-essential \
+            curl \
+            wget \
+            file \
+            libxdo-dev \
+            libssl-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev
+          sudo apt install -y graphviz
+      - name: Setup dotenvx
+        run: |
+          sudo apt install -y curl
+          curl -sfS https://dotenvx.sh | sh
+          DOTENV_PRIVATE_KEY=${{ secrets.DOTENV_PRIVATE_KEY }}
+      - name: Run sccache-cache
+        uses: mozilla-actions/sccache-action@v0.0.9
+      - name: export dependencies dot
+        run: |
+          dotenvx run -f ../kc_api/.env -f .env --verbose --overload -- cargo test --all test_struct_dependency
+          dotenvx run -f ../kc_api/.env -f .env --verbose --overload -- cargo test --all test_database_dependency
+        working-directory: ./packages/FUSOU-APP/kc_api
+      - name: export dependencies svg
+        run: |
+          cat  ./tests/export_svg.sh
+          chmod +x ./tests/export_svg.sh
+          sudo ./tests/export_svg.sh
+        working-directory: ./packages/FUSOU-APP/kc_api
+      - name: Clean docs folder
+        run: cargo clean --doc
+      - name: Build docs
+        run: dotenvx run -f ../kc_api/.env -f .env --verbose --overload -- cargo doc --no-deps -p kc_api -p app -p proxy-https -p register_trait -p register_macro_derive_and_attr --document-private-items
+      - name: Add redirect
+        run: echo '<meta http-equiv="refresh" content="0;url=app/index.html">' > target/doc/index.html
+      - name: Remove lock file
+        run: rm target/doc/.lock
+      - name: move struct dependency svg
+        run: |
+          mv -f ../kc_api/tests/struct_dependency_svg ./target/doc/struct_dependency_svg
+          mv -f ../kc_api/tests/database_dependency_svg ./target/doc/database_dependency_svg
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./packages/FUSOU-APP/src-tauri/target/doc
+
+  deploy:
+    needs: doc
+    permissions:
+      pages: write
+      id-token: write
+      pull-requests: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
