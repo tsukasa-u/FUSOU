@@ -1,56 +1,81 @@
 import type { Meta, StoryObj } from "@storybook/web-components-vite";
 
-import { fn } from "storybook/test";
-
 import type { EquipmentProps } from "./equip";
-import { Equipment, EquipmentWrap } from "./equip";
-import { html } from "lit";
+import {
+  EquipmentBasic,
+  EquipmentCatalog,
+  EquipmentCatalogDetail,
+} from "./equip";
 
-// More on how to set up stories at: https://storybook.js.org/docs/writing-stories
+const size_list = ["full", "none", "xs", "sm", "md", "lg", "xl"];
+
 const meta = {
   title: "FUSOU/EQUIP",
   tags: ["autodocs"],
-  render: (args) => EquipmentWrap(args),
-  argTypes: {
-    icon_number: {
-      control: { type: "select" },
-      options: [1, 2, 3],
-    },
-    category_number: {
-      control: { type: "select" },
-      options: [1, 2, 3],
-    },
-    size: {
-      control: { type: "range" },
-    },
-  },
-  args: { onClick: fn() },
 } satisfies Meta<EquipmentProps>;
 
 export default meta;
 type Story = StoryObj<EquipmentProps>;
 
-// More on writing stories with args: https://storybook.js.org/docs/writing-stories/args
-export const Primary: Story = {
+export const basic: Story = {
+  render: (args) => EquipmentBasic(args),
+  name: "Basic",
+  argTypes: {
+    icon_number: {
+      control: { type: "select" },
+      options: [1, 2, 3, 4, 5],
+    },
+    category_number: {
+      control: { type: "select" },
+      options: [1, 2, 3, 4, 5],
+    },
+    size: {
+      control: { type: "select" },
+      options: size_list,
+
+      table: {
+        defaultValue: { summary: "xs" },
+        type: {
+          summary: size_list.join("\|"),
+        },
+      },
+    },
+  },
   args: {
-    size: 1,
+    icon_number: 1,
+    category_number: 1,
+    size: "xs",
   },
 };
 
-export const Secondary: Story = {
-  args: {
-    size: 1,
+export const catalog: Story = {
+  render: (_) => EquipmentCatalog(),
+  name: "Catalog",
+  argTypes: {
+    icon_number: {
+      control: { disable: true },
+    },
+    category_number: {
+      control: { disable: true },
+    },
+    size: {
+      control: { disable: true },
+    },
   },
 };
 
-export const Large: Story = {
-  args: {
-    size: 1,
-  },
-};
-
-export const Small: Story = {
-  args: {
-    size: 3,
+export const catalog_detail: Story = {
+  render: (_) => EquipmentCatalogDetail(),
+  name: "CatalogDetail",
+  argTypes: {
+    icon_number: {
+      control: { disable: true },
+    },
+    category_number: {
+      control: { disable: true },
+    },
+    size: {
+      control: { disable: true },
+    },
   },
 };
