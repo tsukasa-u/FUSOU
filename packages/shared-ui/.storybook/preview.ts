@@ -1,8 +1,13 @@
-import type { Preview } from "@storybook/web-components-vite";
+import type {
+  Preview,
+  WebComponentsRenderer,
+} from "@storybook/web-components-vite";
 import "../src/global.css";
+import { withThemeByDataAttribute } from "@storybook/addon-themes";
 
 const preview: Preview = {
   parameters: {
+    backgrounds: { disable: true },
     controls: {
       matchers: {
         color: /(background|color)$/i,
@@ -10,6 +15,16 @@ const preview: Preview = {
       },
     },
   },
+  decorators: [
+    withThemeByDataAttribute<WebComponentsRenderer>({
+      themes: {
+        light: "light",
+        dark: "dark",
+      },
+      defaultTheme: "light",
+      attributeName: "data-theme",
+    }),
+  ],
 };
 
 export default preview;
