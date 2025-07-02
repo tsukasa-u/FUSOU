@@ -2,15 +2,15 @@ import { html, LitElement } from "lit";
 import { customElement, property } from "lit/decorators.js";
 import { unsafeCSS } from "lit";
 import globalStyles from "../global.css?inline";
-// import "../index.css";
-
-// const tailwindElement = unsafeCSS(globalStyles);
+import get_data from "../data/S@api_start2@getData.json";
+import require_info from "../data/S@api_get_member@require_info.json";
+import common_icon_weapon from "../data/common_icon_weapon.json";
+import common_icon_weapon_png from "../data/common_icon_weapon.png";
 
 export interface EquipmentProps {
   icon_number: number;
   category_number: number;
-  size: number;
-  onClick?: () => void;
+  size: "full" | "none" | "xs" | "sm" | "md" | "lg" | "xl";
 }
 
 // 1 "小口径主砲"
@@ -185,6 +185,16 @@ const category_list: { [key: number]: string } = {
   48: "UN", //  Unknown
 };
 
+const class_size = {
+  xs: "size-6",
+  sm: "size-8",
+  md: "size-12",
+  lg: "size-20",
+  xl: "size-36",
+  full: "size-full",
+  none: "",
+};
+
 const primary_color = (icon_number: number) => icon_list[icon_number ?? 0][0];
 const secondary_color = (icon_number: number) => icon_list[icon_number ?? 0][1];
 
@@ -198,16 +208,11 @@ export class Equipment extends LitElement {
   @property({ type: Number })
   category_number = 0;
 
-  @property({ type: Number })
-  size = 0;
-  constructor() {
-    super();
-    this.attachShadow({ mode: "open" });
-    if (!this.shadowRoot) throw Error("Shadow root not supported.");
-  }
+  @property({ type: String })
+  size: keyof typeof class_size = "xs";
 
   render() {
-    return html`<svg
+    return html` <svg
       fill="currentColor"
       stroke-width="1.5"
       stroke="currentColor"
@@ -215,7 +220,12 @@ export class Equipment extends LitElement {
       xmlns="http://www.w3.org/2000/svg"
       xmlns:xlink="http://www.w3.org/1999/xlink"
       overflow="hidden"
-      class=${[`w-${this.size}`, "bg-red-200"].join(" ")}
+      class=${[
+        "text-base-content",
+        "fill-base-content",
+        class_size[this.size],
+      ].join(" ")}
+      style=${this.style}
     >
       <text
         font-family="monospace,sans-serif"
@@ -227,7 +237,7 @@ export class Equipment extends LitElement {
       </text>
       <path
         d="M9 32C9 19.85 18.85 10 31 10L119 10C131.15 10 141 19.85 141 32L141 120C141 132.15 131.15 142 119 142L31 142C18.85 142 9 132.15 9 120Z"
-        stroke="#000000"
+        stroke="currentColor"
         stroke-width="4"
         stroke-linejoin="round"
         stroke-miterlimit="10"
@@ -250,7 +260,7 @@ export class Equipment extends LitElement {
         fill="none"
         fill-rule="evenodd"
       />
-    </svg> `;
+    </svg>`;
   }
 }
 
@@ -260,10 +270,101 @@ declare global {
   }
 }
 
-export const EquipmentWrap = (args: EquipmentProps) => {
+export const EquipmentBasic = (args: EquipmentProps) => {
   return html`<equipment-icon
     icon_number=${args.icon_number}
     category_number=${args.category_number}
     size=${args.size}
   ></equipment-icon>`;
+};
+
+export const EquipmentCatalog = () => {
+  const category_icon_number = [
+    ...new Set(
+      get_data.api_data.api_mst_slotitem.map((x) =>
+        String([x.api_type[1], x.api_type[3]])
+      )
+    ),
+  ].map((s) => s.split(",").map((x) => Number(x)));
+
+  return html`<div class="grid grid-cols-10 w-100 gap-4">
+    ${category_icon_number.map(
+      ([category_number, icon_number]) =>
+        html`<equipment-icon
+          icon_number=${icon_number}
+          category_number=${category_number}
+          size=${"xs"}
+        ></equipment-icon>`
+    )}
+  </div>`;
+};
+
+export const EquipmentCatalogDetail = () => {
+  const category_icon_number = [
+    ...new Set(
+      get_data.api_data.api_mst_slotitem.map((x) =>
+        String([x.api_type[2], x.api_type[3]])
+      )
+    ),
+  ].map((s) => s.split(",").map((x) => Number(x)));
+
+  const category = get_data.api_data.api_mst_slotitem_equiptype;
+  // console.log(category);
+
+  const icon_frame = common_icon_weapon.frames;
+
+  return html`<div class="grid gap-4">
+    ${category_icon_number.map(([category_number, icon_number]) => {
+      try {
+        let frame = icon_frame[`common_icon_weapon_id_${icon_number}`].frame;
+        return html`<div class="flex h-12 items-center">
+          <equipment-icon
+            icon_number=${icon_number}
+            category_number=${category_number}
+            size=${"md"}
+            class="w-20 h-full"
+          ></equipment-icon>
+          <div class="w-20 h-full">
+            <div
+              class="h-full"
+              style=${`overflow: hidden;
+                background-repeat: no-repeat;
+                width: ${frame.w}px;
+                hieght: ${frame.h}px;
+                background-position: top -${frame.x}px left -${frame.y}px;
+                background-image: url('${common_icon_weapon_png}');`}
+            ></div>
+          </div>
+          <div class="w-40">
+            ${category.find((element) => element.api_id == category_number)!
+              .api_name ?? "Unknown"}
+          </div>
+          <div class="w-60">
+            ${get_data.api_data.api_mst_slotitem.find(
+              (element) =>
+                element.api_type[2] == category_number &&
+                element.api_type[3] == icon_number
+            )!.api_name ?? "Unknown"}
+          </div>
+        </div>`;
+      } catch (e) {
+        return html`<div class="flex h-12 items-center">
+          <equipment-icon
+            icon_number=${icon_number}
+            category_number=${category_number}
+            size=${"md"}
+            class="w-20 h-full"
+          ></equipment-icon>
+          <div class="w-40">no keys</div>
+          <div class="w-60">
+            ${get_data.api_data.api_mst_slotitem.find(
+              (element) =>
+                element.api_type[2] == category_number &&
+                element.api_type[3] == icon_number
+            )!.api_name ?? "Unknown"}
+          </div>
+        </div>`;
+      }
+    })}
+  </div>`;
 };
