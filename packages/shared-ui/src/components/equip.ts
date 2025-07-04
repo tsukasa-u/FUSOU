@@ -1,4 +1,4 @@
-import { html, LitElement } from "lit";
+import { html, LitElement, svg } from "lit";
 import { customElement, property } from "lit/decorators.js";
 import { unsafeCSS } from "lit";
 import globalStyles from "../global.css?inline";
@@ -6,6 +6,8 @@ import get_data from "../data/S@api_start2@getData.json";
 import require_info from "../data/S@api_get_member@require_info.json";
 import common_icon_weapon from "../data/common_icon_weapon.json";
 import common_icon_weapon_png from "../data/common_icon_weapon.png";
+import album_slot2 from "../data/album_slot2.json";
+import album_slot2_png from "../data/album_slot2.png";
 
 export interface EquipmentProps {
   icon_number: number;
@@ -13,84 +15,22 @@ export interface EquipmentProps {
   size: "full" | "none" | "xs" | "sm" | "md" | "lg" | "xl";
 }
 
-// 1 "小口径主砲"
-// 2 "中口径主砲"
-// 3 "大口径主砲"
-// 4 "副砲"
-// 5 "魚雷"
-// 6 "艦上戦闘機"
-// 7 "艦上爆撃機"
-// 8 "艦上攻撃機"
-// 9 "艦上偵察機"
-// 10 "水上偵察機"
-// 11 "水上爆撃機"
-// 12 "小型電探"
-// 13 "大型電探"
-// 14 "ソナー"
-// 15 "爆雷"
-// 16 "追加装甲"
-// 17 "機関部強化"
-// 18 "対空強化弾"
-// 19 "対艦強化弾"
-// 20 "VT信管"
-// 21 "対空機銃"
-// 22 "特殊潜航艇"
-// 23 "応急修理要員"
-// 24 "上陸用舟艇"
-// 25 "オートジャイロ"
-// 26 "対潜哨戒機"
-// 27 "追加装甲(中型)"
-// 28 "追加装甲(大型)"
-// 29 "探照灯"
-// 30 "簡易輸送部材"
-// 31 "艦艇修理施設"
-// 32 "潜水艦魚雷"
-// 33 "照明弾"
-// 34 "司令部施設"
-// 35 "航空要員"
-// 36 "高射装置"
-// 37 "対地装備"
-// 38 "大口径主砲（II）"
-// 39 "水上艦要員"
-// 40 "大型ソナー"
-// 41 "大型飛行艇"
-// 42 "大型探照灯"
-// 43 "戦闘糧食"
-// 44 "補給物資"
-// 45 "水上戦闘機"
-// 46 "特型内火艇"
-// 47 "陸上攻撃機"
-// 48 "局地戦闘機"
-// 49 "陸上偵察機"
-// 50 "輸送機材"
-// 51 "潜水艦装備"
-// 52 "陸戦部隊"
-// 53 "大型陸上機"
-// 54 "水上艦装備"
-// 56 "噴式戦闘機"
-// 57 "噴式戦闘爆撃機"
-// 58 "噴式攻撃機"
-// 59 "噴式偵察機"
-// 93 "大型電探（II）"
-// 94 "艦上偵察機（II）"
-// 95 "副砲（II）"
-
 const icon_list: { [key: number]: string[] } = {
   0: ["#FFFFFF", "#FFFFFF"], //  Undefined
-  1: ["#CC3D3D", "#CC3D3D"], //  small-Range Primary Armament
-  2: ["#CC3D3D", "#CC3D3D"], //  medium-Range Primary Armament
-  3: ["#CC3D3D", "#CC3D3D"], //  large-Range Primary Armament
-  4: ["#FFEA00", "#FFEA00"], //  Secondary Armament
-  5: ["#5887AB", "#FFEA00"], //  Torpedo
+  1: ["#CC3D3D", "#CC3D3D"], //  Small Caliber Main Guns
+  2: ["#CC3D3D", "#CC3D3D"], //  Medium Caliber Main Guns
+  3: ["#CC3D3D", "#CC3D3D"], //  Large Caliber Main Guns
+  4: ["#FFEA00", "#FFEA00"], //  Secondary Guns
+  5: ["#5887AB", "#5887AB"], //  Torpedo
   6: ["#39B74E", "#60C06F"], //  carrier-based fighter
   7: ["#39B74E", "#FF726F"], //  carrier-based dive bomber
   8: ["#39B74E", "#68C1FD"], //  carrier-based torpedo bomber
   9: ["#39B74E", "#FFD500"], //  carrier-based reconnaissance
   10: ["#8FCC98", "#8FCC98"], //  seaplane
   11: ["#DE9437", "#DE9437"], //  radar
-  12: ["#46B158", "#46B158"], //  AA shell
-  13: ["#D15B5B", "#D15B5B"], //  AP shell
-  14: ["#FFFFFF", "#000000"], //  Damage control
+  12: ["#C9260B", "#C9260B"], //  AA shell
+  13: ["#FFFFFF", "#FFFFFF"], //  AP shell
+  14: ["#FFFFFF", "#FFFFFF"], //  Damage control
   15: ["#66CC77", "#66CC77"], //  AA gun
   16: ["#66CC77", "#66CC77"], //  High-angle gun
   17: ["#7FCCD8", "#7FCCD8"], //  Depth Charge
@@ -110,7 +50,7 @@ const icon_list: { [key: number]: string[] } = {
   31: ["#FF3637", "#FF3637"], //  Rocket Artillery
   32: ["#BFEB9F", "#BFEB9F"], //  Picket Crew
   33: ["#8FCC98", "#8FCC98"], //  Flying Boat
-  34: ["#FFFFFF", "#000000"], //  Ration
+  34: ["#FFFFFF", "#FFFFFF"], //  Ration
   35: ["#61C59E", "#61C59E"], //  Supply
   36: ["#9AA55C", "#9AA55C"], //  Amphibious Vehicle
   37: ["#39B74E", "#38B012"], //  Land Attacker
@@ -124,16 +64,24 @@ const icon_list: { [key: number]: string[] } = {
   45: ["#39B74E", "#7976A0"], //  Night Fighter
   46: ["#39B74E", "#7976A0"], //  Night Attacker
   47: ["#39B74E", "#5263BC"], //  Land anti-submarine patrol
-  48: ["#000000", "#000000"], //  Unknown
-  49: ["#2E8E06", "#3A9F22"], //  Unknown
-  50: ["#000000", "#000000"], //  Unknown
-  51: ["#000000", "#000000"], //  Unknown
-  52: ["#000000", "#000000"], //  Unknown
+  48: ["#39B74E", "#3FAC0E"], //  Land Attacker
+  49: ["#2E8E06", "#3A9F22"], //  Heavy Bomber
+  50: ["#8FCC99", "#8580B4"], //  Reconnaissance
+  51: ["#90CD99", "#8480AD"], //  Multi-purpos Seaplane
+  52: ["#9F8A2A", "#9F8A2A"], //  Army Units
   53: ["#000000", "#000000"], //  Unknown
-  54: ["#000000", "#000000"], //  Unknown
-  55: ["#000000", "#000000"], //  Unknown
-  56: ["#000000", "#000000"], //  Unknown
-  57: ["#000000", "#000000"], //  Unknown
+  54: ["#7B7B7B", "#7B7B7B"], //  Smoke Generator
+  55: ["#9B9B9B", "#9B9B9B"], //  Barrage Balloon
+  56: ["#39B74E", "#3FAB14"], //  Interceptor
+  57: ["#39B74E", "#76BA31"], //  Interceptor
+  58: ["#39B74E", "#8F89C3"], //  Carrier-based Aircraft
+  59: ["#47B48F", "#E3E3E3"], //  Jet fightinh Bomber
+  60: ["#000000", "#000000"], //  Unknown
+  61: ["#000000", "#000000"], //  Unknown
+  62: ["#000000", "#000000"], //  Unknown
+  63: ["#000000", "#000000"], //  Unknown
+  64: ["#000000", "#000000"], //  Unknown
+  65: ["#000000", "#000000"], //  Unknown
 };
 
 const category_list: { [key: number]: string } = {
@@ -148,6 +96,9 @@ const category_list: { [key: number]: string } = {
   8: "RA", //  Radar
   9: "UP", //  Upgrades
   10: "SO", //  Sonar
+  11: "UN", //  Unkown
+  12: "UN", //  Unkown
+  13: "UN", //  Unkown
   14: "LC", //  Landing Craft
   15: "AG", //  Autogyro
   16: "AS", //  AntiSubmarine Patrol
@@ -170,7 +121,7 @@ const category_list: { [key: number]: string } = {
   33: "FB", //  Flying Boat
   34: "RA", //  Ration
   35: "SU", //  Supply
-  36: "MS", //  Multi-purpose Seaplane
+  36: "FS", //  Fighter Seaplane
   37: "AV", //  Amphibious Vehicle
   38: "LA", //  Land Attacker
   39: "IN", //  Interceptor
@@ -181,8 +132,19 @@ const category_list: { [key: number]: string } = {
   44: "HE", //  Helicopter
   45: "DD", //  DD Tank
   46: "HB", //  Heavy Bomber
-  47: "UN", //  Unknown
-  48: "UN", //  Unknown
+  47: "AB", //  Armed Boat
+  48: "AU", //  Army Units
+  49: "SG", //  Smoke Generator
+  50: "BB", //  Barrage Ballon
+  51: "UN", //  Unkown
+  52: "UN", //  Unkown
+  53: "UN", //  Unkown
+  54: "UN", //  Unkown
+  55: "UN", //  Unkown
+  56: "UN", //  Unkown
+  57: "JB", //  Jet Fighting Bomber
+  58: "UN", //  Unkown
+  59: "UN", //  Unkown
 };
 
 const class_size = {
@@ -198,7 +160,19 @@ const class_size = {
 const primary_color = (icon_number: number) => icon_list[icon_number ?? 0][0];
 const secondary_color = (icon_number: number) => icon_list[icon_number ?? 0][1];
 
-@customElement("equipment-icon")
+const bg_slash = [0, 1, 2, 3, 4, 5, 6, 7].map(
+  (i) => svg`
+    <path
+      d="M${i * 12 + 28 + 3} 132 ${i * 12 + 34 + 3} 116"
+      stroke="#303030"
+      stroke-width="0.5"
+      fill="none"
+      fill-rule="evenodd"
+    ></path>
+  `
+);
+
+@customElement("icon-equipment")
 export class Equipment extends LitElement {
   static styles = [unsafeCSS(globalStyles)];
 
@@ -230,7 +204,7 @@ export class Equipment extends LitElement {
       <text
         font-family="monospace,sans-serif"
         font-weight="400"
-        font-size="96"
+        font-size="92"
         transform="translate(25 104)"
       >
         ${category_list[this.category_number]}
@@ -245,37 +219,40 @@ export class Equipment extends LitElement {
         fill-rule="evenodd"
       />
       <path
-        d="M28 124 76 124"
-        stroke=${primary_color(this.icon_number)}
-        stroke-width="16"
-        stroke-miterlimit="8"
+        d="M27.5 124 124.5 124"
+        stroke="#303030"
+        stroke-width="17"
+        stroke-miterlimit="9"
         fill="none"
         fill-rule="evenodd"
       />
       <path
-        d="M76 124 124 124"
+        d="M28.0 124.0 76.2 124.0Z"
+        stroke=${primary_color(this.icon_number)}
+        stroke-width="16"
+      />
+      <path
+        d="M76.0 124.0 124.0 124.0Z"
         stroke=${secondary_color(this.icon_number)}
         stroke-width="16"
-        stroke-miterlimit="8"
-        fill="none"
-        fill-rule="evenodd"
       />
+      ${bg_slash}
     </svg>`;
   }
 }
 
 declare global {
   interface HTMLElementTagNameMap {
-    "equipment-icon": Equipment;
+    "icon-equipment": Equipment;
   }
 }
 
 export const EquipmentBasic = (args: EquipmentProps) => {
-  return html`<equipment-icon
+  return html`<icon-equipment
     icon_number=${args.icon_number}
     category_number=${args.category_number}
     size=${args.size}
-  ></equipment-icon>`;
+  ></icon-equipment>`;
 };
 
 export const EquipmentCatalog = () => {
@@ -290,11 +267,11 @@ export const EquipmentCatalog = () => {
   return html`<div class="grid grid-cols-10 w-100 gap-4">
     ${category_icon_number.map(
       ([category_number, icon_number]) =>
-        html`<equipment-icon
+        html`<icon-equipment
           icon_number=${icon_number}
           category_number=${category_number}
           size=${"xs"}
-        ></equipment-icon>`
+        ></icon-equipment>`
     )}
   </div>`;
 };
@@ -303,7 +280,7 @@ export const EquipmentCatalogDetail = () => {
   const category_icon_number = [
     ...new Set(
       get_data.api_data.api_mst_slotitem.map((x) =>
-        String([x.api_type[2], x.api_type[3]])
+        String([x.api_type[1], x.api_type[2], x.api_type[3]])
       )
     ),
   ].map((s) => s.split(",").map((x) => Number(x)));
@@ -311,60 +288,86 @@ export const EquipmentCatalogDetail = () => {
   const category = get_data.api_data.api_mst_slotitem_equiptype;
   // console.log(category);
 
-  const icon_frame = common_icon_weapon.frames;
+  const icon_frames = common_icon_weapon.frames;
+  const album_slot2_frames = album_slot2.frames;
+
+  const bg_scale = 0.2;
 
   return html`<div class="grid gap-4">
-    ${category_icon_number.map(([category_number, icon_number]) => {
-      try {
-        let frame = icon_frame[`common_icon_weapon_id_${icon_number}`].frame;
-        return html`<div class="flex h-12 items-center">
-          <equipment-icon
-            icon_number=${icon_number}
-            category_number=${category_number}
-            size=${"md"}
-            class="w-20 h-full"
-          ></equipment-icon>
-          <div class="w-20 h-full">
-            <div
-              class="h-full"
-              style=${`overflow: hidden;
+    ${category_icon_number.map(
+      ([album_slot_number, category_number, icon_number]) => {
+        try {
+          let icon_frame =
+            icon_frames[`common_icon_weapon_id_${icon_number}`].frame;
+          let album_slot2_frame =
+            album_slot2_frames[`album_slot2_id_${album_slot_number}`].frame;
+          return html`<div class="flex h-12 items-center">
+            <icon-equipment
+              icon_number=${icon_number}
+              category_number=${album_slot_number}
+              size=${"md"}
+              class="w-20 h-full"
+            ></icon-equipment>
+            <div class="w-20 h-full">
+              <div
+                class="h-full"
+                style=${`overflow: hidden;
                 background-repeat: no-repeat;
-                width: ${frame.w}px;
-                hieght: ${frame.h}px;
-                background-position: top -${frame.x}px left -${frame.y}px;
+                width: ${icon_frame.w}px;
+                hieght: ${icon_frame.h}px;
+                background-position: top -${icon_frame.y}px left -${icon_frame.x}px;
                 background-image: url('${common_icon_weapon_png}');`}
-            ></div>
-          </div>
-          <div class="w-40">
-            ${category.find((element) => element.api_id == category_number)!
-              .api_name ?? "Unknown"}
-          </div>
-          <div class="w-60">
-            ${get_data.api_data.api_mst_slotitem.find(
-              (element) =>
-                element.api_type[2] == category_number &&
-                element.api_type[3] == icon_number
-            )!.api_name ?? "Unknown"}
-          </div>
-        </div>`;
-      } catch (e) {
-        return html`<div class="flex h-12 items-center">
-          <equipment-icon
-            icon_number=${icon_number}
-            category_number=${category_number}
-            size=${"md"}
-            class="w-20 h-full"
-          ></equipment-icon>
-          <div class="w-40">no keys</div>
-          <div class="w-60">
-            ${get_data.api_data.api_mst_slotitem.find(
-              (element) =>
-                element.api_type[2] == category_number &&
-                element.api_type[3] == icon_number
-            )!.api_name ?? "Unknown"}
-          </div>
-        </div>`;
+              ></div>
+            </div>
+            <div class="w-40">
+              ${category.find((element) => element.api_id == category_number)!
+                .api_name ?? "Unknown"}
+            </div>
+            <div class="w-80">
+              ${get_data.api_data.api_mst_slotitem.find(
+                (element) =>
+                  element.api_type[2] == category_number &&
+                  element.api_type[3] == icon_number
+              )!.api_name ?? "Unknown"}
+            </div>
+            <div class="w-60 h-full" style="transform: translateY(-36px);">
+              <div
+                class="h-32"
+                style=${`
+                transform: scale(2);
+                transform: rotateZ(-90deg);
+                background-size: ${3199 * bg_scale}px, ${2595 * bg_scale}px;
+                width: ${album_slot2_frame.w * bg_scale}px;
+                hieght: ${album_slot2_frame.h * bg_scale}px;
+                background-position: top -${album_slot2_frame.y * bg_scale}px left -${album_slot2_frame.x * bg_scale}px;
+                background-image: url('${album_slot2_png}');
+                `}
+              ></div>
+            </div>
+          </div>`;
+        } catch (e) {
+          return html`<div class="flex h-12 items-center">
+            <icon-equipment
+              icon_number=${icon_number}
+              category_number=${category_number}
+              size=${"md"}
+              class="w-20 h-full"
+            ></icon-equipment>
+            <div class="w-20">no keys</div>
+            <div class="w-40">
+              ${category.find((element) => element.api_id == category_number)!
+                .api_name ?? "Unknown"}
+            </div>
+            <div class="w-80">
+              ${get_data.api_data.api_mst_slotitem.find(
+                (element) =>
+                  element.api_type[2] == category_number &&
+                  element.api_type[3] == icon_number
+              )!.api_name ?? "Unknown"}
+            </div>
+          </div>`;
+        }
       }
-    })}
+    )}
   </div>`;
 };

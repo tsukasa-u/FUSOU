@@ -10,7 +10,7 @@ import {
 const size_list = ["full", "none", "xs", "sm", "md", "lg", "xl"];
 
 const meta = {
-  title: "FUSOU/EQUIP",
+  title: "FUSOU/icon-equipment",
   tags: ["autodocs"],
 } satisfies Meta<EquipmentProps>;
 
@@ -23,7 +23,7 @@ export const basic: Story = {
   argTypes: {
     icon_number: {
       control: { type: "select" },
-      options: [1, 2, 3, 4, 5],
+      options: [1, 2, 3, 4, 5, 34],
     },
     category_number: {
       control: { type: "select" },
@@ -44,7 +44,7 @@ export const basic: Story = {
   args: {
     icon_number: 1,
     category_number: 1,
-    size: "xs",
+    size: "full",
   },
 };
 
