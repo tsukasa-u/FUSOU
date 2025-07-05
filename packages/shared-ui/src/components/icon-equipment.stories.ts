@@ -1,11 +1,11 @@
 import type { Meta, StoryObj } from "@storybook/web-components-vite";
 
-import type { EquipmentProps } from "./equip";
+import type { EquipmentProps } from "./icon-equipment";
 import {
   EquipmentBasic,
   EquipmentCatalog,
   EquipmentCatalogDetail,
-} from "./equip";
+} from "./icon-equipment";
 
 const size_list = ["full", "none", "xs", "sm", "md", "lg", "xl"];
 
