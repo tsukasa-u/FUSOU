@@ -8,11 +8,12 @@ import common_icon_weapon from "../data/common_icon_weapon.json";
 import common_icon_weapon_png from "../data/common_icon_weapon.png";
 import album_slot2 from "../data/album_slot2.json";
 import album_slot2_png from "../data/album_slot2.png";
+import { ifDefined } from "lit/directives/if-defined.js";
 
-export interface EquipmentProps {
+export interface IconEquipmentProps {
   icon_number: number;
   category_number: number;
-  size: "full" | "none" | "xs" | "sm" | "md" | "lg" | "xl";
+  size?: "full" | "none" | "xs" | "sm" | "md" | "lg" | "xl";
 }
 
 const icon_list: { [key: number]: string[] } = {
@@ -148,12 +149,12 @@ const category_list: { [key: number]: string } = {
 };
 
 const class_size = {
-  xs: "size-6",
-  sm: "size-8",
-  md: "size-12",
-  lg: "size-20",
-  xl: "size-36",
-  full: "size-full",
+  xs: "h-6",
+  sm: "h-8",
+  md: "h-12",
+  lg: "h-20",
+  xl: "h-36",
+  full: "h-full",
   none: "",
 };
 
@@ -173,7 +174,7 @@ const bg_slash = [0, 1, 2, 3, 4, 5, 6, 7].map(
 );
 
 @customElement("icon-equipment")
-export class Equipment extends LitElement {
+export class IconEquipment extends LitElement {
   static styles = [unsafeCSS(globalStyles)];
 
   @property({ type: Number })
@@ -243,19 +244,19 @@ export class Equipment extends LitElement {
 
 declare global {
   interface HTMLElementTagNameMap {
-    "icon-equipment": Equipment;
+    "icon-equipment": IconEquipment;
   }
 }
 
-export const EquipmentBasic = (args: EquipmentProps) => {
+export const IconEquipmentBasic = (args: IconEquipmentProps) => {
   return html`<icon-equipment
     icon_number=${args.icon_number}
     category_number=${args.category_number}
-    size=${args.size}
+    size=${ifDefined(args.size)}
   ></icon-equipment>`;
 };
 
-export const EquipmentCatalog = () => {
+export const IconEquipmentCatalog = () => {
   const category_icon_number = [
     ...new Set(
       get_data.api_data.api_mst_slotitem.map((x) =>
@@ -276,7 +277,7 @@ export const EquipmentCatalog = () => {
   </div>`;
 };
 
-export const EquipmentCatalogDetail = () => {
+export const IconEquipmentCatalogDetail = () => {
   const category_icon_number = [
     ...new Set(
       get_data.api_data.api_mst_slotitem.map((x) =>
@@ -297,10 +298,12 @@ export const EquipmentCatalogDetail = () => {
     ${category_icon_number.map(
       ([album_slot_number, category_number, icon_number]) => {
         try {
-          let icon_frame =
-            icon_frames[`common_icon_weapon_id_${icon_number}`].frame;
-          let album_slot2_frame =
-            album_slot2_frames[`album_slot2_id_${album_slot_number}`].frame;
+          let icon_frame = (icon_frames as any)[
+            `common_icon_weapon_id_${icon_number}`
+          ].frame;
+          let album_slot2_frame = (album_slot2_frames as any)[
+            `album_slot2_id_${album_slot_number}`
+          ].frame;
           return html`<div class="flex h-12 items-center">
             <icon-equipment
               icon_number=${icon_number}

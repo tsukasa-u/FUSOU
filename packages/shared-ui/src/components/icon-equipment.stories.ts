@@ -1,10 +1,10 @@
 import type { Meta, StoryObj } from "@storybook/web-components-vite";
 
-import type { EquipmentProps } from "./icon-equipment";
+import type { IconEquipmentProps } from "./icon-equipment";
 import {
-  EquipmentBasic,
-  EquipmentCatalog,
-  EquipmentCatalogDetail,
+  IconEquipmentBasic,
+  IconEquipmentCatalog,
+  IconEquipmentCatalogDetail,
 } from "./icon-equipment";
 
 const size_list = ["full", "none", "xs", "sm", "md", "lg", "xl"];
@@ -12,13 +12,13 @@ const size_list = ["full", "none", "xs", "sm", "md", "lg", "xl"];
 const meta = {
   title: "FUSOU/icon-equipment",
   tags: ["autodocs"],
-} satisfies Meta<EquipmentProps>;
+} satisfies Meta<IconEquipmentProps>;
 
 export default meta;
-type Story = StoryObj<EquipmentProps>;
+type Story = StoryObj<IconEquipmentProps>;
 
 export const basic: Story = {
-  render: (args) => EquipmentBasic(args),
+  render: (args) => IconEquipmentBasic(args),
   name: "Basic",
   argTypes: {
     icon_number: {
@@ -49,7 +49,7 @@ export const basic: Story = {
 };
 
 export const catalog: Story = {
-  render: (_) => EquipmentCatalog(),
+  render: (_) => IconEquipmentCatalog(),
   name: "Catalog",
   argTypes: {
     icon_number: {
@@ -65,7 +65,7 @@ export const catalog: Story = {
 };
 
 export const catalog_detail: Story = {
-  render: (_) => EquipmentCatalogDetail(),
+  render: (_) => IconEquipmentCatalogDetail(),
   name: "CatalogDetail",
   argTypes: {
     icon_number: {
