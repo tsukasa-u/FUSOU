@@ -161,23 +161,38 @@ fn log_response(
 
                     let file_log_path = path_log.join(Path::new(path_removed.as_str()));
 
-                    if !file_log_path.exists() {
-                        fs::write(file_log_path, body.clone().clone())
+                    if content_type.eq("application/json") {
+                        // this code is for the response not decoded in hudsucker!!
+                        match flate2::read::MultiGzDecoder::new(body.as_slice()).read_to_end(&mut buffer) {
+                            Ok(_) => {}
+                            Err(_) => {
+                                buffer = body.clone();
+                            }
+                        }
+                        fs::write(file_log_path, buffer)
                             .expect("Failed to write file");
                     } else {
-                        let file_log_metadata =
-                            fs::metadata(file_log_path.clone()).expect("Failed to get metadata");
-                        #[cfg(target_os = "linux")]
-                        if file_log_metadata.len() == 0 {
-                            fs::write(file_log_path, body.clone().clone())
-                                .expect("Failed to write file");
-                        }
-                        #[cfg(target_os = "windows")]
-                        if file_log_metadata.file_size() == 0 {
-                            fs::write(file_log_path, body.clone().clone())
-                                .expect("Failed to write file");
-                        }
+                        fs::write(file_log_path, body.clone())
+                            .expect("Failed to write file");
                     }
+
+                    // if !file_log_path.exists() {
+                    //     fs::write(file_log_path, body.clone().clone())
+                    //         .expect("Failed to write file");
+                    // } else {
+                    //     let file_log_metadata =
+                    //         fs::metadata(file_log_path.clone()).expect("Failed to get metadata");
+                    //     #[cfg(target_os = "linux")]
+                    //     if file_log_metadata.len() == 0 {
+                    //         fs::write(file_log_path, body.clone().clone())
+                    //             .expect("Failed to write file");
+                    //     }
+                    //     #[cfg(target_os = "windows")]
+                    //     if file_log_metadata.file_size() == 0 {
+                    //         fs::write(file_log_path, body.clone().clone())
+                    //             .expect("Failed to write file");
+                    //     }
+                    // }
                 }
             }
         });
