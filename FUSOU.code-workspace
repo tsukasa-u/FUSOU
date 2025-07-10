@@ -1,0 +1,26 @@
+{
+	"folders": [
+		{
+			"path": "packages/FUSOU-APP"
+		},
+		{
+			"path": "packages/FUSOU-PROXY"
+		},
+		{
+			"path": "packages/FUSOU-WEB"
+		},
+		{
+			"path": "packages/shared-ui"
+		},
+		{
+			"path": "docs"
+		},
+		{
+			"path": ".github"
+		}
+	],
+	"settings": {
+		"jupyter.disableJupyterAutoStart": true,
+		"vite.autoStart": false
+	}
+}
