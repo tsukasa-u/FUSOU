@@ -76,7 +76,7 @@ const icon_list: { [key: number]: string[] } = {
   56: ["#39B74E", "#3FAB14"], //  Interceptor
   57: ["#39B74E", "#76BA31"], //  Interceptor
   58: ["#39B74E", "#8F89C3"], //  Carrier-based Aircraft
-  59: ["#47B48F", "#E3E3E3"], //  Jet fightinh Bomber
+  59: ["#47B48F", "#E3E3E3"], //  All Flying Wing Jet Bomber
   60: ["#000000", "#000000"], //  Unknown
   61: ["#000000", "#000000"], //  Unknown
   62: ["#000000", "#000000"], //  Unknown
@@ -137,13 +137,13 @@ const category_list: { [key: number]: string } = {
   48: "AU", //  Army Units
   49: "SG", //  Smoke Generator
   50: "BB", //  Barrage Ballon
-  51: "UN", //  Unkown
+  51: "AB", //  All Flying Wing Jet Bomber
   52: "UN", //  Unkown
   53: "UN", //  Unkown
   54: "UN", //  Unkown
   55: "UN", //  Unkown
   56: "UN", //  Unkown
-  57: "JB", //  Jet Fighting Bomber
+  57: "UN", //  Unkown
   58: "UN", //  Unkown
   59: "UN", //  Unkown
 };
