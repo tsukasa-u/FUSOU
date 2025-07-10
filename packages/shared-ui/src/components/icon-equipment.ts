@@ -1,9 +1,9 @@
-import { html, LitElement, svg } from "lit";
+import { css, html, LitElement, svg } from "lit";
 import { customElement, property } from "lit/decorators.js";
 import { unsafeCSS } from "lit";
 import globalStyles from "../global.css?inline";
 import get_data from "../data/S@api_start2@getData.json";
-import require_info from "../data/S@api_get_member@require_info.json";
+// import require_info from "../data/S@api_get_member@require_info.json";
 import common_icon_weapon from "../data/common_icon_weapon.json";
 import common_icon_weapon_png from "../data/common_icon_weapon.png";
 import album_slot2 from "../data/album_slot2.json";
@@ -175,7 +175,17 @@ const bg_slash = [0, 1, 2, 3, 4, 5, 6, 7].map(
 
 @customElement("icon-equipment")
 export class IconEquipment extends LitElement {
-  static styles = [unsafeCSS(globalStyles)];
+  static styles = [
+    css`
+      .roboto-mono-500 {
+        font-family: "Roboto Mono", monospace;
+        font-optical-sizing: auto;
+        font-weight: 500;
+        font-style: normal;
+      }
+    `,
+    unsafeCSS(globalStyles),
+  ];
 
   @property({ type: Number })
   icon_number = 0;
@@ -200,13 +210,11 @@ export class IconEquipment extends LitElement {
         "fill-base-content",
         class_size[this.size],
       ].join(" ")}
-      style=${this.style}
     >
       <text
-        font-family="monospace,sans-serif"
-        font-weight="400"
-        font-size="92"
-        transform="translate(25 104)"
+        class="roboto-mono-500"
+        font-size="80"
+        transform="translate(28 104)"
       >
         ${category_list[this.category_number]}
       </text>
