@@ -30,10 +30,11 @@ packages/FUSOU-PROXY/proxy_rust/proxy-https/proxy.pac
 
 packages/FUSOU-APP/src/pages/vanilla/env.js
 
-.env.keys
 packages/FUSOU-APP/src-tauri/user/ENV_UNIQ_ID
 
 *storybook.log
 storybook-static
 packages/FUSOU-PROXY/proxy_rust/proxy-https/proxy.pac
 packages/FUSOU-APP/src-tauri/gen/
+
+packages/env.keys
