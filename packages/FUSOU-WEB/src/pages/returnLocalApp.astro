@@ -54,11 +54,11 @@ if (
 
           return_params =
             "provider_refresh_token=" +
-            providerRefreshToken +
+            providerRefreshToken.value +
             "&provider=google&supabase_access_token=" +
-            accessToken +
+            accessToken.value +
             "&supabase_refresh_token=" +
-            refreshToken;
+            refreshToken.value;
           return_href = `fusou://auth?${return_params}`;
         });
     }
@@ -146,7 +146,6 @@ Astro.cookies.delete("sb-provider", { path: "/" });
                 <button
                   id="copy-button"
                   class="btn btn-ghost rounded-box p-2 items-center justify-center label"
-                  onclick="copy_token()"
                   ><label class="swap" id="copy-swap-id">
                     <div class="swap-off">
                       <svg
@@ -232,19 +231,22 @@ Astro.cookies.delete("sb-provider", { path: "/" });
 ></script>
 <script>
   const copy_token = () => {
-    // const swap_label = document.getElementById("copy-swap-id");
-    // swap_label.classList.add("swap-active");
-    // const input_text = document.getElementById("tokens")!;
-    // if (navigator.clipboard) {
-    //   navigator.clipboard.writeText(input_text.value);
-    // } else {
-    //   input_text.select();
-    //   document.execCommand("copy");
-    // }
-    // new Promise<void>((resolve, reject) => {
-    //   setTimeout(() => resolve(), 2000);
-    // }).then(() => {
-    //   swap_label.classList.remove("swap-active");
-    // });
+    const swap_label = document.getElementById("copy-swap-id");
+    swap_label.classList.add("swap-active");
+    const input_text = document.getElementById("tokens")! as HTMLInputElement;
+    console.log(input_text.value);
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(input_text.value);
+    } else {
+      input_text.select();
+      document.execCommand("copy");
+    }
+    new Promise<void>((resolve, reject) => {
+      setTimeout(() => resolve(), 2000);
+    }).then(() => {
+      swap_label.classList.remove("swap-active");
+    });
   };
+  const copy_button = document.getElementById("copy-button")!;
+  copy_button.addEventListener("click", copy_token);
 </script>

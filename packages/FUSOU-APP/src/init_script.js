@@ -52,3 +52,18 @@ const observer = new MutationObserver(() => {
 window.addEventListener('urlChange', () => {
     console.log('URL changed', location.href);
 });
+
+window.addEventListener('keydown', function(event) {
+  if (event.code === 'F5') {
+    if (event.shiftKey) {
+        let ua = window.navigator.userAgent.toLowerCase();
+        if(ua.indexOf("firefox") !== -1 || ua.indexOf("fxios") !== -1) {
+            window.location.reload(forceGet=true);
+        } else {
+            window.location.reload();
+        }
+    } else {
+        window.location.reload();
+    }
+  }
+});
