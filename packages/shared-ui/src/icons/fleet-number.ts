@@ -2,6 +2,7 @@ import { css, html, LitElement, svg } from "lit";
 import { customElement, property } from "lit/decorators.js";
 import { unsafeCSS } from "lit";
 import globalStyles from "../global.css?inline";
+import fontStyles from "../font.css?inline";
 import { ifDefined } from "lit/directives/if-defined.js";
 
 export interface IconFleetNumberProps {
@@ -66,6 +67,7 @@ export class IconFleetNumber extends LitElement {
       }
     `,
     unsafeCSS(globalStyles),
+    unsafeCSS(fontStyles),
   ];
 
   @property({ type: String })
@@ -105,7 +107,6 @@ export class IconFleetNumber extends LitElement {
         "fill-base-content",
         class_size[this.size],
       ].join(" ")}
-      style=${this.style}
     >
       <text
         class="roboto-mono-500"
