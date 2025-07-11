@@ -1,10 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/web-components-vite";
 
-import type { IconFleetNumberProps } from "./icon-fleet-number";
-import {
-  IconFleetNumberCatalog,
-  IconFleetNumberBasic,
-} from "./icon-fleet-number";
+import type { IconFleetNumberProps } from "./fleet-number";
+import { IconFleetNumberCatalog, IconFleetNumberBasic } from "./fleet-number";
 
 const size_list = ["full", "none", "xs", "sm", "md", "lg", "xl"];
 

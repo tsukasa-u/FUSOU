@@ -1,30 +1,33 @@
 import type { Meta, StoryObj } from "@storybook/web-components-vite";
 
-import type { IconKiraProps } from "./icon-kira";
-import { IconKiraBasic, IconKiraCatalog } from "./icon-kira";
+import type { IconShipProps } from "./ship";
+import { IconShipBasic, IconShipCatalog } from "./ship";
 
 const size_list = ["full", "none", "xs", "sm", "md", "lg", "xl"];
 
 const meta = {
-  title: "FUSOU/icons/icon-kira",
+  title: "FUSOU/icons/icon-ship",
   tags: ["autodocs"],
-} satisfies Meta<IconKiraProps>;
+} satisfies Meta<IconShipProps>;
 
 export default meta;
-type Story = StoryObj<IconKiraProps>;
+type Story = StoryObj<IconShipProps>;
 
 export const basic: Story = {
-  render: (args) => IconKiraBasic(args),
+  render: (args) => IconShipBasic(args),
   name: "Basic",
   argTypes: {
-    kira_type: {
+    ship_stype: {
       control: { type: "select" },
-      options: [1, 2, 3],
+      options: [1, 2, 3, 4, 5],
+    },
+    color: {
+      control: { type: "select" },
+      options: [undefined, "", "-", "elite", "flagship"],
     },
     size: {
       control: { type: "select" },
       options: size_list,
-
       table: {
         defaultValue: { summary: "xs" },
         type: {
@@ -34,16 +37,20 @@ export const basic: Story = {
     },
   },
   args: {
-    kira_type: 1,
     size: "full",
+    ship_stype: 1,
+    color: "",
   },
 };
 
 export const catalog: Story = {
-  render: (_) => IconKiraCatalog(),
+  render: (_) => IconShipCatalog(),
   name: "Catalog",
   argTypes: {
-    kira_type: {
+    ship_stype: {
+      control: { disable: true },
+    },
+    color: {
       control: { disable: true },
     },
     size: {

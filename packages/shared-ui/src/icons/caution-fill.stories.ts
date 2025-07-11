@@ -1,29 +1,32 @@
 import type { Meta, StoryObj } from "@storybook/web-components-vite";
 
-import type { IconMaterialProps } from "./icon-material";
-import {
-  IconMaterialBasic,
-  IconMaterialCatalog,
-  IconMaterialCatalogDetail,
-} from "./icon-material";
+import type { IconCautionFillProps } from "./caution-fill";
+import { IconCautionFillBasic, IconCautionFillCatalog } from "./caution-fill";
 
 const size_list = ["full", "none", "xs", "sm", "md", "lg", "xl"];
+const caution_level = ["low", "middle", "high"];
 
 const meta = {
-  title: "FUSOU/icons/icon-material",
+  title: "FUSOU/icons/icon-caution-fill",
   tags: ["autodocs"],
-} satisfies Meta<IconMaterialProps>;
+} satisfies Meta<IconCautionFillProps>;
 
 export default meta;
-type Story = StoryObj<IconMaterialProps>;
+type Story = StoryObj<IconCautionFillProps>;
 
 export const basic: Story = {
-  render: (args) => IconMaterialBasic(args),
+  render: (args) => IconCautionFillBasic(args),
   name: "Basic",
   argTypes: {
-    item_number: {
+    level: {
       control: { type: "select" },
-      options: [1, 2, 3, 4, 5],
+      option: caution_level,
+      table: {
+        defaultValue: { summary: "low" },
+        type: {
+          summary: caution_level.join("\|"),
+        },
+      },
     },
     size: {
       control: { type: "select" },
@@ -37,29 +40,16 @@ export const basic: Story = {
     },
   },
   args: {
-    item_number: 1,
+    level: "middle",
     size: "full",
   },
 };
 
 export const catalog: Story = {
-  render: (_) => IconMaterialCatalog(),
+  render: (_) => IconCautionFillCatalog(),
   name: "Catalog",
   argTypes: {
-    item_number: {
-      control: { disable: true },
-    },
-    size: {
-      control: { disable: true },
-    },
-  },
-};
-
-export const catalog_detail: Story = {
-  render: (_) => IconMaterialCatalogDetail(),
-  name: "CatalogDetail",
-  argTypes: {
-    item_number: {
+    level: {
       control: { disable: true },
     },
     size: {

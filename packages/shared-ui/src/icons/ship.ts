@@ -2,6 +2,7 @@ import { css, html, LitElement, svg } from "lit";
 import { customElement, property } from "lit/decorators.js";
 import { unsafeCSS } from "lit";
 import globalStyles from "../global.css?inline";
+import fontStyles from "../font.css?inline";
 import { ifDefined } from "lit/directives/if-defined.js";
 import get_data from "../data/S@api_start2@getData.json";
 // import require_info from "../data/S@api_get_member@require_info.json";
@@ -88,6 +89,7 @@ export class IconShip extends LitElement {
       }
     `,
     unsafeCSS(globalStyles),
+    unsafeCSS(fontStyles),
   ];
 
   @property({ type: Number })
@@ -118,7 +120,6 @@ export class IconShip extends LitElement {
         "fill-base-content",
         class_size[this.size],
       ].join(" ")}
-      style=${this.style}
     >
       <text
         class="roboto-mono-500"

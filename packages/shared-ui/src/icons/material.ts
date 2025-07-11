@@ -2,6 +2,7 @@ import { css, html, LitElement, svg } from "lit";
 import { customElement, property } from "lit/decorators.js";
 import { unsafeCSS } from "lit";
 import globalStyles from "../global.css?inline";
+import fontStyles from "../font.css?inline";
 import get_data from "../data/S@api_start2@getData.json";
 // import require_info from "../data/S@api_get_member@require_info.json";
 import common_itemicons from "../data/common_itemicons.json";
@@ -171,6 +172,7 @@ export class IconMaterial extends LitElement {
       }
     `,
     unsafeCSS(globalStyles),
+    unsafeCSS(fontStyles),
   ];
 
   @property({ type: Number })
