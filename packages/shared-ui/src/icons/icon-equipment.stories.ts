@@ -10,7 +10,7 @@ import {
 const size_list = ["full", "none", "xs", "sm", "md", "lg", "xl"];
 
 const meta = {
-  title: "FUSOU/icon-equipment",
+  title: "FUSOU/icons/icon-equipment",
   tags: ["autodocs"],
 } satisfies Meta<IconEquipmentProps>;
 

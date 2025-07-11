@@ -1,29 +1,36 @@
 import type { Meta, StoryObj } from "@storybook/web-components-vite";
 
-import type { IconShipProps } from "./icon-ship";
-import { IconShipBasic, IconShipCatalog } from "./icon-ship";
+import type { IconFleetNumberProps } from "./icon-fleet-number";
+import {
+  IconFleetNumberCatalog,
+  IconFleetNumberBasic,
+} from "./icon-fleet-number";
 
 const size_list = ["full", "none", "xs", "sm", "md", "lg", "xl"];
 
 const meta = {
-  title: "FUSOU/icon-ship",
+  title: "FUSOU/icons/icon-fleet-number",
   tags: ["autodocs"],
-} satisfies Meta<IconShipProps>;
+} satisfies Meta<IconFleetNumberProps>;
 
 export default meta;
-type Story = StoryObj<IconShipProps>;
+type Story = StoryObj<IconFleetNumberProps>;
 
 export const basic: Story = {
-  render: (args) => IconShipBasic(args),
+  render: (args) => IconFleetNumberBasic(args),
   name: "Basic",
   argTypes: {
-    ship_stype: {
+    combined_flag: {
       control: { type: "select" },
-      options: [1, 2, 3, 4, 5],
+      options: [true, false, undefined],
     },
-    color: {
+    ship_number: {
       control: { type: "select" },
-      options: [undefined, "", "-", "elite", "flagship"],
+      options: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+    },
+    fleet_number: {
+      control: { type: "select" },
+      options: [1, 2, 3, 4],
     },
     size: {
       control: { type: "select" },
@@ -38,19 +45,23 @@ export const basic: Story = {
   },
   args: {
     size: "full",
-    ship_stype: 1,
-    color: "",
+    combined_flag: undefined,
+    fleet_number: 1,
+    ship_number: 1,
   },
 };
 
 export const catalog: Story = {
-  render: (_) => IconShipCatalog(),
+  render: (_) => IconFleetNumberCatalog(),
   name: "Catalog",
   argTypes: {
-    ship_stype: {
+    combined_flag: {
       control: { disable: true },
     },
-    color: {
+    fleet_number: {
+      control: { disable: true },
+    },
+    ship_number: {
       control: { disable: true },
     },
     size: {
