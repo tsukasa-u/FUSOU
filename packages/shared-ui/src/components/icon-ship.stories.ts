@@ -28,7 +28,6 @@ export const basic: Story = {
     size: {
       control: { type: "select" },
       options: size_list,
-
       table: {
         defaultValue: { summary: "xs" },
         type: {
@@ -59,19 +58,3 @@ export const catalog: Story = {
     },
   },
 };
-
-// export const catalog_detail: Story = {
-//   render: (_) => EquipmentCatalogDetail(),
-//   name: "CatalogDetail",
-//   argTypes: {
-//     icon_number: {
-//       control: { disable: true },
-//     },
-//     category_number: {
-//       control: { disable: true },
-//     },
-//     size: {
-//       control: { disable: true },
-//     },
-//   },
-// };
