@@ -1,5 +1,5 @@
+@import url("https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@500&display=swap");
 @import "tailwindcss";
 @plugin "daisyui" {
   themes: all;
 }
-@import url("https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@500&display=swap");
