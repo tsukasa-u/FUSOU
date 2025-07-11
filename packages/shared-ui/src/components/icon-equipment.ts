@@ -213,7 +213,9 @@ export class IconEquipment extends LitElement {
     >
       <text
         class="roboto-mono-500"
-        font-size="80"
+        font-size="96"
+        textLength="96"
+        lengthAdjust="spacingAndGlyphs"
         transform="translate(28 104)"
       >
         ${category_list[this.category_number]}

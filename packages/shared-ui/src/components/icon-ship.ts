@@ -122,7 +122,9 @@ export class IconShip extends LitElement {
     >
       <text
         class="roboto-mono-500"
-        font-size="80"
+        font-size="96"
+        textLength="${name.length * 48}"
+        lengthAdjust="spacingAndGlyphs"
         transform="translate(${28 - (name.length - 3) * 24} 104)"
       >
         ${name}
