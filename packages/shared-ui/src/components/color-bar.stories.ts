@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/web-components-vite";
 
 import type { ComponentColorBarProps } from "./color-bar";
-import { ComponentColorBarBasic } from "./color-bar";
+import { ComponentColorBarBasic, ComponentColorBarCatalog } from "./color-bar";
 
 const size_list = ["none", "xs", "sm", "md", "lg", "xl"];
 
@@ -14,7 +14,7 @@ export default meta;
 type Story = StoryObj<ComponentColorBarProps>;
 
 export const basic: Story = {
-  render: (args) => ComponentColorBarBasic(args),
+  render: (args: ComponentColorBarProps) => ComponentColorBarBasic(args),
   name: "Basic",
   argTypes: {
     v_now: {
@@ -24,7 +24,7 @@ export const basic: Story = {
       control: { disable: true },
     },
     quantize: {
-      control: { type: "range", max: 10, min: 1 },
+      control: { type: "range", max: 10, min: 0 },
       table: {
         defaultValue: { summary: "undefined" },
         type: {
@@ -48,5 +48,24 @@ export const basic: Story = {
     v_max: 100,
     quantize: undefined,
     size: "xs",
+  },
+};
+
+export const catalog: Story = {
+  render: () => ComponentColorBarCatalog(),
+  name: "Catalog",
+  argTypes: {
+    v_now: {
+      control: { disable: true },
+    },
+    v_max: {
+      control: { disable: true },
+    },
+    quantize: {
+      control: { disable: true },
+    },
+    size: {
+      control: { disable: true },
+    },
   },
 };
