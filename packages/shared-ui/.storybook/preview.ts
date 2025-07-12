@@ -3,6 +3,7 @@ import type {
   WebComponentsRenderer,
 } from "@storybook/web-components-vite";
 import "../src/global.css";
+import "../src/font.css";
 import { withThemeByDataAttribute } from "@storybook/addon-themes";
 
 const preview: Preview = {
