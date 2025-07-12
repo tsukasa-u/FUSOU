@@ -18,7 +18,7 @@ export default meta;
 type Story = StoryObj<IconMaterialProps>;
 
 export const basic: Story = {
-  render: (args) => IconMaterialBasic(args),
+  render: (args: IconMaterialProps) => IconMaterialBasic(args),
   name: "Basic",
   argTypes: {
     item_number: {
@@ -43,7 +43,7 @@ export const basic: Story = {
 };
 
 export const catalog: Story = {
-  render: (_) => IconMaterialCatalog(),
+  render: () => IconMaterialCatalog(),
   name: "Catalog",
   argTypes: {
     item_number: {
@@ -56,7 +56,7 @@ export const catalog: Story = {
 };
 
 export const catalog_detail: Story = {
-  render: (_) => IconMaterialCatalogDetail(),
+  render: () => IconMaterialCatalogDetail(),
   name: "CatalogDetail",
   argTypes: {
     item_number: {

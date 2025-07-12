@@ -14,7 +14,7 @@ export default meta;
 type Story = StoryObj<IconFleetNumberProps>;
 
 export const basic: Story = {
-  render: (args) => IconFleetNumberBasic(args),
+  render: (args: IconFleetNumberProps) => IconFleetNumberBasic(args),
   name: "Basic",
   argTypes: {
     combined_flag: {
@@ -49,7 +49,7 @@ export const basic: Story = {
 };
 
 export const catalog: Story = {
-  render: (_) => IconFleetNumberCatalog(),
+  render: () => IconFleetNumberCatalog(),
   name: "Catalog",
   argTypes: {
     combined_flag: {
