@@ -14,7 +14,7 @@ export default meta;
 type Story = StoryObj<IconShipProps>;
 
 export const basic: Story = {
-  render: (args) => IconShipBasic(args),
+  render: (args: IconShipProps) => IconShipBasic(args),
   name: "Basic",
   argTypes: {
     ship_stype: {
@@ -44,7 +44,7 @@ export const basic: Story = {
 };
 
 export const catalog: Story = {
-  render: (_) => IconShipCatalog(),
+  render: () => IconShipCatalog(),
   name: "Catalog",
   argTypes: {
     ship_stype: {

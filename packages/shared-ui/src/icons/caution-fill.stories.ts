@@ -15,7 +15,7 @@ export default meta;
 type Story = StoryObj<IconCautionFillProps>;
 
 export const basic: Story = {
-  render: (args) => IconCautionFillBasic(args),
+  render: (args: IconCautionFillProps) => IconCautionFillBasic(args),
   name: "Basic",
   argTypes: {
     level: {
@@ -46,7 +46,7 @@ export const basic: Story = {
 };
 
 export const catalog: Story = {
-  render: (_) => IconCautionFillCatalog(),
+  render: () => IconCautionFillCatalog(),
   name: "Catalog",
   argTypes: {
     level: {

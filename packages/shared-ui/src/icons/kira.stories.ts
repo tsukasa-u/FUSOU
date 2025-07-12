@@ -14,7 +14,7 @@ export default meta;
 type Story = StoryObj<IconKiraProps>;
 
 export const basic: Story = {
-  render: (args) => IconKiraBasic(args),
+  render: (args: IconKiraProps) => IconKiraBasic(args),
   name: "Basic",
   argTypes: {
     kira_type: {
@@ -40,7 +40,7 @@ export const basic: Story = {
 };
 
 export const catalog: Story = {
-  render: (_) => IconKiraCatalog(),
+  render: () => IconKiraCatalog(),
   name: "Catalog",
   argTypes: {
     kira_type: {
