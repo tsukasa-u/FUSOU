@@ -5,6 +5,8 @@ import { ComponentEquipmentTableBasic } from "./equipment-table";
 import { default_slotitem } from "../interface/require_info";
 import { default_mst_slot_item } from "../interface/get_data";
 
+const size_list = ["xs", "sm", "md", "lg", "xl"];
+
 const meta = {
   title: "FUSOU/components/component-equipment-table",
   tags: ["autodocs"],
@@ -17,8 +19,20 @@ export const basic: Story = {
   render: (args: ComponentEquipmentTableProps) =>
     ComponentEquipmentTableBasic(args),
   name: "Basic",
-  argTypes: {},
+  argTypes: {
+    size: {
+      control: { type: "select" },
+      options: size_list,
+      table: {
+        defaultValue: { summary: "sm" },
+        type: {
+          summary: size_list.join("\|"),
+        },
+      },
+    },
+  },
   args: {
+    size: "sm",
     slot_item: {
       ...default_slotitem,
       slotitem_id: 267,
