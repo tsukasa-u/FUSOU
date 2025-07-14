@@ -1,0 +1,112 @@
+import { html, LitElement, unsafeCSS } from "lit";
+import { customElement, property, state } from "lit/decorators.js";
+import globalStyles from "../global.css?inline";
+
+import { default_slotitem, type SlotItem } from "../interface/require_info";
+import { default_mst_slot_item, type MstSlotitem } from "../interface/get_data";
+import { ifDefined } from "lit/directives/if-defined.js";
+
+import "./equipment";
+import "./equipment-table";
+import { createRef, ref } from "lit/directives/ref.js";
+
+export interface ComponentEquipmentModalProps {
+  mst_slot_item: MstSlotitem;
+  slot_item: SlotItem;
+  ex_flag?: boolean;
+  name_flag?: boolean;
+  onslot?: number;
+  size: "xs" | "sm" | "md" | "lg" | "xl";
+}
+
+@customElement("component-equipment-modal")
+export class ComponentEquipmentModal extends LitElement {
+  static styles = [unsafeCSS(globalStyles)];
+
+  @property({ type: Object })
+  slot_item: SlotItem = default_slotitem;
+
+  @property({ type: Object })
+  mst_slot_item: MstSlotitem = default_mst_slot_item;
+
+  @property({ type: Boolean })
+  ex_flag: boolean = false;
+
+  @property({ type: Number })
+  onslot: number = 0;
+
+  @property({ type: Boolean })
+  name_flag: boolean = false;
+
+  @property({ type: String })
+  size: "xs" | "sm" | "md" | "lg" | "xl" = "xs";
+
+  @state()
+  dialogRef = createRef<HTMLDialogElement>();
+
+  private open_modal() {
+    const dialogElement = this.dialogRef.value!;
+    dialogElement?.showModal();
+  }
+
+  dialogTemplete() {
+    return html`<dialog
+      id=${`equipment_modal_${this.slot_item.id}`}
+      ${ref(this.dialogRef)}
+      class="modal"
+    >
+      <div class="modal-box bg-base-100 modal-box-width">
+        <form method="dialog">
+          <button
+            class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2"
+          >
+            <!-- <IconXMark class="h-6 w-6" /> -->
+            X
+          </button>
+        </form>
+        <component-equipment-table
+          .slot_item=${this.slot_item}
+          .mst_slot_item=${this.mst_slot_item}
+        ></component-equipment-table>
+      </div>
+      <form method="dialog" class="modal-backdrop">
+        <button>close</button>
+      </form>
+    </dialog>`;
+  }
+
+  render() {
+    return html`
+      <div class="w-full cursor-pointer" @click="${this.open_modal}">
+        <component-equipment
+          .slot_item=${this.slot_item}
+          .mst_slot_item=${this.mst_slot_item}
+          size=${this.size}
+          ?name_flag=${this.name_flag}
+          ?ex_flag=${this.ex_flag}
+          onslot=${this.onslot}
+        ></component-equipment>
+      </div>
+      ${this.dialogTemplete()}
+    `;
+  }
+}
+
+declare global {
+  interface HTMLElementTagNameMap {
+    "component-equipment-modal": ComponentEquipmentModal;
+  }
+}
+
+export const ComponentEquipmentModalBasic = (
+  args: ComponentEquipmentModalProps
+) => {
+  return html`<component-equipment-modal
+    .slot_item=${args.slot_item}
+    .mst_slot_item=${args.mst_slot_item}
+    ?ex_flag=${args.ex_flag}
+    ?name_flag=${args.name_flag}
+    onslot=${ifDefined(args.onslot)}
+    size=${args.size}
+  ></component-equipment-modal>`;
+};
