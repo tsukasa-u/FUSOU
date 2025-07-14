@@ -4,11 +4,46 @@ import globalStyles from "../global.css?inline";
 
 import { default_slotitem, type SlotItem } from "../interface/require_info";
 import { default_mst_slot_item, type MstSlotitem } from "../interface/get_data";
+import { ifDefined } from "lit/directives/if-defined.js";
 
 export interface ComponentEquipmentTableProps {
   mst_slot_item: MstSlotitem;
   slot_item: SlotItem;
+  size?: "xs" | "sm" | "md" | "lg" | "xl";
 }
+
+const class_size = {
+  xs: {
+    name_text: "text-sm",
+    level_text: "text-xs",
+    caption_text: "text-xs",
+    table: "table-xs",
+  },
+  sm: {
+    name_text: "text-md",
+    level_text: "text-sm",
+    caption_text: "text-sm",
+    table: "table-sm",
+  },
+  md: {
+    name_text: "text-lg",
+    level_text: "text-md",
+    caption_text: "text-md",
+    table: "table-md",
+  },
+  lg: {
+    name_text: "text-xl",
+    level_text: "text-lg",
+    caption_text: "text-lg",
+    table: "table-lg",
+  },
+  xl: {
+    name_text: "text-2xl",
+    level_text: "text-xl",
+    caption_text: "text-xl",
+    table: "table-xl",
+  },
+};
 
 const signed_number = (number: number): string =>
   number != 0 ? (number >= 0 ? "+" + String(number) : String(number)) : "";
@@ -23,19 +58,25 @@ export class ComponentEquipmentTable extends LitElement {
   @property({ type: Object })
   mst_slot_item: MstSlotitem = default_mst_slot_item;
 
+  @property({ type: String })
+  size: keyof typeof class_size = "sm";
+
   render() {
     return html`
-      <div class="flex justify-start">
-        <h3 class="font-bold text-base pl-3 truncate">
+      <div class="flex justify-start cursor-default">
+        <h3 class=${[
+          "font-bold pl-3 truncate",
+          class_size[this.size].name_text,
+        ].join(" ")}>
           ${this.mst_slot_item.name ?? "Unknown"}
         </h3>
-        <div class="place-self-end pb pl-4 text-sm text-accent">
+        <div class=${["place-self-end pb pl-4 text-accent", class_size[this.size].level_text].join(" ")}>
           ${signed_number(this.slot_item.level ?? 0)}
         </div>
       </div>
-      <div class="pt-2">
-        <table class="table table-sm">
-          <caption class="truncate pb-2">
+      <div class="pt-2 cursor-default">
+        <table class=${["table", class_size[this.size].table].join(" ")}>
+          <caption class=${["truncate pb-2", class_size[this.size].caption_text].join(" ")}>
             Equipment Status
           </caption>
           <tbody>
@@ -119,5 +160,6 @@ export const ComponentEquipmentTableBasic = (
   return html`<component-equipment-table
     .slot_item=${args.slot_item}
     .mst_slot_item=${args.mst_slot_item}
+    size=${ifDefined(args.size)}
   ></component-equipment-table>`;
 };
