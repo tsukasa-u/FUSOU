@@ -1,6 +1,6 @@
 import { html, LitElement, unsafeCSS } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
-import globalStyles from "../global.css?inline";
+import globalStyles from "../../global.css?inline";
 import { ifDefined } from "lit/directives/if-defined.js";
 
 export interface ComponentColorBarProps {

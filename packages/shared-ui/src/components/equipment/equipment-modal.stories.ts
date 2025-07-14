@@ -2,13 +2,13 @@ import type { Meta, StoryObj } from "@storybook/web-components-vite";
 
 import type { ComponentEquipmentModalProps } from "./equipment-modal";
 import { ComponentEquipmentModalBasic } from "./equipment-modal";
-import { default_slotitem } from "../interface/require_info";
-import { default_mst_slot_item } from "../interface/get_data";
+import { default_slotitem } from "../../interface/require_info";
+import { default_mst_slot_item } from "../../interface/get_data";
 
 const size_list = ["xs", "sm", "md", "lg", "xl"];
 
 const meta = {
-  title: "FUSOU/components/component-equipment-modal",
+  title: "FUSOU/components/equipment/component-equipment-modal",
   tags: ["autodocs"],
 } satisfies Meta<ComponentEquipmentModalProps>;
 

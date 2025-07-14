@@ -6,7 +6,7 @@ import { ComponentColorBarBasic, ComponentColorBarCatalog } from "./color-bar";
 const size_list = ["none", "xs", "sm", "md", "lg", "xl"];
 
 const meta = {
-  title: "FUSOU/components/component-color-bar",
+  title: "FUSOU/components/bar/component-color-bar",
   tags: ["autodocs"],
 } satisfies Meta<ComponentColorBarProps>;
 
