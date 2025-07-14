@@ -105,6 +105,7 @@ export class IconFleetNumber extends LitElement {
       class=${[
         "text-base-content",
         "fill-base-content",
+        "cursor-inherit",
         class_size[this.size],
       ].join(" ")}
     >

@@ -137,7 +137,7 @@ export class ComponentEquipment extends LitElement {
             </div>
             <div
               class=${[
-                "grid w-4 place-content-center",
+                "grid w-4 place-content-center cursor-inherit",
                 class_size[this.size].proficiency_onslot_h,
                 class_size[this.size].onslot_text,
               ].join(" ")}
@@ -151,7 +151,7 @@ export class ComponentEquipment extends LitElement {
       (this.name_flag ?? false)
         ? html` <div
             class=${[
-              "pl-3 truncate content-center",
+              "pl-3 truncate content-center cursor-inherit",
               class_size[this.size].name_text,
             ].join(" ")}
           >
