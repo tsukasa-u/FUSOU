@@ -15,10 +15,10 @@ export interface IconFleetNumberProps {
 
 const class_size = {
   xs: "h-6",
-  sm: "h-8",
-  md: "h-12",
-  lg: "h-20",
-  xl: "h-36",
+  sm: "h-7.5",
+  md: "h-9",
+  lg: "h-11",
+  xl: "h-14",
   full: "h-full",
   none: "",
 };
