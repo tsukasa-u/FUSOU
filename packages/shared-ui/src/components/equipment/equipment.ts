@@ -1,13 +1,16 @@
 import { html, LitElement, unsafeCSS } from "lit";
 import { customElement, property } from "lit/decorators.js";
-import globalStyles from "../global.css?inline";
+import globalStyles from "../../global.css?inline";
 
-import { default_slotitem, type SlotItem } from "../interface/require_info";
-import { default_mst_slot_item, type MstSlotitem } from "../interface/get_data";
+import { default_slotitem, type SlotItem } from "../../interface/require_info";
+import {
+  default_mst_slot_item,
+  type MstSlotitem,
+} from "../../interface/get_data";
 import { ifDefined } from "lit/directives/if-defined.js";
 
-import "../icons/equipment";
-import "../icons/plane-proficiency";
+import "../../icons/equipment";
+import "../../icons/plane-proficiency";
 
 export interface ComponentEquipmentProps {
   mst_slot_item: MstSlotitem;

@@ -2,13 +2,13 @@ import type { Meta, StoryObj } from "@storybook/web-components-vite";
 
 import type { ComponentEquipmentTableProps } from "./equipment-table";
 import { ComponentEquipmentTableBasic } from "./equipment-table";
-import { default_slotitem } from "../interface/require_info";
-import { default_mst_slot_item } from "../interface/get_data";
+import { default_slotitem } from "../../interface/require_info";
+import { default_mst_slot_item } from "../../interface/get_data";
 
 const size_list = ["xs", "sm", "md", "lg", "xl"];
 
 const meta = {
-  title: "FUSOU/components/component-equipment-table",
+  title: "FUSOU/components/equipment/component-equipment-table",
   tags: ["autodocs"],
 } satisfies Meta<ComponentEquipmentTableProps>;
 
