@@ -17,33 +17,33 @@ export interface ComponentEquipmentTableProps {
 
 const class_size = {
   xs: {
-    name_text: "text-sm",
-    level_text: "text-xs",
-    caption_text: "text-xs",
-    table: "table-xs",
-  },
-  sm: {
     name_text: "text-md",
     level_text: "text-sm",
     caption_text: "text-sm",
-    table: "table-sm",
+    table: "table-xs",
   },
-  md: {
+  sm: {
     name_text: "text-lg",
     level_text: "text-md",
     caption_text: "text-md",
-    table: "table-md",
+    table: "table-sm",
   },
-  lg: {
+  md: {
     name_text: "text-xl",
     level_text: "text-lg",
     caption_text: "text-lg",
-    table: "table-lg",
+    table: "table-md",
   },
-  xl: {
+  lg: {
     name_text: "text-2xl",
     level_text: "text-xl",
     caption_text: "text-xl",
+    table: "table-lg",
+  },
+  xl: {
+    name_text: "text-3xl",
+    level_text: "text-2xl",
+    caption_text: "text-2xl",
     table: "table-xl",
   },
 };
