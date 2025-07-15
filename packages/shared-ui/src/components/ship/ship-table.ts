@@ -1,4 +1,4 @@
-import { html, LitElement, unsafeCSS } from "lit";
+import { css, html, LitElement, unsafeCSS } from "lit";
 import { customElement, property } from "lit/decorators.js";
 import globalStyles from "../../global.css?inline";
 
@@ -92,7 +92,14 @@ const range_list = ["", "Short", "Medium", "Long", "Very Long"];
 
 @customElement("component-ship-table")
 export class ComponentShipTable extends LitElement {
-  static styles = [unsafeCSS(globalStyles)];
+  static styles = [
+    css`
+      .back_slash_color {
+        color: color-mix(in oklch, var(--color-base-content) 5%, #0000);
+      }
+    `,
+    unsafeCSS(globalStyles),
+  ];
 
   @property({ type: Object })
   ship: Ship = default_ship;
@@ -136,7 +143,7 @@ export class ComponentShipTable extends LitElement {
       return html`
         <tr
           class="flex rounded rounded items-center w-full ${classMap({
-            "text-base-300 bg-[size:16px_16px] bg-top-left bg-[image:repeating-linear-gradient(45deg,currentColor_0,currentColor_0.5px,transparent_0,transparent_50%)]":
+            "back_slash_color bg-[size:16px_16px] bg-top-left bg-[image:repeating-linear-gradient(45deg,currentColor_0,currentColor_0.5px,transparent_0,transparent_50%)]":
               this.ship.slotnum <= index,
           })}"
         >
@@ -154,7 +161,7 @@ export class ComponentShipTable extends LitElement {
       <tr
         class="flex rounded items-center  
           ${classMap({
-          "text-base-300 bg-[size:16px_16px] bg-top-left bg-[image:repeating-linear-gradient(45deg,currentColor_0,currentColor_0.5px,transparent_0,transparent_50%)]":
+          "back_slash_color bg-[size:16px_16px] bg-top-left bg-[image:repeating-linear-gradient(45deg,currentColor_0,currentColor_0.5px,transparent_0,transparent_50%)]":
             this.ship.slot_ex == 0,
         })}"
       >

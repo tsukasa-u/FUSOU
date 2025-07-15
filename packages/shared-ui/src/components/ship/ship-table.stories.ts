@@ -103,13 +103,13 @@ export const basic: Story = {
           id: 7355,
           slotitem_id: 303,
           locked: 1,
-          level: 0,
+          level: 6,
         },
         7571: {
           id: 7571,
           slotitem_id: 303,
           locked: 1,
-          level: 0,
+          level: 6,
         },
         8735: {
           id: 8735,
