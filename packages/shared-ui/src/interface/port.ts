@@ -66,7 +66,7 @@ export interface Ship {
   soku: number; // 速力
   leng: number; // 射程
   slot: number[]; // 装備 length: n
-  onsolot: number[]; // 艦載機搭載数 length: n
+  onslot: number[]; // 艦載機搭載数 length: n
   slot_ex: number; // 補強増設
   fuel: number; // 燃料
   bull: number; // 弾薬
@@ -83,6 +83,44 @@ export interface Ship {
   sally_area: number; // 出撃海域
   sp_effect_items?: SpEffectItems;
 }
+
+export const default_ship: Ship = {
+  id: 0,
+  ship_id: 0,
+  lv: 0,
+  exp: [0, 0, 0],
+  nowhp: 0,
+  maxhp: 0,
+  soku: 0,
+  leng: 0,
+  slot: [-1, -1, -1, -1, -1],
+  onslot: [0, 0, 0, 0, 0],
+  slot_ex: 0,
+  fuel: 0,
+  bull: 0,
+  slotnum: 0,
+  cond: 0,
+  karyoku: [0, 0],
+  raisou: [0, 0],
+  taiku: [0, 0],
+  soukou: [0, 0],
+  kaihi: [0, 0],
+  taisen: [0, 0],
+  sakuteki: [0, 0],
+  lucky: [0, 0],
+  sally_area: 0,
+  sp_effect_items: {
+    items: {
+      0: {
+        kind: 0,
+        raig: 0,
+        souk: 0,
+        houg: 0,
+        kaih: 0,
+      },
+    },
+  },
+};
 
 export interface SpEffectItems {
   items: { [key: number]: SpEffectItem };

@@ -20,6 +20,7 @@ export interface ComponentEquipmentModalProps {
   name_flag?: boolean;
   onslot?: number;
   size: "xs" | "sm" | "md" | "lg" | "xl";
+  empty_flag?: boolean;
 }
 
 @customElement("component-equipment-modal")
@@ -43,6 +44,9 @@ export class ComponentEquipmentModal extends LitElement {
 
   @property({ type: String })
   size: "xs" | "sm" | "md" | "lg" | "xl" = "xs";
+
+  @property({ type: Boolean })
+  empty_flag = false;
 
   @state()
   dialogRef = createRef<HTMLDialogElement>();
@@ -79,19 +83,26 @@ export class ComponentEquipmentModal extends LitElement {
   }
 
   render() {
-    return html`
-      <div class="w-full cursor-pointer" @click="${this.open_modal}">
-        <component-equipment
-          .slot_item=${this.slot_item}
-          .mst_slot_item=${this.mst_slot_item}
-          size=${this.size}
-          ?name_flag=${this.name_flag}
-          ?ex_flag=${this.ex_flag}
-          onslot=${this.onslot}
-        ></component-equipment>
-      </div>
-      ${this.dialogTemplete()}
-    `;
+    return !this.empty_flag
+      ? html`
+          <div class="w-full cursor-pointer" @click="${this.open_modal}">
+            <component-equipment
+              .slot_item=${this.slot_item}
+              .mst_slot_item=${this.mst_slot_item}
+              size=${this.size}
+              ?name_flag=${this.name_flag}
+              ?ex_flag=${this.ex_flag}
+              onslot=${this.onslot}
+            ></component-equipment>
+          </div>
+          ${this.dialogTemplete()}
+        `
+      : html`<div class="w-full cursor-default">
+          <component-equipment
+            size=${this.size}
+            ?empty_flag=${this.empty_flag}
+          ></component-equipment>
+        </div>`;
   }
 }
 
@@ -111,5 +122,6 @@ export const ComponentEquipmentModalBasic = (
     ?name_flag=${args.name_flag}
     onslot=${ifDefined(args.onslot)}
     size=${args.size}
+    ?empty_flag=${args.empty_flag}
   ></component-equipment-modal>`;
 };
