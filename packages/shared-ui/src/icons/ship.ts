@@ -133,7 +133,7 @@ export class IconShip extends LitElement {
       </text>
       <path
         d="m 9 32 C 9 19.85 18.85 10 31 10 L 167 10 C 179.15 10 189 19.85 189 32 l 0 88 C 189 132.15 179.15 142 167 142 L 31 142 C 18.85 142 9 132.15 9 120 Z"
-        stroke="#000000"
+        stroke="currentColor"
         stroke-width="4"
         stroke-linejoin="round"
         stroke-miterlimit="10"
