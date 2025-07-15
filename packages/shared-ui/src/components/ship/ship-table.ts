@@ -195,7 +195,8 @@ export class ComponentShipTable extends LitElement {
   render() {
     let sp_effect_item = this.SpEffectItem();
     let max_eq = this.maxEq();
-    return html` <div class="flex justify-start">
+    return html`<div class="cursor-default">
+      <div class="flex justify-start">
         <h3
           class=${[
             "font-bold pl-2 truncate",
@@ -350,7 +351,8 @@ export class ComponentShipTable extends LitElement {
             </tr>
           </tbody>
         </table>
-      </div>`;
+      </div>
+    </div>`;
   }
 }
 
