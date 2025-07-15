@@ -31,6 +31,39 @@ export interface MstShip {
   tais: number[];
 }
 
+export const default_mst_ship: MstShip = {
+  id: 0,
+  sortno: 0,
+  sort_id: 0,
+  name: "Unknown",
+  yomi: "あんのうん",
+  stype: 0,
+  ctype: 0,
+  afterlv: 0,
+  aftershipid: "",
+  taik: [0, 0],
+  souk: [0, 0],
+  houg: [0, 0],
+  raig: [0, 0],
+  tyku: [0, 0],
+  luck: [0, 0],
+  soku: 0,
+  leng: 0,
+  slot_num: 0,
+  maxeq: [0, 0, 0, 0, 0],
+  buildtime: 0,
+  broken: [0, 0, 0, 0],
+  powup: [0, 0, 0, 0],
+  backs: 0,
+  getmes: "",
+  afterfuel: 0,
+  afterbull: 0,
+  fuel_max: 0,
+  bull_max: 0,
+  voicef: 0,
+  tais: [0, 0],
+};
+
 export interface MstShips {
   mst_ships: { [key: number]: MstShip };
 }

@@ -15,6 +15,7 @@ export interface IconEquipmentProps {
   icon_number: number;
   category_number: number;
   size?: "full" | "none" | "xs" | "sm" | "md" | "lg" | "xl";
+  empty_flag?: boolean;
 }
 
 const icon_list: { [key: number]: string[] } = {
@@ -198,6 +199,9 @@ export class IconEquipment extends LitElement {
   @property({ type: String })
   size: keyof typeof class_size = "xs";
 
+  @property({ type: Boolean })
+  empty_flag = false;
+
   render() {
     return html` <svg
       fill="currentColor"
@@ -214,7 +218,8 @@ export class IconEquipment extends LitElement {
         class_size[this.size],
       ].join(" ")}
     >
-      <text
+      ${!this.empty_flag
+        ? svg`<text
         class="roboto-mono-500"
         font-size="96"
         textLength="96"
@@ -250,7 +255,8 @@ export class IconEquipment extends LitElement {
         stroke=${secondary_color(this.icon_number)}
         stroke-width="16"
       />
-      ${bg_slash}
+      ${bg_slash}`
+        : svg``}
     </svg>`;
   }
 }
@@ -266,6 +272,7 @@ export const IconEquipmentBasic = (args: IconEquipmentProps) => {
     icon_number=${args.icon_number}
     category_number=${args.category_number}
     size=${ifDefined(args.size)}
+    ?empty_flag=${args.empty_flag}
   ></icon-equipment>`;
 };
 

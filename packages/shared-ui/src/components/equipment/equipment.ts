@@ -19,6 +19,7 @@ export interface ComponentEquipmentProps {
   name_flag?: boolean;
   onslot?: number;
   size: "xs" | "sm" | "md" | "lg" | "xl";
+  empty_flag?: boolean;
 }
 
 const class_size = {
@@ -102,11 +103,14 @@ export class ComponentEquipment extends LitElement {
   @property({ type: String })
   size: keyof typeof class_size = "xs";
 
+  @property({ type: Boolean })
+  empty_flag = false;
+
   render() {
     let category_number = this.mst_slot_item.type[1];
     let icon_number = this.mst_slot_item.type[3];
     let level =
-      (this.slot_item.level ?? 0 > 0)
+      (this.slot_item.level ?? 0 > 0) && !this.empty_flag
         ? html` <div
             class=${[
               "badge badge-ghost w-0 rounded-full grid place-content-center text-accent",
@@ -116,42 +120,41 @@ export class ComponentEquipment extends LitElement {
             ${this.slot_item.level === 10 ? "★" : this.slot_item.level}
           </div>`
         : html``;
-    let proficiency_onslot = !(this.ex_flag ?? false)
-      ? html`
-          <div
-            class=""
-            class=${[
-              "flex-none",
-              class_size[this.size].proficiency_onslot_pl,
-              class_size[this.size].proficiency_onslot_mt,
-            ].join(" ")}
-          >
-            <div
-              class=${[
-                "grid w-4 place-content-center",
-                class_size[this.size].proficiency_onslot_h,
-              ].join(" ")}
-            >
-              <icon-plane-proficiency
-                class=${class_size[this.size].proficiency_onslot_h}
-                size="full"
-                level=${ifDefined(this.slot_item.alv)}
-              ></icon-plane-proficiency>
-            </div>
-            <div
-              class=${[
-                "grid w-4 place-content-center cursor-inherit",
-                class_size[this.size].proficiency_onslot_h,
-                class_size[this.size].onslot_text,
-              ].join(" ")}
-            >
-              ${show_onslot(this.mst_slot_item) ? this.onslot : ""}
-            </div>
-          </div>
-        `
-      : html``;
+    let proficiency_onslot = html`
+      <div
+        class=${[
+          "flex-none",
+          class_size[this.size].proficiency_onslot_pl,
+          class_size[this.size].proficiency_onslot_mt,
+        ].join(" ")}
+      >
+        ${!(this.ex_flag ?? false) && !this.empty_flag
+          ? html`<div
+                class=${[
+                  "grid w-4 place-content-center",
+                  class_size[this.size].proficiency_onslot_h,
+                ].join(" ")}
+              >
+                <icon-plane-proficiency
+                  class=${class_size[this.size].proficiency_onslot_h}
+                  size="full"
+                  level=${ifDefined(this.slot_item.alv)}
+                ></icon-plane-proficiency>
+              </div>
+              <div
+                class=${[
+                  "grid w-4 place-content-center cursor-inherit",
+                  class_size[this.size].proficiency_onslot_h,
+                  class_size[this.size].onslot_text,
+                ].join(" ")}
+              >
+                ${show_onslot(this.mst_slot_item) ? this.onslot : ""}
+              </div>`
+          : html`<div class="w-4"></div>`}
+      </div>
+    `;
     let name =
-      (this.name_flag ?? false)
+      (this.name_flag ?? false) && !this.empty_flag
         ? html` <div
             class=${[
               "pl-3 truncate content-center cursor-inherit",
@@ -169,6 +172,7 @@ export class ComponentEquipment extends LitElement {
             category_number=${category_number}
             icon_number=${icon_number}
             size=${this.size}
+            ?empty_flag=${this.empty_flag}
           ></icon-equipment>
         </div>
         ${proficiency_onslot} ${name}
@@ -191,5 +195,6 @@ export const ComponentEquipmentBasic = (args: ComponentEquipmentProps) => {
     ?name_flag=${args.name_flag}
     onslot=${ifDefined(args.onslot)}
     size=${args.size}
+    ?empty_flag=${args.empty_flag}
   ></component-equipment>`;
 };

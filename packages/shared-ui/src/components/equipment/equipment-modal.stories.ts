@@ -33,12 +33,14 @@ export const basic: Story = {
         },
       },
     },
+    empty_flag: { control: "boolean" },
   },
   args: {
     name_flag: false,
     ex_flag: false,
     onslot: 0,
     size: "xs",
+    empty_flag: false,
     slot_item: {
       ...default_slotitem,
       slotitem_id: 267,

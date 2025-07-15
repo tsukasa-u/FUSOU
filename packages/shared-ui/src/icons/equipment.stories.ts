@@ -40,11 +40,15 @@ export const basic: Story = {
         },
       },
     },
+    empty_flag: {
+      control: "boolean",
+    },
   },
   args: {
     icon_number: 1,
     category_number: 1,
     size: "full",
+    empty_flag: false,
   },
 };
 
