@@ -97,13 +97,6 @@ export class ComponentShipTable extends LitElement {
       .back_slash_color {
         color: color-mix(in oklch, var(--color-base-content) 5%, #0000);
       }
-      .hover_bg_color {
-        background-color: color-mix(
-          in oklch,
-          var(--color-base-content) 5%,
-          #0000
-        );
-      }
     `,
     unsafeCSS(globalStyles),
   ];
@@ -155,7 +148,7 @@ export class ComponentShipTable extends LitElement {
           })}"
         >
           <th class="flex-none w-4">S${index + 1}</th>
-          <td class="flex-none w-12 ml-4 py-1 w-full hover:bg-base-300">
+          <td class="flex-none w-12 ml-4 py-1 w-full">
             ${this.equipmentTemplete(slot, index, false)}
           </td>
         </tr>
