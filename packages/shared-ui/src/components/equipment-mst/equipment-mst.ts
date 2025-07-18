@@ -2,12 +2,10 @@ import { html, LitElement, unsafeCSS } from "lit";
 import { customElement, property } from "lit/decorators.js";
 import globalStyles from "../../global.css?inline";
 
-import { default_slotitem, type SlotItem } from "../../interface/require_info";
 import {
   default_mst_slot_item,
   type MstSlotitem,
 } from "../../interface/get_data";
-import { ifDefined } from "lit/directives/if-defined.js";
 
 import "../../icons/equipment";
 import "../../icons/plane-proficiency";
@@ -83,7 +81,7 @@ export class ComponentEquipmentMst extends LitElement {
           class_size[this.size].proficiency_onslot_mt,
         ].join(" ")}
       >
-        ${!(this.compact ?? false) ? html`` : html`<div class="w-4"></div>`}
+        ${(this.compact ?? false) ? html`` : html`<div class="w-4"></div>`}
       </div>
     `;
     let name =
@@ -101,7 +99,7 @@ export class ComponentEquipmentMst extends LitElement {
         : html``;
     return html`
       <div class="flex flex-nowarp w-full">
-        <div></div>
+        <div>
           <icon-equipment
             category_number=${category_number}
             icon_number=${icon_number}

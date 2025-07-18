@@ -1,27 +1,28 @@
 import type { Meta, StoryObj } from "@storybook/web-components-vite";
 
-import type { ComponentEquipmentMstProps } from "./equipment-mst";
-import { ComponentEquipmentMstBasic } from "./equipment-mst";
+import type { ComponentEquipmentMstModalProps } from "./equipment-mst-modal";
+import { ComponentEquipmentMstModalBasic } from "./equipment-mst-modal";
 import { default_slotitem } from "../../interface/require_info";
 import { default_mst_slot_item } from "../../interface/get_data";
 
 const size_list = ["xs", "sm", "md", "lg", "xl"];
 
 const meta = {
-  title: "FUSOU/components/equipment-masked/component-equipment-mst",
+  title: "FUSOU/components/equipment-mst/component-equipment-mst-modal",
   tags: ["autodocs"],
-} satisfies Meta<ComponentEquipmentMstProps>;
+} satisfies Meta<ComponentEquipmentMstModalProps>;
 
 export default meta;
-type Story = StoryObj<ComponentEquipmentMstProps>;
+type Story = StoryObj<ComponentEquipmentMstModalProps>;
 
 export const basic: Story = {
-  render: (args: ComponentEquipmentMstProps) =>
-    ComponentEquipmentMstBasic(args),
+  render: (args: ComponentEquipmentMstModalProps) =>
+    ComponentEquipmentMstModalBasic(args),
   name: "Basic",
   argTypes: {
     name_flag: { control: "boolean" },
     show_name: { control: "boolean" },
+    show_param: { control: "boolean" },
     compact: { control: "boolean" },
     size: {
       control: { type: "select" },
@@ -37,10 +38,11 @@ export const basic: Story = {
   },
   args: {
     name_flag: false,
-    show_name: true,
+    show_name: false,
+    show_param: false,
+    compact: false,
     size: "xs",
     empty_flag: false,
-    compact: false,
     mst_slot_item: {
       ...default_mst_slot_item,
       id: 156,
