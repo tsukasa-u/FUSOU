@@ -11,6 +11,7 @@ import { ifDefined } from "lit/directives/if-defined.js";
 export interface ComponentEquipmentMstTableProps {
   mst_slot_item: MstSlotitem;
   show_param?: boolean;
+  show_name?: boolean;
   size?: "xs" | "sm" | "md" | "lg" | "xl";
 }
 
@@ -61,7 +62,10 @@ export class ComponentEquipmentMstTable extends LitElement {
   size: keyof typeof class_size = "sm";
 
   @property({ type: Boolean })
-  show_param = true;
+  show_param = false;
+
+  @property({ type: Boolean })
+  show_name = false;
 
   render() {
     return html` <div class="flex justify-start cursor-default">
@@ -71,7 +75,7 @@ export class ComponentEquipmentMstTable extends LitElement {
             class_size[this.size].name_text,
           ].join(" ")}
         >
-          ${this.mst_slot_item.name ?? "Unknown"}
+          ${this.show_name ? (this.mst_slot_item.name ?? "Unknown") : "Unknown"}
         </h3>
       </div>
       <div class="pt-2 cursor-default">
@@ -186,6 +190,7 @@ export const ComponentEquipmentMstTableBasic = (
   return html`<component-equipment-mst-table
     .mst_slot_item=${args.mst_slot_item}
     ?show_param=${args.show_param}
+    ?show_name=${args.show_name}
     size=${ifDefined(args.size)}
   ></component-equipment-mst-table>`;
 };

@@ -72,6 +72,7 @@ export class ComponentEquipmentMstModal extends LitElement {
         <component-equipment-mst-table
           .mst_slot_item=${this.mst_slot_item}
           ?show_param=${this.show_param}
+          ?show_name=${this.show_name}
         ></component-equipment-mst-table>
       </div>
       <form method="dialog" class="modal-backdrop">
