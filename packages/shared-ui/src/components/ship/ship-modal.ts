@@ -19,6 +19,7 @@ import {
 
 import "./ship";
 import "./ship-table";
+import { ifDefined } from "lit/directives/if-defined.js";
 
 export interface ComponentEquipmentModalProps {
   mst_ship: MstShip;
@@ -26,6 +27,9 @@ export interface ComponentEquipmentModalProps {
   mst_slot_items: MstSlotitems;
   slot_items: SlotItems;
   size: "xs" | "sm" | "md" | "lg" | "xl";
+  color?: string;
+  name_flag?: boolean;
+  empty_flag?: boolean;
 }
 
 @customElement("component-ship-modal")
@@ -45,7 +49,16 @@ export class ComponentEquipmentModal extends LitElement {
   mst_slot_items: MstSlotitems = default_mst_slot_items;
 
   @property({ type: String })
+  color = "";
+
+  @property({ type: Boolean })
+  name_flag = false;
+
+  @property({ type: String })
   size: "xs" | "sm" | "md" | "lg" | "xl" = "xs";
+
+  @property({ type: Boolean })
+  empty_flag = false;
 
   @state()
   dialogRef = createRef<HTMLDialogElement>();
@@ -84,18 +97,24 @@ export class ComponentEquipmentModal extends LitElement {
   }
 
   render() {
-    return html`
-      <div class="w-full cursor-pointer" @click="${this.open_modal}">
-        <component-ship
-          .ship=${this.ship}
-          .mst_ship=${this.mst_ship}
-          size=${this.size}
-          color=${""}
-          ?compact=${false}
-        ></component-ship>
-      </div>
-      ${this.dialogTemplete()}
-    `;
+    return !this.empty_flag
+      ? html` <div class="w-full cursor-pointer" @click="${this.open_modal}">
+            <component-ship
+              .ship=${this.ship}
+              .mst_ship=${this.mst_ship}
+              size=${this.size}
+              color=${this.color}
+              ?name_flag=${this.name_flag}
+            ></component-ship>
+          </div>
+          ${this.dialogTemplete()}`
+      : html`<div class="w-full cursor-default">
+          <component-ship
+            size=${this.size}
+            ?empty_flag=${this.empty_flag}
+            ?name_flag=${false}
+          ></component-ship>
+        </div>`;
   }
 }
 
@@ -114,5 +133,8 @@ export const ComponentEquipmentModalBasic = (
     .ship=${args.ship}
     .mst_ship=${args.mst_ship}
     size=${args.size}
+    color=${ifDefined(args.color)}
+    ?empty_flag=${args.empty_flag}
+    ?name_flag=${args.name_flag}
   ></component-ship-modal>`;
 };

@@ -30,10 +30,14 @@ export const basic: Story = {
     name_flag: {
       control: { type: "boolean" },
     },
+    empty_flag: {
+      control: { type: "boolean" },
+    },
   },
   args: {
     size: "sm",
     name_flag: false,
+    empty_flag: false,
     ship: {
       id: 4299,
       ship_id: 668,

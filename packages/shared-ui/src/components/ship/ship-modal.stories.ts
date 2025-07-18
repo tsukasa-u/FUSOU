@@ -18,6 +18,16 @@ export const basic: Story = {
     ComponentEquipmentModalBasic(args),
   name: "Basic",
   argTypes: {
+    color: {
+      control: { type: "select" },
+      options: [undefined, "", "-", "elite", "flagship"],
+    },
+    empty_flag: {
+      control: "boolean",
+    },
+    name_flag: {
+      control: "boolean",
+    },
     size: {
       control: { type: "select" },
       options: size_list,
@@ -30,6 +40,9 @@ export const basic: Story = {
     },
   },
   args: {
+    color: undefined,
+    empty_flag: false,
+    name_flag: false,
     size: "sm",
     ship: {
       id: 4299,

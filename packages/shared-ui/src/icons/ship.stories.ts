@@ -25,6 +25,9 @@ export const basic: Story = {
       control: { type: "select" },
       options: [undefined, "", "-", "elite", "flagship"],
     },
+    empty_flag: {
+      control: "boolean",
+    },
     size: {
       control: { type: "select" },
       options: size_list,
@@ -40,6 +43,7 @@ export const basic: Story = {
     size: "full",
     ship_stype: 1,
     color: "",
+    empty_flag: false,
   },
 };
 
