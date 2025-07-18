@@ -100,7 +100,6 @@ export class ComponentEquipmentModal extends LitElement {
     return !this.empty_flag
       ? html` <div class="w-full cursor-pointer" @click="${this.open_modal}">
             <component-ship
-              .ship=${this.ship}
               .mst_ship=${this.mst_ship}
               size=${this.size}
               color=${this.color}

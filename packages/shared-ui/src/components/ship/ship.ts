@@ -3,7 +3,6 @@ import { customElement, property } from "lit/decorators.js";
 import { ifDefined } from "lit/directives/if-defined.js";
 import globalStyles from "../../global.css?inline";
 
-import { default_ship, type Ship } from "../../interface/port";
 import { default_mst_ship, type MstShip } from "../../interface/get_data";
 
 import "../../icons/ship";
@@ -11,7 +10,6 @@ import "../../icons/plane-proficiency";
 
 export interface ComponentShipProps {
   mst_ship: MstShip;
-  ship: Ship;
   color?: string;
   size: "xs" | "sm" | "md" | "lg" | "xl";
   name_flag?: boolean;
@@ -39,9 +37,6 @@ const class_size = {
 @customElement("component-ship")
 export class ComponentShip extends LitElement {
   static styles = [unsafeCSS(globalStyles)];
-
-  @property({ type: Object })
-  ship: Ship = default_ship;
 
   @property({ type: Object })
   mst_ship: MstShip = default_mst_ship;
@@ -96,7 +91,6 @@ declare global {
 
 export const ComponentShipBasic = (args: ComponentShipProps) => {
   return html`<component-ship
-    .ship=${args.ship}
     .mst_ship=${args.mst_ship}
     color=${ifDefined(args.color)}
     size=${args.size}
