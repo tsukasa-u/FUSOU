@@ -11,6 +11,7 @@ export interface IconShipProps {
   ship_stype: number;
   color?: string;
   size?: "full" | "none" | "xs" | "sm" | "md" | "lg" | "xl";
+  empty_flag?: boolean;
 }
 
 const icon_list: { [key: string]: string } = {
@@ -101,6 +102,9 @@ export class IconShip extends LitElement {
   @property({ type: String })
   color = "";
 
+  @property({ type: Boolean })
+  empty_flag = false;
+
   render() {
     const name = name_list[this.ship_stype ?? 0];
 
@@ -122,7 +126,8 @@ export class IconShip extends LitElement {
         class_size[this.size],
       ].join(" ")}
     >
-      <text
+      ${!this.empty_flag
+        ? svg`<text
         class="roboto-mono-500"
         font-size="96"
         textLength="${name.length * 48}"
@@ -156,7 +161,8 @@ export class IconShip extends LitElement {
         fill="none"
         fill-rule="evenodd"
       />
-      ${bg_slash}
+      ${bg_slash}`
+        : svg``}
     </svg>`;
   }
 }
@@ -172,6 +178,7 @@ export const IconShipBasic = (args: IconShipProps) => {
     ship_stype=${args.ship_stype}
     color=${ifDefined(args.color)}
     size=${ifDefined(args.size)}
+    ?empty_flag=${args.empty_flag}
   ></icon-ship>`;
 };
 

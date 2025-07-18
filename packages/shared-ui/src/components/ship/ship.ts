@@ -15,6 +15,7 @@ export interface ComponentShipProps {
   color?: string;
   size: "xs" | "sm" | "md" | "lg" | "xl";
   name_flag?: boolean;
+  empty_flag?: boolean;
 }
 
 const class_size = {
@@ -54,17 +55,20 @@ export class ComponentShip extends LitElement {
   @property({ type: Boolean })
   name_flag = false;
 
+  @property({ type: Boolean })
+  empty_flag = false;
+
   nameTemplete() {
-    return !(this.name_flag ?? false)
-      ? html``
-      : html`<div
+    return (this.name_flag ?? false) && !this.empty_flag
+      ? html`<div
           class=${[
             "pl-3 truncate content-center cursor-inherit",
             class_size[this.size].name_text,
           ].join(" ")}
         >
           ${this.mst_ship.name ?? "Unknown"}
-        </div>`;
+        </div>`
+      : html``;
   }
 
   render() {
@@ -73,8 +77,9 @@ export class ComponentShip extends LitElement {
         <div>
           <icon-ship
             ship_stype=${this.mst_ship.stype}
-            color=${""}
+            color=${this.color}
             size=${this.size}
+            ?empty_flag=${this.empty_flag}
           ></icon-ship>
         </div>
         ${this.nameTemplete()}
@@ -96,5 +101,6 @@ export const ComponentShipBasic = (args: ComponentShipProps) => {
     color=${ifDefined(args.color)}
     size=${args.size}
     ?name_flag=${args.name_flag}
+    ?empty_flag=${args.empty_flag}
   ></component-ship>`;
 };
