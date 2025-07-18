@@ -2,7 +2,6 @@ import type { Meta, StoryObj } from "@storybook/web-components-vite";
 
 import type { ComponentEquipmentMstModalProps } from "./equipment-mst-modal";
 import { ComponentEquipmentMstModalBasic } from "./equipment-mst-modal";
-import { default_slotitem } from "../../interface/require_info";
 import { default_mst_slot_item } from "../../interface/get_data";
 
 const size_list = ["xs", "sm", "md", "lg", "xl"];

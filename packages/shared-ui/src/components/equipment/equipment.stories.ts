@@ -20,7 +20,7 @@ export const basic: Story = {
   name: "Basic",
   argTypes: {
     name_flag: { control: "boolean" },
-    ex_flag: { control: "boolean" },
+    compact: { control: "boolean" },
     onslot: { control: { type: "range", min: 0, max: 30, step: 1 } },
     size: {
       control: { type: "select" },
@@ -36,7 +36,7 @@ export const basic: Story = {
   },
   args: {
     name_flag: false,
-    ex_flag: false,
+    compact: false,
     onslot: 0,
     size: "xs",
     empty_flag: false,

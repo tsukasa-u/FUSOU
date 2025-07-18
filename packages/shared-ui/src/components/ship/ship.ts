@@ -14,7 +14,7 @@ export interface ComponentShipProps {
   ship: Ship;
   color?: string;
   size: "xs" | "sm" | "md" | "lg" | "xl";
-  compact?: boolean;
+  name_flag?: boolean;
 }
 
 const class_size = {
@@ -52,10 +52,10 @@ export class ComponentShip extends LitElement {
   size: keyof typeof class_size = "xs";
 
   @property({ type: Boolean })
-  compact = false;
+  name_flag = false;
 
   nameTemplete() {
-    return (this.compact ?? false)
+    return !(this.name_flag ?? false)
       ? html``
       : html`<div
           class=${[
@@ -95,6 +95,6 @@ export const ComponentShipBasic = (args: ComponentShipProps) => {
     .mst_ship=${args.mst_ship}
     color=${ifDefined(args.color)}
     size=${args.size}
-    ?compact=${args.compact}
+    ?name_flag=${args.name_flag}
   ></component-ship>`;
 };

@@ -27,13 +27,13 @@ export const basic: Story = {
         },
       },
     },
-    compact: {
+    name_flag: {
       control: { type: "boolean" },
     },
   },
   args: {
     size: "sm",
-    compact: false,
+    name_flag: false,
     ship: {
       id: 4299,
       ship_id: 668,
