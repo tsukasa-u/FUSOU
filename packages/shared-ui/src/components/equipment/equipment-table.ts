@@ -83,63 +83,63 @@ export class ComponentEquipmentTable extends LitElement {
             Equipment Status
           </caption>
           <tbody>
-            <tr>
+            <tr class="flex rounded">
               <th class="truncate flex-1 w-2">Firepower</th>
-              <td class="flex-none w-12">
+              <td class="flex-none w-12 flex justify-end pr-4">
                 ${signed_number(this.mst_slot_item.houg ?? 0)}
               </td>
               <th class="truncate flex-1 w-2">Torpedo</th>
-              <td class="flex-none w-12">
+              <td class="flex-none w-12 flex justify-end pr-4">
                 ${signed_number(this.mst_slot_item.raig ?? 0)}
               </td>
             </tr>
-            <tr>
+            <tr class="flex rounded">
               <th class="truncate flex-1 w-2">Bomb</th>
-              <td class="flex-none w-12">
+              <td class="flex-none w-12 flex justify-end pr-4">
                 ${signed_number(this.mst_slot_item.baku ?? 0)}
               </td>
               <th class="truncate flex-1 w-2">Anti-Air</th>
-              <td class="flex-none w-12">
+              <td class="flex-none w-12 flex justify-end pr-4">
                 ${signed_number(this.mst_slot_item.tyku ?? 0)}
               </td>
             </tr>
-            <tr>
+            <tr class="flex rounded">
               <th class="truncate flex-1 w-2">Anti-Submarine</th>
-              <td class="flex-none w-12">
+              <td class="flex-none w-12 flex justify-end pr-4">
                 ${signed_number(this.mst_slot_item.tais ?? 0)}
               </td>
               <th class="truncate flex-1 w-2">Reconnaissance</th>
-              <td class="flex-none w-12">
+              <td class="flex-none w-12 flex justify-end pr-4">
                 ${signed_number(this.mst_slot_item.saku ?? 0)}
               </td>
             </tr>
-            <tr>
+            <tr class="flex rounded">
               <th class="truncate flex-1 w-2">Accuracy</th>
-              <td class="flex-none w-12">
+              <td class="flex-none w-12 flex justify-end pr-4">
                 ${signed_number(this.mst_slot_item.houm ?? 0)}
               </td>
               <th class="truncate flex-1 w-2">Evasion</th>
-              <td class="flex-none w-12">
+              <td class="flex-none w-12 flex justify-end pr-4">
                 ${signed_number(this.mst_slot_item.houk ?? 0)}
               </td>
             </tr>
-            <tr>
+            <tr class="flex rounded">
               <th class="truncate flex-1 w-2">Armor</th>
-              <td class="flex-none w-12">
+              <td class="flex-none w-12 flex justify-end pr-4">
                 ${signed_number(this.mst_slot_item.souk ?? 0)}
               </td>
               <th class="truncate flex-1 w-2">Anti-Bomber</th>
-              <td class="flex-none w-12">
+              <td class="flex-none w-12 flex justify-end pr-4">
                 ${signed_number(this.mst_slot_item.taibaku ?? 0)}
               </td>
             </tr>
-            <tr>
+            <tr class="flex rounded">
               <th class="truncate flex-1 w-2">Interception</th>
-              <td class="flex-none w-12">
+              <td class="flex-none w-12 flex justify-end pr-4">
                 ${signed_number(this.mst_slot_item.geigeki ?? 0)}
               </td>
               <th class="truncate flex-1 w-2">Distance</th>
-              <td class="flex-none w-12">
+              <td class="flex-none w-12 flex justify-end pr-4">
                 ${signed_number(this.mst_slot_item.distance ?? 0)}
               </td>
             </tr>
