@@ -32,7 +32,7 @@ export interface ComponentEquipmentModalProps {
   empty_flag?: boolean;
 }
 
-@customElement("component-ship-modal")
+@customElement("component-ship-mst-modal")
 export class ComponentEquipmentModal extends LitElement {
   static styles = [unsafeCSS(globalStyles)];
 
@@ -119,7 +119,7 @@ export class ComponentEquipmentModal extends LitElement {
 
 declare global {
   interface HTMLElementTagNameMap {
-    "component-ship-modal": ComponentEquipmentModal;
+    "component-ship-mst-modal": ComponentEquipmentModal;
   }
 }
 

@@ -116,7 +116,7 @@ export class ComponentShipTable extends LitElement {
   @property({ type: String })
   size: keyof typeof class_size = "sm";
 
-  equipmentTemplete(slot: number, index: number, ex_flag?: boolean) {
+  equipmentTemplete(slot: number, index: number) {
     let onslot = index != -1 ? this.mst_ship.maxeq[index] : undefined;
     if (slot > 0) {
       let slot_item = this.slot_items.slot_items[slot];
@@ -124,7 +124,6 @@ export class ComponentShipTable extends LitElement {
         this.mst_slot_items.mst_slot_items[slot_item.slotitem_id];
       return html`<component-equipment-modal
         ?name_flag=${true}
-        ?ex_flag=${ex_flag}
         .slot_item=${slot_item}
         .mst_slot_item=${mst_slot_item}
         onslot=${ifDefined(onslot)}
@@ -149,7 +148,7 @@ export class ComponentShipTable extends LitElement {
         >
           <th class="flex-none w-4">S${index + 1}</th>
           <td class="flex-none w-12 ml-4 py-1 w-full">
-            ${this.equipmentTemplete(slot, index, false)}
+            ${this.equipmentTemplete(slot, index)}
           </td>
         </tr>
       `;
@@ -167,7 +166,7 @@ export class ComponentShipTable extends LitElement {
       >
         <th class="flex-none w-4">SE</th>
         <td class="flex-none w-12 ml-4 py-1 w-full">
-          ${this.equipmentTemplete(this.ship.slot_ex, -1, false)}
+          ${this.equipmentTemplete(this.ship.slot_ex, -1)}
         </td>
       </tr>
     `;

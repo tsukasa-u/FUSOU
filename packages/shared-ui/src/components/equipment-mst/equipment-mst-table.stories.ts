@@ -20,6 +20,7 @@ export const basic: Story = {
   name: "Basic",
   argTypes: {
     show_param: { type: "boolean" },
+    show_name: { type: "boolean" },
     size: {
       control: { type: "select" },
       options: size_list,
@@ -33,7 +34,8 @@ export const basic: Story = {
   },
   args: {
     size: "sm",
-    show_param: true,
+    show_param: false,
+    show_name: false,
     mst_slot_item: {
       ...default_mst_slot_item,
       id: 267,
