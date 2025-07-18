@@ -15,7 +15,7 @@ import "../../icons/plane-proficiency";
 export interface ComponentEquipmentProps {
   mst_slot_item: MstSlotitem;
   slot_item: SlotItem;
-  ex_flag?: boolean;
+  compact?: boolean;
   name_flag?: boolean;
   onslot?: number;
   size: "xs" | "sm" | "md" | "lg" | "xl";
@@ -92,7 +92,7 @@ export class ComponentEquipment extends LitElement {
   mst_slot_item: MstSlotitem = default_mst_slot_item;
 
   @property({ type: Boolean })
-  ex_flag: boolean = false;
+  compact: boolean = false;
 
   @property({ type: Number })
   onslot: number = 0;
@@ -128,7 +128,7 @@ export class ComponentEquipment extends LitElement {
           class_size[this.size].proficiency_onslot_mt,
         ].join(" ")}
       >
-        ${!(this.ex_flag ?? false) && !this.empty_flag
+        ${!(this.compact ?? false) && !this.empty_flag
           ? html`<div
                 class=${[
                   "grid w-4 place-content-center",
@@ -191,7 +191,7 @@ export const ComponentEquipmentBasic = (args: ComponentEquipmentProps) => {
   return html`<component-equipment
     .slot_item=${args.slot_item}
     .mst_slot_item=${args.mst_slot_item}
-    ?ex_flag=${args.ex_flag}
+    ?compact=${args.compact}
     ?name_flag=${args.name_flag}
     onslot=${ifDefined(args.onslot)}
     size=${args.size}
