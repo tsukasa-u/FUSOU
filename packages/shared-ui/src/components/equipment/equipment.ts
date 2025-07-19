@@ -26,40 +26,45 @@ const class_size = {
   xs: {
     onslot_text: "text-xs",
     name_text: "text-md",
-    proficiency_onslot_h: "h-2.5",
-    proficiency_onslot_mt: "mt-px",
+    name_h: "h-6",
+    proficiency_onslot_h: "h-[10px]",
+    proficiency_onslot_mt: "mt-0.5",
     proficiency_onslot_pl: "pl-1.5",
     badge_size: "badge-xs",
   },
   sm: {
     onslot_text: "text-sm",
     name_text: "text-lg",
-    proficiency_onslot_h: "h-[11px]",
-    proficiency_onslot_mt: "mt-1",
+    name_h: "h-[27px]",
+    proficiency_onslot_h: "h-[11.5px]",
+    proficiency_onslot_mt: "mt-0.5",
     proficiency_onslot_pl: "pl-2",
     badge_size: "badge-sm",
   },
   md: {
     onslot_text: "text-md",
     name_text: "text-xl",
-    proficiency_onslot_h: "h-3",
-    proficiency_onslot_mt: "mt-1.5",
+    name_h: "h-[30px]",
+    proficiency_onslot_h: "h-[13px]",
+    proficiency_onslot_mt: "mt-0.5",
     proficiency_onslot_pl: "pl-2.5",
     badge_size: "badge-md",
   },
   lg: {
     onslot_text: "text-lg",
     name_text: "text-2xl",
-    proficiency_onslot_h: "h-4",
-    proficiency_onslot_mt: "mt-1.5",
+    name_h: "h-[35px]",
+    proficiency_onslot_h: "h-[15.5px]",
+    proficiency_onslot_mt: "mt-0.5",
     proficiency_onslot_pl: "pl-3",
     badge_size: "badge-lg",
   },
   xl: {
     onslot_text: "text-xl",
     name_text: "text-3xl",
-    proficiency_onslot_h: "h-5.5",
-    proficiency_onslot_mt: "mt-1.5",
+    name_h: "h-11",
+    proficiency_onslot_h: "h-5",
+    proficiency_onslot_mt: "mt-0.5",
     proficiency_onslot_pl: "pl-4",
     badge_size: "badge-xl",
   },
@@ -106,68 +111,71 @@ export class ComponentEquipment extends LitElement {
   @property({ type: Boolean })
   empty_flag = false;
 
+  proficiencyOnslotTemplete() {
+    if (!this.compact && !this.empty_flag) {
+      return html`<div
+          class=${[
+            "grid w-4 place-content-center",
+            class_size[this.size].proficiency_onslot_h,
+          ].join(" ")}
+        >
+          <icon-plane-proficiency
+            class=${class_size[this.size].proficiency_onslot_h}
+            size="full"
+            level=${ifDefined(this.slot_item.alv)}
+          ></icon-plane-proficiency>
+        </div>
+        <div
+          class=${[
+            "grid w-4 place-content-center cursor-inherit",
+            class_size[this.size].proficiency_onslot_h,
+            class_size[this.size].onslot_text,
+          ].join(" ")}
+        >
+          ${show_onslot(this.mst_slot_item) ? this.onslot : ""}
+        </div>`;
+    } else if (!this.compact && this.empty_flag) {
+      return html`<div class="w-4"></div>`;
+    } else {
+      return html``;
+    }
+  }
+
+  nameTemplete() {
+    return this.name_flag && !this.empty_flag
+      ? html` <div
+          class=${[
+            "pl-3 truncate content-center cursor-inherit",
+            class_size[this.size].name_text,
+            class_size[this.size].name_h,
+          ].join(" ")}
+        >
+          ${this.mst_slot_item.name ?? "Unknown"}
+        </div>`
+      : html``;
+  }
+
+  levelTemplate() {
+    return (this.slot_item.level ?? 0 > 0) && !this.empty_flag
+      ? html` <div
+          class=${[
+            "badge badge-ghost w-0 rounded-full grid place-content-center text-accent",
+            class_size[this.size].badge_size,
+          ].join(" ")}
+        >
+          ${this.slot_item.level === 10 ? "★" : this.slot_item.level}
+        </div>`
+      : html``;
+  }
+
   render() {
     let category_number = this.mst_slot_item.type[1];
     let icon_number = this.mst_slot_item.type[3];
-    let level =
-      (this.slot_item.level ?? 0 > 0) && !this.empty_flag
-        ? html` <div
-            class=${[
-              "badge badge-ghost w-0 rounded-full grid place-content-center text-accent",
-              class_size[this.size].badge_size,
-            ].join(" ")}
-          >
-            ${this.slot_item.level === 10 ? "★" : this.slot_item.level}
-          </div>`
-        : html``;
-    let proficiency_onslot = html`
-      <div
-        class=${[
-          "flex-none",
-          class_size[this.size].proficiency_onslot_pl,
-          class_size[this.size].proficiency_onslot_mt,
-        ].join(" ")}
-      >
-        ${!(this.compact ?? false) && !this.empty_flag
-          ? html`<div
-                class=${[
-                  "grid w-4 place-content-center",
-                  class_size[this.size].proficiency_onslot_h,
-                ].join(" ")}
-              >
-                <icon-plane-proficiency
-                  class=${class_size[this.size].proficiency_onslot_h}
-                  size="full"
-                  level=${ifDefined(this.slot_item.alv)}
-                ></icon-plane-proficiency>
-              </div>
-              <div
-                class=${[
-                  "grid w-4 place-content-center cursor-inherit",
-                  class_size[this.size].proficiency_onslot_h,
-                  class_size[this.size].onslot_text,
-                ].join(" ")}
-              >
-                ${show_onslot(this.mst_slot_item) ? this.onslot : ""}
-              </div>`
-          : html`<div class="w-4"></div>`}
-      </div>
-    `;
-    let name =
-      (this.name_flag ?? false) && !this.empty_flag
-        ? html` <div
-            class=${[
-              "pl-3 truncate content-center cursor-inherit",
-              class_size[this.size].name_text,
-            ].join(" ")}
-          >
-            ${this.mst_slot_item.name ?? "Unknown"}
-          </div>`
-        : html``;
+
     return html`
       <div class="flex flex-nowarp w-full">
         <div class="indicator">
-          <span class="indicator-item"> ${level} </span>
+          <span class="indicator-item"> ${this.levelTemplate()} </span>
           <icon-equipment
             category_number=${category_number}
             icon_number=${icon_number}
@@ -175,7 +183,16 @@ export class ComponentEquipment extends LitElement {
             ?empty_flag=${this.empty_flag}
           ></icon-equipment>
         </div>
-        ${proficiency_onslot} ${name}
+        <div
+          class=${[
+            "flex-none",
+            class_size[this.size].proficiency_onslot_pl,
+            class_size[this.size].proficiency_onslot_mt,
+          ].join(" ")}
+        >
+          ${this.proficiencyOnslotTemplete()}
+        </div>
+        ${this.nameTemplete()}
       </div>
     `;
   }

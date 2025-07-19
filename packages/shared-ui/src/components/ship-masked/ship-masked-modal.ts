@@ -17,8 +17,8 @@ import {
   type SlotItems,
 } from "../../interface/require_info";
 
-import "./ship";
-import "./ship-table";
+import "../ship/ship";
+import "./ship-masked-table";
 import { ifDefined } from "lit/directives/if-defined.js";
 
 export interface ComponentEquipmentModalProps {
@@ -30,9 +30,12 @@ export interface ComponentEquipmentModalProps {
   color?: string;
   name_flag?: boolean;
   empty_flag?: boolean;
+  ship_param: number[];
+  ship_slot: number[];
+  ship_max_hp: number;
 }
 
-@customElement("component-ship-modal")
+@customElement("component-ship-masked-modal")
 export class ComponentEquipmentModal extends LitElement {
   static styles = [unsafeCSS(globalStyles)];
 
@@ -60,6 +63,15 @@ export class ComponentEquipmentModal extends LitElement {
   @property({ type: Boolean })
   empty_flag = false;
 
+  @property({ type: Array })
+  ship_param: number[] = [0, 0, 0, 0];
+
+  @property({ type: Array })
+  ship_slot: number[] = [0, 0, 0, 0, 0];
+
+  @property({ type: Number })
+  ship_max_hp: number = 0;
+
   @state()
   dialogRef = createRef<HTMLDialogElement>();
 
@@ -83,12 +95,13 @@ export class ComponentEquipmentModal extends LitElement {
             X
           </button>
         </form>
-        <component-ship-table
-          .ship=${this.ship}
+        <component-ship-masked-table
           .mst_ship=${this.mst_ship}
           .mst_slot_items=${this.mst_slot_items}
-          .slot_items=${this.slot_items}
-        ></component-ship-table>
+          ship_max_hp=${this.ship_max_hp}
+          .ship_param=${this.ship_param}
+          .ship_slot=${this.ship_slot}
+        ></component-ship-masked-table>
       </div>
       <form method="dialog" class="modal-backdrop">
         <button>close</button>
@@ -119,14 +132,14 @@ export class ComponentEquipmentModal extends LitElement {
 
 declare global {
   interface HTMLElementTagNameMap {
-    "component-ship-modal": ComponentEquipmentModal;
+    "component-ship-masked-modal": ComponentEquipmentModal;
   }
 }
 
 export const ComponentEquipmentModalBasic = (
   args: ComponentEquipmentModalProps
 ) => {
-  return html`<component-ship-modal
+  return html`<component-ship-masked-modal
     .slot_items=${args.slot_items}
     .mst_slot_items=${args.mst_slot_items}
     .ship=${args.ship}
@@ -135,5 +148,8 @@ export const ComponentEquipmentModalBasic = (
     color=${ifDefined(args.color)}
     ?empty_flag=${args.empty_flag}
     ?name_flag=${args.name_flag}
-  ></component-ship-modal>`;
+    ship_max_hp=${args.ship_max_hp}
+    .ship_param=${args.ship_param}
+    .ship_slot=${args.ship_slot}
+  ></component-ship-masked-modal>`;
 };
