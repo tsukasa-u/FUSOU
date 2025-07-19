@@ -11,10 +11,10 @@ export interface IconCautionFillProps {
 
 const class_size = {
   xs: "h-6",
-  sm: "h-7.5",
-  md: "h-9",
-  lg: "h-11",
-  xl: "h-14",
+  sm: "h-[27px]",
+  md: "h-[30px]",
+  lg: "h-[35px]",
+  xl: "h-11",
   full: "h-full",
   none: "",
 };

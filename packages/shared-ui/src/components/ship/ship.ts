@@ -19,18 +19,23 @@ export interface ComponentShipProps {
 const class_size = {
   xs: {
     name_text: "text-md",
+    name_h: "h-6",
   },
   sm: {
     name_text: "text-lg",
+    name_h: "h-[27px]",
   },
   md: {
     name_text: "text-xl",
+    name_h: "h-[30px]",
   },
   lg: {
     name_text: "text-2xl",
+    name_h: "h-[35px]",
   },
   xl: {
     name_text: "text-3xl",
+    name_h: "h-11",
   },
 };
 
@@ -59,6 +64,7 @@ export class ComponentShip extends LitElement {
           class=${[
             "pl-3 truncate content-center cursor-inherit",
             class_size[this.size].name_text,
+            class_size[this.size].name_h,
           ].join(" ")}
         >
           ${this.mst_ship.name ?? "Unknown"}

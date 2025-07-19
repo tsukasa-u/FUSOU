@@ -23,27 +23,32 @@ export interface ComponentEquipmentMstProps {
 const class_size = {
   xs: {
     name_text: "text-md",
-    proficiency_onslot_mt: "mt-px",
+    name_h: "h-6",
+    proficiency_onslot_mt: "mt-0.5",
     proficiency_onslot_pl: "pl-1.5",
   },
   sm: {
     name_text: "text-lg",
-    proficiency_onslot_mt: "mt-1",
+    name_h: "h-[27px]",
+    proficiency_onslot_mt: "mt-0.5",
     proficiency_onslot_pl: "pl-2",
   },
   md: {
     name_text: "text-xl",
-    proficiency_onslot_mt: "mt-1.5",
+    name_h: "h-[30px]",
+    proficiency_onslot_mt: "mt-0.5",
     proficiency_onslot_pl: "pl-2.5",
   },
   lg: {
     name_text: "text-2xl",
-    proficiency_onslot_mt: "mt-1.5",
+    name_h: "h-[35px]",
+    proficiency_onslot_mt: "mt-0.5",
     proficiency_onslot_pl: "pl-3",
   },
   xl: {
     name_text: "text-3xl",
-    proficiency_onslot_mt: "mt-1.5",
+    name_h: "h-11",
+    proficiency_onslot_mt: "mt-0.5",
     proficiency_onslot_pl: "pl-4",
   },
 };
@@ -70,10 +75,8 @@ export class ComponentEquipmentMst extends LitElement {
   @property({ type: Boolean })
   show_name = false;
 
-  render() {
-    let category_number = this.mst_slot_item.type[1];
-    let icon_number = this.mst_slot_item.type[3];
-    let proficiency_onslot = html`
+  proficiencyOnslotTemplete() {
+    return html`
       <div
         class=${[
           "flex-none",
@@ -84,19 +87,25 @@ export class ComponentEquipmentMst extends LitElement {
         ${(this.compact ?? false) ? html`` : html`<div class="w-4"></div>`}
       </div>
     `;
-    let name =
-      (this.name_flag ?? false) && !this.empty_flag
-        ? html` <div
-            class=${[
-              "pl-3 truncate content-center cursor-inherit",
-              class_size[this.size].name_text,
-            ].join(" ")}
-          >
-            ${this.show_name
-              ? (this.mst_slot_item.name ?? "Unknown")
-              : "Unknown"}
-          </div>`
-        : html``;
+  }
+
+  nameTemplete() {
+    return (this.name_flag ?? false) && !this.empty_flag
+      ? html` <div
+          class=${[
+            "pl-3 truncate content-center cursor-inherit",
+            class_size[this.size].name_text,
+            class_size[this.size].name_h,
+          ].join(" ")}
+        >
+          ${this.show_name ? (this.mst_slot_item.name ?? "Unknown") : "Unknown"}
+        </div>`
+      : html``;
+  }
+
+  render() {
+    let category_number = this.mst_slot_item.type[1];
+    let icon_number = this.mst_slot_item.type[3];
     return html`
       <div class="flex flex-nowarp w-full">
         <div>
@@ -107,7 +116,7 @@ export class ComponentEquipmentMst extends LitElement {
             ?empty_flag=${this.empty_flag}
           ></icon-equipment>
         </div>
-        ${proficiency_onslot} ${name}
+        ${this.proficiencyOnslotTemplete()} ${this.nameTemplete()}
       </div>
     `;
   }
