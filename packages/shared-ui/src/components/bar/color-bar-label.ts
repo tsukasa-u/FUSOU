@@ -1,5 +1,5 @@
 import { html, LitElement, unsafeCSS } from "lit";
-import { customElement, property, state } from "lit/decorators.js";
+import { customElement, property } from "lit/decorators.js";
 import globalStyles from "../../global.css?inline";
 import { ifDefined } from "lit/directives/if-defined.js";
 
@@ -11,37 +11,6 @@ export interface ComponentColorBarLabelProps {
   size?: "xs" | "sm" | "md" | "lg" | "xl";
   quantize?: number;
 }
-
-const class_color = {
-  green: "text-green-500",
-  lime: "text-lime-500",
-  yellow: "text-yellow-500",
-  orange: "text-orange-500",
-  red: "text-red-500",
-};
-
-const calc_value = (v_now: number, v_max: number, quantize?: number) => {
-  if (quantize && quantize > 0) {
-    let quantuzed_v_now = v_now - (v_now % (v_max / quantize));
-    return v_max != 0 ? (quantuzed_v_now * 100) / v_max : 0;
-  } else {
-    return v_max != 0 ? (v_now * 100) / v_max : 0;
-  }
-};
-
-const get_color = (v_now: number, v_max: number) => {
-  if (v_now == v_max) {
-    return "green";
-  } else if (v_now > 0.75 * v_max) {
-    return "lime";
-  } else if (v_now > 0.5 * v_max) {
-    return "yellow";
-  } else if (v_now > 0.25 * v_max) {
-    return "orange";
-  } else {
-    return "red";
-  }
-};
 
 const class_size = {
   xs: {
@@ -113,9 +82,9 @@ export class ComponentColorBarLabel extends LitElement {
         ].join(" ")}
       >
         <div class=" flex flex-nowrap">
-          <div class="w-[3em] text-center">100</div>
+          <div class="w-[3em] text-center">${this.v_now}</div>
           /
-          <div class="w-[3em] text-center">100</div>
+          <div class="w-[3em] text-center">${this.v_max}</div>
         </div>
       </div>
       <div
