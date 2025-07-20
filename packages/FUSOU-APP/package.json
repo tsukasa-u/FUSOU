@@ -46,6 +46,7 @@
     "@tauri-apps/api": "^2.4.0",
     "@tauri-apps/plugin-deep-link": "^2.2.1",
     "dotenv": "^16.5.0",
-    "solid-js": "^1.9.5"
+    "solid-js": "^1.9.5",
+    "shared-ui": "file:../shared-ui"
   }
 }
