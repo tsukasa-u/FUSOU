@@ -3,21 +3,14 @@ import { customElement, property, state } from "lit/decorators.js";
 import globalStyles from "../../global.css?inline";
 import { ifDefined } from "lit/directives/if-defined.js";
 
-export interface ComponentColorBarProps {
+import "./color-bar";
+
+export interface ComponentColorBarLabelProps {
   v_now: number;
   v_max: number;
-  size?: "none" | "xs" | "sm" | "md" | "lg" | "xl";
+  size?: "xs" | "sm" | "md" | "lg" | "xl";
   quantize?: number;
 }
-
-const class_size = {
-  xs: "h-1",
-  sm: "h-[6px]",
-  md: "h-2",
-  lg: "h-[10px]",
-  xl: "h-3",
-  none: "",
-};
 
 const class_color = {
   green: "text-green-500",
@@ -50,8 +43,46 @@ const get_color = (v_now: number, v_max: number) => {
   }
 };
 
-@customElement("component-color-bar")
-export class ComponentColorBar extends LitElement {
+const class_size = {
+  xs: {
+    label_text: "text-xs",
+    label_h: "h-[10px]",
+    label_mt: "mt-0.5",
+    box_h: "h-6",
+    box_py: "py-0.5",
+  },
+  sm: {
+    label_text: "text-sm",
+    label_h: "h-[11.5px]",
+    label_mt: "mt-0.5",
+    box_h: "h-[27px]",
+    box_py: "py-0.5",
+  },
+  md: {
+    label_text: "text-md",
+    label_h: "h-[13px]",
+    label_mt: "mt-0.5",
+    box_h: "h-[30px]",
+    box_py: "py-0.5",
+  },
+  lg: {
+    label_text: "text-lg",
+    label_h: "h-[15.5px]",
+    label_mt: "mt-0.5",
+    box_h: "h-[35px]",
+    box_py: "py-0.5",
+  },
+  xl: {
+    label_text: "text-xl",
+    label_h: "h-5",
+    label_mt: "mt-0.5",
+    box_h: "h-11",
+    box_py: "py-0.5",
+  },
+};
+
+@customElement("component-color-bar-label")
+export class ComponentColorBarLabel extends LitElement {
   static styles = [unsafeCSS(globalStyles)];
 
   @property({ type: Number })
@@ -66,42 +97,63 @@ export class ComponentColorBar extends LitElement {
   @property({ type: Number })
   quantize?: number = undefined;
 
-  @state()
-  color: keyof typeof class_color = "green";
-
   render() {
-    this.color = get_color(this.v_now, this.v_max);
-    let value = calc_value(this.v_now, this.v_max, this.quantize);
-    return html`<div class="flex items-center">
-      <progress
+    return html` <div
+      class=${[
+        "w-full",
+        class_size[this.size].box_py,
+        class_size[this.size].box_h,
+      ].join(" ")}
+    >
+      <div
         class=${[
-          "progress",
-          class_color[this.color],
-          class_size[this.size],
+          "grid place-content-center cursor-inherit mx-auto",
+          class_size[this.size].label_h,
+          class_size[this.size].label_text,
         ].join(" ")}
-        max="100"
-        value=${value}
-      ></progress>
+      >
+        <div class=" flex flex-nowrap">
+          <div class="w-[3em] text-center">100</div>
+          /
+          <div class="w-[3em] text-center">100</div>
+        </div>
+      </div>
+      <div
+        class=${[
+          "flex place-items-center w-full",
+          class_size[this.size].label_h,
+        ].join(" ")}
+      >
+        <component-color-bar
+          class=${["w-full"].join(" ")}
+          v_now=${this.v_now}
+          v_max=${this.v_max}
+          size=${this.size}
+          quantize=${ifDefined(this.quantize)}
+        ></component-color-bar>
+      </div>
     </div>`;
   }
 }
 
 declare global {
   interface HTMLElementTagNameMap {
-    "component-color-bar": ComponentColorBar;
+    "component-color-bar-label": ComponentColorBarLabel;
   }
 }
 
-export const ComponentColorBarBasic = (args: ComponentColorBarProps) => {
-  return html`<component-color-bar
+export const ComponentColorBarLabelBasic = (
+  args: ComponentColorBarLabelProps
+) => {
+  return html`<component-color-bar-label
     v_now=${args.v_now}
     v_max=${args.v_max}
     size=${ifDefined(args.size)}
     quantize=${ifDefined(args.quantize)}
-  ></component-color-bar>`;
+  ></component-color-bar-label>`;
 };
 
-export const ComponentColorBarCatalog = () => {
+export const ComponentColorBarLabelCatalog = () => {
   const value_map = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
 
   return html`<div class="grid gap-4">
@@ -110,22 +162,22 @@ export const ComponentColorBarCatalog = () => {
         html`<div class="grid">
           <div class="flex">
             <div class="w-30">${v_now}%</div>
-            <component-color-bar
+            <component-color-bar-label
               class="w-full"
               v_now=${v_now}
               v_max=${100}
               size=${"xs"}
-            ></component-color-bar>
+            ></component-color-bar-label>
           </div>
           <div class="flex">
             <div class="w-30">5-quantized</div>
-            <component-color-bar
+            <component-color-bar-label
               class="w-full"
               v_now=${v_now}
               v_max=${100}
               size=${"xs"}
               quantize=${5}
-            ></component-color-bar>
+            ></component-color-bar-label>
           </div>
         </div>`
     )}
