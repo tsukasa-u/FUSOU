@@ -1,10 +1,37 @@
 import type { Meta, StoryObj } from "@storybook/web-components-vite";
 
 import type { IconCautionFillProps } from "./caution-fill";
-import { IconCautionFillBasic, IconCautionFillCatalog } from "./caution-fill";
+import "./caution-fill";
+
+import { ifDefined } from "lit/directives/if-defined.js";
+import { html } from "lit";
 
 const size_list = ["full", "none", "xs", "sm", "md", "lg", "xl"];
 const caution_level = ["low", "middle", "high"];
+
+const IconCautionFillBasic = (args: IconCautionFillProps) => {
+  return html`<icon-caution-fill
+    level=${args.level}
+    size=${ifDefined(args.size)}
+  ></icon-caution-fill>`;
+};
+
+const IconCautionFillCatalog = () => {
+  return html`<div class="grid gap-4">
+    <div class="flex">
+      <h1 class="w-20">high</h1>
+      <icon-caution-fill level=${"high"} size=${"sm"}></icon-caution-fill>
+    </div>
+    <div class="flex">
+      <h1 class="w-20">middle</h1>
+      <icon-caution-fill level=${"middle"} size=${"sm"}></icon-caution-fill>
+    </div>
+    <div class="flex">
+      <h1 class="w-20">low</h1>
+      <icon-caution-fill level=${"low"} size=${"sm"}></icon-caution-fill>
+    </div>
+  </div>`;
+};
 
 const meta = {
   title: "FUSOU/icons/icon-caution-fill",

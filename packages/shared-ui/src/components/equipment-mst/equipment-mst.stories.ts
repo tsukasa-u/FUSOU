@@ -1,11 +1,22 @@
 import type { Meta, StoryObj } from "@storybook/web-components-vite";
 
 import type { ComponentEquipmentMstProps } from "./equipment-mst";
-import { ComponentEquipmentMstBasic } from "./equipment-mst";
+import "./equipment-mst";
 import { default_mst_slot_item } from "../../interface/get_data";
+import { html } from "lit";
 
 const size_list = ["xs", "sm", "md", "lg", "xl"];
 
+const ComponentEquipmentMstBasic = (args: ComponentEquipmentMstProps) => {
+  return html`<component-equipment-mst
+    .mst_slot_item=${args.mst_slot_item}
+    ?name_flag=${args.name_flag}
+    ?show_name=${args.show_name}
+    size=${args.size}
+    ?empty_flag=${args.empty_flag}
+    ?compact=${args.compact}
+  ></component-equipment-mst>`;
+};
 const meta = {
   title: "FUSOU/components/equipment-mst/component-equipment-mst",
   tags: ["autodocs"],

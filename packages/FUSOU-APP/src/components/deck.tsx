@@ -23,6 +23,10 @@ import {
 
 import "../css/divider.css";
 
+// import "shared-ui/build/components/ship/ship-modal";
+import "shared-ui";
+import { ComponentEquipmentModal } from "../../../shared-ui/dist/components/equipment/equipment-modal";
+
 let moreSiganMap: { [key: number]: boolean } = {};
 let fleetOpenSignalMap: { [key: number]: boolean } = {
   1: true,
@@ -111,8 +115,8 @@ export function DeckComponent(props: DeckPortProps) {
       states.push(
         set_hp_state(
           ships.ships[shipId]?.nowhp ?? 0,
-          ships.ships[shipId]?.maxhp ?? 0,
-        ),
+          ships.ships[shipId]?.maxhp ?? 0
+        )
       );
     });
 
@@ -131,7 +135,7 @@ export function DeckComponent(props: DeckPortProps) {
       nowfuel: number,
       maxfuel: number,
       nowbullet: number,
-      maxbullet: number,
+      maxbullet: number
     ): JSX.Element => {
       let fuel_bullet_state: JSX.Element = <></>;
       if (nowfuel == maxfuel && nowbullet == maxbullet)
@@ -158,8 +162,8 @@ export function DeckComponent(props: DeckPortProps) {
           ships.ships[shipId]?.bull ?? 0,
           mst_ships.mst_ships[ships.ships[shipId]?.ship_id ?? 0]?.bull_max ?? 0,
           ships.ships[shipId]?.fuel ?? 0,
-          mst_ships.mst_ships[ships.ships[shipId]?.ship_id ?? 0]?.fuel_max ?? 0,
-        ),
+          mst_ships.mst_ships[ships.ships[shipId]?.ship_id ?? 0]?.fuel_max ?? 0
+        )
       );
     });
 

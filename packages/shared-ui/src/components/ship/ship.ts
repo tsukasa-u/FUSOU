@@ -94,13 +94,3 @@ declare global {
     "component-ship": ComponentShip;
   }
 }
-
-export const ComponentShipBasic = (args: ComponentShipProps) => {
-  return html`<component-ship
-    .mst_ship=${args.mst_ship}
-    color=${ifDefined(args.color)}
-    size=${args.size}
-    ?name_flag=${args.name_flag}
-    ?empty_flag=${args.empty_flag}
-  ></component-ship>`;
-};

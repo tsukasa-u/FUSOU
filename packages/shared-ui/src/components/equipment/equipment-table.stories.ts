@@ -1,11 +1,21 @@
 import type { Meta, StoryObj } from "@storybook/web-components-vite";
 
 import type { ComponentEquipmentTableProps } from "./equipment-table";
-import { ComponentEquipmentTableBasic } from "./equipment-table";
+import "./equipment-table";
 import { default_slotitem } from "../../interface/require_info";
 import { default_mst_slot_item } from "../../interface/get_data";
+import { html } from "lit";
+import { ifDefined } from "lit/directives/if-defined.js";
 
 const size_list = ["xs", "sm", "md", "lg", "xl"];
+
+const ComponentEquipmentTableBasic = (args: ComponentEquipmentTableProps) => {
+  return html`<component-equipment-table
+    .slot_item=${args.slot_item}
+    .mst_slot_item=${args.mst_slot_item}
+    size=${ifDefined(args.size)}
+  ></component-equipment-table>`;
+};
 
 const meta = {
   title: "FUSOU/components/equipment/component-equipment-table",

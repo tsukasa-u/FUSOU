@@ -2,7 +2,6 @@ import { html, LitElement } from "lit";
 import { customElement, property } from "lit/decorators.js";
 import { unsafeCSS } from "lit";
 import globalStyles from "../global.css?inline";
-import { ifDefined } from "lit/directives/if-defined.js";
 
 export interface IconCautionFillProps {
   level: "low" | "middle" | "high";
@@ -71,27 +70,3 @@ declare global {
     "icon-caution-fill": IconCautionFill;
   }
 }
-
-export const IconCautionFillBasic = (args: IconCautionFillProps) => {
-  return html`<icon-caution-fill
-    level=${args.level}
-    size=${ifDefined(args.size)}
-  ></icon-caution-fill>`;
-};
-
-export const IconCautionFillCatalog = () => {
-  return html`<div class="grid gap-4">
-    <div class="flex">
-      <h1 class="w-20">high</h1>
-      <icon-caution-fill level=${"high"} size=${"sm"}></icon-caution-fill>
-    </div>
-    <div class="flex">
-      <h1 class="w-20">middle</h1>
-      <icon-caution-fill level=${"middle"} size=${"sm"}></icon-caution-fill>
-    </div>
-    <div class="flex">
-      <h1 class="w-20">low</h1>
-      <icon-caution-fill level=${"low"} size=${"sm"}></icon-caution-fill>
-    </div>
-  </div>`;
-};

@@ -155,13 +155,3 @@ declare global {
     "component-equipment-table": ComponentEquipmentTable;
   }
 }
-
-export const ComponentEquipmentTableBasic = (
-  args: ComponentEquipmentTableProps
-) => {
-  return html`<component-equipment-table
-    .slot_item=${args.slot_item}
-    .mst_slot_item=${args.mst_slot_item}
-    size=${ifDefined(args.size)}
-  ></component-equipment-table>`;
-};

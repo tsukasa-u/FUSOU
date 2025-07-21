@@ -1,11 +1,25 @@
 import type { Meta, StoryObj } from "@storybook/web-components-vite";
 
 import type { ComponentEquipmentModalProps } from "./equipment-modal";
-import { ComponentEquipmentModalBasic } from "./equipment-modal";
+import "./equipment-modal";
 import { default_slotitem } from "../../interface/require_info";
 import { default_mst_slot_item } from "../../interface/get_data";
+import { html } from "lit";
+import { ifDefined } from "lit/directives/if-defined.js";
 
 const size_list = ["xs", "sm", "md", "lg", "xl"];
+
+const ComponentEquipmentModalBasic = (args: ComponentEquipmentModalProps) => {
+  return html`<component-equipment-modal
+    .slot_item=${args.slot_item}
+    .mst_slot_item=${args.mst_slot_item}
+    ?ex_flag=${args.ex_flag}
+    ?name_flag=${args.name_flag}
+    onslot=${ifDefined(args.onslot)}
+    size=${args.size}
+    ?empty_flag=${args.empty_flag}
+  ></component-equipment-modal>`;
+};
 
 const meta = {
   title: "FUSOU/components/equipment/component-equipment-modal",

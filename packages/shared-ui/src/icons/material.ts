@@ -3,11 +3,6 @@ import { customElement, property } from "lit/decorators.js";
 import { unsafeCSS } from "lit";
 import globalStyles from "../global.css?inline";
 import fontStyles from "../font.css?inline";
-import get_data from "../data/S@api_start2@getData.json";
-// import require_info from "../data/S@api_get_member@require_info.json";
-import common_itemicons from "../data/common_itemicons.json";
-import common_itemicons_png from "../data/common_itemicons.png";
-import { ifDefined } from "lit/directives/if-defined.js";
 
 export interface IconMaterialProps {
   item_number: number;
@@ -24,7 +19,7 @@ const icon_list: { [key: number]: string[] } = {
   6: ["#CC00CC"], //  display only infomation
 };
 
-const item_list: { [key: number]: [string, number] } = {
+export const item_list: { [key: number]: [string, number] } = {
   0: ["  ", 0], //  undifined
   1: ["A3", 1], //  高速修復材
   2: ["B3", 1], //  高速建造材
@@ -235,76 +230,3 @@ declare global {
     "icon-material": IconMaterial;
   }
 }
-
-export const IconMaterialBasic = (args: IconMaterialProps) => {
-  return html`<icon-material
-    item_number=${args.item_number}
-    size=${ifDefined(args.size)}
-  ></icon-material>`;
-};
-
-export const IconMaterialCatalog = () => {
-  return html`<div class="grid grid-cols-10 w-100 gap-4">
-    ${Object.keys(item_list).map(
-      (item_number) =>
-        html`<icon-material
-          item_number=${Number(item_number)}
-          size=${"xs"}
-        ></icon-material>`
-    )}
-  </div>`;
-};
-
-export const IconMaterialCatalogDetail = () => {
-  console.log(get_data.api_data.api_mst_useitem);
-
-  const itemicon_id_name = get_data.api_data.api_mst_useitem.map((icon) => [
-    icon.api_id,
-    icon.api_name,
-  ]);
-
-  const itemicons_frames = common_itemicons.frames;
-
-  const bg_scale = 0.6;
-
-  return html`<div class="grid gap-4">
-    ${itemicon_id_name.map(([id, name]) => {
-      try {
-        let itemicons_frame = (itemicons_frames as any)[
-          `common_itemicons_id_${id}`
-        ].frame;
-        return html`<div class="flex h-12 items-center">
-          <h1 class="w-20">${id}</h1>
-          <icon-material
-            item_number=${Number(id)}
-            size=${"md"}
-            class="w-20 h-full"
-          ></icon-material>
-          <div class="w-20 h-full">
-            <div
-              class="h-full"
-              style=${`overflow: hidden;
-              background-size: ${635 * bg_scale}px, ${635 * bg_scale}px;
-              width: ${itemicons_frame.w * bg_scale}px;
-              hieght: ${itemicons_frame.h * bg_scale}px;
-              background-position: top -${itemicons_frame.y * bg_scale}px left -${itemicons_frame.x * bg_scale}px;
-                background-image: url('${common_itemicons_png}');`}
-            ></div>
-          </div>
-          <div class="w-40">${name}</div>
-        </div>`;
-      } catch (e) {
-        return html`<div class="flex h-12 items-center">
-          <h1 class="w-20">${id}</h1>
-          <icon-material
-            item_number=${Number(id)}
-            size=${"md"}
-            class="w-20 h-full"
-          ></icon-material>
-          <div class="w-20">no keys</div>
-          <div class="w-40">${name}</div>
-        </div>`;
-      }
-    })}
-  </div>`;
-};

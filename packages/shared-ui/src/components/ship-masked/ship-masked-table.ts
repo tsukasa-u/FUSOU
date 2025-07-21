@@ -8,7 +8,6 @@ import {
   type MstShip,
   type MstSlotitems,
 } from "../../interface/get_data";
-import { ifDefined } from "lit/directives/if-defined.js";
 import { classMap } from "lit/directives/class-map.js";
 
 import "../equipment-mst/equipment-mst-modal";
@@ -217,16 +216,3 @@ declare global {
     "component-ship-masked-table": ComponentShipMaskedTable;
   }
 }
-
-export const ComponentShipMaskedTableBasic = (
-  args: ComponentShipMaskedTableProps
-) => {
-  return html`<component-ship-masked-table
-    ship_max_hp=${args.ship_max_hp}
-    .ship_param=${args.ship_param}
-    .ship_slot=${args.ship_slot}
-    .mst_slot_items=${args.mst_slot_items}
-    .mst_ship=${args.mst_ship}
-    size=${ifDefined(args.size)}
-  ></component-ship-masked-table>`;
-};

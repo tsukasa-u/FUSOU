@@ -2,7 +2,6 @@ import { html, LitElement } from "lit";
 import { customElement, property } from "lit/decorators.js";
 import { unsafeCSS } from "lit";
 import globalStyles from "../global.css?inline";
-import { ifDefined } from "lit/directives/if-defined.js";
 
 export interface IconPlaneProficiencyProps {
   level: number;
@@ -280,26 +279,3 @@ declare global {
     "icon-plane-proficiency": IconPlaneProficiency;
   }
 }
-
-export const IconPlaneProficiencyBasic = (args: IconPlaneProficiencyProps) => {
-  return html`<icon-plane-proficiency
-    level=${args.level}
-    size=${ifDefined(args.size)}
-  ></icon-plane-proficiency>`;
-};
-
-export const IconPlaneProficiencyCatalog = () => {
-  const level_list = [1, 2, 3, 4, 5, 6, 7];
-  return html`<div class="grid gap-4">
-    ${level_list.map(
-      (level) =>
-        html` <div class="flex">
-          <h1 class="w-20">${level}</h1>
-          <icon-plane-proficiency
-            level=${level}
-            size=${"sm"}
-          ></icon-plane-proficiency>
-        </div>`
-    )}
-  </div>`;
-};

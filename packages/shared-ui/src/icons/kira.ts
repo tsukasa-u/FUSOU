@@ -2,7 +2,6 @@ import { html, LitElement } from "lit";
 import { customElement, property } from "lit/decorators.js";
 import { unsafeCSS } from "lit";
 import globalStyles from "../global.css?inline";
-import { ifDefined } from "lit/directives/if-defined.js";
 export interface IconKiraProps {
   kira_type: number;
   size?: "full" | "none" | "xs" | "sm" | "md" | "lg" | "xl";
@@ -100,27 +99,3 @@ declare global {
     "icon-kira": IconKira;
   }
 }
-
-export const IconKiraBasic = (args: IconKiraProps) => {
-  return html`<icon-kira
-    kira_type=${args.kira_type}
-    size=${ifDefined(args.size)}
-  ></icon-kira>`;
-};
-
-export const IconKiraCatalog = () => {
-  return html`<div class="grid gap-4">
-    <div class="flex">
-      <h1 class="w-20">kira_type:1</h1>
-      <icon-kira kira_type=${1} size=${"sm"}></icon-kira>
-    </div>
-    <div class="flex">
-      <h1 class="w-20">kira_type:2</h1>
-      <icon-kira kira_type=${2} size=${"sm"}></icon-kira>
-    </div>
-    <div class="flex">
-      <h1 class="w-20">kira_type:3</h1>
-      <icon-kira kira_type=${3} size=${"sm"}></icon-kira>
-    </div>
-  </div>`;
-};

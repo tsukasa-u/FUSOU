@@ -1,9 +1,21 @@
 import type { Meta, StoryObj } from "@storybook/web-components-vite";
 
 import type { ComponentShipProps } from "./ship";
-import { ComponentShipBasic } from "./ship";
+import "./ship";
+import { html } from "lit";
+import { ifDefined } from "lit/directives/if-defined.js";
 
 const size_list = ["xs", "sm", "md", "lg", "xl"];
+
+const ComponentShipBasic = (args: ComponentShipProps) => {
+  return html`<component-ship
+    .mst_ship=${args.mst_ship}
+    color=${ifDefined(args.color)}
+    size=${args.size}
+    ?name_flag=${args.name_flag}
+    ?empty_flag=${args.empty_flag}
+  ></component-ship>`;
+};
 
 const meta = {
   title: "FUSOU/components/ship/component-ship",
