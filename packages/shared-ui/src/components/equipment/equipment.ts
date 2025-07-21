@@ -203,15 +203,3 @@ declare global {
     "component-equipment": ComponentEquipment;
   }
 }
-
-export const ComponentEquipmentBasic = (args: ComponentEquipmentProps) => {
-  return html`<component-equipment
-    .slot_item=${args.slot_item}
-    .mst_slot_item=${args.mst_slot_item}
-    ?compact=${args.compact}
-    ?name_flag=${args.name_flag}
-    onslot=${ifDefined(args.onslot)}
-    size=${args.size}
-    ?empty_flag=${args.empty_flag}
-  ></component-equipment>`;
-};

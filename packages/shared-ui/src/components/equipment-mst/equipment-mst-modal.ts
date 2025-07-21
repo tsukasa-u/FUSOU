@@ -113,17 +113,3 @@ declare global {
     "component-equipment-mst-modal": ComponentEquipmentMstModal;
   }
 }
-
-export const ComponentEquipmentMstModalBasic = (
-  args: ComponentEquipmentMstModalProps
-) => {
-  return html`<component-equipment-mst-modal
-    .mst_slot_item=${args.mst_slot_item}
-    ?name_flag=${args.name_flag}
-    ?show_name=${args.show_name}
-    ?show_param=${args.show_param}
-    ?comapct=${args.compact}
-    size=${args.size}
-    ?empty_flag=${args.empty_flag}
-  ></component-equipment-mst-modal>`;
-};

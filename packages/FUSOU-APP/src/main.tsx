@@ -10,9 +10,8 @@ import Debug from "./pages/debug.tsx";
 import Login from "./pages/login.tsx";
 import Close from "./pages/close.tsx";
 
-import "./tailwind.css";
+import "./global.css";
 import { AuthProvider } from "./utility/provider.tsx";
-
 
 render(
   () => (
@@ -27,6 +26,6 @@ render(
       </Router>
     </AuthProvider>
   ),
-  document.getElementById("root") as HTMLElement,
+  document.getElementById("root") as HTMLElement
 );
 // render(() => <App />, document.getElementById("root") as HTMLElement);

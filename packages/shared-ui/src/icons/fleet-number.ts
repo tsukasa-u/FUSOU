@@ -3,7 +3,6 @@ import { customElement, property } from "lit/decorators.js";
 import { unsafeCSS } from "lit";
 import globalStyles from "../global.css?inline";
 import fontStyles from "../font.css?inline";
-import { ifDefined } from "lit/directives/if-defined.js";
 
 export interface IconFleetNumberProps {
   e_flag: number;
@@ -136,92 +135,3 @@ declare global {
     "icon-fleet-number": IconFleetNumber;
   }
 }
-
-export const IconFleetNumberBasic = (args: IconFleetNumberProps) => {
-  return html`<icon-fleet-number
-    e_flag=${args.e_flag}
-    ?combined_flag=${args.combined_flag}
-    ship_number=${args.ship_number}
-    fleet_number=${args.fleet_number}
-    size=${ifDefined(args.size)}
-  ></icon-fleet-number>`;
-};
-
-export const IconFleetNumberCatalog = () => {
-  return html`<div class="grid grid-cols-5 w-100 gap-4">
-    ${html`<div class="grid gap-4">
-      ${[1, 2, 3, 4, 5, 6].map(
-        (ship_number) => html`
-          <icon-fleet-number
-            e_flag=${0}
-            ?combined_flag=${false}
-            ship_number=${ship_number}
-            fleet_number=${1}
-            size="xs"
-          ></icon-fleet-number>
-        `
-      )}
-      ${[7, 8, 9, 10, 11, 12].map(
-        (_) => html`<div class=${class_size["xs"]}></div>`
-      )}
-    </div> `}
-    ${html`<div class="grid gap-4">
-      ${[1, 2, 3, 4, 5, 6].map(
-        (ship_number) => html`
-          <icon-fleet-number
-            e_flag=${1}
-            ?combined_flag=${false}
-            ship_number=${ship_number}
-            fleet_number=${1}
-            size="xs"
-          ></icon-fleet-number>
-        `
-      )}
-      ${[7, 8, 9, 10, 11, 12].map(
-        (_) => html`<div class=${class_size["xs"]}></div>`
-      )}
-    </div> `}
-    ${html`<div class="grid gap-4">
-      ${[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(
-        (ship_number) => html`
-          <icon-fleet-number
-            e_flag=${0}
-            ?combined_flag=${true}
-            ship_number=${ship_number}
-            fleet_number=${1}
-            size="xs"
-          ></icon-fleet-number>
-        `
-      )}
-    </div> `}
-    ${html`<div class="grid gap-4">
-      ${[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(
-        (ship_number) => html`
-          <icon-fleet-number
-            e_flag=${1}
-            ?combined_flag=${true}
-            ship_number=${ship_number}
-            fleet_number=${1}
-            size="xs"
-          ></icon-fleet-number>
-        `
-      )}
-    </div> `}
-    ${html`<div class="grid gap-4">
-      ${[1, 2, 3, 4, 5, 6, 7].map(
-        (ship_number) => html`
-          <icon-fleet-number
-            e_flag=${0}
-            ?combined_flag=${false}
-            ship_number=${ship_number}
-            fleet_number=${1}
-            size="xs"
-          ></icon-fleet-number>
-        `
-      )}
-      ${[8, 9, 10, 11, 12].map(
-        (_) => html`<div class=${class_size["xs"]}></div>`
-      )}
-    </div> `}
-  </div>`;
-};

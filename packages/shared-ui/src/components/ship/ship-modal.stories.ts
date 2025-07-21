@@ -1,9 +1,24 @@
 import type { Meta, StoryObj } from "@storybook/web-components-vite";
 
 import type { ComponentEquipmentModalProps } from "./ship-modal";
-import { ComponentEquipmentModalBasic } from "./ship-modal";
+import "./ship-modal";
+import { html } from "lit";
+import { ifDefined } from "lit/directives/if-defined.js";
 
 const size_list = ["xs", "sm", "md", "lg", "xl"];
+
+const ComponentEquipmentModalBasic = (args: ComponentEquipmentModalProps) => {
+  return html`<component-ship-modal
+    .slot_items=${args.slot_items}
+    .mst_slot_items=${args.mst_slot_items}
+    .ship=${args.ship}
+    .mst_ship=${args.mst_ship}
+    size=${args.size}
+    color=${ifDefined(args.color)}
+    ?empty_flag=${args.empty_flag}
+    ?name_flag=${args.name_flag}
+  ></component-ship-modal>`;
+};
 
 const meta = {
   title: "FUSOU/components/ship/component-ship-modal",

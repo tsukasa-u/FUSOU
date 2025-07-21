@@ -1,12 +1,35 @@
 import type { Meta, StoryObj } from "@storybook/web-components-vite";
 
 import type { IconPlaneProficiencyProps } from "./plane-proficiency";
-import {
-  IconPlaneProficiencyBasic,
-  IconPlaneProficiencyCatalog,
-} from "./plane-proficiency";
+import "./plane-proficiency";
+
+import { ifDefined } from "lit/directives/if-defined.js";
+import { html } from "lit";
 
 const size_list = ["full", "none", "xs", "sm", "md", "lg", "xl"];
+
+const IconPlaneProficiencyBasic = (args: IconPlaneProficiencyProps) => {
+  return html`<icon-plane-proficiency
+    level=${args.level}
+    size=${ifDefined(args.size)}
+  ></icon-plane-proficiency>`;
+};
+
+const IconPlaneProficiencyCatalog = () => {
+  const level_list = [1, 2, 3, 4, 5, 6, 7];
+  return html`<div class="grid gap-4">
+    ${level_list.map(
+      (level) =>
+        html` <div class="flex">
+          <h1 class="w-20">${level}</h1>
+          <icon-plane-proficiency
+            level=${level}
+            size=${"sm"}
+          ></icon-plane-proficiency>
+        </div>`
+    )}
+  </div>`;
+};
 
 const meta = {
   title: "FUSOU/icons/icon-plane-proficiency",

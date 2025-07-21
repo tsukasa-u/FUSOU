@@ -19,7 +19,6 @@ import {
 
 import "../ship/ship";
 import "./ship-masked-table";
-import { ifDefined } from "lit/directives/if-defined.js";
 
 export interface ComponentEquipmentModalProps {
   mst_ship: MstShip;
@@ -135,21 +134,3 @@ declare global {
     "component-ship-masked-modal": ComponentEquipmentModal;
   }
 }
-
-export const ComponentEquipmentModalBasic = (
-  args: ComponentEquipmentModalProps
-) => {
-  return html`<component-ship-masked-modal
-    .slot_items=${args.slot_items}
-    .mst_slot_items=${args.mst_slot_items}
-    .ship=${args.ship}
-    .mst_ship=${args.mst_ship}
-    size=${args.size}
-    color=${ifDefined(args.color)}
-    ?empty_flag=${args.empty_flag}
-    ?name_flag=${args.name_flag}
-    ship_max_hp=${args.ship_max_hp}
-    .ship_param=${args.ship_param}
-    .ship_slot=${args.ship_slot}
-  ></component-ship-masked-modal>`;
-};

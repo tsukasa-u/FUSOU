@@ -1,10 +1,23 @@
 import type { Meta, StoryObj } from "@storybook/web-components-vite";
 
 import type { ComponentEquipmentMstTableProps } from "./equipment-mst-table";
-import { ComponentEquipmentMstTableBasic } from "./equipment-mst-table";
+import "./equipment-mst-table";
 import { default_mst_slot_item } from "../../interface/get_data";
+import { html } from "lit";
+import { ifDefined } from "lit/directives/if-defined.js";
 
 const size_list = ["xs", "sm", "md", "lg", "xl"];
+
+const ComponentEquipmentMstTableBasic = (
+  args: ComponentEquipmentMstTableProps
+) => {
+  return html`<component-equipment-mst-table
+    .mst_slot_item=${args.mst_slot_item}
+    ?show_param=${args.show_param}
+    ?show_name=${args.show_name}
+    size=${ifDefined(args.size)}
+  ></component-equipment-mst-table>`;
+};
 
 const meta = {
   title: "FUSOU/components/equipment-mst/component-equipment-mst-table",

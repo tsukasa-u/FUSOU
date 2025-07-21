@@ -1,9 +1,29 @@
 import type { Meta, StoryObj } from "@storybook/web-components-vite";
 
 import type { ComponentEquipmentModalProps } from "./ship-masked-modal";
-import { ComponentEquipmentModalBasic } from "./ship-masked-modal";
+import "./ship-masked-modal";
+import { html } from "lit";
+import { ifDefined } from "lit/directives/if-defined.js";
 
 const size_list = ["xs", "sm", "md", "lg", "xl"];
+
+export const ComponentEquipmentModalBasic = (
+  args: ComponentEquipmentModalProps
+) => {
+  return html`<component-ship-masked-modal
+    .slot_items=${args.slot_items}
+    .mst_slot_items=${args.mst_slot_items}
+    .ship=${args.ship}
+    .mst_ship=${args.mst_ship}
+    size=${args.size}
+    color=${ifDefined(args.color)}
+    ?empty_flag=${args.empty_flag}
+    ?name_flag=${args.name_flag}
+    ship_max_hp=${args.ship_max_hp}
+    .ship_param=${args.ship_param}
+    .ship_slot=${args.ship_slot}
+  ></component-ship-masked-modal>`;
+};
 
 const meta = {
   title: "FUSOU/components/ship-masked/component-ship-masked-modal",

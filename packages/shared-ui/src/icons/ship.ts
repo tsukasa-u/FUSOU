@@ -3,9 +3,6 @@ import { customElement, property } from "lit/decorators.js";
 import { unsafeCSS } from "lit";
 import globalStyles from "../global.css?inline";
 import fontStyles from "../font.css?inline";
-import { ifDefined } from "lit/directives/if-defined.js";
-import get_data from "../data/S@api_start2@getData.json";
-// import require_info from "../data/S@api_get_member@require_info.json";
 
 export interface IconShipProps {
   ship_stype: number;
@@ -172,42 +169,3 @@ declare global {
     "icon-ship": IconShip;
   }
 }
-
-export const IconShipBasic = (args: IconShipProps) => {
-  return html`<icon-ship
-    ship_stype=${args.ship_stype}
-    color=${ifDefined(args.color)}
-    size=${ifDefined(args.size)}
-    ?empty_flag=${args.empty_flag}
-  ></icon-ship>`;
-};
-
-export const IconShipCatalog = () => {
-  //   console.log(get_data.api_data.api_mst_ship);
-  const category_type_number = [
-    ...new Set(
-      get_data.api_data.api_mst_ship.map((x) =>
-        String([x.api_stype, x.apt_ctype])
-      )
-    ),
-  ].map((s) => s.split(",").map((x) => Number(x)));
-
-  return html`<div class="grid grid-cols-6 w-100 gap-4">
-    ${category_type_number.map(
-      ([stype, _ctype]) =>
-        html`<div class="grid gap-4">
-          <icon-ship ship_stype=${stype} color=${""} size=${"xs"}></icon-ship>
-          <icon-ship
-            ship_stype=${stype}
-            color=${"elite"}
-            size=${"xs"}
-          ></icon-ship>
-          <icon-ship
-            ship_stype=${stype}
-            color=${"flagship"}
-            size=${"xs"}
-          ></icon-ship>
-        </div>`
-    )}
-  </div>`;
-};

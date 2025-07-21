@@ -1,9 +1,22 @@
 import type { Meta, StoryObj } from "@storybook/web-components-vite";
 
 import type { ComponentShipMaskedTableProps } from "./ship-masked-table";
-import { ComponentShipMaskedTableBasic } from "./ship-masked-table";
+import "./ship-masked-table";
+import { html } from "lit";
+import { ifDefined } from "lit/directives/if-defined.js";
 
 const size_list = ["xs", "sm", "md", "lg", "xl"];
+
+const ComponentShipMaskedTableBasic = (args: ComponentShipMaskedTableProps) => {
+  return html`<component-ship-masked-table
+    ship_max_hp=${args.ship_max_hp}
+    .ship_param=${args.ship_param}
+    .ship_slot=${args.ship_slot}
+    .mst_slot_items=${args.mst_slot_items}
+    .mst_ship=${args.mst_ship}
+    size=${ifDefined(args.size)}
+  ></component-ship-masked-table>`;
+};
 
 const meta = {
   title: "FUSOU/components/ship-masked/component-ship-masked-table",

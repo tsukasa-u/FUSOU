@@ -183,14 +183,3 @@ declare global {
     "component-equipment-mst-table": ComponentEquipmentMstTable;
   }
 }
-
-export const ComponentEquipmentMstTableBasic = (
-  args: ComponentEquipmentMstTableProps
-) => {
-  return html`<component-equipment-mst-table
-    .mst_slot_item=${args.mst_slot_item}
-    ?show_param=${args.show_param}
-    ?show_name=${args.show_name}
-    size=${ifDefined(args.size)}
-  ></component-equipment-mst-table>`;
-};

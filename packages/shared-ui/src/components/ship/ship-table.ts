@@ -367,13 +367,3 @@ declare global {
     "component-ship-table": ComponentShipTable;
   }
 }
-
-export const ComponentShipTableBasic = (args: ComponentShipTableProps) => {
-  return html`<component-ship-table
-    .slot_items=${args.slot_items}
-    .mst_slot_items=${args.mst_slot_items}
-    .ship=${args.ship}
-    .mst_ship=${args.mst_ship}
-    size=${ifDefined(args.size)}
-  ></component-ship-table>`;
-};
