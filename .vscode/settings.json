@@ -1,0 +1,4 @@
+{
+  "html.customData": ["./packages/shared-ui/custom-elements.json"],
+  "css.customData": ["./packages/shared-ui/custom-elements.json"]
+}

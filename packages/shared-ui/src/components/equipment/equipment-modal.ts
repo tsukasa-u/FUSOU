@@ -7,11 +7,10 @@ import {
   default_mst_slot_item,
   type MstSlotitem,
 } from "../../interface/get_data";
-import { ifDefined } from "lit/directives/if-defined.js";
 
 import "./equipment";
 import "./equipment-table";
-import { createRef, ref } from "lit/directives/ref.js";
+import { createRef, ref, type Ref } from "lit/directives/ref.js";
 
 export interface ComponentEquipmentModalProps {
   mst_slot_item: MstSlotitem;
@@ -49,7 +48,7 @@ export class ComponentEquipmentModal extends LitElement {
   empty_flag = false;
 
   @state()
-  dialogRef = createRef<HTMLDialogElement>();
+  dialogRef: Ref<HTMLDialogElement> = createRef();
 
   private open_modal() {
     const dialogElement = this.dialogRef.value!;

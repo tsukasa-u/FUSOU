@@ -1,1 +1,1 @@
-import "./components/ship/ship-modal";
+export * from "./components/index";

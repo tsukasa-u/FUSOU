@@ -1,57 +1,38 @@
+// my-web-components/tsconfig.json (修正案)
 {
   "compilerOptions": {
-    //   // "target": "es2021",
-    //   // "module": "es2015",
-    //   // "moduleResolution": "node",
-    //   // "lib": ["es2021", "dom"],
-    //   "declaration": true,
-    //   "declarationMap": true,
-    //   // "experimentalDecorators": true,
-    //   // "useDefineForClassFields": false,
+    "target": "es2022", // 最新のJS機能をターゲット
+    "module": "esnext", // ES Modulesの最新機能を利用
+    "lib": ["es2022", "dom", "dom.iterable"], // DOM.Iterable も含める
+    "declaration": true, // .d.ts ファイルを生成する
+    "declarationMap": true, // .d.ts.map も生成する
+    "experimentalDecorators": true, // LitElementのデコレータ用
+    "useDefineForClassFields": false, // LitElement でのフィールド定義向け
 
-    //   "outDir": "./dist",
-    //   "rootDir": "./src",
-    //   "esModuleInterop": true,
-    //   "forceConsistentCasingInFileNames": true,
+    "outDir": "./dist", // JSファイル出力先 (Viteのビルド用) - 後述
+    "rootDir": "./src", // ソースファイルのルートディレクトリを指定
 
-    //   "target": "ES2022",
-    //   "experimentalDecorators": true,
-    //   "useDefineForClassFields": false,
-    //   "module": "ESNext",
-    //   "lib": ["ES2022", "DOM", "DOM.Iterable"],
-    //   "skipLibCheck": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true, // ライブラリの型チェックをスキップ
 
-    //   /* Bundler mode */
-    //   "moduleResolution": "bundler",
-    //   "allowImportingTsExtensions": true,
-    //   "verbatimModuleSyntax": true,
-    //   "moduleDetection": "force",
-    //   "noEmit": true,
+    "moduleResolution": "bundler", // Viteとの相性が良い
+    "allowImportingTsExtensions": true, // .ts拡張子のimportを許可
+    "verbatimModuleSyntax": true, // 厳密なモジュール解決（推奨）
+    "moduleDetection": "force", // モジュール検出を強制
 
-    //   /* Linting */
-    //   "strict": true,
-    //   "noUnusedLocals": true,
-    //   "noUnusedParameters": true,
-    //   "erasableSyntaxOnly": true,
-    //   "noFallthroughCasesInSwitch": true,
-    //   "noUncheckedSideEffectImports": true
+    // 型定義ファイルの出力先
+    "declarationDir": "./dist/types", // 型定義は dist/types に出力
+    "emitDeclarationOnly": true, // JSはViteがビルドするので、ここでは型定義のみ
 
-    "target": "es2021",
-    "module": "es2015",
-    "moduleResolution": "node",
-    "lib": ["es2021", "dom"],
-    "declaration": true,
-    "declarationMap": true,
-    "experimentalDecorators": true,
-    "useDefineForClassFields": false,
-    "outDir": "./dist",
+    /* Linting (ここも必要に応じて有効化) */
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true
 
-    "emitDeclarationOnly": true,
-    "declarationDir": "./dist/types",
-    "noEmitOnError": true
+    // "traceResolution": true
   },
-  "types": "index.d.ts",
 
   "include": ["src/**/*.ts"],
-  "exclude": ["src/**/*.stories.ts"]
+  "exclude": ["src/**/*.stories.ts", "node_modules", "dist"]
 }

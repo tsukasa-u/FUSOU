@@ -23,9 +23,8 @@ import {
 
 import "../css/divider.css";
 
-// import "shared-ui/build/components/ship/ship-modal";
+// import "shared-ui/dist/components/ship/ship-modal";
 import "shared-ui";
-import { ComponentEquipmentModal } from "../../../shared-ui/dist/components/equipment/equipment-modal";
 
 let moreSiganMap: { [key: number]: boolean } = {};
 let fleetOpenSignalMap: { [key: number]: boolean } = {
@@ -183,7 +182,6 @@ export function DeckComponent(props: DeckPortProps) {
       fleetOpenSignalMap[props.deck_id] = false;
     }
   });
-
   return (
     <>
       <li>
@@ -195,6 +193,7 @@ export function DeckComponent(props: DeckPortProps) {
                 !fleetOpenSignalMap[props.deck_id];
             }}
           >
+            <component-ship size="xs" color="flagship" />
             <div class="w-20 flex-none">{props.fleet_name ?? "Unknown"}</div>
             <div class="w-4 flex-none -mx-4">
               <IconChevronRightS class="h-4 w-4" />

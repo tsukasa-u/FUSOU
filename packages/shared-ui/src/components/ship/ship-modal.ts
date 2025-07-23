@@ -1,6 +1,6 @@
 import { html, LitElement, unsafeCSS } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
-import { createRef, ref } from "lit/directives/ref.js";
+import { createRef, type Ref, ref } from "lit/directives/ref.js";
 
 import globalStyles from "../../global.css?inline";
 
@@ -19,9 +19,8 @@ import {
 
 import "./ship";
 import "./ship-table";
-import { ifDefined } from "lit/directives/if-defined.js";
 
-export interface ComponentEquipmentModalProps {
+export interface ComponentShipModalProps {
   mst_ship: MstShip;
   ship: Ship;
   mst_slot_items: MstSlotitems;
@@ -33,7 +32,7 @@ export interface ComponentEquipmentModalProps {
 }
 
 @customElement("component-ship-modal")
-export class ComponentEquipmentModal extends LitElement {
+export class ComponentShipModal extends LitElement {
   static styles = [unsafeCSS(globalStyles)];
 
   @property({ type: Object })
@@ -61,7 +60,7 @@ export class ComponentEquipmentModal extends LitElement {
   empty_flag = false;
 
   @state()
-  dialogRef = createRef<HTMLDialogElement>();
+  dialogRef: Ref<HTMLDialogElement> = createRef();
 
   private open_modal() {
     const dialogElement = this.dialogRef.value!;
@@ -119,6 +118,6 @@ export class ComponentEquipmentModal extends LitElement {
 
 declare global {
   interface HTMLElementTagNameMap {
-    "component-ship-modal": ComponentEquipmentModal;
+    "component-ship-modal": ComponentShipModal;
   }
 }
