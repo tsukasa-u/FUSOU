@@ -8,94 +8,111 @@
       "declarations": [
         {
           "kind": "variable",
-          "name": "F",
-          "default": "class extends d { constructor() { super(...arguments), this.v_max = 0, this.v_now = 0, this.size = \"xs\", this.quantize = void 0, this.color = \"green\"; } render() { this.color = kt(this.v_now, this.v_max); let e = yt(this.v_now, this.v_max, this.quantize); return n`<div class=\"flex items-center\"> <progress class=${[ \"progress\", wt[this.color], _t[this.size] ].join(\" \")} max=\"100\" value=${e} ></progress> </div>`; } }"
-        },
-        {
-          "kind": "function",
-          "name": "xe",
-          "parameters": [
-            {
-              "name": "e"
-            }
-          ]
-        },
-        {
-          "kind": "variable",
-          "name": "ge"
+          "name": "B",
+          "default": "class extends p { constructor() { super(...arguments), this.v_max = 0, this.v_now = 0, this.size = \"xs\", this.quantize = void 0, this.color = \"green\"; } render() { this.color = Et(this.v_now, this.v_max); let e = Ot(this.v_now, this.v_max, this.quantize); return a`<div class=\"flex items-center\"> <progress class=${[ \"progress\", At[this.color], Dt[this.size] ].join(\" \")} max=\"100\" value=${e} ></progress> </div>`; } }"
         },
         {
           "kind": "variable",
           "name": "S",
-          "default": "class extends d { constructor() { super(...arguments), this.v_max = 0, this.v_now = 0, this.size = \"xs\", this.quantize = void 0; } render() { return n` <div class=${[ \"w-full\", X[this.size].box_py, X[this.size].box_h ].join(\" \")} > <div class=${[ \"grid place-content-center cursor-inherit mx-auto\", X[this.size].label_h, X[this.size].label_text ].join(\" \")} > <div class=\" flex flex-nowrap\"> <div class=\"w-[3em] text-center\">${this.v_now}</div> / <div class=\"w-[3em] text-center\">${this.v_max}</div> </div> </div> <div class=${[ \"flex place-items-center w-full\", X[this.size].label_h ].join(\" \")} > <component-color-bar class=${[\"w-full\"].join(\" \")} v_now=${this.v_now} v_max=${this.v_max} size=${this.size} quantize=${E(this.quantize)} ></component-color-bar> </div> </div>`; } }"
-        },
-        {
-          "kind": "function",
-          "name": "ve",
-          "parameters": [
-            {
-              "name": "e"
-            }
-          ]
+          "default": "class extends p { constructor() { super(...arguments), this.v_max = 0, this.v_now = 0, this.size = \"xs\", this.quantize = void 0; } render() { return a` <div class=${[ \"w-full\", H[this.size].box_py, H[this.size].box_h ].join(\" \")} > <div class=${[ \"grid place-content-center cursor-inherit mx-auto\", H[this.size].label_h, H[this.size].label_text ].join(\" \")} > <div class=\" flex flex-nowrap\"> <div class=\"w-[3em] text-center\">${this.v_now}</div> / <div class=\"w-[3em] text-center\">${this.v_max}</div> </div> </div> <div class=${[ \"flex place-items-center w-full\", H[this.size].label_h ].join(\" \")} > <component-color-bar class=${[\"w-full\"].join(\" \")} v_now=${this.v_now} v_max=${this.v_max} size=${this.size} quantize=${ft(this.quantize)} ></component-color-bar> </div> </div>`; } }"
         },
         {
           "kind": "variable",
-          "name": "_e"
+          "name": "N",
+          "default": "class extends p { constructor() { super(...arguments), this.icon_number = 0, this.category_number = 0, this.size = \"xs\", this.empty_flag = !1; } render() { return a` <svg fill=\"currentColor\" stroke-width=\"1.5\" stroke=\"currentColor\" viewBox=\"0 0 151 151\" xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\" overflow=\"hidden\" class=${[ \"text-base-content\", \"fill-base-content\", \"cursor-inherit\", Tt[this.size] ].join(\" \")} > ${this.empty_flag ? F`` : F`<text class=\"roboto-mono-500\" font-size=\"96\" textLength=\"96\" lengthAdjust=\"spacingAndGlyphs\" transform=\"translate(28 104)\" > ${Mt[this.category_number]} </text> <path d=\"M9 32C9 19.85 18.85 10 31 10L119 10C131.15 10 141 19.85 141 32L141 120C141 132.15 131.15 142 119 142L31 142C18.85 142 9 132.15 9 120Z\" stroke=\"currentColor\" stroke-width=\"4\" stroke-linejoin=\"round\" stroke-miterlimit=\"10\" fill=\"none\" fill-rule=\"evenodd\" /> <path d=\"M27.5 124 124.5 124\" stroke=\"#303030\" stroke-width=\"17\" stroke-miterlimit=\"9\" fill=\"none\" fill-rule=\"evenodd\" /> <path d=\"M28.0 124.0 76.2 124.0Z\" stroke=${qt(this.icon_number)} stroke-width=\"16\" /> <path d=\"M76.0 124.0 124.0 124.0Z\" stroke=${Lt(this.icon_number)} stroke-width=\"16\" /> ${Rt}`} </svg>`; } }"
+        },
+        {
+          "kind": "variable",
+          "name": "K",
+          "default": "class extends p { constructor() { super(...arguments), this.level = 0, this.size = \"xs\"; } render() { return this.level == 1 ? a`<svg fill=\"#f0e040\" stroke-width=\"4\" stroke=\"currentColor\" viewBox=\"0 0 378 378\" xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\" overflow=\"hidden\" class=${[\"stroke-base-content\", P[this.size]].join(\" \")} > <g> <rect x=\"38\" y=\"38\" width=\"75\" height=\"302\" stroke-miterlimit=\"8\" fill=\"none\" /> <rect x=\"151\" y=\"38\" width=\"76\" height=\"302\" stroke-miterlimit=\"8\" fill=\"none\" /> <rect x=\"262\" y=\"38\" width=\"76\" height=\"302\" stroke-miterlimit=\"8\" fill=\"#9DC3E6\" /> </g> </svg>` : this.level == 2 ? a`<svg stroke-width=\"4\" stroke=\"currentColor\" viewBox=\"0 0 378 378\" xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\" overflow=\"hidden\" class=${[\"stroke-base-content\", P[this.size]].join(\" \")} > <g> <rect x=\"38\" y=\"38\" width=\"75\" height=\"302\" stroke-miterlimit=\"8\" fill=\"none\" /> <rect x=\"151\" y=\"38\" width=\"76\" height=\"302\" stroke-miterlimit=\"8\" fill=\"#9DC3E6\" /> <rect x=\"262\" y=\"38\" width=\"76\" height=\"302\" stroke-miterlimit=\"8\" fill=\"#9DC3E6\" /> </g> </svg>` : this.level == 3 ? a`<svg stroke-width=\"4\" stroke=\"currentColor\" viewBox=\"0 0 378 378\" xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\" overflow=\"hidden\" class=${[\"stroke-base-content\", P[this.size]].join(\" \")} > <g> <rect x=\"38\" y=\"38\" width=\"75\" height=\"302\" stroke-miterlimit=\"8\" fill=\"#9DC3E6\" /> <rect x=\"151\" y=\"38\" width=\"76\" height=\"302\" stroke-miterlimit=\"8\" fill=\"#9DC3E6\" /> <rect x=\"262\" y=\"38\" width=\"76\" height=\"302\" stroke-miterlimit=\"8\" fill=\"#9DC3E6\" /> </g> </svg>` : this.level == 4 ? a`<svg stroke-width=\"4\" stroke=\"currentColor\" viewBox=\"0 0 378 378\" xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\" overflow=\"hidden\" class=${[\"stroke-base-content\", P[this.size]].join(\" \")} > <g> <path d=\"M0 302 28.25 0 114 0 84.75 302Z\" stroke-miterlimit=\"8\" fill=\"none\" fill-rule=\"evenodd\" transform=\"matrix(-1 0 0 1 246 38)\" /> <path d=\"M0 302 28.25 0 113 0 84.75 302Z\" stroke-miterlimit=\"8\" fill=\"none\" fill-rule=\"evenodd\" transform=\"matrix(-1 0 0 1 132 38)\" /> <path d=\"M0 302 28.25 0 113 0 84.75 302Z\" stroke-miterlimit=\"8\" fill=\"#FFD966\" fill-rule=\"evenodd\" transform=\"matrix(-1 0 0 1 359 38)\" /> </g> </svg>` : this.level == 5 ? a`<svg stroke-width=\"4\" stroke=\"currentColor\" viewBox=\"0 0 378 378\" xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\" overflow=\"hidden\" class=${[\"stroke-base-content\", P[this.size]].join(\" \")} > <g> <path d=\"M0 302 28.25 0 114 0 84.75 302Z\" stroke-miterlimit=\"8\" fill=\"none\" fill-rule=\"evenodd\" transform=\"matrix(-1 0 0 1 246 38)\" /> <path d=\"M0 302 28.25 0 113 0 84.75 302Z\" stroke-miterlimit=\"8\" fill=\"#FFD966\" fill-rule=\"evenodd\" transform=\"matrix(-1 0 0 1 132 38)\" /> <path d=\"M0 302 28.25 0 113 0 84.75 302Z\" stroke-miterlimit=\"8\" fill=\"#FFD966\" fill-rule=\"evenodd\" transform=\"matrix(-1 0 0 1 359 38)\" /> </g> </svg>` : this.level == 6 ? a`<svg stroke-width=\"4\" stroke=\"currentColor\" viewBox=\"0 0 378 378\" xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\" overflow=\"hidden\" class=${[\"stroke-base-content\", P[this.size]].join(\" \")} > <g> <path d=\"M0 302 28.25 0 114 0 84.75 302Z\" stroke-miterlimit=\"8\" fill=\"#FFD966\" fill-rule=\"evenodd\" transform=\"matrix(-1 0 0 1 246 38)\" /> <path d=\"M0 302 28.25 0 113 0 84.75 302Z\" stroke-miterlimit=\"8\" fill=\"#FFD966\" fill-rule=\"evenodd\" transform=\"matrix(-1 0 0 1 132 38)\" /> <path d=\"M0 302 28.25 0 113 0 84.75 302Z\" stroke-miterlimit=\"8\" fill=\"#FFD966\" fill-rule=\"evenodd\" transform=\"matrix(-1 0 0 1 359 38)\" /> </g> </svg>` : this.level == 7 ? a`<svg stroke-width=\"4\" stroke=\"currentColor\" viewBox=\"0 0 378 378\" xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\" overflow=\"hidden\" class=${[\"stroke-base-content\", P[this.size]].join(\" \")} > <g> <path d=\"M38 38 113.5 38 189 189 113.5 340 38 340 113.5 189Z\" stroke-miterlimit=\"8\" fill=\"#FFD966\" fill-rule=\"evenodd\" /> <path d=\"M189 38 264.5 38 340 189 264.5 340 189 340 264.5 189Z\" stroke-miterlimit=\"8\" fill=\"#FFD966\" fill-rule=\"evenodd\" /> </g> </svg>` : a``; } }"
         },
         {
           "kind": "variable",
           "name": "w",
-          "default": "class extends d { constructor() { super(...arguments), this.slot_item = pt, this.mst_slot_item = I, this.compact = !1, this.onslot = 0, this.name_flag = !1, this.size = \"xs\", this.empty_flag = !1; } proficiencyOnslotTemplete() { return !this.compact && !this.empty_flag ? n`<div class=${[ \"grid w-4 place-content-center\", k[this.size].proficiency_onslot_h ].join(\" \")} > <icon-plane-proficiency class=${k[this.size].proficiency_onslot_h} size=\"full\" level=${E(this.slot_item.alv)} ></icon-plane-proficiency> </div> <div class=${[ \"grid w-4 place-content-center cursor-inherit\", k[this.size].proficiency_onslot_h, k[this.size].onslot_text ].join(\" \")} > ${Mt(this.mst_slot_item) ? this.onslot : \"\"} </div>` : !this.compact && this.empty_flag ? n`<div class=\"w-4\"></div>` : n``; } nameTemplete() { return this.name_flag && !this.empty_flag ? n` <div class=${[ \"pl-3 truncate content-center cursor-inherit\", k[this.size].name_text, k[this.size].name_h ].join(\" \")} > ${this.mst_slot_item.name ?? \"Unknown\"} </div>` : n``; } levelTemplate() { return (this.slot_item.level ?? !1) && !this.empty_flag ? n` <div class=${[ \"badge badge-ghost w-0 rounded-full grid place-content-center text-accent\", k[this.size].badge_size ].join(\" \")} > ${this.slot_item.level === 10 ? \"★\" : this.slot_item.level} </div>` : n``; } render() { let e = this.mst_slot_item.type[1], t = this.mst_slot_item.type[3]; return n` <div class=\"flex flex-nowarp w-full\"> <div class=\"indicator\"> <span class=\"indicator-item\"> ${this.levelTemplate()} </span> <icon-equipment category_number=${e} icon_number=${t} size=${this.size} ?empty_flag=${this.empty_flag} ></icon-equipment> </div> <div class=${[ \"flex-none\", k[this.size].proficiency_onslot_pl, k[this.size].proficiency_onslot_mt ].join(\" \")} > ${this.proficiencyOnslotTemplete()} </div> ${this.nameTemplete()} </div> `; } }"
+          "default": "class extends p { constructor() { super(...arguments), this.slot_item = gt, this.mst_slot_item = Z, this.compact = !1, this.onslot = 0, this.name_flag = !1, this.size = \"xs\", this.empty_flag = !1; } proficiencyOnslotTemplete() { return !this.compact && !this.empty_flag ? a`<div class=${[ \"grid w-4 place-content-center\", k[this.size].proficiency_onslot_h ].join(\" \")} > <icon-plane-proficiency class=${k[this.size].proficiency_onslot_h} size=\"full\" level=${ft(this.slot_item.alv)} ></icon-plane-proficiency> </div> <div class=${[ \"grid w-4 place-content-center cursor-inherit\", k[this.size].proficiency_onslot_h, k[this.size].onslot_text ].join(\" \")} > ${Xt(this.mst_slot_item) ? this.onslot : \"\"} </div>` : !this.compact && this.empty_flag ? a`<div class=\"w-4\"></div>` : a``; } nameTemplete() { return this.name_flag && !this.empty_flag ? a` <div class=${[ \"pl-3 truncate content-center cursor-inherit\", k[this.size].name_text, k[this.size].name_h ].join(\" \")} > ${this.mst_slot_item.name ?? \"Unknown\"} </div>` : a``; } levelTemplate() { return (this.slot_item.level ?? !1) && !this.empty_flag ? a` <div class=${[ \"badge badge-ghost w-0 rounded-full grid place-content-center text-accent\", k[this.size].badge_size ].join(\" \")} > ${this.slot_item.level === 10 ? \"★\" : this.slot_item.level} </div>` : a``; } render() { let e = this.mst_slot_item.type[1], o = this.mst_slot_item.type[3]; return a` <div class=\"flex flex-nowarp w-full\"> <div class=\"indicator\"> <span class=\"indicator-item\"> ${this.levelTemplate()} </span> <icon-equipment category_number=${e} icon_number=${o} size=${this.size} ?empty_flag=${this.empty_flag} ></icon-equipment> </div> <div class=${[ \"flex-none\", k[this.size].proficiency_onslot_pl, k[this.size].proficiency_onslot_mt ].join(\" \")} > ${this.proficiencyOnslotTemplete()} </div> ${this.nameTemplete()} </div> `; } }"
         },
         {
           "kind": "variable",
-          "name": "U",
-          "default": "class extends d { constructor() { super(...arguments), this.slot_item = pt, this.mst_slot_item = I, this.size = \"sm\"; } render() { return n` <div class=\"flex justify-start cursor-default\"> <h3 class=${[ \"font-bold pl-3 truncate\", et[this.size].name_text ].join(\" \")}> ${this.mst_slot_item.name ?? \"Unknown\"} </h3> <div class=${[\"place-self-end pl-4 text-accent\", et[this.size].level_text].join(\" \")}> ${u(this.slot_item.level ?? 0)} </div> </div> <div class=\"pt-2 cursor-default\"> <table class=${[\"table\", et[this.size].table].join(\" \")}> <caption class=${[\"truncate pb-2\", et[this.size].caption_text].join(\" \")}> Equipment Status </caption> <tbody> <tr class=\"flex rounded\"> <th class=\"truncate flex-1 w-2\">Firepower</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> ${u(this.mst_slot_item.houg ?? 0)} </td> <th class=\"truncate flex-1 w-2\">Torpedo</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> ${u(this.mst_slot_item.raig ?? 0)} </td> </tr> <tr class=\"flex rounded\"> <th class=\"truncate flex-1 w-2\">Bomb</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> ${u(this.mst_slot_item.baku ?? 0)} </td> <th class=\"truncate flex-1 w-2\">Anti-Air</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> ${u(this.mst_slot_item.tyku ?? 0)} </td> </tr> <tr class=\"flex rounded\"> <th class=\"truncate flex-1 w-2\">Anti-Submarine</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> ${u(this.mst_slot_item.tais ?? 0)} </td> <th class=\"truncate flex-1 w-2\">Reconnaissance</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> ${u(this.mst_slot_item.saku ?? 0)} </td> </tr> <tr class=\"flex rounded\"> <th class=\"truncate flex-1 w-2\">Accuracy</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> ${u(this.mst_slot_item.houm ?? 0)} </td> <th class=\"truncate flex-1 w-2\">Evasion</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> ${u(this.mst_slot_item.houk ?? 0)} </td> </tr> <tr class=\"flex rounded\"> <th class=\"truncate flex-1 w-2\">Armor</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> ${u(this.mst_slot_item.souk ?? 0)} </td> <th class=\"truncate flex-1 w-2\">Anti-Bomber</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> ${u(this.mst_slot_item.taibaku ?? 0)} </td> </tr> <tr class=\"flex rounded\"> <th class=\"truncate flex-1 w-2\">Interception</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> ${u(this.mst_slot_item.geigeki ?? 0)} </td> <th class=\"truncate flex-1 w-2\">Distance</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> ${u(this.mst_slot_item.distance ?? 0)} </td> </tr> </tbody> </table> </div> </div>`; } }"
-        },
-        {
-          "kind": "variable",
-          "name": "v",
-          "default": "class extends d { constructor() { super(...arguments), this.slot_item = pt, this.mst_slot_item = I, this.ex_flag = !1, this.onslot = 0, this.name_flag = !1, this.size = \"xs\", this.empty_flag = !1, this.dialogRef = it(); } open_modal() { this.dialogRef.value?.showModal(); } dialogTemplete() { return n`<dialog id=${`equipment_modal_${this.slot_item.id}`} ${st(this.dialogRef)} class=\"modal\" > <div class=\"modal-box bg-base-100 modal-box-width\"> <form method=\"dialog\"> <button class=\"btn btn-sm btn-circle btn-ghost absolute right-2 top-2\" > <!-- <IconXMark class=\"h-6 w-6\" /> --> X </button> </form> <component-equipment-table .slot_item=${this.slot_item} .mst_slot_item=${this.mst_slot_item} ></component-equipment-table> </div> <form method=\"dialog\" class=\"modal-backdrop\"> <button>close</button> </form> </dialog>`; } render() { return this.empty_flag ? n`<div class=\"w-full cursor-default\"> <component-equipment size=${this.size} ?empty_flag=${this.empty_flag} ></component-equipment> </div>` : n` <div class=\"w-full cursor-pointer\" @click=\"${this.open_modal}\"> <component-equipment .slot_item=${this.slot_item} .mst_slot_item=${this.mst_slot_item} size=${this.size} ?name_flag=${this.name_flag} ?ex_flag=${this.ex_flag} onslot=${this.onslot} ></component-equipment> </div> ${this.dialogTemplete()} `; } }"
-        },
-        {
-          "kind": "variable",
-          "name": "$",
-          "default": "class extends d { constructor() { super(...arguments), this.mst_slot_item = I, this.name_flag = !1, this.size = \"xs\", this.empty_flag = !1, this.compact = !1, this.show_name = !1; } proficiencyOnslotTemplete() { return n` <div class=${[ \"flex-none\", ot[this.size].proficiency_onslot_pl, ot[this.size].proficiency_onslot_mt ].join(\" \")} > ${this.compact ?? !1 ? n`` : n`<div class=\"w-4\"></div>`} </div> `; } nameTemplete() { return (this.name_flag ?? !1) && !this.empty_flag ? n` <div class=${[ \"pl-3 truncate content-center cursor-inherit\", ot[this.size].name_text, ot[this.size].name_h ].join(\" \")} > ${this.show_name ? this.mst_slot_item.name ?? \"Unknown\" : \"Unknown\"} </div>` : n``; } render() { let e = this.mst_slot_item.type[1], t = this.mst_slot_item.type[3]; return n` <div class=\"flex flex-nowarp w-full\"> <div> <icon-equipment category_number=${e} icon_number=${t} size=${this.size} ?empty_flag=${this.empty_flag} ></icon-equipment> </div> ${this.proficiencyOnslotTemplete()} ${this.nameTemplete()} </div> `; } }"
-        },
-        {
-          "kind": "variable",
-          "name": "q",
-          "default": "class extends d { constructor() { super(...arguments), this.mst_slot_item = I, this.size = \"sm\", this.show_param = !1, this.show_name = !1; } render() { return n` <div class=\"flex justify-start cursor-default\"> <h3 class=${[ \"font-bold pl-3 truncate\", nt[this.size].name_text ].join(\" \")} > ${this.show_name ? this.mst_slot_item.name ?? \"Unknown\" : \"Unknown\"} </h3> </div> <div class=\"pt-2 cursor-default\"> <table class=${[\"table\", nt[this.size].table].join(\" \")}> <caption class=${[\"truncate pb-2\", nt[this.size].caption_text].join( \" \" )} > Equipment Status </caption> <tbody> <tr class=\"flex rounded\"> <th class=\"truncate flex-1 w-2\">Firepower</th> <td class=\"flex-none w-24 flex justify-end pr-4\"> ${this.show_param ?? !1 ? f(this.mst_slot_item.houg ?? 0) : \"unknown\"} </td> <th class=\"truncate flex-1 w-2\">Torpedo</th> <td class=\"flex-none w-24 flex justify-end pr-4\"> ${this.show_param ?? !1 ? f(this.mst_slot_item.raig ?? 0) : \"unknown\"} </td> </tr> <tr class=\"flex rounded\"> <th class=\"truncate flex-1 w-2\">Bomb</th> <td class=\"flex-none w-24 flex justify-end pr-4\"> ${this.show_param ?? !1 ? f(this.mst_slot_item.baku ?? 0) : \"unknown\"} </td> <th class=\"truncate flex-1 w-2\">Anti-Air</th> <td class=\"flex-none w-24 flex justify-end pr-4\"> ${this.show_param ?? !1 ? f(this.mst_slot_item.tyku ?? 0) : \"unknown\"} </td> </tr> <tr class=\"flex rounded\"> <th class=\"truncate flex-1 w-2\">Anti-Submarine</th> <td class=\"flex-none w-24 flex justify-end pr-4\"> ${this.show_param ?? !1 ? f(this.mst_slot_item.tais ?? 0) : \"unknown\"} </td> <th class=\"truncate flex-1 w-2\">Reconnaissance</th> <td class=\"flex-none w-24 flex justify-end pr-4\"> ${this.show_param ?? !1 ? f(this.mst_slot_item.saku ?? 0) : \"unknown\"} </td> </tr> <tr class=\"flex rounded\"> <th class=\"truncate flex-1 w-2\">Accuracy</th> <td class=\"flex-none w-24 flex justify-end pr-4\"> ${this.show_param ?? !1 ? f(this.mst_slot_item.houm ?? 0) : \"unknown\"} </td> <th class=\"truncate flex-1 w-2\">Evasion</th> <td class=\"flex-none w-24 flex justify-end pr-4\"> ${this.show_param ?? !1 ? f(this.mst_slot_item.houk ?? 0) : \"unknown\"} </td> </tr> <tr class=\"flex rounded\"> <th class=\"truncate flex-1 w-2\">Armor</th> <td class=\"flex-none w-24 flex justify-end pr-4\"> ${this.show_param ?? !1 ? f(this.mst_slot_item.souk ?? 0) : \"unknown\"} </td> <th class=\"truncate flex-1 w-2\">Anti-Bomber</th> <td class=\"flex-none w-24 flex justify-end pr-4\"> ${this.show_param ?? !1 ? f(this.mst_slot_item.taibaku ?? 0) : \"unknown\"} </td> </tr> <tr class=\"flex rounded\"> <th class=\"truncate flex-1 w-2\">Interception</th> <td class=\"flex-none w-24 flex justify-end pr-4\"> ${this.show_param ?? !1 ? f(this.mst_slot_item.geigeki ?? 0) : \"unknown\"} </td> <th class=\"truncate flex-1 w-2\">Distance</th> <td class=\"flex-none w-24 flex justify-end pr-4\"> ${this.show_param ?? !1 ? f(this.mst_slot_item.distance ?? 0) : \"unknown\"} </td> </tr> </tbody> </table> </div>`; } }"
+          "name": "L",
+          "default": "class extends p { constructor() { super(...arguments), this.slot_item = gt, this.mst_slot_item = Z, this.size = \"sm\"; } render() { return a` <div class=\"flex justify-start cursor-default\"> <h3 class=${[ \"font-bold pl-3 truncate\", lt[this.size].name_text ].join(\" \")}> ${this.mst_slot_item.name ?? \"Unknown\"} </h3> <div class=${[\"place-self-end pl-4 text-accent\", lt[this.size].level_text].join(\" \")}> ${u(this.slot_item.level ?? 0)} </div> </div> <div class=\"pt-2 cursor-default\"> <table class=${[\"table\", lt[this.size].table].join(\" \")}> <caption class=${[\"truncate pb-2\", lt[this.size].caption_text].join(\" \")}> Equipment Status </caption> <tbody> <tr class=\"flex rounded\"> <th class=\"truncate flex-1 w-2\">Firepower</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> ${u(this.mst_slot_item.houg ?? 0)} </td> <th class=\"truncate flex-1 w-2\">Torpedo</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> ${u(this.mst_slot_item.raig ?? 0)} </td> </tr> <tr class=\"flex rounded\"> <th class=\"truncate flex-1 w-2\">Bomb</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> ${u(this.mst_slot_item.baku ?? 0)} </td> <th class=\"truncate flex-1 w-2\">Anti-Air</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> ${u(this.mst_slot_item.tyku ?? 0)} </td> </tr> <tr class=\"flex rounded\"> <th class=\"truncate flex-1 w-2\">Anti-Submarine</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> ${u(this.mst_slot_item.tais ?? 0)} </td> <th class=\"truncate flex-1 w-2\">Reconnaissance</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> ${u(this.mst_slot_item.saku ?? 0)} </td> </tr> <tr class=\"flex rounded\"> <th class=\"truncate flex-1 w-2\">Accuracy</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> ${u(this.mst_slot_item.houm ?? 0)} </td> <th class=\"truncate flex-1 w-2\">Evasion</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> ${u(this.mst_slot_item.houk ?? 0)} </td> </tr> <tr class=\"flex rounded\"> <th class=\"truncate flex-1 w-2\">Armor</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> ${u(this.mst_slot_item.souk ?? 0)} </td> <th class=\"truncate flex-1 w-2\">Anti-Bomber</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> ${u(this.mst_slot_item.taibaku ?? 0)} </td> </tr> <tr class=\"flex rounded\"> <th class=\"truncate flex-1 w-2\">Interception</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> ${u(this.mst_slot_item.geigeki ?? 0)} </td> <th class=\"truncate flex-1 w-2\">Distance</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> ${u(this.mst_slot_item.distance ?? 0)} </td> </tr> </tbody> </table> </div> </div>`; } }"
         },
         {
           "kind": "variable",
           "name": "_",
-          "default": "class extends d { constructor() { super(...arguments), this.mst_slot_item = I, this.comapct = !1, this.name_flag = !1, this.show_name = !1, this.show_param = !1, this.size = \"xs\", this.empty_flag = !1, this.dialogRef = it(); } open_modal() { this.dialogRef.value?.showModal(); } dialogTemplete() { return n`<dialog id=${`equipment-mst_modal_${this.mst_slot_item.id}`} ${st(this.dialogRef)} class=\"modal\" > <div class=\"modal-box bg-base-100 modal-box-width\"> <form method=\"dialog\"> <button class=\"btn btn-sm btn-circle btn-ghost absolute right-2 top-2\" > <!-- <IconXMark class=\"h-6 w-6\" /> --> X </button> </form> <component-equipment-mst-table .mst_slot_item=${this.mst_slot_item} ?show_param=${this.show_param} ?show_name=${this.show_name} ></component-equipment-mst-table> </div> <form method=\"dialog\" class=\"modal-backdrop\"> <button>close</button> </form> </dialog>`; } render() { return this.empty_flag ? n`<div class=\"w-full cursor-default\"> <component-equipment-mst size=${this.size} ?empty_flag=${this.empty_flag} .mst_slot_item=${this.mst_slot_item} ?compact=${this.comapct} ?name_flag=${!1} ></component-equipment-mst> </div>` : n` <div class=\"w-full cursor-pointer\" @click=\"${this.open_modal}\"> <component-equipment-mst .mst_slot_item=${this.mst_slot_item} size=${this.size} ?name_flag=${this.name_flag} ?compact=${this.comapct} ?empty_flag=${this.empty_flag} ?show_name=${this.show_name} ></component-equipment-mst> </div> ${this.dialogTemplete()} `; } }"
+          "default": "class extends p { constructor() { super(...arguments), this.slot_item = gt, this.mst_slot_item = Z, this.ex_flag = !1, this.onslot = 0, this.name_flag = !1, this.size = \"xs\", this.empty_flag = !1, this.dialogRef = at(); } open_modal() { this.dialogRef.value?.showModal(); } dialogTemplete() { return a`<dialog id=${`equipment_modal_${this.slot_item.id}`} ${ct(this.dialogRef)} class=\"modal\" > <div class=\"modal-box bg-base-100 modal-box-width\"> <form method=\"dialog\"> <button class=\"btn btn-sm btn-circle btn-ghost absolute right-2 top-2\" > <!-- <IconXMark class=\"h-6 w-6\" /> --> X </button> </form> <component-equipment-table .slot_item=${this.slot_item} .mst_slot_item=${this.mst_slot_item} ></component-equipment-table> </div> <form method=\"dialog\" class=\"modal-backdrop\"> <button>close</button> </form> </dialog>`; } render() { return this.empty_flag ? a`<div class=\"w-full cursor-default\"> <component-equipment size=${this.size} ?empty_flag=${this.empty_flag} ></component-equipment> </div>` : a` <div class=\"w-full cursor-pointer\" @click=\"${this.open_modal}\"> <component-equipment .slot_item=${this.slot_item} .mst_slot_item=${this.mst_slot_item} size=${this.size} ?name_flag=${this.name_flag} ?ex_flag=${this.ex_flag} onslot=${this.onslot} ></component-equipment> </div> ${this.dialogTemplete()} `; } }"
         },
         {
           "kind": "variable",
-          "name": "B",
-          "default": "class extends d { constructor() { super(...arguments), this.mst_ship = K, this.color = \"\", this.size = \"xs\", this.name_flag = !1, this.empty_flag = !1; } nameTemplete() { return (this.name_flag ?? !1) && !this.empty_flag ? n`<div class=${[ \"pl-3 truncate content-center cursor-inherit\", ut[this.size].name_text, ut[this.size].name_h ].join(\" \")} > ${this.mst_ship.name ?? \"Unknown\"} </div>` : n``; } render() { return n` <div class=\"flex flex-nowarp w-full\"> <div> <icon-ship ship_stype=${this.mst_ship.stype} color=${this.color} size=${this.size} ?empty_flag=${this.empty_flag} ></icon-ship> </div> ${this.nameTemplete()} </div> `; } }"
+          "name": "$",
+          "default": "class extends p { constructor() { super(...arguments), this.mst_slot_item = Z, this.name_flag = !1, this.size = \"xs\", this.empty_flag = !1, this.compact = !1, this.show_name = !1; } proficiencyOnslotTemplete() { return a` <div class=${[ \"flex-none\", nt[this.size].proficiency_onslot_pl, nt[this.size].proficiency_onslot_mt ].join(\" \")} > ${this.compact ?? !1 ? a`` : a`<div class=\"w-4\"></div>`} </div> `; } nameTemplete() { return (this.name_flag ?? !1) && !this.empty_flag ? a` <div class=${[ \"pl-3 truncate content-center cursor-inherit\", nt[this.size].name_text, nt[this.size].name_h ].join(\" \")} > ${this.show_name ? this.mst_slot_item.name ?? \"Unknown\" : \"Unknown\"} </div>` : a``; } render() { let e = this.mst_slot_item.type[1], o = this.mst_slot_item.type[3]; return a` <div class=\"flex flex-nowarp w-full\"> <div> <icon-equipment category_number=${e} icon_number=${o} size=${this.size} ?empty_flag=${this.empty_flag} ></icon-equipment> </div> ${this.proficiencyOnslotTemplete()} ${this.nameTemplete()} </div> `; } }"
+        },
+        {
+          "kind": "variable",
+          "name": "U",
+          "default": "class extends p { constructor() { super(...arguments), this.mst_slot_item = Z, this.size = \"sm\", this.show_param = !1, this.show_name = !1; } render() { return a` <div class=\"flex justify-start cursor-default\"> <h3 class=${[ \"font-bold pl-3 truncate\", mt[this.size].name_text ].join(\" \")} > ${this.show_name ? this.mst_slot_item.name ?? \"Unknown\" : \"Unknown\"} </h3> </div> <div class=\"pt-2 cursor-default\"> <table class=${[\"table\", mt[this.size].table].join(\" \")}> <caption class=${[\"truncate pb-2\", mt[this.size].caption_text].join( \" \" )} > Equipment Status </caption> <tbody> <tr class=\"flex rounded\"> <th class=\"truncate flex-1 w-2\">Firepower</th> <td class=\"flex-none w-24 flex justify-end pr-4\"> ${this.show_param ?? !1 ? f(this.mst_slot_item.houg ?? 0) : \"unknown\"} </td> <th class=\"truncate flex-1 w-2\">Torpedo</th> <td class=\"flex-none w-24 flex justify-end pr-4\"> ${this.show_param ?? !1 ? f(this.mst_slot_item.raig ?? 0) : \"unknown\"} </td> </tr> <tr class=\"flex rounded\"> <th class=\"truncate flex-1 w-2\">Bomb</th> <td class=\"flex-none w-24 flex justify-end pr-4\"> ${this.show_param ?? !1 ? f(this.mst_slot_item.baku ?? 0) : \"unknown\"} </td> <th class=\"truncate flex-1 w-2\">Anti-Air</th> <td class=\"flex-none w-24 flex justify-end pr-4\"> ${this.show_param ?? !1 ? f(this.mst_slot_item.tyku ?? 0) : \"unknown\"} </td> </tr> <tr class=\"flex rounded\"> <th class=\"truncate flex-1 w-2\">Anti-Submarine</th> <td class=\"flex-none w-24 flex justify-end pr-4\"> ${this.show_param ?? !1 ? f(this.mst_slot_item.tais ?? 0) : \"unknown\"} </td> <th class=\"truncate flex-1 w-2\">Reconnaissance</th> <td class=\"flex-none w-24 flex justify-end pr-4\"> ${this.show_param ?? !1 ? f(this.mst_slot_item.saku ?? 0) : \"unknown\"} </td> </tr> <tr class=\"flex rounded\"> <th class=\"truncate flex-1 w-2\">Accuracy</th> <td class=\"flex-none w-24 flex justify-end pr-4\"> ${this.show_param ?? !1 ? f(this.mst_slot_item.houm ?? 0) : \"unknown\"} </td> <th class=\"truncate flex-1 w-2\">Evasion</th> <td class=\"flex-none w-24 flex justify-end pr-4\"> ${this.show_param ?? !1 ? f(this.mst_slot_item.houk ?? 0) : \"unknown\"} </td> </tr> <tr class=\"flex rounded\"> <th class=\"truncate flex-1 w-2\">Armor</th> <td class=\"flex-none w-24 flex justify-end pr-4\"> ${this.show_param ?? !1 ? f(this.mst_slot_item.souk ?? 0) : \"unknown\"} </td> <th class=\"truncate flex-1 w-2\">Anti-Bomber</th> <td class=\"flex-none w-24 flex justify-end pr-4\"> ${this.show_param ?? !1 ? f(this.mst_slot_item.taibaku ?? 0) : \"unknown\"} </td> </tr> <tr class=\"flex rounded\"> <th class=\"truncate flex-1 w-2\">Interception</th> <td class=\"flex-none w-24 flex justify-end pr-4\"> ${this.show_param ?? !1 ? f(this.mst_slot_item.geigeki ?? 0) : \"unknown\"} </td> <th class=\"truncate flex-1 w-2\">Distance</th> <td class=\"flex-none w-24 flex justify-end pr-4\"> ${this.show_param ?? !1 ? f(this.mst_slot_item.distance ?? 0) : \"unknown\"} </td> </tr> </tbody> </table> </div>`; } }"
+        },
+        {
+          "kind": "variable",
+          "name": "v",
+          "default": "class extends p { constructor() { super(...arguments), this.mst_slot_item = Z, this.comapct = !1, this.name_flag = !1, this.show_name = !1, this.show_param = !1, this.size = \"xs\", this.empty_flag = !1, this.dialogRef = at(); } open_modal() { this.dialogRef.value?.showModal(); } dialogTemplete() { return a`<dialog id=${`equipment-mst_modal_${this.mst_slot_item.id}`} ${ct(this.dialogRef)} class=\"modal\" > <div class=\"modal-box bg-base-100 modal-box-width\"> <form method=\"dialog\"> <button class=\"btn btn-sm btn-circle btn-ghost absolute right-2 top-2\" > <!-- <IconXMark class=\"h-6 w-6\" /> --> X </button> </form> <component-equipment-mst-table .mst_slot_item=${this.mst_slot_item} ?show_param=${this.show_param} ?show_name=${this.show_name} ></component-equipment-mst-table> </div> <form method=\"dialog\" class=\"modal-backdrop\"> <button>close</button> </form> </dialog>`; } render() { return this.empty_flag ? a`<div class=\"w-full cursor-default\"> <component-equipment-mst size=${this.size} ?empty_flag=${this.empty_flag} .mst_slot_item=${this.mst_slot_item} ?compact=${this.comapct} ?name_flag=${!1} ></component-equipment-mst> </div>` : a` <div class=\"w-full cursor-pointer\" @click=\"${this.open_modal}\"> <component-equipment-mst .mst_slot_item=${this.mst_slot_item} size=${this.size} ?name_flag=${this.name_flag} ?compact=${this.comapct} ?empty_flag=${this.empty_flag} ?show_name=${this.show_name} ></component-equipment-mst> </div> ${this.dialogTemplete()} `; } }"
+        },
+        {
+          "kind": "variable",
+          "name": "M",
+          "default": "class extends p { constructor() { super(...arguments), this.ship_stype = 0, this.size = \"xs\", this.color = \"\", this.empty_flag = !1; } render() { const e = le[this.ship_stype ?? 0], o = Ct[\"\"], i = ce(this.color); return a` <svg fill=\"currentColor\" stroke-width=\"1.5\" stroke=\"currentColor\" viewBox=\"0 0 199 151\" xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\" overflow=\"hidden\" class=${[ \"text-base-content\", \"fill-base-content\", \"cursor-inherit\", ne[this.size] ].join(\" \")} > ${this.empty_flag ? F`` : F`<text class=\"roboto-mono-500\" font-size=\"96\" textLength=\"${e.length * 48}\" lengthAdjust=\"spacingAndGlyphs\" transform=\"translate(${28 - (e.length - 3) * 24} 104)\" > ${e} </text> <path d=\"m 9 32 C 9 19.85 18.85 10 31 10 L 167 10 C 179.15 10 189 19.85 189 32 l 0 88 C 189 132.15 179.15 142 167 142 L 31 142 C 18.85 142 9 132.15 9 120 Z\" stroke=\"currentColor\" stroke-width=\"4\" stroke-linejoin=\"round\" stroke-miterlimit=\"10\" fill=\"none\" fill-rule=\"evenodd\" /> <path d=\"M28 124 100.2 124\" stroke=${o} stroke-width=\"16\" stroke-miterlimit=\"8\" fill=\"none\" fill-rule=\"evenodd\" /> <path d=\"M100 124 172 124\" stroke=${i} stroke-width=\"16\" stroke-miterlimit=\"8\" fill=\"none\" fill-rule=\"evenodd\" /> ${ae}`} </svg>`; } }"
+        },
+        {
+          "kind": "variable",
+          "name": "D",
+          "default": "class extends p { constructor() { super(...arguments), this.mst_ship = ot, this.color = \"\", this.size = \"xs\", this.name_flag = !1, this.empty_flag = !1; } nameTemplete() { return (this.name_flag ?? !1) && !this.empty_flag ? a`<div class=${[ \"pl-3 truncate content-center cursor-inherit\", $t[this.size].name_text, $t[this.size].name_h ].join(\" \")} > ${this.mst_ship.name ?? \"Unknown\"} </div>` : a``; } render() { return a` <div class=\"flex flex-nowarp w-full\"> <div> <icon-ship ship_stype=${this.mst_ship.stype} color=${this.color} size=${this.size} ?empty_flag=${this.empty_flag} ></icon-ship> </div> ${this.nameTemplete()} </div> `; } }"
         },
         {
           "kind": "variable",
           "name": "A",
-          "default": "class extends d { constructor() { super(...arguments), this.ship = mt, this.mst_ship = K, this.slot_items = dt, this.mst_slot_items = lt, this.size = \"sm\"; } equipmentTemplete(e, t) { let s = t != -1 ? this.mst_ship.maxeq[t] : void 0; if (e > 0) { let i = this.slot_items.slot_items[e], o = this.mst_slot_items.mst_slot_items[i.slotitem_id]; return n`<component-equipment-modal ?name_flag=${!0} .slot_item=${i} .mst_slot_item=${o} onslot=${E(s)} size=${this.size} ></component-equipment-modal>`; } else return n`<component-equipment-modal ?empty_flag=${!0} size=${this.size} ></component-equipment-modal>`; } slotsTemplete() { return this.ship.slot.map((e, t) => n` <tr class=\"flex rounded rounded items-center w-full ${ct({ \"back_slash_color bg-[size:16px_16px] bg-top-left bg-[image:repeating-linear-gradient(45deg,currentColor_0,currentColor_0.5px,transparent_0,transparent_50%)]\": this.ship.slotnum <= t })}\" > <th class=\"flex-none w-4\">S${t + 1}</th> <td class=\"flex-none w-12 ml-4 py-1 w-full\"> ${this.equipmentTemplete(e, t)} </td> </tr> `); } slotExTemplete() { return n` <tr class=\"flex rounded items-center ${ct({ \"back_slash_color bg-[size:16px_16px] bg-top-left bg-[image:repeating-linear-gradient(45deg,currentColor_0,currentColor_0.5px,transparent_0,transparent_50%)]\": this.ship.slot_ex == 0 })}\" > <th class=\"flex-none w-4\">SE</th> <td class=\"flex-none w-12 ml-4 py-1 w-full\"> ${this.equipmentTemplete(this.ship.slot_ex, -1)} </td> </tr> `; } maxEq() { return this.mst_ship.maxeq.reduce((e, t) => e + t, 0); } SpEffectItem() { let e = { soukou: 0, raisou: 0, karyoku: 0, kaihi: 0 }; if (!this.ship.sp_effect_items) return e; for (const t of [1, 2]) { let s = this.ship.sp_effect_items.items[t]; s && (e.soukou += s.souk ?? 0, e.raisou += s.raig ?? 0, e.karyoku += s.houg ?? 0, e.kaihi += s.kaih ?? 0); } return e; } render() { let e = this.SpEffectItem(), t = this.maxEq(); return n`<div class=\"cursor-default\"> <div class=\"flex justify-start\"> <h3 class=${[ \"font-bold pl-2 truncate\", g[this.size].name_text ].join(\" \")} > ${this.mst_ship.name ?? \"Unknown\"} </h3> <div class=${[ \"place-self-end pl-4\", g[this.size].level_text ].join(\" \")} > Lv. ${this.ship.lv ?? \"\"} </div> <div class=${[ \"place-self-end pl-2\", g[this.size].level_text ].join(\" \")} > next ${this.ship.exp[1] ?? \"\"} </div> </div> <div class=\"pt-2\"> <table class=${[\"table\", g[this.size].table].join(\" \")}> <caption class=${[\"truncate\", g[this.size].caption_text].join(\" \")} > Slots </caption> <tbody> ${this.slotsTemplete()} ${this.slotExTemplete()} </tbody> </table> <div class=\"h-2\"></div> <table class=${[\"table\", g[this.size].table].join(\" \")}> <caption class=${[\"truncate\", g[this.size].caption_text].join(\" \")} > Ship Status </caption> <tbody> <tr class=\"flex rounded\"> <th class=\"truncate flex-1 w-2\">Durability</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> ${this.ship.maxhp ?? 0} </td> <th class=\"truncate flex-1 w-2\">Firepower</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> <div class=\"indicator\"> <span class=${[ \"indicator-item indicator-bottom text-accent\", g[this.size].accent_text ].join(\" \")} > ${e.karyoku > 0 ? `+${e.karyoku}` : \"\"} </span> ${this.ship.karyoku[0] ?? 0} </div> </td> </tr> <tr class=\"flex rounded\"> <th class=\"truncate flex-1 w-2\">Armor</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> <div class=\"indicator\"> <span class=${[ \"indicator-item indicator-bottom text-accent\", g[this.size].accent_text ].join(\" \")} > ${e.soukou > 0 ? `+${e.soukou}` : \"\"} </span> ${this.ship.soukou[0] ?? 0} </div> </td> <th class=\"truncate flex-1 w-2\">Torpedo</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> <div class=\"indicator\"> <span class=${[ \"indicator-item indicator-bottom text-accent\", g[this.size].accent_text ].join(\" \")} > ${e.raisou > 0 ? `+${e.raisou}` : \"\"} </span> ${this.ship.raisou[0] ?? 0} </div> </td> </tr> <tr class=\"flex rounded\"> <th class=\"truncate flex-1 w-2\">Evasion</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> <div class=\"indicator\"> <span class=${[ \"indicator-item indicator-bottom text-accent\", g[this.size].accent_text ].join(\" \")} > ${e.kaihi > 0 ? `+${e.kaihi}` : \"\"} </span> ${this.ship.kaihi[0] ?? 0} </div> </td> <th class=\"truncate flex-1 w-2\">Anti-Air</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> ${this.ship.taiku[0] ?? 0} </td> </tr> <tr class=\"flex rounded\"> <th class=\"truncate flex-1 w-2\">Aircraft installed</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> ${t ?? !1} </td> <th class=\"truncate flex-1 w-2\">Anti-Submarine</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> ${this.ship.taisen[0] ?? 0} </td> </tr> <tr class=\"flex rounded\"> <th class=\"truncate flex-1 w-2\">Speed</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> ${ie[this.ship.soku ?? 0]} </td> <th class=\"truncate flex-1 w-2\">Reconnaissance</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> ${this.ship.sakuteki[0] ?? 0} </td> </tr> <tr class=\"flex rounded\"> <th class=\"truncate flex-1 w-2\">Range</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> ${se[this.ship.leng ?? 0]} </td> <th class=\"truncate flex-1 w-2\">Luck</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> ${this.ship.lucky[0] ?? 0} </td> </tr> </tbody> </table> </div> </div>`; } }"
+          "default": "class extends p { constructor() { super(...arguments), this.ship = vt, this.mst_ship = ot, this.slot_items = xt, this.mst_slot_items = pt, this.size = \"sm\"; } equipmentTemplete(e, o) { let i = o != -1 ? this.mst_ship.maxeq[o] : void 0; if (e > 0) { let r = this.slot_items.slot_items[e], t = this.mst_slot_items.mst_slot_items[r.slotitem_id]; return a`<component-equipment-modal ?name_flag=${!0} .slot_item=${r} .mst_slot_item=${t} onslot=${ft(i)} size=${this.size} ></component-equipment-modal>`; } else return a`<component-equipment-modal ?empty_flag=${!0} size=${this.size} ></component-equipment-modal>`; } slotsTemplete() { return this.ship.slot.map((e, o) => a` <tr class=\"flex rounded rounded items-center w-full ${bt({ \"back_slash_color bg-[size:16px_16px] bg-top-left bg-[image:repeating-linear-gradient(45deg,currentColor_0,currentColor_0.5px,transparent_0,transparent_50%)]\": this.ship.slotnum <= o })}\" > <th class=\"flex-none w-4\">S${o + 1}</th> <td class=\"flex-none w-12 ml-4 py-1 w-full\"> ${this.equipmentTemplete(e, o)} </td> </tr> `); } slotExTemplete() { return a` <tr class=\"flex rounded items-center ${bt({ \"back_slash_color bg-[size:16px_16px] bg-top-left bg-[image:repeating-linear-gradient(45deg,currentColor_0,currentColor_0.5px,transparent_0,transparent_50%)]\": this.ship.slot_ex == 0 })}\" > <th class=\"flex-none w-4\">SE</th> <td class=\"flex-none w-12 ml-4 py-1 w-full\"> ${this.equipmentTemplete(this.ship.slot_ex, -1)} </td> </tr> `; } maxEq() { return this.mst_ship.maxeq.reduce((e, o) => e + o, 0); } SpEffectItem() { let e = { soukou: 0, raisou: 0, karyoku: 0, kaihi: 0 }; if (!this.ship.sp_effect_items) return e; for (const o of [1, 2]) { let i = this.ship.sp_effect_items.items[o]; i && (e.soukou += i.souk ?? 0, e.raisou += i.raig ?? 0, e.karyoku += i.houg ?? 0, e.kaihi += i.kaih ?? 0); } return e; } render() { let e = this.SpEffectItem(), o = this.maxEq(); return a`<div class=\"cursor-default\"> <div class=\"flex justify-start\"> <h3 class=${[ \"font-bold pl-2 truncate\", g[this.size].name_text ].join(\" \")} > ${this.mst_ship.name ?? \"Unknown\"} </h3> <div class=${[ \"place-self-end pl-4\", g[this.size].level_text ].join(\" \")} > Lv. ${this.ship.lv ?? \"\"} </div> <div class=${[ \"place-self-end pl-2\", g[this.size].level_text ].join(\" \")} > next ${this.ship.exp[1] ?? \"\"} </div> </div> <div class=\"pt-2\"> <table class=${[\"table\", g[this.size].table].join(\" \")}> <caption class=${[\"truncate\", g[this.size].caption_text].join(\" \")} > Slots </caption> <tbody> ${this.slotsTemplete()} ${this.slotExTemplete()} </tbody> </table> <div class=\"h-2\"></div> <table class=${[\"table\", g[this.size].table].join(\" \")}> <caption class=${[\"truncate\", g[this.size].caption_text].join(\" \")} > Ship Status </caption> <tbody> <tr class=\"flex rounded\"> <th class=\"truncate flex-1 w-2\">Durability</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> ${this.ship.maxhp ?? 0} </td> <th class=\"truncate flex-1 w-2\">Firepower</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> <div class=\"indicator\"> <span class=${[ \"indicator-item indicator-bottom text-accent\", g[this.size].accent_text ].join(\" \")} > ${e.karyoku > 0 ? `+${e.karyoku}` : \"\"} </span> ${this.ship.karyoku[0] ?? 0} </div> </td> </tr> <tr class=\"flex rounded\"> <th class=\"truncate flex-1 w-2\">Armor</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> <div class=\"indicator\"> <span class=${[ \"indicator-item indicator-bottom text-accent\", g[this.size].accent_text ].join(\" \")} > ${e.soukou > 0 ? `+${e.soukou}` : \"\"} </span> ${this.ship.soukou[0] ?? 0} </div> </td> <th class=\"truncate flex-1 w-2\">Torpedo</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> <div class=\"indicator\"> <span class=${[ \"indicator-item indicator-bottom text-accent\", g[this.size].accent_text ].join(\" \")} > ${e.raisou > 0 ? `+${e.raisou}` : \"\"} </span> ${this.ship.raisou[0] ?? 0} </div> </td> </tr> <tr class=\"flex rounded\"> <th class=\"truncate flex-1 w-2\">Evasion</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> <div class=\"indicator\"> <span class=${[ \"indicator-item indicator-bottom text-accent\", g[this.size].accent_text ].join(\" \")} > ${e.kaihi > 0 ? `+${e.kaihi}` : \"\"} </span> ${this.ship.kaihi[0] ?? 0} </div> </td> <th class=\"truncate flex-1 w-2\">Anti-Air</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> ${this.ship.taiku[0] ?? 0} </td> </tr> <tr class=\"flex rounded\"> <th class=\"truncate flex-1 w-2\">Aircraft installed</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> ${o ?? !1} </td> <th class=\"truncate flex-1 w-2\">Anti-Submarine</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> ${this.ship.taisen[0] ?? 0} </td> </tr> <tr class=\"flex rounded\"> <th class=\"truncate flex-1 w-2\">Speed</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> ${ue[this.ship.soku ?? 0]} </td> <th class=\"truncate flex-1 w-2\">Reconnaissance</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> ${this.ship.sakuteki[0] ?? 0} </td> </tr> <tr class=\"flex rounded\"> <th class=\"truncate flex-1 w-2\">Range</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> ${be[this.ship.leng ?? 0]} </td> <th class=\"truncate flex-1 w-2\">Luck</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> ${this.ship.lucky[0] ?? 0} </td> </tr> </tbody> </table> </div> </div>`; } }"
         },
         {
           "kind": "variable",
           "name": "x",
-          "default": "class extends d { constructor() { super(...arguments), this.ship = mt, this.mst_ship = K, this.slot_items = dt, this.mst_slot_items = lt, this.color = \"\", this.name_flag = !1, this.size = \"xs\", this.empty_flag = !1, this.dialogRef = it(); } open_modal() { this.dialogRef.value?.showModal(); } dialogTemplete() { return n`<dialog id=${`ship_modal_${this.ship.id}`} ${st(this.dialogRef)} class=\"modal\" > <div class=\"modal-box bg-base-100 overflow-x-hidden\"> <form method=\"dialog\"> <button class=\"btn btn-sm btn-circle btn-ghost absolute right-2 top-2\" > <!-- <IconXMark class=\"h-6 w-6\" /> --> X </button> </form> <component-ship-table .ship=${this.ship} .mst_ship=${this.mst_ship} .mst_slot_items=${this.mst_slot_items} .slot_items=${this.slot_items} ></component-ship-table> </div> <form method=\"dialog\" class=\"modal-backdrop\"> <button>close</button> </form> </dialog>`; } render() { return this.empty_flag ? n`<div class=\"w-full cursor-default\"> <component-ship size=${this.size} ?empty_flag=${this.empty_flag} ?name_flag=${!1} ></component-ship> </div>` : n` <div class=\"w-full cursor-pointer\" @click=\"${this.open_modal}\"> <component-ship .mst_ship=${this.mst_ship} size=${this.size} color=${this.color} ?name_flag=${this.name_flag} ></component-ship> </div> ${this.dialogTemplete()}`; } }"
+          "default": "class extends p { constructor() { super(...arguments), this.ship = vt, this.mst_ship = ot, this.slot_items = xt, this.mst_slot_items = pt, this.color = \"\", this.name_flag = !1, this.size = \"xs\", this.empty_flag = !1, this.dialogRef = at(); } open_modal() { this.dialogRef.value?.showModal(); } dialogTemplete() { return a`<dialog id=${`ship_modal_${this.ship.id}`} ${ct(this.dialogRef)} class=\"modal\" > <div class=\"modal-box bg-base-100 overflow-x-hidden\"> <form method=\"dialog\"> <button class=\"btn btn-sm btn-circle btn-ghost absolute right-2 top-2\" > <!-- <IconXMark class=\"h-6 w-6\" /> --> X </button> </form> <component-ship-table .ship=${this.ship} .mst_ship=${this.mst_ship} .mst_slot_items=${this.mst_slot_items} .slot_items=${this.slot_items} ></component-ship-table> </div> <form method=\"dialog\" class=\"modal-backdrop\"> <button>close</button> </form> </dialog>`; } render() { return this.empty_flag ? a`<div class=\"w-full cursor-default\"> <component-ship size=${this.size} ?empty_flag=${this.empty_flag} ?name_flag=${!1} ></component-ship> </div>` : a` <div class=\"w-full cursor-pointer\" @click=\"${this.open_modal}\"> <component-ship .mst_ship=${this.mst_ship} size=${this.size} color=${this.color} ?name_flag=${this.name_flag} ></component-ship> </div> ${this.dialogTemplete()}`; } }"
         },
         {
           "kind": "variable",
           "name": "z",
-          "default": "class extends d { constructor() { super(...arguments), this.mst_ship = K, this.mst_slot_items = lt, this.size = \"sm\", this.ship_param = [0, 0, 0, 0], this.ship_slot = [0, 0, 0, 0, 0], this.ship_max_hp = 0; } equipmentTemplete(e) { if (e > 0) { let t = this.mst_slot_items.mst_slot_items[e]; return console.log(t), n`<component-equipment-mst-modal ?name_flag=${!0} ?show_name=${!1} ?show_param=${!1} .mst_slot_item=${t} ?comapct=${!1} size=${this.size} ></component-equipment-mst-modal>`; } else return n`<component-equipment-mst-modal ?empty_flag=${!0} size=${this.size} ></component-equipment-mst-modal>`; } slotsTemplete() { return this.ship_slot.map((e, t) => n` <tr class=\"flex rounded rounded items-center w-full ${ct({ \"back_slash_color bg-[size:16px_16px] bg-top-left bg-[image:repeating-linear-gradient(45deg,currentColor_0,currentColor_0.5px,transparent_0,transparent_50%)]\": this.mst_ship.slot_num <= t })}\" > <th class=\"flex-none w-4\">S${t + 1}</th> <td class=\"flex-none w-12 ml-4 py-1 w-full\"> ${this.equipmentTemplete(e)} </td> </tr> `); } render() { return console.log(this.ship_param), n`<div class=\"cursor-default\"> <div class=\"flex justify-start\"> <h3 class=${[ \"font-bold pl-2 truncate\", G[this.size].name_text ].join(\" \")} > ${this.mst_ship.name ?? \"Unknown\"} </h3> </div> <div class=\"pt-2\"> <table class=${[\"table\", G[this.size].table].join(\" \")}> <caption class=${[\"truncate\", G[this.size].caption_text].join(\" \")} > Slots </caption> <tbody> ${this.slotsTemplete()} </tbody> </table> <div class=\"h-2\"></div> <table class=${[\"table\", G[this.size].table].join(\" \")}> <caption class=${[\"truncate\", G[this.size].caption_text].join(\" \")} > Ship Status </caption> <tbody> <tr class=\"flex rounded\"> <th class=\"truncate flex-1 w-2\">Durability</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> ${this.ship_max_hp ?? 0} </td> <th class=\"truncate flex-1 w-2\">Firepower</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> ${this.ship_param[0] ?? 0} </td> </tr> <tr class=\"flex rounded\"> <th class=\"truncate flex-1 w-2\">Armor</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> ${this.ship_param[3] ?? 0} </td> <th class=\"truncate flex-1 w-2\">Torpedo</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> ${this.ship_param[1] ?? 0} </td> </tr> <tr class=\"flex rounded\"> <th class=\"truncate flex-1 w-2\">Evasion</th> <td class=\"flex-none w-12 flex justify-end pr-4\">unknown</td> <th class=\"truncate flex-1 w-2\">Anti-Air</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> ${this.ship_param[2] ?? 0} </td> </tr> <tr class=\"flex rounded\"> <th class=\"truncate flex-1 w-2\">Aircraft installed</th> <td class=\"flex-none w-12 flex justify-end pr-4\">unknown</td> <th class=\"truncate flex-1 w-2\">Anti-Submarine</th> <td class=\"flex-none w-12 flex justify-end pr-4\">unknown</td> </tr> <tr class=\"flex rounded\"> <th class=\"truncate flex-1 w-2\">Speed</th> <td class=\"flex-none w-12 flex justify-end pr-4\">unknown</td> <th class=\"truncate flex-1 w-2\">Reconnaissance</th> <td class=\"flex-none w-12 flex justify-end pr-4\">unknown</td> </tr> <tr class=\"flex rounded\"> <th class=\"truncate flex-1 w-2\">Range</th> <td class=\"flex-none w-12 flex justify-end pr-4\">unknown</td> <th class=\"truncate flex-1 w-2\">Luck</th> <td class=\"flex-none w-12 flex justify-end pr-4\">unknown</td> </tr> </tbody> </table> </div> </div>`; } }"
+          "default": "class extends p { constructor() { super(...arguments), this.mst_ship = ot, this.mst_slot_items = pt, this.size = \"sm\", this.ship_param = [0, 0, 0, 0], this.ship_slot = [0, 0, 0, 0, 0], this.ship_max_hp = 0; } equipmentTemplete(e) { if (e > 0) { let o = this.mst_slot_items.mst_slot_items[e]; return console.log(o), a`<component-equipment-mst-modal ?name_flag=${!0} ?show_name=${!1} ?show_param=${!1} .mst_slot_item=${o} ?comapct=${!1} size=${this.size} ></component-equipment-mst-modal>`; } else return a`<component-equipment-mst-modal ?empty_flag=${!0} size=${this.size} ></component-equipment-mst-modal>`; } slotsTemplete() { return this.ship_slot.map((e, o) => a` <tr class=\"flex rounded rounded items-center w-full ${bt({ \"back_slash_color bg-[size:16px_16px] bg-top-left bg-[image:repeating-linear-gradient(45deg,currentColor_0,currentColor_0.5px,transparent_0,transparent_50%)]\": this.mst_ship.slot_num <= o })}\" > <th class=\"flex-none w-4\">S${o + 1}</th> <td class=\"flex-none w-12 ml-4 py-1 w-full\"> ${this.equipmentTemplete(e)} </td> </tr> `); } render() { return console.log(this.ship_param), a`<div class=\"cursor-default\"> <div class=\"flex justify-start\"> <h3 class=${[ \"font-bold pl-2 truncate\", J[this.size].name_text ].join(\" \")} > ${this.mst_ship.name ?? \"Unknown\"} </h3> </div> <div class=\"pt-2\"> <table class=${[\"table\", J[this.size].table].join(\" \")}> <caption class=${[\"truncate\", J[this.size].caption_text].join(\" \")} > Slots </caption> <tbody> ${this.slotsTemplete()} </tbody> </table> <div class=\"h-2\"></div> <table class=${[\"table\", J[this.size].table].join(\" \")}> <caption class=${[\"truncate\", J[this.size].caption_text].join(\" \")} > Ship Status </caption> <tbody> <tr class=\"flex rounded\"> <th class=\"truncate flex-1 w-2\">Durability</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> ${this.ship_max_hp ?? 0} </td> <th class=\"truncate flex-1 w-2\">Firepower</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> ${this.ship_param[0] ?? 0} </td> </tr> <tr class=\"flex rounded\"> <th class=\"truncate flex-1 w-2\">Armor</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> ${this.ship_param[3] ?? 0} </td> <th class=\"truncate flex-1 w-2\">Torpedo</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> ${this.ship_param[1] ?? 0} </td> </tr> <tr class=\"flex rounded\"> <th class=\"truncate flex-1 w-2\">Evasion</th> <td class=\"flex-none w-12 flex justify-end pr-4\">unknown</td> <th class=\"truncate flex-1 w-2\">Anti-Air</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> ${this.ship_param[2] ?? 0} </td> </tr> <tr class=\"flex rounded\"> <th class=\"truncate flex-1 w-2\">Aircraft installed</th> <td class=\"flex-none w-12 flex justify-end pr-4\">unknown</td> <th class=\"truncate flex-1 w-2\">Anti-Submarine</th> <td class=\"flex-none w-12 flex justify-end pr-4\">unknown</td> </tr> <tr class=\"flex rounded\"> <th class=\"truncate flex-1 w-2\">Speed</th> <td class=\"flex-none w-12 flex justify-end pr-4\">unknown</td> <th class=\"truncate flex-1 w-2\">Reconnaissance</th> <td class=\"flex-none w-12 flex justify-end pr-4\">unknown</td> </tr> <tr class=\"flex rounded\"> <th class=\"truncate flex-1 w-2\">Range</th> <td class=\"flex-none w-12 flex justify-end pr-4\">unknown</td> <th class=\"truncate flex-1 w-2\">Luck</th> <td class=\"flex-none w-12 flex justify-end pr-4\">unknown</td> </tr> </tbody> </table> </div> </div>`; } }"
         },
         {
           "kind": "variable",
           "name": "m",
-          "default": "class extends d { constructor() { super(...arguments), this.ship = mt, this.mst_ship = K, this.slot_items = dt, this.mst_slot_items = lt, this.color = \"\", this.name_flag = !1, this.size = \"xs\", this.empty_flag = !1, this.ship_param = [0, 0, 0, 0], this.ship_slot = [0, 0, 0, 0, 0], this.ship_max_hp = 0, this.dialogRef = it(); } open_modal() { this.dialogRef.value?.showModal(); } dialogTemplete() { return n`<dialog id=${`ship_modal_${this.ship.id}`} ${st(this.dialogRef)} class=\"modal\" > <div class=\"modal-box bg-base-100 overflow-x-hidden\"> <form method=\"dialog\"> <button class=\"btn btn-sm btn-circle btn-ghost absolute right-2 top-2\" > <!-- <IconXMark class=\"h-6 w-6\" /> --> X </button> </form> <component-ship-masked-table .mst_ship=${this.mst_ship} .mst_slot_items=${this.mst_slot_items} ship_max_hp=${this.ship_max_hp} .ship_param=${this.ship_param} .ship_slot=${this.ship_slot} ></component-ship-masked-table> </div> <form method=\"dialog\" class=\"modal-backdrop\"> <button>close</button> </form> </dialog>`; } render() { return this.empty_flag ? n`<div class=\"w-full cursor-default\"> <component-ship size=${this.size} ?empty_flag=${this.empty_flag} ?name_flag=${!1} ></component-ship> </div>` : n` <div class=\"w-full cursor-pointer\" @click=\"${this.open_modal}\"> <component-ship .mst_ship=${this.mst_ship} size=${this.size} color=${this.color} ?name_flag=${this.name_flag} ></component-ship> </div> ${this.dialogTemplete()}`; } }"
+          "default": "class extends p { constructor() { super(...arguments), this.ship = vt, this.mst_ship = ot, this.slot_items = xt, this.mst_slot_items = pt, this.color = \"\", this.name_flag = !1, this.size = \"xs\", this.empty_flag = !1, this.ship_param = [0, 0, 0, 0], this.ship_slot = [0, 0, 0, 0, 0], this.ship_max_hp = 0, this.dialogRef = at(); } open_modal() { this.dialogRef.value?.showModal(); } dialogTemplete() { return a`<dialog id=${`ship_modal_${this.ship.id}`} ${ct(this.dialogRef)} class=\"modal\" > <div class=\"modal-box bg-base-100 overflow-x-hidden\"> <form method=\"dialog\"> <button class=\"btn btn-sm btn-circle btn-ghost absolute right-2 top-2\" > <!-- <IconXMark class=\"h-6 w-6\" /> --> X </button> </form> <component-ship-masked-table .mst_ship=${this.mst_ship} .mst_slot_items=${this.mst_slot_items} ship_max_hp=${this.ship_max_hp} .ship_param=${this.ship_param} .ship_slot=${this.ship_slot} ></component-ship-masked-table> </div> <form method=\"dialog\" class=\"modal-backdrop\"> <button>close</button> </form> </dialog>`; } render() { return this.empty_flag ? a`<div class=\"w-full cursor-default\"> <component-ship size=${this.size} ?empty_flag=${this.empty_flag} ?name_flag=${!1} ></component-ship> </div>` : a` <div class=\"w-full cursor-pointer\" @click=\"${this.open_modal}\"> <component-ship .mst_ship=${this.mst_ship} size=${this.size} color=${this.color} ?name_flag=${this.name_flag} ></component-ship> </div> ${this.dialogTemplete()}`; } }"
+        },
+        {
+          "kind": "variable",
+          "name": "Y",
+          "default": "class extends p { constructor() { super(...arguments), this.level = \"low\", this.size = \"xs\"; } render() { const e = Ce(this.level); return a`<svg fill=${e} stroke-width=\"16\" stroke=\"currentColor\" viewBox=\"-8 -8 528 528\" xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\" overflow=\"hidden\" class=${[\"stroke-base-content\", $e[this.size]].join(\" \")} > <g> <path d=\"M505.095,407.125L300.77,53.208c-9.206-15.944-26.361-25.849-44.774-25.849 c-18.412,0-35.552,9.905-44.751,25.849L6.905,407.109c-9.206,15.944-9.206,35.746,0,51.69 c9.206,15.944,26.354,25.842,44.758,25.842h408.674c18.405,0,35.568-9.897,44.759-25.842 C514.302,442.855,514.302,423.053,505.095,407.125z M256.004,426.437c-17.668,0-32.013-14.33-32.013-32.004 c0-17.668,14.345-31.997,32.013-31.997c17.667,0,31.997,14.329,31.997,31.997C288.001,412.108,273.671,426.437,256.004,426.437z M275.72,324.011c0,10.89-8.834,19.709-19.716,19.709c-10.898,0-19.717-8.818-19.717-19.709l-12.296-144.724 c0-17.676,14.345-32.005,32.013-32.005c17.667,0,31.997,14.33,31.997,32.005L275.72,324.011z\" /> </g> </svg>`; } }"
+        },
+        {
+          "kind": "variable",
+          "name": "O",
+          "default": "class extends p { constructor() { super(...arguments), this.size = \"xs\", this.e_flag = 0, this.fleet_number = 0, this.ship_number = 0, this.combined_flag = !1; } render() { let e, o = Oe( this.fleet_number, this.ship_number, this.combined_flag ), i = Ae(this.e_flag); return a` <svg fill=\"currentColor\" stroke-width=\"1.5\" stroke=\"currentColor\" viewBox=\"0 0 151 151\" xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\" overflow=\"hidden\" class=${[ \"text-base-content\", \"fill-base-content\", \"cursor-inherit\", Be[this.size] ].join(\" \")} > <text class=\"roboto-mono-500\" font-size=\"96\" textLength=\"96\" lengthAdjust=\"spacingAndGlyphs\" transform=\"translate(28 104)\" > ${e} ${o} </text> <path d=\"M28 124 124 124\" stroke=${i} stroke-width=\"16\" stroke-miterlimit=\"8\" fill=\"none\" fill-rule=\"evenodd\" /> ${De} </svg>`; } }"
+        },
+        {
+          "kind": "variable",
+          "name": "Q",
+          "default": "class extends p { constructor() { super(...arguments), this.kira_type = 1, this.size = \"xs\"; } render() { return this.kira_type == 1 ? a`<svg fill=\"#f0e040\" stroke-width=\"16\" stroke=\"currentColor\" viewBox=\"-8 -8 528 528\" xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\" overflow=\"hidden\" class=${[\"stroke-base-content\", ut[this.size]].join(\" \")} > <g> <path d=\"M495.469,241.969c-113.594,0-152.875-28.5-174.906-50.531c-22.031-22.125-50.578-61.344-50.578-174.922 c0-4.328-0.453-16.516-14.016-16.516C242.531,0,242,12.188,242,16.516c0,113.578-28.563,152.797-50.594,174.922 c-22.094,22.031-61.375,50.531-174.906,50.531c-4.344,0-16.5,0.5-16.5,14.047c0,13.453,12.156,13.938,16.5,13.938 c113.531,0,152.813,28.578,174.906,50.625C213.438,342.625,242,381.922,242,495.5c0,4.344,0.531,16.5,13.969,16.5 c13.563,0,14.016-12.156,14.016-16.5c0-113.578,28.547-152.875,50.578-174.922c22.031-22.078,61.313-50.625,174.906-50.625 c4.328,0,16.531-0.422,16.531-13.984C512,242.516,499.797,241.969,495.469,241.969z\" /> </g> </svg>` : this.kira_type == 2 ? a`<svg fill=\"#f0e040\" stroke-width=\"16\" stroke=\"currentColor\" viewBox=\"-8 -8 528 528\" xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\" overflow=\"hidden\" class=${[\"stroke-base-content\", ut[this.size]].join(\" \")} > <g> <path d=\"M494.696,155.436l-75.664-19.918c-24.946-6.56-44.421-26.036-50.982-50.963L348.142,8.892 C346.769,3.647,342.032,0,336.618,0c-5.424,0-10.161,3.647-11.542,8.892l-19.908,75.664c-6.56,24.927-26.036,44.402-50.982,50.963 l-75.664,19.918c-5.245,1.381-8.892,6.109-8.892,11.533c0,5.424,3.647,10.151,8.892,11.534l75.664,19.917 c24.946,6.552,44.422,26.036,50.982,50.963l19.908,75.665c1.381,5.245,6.119,8.892,11.542,8.892c5.414,0,10.151-3.647,11.524-8.892 l19.907-75.665c6.561-24.927,26.036-44.411,50.982-50.963l75.664-19.917c5.244-1.382,8.892-6.11,8.892-11.534 C503.587,161.546,499.94,156.818,494.696,155.436z\" /> <path d=\"M207.001,402.949l-46.226-12.163c-15.236-4.004-27.136-15.904-31.14-31.13l-12.172-46.226 c-0.837-3.215-3.723-5.432-7.041-5.432c-3.308,0-6.203,2.218-7.04,5.432l-12.163,46.226c-4.014,15.226-15.913,27.126-31.149,31.13 l-46.226,12.163c-3.196,0.846-5.432,3.741-5.432,7.049c0,3.309,2.237,6.204,5.432,7.049l46.226,12.163 c15.236,4.004,27.136,15.904,31.149,31.131l12.163,46.226c0.836,3.215,3.732,5.433,7.04,5.433c3.318,0,6.204-2.218,7.041-5.433 l12.172-46.226c4.004-15.227,15.904-27.127,31.14-31.131l46.226-12.163c3.196-0.845,5.432-3.74,5.432-7.049 C212.434,406.69,210.197,403.795,207.001,402.949z\" /> </g> </svg>` : this.kira_type == 3 ? a`<svg fill=\"#f0e040\" stroke-width=\"16\" stroke=\"currentColor\" viewBox=\"-8 -8 528 528\" xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\" overflow=\"hidden\" class=${[\"stroke-base-content\", ut[this.size]].join(\" \")} > <g> <path d=\"M247.355,106.9C222.705,82.241,205.833,39.18,197.46,0c-8.386,39.188-25.24,82.258-49.899,106.917 c-24.65,24.642-67.724,41.514-106.896,49.904c39.188,8.373,82.254,25.235,106.904,49.895c24.65,24.65,41.522,67.72,49.908,106.9 c8.373-39.188,25.24-82.258,49.886-106.917c24.65-24.65,67.724-41.514,106.896-49.904 C315.08,148.422,272.014,131.551,247.355,106.9z\" /> <path d=\"M407.471,304.339c-14.714-14.721-24.81-40.46-29.812-63.864c-5.011,23.404-15.073,49.142-29.803,63.872 c-14.73,14.714-40.464,24.801-63.864,29.812c23.408,5.01,49.134,15.081,63.864,29.811c14.73,14.722,24.81,40.46,29.82,63.864 c5.001-23.413,15.081-49.142,29.802-63.872c14.722-14.722,40.46-24.802,63.856-29.82 C447.939,329.14,422.201,319.061,407.471,304.339z\" /> <path d=\"M146.352,354.702c-4.207,19.648-12.655,41.263-25.019,53.626c-12.362,12.354-33.968,20.82-53.613,25.027 c19.645,4.216,41.251,12.656,53.613,25.027c12.364,12.362,20.829,33.96,25.036,53.618c4.203-19.658,12.655-41.255,25.023-53.626 c12.354-12.362,33.964-20.82,53.605-25.035c-19.64-4.2-41.251-12.656-53.613-25.019 C159.024,395.966,150.555,374.351,146.352,354.702z\" /> </g> </svg>` : a``; } }"
+        },
+        {
+          "kind": "variable",
+          "name": "jt",
+          "type": {
+            "text": "object"
+          },
+          "default": "{ 0: [\" \", 0], // undifined 1: [\"A3\", 1], // 高速修復材 2: [\"B3\", 1], // 高速建造材 3: [\"C3\", 1], // 開発資材 4: [\"C1\", 1], // 改修資材 5: [\"UN\", 0], // undifined 6: [\"UN\", 0], // undifined 7: [\"UN\", 0], // undifined 8: [\"UN\", 0], // undifined 9: [\"UN\", 0], // undifined 10: [\"A2\", 1], // 家具箱（小） 11: [\"B2\", 1], // 家具箱（中） 12: [\"C2\", 1], // 家具箱（大） 13: [\"UN\", 0], // undifined 14: [\"UN\", 0], // undifined 15: [\"UN\", 0], // undifined 16: [\"UN\", 0], // undifined 17: [\"UN\", 0], // undifined 18: [\"UN\", 0], // undifined 19: [\"UN\", 0], // undifined 20: [\"UN\", 0], // undifined 21: [\"UN\", 0], // undifined 22: [\"UN\", 0], // undifined 23: [\"UN\", 0], // undifined 24: [\"UN\", 0], // undifined 25: [\"UN\", 0], // undifined 26: [\"UN\", 0], // undifined 27: [\"UN\", 0], // undifined 28: [\"UN\", 0], // undifined 29: [\"UN\", 0], // undifined 30: [\"UN\", 0], // undifined 31: [\"A0\", 4], // 燃料 32: [\"B0\", 4], // 弾薬 33: [\"C0\", 4], // 鋼材 34: [\"D0\", 4], // ボーキサイト 35: [\"UN\", 0], // undifined 36: [\"UN\", 0], // undifined 37: [\"UN\", 0], // undifined 38: [\"UN\", 0], // undifined 39: [\"UN\", 0], // undifined 40: [\"UN\", 0], // undifined 41: [\"UN\", 0], // undifined 42: [\"UN\", 0], // undifined 43: [\"UN\", 0], // undifined 44: [\"E0\", 5], // 家具コイン 45: [\"UN\", 0], // undifined 46: [\"UN\", 0], // undifined 47: [\"UN\", 0], // undifined 48: [\"UN\", 0], // undifined 49: [\"D3\", 1], // ドック開放キー 50: [\"E3\", 1], // 応急修理要員 51: [\"F3\", 1], // 応急修理女神 52: [\"F2\", 1], // 特注家具職人 53: [\"D3\", 3], // 母港拡張 54: [\"D2\", 1], // 給糧艦「間宮」 55: [\"A1\", 1], // 書類一式＆指輪 56: [\"F1\", 1], // 艦娘からのチョコ 57: [\"B1\", 1], // 勲章 58: [\"E2\", 1], // 改装設計図 59: [\"D1\", 1], // 給糧艦「伊良湖」 60: [\"E1\", 1], // プレゼント箱 61: [\"G1\", 1], // 甲種勲章 62: [\"LT\", 1], // 菱餅 63: [\"G2\", 1], // 司令部要員 64: [\"H2\", 1], // 補強増設 65: [\"B4\", 1], // 試製カタパルト 66: [\"E4\", 1], // 戦闘糧食 67: [\"F4\", 1], // 洋上補給 68: [\"LT\", 1], // 秋刀魚 69: [\"D4\", 1], // 秋刀魚の缶詰 70: [\"A4\", 1], // 熟練搭乗員 71: [\"C4\", 1], // ネ式エンジン 72: [\"LT\", 1], // お飾り材料 73: [\"G4\", 1], // 設営隊 74: [\"H1\", 1], // 新型航空機設計図 75: [\"A2\", 2], // 新型砲熕兵装資材 76: [\"A3\", 2], // 戦闘糧食(特別なおにぎり) 77: [\"B2\", 2], // 新型航空兵装資材 78: [\"C1\", 2], // 戦闘詳報 79: [\"UC\", 6], // 海峡章 80: [\"LT\", 2], // Xmas Select Gift Box 81: [\"UC\", 6], // 捷号章 82: [\"UC\", 6], // 捷号章 83: [\"UC\", 6], // 捷号章 84: [\"UC\", 6], // 捷号章 85: [\"LT\", 2], // お米 86: [\"LT\", 2], // 梅干し 87: [\"LT\", 2], // 海苔 88: [\"LT\", 2], // お茶 89: [\"LT\", 2], // 鳳翔さん鳳翔食券 90: [\"LT\", 2], // 節分の豆 91: [\"B3\", 2], // 緊急修理資材 92: [\"C2\", 2], // 新型噴進装備開発資材 93: [\"LT\", 1], // 鰯 94: [\"C3\", 2], // 新型兵装資材 95: [\"H4\", 1], // 潜水艦補給物資 96: [\"LT\", 2], // 南瓜 97: [\"LT\", 1], // てるてる坊主 98: [\"A4\", 2], // 海色リボン 99: [\"B4\", 2], // 白たすき 100: [\"D2\", 2], // 海外艦最新技術 101: [\"D1\", 2], // 夜間熟練搭乗員 102: [\"D4\", 2] // }"
+        },
+        {
+          "kind": "variable",
+          "name": "W",
+          "default": "class extends p { constructor() { super(...arguments), this.item_number = 0, this.size = \"xs\"; } render() { let e = qe(this.item_number), o = Te(this.item_number); return a` <svg fill=\"currentColor\" stroke-width=\"1.5\" stroke=\"currentColor\" viewBox=\"0 0 151 151\" xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\" overflow=\"hidden\" class=${[ \"text-base-content\", \"fill-base-content\", \"cursor-inherit\", Me[this.size] ].join(\" \")} > <text class=\"roboto-mono-500\" font-size=\"96\" textLength=\"96\" lengthAdjust=\"spacingAndGlyphs\" transform=\"translate(28 104)\" > ${e} </text> <path d=\"M9 32C9 19.85 18.85 10 31 10L119 10C131.15 10 141 19.85 141 32L141 120C141 132.15 131.15 142 119 142L31 142C18.85 142 9 132.15 9 120Z\" stroke=\"#000000\" stroke-width=\"4\" stroke-linejoin=\"round\" stroke-miterlimit=\"10\" fill=\"none\" fill-rule=\"evenodd\" /> <path d=\"M28 124 124 124\" stroke=\"${o}\" stroke-width=\"16\" stroke-miterlimit=\"8\" fill=\"none\" fill-rule=\"evenodd\" /> ${Le} </svg>`; } }"
         }
       ],
       "exports": [
@@ -103,23 +120,7 @@
           "kind": "js",
           "name": "ComponentColorBar",
           "declaration": {
-            "name": "F",
-            "module": "dist/index.js"
-          }
-        },
-        {
-          "kind": "js",
-          "name": "ComponentColorBarBasic",
-          "declaration": {
-            "name": "xe",
-            "module": "dist/index.js"
-          }
-        },
-        {
-          "kind": "js",
-          "name": "ComponentColorBarCatalog",
-          "declaration": {
-            "name": "ge",
+            "name": "B",
             "module": "dist/index.js"
           }
         },
@@ -128,22 +129,6 @@
           "name": "ComponentColorBarLabel",
           "declaration": {
             "name": "S",
-            "module": "dist/index.js"
-          }
-        },
-        {
-          "kind": "js",
-          "name": "ComponentColorBarLabelBasic",
-          "declaration": {
-            "name": "ve",
-            "module": "dist/index.js"
-          }
-        },
-        {
-          "kind": "js",
-          "name": "ComponentColorBarLabelCatalog",
-          "declaration": {
-            "name": "_e",
             "module": "dist/index.js"
           }
         },
@@ -159,7 +144,7 @@
           "kind": "js",
           "name": "ComponentEquipmentModal",
           "declaration": {
-            "name": "v",
+            "name": "_",
             "module": "dist/index.js"
           }
         },
@@ -175,7 +160,7 @@
           "kind": "js",
           "name": "ComponentEquipmentMstModal",
           "declaration": {
-            "name": "_",
+            "name": "v",
             "module": "dist/index.js"
           }
         },
@@ -183,7 +168,7 @@
           "kind": "js",
           "name": "ComponentEquipmentMstTable",
           "declaration": {
-            "name": "q",
+            "name": "U",
             "module": "dist/index.js"
           }
         },
@@ -191,7 +176,7 @@
           "kind": "js",
           "name": "ComponentEquipmentTable",
           "declaration": {
-            "name": "U",
+            "name": "L",
             "module": "dist/index.js"
           }
         },
@@ -199,7 +184,7 @@
           "kind": "js",
           "name": "ComponentShip",
           "declaration": {
-            "name": "B",
+            "name": "D",
             "module": "dist/index.js"
           }
         },
@@ -234,6 +219,70 @@
             "name": "A",
             "module": "dist/index.js"
           }
+        },
+        {
+          "kind": "js",
+          "name": "IconCautionFill",
+          "declaration": {
+            "name": "Y",
+            "module": "dist/index.js"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "IconEquipment",
+          "declaration": {
+            "name": "N",
+            "module": "dist/index.js"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "IconFleetNumber",
+          "declaration": {
+            "name": "O",
+            "module": "dist/index.js"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "IconKira",
+          "declaration": {
+            "name": "Q",
+            "module": "dist/index.js"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "IconMaterial",
+          "declaration": {
+            "name": "W",
+            "module": "dist/index.js"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "IconPlaneProficiency",
+          "declaration": {
+            "name": "K",
+            "module": "dist/index.js"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "IconShip",
+          "declaration": {
+            "name": "M",
+            "module": "dist/index.js"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "item_list",
+          "declaration": {
+            "name": "jt",
+            "module": "dist/index.js"
+          }
         }
       ]
     },
@@ -247,7 +296,15 @@
           "name": "*",
           "declaration": {
             "name": "*",
-            "package": "\"./components/index\""
+            "package": "\"./components\""
+          }
+        },
+        {
+          "kind": "js",
+          "name": "*",
+          "declaration": {
+            "name": "*",
+            "package": "\"./icons\""
           }
         }
       ]
@@ -1533,6 +1590,69 @@
     },
     {
       "kind": "javascript-module",
+      "path": "src/icons/index.ts",
+      "declarations": [],
+      "exports": [
+        {
+          "kind": "js",
+          "name": "*",
+          "declaration": {
+            "name": "*",
+            "package": "\"./caution-fill\""
+          }
+        },
+        {
+          "kind": "js",
+          "name": "*",
+          "declaration": {
+            "name": "*",
+            "package": "\"./equipment\""
+          }
+        },
+        {
+          "kind": "js",
+          "name": "*",
+          "declaration": {
+            "name": "*",
+            "package": "\"./fleet-number\""
+          }
+        },
+        {
+          "kind": "js",
+          "name": "*",
+          "declaration": {
+            "name": "*",
+            "package": "\"./kira\""
+          }
+        },
+        {
+          "kind": "js",
+          "name": "*",
+          "declaration": {
+            "name": "*",
+            "package": "\"./material\""
+          }
+        },
+        {
+          "kind": "js",
+          "name": "*",
+          "declaration": {
+            "name": "*",
+            "package": "\"./plane-proficiency\""
+          }
+        },
+        {
+          "kind": "js",
+          "name": "*",
+          "declaration": {
+            "name": "*",
+            "package": "\"./ship\""
+          }
+        }
+      ]
+    },
+    {
+      "kind": "javascript-module",
       "path": "src/icons/kira.stories.ts",
       "declarations": [
         {
@@ -2240,22 +2360,6 @@
           },
           "tagName": "component-color-bar-label",
           "customElement": true
-        },
-        {
-          "kind": "function",
-          "name": "ComponentColorBarLabelBasic",
-          "parameters": [
-            {
-              "name": "args",
-              "type": {
-                "text": "ComponentColorBarLabelProps"
-              }
-            }
-          ]
-        },
-        {
-          "kind": "function",
-          "name": "ComponentColorBarLabelCatalog"
         }
       ],
       "exports": [
@@ -2274,22 +2378,6 @@
             "name": "ComponentColorBarLabel",
             "module": "src/components/bar/color-bar-label.ts"
           }
-        },
-        {
-          "kind": "js",
-          "name": "ComponentColorBarLabelBasic",
-          "declaration": {
-            "name": "ComponentColorBarLabelBasic",
-            "module": "src/components/bar/color-bar-label.ts"
-          }
-        },
-        {
-          "kind": "js",
-          "name": "ComponentColorBarLabelCatalog",
-          "declaration": {
-            "name": "ComponentColorBarLabelCatalog",
-            "module": "src/components/bar/color-bar-label.ts"
-          }
         }
       ]
     },
@@ -2297,6 +2385,22 @@
       "kind": "javascript-module",
       "path": "src/components/bar/color-bar.stories.ts",
       "declarations": [
+        {
+          "kind": "function",
+          "name": "ComponentColorBarBasic",
+          "parameters": [
+            {
+              "name": "args",
+              "type": {
+                "text": "ComponentColorBarProps"
+              }
+            }
+          ]
+        },
+        {
+          "kind": "function",
+          "name": "ComponentColorBarCatalog"
+        },
         {
           "kind": "variable",
           "name": "meta",
@@ -2320,6 +2424,22 @@
         }
       ],
       "exports": [
+        {
+          "kind": "js",
+          "name": "ComponentColorBarBasic",
+          "declaration": {
+            "name": "ComponentColorBarBasic",
+            "module": "src/components/bar/color-bar.stories.ts"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "ComponentColorBarCatalog",
+          "declaration": {
+            "name": "ComponentColorBarCatalog",
+            "module": "src/components/bar/color-bar.stories.ts"
+          }
+        },
         {
           "kind": "js",
           "name": "default",
@@ -2440,22 +2560,6 @@
           },
           "tagName": "component-color-bar",
           "customElement": true
-        },
-        {
-          "kind": "function",
-          "name": "ComponentColorBarBasic",
-          "parameters": [
-            {
-              "name": "args",
-              "type": {
-                "text": "ComponentColorBarProps"
-              }
-            }
-          ]
-        },
-        {
-          "kind": "function",
-          "name": "ComponentColorBarCatalog"
         }
       ],
       "exports": [
@@ -2472,22 +2576,6 @@
           "name": "component-color-bar",
           "declaration": {
             "name": "ComponentColorBar",
-            "module": "src/components/bar/color-bar.ts"
-          }
-        },
-        {
-          "kind": "js",
-          "name": "ComponentColorBarBasic",
-          "declaration": {
-            "name": "ComponentColorBarBasic",
-            "module": "src/components/bar/color-bar.ts"
-          }
-        },
-        {
-          "kind": "js",
-          "name": "ComponentColorBarCatalog",
-          "declaration": {
-            "name": "ComponentColorBarCatalog",
             "module": "src/components/bar/color-bar.ts"
           }
         }
@@ -3672,6 +3760,522 @@
     },
     {
       "kind": "javascript-module",
+      "path": "src/components/ship-masked/index.ts",
+      "declarations": [],
+      "exports": [
+        {
+          "kind": "js",
+          "name": "*",
+          "declaration": {
+            "name": "*",
+            "package": "\"./ship-masked-modal\""
+          }
+        },
+        {
+          "kind": "js",
+          "name": "*",
+          "declaration": {
+            "name": "*",
+            "package": "\"./ship-masked-table\""
+          }
+        }
+      ]
+    },
+    {
+      "kind": "javascript-module",
+      "path": "src/components/ship-masked/ship-masked-modal.stories.ts",
+      "declarations": [
+        {
+          "kind": "function",
+          "name": "ComponentShipMaskedModalBasic",
+          "parameters": [
+            {
+              "name": "args",
+              "type": {
+                "text": "ComponentShipMaskedModalProps"
+              }
+            }
+          ]
+        },
+        {
+          "kind": "variable",
+          "name": "meta",
+          "default": "{ title: \"FUSOU/components/ship-masked/component-ship-masked-modal\", tags: [\"autodocs\"], } satisfies Meta<ComponentShipMaskedModalProps>"
+        },
+        {
+          "kind": "variable",
+          "name": "basic",
+          "type": {
+            "text": "Story"
+          },
+          "default": "{ render: (args: ComponentShipMaskedModalProps) => ComponentShipMaskedModalBasic(args), name: \"Basic\", argTypes: { color: { control: { type: \"select\" }, options: [undefined, \"\", \"-\", \"elite\", \"flagship\"], }, empty_flag: { control: \"boolean\", }, name_flag: { control: \"boolean\", }, size: { control: { type: \"select\" }, options: size_list, table: { defaultValue: { summary: \"xs\" }, type: { summary: size_list.join(\"\\|\"), }, }, }, }, args: { color: undefined, empty_flag: false, name_flag: false, size: \"sm\", ship_max_hp: 100, ship_param: [95, 102, 76, 107], ship_slot: [303, 303, 41, 106], ship: { id: 4299, ship_id: 668, lv: 132, exp: [1999074, 25926, 69], nowhp: 55, maxhp: 60, soku: 10, leng: 2, slot: [7355, 7571, 8735, 3006, -1], onslot: [1, 1, 2, 2, 0], slot_ex: 6865, fuel: 10, bull: 15, slotnum: 4, cond: 49, karyoku: [95, 81], raisou: [102, 88], taiku: [107, 88], soukou: [76, 74], kaihi: [112, 86], taisen: [96, 80], sakuteki: [84, 60], lucky: [22, 89], sp_effect_items: { items: { 2: { kind: 2, houg: 2, kaih: 2, }, }, }, sally_area: 0, }, mst_ship: { id: 668, sortno: 468, sort_id: 11037, name: \"\\u77e2\\u77e7\\u6539\\u4e8c\\u4e59\", yomi: \"\\u3084\\u306f\\u304e\", stype: 3, ctype: 41, afterlv: 90, aftershipid: \"663\", taik: [53, 68], souk: [32, 74], houg: [30, 81], raig: [24, 88], tyku: [36, 88], luck: [17, 89], soku: 10, leng: 2, slot_num: 4, maxeq: [1, 1, 2, 2, 0], buildtime: 60, broken: [4, 8, 16, 4], powup: [2, 2, 2, 3], backs: 8, getmes: \"<br>\", afterfuel: 480, afterbull: 880, fuel_max: 45, bull_max: 50, voicef: 7, tais: [], }, slot_items: { slot_items: { 7355: { id: 7355, slotitem_id: 303, locked: 1, level: 6, }, 7571: { id: 7571, slotitem_id: 303, locked: 1, level: 6, }, 8735: { id: 8735, slotitem_id: 41, locked: 0, level: 0, }, 3006: { id: 3006, slotitem_id: 106, locked: 1, level: 0, }, 6865: { id: 6865, slotitem_id: 129, locked: 1, level: 0, }, }, }, mst_slot_items: { mst_slot_items: { 303: { id: 303, sortno: 303, name: \"Bofors 15.2cm\\u9023\\u88c5\\u7832 Model 1930\", type: [1, 1, 2, 2, 0], taik: 0, souk: 0, houg: 5, raig: 0, soku: 0, baku: 0, tyku: 4, tais: 0, atap: 0, houm: 3, raim: 0, houk: 1, raik: 0, bakk: 0, saku: 0, sakb: 0, luck: 0, leng: 2, rare: 3, broken: [0, 2, 3, 1], usebull: \"0\", geigeki: 0, taibaku: 0, }, 41: { id: 41, sortno: 41, name: \"\\u7532\\u6a19\\u7684 \\u7532\\u578b\", type: [2, 4, 22, 5, 0], taik: 0, souk: 0, houg: 0, raig: 12, soku: 0, baku: 0, tyku: 0, tais: 0, atap: 0, houm: 0, raim: 0, houk: 0, raik: 0, bakk: 0, saku: 0, sakb: 0, luck: 0, leng: 0, rare: 1, broken: [0, 7, 7, 0], usebull: \"0\", version: 2, geigeki: 0, taibaku: 0, }, 106: { id: 106, sortno: 106, name: \"13\\u53f7\\u5bfe\\u7a7a\\u96fb\\u63a2\\u6539\", type: [5, 8, 12, 11, 0], taik: 0, souk: 0, houg: 0, raig: 0, soku: 0, baku: 0, tyku: 4, tais: 0, atap: 0, houm: 2, raim: 0, houk: 1, raik: 0, bakk: 0, saku: 4, sakb: 0, luck: 0, leng: 0, rare: 3, broken: [0, 0, 10, 11], usebull: \"0\", version: 2, geigeki: 0, taibaku: 0, }, 129: { id: 129, sortno: 129, name: \"\\u719f\\u7df4\\u898b\\u5f35\\u54e1\", type: [16, 27, 39, 32, 0], taik: 0, souk: 0, houg: 0, raig: 0, soku: 0, baku: 0, tyku: 1, tais: 0, atap: 0, houm: 2, raim: 0, houk: 3, raik: 0, bakk: 0, saku: 2, sakb: 0, luck: 0, leng: 0, rare: 3, broken: [1, 0, 0, 0], usebull: \"0\", geigeki: 0, taibaku: 0, }, }, }, }, }"
+        }
+      ],
+      "exports": [
+        {
+          "kind": "js",
+          "name": "ComponentShipMaskedModalBasic",
+          "declaration": {
+            "name": "ComponentShipMaskedModalBasic",
+            "module": "src/components/ship-masked/ship-masked-modal.stories.ts"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "default",
+          "declaration": {
+            "name": "meta",
+            "module": "src/components/ship-masked/ship-masked-modal.stories.ts"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "basic",
+          "declaration": {
+            "name": "basic",
+            "module": "src/components/ship-masked/ship-masked-modal.stories.ts"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "javascript-module",
+      "path": "src/components/ship-masked/ship-masked-modal.ts",
+      "declarations": [
+        {
+          "kind": "class",
+          "description": "",
+          "name": "ComponentShipMaskedModal",
+          "members": [
+            {
+              "kind": "field",
+              "name": "ship",
+              "type": {
+                "text": "Ship"
+              },
+              "default": "default_ship",
+              "attribute": "ship"
+            },
+            {
+              "kind": "field",
+              "name": "mst_ship",
+              "type": {
+                "text": "MstShip"
+              },
+              "default": "default_mst_ship",
+              "attribute": "mst_ship"
+            },
+            {
+              "kind": "field",
+              "name": "slot_items",
+              "type": {
+                "text": "SlotItems"
+              },
+              "default": "default_slotitems",
+              "attribute": "slot_items"
+            },
+            {
+              "kind": "field",
+              "name": "mst_slot_items",
+              "type": {
+                "text": "MstSlotitems"
+              },
+              "default": "default_mst_slot_items",
+              "attribute": "mst_slot_items"
+            },
+            {
+              "kind": "field",
+              "name": "color",
+              "type": {
+                "text": "string"
+              },
+              "default": "\"\"",
+              "attribute": "color"
+            },
+            {
+              "kind": "field",
+              "name": "name_flag",
+              "type": {
+                "text": "boolean"
+              },
+              "default": "false",
+              "attribute": "name_flag"
+            },
+            {
+              "kind": "field",
+              "name": "size",
+              "type": {
+                "text": "\"xs\" | \"sm\" | \"md\" | \"lg\" | \"xl\""
+              },
+              "default": "\"xs\"",
+              "attribute": "size"
+            },
+            {
+              "kind": "field",
+              "name": "empty_flag",
+              "type": {
+                "text": "boolean"
+              },
+              "default": "false",
+              "attribute": "empty_flag"
+            },
+            {
+              "kind": "field",
+              "name": "ship_param",
+              "type": {
+                "text": "number[]"
+              },
+              "default": "[0, 0, 0, 0]",
+              "attribute": "ship_param"
+            },
+            {
+              "kind": "field",
+              "name": "ship_slot",
+              "type": {
+                "text": "number[]"
+              },
+              "default": "[0, 0, 0, 0, 0]",
+              "attribute": "ship_slot"
+            },
+            {
+              "kind": "field",
+              "name": "ship_max_hp",
+              "type": {
+                "text": "number"
+              },
+              "default": "0",
+              "attribute": "ship_max_hp"
+            },
+            {
+              "kind": "field",
+              "name": "dialogRef",
+              "type": {
+                "text": "Ref<HTMLDialogElement>"
+              }
+            },
+            {
+              "kind": "method",
+              "name": "open_modal",
+              "privacy": "private"
+            },
+            {
+              "kind": "method",
+              "name": "dialogTemplete"
+            }
+          ],
+          "attributes": [
+            {
+              "name": "ship",
+              "type": {
+                "text": "Ship"
+              },
+              "default": "default_ship",
+              "fieldName": "ship"
+            },
+            {
+              "name": "mst_ship",
+              "type": {
+                "text": "MstShip"
+              },
+              "default": "default_mst_ship",
+              "fieldName": "mst_ship"
+            },
+            {
+              "name": "slot_items",
+              "type": {
+                "text": "SlotItems"
+              },
+              "default": "default_slotitems",
+              "fieldName": "slot_items"
+            },
+            {
+              "name": "mst_slot_items",
+              "type": {
+                "text": "MstSlotitems"
+              },
+              "default": "default_mst_slot_items",
+              "fieldName": "mst_slot_items"
+            },
+            {
+              "name": "color",
+              "type": {
+                "text": "string"
+              },
+              "default": "\"\"",
+              "fieldName": "color"
+            },
+            {
+              "name": "name_flag",
+              "type": {
+                "text": "boolean"
+              },
+              "default": "false",
+              "fieldName": "name_flag"
+            },
+            {
+              "name": "size",
+              "type": {
+                "text": "\"xs\" | \"sm\" | \"md\" | \"lg\" | \"xl\""
+              },
+              "default": "\"xs\"",
+              "fieldName": "size"
+            },
+            {
+              "name": "empty_flag",
+              "type": {
+                "text": "boolean"
+              },
+              "default": "false",
+              "fieldName": "empty_flag"
+            },
+            {
+              "name": "ship_param",
+              "type": {
+                "text": "number[]"
+              },
+              "default": "[0, 0, 0, 0]",
+              "fieldName": "ship_param"
+            },
+            {
+              "name": "ship_slot",
+              "type": {
+                "text": "number[]"
+              },
+              "default": "[0, 0, 0, 0, 0]",
+              "fieldName": "ship_slot"
+            },
+            {
+              "name": "ship_max_hp",
+              "type": {
+                "text": "number"
+              },
+              "default": "0",
+              "fieldName": "ship_max_hp"
+            }
+          ],
+          "superclass": {
+            "name": "LitElement",
+            "package": "lit"
+          },
+          "tagName": "component-ship-masked-modal",
+          "customElement": true
+        }
+      ],
+      "exports": [
+        {
+          "kind": "js",
+          "name": "ComponentShipMaskedModal",
+          "declaration": {
+            "name": "ComponentShipMaskedModal",
+            "module": "src/components/ship-masked/ship-masked-modal.ts"
+          }
+        },
+        {
+          "kind": "custom-element-definition",
+          "name": "component-ship-masked-modal",
+          "declaration": {
+            "name": "ComponentShipMaskedModal",
+            "module": "src/components/ship-masked/ship-masked-modal.ts"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "javascript-module",
+      "path": "src/components/ship-masked/ship-masked-table.stories.ts",
+      "declarations": [
+        {
+          "kind": "variable",
+          "name": "meta",
+          "default": "{ title: \"FUSOU/components/ship-masked/component-ship-masked-table\", tags: [\"autodocs\"], } satisfies Meta<ComponentShipMaskedTableProps>"
+        },
+        {
+          "kind": "variable",
+          "name": "basic",
+          "type": {
+            "text": "Story"
+          },
+          "default": "{ render: (args: ComponentShipMaskedTableProps) => ComponentShipMaskedTableBasic(args), name: \"Basic\", argTypes: { ship_max_hp: { control: { type: \"range\", min: 1, max: 100, step: 1 } }, size: { control: { type: \"select\" }, options: size_list, table: { defaultValue: { summary: \"sm\" }, type: { summary: size_list.join(\"\\|\"), }, }, }, }, args: { size: \"sm\", ship_max_hp: 100, ship_param: [95, 102, 76, 107], ship_slot: [303, 303, 41, 106], mst_ship: { id: 668, sortno: 468, sort_id: 11037, name: \"\\u77e2\\u77e7\\u6539\\u4e8c\\u4e59\", yomi: \"\\u3084\\u306f\\u304e\", stype: 3, ctype: 41, afterlv: 90, aftershipid: \"663\", taik: [53, 68], souk: [32, 74], houg: [30, 81], raig: [24, 88], tyku: [36, 88], luck: [17, 89], soku: 10, leng: 2, slot_num: 4, maxeq: [1, 1, 2, 2, 0], buildtime: 60, broken: [4, 8, 16, 4], powup: [2, 2, 2, 3], backs: 8, getmes: \"<br>\", afterfuel: 480, afterbull: 880, fuel_max: 45, bull_max: 50, voicef: 7, tais: [], }, mst_slot_items: { mst_slot_items: { 303: { id: 303, sortno: 303, name: \"Bofors 15.2cm\\u9023\\u88c5\\u7832 Model 1930\", type: [1, 1, 2, 2, 0], taik: 0, souk: 0, houg: 5, raig: 0, soku: 0, baku: 0, tyku: 4, tais: 0, atap: 0, houm: 3, raim: 0, houk: 1, raik: 0, bakk: 0, saku: 0, sakb: 0, luck: 0, leng: 2, rare: 3, broken: [0, 2, 3, 1], usebull: \"0\", geigeki: 0, taibaku: 0, }, 41: { id: 41, sortno: 41, name: \"\\u7532\\u6a19\\u7684 \\u7532\\u578b\", type: [2, 4, 22, 5, 0], taik: 0, souk: 0, houg: 0, raig: 12, soku: 0, baku: 0, tyku: 0, tais: 0, atap: 0, houm: 0, raim: 0, houk: 0, raik: 0, bakk: 0, saku: 0, sakb: 0, luck: 0, leng: 0, rare: 1, broken: [0, 7, 7, 0], usebull: \"0\", version: 2, geigeki: 0, taibaku: 0, }, 106: { id: 106, sortno: 106, name: \"13\\u53f7\\u5bfe\\u7a7a\\u96fb\\u63a2\\u6539\", type: [5, 8, 12, 11, 0], taik: 0, souk: 0, houg: 0, raig: 0, soku: 0, baku: 0, tyku: 4, tais: 0, atap: 0, houm: 2, raim: 0, houk: 1, raik: 0, bakk: 0, saku: 4, sakb: 0, luck: 0, leng: 0, rare: 3, broken: [0, 0, 10, 11], usebull: \"0\", version: 2, geigeki: 0, taibaku: 0, }, 129: { id: 129, sortno: 129, name: \"\\u719f\\u7df4\\u898b\\u5f35\\u54e1\", type: [16, 27, 39, 32, 0], taik: 0, souk: 0, houg: 0, raig: 0, soku: 0, baku: 0, tyku: 1, tais: 0, atap: 0, houm: 2, raim: 0, houk: 3, raik: 0, bakk: 0, saku: 2, sakb: 0, luck: 0, leng: 0, rare: 3, broken: [1, 0, 0, 0], usebull: \"0\", geigeki: 0, taibaku: 0, }, }, }, }, }"
+        }
+      ],
+      "exports": [
+        {
+          "kind": "js",
+          "name": "default",
+          "declaration": {
+            "name": "meta",
+            "module": "src/components/ship-masked/ship-masked-table.stories.ts"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "basic",
+          "declaration": {
+            "name": "basic",
+            "module": "src/components/ship-masked/ship-masked-table.stories.ts"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "javascript-module",
+      "path": "src/components/ship-masked/ship-masked-table.ts",
+      "declarations": [
+        {
+          "kind": "class",
+          "description": "",
+          "name": "ComponentShipMaskedTable",
+          "members": [
+            {
+              "kind": "field",
+              "name": "mst_ship",
+              "type": {
+                "text": "MstShip"
+              },
+              "default": "default_mst_ship",
+              "attribute": "mst_ship"
+            },
+            {
+              "kind": "field",
+              "name": "mst_slot_items",
+              "type": {
+                "text": "MstSlotitems"
+              },
+              "default": "default_mst_slot_items",
+              "attribute": "mst_slot_items"
+            },
+            {
+              "kind": "field",
+              "name": "size",
+              "type": {
+                "text": "keyof typeof class_size"
+              },
+              "default": "\"sm\"",
+              "attribute": "size"
+            },
+            {
+              "kind": "field",
+              "name": "ship_param",
+              "type": {
+                "text": "number[]"
+              },
+              "default": "[0, 0, 0, 0]",
+              "attribute": "ship_param"
+            },
+            {
+              "kind": "field",
+              "name": "ship_slot",
+              "type": {
+                "text": "number[]"
+              },
+              "default": "[0, 0, 0, 0, 0]",
+              "attribute": "ship_slot"
+            },
+            {
+              "kind": "field",
+              "name": "ship_max_hp",
+              "type": {
+                "text": "number"
+              },
+              "default": "0",
+              "attribute": "ship_max_hp"
+            },
+            {
+              "kind": "method",
+              "name": "equipmentTemplete",
+              "parameters": [
+                {
+                  "name": "slot",
+                  "type": {
+                    "text": "number"
+                  }
+                }
+              ]
+            },
+            {
+              "kind": "method",
+              "name": "slotsTemplete"
+            }
+          ],
+          "attributes": [
+            {
+              "name": "mst_ship",
+              "type": {
+                "text": "MstShip"
+              },
+              "default": "default_mst_ship",
+              "fieldName": "mst_ship"
+            },
+            {
+              "name": "mst_slot_items",
+              "type": {
+                "text": "MstSlotitems"
+              },
+              "default": "default_mst_slot_items",
+              "fieldName": "mst_slot_items"
+            },
+            {
+              "name": "size",
+              "type": {
+                "text": "keyof typeof class_size"
+              },
+              "default": "\"sm\"",
+              "fieldName": "size"
+            },
+            {
+              "name": "ship_param",
+              "type": {
+                "text": "number[]"
+              },
+              "default": "[0, 0, 0, 0]",
+              "fieldName": "ship_param"
+            },
+            {
+              "name": "ship_slot",
+              "type": {
+                "text": "number[]"
+              },
+              "default": "[0, 0, 0, 0, 0]",
+              "fieldName": "ship_slot"
+            },
+            {
+              "name": "ship_max_hp",
+              "type": {
+                "text": "number"
+              },
+              "default": "0",
+              "fieldName": "ship_max_hp"
+            }
+          ],
+          "superclass": {
+            "name": "LitElement",
+            "package": "lit"
+          },
+          "tagName": "component-ship-masked-table",
+          "customElement": true
+        }
+      ],
+      "exports": [
+        {
+          "kind": "js",
+          "name": "ComponentShipMaskedTable",
+          "declaration": {
+            "name": "ComponentShipMaskedTable",
+            "module": "src/components/ship-masked/ship-masked-table.ts"
+          }
+        },
+        {
+          "kind": "custom-element-definition",
+          "name": "component-ship-masked-table",
+          "declaration": {
+            "name": "ComponentShipMaskedTable",
+            "module": "src/components/ship-masked/ship-masked-table.ts"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "javascript-module",
       "path": "src/components/ship/index.ts",
       "declarations": [],
       "exports": [
@@ -4285,522 +4889,6 @@
           "declaration": {
             "name": "ComponentShip",
             "module": "src/components/ship/ship.ts"
-          }
-        }
-      ]
-    },
-    {
-      "kind": "javascript-module",
-      "path": "src/components/ship-masked/index.ts",
-      "declarations": [],
-      "exports": [
-        {
-          "kind": "js",
-          "name": "*",
-          "declaration": {
-            "name": "*",
-            "package": "\"./ship-masked-modal\""
-          }
-        },
-        {
-          "kind": "js",
-          "name": "*",
-          "declaration": {
-            "name": "*",
-            "package": "\"./ship-masked-table\""
-          }
-        }
-      ]
-    },
-    {
-      "kind": "javascript-module",
-      "path": "src/components/ship-masked/ship-masked-modal.stories.ts",
-      "declarations": [
-        {
-          "kind": "function",
-          "name": "ComponentShipMaskedModalBasic",
-          "parameters": [
-            {
-              "name": "args",
-              "type": {
-                "text": "ComponentShipMaskedModalProps"
-              }
-            }
-          ]
-        },
-        {
-          "kind": "variable",
-          "name": "meta",
-          "default": "{ title: \"FUSOU/components/ship-masked/component-ship-masked-modal\", tags: [\"autodocs\"], } satisfies Meta<ComponentShipMaskedModalProps>"
-        },
-        {
-          "kind": "variable",
-          "name": "basic",
-          "type": {
-            "text": "Story"
-          },
-          "default": "{ render: (args: ComponentShipMaskedModalProps) => ComponentShipMaskedModalBasic(args), name: \"Basic\", argTypes: { color: { control: { type: \"select\" }, options: [undefined, \"\", \"-\", \"elite\", \"flagship\"], }, empty_flag: { control: \"boolean\", }, name_flag: { control: \"boolean\", }, size: { control: { type: \"select\" }, options: size_list, table: { defaultValue: { summary: \"xs\" }, type: { summary: size_list.join(\"\\|\"), }, }, }, }, args: { color: undefined, empty_flag: false, name_flag: false, size: \"sm\", ship_max_hp: 100, ship_param: [95, 102, 76, 107], ship_slot: [303, 303, 41, 106], ship: { id: 4299, ship_id: 668, lv: 132, exp: [1999074, 25926, 69], nowhp: 55, maxhp: 60, soku: 10, leng: 2, slot: [7355, 7571, 8735, 3006, -1], onslot: [1, 1, 2, 2, 0], slot_ex: 6865, fuel: 10, bull: 15, slotnum: 4, cond: 49, karyoku: [95, 81], raisou: [102, 88], taiku: [107, 88], soukou: [76, 74], kaihi: [112, 86], taisen: [96, 80], sakuteki: [84, 60], lucky: [22, 89], sp_effect_items: { items: { 2: { kind: 2, houg: 2, kaih: 2, }, }, }, sally_area: 0, }, mst_ship: { id: 668, sortno: 468, sort_id: 11037, name: \"\\u77e2\\u77e7\\u6539\\u4e8c\\u4e59\", yomi: \"\\u3084\\u306f\\u304e\", stype: 3, ctype: 41, afterlv: 90, aftershipid: \"663\", taik: [53, 68], souk: [32, 74], houg: [30, 81], raig: [24, 88], tyku: [36, 88], luck: [17, 89], soku: 10, leng: 2, slot_num: 4, maxeq: [1, 1, 2, 2, 0], buildtime: 60, broken: [4, 8, 16, 4], powup: [2, 2, 2, 3], backs: 8, getmes: \"<br>\", afterfuel: 480, afterbull: 880, fuel_max: 45, bull_max: 50, voicef: 7, tais: [], }, slot_items: { slot_items: { 7355: { id: 7355, slotitem_id: 303, locked: 1, level: 6, }, 7571: { id: 7571, slotitem_id: 303, locked: 1, level: 6, }, 8735: { id: 8735, slotitem_id: 41, locked: 0, level: 0, }, 3006: { id: 3006, slotitem_id: 106, locked: 1, level: 0, }, 6865: { id: 6865, slotitem_id: 129, locked: 1, level: 0, }, }, }, mst_slot_items: { mst_slot_items: { 303: { id: 303, sortno: 303, name: \"Bofors 15.2cm\\u9023\\u88c5\\u7832 Model 1930\", type: [1, 1, 2, 2, 0], taik: 0, souk: 0, houg: 5, raig: 0, soku: 0, baku: 0, tyku: 4, tais: 0, atap: 0, houm: 3, raim: 0, houk: 1, raik: 0, bakk: 0, saku: 0, sakb: 0, luck: 0, leng: 2, rare: 3, broken: [0, 2, 3, 1], usebull: \"0\", geigeki: 0, taibaku: 0, }, 41: { id: 41, sortno: 41, name: \"\\u7532\\u6a19\\u7684 \\u7532\\u578b\", type: [2, 4, 22, 5, 0], taik: 0, souk: 0, houg: 0, raig: 12, soku: 0, baku: 0, tyku: 0, tais: 0, atap: 0, houm: 0, raim: 0, houk: 0, raik: 0, bakk: 0, saku: 0, sakb: 0, luck: 0, leng: 0, rare: 1, broken: [0, 7, 7, 0], usebull: \"0\", version: 2, geigeki: 0, taibaku: 0, }, 106: { id: 106, sortno: 106, name: \"13\\u53f7\\u5bfe\\u7a7a\\u96fb\\u63a2\\u6539\", type: [5, 8, 12, 11, 0], taik: 0, souk: 0, houg: 0, raig: 0, soku: 0, baku: 0, tyku: 4, tais: 0, atap: 0, houm: 2, raim: 0, houk: 1, raik: 0, bakk: 0, saku: 4, sakb: 0, luck: 0, leng: 0, rare: 3, broken: [0, 0, 10, 11], usebull: \"0\", version: 2, geigeki: 0, taibaku: 0, }, 129: { id: 129, sortno: 129, name: \"\\u719f\\u7df4\\u898b\\u5f35\\u54e1\", type: [16, 27, 39, 32, 0], taik: 0, souk: 0, houg: 0, raig: 0, soku: 0, baku: 0, tyku: 1, tais: 0, atap: 0, houm: 2, raim: 0, houk: 3, raik: 0, bakk: 0, saku: 2, sakb: 0, luck: 0, leng: 0, rare: 3, broken: [1, 0, 0, 0], usebull: \"0\", geigeki: 0, taibaku: 0, }, }, }, }, }"
-        }
-      ],
-      "exports": [
-        {
-          "kind": "js",
-          "name": "ComponentShipMaskedModalBasic",
-          "declaration": {
-            "name": "ComponentShipMaskedModalBasic",
-            "module": "src/components/ship-masked/ship-masked-modal.stories.ts"
-          }
-        },
-        {
-          "kind": "js",
-          "name": "default",
-          "declaration": {
-            "name": "meta",
-            "module": "src/components/ship-masked/ship-masked-modal.stories.ts"
-          }
-        },
-        {
-          "kind": "js",
-          "name": "basic",
-          "declaration": {
-            "name": "basic",
-            "module": "src/components/ship-masked/ship-masked-modal.stories.ts"
-          }
-        }
-      ]
-    },
-    {
-      "kind": "javascript-module",
-      "path": "src/components/ship-masked/ship-masked-modal.ts",
-      "declarations": [
-        {
-          "kind": "class",
-          "description": "",
-          "name": "ComponentShipMaskedModal",
-          "members": [
-            {
-              "kind": "field",
-              "name": "ship",
-              "type": {
-                "text": "Ship"
-              },
-              "default": "default_ship",
-              "attribute": "ship"
-            },
-            {
-              "kind": "field",
-              "name": "mst_ship",
-              "type": {
-                "text": "MstShip"
-              },
-              "default": "default_mst_ship",
-              "attribute": "mst_ship"
-            },
-            {
-              "kind": "field",
-              "name": "slot_items",
-              "type": {
-                "text": "SlotItems"
-              },
-              "default": "default_slotitems",
-              "attribute": "slot_items"
-            },
-            {
-              "kind": "field",
-              "name": "mst_slot_items",
-              "type": {
-                "text": "MstSlotitems"
-              },
-              "default": "default_mst_slot_items",
-              "attribute": "mst_slot_items"
-            },
-            {
-              "kind": "field",
-              "name": "color",
-              "type": {
-                "text": "string"
-              },
-              "default": "\"\"",
-              "attribute": "color"
-            },
-            {
-              "kind": "field",
-              "name": "name_flag",
-              "type": {
-                "text": "boolean"
-              },
-              "default": "false",
-              "attribute": "name_flag"
-            },
-            {
-              "kind": "field",
-              "name": "size",
-              "type": {
-                "text": "\"xs\" | \"sm\" | \"md\" | \"lg\" | \"xl\""
-              },
-              "default": "\"xs\"",
-              "attribute": "size"
-            },
-            {
-              "kind": "field",
-              "name": "empty_flag",
-              "type": {
-                "text": "boolean"
-              },
-              "default": "false",
-              "attribute": "empty_flag"
-            },
-            {
-              "kind": "field",
-              "name": "ship_param",
-              "type": {
-                "text": "number[]"
-              },
-              "default": "[0, 0, 0, 0]",
-              "attribute": "ship_param"
-            },
-            {
-              "kind": "field",
-              "name": "ship_slot",
-              "type": {
-                "text": "number[]"
-              },
-              "default": "[0, 0, 0, 0, 0]",
-              "attribute": "ship_slot"
-            },
-            {
-              "kind": "field",
-              "name": "ship_max_hp",
-              "type": {
-                "text": "number"
-              },
-              "default": "0",
-              "attribute": "ship_max_hp"
-            },
-            {
-              "kind": "field",
-              "name": "dialogRef",
-              "type": {
-                "text": "Ref<HTMLDialogElement>"
-              }
-            },
-            {
-              "kind": "method",
-              "name": "open_modal",
-              "privacy": "private"
-            },
-            {
-              "kind": "method",
-              "name": "dialogTemplete"
-            }
-          ],
-          "attributes": [
-            {
-              "name": "ship",
-              "type": {
-                "text": "Ship"
-              },
-              "default": "default_ship",
-              "fieldName": "ship"
-            },
-            {
-              "name": "mst_ship",
-              "type": {
-                "text": "MstShip"
-              },
-              "default": "default_mst_ship",
-              "fieldName": "mst_ship"
-            },
-            {
-              "name": "slot_items",
-              "type": {
-                "text": "SlotItems"
-              },
-              "default": "default_slotitems",
-              "fieldName": "slot_items"
-            },
-            {
-              "name": "mst_slot_items",
-              "type": {
-                "text": "MstSlotitems"
-              },
-              "default": "default_mst_slot_items",
-              "fieldName": "mst_slot_items"
-            },
-            {
-              "name": "color",
-              "type": {
-                "text": "string"
-              },
-              "default": "\"\"",
-              "fieldName": "color"
-            },
-            {
-              "name": "name_flag",
-              "type": {
-                "text": "boolean"
-              },
-              "default": "false",
-              "fieldName": "name_flag"
-            },
-            {
-              "name": "size",
-              "type": {
-                "text": "\"xs\" | \"sm\" | \"md\" | \"lg\" | \"xl\""
-              },
-              "default": "\"xs\"",
-              "fieldName": "size"
-            },
-            {
-              "name": "empty_flag",
-              "type": {
-                "text": "boolean"
-              },
-              "default": "false",
-              "fieldName": "empty_flag"
-            },
-            {
-              "name": "ship_param",
-              "type": {
-                "text": "number[]"
-              },
-              "default": "[0, 0, 0, 0]",
-              "fieldName": "ship_param"
-            },
-            {
-              "name": "ship_slot",
-              "type": {
-                "text": "number[]"
-              },
-              "default": "[0, 0, 0, 0, 0]",
-              "fieldName": "ship_slot"
-            },
-            {
-              "name": "ship_max_hp",
-              "type": {
-                "text": "number"
-              },
-              "default": "0",
-              "fieldName": "ship_max_hp"
-            }
-          ],
-          "superclass": {
-            "name": "LitElement",
-            "package": "lit"
-          },
-          "tagName": "component-ship-masked-modal",
-          "customElement": true
-        }
-      ],
-      "exports": [
-        {
-          "kind": "js",
-          "name": "ComponentShipMaskedModal",
-          "declaration": {
-            "name": "ComponentShipMaskedModal",
-            "module": "src/components/ship-masked/ship-masked-modal.ts"
-          }
-        },
-        {
-          "kind": "custom-element-definition",
-          "name": "component-ship-masked-modal",
-          "declaration": {
-            "name": "ComponentShipMaskedModal",
-            "module": "src/components/ship-masked/ship-masked-modal.ts"
-          }
-        }
-      ]
-    },
-    {
-      "kind": "javascript-module",
-      "path": "src/components/ship-masked/ship-masked-table.stories.ts",
-      "declarations": [
-        {
-          "kind": "variable",
-          "name": "meta",
-          "default": "{ title: \"FUSOU/components/ship-masked/component-ship-masked-table\", tags: [\"autodocs\"], } satisfies Meta<ComponentShipMaskedTableProps>"
-        },
-        {
-          "kind": "variable",
-          "name": "basic",
-          "type": {
-            "text": "Story"
-          },
-          "default": "{ render: (args: ComponentShipMaskedTableProps) => ComponentShipMaskedTableBasic(args), name: \"Basic\", argTypes: { ship_max_hp: { control: { type: \"range\", min: 1, max: 100, step: 1 } }, size: { control: { type: \"select\" }, options: size_list, table: { defaultValue: { summary: \"sm\" }, type: { summary: size_list.join(\"\\|\"), }, }, }, }, args: { size: \"sm\", ship_max_hp: 100, ship_param: [95, 102, 76, 107], ship_slot: [303, 303, 41, 106], mst_ship: { id: 668, sortno: 468, sort_id: 11037, name: \"\\u77e2\\u77e7\\u6539\\u4e8c\\u4e59\", yomi: \"\\u3084\\u306f\\u304e\", stype: 3, ctype: 41, afterlv: 90, aftershipid: \"663\", taik: [53, 68], souk: [32, 74], houg: [30, 81], raig: [24, 88], tyku: [36, 88], luck: [17, 89], soku: 10, leng: 2, slot_num: 4, maxeq: [1, 1, 2, 2, 0], buildtime: 60, broken: [4, 8, 16, 4], powup: [2, 2, 2, 3], backs: 8, getmes: \"<br>\", afterfuel: 480, afterbull: 880, fuel_max: 45, bull_max: 50, voicef: 7, tais: [], }, mst_slot_items: { mst_slot_items: { 303: { id: 303, sortno: 303, name: \"Bofors 15.2cm\\u9023\\u88c5\\u7832 Model 1930\", type: [1, 1, 2, 2, 0], taik: 0, souk: 0, houg: 5, raig: 0, soku: 0, baku: 0, tyku: 4, tais: 0, atap: 0, houm: 3, raim: 0, houk: 1, raik: 0, bakk: 0, saku: 0, sakb: 0, luck: 0, leng: 2, rare: 3, broken: [0, 2, 3, 1], usebull: \"0\", geigeki: 0, taibaku: 0, }, 41: { id: 41, sortno: 41, name: \"\\u7532\\u6a19\\u7684 \\u7532\\u578b\", type: [2, 4, 22, 5, 0], taik: 0, souk: 0, houg: 0, raig: 12, soku: 0, baku: 0, tyku: 0, tais: 0, atap: 0, houm: 0, raim: 0, houk: 0, raik: 0, bakk: 0, saku: 0, sakb: 0, luck: 0, leng: 0, rare: 1, broken: [0, 7, 7, 0], usebull: \"0\", version: 2, geigeki: 0, taibaku: 0, }, 106: { id: 106, sortno: 106, name: \"13\\u53f7\\u5bfe\\u7a7a\\u96fb\\u63a2\\u6539\", type: [5, 8, 12, 11, 0], taik: 0, souk: 0, houg: 0, raig: 0, soku: 0, baku: 0, tyku: 4, tais: 0, atap: 0, houm: 2, raim: 0, houk: 1, raik: 0, bakk: 0, saku: 4, sakb: 0, luck: 0, leng: 0, rare: 3, broken: [0, 0, 10, 11], usebull: \"0\", version: 2, geigeki: 0, taibaku: 0, }, 129: { id: 129, sortno: 129, name: \"\\u719f\\u7df4\\u898b\\u5f35\\u54e1\", type: [16, 27, 39, 32, 0], taik: 0, souk: 0, houg: 0, raig: 0, soku: 0, baku: 0, tyku: 1, tais: 0, atap: 0, houm: 2, raim: 0, houk: 3, raik: 0, bakk: 0, saku: 2, sakb: 0, luck: 0, leng: 0, rare: 3, broken: [1, 0, 0, 0], usebull: \"0\", geigeki: 0, taibaku: 0, }, }, }, }, }"
-        }
-      ],
-      "exports": [
-        {
-          "kind": "js",
-          "name": "default",
-          "declaration": {
-            "name": "meta",
-            "module": "src/components/ship-masked/ship-masked-table.stories.ts"
-          }
-        },
-        {
-          "kind": "js",
-          "name": "basic",
-          "declaration": {
-            "name": "basic",
-            "module": "src/components/ship-masked/ship-masked-table.stories.ts"
-          }
-        }
-      ]
-    },
-    {
-      "kind": "javascript-module",
-      "path": "src/components/ship-masked/ship-masked-table.ts",
-      "declarations": [
-        {
-          "kind": "class",
-          "description": "",
-          "name": "ComponentShipMaskedTable",
-          "members": [
-            {
-              "kind": "field",
-              "name": "mst_ship",
-              "type": {
-                "text": "MstShip"
-              },
-              "default": "default_mst_ship",
-              "attribute": "mst_ship"
-            },
-            {
-              "kind": "field",
-              "name": "mst_slot_items",
-              "type": {
-                "text": "MstSlotitems"
-              },
-              "default": "default_mst_slot_items",
-              "attribute": "mst_slot_items"
-            },
-            {
-              "kind": "field",
-              "name": "size",
-              "type": {
-                "text": "keyof typeof class_size"
-              },
-              "default": "\"sm\"",
-              "attribute": "size"
-            },
-            {
-              "kind": "field",
-              "name": "ship_param",
-              "type": {
-                "text": "number[]"
-              },
-              "default": "[0, 0, 0, 0]",
-              "attribute": "ship_param"
-            },
-            {
-              "kind": "field",
-              "name": "ship_slot",
-              "type": {
-                "text": "number[]"
-              },
-              "default": "[0, 0, 0, 0, 0]",
-              "attribute": "ship_slot"
-            },
-            {
-              "kind": "field",
-              "name": "ship_max_hp",
-              "type": {
-                "text": "number"
-              },
-              "default": "0",
-              "attribute": "ship_max_hp"
-            },
-            {
-              "kind": "method",
-              "name": "equipmentTemplete",
-              "parameters": [
-                {
-                  "name": "slot",
-                  "type": {
-                    "text": "number"
-                  }
-                }
-              ]
-            },
-            {
-              "kind": "method",
-              "name": "slotsTemplete"
-            }
-          ],
-          "attributes": [
-            {
-              "name": "mst_ship",
-              "type": {
-                "text": "MstShip"
-              },
-              "default": "default_mst_ship",
-              "fieldName": "mst_ship"
-            },
-            {
-              "name": "mst_slot_items",
-              "type": {
-                "text": "MstSlotitems"
-              },
-              "default": "default_mst_slot_items",
-              "fieldName": "mst_slot_items"
-            },
-            {
-              "name": "size",
-              "type": {
-                "text": "keyof typeof class_size"
-              },
-              "default": "\"sm\"",
-              "fieldName": "size"
-            },
-            {
-              "name": "ship_param",
-              "type": {
-                "text": "number[]"
-              },
-              "default": "[0, 0, 0, 0]",
-              "fieldName": "ship_param"
-            },
-            {
-              "name": "ship_slot",
-              "type": {
-                "text": "number[]"
-              },
-              "default": "[0, 0, 0, 0, 0]",
-              "fieldName": "ship_slot"
-            },
-            {
-              "name": "ship_max_hp",
-              "type": {
-                "text": "number"
-              },
-              "default": "0",
-              "fieldName": "ship_max_hp"
-            }
-          ],
-          "superclass": {
-            "name": "LitElement",
-            "package": "lit"
-          },
-          "tagName": "component-ship-masked-table",
-          "customElement": true
-        }
-      ],
-      "exports": [
-        {
-          "kind": "js",
-          "name": "ComponentShipMaskedTable",
-          "declaration": {
-            "name": "ComponentShipMaskedTable",
-            "module": "src/components/ship-masked/ship-masked-table.ts"
-          }
-        },
-        {
-          "kind": "custom-element-definition",
-          "name": "component-ship-masked-table",
-          "declaration": {
-            "name": "ComponentShipMaskedTable",
-            "module": "src/components/ship-masked/ship-masked-table.ts"
           }
         }
       ]
