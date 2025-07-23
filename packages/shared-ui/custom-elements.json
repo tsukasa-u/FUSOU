@@ -1,0 +1,4809 @@
+{
+  "schemaVersion": "1.0.0",
+  "readme": "",
+  "modules": [
+    {
+      "kind": "javascript-module",
+      "path": "dist/index.js",
+      "declarations": [
+        {
+          "kind": "variable",
+          "name": "F",
+          "default": "class extends d { constructor() { super(...arguments), this.v_max = 0, this.v_now = 0, this.size = \"xs\", this.quantize = void 0, this.color = \"green\"; } render() { this.color = kt(this.v_now, this.v_max); let e = yt(this.v_now, this.v_max, this.quantize); return n`<div class=\"flex items-center\"> <progress class=${[ \"progress\", wt[this.color], _t[this.size] ].join(\" \")} max=\"100\" value=${e} ></progress> </div>`; } }"
+        },
+        {
+          "kind": "function",
+          "name": "xe",
+          "parameters": [
+            {
+              "name": "e"
+            }
+          ]
+        },
+        {
+          "kind": "variable",
+          "name": "ge"
+        },
+        {
+          "kind": "variable",
+          "name": "S",
+          "default": "class extends d { constructor() { super(...arguments), this.v_max = 0, this.v_now = 0, this.size = \"xs\", this.quantize = void 0; } render() { return n` <div class=${[ \"w-full\", X[this.size].box_py, X[this.size].box_h ].join(\" \")} > <div class=${[ \"grid place-content-center cursor-inherit mx-auto\", X[this.size].label_h, X[this.size].label_text ].join(\" \")} > <div class=\" flex flex-nowrap\"> <div class=\"w-[3em] text-center\">${this.v_now}</div> / <div class=\"w-[3em] text-center\">${this.v_max}</div> </div> </div> <div class=${[ \"flex place-items-center w-full\", X[this.size].label_h ].join(\" \")} > <component-color-bar class=${[\"w-full\"].join(\" \")} v_now=${this.v_now} v_max=${this.v_max} size=${this.size} quantize=${E(this.quantize)} ></component-color-bar> </div> </div>`; } }"
+        },
+        {
+          "kind": "function",
+          "name": "ve",
+          "parameters": [
+            {
+              "name": "e"
+            }
+          ]
+        },
+        {
+          "kind": "variable",
+          "name": "_e"
+        },
+        {
+          "kind": "variable",
+          "name": "w",
+          "default": "class extends d { constructor() { super(...arguments), this.slot_item = pt, this.mst_slot_item = I, this.compact = !1, this.onslot = 0, this.name_flag = !1, this.size = \"xs\", this.empty_flag = !1; } proficiencyOnslotTemplete() { return !this.compact && !this.empty_flag ? n`<div class=${[ \"grid w-4 place-content-center\", k[this.size].proficiency_onslot_h ].join(\" \")} > <icon-plane-proficiency class=${k[this.size].proficiency_onslot_h} size=\"full\" level=${E(this.slot_item.alv)} ></icon-plane-proficiency> </div> <div class=${[ \"grid w-4 place-content-center cursor-inherit\", k[this.size].proficiency_onslot_h, k[this.size].onslot_text ].join(\" \")} > ${Mt(this.mst_slot_item) ? this.onslot : \"\"} </div>` : !this.compact && this.empty_flag ? n`<div class=\"w-4\"></div>` : n``; } nameTemplete() { return this.name_flag && !this.empty_flag ? n` <div class=${[ \"pl-3 truncate content-center cursor-inherit\", k[this.size].name_text, k[this.size].name_h ].join(\" \")} > ${this.mst_slot_item.name ?? \"Unknown\"} </div>` : n``; } levelTemplate() { return (this.slot_item.level ?? !1) && !this.empty_flag ? n` <div class=${[ \"badge badge-ghost w-0 rounded-full grid place-content-center text-accent\", k[this.size].badge_size ].join(\" \")} > ${this.slot_item.level === 10 ? \"★\" : this.slot_item.level} </div>` : n``; } render() { let e = this.mst_slot_item.type[1], t = this.mst_slot_item.type[3]; return n` <div class=\"flex flex-nowarp w-full\"> <div class=\"indicator\"> <span class=\"indicator-item\"> ${this.levelTemplate()} </span> <icon-equipment category_number=${e} icon_number=${t} size=${this.size} ?empty_flag=${this.empty_flag} ></icon-equipment> </div> <div class=${[ \"flex-none\", k[this.size].proficiency_onslot_pl, k[this.size].proficiency_onslot_mt ].join(\" \")} > ${this.proficiencyOnslotTemplete()} </div> ${this.nameTemplete()} </div> `; } }"
+        },
+        {
+          "kind": "variable",
+          "name": "U",
+          "default": "class extends d { constructor() { super(...arguments), this.slot_item = pt, this.mst_slot_item = I, this.size = \"sm\"; } render() { return n` <div class=\"flex justify-start cursor-default\"> <h3 class=${[ \"font-bold pl-3 truncate\", et[this.size].name_text ].join(\" \")}> ${this.mst_slot_item.name ?? \"Unknown\"} </h3> <div class=${[\"place-self-end pl-4 text-accent\", et[this.size].level_text].join(\" \")}> ${u(this.slot_item.level ?? 0)} </div> </div> <div class=\"pt-2 cursor-default\"> <table class=${[\"table\", et[this.size].table].join(\" \")}> <caption class=${[\"truncate pb-2\", et[this.size].caption_text].join(\" \")}> Equipment Status </caption> <tbody> <tr class=\"flex rounded\"> <th class=\"truncate flex-1 w-2\">Firepower</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> ${u(this.mst_slot_item.houg ?? 0)} </td> <th class=\"truncate flex-1 w-2\">Torpedo</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> ${u(this.mst_slot_item.raig ?? 0)} </td> </tr> <tr class=\"flex rounded\"> <th class=\"truncate flex-1 w-2\">Bomb</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> ${u(this.mst_slot_item.baku ?? 0)} </td> <th class=\"truncate flex-1 w-2\">Anti-Air</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> ${u(this.mst_slot_item.tyku ?? 0)} </td> </tr> <tr class=\"flex rounded\"> <th class=\"truncate flex-1 w-2\">Anti-Submarine</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> ${u(this.mst_slot_item.tais ?? 0)} </td> <th class=\"truncate flex-1 w-2\">Reconnaissance</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> ${u(this.mst_slot_item.saku ?? 0)} </td> </tr> <tr class=\"flex rounded\"> <th class=\"truncate flex-1 w-2\">Accuracy</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> ${u(this.mst_slot_item.houm ?? 0)} </td> <th class=\"truncate flex-1 w-2\">Evasion</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> ${u(this.mst_slot_item.houk ?? 0)} </td> </tr> <tr class=\"flex rounded\"> <th class=\"truncate flex-1 w-2\">Armor</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> ${u(this.mst_slot_item.souk ?? 0)} </td> <th class=\"truncate flex-1 w-2\">Anti-Bomber</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> ${u(this.mst_slot_item.taibaku ?? 0)} </td> </tr> <tr class=\"flex rounded\"> <th class=\"truncate flex-1 w-2\">Interception</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> ${u(this.mst_slot_item.geigeki ?? 0)} </td> <th class=\"truncate flex-1 w-2\">Distance</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> ${u(this.mst_slot_item.distance ?? 0)} </td> </tr> </tbody> </table> </div> </div>`; } }"
+        },
+        {
+          "kind": "variable",
+          "name": "v",
+          "default": "class extends d { constructor() { super(...arguments), this.slot_item = pt, this.mst_slot_item = I, this.ex_flag = !1, this.onslot = 0, this.name_flag = !1, this.size = \"xs\", this.empty_flag = !1, this.dialogRef = it(); } open_modal() { this.dialogRef.value?.showModal(); } dialogTemplete() { return n`<dialog id=${`equipment_modal_${this.slot_item.id}`} ${st(this.dialogRef)} class=\"modal\" > <div class=\"modal-box bg-base-100 modal-box-width\"> <form method=\"dialog\"> <button class=\"btn btn-sm btn-circle btn-ghost absolute right-2 top-2\" > <!-- <IconXMark class=\"h-6 w-6\" /> --> X </button> </form> <component-equipment-table .slot_item=${this.slot_item} .mst_slot_item=${this.mst_slot_item} ></component-equipment-table> </div> <form method=\"dialog\" class=\"modal-backdrop\"> <button>close</button> </form> </dialog>`; } render() { return this.empty_flag ? n`<div class=\"w-full cursor-default\"> <component-equipment size=${this.size} ?empty_flag=${this.empty_flag} ></component-equipment> </div>` : n` <div class=\"w-full cursor-pointer\" @click=\"${this.open_modal}\"> <component-equipment .slot_item=${this.slot_item} .mst_slot_item=${this.mst_slot_item} size=${this.size} ?name_flag=${this.name_flag} ?ex_flag=${this.ex_flag} onslot=${this.onslot} ></component-equipment> </div> ${this.dialogTemplete()} `; } }"
+        },
+        {
+          "kind": "variable",
+          "name": "$",
+          "default": "class extends d { constructor() { super(...arguments), this.mst_slot_item = I, this.name_flag = !1, this.size = \"xs\", this.empty_flag = !1, this.compact = !1, this.show_name = !1; } proficiencyOnslotTemplete() { return n` <div class=${[ \"flex-none\", ot[this.size].proficiency_onslot_pl, ot[this.size].proficiency_onslot_mt ].join(\" \")} > ${this.compact ?? !1 ? n`` : n`<div class=\"w-4\"></div>`} </div> `; } nameTemplete() { return (this.name_flag ?? !1) && !this.empty_flag ? n` <div class=${[ \"pl-3 truncate content-center cursor-inherit\", ot[this.size].name_text, ot[this.size].name_h ].join(\" \")} > ${this.show_name ? this.mst_slot_item.name ?? \"Unknown\" : \"Unknown\"} </div>` : n``; } render() { let e = this.mst_slot_item.type[1], t = this.mst_slot_item.type[3]; return n` <div class=\"flex flex-nowarp w-full\"> <div> <icon-equipment category_number=${e} icon_number=${t} size=${this.size} ?empty_flag=${this.empty_flag} ></icon-equipment> </div> ${this.proficiencyOnslotTemplete()} ${this.nameTemplete()} </div> `; } }"
+        },
+        {
+          "kind": "variable",
+          "name": "q",
+          "default": "class extends d { constructor() { super(...arguments), this.mst_slot_item = I, this.size = \"sm\", this.show_param = !1, this.show_name = !1; } render() { return n` <div class=\"flex justify-start cursor-default\"> <h3 class=${[ \"font-bold pl-3 truncate\", nt[this.size].name_text ].join(\" \")} > ${this.show_name ? this.mst_slot_item.name ?? \"Unknown\" : \"Unknown\"} </h3> </div> <div class=\"pt-2 cursor-default\"> <table class=${[\"table\", nt[this.size].table].join(\" \")}> <caption class=${[\"truncate pb-2\", nt[this.size].caption_text].join( \" \" )} > Equipment Status </caption> <tbody> <tr class=\"flex rounded\"> <th class=\"truncate flex-1 w-2\">Firepower</th> <td class=\"flex-none w-24 flex justify-end pr-4\"> ${this.show_param ?? !1 ? f(this.mst_slot_item.houg ?? 0) : \"unknown\"} </td> <th class=\"truncate flex-1 w-2\">Torpedo</th> <td class=\"flex-none w-24 flex justify-end pr-4\"> ${this.show_param ?? !1 ? f(this.mst_slot_item.raig ?? 0) : \"unknown\"} </td> </tr> <tr class=\"flex rounded\"> <th class=\"truncate flex-1 w-2\">Bomb</th> <td class=\"flex-none w-24 flex justify-end pr-4\"> ${this.show_param ?? !1 ? f(this.mst_slot_item.baku ?? 0) : \"unknown\"} </td> <th class=\"truncate flex-1 w-2\">Anti-Air</th> <td class=\"flex-none w-24 flex justify-end pr-4\"> ${this.show_param ?? !1 ? f(this.mst_slot_item.tyku ?? 0) : \"unknown\"} </td> </tr> <tr class=\"flex rounded\"> <th class=\"truncate flex-1 w-2\">Anti-Submarine</th> <td class=\"flex-none w-24 flex justify-end pr-4\"> ${this.show_param ?? !1 ? f(this.mst_slot_item.tais ?? 0) : \"unknown\"} </td> <th class=\"truncate flex-1 w-2\">Reconnaissance</th> <td class=\"flex-none w-24 flex justify-end pr-4\"> ${this.show_param ?? !1 ? f(this.mst_slot_item.saku ?? 0) : \"unknown\"} </td> </tr> <tr class=\"flex rounded\"> <th class=\"truncate flex-1 w-2\">Accuracy</th> <td class=\"flex-none w-24 flex justify-end pr-4\"> ${this.show_param ?? !1 ? f(this.mst_slot_item.houm ?? 0) : \"unknown\"} </td> <th class=\"truncate flex-1 w-2\">Evasion</th> <td class=\"flex-none w-24 flex justify-end pr-4\"> ${this.show_param ?? !1 ? f(this.mst_slot_item.houk ?? 0) : \"unknown\"} </td> </tr> <tr class=\"flex rounded\"> <th class=\"truncate flex-1 w-2\">Armor</th> <td class=\"flex-none w-24 flex justify-end pr-4\"> ${this.show_param ?? !1 ? f(this.mst_slot_item.souk ?? 0) : \"unknown\"} </td> <th class=\"truncate flex-1 w-2\">Anti-Bomber</th> <td class=\"flex-none w-24 flex justify-end pr-4\"> ${this.show_param ?? !1 ? f(this.mst_slot_item.taibaku ?? 0) : \"unknown\"} </td> </tr> <tr class=\"flex rounded\"> <th class=\"truncate flex-1 w-2\">Interception</th> <td class=\"flex-none w-24 flex justify-end pr-4\"> ${this.show_param ?? !1 ? f(this.mst_slot_item.geigeki ?? 0) : \"unknown\"} </td> <th class=\"truncate flex-1 w-2\">Distance</th> <td class=\"flex-none w-24 flex justify-end pr-4\"> ${this.show_param ?? !1 ? f(this.mst_slot_item.distance ?? 0) : \"unknown\"} </td> </tr> </tbody> </table> </div>`; } }"
+        },
+        {
+          "kind": "variable",
+          "name": "_",
+          "default": "class extends d { constructor() { super(...arguments), this.mst_slot_item = I, this.comapct = !1, this.name_flag = !1, this.show_name = !1, this.show_param = !1, this.size = \"xs\", this.empty_flag = !1, this.dialogRef = it(); } open_modal() { this.dialogRef.value?.showModal(); } dialogTemplete() { return n`<dialog id=${`equipment-mst_modal_${this.mst_slot_item.id}`} ${st(this.dialogRef)} class=\"modal\" > <div class=\"modal-box bg-base-100 modal-box-width\"> <form method=\"dialog\"> <button class=\"btn btn-sm btn-circle btn-ghost absolute right-2 top-2\" > <!-- <IconXMark class=\"h-6 w-6\" /> --> X </button> </form> <component-equipment-mst-table .mst_slot_item=${this.mst_slot_item} ?show_param=${this.show_param} ?show_name=${this.show_name} ></component-equipment-mst-table> </div> <form method=\"dialog\" class=\"modal-backdrop\"> <button>close</button> </form> </dialog>`; } render() { return this.empty_flag ? n`<div class=\"w-full cursor-default\"> <component-equipment-mst size=${this.size} ?empty_flag=${this.empty_flag} .mst_slot_item=${this.mst_slot_item} ?compact=${this.comapct} ?name_flag=${!1} ></component-equipment-mst> </div>` : n` <div class=\"w-full cursor-pointer\" @click=\"${this.open_modal}\"> <component-equipment-mst .mst_slot_item=${this.mst_slot_item} size=${this.size} ?name_flag=${this.name_flag} ?compact=${this.comapct} ?empty_flag=${this.empty_flag} ?show_name=${this.show_name} ></component-equipment-mst> </div> ${this.dialogTemplete()} `; } }"
+        },
+        {
+          "kind": "variable",
+          "name": "B",
+          "default": "class extends d { constructor() { super(...arguments), this.mst_ship = K, this.color = \"\", this.size = \"xs\", this.name_flag = !1, this.empty_flag = !1; } nameTemplete() { return (this.name_flag ?? !1) && !this.empty_flag ? n`<div class=${[ \"pl-3 truncate content-center cursor-inherit\", ut[this.size].name_text, ut[this.size].name_h ].join(\" \")} > ${this.mst_ship.name ?? \"Unknown\"} </div>` : n``; } render() { return n` <div class=\"flex flex-nowarp w-full\"> <div> <icon-ship ship_stype=${this.mst_ship.stype} color=${this.color} size=${this.size} ?empty_flag=${this.empty_flag} ></icon-ship> </div> ${this.nameTemplete()} </div> `; } }"
+        },
+        {
+          "kind": "variable",
+          "name": "A",
+          "default": "class extends d { constructor() { super(...arguments), this.ship = mt, this.mst_ship = K, this.slot_items = dt, this.mst_slot_items = lt, this.size = \"sm\"; } equipmentTemplete(e, t) { let s = t != -1 ? this.mst_ship.maxeq[t] : void 0; if (e > 0) { let i = this.slot_items.slot_items[e], o = this.mst_slot_items.mst_slot_items[i.slotitem_id]; return n`<component-equipment-modal ?name_flag=${!0} .slot_item=${i} .mst_slot_item=${o} onslot=${E(s)} size=${this.size} ></component-equipment-modal>`; } else return n`<component-equipment-modal ?empty_flag=${!0} size=${this.size} ></component-equipment-modal>`; } slotsTemplete() { return this.ship.slot.map((e, t) => n` <tr class=\"flex rounded rounded items-center w-full ${ct({ \"back_slash_color bg-[size:16px_16px] bg-top-left bg-[image:repeating-linear-gradient(45deg,currentColor_0,currentColor_0.5px,transparent_0,transparent_50%)]\": this.ship.slotnum <= t })}\" > <th class=\"flex-none w-4\">S${t + 1}</th> <td class=\"flex-none w-12 ml-4 py-1 w-full\"> ${this.equipmentTemplete(e, t)} </td> </tr> `); } slotExTemplete() { return n` <tr class=\"flex rounded items-center ${ct({ \"back_slash_color bg-[size:16px_16px] bg-top-left bg-[image:repeating-linear-gradient(45deg,currentColor_0,currentColor_0.5px,transparent_0,transparent_50%)]\": this.ship.slot_ex == 0 })}\" > <th class=\"flex-none w-4\">SE</th> <td class=\"flex-none w-12 ml-4 py-1 w-full\"> ${this.equipmentTemplete(this.ship.slot_ex, -1)} </td> </tr> `; } maxEq() { return this.mst_ship.maxeq.reduce((e, t) => e + t, 0); } SpEffectItem() { let e = { soukou: 0, raisou: 0, karyoku: 0, kaihi: 0 }; if (!this.ship.sp_effect_items) return e; for (const t of [1, 2]) { let s = this.ship.sp_effect_items.items[t]; s && (e.soukou += s.souk ?? 0, e.raisou += s.raig ?? 0, e.karyoku += s.houg ?? 0, e.kaihi += s.kaih ?? 0); } return e; } render() { let e = this.SpEffectItem(), t = this.maxEq(); return n`<div class=\"cursor-default\"> <div class=\"flex justify-start\"> <h3 class=${[ \"font-bold pl-2 truncate\", g[this.size].name_text ].join(\" \")} > ${this.mst_ship.name ?? \"Unknown\"} </h3> <div class=${[ \"place-self-end pl-4\", g[this.size].level_text ].join(\" \")} > Lv. ${this.ship.lv ?? \"\"} </div> <div class=${[ \"place-self-end pl-2\", g[this.size].level_text ].join(\" \")} > next ${this.ship.exp[1] ?? \"\"} </div> </div> <div class=\"pt-2\"> <table class=${[\"table\", g[this.size].table].join(\" \")}> <caption class=${[\"truncate\", g[this.size].caption_text].join(\" \")} > Slots </caption> <tbody> ${this.slotsTemplete()} ${this.slotExTemplete()} </tbody> </table> <div class=\"h-2\"></div> <table class=${[\"table\", g[this.size].table].join(\" \")}> <caption class=${[\"truncate\", g[this.size].caption_text].join(\" \")} > Ship Status </caption> <tbody> <tr class=\"flex rounded\"> <th class=\"truncate flex-1 w-2\">Durability</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> ${this.ship.maxhp ?? 0} </td> <th class=\"truncate flex-1 w-2\">Firepower</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> <div class=\"indicator\"> <span class=${[ \"indicator-item indicator-bottom text-accent\", g[this.size].accent_text ].join(\" \")} > ${e.karyoku > 0 ? `+${e.karyoku}` : \"\"} </span> ${this.ship.karyoku[0] ?? 0} </div> </td> </tr> <tr class=\"flex rounded\"> <th class=\"truncate flex-1 w-2\">Armor</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> <div class=\"indicator\"> <span class=${[ \"indicator-item indicator-bottom text-accent\", g[this.size].accent_text ].join(\" \")} > ${e.soukou > 0 ? `+${e.soukou}` : \"\"} </span> ${this.ship.soukou[0] ?? 0} </div> </td> <th class=\"truncate flex-1 w-2\">Torpedo</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> <div class=\"indicator\"> <span class=${[ \"indicator-item indicator-bottom text-accent\", g[this.size].accent_text ].join(\" \")} > ${e.raisou > 0 ? `+${e.raisou}` : \"\"} </span> ${this.ship.raisou[0] ?? 0} </div> </td> </tr> <tr class=\"flex rounded\"> <th class=\"truncate flex-1 w-2\">Evasion</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> <div class=\"indicator\"> <span class=${[ \"indicator-item indicator-bottom text-accent\", g[this.size].accent_text ].join(\" \")} > ${e.kaihi > 0 ? `+${e.kaihi}` : \"\"} </span> ${this.ship.kaihi[0] ?? 0} </div> </td> <th class=\"truncate flex-1 w-2\">Anti-Air</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> ${this.ship.taiku[0] ?? 0} </td> </tr> <tr class=\"flex rounded\"> <th class=\"truncate flex-1 w-2\">Aircraft installed</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> ${t ?? !1} </td> <th class=\"truncate flex-1 w-2\">Anti-Submarine</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> ${this.ship.taisen[0] ?? 0} </td> </tr> <tr class=\"flex rounded\"> <th class=\"truncate flex-1 w-2\">Speed</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> ${ie[this.ship.soku ?? 0]} </td> <th class=\"truncate flex-1 w-2\">Reconnaissance</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> ${this.ship.sakuteki[0] ?? 0} </td> </tr> <tr class=\"flex rounded\"> <th class=\"truncate flex-1 w-2\">Range</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> ${se[this.ship.leng ?? 0]} </td> <th class=\"truncate flex-1 w-2\">Luck</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> ${this.ship.lucky[0] ?? 0} </td> </tr> </tbody> </table> </div> </div>`; } }"
+        },
+        {
+          "kind": "variable",
+          "name": "x",
+          "default": "class extends d { constructor() { super(...arguments), this.ship = mt, this.mst_ship = K, this.slot_items = dt, this.mst_slot_items = lt, this.color = \"\", this.name_flag = !1, this.size = \"xs\", this.empty_flag = !1, this.dialogRef = it(); } open_modal() { this.dialogRef.value?.showModal(); } dialogTemplete() { return n`<dialog id=${`ship_modal_${this.ship.id}`} ${st(this.dialogRef)} class=\"modal\" > <div class=\"modal-box bg-base-100 overflow-x-hidden\"> <form method=\"dialog\"> <button class=\"btn btn-sm btn-circle btn-ghost absolute right-2 top-2\" > <!-- <IconXMark class=\"h-6 w-6\" /> --> X </button> </form> <component-ship-table .ship=${this.ship} .mst_ship=${this.mst_ship} .mst_slot_items=${this.mst_slot_items} .slot_items=${this.slot_items} ></component-ship-table> </div> <form method=\"dialog\" class=\"modal-backdrop\"> <button>close</button> </form> </dialog>`; } render() { return this.empty_flag ? n`<div class=\"w-full cursor-default\"> <component-ship size=${this.size} ?empty_flag=${this.empty_flag} ?name_flag=${!1} ></component-ship> </div>` : n` <div class=\"w-full cursor-pointer\" @click=\"${this.open_modal}\"> <component-ship .mst_ship=${this.mst_ship} size=${this.size} color=${this.color} ?name_flag=${this.name_flag} ></component-ship> </div> ${this.dialogTemplete()}`; } }"
+        },
+        {
+          "kind": "variable",
+          "name": "z",
+          "default": "class extends d { constructor() { super(...arguments), this.mst_ship = K, this.mst_slot_items = lt, this.size = \"sm\", this.ship_param = [0, 0, 0, 0], this.ship_slot = [0, 0, 0, 0, 0], this.ship_max_hp = 0; } equipmentTemplete(e) { if (e > 0) { let t = this.mst_slot_items.mst_slot_items[e]; return console.log(t), n`<component-equipment-mst-modal ?name_flag=${!0} ?show_name=${!1} ?show_param=${!1} .mst_slot_item=${t} ?comapct=${!1} size=${this.size} ></component-equipment-mst-modal>`; } else return n`<component-equipment-mst-modal ?empty_flag=${!0} size=${this.size} ></component-equipment-mst-modal>`; } slotsTemplete() { return this.ship_slot.map((e, t) => n` <tr class=\"flex rounded rounded items-center w-full ${ct({ \"back_slash_color bg-[size:16px_16px] bg-top-left bg-[image:repeating-linear-gradient(45deg,currentColor_0,currentColor_0.5px,transparent_0,transparent_50%)]\": this.mst_ship.slot_num <= t })}\" > <th class=\"flex-none w-4\">S${t + 1}</th> <td class=\"flex-none w-12 ml-4 py-1 w-full\"> ${this.equipmentTemplete(e)} </td> </tr> `); } render() { return console.log(this.ship_param), n`<div class=\"cursor-default\"> <div class=\"flex justify-start\"> <h3 class=${[ \"font-bold pl-2 truncate\", G[this.size].name_text ].join(\" \")} > ${this.mst_ship.name ?? \"Unknown\"} </h3> </div> <div class=\"pt-2\"> <table class=${[\"table\", G[this.size].table].join(\" \")}> <caption class=${[\"truncate\", G[this.size].caption_text].join(\" \")} > Slots </caption> <tbody> ${this.slotsTemplete()} </tbody> </table> <div class=\"h-2\"></div> <table class=${[\"table\", G[this.size].table].join(\" \")}> <caption class=${[\"truncate\", G[this.size].caption_text].join(\" \")} > Ship Status </caption> <tbody> <tr class=\"flex rounded\"> <th class=\"truncate flex-1 w-2\">Durability</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> ${this.ship_max_hp ?? 0} </td> <th class=\"truncate flex-1 w-2\">Firepower</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> ${this.ship_param[0] ?? 0} </td> </tr> <tr class=\"flex rounded\"> <th class=\"truncate flex-1 w-2\">Armor</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> ${this.ship_param[3] ?? 0} </td> <th class=\"truncate flex-1 w-2\">Torpedo</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> ${this.ship_param[1] ?? 0} </td> </tr> <tr class=\"flex rounded\"> <th class=\"truncate flex-1 w-2\">Evasion</th> <td class=\"flex-none w-12 flex justify-end pr-4\">unknown</td> <th class=\"truncate flex-1 w-2\">Anti-Air</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> ${this.ship_param[2] ?? 0} </td> </tr> <tr class=\"flex rounded\"> <th class=\"truncate flex-1 w-2\">Aircraft installed</th> <td class=\"flex-none w-12 flex justify-end pr-4\">unknown</td> <th class=\"truncate flex-1 w-2\">Anti-Submarine</th> <td class=\"flex-none w-12 flex justify-end pr-4\">unknown</td> </tr> <tr class=\"flex rounded\"> <th class=\"truncate flex-1 w-2\">Speed</th> <td class=\"flex-none w-12 flex justify-end pr-4\">unknown</td> <th class=\"truncate flex-1 w-2\">Reconnaissance</th> <td class=\"flex-none w-12 flex justify-end pr-4\">unknown</td> </tr> <tr class=\"flex rounded\"> <th class=\"truncate flex-1 w-2\">Range</th> <td class=\"flex-none w-12 flex justify-end pr-4\">unknown</td> <th class=\"truncate flex-1 w-2\">Luck</th> <td class=\"flex-none w-12 flex justify-end pr-4\">unknown</td> </tr> </tbody> </table> </div> </div>`; } }"
+        },
+        {
+          "kind": "variable",
+          "name": "m",
+          "default": "class extends d { constructor() { super(...arguments), this.ship = mt, this.mst_ship = K, this.slot_items = dt, this.mst_slot_items = lt, this.color = \"\", this.name_flag = !1, this.size = \"xs\", this.empty_flag = !1, this.ship_param = [0, 0, 0, 0], this.ship_slot = [0, 0, 0, 0, 0], this.ship_max_hp = 0, this.dialogRef = it(); } open_modal() { this.dialogRef.value?.showModal(); } dialogTemplete() { return n`<dialog id=${`ship_modal_${this.ship.id}`} ${st(this.dialogRef)} class=\"modal\" > <div class=\"modal-box bg-base-100 overflow-x-hidden\"> <form method=\"dialog\"> <button class=\"btn btn-sm btn-circle btn-ghost absolute right-2 top-2\" > <!-- <IconXMark class=\"h-6 w-6\" /> --> X </button> </form> <component-ship-masked-table .mst_ship=${this.mst_ship} .mst_slot_items=${this.mst_slot_items} ship_max_hp=${this.ship_max_hp} .ship_param=${this.ship_param} .ship_slot=${this.ship_slot} ></component-ship-masked-table> </div> <form method=\"dialog\" class=\"modal-backdrop\"> <button>close</button> </form> </dialog>`; } render() { return this.empty_flag ? n`<div class=\"w-full cursor-default\"> <component-ship size=${this.size} ?empty_flag=${this.empty_flag} ?name_flag=${!1} ></component-ship> </div>` : n` <div class=\"w-full cursor-pointer\" @click=\"${this.open_modal}\"> <component-ship .mst_ship=${this.mst_ship} size=${this.size} color=${this.color} ?name_flag=${this.name_flag} ></component-ship> </div> ${this.dialogTemplete()}`; } }"
+        }
+      ],
+      "exports": [
+        {
+          "kind": "js",
+          "name": "ComponentColorBar",
+          "declaration": {
+            "name": "F",
+            "module": "dist/index.js"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "ComponentColorBarBasic",
+          "declaration": {
+            "name": "xe",
+            "module": "dist/index.js"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "ComponentColorBarCatalog",
+          "declaration": {
+            "name": "ge",
+            "module": "dist/index.js"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "ComponentColorBarLabel",
+          "declaration": {
+            "name": "S",
+            "module": "dist/index.js"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "ComponentColorBarLabelBasic",
+          "declaration": {
+            "name": "ve",
+            "module": "dist/index.js"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "ComponentColorBarLabelCatalog",
+          "declaration": {
+            "name": "_e",
+            "module": "dist/index.js"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "ComponentEquipment",
+          "declaration": {
+            "name": "w",
+            "module": "dist/index.js"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "ComponentEquipmentModal",
+          "declaration": {
+            "name": "v",
+            "module": "dist/index.js"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "ComponentEquipmentMst",
+          "declaration": {
+            "name": "$",
+            "module": "dist/index.js"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "ComponentEquipmentMstModal",
+          "declaration": {
+            "name": "_",
+            "module": "dist/index.js"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "ComponentEquipmentMstTable",
+          "declaration": {
+            "name": "q",
+            "module": "dist/index.js"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "ComponentEquipmentTable",
+          "declaration": {
+            "name": "U",
+            "module": "dist/index.js"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "ComponentShip",
+          "declaration": {
+            "name": "B",
+            "module": "dist/index.js"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "ComponentShipMaskedModal",
+          "declaration": {
+            "name": "m",
+            "module": "dist/index.js"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "ComponentShipMaskedTable",
+          "declaration": {
+            "name": "z",
+            "module": "dist/index.js"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "ComponentShipModal",
+          "declaration": {
+            "name": "x",
+            "module": "dist/index.js"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "ComponentShipTable",
+          "declaration": {
+            "name": "A",
+            "module": "dist/index.js"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "javascript-module",
+      "path": "src/index.ts",
+      "declarations": [],
+      "exports": [
+        {
+          "kind": "js",
+          "name": "*",
+          "declaration": {
+            "name": "*",
+            "package": "\"./components/index\""
+          }
+        }
+      ]
+    },
+    {
+      "kind": "javascript-module",
+      "path": "src/my-element.ts",
+      "declarations": [
+        {
+          "kind": "class",
+          "description": "An example element.",
+          "name": "MyElement",
+          "cssParts": [
+            {
+              "description": "The button",
+              "name": "button"
+            }
+          ],
+          "slots": [
+            {
+              "description": "This element has a slot",
+              "name": ""
+            }
+          ],
+          "members": [
+            {
+              "kind": "field",
+              "name": "docsHint",
+              "type": {
+                "text": "string"
+              },
+              "default": "\"Click on the Vite and Lit logos to learn more\"",
+              "description": "Copy for the read the docs hint.",
+              "attribute": "docsHint"
+            },
+            {
+              "kind": "field",
+              "name": "count",
+              "type": {
+                "text": "number"
+              },
+              "default": "0",
+              "description": "The number of times the button has been clicked.",
+              "attribute": "count"
+            },
+            {
+              "kind": "method",
+              "name": "_onClick",
+              "privacy": "private"
+            }
+          ],
+          "attributes": [
+            {
+              "name": "docsHint",
+              "type": {
+                "text": "string"
+              },
+              "default": "\"Click on the Vite and Lit logos to learn more\"",
+              "description": "Copy for the read the docs hint.",
+              "fieldName": "docsHint"
+            },
+            {
+              "name": "count",
+              "type": {
+                "text": "number"
+              },
+              "default": "0",
+              "description": "The number of times the button has been clicked.",
+              "fieldName": "count"
+            }
+          ],
+          "superclass": {
+            "name": "LitElement",
+            "package": "lit"
+          },
+          "tagName": "my-element",
+          "customElement": true
+        }
+      ],
+      "exports": [
+        {
+          "kind": "js",
+          "name": "MyElement",
+          "declaration": {
+            "name": "MyElement",
+            "module": "src/my-element.ts"
+          }
+        },
+        {
+          "kind": "custom-element-definition",
+          "name": "my-element",
+          "declaration": {
+            "name": "MyElement",
+            "module": "src/my-element.ts"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "javascript-module",
+      "path": "src/components/index.ts",
+      "declarations": [],
+      "exports": [
+        {
+          "kind": "js",
+          "name": "*",
+          "declaration": {
+            "name": "*",
+            "package": "\"./bar\""
+          }
+        },
+        {
+          "kind": "js",
+          "name": "*",
+          "declaration": {
+            "name": "*",
+            "package": "\"./equipment\""
+          }
+        },
+        {
+          "kind": "js",
+          "name": "*",
+          "declaration": {
+            "name": "*",
+            "package": "\"./equipment-mst\""
+          }
+        },
+        {
+          "kind": "js",
+          "name": "*",
+          "declaration": {
+            "name": "*",
+            "package": "\"./ship\""
+          }
+        },
+        {
+          "kind": "js",
+          "name": "*",
+          "declaration": {
+            "name": "*",
+            "package": "\"./ship-masked\""
+          }
+        }
+      ]
+    },
+    {
+      "kind": "javascript-module",
+      "path": "src/interface/battle.ts",
+      "declarations": [
+        {
+          "kind": "function",
+          "name": "implementsEnumAirBaseAssult",
+          "return": {
+            "type": {
+              "text": "arg is EnumAirBaseAssult"
+            }
+          },
+          "parameters": [
+            {
+              "name": "arg",
+              "type": {
+                "text": "EnumBattleType"
+              }
+            }
+          ]
+        },
+        {
+          "kind": "function",
+          "name": "implementsEnumCarrierBaseAssault",
+          "return": {
+            "type": {
+              "text": "arg is EnumCarrierBaseAssault"
+            }
+          },
+          "parameters": [
+            {
+              "name": "arg",
+              "type": {
+                "text": "EnumBattleType"
+              }
+            }
+          ]
+        },
+        {
+          "kind": "function",
+          "name": "implementsEnumAirBaseAirAttack",
+          "return": {
+            "type": {
+              "text": "arg is EnumAirBaseAirAttack"
+            }
+          },
+          "parameters": [
+            {
+              "name": "arg",
+              "type": {
+                "text": "EnumBattleType"
+              }
+            }
+          ]
+        },
+        {
+          "kind": "function",
+          "name": "implementsEnumOpeningAirAttack",
+          "return": {
+            "type": {
+              "text": "arg is EnumOpeningAirAttack"
+            }
+          },
+          "parameters": [
+            {
+              "name": "arg",
+              "type": {
+                "text": "EnumBattleType"
+              }
+            }
+          ]
+        },
+        {
+          "kind": "function",
+          "name": "implementsEnumSupportAttack",
+          "return": {
+            "type": {
+              "text": "arg is EnumSupportAttack"
+            }
+          },
+          "parameters": [
+            {
+              "name": "arg",
+              "type": {
+                "text": "EnumBattleType"
+              }
+            }
+          ]
+        },
+        {
+          "kind": "function",
+          "name": "implementsEnumOpeningTaisen",
+          "return": {
+            "type": {
+              "text": "arg is EnumOpeningTaisen"
+            }
+          },
+          "parameters": [
+            {
+              "name": "arg",
+              "type": {
+                "text": "EnumBattleType"
+              }
+            }
+          ]
+        },
+        {
+          "kind": "function",
+          "name": "implementsEnumOpeningRaigeki",
+          "return": {
+            "type": {
+              "text": "arg is EnumOpeningRaigeki"
+            }
+          },
+          "parameters": [
+            {
+              "name": "arg",
+              "type": {
+                "text": "EnumBattleType"
+              }
+            }
+          ]
+        },
+        {
+          "kind": "function",
+          "name": "implementsEnumHougeki",
+          "return": {
+            "type": {
+              "text": "arg is EnumHougeki"
+            }
+          },
+          "parameters": [
+            {
+              "name": "arg",
+              "type": {
+                "text": "any"
+              }
+            }
+          ]
+        },
+        {
+          "kind": "function",
+          "name": "implementsEnumClosingRaigeki",
+          "return": {
+            "type": {
+              "text": "arg is EnumClosingRaigeki"
+            }
+          },
+          "parameters": [
+            {
+              "name": "arg",
+              "type": {
+                "text": "EnumBattleType"
+              }
+            }
+          ]
+        },
+        {
+          "kind": "function",
+          "name": "implementsEnumFriendlyForceAttack",
+          "return": {
+            "type": {
+              "text": "arg is EnumFriendlyForceAttack"
+            }
+          },
+          "parameters": [
+            {
+              "name": "arg",
+              "type": {
+                "text": "EnumBattleType"
+              }
+            }
+          ]
+        },
+        {
+          "kind": "function",
+          "name": "implementsEnumMidnightHougeki",
+          "return": {
+            "type": {
+              "text": "arg is EnumMidnightHougeki"
+            }
+          },
+          "parameters": [
+            {
+              "name": "arg",
+              "type": {
+                "text": "EnumBattleType"
+              }
+            }
+          ]
+        },
+        {
+          "kind": "variable",
+          "name": "default_battles",
+          "type": {
+            "text": "Battles"
+          },
+          "default": "{ cells: [], battles: {}, }"
+        },
+        {
+          "kind": "variable",
+          "name": "default_battle",
+          "type": {
+            "text": "Battle"
+          },
+          "default": "{ cell_id: 0, deck_id: 0, formation: [], enemy_ship_id: [], e_params: [], e_slot: [], e_hp_max: [], reconnaissance: [], forward_observe: [], escape_idx: [], smoke_type: null, air_base_air_attacks: { attacks: [], }, opening_air_attack: { air_superiority: 0, air_fire: { use_item: [], idx: -1, }, f_damage: { plane_from: [], touch_plane: 0, loss_plane1: 0, loss_plane2: 0, damages: [], cl: [], sp: [], rai_flag: [], bak_flag: [], protect_flag: [], now_hps: [], }, e_damage: { plane_from: [], touch_plane: 0, loss_plane1: 0, loss_plane2: 0, damages: [], cl: [], sp: [], rai_flag: [], bak_flag: [], protect_flag: [], now_hps: [], }, }, support_attack: { support_hourai: { cl_list: [], damage: [], deck_id: 0, ship_id: [], protect_flag: [], now_hps: [], }, support_airatack: { deck_id: 0, ship_id: [], f_damage: { plane_from: [], touch_plane: 0, loss_plane1: 0, loss_plane2: 0, damages: [], cl: [], sp: [], rai_flag: [], bak_flag: [], protect_flag: [], now_hps: [], }, e_damage: { plane_from: [], touch_plane: 0, loss_plane1: 0, loss_plane2: 0, damages: [], cl: [], sp: [], rai_flag: [], bak_flag: [], protect_flag: [], now_hps: [], }, }, }, opening_taisen: { at_list: [], at_type: [], df_list: [], cl_list: [], damage: [], at_eflag: [], si_list: [], protect_flag: [], f_now_hps: [], e_now_hps: [], }, opening_raigeki: { fdam: [], edam: [], // fydam_list_items: [[]], // eydam_list_items: [[]], frai_list_items: [[]], erai_list_items: [[]], // fcl_list_items: [[]], // ecl_list_items: [[]], fcl_list: [], ecl_list: [], f_protect_flag: [], e_protect_flag: [], f_now_hps: [], e_now_hps: [], }, hougeki: [], closing_raigeki: { fdam: [], edam: [], // fydam: [], // eydam: [], frai: [], erai: [], fcl: [], ecl: [], f_protect_flag: [], e_protect_flag: [], f_now_hps: [], e_now_hps: [], }, midngiht_touchplane: [], midnight_flare_pos: [], midnight_hougeki: { at_list: [], df_list: [[]], cl_list: [[]], damage: [[]], at_eflag: [], si_list: [[]], sp_list: [], protect_flag: [[]], f_now_hps: [], e_now_hps: [], }, air_base_assault: null, carrier_base_assault: null, friendly_force_attack: null, f_nowhps: null, e_nowhps: null, midngiht_f_nowhps: null, midngiht_e_nowhps: null, f_total_damages: null, e_total_damages: null, friend_total_damages: null, battle_order: null, midnight_f_total_damages: null, midnight_e_total_damages: null, combat_ration: null, balloon_flag: null, }"
+        }
+      ],
+      "exports": [
+        {
+          "kind": "js",
+          "name": "implementsEnumAirBaseAssult",
+          "declaration": {
+            "name": "implementsEnumAirBaseAssult",
+            "module": "src/interface/battle.ts"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "implementsEnumCarrierBaseAssault",
+          "declaration": {
+            "name": "implementsEnumCarrierBaseAssault",
+            "module": "src/interface/battle.ts"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "implementsEnumAirBaseAirAttack",
+          "declaration": {
+            "name": "implementsEnumAirBaseAirAttack",
+            "module": "src/interface/battle.ts"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "implementsEnumOpeningAirAttack",
+          "declaration": {
+            "name": "implementsEnumOpeningAirAttack",
+            "module": "src/interface/battle.ts"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "implementsEnumSupportAttack",
+          "declaration": {
+            "name": "implementsEnumSupportAttack",
+            "module": "src/interface/battle.ts"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "implementsEnumOpeningTaisen",
+          "declaration": {
+            "name": "implementsEnumOpeningTaisen",
+            "module": "src/interface/battle.ts"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "implementsEnumOpeningRaigeki",
+          "declaration": {
+            "name": "implementsEnumOpeningRaigeki",
+            "module": "src/interface/battle.ts"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "implementsEnumHougeki",
+          "declaration": {
+            "name": "implementsEnumHougeki",
+            "module": "src/interface/battle.ts"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "implementsEnumClosingRaigeki",
+          "declaration": {
+            "name": "implementsEnumClosingRaigeki",
+            "module": "src/interface/battle.ts"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "implementsEnumFriendlyForceAttack",
+          "declaration": {
+            "name": "implementsEnumFriendlyForceAttack",
+            "module": "src/interface/battle.ts"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "implementsEnumMidnightHougeki",
+          "declaration": {
+            "name": "implementsEnumMidnightHougeki",
+            "module": "src/interface/battle.ts"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "default_battles",
+          "declaration": {
+            "name": "default_battles",
+            "module": "src/interface/battle.ts"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "default_battle",
+          "declaration": {
+            "name": "default_battle",
+            "module": "src/interface/battle.ts"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "javascript-module",
+      "path": "src/interface/cells.ts",
+      "declarations": [
+        {
+          "kind": "variable",
+          "name": "default_cells",
+          "type": {
+            "text": "Cells"
+          },
+          "default": "{ maparea_id: 0, mapinfo_no: 0, bosscell_no: 0, bosscomp: 0, cells: {}, cell_index: [], cell_data: [], battles: {}, // timestamp: 0, }"
+        }
+      ],
+      "exports": [
+        {
+          "kind": "js",
+          "name": "default_cells",
+          "declaration": {
+            "name": "default_cells",
+            "module": "src/interface/cells.ts"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "javascript-module",
+      "path": "src/interface/get_data.ts",
+      "declarations": [
+        {
+          "kind": "variable",
+          "name": "default_mst_ship",
+          "type": {
+            "text": "MstShip"
+          },
+          "default": "{ id: 0, sortno: 0, sort_id: 0, name: \"Unknown\", yomi: \"あんのうん\", stype: 0, ctype: 0, afterlv: 0, aftershipid: \"\", taik: [0, 0], souk: [0, 0], houg: [0, 0], raig: [0, 0], tyku: [0, 0], luck: [0, 0], soku: 0, leng: 0, slot_num: 0, maxeq: [0, 0, 0, 0, 0], buildtime: 0, broken: [0, 0, 0, 0], powup: [0, 0, 0, 0], backs: 0, getmes: \"\", afterfuel: 0, afterbull: 0, fuel_max: 0, bull_max: 0, voicef: 0, tais: [0, 0], }"
+        },
+        {
+          "kind": "variable",
+          "name": "default_mst_ships",
+          "type": {
+            "text": "MstShips"
+          },
+          "default": "{ mst_ships: {}, }"
+        },
+        {
+          "kind": "variable",
+          "name": "default_mst_slot_item",
+          "type": {
+            "text": "MstSlotitem"
+          },
+          "default": "{ id: 0, sortno: 0, name: \"Unknown\", type: [0, 0, 0, 0, 0], taik: 0, souk: 0, houg: 0, raig: 0, soku: 0, baku: 0, tyku: 0, tais: 0, atap: 0, houm: 0, raim: 0, houk: 0, raik: 0, bakk: 0, saku: 0, sakb: 0, luck: 0, leng: 0, rare: 0, taibaku: 0, geigeki: 0, broken: [0, 0, 0, 0], usebull: \"\", }"
+        },
+        {
+          "kind": "variable",
+          "name": "default_mst_slot_items",
+          "type": {
+            "text": "MstSlotitems"
+          },
+          "default": "{ mst_slot_items: {}, }"
+        },
+        {
+          "kind": "variable",
+          "name": "default_mst_equip_exslot_ships",
+          "type": {
+            "text": "MstEquipExslotShips"
+          },
+          "default": "{ mst_equip_exslot_ships: {}, }"
+        },
+        {
+          "kind": "variable",
+          "name": "default_mst_slotitem_equip_types",
+          "type": {
+            "text": "MstSlotItemEquipTypes"
+          },
+          "default": "{ mst_slotitem_equip_types: {}, }"
+        },
+        {
+          "kind": "variable",
+          "name": "default_mst_equip_ships",
+          "type": {
+            "text": "MstEquipShips"
+          },
+          "default": "{ mst_equip_ships: {}, }"
+        },
+        {
+          "kind": "variable",
+          "name": "default_mst_stypes",
+          "type": {
+            "text": "MstStypes"
+          },
+          "default": "{ mst_stypes: {}, }"
+        },
+        {
+          "kind": "variable",
+          "name": "default_mst_useitems",
+          "type": {
+            "text": "MstUseItems"
+          },
+          "default": "{ mst_useitems: {}, }"
+        }
+      ],
+      "exports": [
+        {
+          "kind": "js",
+          "name": "default_mst_ship",
+          "declaration": {
+            "name": "default_mst_ship",
+            "module": "src/interface/get_data.ts"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "default_mst_ships",
+          "declaration": {
+            "name": "default_mst_ships",
+            "module": "src/interface/get_data.ts"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "default_mst_slot_item",
+          "declaration": {
+            "name": "default_mst_slot_item",
+            "module": "src/interface/get_data.ts"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "default_mst_slot_items",
+          "declaration": {
+            "name": "default_mst_slot_items",
+            "module": "src/interface/get_data.ts"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "default_mst_equip_exslot_ships",
+          "declaration": {
+            "name": "default_mst_equip_exslot_ships",
+            "module": "src/interface/get_data.ts"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "default_mst_slotitem_equip_types",
+          "declaration": {
+            "name": "default_mst_slotitem_equip_types",
+            "module": "src/interface/get_data.ts"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "default_mst_equip_ships",
+          "declaration": {
+            "name": "default_mst_equip_ships",
+            "module": "src/interface/get_data.ts"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "default_mst_stypes",
+          "declaration": {
+            "name": "default_mst_stypes",
+            "module": "src/interface/get_data.ts"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "default_mst_useitems",
+          "declaration": {
+            "name": "default_mst_useitems",
+            "module": "src/interface/get_data.ts"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "javascript-module",
+      "path": "src/interface/map_info.ts",
+      "declarations": [
+        {
+          "kind": "variable",
+          "name": "default_air_bases",
+          "type": {
+            "text": "AirBases"
+          },
+          "default": "{ bases: {}, }"
+        }
+      ],
+      "exports": [
+        {
+          "kind": "js",
+          "name": "default_air_bases",
+          "declaration": {
+            "name": "default_air_bases",
+            "module": "src/interface/map_info.ts"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "javascript-module",
+      "path": "src/interface/port.ts",
+      "declarations": [
+        {
+          "kind": "variable",
+          "name": "default_materials",
+          "type": {
+            "text": "Materials"
+          },
+          "default": "{ materials: [350000, 350000, 350000, 350000, 3000, 3000, 3000, 3000], }"
+        },
+        {
+          "kind": "variable",
+          "name": "default_deck_ports",
+          "type": {
+            "text": "DeckPorts"
+          },
+          "default": "{ deck_ports: {}, combined_flag: null, }"
+        },
+        {
+          "kind": "variable",
+          "name": "default_nDock",
+          "type": {
+            "text": "NDocks"
+          },
+          "default": "{ n_docks: [], }"
+        },
+        {
+          "kind": "variable",
+          "name": "default_ship",
+          "type": {
+            "text": "Ship"
+          },
+          "default": "{ id: 0, ship_id: 0, lv: 0, exp: [0, 0, 0], nowhp: 0, maxhp: 0, soku: 0, leng: 0, slot: [-1, -1, -1, -1, -1], onslot: [0, 0, 0, 0, 0], slot_ex: 0, fuel: 0, bull: 0, slotnum: 0, cond: 0, karyoku: [0, 0], raisou: [0, 0], taiku: [0, 0], soukou: [0, 0], kaihi: [0, 0], taisen: [0, 0], sakuteki: [0, 0], lucky: [0, 0], sally_area: 0, sp_effect_items: { items: { 0: { kind: 0, raig: 0, souk: 0, houg: 0, kaih: 0, }, }, }, }"
+        },
+        {
+          "kind": "variable",
+          "name": "default_ships",
+          "type": {
+            "text": "Ships"
+          },
+          "default": "{ ships: {}, }"
+        },
+        {
+          "kind": "variable",
+          "name": "default_logs",
+          "type": {
+            "text": "Logs"
+          },
+          "default": "{ message: [], }"
+        }
+      ],
+      "exports": [
+        {
+          "kind": "js",
+          "name": "default_materials",
+          "declaration": {
+            "name": "default_materials",
+            "module": "src/interface/port.ts"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "default_deck_ports",
+          "declaration": {
+            "name": "default_deck_ports",
+            "module": "src/interface/port.ts"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "default_nDock",
+          "declaration": {
+            "name": "default_nDock",
+            "module": "src/interface/port.ts"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "default_ship",
+          "declaration": {
+            "name": "default_ship",
+            "module": "src/interface/port.ts"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "default_ships",
+          "declaration": {
+            "name": "default_ships",
+            "module": "src/interface/port.ts"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "default_logs",
+          "declaration": {
+            "name": "default_logs",
+            "module": "src/interface/port.ts"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "javascript-module",
+      "path": "src/interface/require_info.ts",
+      "declarations": [
+        {
+          "kind": "variable",
+          "name": "default_slotitems",
+          "type": {
+            "text": "SlotItems"
+          },
+          "default": "{ slot_items: {}, }"
+        },
+        {
+          "kind": "variable",
+          "name": "default_slotitem",
+          "type": {
+            "text": "SlotItem"
+          },
+          "default": "{ id: 0, slotitem_id: 0, locked: 0, level: 0, alv: undefined, }"
+        }
+      ],
+      "exports": [
+        {
+          "kind": "js",
+          "name": "default_slotitems",
+          "declaration": {
+            "name": "default_slotitems",
+            "module": "src/interface/require_info.ts"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "default_slotitem",
+          "declaration": {
+            "name": "default_slotitem",
+            "module": "src/interface/require_info.ts"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "javascript-module",
+      "path": "src/icons/caution-fill.stories.ts",
+      "declarations": [
+        {
+          "kind": "variable",
+          "name": "meta",
+          "default": "{ title: \"FUSOU/icons/icon-caution-fill\", tags: [\"autodocs\"], } satisfies Meta<IconCautionFillProps>"
+        },
+        {
+          "kind": "variable",
+          "name": "basic",
+          "type": {
+            "text": "Story"
+          },
+          "default": "{ render: (args: IconCautionFillProps) => IconCautionFillBasic(args), name: \"Basic\", argTypes: { level: { control: { type: \"select\" }, option: caution_level, table: { defaultValue: { summary: \"low\" }, type: { summary: caution_level.join(\"\\|\"), }, }, }, size: { control: { type: \"select\" }, options: size_list, table: { defaultValue: { summary: \"xs\" }, type: { summary: size_list.join(\"\\|\"), }, }, }, }, args: { level: \"middle\", size: \"full\", }, }"
+        },
+        {
+          "kind": "variable",
+          "name": "catalog",
+          "type": {
+            "text": "Story"
+          },
+          "default": "{ render: () => IconCautionFillCatalog(), name: \"Catalog\", argTypes: { level: { control: { disable: true }, }, size: { control: { disable: true }, }, }, }"
+        }
+      ],
+      "exports": [
+        {
+          "kind": "js",
+          "name": "default",
+          "declaration": {
+            "name": "meta",
+            "module": "src/icons/caution-fill.stories.ts"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "basic",
+          "declaration": {
+            "name": "basic",
+            "module": "src/icons/caution-fill.stories.ts"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "catalog",
+          "declaration": {
+            "name": "catalog",
+            "module": "src/icons/caution-fill.stories.ts"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "javascript-module",
+      "path": "src/icons/caution-fill.ts",
+      "declarations": [
+        {
+          "kind": "class",
+          "description": "",
+          "name": "IconCautionFill",
+          "members": [
+            {
+              "kind": "field",
+              "name": "level",
+              "type": {
+                "text": "keyof typeof color_list"
+              },
+              "default": "\"low\"",
+              "attribute": "level"
+            },
+            {
+              "kind": "field",
+              "name": "size",
+              "type": {
+                "text": "keyof typeof class_size"
+              },
+              "default": "\"xs\"",
+              "attribute": "size"
+            }
+          ],
+          "attributes": [
+            {
+              "name": "level",
+              "type": {
+                "text": "keyof typeof color_list"
+              },
+              "default": "\"low\"",
+              "fieldName": "level"
+            },
+            {
+              "name": "size",
+              "type": {
+                "text": "keyof typeof class_size"
+              },
+              "default": "\"xs\"",
+              "fieldName": "size"
+            }
+          ],
+          "superclass": {
+            "name": "LitElement",
+            "package": "lit"
+          },
+          "tagName": "icon-caution-fill",
+          "customElement": true
+        }
+      ],
+      "exports": [
+        {
+          "kind": "js",
+          "name": "IconCautionFill",
+          "declaration": {
+            "name": "IconCautionFill",
+            "module": "src/icons/caution-fill.ts"
+          }
+        },
+        {
+          "kind": "custom-element-definition",
+          "name": "icon-caution-fill",
+          "declaration": {
+            "name": "IconCautionFill",
+            "module": "src/icons/caution-fill.ts"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "javascript-module",
+      "path": "src/icons/equipment.stories.ts",
+      "declarations": [
+        {
+          "kind": "variable",
+          "name": "meta",
+          "default": "{ title: \"FUSOU/icons/icon-equipment\", tags: [\"autodocs\"], } satisfies Meta<IconEquipmentProps>"
+        },
+        {
+          "kind": "variable",
+          "name": "basic",
+          "type": {
+            "text": "Story"
+          },
+          "default": "{ render: (args: IconEquipmentProps) => IconEquipmentBasic(args), name: \"Basic\", argTypes: { icon_number: { control: { type: \"select\" }, options: [1, 2, 3, 4, 5, 34], }, category_number: { control: { type: \"select\" }, options: [1, 2, 3, 4, 5], }, size: { control: { type: \"select\" }, options: size_list, table: { defaultValue: { summary: \"xs\" }, type: { summary: size_list.join(\"\\|\"), }, }, }, empty_flag: { control: \"boolean\", }, }, args: { icon_number: 1, category_number: 1, size: \"full\", empty_flag: false, }, }"
+        },
+        {
+          "kind": "variable",
+          "name": "catalog",
+          "type": {
+            "text": "Story"
+          },
+          "default": "{ render: () => IconEquipmentCatalog(), name: \"Catalog\", argTypes: { icon_number: { control: { disable: true }, }, category_number: { control: { disable: true }, }, size: { control: { disable: true }, }, }, }"
+        },
+        {
+          "kind": "variable",
+          "name": "catalog_detail",
+          "type": {
+            "text": "Story"
+          },
+          "default": "{ render: () => IconEquipmentCatalogDetail(), name: \"CatalogDetail\", argTypes: { icon_number: { control: { disable: true }, }, category_number: { control: { disable: true }, }, size: { control: { disable: true }, }, }, }"
+        }
+      ],
+      "exports": [
+        {
+          "kind": "js",
+          "name": "default",
+          "declaration": {
+            "name": "meta",
+            "module": "src/icons/equipment.stories.ts"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "basic",
+          "declaration": {
+            "name": "basic",
+            "module": "src/icons/equipment.stories.ts"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "catalog",
+          "declaration": {
+            "name": "catalog",
+            "module": "src/icons/equipment.stories.ts"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "catalog_detail",
+          "declaration": {
+            "name": "catalog_detail",
+            "module": "src/icons/equipment.stories.ts"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "javascript-module",
+      "path": "src/icons/equipment.ts",
+      "declarations": [
+        {
+          "kind": "class",
+          "description": "",
+          "name": "IconEquipment",
+          "members": [
+            {
+              "kind": "field",
+              "name": "icon_number",
+              "type": {
+                "text": "number"
+              },
+              "default": "0",
+              "attribute": "icon_number"
+            },
+            {
+              "kind": "field",
+              "name": "category_number",
+              "type": {
+                "text": "number"
+              },
+              "default": "0",
+              "attribute": "category_number"
+            },
+            {
+              "kind": "field",
+              "name": "size",
+              "type": {
+                "text": "keyof typeof class_size"
+              },
+              "default": "\"xs\"",
+              "attribute": "size"
+            },
+            {
+              "kind": "field",
+              "name": "empty_flag",
+              "type": {
+                "text": "boolean"
+              },
+              "default": "false",
+              "attribute": "empty_flag"
+            }
+          ],
+          "attributes": [
+            {
+              "name": "icon_number",
+              "type": {
+                "text": "number"
+              },
+              "default": "0",
+              "fieldName": "icon_number"
+            },
+            {
+              "name": "category_number",
+              "type": {
+                "text": "number"
+              },
+              "default": "0",
+              "fieldName": "category_number"
+            },
+            {
+              "name": "size",
+              "type": {
+                "text": "keyof typeof class_size"
+              },
+              "default": "\"xs\"",
+              "fieldName": "size"
+            },
+            {
+              "name": "empty_flag",
+              "type": {
+                "text": "boolean"
+              },
+              "default": "false",
+              "fieldName": "empty_flag"
+            }
+          ],
+          "superclass": {
+            "name": "LitElement",
+            "package": "lit"
+          },
+          "tagName": "icon-equipment",
+          "customElement": true
+        }
+      ],
+      "exports": [
+        {
+          "kind": "js",
+          "name": "IconEquipment",
+          "declaration": {
+            "name": "IconEquipment",
+            "module": "src/icons/equipment.ts"
+          }
+        },
+        {
+          "kind": "custom-element-definition",
+          "name": "icon-equipment",
+          "declaration": {
+            "name": "IconEquipment",
+            "module": "src/icons/equipment.ts"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "javascript-module",
+      "path": "src/icons/fleet-number.stories.ts",
+      "declarations": [
+        {
+          "kind": "variable",
+          "name": "meta",
+          "default": "{ title: \"FUSOU/icons/icon-fleet-number\", tags: [\"autodocs\"], } satisfies Meta<IconFleetNumberProps>"
+        },
+        {
+          "kind": "variable",
+          "name": "basic",
+          "type": {
+            "text": "Story"
+          },
+          "default": "{ render: (args: IconFleetNumberProps) => IconFleetNumberBasic(args), name: \"Basic\", argTypes: { combined_flag: { control: { type: \"select\" }, options: [true, false, undefined], }, ship_number: { control: { type: \"select\" }, options: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12], }, fleet_number: { control: { type: \"select\" }, options: [1, 2, 3, 4], }, size: { control: { type: \"select\" }, options: size_list, table: { defaultValue: { summary: \"xs\" }, type: { summary: size_list.join(\"\\|\"), }, }, }, }, args: { size: \"full\", combined_flag: undefined, fleet_number: 1, ship_number: 1, }, }"
+        },
+        {
+          "kind": "variable",
+          "name": "catalog",
+          "type": {
+            "text": "Story"
+          },
+          "default": "{ render: () => IconFleetNumberCatalog(), name: \"Catalog\", argTypes: { combined_flag: { control: { disable: true }, }, fleet_number: { control: { disable: true }, }, ship_number: { control: { disable: true }, }, size: { control: { disable: true }, }, }, }"
+        }
+      ],
+      "exports": [
+        {
+          "kind": "js",
+          "name": "default",
+          "declaration": {
+            "name": "meta",
+            "module": "src/icons/fleet-number.stories.ts"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "basic",
+          "declaration": {
+            "name": "basic",
+            "module": "src/icons/fleet-number.stories.ts"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "catalog",
+          "declaration": {
+            "name": "catalog",
+            "module": "src/icons/fleet-number.stories.ts"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "javascript-module",
+      "path": "src/icons/fleet-number.ts",
+      "declarations": [
+        {
+          "kind": "class",
+          "description": "",
+          "name": "IconFleetNumber",
+          "members": [
+            {
+              "kind": "field",
+              "name": "size",
+              "type": {
+                "text": "keyof typeof class_size"
+              },
+              "default": "\"xs\"",
+              "attribute": "size"
+            },
+            {
+              "kind": "field",
+              "name": "e_flag",
+              "type": {
+                "text": "number"
+              },
+              "default": "0",
+              "attribute": "e_flag"
+            },
+            {
+              "kind": "field",
+              "name": "fleet_number",
+              "type": {
+                "text": "number"
+              },
+              "default": "0",
+              "attribute": "fleet_number"
+            },
+            {
+              "kind": "field",
+              "name": "ship_number",
+              "type": {
+                "text": "number"
+              },
+              "default": "0",
+              "attribute": "ship_number"
+            },
+            {
+              "kind": "field",
+              "name": "combined_flag",
+              "type": {
+                "text": "boolean"
+              },
+              "default": "false",
+              "attribute": "combined_flag"
+            }
+          ],
+          "attributes": [
+            {
+              "name": "size",
+              "type": {
+                "text": "keyof typeof class_size"
+              },
+              "default": "\"xs\"",
+              "fieldName": "size"
+            },
+            {
+              "name": "e_flag",
+              "type": {
+                "text": "number"
+              },
+              "default": "0",
+              "fieldName": "e_flag"
+            },
+            {
+              "name": "fleet_number",
+              "type": {
+                "text": "number"
+              },
+              "default": "0",
+              "fieldName": "fleet_number"
+            },
+            {
+              "name": "ship_number",
+              "type": {
+                "text": "number"
+              },
+              "default": "0",
+              "fieldName": "ship_number"
+            },
+            {
+              "name": "combined_flag",
+              "type": {
+                "text": "boolean"
+              },
+              "default": "false",
+              "fieldName": "combined_flag"
+            }
+          ],
+          "superclass": {
+            "name": "LitElement",
+            "package": "lit"
+          },
+          "tagName": "icon-fleet-number",
+          "customElement": true
+        }
+      ],
+      "exports": [
+        {
+          "kind": "js",
+          "name": "IconFleetNumber",
+          "declaration": {
+            "name": "IconFleetNumber",
+            "module": "src/icons/fleet-number.ts"
+          }
+        },
+        {
+          "kind": "custom-element-definition",
+          "name": "icon-fleet-number",
+          "declaration": {
+            "name": "IconFleetNumber",
+            "module": "src/icons/fleet-number.ts"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "javascript-module",
+      "path": "src/icons/kira.stories.ts",
+      "declarations": [
+        {
+          "kind": "variable",
+          "name": "meta",
+          "default": "{ title: \"FUSOU/icons/icon-kira\", tags: [\"autodocs\"], } satisfies Meta<IconKiraProps>"
+        },
+        {
+          "kind": "variable",
+          "name": "basic",
+          "type": {
+            "text": "Story"
+          },
+          "default": "{ render: (args: IconKiraProps) => IconKiraBasic(args), name: \"Basic\", argTypes: { kira_type: { control: { type: \"select\" }, options: [1, 2, 3], }, size: { control: { type: \"select\" }, options: size_list, table: { defaultValue: { summary: \"xs\" }, type: { summary: size_list.join(\"\\|\"), }, }, }, }, args: { kira_type: 1, size: \"full\", }, }"
+        },
+        {
+          "kind": "variable",
+          "name": "catalog",
+          "type": {
+            "text": "Story"
+          },
+          "default": "{ render: () => IconKiraCatalog(), name: \"Catalog\", argTypes: { kira_type: { control: { disable: true }, }, size: { control: { disable: true }, }, }, }"
+        }
+      ],
+      "exports": [
+        {
+          "kind": "js",
+          "name": "default",
+          "declaration": {
+            "name": "meta",
+            "module": "src/icons/kira.stories.ts"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "basic",
+          "declaration": {
+            "name": "basic",
+            "module": "src/icons/kira.stories.ts"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "catalog",
+          "declaration": {
+            "name": "catalog",
+            "module": "src/icons/kira.stories.ts"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "javascript-module",
+      "path": "src/icons/kira.ts",
+      "declarations": [
+        {
+          "kind": "class",
+          "description": "",
+          "name": "IconKira",
+          "members": [
+            {
+              "kind": "field",
+              "name": "kira_type",
+              "type": {
+                "text": "number"
+              },
+              "default": "1",
+              "attribute": "kira_type"
+            },
+            {
+              "kind": "field",
+              "name": "size",
+              "type": {
+                "text": "keyof typeof class_size"
+              },
+              "default": "\"xs\"",
+              "attribute": "size"
+            }
+          ],
+          "attributes": [
+            {
+              "name": "kira_type",
+              "type": {
+                "text": "number"
+              },
+              "default": "1",
+              "fieldName": "kira_type"
+            },
+            {
+              "name": "size",
+              "type": {
+                "text": "keyof typeof class_size"
+              },
+              "default": "\"xs\"",
+              "fieldName": "size"
+            }
+          ],
+          "superclass": {
+            "name": "LitElement",
+            "package": "lit"
+          },
+          "tagName": "icon-kira",
+          "customElement": true
+        }
+      ],
+      "exports": [
+        {
+          "kind": "js",
+          "name": "IconKira",
+          "declaration": {
+            "name": "IconKira",
+            "module": "src/icons/kira.ts"
+          }
+        },
+        {
+          "kind": "custom-element-definition",
+          "name": "icon-kira",
+          "declaration": {
+            "name": "IconKira",
+            "module": "src/icons/kira.ts"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "javascript-module",
+      "path": "src/icons/material.stories.ts",
+      "declarations": [
+        {
+          "kind": "variable",
+          "name": "meta",
+          "default": "{ title: \"FUSOU/icons/icon-material\", tags: [\"autodocs\"], } satisfies Meta<IconMaterialProps>"
+        },
+        {
+          "kind": "variable",
+          "name": "basic",
+          "type": {
+            "text": "Story"
+          },
+          "default": "{ render: (args: IconMaterialProps) => IconMaterialBasic(args), name: \"Basic\", argTypes: { item_number: { control: { type: \"select\" }, options: [1, 2, 3, 4, 5], }, size: { control: { type: \"select\" }, options: size_list, table: { defaultValue: { summary: \"xs\" }, type: { summary: size_list.join(\"\\|\"), }, }, }, }, args: { item_number: 1, size: \"full\", }, }"
+        },
+        {
+          "kind": "variable",
+          "name": "catalog",
+          "type": {
+            "text": "Story"
+          },
+          "default": "{ render: () => IconMaterialCatalog(), name: \"Catalog\", argTypes: { item_number: { control: { disable: true }, }, size: { control: { disable: true }, }, }, }"
+        },
+        {
+          "kind": "variable",
+          "name": "catalog_detail",
+          "type": {
+            "text": "Story"
+          },
+          "default": "{ render: () => IconMaterialCatalogDetail(), name: \"CatalogDetail\", argTypes: { item_number: { control: { disable: true }, }, size: { control: { disable: true }, }, }, }"
+        }
+      ],
+      "exports": [
+        {
+          "kind": "js",
+          "name": "default",
+          "declaration": {
+            "name": "meta",
+            "module": "src/icons/material.stories.ts"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "basic",
+          "declaration": {
+            "name": "basic",
+            "module": "src/icons/material.stories.ts"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "catalog",
+          "declaration": {
+            "name": "catalog",
+            "module": "src/icons/material.stories.ts"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "catalog_detail",
+          "declaration": {
+            "name": "catalog_detail",
+            "module": "src/icons/material.stories.ts"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "javascript-module",
+      "path": "src/icons/material.ts",
+      "declarations": [
+        {
+          "kind": "variable",
+          "name": "item_list",
+          "type": {
+            "text": "{ [key: number]: [string, number] }"
+          },
+          "default": "{ 0: [\" \", 0], // undifined 1: [\"A3\", 1], // 高速修復材 2: [\"B3\", 1], // 高速建造材 3: [\"C3\", 1], // 開発資材 4: [\"C1\", 1], // 改修資材 5: [\"UN\", 0], // undifined 6: [\"UN\", 0], // undifined 7: [\"UN\", 0], // undifined 8: [\"UN\", 0], // undifined 9: [\"UN\", 0], // undifined 10: [\"A2\", 1], // 家具箱（小） 11: [\"B2\", 1], // 家具箱（中） 12: [\"C2\", 1], // 家具箱（大） 13: [\"UN\", 0], // undifined 14: [\"UN\", 0], // undifined 15: [\"UN\", 0], // undifined 16: [\"UN\", 0], // undifined 17: [\"UN\", 0], // undifined 18: [\"UN\", 0], // undifined 19: [\"UN\", 0], // undifined 20: [\"UN\", 0], // undifined 21: [\"UN\", 0], // undifined 22: [\"UN\", 0], // undifined 23: [\"UN\", 0], // undifined 24: [\"UN\", 0], // undifined 25: [\"UN\", 0], // undifined 26: [\"UN\", 0], // undifined 27: [\"UN\", 0], // undifined 28: [\"UN\", 0], // undifined 29: [\"UN\", 0], // undifined 30: [\"UN\", 0], // undifined 31: [\"A0\", 4], // 燃料 32: [\"B0\", 4], // 弾薬 33: [\"C0\", 4], // 鋼材 34: [\"D0\", 4], // ボーキサイト 35: [\"UN\", 0], // undifined 36: [\"UN\", 0], // undifined 37: [\"UN\", 0], // undifined 38: [\"UN\", 0], // undifined 39: [\"UN\", 0], // undifined 40: [\"UN\", 0], // undifined 41: [\"UN\", 0], // undifined 42: [\"UN\", 0], // undifined 43: [\"UN\", 0], // undifined 44: [\"E0\", 5], // 家具コイン 45: [\"UN\", 0], // undifined 46: [\"UN\", 0], // undifined 47: [\"UN\", 0], // undifined 48: [\"UN\", 0], // undifined 49: [\"D3\", 1], // ドック開放キー 50: [\"E3\", 1], // 応急修理要員 51: [\"F3\", 1], // 応急修理女神 52: [\"F2\", 1], // 特注家具職人 53: [\"D3\", 3], // 母港拡張 54: [\"D2\", 1], // 給糧艦「間宮」 55: [\"A1\", 1], // 書類一式＆指輪 56: [\"F1\", 1], // 艦娘からのチョコ 57: [\"B1\", 1], // 勲章 58: [\"E2\", 1], // 改装設計図 59: [\"D1\", 1], // 給糧艦「伊良湖」 60: [\"E1\", 1], // プレゼント箱 61: [\"G1\", 1], // 甲種勲章 62: [\"LT\", 1], // 菱餅 63: [\"G2\", 1], // 司令部要員 64: [\"H2\", 1], // 補強増設 65: [\"B4\", 1], // 試製カタパルト 66: [\"E4\", 1], // 戦闘糧食 67: [\"F4\", 1], // 洋上補給 68: [\"LT\", 1], // 秋刀魚 69: [\"D4\", 1], // 秋刀魚の缶詰 70: [\"A4\", 1], // 熟練搭乗員 71: [\"C4\", 1], // ネ式エンジン 72: [\"LT\", 1], // お飾り材料 73: [\"G4\", 1], // 設営隊 74: [\"H1\", 1], // 新型航空機設計図 75: [\"A2\", 2], // 新型砲熕兵装資材 76: [\"A3\", 2], // 戦闘糧食(特別なおにぎり) 77: [\"B2\", 2], // 新型航空兵装資材 78: [\"C1\", 2], // 戦闘詳報 79: [\"UC\", 6], // 海峡章 80: [\"LT\", 2], // Xmas Select Gift Box 81: [\"UC\", 6], // 捷号章 82: [\"UC\", 6], // 捷号章 83: [\"UC\", 6], // 捷号章 84: [\"UC\", 6], // 捷号章 85: [\"LT\", 2], // お米 86: [\"LT\", 2], // 梅干し 87: [\"LT\", 2], // 海苔 88: [\"LT\", 2], // お茶 89: [\"LT\", 2], // 鳳翔さん鳳翔食券 90: [\"LT\", 2], // 節分の豆 91: [\"B3\", 2], // 緊急修理資材 92: [\"C2\", 2], // 新型噴進装備開発資材 93: [\"LT\", 1], // 鰯 94: [\"C3\", 2], // 新型兵装資材 95: [\"H4\", 1], // 潜水艦補給物資 96: [\"LT\", 2], // 南瓜 97: [\"LT\", 1], // てるてる坊主 98: [\"A4\", 2], // 海色リボン 99: [\"B4\", 2], // 白たすき 100: [\"D2\", 2], // 海外艦最新技術 101: [\"D1\", 2], // 夜間熟練搭乗員 102: [\"D4\", 2], // }"
+        },
+        {
+          "kind": "class",
+          "description": "",
+          "name": "IconMaterial",
+          "members": [
+            {
+              "kind": "field",
+              "name": "item_number",
+              "type": {
+                "text": "number"
+              },
+              "default": "0",
+              "attribute": "item_number"
+            },
+            {
+              "kind": "field",
+              "name": "size",
+              "type": {
+                "text": "keyof typeof class_size"
+              },
+              "default": "\"xs\"",
+              "attribute": "size"
+            }
+          ],
+          "attributes": [
+            {
+              "name": "item_number",
+              "type": {
+                "text": "number"
+              },
+              "default": "0",
+              "fieldName": "item_number"
+            },
+            {
+              "name": "size",
+              "type": {
+                "text": "keyof typeof class_size"
+              },
+              "default": "\"xs\"",
+              "fieldName": "size"
+            }
+          ],
+          "superclass": {
+            "name": "LitElement",
+            "package": "lit"
+          },
+          "tagName": "icon-material",
+          "customElement": true
+        }
+      ],
+      "exports": [
+        {
+          "kind": "js",
+          "name": "item_list",
+          "declaration": {
+            "name": "item_list",
+            "module": "src/icons/material.ts"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "IconMaterial",
+          "declaration": {
+            "name": "IconMaterial",
+            "module": "src/icons/material.ts"
+          }
+        },
+        {
+          "kind": "custom-element-definition",
+          "name": "icon-material",
+          "declaration": {
+            "name": "IconMaterial",
+            "module": "src/icons/material.ts"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "javascript-module",
+      "path": "src/icons/palne-proficiency.stories.ts",
+      "declarations": [
+        {
+          "kind": "variable",
+          "name": "meta",
+          "default": "{ title: \"FUSOU/icons/icon-plane-proficiency\", tags: [\"autodocs\"], } satisfies Meta<IconPlaneProficiencyProps>"
+        },
+        {
+          "kind": "variable",
+          "name": "basic",
+          "type": {
+            "text": "Story"
+          },
+          "default": "{ render: (args: IconPlaneProficiencyProps) => IconPlaneProficiencyBasic(args), name: \"Basic\", argTypes: { level: { control: { type: \"select\" }, options: [1, 2, 3, 4, 5, 6, 7], }, size: { control: { type: \"select\" }, options: size_list, table: { defaultValue: { summary: \"xs\" }, type: { summary: size_list.join(\"\\|\"), }, }, }, }, args: { level: 1, size: \"full\", }, }"
+        },
+        {
+          "kind": "variable",
+          "name": "catalog",
+          "type": {
+            "text": "Story"
+          },
+          "default": "{ render: () => IconPlaneProficiencyCatalog(), name: \"Catalog\", argTypes: { level: { control: { disable: true }, }, size: { control: { disable: true }, }, }, }"
+        }
+      ],
+      "exports": [
+        {
+          "kind": "js",
+          "name": "default",
+          "declaration": {
+            "name": "meta",
+            "module": "src/icons/palne-proficiency.stories.ts"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "basic",
+          "declaration": {
+            "name": "basic",
+            "module": "src/icons/palne-proficiency.stories.ts"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "catalog",
+          "declaration": {
+            "name": "catalog",
+            "module": "src/icons/palne-proficiency.stories.ts"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "javascript-module",
+      "path": "src/icons/plane-proficiency.ts",
+      "declarations": [
+        {
+          "kind": "class",
+          "description": "",
+          "name": "IconPlaneProficiency",
+          "members": [
+            {
+              "kind": "field",
+              "name": "level",
+              "type": {
+                "text": "number"
+              },
+              "default": "0",
+              "attribute": "level"
+            },
+            {
+              "kind": "field",
+              "name": "size",
+              "type": {
+                "text": "keyof typeof class_size"
+              },
+              "default": "\"xs\"",
+              "attribute": "size"
+            }
+          ],
+          "attributes": [
+            {
+              "name": "level",
+              "type": {
+                "text": "number"
+              },
+              "default": "0",
+              "fieldName": "level"
+            },
+            {
+              "name": "size",
+              "type": {
+                "text": "keyof typeof class_size"
+              },
+              "default": "\"xs\"",
+              "fieldName": "size"
+            }
+          ],
+          "superclass": {
+            "name": "LitElement",
+            "package": "lit"
+          },
+          "tagName": "icon-plane-proficiency",
+          "customElement": true
+        }
+      ],
+      "exports": [
+        {
+          "kind": "js",
+          "name": "IconPlaneProficiency",
+          "declaration": {
+            "name": "IconPlaneProficiency",
+            "module": "src/icons/plane-proficiency.ts"
+          }
+        },
+        {
+          "kind": "custom-element-definition",
+          "name": "icon-plane-proficiency",
+          "declaration": {
+            "name": "IconPlaneProficiency",
+            "module": "src/icons/plane-proficiency.ts"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "javascript-module",
+      "path": "src/icons/ship.stories.ts",
+      "declarations": [
+        {
+          "kind": "variable",
+          "name": "meta",
+          "default": "{ title: \"FUSOU/icons/icon-ship\", tags: [\"autodocs\"], } satisfies Meta<IconShipProps>"
+        },
+        {
+          "kind": "variable",
+          "name": "basic",
+          "type": {
+            "text": "Story"
+          },
+          "default": "{ render: (args: IconShipProps) => IconShipBasic(args), name: \"Basic\", argTypes: { ship_stype: { control: { type: \"select\" }, options: [1, 2, 3, 4, 5], }, color: { control: { type: \"select\" }, options: [undefined, \"\", \"-\", \"elite\", \"flagship\"], }, empty_flag: { control: \"boolean\", }, size: { control: { type: \"select\" }, options: size_list, table: { defaultValue: { summary: \"xs\" }, type: { summary: size_list.join(\"\\|\"), }, }, }, }, args: { size: \"full\", ship_stype: 1, color: \"\", empty_flag: false, }, }"
+        },
+        {
+          "kind": "variable",
+          "name": "catalog",
+          "type": {
+            "text": "Story"
+          },
+          "default": "{ render: () => IconShipCatalog(), name: \"Catalog\", argTypes: { ship_stype: { control: { disable: true }, }, color: { control: { disable: true }, }, size: { control: { disable: true }, }, }, }"
+        }
+      ],
+      "exports": [
+        {
+          "kind": "js",
+          "name": "default",
+          "declaration": {
+            "name": "meta",
+            "module": "src/icons/ship.stories.ts"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "basic",
+          "declaration": {
+            "name": "basic",
+            "module": "src/icons/ship.stories.ts"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "catalog",
+          "declaration": {
+            "name": "catalog",
+            "module": "src/icons/ship.stories.ts"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "javascript-module",
+      "path": "src/icons/ship.ts",
+      "declarations": [
+        {
+          "kind": "class",
+          "description": "",
+          "name": "IconShip",
+          "members": [
+            {
+              "kind": "field",
+              "name": "ship_stype",
+              "type": {
+                "text": "number"
+              },
+              "default": "0",
+              "attribute": "ship_stype"
+            },
+            {
+              "kind": "field",
+              "name": "size",
+              "type": {
+                "text": "keyof typeof class_size"
+              },
+              "default": "\"xs\"",
+              "attribute": "size"
+            },
+            {
+              "kind": "field",
+              "name": "color",
+              "type": {
+                "text": "string"
+              },
+              "default": "\"\"",
+              "attribute": "color"
+            },
+            {
+              "kind": "field",
+              "name": "empty_flag",
+              "type": {
+                "text": "boolean"
+              },
+              "default": "false",
+              "attribute": "empty_flag"
+            }
+          ],
+          "attributes": [
+            {
+              "name": "ship_stype",
+              "type": {
+                "text": "number"
+              },
+              "default": "0",
+              "fieldName": "ship_stype"
+            },
+            {
+              "name": "size",
+              "type": {
+                "text": "keyof typeof class_size"
+              },
+              "default": "\"xs\"",
+              "fieldName": "size"
+            },
+            {
+              "name": "color",
+              "type": {
+                "text": "string"
+              },
+              "default": "\"\"",
+              "fieldName": "color"
+            },
+            {
+              "name": "empty_flag",
+              "type": {
+                "text": "boolean"
+              },
+              "default": "false",
+              "fieldName": "empty_flag"
+            }
+          ],
+          "superclass": {
+            "name": "LitElement",
+            "package": "lit"
+          },
+          "tagName": "icon-ship",
+          "customElement": true
+        }
+      ],
+      "exports": [
+        {
+          "kind": "js",
+          "name": "IconShip",
+          "declaration": {
+            "name": "IconShip",
+            "module": "src/icons/ship.ts"
+          }
+        },
+        {
+          "kind": "custom-element-definition",
+          "name": "icon-ship",
+          "declaration": {
+            "name": "IconShip",
+            "module": "src/icons/ship.ts"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "javascript-module",
+      "path": "src/components/bar/color-bar-label.stories.ts",
+      "declarations": [
+        {
+          "kind": "variable",
+          "name": "meta",
+          "default": "{ title: \"FUSOU/components/bar/component-color-bar-label\", tags: [\"autodocs\"], } satisfies Meta<ComponentColorBarLabelProps>"
+        },
+        {
+          "kind": "variable",
+          "name": "basic",
+          "type": {
+            "text": "Story"
+          },
+          "default": "{ render: (args: ComponentColorBarLabelProps) => ComponentColorBarLabelBasic(args), name: \"Basic\", argTypes: { v_now: { control: { type: \"range\", max: 100, min: 0 }, }, v_max: { control: { disable: true }, }, quantize: { control: { type: \"range\", max: 10, min: 0 }, table: { defaultValue: { summary: \"undefined\" }, type: { summary: [\"undefined\", \"number\"].join(\"\\|\"), }, }, }, size: { control: { type: \"select\" }, options: size_list, table: { defaultValue: { summary: \"xs\" }, type: { summary: size_list.join(\"\\|\"), }, }, }, }, args: { v_now: 70, v_max: 100, quantize: undefined, size: \"xs\", }, }"
+        },
+        {
+          "kind": "variable",
+          "name": "catalog",
+          "type": {
+            "text": "Story"
+          },
+          "default": "{ render: () => ComponentColorBarLabelCatalog(), name: \"Catalog\", argTypes: { v_now: { control: { disable: true }, }, v_max: { control: { disable: true }, }, quantize: { control: { disable: true }, }, size: { control: { disable: true }, }, }, }"
+        }
+      ],
+      "exports": [
+        {
+          "kind": "js",
+          "name": "default",
+          "declaration": {
+            "name": "meta",
+            "module": "src/components/bar/color-bar-label.stories.ts"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "basic",
+          "declaration": {
+            "name": "basic",
+            "module": "src/components/bar/color-bar-label.stories.ts"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "catalog",
+          "declaration": {
+            "name": "catalog",
+            "module": "src/components/bar/color-bar-label.stories.ts"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "javascript-module",
+      "path": "src/components/bar/color-bar-label.ts",
+      "declarations": [
+        {
+          "kind": "class",
+          "description": "",
+          "name": "ComponentColorBarLabel",
+          "members": [
+            {
+              "kind": "field",
+              "name": "v_max",
+              "type": {
+                "text": "number"
+              },
+              "default": "0",
+              "attribute": "v_max"
+            },
+            {
+              "kind": "field",
+              "name": "v_now",
+              "type": {
+                "text": "number"
+              },
+              "default": "0",
+              "attribute": "v_now"
+            },
+            {
+              "kind": "field",
+              "name": "size",
+              "type": {
+                "text": "keyof typeof class_size"
+              },
+              "default": "\"xs\"",
+              "attribute": "size"
+            },
+            {
+              "kind": "field",
+              "name": "quantize",
+              "type": {
+                "text": "number | undefined"
+              },
+              "default": "undefined",
+              "attribute": "quantize"
+            }
+          ],
+          "attributes": [
+            {
+              "name": "v_max",
+              "type": {
+                "text": "number"
+              },
+              "default": "0",
+              "fieldName": "v_max"
+            },
+            {
+              "name": "v_now",
+              "type": {
+                "text": "number"
+              },
+              "default": "0",
+              "fieldName": "v_now"
+            },
+            {
+              "name": "size",
+              "type": {
+                "text": "keyof typeof class_size"
+              },
+              "default": "\"xs\"",
+              "fieldName": "size"
+            },
+            {
+              "name": "quantize",
+              "type": {
+                "text": "number | undefined"
+              },
+              "default": "undefined",
+              "fieldName": "quantize"
+            }
+          ],
+          "superclass": {
+            "name": "LitElement",
+            "package": "lit"
+          },
+          "tagName": "component-color-bar-label",
+          "customElement": true
+        },
+        {
+          "kind": "function",
+          "name": "ComponentColorBarLabelBasic",
+          "parameters": [
+            {
+              "name": "args",
+              "type": {
+                "text": "ComponentColorBarLabelProps"
+              }
+            }
+          ]
+        },
+        {
+          "kind": "function",
+          "name": "ComponentColorBarLabelCatalog"
+        }
+      ],
+      "exports": [
+        {
+          "kind": "js",
+          "name": "ComponentColorBarLabel",
+          "declaration": {
+            "name": "ComponentColorBarLabel",
+            "module": "src/components/bar/color-bar-label.ts"
+          }
+        },
+        {
+          "kind": "custom-element-definition",
+          "name": "component-color-bar-label",
+          "declaration": {
+            "name": "ComponentColorBarLabel",
+            "module": "src/components/bar/color-bar-label.ts"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "ComponentColorBarLabelBasic",
+          "declaration": {
+            "name": "ComponentColorBarLabelBasic",
+            "module": "src/components/bar/color-bar-label.ts"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "ComponentColorBarLabelCatalog",
+          "declaration": {
+            "name": "ComponentColorBarLabelCatalog",
+            "module": "src/components/bar/color-bar-label.ts"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "javascript-module",
+      "path": "src/components/bar/color-bar.stories.ts",
+      "declarations": [
+        {
+          "kind": "variable",
+          "name": "meta",
+          "default": "{ title: \"FUSOU/components/bar/component-color-bar\", tags: [\"autodocs\"], } satisfies Meta<ComponentColorBarProps>"
+        },
+        {
+          "kind": "variable",
+          "name": "basic",
+          "type": {
+            "text": "Story"
+          },
+          "default": "{ render: (args: ComponentColorBarProps) => ComponentColorBarBasic(args), name: \"Basic\", argTypes: { v_now: { control: { type: \"range\", max: 100, min: 0 }, }, v_max: { control: { disable: true }, }, quantize: { control: { type: \"range\", max: 10, min: 0 }, table: { defaultValue: { summary: \"undefined\" }, type: { summary: [\"undefined\", \"number\"].join(\"\\|\"), }, }, }, size: { control: { type: \"select\" }, options: size_list, table: { defaultValue: { summary: \"xs\" }, type: { summary: size_list.join(\"\\|\"), }, }, }, }, args: { v_now: 70, v_max: 100, quantize: undefined, size: \"xs\", }, }"
+        },
+        {
+          "kind": "variable",
+          "name": "catalog",
+          "type": {
+            "text": "Story"
+          },
+          "default": "{ render: () => ComponentColorBarCatalog(), name: \"Catalog\", argTypes: { v_now: { control: { disable: true }, }, v_max: { control: { disable: true }, }, quantize: { control: { disable: true }, }, size: { control: { disable: true }, }, }, }"
+        }
+      ],
+      "exports": [
+        {
+          "kind": "js",
+          "name": "default",
+          "declaration": {
+            "name": "meta",
+            "module": "src/components/bar/color-bar.stories.ts"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "basic",
+          "declaration": {
+            "name": "basic",
+            "module": "src/components/bar/color-bar.stories.ts"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "catalog",
+          "declaration": {
+            "name": "catalog",
+            "module": "src/components/bar/color-bar.stories.ts"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "javascript-module",
+      "path": "src/components/bar/color-bar.ts",
+      "declarations": [
+        {
+          "kind": "class",
+          "description": "",
+          "name": "ComponentColorBar",
+          "members": [
+            {
+              "kind": "field",
+              "name": "v_max",
+              "type": {
+                "text": "number"
+              },
+              "default": "0",
+              "attribute": "v_max"
+            },
+            {
+              "kind": "field",
+              "name": "v_now",
+              "type": {
+                "text": "number"
+              },
+              "default": "0",
+              "attribute": "v_now"
+            },
+            {
+              "kind": "field",
+              "name": "size",
+              "type": {
+                "text": "keyof typeof class_size"
+              },
+              "default": "\"xs\"",
+              "attribute": "size"
+            },
+            {
+              "kind": "field",
+              "name": "quantize",
+              "type": {
+                "text": "number | undefined"
+              },
+              "default": "undefined",
+              "attribute": "quantize"
+            },
+            {
+              "kind": "field",
+              "name": "color",
+              "type": {
+                "text": "keyof typeof class_color"
+              },
+              "default": "\"green\""
+            }
+          ],
+          "attributes": [
+            {
+              "name": "v_max",
+              "type": {
+                "text": "number"
+              },
+              "default": "0",
+              "fieldName": "v_max"
+            },
+            {
+              "name": "v_now",
+              "type": {
+                "text": "number"
+              },
+              "default": "0",
+              "fieldName": "v_now"
+            },
+            {
+              "name": "size",
+              "type": {
+                "text": "keyof typeof class_size"
+              },
+              "default": "\"xs\"",
+              "fieldName": "size"
+            },
+            {
+              "name": "quantize",
+              "type": {
+                "text": "number | undefined"
+              },
+              "default": "undefined",
+              "fieldName": "quantize"
+            }
+          ],
+          "superclass": {
+            "name": "LitElement",
+            "package": "lit"
+          },
+          "tagName": "component-color-bar",
+          "customElement": true
+        },
+        {
+          "kind": "function",
+          "name": "ComponentColorBarBasic",
+          "parameters": [
+            {
+              "name": "args",
+              "type": {
+                "text": "ComponentColorBarProps"
+              }
+            }
+          ]
+        },
+        {
+          "kind": "function",
+          "name": "ComponentColorBarCatalog"
+        }
+      ],
+      "exports": [
+        {
+          "kind": "js",
+          "name": "ComponentColorBar",
+          "declaration": {
+            "name": "ComponentColorBar",
+            "module": "src/components/bar/color-bar.ts"
+          }
+        },
+        {
+          "kind": "custom-element-definition",
+          "name": "component-color-bar",
+          "declaration": {
+            "name": "ComponentColorBar",
+            "module": "src/components/bar/color-bar.ts"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "ComponentColorBarBasic",
+          "declaration": {
+            "name": "ComponentColorBarBasic",
+            "module": "src/components/bar/color-bar.ts"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "ComponentColorBarCatalog",
+          "declaration": {
+            "name": "ComponentColorBarCatalog",
+            "module": "src/components/bar/color-bar.ts"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "javascript-module",
+      "path": "src/components/bar/index.ts",
+      "declarations": [],
+      "exports": [
+        {
+          "kind": "js",
+          "name": "*",
+          "declaration": {
+            "name": "*",
+            "package": "\"./color-bar-label\""
+          }
+        },
+        {
+          "kind": "js",
+          "name": "*",
+          "declaration": {
+            "name": "*",
+            "package": "\"./color-bar\""
+          }
+        }
+      ]
+    },
+    {
+      "kind": "javascript-module",
+      "path": "src/components/bar/two-toggle-range.ts",
+      "declarations": [],
+      "exports": []
+    },
+    {
+      "kind": "javascript-module",
+      "path": "src/components/equipment/equipment-modal.stories.ts",
+      "declarations": [
+        {
+          "kind": "variable",
+          "name": "meta",
+          "default": "{ title: \"FUSOU/components/equipment/component-equipment-modal\", tags: [\"autodocs\"], } satisfies Meta<ComponentEquipmentModalProps>"
+        },
+        {
+          "kind": "variable",
+          "name": "basic",
+          "type": {
+            "text": "Story"
+          },
+          "default": "{ render: (args: ComponentEquipmentModalProps) => ComponentEquipmentModalBasic(args), name: \"Basic\", argTypes: { name_flag: { control: \"boolean\" }, ex_flag: { control: \"boolean\" }, onslot: { control: { type: \"range\", min: 0, max: 30, step: 1 } }, size: { control: { type: \"select\" }, options: size_list, table: { defaultValue: { summary: \"xs\" }, type: { summary: size_list.join(\"\\|\"), }, }, }, empty_flag: { control: \"boolean\" }, }, args: { name_flag: false, ex_flag: false, onslot: 0, size: \"xs\", empty_flag: false, slot_item: { ...default_slotitem, slotitem_id: 267, locked: 0, level: 6, alv: 6, }, mst_slot_item: { ...default_mst_slot_item, id: 156, sortno: 156, name: \"\\u96f6\\u622652\\u578b\\u7532(\\u4ed8\\u5ca9\\u672c\\u5c0f\\u968a)\", type: [3, 5, 6, 6, 12], taik: 0, souk: 0, houg: 0, raig: 0, soku: 0, baku: 0, tyku: 11, tais: 0, atap: 0, houm: 1, raim: 0, houk: 3, raik: 0, bakk: 0, saku: 1, sakb: 0, luck: 0, leng: 0, cost: 5, distance: 6, rare: 4, broken: [1, 2, 0, 4], usebull: \"0\", }, }, }"
+        }
+      ],
+      "exports": [
+        {
+          "kind": "js",
+          "name": "default",
+          "declaration": {
+            "name": "meta",
+            "module": "src/components/equipment/equipment-modal.stories.ts"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "basic",
+          "declaration": {
+            "name": "basic",
+            "module": "src/components/equipment/equipment-modal.stories.ts"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "javascript-module",
+      "path": "src/components/equipment/equipment-modal.ts",
+      "declarations": [
+        {
+          "kind": "class",
+          "description": "",
+          "name": "ComponentEquipmentModal",
+          "members": [
+            {
+              "kind": "field",
+              "name": "slot_item",
+              "type": {
+                "text": "SlotItem"
+              },
+              "default": "default_slotitem",
+              "attribute": "slot_item"
+            },
+            {
+              "kind": "field",
+              "name": "mst_slot_item",
+              "type": {
+                "text": "MstSlotitem"
+              },
+              "default": "default_mst_slot_item",
+              "attribute": "mst_slot_item"
+            },
+            {
+              "kind": "field",
+              "name": "ex_flag",
+              "type": {
+                "text": "boolean"
+              },
+              "default": "false",
+              "attribute": "ex_flag"
+            },
+            {
+              "kind": "field",
+              "name": "onslot",
+              "type": {
+                "text": "number"
+              },
+              "default": "0",
+              "attribute": "onslot"
+            },
+            {
+              "kind": "field",
+              "name": "name_flag",
+              "type": {
+                "text": "boolean"
+              },
+              "default": "false",
+              "attribute": "name_flag"
+            },
+            {
+              "kind": "field",
+              "name": "size",
+              "type": {
+                "text": "\"xs\" | \"sm\" | \"md\" | \"lg\" | \"xl\""
+              },
+              "default": "\"xs\"",
+              "attribute": "size"
+            },
+            {
+              "kind": "field",
+              "name": "empty_flag",
+              "type": {
+                "text": "boolean"
+              },
+              "default": "false",
+              "attribute": "empty_flag"
+            },
+            {
+              "kind": "field",
+              "name": "dialogRef",
+              "type": {
+                "text": "Ref<HTMLDialogElement>"
+              }
+            },
+            {
+              "kind": "method",
+              "name": "open_modal",
+              "privacy": "private"
+            },
+            {
+              "kind": "method",
+              "name": "dialogTemplete"
+            }
+          ],
+          "attributes": [
+            {
+              "name": "slot_item",
+              "type": {
+                "text": "SlotItem"
+              },
+              "default": "default_slotitem",
+              "fieldName": "slot_item"
+            },
+            {
+              "name": "mst_slot_item",
+              "type": {
+                "text": "MstSlotitem"
+              },
+              "default": "default_mst_slot_item",
+              "fieldName": "mst_slot_item"
+            },
+            {
+              "name": "ex_flag",
+              "type": {
+                "text": "boolean"
+              },
+              "default": "false",
+              "fieldName": "ex_flag"
+            },
+            {
+              "name": "onslot",
+              "type": {
+                "text": "number"
+              },
+              "default": "0",
+              "fieldName": "onslot"
+            },
+            {
+              "name": "name_flag",
+              "type": {
+                "text": "boolean"
+              },
+              "default": "false",
+              "fieldName": "name_flag"
+            },
+            {
+              "name": "size",
+              "type": {
+                "text": "\"xs\" | \"sm\" | \"md\" | \"lg\" | \"xl\""
+              },
+              "default": "\"xs\"",
+              "fieldName": "size"
+            },
+            {
+              "name": "empty_flag",
+              "type": {
+                "text": "boolean"
+              },
+              "default": "false",
+              "fieldName": "empty_flag"
+            }
+          ],
+          "superclass": {
+            "name": "LitElement",
+            "package": "lit"
+          },
+          "tagName": "component-equipment-modal",
+          "customElement": true
+        }
+      ],
+      "exports": [
+        {
+          "kind": "js",
+          "name": "ComponentEquipmentModal",
+          "declaration": {
+            "name": "ComponentEquipmentModal",
+            "module": "src/components/equipment/equipment-modal.ts"
+          }
+        },
+        {
+          "kind": "custom-element-definition",
+          "name": "component-equipment-modal",
+          "declaration": {
+            "name": "ComponentEquipmentModal",
+            "module": "src/components/equipment/equipment-modal.ts"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "javascript-module",
+      "path": "src/components/equipment/equipment-table.stories.ts",
+      "declarations": [
+        {
+          "kind": "variable",
+          "name": "meta",
+          "default": "{ title: \"FUSOU/components/equipment/component-equipment-table\", tags: [\"autodocs\"], } satisfies Meta<ComponentEquipmentTableProps>"
+        },
+        {
+          "kind": "variable",
+          "name": "basic",
+          "type": {
+            "text": "Story"
+          },
+          "default": "{ render: (args: ComponentEquipmentTableProps) => ComponentEquipmentTableBasic(args), name: \"Basic\", argTypes: { size: { control: { type: \"select\" }, options: size_list, table: { defaultValue: { summary: \"sm\" }, type: { summary: size_list.join(\"\\|\"), }, }, }, }, args: { size: \"sm\", slot_item: { ...default_slotitem, slotitem_id: 267, locked: 0, level: 6, }, mst_slot_item: { ...default_mst_slot_item, id: 267, sortno: 267, name: \"12.7cm\\u9023\\u88c5\\u7832D\\u578b\\u6539\\u4e8c\", type: [1, 1, 1, 1, 0], taik: 0, souk: 1, houg: 3, raig: 0, soku: 0, baku: 0, tyku: 4, tais: 0, atap: 0, houm: 2, raim: 0, houk: 1, raik: 0, bakk: 0, saku: 0, sakb: 0, luck: 0, leng: 1, rare: 3, broken: [0, 2, 2, 1], usebull: \"0\", }, }, }"
+        }
+      ],
+      "exports": [
+        {
+          "kind": "js",
+          "name": "default",
+          "declaration": {
+            "name": "meta",
+            "module": "src/components/equipment/equipment-table.stories.ts"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "basic",
+          "declaration": {
+            "name": "basic",
+            "module": "src/components/equipment/equipment-table.stories.ts"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "javascript-module",
+      "path": "src/components/equipment/equipment-table.ts",
+      "declarations": [
+        {
+          "kind": "class",
+          "description": "",
+          "name": "ComponentEquipmentTable",
+          "members": [
+            {
+              "kind": "field",
+              "name": "slot_item",
+              "type": {
+                "text": "SlotItem"
+              },
+              "default": "default_slotitem",
+              "attribute": "slot_item"
+            },
+            {
+              "kind": "field",
+              "name": "mst_slot_item",
+              "type": {
+                "text": "MstSlotitem"
+              },
+              "default": "default_mst_slot_item",
+              "attribute": "mst_slot_item"
+            },
+            {
+              "kind": "field",
+              "name": "size",
+              "type": {
+                "text": "keyof typeof class_size"
+              },
+              "default": "\"sm\"",
+              "attribute": "size"
+            }
+          ],
+          "attributes": [
+            {
+              "name": "slot_item",
+              "type": {
+                "text": "SlotItem"
+              },
+              "default": "default_slotitem",
+              "fieldName": "slot_item"
+            },
+            {
+              "name": "mst_slot_item",
+              "type": {
+                "text": "MstSlotitem"
+              },
+              "default": "default_mst_slot_item",
+              "fieldName": "mst_slot_item"
+            },
+            {
+              "name": "size",
+              "type": {
+                "text": "keyof typeof class_size"
+              },
+              "default": "\"sm\"",
+              "fieldName": "size"
+            }
+          ],
+          "superclass": {
+            "name": "LitElement",
+            "package": "lit"
+          },
+          "tagName": "component-equipment-table",
+          "customElement": true
+        }
+      ],
+      "exports": [
+        {
+          "kind": "js",
+          "name": "ComponentEquipmentTable",
+          "declaration": {
+            "name": "ComponentEquipmentTable",
+            "module": "src/components/equipment/equipment-table.ts"
+          }
+        },
+        {
+          "kind": "custom-element-definition",
+          "name": "component-equipment-table",
+          "declaration": {
+            "name": "ComponentEquipmentTable",
+            "module": "src/components/equipment/equipment-table.ts"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "javascript-module",
+      "path": "src/components/equipment/equipment.stories.ts",
+      "declarations": [
+        {
+          "kind": "variable",
+          "name": "meta",
+          "default": "{ title: \"FUSOU/components/equipment/component-equipment\", tags: [\"autodocs\"], } satisfies Meta<ComponentEquipmentProps>"
+        },
+        {
+          "kind": "variable",
+          "name": "basic",
+          "type": {
+            "text": "Story"
+          },
+          "default": "{ render: (args: ComponentEquipmentProps) => ComponentEquipmentBasic(args), name: \"Basic\", argTypes: { name_flag: { control: \"boolean\" }, compact: { control: \"boolean\" }, onslot: { control: { type: \"range\", min: 0, max: 30, step: 1 } }, size: { control: { type: \"select\" }, options: size_list, table: { defaultValue: { summary: \"xs\" }, type: { summary: size_list.join(\"\\|\"), }, }, }, empty_flag: { control: \"boolean\" }, }, args: { name_flag: false, compact: false, onslot: 0, size: \"xs\", empty_flag: false, slot_item: { ...default_slotitem, slotitem_id: 267, locked: 0, level: 6, alv: 6, }, mst_slot_item: { ...default_mst_slot_item, id: 156, sortno: 156, name: \"\\u96f6\\u622652\\u578b\\u7532(\\u4ed8\\u5ca9\\u672c\\u5c0f\\u968a)\", type: [3, 5, 6, 6, 12], taik: 0, souk: 0, houg: 0, raig: 0, soku: 0, baku: 0, tyku: 11, tais: 0, atap: 0, houm: 1, raim: 0, houk: 3, raik: 0, bakk: 0, saku: 1, sakb: 0, luck: 0, leng: 0, cost: 5, distance: 6, rare: 4, broken: [1, 2, 0, 4], usebull: \"0\", }, }, }"
+        }
+      ],
+      "exports": [
+        {
+          "kind": "js",
+          "name": "default",
+          "declaration": {
+            "name": "meta",
+            "module": "src/components/equipment/equipment.stories.ts"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "basic",
+          "declaration": {
+            "name": "basic",
+            "module": "src/components/equipment/equipment.stories.ts"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "javascript-module",
+      "path": "src/components/equipment/equipment.ts",
+      "declarations": [
+        {
+          "kind": "class",
+          "description": "",
+          "name": "ComponentEquipment",
+          "members": [
+            {
+              "kind": "field",
+              "name": "slot_item",
+              "type": {
+                "text": "SlotItem"
+              },
+              "default": "default_slotitem",
+              "attribute": "slot_item"
+            },
+            {
+              "kind": "field",
+              "name": "mst_slot_item",
+              "type": {
+                "text": "MstSlotitem"
+              },
+              "default": "default_mst_slot_item",
+              "attribute": "mst_slot_item"
+            },
+            {
+              "kind": "field",
+              "name": "compact",
+              "type": {
+                "text": "boolean"
+              },
+              "default": "false",
+              "attribute": "compact"
+            },
+            {
+              "kind": "field",
+              "name": "onslot",
+              "type": {
+                "text": "number"
+              },
+              "default": "0",
+              "attribute": "onslot"
+            },
+            {
+              "kind": "field",
+              "name": "name_flag",
+              "type": {
+                "text": "boolean"
+              },
+              "default": "false",
+              "attribute": "name_flag"
+            },
+            {
+              "kind": "field",
+              "name": "size",
+              "type": {
+                "text": "keyof typeof class_size"
+              },
+              "default": "\"xs\"",
+              "attribute": "size"
+            },
+            {
+              "kind": "field",
+              "name": "empty_flag",
+              "type": {
+                "text": "boolean"
+              },
+              "default": "false",
+              "attribute": "empty_flag"
+            },
+            {
+              "kind": "method",
+              "name": "proficiencyOnslotTemplete"
+            },
+            {
+              "kind": "method",
+              "name": "nameTemplete"
+            },
+            {
+              "kind": "method",
+              "name": "levelTemplate"
+            }
+          ],
+          "attributes": [
+            {
+              "name": "slot_item",
+              "type": {
+                "text": "SlotItem"
+              },
+              "default": "default_slotitem",
+              "fieldName": "slot_item"
+            },
+            {
+              "name": "mst_slot_item",
+              "type": {
+                "text": "MstSlotitem"
+              },
+              "default": "default_mst_slot_item",
+              "fieldName": "mst_slot_item"
+            },
+            {
+              "name": "compact",
+              "type": {
+                "text": "boolean"
+              },
+              "default": "false",
+              "fieldName": "compact"
+            },
+            {
+              "name": "onslot",
+              "type": {
+                "text": "number"
+              },
+              "default": "0",
+              "fieldName": "onslot"
+            },
+            {
+              "name": "name_flag",
+              "type": {
+                "text": "boolean"
+              },
+              "default": "false",
+              "fieldName": "name_flag"
+            },
+            {
+              "name": "size",
+              "type": {
+                "text": "keyof typeof class_size"
+              },
+              "default": "\"xs\"",
+              "fieldName": "size"
+            },
+            {
+              "name": "empty_flag",
+              "type": {
+                "text": "boolean"
+              },
+              "default": "false",
+              "fieldName": "empty_flag"
+            }
+          ],
+          "superclass": {
+            "name": "LitElement",
+            "package": "lit"
+          },
+          "tagName": "component-equipment",
+          "customElement": true
+        }
+      ],
+      "exports": [
+        {
+          "kind": "js",
+          "name": "ComponentEquipment",
+          "declaration": {
+            "name": "ComponentEquipment",
+            "module": "src/components/equipment/equipment.ts"
+          }
+        },
+        {
+          "kind": "custom-element-definition",
+          "name": "component-equipment",
+          "declaration": {
+            "name": "ComponentEquipment",
+            "module": "src/components/equipment/equipment.ts"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "javascript-module",
+      "path": "src/components/equipment/index.ts",
+      "declarations": [],
+      "exports": [
+        {
+          "kind": "js",
+          "name": "*",
+          "declaration": {
+            "name": "*",
+            "package": "\"./equipment-modal\""
+          }
+        },
+        {
+          "kind": "js",
+          "name": "*",
+          "declaration": {
+            "name": "*",
+            "package": "\"./equipment-table\""
+          }
+        },
+        {
+          "kind": "js",
+          "name": "*",
+          "declaration": {
+            "name": "*",
+            "package": "\"./equipment\""
+          }
+        }
+      ]
+    },
+    {
+      "kind": "javascript-module",
+      "path": "src/components/equipment-mst/equipment-mst-modal.stories.ts",
+      "declarations": [
+        {
+          "kind": "variable",
+          "name": "meta",
+          "default": "{ title: \"FUSOU/components/equipment-mst/component-equipment-mst-modal\", tags: [\"autodocs\"], } satisfies Meta<ComponentEquipmentMstModalProps>"
+        },
+        {
+          "kind": "variable",
+          "name": "basic",
+          "type": {
+            "text": "Story"
+          },
+          "default": "{ render: (args: ComponentEquipmentMstModalProps) => ComponentEquipmentMstModalBasic(args), name: \"Basic\", argTypes: { name_flag: { control: \"boolean\" }, show_name: { control: \"boolean\" }, show_param: { control: \"boolean\" }, compact: { control: \"boolean\" }, size: { control: { type: \"select\" }, options: size_list, table: { defaultValue: { summary: \"xs\" }, type: { summary: size_list.join(\"\\|\"), }, }, }, empty_flag: { control: \"boolean\" }, }, args: { name_flag: false, show_name: false, show_param: false, compact: false, size: \"xs\", empty_flag: false, mst_slot_item: { ...default_mst_slot_item, id: 156, sortno: 156, name: \"\\u96f6\\u622652\\u578b\\u7532(\\u4ed8\\u5ca9\\u672c\\u5c0f\\u968a)\", type: [3, 5, 6, 6, 12], taik: 0, souk: 0, houg: 0, raig: 0, soku: 0, baku: 0, tyku: 11, tais: 0, atap: 0, houm: 1, raim: 0, houk: 3, raik: 0, bakk: 0, saku: 1, sakb: 0, luck: 0, leng: 0, cost: 5, distance: 6, rare: 4, broken: [1, 2, 0, 4], usebull: \"0\", }, }, }"
+        }
+      ],
+      "exports": [
+        {
+          "kind": "js",
+          "name": "default",
+          "declaration": {
+            "name": "meta",
+            "module": "src/components/equipment-mst/equipment-mst-modal.stories.ts"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "basic",
+          "declaration": {
+            "name": "basic",
+            "module": "src/components/equipment-mst/equipment-mst-modal.stories.ts"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "javascript-module",
+      "path": "src/components/equipment-mst/equipment-mst-modal.ts",
+      "declarations": [
+        {
+          "kind": "class",
+          "description": "",
+          "name": "ComponentEquipmentMstModal",
+          "members": [
+            {
+              "kind": "field",
+              "name": "mst_slot_item",
+              "type": {
+                "text": "MstSlotitem"
+              },
+              "default": "default_mst_slot_item",
+              "attribute": "mst_slot_item"
+            },
+            {
+              "kind": "field",
+              "name": "comapct",
+              "type": {
+                "text": "boolean"
+              },
+              "default": "false",
+              "attribute": "comapct"
+            },
+            {
+              "kind": "field",
+              "name": "name_flag",
+              "type": {
+                "text": "boolean"
+              },
+              "default": "false",
+              "attribute": "name_flag"
+            },
+            {
+              "kind": "field",
+              "name": "show_name",
+              "type": {
+                "text": "boolean"
+              },
+              "default": "false",
+              "attribute": "show_name"
+            },
+            {
+              "kind": "field",
+              "name": "show_param",
+              "type": {
+                "text": "boolean"
+              },
+              "default": "false",
+              "attribute": "show_param"
+            },
+            {
+              "kind": "field",
+              "name": "size",
+              "type": {
+                "text": "\"xs\" | \"sm\" | \"md\" | \"lg\" | \"xl\""
+              },
+              "default": "\"xs\"",
+              "attribute": "size"
+            },
+            {
+              "kind": "field",
+              "name": "empty_flag",
+              "type": {
+                "text": "boolean"
+              },
+              "default": "false",
+              "attribute": "empty_flag"
+            },
+            {
+              "kind": "field",
+              "name": "dialogRef",
+              "type": {
+                "text": "Ref<HTMLDialogElement>"
+              }
+            },
+            {
+              "kind": "method",
+              "name": "open_modal",
+              "privacy": "private"
+            },
+            {
+              "kind": "method",
+              "name": "dialogTemplete"
+            }
+          ],
+          "attributes": [
+            {
+              "name": "mst_slot_item",
+              "type": {
+                "text": "MstSlotitem"
+              },
+              "default": "default_mst_slot_item",
+              "fieldName": "mst_slot_item"
+            },
+            {
+              "name": "comapct",
+              "type": {
+                "text": "boolean"
+              },
+              "default": "false",
+              "fieldName": "comapct"
+            },
+            {
+              "name": "name_flag",
+              "type": {
+                "text": "boolean"
+              },
+              "default": "false",
+              "fieldName": "name_flag"
+            },
+            {
+              "name": "show_name",
+              "type": {
+                "text": "boolean"
+              },
+              "default": "false",
+              "fieldName": "show_name"
+            },
+            {
+              "name": "show_param",
+              "type": {
+                "text": "boolean"
+              },
+              "default": "false",
+              "fieldName": "show_param"
+            },
+            {
+              "name": "size",
+              "type": {
+                "text": "\"xs\" | \"sm\" | \"md\" | \"lg\" | \"xl\""
+              },
+              "default": "\"xs\"",
+              "fieldName": "size"
+            },
+            {
+              "name": "empty_flag",
+              "type": {
+                "text": "boolean"
+              },
+              "default": "false",
+              "fieldName": "empty_flag"
+            }
+          ],
+          "superclass": {
+            "name": "LitElement",
+            "package": "lit"
+          },
+          "tagName": "component-equipment-mst-modal",
+          "customElement": true
+        }
+      ],
+      "exports": [
+        {
+          "kind": "js",
+          "name": "ComponentEquipmentMstModal",
+          "declaration": {
+            "name": "ComponentEquipmentMstModal",
+            "module": "src/components/equipment-mst/equipment-mst-modal.ts"
+          }
+        },
+        {
+          "kind": "custom-element-definition",
+          "name": "component-equipment-mst-modal",
+          "declaration": {
+            "name": "ComponentEquipmentMstModal",
+            "module": "src/components/equipment-mst/equipment-mst-modal.ts"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "javascript-module",
+      "path": "src/components/equipment-mst/equipment-mst-table.stories.ts",
+      "declarations": [
+        {
+          "kind": "variable",
+          "name": "meta",
+          "default": "{ title: \"FUSOU/components/equipment-mst/component-equipment-mst-table\", tags: [\"autodocs\"], } satisfies Meta<ComponentEquipmentMstTableProps>"
+        },
+        {
+          "kind": "variable",
+          "name": "basic",
+          "type": {
+            "text": "Story"
+          },
+          "default": "{ render: (args: ComponentEquipmentMstTableProps) => ComponentEquipmentMstTableBasic(args), name: \"Basic\", argTypes: { show_param: { type: \"boolean\" }, show_name: { type: \"boolean\" }, size: { control: { type: \"select\" }, options: size_list, table: { defaultValue: { summary: \"sm\" }, type: { summary: size_list.join(\"\\|\"), }, }, }, }, args: { size: \"sm\", show_param: false, show_name: false, mst_slot_item: { ...default_mst_slot_item, id: 267, sortno: 267, name: \"12.7cm\\u9023\\u88c5\\u7832D\\u578b\\u6539\\u4e8c\", type: [1, 1, 1, 1, 0], taik: 0, souk: 1, houg: 3, raig: 0, soku: 0, baku: 0, tyku: 4, tais: 0, atap: 0, houm: 2, raim: 0, houk: 1, raik: 0, bakk: 0, saku: 0, sakb: 0, luck: 0, leng: 1, rare: 3, broken: [0, 2, 2, 1], usebull: \"0\", }, }, }"
+        }
+      ],
+      "exports": [
+        {
+          "kind": "js",
+          "name": "default",
+          "declaration": {
+            "name": "meta",
+            "module": "src/components/equipment-mst/equipment-mst-table.stories.ts"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "basic",
+          "declaration": {
+            "name": "basic",
+            "module": "src/components/equipment-mst/equipment-mst-table.stories.ts"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "javascript-module",
+      "path": "src/components/equipment-mst/equipment-mst-table.ts",
+      "declarations": [
+        {
+          "kind": "class",
+          "description": "",
+          "name": "ComponentEquipmentMstTable",
+          "members": [
+            {
+              "kind": "field",
+              "name": "mst_slot_item",
+              "type": {
+                "text": "MstSlotitem"
+              },
+              "default": "default_mst_slot_item",
+              "attribute": "mst_slot_item"
+            },
+            {
+              "kind": "field",
+              "name": "size",
+              "type": {
+                "text": "keyof typeof class_size"
+              },
+              "default": "\"sm\"",
+              "attribute": "size"
+            },
+            {
+              "kind": "field",
+              "name": "show_param",
+              "type": {
+                "text": "boolean"
+              },
+              "default": "false",
+              "attribute": "show_param"
+            },
+            {
+              "kind": "field",
+              "name": "show_name",
+              "type": {
+                "text": "boolean"
+              },
+              "default": "false",
+              "attribute": "show_name"
+            }
+          ],
+          "attributes": [
+            {
+              "name": "mst_slot_item",
+              "type": {
+                "text": "MstSlotitem"
+              },
+              "default": "default_mst_slot_item",
+              "fieldName": "mst_slot_item"
+            },
+            {
+              "name": "size",
+              "type": {
+                "text": "keyof typeof class_size"
+              },
+              "default": "\"sm\"",
+              "fieldName": "size"
+            },
+            {
+              "name": "show_param",
+              "type": {
+                "text": "boolean"
+              },
+              "default": "false",
+              "fieldName": "show_param"
+            },
+            {
+              "name": "show_name",
+              "type": {
+                "text": "boolean"
+              },
+              "default": "false",
+              "fieldName": "show_name"
+            }
+          ],
+          "superclass": {
+            "name": "LitElement",
+            "package": "lit"
+          },
+          "tagName": "component-equipment-mst-table",
+          "customElement": true
+        }
+      ],
+      "exports": [
+        {
+          "kind": "js",
+          "name": "ComponentEquipmentMstTable",
+          "declaration": {
+            "name": "ComponentEquipmentMstTable",
+            "module": "src/components/equipment-mst/equipment-mst-table.ts"
+          }
+        },
+        {
+          "kind": "custom-element-definition",
+          "name": "component-equipment-mst-table",
+          "declaration": {
+            "name": "ComponentEquipmentMstTable",
+            "module": "src/components/equipment-mst/equipment-mst-table.ts"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "javascript-module",
+      "path": "src/components/equipment-mst/equipment-mst.stories.ts",
+      "declarations": [
+        {
+          "kind": "variable",
+          "name": "meta",
+          "default": "{ title: \"FUSOU/components/equipment-mst/component-equipment-mst\", tags: [\"autodocs\"], } satisfies Meta<ComponentEquipmentMstProps>"
+        },
+        {
+          "kind": "variable",
+          "name": "basic",
+          "type": {
+            "text": "Story"
+          },
+          "default": "{ render: (args: ComponentEquipmentMstProps) => ComponentEquipmentMstBasic(args), name: \"Basic\", argTypes: { name_flag: { control: \"boolean\" }, show_name: { control: \"boolean\" }, compact: { control: \"boolean\" }, size: { control: { type: \"select\" }, options: size_list, table: { defaultValue: { summary: \"xs\" }, type: { summary: size_list.join(\"\\|\"), }, }, }, empty_flag: { control: \"boolean\" }, }, args: { name_flag: false, show_name: true, size: \"xs\", empty_flag: false, compact: false, mst_slot_item: { ...default_mst_slot_item, id: 156, sortno: 156, name: \"\\u96f6\\u622652\\u578b\\u7532(\\u4ed8\\u5ca9\\u672c\\u5c0f\\u968a)\", type: [3, 5, 6, 6, 12], taik: 0, souk: 0, houg: 0, raig: 0, soku: 0, baku: 0, tyku: 11, tais: 0, atap: 0, houm: 1, raim: 0, houk: 3, raik: 0, bakk: 0, saku: 1, sakb: 0, luck: 0, leng: 0, cost: 5, distance: 6, rare: 4, broken: [1, 2, 0, 4], usebull: \"0\", }, }, }"
+        }
+      ],
+      "exports": [
+        {
+          "kind": "js",
+          "name": "default",
+          "declaration": {
+            "name": "meta",
+            "module": "src/components/equipment-mst/equipment-mst.stories.ts"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "basic",
+          "declaration": {
+            "name": "basic",
+            "module": "src/components/equipment-mst/equipment-mst.stories.ts"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "javascript-module",
+      "path": "src/components/equipment-mst/equipment-mst.ts",
+      "declarations": [
+        {
+          "kind": "class",
+          "description": "",
+          "name": "ComponentEquipmentMst",
+          "members": [
+            {
+              "kind": "field",
+              "name": "mst_slot_item",
+              "type": {
+                "text": "MstSlotitem"
+              },
+              "default": "default_mst_slot_item",
+              "attribute": "mst_slot_item"
+            },
+            {
+              "kind": "field",
+              "name": "name_flag",
+              "type": {
+                "text": "boolean"
+              },
+              "default": "false",
+              "attribute": "name_flag"
+            },
+            {
+              "kind": "field",
+              "name": "size",
+              "type": {
+                "text": "keyof typeof class_size"
+              },
+              "default": "\"xs\"",
+              "attribute": "size"
+            },
+            {
+              "kind": "field",
+              "name": "empty_flag",
+              "type": {
+                "text": "boolean"
+              },
+              "default": "false",
+              "attribute": "empty_flag"
+            },
+            {
+              "kind": "field",
+              "name": "compact",
+              "type": {
+                "text": "boolean"
+              },
+              "default": "false",
+              "attribute": "compact"
+            },
+            {
+              "kind": "field",
+              "name": "show_name",
+              "type": {
+                "text": "boolean"
+              },
+              "default": "false",
+              "attribute": "show_name"
+            },
+            {
+              "kind": "method",
+              "name": "proficiencyOnslotTemplete"
+            },
+            {
+              "kind": "method",
+              "name": "nameTemplete"
+            }
+          ],
+          "attributes": [
+            {
+              "name": "mst_slot_item",
+              "type": {
+                "text": "MstSlotitem"
+              },
+              "default": "default_mst_slot_item",
+              "fieldName": "mst_slot_item"
+            },
+            {
+              "name": "name_flag",
+              "type": {
+                "text": "boolean"
+              },
+              "default": "false",
+              "fieldName": "name_flag"
+            },
+            {
+              "name": "size",
+              "type": {
+                "text": "keyof typeof class_size"
+              },
+              "default": "\"xs\"",
+              "fieldName": "size"
+            },
+            {
+              "name": "empty_flag",
+              "type": {
+                "text": "boolean"
+              },
+              "default": "false",
+              "fieldName": "empty_flag"
+            },
+            {
+              "name": "compact",
+              "type": {
+                "text": "boolean"
+              },
+              "default": "false",
+              "fieldName": "compact"
+            },
+            {
+              "name": "show_name",
+              "type": {
+                "text": "boolean"
+              },
+              "default": "false",
+              "fieldName": "show_name"
+            }
+          ],
+          "superclass": {
+            "name": "LitElement",
+            "package": "lit"
+          },
+          "tagName": "component-equipment-mst",
+          "customElement": true
+        }
+      ],
+      "exports": [
+        {
+          "kind": "js",
+          "name": "ComponentEquipmentMst",
+          "declaration": {
+            "name": "ComponentEquipmentMst",
+            "module": "src/components/equipment-mst/equipment-mst.ts"
+          }
+        },
+        {
+          "kind": "custom-element-definition",
+          "name": "component-equipment-mst",
+          "declaration": {
+            "name": "ComponentEquipmentMst",
+            "module": "src/components/equipment-mst/equipment-mst.ts"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "javascript-module",
+      "path": "src/components/equipment-mst/index.ts",
+      "declarations": [],
+      "exports": [
+        {
+          "kind": "js",
+          "name": "*",
+          "declaration": {
+            "name": "*",
+            "package": "\"./equipment-mst-modal\""
+          }
+        },
+        {
+          "kind": "js",
+          "name": "*",
+          "declaration": {
+            "name": "*",
+            "package": "\"./equipment-mst-table\""
+          }
+        },
+        {
+          "kind": "js",
+          "name": "*",
+          "declaration": {
+            "name": "*",
+            "package": "\"./equipment-mst\""
+          }
+        }
+      ]
+    },
+    {
+      "kind": "javascript-module",
+      "path": "src/components/ship/index.ts",
+      "declarations": [],
+      "exports": [
+        {
+          "kind": "js",
+          "name": "*",
+          "declaration": {
+            "name": "*",
+            "package": "\"./ship\""
+          }
+        },
+        {
+          "kind": "js",
+          "name": "*",
+          "declaration": {
+            "name": "*",
+            "package": "\"./ship-modal\""
+          }
+        },
+        {
+          "kind": "js",
+          "name": "*",
+          "declaration": {
+            "name": "*",
+            "package": "\"./ship-table\""
+          }
+        }
+      ]
+    },
+    {
+      "kind": "javascript-module",
+      "path": "src/components/ship/ship-modal.stories.ts",
+      "declarations": [
+        {
+          "kind": "variable",
+          "name": "meta",
+          "default": "{ title: \"FUSOU/components/ship/component-ship-modal\", tags: [\"autodocs\"], } satisfies Meta<ComponentShipModalProps>"
+        },
+        {
+          "kind": "variable",
+          "name": "basic",
+          "type": {
+            "text": "Story"
+          },
+          "default": "{ render: (args: ComponentShipModalProps) => ComponentShipModalBasic(args), name: \"Basic\", argTypes: { color: { control: { type: \"select\" }, options: [undefined, \"\", \"-\", \"elite\", \"flagship\"], }, empty_flag: { control: \"boolean\", }, name_flag: { control: \"boolean\", }, size: { control: { type: \"select\" }, options: size_list, table: { defaultValue: { summary: \"xs\" }, type: { summary: size_list.join(\"\\|\"), }, }, }, }, args: { color: undefined, empty_flag: false, name_flag: false, size: \"sm\", ship: { id: 4299, ship_id: 668, lv: 132, exp: [1999074, 25926, 69], nowhp: 55, maxhp: 60, soku: 10, leng: 2, slot: [7355, 7571, 8735, 3006, -1], onslot: [1, 1, 2, 2, 0], slot_ex: 6865, fuel: 10, bull: 15, slotnum: 4, cond: 49, karyoku: [95, 81], raisou: [102, 88], taiku: [107, 88], soukou: [76, 74], kaihi: [112, 86], taisen: [96, 80], sakuteki: [84, 60], lucky: [22, 89], sp_effect_items: { items: { 2: { kind: 2, houg: 2, kaih: 2, }, }, }, sally_area: 0, }, mst_ship: { id: 668, sortno: 468, sort_id: 11037, name: \"\\u77e2\\u77e7\\u6539\\u4e8c\\u4e59\", yomi: \"\\u3084\\u306f\\u304e\", stype: 3, ctype: 41, afterlv: 90, aftershipid: \"663\", taik: [53, 68], souk: [32, 74], houg: [30, 81], raig: [24, 88], tyku: [36, 88], luck: [17, 89], soku: 10, leng: 2, slot_num: 4, maxeq: [1, 1, 2, 2, 0], buildtime: 60, broken: [4, 8, 16, 4], powup: [2, 2, 2, 3], backs: 8, getmes: \"<br>\", afterfuel: 480, afterbull: 880, fuel_max: 45, bull_max: 50, voicef: 7, tais: [], }, slot_items: { slot_items: { 7355: { id: 7355, slotitem_id: 303, locked: 1, level: 6, }, 7571: { id: 7571, slotitem_id: 303, locked: 1, level: 6, }, 8735: { id: 8735, slotitem_id: 41, locked: 0, level: 0, }, 3006: { id: 3006, slotitem_id: 106, locked: 1, level: 0, }, 6865: { id: 6865, slotitem_id: 129, locked: 1, level: 0, }, }, }, mst_slot_items: { mst_slot_items: { 303: { id: 303, sortno: 303, name: \"Bofors 15.2cm\\u9023\\u88c5\\u7832 Model 1930\", type: [1, 1, 2, 2, 0], taik: 0, souk: 0, houg: 5, raig: 0, soku: 0, baku: 0, tyku: 4, tais: 0, atap: 0, houm: 3, raim: 0, houk: 1, raik: 0, bakk: 0, saku: 0, sakb: 0, luck: 0, leng: 2, rare: 3, broken: [0, 2, 3, 1], usebull: \"0\", geigeki: 0, taibaku: 0, }, 41: { id: 41, sortno: 41, name: \"\\u7532\\u6a19\\u7684 \\u7532\\u578b\", type: [2, 4, 22, 5, 0], taik: 0, souk: 0, houg: 0, raig: 12, soku: 0, baku: 0, tyku: 0, tais: 0, atap: 0, houm: 0, raim: 0, houk: 0, raik: 0, bakk: 0, saku: 0, sakb: 0, luck: 0, leng: 0, rare: 1, broken: [0, 7, 7, 0], usebull: \"0\", version: 2, geigeki: 0, taibaku: 0, }, 106: { id: 106, sortno: 106, name: \"13\\u53f7\\u5bfe\\u7a7a\\u96fb\\u63a2\\u6539\", type: [5, 8, 12, 11, 0], taik: 0, souk: 0, houg: 0, raig: 0, soku: 0, baku: 0, tyku: 4, tais: 0, atap: 0, houm: 2, raim: 0, houk: 1, raik: 0, bakk: 0, saku: 4, sakb: 0, luck: 0, leng: 0, rare: 3, broken: [0, 0, 10, 11], usebull: \"0\", version: 2, geigeki: 0, taibaku: 0, }, 129: { id: 129, sortno: 129, name: \"\\u719f\\u7df4\\u898b\\u5f35\\u54e1\", type: [16, 27, 39, 32, 0], taik: 0, souk: 0, houg: 0, raig: 0, soku: 0, baku: 0, tyku: 1, tais: 0, atap: 0, houm: 2, raim: 0, houk: 3, raik: 0, bakk: 0, saku: 2, sakb: 0, luck: 0, leng: 0, rare: 3, broken: [1, 0, 0, 0], usebull: \"0\", geigeki: 0, taibaku: 0, }, }, }, }, }"
+        }
+      ],
+      "exports": [
+        {
+          "kind": "js",
+          "name": "default",
+          "declaration": {
+            "name": "meta",
+            "module": "src/components/ship/ship-modal.stories.ts"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "basic",
+          "declaration": {
+            "name": "basic",
+            "module": "src/components/ship/ship-modal.stories.ts"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "javascript-module",
+      "path": "src/components/ship/ship-modal.ts",
+      "declarations": [
+        {
+          "kind": "class",
+          "description": "",
+          "name": "ComponentShipModal",
+          "members": [
+            {
+              "kind": "field",
+              "name": "ship",
+              "type": {
+                "text": "Ship"
+              },
+              "default": "default_ship",
+              "attribute": "ship"
+            },
+            {
+              "kind": "field",
+              "name": "mst_ship",
+              "type": {
+                "text": "MstShip"
+              },
+              "default": "default_mst_ship",
+              "attribute": "mst_ship"
+            },
+            {
+              "kind": "field",
+              "name": "slot_items",
+              "type": {
+                "text": "SlotItems"
+              },
+              "default": "default_slotitems",
+              "attribute": "slot_items"
+            },
+            {
+              "kind": "field",
+              "name": "mst_slot_items",
+              "type": {
+                "text": "MstSlotitems"
+              },
+              "default": "default_mst_slot_items",
+              "attribute": "mst_slot_items"
+            },
+            {
+              "kind": "field",
+              "name": "color",
+              "type": {
+                "text": "string"
+              },
+              "default": "\"\"",
+              "attribute": "color"
+            },
+            {
+              "kind": "field",
+              "name": "name_flag",
+              "type": {
+                "text": "boolean"
+              },
+              "default": "false",
+              "attribute": "name_flag"
+            },
+            {
+              "kind": "field",
+              "name": "size",
+              "type": {
+                "text": "\"xs\" | \"sm\" | \"md\" | \"lg\" | \"xl\""
+              },
+              "default": "\"xs\"",
+              "attribute": "size"
+            },
+            {
+              "kind": "field",
+              "name": "empty_flag",
+              "type": {
+                "text": "boolean"
+              },
+              "default": "false",
+              "attribute": "empty_flag"
+            },
+            {
+              "kind": "field",
+              "name": "dialogRef",
+              "type": {
+                "text": "Ref<HTMLDialogElement>"
+              }
+            },
+            {
+              "kind": "method",
+              "name": "open_modal",
+              "privacy": "private"
+            },
+            {
+              "kind": "method",
+              "name": "dialogTemplete"
+            }
+          ],
+          "attributes": [
+            {
+              "name": "ship",
+              "type": {
+                "text": "Ship"
+              },
+              "default": "default_ship",
+              "fieldName": "ship"
+            },
+            {
+              "name": "mst_ship",
+              "type": {
+                "text": "MstShip"
+              },
+              "default": "default_mst_ship",
+              "fieldName": "mst_ship"
+            },
+            {
+              "name": "slot_items",
+              "type": {
+                "text": "SlotItems"
+              },
+              "default": "default_slotitems",
+              "fieldName": "slot_items"
+            },
+            {
+              "name": "mst_slot_items",
+              "type": {
+                "text": "MstSlotitems"
+              },
+              "default": "default_mst_slot_items",
+              "fieldName": "mst_slot_items"
+            },
+            {
+              "name": "color",
+              "type": {
+                "text": "string"
+              },
+              "default": "\"\"",
+              "fieldName": "color"
+            },
+            {
+              "name": "name_flag",
+              "type": {
+                "text": "boolean"
+              },
+              "default": "false",
+              "fieldName": "name_flag"
+            },
+            {
+              "name": "size",
+              "type": {
+                "text": "\"xs\" | \"sm\" | \"md\" | \"lg\" | \"xl\""
+              },
+              "default": "\"xs\"",
+              "fieldName": "size"
+            },
+            {
+              "name": "empty_flag",
+              "type": {
+                "text": "boolean"
+              },
+              "default": "false",
+              "fieldName": "empty_flag"
+            }
+          ],
+          "superclass": {
+            "name": "LitElement",
+            "package": "lit"
+          },
+          "tagName": "component-ship-modal",
+          "customElement": true
+        }
+      ],
+      "exports": [
+        {
+          "kind": "js",
+          "name": "ComponentShipModal",
+          "declaration": {
+            "name": "ComponentShipModal",
+            "module": "src/components/ship/ship-modal.ts"
+          }
+        },
+        {
+          "kind": "custom-element-definition",
+          "name": "component-ship-modal",
+          "declaration": {
+            "name": "ComponentShipModal",
+            "module": "src/components/ship/ship-modal.ts"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "javascript-module",
+      "path": "src/components/ship/ship-table.stories.ts",
+      "declarations": [
+        {
+          "kind": "variable",
+          "name": "meta",
+          "default": "{ title: \"FUSOU/components/ship/component-ship-table\", tags: [\"autodocs\"], } satisfies Meta<ComponentShipTableProps>"
+        },
+        {
+          "kind": "variable",
+          "name": "basic",
+          "type": {
+            "text": "Story"
+          },
+          "default": "{ render: (args: ComponentShipTableProps) => ComponentShipTableBasic(args), name: \"Basic\", argTypes: { size: { control: { type: \"select\" }, options: size_list, table: { defaultValue: { summary: \"sm\" }, type: { summary: size_list.join(\"\\|\"), }, }, }, }, args: { size: \"sm\", ship: { id: 4299, ship_id: 668, lv: 132, exp: [1999074, 25926, 69], nowhp: 55, maxhp: 60, soku: 10, leng: 2, slot: [7355, 7571, 8735, 3006, -1], onslot: [1, 1, 2, 2, 0], slot_ex: 6865, fuel: 10, bull: 15, slotnum: 4, cond: 49, karyoku: [95, 81], raisou: [102, 88], taiku: [107, 88], soukou: [76, 74], kaihi: [112, 86], taisen: [96, 80], sakuteki: [84, 60], lucky: [22, 89], sp_effect_items: { items: { 2: { kind: 2, houg: 2, kaih: 2, }, }, }, sally_area: 0, }, mst_ship: { id: 668, sortno: 468, sort_id: 11037, name: \"\\u77e2\\u77e7\\u6539\\u4e8c\\u4e59\", yomi: \"\\u3084\\u306f\\u304e\", stype: 3, ctype: 41, afterlv: 90, aftershipid: \"663\", taik: [53, 68], souk: [32, 74], houg: [30, 81], raig: [24, 88], tyku: [36, 88], luck: [17, 89], soku: 10, leng: 2, slot_num: 4, maxeq: [1, 1, 2, 2, 0], buildtime: 60, broken: [4, 8, 16, 4], powup: [2, 2, 2, 3], backs: 8, getmes: \"<br>\", afterfuel: 480, afterbull: 880, fuel_max: 45, bull_max: 50, voicef: 7, tais: [], }, slot_items: { slot_items: { 7355: { id: 7355, slotitem_id: 303, locked: 1, level: 6, }, 7571: { id: 7571, slotitem_id: 303, locked: 1, level: 6, }, 8735: { id: 8735, slotitem_id: 41, locked: 0, level: 0, }, 3006: { id: 3006, slotitem_id: 106, locked: 1, level: 0, }, 6865: { id: 6865, slotitem_id: 129, locked: 1, level: 0, }, }, }, mst_slot_items: { mst_slot_items: { 303: { id: 303, sortno: 303, name: \"Bofors 15.2cm\\u9023\\u88c5\\u7832 Model 1930\", type: [1, 1, 2, 2, 0], taik: 0, souk: 0, houg: 5, raig: 0, soku: 0, baku: 0, tyku: 4, tais: 0, atap: 0, houm: 3, raim: 0, houk: 1, raik: 0, bakk: 0, saku: 0, sakb: 0, luck: 0, leng: 2, rare: 3, broken: [0, 2, 3, 1], usebull: \"0\", geigeki: 0, taibaku: 0, }, 41: { id: 41, sortno: 41, name: \"\\u7532\\u6a19\\u7684 \\u7532\\u578b\", type: [2, 4, 22, 5, 0], taik: 0, souk: 0, houg: 0, raig: 12, soku: 0, baku: 0, tyku: 0, tais: 0, atap: 0, houm: 0, raim: 0, houk: 0, raik: 0, bakk: 0, saku: 0, sakb: 0, luck: 0, leng: 0, rare: 1, broken: [0, 7, 7, 0], usebull: \"0\", version: 2, geigeki: 0, taibaku: 0, }, 106: { id: 106, sortno: 106, name: \"13\\u53f7\\u5bfe\\u7a7a\\u96fb\\u63a2\\u6539\", type: [5, 8, 12, 11, 0], taik: 0, souk: 0, houg: 0, raig: 0, soku: 0, baku: 0, tyku: 4, tais: 0, atap: 0, houm: 2, raim: 0, houk: 1, raik: 0, bakk: 0, saku: 4, sakb: 0, luck: 0, leng: 0, rare: 3, broken: [0, 0, 10, 11], usebull: \"0\", version: 2, geigeki: 0, taibaku: 0, }, 129: { id: 129, sortno: 129, name: \"\\u719f\\u7df4\\u898b\\u5f35\\u54e1\", type: [16, 27, 39, 32, 0], taik: 0, souk: 0, houg: 0, raig: 0, soku: 0, baku: 0, tyku: 1, tais: 0, atap: 0, houm: 2, raim: 0, houk: 3, raik: 0, bakk: 0, saku: 2, sakb: 0, luck: 0, leng: 0, rare: 3, broken: [1, 0, 0, 0], usebull: \"0\", geigeki: 0, taibaku: 0, }, }, }, }, }"
+        }
+      ],
+      "exports": [
+        {
+          "kind": "js",
+          "name": "default",
+          "declaration": {
+            "name": "meta",
+            "module": "src/components/ship/ship-table.stories.ts"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "basic",
+          "declaration": {
+            "name": "basic",
+            "module": "src/components/ship/ship-table.stories.ts"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "javascript-module",
+      "path": "src/components/ship/ship-table.ts",
+      "declarations": [
+        {
+          "kind": "class",
+          "description": "",
+          "name": "ComponentShipTable",
+          "members": [
+            {
+              "kind": "field",
+              "name": "ship",
+              "type": {
+                "text": "Ship"
+              },
+              "default": "default_ship",
+              "attribute": "ship"
+            },
+            {
+              "kind": "field",
+              "name": "mst_ship",
+              "type": {
+                "text": "MstShip"
+              },
+              "default": "default_mst_ship",
+              "attribute": "mst_ship"
+            },
+            {
+              "kind": "field",
+              "name": "slot_items",
+              "type": {
+                "text": "SlotItems"
+              },
+              "default": "default_slotitems",
+              "attribute": "slot_items"
+            },
+            {
+              "kind": "field",
+              "name": "mst_slot_items",
+              "type": {
+                "text": "MstSlotitems"
+              },
+              "default": "default_mst_slot_items",
+              "attribute": "mst_slot_items"
+            },
+            {
+              "kind": "field",
+              "name": "size",
+              "type": {
+                "text": "keyof typeof class_size"
+              },
+              "default": "\"sm\"",
+              "attribute": "size"
+            },
+            {
+              "kind": "method",
+              "name": "equipmentTemplete",
+              "parameters": [
+                {
+                  "name": "slot",
+                  "type": {
+                    "text": "number"
+                  }
+                },
+                {
+                  "name": "index",
+                  "type": {
+                    "text": "number"
+                  }
+                }
+              ]
+            },
+            {
+              "kind": "method",
+              "name": "slotsTemplete"
+            },
+            {
+              "kind": "method",
+              "name": "slotExTemplete"
+            },
+            {
+              "kind": "method",
+              "name": "maxEq"
+            },
+            {
+              "kind": "method",
+              "name": "SpEffectItem"
+            }
+          ],
+          "attributes": [
+            {
+              "name": "ship",
+              "type": {
+                "text": "Ship"
+              },
+              "default": "default_ship",
+              "fieldName": "ship"
+            },
+            {
+              "name": "mst_ship",
+              "type": {
+                "text": "MstShip"
+              },
+              "default": "default_mst_ship",
+              "fieldName": "mst_ship"
+            },
+            {
+              "name": "slot_items",
+              "type": {
+                "text": "SlotItems"
+              },
+              "default": "default_slotitems",
+              "fieldName": "slot_items"
+            },
+            {
+              "name": "mst_slot_items",
+              "type": {
+                "text": "MstSlotitems"
+              },
+              "default": "default_mst_slot_items",
+              "fieldName": "mst_slot_items"
+            },
+            {
+              "name": "size",
+              "type": {
+                "text": "keyof typeof class_size"
+              },
+              "default": "\"sm\"",
+              "fieldName": "size"
+            }
+          ],
+          "superclass": {
+            "name": "LitElement",
+            "package": "lit"
+          },
+          "tagName": "component-ship-table",
+          "customElement": true
+        }
+      ],
+      "exports": [
+        {
+          "kind": "js",
+          "name": "ComponentShipTable",
+          "declaration": {
+            "name": "ComponentShipTable",
+            "module": "src/components/ship/ship-table.ts"
+          }
+        },
+        {
+          "kind": "custom-element-definition",
+          "name": "component-ship-table",
+          "declaration": {
+            "name": "ComponentShipTable",
+            "module": "src/components/ship/ship-table.ts"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "javascript-module",
+      "path": "src/components/ship/ship.stories.ts",
+      "declarations": [
+        {
+          "kind": "variable",
+          "name": "meta",
+          "default": "{ title: \"FUSOU/components/ship/component-ship\", tags: [\"autodocs\"], } satisfies Meta<ComponentShipProps>"
+        },
+        {
+          "kind": "variable",
+          "name": "basic",
+          "type": {
+            "text": "Story"
+          },
+          "default": "{ render: (args: ComponentShipProps) => ComponentShipBasic(args), name: \"Basic\", argTypes: { size: { control: { type: \"select\" }, options: size_list, table: { defaultValue: { summary: \"sm\" }, type: { summary: size_list.join(\"\\|\"), }, }, }, name_flag: { control: { type: \"boolean\" }, }, empty_flag: { control: { type: \"boolean\" }, }, }, args: { size: \"sm\", name_flag: false, empty_flag: false, mst_ship: { id: 668, sortno: 468, sort_id: 11037, name: \"\\u77e2\\u77e7\\u6539\\u4e8c\\u4e59\", yomi: \"\\u3084\\u306f\\u304e\", stype: 3, ctype: 41, afterlv: 90, aftershipid: \"663\", taik: [53, 68], souk: [32, 74], houg: [30, 81], raig: [24, 88], tyku: [36, 88], luck: [17, 89], soku: 10, leng: 2, slot_num: 4, maxeq: [1, 1, 2, 2, 0], buildtime: 60, broken: [4, 8, 16, 4], powup: [2, 2, 2, 3], backs: 8, getmes: \"<br>\", afterfuel: 480, afterbull: 880, fuel_max: 45, bull_max: 50, voicef: 7, tais: [], }, }, }"
+        }
+      ],
+      "exports": [
+        {
+          "kind": "js",
+          "name": "default",
+          "declaration": {
+            "name": "meta",
+            "module": "src/components/ship/ship.stories.ts"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "basic",
+          "declaration": {
+            "name": "basic",
+            "module": "src/components/ship/ship.stories.ts"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "javascript-module",
+      "path": "src/components/ship/ship.ts",
+      "declarations": [
+        {
+          "kind": "class",
+          "description": "",
+          "name": "ComponentShip",
+          "members": [
+            {
+              "kind": "field",
+              "name": "mst_ship",
+              "type": {
+                "text": "MstShip"
+              },
+              "default": "default_mst_ship",
+              "attribute": "mst_ship"
+            },
+            {
+              "kind": "field",
+              "name": "color",
+              "type": {
+                "text": "string"
+              },
+              "default": "\"\"",
+              "attribute": "color"
+            },
+            {
+              "kind": "field",
+              "name": "size",
+              "type": {
+                "text": "keyof typeof class_size"
+              },
+              "default": "\"xs\"",
+              "attribute": "size"
+            },
+            {
+              "kind": "field",
+              "name": "name_flag",
+              "type": {
+                "text": "boolean"
+              },
+              "default": "false",
+              "attribute": "name_flag"
+            },
+            {
+              "kind": "field",
+              "name": "empty_flag",
+              "type": {
+                "text": "boolean"
+              },
+              "default": "false",
+              "attribute": "empty_flag"
+            },
+            {
+              "kind": "method",
+              "name": "nameTemplete"
+            }
+          ],
+          "attributes": [
+            {
+              "name": "mst_ship",
+              "type": {
+                "text": "MstShip"
+              },
+              "default": "default_mst_ship",
+              "fieldName": "mst_ship"
+            },
+            {
+              "name": "color",
+              "type": {
+                "text": "string"
+              },
+              "default": "\"\"",
+              "fieldName": "color"
+            },
+            {
+              "name": "size",
+              "type": {
+                "text": "keyof typeof class_size"
+              },
+              "default": "\"xs\"",
+              "fieldName": "size"
+            },
+            {
+              "name": "name_flag",
+              "type": {
+                "text": "boolean"
+              },
+              "default": "false",
+              "fieldName": "name_flag"
+            },
+            {
+              "name": "empty_flag",
+              "type": {
+                "text": "boolean"
+              },
+              "default": "false",
+              "fieldName": "empty_flag"
+            }
+          ],
+          "superclass": {
+            "name": "LitElement",
+            "package": "lit"
+          },
+          "tagName": "component-ship",
+          "customElement": true
+        }
+      ],
+      "exports": [
+        {
+          "kind": "js",
+          "name": "ComponentShip",
+          "declaration": {
+            "name": "ComponentShip",
+            "module": "src/components/ship/ship.ts"
+          }
+        },
+        {
+          "kind": "custom-element-definition",
+          "name": "component-ship",
+          "declaration": {
+            "name": "ComponentShip",
+            "module": "src/components/ship/ship.ts"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "javascript-module",
+      "path": "src/components/ship-masked/index.ts",
+      "declarations": [],
+      "exports": [
+        {
+          "kind": "js",
+          "name": "*",
+          "declaration": {
+            "name": "*",
+            "package": "\"./ship-masked-modal\""
+          }
+        },
+        {
+          "kind": "js",
+          "name": "*",
+          "declaration": {
+            "name": "*",
+            "package": "\"./ship-masked-table\""
+          }
+        }
+      ]
+    },
+    {
+      "kind": "javascript-module",
+      "path": "src/components/ship-masked/ship-masked-modal.stories.ts",
+      "declarations": [
+        {
+          "kind": "function",
+          "name": "ComponentShipMaskedModalBasic",
+          "parameters": [
+            {
+              "name": "args",
+              "type": {
+                "text": "ComponentShipMaskedModalProps"
+              }
+            }
+          ]
+        },
+        {
+          "kind": "variable",
+          "name": "meta",
+          "default": "{ title: \"FUSOU/components/ship-masked/component-ship-masked-modal\", tags: [\"autodocs\"], } satisfies Meta<ComponentShipMaskedModalProps>"
+        },
+        {
+          "kind": "variable",
+          "name": "basic",
+          "type": {
+            "text": "Story"
+          },
+          "default": "{ render: (args: ComponentShipMaskedModalProps) => ComponentShipMaskedModalBasic(args), name: \"Basic\", argTypes: { color: { control: { type: \"select\" }, options: [undefined, \"\", \"-\", \"elite\", \"flagship\"], }, empty_flag: { control: \"boolean\", }, name_flag: { control: \"boolean\", }, size: { control: { type: \"select\" }, options: size_list, table: { defaultValue: { summary: \"xs\" }, type: { summary: size_list.join(\"\\|\"), }, }, }, }, args: { color: undefined, empty_flag: false, name_flag: false, size: \"sm\", ship_max_hp: 100, ship_param: [95, 102, 76, 107], ship_slot: [303, 303, 41, 106], ship: { id: 4299, ship_id: 668, lv: 132, exp: [1999074, 25926, 69], nowhp: 55, maxhp: 60, soku: 10, leng: 2, slot: [7355, 7571, 8735, 3006, -1], onslot: [1, 1, 2, 2, 0], slot_ex: 6865, fuel: 10, bull: 15, slotnum: 4, cond: 49, karyoku: [95, 81], raisou: [102, 88], taiku: [107, 88], soukou: [76, 74], kaihi: [112, 86], taisen: [96, 80], sakuteki: [84, 60], lucky: [22, 89], sp_effect_items: { items: { 2: { kind: 2, houg: 2, kaih: 2, }, }, }, sally_area: 0, }, mst_ship: { id: 668, sortno: 468, sort_id: 11037, name: \"\\u77e2\\u77e7\\u6539\\u4e8c\\u4e59\", yomi: \"\\u3084\\u306f\\u304e\", stype: 3, ctype: 41, afterlv: 90, aftershipid: \"663\", taik: [53, 68], souk: [32, 74], houg: [30, 81], raig: [24, 88], tyku: [36, 88], luck: [17, 89], soku: 10, leng: 2, slot_num: 4, maxeq: [1, 1, 2, 2, 0], buildtime: 60, broken: [4, 8, 16, 4], powup: [2, 2, 2, 3], backs: 8, getmes: \"<br>\", afterfuel: 480, afterbull: 880, fuel_max: 45, bull_max: 50, voicef: 7, tais: [], }, slot_items: { slot_items: { 7355: { id: 7355, slotitem_id: 303, locked: 1, level: 6, }, 7571: { id: 7571, slotitem_id: 303, locked: 1, level: 6, }, 8735: { id: 8735, slotitem_id: 41, locked: 0, level: 0, }, 3006: { id: 3006, slotitem_id: 106, locked: 1, level: 0, }, 6865: { id: 6865, slotitem_id: 129, locked: 1, level: 0, }, }, }, mst_slot_items: { mst_slot_items: { 303: { id: 303, sortno: 303, name: \"Bofors 15.2cm\\u9023\\u88c5\\u7832 Model 1930\", type: [1, 1, 2, 2, 0], taik: 0, souk: 0, houg: 5, raig: 0, soku: 0, baku: 0, tyku: 4, tais: 0, atap: 0, houm: 3, raim: 0, houk: 1, raik: 0, bakk: 0, saku: 0, sakb: 0, luck: 0, leng: 2, rare: 3, broken: [0, 2, 3, 1], usebull: \"0\", geigeki: 0, taibaku: 0, }, 41: { id: 41, sortno: 41, name: \"\\u7532\\u6a19\\u7684 \\u7532\\u578b\", type: [2, 4, 22, 5, 0], taik: 0, souk: 0, houg: 0, raig: 12, soku: 0, baku: 0, tyku: 0, tais: 0, atap: 0, houm: 0, raim: 0, houk: 0, raik: 0, bakk: 0, saku: 0, sakb: 0, luck: 0, leng: 0, rare: 1, broken: [0, 7, 7, 0], usebull: \"0\", version: 2, geigeki: 0, taibaku: 0, }, 106: { id: 106, sortno: 106, name: \"13\\u53f7\\u5bfe\\u7a7a\\u96fb\\u63a2\\u6539\", type: [5, 8, 12, 11, 0], taik: 0, souk: 0, houg: 0, raig: 0, soku: 0, baku: 0, tyku: 4, tais: 0, atap: 0, houm: 2, raim: 0, houk: 1, raik: 0, bakk: 0, saku: 4, sakb: 0, luck: 0, leng: 0, rare: 3, broken: [0, 0, 10, 11], usebull: \"0\", version: 2, geigeki: 0, taibaku: 0, }, 129: { id: 129, sortno: 129, name: \"\\u719f\\u7df4\\u898b\\u5f35\\u54e1\", type: [16, 27, 39, 32, 0], taik: 0, souk: 0, houg: 0, raig: 0, soku: 0, baku: 0, tyku: 1, tais: 0, atap: 0, houm: 2, raim: 0, houk: 3, raik: 0, bakk: 0, saku: 2, sakb: 0, luck: 0, leng: 0, rare: 3, broken: [1, 0, 0, 0], usebull: \"0\", geigeki: 0, taibaku: 0, }, }, }, }, }"
+        }
+      ],
+      "exports": [
+        {
+          "kind": "js",
+          "name": "ComponentShipMaskedModalBasic",
+          "declaration": {
+            "name": "ComponentShipMaskedModalBasic",
+            "module": "src/components/ship-masked/ship-masked-modal.stories.ts"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "default",
+          "declaration": {
+            "name": "meta",
+            "module": "src/components/ship-masked/ship-masked-modal.stories.ts"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "basic",
+          "declaration": {
+            "name": "basic",
+            "module": "src/components/ship-masked/ship-masked-modal.stories.ts"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "javascript-module",
+      "path": "src/components/ship-masked/ship-masked-modal.ts",
+      "declarations": [
+        {
+          "kind": "class",
+          "description": "",
+          "name": "ComponentShipMaskedModal",
+          "members": [
+            {
+              "kind": "field",
+              "name": "ship",
+              "type": {
+                "text": "Ship"
+              },
+              "default": "default_ship",
+              "attribute": "ship"
+            },
+            {
+              "kind": "field",
+              "name": "mst_ship",
+              "type": {
+                "text": "MstShip"
+              },
+              "default": "default_mst_ship",
+              "attribute": "mst_ship"
+            },
+            {
+              "kind": "field",
+              "name": "slot_items",
+              "type": {
+                "text": "SlotItems"
+              },
+              "default": "default_slotitems",
+              "attribute": "slot_items"
+            },
+            {
+              "kind": "field",
+              "name": "mst_slot_items",
+              "type": {
+                "text": "MstSlotitems"
+              },
+              "default": "default_mst_slot_items",
+              "attribute": "mst_slot_items"
+            },
+            {
+              "kind": "field",
+              "name": "color",
+              "type": {
+                "text": "string"
+              },
+              "default": "\"\"",
+              "attribute": "color"
+            },
+            {
+              "kind": "field",
+              "name": "name_flag",
+              "type": {
+                "text": "boolean"
+              },
+              "default": "false",
+              "attribute": "name_flag"
+            },
+            {
+              "kind": "field",
+              "name": "size",
+              "type": {
+                "text": "\"xs\" | \"sm\" | \"md\" | \"lg\" | \"xl\""
+              },
+              "default": "\"xs\"",
+              "attribute": "size"
+            },
+            {
+              "kind": "field",
+              "name": "empty_flag",
+              "type": {
+                "text": "boolean"
+              },
+              "default": "false",
+              "attribute": "empty_flag"
+            },
+            {
+              "kind": "field",
+              "name": "ship_param",
+              "type": {
+                "text": "number[]"
+              },
+              "default": "[0, 0, 0, 0]",
+              "attribute": "ship_param"
+            },
+            {
+              "kind": "field",
+              "name": "ship_slot",
+              "type": {
+                "text": "number[]"
+              },
+              "default": "[0, 0, 0, 0, 0]",
+              "attribute": "ship_slot"
+            },
+            {
+              "kind": "field",
+              "name": "ship_max_hp",
+              "type": {
+                "text": "number"
+              },
+              "default": "0",
+              "attribute": "ship_max_hp"
+            },
+            {
+              "kind": "field",
+              "name": "dialogRef",
+              "type": {
+                "text": "Ref<HTMLDialogElement>"
+              }
+            },
+            {
+              "kind": "method",
+              "name": "open_modal",
+              "privacy": "private"
+            },
+            {
+              "kind": "method",
+              "name": "dialogTemplete"
+            }
+          ],
+          "attributes": [
+            {
+              "name": "ship",
+              "type": {
+                "text": "Ship"
+              },
+              "default": "default_ship",
+              "fieldName": "ship"
+            },
+            {
+              "name": "mst_ship",
+              "type": {
+                "text": "MstShip"
+              },
+              "default": "default_mst_ship",
+              "fieldName": "mst_ship"
+            },
+            {
+              "name": "slot_items",
+              "type": {
+                "text": "SlotItems"
+              },
+              "default": "default_slotitems",
+              "fieldName": "slot_items"
+            },
+            {
+              "name": "mst_slot_items",
+              "type": {
+                "text": "MstSlotitems"
+              },
+              "default": "default_mst_slot_items",
+              "fieldName": "mst_slot_items"
+            },
+            {
+              "name": "color",
+              "type": {
+                "text": "string"
+              },
+              "default": "\"\"",
+              "fieldName": "color"
+            },
+            {
+              "name": "name_flag",
+              "type": {
+                "text": "boolean"
+              },
+              "default": "false",
+              "fieldName": "name_flag"
+            },
+            {
+              "name": "size",
+              "type": {
+                "text": "\"xs\" | \"sm\" | \"md\" | \"lg\" | \"xl\""
+              },
+              "default": "\"xs\"",
+              "fieldName": "size"
+            },
+            {
+              "name": "empty_flag",
+              "type": {
+                "text": "boolean"
+              },
+              "default": "false",
+              "fieldName": "empty_flag"
+            },
+            {
+              "name": "ship_param",
+              "type": {
+                "text": "number[]"
+              },
+              "default": "[0, 0, 0, 0]",
+              "fieldName": "ship_param"
+            },
+            {
+              "name": "ship_slot",
+              "type": {
+                "text": "number[]"
+              },
+              "default": "[0, 0, 0, 0, 0]",
+              "fieldName": "ship_slot"
+            },
+            {
+              "name": "ship_max_hp",
+              "type": {
+                "text": "number"
+              },
+              "default": "0",
+              "fieldName": "ship_max_hp"
+            }
+          ],
+          "superclass": {
+            "name": "LitElement",
+            "package": "lit"
+          },
+          "tagName": "component-ship-masked-modal",
+          "customElement": true
+        }
+      ],
+      "exports": [
+        {
+          "kind": "js",
+          "name": "ComponentShipMaskedModal",
+          "declaration": {
+            "name": "ComponentShipMaskedModal",
+            "module": "src/components/ship-masked/ship-masked-modal.ts"
+          }
+        },
+        {
+          "kind": "custom-element-definition",
+          "name": "component-ship-masked-modal",
+          "declaration": {
+            "name": "ComponentShipMaskedModal",
+            "module": "src/components/ship-masked/ship-masked-modal.ts"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "javascript-module",
+      "path": "src/components/ship-masked/ship-masked-table.stories.ts",
+      "declarations": [
+        {
+          "kind": "variable",
+          "name": "meta",
+          "default": "{ title: \"FUSOU/components/ship-masked/component-ship-masked-table\", tags: [\"autodocs\"], } satisfies Meta<ComponentShipMaskedTableProps>"
+        },
+        {
+          "kind": "variable",
+          "name": "basic",
+          "type": {
+            "text": "Story"
+          },
+          "default": "{ render: (args: ComponentShipMaskedTableProps) => ComponentShipMaskedTableBasic(args), name: \"Basic\", argTypes: { ship_max_hp: { control: { type: \"range\", min: 1, max: 100, step: 1 } }, size: { control: { type: \"select\" }, options: size_list, table: { defaultValue: { summary: \"sm\" }, type: { summary: size_list.join(\"\\|\"), }, }, }, }, args: { size: \"sm\", ship_max_hp: 100, ship_param: [95, 102, 76, 107], ship_slot: [303, 303, 41, 106], mst_ship: { id: 668, sortno: 468, sort_id: 11037, name: \"\\u77e2\\u77e7\\u6539\\u4e8c\\u4e59\", yomi: \"\\u3084\\u306f\\u304e\", stype: 3, ctype: 41, afterlv: 90, aftershipid: \"663\", taik: [53, 68], souk: [32, 74], houg: [30, 81], raig: [24, 88], tyku: [36, 88], luck: [17, 89], soku: 10, leng: 2, slot_num: 4, maxeq: [1, 1, 2, 2, 0], buildtime: 60, broken: [4, 8, 16, 4], powup: [2, 2, 2, 3], backs: 8, getmes: \"<br>\", afterfuel: 480, afterbull: 880, fuel_max: 45, bull_max: 50, voicef: 7, tais: [], }, mst_slot_items: { mst_slot_items: { 303: { id: 303, sortno: 303, name: \"Bofors 15.2cm\\u9023\\u88c5\\u7832 Model 1930\", type: [1, 1, 2, 2, 0], taik: 0, souk: 0, houg: 5, raig: 0, soku: 0, baku: 0, tyku: 4, tais: 0, atap: 0, houm: 3, raim: 0, houk: 1, raik: 0, bakk: 0, saku: 0, sakb: 0, luck: 0, leng: 2, rare: 3, broken: [0, 2, 3, 1], usebull: \"0\", geigeki: 0, taibaku: 0, }, 41: { id: 41, sortno: 41, name: \"\\u7532\\u6a19\\u7684 \\u7532\\u578b\", type: [2, 4, 22, 5, 0], taik: 0, souk: 0, houg: 0, raig: 12, soku: 0, baku: 0, tyku: 0, tais: 0, atap: 0, houm: 0, raim: 0, houk: 0, raik: 0, bakk: 0, saku: 0, sakb: 0, luck: 0, leng: 0, rare: 1, broken: [0, 7, 7, 0], usebull: \"0\", version: 2, geigeki: 0, taibaku: 0, }, 106: { id: 106, sortno: 106, name: \"13\\u53f7\\u5bfe\\u7a7a\\u96fb\\u63a2\\u6539\", type: [5, 8, 12, 11, 0], taik: 0, souk: 0, houg: 0, raig: 0, soku: 0, baku: 0, tyku: 4, tais: 0, atap: 0, houm: 2, raim: 0, houk: 1, raik: 0, bakk: 0, saku: 4, sakb: 0, luck: 0, leng: 0, rare: 3, broken: [0, 0, 10, 11], usebull: \"0\", version: 2, geigeki: 0, taibaku: 0, }, 129: { id: 129, sortno: 129, name: \"\\u719f\\u7df4\\u898b\\u5f35\\u54e1\", type: [16, 27, 39, 32, 0], taik: 0, souk: 0, houg: 0, raig: 0, soku: 0, baku: 0, tyku: 1, tais: 0, atap: 0, houm: 2, raim: 0, houk: 3, raik: 0, bakk: 0, saku: 2, sakb: 0, luck: 0, leng: 0, rare: 3, broken: [1, 0, 0, 0], usebull: \"0\", geigeki: 0, taibaku: 0, }, }, }, }, }"
+        }
+      ],
+      "exports": [
+        {
+          "kind": "js",
+          "name": "default",
+          "declaration": {
+            "name": "meta",
+            "module": "src/components/ship-masked/ship-masked-table.stories.ts"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "basic",
+          "declaration": {
+            "name": "basic",
+            "module": "src/components/ship-masked/ship-masked-table.stories.ts"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "javascript-module",
+      "path": "src/components/ship-masked/ship-masked-table.ts",
+      "declarations": [
+        {
+          "kind": "class",
+          "description": "",
+          "name": "ComponentShipMaskedTable",
+          "members": [
+            {
+              "kind": "field",
+              "name": "mst_ship",
+              "type": {
+                "text": "MstShip"
+              },
+              "default": "default_mst_ship",
+              "attribute": "mst_ship"
+            },
+            {
+              "kind": "field",
+              "name": "mst_slot_items",
+              "type": {
+                "text": "MstSlotitems"
+              },
+              "default": "default_mst_slot_items",
+              "attribute": "mst_slot_items"
+            },
+            {
+              "kind": "field",
+              "name": "size",
+              "type": {
+                "text": "keyof typeof class_size"
+              },
+              "default": "\"sm\"",
+              "attribute": "size"
+            },
+            {
+              "kind": "field",
+              "name": "ship_param",
+              "type": {
+                "text": "number[]"
+              },
+              "default": "[0, 0, 0, 0]",
+              "attribute": "ship_param"
+            },
+            {
+              "kind": "field",
+              "name": "ship_slot",
+              "type": {
+                "text": "number[]"
+              },
+              "default": "[0, 0, 0, 0, 0]",
+              "attribute": "ship_slot"
+            },
+            {
+              "kind": "field",
+              "name": "ship_max_hp",
+              "type": {
+                "text": "number"
+              },
+              "default": "0",
+              "attribute": "ship_max_hp"
+            },
+            {
+              "kind": "method",
+              "name": "equipmentTemplete",
+              "parameters": [
+                {
+                  "name": "slot",
+                  "type": {
+                    "text": "number"
+                  }
+                }
+              ]
+            },
+            {
+              "kind": "method",
+              "name": "slotsTemplete"
+            }
+          ],
+          "attributes": [
+            {
+              "name": "mst_ship",
+              "type": {
+                "text": "MstShip"
+              },
+              "default": "default_mst_ship",
+              "fieldName": "mst_ship"
+            },
+            {
+              "name": "mst_slot_items",
+              "type": {
+                "text": "MstSlotitems"
+              },
+              "default": "default_mst_slot_items",
+              "fieldName": "mst_slot_items"
+            },
+            {
+              "name": "size",
+              "type": {
+                "text": "keyof typeof class_size"
+              },
+              "default": "\"sm\"",
+              "fieldName": "size"
+            },
+            {
+              "name": "ship_param",
+              "type": {
+                "text": "number[]"
+              },
+              "default": "[0, 0, 0, 0]",
+              "fieldName": "ship_param"
+            },
+            {
+              "name": "ship_slot",
+              "type": {
+                "text": "number[]"
+              },
+              "default": "[0, 0, 0, 0, 0]",
+              "fieldName": "ship_slot"
+            },
+            {
+              "name": "ship_max_hp",
+              "type": {
+                "text": "number"
+              },
+              "default": "0",
+              "fieldName": "ship_max_hp"
+            }
+          ],
+          "superclass": {
+            "name": "LitElement",
+            "package": "lit"
+          },
+          "tagName": "component-ship-masked-table",
+          "customElement": true
+        }
+      ],
+      "exports": [
+        {
+          "kind": "js",
+          "name": "ComponentShipMaskedTable",
+          "declaration": {
+            "name": "ComponentShipMaskedTable",
+            "module": "src/components/ship-masked/ship-masked-table.ts"
+          }
+        },
+        {
+          "kind": "custom-element-definition",
+          "name": "component-ship-masked-table",
+          "declaration": {
+            "name": "ComponentShipMaskedTable",
+            "module": "src/components/ship-masked/ship-masked-table.ts"
+          }
+        }
+      ]
+    }
+  ]
+}

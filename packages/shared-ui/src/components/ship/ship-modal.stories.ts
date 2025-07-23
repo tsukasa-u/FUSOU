@@ -1,13 +1,13 @@
 import type { Meta, StoryObj } from "@storybook/web-components-vite";
 
-import type { ComponentEquipmentModalProps } from "./ship-modal";
+import type { ComponentShipModalProps } from "./ship-modal";
 import "./ship-modal";
 import { html } from "lit";
 import { ifDefined } from "lit/directives/if-defined.js";
 
 const size_list = ["xs", "sm", "md", "lg", "xl"];
 
-const ComponentEquipmentModalBasic = (args: ComponentEquipmentModalProps) => {
+const ComponentShipModalBasic = (args: ComponentShipModalProps) => {
   return html`<component-ship-modal
     .slot_items=${args.slot_items}
     .mst_slot_items=${args.mst_slot_items}
@@ -23,14 +23,13 @@ const ComponentEquipmentModalBasic = (args: ComponentEquipmentModalProps) => {
 const meta = {
   title: "FUSOU/components/ship/component-ship-modal",
   tags: ["autodocs"],
-} satisfies Meta<ComponentEquipmentModalProps>;
+} satisfies Meta<ComponentShipModalProps>;
 
 export default meta;
-type Story = StoryObj<ComponentEquipmentModalProps>;
+type Story = StoryObj<ComponentShipModalProps>;
 
 export const basic: Story = {
-  render: (args: ComponentEquipmentModalProps) =>
-    ComponentEquipmentModalBasic(args),
+  render: (args: ComponentShipModalProps) => ComponentShipModalBasic(args),
   name: "Basic",
   argTypes: {
     color: {

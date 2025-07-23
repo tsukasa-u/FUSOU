@@ -1,31 +1,30 @@
-
 div.divider-horizontal::before {
-    width: 0.5px;
+  width: 0.5px;
 }
 div.divider-horizontal::after {
-    width: 0.5px;
+  width: 0.5px;
 }
 
 div.divider::before {
-    height: 0.5px;
+  height: 0.5px;
 }
 div.divider::after {
-    height: 0.5px;
+  height: 0.5px;
 }
 
 /* chrome safari opera */
 @media screen and (-webkit-min-device-pixel-ratio: 0) {
-    div.divider-horizontal::before {
-        width: 0.0625rem;
-    }
-    div.divider-horizontal::after {
-        width: 0.0625rem;
-    }
-    
-    div.divider::before {
-        height: 0.0625rem;
-    }
-    div.divider::after {
-        height: 0.0625rem;
-    }    
+  div.divider-horizontal::before {
+    width: 0.5px;
+  }
+  div.divider-horizontal::after {
+    width: 0.5px;
+  }
+
+  div.divider::before {
+    height: 0.5px;
+  }
+  div.divider::after {
+    height: 0.5px;
+  }
 }

@@ -18,7 +18,8 @@
     "checkl": "set CHECK_RELESE=CHECK",
     "uncheckl": "set CHECK_RELESE=NO_CHECK",
     "tauri": "dotenvx run -fk ../.env.keys -f .env -f kc_api/.env -f src-tauri/.env --verbose --overload -- tauri",
-    "kc_api.cargo": "cd kc_api && dotenvx run -fk ../../.env.keys -f .env --verbose --overload -- cargo"
+    "kc_api.cargo": "cd kc_api && dotenvx run -fk ../../.env.keys -f .env --verbose --overload -- cargo",
+    "check.tsc": "tsc --noEmit"
   },
   "devDependencies": {
     "@eslint/js": "^9.23.0",
@@ -31,6 +32,7 @@
     "eslint": "^9.23.0",
     "eslint-config-prettier": "^10.1.1",
     "eslint-plugin-solid": "^0.14.5",
+    "globals": "^16.3.0",
     "postcss": "^8.5.6",
     "prettier": "^3.5.3",
     "tailwindcss": "^4.1.11",

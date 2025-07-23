@@ -6,7 +6,6 @@ import {
   default_mst_slot_item,
   type MstSlotitem,
 } from "../../interface/get_data";
-import { ifDefined } from "lit/directives/if-defined.js";
 
 export interface ComponentEquipmentMstTableProps {
   mst_slot_item: MstSlotitem;

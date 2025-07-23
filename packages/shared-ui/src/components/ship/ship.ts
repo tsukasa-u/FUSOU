@@ -1,6 +1,5 @@
 import { html, LitElement, unsafeCSS } from "lit";
 import { customElement, property } from "lit/decorators.js";
-import { ifDefined } from "lit/directives/if-defined.js";
 import globalStyles from "../../global.css?inline";
 
 import { default_mst_ship, type MstShip } from "../../interface/get_data";
