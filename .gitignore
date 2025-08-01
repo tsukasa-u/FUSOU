@@ -26,6 +26,8 @@ packages/FUSOU-APP/kc_api/tests/database_dependency_dot/*.dot
 packages/FUSOU-APP/kc_api/tests/database_dependency_json/*.json
 packages/FUSOU-APP/kc_api/tests/database_dependency_svg/*.svg
 packages/FUSOU-APP/tsconfig.tsbuildinfo
+tsconfig.node.tsbuildinfo
+
 packages/FUSOU-PROXY/proxy_rust/proxy-https/proxy.pac
 
 packages/FUSOU-APP/src/pages/vanilla/env.js
@@ -34,7 +36,11 @@ packages/FUSOU-APP/src-tauri/user/ENV_UNIQ_ID
 
 *storybook.log
 storybook-static
+
 packages/FUSOU-PROXY/proxy_rust/proxy-https/proxy.pac
 packages/FUSOU-APP/src-tauri/gen/
 
-packages/env.keys
+packages/.env.keys
+/packages/FUSOU-APP/src/stories/data
+/packages/shared-ui/src/data
+/packages/FUSOU-APP/src-tauri/ca
