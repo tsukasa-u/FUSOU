@@ -19,7 +19,9 @@
     "uncheckl": "set CHECK_RELESE=NO_CHECK",
     "tauri": "dotenvx run -fk ../.env.keys -f .env -f kc_api/.env -f src-tauri/.env --verbose --overload -- tauri",
     "kc_api.cargo": "cd kc_api && dotenvx run -fk ../../.env.keys -f .env --verbose --overload -- cargo",
-    "check.tsc": "tsc --noEmit"
+    "check.tsc": "tsc --noEmit",
+    "storybook.build": "storybook build",
+    "storybook": "storybook dev -p 6007"
   },
   "devDependencies": {
     "@eslint/js": "^9.23.0",
@@ -43,13 +45,27 @@
     "vite-plugin-solid": "^2.11.6"
   },
   "dependencies": {
+    "@chromatic-com/storybook": "^4.1.0",
     "@solid-primitives/cookies": "^0.0.1",
     "@solidjs/router": "^0.15.3",
+    "@storybook/addon-a11y": "^9.1.0",
+    "@storybook/addon-docs": "^9.1.0",
+    "@storybook/addon-links": "^9.1.0",
+    "@storybook/addon-onboarding": "^9.1.0",
+    "@storybook/addon-styling-webpack": "^2.0.0",
+    "@storybook/addon-themes": "^9.1.0",
+    "@storybook/addon-vitest": "^9.1.0",
     "@supabase/supabase-js": "^2.49.4",
     "@tauri-apps/api": "^2.4.0",
     "@tauri-apps/plugin-deep-link": "^2.2.1",
+    "@vitest/browser": "^3.2.4",
+    "@vitest/coverage-v8": "^3.2.4",
     "dotenv": "^16.5.0",
+    "playwright": "^1.54.2",
     "shared-ui": "link:..\\shared-ui",
-    "solid-js": "^1.9.5"
+    "solid-js": "^1.9.5",
+    "storybook": "^9.1.0",
+    "storybook-solidjs-vite": "^9.0.2",
+    "vitest": "^3.2.4"
   }
 }

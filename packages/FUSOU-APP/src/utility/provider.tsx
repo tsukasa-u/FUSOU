@@ -39,8 +39,9 @@ import { AirBases, global_air_bases } from "../interface/map_info";
 // import { supabase } from "./supabase";
 // import { invoke } from "@tauri-apps/api/core";
 
-// eslint-disable-next-line no-unused-vars
-const ShipsContext = createContext<(Ships | { set(data: Ships): void })[]>();
+export const ShipsContext =
+  // eslint-disable-next-line no-unused-vars
+  createContext<(Ships | { set(data: Ships): void })[]>();
 
 export function ShipsProvider(props: { children: JSX.Element }) {
   const [data, setData] = createStore(global_ships);
@@ -58,6 +59,7 @@ export function ShipsProvider(props: { children: JSX.Element }) {
     let unlisten_data_add: UnlistenFn;
     (async () => {
       unlisten_data_set = await listen<Ships>("set-kcs-ships", (event) => {
+        // console.log("set-kcs-ships", event.payload);
         setData(event.payload);
       });
       unlisten_data_add = await listen<Ships>("add-kcs-ships", (event) => {
@@ -68,7 +70,7 @@ export function ShipsProvider(props: { children: JSX.Element }) {
                 "ships",
                 Number(key1),
                 key2 as Part<Ship, keyof Ship>,
-                value2,
+                value2
               );
             }
           });
@@ -98,7 +100,7 @@ export function useShips() {
   return context as [Ships, (value: Ships) => void];
 }
 
-const MstShipsContext =
+export const MstShipsContext =
   // eslint-disable-next-line no-unused-vars
   createContext<(MstShips | { set(data: MstShips): void })[]>();
 
@@ -117,6 +119,7 @@ export function MstShipsProvider(props: { children: JSX.Element }) {
     let unlisten_data: UnlistenFn;
     (async () => {
       unlisten_data = await listen<MstShips>("set-kcs-mst-ships", (event) => {
+        // console.log("set-kcs-mst-ships", event.payload);
         setData(event.payload);
       });
     })();
@@ -142,7 +145,7 @@ export function useMstShips() {
   return context as [MstShips, (value: MstShips) => void];
 }
 
-const SlotItemsContext =
+export const SlotItemsContext =
   // eslint-disable-next-line no-unused-vars
   createContext<(SlotItems | { set(data: SlotItems): void })[]>();
 
@@ -161,6 +164,7 @@ export function SlotItemsProvider(props: { children: JSX.Element }) {
     let unlisten_data: UnlistenFn;
     (async () => {
       unlisten_data = await listen<SlotItems>("set-kcs-slot-items", (event) => {
+        // console.log("set-kcs-slot-items", event.payload);
         setData(event.payload);
       });
     })();
@@ -186,7 +190,7 @@ export function useSlotItems() {
   return context as [SlotItems, (value: SlotItems) => void];
 }
 
-const MstSlotItemsContext =
+export const MstSlotItemsContext =
   // eslint-disable-next-line no-unused-vars
   createContext<(MstSlotitems | { set(data: MstSlotitems): void })[]>();
 
@@ -207,8 +211,9 @@ export function MstSlotItemsProvider(props: { children: JSX.Element }) {
       unlisten_data = await listen<MstSlotitems>(
         "set-kcs-mst-slot-items",
         (event) => {
+          // console.log("set-kcs-mst-slot-items", event.payload);
           setData(event.payload);
-        },
+        }
       );
     })();
 
@@ -256,7 +261,7 @@ export function MstEquipExslotShipsProvider(props: { children: JSX.Element }) {
         "set-kcs-mst-equip-exslot-ships",
         (event) => {
           setData(event.payload);
-        },
+        }
       );
     })();
 
@@ -276,7 +281,7 @@ export function useMstEquipExslotShips() {
   const context = useContext(MstEquipExslotShipsContext);
   if (!context) {
     throw new Error(
-      "useMstEquipExslotShips: cannot find a MstEquipExslotShipsContext",
+      "useMstEquipExslotShips: cannot find a MstEquipExslotShipsContext"
     );
   }
   // eslint-disable-next-line no-unused-vars
@@ -308,7 +313,7 @@ export function MstSlotItemEquipTypesProvider(props: {
         "set-kcs-mst-slot-item-equip-types",
         (event) => {
           setData(event.payload);
-        },
+        }
       );
     })();
 
@@ -328,7 +333,7 @@ export function useMstSlotItemEquipTypes() {
   const context = useContext(MstSlotItemEquipTypesContext);
   if (!context) {
     throw new Error(
-      "useMstSlotItemEquipTypes: cannot find a MstSlotItemEquipTypesContext",
+      "useMstSlotItemEquipTypes: cannot find a MstSlotItemEquipTypesContext"
     );
   }
 
@@ -361,7 +366,7 @@ export function MstEquipShipsProvider(props: { children: JSX.Element }) {
         "set-kcs-mst-equip-ships",
         (event) => {
           setData(event.payload);
-        },
+        }
       );
     })();
 
@@ -452,7 +457,7 @@ export function MstUseItemsProvider(props: { children: JSX.Element }) {
         "set-kcs-mst-use-items",
         (event) => {
           setData(event.payload);
-        },
+        }
       );
     })();
 
@@ -500,7 +505,7 @@ export function MaterialsProvider(props: { children: JSX.Element }) {
         "set-kcs-materials",
         (event) => {
           setData(event.payload);
-        },
+        }
       );
       unlisten_data_add = await listen<Materials>(
         "add-kcs-materials",
@@ -510,7 +515,7 @@ export function MaterialsProvider(props: { children: JSX.Element }) {
               setData(key as Part<Materials, keyof Materials>, value);
             }
           });
-        },
+        }
       );
     })();
 
@@ -536,7 +541,7 @@ export function useMaterials() {
   return context as [Materials, (value: Materials) => void];
 }
 
-const DeckPortsContext =
+export const DeckPortsContext =
   // eslint-disable-next-line no-unused-vars
   createContext<(DeckPorts | { set(data: DeckPorts): void })[]>();
 
@@ -555,6 +560,7 @@ export function DeckPortsProvider(props: { children: JSX.Element }) {
     let unlisten_data: UnlistenFn;
     (async () => {
       unlisten_data = await listen<DeckPorts>("set-kcs-deck-ports", (event) => {
+        // console.log("set-kcs-deck-ports", event.payload);
         setData(event.payload);
       });
     })();
@@ -603,7 +609,7 @@ export function CellsContextProvider(props: { children: JSX.Element }) {
         "set-kcs-cells",
         (event) => {
           setData(event.payload);
-        },
+        }
       );
       // eslint-disable-next-line solid/reactivity
       unlisten_data_add_cell = await listen<Cell>("add-kcs-cell", (event) => {
@@ -617,7 +623,7 @@ export function CellsContextProvider(props: { children: JSX.Element }) {
           if (
             Object.prototype.hasOwnProperty.call(
               data.battles,
-              event.payload.cell_id,
+              event.payload.cell_id
             )
           ) {
             Object.entries(event.payload).forEach(([key, value]) => {
@@ -626,14 +632,14 @@ export function CellsContextProvider(props: { children: JSX.Element }) {
                   "battles",
                   event.payload.cell_id,
                   key as Part<Battle, keyof Battle>,
-                  value,
+                  value
                 );
               }
             });
           } else {
             setData("battles", event.payload.cell_id, event.payload);
           }
-        },
+        }
       );
     })();
 
@@ -708,9 +714,8 @@ export function useAirBases() {
 type AuthContextType = {
   accessToken: string | null;
   refreshToken: string | null;
-}
+};
 const AuthContext =
-  // eslint-disable-next-line no-unused-vars
   createContext<(AuthContextType | SetStoreFunction<AuthContextType>)[]>();
 
 export function AuthProvider(props: { children: JSX.Element }) {
@@ -719,12 +724,8 @@ export function AuthProvider(props: { children: JSX.Element }) {
     refreshToken: null,
   };
   const [data, setData] = createStore(store_data);
-  const setter = [
-    data,
-    setData
-  ];
+  const setter = [data, setData];
 
-  
   // createEffect(() => {
   //   supabase.auth.getSession().then(({ data }) => {
   //     if (data.session !== null) {
@@ -747,15 +748,12 @@ export function AuthProvider(props: { children: JSX.Element }) {
   createEffect(() => {
     let unlisten_data: UnlistenFn;
     (async () => {
-      unlisten_data = await listen<string[]>(
-        "set-supabase-tokens",
-        (event) => {
-          setData({
-            accessToken: event.payload[0],
-            refreshToken: event.payload[1],
-          });
-        },
-      );
+      unlisten_data = await listen<string[]>("set-supabase-tokens", (event) => {
+        setData({
+          accessToken: event.payload[0],
+          refreshToken: event.payload[1],
+        });
+      });
     })();
 
     onCleanup(() => {
@@ -764,9 +762,7 @@ export function AuthProvider(props: { children: JSX.Element }) {
   });
 
   return (
-    <AuthContext.Provider value={setter}>
-      {props.children}
-    </AuthContext.Provider>
+    <AuthContext.Provider value={setter}>{props.children}</AuthContext.Provider>
   );
 }
 
@@ -775,10 +771,9 @@ export function useAuth() {
   if (!context) {
     throw new Error("useAuth: cannot find a AuthContext");
   }
-  // eslint-disable-next-line no-unused-vars
+
   return context as [AuthContextType, SetStoreFunction<AuthContextType>];
 }
-
 
 //-----
 
@@ -805,7 +800,7 @@ export function DebugApiProvider(props: { children: JSX.Element }) {
         "set-debug-api-read-dir",
         (event) => {
           setData(event.payload);
-        },
+        }
       );
     })();
 

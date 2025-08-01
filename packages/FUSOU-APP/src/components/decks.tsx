@@ -22,7 +22,7 @@ export function DecksComponent() {
           <ul class="pl-0">
             <For
               each={Object.entries(decks.deck_ports)}
-              fallback={<div class="text-xs py-2">Loading Fleet Data ...</div>}
+              fallback={<li class="text-xs py-2">Loading Fleet Data ...</li>}
             >
               {(item) => (
                 <>
