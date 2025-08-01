@@ -1,0 +1,5 @@
+test result [2025-06-28 11:41:19.299409100 +09:00]
+test_name / struct_name / field_name / found types
+type_value / ApiBasic / api_fleetname: [
+    "null",
+]

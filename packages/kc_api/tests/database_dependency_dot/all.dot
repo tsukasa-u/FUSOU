@@ -1,0 +1,174 @@
+digraph {
+  rankdir=LR;
+  subgraph cluster_0 {
+    label="database / airbase";
+    node [style="filled", color=white, style="solid", color=gray20];
+    database__airbase__AirBase [label="<AirBase> AirBase  | { distance | <distance> i64 } | { uuid | <uuid> AirBaseId } | { env_uuid | <env_uuid> EnvInfoId } | { action_kind | <action_kind> i64 } | { version | <version> String } | { plane_info | <plane_info> Vec\<PlaneInfoId\> }", shape=record];
+    database__airbase__AirBase:uuid:e -> database__airbase__AirBase:AirBaseId:w;
+    database__airbase__PlaneInfo;
+    database__airbase__AirBase:plane_info:e -> database__airbase__PlaneInfo:PlaneInfoId:w;
+    database__airbase__PlaneInfo [label="<PlaneInfo> PlaneInfo  | { env_uuid | <env_uuid> EnvInfoId } | { cond | <cond> Option\<i64\> } | { count | <count> Option\<i64\> } | { max_count | <max_count> Option\<i64\> } | { state | <state> i64 } | { slotid | <slotid> OwnSlotItemId } | { version | <version> String } | { uuid | <uuid> PlaneInfoId }", shape=record];
+    database__airbase__PlaneInfo:uuid:e -> database__airbase__PlaneInfo:PlaneInfoId:w;
+  }
+  subgraph cluster_1 {
+    label="database / battle";
+    node [style="filled", color=white, style="solid", color=gray20];
+    database__battle__FriendlySupportHouraiList [label="<FriendlySupportHouraiList> FriendlySupportHouraiList  | { e_flare_pos | <e_flare_pos> Option\<i64\> } | { env_uuid | <env_uuid> EnvInfoId } | { f_flare_pos | <f_flare_pos> Option\<i64\> } | { version | <version> String } | { hourai_list | <hourai_list> Option\<Vec\<FriendlySupportHouraiId\>\> } | { uuid | <uuid> FriendlySupportHouraiListId }", shape=record];
+    database__battle__FriendlySupportHourai;
+    database__battle__FriendlySupportHouraiList:hourai_list:e -> database__battle__FriendlySupportHourai:FriendlySupportHouraiId:w;
+    database__battle__FriendlySupportHouraiList:uuid:e -> database__battle__FriendlySupportHouraiList:FriendlySupportHouraiListId:w;
+    database__battle__Battle [label="<Battle> Battle  | { balloon_flag | <balloon_flag> Option\<i64\> } | { friendly_force_attack | <friendly_force_attack> Option\<FriendlySupportHouraiListId\> } | { cell_id | <cell_id> i64 } | { e_total_damages | <e_total_damages> Option\<Vec\<i64\>\> } | { opening_taisen | <opening_taisen> Option\<OpeningTaisenListId\> } | { midngiht_f_nowhps | <midngiht_f_nowhps> Option\<Vec\<i64\>\> } | { air_base_assault | <air_base_assault> Option\<AirBaseAssultId\> } | { support_hourai | <support_hourai> Option\<SupportHouraiId\> } | { e_formation | <e_formation> Option\<i64\> } | { f_reconnaissance | <f_reconnaissance> Option\<i64\> } | { opening_air_attack | <opening_air_attack> Option\<OpeningAirAttackId\> } | { air_base_air_attacks | <air_base_air_attacks> Option\<AirBaseAirAttackListId\> } | { e_nowhps | <e_nowhps> Option\<Vec\<i64\>\> } | { env_uuid | <env_uuid> EnvInfoId } | { f_deck_id | <f_deck_id> Option\<OwnDeckId\> } | { timestamp | <timestamp> Option\<i64\> } | { friend_deck_id | <friend_deck_id> Option\<FriendDeckId\> } | { f_formation | <f_formation> Option\<i64\> } | { e_reconnaissance | <e_reconnaissance> Option\<i64\> } | { uuid | <uuid> BattleId } | { midnight_f_total_damages | <midnight_f_total_damages> Option\<Vec\<i64\>\> } | { friend_total_damages | <friend_total_damages> Option\<Vec\<i64\>\> } | { midnight_timestamp | <midnight_timestamp> Option\<i64\> } | { support_deck_id | <support_deck_id> Option\<SupportDeckId\> } | { support_airattack | <support_airattack> Option\<SupportAirattackId\> } | { closing_raigeki | <closing_raigeki> Option\<ClosingRaigekiId\> } | { hougeki | <hougeki> Option\<HougekiListId\> } | { e_deck_id | <e_deck_id> Option\<EnemyDeckId\> } | { midnight_hougeki | <midnight_hougeki> Option\<MidnightHougekiListId\> } | { carrier_base_assault | <carrier_base_assault> Option\<CarrierBaseAssaultId\> } | { battle_order | <battle_order> Vec\<i64\> } | { version | <version> String } | { f_escape_idx | <f_escape_idx> Option\<Vec\<i64\>\> } | { f_combat_ration | <f_combat_ration> Option\<Vec\<i64\>\> } | { f_total_damages | <f_total_damages> Option\<Vec\<i64\>\> } | { smoke_type | <smoke_type> Option\<i64\> } | { midnight_e_total_damages | <midnight_e_total_damages> Option\<Vec\<i64\>\> } | { opening_raigeki | <opening_raigeki> Option\<OpeningRaigekiId\> } | { f_nowhps | <f_nowhps> Option\<Vec\<i64\>\> } | { midngiht_e_nowhps | <midngiht_e_nowhps> Option\<Vec\<i64\>\> }", shape=record];
+    database__battle__Battle:friendly_force_attack:e -> database__battle__FriendlySupportHouraiList:FriendlySupportHouraiListId:w;
+    database__battle__OpeningTaisenList;
+    database__battle__Battle:opening_taisen:e -> database__battle__OpeningTaisenList:OpeningTaisenListId:w;
+    database__battle__AirBaseAssult;
+    database__battle__Battle:air_base_assault:e -> database__battle__AirBaseAssult:AirBaseAssultId:w;
+    database__battle__SupportHourai;
+    database__battle__Battle:support_hourai:e -> database__battle__SupportHourai:SupportHouraiId:w;
+    database__battle__OpeningAirAttack;
+    database__battle__Battle:opening_air_attack:e -> database__battle__OpeningAirAttack:OpeningAirAttackId:w;
+    database__battle__AirBaseAirAttackList;
+    database__battle__Battle:air_base_air_attacks:e -> database__battle__AirBaseAirAttackList:AirBaseAirAttackListId:w;
+    database__battle__Battle:uuid:e -> database__battle__Battle:BattleId:w;
+    database__battle__SupportAirattack;
+    database__battle__Battle:support_airattack:e -> database__battle__SupportAirattack:SupportAirattackId:w;
+    database__battle__ClosingRaigeki;
+    database__battle__Battle:closing_raigeki:e -> database__battle__ClosingRaigeki:ClosingRaigekiId:w;
+    database__battle__HougekiList;
+    database__battle__Battle:hougeki:e -> database__battle__HougekiList:HougekiListId:w;
+    database__battle__MidnightHougekiList;
+    database__battle__Battle:midnight_hougeki:e -> database__battle__MidnightHougekiList:MidnightHougekiListId:w;
+    database__battle__CarrierBaseAssault;
+    database__battle__Battle:carrier_base_assault:e -> database__battle__CarrierBaseAssault:CarrierBaseAssaultId:w;
+    database__battle__OpeningRaigeki;
+    database__battle__Battle:opening_raigeki:e -> database__battle__OpeningRaigeki:OpeningRaigekiId:w;
+    database__battle__OpeningTaisenList [label="<OpeningTaisenList> OpeningTaisenList  | { env_uuid | <env_uuid> EnvInfoId } | { opening_taisen | <opening_taisen> Vec\<OpeningTaisenId\> } | { version | <version> String } | { uuid | <uuid> OpeningTaisenListId }", shape=record];
+    database__battle__OpeningTaisen;
+    database__battle__OpeningTaisenList:opening_taisen:e -> database__battle__OpeningTaisen:OpeningTaisenId:w;
+    database__battle__OpeningTaisenList:uuid:e -> database__battle__OpeningTaisenList:OpeningTaisenListId:w;
+    database__battle__AirBaseAssult [label="<AirBaseAssult> AirBaseAssult  | { f_touch_plane | <f_touch_plane> Option\<i64\> } | { f_rai_flag | <f_rai_flag> Option\<Vec\<Option\<i64\>\>\> } | { f_now_hps | <f_now_hps> Vec\<i64\> } | { e_cl | <e_cl> Option\<Vec\<i64\>\> } | { e_now_hps | <e_now_hps> Vec\<i64\> } | { f_protect_flag | <f_protect_flag> Option\<Vec\<bool\>\> } | { e_plane_from | <e_plane_from> Option\<Vec\<i64\>\> } | { e_touch_plane | <e_touch_plane> Option\<i64\> } | { f_damages | <f_damages> Option\<Vec\<f32\>\> } | { e_damages | <e_damages> Option\<Vec\<f32\>\> } | { f_plane_from | <f_plane_from> Option\<Vec\<i64\>\> } | { e_rai_flag | <e_rai_flag> Option\<Vec\<Option\<i64\>\>\> } | { uuid | <uuid> AirBaseAssultId } | { f_loss_plane1 | <f_loss_plane1> i64 } | { e_protect_flag | <e_protect_flag> Option\<Vec\<bool\>\> } | { e_loss_plane1 | <e_loss_plane1> i64 } | { f_cl | <f_cl> Option\<Vec\<i64\>\> } | { squadron_plane | <squadron_plane> Vec\<i64\> } | { f_loss_plane2 | <f_loss_plane2> i64 } | { f_bak_flag | <f_bak_flag> Option\<Vec\<Option\<i64\>\>\> } | { e_loss_plane2 | <e_loss_plane2> i64 } | { e_bak_flag | <e_bak_flag> Option\<Vec\<Option\<i64\>\>\> } | { version | <version> String } | { env_uuid | <env_uuid> EnvInfoId }", shape=record];
+    database__battle__AirBaseAssult:uuid:e -> database__battle__AirBaseAssult:AirBaseAssultId:w;
+    database__battle__FriendlySupportHourai [label="<FriendlySupportHourai> FriendlySupportHourai  | { version | <version> String } | { env_uuid | <env_uuid> EnvInfoId } | { uuid | <uuid> FriendlySupportHouraiId } | { at | <at> Option\<i64\> } | { cl | <cl> Option\<Vec\<i64\>\> } | { e_now_hps | <e_now_hps> Option\<Vec\<i64\>\> } | { at_eflag | <at_eflag> Option\<i64\> } | { df | <df> Option\<Vec\<i64\>\> } | { protect_flag | <protect_flag> Option\<Vec\<bool\>\> } | { f_now_hps | <f_now_hps> Option\<Vec\<i64\>\> } | { damage | <damage> Option\<Vec\<i64\>\> } | { si | <si> Option\<Vec\<Option\<i64\>\>\> }", shape=record];
+    database__battle__FriendlySupportHourai:uuid:e -> database__battle__FriendlySupportHourai:FriendlySupportHouraiId:w;
+    database__battle__SupportHourai [label="<SupportHourai> SupportHourai  | { e_damage | <e_damage> Vec\<i64\> } | { f_protect_flag | <f_protect_flag> Vec\<bool\> } | { version | <version> String } | { f_cl | <f_cl> Vec\<i64\> } | { e_cl | <e_cl> Vec\<i64\> } | { uuid | <uuid> SupportHouraiId } | { f_now_hps | <f_now_hps> Vec\<i64\> } | { e_protect_flag | <e_protect_flag> Vec\<bool\> } | { e_now_hps | <e_now_hps> Vec\<i64\> } | { f_damage | <f_damage> Vec\<i64\> } | { env_uuid | <env_uuid> EnvInfoId }", shape=record];
+    database__battle__SupportHourai:uuid:e -> database__battle__SupportHourai:SupportHouraiId:w;
+    database__battle__OpeningRaigeki [label="<OpeningRaigeki> OpeningRaigeki  | { e_now_hps | <e_now_hps> Vec\<i64\> } | { version | <version> String } | { f_rai | <f_rai> Vec\<Option\<Vec\<i64\>\>\> } | { uuid | <uuid> OpeningRaigekiId } | { e_cl | <e_cl> Vec\<i64\> } | { e_protect_flag | <e_protect_flag> Vec\<bool\> } | { f_cl | <f_cl> Vec\<i64\> } | { f_protect_flag | <f_protect_flag> Vec\<bool\> } | { e_rai | <e_rai> Vec\<Option\<Vec\<i64\>\>\> } | { env_uuid | <env_uuid> EnvInfoId } | { e_dam | <e_dam> Vec\<i64\> } | { f_dam | <f_dam> Vec\<i64\> } | { f_now_hps | <f_now_hps> Vec\<i64\> }", shape=record];
+    database__battle__OpeningRaigeki:uuid:e -> database__battle__OpeningRaigeki:OpeningRaigekiId:w;
+    database__battle__HougekiList [label="<HougekiList> HougekiList  | { hougeki | <hougeki> Vec\<Vec\<HougekiId\>\> } | { uuid | <uuid> HougekiListId } | { env_uuid | <env_uuid> EnvInfoId } | { version | <version> String }", shape=record];
+    database__battle__Hougeki;
+    database__battle__HougekiList:hougeki:e -> database__battle__Hougeki:HougekiId:w;
+    database__battle__HougekiList:uuid:e -> database__battle__HougekiList:HougekiListId:w;
+    database__battle__SupportAirattack [label="<SupportAirattack> SupportAirattack  | { e_cl | <e_cl> Option\<Vec\<i64\>\> } | { e_touch_plane | <e_touch_plane> Option\<i64\> } | { e_rai_flag | <e_rai_flag> Option\<Vec\<Option\<i64\>\>\> } | { f_protect_flag | <f_protect_flag> Option\<Vec\<bool\>\> } | { f_touch_plane | <f_touch_plane> Option\<i64\> } | { f_loss_plane | <f_loss_plane> i64 } | { e_now_hps | <e_now_hps> Vec\<i64\> } | { version | <version> String } | { f_damages | <f_damages> Option\<Vec\<f32\>\> } | { e_loss_plane | <e_loss_plane> i64 } | { e_plane_from | <e_plane_from> Option\<Vec\<i64\>\> } | { f_now_hps | <f_now_hps> Vec\<i64\> } | { e_damages | <e_damages> Option\<Vec\<f32\>\> } | { env_uuid | <env_uuid> EnvInfoId } | { f_bak_flag | <f_bak_flag> Option\<Vec\<Option\<i64\>\>\> } | { e_protect_flag | <e_protect_flag> Option\<Vec\<bool\>\> } | { e_bak_flag | <e_bak_flag> Option\<Vec\<Option\<i64\>\>\> } | { f_plane_from | <f_plane_from> Option\<Vec\<i64\>\> } | { f_rai_flag | <f_rai_flag> Option\<Vec\<Option\<i64\>\>\> } | { f_cl | <f_cl> Option\<Vec\<i64\>\> } | { uuid | <uuid> SupportAirattackId }", shape=record];
+    database__battle__SupportAirattack:uuid:e -> database__battle__SupportAirattack:SupportAirattackId:w;
+    database__battle__OpeningTaisen [label="<OpeningTaisen> OpeningTaisen  | { uuid | <uuid> OpeningTaisenId } | { cl | <cl> Vec\<i64\> } | { env_uuid | <env_uuid> EnvInfoId } | { df | <df> Vec\<i64\> } | { damage | <damage> Vec\<i64\> } | { at_type | <at_type> i64 } | { si | <si> Vec\<Option\<i64\>\> } | { at_eflag | <at_eflag> i64 } | { protect_flag | <protect_flag> Vec\<bool\> } | { f_now_hps | <f_now_hps> Vec\<i64\> } | { at | <at> i64 } | { e_now_hps | <e_now_hps> Vec\<i64\> } | { version | <version> String }", shape=record];
+    database__battle__OpeningTaisen:uuid:e -> database__battle__OpeningTaisen:OpeningTaisenId:w;
+    database__battle__MidnightHougekiList [label="<MidnightHougekiList> MidnightHougekiList  | { e_flare_pos | <e_flare_pos> Option\<i64\> } | { uuid | <uuid> MidnightHougekiListId } | { f_flare_pos | <f_flare_pos> Option\<i64\> } | { env_uuid | <env_uuid> EnvInfoId } | { f_touch_plane | <f_touch_plane> Option\<i64\> } | { midnight_hougeki | <midnight_hougeki> Option\<Vec\<MidnightHougekiId\>\> } | { e_touch_plane | <e_touch_plane> Option\<i64\> } | { version | <version> String }", shape=record];
+    database__battle__MidnightHougekiList:uuid:e -> database__battle__MidnightHougekiList:MidnightHougekiListId:w;
+    database__battle__MidnightHougeki;
+    database__battle__MidnightHougekiList:midnight_hougeki:e -> database__battle__MidnightHougeki:MidnightHougekiId:w;
+    database__battle__CarrierBaseAssault [label="<CarrierBaseAssault> CarrierBaseAssault  | { e_loss_plane2 | <e_loss_plane2> i64 } | { f_loss_plane1 | <f_loss_plane1> i64 } | { e_plane_from | <e_plane_from> Option\<Vec\<i64\>\> } | { f_cl | <f_cl> Option\<Vec\<i64\>\> } | { env_uuid | <env_uuid> EnvInfoId } | { f_bak_flag | <f_bak_flag> Option\<Vec\<Option\<i64\>\>\> } | { e_damages | <e_damages> Option\<Vec\<f32\>\> } | { e_now_hps | <e_now_hps> Vec\<i64\> } | { f_damages | <f_damages> Option\<Vec\<f32\>\> } | { f_protect_flag | <f_protect_flag> Option\<Vec\<bool\>\> } | { e_loss_plane1 | <e_loss_plane1> i64 } | { e_protect_flag | <e_protect_flag> Option\<Vec\<bool\>\> } | { f_now_hps | <f_now_hps> Vec\<i64\> } | { f_loss_plane2 | <f_loss_plane2> i64 } | { e_cl | <e_cl> Option\<Vec\<i64\>\> } | { e_rai_flag | <e_rai_flag> Option\<Vec\<Option\<i64\>\>\> } | { uuid | <uuid> CarrierBaseAssaultId } | { e_bak_flag | <e_bak_flag> Option\<Vec\<Option\<i64\>\>\> } | { f_plane_from | <f_plane_from> Option\<Vec\<i64\>\> } | { e_touch_plane | <e_touch_plane> Option\<i64\> } | { version | <version> String } | { f_rai_flag | <f_rai_flag> Option\<Vec\<Option\<i64\>\>\> } | { f_touch_plane | <f_touch_plane> Option\<i64\> }", shape=record];
+    database__battle__CarrierBaseAssault:uuid:e -> database__battle__CarrierBaseAssault:CarrierBaseAssaultId:w;
+    database__battle__MidnightHougeki [label="<MidnightHougeki> MidnightHougeki  | { at_eflag | <at_eflag> Option\<i64\> } | { version | <version> String } | { cl | <cl> Option\<Vec\<i64\>\> } | { at | <at> Option\<i64\> } | { env_uuid | <env_uuid> EnvInfoId } | { df | <df> Option\<Vec\<i64\>\> } | { damage | <damage> Option\<Vec\<i64\>\> } | { uuid | <uuid> MidnightHougekiId } | { f_now_hps | <f_now_hps> Option\<Vec\<i64\>\> } | { e_now_hps | <e_now_hps> Option\<Vec\<i64\>\> } | { si | <si> Option\<Vec\<Option\<i64\>\>\> } | { protect_flag | <protect_flag> Option\<Vec\<bool\>\> }", shape=record];
+    database__battle__MidnightHougeki:uuid:e -> database__battle__MidnightHougeki:MidnightHougekiId:w;
+    database__battle__AirBaseAirAttack [label="<AirBaseAirAttack> AirBaseAirAttack  | { f_plane_from | <f_plane_from> Option\<Vec\<i64\>\> } | { env_uuid | <env_uuid> EnvInfoId } | { squadron_plane | <squadron_plane> Option\<Vec\<Option\<i64\>\>\> } | { e_bak_flag | <e_bak_flag> Option\<Vec\<Option\<i64\>\>\> } | { e_cl | <e_cl> Option\<Vec\<i64\>\> } | { version | <version> String } | { e_plane_from | <e_plane_from> Option\<Vec\<i64\>\> } | { e_protect_flag | <e_protect_flag> Option\<Vec\<bool\>\> } | { f_bak_flag | <f_bak_flag> Option\<Vec\<Option\<i64\>\>\> } | { e_now_hps | <e_now_hps> Vec\<i64\> } | { f_loss_plane2 | <f_loss_plane2> i64 } | { e_touch_plane | <e_touch_plane> Option\<i64\> } | { e_damages | <e_damages> Option\<Vec\<f32\>\> } | { f_loss_plane1 | <f_loss_plane1> i64 } | { airbase_id | <airbase_id> AirBaseId } | { e_loss_plane1 | <e_loss_plane1> i64 } | { uuid | <uuid> AirBaseAirAttackId } | { f_now_hps | <f_now_hps> Vec\<i64\> } | { f_cl | <f_cl> Option\<Vec\<i64\>\> } | { f_damages | <f_damages> Option\<Vec\<f32\>\> } | { f_touch_plane | <f_touch_plane> Option\<i64\> } | { f_rai_flag | <f_rai_flag> Option\<Vec\<Option\<i64\>\>\> } | { e_loss_plane2 | <e_loss_plane2> i64 } | { f_protect_flag | <f_protect_flag> Option\<Vec\<bool\>\> } | { e_rai_flag | <e_rai_flag> Option\<Vec\<Option\<i64\>\>\> }", shape=record];
+    database__battle__AirBaseAirAttack:uuid:e -> database__battle__AirBaseAirAttack:AirBaseAirAttackId:w;
+    database__battle__AirBaseAirAttackList [label="<AirBaseAirAttackList> AirBaseAirAttackList  | { env_uuid | <env_uuid> EnvInfoId } | { version | <version> String } | { air_base_air_attack | <air_base_air_attack> Vec\<AirBaseAirAttackId\> } | { uuid | <uuid> AirBaseAirAttackListId }", shape=record];
+    database__battle__AirBaseAirAttackList:air_base_air_attack:e -> database__battle__AirBaseAirAttack:AirBaseAirAttackId:w;
+    database__battle__AirBaseAirAttackList:uuid:e -> database__battle__AirBaseAirAttackList:AirBaseAirAttackListId:w;
+    database__battle__OpeningAirAttack [label="<OpeningAirAttack> OpeningAirAttack  | { e_damages | <e_damages> Option\<Vec\<f32\>\> } | { airfire_use_item | <airfire_use_item> Option\<Vec\<i64\>\> } | { e_bak_flag | <e_bak_flag> Option\<Vec\<Option\<i64\>\>\> } | { air_superiority | <air_superiority> Option\<i64\> } | { f_now_hps | <f_now_hps> Vec\<i64\> } | { env_uuid | <env_uuid> EnvInfoId } | { e_now_hps | <e_now_hps> Vec\<i64\> } | { f_protect_flag | <f_protect_flag> Option\<Vec\<bool\>\> } | { f_loss_plane1 | <f_loss_plane1> i64 } | { e_plane_from | <e_plane_from> Option\<Vec\<i64\>\> } | { e_touch_plane | <e_touch_plane> Option\<i64\> } | { e_loss_plane2 | <e_loss_plane2> i64 } | { f_rai_flag | <f_rai_flag> Option\<Vec\<Option\<i64\>\>\> } | { f_damages | <f_damages> Option\<Vec\<f32\>\> } | { f_bak_flag | <f_bak_flag> Option\<Vec\<Option\<i64\>\>\> } | { f_touch_plane | <f_touch_plane> Option\<i64\> } | { version | <version> String } | { f_plane_from | <f_plane_from> Option\<Vec\<i64\>\> } | { f_loss_plane2 | <f_loss_plane2> i64 } | { e_protect_flag | <e_protect_flag> Option\<Vec\<bool\>\> } | { f_cl | <f_cl> Option\<Vec\<i64\>\> } | { e_rai_flag | <e_rai_flag> Option\<Vec\<Option\<i64\>\>\> } | { airfire_idx | <airfire_idx> Option\<i64\> } | { uuid | <uuid> OpeningAirAttackId } | { e_loss_plane1 | <e_loss_plane1> i64 } | { e_cl | <e_cl> Option\<Vec\<i64\>\> }", shape=record];
+    database__battle__OpeningAirAttack:uuid:e -> database__battle__OpeningAirAttack:OpeningAirAttackId:w;
+    database__battle__ClosingRaigeki [label="<ClosingRaigeki> ClosingRaigeki  | { uuid | <uuid> ClosingRaigekiId } | { e_dam | <e_dam> Vec\<i64\> } | { f_cl | <f_cl> Vec\<i64\> } | { f_protect_flag | <f_protect_flag> Vec\<bool\> } | { f_dam | <f_dam> Vec\<i64\> } | { version | <version> String } | { env_uuid | <env_uuid> EnvInfoId } | { e_now_hps | <e_now_hps> Vec\<i64\> } | { e_cl | <e_cl> Vec\<i64\> } | { e_protect_flag | <e_protect_flag> Vec\<bool\> } | { f_now_hps | <f_now_hps> Vec\<i64\> } | { f_rai | <f_rai> Vec\<i64\> } | { e_rai | <e_rai> Vec\<i64\> }", shape=record];
+    database__battle__ClosingRaigeki:uuid:e -> database__battle__ClosingRaigeki:ClosingRaigekiId:w;
+    database__battle__Hougeki [label="<Hougeki> Hougeki  | { f_now_hps | <f_now_hps> Vec\<i64\> } | { version | <version> String } | { uuid | <uuid> HougekiId } | { at | <at> i64 } | { damage | <damage> Vec\<i64\> } | { protect_flag | <protect_flag> Vec\<bool\> } | { env_uuid | <env_uuid> EnvInfoId } | { at_type | <at_type> i64 } | { cl | <cl> Vec\<i64\> } | { df | <df> Vec\<i64\> } | { at_eflag | <at_eflag> i64 } | { si | <si> Vec\<Option\<i64\>\> } | { e_now_hps | <e_now_hps> Vec\<i64\> }", shape=record];
+    database__battle__Hougeki:uuid:e -> database__battle__Hougeki:HougekiId:w;
+  }
+  subgraph cluster_2 {
+    label="database / cell";
+    node [style="filled", color=white, style="solid", color=gray20];
+    database__cell__Cells [label="<Cells> Cells  | { maparea_id | <maparea_id> i64 } | { env_uuid | <env_uuid> EnvInfoId } | { uuid | <uuid> CellsId } | { version | <version> String } | { cell_index | <cell_index> Vec\<i64\> } | { battles | <battles> Vec\<Option\<BattleId\>\> } | { mapinfo_no | <mapinfo_no> i64 } | { battle_index | <battle_index> Vec\<i64\> }", shape=record];
+    database__cell__Cells:uuid:e -> database__cell__Cells:CellsId:w;
+  }
+  subgraph cluster_3 {
+    label="database / deck";
+    node [style="filled", color=white, style="solid", color=gray20];
+    database__deck__SupportDeck [label="<SupportDeck> SupportDeck  | { version | <version> String } | { uuid | <uuid> SupportDeckId } | { ship_ids | <ship_ids> Vec\<Option\<OwnShipId\>\> } | { env_uuid | <env_uuid> EnvInfoId }", shape=record];
+    database__deck__SupportDeck:uuid:e -> database__deck__SupportDeck:SupportDeckId:w;
+    database__deck__FriendDeck [label="<FriendDeck> FriendDeck  | { ship_ids | <ship_ids> Vec\<FriendShipId\> } | { version | <version> String } | { env_uuid | <env_uuid> EnvInfoId } | { uuid | <uuid> FriendDeckId }", shape=record];
+    database__deck__FriendDeck:uuid:e -> database__deck__FriendDeck:FriendDeckId:w;
+    database__deck__EnemyDeck [label="<EnemyDeck> EnemyDeck  | { ship_ids | <ship_ids> Vec\<EnemyShipId\> } | { env_uuid | <env_uuid> EnvInfoId } | { uuid | <uuid> EnemyDeckId } | { version | <version> String }", shape=record];
+    database__deck__EnemyDeck:uuid:e -> database__deck__EnemyDeck:EnemyDeckId:w;
+    database__deck__OwnDeck [label="<OwnDeck> OwnDeck  | { uuid | <uuid> OwnDeckId } | { env_uuid | <env_uuid> EnvInfoId } | { ship_ids | <ship_ids> Vec\<Option\<OwnShipId\>\> } | { version | <version> String } | { combined_flag | <combined_flag> Option\<i64\> }", shape=record];
+    database__deck__OwnDeck:uuid:e -> database__deck__OwnDeck:OwnDeckId:w;
+  }
+  subgraph cluster_4 {
+    label="database / env_info";
+    node [style="filled", color=white, style="solid", color=gray20];
+    database__env_info__EnvInfo [label="<EnvInfo> EnvInfo  | { uuid | <uuid> EnvInfoId } | { user_env_unique | <user_env_unique> UserEnv } | { version | <version> String } | { timestamp | <timestamp> i64 }", shape=record];
+    database__env_info__EnvInfo:uuid:e -> database__env_info__EnvInfo:EnvInfoId:w;
+  }
+  subgraph cluster_5 {
+    label="database / ship";
+    node [style="filled", color=white, style="solid", color=gray20];
+    database__ship__FriendShip [label="<FriendShip> FriendShip  | { slot | <slot> Option\<Vec\<FriendSlotItemId\>\> } | { karyoku | <karyoku> Option\<i64\> } | { raisou | <raisou> Option\<i64\> } | { taiku | <taiku> Option\<i64\> } | { soukou | <soukou> Option\<i64\> } | { env_uuid | <env_uuid> EnvInfoId } | { lv | <lv> Option\<i64\> } | { slotnum | <slotnum> Option\<i64\> } | { version | <version> String } | { uuid | <uuid> FriendShipId } | { mst_ship_id | <mst_ship_id> Option\<i64\> } | { maxhp | <maxhp> Option\<i64\> } | { nowhp | <nowhp> Option\<i64\> }", shape=record];
+    database__ship__FriendShip:uuid:e -> database__ship__FriendShip:FriendShipId:w;
+    database__ship__EnemyShip [label="<EnemyShip> EnemyShip  | { slot | <slot> Option\<Vec\<EnemySlotItemId\>\> } | { soukou | <soukou> Option\<i64\> } | { version | <version> String } | { env_uuid | <env_uuid> EnvInfoId } | { nowhp | <nowhp> Option\<i64\> } | { maxhp | <maxhp> Option\<i64\> } | { taiku | <taiku> Option\<i64\> } | { uuid | <uuid> EnemyShipId } | { mst_ship_id | <mst_ship_id> Option\<i64\> } | { karyoku | <karyoku> Option\<i64\> } | { raisou | <raisou> Option\<i64\> } | { lv | <lv> Option\<i64\> }", shape=record];
+    database__ship__EnemyShip:uuid:e -> database__ship__EnemyShip:EnemyShipId:w;
+    database__ship__OwnShip [label="<OwnShip> OwnShip  | { cond | <cond> Option\<i64\> } | { sp_effect_items | <sp_effect_items> Option\<Vec\<i64\>\> } | { bull | <bull> Option\<i64\> } | { env_uuid | <env_uuid> EnvInfoId } | { ship_id | <ship_id> Option\<i64\> } | { nowhp | <nowhp> Option\<i64\> } | { karyoku | <karyoku> Option\<Vec\<i64\>\> } | { lv | <lv> Option\<i64\> } | { taiku | <taiku> Option\<Vec\<i64\>\> } | { kaihi | <kaihi> Option\<Vec\<i64\>\> } | { sakuteki | <sakuteki> Option\<Vec\<i64\>\> } | { sally_area | <sally_area> Option\<i64\> } | { slot | <slot> Option\<Vec\<Option\<OwnSlotItemId\>\>\> } | { taisen | <taisen> Option\<Vec\<i64\>\> } | { raisou | <raisou> Option\<Vec\<i64\>\> } | { leng | <leng> Option\<i64\> } | { soku | <soku> Option\<i64\> } | { soukou | <soukou> Option\<Vec\<i64\>\> } | { onsolot | <onsolot> Option\<Vec\<i64\>\> } | { lucky | <lucky> Option\<Vec\<i64\>\> } | { maxhp | <maxhp> Option\<i64\> } | { fuel | <fuel> Option\<i64\> } | { slot_ex | <slot_ex> Option\<i64\> } | { uuid | <uuid> OwnShipId } | { version | <version> String }", shape=record];
+    database__ship__OwnShip:uuid:e -> database__ship__OwnShip:OwnShipId:w;
+  }
+  subgraph cluster_6 {
+    label="database / slotitem";
+    node [style="filled", color=white, style="solid", color=gray20];
+    database__slotitem__EnemySlotItem [label="<EnemySlotItem> EnemySlotItem  | { mst_slotitem_id | <mst_slotitem_id> i64 } | { uuid | <uuid> EnemySlotItemId } | { version | <version> String } | { env_uuid | <env_uuid> EnvInfoId }", shape=record];
+    database__slotitem__EnemySlotItem:uuid:e -> database__slotitem__EnemySlotItem:EnemySlotItemId:w;
+    database__slotitem__FriendSlotItem [label="<FriendSlotItem> FriendSlotItem  | { version | <version> String } | { env_uuid | <env_uuid> EnvInfoId } | { mst_slotitem_id | <mst_slotitem_id> i64 } | { uuid | <uuid> FriendSlotItemId }", shape=record];
+    database__slotitem__FriendSlotItem:uuid:e -> database__slotitem__FriendSlotItem:FriendSlotItemId:w;
+    database__slotitem__OwnSlotItem [label="<OwnSlotItem> OwnSlotItem  | { version | <version> String } | { uuid | <uuid> OwnSlotItemId } | { env_uuid | <env_uuid> EnvInfoId } | { level | <level> i64 } | { mst_slotitem_id | <mst_slotitem_id> i64 } | { alv | <alv> Option\<i64\> }", shape=record];
+    database__slotitem__OwnSlotItem:uuid:e -> database__slotitem__OwnSlotItem:OwnSlotItemId:w;
+  }
+  database__airbase__AirBase:env_uuid:e -> database__env_info__EnvInfo:EnvInfoId:w;
+  database__airbase__PlaneInfo:env_uuid:e -> database__env_info__EnvInfo:EnvInfoId:w;
+  database__airbase__PlaneInfo:slotid:e -> database__slotitem__OwnSlotItem:OwnSlotItemId:w;
+  database__battle__FriendlySupportHouraiList:env_uuid:e -> database__env_info__EnvInfo:EnvInfoId:w;
+  database__battle__Battle:env_uuid:e -> database__env_info__EnvInfo:EnvInfoId:w;
+  database__battle__Battle:f_deck_id:e -> database__deck__OwnDeck:OwnDeckId:w;
+  database__battle__Battle:friend_deck_id:e -> database__deck__FriendDeck:FriendDeckId:w;
+  database__battle__Battle:support_deck_id:e -> database__deck__SupportDeck:SupportDeckId:w;
+  database__battle__Battle:e_deck_id:e -> database__deck__EnemyDeck:EnemyDeckId:w;
+  database__battle__OpeningTaisenList:env_uuid:e -> database__env_info__EnvInfo:EnvInfoId:w;
+  database__battle__AirBaseAssult:env_uuid:e -> database__env_info__EnvInfo:EnvInfoId:w;
+  database__battle__FriendlySupportHourai:env_uuid:e -> database__env_info__EnvInfo:EnvInfoId:w;
+  database__battle__SupportHourai:env_uuid:e -> database__env_info__EnvInfo:EnvInfoId:w;
+  database__battle__OpeningRaigeki:env_uuid:e -> database__env_info__EnvInfo:EnvInfoId:w;
+  database__battle__HougekiList:env_uuid:e -> database__env_info__EnvInfo:EnvInfoId:w;
+  database__battle__SupportAirattack:env_uuid:e -> database__env_info__EnvInfo:EnvInfoId:w;
+  database__battle__OpeningTaisen:env_uuid:e -> database__env_info__EnvInfo:EnvInfoId:w;
+  database__battle__MidnightHougekiList:env_uuid:e -> database__env_info__EnvInfo:EnvInfoId:w;
+  database__battle__CarrierBaseAssault:env_uuid:e -> database__env_info__EnvInfo:EnvInfoId:w;
+  database__battle__MidnightHougeki:env_uuid:e -> database__env_info__EnvInfo:EnvInfoId:w;
+  database__battle__AirBaseAirAttack:env_uuid:e -> database__env_info__EnvInfo:EnvInfoId:w;
+  database__battle__AirBaseAirAttack:airbase_id:e -> database__airbase__AirBase:AirBaseId:w;
+  database__battle__AirBaseAirAttackList:env_uuid:e -> database__env_info__EnvInfo:EnvInfoId:w;
+  database__battle__OpeningAirAttack:env_uuid:e -> database__env_info__EnvInfo:EnvInfoId:w;
+  database__battle__ClosingRaigeki:env_uuid:e -> database__env_info__EnvInfo:EnvInfoId:w;
+  database__battle__Hougeki:env_uuid:e -> database__env_info__EnvInfo:EnvInfoId:w;
+  database__cell__Cells:env_uuid:e -> database__env_info__EnvInfo:EnvInfoId:w;
+  database__cell__Cells:battles:e -> database__battle__Battle:BattleId:w;
+  database__deck__SupportDeck:ship_ids:e -> database__ship__OwnShip:OwnShipId:w;
+  database__deck__SupportDeck:env_uuid:e -> database__env_info__EnvInfo:EnvInfoId:w;
+  database__deck__FriendDeck:ship_ids:e -> database__ship__FriendShip:FriendShipId:w;
+  database__deck__FriendDeck:env_uuid:e -> database__env_info__EnvInfo:EnvInfoId:w;
+  database__deck__EnemyDeck:ship_ids:e -> database__ship__EnemyShip:EnemyShipId:w;
+  database__deck__EnemyDeck:env_uuid:e -> database__env_info__EnvInfo:EnvInfoId:w;
+  database__deck__OwnDeck:env_uuid:e -> database__env_info__EnvInfo:EnvInfoId:w;
+  database__deck__OwnDeck:ship_ids:e -> database__ship__OwnShip:OwnShipId:w;
+  database__ship__FriendShip:slot:e -> database__slotitem__FriendSlotItem:FriendSlotItemId:w;
+  database__ship__FriendShip:env_uuid:e -> database__env_info__EnvInfo:EnvInfoId:w;
+  database__ship__EnemyShip:slot:e -> database__slotitem__EnemySlotItem:EnemySlotItemId:w;
+  database__ship__EnemyShip:env_uuid:e -> database__env_info__EnvInfo:EnvInfoId:w;
+  database__ship__OwnShip:env_uuid:e -> database__env_info__EnvInfo:EnvInfoId:w;
+  database__ship__OwnShip:slot:e -> database__slotitem__OwnSlotItem:OwnSlotItemId:w;
+  database__slotitem__EnemySlotItem:env_uuid:e -> database__env_info__EnvInfo:EnvInfoId:w;
+  database__slotitem__FriendSlotItem:env_uuid:e -> database__env_info__EnvInfo:EnvInfoId:w;
+  database__slotitem__OwnSlotItem:env_uuid:e -> database__env_info__EnvInfo:EnvInfoId:w;
+}

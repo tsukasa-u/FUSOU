@@ -10,7 +10,13 @@ import { IconChevronRightS } from "../icons/chevron_right_s.tsx";
 
 import { EquimentComponent } from "./equipment.tsx";
 import { ShipNameComponent } from "./ship_name.tsx";
-import { useDeckPorts, useMstShips, useShips } from "../utility/provider.tsx";
+import {
+  useDeckPorts,
+  useMstShips,
+  useMstSlotItems,
+  useShips,
+  useSlotItems,
+} from "../utility/provider.tsx";
 import {
   createEffect,
   createMemo,
@@ -24,6 +30,9 @@ import {
 import "../css/divider.css";
 
 import "shared-ui";
+import { MstShip, MstSlotitem, MstSlotitems } from "../interface/get_data.ts";
+import { Ship } from "../interface/port.ts";
+import { SlotItem, SlotItems } from "../interface/require_info.ts";
 
 let moreSiganMap: { [key: number]: boolean } = {};
 let fleetOpenSignalMap: { [key: number]: boolean } = {
@@ -41,19 +50,52 @@ interface DeckPortProps {
 export function DeckComponent(props: DeckPortProps) {
   const [mst_ships] = useMstShips();
   const [ships] = useShips();
-  const [_deck_ports] = useDeckPorts();
+  const [slot_items] = useSlotItems();
+  const [mst_slot_items] = useMstSlotItems();
+  const [deck_ports] = useDeckPorts();
+
+  const ship_list = createMemo<Ship[]>(() => {
+    let mst_ship_list = deck_ports.deck_ports[props.deck_id].ship.map(
+      (id) => ships.ships[id]
+    );
+    return mst_ship_list;
+  });
+
+  const mst_ship_list = createMemo<MstShip[]>(() => {
+    let mst_ship_list = ship_list().map(
+      (ship) => mst_ships.mst_ships[ship.ship_id]
+    );
+    return mst_ship_list;
+  });
+
+  const slot_items_list = createMemo<SlotItems[]>(() => {
+    let slot_items_list = ship_list().map((ship) => {
+      let slot_item_dict: { [key: number]: SlotItem } = {};
+      ship.slot.forEach((id) => {
+        slot_item_dict[id] = slot_items.slot_items[id];
+      });
+      return {
+        slot_items: slot_item_dict,
+      } as SlotItems;
+    });
+    return slot_items_list;
+  });
+
+  const mst_slot_itmes_list = createMemo<MstSlotitems[]>(() => {
+    let mst_slot_itmes_list = slot_items_list().map((items) => {
+      let mst_slot_item_dict: { [key: number]: MstSlotitem } = {};
+      Object.values(items.slot_items).forEach((item) => {
+        mst_slot_item_dict[item.slotitem_id] =
+          mst_slot_items.mst_slot_items[item.slotitem_id];
+      });
+      return {
+        mst_slot_items: mst_slot_item_dict,
+      } as MstSlotitems;
+    });
+    return mst_slot_itmes_list;
+  });
 
   const cond_state = createMemo<JSX.Element[]>(() => {
-    // const cond_list: JSX.Element[] = [
-    //     <IconKira3 class="h-4 w-4 fill-yellow-500 stroke-2"></IconKira3>,
-    //     <IconKira2 class="h-4 w-4 fill-yellow-500 stroke-2"></IconKira2>,
-    //     <IconKira1 class="h-4 w-4 fill-yellow-500 stroke-2"></IconKira1>,
-    //     <></>,
-    //     <IconCautionFill class="h-4 w-4 fill-yellow-500 stroke-2"></IconCautionFill>,
-    //     <IconCautionFill class="h-4 w-4 fill-yellow-500 stroke-2"></IconCautionFill>,
-    //     <IconCautionFill class="h-4 w-4 fill-orange-500 stroke-2"></IconCautionFill>,
-    //     <IconCautionFill class="h-4 w-4 fill-red-500 stroke-2"></IconCautionFill>,
-    // ];
     const set_cond_state = (cond: number): JSX.Element => {
       let cond_state: JSX.Element = <></>;
       if (cond >= 71)
@@ -81,21 +123,13 @@ export function DeckComponent(props: DeckPortProps) {
     };
 
     let states: JSX.Element[] = [];
-    _deck_ports.deck_ports[props.deck_id].ship?.forEach((shipId) => {
+    deck_ports.deck_ports[props.deck_id].ship?.forEach((shipId) => {
       states.push(set_cond_state(ships.ships[shipId]?.cond ?? 0));
     });
     return states;
   });
 
   const hp_state = createMemo<JSX.Element[]>(() => {
-    // const hp_list: JSX.Element[] = [
-    //     <></>,
-    //     <IconCautionFill class="h-4 w-4 fill-yellow-500 stroke-2"></IconCautionFill>,
-    //     <IconCautionFill class="h-4 w-4 fill-orange-500 stroke-2"></IconCautionFill>,
-    //     <IconCautionFill class="h-4 w-4 fill-red-500 stroke-2"></IconCautionFill>,
-    //     <></>,
-    // ];
-
     const set_hp_state = (nowhp: number, maxhp: number): JSX.Element => {
       let hp_state: JSX.Element = <></>;
       if (nowhp > 0.75 * maxhp) hp_state = <></>;
@@ -109,7 +143,7 @@ export function DeckComponent(props: DeckPortProps) {
     };
 
     let states: JSX.Element[] = [];
-    _deck_ports.deck_ports[props.deck_id].ship?.forEach((shipId) => {
+    deck_ports.deck_ports[props.deck_id].ship?.forEach((shipId) => {
       states.push(
         set_hp_state(
           ships.ships[shipId]?.nowhp ?? 0,
@@ -122,13 +156,6 @@ export function DeckComponent(props: DeckPortProps) {
   });
 
   const fuel_bullet_state = createMemo<JSX.Element[]>(() => {
-    // const fuel_bullet_list: JSX.Element[] = [
-    //     <></>,
-    //     <IconCautionFill class="h-4 w-4 fill-yellow-500 stroke-2"></IconCautionFill>,
-    //     <IconCautionFill class="h-4 w-4 fill-orange-500 stroke-2"></IconCautionFill>,
-    //     <IconCautionFill class="h-4 w-4 fill-red-500 stroke-2"></IconCautionFill>,
-    // ];
-
     const set_fuel_bullet_state = (
       nowfuel: number,
       maxfuel: number,
@@ -154,7 +181,7 @@ export function DeckComponent(props: DeckPortProps) {
     };
 
     let states: JSX.Element[] = [];
-    _deck_ports.deck_ports[props.deck_id].ship?.forEach((shipId) => {
+    deck_ports.deck_ports[props.deck_id].ship?.forEach((shipId) => {
       states.push(
         set_fuel_bullet_state(
           ships.ships[shipId]?.bull ?? 0,
@@ -197,7 +224,7 @@ export function DeckComponent(props: DeckPortProps) {
               <IconChevronRightS class="h-4 w-4" />
             </div>
             <div class="pl-4">
-              {_deck_ports.deck_ports[props.deck_id].name ?? ""}
+              {deck_ports.deck_ports[props.deck_id].name ?? ""}
             </div>
             <span class="flex-auto" />
             <div class="form-control flex-none">
@@ -216,8 +243,8 @@ export function DeckComponent(props: DeckPortProps) {
             </div>
           </summary>
           <ul class="pl-0">
-            {/* {_deck_ports.deck_ports[deck_id].ship} */}
-            <For each={_deck_ports.deck_ports[props.deck_id].ship}>
+            {/* {deck_ports.deck_ports[deck_id].ship} */}
+            <For each={deck_ports.deck_ports[props.deck_id].ship}>
               {(shipId, idx) => (
                 <Show when={shipId > 0}>
                   <li class="h-auto">
@@ -225,7 +252,15 @@ export function DeckComponent(props: DeckPortProps) {
                       <div class="justify-start gap-0 flex">
                         <div class="pl-2 pr-0.5 truncate flex-1 min-w-12 content-center">
                           <div class="w-24 h-max">
-                            <component-ship size="xs" color="flagship" />
+                            <component-ship-modal
+                              size="xs"
+                              color=""
+                              name_flag={true}
+                              ship={ship_list()[idx()]}
+                              mst_ship={mst_ship_list()[idx()]}
+                              slot_items={slot_items_list()[idx()]}
+                              mst_slot_items={mst_slot_itmes_list()[idx()]}
+                            />
                             {/* <ShipNameComponent ship_id={shipId} /> */}
                           </div>
                         </div>

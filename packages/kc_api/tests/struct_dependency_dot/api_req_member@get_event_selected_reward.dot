@@ -1,0 +1,14 @@
+digraph {
+  rankdir=LR;
+  subgraph cluster_0 {
+    label="api_req_member / get_event_selected_reward";
+    node [style="filled", color=white, style="solid", color=gray20];
+    api_req_member__get_event_selected_reward__Res [label="<Res> Res  | { api_result | <api_result> i64 } | { api_result_msg | <api_result_msg> String } | { api_data | <api_data> ApiData }", shape=record];
+    api_req_member__get_event_selected_reward__ApiData;
+    api_req_member__get_event_selected_reward__Res:api_data:e -> api_req_member__get_event_selected_reward__ApiData:ApiData:w;
+    api_req_member__get_event_selected_reward__ApiGetItemList [label="<ApiGetItemList> ApiGetItemList  | { api_type | <api_type> i64 } | { api_id | <api_id> i64 } | { api_value | <api_value> i64 } | { api_item_no | <api_item_no> i64 }", shape=record];
+    api_req_member__get_event_selected_reward__Req [label="<Req> Req  | { api_token | <api_token> String } | { api_verno | <api_verno> String }", shape=record];
+    api_req_member__get_event_selected_reward__ApiData [label="<ApiData> ApiData  | { api_get_item_list | <api_get_item_list> Vec\<ApiGetItemList\> }", shape=record];
+    api_req_member__get_event_selected_reward__ApiData:api_get_item_list:e -> api_req_member__get_event_selected_reward__ApiGetItemList:ApiGetItemList:w;
+  }
+}
