@@ -1,0 +1,9 @@
+digraph {
+  rankdir=LR;
+  subgraph cluster_0 {
+    label="api_req_furniture / buy";
+    node [style="filled", color=white, style="solid", color=gray20];
+    api_req_furniture__buy__Req [label="<Req> Req  | { api_no | <api_no> String } | { api_verno | <api_verno> String } | { api_discount_flag | <api_discount_flag> Option\<String\> } | { api_token | <api_token> String } | { api_type | <api_type> String }", shape=record];
+    api_req_furniture__buy__Res [label="<Res> Res  | { api_result_msg | <api_result_msg> String } | { api_result | <api_result> i64 }", shape=record];
+  }
+}

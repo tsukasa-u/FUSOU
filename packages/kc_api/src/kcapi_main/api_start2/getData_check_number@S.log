@@ -1,0 +1,1434 @@
+check number size result [2025-06-28 11:41:20.734688100 +09:00]
+{
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstSlotitem",
+        "api_raig",
+        "i64",
+    ): [
+        0,
+        19,
+        5,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstShip",
+        "api_leng",
+        "core::option::Option<i64>",
+    ): [
+        1,
+        4,
+        3,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiData",
+        "api_mst_equip_exslot",
+        "alloc::vec::Vec<i64>",
+    ): [
+        16,
+        44,
+        6,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstMapinfo",
+        "api_item",
+        "alloc::vec::Vec<i64>",
+    ): [
+        0,
+        34,
+        6,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstEquipExslotShip",
+        "api_req_level",
+        "i64",
+    ): [
+        0,
+        7,
+        3,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstFurniture",
+        "api_no",
+        "i64",
+    ): [
+        0,
+        152,
+        8,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstPayitem",
+        "api_price",
+        "i64",
+    ): [
+        100,
+        1000,
+        10,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstShipgraph",
+        "api_kaisyu_d",
+        "core::option::Option<alloc::vec::Vec<i64>>",
+    ): [
+        -115,
+        146,
+        8,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstShipgraph",
+        "api_battle_n",
+        "core::option::Option<alloc::vec::Vec<i64>>",
+    ): [
+        -630,
+        381,
+        10,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstUseitem",
+        "api_price",
+        "i64",
+    ): [
+        0,
+        0,
+        1,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstMission",
+        "api_sample_fleet",
+        "alloc::vec::Vec<i64>",
+    ): [
+        0,
+        21,
+        5,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstShipgraph",
+        "api_weda",
+        "core::option::Option<alloc::vec::Vec<i64>>",
+    ): [
+        -56,
+        616,
+        10,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstSlotitemEquiptype",
+        "api_id",
+        "i64",
+    ): [
+        1,
+        95,
+        7,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstShip",
+        "api_broken",
+        "core::option::Option<alloc::vec::Vec<i64>>",
+    ): [
+        0,
+        115,
+        7,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstShip",
+        "api_soku",
+        "i64",
+    ): [
+        0,
+        10,
+        4,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiDpflagQuest",
+        "api_int_value",
+        "i64",
+    ): [
+        1,
+        1,
+        1,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstShipupgrade",
+        "api_original_ship_id",
+        "i64",
+    ): [
+        10,
+        1001,
+        10,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstMapbgm",
+        "api_moving_bgm",
+        "i64",
+    ): [
+        11,
+        264,
+        9,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstUseitem",
+        "api_usetype",
+        "i64",
+    ): [
+        0,
+        7,
+        3,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstShip",
+        "api_slot_num",
+        "i64",
+    ): [
+        0,
+        5,
+        3,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstFurniture",
+        "api_id",
+        "i64",
+    ): [
+        1,
+        657,
+        10,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstItemShop",
+        "api_cabinet_1",
+        "alloc::vec::Vec<i64>",
+    ): [
+        -1,
+        15,
+        4,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstShipgraph",
+        "api_ensyuf_d",
+        "core::option::Option<alloc::vec::Vec<i64>>",
+    ): [
+        -264,
+        294,
+        9,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstPayitem",
+        "api_id",
+        "i64",
+    ): [
+        1,
+        30,
+        5,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstFurniture",
+        "api_active_flag",
+        "i64",
+    ): [
+        0,
+        1,
+        1,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstSlotitem",
+        "api_leng",
+        "i64",
+    ): [
+        0,
+        5,
+        3,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstShip",
+        "api_bull_max",
+        "core::option::Option<i64>",
+    ): [
+        5,
+        400,
+        9,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstSlotitem",
+        "api_saku",
+        "i64",
+    ): [
+        0,
+        16,
+        5,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstMapbgm",
+        "api_boss_bgm",
+        "alloc::vec::Vec<i64>",
+    ): [
+        3,
+        264,
+        9,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstShip",
+        "api_ctype",
+        "i64",
+    ): [
+        1,
+        132,
+        8,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstMapinfo",
+        "api_id",
+        "i64",
+    ): [
+        11,
+        75,
+        7,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstShipgraph",
+        "api_wedb",
+        "core::option::Option<alloc::vec::Vec<i64>>",
+    ): [
+        0,
+        261,
+        9,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstEquipExslotShip",
+        "api_ship_ids",
+        "core::option::Option<std::collections::hash::map::HashMap<alloc::string::String, i64>>",
+    ): [
+        1,
+        1,
+        1,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstSlotitem",
+        "api_soku",
+        "i64",
+    ): [
+        0,
+        0,
+        1,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstUseitem",
+        "api_id",
+        "i64",
+    ): [
+        1,
+        102,
+        7,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstMission",
+        "api_win_item2",
+        "alloc::vec::Vec<i64>",
+    ): [
+        0,
+        12,
+        4,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstFurnituregraph",
+        "api_type",
+        "i64",
+    ): [
+        0,
+        5,
+        3,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstShip",
+        "api_stype",
+        "i64",
+    ): [
+        1,
+        22,
+        5,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstShipupgrade",
+        "api_sortno",
+        "i64",
+    ): [
+        1,
+        1734,
+        11,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstFurniture",
+        "api_price",
+        "i64",
+    ): [
+        0,
+        255000,
+        18,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstSlotitem",
+        "api_bakk",
+        "i64",
+    ): [
+        0,
+        0,
+        1,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstSlotitem",
+        "api_tais",
+        "i64",
+    ): [
+        0,
+        48,
+        6,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstShipupgrade",
+        "api_current_ship_id",
+        "i64",
+    ): [
+        0,
+        1001,
+        10,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstMaparea",
+        "api_type",
+        "i64",
+    ): [
+        0,
+        0,
+        1,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstMapinfo",
+        "api_level",
+        "i64",
+    ): [
+        1,
+        12,
+        4,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstFurniture",
+        "api_outside_id",
+        "i64",
+    ): [
+        0,
+        13,
+        4,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstShipupgrade",
+        "api_report_count",
+        "i64",
+    ): [
+        0,
+        2,
+        2,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstShipgraph",
+        "api_map_n",
+        "core::option::Option<alloc::vec::Vec<i64>>",
+    ): [
+        -271,
+        298,
+        9,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstEquipExslotShip",
+        "api_stypes",
+        "core::option::Option<std::collections::hash::map::HashMap<alloc::string::String, i64>>",
+    ): [
+        1,
+        1,
+        1,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstShip",
+        "api_houg",
+        "core::option::Option<alloc::vec::Vec<i64>>",
+    ): [
+        0,
+        152,
+        8,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstShip",
+        "api_tyku",
+        "core::option::Option<alloc::vec::Vec<i64>>",
+    ): [
+        0,
+        128,
+        8,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstSlotitem",
+        "api_sakb",
+        "i64",
+    ): [
+        0,
+        0,
+        1,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstSlotitem",
+        "api_rare",
+        "i64",
+    ): [
+        0,
+        7,
+        3,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstMapbgm",
+        "api_maparea_id",
+        "i64",
+    ): [
+        1,
+        7,
+        3,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstMission",
+        "api_damage_type",
+        "i64",
+    ): [
+        0,
+        2,
+        2,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstSlotitem",
+        "api_raik",
+        "i64",
+    ): [
+        0,
+        0,
+        1,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstSlotitem",
+        "api_souk",
+        "i64",
+    ): [
+        -4,
+        10,
+        4,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstShip",
+        "api_afterbull",
+        "core::option::Option<i64>",
+    ): [
+        0,
+        9900,
+        14,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstSlotitem",
+        "api_houk",
+        "i64",
+    ): [
+        -10,
+        15,
+        4,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstShipupgrade",
+        "api_id",
+        "i64",
+    ): [
+        10,
+        1006,
+        10,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstStype",
+        "api_sortno",
+        "i64",
+    ): [
+        1,
+        22,
+        5,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstFurnituregraph",
+        "api_no",
+        "i64",
+    ): [
+        2,
+        137,
+        8,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstSlotitem",
+        "api_broken",
+        "alloc::vec::Vec<i64>",
+    ): [
+        0,
+        30,
+        5,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstPayitem",
+        "api_item",
+        "alloc::vec::Vec<i64>",
+    ): [
+        0,
+        1500,
+        11,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstSlotitem",
+        "api_taik",
+        "i64",
+    ): [
+        0,
+        0,
+        1,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstEquipExslotShip",
+        "api_ctypes",
+        "core::option::Option<std::collections::hash::map::HashMap<alloc::string::String, i64>>",
+    ): [
+        1,
+        1,
+        1,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstSlotitemEquiptype",
+        "api_show_flg",
+        "i64",
+    ): [
+        0,
+        1,
+        1,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstShipupgrade",
+        "api_arms_mat_count",
+        "i64",
+    ): [
+        0,
+        3,
+        2,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstShipgraph",
+        "api_ensyuf_n",
+        "core::option::Option<alloc::vec::Vec<i64>>",
+    ): [
+        -259,
+        300,
+        9,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstShipgraph",
+        "api_wedc",
+        "core::option::Option<alloc::vec::Vec<i64>>",
+    ): [
+        -42,
+        657,
+        10,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstShipgraph",
+        "api_sortno",
+        "core::option::Option<i64>",
+    ): [
+        0,
+        1737,
+        11,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstFurniture",
+        "api_type",
+        "i64",
+    ): [
+        0,
+        5,
+        3,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstMission",
+        "api_reset_type",
+        "i64",
+    ): [
+        0,
+        1,
+        1,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstShipupgrade",
+        "api_catapult_count",
+        "i64",
+    ): [
+        0,
+        1,
+        1,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstShipgraph",
+        "api_id",
+        "i64",
+    ): [
+        1,
+        6001,
+        13,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstFurnituregraph",
+        "api_id",
+        "i64",
+    ): [
+        6,
+        611,
+        10,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstUseitem",
+        "api_category",
+        "i64",
+    ): [
+        0,
+        21,
+        5,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstShip",
+        "api_sortno",
+        "core::option::Option<i64>",
+    ): [
+        1,
+        1737,
+        11,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstSlotitem",
+        "api_luck",
+        "i64",
+    ): [
+        0,
+        0,
+        1,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstShipgraph",
+        "api_pab",
+        "core::option::Option<alloc::vec::Vec<i64>>",
+    ): [
+        -465,
+        434,
+        9,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstMission",
+        "api_win_item1",
+        "alloc::vec::Vec<i64>",
+    ): [
+        0,
+        59,
+        6,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstShip",
+        "api_taik",
+        "core::option::Option<alloc::vec::Vec<i64>>",
+    ): [
+        6,
+        110,
+        7,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstSlotitem",
+        "api_distance",
+        "core::option::Option<i64>",
+    ): [
+        1,
+        20,
+        5,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstShip",
+        "api_powup",
+        "core::option::Option<alloc::vec::Vec<i64>>",
+    ): [
+        0,
+        8,
+        4,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstItemShop",
+        "api_cabinet_2",
+        "alloc::vec::Vec<i64>",
+    ): [
+        -1,
+        30,
+        5,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstShipgraph",
+        "api_kaisyu_n",
+        "core::option::Option<alloc::vec::Vec<i64>>",
+    ): [
+        -87,
+        141,
+        8,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstShip",
+        "api_tais",
+        "core::option::Option<alloc::vec::Vec<i64>>",
+    ): [
+        16,
+        75,
+        7,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstShipgraph",
+        "api_kaizo_d",
+        "core::option::Option<alloc::vec::Vec<i64>>",
+    ): [
+        -333,
+        267,
+        9,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiData",
+        "api_mst_equip_ship",
+        "key__std::collections::hash::map::HashMap<i64, kc_api::kcapi_main::api_start2::get_data::ApiMstEquipShip>",
+    ): [
+        100,
+        1008,
+        10,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstFurniture",
+        "api_saleflg",
+        "i64",
+    ): [
+        0,
+        1,
+        1,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstMission",
+        "api_maparea_id",
+        "i64",
+    ): [
+        1,
+        7,
+        3,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstShipgraph",
+        "api_kaizo_n",
+        "core::option::Option<alloc::vec::Vec<i64>>",
+    ): [
+        -303,
+        282,
+        9,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstSlotitem",
+        "api_version",
+        "core::option::Option<i64>",
+    ): [
+        2,
+        4,
+        3,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstShip",
+        "api_buildtime",
+        "core::option::Option<i64>",
+    ): [
+        9,
+        500,
+        9,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstEquipShip",
+        "api_equip_type",
+        "std::collections::hash::map::HashMap<i64, core::option::Option<alloc::vec::Vec<i64>>>",
+    ): [
+        48,
+        524,
+        10,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiData",
+        "api_mst_equip_limit_exslot",
+        "key__core::option::Option<std::collections::hash::map::HashMap<i64, alloc::vec::Vec<i64>>>",
+    ): [
+        100,
+        1006,
+        10,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstShip",
+        "api_id",
+        "i64",
+    ): [
+        1,
+        2316,
+        12,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiBokoMaxShips",
+        "api_int_value",
+        "i64",
+    ): [
+        680,
+        680,
+        10,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstMapbgm",
+        "api_id",
+        "i64",
+    ): [
+        11,
+        75,
+        7,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstShip",
+        "api_maxeq",
+        "core::option::Option<alloc::vec::Vec<i64>>",
+    ): [
+        0,
+        46,
+        6,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstFurniture",
+        "api_rarity",
+        "i64",
+    ): [
+        0,
+        6,
+        3,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstShipupgrade",
+        "api_aviation_mat_count",
+        "i64",
+    ): [
+        0,
+        2,
+        2,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstMission",
+        "api_return_flag",
+        "i64",
+    ): [
+        0,
+        1,
+        1,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstShipgraph",
+        "api_boko_d",
+        "core::option::Option<alloc::vec::Vec<i64>>",
+    ): [
+        -232,
+        436,
+        9,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstStype",
+        "api_kcnt",
+        "i64",
+    ): [
+        2,
+        5,
+        3,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstShipgraph",
+        "api_ensyue_n",
+        "core::option::Option<alloc::vec::Vec<i64>>",
+    ): [
+        -238,
+        283,
+        9,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstShip",
+        "api_luck",
+        "core::option::Option<alloc::vec::Vec<i64>>",
+    ): [
+        2,
+        155,
+        8,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstMapinfo",
+        "api_required_defeat_count",
+        "core::option::Option<i64>",
+    ): [
+        2,
+        7,
+        3,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstShipupgrade",
+        "api_drawing_count",
+        "i64",
+    ): [
+        0,
+        3,
+        2,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstShip",
+        "api_backs",
+        "core::option::Option<i64>",
+    ): [
+        1,
+        8,
+        4,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstFurniture",
+        "api_version",
+        "i64",
+    ): [
+        1,
+        83,
+        7,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstShip",
+        "api_sort_id",
+        "i64",
+    ): [
+        0,
+        38412,
+        16,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstShipgraph",
+        "api_boko_n",
+        "core::option::Option<alloc::vec::Vec<i64>>",
+    ): [
+        -264,
+        354,
+        9,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstShip",
+        "api_raig",
+        "core::option::Option<alloc::vec::Vec<i64>>",
+    ): [
+        0,
+        139,
+        8,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstSlotitem",
+        "api_baku",
+        "i64",
+    ): [
+        0,
+        44,
+        6,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstMission",
+        "api_deck_num",
+        "i64",
+    ): [
+        2,
+        6,
+        3,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstShipupgrade",
+        "api_boiler_count",
+        "core::option::Option<i64>",
+    ): [
+        2,
+        2,
+        2,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstMapinfo",
+        "api_maparea_id",
+        "i64",
+    ): [
+        1,
+        7,
+        3,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstEquipShip",
+        "api_equip_type",
+        "key__std::collections::hash::map::HashMap<i64, core::option::Option<alloc::vec::Vec<i64>>>",
+    ): [
+        1,
+        95,
+        7,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstBgm",
+        "api_id",
+        "i64",
+    ): [
+        101,
+        278,
+        9,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstShipupgrade",
+        "api_upgrade_level",
+        "i64",
+    ): [
+        0,
+        5,
+        3,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstShipupgrade",
+        "api_tech_count",
+        "i64",
+    ): [
+        0,
+        2,
+        2,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstMission",
+        "api_id",
+        "i64",
+    ): [
+        1,
+        142,
+        8,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::Res",
+        "api_result",
+        "i64",
+    ): [
+        1,
+        1,
+        1,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstMission",
+        "api_time",
+        "i64",
+    ): [
+        15,
+        4800,
+        13,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstSlotitem",
+        "api_houg",
+        "i64",
+    ): [
+        0,
+        36,
+        6,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstSlotitem",
+        "api_houm",
+        "i64",
+    ): [
+        -3,
+        25,
+        5,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstSlotitem",
+        "api_type",
+        "alloc::vec::Vec<i64>",
+    ): [
+        0,
+        60,
+        6,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstShipgraph",
+        "api_pa",
+        "core::option::Option<alloc::vec::Vec<i64>>",
+    ): [
+        -493,
+        556,
+        10,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstSlotitem",
+        "api_cost",
+        "core::option::Option<i64>",
+    ): [
+        2,
+        25,
+        5,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstShipgraph",
+        "api_sp_flag",
+        "core::option::Option<i64>",
+    ): [
+        1,
+        1,
+        1,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstShipgraph",
+        "api_wedd",
+        "core::option::Option<alloc::vec::Vec<i64>>",
+    ): [
+        84,
+        255,
+        8,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstSlotitem",
+        "api_raim",
+        "i64",
+    ): [
+        0,
+        56,
+        6,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstShip",
+        "api_voicef",
+        "core::option::Option<i64>",
+    ): [
+        0,
+        7,
+        3,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstMapbgm",
+        "api_no",
+        "i64",
+    ): [
+        1,
+        6,
+        3,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstShipgraph",
+        "api_battle_d",
+        "core::option::Option<alloc::vec::Vec<i64>>",
+    ): [
+        -630,
+        381,
+        10,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstMapbgm",
+        "api_map_bgm",
+        "alloc::vec::Vec<i64>",
+    ): [
+        2,
+        264,
+        9,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstMission",
+        "api_difficulty",
+        "i64",
+    ): [
+        1,
+        9,
+        4,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstPayitem",
+        "api_type",
+        "i64",
+    ): [
+        0,
+        0,
+        1,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstSlotitem",
+        "api_atap",
+        "i64",
+    ): [
+        0,
+        0,
+        1,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstShip",
+        "api_souk",
+        "core::option::Option<alloc::vec::Vec<i64>>",
+    ): [
+        2,
+        128,
+        8,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstSlotitem",
+        "api_id",
+        "i64",
+    ): [
+        1,
+        1654,
+        11,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstSlotitem",
+        "api_tyku",
+        "i64",
+    ): [
+        0,
+        19,
+        5,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiParallelQuestMax",
+        "api_int_value",
+        "i64",
+    ): [
+        10,
+        10,
+        4,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstShipupgrade",
+        "api_upgrade_type",
+        "i64",
+    ): [
+        1,
+        1,
+        1,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstMission",
+        "api_win_mat_level",
+        "alloc::vec::Vec<i64>",
+    ): [
+        0,
+        4,
+        3,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstFurniture",
+        "api_bgm_id",
+        "i64",
+    ): [
+        0,
+        275,
+        9,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstShipgraph",
+        "api_map_d",
+        "core::option::Option<alloc::vec::Vec<i64>>",
+    ): [
+        -322,
+        298,
+        9,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstShip",
+        "api_fuel_max",
+        "core::option::Option<i64>",
+    ): [
+        10,
+        300,
+        9,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstShip",
+        "api_afterfuel",
+        "core::option::Option<i64>",
+    ): [
+        0,
+        9800,
+        14,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstMaparea",
+        "api_id",
+        "i64",
+    ): [
+        1,
+        7,
+        3,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiData",
+        "api_mst_equip_limit_exslot",
+        "core::option::Option<std::collections::hash::map::HashMap<i64, alloc::vec::Vec<i64>>>",
+    ): [
+        27,
+        27,
+        5,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstStype",
+        "api_equip_type",
+        "std::collections::hash::map::HashMap<alloc::string::String, i64>",
+    ): [
+        0,
+        1,
+        1,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstMapinfo",
+        "api_sally_flag",
+        "alloc::vec::Vec<i64>",
+    ): [
+        0,
+        1,
+        1,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstMapinfo",
+        "api_no",
+        "i64",
+    ): [
+        1,
+        6,
+        3,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstShip",
+        "api_afterlv",
+        "core::option::Option<i64>",
+    ): [
+        0,
+        97,
+        7,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstStype",
+        "api_id",
+        "i64",
+    ): [
+        1,
+        22,
+        5,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstStype",
+        "api_scnt",
+        "i64",
+    ): [
+        1,
+        4,
+        3,
+    ],
+    (
+        "&kc_api::kcapi_main::api_start2::get_data::ApiMstSlotitem",
+        "api_sortno",
+        "i64",
+    ): [
+        0,
+        561,
+        10,
+    ],
+}

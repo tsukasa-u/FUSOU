@@ -9,41 +9,7 @@ export function SettingsComponent() {
   //     }
   // `);
 
-  let themes = [
-    "default",
-    "light",
-    "dark",
-    "cupcake",
-    "bumblebee",
-    "emerald",
-    "corporate",
-    "synthwave",
-    "retro",
-    "cyberpunk",
-    "valentine",
-    "halloween",
-    "garden",
-    "forest",
-    "aqua",
-    "lofi",
-    "pastel",
-    "fantasy",
-    "wireframe",
-    "black",
-    "luxury",
-    "dracula",
-    "cmyk",
-    "autumn",
-    "business",
-    "acid",
-    "lemonade",
-    "night",
-    "coffee",
-    "winter",
-    "dim",
-    "nord",
-    "sunset",
-  ];
+  let themes = ["default", "light", "dark"];
 
   return (
     <>
@@ -201,7 +167,7 @@ export function SettingsComponent() {
                   invoke("get_mst_slotitem_equip_types");
                   showFadeToast(
                     "setting_toast",
-                    "load mst_slotitem_equip_types",
+                    "load mst_slotitem_equip_types"
                   );
                 }}
               >

@@ -1,0 +1,11 @@
+digraph {
+  rankdir=LR;
+  subgraph cluster_0 {
+    label="api_req_kousyou / remodel_slotlist";
+    node [style="filled", color=white, style="solid", color=gray20];
+    api_req_kousyou__remodel_slotlist__ApiData [label="<ApiData> ApiData  | { api_req_remodelkit | <api_req_remodelkit> i64 } | { api_req_bull | <api_req_bull> i64 } | { api_req_bauxite | <api_req_bauxite> i64 } | { api_req_buildkit | <api_req_buildkit> i64 } | { api_req_slot_num | <api_req_slot_num> i64 } | { api_req_fuel | <api_req_fuel> i64 } | { api_id | <api_id> i64 } | { api_req_steel | <api_req_steel> i64 } | { api_slot_id | <api_slot_id> i64 } | { api_sp_type | <api_sp_type> i64 } | { api_req_slot_id | <api_req_slot_id> i64 }", shape=record];
+    api_req_kousyou__remodel_slotlist__Req [label="<Req> Req  | { api_token | <api_token> String } | { api_verno | <api_verno> String }", shape=record];
+    api_req_kousyou__remodel_slotlist__Res [label="<Res> Res  | { api_data | <api_data> Vec\<ApiData\> } | { api_result_msg | <api_result_msg> String } | { api_result | <api_result> i64 }", shape=record];
+    api_req_kousyou__remodel_slotlist__Res:api_data:e -> api_req_kousyou__remodel_slotlist__ApiData:ApiData:w;
+  }
+}
