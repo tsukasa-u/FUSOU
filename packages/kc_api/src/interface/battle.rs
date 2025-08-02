@@ -10,8 +10,10 @@ use super::cells::KCS_CELLS;
 use super::cells::KCS_CELLS_INDEX;
 
 use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "battle.ts")]
 pub enum BattleType {
     AirBaseAssult(()),
     CarrierBaseAssault(()),
@@ -45,13 +47,15 @@ impl From<BattleType> for i64 {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "battle.ts")]
 pub struct Battles {
     pub cells: Vec<i64>,
     pub battles: HashMap<i64, Battle>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "battle.ts")]
 pub struct Battle {
     pub battle_order: Option<Vec<BattleType>>,
     pub timestamp: Option<i64>,
@@ -209,25 +213,29 @@ impl Battle {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "battle.ts")]
 pub struct CarrierBaseAssault {
     pub f_damage: AirDamage,
     pub e_damage: AirDamage,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "battle.ts")]
 pub struct AirBaseAssult {
     pub squadron_plane: Vec<i64>,
     pub f_damage: AirDamage,
     pub e_damage: AirDamage,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "battle.ts")]
 pub struct AirBaseAirAttacks {
     pub attacks: Vec<AirBaseAirAttack>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "battle.ts")]
 pub struct AirBaseAirAttack {
     pub stage_flag: Vec<i64>,
     pub squadron_plane: Option<Vec<Option<i64>>>,
@@ -236,7 +244,8 @@ pub struct AirBaseAirAttack {
     pub e_damage: AirDamage,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "battle.ts")]
 pub struct OpeningAirAttack {
     pub air_superiority: Option<i64>,
     pub air_fire: Option<AirFire>,
@@ -244,7 +253,8 @@ pub struct OpeningAirAttack {
     pub e_damage: AirDamage,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "battle.ts")]
 pub struct AirDamage {
     pub plane_from: Option<Vec<i64>>,
     pub touch_plane: Option<i64>,
@@ -259,13 +269,15 @@ pub struct AirDamage {
     pub now_hps: Vec<i64>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "battle.ts")]
 pub struct AirFire {
     pub use_item: Vec<i64>,
     pub idx: i64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "battle.ts")]
 pub struct OpeningRaigeki {
     pub fdam: Vec<f32>,
     pub edam: Vec<f32>,
@@ -281,7 +293,8 @@ pub struct OpeningRaigeki {
     pub e_now_hps: Vec<i64>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "battle.ts")]
 pub struct OpeningTaisen {
     pub at_list: Vec<i64>,
     pub at_type: Vec<i64>,
@@ -295,7 +308,8 @@ pub struct OpeningTaisen {
     pub e_now_hps: Vec<Vec<i64>>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "battle.ts")]
 pub struct ClosingRaigeki {
     pub fdam: Vec<f32>,
     pub edam: Vec<f32>,
@@ -311,7 +325,8 @@ pub struct ClosingRaigeki {
     pub e_now_hps: Vec<i64>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "battle.ts")]
 pub struct Hougeki {
     pub at_list: Vec<i64>,
     pub at_type: Vec<i64>,
@@ -325,7 +340,8 @@ pub struct Hougeki {
     pub e_now_hps: Vec<Vec<i64>>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "battle.ts")]
 pub struct MidnightHougeki {
     pub at_list: Option<Vec<i64>>,
     pub df_list: Option<Vec<Vec<i64>>>,
@@ -339,13 +355,15 @@ pub struct MidnightHougeki {
     pub e_now_hps: Vec<Vec<i64>>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "battle.ts")]
 pub struct SupportAttack {
     pub support_hourai: Option<SupportHourai>,
     pub support_airatack: Option<SupportAiratack>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "battle.ts")]
 pub struct SupportHourai {
     pub cl_list: Vec<i64>,
     pub damage: Vec<f32>,
@@ -355,7 +373,8 @@ pub struct SupportHourai {
     pub now_hps: Vec<i64>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "battle.ts")]
 pub struct SupportAiratack {
     pub deck_id: i64,
     pub ship_id: Vec<i64>,
@@ -363,20 +382,23 @@ pub struct SupportAiratack {
     pub e_damage: AirDamage,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "battle.ts")]
 pub struct FriendlyForceAttack {
     pub fleet_info: FriendlyForceInfo,
     pub support_hourai: Option<FriendlySupportHourai>,
     // pub support_airatack: Option<FriendlySupportAiratack>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "battle.ts")]
 pub struct FriendlySupportHourai {
     pub flare_pos: Vec<i64>,
     pub hougeki: MidnightHougeki,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "battle.ts")]
 pub struct FriendlyForceInfo {
     pub slot_ex: Vec<i64>,
     pub max_hps: Vec<i64>,
@@ -387,7 +409,8 @@ pub struct FriendlyForceInfo {
     pub slot: Vec<Vec<i64>>,
 }
 
-// #[derive(Debug, Clone, Serialize, Deserialize)]
+// #[derive(Debug, Clone, Serialize, Deserialize, TS)]
+// #[ts(export, export_to = "battle.ts")]
 // pub struct FriendlySupportAiratack {
 //     pub stage_flag: Vec<i64>,
 //     pub f_damage: AirDamage,

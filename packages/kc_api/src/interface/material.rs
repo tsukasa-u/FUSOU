@@ -3,6 +3,7 @@ use std::collections::HashMap;
 // use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 
 use crate::kcapi_main;
 
@@ -12,7 +13,8 @@ use crate::kcapi_main;
 //     })
 // });
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "port.ts")]
 pub struct Materials {
     pub materials: HashMap<usize, i64>,
 }

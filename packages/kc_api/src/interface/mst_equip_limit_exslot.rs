@@ -4,6 +4,7 @@ use std::sync::Mutex;
 
 use apache_avro::AvroSchema;
 use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 
 use register_trait::TraitForEncode;
 
@@ -17,12 +18,14 @@ pub(crate) static KCS_MST_EQUIP_LIMIT_EXSLOT: Lazy<Mutex<MstEquipLimitExslots>> 
 
 use crate::kcapi_main;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "get_data.ts")]
 pub struct MstEquipLimitExslots {
     pub mst_equip_limit_exslots: HashMap<i64, MstEquipLimitExslot>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, AvroSchema, TraitForEncode)]
+#[derive(Debug, Clone, Serialize, Deserialize, AvroSchema, TraitForEncode, TS)]
+#[ts(export, export_to = "get_data.ts")]
 pub struct MstEquipLimitExslot {
     pub equip: Vec<i64>,
 }

@@ -1,0 +1,2 @@
+export-ts:
+    cargo test export_bindings

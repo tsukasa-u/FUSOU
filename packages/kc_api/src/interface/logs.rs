@@ -1,8 +1,10 @@
 use crate::kcapi_main;
 
 use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "port.ts")]
 pub struct Logs {
     pub message: Option<Vec<String>>, // メッセージ
 }

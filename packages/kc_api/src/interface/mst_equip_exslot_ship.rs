@@ -4,6 +4,7 @@ use std::sync::Mutex;
 
 use apache_avro::AvroSchema;
 use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 
 use register_trait::TraitForEncode;
 
@@ -15,12 +16,14 @@ pub(crate) static KCS_MST_EQUIP_EXSLOT_SHIP: Lazy<Mutex<MstEquipExslotShips>> = 
 
 use crate::kcapi_main;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "get_data.ts")]
 pub struct MstEquipExslotShips {
     pub mst_equip_ships: HashMap<String, MstEquipExslotShip>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, AvroSchema, TraitForEncode)]
+#[derive(Debug, Clone, Serialize, Deserialize, AvroSchema, TraitForEncode, TS)]
+#[ts(export, export_to = "get_data.ts")]
 pub struct MstEquipExslotShip {
     pub ship_ids: Option<HashMap<String, i64>>,
     pub stypes: Option<HashMap<String, i64>>,
