@@ -2,13 +2,16 @@ use crate::kcapi_main;
 use chrono;
 
 use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "port.ts")]
 pub struct NDocks {
     pub n_docks: Vec<NDock>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "port.ts")]
 pub struct NDock {
     pub ship_id: i64,
     pub complete_time: i64,

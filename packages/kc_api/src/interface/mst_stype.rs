@@ -4,6 +4,7 @@ use std::sync::Mutex;
 
 use apache_avro::AvroSchema;
 use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 
 use register_trait::TraitForEncode;
 
@@ -15,12 +16,14 @@ pub(crate) static KCS_MST_STYPES: Lazy<Mutex<MstStypes>> = Lazy::new(|| {
 
 use crate::kcapi_main;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "get_data.ts")]
 pub struct MstStypes {
     pub mst_stypes: HashMap<i64, MstStype>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, AvroSchema, TraitForEncode)]
+#[derive(Debug, Clone, Serialize, Deserialize, AvroSchema, TraitForEncode, TS)]
+#[ts(export, export_to = "get_data.ts")]
 pub struct MstStype {
     pub id: i64,
     pub sortno: i64,

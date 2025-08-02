@@ -5,6 +5,7 @@ use std::sync::Mutex;
 use crate::kcapi_main;
 
 use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 
 pub static KCS_DECKS: Lazy<Mutex<DeckPorts>> = Lazy::new(|| {
     Mutex::new(DeckPorts {
@@ -13,13 +14,15 @@ pub static KCS_DECKS: Lazy<Mutex<DeckPorts>> = Lazy::new(|| {
     })
 });
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "port.ts")]
 pub struct DeckPorts {
     pub deck_ports: HashMap<i64, DeckPort>,
     pub combined_flag: Option<i64>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "port.ts")]
 pub struct DeckPort {
     pub id: i64,
     pub name: String,

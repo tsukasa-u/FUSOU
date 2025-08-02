@@ -11,6 +11,7 @@ use super::battle::calc_air_damage;
 use super::battle::{AirDamage, Battle};
 
 use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 
 pub static KCS_CELLS_INDEX: Lazy<Mutex<Vec<i64>>> = Lazy::new(|| Mutex::new(Vec::new()));
 pub static KCS_CELLS: Lazy<Mutex<Cells>> = Lazy::new(|| {
@@ -27,7 +28,8 @@ pub static KCS_CELLS: Lazy<Mutex<Cells>> = Lazy::new(|| {
     })
 });
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "cells.ts")]
 pub struct Cells {
     pub maparea_id: i64,
     pub mapinfo_no: i64,
@@ -78,7 +80,8 @@ impl Cells {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "cells.ts")]
 pub struct Cell {
     pub timestamp: Option<i64>,
     pub rashin_id: i64,
@@ -110,7 +113,8 @@ impl Cell {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "cells.ts")]
 pub struct CellData {
     pub id: i64,
     pub no: i64,
@@ -119,14 +123,16 @@ pub struct CellData {
     pub distance: Option<i64>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "cells.ts")]
 pub struct Eventmap {
     pub max_maphp: i64,
     pub now_maphp: i64,
     pub dmg: i64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "cells.ts")]
 pub struct Happening {
     // type: i64,
     pub count: i64,
@@ -136,13 +142,15 @@ pub struct Happening {
     pub dentan: i64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "cells.ts")]
 pub struct EDeckInfo {
     pub kind: i64,
     pub ship_ids: Vec<i64>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "cells.ts")]
 pub struct DestructionBattle {
     pub formation: Vec<i64>,
     pub ship_ke: Vec<i64>,
@@ -159,7 +167,8 @@ pub struct DestructionBattle {
     pub e_total_damages: Option<Vec<i64>>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "cells.ts")]
 pub struct AirBaseAttack {
     pub air_superiority: Option<i64>,
     pub plane_from: Vec<Option<Vec<i64>>>,
