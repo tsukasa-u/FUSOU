@@ -7,11 +7,11 @@ import { EquimentComponent } from "./equipment";
 import { SimpleHpBar } from "./simple_hp_bar";
 import IconFleetNumber from "../icons/fleet_number";
 import { MstEquipmentComponent } from "./mst_equipment";
-import { Cell } from "../interface/cells";
+import type { Cell } from "@ipc-bindings/cells";
 
 interface DestructionBattleProps {
   area_id: number;
-  cell: () => Cell
+  cell: () => Cell;
 }
 
 export function DestructionBattleComponent(props: DestructionBattleProps) {
@@ -19,7 +19,6 @@ export function DestructionBattleComponent(props: DestructionBattleProps) {
   const [air_bases] = useAirBases();
 
   const show_destruction_battle = createMemo<boolean>(() => {
-
     if (Object.keys(cells.cells).length == 0) return false;
 
     // if (
@@ -28,19 +27,19 @@ export function DestructionBattleComponent(props: DestructionBattleProps) {
     //   ) == undefined
     // )
     //   return false;
-    
+
     // let cell = cells.cells[props.cell_index_selected()];
 
     if (props.cell() == null || props.cell() == undefined) return false;
-    
+
     if (
       props.cell().destruction_battle == null ||
       props.cell().destruction_battle == undefined
     )
       return false;
     if (
-      props.cell().destruction_battle!
-        .air_base_attack.map_squadron_plane == null
+      props.cell().destruction_battle!.air_base_attack.map_squadron_plane ==
+      null
     )
       return false;
 
@@ -60,45 +59,41 @@ export function DestructionBattleComponent(props: DestructionBattleProps) {
     )
       return show_damage;
 
-    if (
-      props.cell().destruction_battle!
-        .air_base_attack.e_damage.bak_flag
-    ) {
-      props.cell().destruction_battle!.air_base_attack.e_damage!.bak_flag!.forEach(
-        (flag, idx) => {
-          show_damage[0][idx] ||= flag == 1;
-        },
-      );
+    if (props.cell().destruction_battle!.air_base_attack.e_damage.bak_flag) {
+      props
+        .cell()
+        .destruction_battle!.air_base_attack.e_damage!.bak_flag!.forEach(
+          (flag, idx) => {
+            show_damage[0][idx] ||= flag == 1;
+          }
+        );
     }
-    if (
-      props.cell().destruction_battle!
-        .air_base_attack.e_damage.rai_flag
-    ) {
-      props.cell().destruction_battle!.air_base_attack.e_damage!.rai_flag!.forEach(
-        (flag, idx) => {
-          show_damage[0][idx] ||= flag == 1;
-        },
-      );
+    if (props.cell().destruction_battle!.air_base_attack.e_damage.rai_flag) {
+      props
+        .cell()
+        .destruction_battle!.air_base_attack.e_damage!.rai_flag!.forEach(
+          (flag, idx) => {
+            show_damage[0][idx] ||= flag == 1;
+          }
+        );
     }
-    if (
-      props.cell().destruction_battle!
-        .air_base_attack.f_damage.bak_flag
-    ) {
-      props.cell().destruction_battle!.air_base_attack.f_damage!.bak_flag!.forEach(
-        (flag, idx) => {
-          show_damage[1][idx] ||= flag == 1;
-        },
-      );
+    if (props.cell().destruction_battle!.air_base_attack.f_damage.bak_flag) {
+      props
+        .cell()
+        .destruction_battle!.air_base_attack.f_damage!.bak_flag!.forEach(
+          (flag, idx) => {
+            show_damage[1][idx] ||= flag == 1;
+          }
+        );
     }
-    if (
-      props.cell().destruction_battle!
-        .air_base_attack.f_damage.rai_flag
-    ) {
-      props.cell().destruction_battle!.air_base_attack.f_damage!.rai_flag!.forEach(
-        (flag, idx) => {
-          show_damage[1][idx] ||= flag == 1;
-        },
-      );
+    if (props.cell().destruction_battle!.air_base_attack.f_damage.rai_flag) {
+      props
+        .cell()
+        .destruction_battle!.air_base_attack.f_damage!.rai_flag!.forEach(
+          (flag, idx) => {
+            show_damage[1][idx] ||= flag == 1;
+          }
+        );
     }
     return show_damage;
   });
@@ -108,9 +103,7 @@ export function DestructionBattleComponent(props: DestructionBattleProps) {
       <li>
         <details open={true}>
           <summary>Destruction Battle</summary>
-          <div
-            class="flex felx-nowrap text-xs py-0.5 pl-4"
-          >
+          <div class="flex felx-nowrap text-xs py-0.5 pl-4">
             Formation : <span class="w-1" />
             <For each={props.cell().destruction_battle!.formation.slice(0, 2)}>
               {(formation, index) => (
@@ -118,54 +111,42 @@ export function DestructionBattleComponent(props: DestructionBattleProps) {
                   <Switch fallback={<div>_</div>}>
                     <Match when={formation == 1}>
                       <div
-                        class={
-                          index() == 0 ? "text-lime-500" : "text-red-500"
-                        }
+                        class={index() == 0 ? "text-lime-500" : "text-red-500"}
                       >
                         Line Ahead
                       </div>
                     </Match>
                     <Match when={formation == 2}>
                       <div
-                        class={
-                          index() == 0 ? "text-lime-500" : "text-red-500"
-                        }
+                        class={index() == 0 ? "text-lime-500" : "text-red-500"}
                       >
                         Double Line
                       </div>
                     </Match>
                     <Match when={formation == 3}>
                       <div
-                        class={
-                          index() == 0 ? "text-lime-500" : "text-red-500"
-                        }
+                        class={index() == 0 ? "text-lime-500" : "text-red-500"}
                       >
                         Diamond
                       </div>
                     </Match>
                     <Match when={formation == 4}>
                       <div
-                        class={
-                          index() == 0 ? "text-lime-500" : "text-red-500"
-                        }
+                        class={index() == 0 ? "text-lime-500" : "text-red-500"}
                       >
                         Echelon
                       </div>
                     </Match>
                     <Match when={formation == 5}>
                       <div
-                        class={
-                          index() == 0 ? "text-lime-500" : "text-red-500"
-                        }
+                        class={index() == 0 ? "text-lime-500" : "text-red-500"}
                       >
                         Line Abreast
                       </div>
                     </Match>
                     <Match when={formation == 6}>
                       <div
-                        class={
-                          index() == 0 ? "text-lime-500" : "text-red-500"
-                        }
+                        class={index() == 0 ? "text-lime-500" : "text-red-500"}
                       >
                         Vanguard
                       </div>
@@ -271,9 +252,8 @@ export function DestructionBattleComponent(props: DestructionBattleProps) {
                     <div class="flex flex-col">
                       <For
                         each={Object.keys(
-                          props.cell()
-                            .destruction_battle!.air_base_attack
-                            .map_squadron_plane!,
+                          props.cell().destruction_battle!.air_base_attack
+                            .map_squadron_plane!
                         )}
                       >
                         {(base_id) => (
@@ -306,8 +286,8 @@ export function DestructionBattleComponent(props: DestructionBattleProps) {
                   <td>
                     <For
                       each={
-                        props.cell()
-                          .destruction_battle!.air_base_attack.e_damage.damages
+                        props.cell().destruction_battle!.air_base_attack
+                          .e_damage.damages
                       }
                     >
                       {(_, idx) => (
@@ -325,20 +305,23 @@ export function DestructionBattleComponent(props: DestructionBattleProps) {
                                 combined_flag={false}
                               />
                               <SimpleShipNameComponent
-                                  ship_id={
-                                    props.cell()
-                                      .destruction_battle!.ship_ke[idx()]
-                                  }
-                                  ship_max_hp={
-                                    props.cell()
-                                      .destruction_battle?.e_maxhps[idx()] ?? 0
-                                  }
-                                  ship_param={null}
-                                  ship_slot={
-                                    props.cell()
-                                      .destruction_battle?.e_slot[idx()]!
-                                  }
-                                />
+                                ship_id={
+                                  props.cell().destruction_battle!.ship_ke[
+                                    idx()
+                                  ]
+                                }
+                                ship_max_hp={
+                                  props.cell().destruction_battle?.e_maxhps[
+                                    idx()
+                                  ] ?? 0
+                                }
+                                ship_param={null}
+                                ship_slot={
+                                  props.cell().destruction_battle?.e_slot[
+                                    idx()
+                                  ]!
+                                }
+                              />
                             </div>
                           </Show>
                         </>
@@ -349,7 +332,8 @@ export function DestructionBattleComponent(props: DestructionBattleProps) {
                     <div class="flex flex-col">
                       <For
                         each={
-                          props.cell().destruction_battle!.air_base_attack.e_damage.damages ?? []
+                          props.cell().destruction_battle!.air_base_attack
+                            .e_damage.damages ?? []
                         }
                       >
                         {(_, idx) => (
@@ -357,11 +341,13 @@ export function DestructionBattleComponent(props: DestructionBattleProps) {
                             <Show when={show_damage()[0][idx()]}>
                               <SimpleHpBar
                                 v_now={() =>
-                                  props.cell().destruction_battle!.air_base_attack
-                                    .e_damage.now_hps![idx()]
+                                  props.cell().destruction_battle!
+                                    .air_base_attack.e_damage.now_hps![idx()]
                                 }
                                 v_max={() =>
-                                  props.cell().destruction_battle?.e_nowhps[idx()] ?? 0
+                                  props.cell().destruction_battle?.e_nowhps[
+                                    idx()
+                                  ] ?? 0
                                 }
                               />
                             </Show>
@@ -373,8 +359,8 @@ export function DestructionBattleComponent(props: DestructionBattleProps) {
                   <td>
                     <For
                       each={
-                        props.cell()
-                          .destruction_battle!.air_base_attack.e_damage.damages
+                        props.cell().destruction_battle!.air_base_attack
+                          .e_damage.damages
                       }
                     >
                       {(dmg, idx) => (
@@ -395,9 +381,8 @@ export function DestructionBattleComponent(props: DestructionBattleProps) {
                     <div class="flex flex-col">
                       <For
                         each={
-                          props.cell()
-                            .destruction_battle!.air_base_attack.e_damage
-                            .plane_from
+                          props.cell().destruction_battle!.air_base_attack
+                            .e_damage.plane_from
                         }
                       >
                         {(plane_flag, idx) => (
@@ -416,17 +401,20 @@ export function DestructionBattleComponent(props: DestructionBattleProps) {
                                 />
                                 <SimpleShipNameComponent
                                   ship_id={
-                                    props.cell()
-                                      .destruction_battle!.ship_ke[idx()]
+                                    props.cell().destruction_battle!.ship_ke[
+                                      idx()
+                                    ]
                                   }
                                   ship_max_hp={
-                                    props.cell()
-                                      .destruction_battle?.e_maxhps[idx()] ?? 0
+                                    props.cell().destruction_battle?.e_maxhps[
+                                      idx()
+                                    ] ?? 0
                                   }
                                   ship_param={null}
                                   ship_slot={
-                                    props.cell()
-                                      .destruction_battle?.e_slot[idx()]!
+                                    props.cell().destruction_battle?.e_slot[
+                                      idx()
+                                    ]!
                                   }
                                 />
                               </div>
@@ -440,9 +428,8 @@ export function DestructionBattleComponent(props: DestructionBattleProps) {
                     <div class="flex flex-col">
                       <For
                         each={
-                          props.cell()
-                            .destruction_battle!.air_base_attack.e_damage
-                            .plane_from
+                          props.cell().destruction_battle!.air_base_attack
+                            .e_damage.plane_from
                         }
                       >
                         {(plane_flag, idx) => (
@@ -450,11 +437,13 @@ export function DestructionBattleComponent(props: DestructionBattleProps) {
                             <Show when={plane_flag != -1}>
                               <SimpleHpBar
                                 v_now={() =>
-                                  props.cell().destruction_battle!.air_base_attack
-                                    .e_damage.now_hps![idx()]
+                                  props.cell().destruction_battle!
+                                    .air_base_attack.e_damage.now_hps![idx()]
                                 }
                                 v_max={() =>
-                                  props.cell().destruction_battle?.e_nowhps[idx()] ?? 0
+                                  props.cell().destruction_battle?.e_nowhps[
+                                    idx()
+                                  ] ?? 0
                                 }
                               />
                             </Show>
@@ -466,8 +455,8 @@ export function DestructionBattleComponent(props: DestructionBattleProps) {
                   <td>
                     <For
                       each={
-                        props.cell()
-                          .destruction_battle!.air_base_attack.f_damage.damages
+                        props.cell().destruction_battle!.air_base_attack
+                          .f_damage.damages
                       }
                     >
                       {(_, idx) => (
@@ -499,7 +488,8 @@ export function DestructionBattleComponent(props: DestructionBattleProps) {
                     <div class="flex flex-col">
                       <For
                         each={
-                          props.cell().destruction_battle!.air_base_attack.f_damage.damages ?? []
+                          props.cell().destruction_battle!.air_base_attack
+                            .f_damage.damages ?? []
                         }
                       >
                         {(_, idx) => (
@@ -507,11 +497,13 @@ export function DestructionBattleComponent(props: DestructionBattleProps) {
                             <Show when={show_damage()[1][idx()]}>
                               <SimpleHpBar
                                 v_now={() =>
-                                  props.cell().destruction_battle!.air_base_attack
-                                    .f_damage.now_hps![idx()]
+                                  props.cell().destruction_battle!
+                                    .air_base_attack.f_damage.now_hps![idx()]
                                 }
                                 v_max={() =>
-                                  props.cell().destruction_battle?.f_nowhps[idx()] ?? 0
+                                  props.cell().destruction_battle?.f_nowhps[
+                                    idx()
+                                  ] ?? 0
                                 }
                               />
                             </Show>
@@ -523,8 +515,8 @@ export function DestructionBattleComponent(props: DestructionBattleProps) {
                   <td>
                     <For
                       each={
-                        props.cell()
-                          .destruction_battle!.air_base_attack.f_damage.damages
+                        props.cell().destruction_battle!.air_base_attack
+                          .f_damage.damages
                       }
                     >
                       {(dmg, idx) => (

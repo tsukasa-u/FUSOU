@@ -2,7 +2,7 @@ import { createMemo, For, Show } from "solid-js";
 
 import "../css/divider.css";
 import { SimpleShipNameComponent } from "./simple_ship_name";
-import { Battle } from "../interface/battle";
+import type { Battle } from "@ipc-bindings/battle";
 import { EquimentComponent } from "./equipment";
 import { useAirBases, useSlotItems } from "../utility/provider";
 import IconShield from "../icons/shield";
@@ -98,12 +98,11 @@ export function AirBaseAssaultComponent(props: AirDamageProps) {
     let set_base_id: Set<number> = new Set(
       props
         .battle_selected()
-        .air_base_air_attacks.attacks.map((attack) => attack.base_id),
+        .air_base_air_attacks.attacks.map((attack) => attack.base_id)
     );
     let plane_info = Array.from(set_base_id.values())
       .map(
-        (base_id) =>
-          air_bases.bases[(props.area_id << 16) | base_id].plane_info,
+        (base_id) => air_bases.bases[(props.area_id << 16) | base_id].plane_info
       )
       .reduce((acc, val) => acc.concat(val), []);
 
@@ -111,12 +110,12 @@ export function AirBaseAssaultComponent(props: AirDamageProps) {
     props
       .battle_selected()
       .air_base_assault!.squadron_plane.filter(
-        (squadron_plane) => squadron_plane != 0,
+        (squadron_plane) => squadron_plane != 0
       )
       .forEach((squadron_plane) => {
         let idx = plane_info.findIndex(
           (plane) =>
-            slotitems.slot_items[plane.slotid].slotitem_id == squadron_plane,
+            slotitems.slot_items[plane.slotid].slotitem_id == squadron_plane
         );
         if (idx != -1) {
           ret.push(plane_info[idx].slotid);
@@ -204,7 +203,7 @@ export function AirBaseAssaultComponent(props: AirDamageProps) {
                                   when={props
                                     .battle_selected()
                                     .air_base_assault!.e_damage.protect_flag?.some(
-                                      (flag) => flag == true,
+                                      (flag) => flag == true
                                     )}
                                 >
                                   <IconShield class="h-4 w-4" />

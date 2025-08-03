@@ -2,7 +2,7 @@ import { defineConfig } from "vite";
 import solid from "vite-plugin-solid";
 
 import { storybookTest } from "@storybook/addon-vitest/vitest-plugin";
-import path from "node:path";
+import path, { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const dirname =
@@ -67,6 +67,11 @@ export default defineConfig(async () => ({
     watch: {
       // 3. tell vite to ignore watching `src-tauri`
       ignored: ["**/src-tauri/**"],
+    },
+  },
+  resolve: {
+    alias: {
+      "@ipc-bindings": resolve(__dirname, "../kc_api/bindings"),
     },
   },
 }));

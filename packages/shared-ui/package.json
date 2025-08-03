@@ -10,10 +10,11 @@
     "/dist"
   ],
   "scripts": {
+    "clean.dist": "rm -r ./dist",
     "build:js": "vite build",
     "build:types": "tsc --emitDeclarationOnly",
     "bundle:types": "rollup -c rollup.config.mjs",
-    "build": "npm run build:js && npm run build:types && npm run bundle:types && cem analyze --litelement",
+    "build": "npm run clean.dist && npm run build:js && npm run build:types && npm run bundle:types && cem analyze --litelement",
     "build.rollup": "rollup -c",
     "build.tsc": "tsc --build --verbose",
     "build.tsc:watch": "tsc --watch",
@@ -30,6 +31,7 @@
   "devDependencies": {
     "@chromatic-com/storybook": "4.0.1",
     "@custom-elements-manifest/analyzer": "^0.10.4",
+    "@rollup/plugin-alias": "^5.1.1",
     "@rollup/plugin-typescript": "^12.1.4",
     "@storybook/addon-a11y": "9.0.14",
     "@storybook/addon-docs": "9.0.14",

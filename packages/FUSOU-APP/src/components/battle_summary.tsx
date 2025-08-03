@@ -4,7 +4,7 @@ import { createMemo, For, Show } from "solid-js";
 
 import "../css/divider.css";
 import { SimpleShipNameComponent } from "./simple_ship_name";
-import { Battle } from "../interface/battle";
+import type { Battle } from "@ipc-bindings/battle";
 import { useDeckPorts, useShips } from "../utility/provider";
 import { SimpleHpBar } from "./simple_hp_bar";
 import IconFleetNumber from "../icons/fleet_number";
@@ -125,49 +125,47 @@ export function BattleSummaryComponent(props: ButtleSummaryProps) {
     let day_f_now_hps: number[] | null =
       props.battle_selected().f_nowhps !== null
         ? props
-          .battle_selected()
-          .f_nowhps!.map(
-            (v, i) => v - props.battle_selected().f_total_damages![i],
-          )
-          .map((v) => Math.max(v, 0))
+            .battle_selected()
+            .f_nowhps!.map(
+              (v, i) => v - props.battle_selected().f_total_damages![i]
+            )
+            .map((v) => Math.max(v, 0))
         : null;
     let day_e_now_hps: number[] | null =
       props.battle_selected().e_nowhps !== null
         ? props
-          .battle_selected()
-          .e_nowhps!.map(
-            (v, i) => v - props.battle_selected().e_total_damages![i],
-          )
-          .map((v) => Math.max(v, 0))
+            .battle_selected()
+            .e_nowhps!.map(
+              (v, i) => v - props.battle_selected().e_total_damages![i]
+            )
+            .map((v) => Math.max(v, 0))
         : null;
     let midnight_f_now_hps: number[] | null =
       props.battle_selected().midngiht_f_nowhps !== null
         ? props
-          .battle_selected()
-          .midngiht_f_nowhps!.map(
-            (v, i) =>
-              v - props.battle_selected().midnight_f_total_damages![i],
-          )
-          .map((v) => Math.max(v, 0))
+            .battle_selected()
+            .midngiht_f_nowhps!.map(
+              (v, i) => v - props.battle_selected().midnight_f_total_damages![i]
+            )
+            .map((v) => Math.max(v, 0))
         : null;
     let midnight_e_now_hps: number[] | null =
       props.battle_selected().midngiht_e_nowhps !== null
         ? props
-          .battle_selected()
-          .midngiht_e_nowhps!.map(
-            (v, i) =>
-              v - props.battle_selected().midnight_e_total_damages![i],
-          )
-          .map((v) => Math.max(v, 0))
+            .battle_selected()
+            .midngiht_e_nowhps!.map(
+              (v, i) => v - props.battle_selected().midnight_e_total_damages![i]
+            )
+            .map((v) => Math.max(v, 0))
         : null;
 
     let f_damage: number[] = add_array(
       props.battle_selected().f_total_damages ?? [],
-      props.battle_selected().midnight_f_total_damages ?? [],
+      props.battle_selected().midnight_f_total_damages ?? []
     );
     let e_damage: number[] = add_array(
       props.battle_selected().e_total_damages ?? [],
-      props.battle_selected().midnight_e_total_damages ?? [],
+      props.battle_selected().midnight_e_total_damages ?? []
     );
 
     let f_now_hps: number[] = select_min(day_f_now_hps, midnight_f_now_hps);
@@ -175,7 +173,12 @@ export function BattleSummaryComponent(props: ButtleSummaryProps) {
 
     let f_escape: boolean[] = [...Array(12)].map((_, i) => {
       if (props.battle_selected().escape_idx == null) return false;
-      if (props.battle_selected().escape_idx!.map((v) => v == i).filter((v) => v).length > 0) {
+      if (
+        props
+          .battle_selected()
+          .escape_idx!.map((v) => v == i)
+          .filter((v) => v).length > 0
+      ) {
         return true;
       } else {
         return false;
@@ -213,7 +216,7 @@ export function BattleSummaryComponent(props: ButtleSummaryProps) {
     ).slice(0, 6);
     let e_main_slot: number[][] = (props.battle_selected().e_slot ?? []).slice(
       0,
-      6,
+      6
     );
 
     let e_escort_ship_id: number[] = props
@@ -321,8 +324,8 @@ export function BattleSummaryComponent(props: ButtleSummaryProps) {
                     0,
                     Math.max(
                       fleet_info().f_main_ship_id.length,
-                      fleet_info().e_main_ship_id.length,
-                    ),
+                      fleet_info().e_main_ship_id.length
+                    )
                   )}
                 >
                   {(idx) => (
@@ -350,9 +353,7 @@ export function BattleSummaryComponent(props: ButtleSummaryProps) {
                             <ShipNameComponent
                               ship_id={fleet_info().f_main_ship_id[idx]}
                             />
-                            <Show
-                              when={fleet_info().f_main_escape[idx]}
-                            >
+                            <Show when={fleet_info().f_main_escape[idx]}>
                               <IconExit class="h-5" />
                             </Show>
                           </div>
@@ -365,9 +366,7 @@ export function BattleSummaryComponent(props: ButtleSummaryProps) {
                             />
                           </div>
                         </td>
-                        <td>
-                          {fleet_info().f_main_damages[idx]}
-                        </td>
+                        <td>{fleet_info().f_main_damages[idx]}</td>
                       </Show>
                       <Show
                         when={fleet_info().e_main_ship_id.length > idx}
@@ -415,8 +414,8 @@ export function BattleSummaryComponent(props: ButtleSummaryProps) {
                     0,
                     Math.max(
                       fleet_info().f_escort_ship_id.length,
-                      fleet_info().e_escort_ship_id.length,
-                    ),
+                      fleet_info().e_escort_ship_id.length
+                    )
                   )}
                 >
                   {(idx) => (
@@ -431,7 +430,13 @@ export function BattleSummaryComponent(props: ButtleSummaryProps) {
                           </>
                         }
                       >
-                        <td class={fleet_info().f_escort_escape[idx] ? "text-blue-200" : ""}>
+                        <td
+                          class={
+                            fleet_info().f_escort_escape[idx]
+                              ? "text-blue-200"
+                              : ""
+                          }
+                        >
                           <div class="flex flex-nowrap">
                             <IconFleetNumber
                               class="h-6 -mt-1 pr-1"
@@ -444,7 +449,13 @@ export function BattleSummaryComponent(props: ButtleSummaryProps) {
                             />
                           </div>
                         </td>
-                        <td class={fleet_info().f_escort_escape[idx] ? "text-blue-200" : ""}>
+                        <td
+                          class={
+                            fleet_info().f_escort_escape[idx]
+                              ? "text-blue-200"
+                              : ""
+                          }
+                        >
                           <div class="flex-none">
                             <SimpleHpBar
                               v_now={() => fleet_info().f_escort_nowhps[idx]}
@@ -452,7 +463,13 @@ export function BattleSummaryComponent(props: ButtleSummaryProps) {
                             />
                           </div>
                         </td>
-                        <td class={fleet_info().f_escort_escape[idx] ? "text-blue-200" : ""}>
+                        <td
+                          class={
+                            fleet_info().f_escort_escape[idx]
+                              ? "text-blue-200"
+                              : ""
+                          }
+                        >
                           {fleet_info().f_escort_damages[idx]}
                         </td>
                       </Show>

@@ -22,7 +22,7 @@ interface EquipmentProps {
 
 const show_modal = (slot_id: number) => {
   const dialogElement = document.getElementById(
-    "deck_equipment_modal_" + slot_id,
+    "deck_equipment_modal_" + slot_id
   ) as HTMLDialogElement | null;
   dialogElement?.showModal();
 };
@@ -45,7 +45,7 @@ export function EquimentComponent(props: EquipmentProps) {
     let type =
       _mst_slot_items.mst_slot_items[
         _slot_items.slot_items[props.slot_id]?.slotitem_id
-      ]._type[1];
+      ].type[1];
     return (
       type == 5 ||
       type == 7 ||
@@ -85,7 +85,7 @@ export function EquimentComponent(props: EquipmentProps) {
     let tooltip_data = {
       item_id: _slot_items.slot_items[props.slot_id]?.id,
       id: mst_slot_item()?.id,
-      type: mst_slot_item()?._type.toString(),
+      type: mst_slot_item()?.type.toString(),
       taik: mst_slot_item()?.taik,
       souk: mst_slot_item()?.souk,
       houg: mst_slot_item()?.houg,
@@ -110,7 +110,7 @@ export function EquimentComponent(props: EquipmentProps) {
       (acc, [key, value]) => {
         return acc + key + ": " + String(value) + ",\n";
       },
-      "",
+      ""
     );
     return tool_tip_string;
   };
@@ -145,12 +145,12 @@ export function EquimentComponent(props: EquipmentProps) {
             category_number={
               _mst_slot_items.mst_slot_items[
                 _slot_items.slot_items[props.slot_id]?.slotitem_id
-              ]?._type[1]
+              ]?.type[1]
             }
             icon_number={
               _mst_slot_items.mst_slot_items[
                 _slot_items.slot_items[props.slot_id]?.slotitem_id
-              ]?._type[3]
+              ]?.type[3]
             }
           />
         </div>
