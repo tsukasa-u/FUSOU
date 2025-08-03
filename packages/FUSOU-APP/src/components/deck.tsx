@@ -57,46 +57,61 @@ export function DeckComponent(props: DeckPortProps) {
   const [mst_slot_items] = useMstSlotItems();
   const [deck_ports] = useDeckPorts();
 
-  // const ship_list = createMemo<Ship[]>(() => {
-  //   let mst_ship_list = deck_ports.deck_ports[props.deck_id].ship.map(
-  //     (id) => ships.ships[id]
-  //   );
-  //   return mst_ship_list;
-  // });
+  const ship_list = createMemo<Ship[]>(() => {
+    let mst_ship_list: Ship[] = [];
+    if (deck_ports.deck_ports[props.deck_id]) {
+      if (deck_ports.deck_ports[props.deck_id]!.ship) {
+        deck_ports.deck_ports[props.deck_id]!.ship!.forEach((id) => {
+          let tmp = ships.ships[id];
+          if (tmp) mst_ship_list.push(tmp);
+        });
+      }
+    }
+    return mst_ship_list;
+  });
 
-  // const mst_ship_list = createMemo<MstShip[]>(() => {
-  //   let mst_ship_list = ship_list().map(
-  //     (ship) => mst_ships.mst_ships[ship.ship_id]
-  //   );
-  //   return mst_ship_list;
-  // });
+  const mst_ship_list = createMemo<MstShip[]>(() => {
+    let mst_ship_list: MstShip[] = [];
+    ship_list().forEach((ship) => {
+      if (ship.ship_id) {
+        let tmp = mst_ships.mst_ships[ship.ship_id];
+        if (tmp) mst_ship_list.push(tmp);
+      }
+    });
+    return mst_ship_list;
+  });
 
-  // const slot_items_list = createMemo<SlotItems[]>(() => {
-  //   let slot_items_list = ship_list().map((ship) => {
-  //     let slot_item_dict: { [key: number]: SlotItem } = {};
-  //     ship.slot.forEach((id) => {
-  //       slot_item_dict[id] = slot_items.slot_items[id];
-  //     });
-  //     return {
-  //       slot_items: slot_item_dict,
-  //     } as SlotItems;
-  //   });
-  //   return slot_items_list;
-  // });
+  const slot_items_list = createMemo<SlotItems[]>(() => {
+    let slot_items_list = ship_list().map((ship) => {
+      let slot_item_dict: { [key: number]: SlotItem } = {};
+      if (ship.slot) {
+        ship.slot.forEach((id) => {
+          let tmp = slot_items.slot_items[id];
+          if (tmp) slot_item_dict[id] = tmp;
+        });
+      }
+      return {
+        slot_items: slot_item_dict,
+      } as SlotItems;
+    });
+    return slot_items_list;
+  });
 
-  // const mst_slot_itmes_list = createMemo<MstSlotItems[]>(() => {
-  //   let mst_slot_itmes_list = slot_items_list().map((items) => {
-  //     let mst_slot_item_dict: { [key: number]: MstSlotItem } = {};
-  //     Object.values(items.slot_items).forEach((item) => {
-  //       mst_slot_item_dict[item.slotitem_id] =
-  //         mst_slot_items.mst_slot_items[item.slotitem_id];
-  //     });
-  //     return {
-  //       mst_slot_items: mst_slot_item_dict,
-  //     } as MstSlotItems;
-  //   });
-  //   return mst_slot_itmes_list;
-  // });
+  const mst_slot_itmes_list = createMemo<MstSlotItems[]>(() => {
+    let mst_slot_itmes_list = slot_items_list().map((items) => {
+      let mst_slot_item_dict: { [key: number]: MstSlotItem } = {};
+      Object.values(items.slot_items).forEach((item) => {
+        if (item) {
+          let tmp = mst_slot_items.mst_slot_items[item.slotitem_id];
+          if (tmp) mst_slot_item_dict[item.slotitem_id] = tmp;
+        }
+      });
+      return {
+        mst_slot_items: mst_slot_item_dict,
+      } as MstSlotItems;
+    });
+    return mst_slot_itmes_list;
+  });
 
   const cond_state = createMemo<JSX.Element[]>(() => {
     const set_cond_state = (cond: number): JSX.Element => {
@@ -255,7 +270,7 @@ export function DeckComponent(props: DeckPortProps) {
                       <div class="justify-start gap-0 flex">
                         <div class="pl-2 pr-0.5 truncate flex-1 min-w-12 content-center">
                           <div class="w-24 h-max">
-                            {/* <component-ship-modal
+                            <component-ship-modal
                               size="xs"
                               color=""
                               name_flag={true}
@@ -263,8 +278,8 @@ export function DeckComponent(props: DeckPortProps) {
                               mst_ship={mst_ship_list()[idx()]}
                               slot_items={slot_items_list()[idx()]}
                               mst_slot_items={mst_slot_itmes_list()[idx()]}
-                            /> */}
-                            <ShipNameComponent ship_id={shipId} />
+                            />
+                            {/* <ShipNameComponent ship_id={shipId} /> */}
                           </div>
                         </div>
                         <div class="divider divider-horizontal mr-0 ml-0 flex-none" />
