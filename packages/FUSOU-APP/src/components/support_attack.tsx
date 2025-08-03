@@ -4,7 +4,7 @@ import { createMemo, For, Show } from "solid-js";
 
 import "../css/divider.css";
 import { SimpleShipNameComponent } from "./simple_ship_name";
-import { Battle } from "../interface/battle";
+import type { Battle } from "@ipc-bindings/battle";
 import IconShield from "../icons/shield";
 import { SimpleHpBar } from "./simple_hp_bar";
 import { useShips } from "../utility/provider";
@@ -72,7 +72,7 @@ export function SupportAttackComponent(props: SupportAttackProps) {
         .support_attack!.support_airatack!.e_damage!.bak_flag!.forEach(
           (flag, idx) => {
             show_air_damage[0][idx] ||= flag == 1;
-          },
+          }
         );
     }
     if (
@@ -84,7 +84,7 @@ export function SupportAttackComponent(props: SupportAttackProps) {
         .support_attack!.support_airatack!!.e_damage!.rai_flag!.forEach(
           (flag, idx) => {
             show_air_damage[0][idx] ||= flag == 1;
-          },
+          }
         );
     }
     if (
@@ -96,7 +96,7 @@ export function SupportAttackComponent(props: SupportAttackProps) {
         .support_attack!.support_airatack!!.f_damage!.bak_flag!.forEach(
           (flag, idx) => {
             show_air_damage[1][idx] ||= flag == 1;
-          },
+          }
         );
     }
     if (
@@ -108,7 +108,7 @@ export function SupportAttackComponent(props: SupportAttackProps) {
         .support_attack!.support_airatack!!.f_damage!.rai_flag!.forEach(
           (flag, idx) => {
             show_air_damage[1][idx] ||= flag == 1;
-          },
+          }
         );
     }
     return show_air_damage;
@@ -227,7 +227,7 @@ export function SupportAttackComponent(props: SupportAttackProps) {
                                 when={props
                                   .battle_selected()
                                   .support_attack!.support_hourai!.protect_flag.some(
-                                    (flag) => flag == true,
+                                    (flag) => flag == true
                                   )}
                               >
                                 <IconShield class="h-5 w-5" />
@@ -391,7 +391,7 @@ export function SupportAttackComponent(props: SupportAttackProps) {
                                     when={props
                                       .battle_selected()
                                       .support_attack!.support_airatack!.e_damage.protect_flag?.some(
-                                        (flag) => flag == true,
+                                        (flag) => flag == true
                                       )}
                                   >
                                     <IconShield class="h-5 w-5" />

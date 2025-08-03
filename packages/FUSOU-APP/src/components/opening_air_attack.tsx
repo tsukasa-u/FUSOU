@@ -4,7 +4,7 @@ import { createMemo, For, Match, Show, Switch } from "solid-js";
 
 import "../css/divider.css";
 import { SimpleShipNameComponent } from "./simple_ship_name";
-import { Battle } from "../interface/battle";
+import type { Battle } from "@ipc-bindings/battle";
 import { MstEquipmentComponent } from "./mst_equipment";
 import IconShield from "../icons/shield";
 import { SimpleHpBar } from "./simple_hp_bar";
@@ -370,7 +370,7 @@ export function OpeningAirAttackComponent(props: AirDamageProps) {
                                     when={props
                                       .battle_selected()
                                       .opening_air_attack.e_damage.protect_flag?.some(
-                                        (flag) => flag == true,
+                                        (flag) => flag == true
                                       )}
                                   >
                                     <IconShield class="h-4 w-4" />
@@ -559,7 +559,7 @@ export function OpeningAirAttackComponent(props: AirDamageProps) {
                                     when={props
                                       .battle_selected()
                                       .opening_air_attack.f_damage.protect_flag?.some(
-                                        (flag) => flag == true,
+                                        (flag) => flag == true
                                       )}
                                   >
                                     <IconShield class="h-4 w-4" />

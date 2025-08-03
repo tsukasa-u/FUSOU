@@ -4,7 +4,7 @@ import { createMemo, For, Show } from "solid-js";
 
 import "../css/divider.css";
 import { SimpleShipNameComponent } from "./simple_ship_name";
-import { Battle } from "../interface/battle";
+import type { Battle } from "@ipc-bindings/battle";
 import IconShield from "../icons/shield";
 import { useDeckPorts, useShips } from "../utility/provider";
 import { SimpleHpBar } from "./simple_hp_bar";
@@ -15,9 +15,8 @@ interface AirDamageProps {
 }
 
 export function CarrierBaseAssaultComponent(props: AirDamageProps) {
-
-  const [ships, ] = useShips();
-  const [deck_ports, ] = useDeckPorts();
+  const [ships] = useShips();
+  const [deck_ports] = useDeckPorts();
 
   const show_air_attack = createMemo<boolean>(() => {
     if (props.battle_selected() == undefined) return false;
@@ -160,7 +159,8 @@ export function CarrierBaseAssaultComponent(props: AirDamageProps) {
                         </For>
                       </div>
                     </td>
-                    <td><div class="flex flex-col">
+                    <td>
+                      <div class="flex flex-col">
                         <For
                           each={
                             props.battle_selected().carrier_base_assault!
@@ -169,7 +169,19 @@ export function CarrierBaseAssaultComponent(props: AirDamageProps) {
                         >
                           {(ship_idx) => (
                             <>
-                              <SimpleHpBar v_now={() => props.battle_selected().carrier_base_assault!.f_damage!.now_hps[ship_idx]} v_max={() => ships.ships[deck_ports.deck_ports[props.battle_selected().deck_id!].ship[ship_idx]].maxhp} />
+                              <SimpleHpBar
+                                v_now={() =>
+                                  props.battle_selected().carrier_base_assault!
+                                    .f_damage!.now_hps[ship_idx]
+                                }
+                                v_max={() =>
+                                  ships.ships[
+                                    deck_ports.deck_ports[
+                                      props.battle_selected().deck_id!
+                                    ].ship[ship_idx]
+                                  ].maxhp
+                                }
+                              />
                             </>
                           )}
                         </For>
@@ -217,7 +229,7 @@ export function CarrierBaseAssaultComponent(props: AirDamageProps) {
                                   when={props
                                     .battle_selected()
                                     .carrier_base_assault!.e_damage.protect_flag?.some(
-                                      (flag) => flag == true,
+                                      (flag) => flag == true
                                     )}
                                 >
                                   <IconShield class="h-4 w-4" />
@@ -314,7 +326,9 @@ export function CarrierBaseAssaultComponent(props: AirDamageProps) {
                                 />
                                 <SimpleShipNameComponent
                                   ship_id={
-                                    props.battle_selected().enemy_ship_id[ship_idx]
+                                    props.battle_selected().enemy_ship_id[
+                                      ship_idx
+                                    ]
                                   }
                                   ship_slot={
                                     props.battle_selected().e_slot![ship_idx]
@@ -345,8 +359,10 @@ export function CarrierBaseAssaultComponent(props: AirDamageProps) {
                               <div class="flex flex-nowrap">
                                 <SimpleHpBar
                                   v_now={() =>
-                                    props.battle_selected().carrier_base_assault!
-                                      .e_damage!.now_hps[ship_idx]
+                                    props.battle_selected()
+                                      .carrier_base_assault!.e_damage!.now_hps[
+                                      ship_idx
+                                    ]
                                   }
                                   v_max={() =>
                                     props.battle_selected().e_hp_max![ship_idx]
@@ -372,7 +388,7 @@ export function CarrierBaseAssaultComponent(props: AirDamageProps) {
                                 <div class="h-px" />
                               </Show>
                               <div class="flex flex-nowrap">
-                              <IconFleetNumber
+                                <IconFleetNumber
                                   class="h-6 -mt-1 pr-1"
                                   e_flag={1}
                                   fleet_number={1}
@@ -390,7 +406,7 @@ export function CarrierBaseAssaultComponent(props: AirDamageProps) {
                                   when={props
                                     .battle_selected()
                                     .carrier_base_assault!.f_damage.protect_flag?.some(
-                                      (flag) => flag == true,
+                                      (flag) => flag == true
                                     )}
                                 >
                                   <IconShield class="h-4 w-4" />
@@ -422,7 +438,6 @@ export function CarrierBaseAssaultComponent(props: AirDamageProps) {
                                       props.battle_selected().deck_id!
                                     ].ship[idx()]
                                   ].maxhp
-                                  
                                 }
                               />
                             </Show>

@@ -2,7 +2,7 @@ import { createMemo, For, Show } from "solid-js";
 
 import "../css/divider.css";
 import { SimpleShipNameComponent } from "./simple_ship_name";
-import { Battle } from "../interface/battle";
+import type { Battle } from "@ipc-bindings/battle";
 import { EquimentComponent } from "./equipment";
 import { useAirBases } from "../utility/provider";
 import IconShield from "../icons/shield";
@@ -29,7 +29,7 @@ export function AirBaseAirAttackComponent(props: AirDamageProps) {
     if (!show_air_attack()) return show_damage;
     props
       .battle_selected()
-      .air_base_air_attacks.attacks.forEach((attack, attack_idx) => {
+      .air_base_air_attacks!.attacks.forEach((attack, attack_idx) => {
         show_damage.push([
           false,
           false,
@@ -77,7 +77,7 @@ export function AirBaseAirAttackComponent(props: AirDamageProps) {
               </thead>
               <tbody>
                 <For
-                  each={props.battle_selected().air_base_air_attacks.attacks}
+                  each={props.battle_selected().air_base_air_attacks!.attacks}
                 >
                   {(attack, attack_idx) => (
                     <>
@@ -85,16 +85,11 @@ export function AirBaseAirAttackComponent(props: AirDamageProps) {
                         touch : <span class="w-1" />
                         <div class="w-6 flex justify-center">
                           <Show
-                            when={
-                              (attack!.f_damage!
-                                .touch_plane ?? 0) > 0
-                            }
+                            when={(attack!.f_damage!.touch_plane ?? 0) > 0}
                             fallback={<div>_</div>}
                           >
                             <MstEquipmentComponent
-                              equip_id={
-                                attack!.f_damage!.touch_plane!
-                              }
+                              equip_id={attack!.f_damage!.touch_plane!}
                               name_flag={true}
                               compact={true}
                               show_param={true}
@@ -103,15 +98,11 @@ export function AirBaseAirAttackComponent(props: AirDamageProps) {
                         </div>
                         <div class="w-6 flex justify-center">
                           <Show
-                            when={
-                              (attack!.e_damage!.touch_plane ?? 0) > 0
-                            }
+                            when={(attack!.e_damage!.touch_plane ?? 0) > 0}
                             fallback={<div>_</div>}
                           >
                             <MstEquipmentComponent
-                              equip_id={
-                                attack!.e_damage!.touch_plane!
-                              }
+                              equip_id={attack!.e_damage!.touch_plane!}
                               name_flag={true}
                               compact={true}
                               show_param={true}
@@ -148,7 +139,9 @@ export function AirBaseAirAttackComponent(props: AirDamageProps) {
                             <For each={attack.e_damage.damages ?? []}>
                               {(_, idx) => (
                                 <>
-                                  <Show when={show_damage()[attack_idx()][idx()]}>
+                                  <Show
+                                    when={show_damage()[attack_idx()][idx()]}
+                                  >
                                     <Show when={idx() > 0}>
                                       <div class="h-px" />
                                     </Show>
@@ -170,17 +163,23 @@ export function AirBaseAirAttackComponent(props: AirDamageProps) {
                                           ]
                                         }
                                         ship_max_hp={
-                                          props.battle_selected().e_hp_max![idx()]
+                                          props.battle_selected().e_hp_max![
+                                            idx()
+                                          ]
                                         }
                                         ship_param={
-                                          props.battle_selected().e_params![idx()]
+                                          props.battle_selected().e_params![
+                                            idx()
+                                          ]
                                         }
                                         ship_slot={
                                           props.battle_selected().e_slot![idx()]
                                         }
                                       />
                                       <Show
-                                        when={attack.e_damage.protect_flag?.some((flag) => flag == true)}
+                                        when={attack.e_damage.protect_flag?.some(
+                                          (flag) => flag == true
+                                        )}
                                       >
                                         <IconShield class="h-5 w-5" />
                                       </Show>
@@ -196,7 +195,9 @@ export function AirBaseAirAttackComponent(props: AirDamageProps) {
                             <For each={attack.e_damage.damages ?? []}>
                               {(_, idx) => (
                                 <>
-                                  <Show when={show_damage()[attack_idx()][idx()]}>
+                                  <Show
+                                    when={show_damage()[attack_idx()][idx()]}
+                                  >
                                     <SimpleHpBar
                                       v_now={() =>
                                         attack.e_damage.now_hps[idx()]
@@ -216,7 +217,9 @@ export function AirBaseAirAttackComponent(props: AirDamageProps) {
                             <For each={attack.e_damage.damages ?? []}>
                               {(dmg, idx) => (
                                 <>
-                                  <Show when={show_damage()[attack_idx()][idx()]}>
+                                  <Show
+                                    when={show_damage()[attack_idx()][idx()]}
+                                  >
                                     <Show when={idx() > 0}>
                                       <div class="h-[4px]" />
                                     </Show>

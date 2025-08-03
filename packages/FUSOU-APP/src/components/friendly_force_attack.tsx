@@ -2,7 +2,7 @@ import { createMemo, For, Show } from "solid-js";
 
 import "../css/divider.css";
 import { SimpleShipNameComponent } from "./simple_ship_name";
-import { Battle } from "../interface/battle";
+import type { Battle } from "@ipc-bindings/battle";
 import { MstEquipmentComponent } from "./mst_equipment";
 import IconShield from "../icons/shield";
 import { SimpleHpBar } from "./simple_hp_bar";

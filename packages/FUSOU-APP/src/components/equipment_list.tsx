@@ -91,13 +91,13 @@ export function EquipmentListComponent() {
     Object.entries(mst_slot_items_equip_types.mst_slotitem_equip_types).forEach(
       ([, mst_slotitem_equip_types]) => {
         _check_equip_types[mst_slotitem_equip_types.name] = true;
-      },
+      }
     );
     set_check_equip_types(_check_equip_types);
   });
 
   const [check_name, set_check_name] = createStore<{ [key: number]: boolean }>(
-    {},
+    {}
   );
   createEffect(() => {
     let check_name: { [key: number]: boolean } = {};
@@ -119,7 +119,7 @@ export function EquipmentListComponent() {
         check_equip_property[property] = true;
       });
       return check_equip_property;
-    })(),
+    })()
   );
 
   const [set_order, set_set_order] = createSignal(true);
@@ -147,77 +147,77 @@ export function EquipmentListComponent() {
         a_mst_equip.sortno,
         b_mst_equip.sortno,
         a_mst_equip.sortno,
-        b_mst_equip.sortno,
+        b_mst_equip.sortno
       );
     if (set_sort() == "Level")
       return additional_sort_fn(
         a_equip.level,
         b_equip.level,
         a_mst_equip.sortno,
-        b_mst_equip.sortno,
+        b_mst_equip.sortno
       );
     if (set_sort() == "Firepower")
       return additional_sort_fn(
         a_mst_equip.houg,
         b_mst_equip.houg,
         a_mst_equip.sortno,
-        b_mst_equip.sortno,
+        b_mst_equip.sortno
       );
     if (set_sort() == "Torpedo")
       return additional_sort_fn(
         a_mst_equip.raig,
         b_mst_equip.raig,
         a_mst_equip.sortno,
-        b_mst_equip.sortno,
+        b_mst_equip.sortno
       );
     if (set_sort() == "Anti-Air")
       return additional_sort_fn(
         a_mst_equip.tyku,
         b_mst_equip.tyku,
         a_mst_equip.sortno,
-        b_mst_equip.sortno,
+        b_mst_equip.sortno
       );
     if (set_sort() == "Armor")
       return additional_sort_fn(
         a_mst_equip.souk,
         b_mst_equip.souk,
         a_mst_equip.sortno,
-        b_mst_equip.sortno,
+        b_mst_equip.sortno
       );
     if (set_sort() == "Evasion")
       return additional_sort_fn(
         a_mst_equip.houk,
         b_mst_equip.houk,
         a_mst_equip.sortno,
-        b_mst_equip.sortno,
+        b_mst_equip.sortno
       );
     if (set_sort() == "Anti-Submarine")
       return additional_sort_fn(
         a_mst_equip.tais,
         b_mst_equip.tais,
         a_mst_equip.sortno,
-        b_mst_equip.sortno,
+        b_mst_equip.sortno
       );
     if (set_sort() == "Reconnaissance")
       return additional_sort_fn(
         a_mst_equip.saku,
         b_mst_equip.saku,
         a_mst_equip.sortno,
-        b_mst_equip.sortno,
+        b_mst_equip.sortno
       );
     if (set_sort() == "Proficiency")
       return additional_sort_fn(
         a_equip.alv ?? 0,
         b_equip.alv ?? 0,
         a_mst_equip.sortno,
-        b_mst_equip.sortno,
+        b_mst_equip.sortno
       );
     if (set_sort() == "Bomb")
       return additional_sort_fn(
         a_mst_equip.baku,
         b_mst_equip.baku,
         a_mst_equip.sortno,
-        b_mst_equip.sortno,
+        b_mst_equip.sortno
       );
     return 0;
   };
@@ -242,13 +242,13 @@ export function EquipmentListComponent() {
     Object.entries(mst_slot_items_equip_types.mst_slotitem_equip_types).forEach(
       ([, equip_types]) => {
         categorized_equips_keys[equip_types.name] = [];
-      },
+      }
     );
     Object.entries(slot_items.slot_items).forEach(([equip_id, slot_item]) => {
       // which index is true?
       let equip_type =
         mst_slot_items_equip_types.mst_slotitem_equip_types[
-          mst_slot_items.mst_slot_items[slot_item.slotitem_id]._type[2]
+          mst_slot_items.mst_slot_items[slot_item.slotitem_id].type[2]
         ].name;
       categorized_equips_keys[equip_type].push(Number(equip_id));
     });
@@ -260,7 +260,7 @@ export function EquipmentListComponent() {
         if (!set_order())
           categorized_equips_keys[equip_types.name] =
             categorized_equips_keys[equip_types.name].reverse();
-      },
+      }
     );
 
     return categorized_equips_keys;
@@ -297,7 +297,7 @@ export function EquipmentListComponent() {
         };
       });
       return range_props;
-    })(),
+    })()
   );
 
   const filtered_equips = createMemo<{ [key: number]: boolean }>(() => {
@@ -344,7 +344,7 @@ export function EquipmentListComponent() {
             mst_slot_items_equip_types.mst_slotitem_equip_types[
               mst_slot_items.mst_slot_items[
                 slot_items.slot_items[Number(equip_id)].slotitem_id
-              ]._type[2]
+              ].type[2]
             ].name
           ]
         )
@@ -359,7 +359,7 @@ export function EquipmentListComponent() {
             "Firepower",
             mst_slot_items.mst_slot_items[
               slot_items.slot_items[Number(equip_id)].slotitem_id
-            ].houg,
+            ].houg
           )
         )
           return false;
@@ -368,7 +368,7 @@ export function EquipmentListComponent() {
             "Torpedo",
             mst_slot_items.mst_slot_items[
               slot_items.slot_items[Number(equip_id)].slotitem_id
-            ].raig,
+            ].raig
           )
         )
           return false;
@@ -377,7 +377,7 @@ export function EquipmentListComponent() {
             "Anti-Air",
             mst_slot_items.mst_slot_items[
               slot_items.slot_items[Number(equip_id)].slotitem_id
-            ].tyku,
+            ].tyku
           )
         )
           return false;
@@ -386,7 +386,7 @@ export function EquipmentListComponent() {
             "Armor",
             mst_slot_items.mst_slot_items[
               slot_items.slot_items[Number(equip_id)].slotitem_id
-            ].taik,
+            ].taik
           )
         )
           return false;
@@ -395,7 +395,7 @@ export function EquipmentListComponent() {
             "Evasion",
             mst_slot_items.mst_slot_items[
               slot_items.slot_items[Number(equip_id)].slotitem_id
-            ].houm,
+            ].houm
           )
         )
           return false;
@@ -404,7 +404,7 @@ export function EquipmentListComponent() {
             "Anti-Submarine",
             mst_slot_items.mst_slot_items[
               slot_items.slot_items[Number(equip_id)].slotitem_id
-            ].tais,
+            ].tais
           )
         )
           return false;
@@ -413,14 +413,14 @@ export function EquipmentListComponent() {
             "Reconnaissance",
             mst_slot_items.mst_slot_items[
               slot_items.slot_items[Number(equip_id)].slotitem_id
-            ].saku,
+            ].saku
           )
         )
           return false;
         if (
           !check_range(
             "Proficiency",
-            slot_items.slot_items[Number(equip_id)].alv ?? 0,
+            slot_items.slot_items[Number(equip_id)].alv ?? 0
           )
         )
           return false;
@@ -429,7 +429,7 @@ export function EquipmentListComponent() {
             "Bomb",
             mst_slot_items.mst_slot_items[
               slot_items.slot_items[Number(equip_id)].slotitem_id
-            ].baku,
+            ].baku
           )
         )
           return false;
@@ -725,7 +725,7 @@ export function EquipmentListComponent() {
     if (pagination.selected == "All") return;
     let option = pagination.options[pagination.selected];
     let pages = Math.ceil(
-      Object.keys(filtered_equips()).length / Number(pagination.selected),
+      Object.keys(filtered_equips()).length / Number(pagination.selected)
     );
     let current_page = option.current_page;
     if (current_page > pages) current_page = pages;
@@ -790,7 +790,7 @@ export function EquipmentListComponent() {
                         mst_slot_items_equip_types.mst_slotitem_equip_types[
                           mst_slot_items.mst_slot_items[
                             slot_items.slot_items[Number(equip_id)].slotitem_id
-                          ]._type[2]
+                          ].type[2]
                         ].name
                       }
                     </td>
@@ -892,7 +892,7 @@ export function EquipmentListComponent() {
                       <div class="w-6 flex justify-self-center">
                         <span class="flex-1" />
                         {proficiency_selector(
-                          slot_items.slot_items[Number(equip_id)].alv ?? 0,
+                          slot_items.slot_items[Number(equip_id)].alv ?? 0
                         )}
                       </div>
                     </td>
@@ -975,7 +975,7 @@ export function EquipmentListComponent() {
             set_check_name(tmp_name);
           }
         })();
-      },
+      }
     );
   };
 
@@ -1017,7 +1017,7 @@ export function EquipmentListComponent() {
                               onClick={() => {
                                 set_check_equip_property(
                                   prop,
-                                  !check_equip_property[prop],
+                                  !check_equip_property[prop]
                                 );
                               }}
                             />
@@ -1070,7 +1070,7 @@ export function EquipmentListComponent() {
                     "options",
                     pagination.selected,
                     "current_page",
-                    1,
+                    1
                   )
                 }
               >
@@ -1083,7 +1083,7 @@ export function EquipmentListComponent() {
                     "options",
                     pagination.selected,
                     "current_page",
-                    pagination.options[pagination.selected].current_page - 1,
+                    pagination.options[pagination.selected].current_page - 1
                   )
                 }
               >
@@ -1091,7 +1091,7 @@ export function EquipmentListComponent() {
               </button>
               <For
                 each={[...Array(Math.floor(default_disply_pages / 2))].map(
-                  (_, i) => i + 1,
+                  (_, i) => i + 1
                 )}
               >
                 {(index) => (
@@ -1115,7 +1115,7 @@ export function EquipmentListComponent() {
                           "current_page",
                           pagination.options[pagination.selected].current_page +
                             index -
-                            default_disply_pages,
+                            default_disply_pages
                         )
                       }
                     >
@@ -1128,7 +1128,7 @@ export function EquipmentListComponent() {
               </For>
               <For
                 each={[...Array(default_disply_pages)].map(
-                  (_, i) => i - Math.floor(default_disply_pages / 2),
+                  (_, i) => i - Math.floor(default_disply_pages / 2)
                 )}
               >
                 {(index) => (
@@ -1154,8 +1154,7 @@ export function EquipmentListComponent() {
                           pagination.selected,
                           "current_page",
                           index +
-                            pagination.options[pagination.selected]
-                              .current_page,
+                            pagination.options[pagination.selected].current_page
                         );
                       }}
                     >
@@ -1167,7 +1166,7 @@ export function EquipmentListComponent() {
               </For>
               <For
                 each={[...Array(Math.floor(default_disply_pages / 2))].map(
-                  (_, i) => i - Math.floor(default_disply_pages / 2),
+                  (_, i) => i - Math.floor(default_disply_pages / 2)
                 )}
               >
                 {(index) => (
@@ -1191,7 +1190,7 @@ export function EquipmentListComponent() {
                           "current_page",
                           pagination.options[pagination.selected].current_page +
                             index +
-                            default_disply_pages,
+                            default_disply_pages
                         )
                       }
                     >
@@ -1209,7 +1208,7 @@ export function EquipmentListComponent() {
                     "options",
                     pagination.selected,
                     "current_page",
-                    pagination.options[pagination.selected].current_page + 1,
+                    pagination.options[pagination.selected].current_page + 1
                   )
                 }
               >
@@ -1222,7 +1221,7 @@ export function EquipmentListComponent() {
                     "options",
                     pagination.selected,
                     "current_page",
-                    pagination.options[pagination.selected].pages,
+                    pagination.options[pagination.selected].pages
                   )
                 }
               >
@@ -1317,7 +1316,7 @@ export function EquipmentListComponent() {
                     <Show
                       when={
                         Object.values(check_name).findIndex(
-                          (value) => !value,
+                          (value) => !value
                         ) != -1
                       }
                     >
@@ -1379,7 +1378,7 @@ export function EquipmentListComponent() {
                       <Show
                         when={
                           Object.values(check_equip_types).findIndex(
-                            (value) => !value,
+                            (value) => !value
                           ) != -1
                         }
                       >
@@ -1421,7 +1420,7 @@ export function EquipmentListComponent() {
                                       onClick={() => {
                                         set_check_equip_types(
                                           equip_type_name,
-                                          !check_equip_types[equip_type_name],
+                                          !check_equip_types[equip_type_name]
                                         );
                                       }}
                                     />
@@ -1546,7 +1545,7 @@ export function EquipmentListComponent() {
                       <ul class="pl-0 ml-0">
                         <li>
                           {table_element(
-                            categorized_equips_keys()[equip_type_name],
+                            categorized_equips_keys()[equip_type_name]
                           )}
                         </li>
                       </ul>
