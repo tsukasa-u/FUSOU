@@ -45,6 +45,7 @@ export const basic: Story = {
     empty_flag: {
       control: { type: "boolean" },
     },
+    mst_ship: { control: "select", options: [undefined] },
   },
   args: {
     size: "sm",

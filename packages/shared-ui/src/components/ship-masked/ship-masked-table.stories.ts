@@ -42,6 +42,8 @@ export const basic: Story = {
         },
       },
     },
+    mst_ship: { control: "select", options: [undefined] },
+    mst_slot_items: { control: "select", options: [undefined] },
   },
   args: {
     size: "sm",
@@ -110,6 +112,9 @@ export const basic: Story = {
           usebull: "0",
           geigeki: 0,
           taibaku: 0,
+          cost: null,
+          distance: null,
+          version: null,
         },
         41: {
           id: 41,
@@ -140,6 +145,8 @@ export const basic: Story = {
           version: 2,
           geigeki: 0,
           taibaku: 0,
+          cost: null,
+          distance: null,
         },
         106: {
           id: 106,
@@ -170,6 +177,8 @@ export const basic: Story = {
           version: 2,
           geigeki: 0,
           taibaku: 0,
+          cost: null,
+          distance: null,
         },
         129: {
           id: 129,
@@ -199,6 +208,9 @@ export const basic: Story = {
           usebull: "0",
           geigeki: 0,
           taibaku: 0,
+          cost: null,
+          distance: null,
+          version: null,
         },
       },
     },

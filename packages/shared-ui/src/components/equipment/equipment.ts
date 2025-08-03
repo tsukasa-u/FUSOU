@@ -2,19 +2,19 @@ import { html, LitElement, unsafeCSS } from "lit";
 import { customElement, property } from "lit/decorators.js";
 import globalStyles from "../../global.css?inline";
 
-import { default_slotitem, type SlotItem } from "../../interface/require_info";
-import {
-  default_mst_slot_item,
-  type MstSlotitem,
-} from "../../interface/get_data";
-import { ifDefined } from "lit/directives/if-defined.js";
+import type { SlotItem } from "@ipc-bindings/require_info";
+import { default_slotitem } from "@ipc-bindings/default_state/require_info";
+
+import type { MstSlotItem } from "@ipc-bindings/get_data";
+import { default_mst_slot_item } from "@ipc-bindings/default_state/get_data";
 
 import "../../icons/equipment";
 import "../../icons/plane-proficiency";
+import "../../icons/error";
 
 export interface ComponentEquipmentProps {
-  mst_slot_item: MstSlotitem;
-  slot_item: SlotItem;
+  mst_slot_item?: MstSlotItem;
+  slot_item?: SlotItem;
   compact?: boolean;
   name_flag?: boolean;
   onslot?: number;
@@ -70,7 +70,7 @@ const class_size = {
   },
 };
 
-const show_onslot = (mst_slot_item: MstSlotitem) => {
+const show_onslot = (mst_slot_item: MstSlotItem) => {
   let type = mst_slot_item.type[1];
   return (
     type == 5 ||
@@ -91,10 +91,10 @@ export class ComponentEquipment extends LitElement {
   static styles = [unsafeCSS(globalStyles)];
 
   @property({ type: Object })
-  slot_item: SlotItem = default_slotitem;
+  slot_item?: SlotItem = default_slotitem;
 
   @property({ type: Object })
-  mst_slot_item: MstSlotitem = default_mst_slot_item;
+  mst_slot_item?: MstSlotItem = default_mst_slot_item;
 
   @property({ type: Boolean })
   compact: boolean = false;
@@ -112,7 +112,12 @@ export class ComponentEquipment extends LitElement {
   empty_flag = false;
 
   proficiencyOnslotTemplete() {
-    if (!this.compact && !this.empty_flag) {
+    if (
+      this.slot_item &&
+      this.mst_slot_item &&
+      !this.compact &&
+      !this.empty_flag
+    ) {
       return html`<div
           class=${[
             "grid w-4 place-content-center",
@@ -122,7 +127,7 @@ export class ComponentEquipment extends LitElement {
           <icon-plane-proficiency
             class=${class_size[this.size].proficiency_onslot_h}
             size="full"
-            level=${ifDefined(this.slot_item.alv)}
+            level=${this.slot_item.alv ?? 0}
           ></icon-plane-proficiency>
         </div>
         <div
@@ -142,7 +147,7 @@ export class ComponentEquipment extends LitElement {
   }
 
   nameTemplete() {
-    return this.name_flag && !this.empty_flag
+    return this.mst_slot_item && this.name_flag && !this.empty_flag
       ? html` <div
           class=${[
             "pl-3 truncate content-center cursor-inherit",
@@ -156,7 +161,7 @@ export class ComponentEquipment extends LitElement {
   }
 
   levelTemplate() {
-    return (this.slot_item.level ?? 0 > 0) && !this.empty_flag
+    return this.slot_item && (this.slot_item.level ?? 0 > 0) && !this.empty_flag
       ? html` <div
           class=${[
             "badge badge-ghost w-0 rounded-full grid place-content-center text-accent",
@@ -169,19 +174,37 @@ export class ComponentEquipment extends LitElement {
   }
 
   render() {
-    let category_number = this.mst_slot_item.type[1];
-    let icon_number = this.mst_slot_item.type[3];
+    if ((this.mst_slot_item && this.slot_item) || this.empty_flag) {
+      let category_number = this.mst_slot_item ? this.mst_slot_item.type[1] : 0;
+      let icon_number = this.mst_slot_item ? this.mst_slot_item.type[3] : 0;
 
-    return html`
-      <div class="flex flex-nowarp w-full">
-        <div class="indicator">
-          <span class="indicator-item"> ${this.levelTemplate()} </span>
-          <icon-equipment
-            category_number=${category_number}
-            icon_number=${icon_number}
-            size=${this.size}
-            ?empty_flag=${this.empty_flag}
-          ></icon-equipment>
+      return html`
+        <div class="flex flex-nowarp w-full">
+          <div class="indicator">
+            <span class="indicator-item"> ${this.levelTemplate()} </span>
+            <icon-equipment
+              category_number=${category_number}
+              icon_number=${icon_number}
+              size=${this.size}
+              ?empty_flag=${this.empty_flag}
+            ></icon-equipment>
+          </div>
+          <div
+            class=${[
+              "flex-none",
+              class_size[this.size].proficiency_onslot_pl,
+              class_size[this.size].proficiency_onslot_mt,
+            ].join(" ")}
+          >
+            ${this.proficiencyOnslotTemplete()}
+          </div>
+          ${this.nameTemplete()}
+        </div>
+      `;
+    } else {
+      return html` <div class="flex flex-nowarp w-full">
+        <div class="outline-error outline-2 rounded bg-error-content">
+          <icon-error size=${this.size}></icon-error>
         </div>
         <div
           class=${[
@@ -193,8 +216,8 @@ export class ComponentEquipment extends LitElement {
           ${this.proficiencyOnslotTemplete()}
         </div>
         ${this.nameTemplete()}
-      </div>
-    `;
+      </div>`;
+    }
   }
 }
 

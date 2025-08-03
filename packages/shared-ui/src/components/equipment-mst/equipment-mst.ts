@@ -2,16 +2,15 @@ import { html, LitElement, unsafeCSS } from "lit";
 import { customElement, property } from "lit/decorators.js";
 import globalStyles from "../../global.css?inline";
 
-import {
-  default_mst_slot_item,
-  type MstSlotitem,
-} from "../../interface/get_data";
+import type { MstSlotItem } from "@ipc-bindings/get_data";
+import { default_mst_slot_item } from "@ipc-bindings/default_state/get_data";
 
 import "../../icons/equipment";
 import "../../icons/plane-proficiency";
+import "../../icons/error";
 
 export interface ComponentEquipmentMstProps {
-  mst_slot_item: MstSlotitem;
+  mst_slot_item?: MstSlotItem;
   name_flag?: boolean;
   compact?: boolean;
   show_param?: boolean;
@@ -58,7 +57,7 @@ export class ComponentEquipmentMst extends LitElement {
   static styles = [unsafeCSS(globalStyles)];
 
   @property({ type: Object })
-  mst_slot_item: MstSlotitem = default_mst_slot_item;
+  mst_slot_item?: MstSlotItem = default_mst_slot_item;
 
   @property({ type: Boolean })
   name_flag: boolean = false;
@@ -90,7 +89,7 @@ export class ComponentEquipmentMst extends LitElement {
   }
 
   nameTemplete() {
-    return (this.name_flag ?? false) && !this.empty_flag
+    return this.mst_slot_item && this.name_flag && !this.empty_flag
       ? html` <div
           class=${[
             "pl-3 truncate content-center cursor-inherit",
@@ -104,21 +103,30 @@ export class ComponentEquipmentMst extends LitElement {
   }
 
   render() {
-    let category_number = this.mst_slot_item.type[1];
-    let icon_number = this.mst_slot_item.type[3];
-    return html`
-      <div class="flex flex-nowarp w-full">
-        <div>
-          <icon-equipment
-            category_number=${category_number}
-            icon_number=${icon_number}
-            size=${this.size}
-            ?empty_flag=${this.empty_flag}
-          ></icon-equipment>
+    if (this.mst_slot_item || this.empty_flag) {
+      let category_number = this.mst_slot_item ? this.mst_slot_item.type[1] : 0;
+      let icon_number = this.mst_slot_item ? this.mst_slot_item.type[3] : 0;
+      return html`
+        <div class="flex flex-nowarp w-full">
+          <div>
+            <icon-equipment
+              category_number=${category_number}
+              icon_number=${icon_number}
+              size=${this.size}
+              ?empty_flag=${this.empty_flag}
+            ></icon-equipment>
+          </div>
+          ${this.proficiencyOnslotTemplete()} ${this.nameTemplete()}
+        </div>
+      `;
+    } else {
+      return html` <div class="flex flex-nowarp w-full">
+        <div class="outline-error outline-2 rounded bg-error-content">
+          <icon-error size=${this.size}></icon-error>
         </div>
         ${this.proficiencyOnslotTemplete()} ${this.nameTemplete()}
-      </div>
-    `;
+      </div>`;
+    }
   }
 }
 

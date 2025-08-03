@@ -16,7 +16,7 @@
     "build": "npm run build:js && npm run build:types && npm run bundle:types && cem analyze --litelement",
     "build.rollup": "rollup -c",
     "build.tsc": "tsc --build --verbose",
-    "build.tsc:watch": "tsc --watch --verbose",
+    "build.tsc:watch": "tsc --watch",
     "storybook": "storybook dev -p 6006",
     "build-storybook": "storybook build"
   },

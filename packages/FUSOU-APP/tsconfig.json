@@ -19,9 +19,15 @@
     "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
-    "noFallthroughCasesInSwitch": true
+    "noFallthroughCasesInSwitch": true,
 
     // "traceResolution": true
+
+    "baseUrl": ".",
+    "paths": {
+      "@ipc-bindings/*": ["../kc_api/bindings/*"],
+      "@ipc-bindings/default_state/*": ["../kc_api/bindings/default_state/*"]
+    }
   },
   "include": ["src/**/*.ts", "src/**/*.tsx", "src/custom.d.ts"],
   "references": [{ "path": "./tsconfig.node.json" }]

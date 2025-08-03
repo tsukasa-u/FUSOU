@@ -2,8 +2,8 @@ import type { Meta, StoryObj } from "@storybook/web-components-vite";
 
 import type { ComponentEquipmentModalProps } from "./equipment-modal";
 import "./equipment-modal";
-import { default_slotitem } from "../../interface/require_info";
-import { default_mst_slot_item } from "../../interface/get_data";
+import { default_slotitem } from "@ipc-bindings/default_state/require_info";
+import { default_mst_slot_item } from "@ipc-bindings/default_state/get_data";
 import { html } from "lit";
 import { ifDefined } from "lit/directives/if-defined.js";
 
@@ -48,6 +48,8 @@ export const basic: Story = {
       },
     },
     empty_flag: { control: "boolean" },
+    slot_item: { control: "select", options: [undefined] },
+    mst_slot_item: { control: "select", options: [undefined] },
   },
   args: {
     name_flag: false,

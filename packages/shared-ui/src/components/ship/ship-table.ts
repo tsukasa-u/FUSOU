@@ -5,24 +5,26 @@ import globalStyles from "../../global.css?inline";
 import {
   default_mst_ship,
   default_mst_slot_items,
-  type MstShip,
-  type MstSlotitems,
-} from "../../interface/get_data";
+} from "@ipc-bindings/default_state/get_data";
+import type { MstShip, MstSlotItems } from "@ipc-bindings/get_data";
+
+import type { Ship } from "@ipc-bindings/port";
+import { default_ship } from "@ipc-bindings/default_state/port";
+
+import type { SlotItems } from "@ipc-bindings/require_info";
+import { default_slotitems } from "@ipc-bindings/default_state/require_info";
+
 import { ifDefined } from "lit/directives/if-defined.js";
-import { default_ship, type Ship } from "../../interface/port";
-import {
-  default_slotitems,
-  type SlotItems,
-} from "../../interface/require_info";
 import { classMap } from "lit/directives/class-map.js";
 
 import "../equipment/equipment-modal";
+import "../../icons/error";
 
 export interface ComponentShipTableProps {
-  mst_ship: MstShip;
-  ship: Ship;
-  mst_slot_items: MstSlotitems;
-  slot_items: SlotItems;
+  mst_ship?: MstShip;
+  ship?: Ship;
+  mst_slot_items?: MstSlotItems;
+  slot_items?: SlotItems;
   size?: "xs" | "sm" | "md" | "lg" | "xl";
 }
 
@@ -102,26 +104,33 @@ export class ComponentShipTable extends LitElement {
   ];
 
   @property({ type: Object })
-  ship: Ship = default_ship;
+  ship?: Ship = default_ship;
 
   @property({ type: Object })
-  mst_ship: MstShip = default_mst_ship;
+  mst_ship?: MstShip = default_mst_ship;
 
   @property({ type: Object })
-  slot_items: SlotItems = default_slotitems;
+  slot_items?: SlotItems = default_slotitems;
 
   @property({ type: Object })
-  mst_slot_items: MstSlotitems = default_mst_slot_items;
+  mst_slot_items?: MstSlotItems = default_mst_slot_items;
 
   @property({ type: String })
   size: keyof typeof class_size = "sm";
 
   equipmentTemplete(slot: number, index: number) {
-    let onslot = index != -1 ? this.mst_ship.maxeq[index] : undefined;
+    let onslot =
+      index != -1 && this.mst_ship && this.mst_ship.maxeq
+        ? this.mst_ship.maxeq[index]
+        : undefined;
     if (slot > 0) {
-      let slot_item = this.slot_items.slot_items[slot];
+      let slot_item = this.slot_items
+        ? this.slot_items.slot_items[slot]
+        : undefined;
       let mst_slot_item =
-        this.mst_slot_items.mst_slot_items[slot_item.slotitem_id];
+        slot_item && this.mst_slot_items
+          ? this.mst_slot_items.mst_slot_items[slot_item.slotitem_id]
+          : undefined;
       return html`<component-equipment-modal
         ?name_flag=${true}
         .slot_item=${slot_item}
@@ -138,21 +147,25 @@ export class ComponentShipTable extends LitElement {
   }
 
   slotsTemplete() {
-    return this.ship.slot.map((slot, index) => {
-      return html`
-        <tr
-          class="flex rounded rounded items-center w-full ${classMap({
-            "back_slash_color bg-[size:16px_16px] bg-top-left bg-[image:repeating-linear-gradient(45deg,currentColor_0,currentColor_0.5px,transparent_0,transparent_50%)]":
-              this.ship.slotnum <= index,
-          })}"
-        >
-          <th class="flex-none w-4">S${index + 1}</th>
-          <td class="flex-none w-12 ml-4 py-1 w-full">
-            ${this.equipmentTemplete(slot, index)}
-          </td>
-        </tr>
-      `;
-    });
+    return this.ship && this.ship.slot
+      ? this.ship.slot.map((slot, index) => {
+          return html`
+            <tr
+              class="flex rounded rounded items-center w-full ${classMap({
+                "back_slash_color bg-[size:16px_16px] bg-top-left bg-[image:repeating-linear-gradient(45deg,currentColor_0,currentColor_0.5px,transparent_0,transparent_50%)]":
+                  this.ship && this.ship.slotnum
+                    ? this.ship.slotnum <= index
+                    : false,
+              })}"
+            >
+              <th class="flex-none w-4">S${index + 1}</th>
+              <td class="flex-none w-12 ml-4 py-1 w-full">
+                ${this.equipmentTemplete(slot, index)}
+              </td>
+            </tr>
+          `;
+        })
+      : html``;
   }
 
   slotExTemplete() {
@@ -161,19 +174,24 @@ export class ComponentShipTable extends LitElement {
         class="flex rounded items-center  
           ${classMap({
           "back_slash_color bg-[size:16px_16px] bg-top-left bg-[image:repeating-linear-gradient(45deg,currentColor_0,currentColor_0.5px,transparent_0,transparent_50%)]":
-            this.ship.slot_ex == 0,
+            this.ship ? this.ship.slot_ex == 0 : false,
         })}"
       >
         <th class="flex-none w-4">SE</th>
         <td class="flex-none w-12 ml-4 py-1 w-full">
-          ${this.equipmentTemplete(this.ship.slot_ex, -1)}
+          ${this.equipmentTemplete(
+            this.ship && this.ship.slot_ex ? this.ship.slot_ex : 0,
+            -1
+          )}
         </td>
       </tr>
     `;
   }
 
   maxEq() {
-    return this.mst_ship.maxeq.reduce((a, b) => a + b, 0);
+    return this.mst_ship && this.mst_ship.maxeq
+      ? this.mst_ship.maxeq.reduce((a, b) => a + b, 0)
+      : 0;
   }
 
   SpEffectItem() {
@@ -183,7 +201,11 @@ export class ComponentShipTable extends LitElement {
       karyoku: 0,
       kaihi: 0,
     };
-    if (!this.ship.sp_effect_items) return parameter_map;
+    if (this.ship) {
+      if (!this.ship.sp_effect_items) return parameter_map;
+    } else {
+      return parameter_map;
+    }
 
     for (const i of [1, 2]) {
       let sp_effect_item = this.ship.sp_effect_items!.items[i];
@@ -201,164 +223,172 @@ export class ComponentShipTable extends LitElement {
   render() {
     let sp_effect_item = this.SpEffectItem();
     let max_eq = this.maxEq();
-    return html`<div class="cursor-default">
-      <div class="flex justify-start">
-        <h3
-          class=${[
-            "font-bold pl-2 truncate",
-            class_size[this.size].name_text,
-          ].join(" ")}
-        >
-          ${this.mst_ship.name ?? "Unknown"}
-        </h3>
-        <div
-          class=${[
-            "place-self-end pl-4",
-            class_size[this.size].level_text,
-          ].join(" ")}
-        >
-          Lv. ${this.ship.lv ?? ""}
-        </div>
-        <div
-          class=${[
-            "place-self-end pl-2",
-            class_size[this.size].level_text,
-          ].join(" ")}
-        >
-          next ${this.ship.exp[1] ?? ""}
-        </div>
-      </div>
-      <div class="pt-2">
-        <table class=${["table", class_size[this.size].table].join(" ")}>
-          <caption
-            class=${["truncate", class_size[this.size].caption_text].join(" ")}
-          >
-            Slots
-          </caption>
-          <tbody>
-            ${this.slotsTemplete()} ${this.slotExTemplete()}
-          </tbody>
-        </table>
-        <div class="h-2"></div>
-        <table class=${["table", class_size[this.size].table].join(" ")}>
-          <caption
-            class=${["truncate", class_size[this.size].caption_text].join(" ")}
-          >
-            Ship Status
-          </caption>
-          <tbody>
-            <tr class="flex rounded">
-              <th class="truncate flex-1 w-2">Durability</th>
-              <td class="flex-none w-12 flex justify-end pr-4">
-                ${this.ship.maxhp ?? 0}
-              </td>
-              <th class="truncate flex-1 w-2">Firepower</th>
-              <td class="flex-none w-12 flex justify-end pr-4">
-                <div class="indicator">
-                  <span
-                    class=${[
-                      "indicator-item indicator-bottom text-accent",
-                      class_size[this.size].accent_text,
-                    ].join(" ")}
-                  >
-                    ${sp_effect_item.karyoku > 0
-                      ? `+${sp_effect_item.karyoku}`
-                      : ""}
-                  </span>
-                  ${this.ship.karyoku[0] ?? 0}
-                </div>
-              </td>
-            </tr>
-            <tr class="flex rounded">
-              <th class="truncate flex-1 w-2">Armor</th>
-              <td class="flex-none w-12 flex justify-end pr-4">
-                <div class="indicator">
-                  <span
-                    class=${[
-                      "indicator-item indicator-bottom text-accent",
-                      class_size[this.size].accent_text,
-                    ].join(" ")}
-                  >
-                    ${sp_effect_item.soukou > 0
-                      ? `+${sp_effect_item.soukou}`
-                      : ""}
-                  </span>
-                  ${this.ship.soukou[0] ?? 0}
-                </div>
-              </td>
-              <th class="truncate flex-1 w-2">Torpedo</th>
-              <td class="flex-none w-12 flex justify-end pr-4">
-                <div class="indicator">
-                  <span
-                    class=${[
-                      "indicator-item indicator-bottom text-accent",
-                      class_size[this.size].accent_text,
-                    ].join(" ")}
-                  >
-                    ${sp_effect_item.raisou > 0
-                      ? `+${sp_effect_item.raisou}`
-                      : ""}
-                  </span>
-                  ${this.ship.raisou[0] ?? 0}
-                </div>
-              </td>
-            </tr>
-            <tr class="flex rounded">
-              <th class="truncate flex-1 w-2">Evasion</th>
-              <td class="flex-none w-12 flex justify-end pr-4">
-                <div class="indicator">
-                  <span
-                    class=${[
-                      "indicator-item indicator-bottom text-accent",
-                      class_size[this.size].accent_text,
-                    ].join(" ")}
-                  >
-                    ${sp_effect_item.kaihi > 0
-                      ? `+${sp_effect_item.kaihi}`
-                      : ""}
-                  </span>
-                  ${this.ship.kaihi[0] ?? 0}
-                </div>
-              </td>
-              <th class="truncate flex-1 w-2">Anti-Air</th>
-              <td class="flex-none w-12 flex justify-end pr-4">
-                ${this.ship.taiku[0] ?? 0}
-              </td>
-            </tr>
-            <tr class="flex rounded">
-              <th class="truncate flex-1 w-2">Aircraft installed</th>
-              <td class="flex-none w-12 flex justify-end pr-4">
-                ${max_eq ?? 0 > 0}
-              </td>
-              <th class="truncate flex-1 w-2">Anti-Submarine</th>
-              <td class="flex-none w-12 flex justify-end pr-4">
-                ${this.ship.taisen[0] ?? 0}
-              </td>
-            </tr>
-            <tr class="flex rounded">
-              <th class="truncate flex-1 w-2">Speed</th>
-              <td class="flex-none w-12 flex justify-end pr-4">
-                ${speed_list[this.ship.soku ?? 0]}
-              </td>
-              <th class="truncate flex-1 w-2">Reconnaissance</th>
-              <td class="flex-none w-12 flex justify-end pr-4">
-                ${this.ship.sakuteki[0] ?? 0}
-              </td>
-            </tr>
-            <tr class="flex rounded">
-              <th class="truncate flex-1 w-2">Range</th>
-              <td class="flex-none w-12 flex justify-end pr-4">
-                ${range_list[this.ship.leng ?? 0]}
-              </td>
-              <th class="truncate flex-1 w-2">Luck</th>
-              <td class="flex-none w-12 flex justify-end pr-4">
-                ${this.ship.lucky[0] ?? 0}
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </div>`;
+    return this.ship && this.mst_ship
+      ? html`<div class="cursor-default">
+          <div class="flex justify-start">
+            <h3
+              class=${[
+                "font-bold pl-2 truncate",
+                class_size[this.size].name_text,
+              ].join(" ")}
+            >
+              ${this.mst_ship.name ?? "Unknown"}
+            </h3>
+            <div
+              class=${[
+                "place-self-end pl-4",
+                class_size[this.size].level_text,
+              ].join(" ")}
+            >
+              Lv. ${this.ship.lv ?? ""}
+            </div>
+            <div
+              class=${[
+                "place-self-end pl-2",
+                class_size[this.size].level_text,
+              ].join(" ")}
+            >
+              next ${this.ship.exp ? (this.ship.exp[1] ?? 0) : ""}
+            </div>
+          </div>
+          <div class="pt-2">
+            <table class=${["table", class_size[this.size].table].join(" ")}>
+              <caption
+                class=${["truncate", class_size[this.size].caption_text].join(
+                  " "
+                )}
+              >
+                Slots
+              </caption>
+              <tbody>
+                ${this.slotsTemplete()} ${this.slotExTemplete()}
+              </tbody>
+            </table>
+            <div class="h-2"></div>
+            <table class=${["table", class_size[this.size].table].join(" ")}>
+              <caption
+                class=${["truncate", class_size[this.size].caption_text].join(
+                  " "
+                )}
+              >
+                Ship Status
+              </caption>
+              <tbody>
+                <tr class="flex rounded">
+                  <th class="truncate flex-1 w-2">Durability</th>
+                  <td class="flex-none w-12 flex justify-end pr-4">
+                    ${this.ship.maxhp ?? 0}
+                  </td>
+                  <th class="truncate flex-1 w-2">Firepower</th>
+                  <td class="flex-none w-12 flex justify-end pr-4">
+                    <div class="indicator">
+                      <span
+                        class=${[
+                          "indicator-item indicator-bottom text-accent",
+                          class_size[this.size].accent_text,
+                        ].join(" ")}
+                      >
+                        ${sp_effect_item.karyoku > 0
+                          ? `+${sp_effect_item.karyoku}`
+                          : ""}
+                      </span>
+                      ${this.ship.karyoku ? (this.ship.karyoku[0] ?? 0) : 0}
+                    </div>
+                  </td>
+                </tr>
+                <tr class="flex rounded">
+                  <th class="truncate flex-1 w-2">Armor</th>
+                  <td class="flex-none w-12 flex justify-end pr-4">
+                    <div class="indicator">
+                      <span
+                        class=${[
+                          "indicator-item indicator-bottom text-accent",
+                          class_size[this.size].accent_text,
+                        ].join(" ")}
+                      >
+                        ${sp_effect_item.soukou > 0
+                          ? `+${sp_effect_item.soukou}`
+                          : ""}
+                      </span>
+                      ${this.ship.soukou ? (this.ship.soukou[0] ?? 0) : 0}
+                    </div>
+                  </td>
+                  <th class="truncate flex-1 w-2">Torpedo</th>
+                  <td class="flex-none w-12 flex justify-end pr-4">
+                    <div class="indicator">
+                      <span
+                        class=${[
+                          "indicator-item indicator-bottom text-accent",
+                          class_size[this.size].accent_text,
+                        ].join(" ")}
+                      >
+                        ${sp_effect_item.raisou > 0
+                          ? `+${sp_effect_item.raisou}`
+                          : ""}
+                      </span>
+                      ${this.ship.raisou ? (this.ship.raisou[0] ?? 0) : 0}
+                    </div>
+                  </td>
+                </tr>
+                <tr class="flex rounded">
+                  <th class="truncate flex-1 w-2">Evasion</th>
+                  <td class="flex-none w-12 flex justify-end pr-4">
+                    <div class="indicator">
+                      <span
+                        class=${[
+                          "indicator-item indicator-bottom text-accent",
+                          class_size[this.size].accent_text,
+                        ].join(" ")}
+                      >
+                        ${sp_effect_item.kaihi > 0
+                          ? `+${sp_effect_item.kaihi}`
+                          : ""}
+                      </span>
+                      ${this.ship.kaihi ? (this.ship.kaihi[0] ?? 0) : 0}
+                    </div>
+                  </td>
+                  <th class="truncate flex-1 w-2">Anti-Air</th>
+                  <td class="flex-none w-12 flex justify-end pr-4">
+                    ${this.ship.taiku ? (this.ship.taiku[0] ?? 0) : 0}
+                  </td>
+                </tr>
+                <tr class="flex rounded">
+                  <th class="truncate flex-1 w-2">Aircraft installed</th>
+                  <td class="flex-none w-12 flex justify-end pr-4">
+                    ${max_eq ?? 0 > 0}
+                  </td>
+                  <th class="truncate flex-1 w-2">Anti-Submarine</th>
+                  <td class="flex-none w-12 flex justify-end pr-4">
+                    ${this.ship.taisen ? (this.ship.taisen[0] ?? 0) : 0}
+                  </td>
+                </tr>
+                <tr class="flex rounded">
+                  <th class="truncate flex-1 w-2">Speed</th>
+                  <td class="flex-none w-12 flex justify-end pr-4">
+                    ${speed_list[this.ship.soku ?? 0]}
+                  </td>
+                  <th class="truncate flex-1 w-2">Reconnaissance</th>
+                  <td class="flex-none w-12 flex justify-end pr-4">
+                    ${this.ship.sakuteki ? (this.ship.sakuteki[0] ?? 0) : 0}
+                  </td>
+                </tr>
+                <tr class="flex rounded">
+                  <th class="truncate flex-1 w-2">Range</th>
+                  <td class="flex-none w-12 flex justify-end pr-4">
+                    ${range_list[this.ship.leng ?? 0]}
+                  </td>
+                  <th class="truncate flex-1 w-2">Luck</th>
+                  <td class="flex-none w-12 flex justify-end pr-4">
+                    ${this.ship.lucky ? (this.ship.lucky[0] ?? 0) : 0}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>`
+      : html`<div class="outline-error outline-2 rounded bg-error-content">
+          <icon-error size=${"full"}></icon-error>
+        </div>`;
   }
 }
 

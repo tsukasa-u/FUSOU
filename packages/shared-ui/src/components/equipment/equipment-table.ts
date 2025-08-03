@@ -2,15 +2,17 @@ import { html, LitElement, unsafeCSS } from "lit";
 import { customElement, property } from "lit/decorators.js";
 import globalStyles from "../../global.css?inline";
 
-import { default_slotitem, type SlotItem } from "../../interface/require_info";
-import {
-  default_mst_slot_item,
-  type MstSlotitem,
-} from "../../interface/get_data";
+import type { SlotItem } from "@ipc-bindings/require_info";
+import { default_slotitem } from "@ipc-bindings/default_state/require_info";
+
+import type { MstSlotItem } from "@ipc-bindings/get_data";
+import { default_mst_slot_item } from "@ipc-bindings/default_state/get_data";
+
+import "../../icons/error";
 
 export interface ComponentEquipmentTableProps {
-  mst_slot_item: MstSlotitem;
-  slot_item: SlotItem;
+  mst_slot_item?: MstSlotItem;
+  slot_item?: SlotItem;
   size?: "xs" | "sm" | "md" | "lg" | "xl";
 }
 
@@ -55,16 +57,17 @@ export class ComponentEquipmentTable extends LitElement {
   static styles = [unsafeCSS(globalStyles)];
 
   @property({ type: Object })
-  slot_item: SlotItem = default_slotitem;
+  slot_item?: SlotItem = default_slotitem;
 
   @property({ type: Object })
-  mst_slot_item: MstSlotitem = default_mst_slot_item;
+  mst_slot_item?: MstSlotItem = default_mst_slot_item;
 
   @property({ type: String })
   size: keyof typeof class_size = "sm";
 
   render() {
-    return html`
+    return this.mst_slot_item && this.slot_item
+      ? html`
       <div class="flex justify-start cursor-default">
         <h3 class=${[
           "font-bold pl-3 truncate",
@@ -145,7 +148,12 @@ export class ComponentEquipmentTable extends LitElement {
           </tbody>
         </table>
       </div>
-    </div>`;
+    </div>`
+      : html`
+          <div class="outline-error outline-2 rounded bg-error-content">
+            <icon-error size=${"full"}></icon-error>
+          </div>
+        `;
   }
 }
 
