@@ -6,53 +6,53 @@ import {
   onCleanup,
 } from "solid-js";
 import { createStore, Part, SetStoreFunction } from "solid-js/store";
+import { listen, UnlistenFn } from "@tauri-apps/api/event";
+
+import type { DeckPorts, Materials, Ship, Ships } from "@ipc-bindings/port";
 import {
-  DeckPorts,
-  Materials,
-  Ship,
-  Ships,
-  global_deck_ports,
-  global_materials,
-  global_ships,
-} from "../interface/port";
-import {
+  default_deck_ports,
+  default_materials,
+  default_ships,
+} from "@ipc-bindings/default_state/port";
+
+import type {
   MstEquipExslotShips,
   MstEquipShips,
   MstShips,
   MstSlotItemEquipTypes,
-  MstSlotitems,
+  MstSlotItems,
   MstStypes,
   MstUseItems,
-  global_mst_equip_exslot_ships,
-  global_mst_equip_ships,
-  global_mst_ships,
-  global_mst_slot_items,
-  global_mst_slotitem_equip_types,
-  global_mst_stypes,
-  global_mst_useitems,
-} from "../interface/get_data";
-import { SlotItems, global_slotitems } from "../interface/require_info";
-import { Battle } from "../interface/battle";
-import { Cell, Cells, global_cells } from "../interface/cells";
-import { listen, UnlistenFn } from "@tauri-apps/api/event";
-import { AirBases, global_air_bases } from "../interface/map_info";
+} from "@ipc-bindings/get_data";
+import {
+  default_mst_equip_exslot_ships,
+  default_mst_equip_ships,
+  default_mst_ships,
+  default_mst_slot_items,
+  default_mst_slotitem_equip_types,
+  default_mst_stypes,
+  default_mst_useitems,
+} from "@ipc-bindings/default_state/get_data";
+
+import type { SlotItems } from "@ipc-bindings/require_info";
+import { default_slotitems } from "@ipc-bindings/default_state/require_info";
+
+import type { Cell, Cells } from "@ipc-bindings/cells";
+import { default_cells } from "@ipc-bindings/default_state/cells";
+
+import type { AirBases } from "@ipc-bindings/map_info";
+import { default_air_bases } from "@ipc-bindings/default_state/map_info";
+
+import type { Battle } from "@ipc-bindings/battle";
 // import { supabase } from "./supabase";
 // import { invoke } from "@tauri-apps/api/core";
 
 export const ShipsContext =
-  // eslint-disable-next-line no-unused-vars
-  createContext<(Ships | { set(data: Ships): void })[]>();
+  createContext<(Ships | SetStoreFunction<Ships>)[]>();
 
 export function ShipsProvider(props: { children: JSX.Element }) {
-  const [data, setData] = createStore(global_ships);
-  const setter = [
-    data,
-    {
-      set(data: Ships) {
-        setData(data);
-      },
-    },
-  ];
+  const [data, setData] = createStore(default_ships);
+  const setter = [data, setData];
 
   createEffect(() => {
     let unlisten_data_set: UnlistenFn;
@@ -64,16 +64,18 @@ export function ShipsProvider(props: { children: JSX.Element }) {
       });
       unlisten_data_add = await listen<Ships>("add-kcs-ships", (event) => {
         Object.entries(event.payload.ships).forEach(([key1, value1]) => {
-          Object.entries(value1).forEach(([key2, value2]) => {
-            if (value2 !== null) {
-              setData(
-                "ships",
-                Number(key1),
-                key2 as Part<Ship, keyof Ship>,
-                value2
-              );
-            }
-          });
+          if (value1) {
+            Object.entries(value1).forEach(([key2, value2]) => {
+              if (value2 !== null) {
+                setData(
+                  "ships",
+                  Number(key1),
+                  key2 as Part<Ship, keyof Ship>,
+                  value2
+                );
+              }
+            });
+          }
         });
       });
     })();
@@ -96,24 +98,15 @@ export function useShips() {
   if (!context) {
     throw new Error("useShips: cannot find a ShipsContext");
   }
-  // eslint-disable-next-line no-unused-vars
-  return context as [Ships, (value: Ships) => void];
+  return context as [Ships, SetStoreFunction<Ships>];
 }
 
 export const MstShipsContext =
-  // eslint-disable-next-line no-unused-vars
-  createContext<(MstShips | { set(data: MstShips): void })[]>();
+  createContext<(MstShips | SetStoreFunction<MstShips>)[]>();
 
 export function MstShipsProvider(props: { children: JSX.Element }) {
-  const [data, setData] = createStore(global_mst_ships);
-  const setter = [
-    data,
-    {
-      set(data: MstShips) {
-        setData(data);
-      },
-    },
-  ];
+  const [data, setData] = createStore(default_mst_ships);
+  const setter = [data, setData];
 
   createEffect(() => {
     let unlisten_data: UnlistenFn;
@@ -141,24 +134,15 @@ export function useMstShips() {
   if (!context) {
     throw new Error("useContext: cannot find a MstShipsContext");
   }
-  // eslint-disable-next-line no-unused-vars
-  return context as [MstShips, (value: MstShips) => void];
+  return context as [MstShips, SetStoreFunction<MstShips>];
 }
 
 export const SlotItemsContext =
-  // eslint-disable-next-line no-unused-vars
-  createContext<(SlotItems | { set(data: SlotItems): void })[]>();
+  createContext<(SlotItems | SetStoreFunction<SlotItems>)[]>();
 
 export function SlotItemsProvider(props: { children: JSX.Element }) {
-  const [data, setData] = createStore(global_slotitems);
-  const setter = [
-    data,
-    {
-      set(data: SlotItems) {
-        setData(data);
-      },
-    },
-  ];
+  const [data, setData] = createStore(default_slotitems);
+  const setter = [data, setData];
 
   createEffect(() => {
     let unlisten_data: UnlistenFn;
@@ -186,29 +170,20 @@ export function useSlotItems() {
   if (!context) {
     throw new Error("useSlotItems: cannot find a SlotItemsContext");
   }
-  // eslint-disable-next-line no-unused-vars
-  return context as [SlotItems, (value: SlotItems) => void];
+  return context as [SlotItems, SetStoreFunction<SlotItems>];
 }
 
 export const MstSlotItemsContext =
-  // eslint-disable-next-line no-unused-vars
-  createContext<(MstSlotitems | { set(data: MstSlotitems): void })[]>();
+  createContext<(MstSlotItems | SetStoreFunction<MstSlotItems>)[]>();
 
 export function MstSlotItemsProvider(props: { children: JSX.Element }) {
-  const [data, setData] = createStore(global_mst_slot_items);
-  const setter = [
-    data,
-    {
-      set(data: MstSlotitems) {
-        setData(data);
-      },
-    },
-  ];
+  const [data, setData] = createStore(default_mst_slot_items);
+  const setter = [data, setData];
 
   createEffect(() => {
     let unlisten_data: UnlistenFn;
     (async () => {
-      unlisten_data = await listen<MstSlotitems>(
+      unlisten_data = await listen<MstSlotItems>(
         "set-kcs-mst-slot-items",
         (event) => {
           // console.log("set-kcs-mst-slot-items", event.payload);
@@ -234,25 +209,17 @@ export function useMstSlotItems() {
   if (!context) {
     throw new Error("useMstSlotItems: cannot find a MstSlotItemsContext");
   }
-  // eslint-disable-next-line no-unused-vars
-  return context as [MstSlotitems, (value: MstSlotitems) => void];
+  return context as [MstSlotItems, SetStoreFunction<MstSlotItems>];
 }
 
-const MstEquipExslotShipsContext = createContext<
-  // eslint-disable-next-line no-unused-vars
-  (MstEquipExslotShips | { set(data: MstEquipExslotShips): void })[]
->();
+const MstEquipExslotShipsContext =
+  createContext<
+    (MstEquipExslotShips | SetStoreFunction<MstEquipExslotShips>)[]
+  >();
 
 export function MstEquipExslotShipsProvider(props: { children: JSX.Element }) {
-  const [data, setData] = createStore(global_mst_equip_exslot_ships);
-  const setter = [
-    data,
-    {
-      set(data: MstEquipExslotShips) {
-        setData(data);
-      },
-    },
-  ];
+  const [data, setData] = createStore(default_mst_equip_exslot_ships);
+  const setter = [data, setData];
 
   createEffect(() => {
     let unlisten_data: UnlistenFn;
@@ -284,27 +251,22 @@ export function useMstEquipExslotShips() {
       "useMstEquipExslotShips: cannot find a MstEquipExslotShipsContext"
     );
   }
-  // eslint-disable-next-line no-unused-vars
-  return context as [MstEquipExslotShips, (value: MstEquipExslotShips) => void];
+  return context as [
+    MstEquipExslotShips,
+    SetStoreFunction<MstEquipExslotShips>,
+  ];
 }
 
-const MstSlotItemEquipTypesContext = createContext<
-  // eslint-disable-next-line no-unused-vars
-  (MstSlotItemEquipTypes | { set(data: MstSlotItemEquipTypes): void })[]
->();
+const MstSlotItemEquipTypesContext =
+  createContext<
+    (MstSlotItemEquipTypes | SetStoreFunction<MstSlotItemEquipTypes>)[]
+  >();
 
 export function MstSlotItemEquipTypesProvider(props: {
   children: JSX.Element;
 }) {
-  const [data, setData] = createStore(global_mst_slotitem_equip_types);
-  const setter = [
-    data,
-    {
-      set(data: MstSlotItemEquipTypes) {
-        setData(data);
-      },
-    },
-  ];
+  const [data, setData] = createStore(default_mst_slotitem_equip_types);
+  const setter = [data, setData];
 
   createEffect(() => {
     let unlisten_data: UnlistenFn;
@@ -339,25 +301,16 @@ export function useMstSlotItemEquipTypes() {
 
   return context as [
     MstSlotItemEquipTypes,
-    // eslint-disable-next-line no-unused-vars
-    (data: MstSlotItemEquipTypes) => void,
+    SetStoreFunction<MstSlotItemEquipTypes>,
   ];
 }
 
 const MstEquipShipsContext =
-  // eslint-disable-next-line no-unused-vars
-  createContext<(MstEquipShips | { set(data: MstEquipShips): void })[]>();
+  createContext<(MstEquipShips | SetStoreFunction<MstEquipShips>)[]>();
 
 export function MstEquipShipsProvider(props: { children: JSX.Element }) {
-  const [data, setData] = createStore(global_mst_equip_ships);
-  const setter = [
-    data,
-    {
-      set(data: MstEquipShips) {
-        setData(data);
-      },
-    },
-  ];
+  const [data, setData] = createStore(default_mst_equip_ships);
+  const setter = [data, setData];
 
   createEffect(() => {
     let unlisten_data: UnlistenFn;
@@ -387,24 +340,15 @@ export function useMstEquipShips() {
   if (!context) {
     throw new Error("useMstEquipShips: cannot find a MstEquipShipsContext");
   }
-  // eslint-disable-next-line no-unused-vars
-  return context as [MstEquipShips, (value: MstEquipShips) => void];
+  return context as [MstEquipShips, SetStoreFunction<MstEquipShips>];
 }
 
 const MstStypesContext =
-  // eslint-disable-next-line no-unused-vars
-  createContext<(MstStypes | { set(data: MstStypes): void })[]>();
+  createContext<(MstStypes | SetStoreFunction<MstStypes>)[]>();
 
 export function MstStypesProvider(props: { children: JSX.Element }) {
-  const [data, setData] = createStore(global_mst_stypes);
-  const setter = [
-    data,
-    {
-      set(data: MstStypes) {
-        setData(data);
-      },
-    },
-  ];
+  const [data, setData] = createStore(default_mst_stypes);
+  const setter = [data, setData];
 
   createEffect(() => {
     let unlisten_data: UnlistenFn;
@@ -431,24 +375,15 @@ export function useMstStypes() {
   if (!context) {
     throw new Error("useMstStypes: cannot find a MstStypesContext");
   }
-  // eslint-disable-next-line no-unused-vars
-  return context as [MstStypes, (value: MstStypes) => void];
+  return context as [MstStypes, SetStoreFunction<MstStypes>];
 }
 
 const MstUseItemsContext =
-  // eslint-disable-next-line no-unused-vars
-  createContext<(MstUseItems | { set(data: MstUseItems): void })[]>();
+  createContext<(MstUseItems | SetStoreFunction<MstUseItems>)[]>();
 
 export function MstUseItemsProvider(props: { children: JSX.Element }) {
-  const [data, setData] = createStore(global_mst_useitems);
-  const setter = [
-    data,
-    {
-      set(data: MstUseItems) {
-        setData(data);
-      },
-    },
-  ];
+  const [data, setData] = createStore(default_mst_useitems);
+  const setter = [data, setData];
 
   createEffect(() => {
     let unlisten_data: UnlistenFn;
@@ -478,24 +413,15 @@ export function useMstUseItems() {
   if (!context) {
     throw new Error("useMstUseItems: cannot find a MstUseItemsContext");
   }
-  // eslint-disable-next-line no-unused-vars
-  return context as [MstUseItems, (value: MstUseItems) => void];
+  return context as [MstUseItems, SetStoreFunction<MstUseItems>];
 }
 
 const MaterialsContext =
-  // eslint-disable-next-line no-unused-vars
-  createContext<(Materials | { set(data: Materials): void })[]>();
+  createContext<(Materials | SetStoreFunction<Materials>)[]>();
 
 export function MaterialsProvider(props: { children: JSX.Element }) {
-  const [data, setData] = createStore<Materials>(global_materials);
-  const setter = [
-    data,
-    {
-      set(data: Materials) {
-        setData(data);
-      },
-    },
-  ];
+  const [data, setData] = createStore<Materials>(default_materials);
+  const setter = [data, setData];
 
   createEffect(() => {
     let unlisten_data_set: UnlistenFn;
@@ -537,24 +463,15 @@ export function useMaterials() {
   if (!context) {
     throw new Error("useMaterials: cannot find a MaterialsContext");
   }
-  // eslint-disable-next-line no-unused-vars
-  return context as [Materials, (value: Materials) => void];
+  return context as [Materials, SetStoreFunction<Materials>];
 }
 
 export const DeckPortsContext =
-  // eslint-disable-next-line no-unused-vars
-  createContext<(DeckPorts | { set(data: DeckPorts): void })[]>();
+  createContext<(DeckPorts | SetStoreFunction<DeckPorts>)[]>();
 
 export function DeckPortsProvider(props: { children: JSX.Element }) {
-  const [data, setData] = createStore(global_deck_ports);
-  const setter = [
-    data,
-    {
-      set(data: DeckPorts) {
-        setData(data);
-      },
-    },
-  ];
+  const [data, setData] = createStore(default_deck_ports);
+  const setter = [data, setData];
 
   createEffect(() => {
     let unlisten_data: UnlistenFn;
@@ -582,23 +499,14 @@ export function useDeckPorts() {
   if (!context) {
     throw new Error("useDeckPorts: cannot find a DeckPortsContext");
   }
-  // eslint-disable-next-line no-unused-vars
-  return context as [DeckPorts, (value: DeckPorts) => void];
+  return context as [DeckPorts, SetStoreFunction<DeckPorts>];
 }
 
-// eslint-disable-next-line no-unused-vars
-const CellsContext = createContext<(Cells | { set(data: Cells): void })[]>();
+const CellsContext = createContext<(Cells | SetStoreFunction<Cells>)[]>();
 
 export function CellsContextProvider(props: { children: JSX.Element }) {
-  const [data, setData] = createStore(global_cells);
-  const setter = [
-    data,
-    {
-      set(data: Cells) {
-        setData(data);
-      },
-    },
-  ];
+  const [data, setData] = createStore(default_cells);
+  const setter = [data, setData];
 
   createEffect(() => {
     let unlisten_data_set_cells: UnlistenFn;
@@ -662,24 +570,15 @@ export function useCells() {
   if (!context) {
     throw new Error("useBattle: cannot find a CellsContext");
   }
-  // eslint-disable-next-line no-unused-vars
-  return context as [Cells, (value: Cells) => void];
+  return context as [Cells, SetStoreFunction<Cells>];
 }
 
 const AirBasesContext =
-  // eslint-disable-next-line no-unused-vars
-  createContext<(AirBases | { set(data: AirBases): void })[]>();
+  createContext<(AirBases | SetStoreFunction<AirBases>)[]>();
 
 export function AirBasesProvider(props: { children: JSX.Element }) {
-  const [data, setData] = createStore(global_air_bases);
-  const setter = [
-    data,
-    {
-      set(data: AirBases) {
-        setData(data);
-      },
-    },
-  ];
+  const [data, setData] = createStore(default_air_bases);
+  const setter = [data, setData];
 
   createEffect(() => {
     let unlisten_data: UnlistenFn;
@@ -706,9 +605,9 @@ export function useAirBases() {
   if (!context) {
     throw new Error("useAirBases: cannot find a AirBasesContext");
   }
-  // eslint-disable-next-line no-unused-vars
-  return context as [AirBases, (value: AirBases) => void];
+  return context as [AirBases, SetStoreFunction<AirBases>];
 }
+
 //-----
 
 type AuthContextType = {
@@ -777,21 +676,17 @@ export function useAuth() {
 
 //-----
 
+type DebugApiContextType = string[][];
+
 const DebugApiContext =
-  // eslint-disable-next-line no-unused-vars
-  createContext<(string[][] | { set(data: string[][]): void })[]>();
+  createContext<
+    (DebugApiContextType | SetStoreFunction<DebugApiContextType>)[]
+  >();
 
 export function DebugApiProvider(props: { children: JSX.Element }) {
-  let store_data: string[][] = [[], []];
+  let store_data: DebugApiContextType = [[], []];
   const [data, setData] = createStore(store_data);
-  const setter = [
-    data,
-    {
-      set(data: string[][]) {
-        setData(data);
-      },
-    },
-  ];
+  const setter = [data, setData];
 
   createEffect(() => {
     let unlisten_data: UnlistenFn;
@@ -821,6 +716,8 @@ export function useDebugApi() {
   if (!context) {
     throw new Error("useDebugApi: cannot find a DebugApiContext");
   }
-  // eslint-disable-next-line no-unused-vars
-  return context as [string[][], (value: string[][]) => void];
+  return context as [
+    DebugApiContextType,
+    SetStoreFunction<DebugApiContextType>,
+  ];
 }
