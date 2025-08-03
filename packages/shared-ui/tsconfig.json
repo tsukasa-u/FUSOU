@@ -10,7 +10,7 @@
     "useDefineForClassFields": false, // LitElement でのフィールド定義向け
 
     "outDir": "./dist", // JSファイル出力先 (Viteのビルド用) - 後述
-    "rootDir": "./src", // ソースファイルのルートディレクトリを指定
+    "rootDir": "..", // ソースファイルのルートディレクトリを指定
 
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
@@ -28,11 +28,18 @@
     /* Linting (ここも必要に応じて有効化) */
     "strict": true,
     "noUnusedLocals": true,
-    "noUnusedParameters": true
+    "noUnusedParameters": true,
 
     // "traceResolution": true
+
+    "baseUrl": ".",
+    "paths": {
+      "@ipc-bindings/*": ["../kc_api/bindings/*"],
+      "@ipc-bindings/default_state/*": ["../kc_api/bindings/default_state/*"]
+    }
   },
 
-  "include": ["src/**/*.ts"],
-  "exclude": ["src/**/*.stories.ts", "node_modules", "dist"]
+  "include": ["src/**/*.ts", "kc_api/bindings/**/*.ts"],
+  // "exclude": ["src/**/*.stories.ts", "node_modules", "dist"]
+  "exclude": ["node_modules", "dist"]
 }

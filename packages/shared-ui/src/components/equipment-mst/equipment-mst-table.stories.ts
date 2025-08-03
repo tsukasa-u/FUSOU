@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/web-components-vite";
 
 import type { ComponentEquipmentMstTableProps } from "./equipment-mst-table";
 import "./equipment-mst-table";
-import { default_mst_slot_item } from "../../interface/get_data";
+import { default_mst_slot_item } from "@ipc-bindings/default_state/get_data";
 import { html } from "lit";
 import { ifDefined } from "lit/directives/if-defined.js";
 
@@ -44,6 +44,7 @@ export const basic: Story = {
         },
       },
     },
+    mst_slot_item: { control: "select", options: [undefined] },
   },
   args: {
     size: "sm",

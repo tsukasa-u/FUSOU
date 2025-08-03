@@ -82,7 +82,7 @@ impl OwnShip {
             soku: ship.soku,
             leng: ship.leng,
             slot: new_slot,
-            onsolot: ship.onsolot.clone(),
+            onsolot: ship.onslot.clone(),
             slot_ex: ship.slot_ex,
             fuel: ship.fuel,
             bull: ship.bull,

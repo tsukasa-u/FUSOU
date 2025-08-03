@@ -4,27 +4,18 @@ import { createRef, type Ref, ref } from "lit/directives/ref.js";
 
 import globalStyles from "../../global.css?inline";
 
-import { default_ship, type Ship } from "../../interface/port";
+import type { MstShip, MstSlotItems } from "@ipc-bindings/get_data";
 import {
   default_mst_ship,
   default_mst_slot_items,
-  type MstShip,
-  type MstSlotitems,
-} from "../../interface/get_data";
-
-import {
-  default_slotitems,
-  type SlotItems,
-} from "../../interface/require_info";
+} from "@ipc-bindings/default_state/get_data";
 
 import "../ship/ship";
 import "./ship-masked-table";
 
 export interface ComponentShipMaskedModalProps {
-  mst_ship: MstShip;
-  ship: Ship;
-  mst_slot_items: MstSlotitems;
-  slot_items: SlotItems;
+  mst_ship?: MstShip;
+  mst_slot_items?: MstSlotItems;
   size: "xs" | "sm" | "md" | "lg" | "xl";
   color?: string;
   name_flag?: boolean;
@@ -39,16 +30,10 @@ export class ComponentShipMaskedModal extends LitElement {
   static styles = [unsafeCSS(globalStyles)];
 
   @property({ type: Object })
-  ship: Ship = default_ship;
+  mst_ship?: MstShip = default_mst_ship;
 
   @property({ type: Object })
-  mst_ship: MstShip = default_mst_ship;
-
-  @property({ type: Object })
-  slot_items: SlotItems = default_slotitems;
-
-  @property({ type: Object })
-  mst_slot_items: MstSlotitems = default_mst_slot_items;
+  mst_slot_items?: MstSlotItems = default_mst_slot_items;
 
   @property({ type: String })
   color = "";
@@ -80,11 +65,7 @@ export class ComponentShipMaskedModal extends LitElement {
   }
 
   dialogTemplete() {
-    return html`<dialog
-      id=${`ship_modal_${this.ship.id}`}
-      ${ref(this.dialogRef)}
-      class="modal"
-    >
+    return html`<dialog ${ref(this.dialogRef)} class="modal">
       <div class="modal-box bg-base-100  overflow-x-hidden">
         <form method="dialog">
           <button

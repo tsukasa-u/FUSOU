@@ -16,19 +16,19 @@ import {
 import "../css/divider.css";
 import IconChevronRightS from "../icons/chevron_right_s";
 import {
-  Battle,
-  implementsEnumAirBaseAirAttack,
-  implementsEnumAirBaseAssult,
-  implementsEnumCarrierBaseAssault,
-  implementsEnumClosingRaigeki,
-  implementsEnumFriendlyForceAttack,
-  implementsEnumHougeki,
-  implementsEnumMidnightHougeki,
-  implementsEnumOpeningAirAttack,
-  implementsEnumOpeningRaigeki,
-  implementsEnumOpeningTaisen,
-  implementsEnumSupportAttack,
-} from "../interface/battle";
+  implementsAirBaseAirAttack,
+  implementsAirBaseAssult,
+  implementsCarrierBaseAssault,
+  implementsClosingRaigeki,
+  implementsFriendlyForceAttack,
+  implementsHougeki,
+  implementsMidnightHougeki,
+  implementsOpeningAirAttack,
+  implementsOpeningRaigeki,
+  implementsOpeningTaisen,
+  implementsSupportAttack,
+} from "@ipc-bindings/user_guard";
+import { Battle } from "@ipc-bindings/battle";
 import { OpeningAntiSubmarineComponent } from "./opening_anti_submarine";
 import { OpeningTorpedoAttackComponent } from "./opening_torpedo_attack";
 import { ClosingTorpedoAttackComponent } from "./closing_torpedo_attack";
@@ -62,7 +62,7 @@ export function BattlesComponent() {
       for (const i of Object.keys(deck_ports.deck_ports[Number(j)].ship)) {
         if (deck_ship_id[Number(j)] ?? -1 > 0) {
           deck_ship_id[Number(j)].push(
-            deck_ports.deck_ports[Number(j)].ship[Number(i)],
+            deck_ports.deck_ports[Number(j)].ship[Number(i)]
           );
         }
       }
@@ -77,7 +77,7 @@ export function BattlesComponent() {
 
   createEffect(() => {
     set_cell_index_selected(
-      cells.cell_index.length > 0 ? cells.cell_index.length - 1 : 0,
+      cells.cell_index.length > 0 ? cells.cell_index.length - 1 : 0
     );
   });
 
@@ -85,7 +85,7 @@ export function BattlesComponent() {
     if (Object.keys(cells.battles).length == 0) return false;
     if (
       Object.keys(cells.battles).find(
-        (cell) => Number(cell) == cells.cell_index[cell_index_selected()],
+        (cell) => Number(cell) == cells.cell_index[cell_index_selected()]
       ) == undefined
     )
       return false;
@@ -102,87 +102,87 @@ export function BattlesComponent() {
 
     const battle_history: JSX.Element[] = [];
     battle_selected().battle_order!.forEach((order) => {
-      if (implementsEnumAirBaseAssult(order)) {
+      if (implementsAirBaseAssult(order)) {
         battle_history.push(
           <AirBaseAssaultComponent
             area_id={cells.maparea_id}
             battle_selected={battle_selected}
-          />,
+          />
         );
       }
-      if (implementsEnumCarrierBaseAssault(order)) {
+      if (implementsCarrierBaseAssault(order)) {
         battle_history.push(
-          <CarrierBaseAssaultComponent battle_selected={battle_selected} />,
+          <CarrierBaseAssaultComponent battle_selected={battle_selected} />
         );
       }
-      if (implementsEnumAirBaseAirAttack(order)) {
+      if (implementsAirBaseAirAttack(order)) {
         battle_history.push(
           <AirBaseAirAttackComponent
             area_id={cells.maparea_id}
             battle_selected={battle_selected}
-          />,
+          />
         );
       }
-      if (implementsEnumOpeningAirAttack(order)) {
+      if (implementsOpeningAirAttack(order)) {
         battle_history.push(
           <OpeningAirAttackComponent
             deck_ship_id={deck_ship_id()}
             battle_selected={battle_selected}
-          />,
+          />
         );
       }
-      if (implementsEnumSupportAttack(order)) {
+      if (implementsSupportAttack(order)) {
         battle_history.push(
           <SupportAttackComponent
             deck_ship_id={deck_ship_id()}
             battle_selected={battle_selected}
-          />,
+          />
         );
       }
-      if (implementsEnumOpeningTaisen(order)) {
+      if (implementsOpeningTaisen(order)) {
         battle_history.push(
           <OpeningAntiSubmarineComponent
             deck_ship_id={deck_ship_id()}
             battle_selected={battle_selected}
-          />,
+          />
         );
       }
-      if (implementsEnumOpeningRaigeki(order)) {
+      if (implementsOpeningRaigeki(order)) {
         battle_history.push(
           <OpeningTorpedoAttackComponent
             deck_ship_id={deck_ship_id()}
             battle_selected={battle_selected}
-          />,
+          />
         );
       }
-      if (implementsEnumClosingRaigeki(order)) {
+      if (implementsClosingRaigeki(order)) {
         battle_history.push(
           <ClosingTorpedoAttackComponent
             deck_ship_id={deck_ship_id()}
             battle_selected={battle_selected}
-          />,
+          />
         );
       }
-      if (implementsEnumFriendlyForceAttack(order)) {
+      if (implementsFriendlyForceAttack(order)) {
         battle_history.push(
-          <FriendlyForceAttackComponent battle_selected={battle_selected} />,
+          <FriendlyForceAttackComponent battle_selected={battle_selected} />
         );
       }
-      if (implementsEnumMidnightHougeki(order)) {
+      if (implementsMidnightHougeki(order)) {
         battle_history.push(
           <MidnightShellingComponent
             deck_ship_id={deck_ship_id()}
             battle_selected={battle_selected}
-          />,
+          />
         );
       }
-      if (implementsEnumHougeki(order)) {
+      if (implementsHougeki(order)) {
         battle_history.push(
           <ShellingComponent
             deck_ship_id={deck_ship_id()}
             battle_selected={battle_selected}
             shelling_idx={order.Hougeki - 1}
-          />,
+          />
         );
       }
     });
@@ -236,8 +236,14 @@ export function BattlesComponent() {
                   )}
                 </For>
               </div>
-              <DestructionBattleSummaryComponent area_id={cells.maparea_id} cell={cell} />
-              <DestructionBattleComponent area_id={cells.maparea_id} cell={cell} />
+              <DestructionBattleSummaryComponent
+                area_id={cells.maparea_id}
+                cell={cell}
+              />
+              <DestructionBattleComponent
+                area_id={cells.maparea_id}
+                cell={cell}
+              />
               <Show when={show_battle()}>
                 <div
                   class="flex felx-nowrap text-xs py-0.5 tooltip tooltip-right pl-2"
@@ -373,7 +379,12 @@ export function BattlesComponent() {
                     </Match>
                   </Switch>
                 </div>
-                <Show when={battle_selected().smoke_type !== null && battle_selected().smoke_type !== 0}>
+                <Show
+                  when={
+                    battle_selected().smoke_type !== null &&
+                    battle_selected().smoke_type !== 0
+                  }
+                >
                   <div class="flex felx-nowrap text-xs py-0.5 pl-2">
                     Smoke Type : <span class="w-1" />
                     <Switch fallback={<div>_</div>}>
@@ -391,7 +402,13 @@ export function BattlesComponent() {
                 </Show>
                 <div class="flex felx-nowrap text-xs py-0.5 pl-2">
                   Smoke Type : <span class="w-1" />
-                  <Show when={battle_selected().smoke_type !== null && battle_selected().smoke_type !== 0} fallback={<div>_</div>}>
+                  <Show
+                    when={
+                      battle_selected().smoke_type !== null &&
+                      battle_selected().smoke_type !== 0
+                    }
+                    fallback={<div>_</div>}
+                  >
                     <Switch fallback={<div>_</div>}>
                       <Match when={battle_selected().smoke_type == 1}>
                         <div>Signle</div>
@@ -406,17 +423,33 @@ export function BattlesComponent() {
                   </Show>
                   <div class="divider divider-horizontal mr-0 ml-0" />
                   Combat Ration : <span class="w-1" />
-                  <Show when={battle_selected().combat_ration != null} fallback={<div>_</div>}>
+                  <Show
+                    when={battle_selected().combat_ration != null}
+                    fallback={<div>_</div>}
+                  >
                     <For each={battle_selected().combat_ration}>
                       {(ration) => (
-                        <div><EquimentComponent slot_id={ration} name_flag={false} /></div>
+                        <div>
+                          <EquimentComponent
+                            slot_id={ration}
+                            name_flag={false}
+                          />
+                        </div>
                       )}
                     </For>
                   </Show>
                   <div class="divider divider-horizontal mr-0 ml-0" />
                   Balloon : <span class="w-1" />
-                  <Show when={battle_selected().balloon_flag == 1} fallback={<div>_</div>}>
-                    <MstEquipmentComponent equip_id={513} compact={true} show_param={true} name_flag={true}/>
+                  <Show
+                    when={battle_selected().balloon_flag == 1}
+                    fallback={<div>_</div>}
+                  >
+                    <MstEquipmentComponent
+                      equip_id={513}
+                      compact={true}
+                      show_param={true}
+                      name_flag={true}
+                    />
                   </Show>
                 </div>
               </Show>

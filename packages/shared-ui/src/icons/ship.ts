@@ -11,6 +11,8 @@ export interface IconShipProps {
   empty_flag?: boolean;
 }
 
+export const error_ratio = 199 / 151;
+
 const icon_list: { [key: string]: string } = {
   undifined: "#FFFFFF", //  Undefined
   "": "#CCCCCC",

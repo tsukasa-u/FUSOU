@@ -32,7 +32,7 @@ pub struct Ship {
     pub soku: Option<i64>,          // 速力
     pub leng: Option<i64>,          // 射程
     pub slot: Option<Vec<i64>>,     // 装備
-    pub onsolot: Option<Vec<i64>>,  // 艦載機搭載数
+    pub onslot: Option<Vec<i64>>,   // 艦載機搭載数
     pub slot_ex: Option<i64>,       // 補強増設
     pub fuel: Option<i64>,          // 燃料
     pub bull: Option<i64>,          // 弾薬
@@ -92,7 +92,7 @@ impl Ships {
                         soku: ship.soku.or(v.soku),
                         leng: ship.leng.or(v.leng),
                         slot: ship.slot.clone().or(v.slot.clone()),
-                        onsolot: ship.onsolot.clone().or(v.onsolot.clone()),
+                        onslot: ship.onslot.clone().or(v.onslot.clone()),
                         slot_ex: ship.slot_ex.or(v.slot_ex),
                         fuel: ship.fuel.or(v.fuel),
                         bull: ship.bull.or(v.bull),
@@ -143,7 +143,7 @@ impl From<kcapi_main::api_port::port::ApiShip> for Ship {
             soku: Some(ship.api_soku),
             leng: Some(ship.api_leng),
             slot: Some(ship.api_slot),
-            onsolot: Some(ship.api_onslot),
+            onslot: Some(ship.api_onslot),
             slot_ex: Some(ship.api_slot_ex),
             fuel: Some(ship.api_fuel),
             bull: Some(ship.api_bull),
@@ -216,7 +216,7 @@ impl From<kcapi_main::api_port::port::ApiSpEffectItem> for SpEffectItem {
 //                                 soku:       None,
 //                                 leng:       None,
 //                                 slot:       None,
-//                                 onsolot:    None,
+//                                 onslot:    None,
 //                                 slot_ex:    None,
 //                                 fuel:       None,
 //                                 bull:       None,
@@ -262,7 +262,7 @@ impl From<kcapi_main::api_req_hokyu::charge::ApiData> for Ships {
                     soku: None,
                     leng: None,
                     slot: None,
-                    onsolot: Some(ship.api_onslot),
+                    onslot: Some(ship.api_onslot),
                     slot_ex: None,
                     fuel: Some(ship.api_fuel),
                     bull: Some(ship.api_bull),

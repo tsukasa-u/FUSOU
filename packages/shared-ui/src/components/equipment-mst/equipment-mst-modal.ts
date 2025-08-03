@@ -2,17 +2,15 @@ import { html, LitElement, unsafeCSS } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import globalStyles from "../../global.css?inline";
 
-import {
-  default_mst_slot_item,
-  type MstSlotitem,
-} from "../../interface/get_data";
+import type { MstSlotItem } from "@ipc-bindings/get_data";
+import { default_mst_slot_item } from "@ipc-bindings/default_state/get_data";
 
 import "./equipment-mst";
 import "./equipment-mst-table";
 import { createRef, ref, type Ref } from "lit/directives/ref.js";
 
 export interface ComponentEquipmentMstModalProps {
-  mst_slot_item: MstSlotitem;
+  mst_slot_item?: MstSlotItem;
   name_flag?: boolean;
   show_name?: boolean;
   show_param?: boolean;
@@ -26,7 +24,7 @@ export class ComponentEquipmentMstModal extends LitElement {
   static styles = [unsafeCSS(globalStyles)];
 
   @property({ type: Object })
-  mst_slot_item: MstSlotitem = default_mst_slot_item;
+  mst_slot_item?: MstSlotItem = default_mst_slot_item;
 
   @property({ type: Boolean })
   comapct: boolean = false;
@@ -55,11 +53,7 @@ export class ComponentEquipmentMstModal extends LitElement {
   }
 
   dialogTemplete() {
-    return html`<dialog
-      id=${`equipment-mst_modal_${this.mst_slot_item.id}`}
-      ${ref(this.dialogRef)}
-      class="modal"
-    >
+    return html`<dialog ${ref(this.dialogRef)} class="modal">
       <div class="modal-box bg-base-100 modal-box-width">
         <form method="dialog">
           <button
