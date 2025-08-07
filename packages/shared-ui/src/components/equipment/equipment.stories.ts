@@ -18,6 +18,7 @@ const ComponentEquipmentBasic = (args: ComponentEquipmentProps) => {
     onslot=${ifDefined(args.onslot)}
     size=${args.size}
     ?empty_flag=${args.empty_flag}
+    ?ex_flag=${args.empty_flag}
   ></component-equipment>`;
 };
 
@@ -47,6 +48,7 @@ export const basic: Story = {
       },
     },
     empty_flag: { control: "boolean" },
+    ex_flag: { control: "boolean" },
     slot_item: { control: "select", options: [undefined] },
     mst_slot_item: { control: "select", options: [undefined] },
   },
@@ -56,6 +58,7 @@ export const basic: Story = {
     onslot: 0,
     size: "xs",
     empty_flag: false,
+    ex_flag: false,
     slot_item: {
       ...default_slotitem,
       slotitem_id: 267,
