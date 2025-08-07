@@ -87,12 +87,14 @@ pub struct ApiList {
 mod tests {
     use std::path;
 
+    use dotenvy::dotenv;
     use regex::Regex;
     use register_trait::custom_root_test;
 
     use super::*;
     #[test]
     fn test_deserialize() {
+        dotenv().expect(".env file not found");
         let target_path = std::env::var("TEST_DATA_PATH").expect("failed to get env data");
 
         let pattern_str = Regex::new(r".*S@api_req_ranking@[a-z]*").unwrap();

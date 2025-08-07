@@ -1,9 +1,0 @@
-digraph {
-  rankdir=LR;
-  subgraph cluster_0 {
-    label="api_get_member / unsetslot";
-    node [style="filled", color=white, style="solid", color=gray20];
-    api_get_member__unsetslot__Res [label="<Res> Res  | { api_data | <api_data> HashMap\<String, Vec\<i64\>\> } | { api_result | <api_result> i64 } | { api_result_msg | <api_result_msg> String }", shape=record];
-    api_get_member__unsetslot__Req [label="<Req> Req  | { api_token | <api_token> String } | { api_verno | <api_verno> String }", shape=record];
-  }
-}

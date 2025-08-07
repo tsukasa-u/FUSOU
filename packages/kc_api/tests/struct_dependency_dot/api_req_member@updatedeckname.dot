@@ -1,9 +1,0 @@
-digraph {
-  rankdir=LR;
-  subgraph cluster_0 {
-    label="api_req_member / updatedeckname";
-    node [style="filled", color=white, style="solid", color=gray20];
-    api_req_member__updatedeckname__Req [label="<Req> Req  | { api_deck_id | <api_deck_id> String } | { api_token | <api_token> String } | { api_name_id | <api_name_id> String } | { api_name | <api_name> String } | { api_verno | <api_verno> String }", shape=record];
-    api_req_member__updatedeckname__Res [label="<Res> Res  | { api_result_msg | <api_result_msg> String } | { api_result | <api_result> i64 }", shape=record];
-  }
-}

@@ -60,10 +60,12 @@ pub struct ApiData {
 #[cfg(test)]
 mod tests {
     use register_trait::simple_root_test;
+    use dotenvy::dotenv;
 
     use super::*;
     #[test]
     fn test_deserialize() {
+        dotenv().expect(".env file not found");
         let target_path = std::env::var("TEST_DATA_PATH").expect("failed to get env data");
 
         let pattern_str = "S@api_get_member@useitem";

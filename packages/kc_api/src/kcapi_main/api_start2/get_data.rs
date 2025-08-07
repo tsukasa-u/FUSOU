@@ -725,21 +725,23 @@ mod tests {
     use register_trait::simple_root_check_number_size;
     use register_trait::simple_root_test;
     // use crate::util::type_of;
+    use dotenvy::dotenv;
 
     use super::*;
     #[test]
     fn test_deserialize() {
+        dotenv().expect(".env file not found");
         let target_path = std::env::var("TEST_DATA_PATH").expect("failed to get env data");
 
         let pattern_str = "S@api_start2@getData";
-        let log_path = "./src/kcapi_main/api_start2/getData@S.log";
+        let log_path = "./src/kcapi_main/api_start2/get_data@S.log";
         simple_root_test::<Res>(
             target_path.clone(),
             pattern_str.to_string(),
             log_path.to_string(),
         );
 
-        let pattern_str = "Q@api_start2@get_data";
+        let pattern_str = "Q@api_start2@getData";
         let log_path = "./src/kcapi_main/api_start2/get_data@Q.log";
         simple_root_test::<Req>(
             target_path.clone(),
@@ -750,10 +752,11 @@ mod tests {
 
     #[test]
     fn test_possible_values() {
+        dotenv().expect(".env file not found");
         let target_path = std::env::var("TEST_DATA_PATH").expect("failed to get env data");
 
         let pattern_str = "S@api_start2@getData";
-        let log_path = "./src/kcapi_main/api_start2/getData_check_number@S.log";
+        let log_path = "./src/kcapi_main/api_start2/get_data_check_number@S.log";
         simple_root_check_number_size::<Res>(
             target_path.clone(),
             pattern_str.to_string(),
