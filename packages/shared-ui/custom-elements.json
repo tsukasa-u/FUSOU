@@ -8,7 +8,7 @@
       "declarations": [
         {
           "kind": "variable",
-          "name": "B",
+          "name": "D",
           "default": "class extends p { constructor() { super(...arguments), this.v_max = 0, this.v_now = 0, this.size = \"xs\", this.quantize = void 0, this.color = \"green\"; } render() { this.color = St(this.v_now, this.v_max); let e = Pt(this.v_now, this.v_max, this.quantize); return a`<div class=\"flex items-center\"> <progress class=${[ \"progress\", Et[this.color], At[this.size] ].join(\" \")} max=\"100\" value=${e} ></progress> </div>`; } }"
         },
         {
@@ -19,7 +19,7 @@
         {
           "kind": "variable",
           "name": "N",
-          "default": "class extends p { constructor() { super(...arguments), this.icon_number = 0, this.category_number = 0, this.size = \"xs\", this.empty_flag = !1; } render() { return a` <svg fill=\"currentColor\" stroke-width=\"1.5\" stroke=\"currentColor\" viewBox=\"0 0 151 151\" xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\" overflow=\"hidden\" class=${[ \"text-base-content\", \"fill-base-content\", \"cursor-inherit\", Lt[this.size] ].join(\" \")} > ${this.empty_flag ? F`` : F`<text class=\"roboto-mono-500\" font-size=\"96\" textLength=\"96\" lengthAdjust=\"spacingAndGlyphs\" transform=\"translate(28 104)\" > ${qt[this.category_number]} </text> <path d=\"M9 32C9 19.85 18.85 10 31 10L119 10C131.15 10 141 19.85 141 32L141 120C141 132.15 131.15 142 119 142L31 142C18.85 142 9 132.15 9 120Z\" stroke=\"currentColor\" stroke-width=\"4\" stroke-linejoin=\"round\" stroke-miterlimit=\"10\" fill=\"none\" fill-rule=\"evenodd\" /> <path d=\"M27.5 124 124.5 124\" stroke=\"#303030\" stroke-width=\"17\" stroke-miterlimit=\"9\" fill=\"none\" fill-rule=\"evenodd\" /> <path d=\"M28.0 124.0 76.2 124.0Z\" stroke=${Rt(this.icon_number)} stroke-width=\"16\" /> <path d=\"M76.0 124.0 124.0 124.0Z\" stroke=${It(this.icon_number)} stroke-width=\"16\" /> ${Zt}`} </svg>`; } }"
+          "default": "class extends p { constructor() { super(...arguments), this.icon_number = 0, this.category_number = 0, this.size = \"xs\", this.empty_flag = !1; } render() { return a` <svg fill=\"currentColor\" stroke-width=\"1.5\" stroke=\"currentColor\" viewBox=\"0 0 151 151\" xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\" overflow=\"hidden\" class=${[ \"text-base-content\", \"fill-base-content\", \"cursor-inherit\", Lt[this.size] ].join(\" \")} > ${this.empty_flag ? B`` : B`<text class=\"roboto-mono-500\" font-size=\"96\" textLength=\"96\" lengthAdjust=\"spacingAndGlyphs\" transform=\"translate(28 104)\" > ${qt[this.category_number]} </text> <path d=\"M9 32C9 19.85 18.85 10 31 10L119 10C131.15 10 141 19.85 141 32L141 120C141 132.15 131.15 142 119 142L31 142C18.85 142 9 132.15 9 120Z\" stroke=\"currentColor\" stroke-width=\"4\" stroke-linejoin=\"round\" stroke-miterlimit=\"10\" fill=\"none\" fill-rule=\"evenodd\" /> <path d=\"M27.5 124 124.5 124\" stroke=\"#303030\" stroke-width=\"17\" stroke-miterlimit=\"9\" fill=\"none\" fill-rule=\"evenodd\" /> <path d=\"M28.0 124.0 76.2 124.0Z\" stroke=${Rt(this.icon_number)} stroke-width=\"16\" /> <path d=\"M76.0 124.0 124.0 124.0Z\" stroke=${It(this.icon_number)} stroke-width=\"16\" /> ${Zt}`} </svg>`; } }"
         },
         {
           "kind": "variable",
@@ -28,8 +28,8 @@
         },
         {
           "kind": "variable",
-          "name": "y",
-          "default": "class extends p { constructor() { super(...arguments), this.slot_item = xt, this.mst_slot_item = Z, this.compact = !1, this.onslot = 0, this.name_flag = !1, this.size = \"xs\", this.empty_flag = !1; } proficiencyOnslotTemplete() { return this.slot_item && this.mst_slot_item && !this.compact && !this.empty_flag ? a`<div class=${[ \"grid w-4 place-content-center\", x[this.size].proficiency_onslot_h ].join(\" \")} > <icon-plane-proficiency class=${x[this.size].proficiency_onslot_h} size=\"full\" level=${this.slot_item.alv ?? 0} ></icon-plane-proficiency> </div> <div class=${[ \"grid w-4 place-content-center cursor-inherit\", x[this.size].proficiency_onslot_h, x[this.size].onslot_text ].join(\" \")} > ${Qt(this.mst_slot_item) ? this.onslot : \"\"} </div>` : !this.compact && this.empty_flag ? a`<div class=\"w-4\"></div>` : a``; } nameTemplete() { return this.mst_slot_item && this.name_flag && !this.empty_flag ? a` <div class=${[ \"pl-3 truncate content-center cursor-inherit\", x[this.size].name_text, x[this.size].name_h ].join(\" \")} > ${this.mst_slot_item.name ?? \"Unknown\"} </div>` : a``; } levelTemplate() { return this.slot_item && (this.slot_item.level ?? !1) && !this.empty_flag ? a` <div class=${[ \"badge badge-ghost w-0 rounded-full grid place-content-center text-accent\", x[this.size].badge_size ].join(\" \")} > ${this.slot_item.level === 10 ? \"★\" : this.slot_item.level} </div>` : a``; } render() { if (this.mst_slot_item && this.slot_item || this.empty_flag) { let e = this.mst_slot_item ? this.mst_slot_item.type[1] : 0, o = this.mst_slot_item ? this.mst_slot_item.type[3] : 0; return a` <div class=\"flex flex-nowarp w-full\"> <div class=\"indicator\"> <span class=\"indicator-item\"> ${this.levelTemplate()} </span> <icon-equipment category_number=${e} icon_number=${o} size=${this.size} ?empty_flag=${this.empty_flag} ></icon-equipment> </div> <div class=${[ \"flex-none\", x[this.size].proficiency_onslot_pl, x[this.size].proficiency_onslot_mt ].join(\" \")} > ${this.proficiencyOnslotTemplete()} </div> ${this.nameTemplete()} </div> `; } else return a` <div class=\"flex flex-nowarp w-full\"> <div class=\"outline-error outline-2 rounded bg-error-content\"> <icon-error size=${this.size}></icon-error> </div> <div class=${[ \"flex-none\", x[this.size].proficiency_onslot_pl, x[this.size].proficiency_onslot_mt ].join(\" \")} > ${this.proficiencyOnslotTemplete()} </div> ${this.nameTemplete()} </div>`; } }"
+          "name": "_",
+          "default": "class extends p { constructor() { super(...arguments), this.slot_item = xt, this.mst_slot_item = Z, this.compact = !1, this.onslot = 0, this.name_flag = !1, this.size = \"xs\", this.empty_flag = !1, this.ex_flag = !1; } proficiencyOnslotTemplete() { return this.slot_item && this.mst_slot_item && !this.compact && !this.empty_flag ? a`<div class=${[ \"grid w-4 place-content-center\", x[this.size].proficiency_onslot_h ].join(\" \")} > <icon-plane-proficiency class=${x[this.size].proficiency_onslot_h} size=\"full\" level=${this.slot_item.alv ?? 0} ></icon-plane-proficiency> </div> <div class=${[ \"grid w-4 place-content-center cursor-inherit\", x[this.size].proficiency_onslot_h, x[this.size].onslot_text ].join(\" \")} > ${Qt(this.mst_slot_item) ? this.onslot : \"\"} </div>` : !this.compact && this.empty_flag ? a`<div class=\"w-4\"></div>` : a``; } nameTemplete() { return this.mst_slot_item && this.name_flag && !this.empty_flag ? a` <div class=${[ \"pl-3 truncate content-center cursor-inherit\", x[this.size].name_text, x[this.size].name_h ].join(\" \")} > ${this.mst_slot_item.name ?? \"Unknown\"} </div>` : a``; } levelTemplate() { return this.slot_item && (this.slot_item.level ?? !1) && !this.empty_flag ? a` <div class=${[ \"badge badge-ghost w-0 rounded-full grid place-content-center text-accent\", x[this.size].badge_size ].join(\" \")} > ${this.slot_item.level === 10 ? \"★\" : this.slot_item.level} </div>` : a``; } render() { if (this.mst_slot_item && this.slot_item || this.empty_flag) { let e = this.mst_slot_item ? this.mst_slot_item.type[1] : 0, o = this.mst_slot_item ? this.mst_slot_item.type[3] : 0; return a` <div class=\"flex flex-nowarp w-full\"> <div class=\"indicator\"> <span class=\"indicator-item\"> ${this.levelTemplate()} </span> <icon-equipment category_number=${e} icon_number=${o} size=${this.size} ?empty_flag=${this.empty_flag} ></icon-equipment> </div> ${this.ex_flag ? a`` : a`<div class=${[ \"flex-none\", x[this.size].proficiency_onslot_pl, x[this.size].proficiency_onslot_mt ].join(\" \")} > ${this.proficiencyOnslotTemplete()} </div> ${this.nameTemplete()}`} </div> `; } else return a` <div class=\"flex flex-nowarp w-full\"> <div class=\"outline-error outline-2 rounded bg-error-content\"> <icon-error size=${this.size}></icon-error> </div> ${this.ex_flag ? a`` : a`<div class=${[ \"flex-none\", x[this.size].proficiency_onslot_pl, x[this.size].proficiency_onslot_mt ].join(\" \")} > ${this.proficiencyOnslotTemplete()} </div> ${this.nameTemplete()}`} </div>`; } }"
         },
         {
           "kind": "variable",
@@ -39,7 +39,7 @@
         {
           "kind": "variable",
           "name": "v",
-          "default": "class extends p { constructor() { super(...arguments), this.slot_item = xt, this.mst_slot_item = Z, this.ex_flag = !1, this.onslot = 0, this.name_flag = !1, this.size = \"xs\", this.empty_flag = !1, this.dialogRef = ct(); } open_modal() { this.dialogRef.value?.showModal(); } dialogTemplete() { return a`<dialog ${pt(this.dialogRef)} class=\"modal\"> <div class=\"modal-box bg-base-100 modal-box-width\"> <form method=\"dialog\"> <button class=\"btn btn-sm btn-circle btn-ghost absolute right-2 top-2\" > <!-- <IconXMark class=\"h-6 w-6\" /> --> X </button> </form> <component-equipment-table .slot_item=${this.slot_item} .mst_slot_item=${this.mst_slot_item} ></component-equipment-table> </div> <form method=\"dialog\" class=\"modal-backdrop\"> <button>close</button> </form> </dialog>`; } render() { return this.empty_flag ? a`<div class=\"w-full cursor-default\"> <component-equipment size=${this.size} ?empty_flag=${this.empty_flag} ></component-equipment> </div>` : a` <div class=\"w-full cursor-pointer\" @click=\"${this.open_modal}\"> <component-equipment .slot_item=${this.slot_item} .mst_slot_item=${this.mst_slot_item} size=${this.size} ?name_flag=${this.name_flag} ?ex_flag=${this.ex_flag} onslot=${this.onslot} ></component-equipment> </div> ${this.dialogTemplete()} `; } }"
+          "default": "class extends p { constructor() { super(...arguments), this.slot_item = xt, this.mst_slot_item = Z, this.ex_flag = !1, this[\"attr:onslot\"] = 0, this.name_flag = !1, this.size = \"xs\", this.empty_flag = !1, this.dialogRef = ct(); } open_modal() { this.dialogRef.value?.showModal(); } dialogTemplete() { return a`<dialog ${pt(this.dialogRef)} class=\"modal\"> <div class=\"modal-box bg-base-100 modal-box-width\"> <form method=\"dialog\"> <button class=\"btn btn-sm btn-circle btn-ghost absolute right-2 top-2\" > <!-- <IconXMark class=\"h-6 w-6\" /> --> X </button> </form> <component-equipment-table .slot_item=${this.slot_item} .mst_slot_item=${this.mst_slot_item} ></component-equipment-table> </div> <form method=\"dialog\" class=\"modal-backdrop\"> <button>close</button> </form> </dialog>`; } render() { return this.empty_flag ? a`<div class=\"w-full cursor-default\"> <component-equipment size=${this.size} ?empty_flag=${this.empty_flag} ></component-equipment> </div>` : a` <div class=\"w-full cursor-pointer\" @click=\"${this.open_modal}\"> <component-equipment .slot_item=${this.slot_item} .mst_slot_item=${this.mst_slot_item} size=${this.size} ?name_flag=${this.name_flag} ?ex_flag=${this.ex_flag} onslot=${this[\"attr:onslot\"]} ></component-equipment> </div> ${this.dialogTemplete()} `; } }"
         },
         {
           "kind": "variable",
@@ -53,7 +53,7 @@
         },
         {
           "kind": "variable",
-          "name": "_",
+          "name": "w",
           "default": "class extends p { constructor() { super(...arguments), this.mst_slot_item = Z, this.comapct = !1, this.name_flag = !1, this.show_name = !1, this.show_param = !1, this.size = \"xs\", this.empty_flag = !1, this.dialogRef = ct(); } open_modal() { this.dialogRef.value?.showModal(); } dialogTemplete() { return a`<dialog ${pt(this.dialogRef)} class=\"modal\"> <div class=\"modal-box bg-base-100 modal-box-width\"> <form method=\"dialog\"> <button class=\"btn btn-sm btn-circle btn-ghost absolute right-2 top-2\" > <!-- <IconXMark class=\"h-6 w-6\" /> --> X </button> </form> <component-equipment-mst-table .mst_slot_item=${this.mst_slot_item} ?show_param=${this.show_param} ?show_name=${this.show_name} ></component-equipment-mst-table> </div> <form method=\"dialog\" class=\"modal-backdrop\"> <button>close</button> </form> </dialog>`; } render() { return this.empty_flag ? a`<div class=\"w-full cursor-default\"> <component-equipment-mst size=${this.size} ?empty_flag=${this.empty_flag} .mst_slot_item=${this.mst_slot_item} ?compact=${this.comapct} ?name_flag=${!1} ></component-equipment-mst> </div>` : a` <div class=\"w-full cursor-pointer\" @click=\"${this.open_modal}\"> <component-equipment-mst .mst_slot_item=${this.mst_slot_item} size=${this.size} ?name_flag=${this.name_flag} ?compact=${this.comapct} ?empty_flag=${this.empty_flag} ?show_name=${this.show_name} ></component-equipment-mst> </div> ${this.dialogTemplete()} `; } }"
         },
         {
@@ -63,17 +63,17 @@
         {
           "kind": "variable",
           "name": "U",
-          "default": "class extends p { constructor() { super(...arguments), this.ship_stype = 0, this.size = \"xs\", this.color = \"\", this.empty_flag = !1; } render() { const e = he[this.ship_stype ?? 0], o = jt[\"\"], s = fe(this.color); return a` <svg fill=\"currentColor\" stroke-width=\"1.5\" stroke=\"currentColor\" viewBox=\"0 0 199 151\" xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\" overflow=\"hidden\" class=${[ \"text-base-content\", \"fill-base-content\", \"cursor-inherit\", me[this.size] ].join(\" \")} > ${this.empty_flag ? F`` : F`<text class=\"roboto-mono-500\" font-size=\"96\" textLength=\"${e.length * 48}\" lengthAdjust=\"spacingAndGlyphs\" transform=\"translate(${28 - (e.length - 3) * 24} 104)\" > ${e} </text> <path d=\"m 9 32 C 9 19.85 18.85 10 31 10 L 167 10 C 179.15 10 189 19.85 189 32 l 0 88 C 189 132.15 179.15 142 167 142 L 31 142 C 18.85 142 9 132.15 9 120 Z\" stroke=\"currentColor\" stroke-width=\"4\" stroke-linejoin=\"round\" stroke-miterlimit=\"10\" fill=\"none\" fill-rule=\"evenodd\" /> <path d=\"M28 124 100.2 124\" stroke=${o} stroke-width=\"16\" stroke-miterlimit=\"8\" fill=\"none\" fill-rule=\"evenodd\" /> <path d=\"M100 124 172 124\" stroke=${s} stroke-width=\"16\" stroke-miterlimit=\"8\" fill=\"none\" fill-rule=\"evenodd\" /> ${ue}`} </svg>`; } }"
-        },
-        {
-          "kind": "variable",
-          "name": "D",
-          "default": "class extends p { constructor() { super(...arguments), this.mst_ship = rt, this.color = \"\", this.size = \"xs\", this.name_flag = !1, this.empty_flag = !1; } nameTemplete() { return this.mst_ship && this.name_flag && !this.empty_flag ? a`<div class=${[ \"pl-3 truncate content-center cursor-inherit\", kt[this.size].name_text, kt[this.size].name_h ].join(\" \")} > ${this.mst_ship.name ?? \"Unknown\"} </div>` : a``; } render() { return this.mst_ship ? a` <div class=\"flex flex-nowarp w-full\"> <div> <icon-ship ship_stype=${this.mst_ship.stype} color=${this.color} size=${this.size} ?empty_flag=${this.empty_flag} ></icon-ship> </div> ${this.nameTemplete()} </div> ` : a`<div class=\"flex flex-nowarp w-full\"> <div class=\"outline-error outline-2 rounded bg-error-content\"> <icon-error size=${this.size} ratio=${de}></icon-error> </div> ${this.nameTemplete()} </div>`; } }"
+          "default": "class extends p { constructor() { super(...arguments), this.ship_stype = 0, this.size = \"xs\", this.color = \"\", this.empty_flag = !1; } render() { const e = he[this.ship_stype ?? 0], o = jt[\"\"], s = fe(this.color); return a` <svg fill=\"currentColor\" stroke-width=\"1.5\" stroke=\"currentColor\" viewBox=\"0 0 199 151\" xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\" overflow=\"hidden\" class=${[ \"text-base-content\", \"fill-base-content\", \"cursor-inherit\", me[this.size] ].join(\" \")} > ${this.empty_flag ? B`` : B`<text class=\"roboto-mono-500\" font-size=\"96\" textLength=\"${e.length * 48}\" lengthAdjust=\"spacingAndGlyphs\" transform=\"translate(${28 - (e.length - 3) * 24} 104)\" > ${e} </text> <path d=\"m 9 32 C 9 19.85 18.85 10 31 10 L 167 10 C 179.15 10 189 19.85 189 32 l 0 88 C 189 132.15 179.15 142 167 142 L 31 142 C 18.85 142 9 132.15 9 120 Z\" stroke=\"currentColor\" stroke-width=\"4\" stroke-linejoin=\"round\" stroke-miterlimit=\"10\" fill=\"none\" fill-rule=\"evenodd\" /> <path d=\"M28 124 100.2 124\" stroke=${o} stroke-width=\"16\" stroke-miterlimit=\"8\" fill=\"none\" fill-rule=\"evenodd\" /> <path d=\"M100 124 172 124\" stroke=${s} stroke-width=\"16\" stroke-miterlimit=\"8\" fill=\"none\" fill-rule=\"evenodd\" /> ${ue}`} </svg>`; } }"
         },
         {
           "kind": "variable",
           "name": "O",
-          "default": "class extends p { constructor() { super(...arguments), this.ship = Ft, this.mst_ship = rt, this.slot_items = zt, this.mst_slot_items = dt, this.size = \"sm\"; } equipmentTemplete(e, o) { let s = o != -1 && this.mst_ship && this.mst_ship.maxeq ? this.mst_ship.maxeq[o] : void 0; if (e > 0) { let r = this.slot_items ? this.slot_items.slot_items[e] : void 0, t = r && this.mst_slot_items ? this.mst_slot_items.mst_slot_items[r.slotitem_id] : void 0; return a`<component-equipment-modal ?name_flag=${!0} .slot_item=${r} .mst_slot_item=${t} onslot=${$t(s)} size=${this.size} ></component-equipment-modal>`; } else return a`<component-equipment-modal ?empty_flag=${!0} size=${this.size} ></component-equipment-modal>`; } slotsTemplete() { return this.ship && this.ship.slot ? this.ship.slot.map((e, o) => a` <tr class=\"flex rounded rounded items-center w-full ${bt({ \"back_slash_color bg-[size:16px_16px] bg-top-left bg-[image:repeating-linear-gradient(45deg,currentColor_0,currentColor_0.5px,transparent_0,transparent_50%)]\": this.ship && this.ship.slotnum ? this.ship.slotnum <= o : !1 })}\" > <th class=\"flex-none w-4\">S${o + 1}</th> <td class=\"flex-none w-12 ml-4 py-1 w-full\"> ${this.equipmentTemplete(e, o)} </td> </tr> `) : a``; } slotExTemplete() { return a` <tr class=\"flex rounded items-center ${bt({ \"back_slash_color bg-[size:16px_16px] bg-top-left bg-[image:repeating-linear-gradient(45deg,currentColor_0,currentColor_0.5px,transparent_0,transparent_50%)]\": this.ship ? this.ship.slot_ex == 0 : !1 })}\" > <th class=\"flex-none w-4\">SE</th> <td class=\"flex-none w-12 ml-4 py-1 w-full\"> ${this.equipmentTemplete( this.ship && this.ship.slot_ex ? this.ship.slot_ex : 0, -1 )} </td> </tr> `; } maxEq() { return this.mst_ship && this.mst_ship.maxeq ? this.mst_ship.maxeq.reduce((e, o) => e + o, 0) : 0; } SpEffectItem() { let e = { soukou: 0, raisou: 0, karyoku: 0, kaihi: 0 }; if (this.ship) { if (!this.ship.sp_effect_items) return e; } else return e; for (const o of [1, 2]) { let s = this.ship.sp_effect_items.items[o]; s && (e.soukou += s.souk ?? 0, e.raisou += s.raig ?? 0, e.karyoku += s.houg ?? 0, e.kaihi += s.kaih ?? 0); } return e; } render() { let e = this.SpEffectItem(), o = this.maxEq(); return this.ship && this.mst_ship ? a`<div class=\"cursor-default\"> <div class=\"flex justify-start\"> <h3 class=${[ \"font-bold pl-2 truncate\", g[this.size].name_text ].join(\" \")} > ${this.mst_ship.name ?? \"Unknown\"} </h3> <div class=${[ \"place-self-end pl-4\", g[this.size].level_text ].join(\" \")} > Lv. ${this.ship.lv ?? \"\"} </div> <div class=${[ \"place-self-end pl-2\", g[this.size].level_text ].join(\" \")} > next ${this.ship.exp ? this.ship.exp[1] ?? 0 : \"\"} </div> </div> <div class=\"pt-2\"> <table class=${[\"table\", g[this.size].table].join(\" \")}> <caption class=${[\"truncate\", g[this.size].caption_text].join( \" \" )} > Slots </caption> <tbody> ${this.slotsTemplete()} ${this.slotExTemplete()} </tbody> </table> <div class=\"h-2\"></div> <table class=${[\"table\", g[this.size].table].join(\" \")}> <caption class=${[\"truncate\", g[this.size].caption_text].join( \" \" )} > Ship Status </caption> <tbody> <tr class=\"flex rounded\"> <th class=\"truncate flex-1 w-2\">Durability</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> ${this.ship.maxhp ?? 0} </td> <th class=\"truncate flex-1 w-2\">Firepower</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> <div class=\"indicator\"> <span class=${[ \"indicator-item indicator-bottom text-accent\", g[this.size].accent_text ].join(\" \")} > ${e.karyoku > 0 ? `+${e.karyoku}` : \"\"} </span> ${this.ship.karyoku ? this.ship.karyoku[0] ?? 0 : 0} </div> </td> </tr> <tr class=\"flex rounded\"> <th class=\"truncate flex-1 w-2\">Armor</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> <div class=\"indicator\"> <span class=${[ \"indicator-item indicator-bottom text-accent\", g[this.size].accent_text ].join(\" \")} > ${e.soukou > 0 ? `+${e.soukou}` : \"\"} </span> ${this.ship.soukou ? this.ship.soukou[0] ?? 0 : 0} </div> </td> <th class=\"truncate flex-1 w-2\">Torpedo</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> <div class=\"indicator\"> <span class=${[ \"indicator-item indicator-bottom text-accent\", g[this.size].accent_text ].join(\" \")} > ${e.raisou > 0 ? `+${e.raisou}` : \"\"} </span> ${this.ship.raisou ? this.ship.raisou[0] ?? 0 : 0} </div> </td> </tr> <tr class=\"flex rounded\"> <th class=\"truncate flex-1 w-2\">Evasion</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> <div class=\"indicator\"> <span class=${[ \"indicator-item indicator-bottom text-accent\", g[this.size].accent_text ].join(\" \")} > ${e.kaihi > 0 ? `+${e.kaihi}` : \"\"} </span> ${this.ship.kaihi ? this.ship.kaihi[0] ?? 0 : 0} </div> </td> <th class=\"truncate flex-1 w-2\">Anti-Air</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> ${this.ship.taiku ? this.ship.taiku[0] ?? 0 : 0} </td> </tr> <tr class=\"flex rounded\"> <th class=\"truncate flex-1 w-2\">Aircraft installed</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> ${o ?? !1} </td> <th class=\"truncate flex-1 w-2\">Anti-Submarine</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> ${this.ship.taisen ? this.ship.taisen[0] ?? 0 : 0} </td> </tr> <tr class=\"flex rounded\"> <th class=\"truncate flex-1 w-2\">Speed</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> ${_e[this.ship.soku ?? 0]} </td> <th class=\"truncate flex-1 w-2\">Reconnaissance</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> ${this.ship.sakuteki ? this.ship.sakuteki[0] ?? 0 : 0} </td> </tr> <tr class=\"flex rounded\"> <th class=\"truncate flex-1 w-2\">Range</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> ${we[this.ship.leng ?? 0]} </td> <th class=\"truncate flex-1 w-2\">Luck</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> ${this.ship.lucky ? this.ship.lucky[0] ?? 0 : 0} </td> </tr> </tbody> </table> </div> </div>` : a`<div class=\"outline-error outline-2 rounded bg-error-content\"> <icon-error size=${\"full\"}></icon-error> </div>`; } }"
+          "default": "class extends p { constructor() { super(...arguments), this.mst_ship = rt, this.color = \"\", this.size = \"xs\", this.name_flag = !1, this.empty_flag = !1; } nameTemplete() { return this.mst_ship && this.name_flag && !this.empty_flag ? a`<div class=${[ \"pl-3 truncate content-center cursor-inherit\", kt[this.size].name_text, kt[this.size].name_h ].join(\" \")} > ${this.mst_ship.name ?? \"Unknown\"} </div>` : a``; } render() { return this.mst_ship ? a` <div class=\"flex flex-nowarp w-full\"> <div> <icon-ship ship_stype=${this.mst_ship.stype} color=${this.color} size=${this.size} ?empty_flag=${this.empty_flag} ></icon-ship> </div> ${this.nameTemplete()} </div> ` : a`<div class=\"flex flex-nowarp w-full\"> <div class=\"outline-error outline-2 rounded bg-error-content\"> <icon-error size=${this.size} ratio=${de}></icon-error> </div> ${this.nameTemplete()} </div>`; } }"
+        },
+        {
+          "kind": "variable",
+          "name": "A",
+          "default": "class extends p { constructor() { super(...arguments), this.ship = Ft, this.mst_ship = rt, this.slot_items = zt, this.mst_slot_items = dt, this.size = \"sm\"; } equipmentTemplete(e, o) { let s = o != -1 && this.mst_ship && this.mst_ship.maxeq ? this.mst_ship.maxeq[o] : void 0; if (e > 0) { let r = this.slot_items ? this.slot_items.slot_items[e] : void 0, t = r && this.mst_slot_items ? this.mst_slot_items.mst_slot_items[r.slotitem_id] : void 0; return a`<component-equipment-modal ?name_flag=${!0} .slot_item=${r} .mst_slot_item=${t} onslot=${$t(s)} size=${this.size} ></component-equipment-modal>`; } else return a`<component-equipment-modal ?empty_flag=${!0} size=${this.size} ></component-equipment-modal>`; } slotsTemplete() { return this.ship && this.ship.slot ? this.ship.slot.map((e, o) => a` <tr class=\"flex rounded rounded items-center w-full ${bt({ \"back_slash_color bg-[size:16px_16px] bg-top-left bg-[image:repeating-linear-gradient(45deg,currentColor_0,currentColor_0.5px,transparent_0,transparent_50%)]\": this.ship && this.ship.slotnum ? this.ship.slotnum <= o : !1 })}\" > <th class=\"flex-none w-4\">S${o + 1}</th> <td class=\"flex-none w-12 ml-4 py-1 w-full\"> ${this.equipmentTemplete(e, o)} </td> </tr> `) : a``; } slotExTemplete() { return a` <tr class=\"flex rounded items-center ${bt({ \"back_slash_color bg-[size:16px_16px] bg-top-left bg-[image:repeating-linear-gradient(45deg,currentColor_0,currentColor_0.5px,transparent_0,transparent_50%)]\": this.ship ? this.ship.slot_ex == 0 : !1 })}\" > <th class=\"flex-none w-4\">SE</th> <td class=\"flex-none w-12 ml-4 py-1 w-full\"> ${this.equipmentTemplete( this.ship && this.ship.slot_ex ? this.ship.slot_ex : 0, -1 )} </td> </tr> `; } maxEq() { return this.mst_ship && this.mst_ship.maxeq ? this.mst_ship.maxeq.reduce((e, o) => e + o, 0) : 0; } SpEffectItem() { let e = { soukou: 0, raisou: 0, karyoku: 0, kaihi: 0 }; if (this.ship) { if (!this.ship.sp_effect_items) return e; } else return e; for (const o of [1, 2]) { let s = this.ship.sp_effect_items.items[o]; s && (e.soukou += s.souk ?? 0, e.raisou += s.raig ?? 0, e.karyoku += s.houg ?? 0, e.kaihi += s.kaih ?? 0); } return e; } render() { let e = this.SpEffectItem(), o = this.maxEq(); return this.ship && this.mst_ship ? a`<div class=\"cursor-default\"> <div class=\"flex justify-start\"> <h3 class=${[ \"font-bold pl-2 truncate\", g[this.size].name_text ].join(\" \")} > ${this.mst_ship.name ?? \"Unknown\"} </h3> <div class=${[ \"place-self-end pl-4\", g[this.size].level_text ].join(\" \")} > Lv. ${this.ship.lv ?? \"\"} </div> <div class=${[ \"place-self-end pl-2\", g[this.size].level_text ].join(\" \")} > next ${this.ship.exp ? this.ship.exp[1] ?? 0 : \"\"} </div> </div> <div class=\"pt-2\"> <table class=${[\"table\", g[this.size].table].join(\" \")}> <caption class=${[\"truncate\", g[this.size].caption_text].join( \" \" )} > Slots </caption> <tbody> ${this.slotsTemplete()} ${this.slotExTemplete()} </tbody> </table> <div class=\"h-2\"></div> <table class=${[\"table\", g[this.size].table].join(\" \")}> <caption class=${[\"truncate\", g[this.size].caption_text].join( \" \" )} > Ship Status </caption> <tbody> <tr class=\"flex rounded\"> <th class=\"truncate flex-1 w-2\">Durability</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> ${this.ship.maxhp ?? 0} </td> <th class=\"truncate flex-1 w-2\">Firepower</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> <div class=\"indicator\"> <span class=${[ \"indicator-item indicator-bottom text-accent\", g[this.size].accent_text ].join(\" \")} > ${e.karyoku > 0 ? `+${e.karyoku}` : \"\"} </span> ${this.ship.karyoku ? this.ship.karyoku[0] ?? 0 : 0} </div> </td> </tr> <tr class=\"flex rounded\"> <th class=\"truncate flex-1 w-2\">Armor</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> <div class=\"indicator\"> <span class=${[ \"indicator-item indicator-bottom text-accent\", g[this.size].accent_text ].join(\" \")} > ${e.soukou > 0 ? `+${e.soukou}` : \"\"} </span> ${this.ship.soukou ? this.ship.soukou[0] ?? 0 : 0} </div> </td> <th class=\"truncate flex-1 w-2\">Torpedo</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> <div class=\"indicator\"> <span class=${[ \"indicator-item indicator-bottom text-accent\", g[this.size].accent_text ].join(\" \")} > ${e.raisou > 0 ? `+${e.raisou}` : \"\"} </span> ${this.ship.raisou ? this.ship.raisou[0] ?? 0 : 0} </div> </td> </tr> <tr class=\"flex rounded\"> <th class=\"truncate flex-1 w-2\">Evasion</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> <div class=\"indicator\"> <span class=${[ \"indicator-item indicator-bottom text-accent\", g[this.size].accent_text ].join(\" \")} > ${e.kaihi > 0 ? `+${e.kaihi}` : \"\"} </span> ${this.ship.kaihi ? this.ship.kaihi[0] ?? 0 : 0} </div> </td> <th class=\"truncate flex-1 w-2\">Anti-Air</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> ${this.ship.taiku ? this.ship.taiku[0] ?? 0 : 0} </td> </tr> <tr class=\"flex rounded\"> <th class=\"truncate flex-1 w-2\">Aircraft installed</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> ${o ?? !1} </td> <th class=\"truncate flex-1 w-2\">Anti-Submarine</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> ${this.ship.taisen ? this.ship.taisen[0] ?? 0 : 0} </td> </tr> <tr class=\"flex rounded\"> <th class=\"truncate flex-1 w-2\">Speed</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> ${ve[this.ship.soku ?? 0]} </td> <th class=\"truncate flex-1 w-2\">Reconnaissance</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> ${this.ship.sakuteki ? this.ship.sakuteki[0] ?? 0 : 0} </td> </tr> <tr class=\"flex rounded\"> <th class=\"truncate flex-1 w-2\">Range</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> ${we[this.ship.leng ?? 0]} </td> <th class=\"truncate flex-1 w-2\">Luck</th> <td class=\"flex-none w-12 flex justify-end pr-4\"> ${this.ship.lucky ? this.ship.lucky[0] ?? 0 : 0} </td> </tr> </tbody> </table> </div> </div>` : a`<div class=\"outline-error outline-2 rounded bg-error-content\"> <icon-error size=${\"full\"}></icon-error> </div>`; } }"
         },
         {
           "kind": "variable",
@@ -97,7 +97,7 @@
         },
         {
           "kind": "variable",
-          "name": "A",
+          "name": "E",
           "default": "class extends p { constructor() { super(...arguments), this.size = \"xs\", this.e_flag = 0, this.fleet_number = 0, this.ship_number = 0, this.combined_flag = !1; } render() { let e, o = Ue( this.fleet_number, this.ship_number, this.combined_flag ), s = Me(this.e_flag); return a` <svg fill=\"currentColor\" stroke-width=\"1.5\" stroke=\"currentColor\" viewBox=\"0 0 151 151\" xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\" overflow=\"hidden\" class=${[ \"text-base-content\", \"fill-base-content\", \"cursor-inherit\", Se[this.size] ].join(\" \")} > <text class=\"roboto-mono-500\" font-size=\"96\" textLength=\"96\" lengthAdjust=\"spacingAndGlyphs\" transform=\"translate(28 104)\" > ${e} ${o} </text> <path d=\"M28 124 124 124\" stroke=${s} stroke-width=\"16\" stroke-miterlimit=\"8\" fill=\"none\" fill-rule=\"evenodd\" /> ${Ne} </svg>`; } }"
         },
         {
@@ -124,7 +124,7 @@
           "kind": "js",
           "name": "ComponentColorBar",
           "declaration": {
-            "name": "B",
+            "name": "D",
             "module": "dist/index.js"
           }
         },
@@ -140,7 +140,7 @@
           "kind": "js",
           "name": "ComponentEquipment",
           "declaration": {
-            "name": "y",
+            "name": "_",
             "module": "dist/index.js"
           }
         },
@@ -164,7 +164,7 @@
           "kind": "js",
           "name": "ComponentEquipmentMstModal",
           "declaration": {
-            "name": "_",
+            "name": "w",
             "module": "dist/index.js"
           }
         },
@@ -188,7 +188,7 @@
           "kind": "js",
           "name": "ComponentShip",
           "declaration": {
-            "name": "D",
+            "name": "O",
             "module": "dist/index.js"
           }
         },
@@ -220,7 +220,7 @@
           "kind": "js",
           "name": "ComponentShipTable",
           "declaration": {
-            "name": "O",
+            "name": "A",
             "module": "dist/index.js"
           }
         },
@@ -244,7 +244,7 @@
           "kind": "js",
           "name": "IconFleetNumber",
           "declaration": {
-            "name": "A",
+            "name": "E",
             "module": "dist/index.js"
           }
         },
@@ -2100,7 +2100,7 @@
           "type": {
             "text": "Story"
           },
-          "default": "{ render: (args: ComponentEquipmentModalProps) => ComponentEquipmentModalBasic(args), name: \"Basic\", argTypes: { name_flag: { control: \"boolean\" }, ex_flag: { control: \"boolean\" }, onslot: { control: { type: \"range\", min: 0, max: 30, step: 1 } }, size: { control: { type: \"select\" }, options: size_list, table: { defaultValue: { summary: \"xs\" }, type: { summary: size_list.join(\"\\|\"), }, }, }, empty_flag: { control: \"boolean\" }, slot_item: { control: \"select\", options: [undefined] }, mst_slot_item: { control: \"select\", options: [undefined] }, }, args: { name_flag: false, ex_flag: false, onslot: 0, size: \"xs\", empty_flag: false, slot_item: { ...default_slotitem, slotitem_id: 267, locked: 0, level: 6, alv: 6, }, mst_slot_item: { ...default_mst_slot_item, id: 156, sortno: 156, name: \"\\u96f6\\u622652\\u578b\\u7532(\\u4ed8\\u5ca9\\u672c\\u5c0f\\u968a)\", type: [3, 5, 6, 6, 12], taik: 0, souk: 0, houg: 0, raig: 0, soku: 0, baku: 0, tyku: 11, tais: 0, atap: 0, houm: 1, raim: 0, houk: 3, raik: 0, bakk: 0, saku: 1, sakb: 0, luck: 0, leng: 0, cost: 5, distance: 6, rare: 4, broken: [1, 2, 0, 4], usebull: \"0\", }, }, }"
+          "default": "{ render: (args: ComponentEquipmentModalProps) => ComponentEquipmentModalBasic(args), name: \"Basic\", argTypes: { name_flag: { control: \"boolean\" }, ex_flag: { control: \"boolean\" }, \"attr:onslot\": { control: { type: \"range\", min: 0, max: 30, step: 1 } }, size: { control: { type: \"select\" }, options: size_list, table: { defaultValue: { summary: \"xs\" }, type: { summary: size_list.join(\"\\|\"), }, }, }, empty_flag: { control: \"boolean\" }, slot_item: { control: \"select\", options: [undefined] }, mst_slot_item: { control: \"select\", options: [undefined] }, }, args: { name_flag: false, ex_flag: false, \"attr:onslot\": 0, size: \"xs\", empty_flag: false, slot_item: { ...default_slotitem, slotitem_id: 267, locked: 0, level: 6, alv: 6, }, mst_slot_item: { ...default_mst_slot_item, id: 156, sortno: 156, name: \"\\u96f6\\u622652\\u578b\\u7532(\\u4ed8\\u5ca9\\u672c\\u5c0f\\u968a)\", type: [3, 5, 6, 6, 12], taik: 0, souk: 0, houg: 0, raig: 0, soku: 0, baku: 0, tyku: 11, tais: 0, atap: 0, houm: 1, raim: 0, houk: 3, raik: 0, bakk: 0, saku: 1, sakb: 0, luck: 0, leng: 0, cost: 5, distance: 6, rare: 4, broken: [1, 2, 0, 4], usebull: \"0\", }, }, }"
         }
       ],
       "exports": [
@@ -2160,12 +2160,12 @@
             },
             {
               "kind": "field",
-              "name": "onslot",
+              "name": "\"attr:onslot\"",
               "type": {
                 "text": "number"
               },
               "default": "0",
-              "attribute": "onslot"
+              "attribute": "\"attr:onslot\""
             },
             {
               "kind": "field",
@@ -2237,12 +2237,12 @@
               "fieldName": "ex_flag"
             },
             {
-              "name": "onslot",
+              "name": "\"attr:onslot\"",
               "type": {
                 "text": "number"
               },
               "default": "0",
-              "fieldName": "onslot"
+              "fieldName": "\"attr:onslot\""
             },
             {
               "name": "name_flag",
@@ -2438,7 +2438,7 @@
           "type": {
             "text": "Story"
           },
-          "default": "{ render: (args: ComponentEquipmentProps) => ComponentEquipmentBasic(args), name: \"Basic\", argTypes: { name_flag: { control: \"boolean\" }, compact: { control: \"boolean\" }, onslot: { control: { type: \"range\", min: 0, max: 30, step: 1 } }, size: { control: { type: \"select\" }, options: size_list, table: { defaultValue: { summary: \"xs\" }, type: { summary: size_list.join(\"\\|\"), }, }, }, empty_flag: { control: \"boolean\" }, slot_item: { control: \"select\", options: [undefined] }, mst_slot_item: { control: \"select\", options: [undefined] }, }, args: { name_flag: false, compact: false, onslot: 0, size: \"xs\", empty_flag: false, slot_item: { ...default_slotitem, slotitem_id: 267, locked: 0, level: 6, alv: 6, }, mst_slot_item: { ...default_mst_slot_item, id: 156, sortno: 156, name: \"\\u96f6\\u622652\\u578b\\u7532(\\u4ed8\\u5ca9\\u672c\\u5c0f\\u968a)\", type: [3, 5, 6, 6, 12], taik: 0, souk: 0, houg: 0, raig: 0, soku: 0, baku: 0, tyku: 11, tais: 0, atap: 0, houm: 1, raim: 0, houk: 3, raik: 0, bakk: 0, saku: 1, sakb: 0, luck: 0, leng: 0, cost: 5, distance: 6, rare: 4, broken: [1, 2, 0, 4], usebull: \"0\", }, }, }"
+          "default": "{ render: (args: ComponentEquipmentProps) => ComponentEquipmentBasic(args), name: \"Basic\", argTypes: { name_flag: { control: \"boolean\" }, compact: { control: \"boolean\" }, onslot: { control: { type: \"range\", min: 0, max: 30, step: 1 } }, size: { control: { type: \"select\" }, options: size_list, table: { defaultValue: { summary: \"xs\" }, type: { summary: size_list.join(\"\\|\"), }, }, }, empty_flag: { control: \"boolean\" }, ex_flag: { control: \"boolean\" }, slot_item: { control: \"select\", options: [undefined] }, mst_slot_item: { control: \"select\", options: [undefined] }, }, args: { name_flag: false, compact: false, onslot: 0, size: \"xs\", empty_flag: false, ex_flag: false, slot_item: { ...default_slotitem, slotitem_id: 267, locked: 0, level: 6, alv: 6, }, mst_slot_item: { ...default_mst_slot_item, id: 156, sortno: 156, name: \"\\u96f6\\u622652\\u578b\\u7532(\\u4ed8\\u5ca9\\u672c\\u5c0f\\u968a)\", type: [3, 5, 6, 6, 12], taik: 0, souk: 0, houg: 0, raig: 0, soku: 0, baku: 0, tyku: 11, tais: 0, atap: 0, houm: 1, raim: 0, houk: 3, raik: 0, bakk: 0, saku: 1, sakb: 0, luck: 0, leng: 0, cost: 5, distance: 6, rare: 4, broken: [1, 2, 0, 4], usebull: \"0\", }, }, }"
         }
       ],
       "exports": [
@@ -2533,6 +2533,15 @@
               "attribute": "empty_flag"
             },
             {
+              "kind": "field",
+              "name": "ex_flag",
+              "type": {
+                "text": "boolean"
+              },
+              "default": "false",
+              "attribute": "ex_flag"
+            },
+            {
               "kind": "method",
               "name": "proficiencyOnslotTemplete"
             },
@@ -2601,6 +2610,14 @@
               },
               "default": "false",
               "fieldName": "empty_flag"
+            },
+            {
+              "name": "ex_flag",
+              "type": {
+                "text": "boolean"
+              },
+              "default": "false",
+              "fieldName": "ex_flag"
             }
           ],
           "superclass": {
