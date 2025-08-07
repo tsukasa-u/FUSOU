@@ -247,11 +247,13 @@ pub struct ApiEscapeFlag {
 
 #[cfg(test)]
 mod tests {
+    use dotenvy::dotenv;
     use register_trait::simple_root_test;
 
     use super::*;
     #[test]
     fn test_deserialize() {
+        dotenv().expect(".env file not found");
         let target_path = std::env::var("TEST_DATA_PATH").expect("failed to get env data");
 
         let pattern_str = "S@api_req_sortie@battleresult";

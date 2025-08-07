@@ -12,3 +12,9 @@ replace-bindings:
     just replace-bigint-number "./bindings/map_info.ts"
     just replace-bigint-number "./bindings/port.ts"
     just replace-bigint-number "./bindings/require_info.ts"
+
+test-deserialize:
+    cargo test_deserialize
+
+test-with-data:
+    cargo test -- --skip export_bindings

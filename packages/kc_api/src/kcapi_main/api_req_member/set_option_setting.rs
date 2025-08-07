@@ -27,6 +27,18 @@ pub struct Req {
     pub api_token: String,
     #[serde(rename = "api_verno")]
     pub api_verno: String,
+    #[serde(rename = "api_vol_voice")]
+    pub api_vol_voice: String,
+    #[serde(rename = "api_v_duty")]
+    pub api_v_duty: String,
+    #[serde(rename = "api_skin_id")]
+    pub api_skin_id: String,
+    #[serde(rename = "api_vol_bgm")]
+    pub api_vol_bgm: String,
+    #[serde(rename = "api_v_be_left")]
+    pub api_v_be_left: String,
+    #[serde(rename = "api_vol_se")]
+    pub api_vol_se: String,
 }
 
 #[derive(Getter, TraitForTest, TraitForRoot, TraitForConvert)]
@@ -45,11 +57,13 @@ pub struct Res {
 
 #[cfg(test)]
 mod tests {
+    use dotenvy::dotenv;
     use register_trait::simple_root_test;
 
     use super::*;
     #[test]
     fn test_deserialize() {
+        dotenv().expect(".env file not found");
         let target_path = std::env::var("TEST_DATA_PATH").expect("failed to get env data");
 
         let pattern_str = "S@api_req_member@set_option_setting";
