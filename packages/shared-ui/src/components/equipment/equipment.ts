@@ -18,6 +18,7 @@ export interface ComponentEquipmentProps {
   compact?: boolean;
   name_flag?: boolean;
   onslot?: number;
+  ex_flag?: boolean;
   size: "xs" | "sm" | "md" | "lg" | "xl";
   empty_flag?: boolean;
 }
@@ -111,6 +112,9 @@ export class ComponentEquipment extends LitElement {
   @property({ type: Boolean })
   empty_flag = false;
 
+  @property({ type: Boolean })
+  ex_flag = false;
+
   proficiencyOnslotTemplete() {
     if (
       this.slot_item &&
@@ -189,16 +193,19 @@ export class ComponentEquipment extends LitElement {
               ?empty_flag=${this.empty_flag}
             ></icon-equipment>
           </div>
-          <div
-            class=${[
-              "flex-none",
-              class_size[this.size].proficiency_onslot_pl,
-              class_size[this.size].proficiency_onslot_mt,
-            ].join(" ")}
-          >
-            ${this.proficiencyOnslotTemplete()}
-          </div>
-          ${this.nameTemplete()}
+
+          ${!this.ex_flag
+            ? html`<div
+                  class=${[
+                    "flex-none",
+                    class_size[this.size].proficiency_onslot_pl,
+                    class_size[this.size].proficiency_onslot_mt,
+                  ].join(" ")}
+                >
+                  ${this.proficiencyOnslotTemplete()}
+                </div>
+                ${this.nameTemplete()}`
+            : html``}
         </div>
       `;
     } else {
@@ -206,16 +213,18 @@ export class ComponentEquipment extends LitElement {
         <div class="outline-error outline-2 rounded bg-error-content">
           <icon-error size=${this.size}></icon-error>
         </div>
-        <div
-          class=${[
-            "flex-none",
-            class_size[this.size].proficiency_onslot_pl,
-            class_size[this.size].proficiency_onslot_mt,
-          ].join(" ")}
-        >
-          ${this.proficiencyOnslotTemplete()}
-        </div>
-        ${this.nameTemplete()}
+        ${!this.ex_flag
+          ? html`<div
+                class=${[
+                  "flex-none",
+                  class_size[this.size].proficiency_onslot_pl,
+                  class_size[this.size].proficiency_onslot_mt,
+                ].join(" ")}
+              >
+                ${this.proficiencyOnslotTemplete()}
+              </div>
+              ${this.nameTemplete()}`
+          : html``}
       </div>`;
     }
   }
