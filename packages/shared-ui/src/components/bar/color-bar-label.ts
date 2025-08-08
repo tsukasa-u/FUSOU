@@ -82,9 +82,9 @@ export class ComponentColorBarLabel extends LitElement {
         ].join(" ")}
       >
         <div class=" flex flex-nowrap">
-          <div class="w-[3em] text-center">${this.v_now}</div>
+          <div class="w-[2em] text-center">${this.v_now}</div>
           /
-          <div class="w-[3em] text-center">${this.v_max}</div>
+          <div class="w-[2em] text-center">${this.v_max}</div>
         </div>
       </div>
       <div

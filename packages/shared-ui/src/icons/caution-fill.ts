@@ -19,9 +19,9 @@ const class_size = {
 };
 
 const color_list = {
-  low: "#FFFF00",
-  middle: "#FFCC00",
-  high: "#FF0000",
+  low: "stroke-amber-500 fill-amber-500",
+  middle: "stroke-orange-500 fill-orange-500",
+  high: "stroke-red-500 fill-red-500",
 };
 
 const get_primary_color = (level: keyof typeof color_list) => {
@@ -41,21 +41,28 @@ export class IconCautionFill extends LitElement {
   render() {
     const primary_color = get_primary_color(this.level);
     return html`<svg
-      fill=${primary_color}
-      stroke-width="16"
+      stroke-width="0"
       stroke="currentColor"
-      viewBox="-8 -8 528 528"
+      viewBox="10 40 490 520"
       xmlns="http://www.w3.org/2000/svg"
       xmlns:xlink="http://www.w3.org/1999/xlink"
       overflow="hidden"
-      class=${["stroke-base-content", class_size[this.size]].join(" ")}
+      class=${[
+        // "stroke-base-content",
+        primary_color,
+        class_size[this.size],
+      ].join(" ")}
     >
       <g>
+        <circle
+          cx="250"
+          cy="280"
+          r="200"
+          stroke-width="32"
+          class="fill-base-100"
+        />
         <path
-          d="M505.095,407.125L300.77,53.208c-9.206-15.944-26.361-25.849-44.774-25.849
-		c-18.412,0-35.552,9.905-44.751,25.849L6.905,407.109c-9.206,15.944-9.206,35.746,0,51.69
-		c9.206,15.944,26.354,25.842,44.758,25.842h408.674c18.405,0,35.568-9.897,44.759-25.842
-		C514.302,442.855,514.302,423.053,505.095,407.125z M256.004,426.437c-17.668,0-32.013-14.33-32.013-32.004
+          d="M256.004,426.437c-17.668,0-32.013-14.33-32.013-32.004
 		c0-17.668,14.345-31.997,32.013-31.997c17.667,0,31.997,14.329,31.997,31.997C288.001,412.108,273.671,426.437,256.004,426.437z
 		 M275.72,324.011c0,10.89-8.834,19.709-19.716,19.709c-10.898,0-19.717-8.818-19.717-19.709l-12.296-144.724
 		c0-17.676,14.345-32.005,32.013-32.005c17.667,0,31.997,14.33,31.997,32.005L275.72,324.011z"

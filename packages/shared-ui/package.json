@@ -1,7 +1,7 @@
 {
   "name": "shared-ui",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0-2fe92c9e-b557-4ed0-8770-3354979943b8",
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",
@@ -10,11 +10,15 @@
     "/dist"
   ],
   "scripts": {
-    "clean.dist": "rm -r ./dist",
+    "update-version-dev": "node scripts/update-patch-tag.js",
+    "update-version-release": "node scripts/update-patch.js",
+    "clean.dist": "rm -rf ./dist",
     "build:js": "vite build",
     "build:types": "tsc --emitDeclarationOnly",
     "bundle:types": "rollup -c rollup.config.mjs",
-    "build": "npm run clean.dist && npm run build:js && npm run build:types && npm run bundle:types && cem analyze --litelement",
+    "build": "pnpm clean.dist && pnpm build:js && pnpm build:types && pnpm bundle:types && cem analyze --litelement",
+    "build.dev": "pnpm update-version-dev && pnpm build",
+    "build.release": "pnpm update-version-release && pnpm build",
     "build.rollup": "rollup -c",
     "build.tsc": "tsc --build --verbose",
     "build.tsc:watch": "tsc --watch",
@@ -22,11 +26,8 @@
     "build-storybook": "storybook build"
   },
   "dependencies": {
-    "@tailwindcss/vite": "^4.1.11",
-    "daisyui": "^5.0.46",
     "lit": "^3.3.1",
-    "lit-html": "^3.3.1",
-    "tailwindcss": "^4.1.11"
+    "lit-html": "^3.3.1"
   },
   "devDependencies": {
     "@chromatic-com/storybook": "4.0.1",
@@ -45,8 +46,12 @@
     "rollup-plugin-dts": "^6.2.1",
     "storybook": "9.0.14",
     "typescript": "~5.8.3",
-    "vite": "^7.0.4",
-    "vitest": "^3.2.4"
+    "uuid": "^11.1.0",
+    "vite": "^7.0.6",
+    "vitest": "^3.2.4",
+    "@tailwindcss/vite": "^4.1.11",
+    "daisyui": "^5.0.46",
+    "tailwindcss": "^4.1.11"
   },
   "exports": {
     ".": {

@@ -188,8 +188,8 @@ export class IconMaterial extends LitElement {
       xmlns:xlink="http://www.w3.org/1999/xlink"
       overflow="hidden"
       class=${[
-        "text-base-content",
-        "fill-base-content",
+        // "text-base-content",
+        // "fill-base-content",
         "cursor-inherit",
         class_size[this.size],
       ].join(" ")}
