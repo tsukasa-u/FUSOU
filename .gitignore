@@ -44,5 +44,6 @@ tsconfig.node.tsbuildinfo
 *storybook.log
 storybook-static
 /packages/shared-ui/src/data
+packages/shared-ui/custom-elements.json
 
 packages/.env.keys

@@ -8,7 +8,7 @@ import { ifDefined } from "lit/directives/if-defined.js";
 
 const size_list = ["none", "xs", "sm", "md", "lg", "xl"];
 
-export const ComponentColorBarBasic = (args: ComponentColorBarProps) => {
+const ComponentColorBarBasic = (args: ComponentColorBarProps) => {
   return html`<component-color-bar
     v_now=${args.v_now}
     v_max=${args.v_max}
@@ -17,7 +17,7 @@ export const ComponentColorBarBasic = (args: ComponentColorBarProps) => {
   ></component-color-bar>`;
 };
 
-export const ComponentColorBarCatalog = () => {
+const ComponentColorBarCatalog = () => {
   const value_map = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
 
   return html`<div class="grid gap-4">

@@ -1,4 +1,5 @@
 import { mergeConfig } from "vite";
+import { dirname, resolve } from "path";
 
 import type { StorybookConfig } from "storybook-solidjs-vite";
 
@@ -26,6 +27,11 @@ export default <StorybookConfig>{
     return mergeConfig(config, {
       define: {
         "process.env": {},
+      },
+      resolve: {
+        alias: {
+          "shared-ui": resolve(__dirname, "../../shared-ui"),
+        },
       },
     });
   },
