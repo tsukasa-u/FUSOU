@@ -1,10 +1,10 @@
 // import { FuelBulletColorBarComponent } from "./fuel_bullet_color_bar.tsx";
 // import { HpColorBarComponent } from "./hp_color_bar.tsx";
 
-import { IconCautionFill } from "../icons/caution_fill.tsx";
-import { IconKira1 } from "../icons/kira1.tsx";
-import { IconKira2 } from "../icons/kira2.tsx";
-import { IconKira3 } from "../icons/kira3.tsx";
+// import { IconCautionFill } from "../icons/caution_fill.tsx";
+// import { IconKira1 } from "../icons/kira1.tsx";
+// import { IconKira2 } from "../icons/kira2.tsx";
+// import { IconKira3 } from "../icons/kira3.tsx";
 
 import { IconChevronRightS } from "../icons/chevron_right_s.tsx";
 
@@ -121,26 +121,49 @@ export function DeckComponent(props: DeckPortProps) {
     const set_cond_state = (cond: number): JSX.Element => {
       let cond_state: JSX.Element = <></>;
       if (cond >= 71)
-        cond_state = <IconKira3 class="h-4 w-4 fill-yellow-500 stroke-2" />;
+        cond_state = (
+          <div class="size-4">
+            <icon-kira size="full" kira_type={3} />
+          </div>
+        );
       else if (cond >= 58)
-        cond_state = <IconKira2 class="h-4 w-4 fill-yellow-500 stroke-2" />;
+        cond_state = (
+          <div class="size-4">
+            <icon-kira size="full" kira_type={2} />
+          </div>
+        );
       else if (cond >= 50)
-        cond_state = <IconKira1 class="h-4 w-4 fill-yellow-500 stroke-2" />;
+        // cond_state = <IconKira1 class="h-4 w-4 fill-yellow-500 stroke-2" />;
+        cond_state = (
+          <div class="size-4">
+            <icon-kira size="full" kira_type={1} />
+          </div>
+        );
       else if (cond == 49) cond_state = <></>;
       else if (cond >= 40)
         cond_state = (
-          <IconCautionFill class="h-4 w-4 fill-yellow-500 stroke-2" />
+          <div class="size-4">
+            <icon-caution-fill size="full" level={"low"} />
+          </div>
         );
       else if (cond >= 30)
         cond_state = (
-          <IconCautionFill class="h-4 w-4 fill-yellow-500 stroke-2" />
+          <div class="size-4">
+            <icon-caution-fill size="full" level={"low"} />
+          </div>
         );
       else if (cond >= 20)
         cond_state = (
-          <IconCautionFill class="h-4 w-4 fill-orange-500 stroke-2" />
+          <div class="size-4">
+            <icon-caution-fill size="full" level={"middle"} />
+          </div>
         );
       else if (cond >= 0)
-        cond_state = <IconCautionFill class="h-4 w-4 fill-red-500 stroke-2" />;
+        cond_state = (
+          <div class="size-4">
+            <icon-caution-fill size="full" level={"high"} />
+          </div>
+        );
       return cond_state;
     };
 
@@ -197,19 +220,19 @@ export function DeckComponent(props: DeckPortProps) {
       else if (9 * nowfuel >= 7 * maxfuel && 9 * nowbullet >= 7 * maxbullet)
         fuel_bullet_state = (
           <div class="size-4">
-            <icon-caution-fill size="xs" level={"low"} />
+            <icon-caution-fill size="full" level={"low"} />
           </div>
         );
       else if (9 * nowfuel >= 3 * maxfuel && 9 * nowbullet >= 3 * maxbullet)
         fuel_bullet_state = (
           <div class="size-4">
-            <icon-caution-fill size="xs" level={"middle"} />
+            <icon-caution-fill size="full" level={"middle"} />
           </div>
         );
       else if (nowfuel >= 0 && nowbullet >= 0)
         fuel_bullet_state = (
           <div class="size-4">
-            <icon-caution-fill size="xs" level={"high"} />
+            <icon-caution-fill size="full" level={"high"} />
           </div>
         );
       return fuel_bullet_state;
@@ -459,30 +482,32 @@ export function DeckComponent(props: DeckPortProps) {
                           <span class="w-2" />
                           <div class="content-center">
                             <div class="text-base flex justify-center w-8">
-                              {/* <Show
-                                when={(ship_list()[ship_index()].slot_ex ?? 0) > 0}
+                              <Show
+                                when={
+                                  (ship_list()[ship_index()].slot_ex ?? 0) > 0
+                                }
                               >
-                                <EquimentComponent
+                                {/* <EquimentComponent
                                   slot_id={ship_list()[ship_index()].slot_ex ?? 0}
                                   ex_flag={true}
                                   name_flag={false}
+                                /> */}
+                                <component-equipment-modal
+                                  size="xs"
+                                  empty_flag={false}
+                                  name_flag={false}
+                                  attr:onslot={undefined}
+                                  slot_item={get_slot_item(
+                                    ship_index(),
+                                    ship_list()[ship_index()].slot_ex ?? 0
+                                  )}
+                                  mst_slot_item={get_mst_slot_item(
+                                    ship_index(),
+                                    ship_list()[ship_index()].slot_ex ?? 0
+                                  )}
+                                  ex_flag={true}
                                 />
-                              </Show> */}
-                              <component-equipment-modal
-                                size="xs"
-                                empty_flag={false}
-                                name_flag={false}
-                                attr:onslot={undefined}
-                                slot_item={get_slot_item(
-                                  ship_index(),
-                                  ship_list()[ship_index()].slot_ex ?? 0
-                                )}
-                                mst_slot_item={get_mst_slot_item(
-                                  ship_index(),
-                                  ship_list()[ship_index()].slot_ex ?? 0
-                                )}
-                                ex_flag={true}
-                              />
+                              </Show>
                             </div>
                           </div>
                           <span class="w-px" />
