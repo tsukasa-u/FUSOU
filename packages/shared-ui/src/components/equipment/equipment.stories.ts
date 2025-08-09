@@ -15,7 +15,7 @@ const ComponentEquipmentBasic = (args: ComponentEquipmentProps) => {
     .mst_slot_item=${args.mst_slot_item}
     ?compact=${args.compact}
     ?name_flag=${args.name_flag}
-    onslot=${ifDefined(args.onslot)}
+    attr:onslot=${ifDefined(args["attr:onslot"])}
     size=${args.size}
     ?empty_flag=${args.empty_flag}
     ?ex_flag=${args.empty_flag}
@@ -36,7 +36,7 @@ export const basic: Story = {
   argTypes: {
     name_flag: { control: "boolean" },
     compact: { control: "boolean" },
-    onslot: { control: { type: "range", min: 0, max: 30, step: 1 } },
+    "attr:onslot": { control: { type: "range", min: 0, max: 30, step: 1 } },
     size: {
       control: { type: "select" },
       options: size_list,
@@ -55,7 +55,7 @@ export const basic: Story = {
   args: {
     name_flag: false,
     compact: false,
-    onslot: 0,
+    "attr:onslot": 0,
     size: "xs",
     empty_flag: false,
     ex_flag: false,

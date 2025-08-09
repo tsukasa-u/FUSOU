@@ -87,7 +87,7 @@ export class ComponentEquipmentModal extends LitElement {
               size=${this.size}
               ?name_flag=${this.name_flag}
               ?ex_flag=${this.ex_flag}
-              onslot=${this["attr:onslot"]}
+              attr:onslot=${this["attr:onslot"]}
             ></component-equipment>
           </div>
           ${this.dialogTemplete()}

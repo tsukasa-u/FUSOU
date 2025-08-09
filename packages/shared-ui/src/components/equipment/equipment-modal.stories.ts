@@ -15,7 +15,7 @@ const ComponentEquipmentModalBasic = (args: ComponentEquipmentModalProps) => {
     .mst_slot_item=${args.mst_slot_item}
     ?ex_flag=${args.ex_flag}
     ?name_flag=${args.name_flag}
-    onslot=${ifDefined(args["attr:onslot"])}
+    attr:onslot=${ifDefined(args["attr:onslot"])}
     size=${args.size}
     ?empty_flag=${args.empty_flag}
   ></component-equipment-modal>`;
