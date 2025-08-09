@@ -30,14 +30,16 @@ export class IconKira extends LitElement {
   render() {
     if (this.kira_type == 1) {
       return html`<svg
-        fill="#f0e040"
-        stroke-width="16"
+        stroke-width="0"
         stroke="currentColor"
-        viewBox="-8 -8 528 528"
+        viewBox="0 0 520 520"
         xmlns="http://www.w3.org/2000/svg"
         xmlns:xlink="http://www.w3.org/1999/xlink"
         overflow="hidden"
-        class=${["stroke-base-content", class_size[this.size]].join(" ")}
+        class=${[
+          "stroke-base-content fill-yellow-500",
+          class_size[this.size],
+        ].join(" ")}
       >
         <g>
           <path
@@ -47,14 +49,16 @@ export class IconKira extends LitElement {
       </svg>`;
     } else if (this.kira_type == 2) {
       return html`<svg
-        fill="#f0e040"
-        stroke-width="16"
+        stroke-width="0"
         stroke="currentColor"
-        viewBox="-8 -8 528 528"
+        viewBox="0 0 520 520"
         xmlns="http://www.w3.org/2000/svg"
         xmlns:xlink="http://www.w3.org/1999/xlink"
         overflow="hidden"
-        class=${["stroke-base-content", class_size[this.size]].join(" ")}
+        class=${[
+          "stroke-base-content fill-yellow-500",
+          class_size[this.size],
+        ].join(" ")}
       >
         <g>
           <path
@@ -67,14 +71,16 @@ export class IconKira extends LitElement {
       </svg>`;
     } else if (this.kira_type == 3) {
       return html`<svg
-        fill="#f0e040"
-        stroke-width="16"
+        stroke-width="0"
         stroke="currentColor"
-        viewBox="-8 -8 528 528"
+        viewBox="0 0 520 520"
         xmlns="http://www.w3.org/2000/svg"
         xmlns:xlink="http://www.w3.org/1999/xlink"
         overflow="hidden"
-        class=${["stroke-base-content", class_size[this.size]].join(" ")}
+        class=${[
+          "stroke-base-content fill-yellow-500",
+          class_size[this.size],
+        ].join(" ")}
       >
         <g>
           <path
