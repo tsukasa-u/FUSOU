@@ -28,7 +28,7 @@ export const WithDecorator = {
   decorators: [
     (Story: any, context: any) => {
       return (
-        <ul class="menu menu-xs bg-base-200 w-full pl-0 flex pt-0">
+        <ul class="menu menu-xs bg-base-100 w-full pl-0 flex pt-0">
           <MstSlotItemsContext.Provider value={[mst_slot_itmes]}>
             <SlotItemsContext.Provider value={[slot_items]}>
               <ShipsContext.Provider value={[ships]}>
