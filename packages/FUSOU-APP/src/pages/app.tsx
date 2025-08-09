@@ -26,34 +26,34 @@ function App() {
 
   return (
     <>
-      <div class="bg-base-200 h-lvh">
+      <div class="bg-base-100 h-lvh">
         <div
-          class="h-dvh w-dvw bg-base-200"
+          class="h-dvh w-dvw bg-base-100"
           style={{ position: "fixed", top: "0", left: "0" }}
         />
         <div
           role="tablist"
-          class="tabs tabs-bordered tabs-sm"
+          class="tabs tabs-border tabs-sm"
           style={{ position: "absolute", top: "0px", left: "0px" }}
         >
-          <div
-            class="h-6 w-screen fixed bg-base-200 left-0 top-0 tab"
+          {/* <div
+            class="h-6 w-screen fixed bg-base-100 left-0 top-0 tab"
             style={{ "z-index": "99" }}
-          />
+          /> */}
 
           <input
             type="radio"
             name="tabs_fleet"
             role="tab"
-            class="tab [&::after]:w-18 bg-base-200 fixed"
+            class="tab [&::after]:w-18 bg-base-100 fixed"
             aria-label="Fleet Info"
             style={{ top: "0px", left: "0px", "z-index": "100" }}
             checked={true}
           />
           <div role="tabpanel" class="tab-content p-0 h-full">
-            <div class="h-6" />
+            {/* <div class="h-8" /> */}
 
-            <ul class="menu menu-xs bg-base-200 w-full pl-0 flex pt-0">
+            <ul class="menu menu-xs bg-base-100 w-full pl-0 flex pt-0">
               <MaterialsProvider>
                 <MaterialsComponent />
               </MaterialsProvider>
@@ -97,13 +97,13 @@ function App() {
             type="radio"
             name="tabs_fleet"
             role="tab"
-            class="tab [&::after]:w-18 bg-base-200 fixed"
+            class="tab [&::after]:w-18 bg-base-100 fixed"
             aria-label="Ship Info"
-            style={{ top: "0px", left: "88px", "z-index": "100" }}
+            style={{ top: "0px", left: "0px", "z-index": "100" }}
           />
-          <div role="tabpanel" class="tab-content pt-0 pb-0 pl-0 bg-base-200">
+          <div role="tabpanel" class="tab-content pt-0 pb-0 pl-0 bg-base-100">
             {/* <div class="h-6"></div> */}
-            {/* <ul class="menu menu-xs bg-base-200 w-full pl-0 flex pt-0"> */}
+            {/* <ul class="menu menu-xs bg-base-100 w-full pl-0 flex pt-0"> */}
             <MstSlotItemsProvider>
               <SlotItemsProvider>
                 <ShipsProvider>
@@ -122,11 +122,11 @@ function App() {
             type="radio"
             name="tabs_fleet"
             role="tab"
-            class="tab [&::after]:w-18 bg-base-200 fixed"
+            class="tab [&::after]:w-18 bg-base-100 fixed"
             aria-label="Equip Info"
-            style={{ top: "0px", left: "168px", "z-index": "100" }}
+            style={{ top: "0px", left: "0px", "z-index": "100" }}
           />
-          <div role="tabpanel" class="tab-content pt-0 pb-0 pl-0 bg-base-200">
+          <div role="tabpanel" class="tab-content pt-0 pb-0 pl-0 bg-base-100">
             {/* <div class="h-6"></div> */}
             <MstSlotItemsProvider>
               <SlotItemsProvider>
@@ -147,12 +147,12 @@ function App() {
             type="radio"
             name="tabs_fleet"
             role="tab"
-            class="tab [&::after]:w-14 bg-base-200 fixed w-screen"
+            class="tab [&::after]:w-18 bg-base-100 fixed"
             aria-label="Settings"
-            style={{ top: "0px", left: "248px", "z-index": "100" }}
+            style={{ top: "0px", left: "0px", "z-index": "100" }}
           />
-          <div role="tabpanel" class="tab-content pt-0 pb-0 pl-0 bg-base-200">
-            <div class="h-6" />
+          <div role="tabpanel" class="tab-content pt-0 pb-0 pl-0 bg-base-100">
+            {/* <div class="h-6" /> */}
             <SettingsComponent />
           </div>
         </div>

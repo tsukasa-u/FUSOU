@@ -37,7 +37,7 @@ import type {
 import type { Ship } from "@ipc-bindings/port.ts";
 import type { SlotItem, SlotItems } from "@ipc-bindings/require_info.ts";
 
-let moreSiganMap: { [key: number]: boolean } = {};
+let expandSiganMap: { [key: number]: boolean } = {};
 let fleetOpenSignalMap: { [key: number]: boolean } = {
   1: true,
   2: false,
@@ -258,13 +258,13 @@ export function DeckComponent(props: DeckPortProps) {
     return states;
   });
 
-  const [moreSignal, setMoreSignal] = createSignal<boolean>(false);
+  const [expandSignal, setMoreSignal] = createSignal<boolean>(false);
 
   createEffect(() => {
-    setMoreSignal(moreSiganMap[props.deck_id]);
+    setMoreSignal(expandSiganMap[props.deck_id]);
 
-    if (moreSiganMap[props.deck_id] == undefined) {
-      moreSiganMap[props.deck_id] = false;
+    if (expandSiganMap[props.deck_id] == undefined) {
+      expandSiganMap[props.deck_id] = false;
     }
 
     if (fleetOpenSignalMap[props.deck_id] == undefined) {
@@ -316,15 +316,19 @@ export function DeckComponent(props: DeckPortProps) {
             <span class="flex-auto" />
             <div class="form-control flex-none">
               <label class="label cursor-pointer h-4">
-                <span class="label-text mb-1.5 pr-2 h-4">more</span>
+                <span
+                  class={`label-text pr-2 h-4${expandSignal() ? " text-info" : ""}`}
+                >
+                  expand
+                </span>
                 <input
                   type="checkbox"
                   onClick={() => {
-                    moreSiganMap[props.deck_id] = !moreSignal();
-                    setMoreSignal(!moreSignal());
+                    expandSiganMap[props.deck_id] = !expandSignal();
+                    setMoreSignal(!expandSignal());
                   }}
-                  class="toggle toggle-xs h-4  border-gray-400 [--tglbg:theme(colors.gray.200)] checked:border-blue-200 checked:bg-blue-300 checked:[--tglbg:theme(colors.blue.100)] rounded-sm"
-                  checked={moreSignal()}
+                  class="toggle toggle-xs h-4 toggle-info rounded-sm [&::before]:rounded-xs"
+                  checked={expandSignal()}
                 />
               </label>
             </div>
@@ -337,7 +341,7 @@ export function DeckComponent(props: DeckPortProps) {
                     <a class="justify-start gap-x-0 gap-y-1 flex flex-wrap">
                       <div class="justify-start gap-0 flex">
                         <div class="pl-2 pr-0.5 truncate flex-1 min-w-12 content-center">
-                          <div class="w-24 h-max">
+                          <div class="w-[102px] h-max">
                             <component-ship-modal
                               size="xs"
                               color=""
@@ -368,7 +372,7 @@ export function DeckComponent(props: DeckPortProps) {
                           <div class="indicator-item indicator-top indicator-end space-x-2">
                             {hp_state()[ship_index()]}
                           </div>
-                          <div class="w-12 text-xs">
+                          <div class="w-16 text-xs">
                             <component-color-bar-label
                               v_max={ship_list()[ship_index()].maxhp ?? 0}
                               v_now={ship_list()[ship_index()].nowhp ?? 0}
@@ -398,7 +402,7 @@ export function DeckComponent(props: DeckPortProps) {
                             <div class="indicator-item indicator-top indicator-end space-x-2">
                               {fuel_bullet_state()[ship_index()]}
                             </div>
-                            <div class="grid w-6 place-content-center space-y-1">
+                            <div class="grid w-8 place-content-center space-y-1">
                               {/* <FuelBulletColorBarComponent
                                 class="w-6 h-1"
                                 v_now={() => ships.ships[shipId]?.fuel ?? 0}
@@ -418,7 +422,7 @@ export function DeckComponent(props: DeckPortProps) {
                                 }
                               /> */}
                               <component-color-bar
-                                class="w-6"
+                                class="w-8"
                                 v_now={ship_list()[ship_index()].fuel ?? 0}
                                 v_max={
                                   mst_ship_list()[ship_index()].fuel_max ?? 0
@@ -426,7 +430,7 @@ export function DeckComponent(props: DeckPortProps) {
                                 size="xs"
                               />
                               <component-color-bar
-                                class="w-6"
+                                class="w-8"
                                 v_now={ship_list()[ship_index()].bull ?? 0}
                                 v_max={
                                   mst_ship_list()[ship_index()].bull_max ?? 0
@@ -438,9 +442,9 @@ export function DeckComponent(props: DeckPortProps) {
                         </div>
                         <div class="divider divider-horizontal mr-0 ml-0" />
                       </div>
-                      <Show when={moreSignal()}>
+                      <Show when={expandSignal()}>
                         <div class="flex">
-                          <div class="grid grid-cols-5 gap-2 content-center w-52">
+                          <div class="grid grid-cols-5 gap-2 content-center w-60">
                             <For each={ships.ships[shipId]?.slot}>
                               {(slotId, slotId_index) => (
                                 <Show when={slotId > 0}>
@@ -477,9 +481,9 @@ export function DeckComponent(props: DeckPortProps) {
                               )}
                             </For>
                           </div>
-                          <span class="w-2" />
-                          <div class="divider divider-horizontal mr-0 ml-0 basis-0 h-auto" />
-                          <span class="w-2" />
+                          {/* <span class="w-2" /> */}
+                          <div class="divider divider-horizontal mr-0 ml-0" />
+                          {/* <span class="w-2" /> */}
                           <div class="content-center">
                             <div class="text-base flex justify-center w-8">
                               <Show
@@ -510,7 +514,7 @@ export function DeckComponent(props: DeckPortProps) {
                               </Show>
                             </div>
                           </div>
-                          <span class="w-px" />
+                          {/* <span class="w-px" /> */}
                           <div class="divider divider-horizontal mr-0 ml-0 h-auto" />
                         </div>
                       </Show>
