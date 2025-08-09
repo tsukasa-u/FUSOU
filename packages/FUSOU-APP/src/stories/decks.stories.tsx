@@ -1,6 +1,6 @@
 import { fn } from "storybook/test";
 
-import { DeckComponent } from "../components/deck.tsx";
+import { DecksComponent } from "../components/decks.tsx";
 import {
   DeckPortsContext,
   ShipsContext,
@@ -16,11 +16,11 @@ import { mst_slot_itmes } from "./data/mst_slot_items.ts";
 import { deck_port } from "./data/deck_ports.ts";
 
 export default {
-  title: "components/deck",
-  component: DeckComponent,
+  title: "components/decks",
+  component: DecksComponent,
   tags: ["autodocs"],
   // Use `fn` to spy on the onClick arg, which will appear in the actions panel once invoked: https://storybook.js.org/docs/essentials/actions#action-args
-  args: { onClick: fn(), deck_id: 1, fleet_name: "test_fleet" },
+  args: { onClick: fn() },
 };
 
 export const WithDecorator = {
