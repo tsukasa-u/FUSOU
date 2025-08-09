@@ -17,7 +17,7 @@ export function MaterialsComponent() {
     7: 4,
   };
 
-  const [_materials] = useMaterials();
+  const [materials] = useMaterials();
 
   return (
     <>
@@ -26,40 +26,43 @@ export function MaterialsComponent() {
           <summary>Materials</summary>
           <ul class="pl-0">
             <li class="h-auto">
-              <a class="justify-start gap-0 flex flex-wrap gap-y-1">
-                <div class="justify-start gap-0 flex flex-nowrap">
-                  <For each={Object.values(_materials.materials).slice(0, 4)}>
-                    {(material, index) => (
-                      <>
-                        <IconMaterial
-                          item_number={icon_material_converter[index()]}
-                          class="h-5 w-5"
-                        />
-                        <div class="w-10 flex justify-end pt-0.5">
-                          {material}
-                        </div>
-                        <div class="divider divider-horizontal mr-0 ml-0" />
-                      </>
-                    )}
-                  </For>
-                </div>
-                <div class="justify-start gap-0 flex flex-nowrap">
-                  <For each={Object.values(_materials.materials).slice(4, 8)}>
-                    {(material, index) => (
-                      <>
-                        <IconMaterial
-                          item_number={icon_material_converter[index() + 4]}
-                          class="h-5 w-5"
-                        />
-                        <div class="w-10 flex justify-end pt-0.5">
-                          {material}
-                        </div>
-                        <div class="divider divider-horizontal mr-0 ml-0" />
-                      </>
-                    )}
-                  </For>
-                </div>
-              </a>
+              <div class="justify-start gap-0 flex flex-nowrap">
+                <div class="w-[24px]"></div>
+                <a class="justify-start gap-0 flex flex-wrap gap-y-1">
+                  <div class="justify-start gap-0 flex flex-nowrap">
+                    <For each={Object.values(materials.materials).slice(0, 4)}>
+                      {(material, index) => (
+                        <>
+                          <IconMaterial
+                            item_number={icon_material_converter[index()]}
+                            class="h-5 w-5"
+                          />
+                          <div class="w-10 flex justify-end pt-0.5">
+                            {material}
+                          </div>
+                          <div class="divider divider-horizontal mr-0 ml-0" />
+                        </>
+                      )}
+                    </For>
+                  </div>
+                  <div class="justify-start gap-0 flex flex-nowrap">
+                    <For each={Object.values(materials.materials).slice(4, 8)}>
+                      {(material, index) => (
+                        <>
+                          <IconMaterial
+                            item_number={icon_material_converter[index() + 4]}
+                            class="h-5 w-5"
+                          />
+                          <div class="w-10 flex justify-end pt-0.5">
+                            {material}
+                          </div>
+                          <div class="divider divider-horizontal mr-0 ml-0" />
+                        </>
+                      )}
+                    </For>
+                  </div>
+                </a>
+              </div>
             </li>
           </ul>
         </details>

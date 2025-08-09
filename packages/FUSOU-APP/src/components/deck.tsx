@@ -341,7 +341,7 @@ export function DeckComponent(props: DeckPortProps) {
                     <a class="justify-start gap-x-0 gap-y-1 flex flex-wrap">
                       <div class="justify-start gap-0 flex">
                         <div class="pl-2 pr-0.5 truncate flex-1 min-w-12 content-center">
-                          <div class="w-[102px] h-max">
+                          <div class="w-[106px] h-max">
                             <component-ship-modal
                               size="xs"
                               color=""
@@ -444,6 +444,7 @@ export function DeckComponent(props: DeckPortProps) {
                       </div>
                       <Show when={expandSignal()}>
                         <div class="flex">
+                          <div class="w-[4px]"></div>
                           <div class="grid grid-cols-5 gap-2 content-center w-60">
                             <For each={ships.ships[shipId]?.slot}>
                               {(slotId, slotId_index) => (
