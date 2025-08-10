@@ -1,4 +1,4 @@
 packages:
-  - "./packages/FUSOU-APP/**"
-  - "./packages/FUSOU-WEB/**"
-  - "./packages/shard_ui/**"
+  - "./packages/*"
+
+linkWorkspacePackages: deep

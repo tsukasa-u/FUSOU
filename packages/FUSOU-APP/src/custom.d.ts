@@ -23,6 +23,11 @@ import type {
   IconShipProps,
 } from "shared-ui";
 
+interface css_style_props {
+  css?: string;
+  style?: string;
+}
+
 declare module "solid-js" {
   namespace JSX {
     // eslint-disable-next-line no-unused-vars
@@ -46,7 +51,7 @@ declare module "solid-js" {
       "component-ship-masked-table": ComponentShipMaskedTableProps &
         JSX.CustomAttributes;
       "component-ship": ComponentShipProps & JSX.CustomAttributes;
-      "component-ship-modal": ComponentShipModalProps & JSX.CustomAttributes;
+      "component-ship-modal": ComponentShipModalProps & css_style_props;
       "component-ship-table": ComponentShipTableProps & JSX.CustomAttributes;
       "icon-caution-fill": IconCautionFillProps & JSX.CustomAttributes;
       "icon-equipment": IconEquipmentProps & JSX.CustomAttributes;
