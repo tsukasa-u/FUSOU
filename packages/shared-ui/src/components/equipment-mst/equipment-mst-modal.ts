@@ -47,17 +47,28 @@ export class ComponentEquipmentMstModal extends LitElement {
   @state()
   dialogRef: Ref<HTMLDialogElement> = createRef();
 
-  private open_modal() {
+  @state()
+  show_dialog = false;
+
+  private async open_modal() {
+    this.show_dialog = true;
+    await this.updateComplete;
     const dialogElement = this.dialogRef.value!;
     dialogElement?.showModal();
+  }
+  
+  private close_modal(e: Event) {
+    e.preventDefault();
+    this.show_dialog = false;
   }
 
   dialogTemplete() {
     return html`<dialog ${ref(this.dialogRef)} class="modal">
-      <div class="modal-box bg-base-100 modal-box-width">
+      <div class="modal-box materialsmodal-box-width">
         <form method="dialog">
           <button
             class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2"
+            @click="${this.close_modal}"
           >
             <!-- <IconXMark class="h-6 w-6" /> -->
             X
@@ -69,7 +80,7 @@ export class ComponentEquipmentMstModal extends LitElement {
           ?show_name=${this.show_name}
         ></component-equipment-mst-table>
       </div>
-      <form method="dialog" class="modal-backdrop">
+      <form method="dialog" class="modal-backdrop" @click="${this.close_modal}">
         <button>close</button>
       </form>
     </dialog>`;
@@ -88,7 +99,7 @@ export class ComponentEquipmentMstModal extends LitElement {
               ?show_name=${this.show_name}
             ></component-equipment-mst>
           </div>
-          ${this.dialogTemplete()}
+          ${this.show_dialog ? this.dialogTemplete() : html``}
         `
       : html`<div class="w-full cursor-default">
           <component-equipment-mst
