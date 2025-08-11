@@ -32,35 +32,33 @@ declare module "solid-js" {
   namespace JSX {
     // eslint-disable-next-line no-unused-vars
     interface IntrinsicElements {
-      "component-color-bar": ComponentColorBarProps & JSX.CustomAttributes;
+      "component-color-bar": ComponentColorBarProps & css_style_props;
       "component-color-bar-label": ComponentColorBarLabelProps &
-        JSX.CustomAttributes;
-      "component-equipment": ComponentEquipmentProps & JSX.CustomAttributes;
+        css_style_props;
+      "component-equipment": ComponentEquipmentProps & css_style_props;
       "component-equipment-modal": ComponentEquipmentModalProps &
-        JSX.CustomAttributes;
+        css_style_props;
       "component-equipment-table": ComponentEquipmentTableProps &
-        JSX.CustomAttributes;
-      "component-equipment-mst": ComponentEquipmentMstProps &
-        JSX.CustomAttributes;
+        css_style_props;
+      "component-equipment-mst": ComponentEquipmentMstProps & css_style_props;
       "component-equipment-mst-modal": ComponentEquipmentMstModalProps &
-        JSX.CustomAttributes;
+        css_style_props;
       "component-equipment-mst-table": ComponentEquipmentMstTableProps &
-        JSX.CustomAttributes;
+        css_style_props;
       "component-ship-masked-modal": ComponentShipMaskedModalProps &
-        JSX.CustomAttributes;
+        css_style_props;
       "component-ship-masked-table": ComponentShipMaskedTableProps &
-        JSX.CustomAttributes;
-      "component-ship": ComponentShipProps & JSX.CustomAttributes;
+        css_style_props;
+      "component-ship": ComponentShipProps & css_style_props;
       "component-ship-modal": ComponentShipModalProps & css_style_props;
-      "component-ship-table": ComponentShipTableProps & JSX.CustomAttributes;
-      "icon-caution-fill": IconCautionFillProps & JSX.CustomAttributes;
-      "icon-equipment": IconEquipmentProps & JSX.CustomAttributes;
-      "icon-fleet-number": IconFleetNumberProps & JSX.CustomAttributes;
-      "icon-kira": IconKiraProps & JSX.CustomAttributes;
-      "icon-material": IconMaterialProps & JSX.CustomAttributes;
-      "icon-plane-proficiency": IconPlaneProficiencyProps &
-        JSX.CustomAttributes;
-      "icon-ship": IconShipProps & JSX.CustomAttributes;
+      "component-ship-table": ComponentShipTableProps & css_style_props;
+      "icon-caution-fill": IconCautionFillProps & css_style_props;
+      "icon-equipment": IconEquipmentProps & css_style_props;
+      "icon-fleet-number": IconFleetNumberProps & css_style_props;
+      "icon-kira": IconKiraProps & css_style_props;
+      "icon-material": IconMaterialProps & css_style_props;
+      "icon-plane-proficiency": IconPlaneProficiencyProps & css_style_props;
+      "icon-ship": IconShipProps & css_style_props;
     }
   }
 }
