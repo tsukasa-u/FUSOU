@@ -11,25 +11,16 @@ import {
   Show,
   Switch,
 } from "solid-js";
-import { ShipNameComponent } from "./ship_name.tsx";
 import { createStore } from "solid-js/store";
-
-import "./../css/table_hover.css";
-import "./../css/table_active.css";
-import "./../css/menu_hover.css";
-import "./../css/menu_active.css";
-import "./../css/pagination.css";
 
 import "shared-ui";
 
 import IconUpArrow from "../icons/up_arrow.tsx";
 import IconDownArrow from "../icons/down_arrow.tsx";
-import IconChevronDoubleLeft from "../icons/chevron_double_left.tsx";
-import IconChevronDoubleRight from "../icons/chevron_double_right.tsx";
-import { IconChevronLeft } from "../icons/chevron_left.tsx";
-import IconChevronRight from "../icons/chevron_right.tsx";
 
 import { VList } from "virtua/solid";
+import { get_data_set_ship } from "../utility/get_data_set.tsx";
+const table_width = "1200px";
 
 export function ShipListComponent() {
   const [ships] = useShips();
@@ -76,6 +67,10 @@ export function ShipListComponent() {
     "Range",
   ];
 
+  const store_ship_data_set = createMemo(() => {
+    return get_data_set_ship(Object.keys(ships.ships).map((id) => Number(id)));
+  });
+
   const [check_stype, set_check_stype] = createStore<{
     [key: string]: boolean;
   }>({});
@@ -113,24 +108,21 @@ export function ShipListComponent() {
     })()
   );
 
-  const [set_order, set_set_order] = createSignal(true);
+  const [set_order, set_set_order] = createSignal(false);
   const [set_sort, set_set_sort] = createSignal("Default");
 
   const [set_categorize, set_set_categorize] = createSignal(false);
+  const [set_stype, set_set_stype] = createSignal("駆逐艦");
 
   const sort_fn = (a: string | number, b: string | number) => {
     if (set_sort() == "Default") return 0;
-    let ships_key = Object.keys(ships.ships);
-    if (Number(a) in ships_key && Number(b) in ships_key) {
-      let a_ship = ships.ships[Number(a)]!;
-      let b_ship = ships.ships[Number(b)]!;
+    let a_ship = ships.ships[Number(a)];
+    let b_ship = ships.ships[Number(b)];
+    if (a_ship && b_ship) {
       if (set_sort() == "Level") {
-        if (a_ship.lv && b_ship.lv) return (a_ship.lv ?? 0) - (b_ship.lv ?? 0);
-        else return 0;
+        if (a_ship.lv && b_ship.lv) return a_ship.lv - b_ship.lv;
       } else if (set_sort() == "Durability") {
-        if (a_ship.maxhp && b_ship.maxhp)
-          return (a_ship.maxhp ?? 0) - (b_ship.maxhp ?? 0);
-        else return 0;
+        if (a_ship.maxhp && b_ship.maxhp) return a_ship.maxhp - b_ship.maxhp;
       } else if (set_sort() == "Firepower") {
         if (
           a_ship.karyoku &&
@@ -139,7 +131,6 @@ export function ShipListComponent() {
           b_ship.karyoku[0]
         )
           return a_ship.karyoku[0] - b_ship.karyoku[0];
-        else return 0;
       } else if (set_sort() == "Torpedo") {
         if (
           a_ship.raisou &&
@@ -148,14 +139,11 @@ export function ShipListComponent() {
           b_ship.raisou[0]
         )
           return a_ship.raisou[0] - b_ship.raisou[0];
-        else return 0;
       } else if (set_sort() == "Anti-Air") {
         if (a_ship.taiku && a_ship.taiku[0] && b_ship.taiku && b_ship.taiku[0])
           return a_ship.taiku[0] - b_ship.taiku[0];
-        else return 0;
       } else if (set_sort() == "Speed") {
         if (a_ship.soku && b_ship.soku) return a_ship.soku - b_ship.soku;
-        else return 0;
       } else if (set_sort() == "Armor") {
         if (
           a_ship.soukou &&
@@ -164,11 +152,9 @@ export function ShipListComponent() {
           b_ship.soukou[0]
         )
           return a_ship.soukou[0] - b_ship.soukou[0];
-        else return 0;
       } else if (set_sort() == "Evasion") {
         if (a_ship.kaihi && a_ship.kaihi[0] && b_ship.kaihi && b_ship.kaihi[0])
           return a_ship.kaihi[0] - b_ship.kaihi[0];
-        else return 0;
       } else if (set_sort() == "Anti-Submarine") {
         if (
           a_ship.taisen &&
@@ -177,11 +163,9 @@ export function ShipListComponent() {
           b_ship.taisen[0]
         )
           return a_ship.taisen[0] - b_ship.taisen[0];
-        else return 0;
       } else if (set_sort() == "Luck") {
         if (a_ship.lucky && a_ship.lucky[0] && b_ship.lucky && b_ship.lucky[0])
           return a_ship.lucky[0] - b_ship.lucky[0];
-        else return 0;
       } else if (set_sort() == "Aircraft installed") {
         if (a_ship.ship_id && b_ship.ship_id) {
           let a_mst_ship = mst_ships.mst_ships[a_ship.ship_id];
@@ -198,7 +182,6 @@ export function ShipListComponent() {
             );
           }
         }
-        return 0;
       } else if (set_sort() == "Reconnaissance") {
         if (
           a_ship.sakuteki &&
@@ -207,20 +190,19 @@ export function ShipListComponent() {
           b_ship.sakuteki[0]
         )
           return a_ship.sakuteki[0] - b_ship.sakuteki[0];
-        else return 0;
       } else if (set_sort() == "Range") {
         if (a_ship.leng && b_ship.leng) return a_ship.leng - b_ship.leng;
-        else return 0;
       }
     }
     return 0;
   };
 
-  const sorted_ship_keys = createMemo(() => {
+  const sorted_ship_keys = createMemo<string[]>(() => {
     let keys = Object.keys(ships.ships);
-    keys = keys.sort(sort_fn);
-    if (!set_order()) keys = keys.reverse();
-    return keys;
+    const sorted_keys = keys.sort(sort_fn);
+    console.log(keys, set_sort());
+    if (!set_order()) return sorted_keys.reverse();
+    else return sorted_keys;
   });
 
   const categorized_ships_keys = createMemo(() => {
@@ -442,7 +424,6 @@ export function ShipListComponent() {
                       placeholder="Min"
                       class="input input-sm input-bordered w-14"
                       onInput={(e) => {
-                        set_range_props(param, "reset", false);
                         set_range_props(param, "min", Number(e.target.value));
                       }}
                     />{" "}
@@ -452,7 +433,6 @@ export function ShipListComponent() {
                       placeholder="Max"
                       class="input input-sm input-bordered w-14"
                       onInput={(e) => {
-                        set_range_props(param, "reset", false);
                         set_range_props(param, "max", Number(e.target.value));
                       }}
                     />
@@ -495,7 +475,6 @@ export function ShipListComponent() {
                       placeholder="Eq"
                       class="input input-sm input-bordered w-32"
                       onInput={(e) => {
-                        set_range_props(param, "reset", false);
                         set_range_props(param, "eq", Number(e.target.value));
                       }}
                     />
@@ -567,6 +546,7 @@ export function ShipListComponent() {
             <Show
               when={(() => {
                 let ret = false;
+                if (range_props[param].reset) return ret;
                 if (range_props[param].range) {
                   if (
                     Number.isInteger(range_props[param].min) &&
@@ -594,7 +574,7 @@ export function ShipListComponent() {
           </div>
           <div
             tabindex="0"
-            class="dropdown-content z-[2] card card-compact bg-base-100 z-[1] w-80 rounded-md"
+            class="dropdown-content z-[2] card card-compact bg-base-100 z-[1] w-90 rounded-md"
           >
             <div class="card-body border-1 border-base-300 text-base-content rounded-md">
               <div class="form-control">
@@ -603,21 +583,26 @@ export function ShipListComponent() {
                     type="radio"
                     name="radio-Level"
                     class="radio radio-sm"
-                    checked={range_props[param].range}
-                    onClick={() => set_range_props(param, "range", true)}
+                    checked={
+                      range_props[param].range && !range_props[param].reset
+                    }
+                    onClick={() => {
+                      set_range_props(param, "reset", false);
+                      set_range_props(param, "range", true);
+                    }}
                   />
                   <span class="label-text text-sm">
                     <select
                       class="select select-bordered select-sm w-24 mx-2"
-                      onChange={(e) =>
+                      onChange={(e) => {
                         set_range_props(
                           param,
                           "min",
                           param_converter[param_index].findIndex(
                             (param_select) => param_select == e.target.value
                           )
-                        )
-                      }
+                        );
+                      }}
                     >
                       <For each={params_option[param_index]}>
                         {(param_select) => (
@@ -630,15 +615,15 @@ export function ShipListComponent() {
                     &#8804; {range_props[param].abbreviation} &#8804;
                     <select
                       class="select select-bordered select-sm w-24 mx-2"
-                      onChange={(e) =>
+                      onChange={(e) => {
                         set_range_props(
                           param,
                           "max",
                           param_converter[param_index].findIndex(
                             (param_select) => param_select == e.target.value
                           )
-                        )
-                      }
+                        );
+                      }}
                     >
                       <For each={params_option[param_index]}>
                         {(param_select) => (
@@ -658,13 +643,18 @@ export function ShipListComponent() {
                     type="radio"
                     name="radio-Level"
                     class="radio radio-sm"
-                    checked={!range_props[param].range}
-                    onClick={() => set_range_props(param, "range", false)}
+                    checked={
+                      !range_props[param].range && !range_props[param].reset
+                    }
+                    onClick={() => {
+                      set_range_props(param, "reset", false);
+                      set_range_props(param, "range", false);
+                    }}
                   />
                   <span class="label-text text-sm">
                     {range_props[param].abbreviation} =
                     <select
-                      class="select select-bordered select-sm w-52"
+                      class="select select-bordered select-sm w-58"
                       onChange={(e) =>
                         set_range_props(
                           param,
@@ -686,6 +676,17 @@ export function ShipListComponent() {
                   </span>
                 </label>
               </div>
+
+              <div class="flex justify-end">
+                <button
+                  class="btn btn-ghost btn-xs -mb-4"
+                  onClick={() => {
+                    set_range_props(param, "reset", true);
+                  }}
+                >
+                  reset filter
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -695,17 +696,20 @@ export function ShipListComponent() {
   });
 
   const table_line_element = (ship_id: number, index: number) => {
-    let ship = ships.ships[Number(ship_id)];
-    let mst_ship =
-      ship && ship.ship_id ? mst_ships.mst_ships[ship.ship_id] : undefined;
+    let data_set = store_ship_data_set()[ship_id];
+    let ship = data_set.ship;
+    let mst_ship = data_set.mst_ship;
+    let slot_item_map = data_set.slot_items;
+    let mst_slot_item_map = data_set.mst_slot_items;
     let mst_stype = mst_ship
       ? mst_stypes.mst_stypes[mst_ship.stype]
       : undefined;
     return (
       <tr class="flex table_hover rounded bg-base-100">
-        <th class="px-0 w-3 flex bg-base-100 z-[1] justify-self-center">
+        <th class="px-0 w-10 flex bg-base-100 z-[1] self-center">
           <span class="flex-1" />
           {index + 1}
+          <div class="w-[10px]" />
         </th>
         <td class="w-32 overflow-hidden">
           {/* <ShipNameComponent ship_id={Number(ship_id)} /> */}
@@ -715,8 +719,8 @@ export function ShipListComponent() {
             name_flag={true}
             size="xs"
             color=""
-            mst_slot_items={undefined}
-            slot_items={undefined}
+            mst_slot_items={mst_slot_item_map}
+            slot_items={slot_item_map}
           />
         </td>
         <Show when={check_ship_property["Ship Type"]}>
@@ -822,8 +826,8 @@ export function ShipListComponent() {
           </td>
         </Show>
         <Show when={check_ship_property["Range"]}>
-          <td class="w-16 content-center">
-            <div class="w-16 flex justify-self-center">
+          <td class="w-20 content-center">
+            <div class="w-14 flex justify-self-center">
               {ship && ship.leng ? range_list[ship.leng] : undefined}
             </div>
           </td>
@@ -849,7 +853,7 @@ export function ShipListComponent() {
                 <div
                   tabindex="0"
                   role="button"
-                  class="btn btn-xs btn-ghost -mx-2"
+                  class="btn btn-xs btn-ghost -mx-1"
                 >
                   No
                 </div>
@@ -1094,7 +1098,7 @@ export function ShipListComponent() {
             </th>
           </Show>
           <Show when={check_ship_property["Range"]}>
-            <th class="w-16">{set_discrete_range_window()["Range"]}</th>
+            <th class="w-20">{set_discrete_range_window()["Range"]}</th>
           </Show>
         </tr>
       </thead>
@@ -1103,34 +1107,13 @@ export function ShipListComponent() {
 
   const table_element_categorized = (ship_ids: (number | string)[]) => {
     return (
-      <VList
-        data={ship_ids}
-        style={{
-          height: `${ship_ids.length >= 15 ? "calc(100dvh - 122px)" : `${ship_ids.length * 32}px`}`,
-          width: "1184px",
-        }}
-        class="overflow-x-hidden"
-      >
-        {(ship_id, index) => (
-          <Show when={filtered_ships()[Number(ship_id)] ?? false}>
-            <table class="table table-xs max-w-[1184px]">
-              <tbody>{table_line_element(Number(ship_id), index())}</tbody>
-            </table>
-          </Show>
-        )}
-      </VList>
-    );
-  };
-
-  const table_element_none_categorized = (ship_ids: (number | string)[]) => {
-    return (
-      <table class="table table-xs max-w-[1184px]">
+      <table class={`table table-xs max-w-[${table_width}]`}>
         <tbody>
           <VList
             data={ship_ids}
             style={{
-              height: "calc(100dvh - 122px)",
-              width: "1184px",
+              height: "calc(100dvh - 154px)",
+              width: table_width,
             }}
             class="overflow-x-hidden"
           >
@@ -1140,18 +1123,29 @@ export function ShipListComponent() {
               </Show>
             )}
           </VList>
-          {/* <For each={ship_ids}>
+        </tbody>
+      </table>
+    );
+  };
+
+  const table_element_none_categorized = (ship_ids: (number | string)[]) => {
+    return (
+      <table class={`table table-xs max-w-[${table_width}]`}>
+        <tbody>
+          <VList
+            data={ship_ids}
+            style={{
+              height: "calc(100dvh - 122px)",
+              width: table_width,
+            }}
+            class="overflow-x-hidden"
+          >
             {(ship_id, index) => (
-              <Show
-                when={
-                  (filtered_ships()[Number(ship_id)] ?? false) &&
-                  show_pagination(index())
-                }
-              >
+              <Show when={filtered_ships()[Number(ship_id)] ?? false}>
                 {table_line_element(Number(ship_id), index())}
               </Show>
             )}
-          </For> */}
+          </VList>
         </tbody>
       </table>
     );
@@ -1185,7 +1179,7 @@ export function ShipListComponent() {
   return (
     <>
       <div class="bg-base-100 z-[4]">
-        <div class="h-2"></div>
+        <div class="h-2" />
         <div class="px-2 py-1 text-xs flex flex-wrap items-center">
           <div class="px-4 flex-none text-sm">Ship Specification Table</div>
           <div class="divider divider-horizontal mr-0 ml-0 flex-none" />
@@ -1196,7 +1190,7 @@ export function ShipListComponent() {
               </summary>
               <ul
                 tabindex="0"
-                class="dropdown-content z-[2] menu menu-xs bg-base-100 rounded-md  flex"
+                class="dropdown-content z-[2] menu menu-xs bg-base-100 rounded-md flex border-1 border-base-300"
               >
                 <For each={Object.keys(check_ship_property)}>
                   {(prop) => (
@@ -1240,40 +1234,37 @@ export function ShipListComponent() {
             </div>
           </div>
         </div>
-        <table class="table table-xs max-w-[1184px]">{table_header()}</table>
       </div>
       <Switch>
         <Match when={set_categorize()}>
-          <For each={Object.keys(categorized_ships_keys())}>
-            {(stype_name, stype_name_index) => (
-              <Show
-                when={
-                  check_stype[stype_name] &&
-                  categorized_ships_keys()[stype_name].length != 0
-                }
-              >
-                <ul class="menu bg-base-100 menu-sm p-0 w-full max-w-[1184px]">
-                  <li>
-                    <details>
-                      <summary class="ml-10 relative">
-                        <div class="w-10 h-6 z-[3] bg-base-100 -ml-[52px] px-0" />
-                        Category. {stype_name_index() + 1} : {stype_name}
-                      </summary>
-                      {/* <ul class="pl-0 ml-0">
-                        <li> */}
-                      {table_element_categorized(
-                        categorized_ships_keys()[stype_name]
-                      )}
-                      {/* </li>
-                      </ul> */}
-                    </details>
-                  </li>
-                </ul>
-              </Show>
-            )}
-          </For>
+          <div class="tabs tabs-lift tabs-sm min-w-max">
+            <For each={Object.keys(categorized_ships_keys())}>
+              {(stype_name) => (
+                <Show when={categorized_ships_keys()[stype_name].length != 0}>
+                  <>
+                    <input
+                      type="radio"
+                      name="ship_specification_table_tab"
+                      class="tab"
+                      aria-label={stype_name}
+                      onClick={() => set_set_stype(stype_name)}
+                      checked={set_stype() == stype_name}
+                    />
+                  </>
+                </Show>
+              )}
+            </For>
+          </div>
+
+          <table class={`table table-xs max-w-[${table_width}]`}>
+            {table_header()}
+          </table>
+          {table_element_categorized(categorized_ships_keys()[set_stype()])}
         </Match>
         <Match when={!set_categorize()}>
+          <table class={`table table-xs max-w-[${table_width}]`}>
+            {table_header()}
+          </table>
           {table_element_none_categorized(sorted_ship_keys())}
         </Match>
       </Switch>

@@ -257,7 +257,7 @@ export function useMstEquipExslotShips() {
   ];
 }
 
-const MstSlotItemEquipTypesContext =
+export const MstSlotItemEquipTypesContext =
   createContext<
     (MstSlotItemEquipTypes | SetStoreFunction<MstSlotItemEquipTypes>)[]
   >();
@@ -275,6 +275,7 @@ export function MstSlotItemEquipTypesProvider(props: {
         "set-kcs-mst-slot-item-equip-types",
         (event) => {
           setData(event.payload);
+          // console.log("set-kcs-mst-slot-item-equip-types", event.payload);
         }
       );
     })();
@@ -343,7 +344,7 @@ export function useMstEquipShips() {
   return context as [MstEquipShips, SetStoreFunction<MstEquipShips>];
 }
 
-const MstStypesContext =
+export const MstStypesContext =
   createContext<(MstStypes | SetStoreFunction<MstStypes>)[]>();
 
 export function MstStypesProvider(props: { children: JSX.Element }) {
@@ -355,6 +356,7 @@ export function MstStypesProvider(props: { children: JSX.Element }) {
     (async () => {
       unlisten_data = await listen<MstStypes>("set-kcs-mst-stypes", (event) => {
         setData(event.payload);
+        // console.log("set-kcs-mst-stypes", event.payload);
       });
     })();
 
