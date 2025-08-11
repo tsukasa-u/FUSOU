@@ -112,7 +112,12 @@ export function ShipListComponent() {
   const [set_sort, set_set_sort] = createSignal("Default");
 
   const [set_categorize, set_set_categorize] = createSignal(false);
-  const [set_stype, set_set_stype] = createSignal("駆逐艦");
+  const [set_stype, set_set_stype] = createSignal(
+    (() => {
+      let stype_name = Object.values(mst_stypes.mst_stypes)[0]?.name;
+      return stype_name ? stype_name : "海防艦";
+    })()
+  );
 
   const sort_fn = (a: string | number, b: string | number) => {
     if (set_sort() == "Default") return 0;
@@ -200,7 +205,6 @@ export function ShipListComponent() {
   const sorted_ship_keys = createMemo<string[]>(() => {
     let keys = Object.keys(ships.ships);
     const sorted_keys = keys.sort(sort_fn);
-    console.log(keys, set_sort());
     if (!set_order()) return sorted_keys.reverse();
     else return sorted_keys;
   });
@@ -210,22 +214,17 @@ export function ShipListComponent() {
     Object.entries(mst_stypes.mst_stypes).forEach(([, stype]) => {
       if (stype) categorized_ships_keys[stype.name] = [];
     });
-    Object.entries(ships.ships).forEach(([ship_id, ship]) => {
-      let mst_ship_id = ship!.ship_id;
-      if (mst_ship_id) {
-        let mst_ship = mst_ships.mst_ships[mst_ship_id];
-        if (mst_ship) {
-          let mst_stype = mst_stypes.mst_stypes[mst_ship.stype];
-          if (mst_stype) {
-            let stype = mst_stype.name;
-            // if (!categorized_ships_keys[stype]) categorized_ships_keys[stype] = [];
-            categorized_ships_keys[stype].push(Number(ship_id));
-          }
-        }
+
+    Object.values(store_ship_data_set()).forEach((data_set) => {
+      let ship = data_set.ship;
+      let mst_ship = data_set.mst_ship;
+      if (mst_ship && ship) {
+        let mst_stype = mst_stypes.mst_stypes[mst_ship.stype];
+        if (mst_stype) categorized_ships_keys[mst_stype.name].push(ship.id);
       }
     });
 
-    Object.entries(mst_stypes.mst_stypes).forEach(([, stype]) => {
+    Object.values(mst_stypes.mst_stypes).forEach((stype) => {
       categorized_ships_keys[stype!.name] =
         categorized_ships_keys[stype!.name].sort(sort_fn);
       if (!set_order())
@@ -318,32 +317,30 @@ export function ShipListComponent() {
       : Object.keys(ships.ships).reverse()
     ).forEach((ship_id) => {
       ret[Number(ship_id)] = (() => {
-        let ship = ships.ships[Number(ship_id)];
+        const data_set = store_ship_data_set()[Number(ship_id)];
+        let ship = data_set.ship;
+        let mst_ship = data_set.mst_ship;
         if (ship) {
-          let mst_ship_id = ship.ship_id;
-          if (mst_ship_id) {
-            let mst_ship = mst_ships.mst_ships[mst_ship_id];
-            if (mst_ship) {
-              let mst_stype = mst_stypes.mst_stypes[mst_ship.stype];
-              if (mst_stype) {
-                if (!check_stype[mst_stype.name]) return false;
-              }
+          if (mst_ship) {
+            let mst_stype = mst_stypes.mst_stypes[mst_ship.stype];
+            if (mst_stype) {
+              if (!check_stype[mst_stype.name]) return false;
             }
-            if (!check_name[Number(ship_id)]) return false;
-            if (!check_range("Level", ship.lv)) return false;
-            if (!check_range("Durability", ship.maxhp)) return false;
-            if (!check_range("Firepower", ship.karyoku)) return false;
-            if (!check_range("Torpedo", ship.raisou)) return false;
-            if (!check_range("Anti-Air", ship.taiku)) return false;
-            if (!check_range("Speed", ship.soku)) return false;
-            if (!check_range("Armor", ship.soukou)) return false;
-            if (!check_range("Evasion", ship.kaihi)) return false;
-            if (!check_range("Anti-Submarine", ship.taisen)) return false;
-            if (!check_range("Luck", ship.lucky)) return false;
-            if (!check_range("Aircraft installed", ship.slotnum)) return false;
-            if (!check_range("Reconnaissance", ship.sakuteki)) return false;
-            if (!check_range("Range", ship.leng)) return false;
           }
+          if (!check_name[Number(ship_id)]) return false;
+          if (!check_range("Level", ship.lv)) return false;
+          if (!check_range("Durability", ship.maxhp)) return false;
+          if (!check_range("Firepower", ship.karyoku)) return false;
+          if (!check_range("Torpedo", ship.raisou)) return false;
+          if (!check_range("Anti-Air", ship.taiku)) return false;
+          if (!check_range("Speed", ship.soku)) return false;
+          if (!check_range("Armor", ship.soukou)) return false;
+          if (!check_range("Evasion", ship.kaihi)) return false;
+          if (!check_range("Anti-Submarine", ship.taisen)) return false;
+          if (!check_range("Luck", ship.lucky)) return false;
+          if (!check_range("Aircraft installed", ship.slotnum)) return false;
+          if (!check_range("Reconnaissance", ship.sakuteki)) return false;
+          if (!check_range("Range", ship.leng)) return false;
         }
         return true;
       })();
@@ -696,7 +693,7 @@ export function ShipListComponent() {
   });
 
   const table_line_element = (ship_id: number, index: number) => {
-    let data_set = store_ship_data_set()[ship_id];
+    const data_set = store_ship_data_set()[ship_id];
     let ship = data_set.ship;
     let mst_ship = data_set.mst_ship;
     let slot_item_map = data_set.slot_items;
@@ -724,15 +721,13 @@ export function ShipListComponent() {
           />
         </td>
         <Show when={check_ship_property["Ship Type"]}>
-          <td class="w-[88px] content-center">
-            {mst_stype ? mst_stype.name : ""}
-          </td>
+          <td class="w-[88px] content-center">{mst_stype?.name}</td>
         </Show>
         <Show when={check_ship_property["Level"]}>
           <td class="w-12 content-center">
             <div class="w-6 flex justify-self-center">
               <span class="flex-1" />
-              {ship ? ship.lv : undefined}
+              {ship?.lv}
             </div>
           </td>
         </Show>
@@ -740,7 +735,7 @@ export function ShipListComponent() {
           <td class="w-[72px] content-center">
             <div class="w-6 flex justify-self-center">
               <span class="flex-1" />
-              {ship ? ship.maxhp : undefined}
+              {ship?.maxhp}
             </div>
           </td>
         </Show>
@@ -748,7 +743,7 @@ export function ShipListComponent() {
           <td class="w-[72px] content-center">
             <div class="w-6 flex justify-self-center">
               <span class="flex-1" />
-              {ship && ship.karyoku ? ship.karyoku[0] : undefined}
+              {ship?.karyoku ? ship.karyoku[0] : undefined}
             </div>
           </td>
         </Show>
@@ -756,7 +751,7 @@ export function ShipListComponent() {
           <td class="w-16 content-center">
             <div class="w-6 flex justify-self-center">
               <span class="flex-1" />
-              {ship && ship.raisou ? ship.raisou[0] : undefined}
+              {ship?.raisou ? ship.raisou[0] : undefined}
             </div>
           </td>
         </Show>
@@ -764,14 +759,14 @@ export function ShipListComponent() {
           <td class="w-16 content-center">
             <div class="w-6 flex justify-self-center">
               <span class="flex-1" />
-              {ship && ship.taiku ? ship.taiku[0] : undefined}
+              {ship?.taiku ? ship.taiku[0] : undefined}
             </div>
           </td>
         </Show>
         <Show when={check_ship_property["Speed"]}>
           <td class="w-14 content-center">
             <div class="w-6 flex justify-self-center">
-              {ship && ship.soku ? speed_list[ship.soku] : undefined}
+              {ship?.soku ? speed_list[ship.soku] : undefined}
             </div>
           </td>
         </Show>
@@ -779,7 +774,7 @@ export function ShipListComponent() {
           <td class="w-14 content-center">
             <div class="w-6 flex justify-self-center">
               <span class="flex-1" />
-              {ship && ship.soukou ? ship.soukou[0] : undefined}
+              {ship?.soukou ? ship.soukou[0] : undefined}
             </div>
           </td>
         </Show>
@@ -787,7 +782,7 @@ export function ShipListComponent() {
           <td class="w-16 content-center">
             <div class="w-6 flex justify-self-center">
               <span class="flex-1" />
-              {ship && ship.kaihi ? ship.kaihi[0] : undefined}
+              {ship?.kaihi ? ship.kaihi[0] : undefined}
             </div>
           </td>
         </Show>
@@ -795,7 +790,7 @@ export function ShipListComponent() {
           <td class="w-24 content-center">
             <div class="w-6 flex justify-self-center">
               <span class="flex-1" />
-              {ship && ship.taisen ? ship.taisen[0] : undefined}
+              {ship?.taisen ? ship.taisen[0] : undefined}
             </div>
           </td>
         </Show>
@@ -803,7 +798,7 @@ export function ShipListComponent() {
           <td class="w-12 content-center">
             <div class="w-6 flex justify-self-center">
               <span class="flex-1" />
-              {ship && ship.lucky ? ship.lucky[0] : 0}
+              {ship?.lucky ? ship.lucky[0] : undefined}
             </div>
           </td>
         </Show>
@@ -811,7 +806,7 @@ export function ShipListComponent() {
           <td class="w-28 content-center">
             <div class="w-6 flex justify-self-center">
               <span class="flex-1" />
-              {mst_ship && mst_ship.maxeq
+              {mst_ship?.maxeq
                 ? mst_ship.maxeq.reduce((a, b) => a + b, 0)
                 : undefined}
             </div>
@@ -821,14 +816,14 @@ export function ShipListComponent() {
           <td class="w-24 content-center">
             <div class="w-6 flex justify-self-center">
               <span class="flex-1" />
-              {ship && ship.sakuteki ? ship.sakuteki[0] : undefined}
+              {ship?.sakuteki ? ship.sakuteki[0] : undefined}
             </div>
           </td>
         </Show>
         <Show when={check_ship_property["Range"]}>
           <td class="w-20 content-center">
             <div class="w-14 flex justify-self-center">
-              {ship && ship.leng ? range_list[ship.leng] : undefined}
+              {ship?.leng ? range_list[ship.leng] : undefined}
             </div>
           </td>
         </Show>
@@ -1158,7 +1153,7 @@ export function ShipListComponent() {
       new Promise((resolve) => setTimeout(resolve, ms));
     Object.entries(ships.ships).forEach(([ship_id, ship], index) => {
       (async () => {
-        if (ship && ship.ship_id) {
+        if (ship?.ship_id) {
           await sleep(10);
           let mst_ship = mst_ships.mst_ships[ship.ship_id];
           if (mst_ship) {
