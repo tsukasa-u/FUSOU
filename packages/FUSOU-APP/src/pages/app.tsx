@@ -26,7 +26,7 @@ function App() {
 
   return (
     <>
-      <div class="bg-base-100 fixed w-dvw h-[33px] border-b-1 border-base-300 z-99"></div>
+      <div class="bg-base-100 fixed w-dvw h-[33px] border-b-1 border-base-300 z-99" />
       <div role="tablist" class="tabs tabs-border tabs-sm bg-base-100">
         <input
           type="radio"
