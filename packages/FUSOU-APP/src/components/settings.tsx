@@ -23,18 +23,17 @@ export function SettingsComponent() {
 
       {/* <div class="h-8"></div> */}
 
-      <div class="mx-4">
-        <h1 class="pt-4 pb-2 text-2xl font-semibold">Settings</h1>
-
-        <hr class="mt-4 mb-8" />
+      <h1 class="mx-6 pt-6 pb-2 text-3xl font-semibold">Settings</h1>
+      <div class="mx-6">
+        <div class="divider divider-horizonal py-0 mt-4 mb-8" />
 
         <p class="py-2 text-xl font-semibold">Reload App Pages</p>
-        <p class="">
+        <p class="px-px leading-5">
           Reload this application pages, not KanColle game web page
         </p>
         <div class="mt-4 flex items-center justify-end">
           <button
-            class="btn btn-outline btn-wide"
+            class="btn btn-primary border-primary-content btn-wide"
             onClick={async () => {
               window.location.reload();
             }}
@@ -43,16 +42,16 @@ export function SettingsComponent() {
           </button>
         </div>
 
-        <hr class="mt-4 mb-4" />
+        <div class="divider divider-horizonal py-0 mt-4 mb-8" />
 
         <p class="py-2 text-xl font-semibold">Load Data</p>
-        <p class="">
+        <p class="px-px leading-5">
           Load saved response data when the API comes from. this app does not
           access KanColle server via API, it just copies response data.
         </p>
         <div class="mt-4 flex items-center justify-end">
           <button
-            class="btn btn-outline btn-wide"
+            class="btn btn-primary border-primary-content btn-wide"
             onClick={async () => {
               // We must invoke the API in order to get the data as follows ?
               // get_data -> require_info
@@ -71,18 +70,18 @@ export function SettingsComponent() {
             Load all data
           </button>
         </div>
-        <hr class="mt-4 mb-4" />
+        {/* <div class="divider divider-horizonal py-0 mt-4 mb-8" /> */}
 
         <div class="grid py-6">
           <div id="load_mst_ships" class="py-2">
-            <h2 class="text-lg font-semibold leading-4">Load ship data</h2>
-            <p class="">
+            <h2 class="py-1 text-lg font-semibold">Load ship data</h2>
+            <p class="px-px leading-5">
               Load the mst_ships data restored from API
               "/kcsapi/api_start2/get_data"
             </p>
             <div class="mt-4 flex items-center justify-end">
               <button
-                class="btn btn-outline btn-wide"
+                class="btn btn-secondary border-secondary-content btn-wide"
                 onClick={() => {
                   invoke("get_mst_ships");
                   showFadeToast("setting_toast", "load mst_ships");
@@ -93,16 +92,14 @@ export function SettingsComponent() {
             </div>
           </div>
           <div id="load_slot_items" class="py-2">
-            <h2 class="text-lg font-semibold leading-4 ">
-              Load slotitems data
-            </h2>
-            <p class="">
+            <h2 class="py-1 text-lg font-semibold">Load slotitems data</h2>
+            <p class="px-px leading-5">
               Load the slotitems data restored from API
               "/kcsapi/api_get_member/require_info"
             </p>
             <div class="mt-4 flex items-center justify-end">
               <button
-                class="btn btn-outline btn-wide"
+                class="btn btn-secondary border-secondary-content btn-wide"
                 onClick={() => {
                   invoke("get_slot_items");
                   showFadeToast("setting_toast", "load slot_items");
@@ -113,16 +110,14 @@ export function SettingsComponent() {
             </div>
           </div>
           <div id="load_mst_slot_items" class="py-2">
-            <h2 class="text-lg font-semibold leading-4 ">
-              Load mst_slotitems data
-            </h2>
-            <p class="">
+            <h2 class="py-1 text-lg font-semibold">Load mst_slotitems data</h2>
+            <p class="px-px leading-5">
               Load the mst_slotitems data restored from API
               "/kcsapi/api_start2/get_data"
             </p>
             <div class="mt-4 flex items-center justify-end">
               <button
-                class="btn btn-outline btn-wide"
+                class="btn btn-secondary border-secondary-content btn-wide"
                 onClick={() => {
                   invoke("get_mst_slot_items");
                   showFadeToast("setting_toast", "load mst_slot_items");
@@ -133,16 +128,16 @@ export function SettingsComponent() {
             </div>
           </div>
           <div id="load_mst_equip_exslot_ships" class="py-2">
-            <h2 class="text-lg font-semibold leading-4 ">
+            <h2 class="py-1 text-lg font-semibold">
               Load mst_equip_exslot_ships data
             </h2>
-            <p class="">
+            <p class="px-px leading-5">
               Load the mst_equip_exslot_ships data restored from API
               "/kcsapi/api_start2/get_data"
             </p>
             <div class="mt-4 flex items-center justify-end">
               <button
-                class="btn btn-outline btn-wide"
+                class="btn btn-secondary border-secondary-content btn-wide"
                 onClick={() => {
                   invoke("get_mst_equip_exslot_ships");
                   showFadeToast("setting_toast", "load mst_equip_exslot_ships");
@@ -153,16 +148,16 @@ export function SettingsComponent() {
             </div>
           </div>
           <div id="load_mst_slotitem_equip_types" class="py-2">
-            <h2 class="text-lg font-semibold leading-4 ">
+            <h2 class="py-1 text-lg font-semibold">
               Load mst_slotitem_equip_types data
             </h2>
-            <p class="">
+            <p class="px-px leading-5">
               Load the mst_slotitem_equip_types data restored from API
               "/kcsapi/api_start2/get_data"
             </p>
             <div class="mt-4 flex items-center justify-end">
               <button
-                class="btn btn-outline btn-wide"
+                class="btn btn-secondary border-secondary-content btn-wide"
                 onClick={() => {
                   invoke("get_mst_slotitem_equip_types");
                   showFadeToast(
@@ -176,16 +171,16 @@ export function SettingsComponent() {
             </div>
           </div>
           <div id="load_mst_equip_ships" class="py-2">
-            <h2 class="text-lg font-semibold leading-4 ">
+            <h2 class="py-1 text-lg font-semibold">
               Load mst_equip_ships data
             </h2>
-            <p class="">
+            <p class="px-px leading-5">
               Load the mst_equip_ships data restored from API
               "/kcsapi/api_start2/get_data"
             </p>
             <div class="mt-4 flex items-center justify-end">
               <button
-                class="btn btn-outline btn-wide"
+                class="btn btn-secondary border-secondary-content btn-wide"
                 onClick={() => {
                   invoke("get_mst_equip_ships");
                   showFadeToast("setting_toast", "load mst_equip_ships");
@@ -196,16 +191,14 @@ export function SettingsComponent() {
             </div>
           </div>
           <div id="load_mst_stypes" class="py-2">
-            <h2 class="text-lg font-semibold leading-4 ">
-              Load mst_stypes data
-            </h2>
-            <p class="">
+            <h2 class="py-1 text-lg font-semibold">Load mst_stypes data</h2>
+            <p class="px-px leading-5">
               Load the mst_stypes data restored from API
               "/kcsapi/api_start2/get_data"
             </p>
             <div class="mt-4 flex items-center justify-end">
               <button
-                class="btn btn-outline btn-wide"
+                class="btn btn-secondary border-secondary-content btn-wide"
                 onClick={() => {
                   invoke("get_mst_stypes");
                   showFadeToast("setting_toast", "load mst_stypes");
@@ -216,16 +209,14 @@ export function SettingsComponent() {
             </div>
           </div>
           <div id="load_mst_useitems" class="py-2">
-            <h2 class="text-lg font-semibold leading-4 ">
-              Load mst_useitems data
-            </h2>
-            <p class="">
+            <h2 class=" py-1 text-lg font-semibold">Load mst_useitems data</h2>
+            <p class="px-px leading-5">
               Load the mst_useitems data restored from API
               "/kcsapi/api_start2/get_data"
             </p>
             <div class="mt-4 flex items-center justify-end">
               <button
-                class="btn btn-outline btn-wide"
+                class="btn btn-secondary border-secondary-content btn-wide"
                 onClick={() => {
                   invoke("get_mst_useitems");
                   showFadeToast("setting_toast", "load mst_useitems");
@@ -237,34 +228,36 @@ export function SettingsComponent() {
           </div>
         </div>
 
-        <hr class="mt-4 mb-8" />
+        {/* <div class="divider divider-horizonal py-0 mt-4 mb-8" />
 
-        {/* <div class="grid py-6">
-                    <div id="load_mst_ships" class="py-2">
-                        <h2 class="text-lg font-semibold leading-4 ">Save Response Data</h2>
+        <div class="grid py-6">
+                    <div class="py-2">
+                        <h2 class="py-1 text-lg font-semibold">Save Response Data</h2>
                         <p>Save response data to test or use to analyze statistics</p>
                         <div class="mt-4 flex items-center justify-end">
                             <span class="w-8"></span>
                             <input type="file" class="file-input file-input-bordered file-input-sm w-full" />
                         </div>
                         <div class="mt-4 flex items-center justify-end">
-                            <button class="btn btn-outline btn-wide" onClick={() => {  }}>empty</button>
+                            <button class="btn btn-secondary border-secondary-content btn-wide" onClick={() => {  }}>empty</button>
                         </div>
                     </div>
                 </div> */}
 
-        <hr class="mt-4 mb-8" />
+        <div class="divider divider-horizonal py-0 mt-4 mb-8" />
 
-        <div class="grid py-6">
-          <div id="load_mst_ships" class="py-2">
-            <h2 class="text-lg font-semibold leading-4 ">Change theme</h2>
-            <p class="">change theme you like to select drop down menu</p>
+        <div class="grid">
+          <div>
+            <h2 class="py-2 text-xl font-semibold">Change theme</h2>
+            <p class="px-px leading-5">
+              change theme you like to select drop down menu
+            </p>
             <div class="mt-4 flex items-center justify-end">
-              <div class="dropdown mb-72">
+              <div class="dropdown mb-20 w-64">
                 <div
                   tabindex="0"
                   role="button"
-                  class="btn btn-outline btn-wide"
+                  class="btn btn-primary border-primary-content btn-wide"
                 >
                   Theme
                   <svg
@@ -288,7 +281,7 @@ export function SettingsComponent() {
                         <input
                           type="radio"
                           name="theme-dropdown"
-                          class="theme-controller btn btn-sm btn-block justify-start"
+                          class="theme-controller btn btn-sm btn-block border-0 justify-start"
                           aria-label={theme}
                           value={theme}
                         />
