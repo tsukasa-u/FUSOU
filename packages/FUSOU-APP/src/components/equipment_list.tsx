@@ -29,6 +29,11 @@ import IconPlaneProficiency1 from "../icons/plane_proficiency1.tsx";
 
 import { VList } from "virtua/solid";
 import { get_data_set_equip } from "../utility/get_data_set.tsx";
+import {
+  scroll_fn,
+  scroll_parent_fn,
+  drag_scroll_fn,
+} from "../utility/scroll.tsx";
 const table_width = "1240px";
 
 export function EquipmentListComponent() {
@@ -714,7 +719,7 @@ export function EquipmentListComponent() {
   const table_header = () => {
     return (
       <thead>
-        <tr class="flex">
+        <tr class="flex mt-1">
           <th class="w-10 flex bg-base-100 z-[3]">
             <div class="dropdown" style={{ "z-index": "3" }}>
               <div class="indicator">
@@ -868,7 +873,7 @@ export function EquipmentListComponent() {
                 </div>
                 <ul
                   tabindex="0"
-                  class="dropdown-content z-[2] menu menu-xs bg-base-100 rounded-md z-[1] grid h-100 overflow-y-scroll flex border-1 border-base-300 text-base-content"
+                  class="dropdown-content z-[2] menu menu-xs bg-base-100 rounded-md  grid h-100 overflow-y-scroll flex border-1 border-base-300 text-base-content"
                 >
                   <For each={Object.keys(check_equip_types)}>
                     {(equip_type_name) => (
@@ -883,7 +888,11 @@ export function EquipmentListComponent() {
                               <label class="label cursor-pointer py-0">
                                 <input
                                   type="checkbox"
-                                  checked={check_equip_types[equip_type_name]}
+                                  checked={
+                                    check_equip_types[equip_type_name] ||
+                                    (set_equip_type() == equip_type_name &&
+                                      set_categorize())
+                                  }
                                   class="checkbox checkbox-sm"
                                   onClick={() => {
                                     set_check_equip_types(
@@ -997,7 +1006,7 @@ export function EquipmentListComponent() {
           <VList
             data={equip_ids}
             style={{
-              height: "calc(100dvh - 154px)",
+              height: "calc(100dvh - 126px)",
               width: table_width,
             }}
             class="overflow-x-hidden"
@@ -1020,15 +1029,13 @@ export function EquipmentListComponent() {
           <VList
             data={equip_ids}
             style={{
-              height: "calc(100dvh - 186px)",
+              height: "calc(100dvh - 159px)",
               width: table_width,
             }}
             class="overflow-x-hidden"
           >
             {(equip_id, index) => (
-              <Show when={filtered_equips()[Number(equip_id)] ?? false}>
-                {table_line_element(Number(equip_id), index())}
-              </Show>
+              <>{table_line_element(Number(equip_id), index())}</>
             )}
           </VList>
         </tbody>
@@ -1064,12 +1071,14 @@ export function EquipmentListComponent() {
     );
   };
 
+  let parentScrollElement!: HTMLDivElement;
+
   return (
     <>
       <div class="bg-base-100 z-[4]">
         <div class="h-2" />
         <div class="px-2 py-1 text-xs flex flex-wrap items-center">
-          <div class="pl-4 flex-none text-sm">
+          <div class="px-4 flex-none text-sm w-56">
             Equipment Specification Table
           </div>
           <div class="divider divider-horizontal mr-0 ml-0 flex-none" />
@@ -1127,75 +1136,84 @@ export function EquipmentListComponent() {
       </div>
       <Switch>
         <Match when={set_categorize()}>
-          <div class="tabs tabs-lift tabs-sm min-w-max">
-            <For each={Object.keys(categorized_equips_keys())}>
-              {(equip_type_name) => (
-                <Show
-                  when={categorized_equips_keys()[equip_type_name].length != 0}
-                >
-                  <>
-                    <input
-                      type="radio"
-                      name="ship_specification_table_tab"
-                      class="tab"
-                      aria-label={equip_type_name}
-                      onClick={() => set_set_equip_type(equip_type_name)}
-                      checked={set_equip_type() == equip_type_name}
-                    />
-                  </>
-                </Show>
-              )}
-            </For>
+          <div
+            class={`overflow-x-auto max-w-[${table_width}]`}
+            ref={(el) => {
+              scroll_fn(el);
+              drag_scroll_fn(el);
+            }}
+            style={{ "scrollbar-width": "none" }}
+          >
+            <div class="tabs tabs-border tabs-sm min-w-max">
+              <For each={Object.keys(categorized_equips_keys())}>
+                {(equip_type_name) => (
+                  <Show
+                    when={
+                      categorized_equips_keys()[equip_type_name].length != 0
+                    }
+                  >
+                    <>
+                      <input
+                        type="radio"
+                        name="ship_specification_table_tab"
+                        class="tab"
+                        aria-label={equip_type_name}
+                        onClick={() => set_set_equip_type(equip_type_name)}
+                        checked={set_equip_type() == equip_type_name}
+                      />
+                    </>
+                  </Show>
+                )}
+              </For>
+            </div>
           </div>
 
-          <table class={`table table-xs max-w-[${table_width}]`}>
-            {table_header()}
-          </table>
-          {table_element_categorized(
-            categorized_equips_keys()[set_equip_type()]
-          )}
-        </Match>
-        {/* <Match when={set_categorize()}>
-          <table class={`table table-xs max-w-[${table_width}]`}>
-            {table_header()}
-          </table>
-          <For each={Object.keys(categorized_equips_keys())}>
-            {(equip_type_name, equip_type_name_index) => (
-              <Show
-                when={
-                  categorized_equips_keys()[equip_type_name].length != 0
-                }
-              >
-                <ul class="menu bg-base-100 menu-sm p-0">
-                  <li>
-                    <details>
-                      <summary class="ml-10 relative">
-                        <div
-                          class="w-10 h-6 z-[3] bg-base-100 -ml-[52px] px-0"
-                          style={{ position: "sticky", left: "0" }}
-                        />
-                        Category. {equip_type_name_index() + 1} :{" "}
-                        {equip_type_name}
-                      </summary>
-                      <ul class="pl-0 ml-0">
-                        <li>
-                          {table_element(
-                            categorized_equips_keys()[equip_type_name]
-                          )}
-                        </li>
-                      </ul>
-                    </details>
-                  </li>
-                </ul>
-              </Show>
+          <div
+            class={`overflow-x-auto max-w-[${table_width}] border-t-1 border-base-300`}
+            style={{
+              "scrollbar-gutter": "stable",
+              "overflow-x": "scroll",
+              "user-select": "none",
+            }}
+            ref={parentScrollElement}
+          >
+            <div
+              ref={(el) => {
+                scroll_parent_fn(el, parentScrollElement);
+                drag_scroll_fn(parentScrollElement);
+              }}
+            >
+              <table class={`table table-xs max-w-[${table_width}]`}>
+                {table_header()}
+              </table>
+            </div>
+            {table_element_categorized(
+              categorized_equips_keys()[set_equip_type()]
             )}
-          </For>
-        </Match> */}
+          </div>
+        </Match>
         <Match when={!set_categorize()}>
-          <table class={`table table-xs max-w-[${table_width}]`}>
-            {table_header()}
-          </table>
-          {table_element_none_categorized(sorted_equip_keys())}
+          <div
+            class={`overflow-x-auto max-w-[${table_width}]`}
+            style={{
+              "scrollbar-gutter": "stable",
+              "overflow-x": "scroll",
+              "user-select": "none",
+            }}
+            ref={parentScrollElement}
+          >
+            <div
+              ref={(el) => {
+                scroll_parent_fn(el, parentScrollElement);
+                drag_scroll_fn(parentScrollElement);
+              }}
+            >
+              <table class={`table table-xs max-w-[${table_width}]`}>
+                {table_header()}
+              </table>
+            </div>
+            {table_element_none_categorized(sorted_equip_keys())}
+          </div>
         </Match>
       </Switch>
     </>
