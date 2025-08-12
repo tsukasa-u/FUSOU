@@ -63,6 +63,13 @@ export const drag_scroll_fn = (el: HTMLDivElement) => {
 
 export const scroll_parent_fn = (el: HTMLDivElement, pa: HTMLDivElement) => {
   el.addEventListener("wheel", (e) => {
+    if (
+      el.offsetLeft > e.pageX ||
+      e.pageX > el.offsetLeft + el.clientWidth ||
+      el.offsetTop > e.pageY ||
+      e.pageY > el.offsetTop + el.clientHeight
+    )
+      return;
     if (Math.abs(e.deltaY) < Math.abs(e.deltaX)) return;
 
     const maxScrollLeft = pa.scrollWidth - pa.clientWidth;
@@ -80,6 +87,13 @@ export const scroll_parent_fn = (el: HTMLDivElement, pa: HTMLDivElement) => {
 
 export const scroll_fn = (el: HTMLDivElement) => {
   el.addEventListener("wheel", (e) => {
+    if (
+      el.offsetLeft > e.pageX ||
+      e.pageX > el.offsetLeft + el.clientWidth ||
+      el.offsetTop > e.pageY ||
+      e.pageY > el.offsetTop + el.clientHeight
+    )
+      return;
     if (Math.abs(e.deltaY) < Math.abs(e.deltaX)) return;
 
     const maxScrollLeft = el.scrollWidth - el.clientWidth;
