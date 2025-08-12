@@ -19,13 +19,6 @@ import { createStore } from "solid-js/store";
 
 import IconUpArrow from "../icons/up_arrow.tsx";
 import IconDownArrow from "../icons/down_arrow.tsx";
-import IconPlaneProficiency7 from "../icons/plane_proficiency7.tsx";
-import IconPlaneProficiency6 from "../icons/plane_proficiency6.tsx";
-import IconPlaneProficiency5 from "../icons/plane_proficiency5.tsx";
-import IconPlaneProficiency4 from "../icons/plane_proficiency4.tsx";
-import IconPlaneProficiency3 from "../icons/plane_proficiency3.tsx";
-import IconPlaneProficiency2 from "../icons/plane_proficiency2.tsx";
-import IconPlaneProficiency1 from "../icons/plane_proficiency1.tsx";
 
 import { VList } from "virtua/solid";
 import { get_data_set_equip } from "../utility/get_data_set.tsx";
@@ -548,34 +541,6 @@ export function EquipmentListComponent() {
     return set_range_element;
   });
 
-  const proficiency_selector = (alv: number) => {
-    return (
-      <Switch fallback={<></>}>
-        <Match when={alv == 7}>
-          <IconPlaneProficiency7 class="h-5" />
-        </Match>
-        <Match when={alv == 6}>
-          <IconPlaneProficiency6 class="h-5" />
-        </Match>
-        <Match when={alv == 5}>
-          <IconPlaneProficiency5 class="h-5" />
-        </Match>
-        <Match when={alv == 4}>
-          <IconPlaneProficiency4 class="h-5" />
-        </Match>
-        <Match when={alv == 3}>
-          <IconPlaneProficiency3 class="h-5" />
-        </Match>
-        <Match when={alv == 2}>
-          <IconPlaneProficiency2 class="h-5" />
-        </Match>
-        <Match when={alv == 1}>
-          <IconPlaneProficiency1 class="h-5" />
-        </Match>
-      </Switch>
-    );
-  };
-
   const table_line_element = (equip_id: number, index: number) => {
     const data_set = store_equip_data_set()[equip_id];
     let slot_item = data_set.slot_item;
@@ -677,7 +642,8 @@ export function EquipmentListComponent() {
           <td class="w-20 content-center">
             <div class="w-6 flex justify-self-center">
               <span class="flex-1" />
-              {proficiency_selector(slot_item?.alv ?? 0)}
+              {/* {proficiency_selector(slot_item?.alv ?? 0)} */}
+              <icon-plane-proficiency size="xs" level={slot_item?.alv ?? 0} />
             </div>
           </td>
         </Show>
