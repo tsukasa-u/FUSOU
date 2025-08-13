@@ -59,10 +59,11 @@ export function ShipsProvider(props: { children: JSX.Element }) {
     let unlisten_data_add: UnlistenFn;
     (async () => {
       unlisten_data_set = await listen<Ships>("set-kcs-ships", (event) => {
-        // console.log("set-kcs-ships", event.payload);
+        if (import.meta.env.DEV) console.log("set-kcs-ships");
         setData(event.payload);
       });
       unlisten_data_add = await listen<Ships>("add-kcs-ships", (event) => {
+        if (import.meta.env.DEV) console.log("add-kcs-ships");
         Object.entries(event.payload.ships).forEach(([key1, value1]) => {
           if (value1) {
             Object.entries(value1).forEach(([key2, value2]) => {
@@ -112,7 +113,7 @@ export function MstShipsProvider(props: { children: JSX.Element }) {
     let unlisten_data: UnlistenFn;
     (async () => {
       unlisten_data = await listen<MstShips>("set-kcs-mst-ships", (event) => {
-        // console.log("set-kcs-mst-ships", event.payload);
+        if (import.meta.env.DEV) console.log("set-kcs-mst-ships");
         setData(event.payload);
       });
     })();
@@ -148,7 +149,7 @@ export function SlotItemsProvider(props: { children: JSX.Element }) {
     let unlisten_data: UnlistenFn;
     (async () => {
       unlisten_data = await listen<SlotItems>("set-kcs-slot-items", (event) => {
-        // console.log("set-kcs-slot-items", event.payload);
+        if (import.meta.env.DEV) console.log("set-kcs-slot-items");
         setData(event.payload);
       });
     })();
@@ -186,7 +187,7 @@ export function MstSlotItemsProvider(props: { children: JSX.Element }) {
       unlisten_data = await listen<MstSlotItems>(
         "set-kcs-mst-slot-items",
         (event) => {
-          // console.log("set-kcs-mst-slot-items", event.payload);
+          if (import.meta.env.DEV) console.log("set-kcs-mst-slot-items");
           setData(event.payload);
         }
       );
@@ -227,6 +228,8 @@ export function MstEquipExslotShipsProvider(props: { children: JSX.Element }) {
       unlisten_data = await listen<MstEquipExslotShips>(
         "set-kcs-mst-equip-exslot-ships",
         (event) => {
+          if (import.meta.env.DEV)
+            console.log("set-kcs-mst-equip-exslot-ships");
           setData(event.payload);
         }
       );
@@ -274,8 +277,9 @@ export function MstSlotItemEquipTypesProvider(props: {
       unlisten_data = await listen<MstSlotItemEquipTypes>(
         "set-kcs-mst-slot-item-equip-types",
         (event) => {
+          if (import.meta.env.DEV)
+            console.log("set-kcs-mst-slot-item-equip-types");
           setData(event.payload);
-          // console.log("set-kcs-mst-slot-item-equip-types", event.payload);
         }
       );
     })();
@@ -319,6 +323,7 @@ export function MstEquipShipsProvider(props: { children: JSX.Element }) {
       unlisten_data = await listen<MstEquipShips>(
         "set-kcs-mst-equip-ships",
         (event) => {
+          if (import.meta.env.DEV) console.log("set-kcs-mst-equip-ships");
           setData(event.payload);
         }
       );
@@ -355,8 +360,8 @@ export function MstStypesProvider(props: { children: JSX.Element }) {
     let unlisten_data: UnlistenFn;
     (async () => {
       unlisten_data = await listen<MstStypes>("set-kcs-mst-stypes", (event) => {
+        if (import.meta.env.DEV) console.log("set-kcs-mst-stypes");
         setData(event.payload);
-        // console.log("set-kcs-mst-stypes", event.payload);
       });
     })();
 
@@ -393,6 +398,7 @@ export function MstUseItemsProvider(props: { children: JSX.Element }) {
       unlisten_data = await listen<MstUseItems>(
         "set-kcs-mst-use-items",
         (event) => {
+          if (import.meta.env.DEV) console.log("set-kcs-mst-use-items");
           setData(event.payload);
         }
       );
@@ -418,7 +424,7 @@ export function useMstUseItems() {
   return context as [MstUseItems, SetStoreFunction<MstUseItems>];
 }
 
-const MaterialsContext =
+export const MaterialsContext =
   createContext<(Materials | SetStoreFunction<Materials>)[]>();
 
 export function MaterialsProvider(props: { children: JSX.Element }) {
@@ -432,12 +438,14 @@ export function MaterialsProvider(props: { children: JSX.Element }) {
       unlisten_data_set = await listen<Materials>(
         "set-kcs-materials",
         (event) => {
+          if (import.meta.env.DEV) console.log("set-kcs-materials");
           setData(event.payload);
         }
       );
       unlisten_data_add = await listen<Materials>(
         "add-kcs-materials",
         (event) => {
+          if (import.meta.env.DEV) console.log("add-kcs-materials");
           Object.entries(event.payload).forEach(([key, value]) => {
             if (value !== null) {
               setData(key as Part<Materials, keyof Materials>, value);
@@ -479,7 +487,7 @@ export function DeckPortsProvider(props: { children: JSX.Element }) {
     let unlisten_data: UnlistenFn;
     (async () => {
       unlisten_data = await listen<DeckPorts>("set-kcs-deck-ports", (event) => {
-        // console.log("set-kcs-deck-ports", event.payload);
+        if (import.meta.env.DEV) console.log("set-kcs-deck-ports");
         setData(event.payload);
       });
     })();
@@ -518,11 +526,13 @@ export function CellsContextProvider(props: { children: JSX.Element }) {
       unlisten_data_set_cells = await listen<Cells>(
         "set-kcs-cells",
         (event) => {
+          if (import.meta.env.DEV) console.log("set-kcs-cells");
           setData(event.payload);
         }
       );
       // eslint-disable-next-line solid/reactivity
       unlisten_data_add_cell = await listen<Cell>("add-kcs-cell", (event) => {
+        if (import.meta.env.DEV) console.log("add-kcs-cell");
         setData("cells", event.payload.no, event.payload);
         setData("cell_index", data.cell_index.length, event.payload.no);
       });
@@ -530,6 +540,7 @@ export function CellsContextProvider(props: { children: JSX.Element }) {
         "add-kcs-battle",
         // eslint-disable-next-line solid/reactivity
         (event) => {
+          if (import.meta.env.DEV) console.log("add-kcs-battle");
           if (
             Object.prototype.hasOwnProperty.call(
               data.battles,
@@ -575,7 +586,7 @@ export function useCells() {
   return context as [Cells, SetStoreFunction<Cells>];
 }
 
-const AirBasesContext =
+export const AirBasesContext =
   createContext<(AirBases | SetStoreFunction<AirBases>)[]>();
 
 export function AirBasesProvider(props: { children: JSX.Element }) {
@@ -586,6 +597,7 @@ export function AirBasesProvider(props: { children: JSX.Element }) {
     let unlisten_data: UnlistenFn;
     (async () => {
       unlisten_data = await listen<AirBases>("set-kcs-air-bases", (event) => {
+        if (import.meta.env.DEV) console.log("set-kcs-air-bases");
         setData(event.payload);
       });
     })();
@@ -650,6 +662,7 @@ export function AuthProvider(props: { children: JSX.Element }) {
     let unlisten_data: UnlistenFn;
     (async () => {
       unlisten_data = await listen<string[]>("set-supabase-tokens", (event) => {
+        if (import.meta.env.DEV) console.log("set-supabase-tokens");
         setData({
           accessToken: event.payload[0],
           refreshToken: event.payload[1],
@@ -696,6 +709,7 @@ export function DebugApiProvider(props: { children: JSX.Element }) {
       unlisten_data = await listen<string[][]>(
         "set-debug-api-read-dir",
         (event) => {
+          if (import.meta.env.DEV) console.log("set-debug-api-read-dir");
           setData(event.payload);
         }
       );
