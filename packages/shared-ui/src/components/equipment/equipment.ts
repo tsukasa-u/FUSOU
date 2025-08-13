@@ -3,10 +3,10 @@ import { customElement, property } from "lit/decorators.js";
 import globalStyles from "../../global.css?inline";
 
 import type { SlotItem } from "@ipc-bindings/require_info";
-import { default_slotitem } from "@ipc-bindings/default_state/require_info";
+// import { default_slotitem } from "@ipc-bindings/default_state/require_info";
 
 import type { MstSlotItem } from "@ipc-bindings/get_data";
-import { default_mst_slot_item } from "@ipc-bindings/default_state/get_data";
+// import { default_mst_slot_item } from "@ipc-bindings/default_state/get_data";
 
 import "../../icons/equipment";
 import "../../icons/plane-proficiency";
@@ -92,10 +92,10 @@ export class ComponentEquipment extends LitElement {
   static styles = [unsafeCSS(globalStyles)];
 
   @property({ type: Object })
-  slot_item?: SlotItem = default_slotitem;
+  slot_item?: SlotItem = undefined;
 
   @property({ type: Object })
-  mst_slot_item?: MstSlotItem = default_mst_slot_item;
+  mst_slot_item?: MstSlotItem = undefined;
 
   @property({ type: Boolean })
   compact: boolean = false;
@@ -116,37 +116,37 @@ export class ComponentEquipment extends LitElement {
   ex_flag = false;
 
   proficiencyOnslotTemplete() {
-    if (
-      this.slot_item &&
-      this.mst_slot_item &&
-      !this.compact &&
-      !this.empty_flag
-    ) {
-      return html`<div
-          class=${[
-            "grid w-4 place-content-center",
-            class_size[this.size].proficiency_onslot_h,
-          ].join(" ")}
-        >
-          <icon-plane-proficiency
-            class=${class_size[this.size].proficiency_onslot_h}
-            size="full"
-            level=${this.slot_item.alv ?? 0}
-          ></icon-plane-proficiency>
-        </div>
-        <div
-          class=${[
-            "grid w-4 place-content-center cursor-inherit",
-            class_size[this.size].proficiency_onslot_h,
-            class_size[this.size].onslot_text,
-          ].join(" ")}
-        >
-          ${show_onslot(this.mst_slot_item) ? this["attr:onslot"] : ""}
-        </div>`;
-    } else if (!this.compact && this.empty_flag) {
-      return html`<div class="w-4"></div>`;
+    if (this.slot_item && this.mst_slot_item) {
+      if (this.compact) {
+        return html``;
+      } else if (this.empty_flag) {
+        return html`<div class="w-4"></div>`;
+      } else {
+        return html`<div
+            class=${[
+              "grid w-4 place-content-center",
+              class_size[this.size].proficiency_onslot_h,
+            ].join(" ")}
+          >
+            <icon-plane-proficiency
+              class=${class_size[this.size].proficiency_onslot_h}
+              size="full"
+              level=${this.slot_item.alv ?? 0}
+            ></icon-plane-proficiency>
+          </div>
+          <div
+            class=${[
+              "grid w-4 place-content-center cursor-inherit",
+              class_size[this.size].proficiency_onslot_h,
+              class_size[this.size].onslot_text,
+            ].join(" ")}
+          >
+            ${show_onslot(this.mst_slot_item) ? this["attr:onslot"] : ""}
+          </div>`;
+      }
     } else {
-      return html``;
+      if (!this.compact) return html`<div class="w-4"></div>`;
+      else return html``;
     }
   }
 

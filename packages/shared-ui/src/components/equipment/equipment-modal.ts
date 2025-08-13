@@ -3,10 +3,10 @@ import { customElement, property, state } from "lit/decorators.js";
 import globalStyles from "../../global.css?inline";
 
 import type { SlotItem } from "@ipc-bindings/require_info";
-import { default_slotitem } from "@ipc-bindings/default_state/require_info";
+// import { default_slotitem } from "@ipc-bindings/default_state/require_info";
 
 import type { MstSlotItem } from "@ipc-bindings/get_data";
-import { default_mst_slot_item } from "@ipc-bindings/default_state/get_data";
+// import { default_mst_slot_item } from "@ipc-bindings/default_state/get_data";
 
 import "./equipment";
 import "./equipment-table";
@@ -27,10 +27,10 @@ export class ComponentEquipmentModal extends LitElement {
   static styles = [unsafeCSS(globalStyles)];
 
   @property({ type: Object })
-  slot_item?: SlotItem = default_slotitem;
+  slot_item?: SlotItem = undefined;
 
   @property({ type: Object })
-  mst_slot_item?: MstSlotItem = default_mst_slot_item;
+  mst_slot_item?: MstSlotItem = undefined;
 
   @property({ type: Boolean })
   ex_flag: boolean = false;
@@ -59,7 +59,7 @@ export class ComponentEquipmentModal extends LitElement {
     const dialogElement = this.dialogRef.value!;
     dialogElement?.showModal();
   }
-  
+
   private close_modal(e: Event) {
     e.preventDefault();
     this.show_dialog = false;
