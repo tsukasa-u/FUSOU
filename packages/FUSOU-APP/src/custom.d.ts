@@ -24,7 +24,7 @@ import type {
 } from "shared-ui";
 
 interface css_style_props {
-  css?: string;
+  class?: string;
   style?: string;
 }
 
