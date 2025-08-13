@@ -579,7 +579,7 @@ impl AirBaseAirAttack {
         env_uuid: EnvInfoId,
     ) -> Option<Uuid> {
         let air_bases = AirBases::load();
-        let air_base = air_bases.bases.get(&data.base_id)?;
+        let air_base = air_bases.bases.get(&(data.base_id).to_string())?;
 
         let new_uuid = Uuid::new_v4();
         let new_airbase_id = AirBase::new_ret_uuid(air_base.clone(), table, env_uuid);

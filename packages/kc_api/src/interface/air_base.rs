@@ -16,7 +16,7 @@ pub static KCS_AIR_BASE: Lazy<Mutex<AirBases>> = Lazy::new(|| {
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export, export_to = "map_info.ts")]
 pub struct AirBases {
-    pub bases: HashMap<i64, AirBase>,
+    pub bases: HashMap<String, AirBase>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -57,7 +57,10 @@ impl From<Vec<kcapi_main::api_get_member::mapinfo::ApiAirBase>> for AirBases {
     fn from(bases: Vec<kcapi_main::api_get_member::mapinfo::ApiAirBase>) -> Self {
         let mut base_list = HashMap::new();
         for base in bases {
-            base_list.insert((base.api_area_id << 16) | base.api_rid, base.into());
+            base_list.insert(
+                ((base.api_area_id << 16) | base.api_rid).to_string(),
+                base.into(),
+            );
         }
         Self { bases: base_list }
     }
