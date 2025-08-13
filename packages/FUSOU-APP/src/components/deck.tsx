@@ -282,14 +282,18 @@ export function DeckComponent(props: DeckPortProps) {
     return tmp ? (tmp.ship ?? []) : [];
   };
 
-  const get_slot_item = (ship_index: number, slot_id: number) => {
+  const get_slot_item = (
+    ship_index: number,
+    slot_id: number
+  ): SlotItem | undefined => {
     return slot_items_list()[ship_index].slot_items[slot_id];
   };
 
   const get_mst_slot_item = (ship_index: number, slot_id: number) => {
-    return mst_slot_itmes_list()[ship_index].mst_slot_items[
-      get_slot_item(ship_index, slot_id)?.slotitem_id!
-    ];
+    let slot_item_id = get_slot_item(ship_index, slot_id)?.slotitem_id;
+    return slot_item_id
+      ? mst_slot_itmes_list()[ship_index].mst_slot_items[slot_item_id]
+      : undefined;
   };
 
   const get_onslot = (ship_index: number, slot_index: number) => {
@@ -444,22 +448,12 @@ export function DeckComponent(props: DeckPortProps) {
                       </div>
                       <Show when={expandSignal()}>
                         <div class="flex">
-                          <div class="w-[4px]"></div>
+                          <div class="w-[4px]" />
                           <div class="grid grid-cols-5 gap-2 content-center w-60">
                             <For each={ships.ships[shipId]?.slot}>
                               {(slotId, slotId_index) => (
                                 <Show when={slotId > 0}>
                                   <div class="text-base flex justify-center">
-                                    {/* <EquimentComponent
-                                      slot_id={slotId}
-                                      ex_flag={false}
-                                      name_flag={false}
-                                      onslot={
-                                        (ship_list()[ship_index()].onslot ?? [])[
-                                          slotId_index()
-                                        ]
-                                      }
-                                    /> */}
                                     <component-equipment-modal
                                       size="xs"
                                       empty_flag={false}
@@ -482,9 +476,7 @@ export function DeckComponent(props: DeckPortProps) {
                               )}
                             </For>
                           </div>
-                          {/* <span class="w-2" /> */}
                           <div class="divider divider-horizontal mr-0 ml-0" />
-                          {/* <span class="w-2" /> */}
                           <div class="content-center">
                             <div class="text-base flex justify-center w-8">
                               <Show
@@ -492,11 +484,6 @@ export function DeckComponent(props: DeckPortProps) {
                                   (ship_list()[ship_index()].slot_ex ?? 0) > 0
                                 }
                               >
-                                {/* <EquimentComponent
-                                  slot_id={ship_list()[ship_index()].slot_ex ?? 0}
-                                  ex_flag={true}
-                                  name_flag={false}
-                                /> */}
                                 <component-equipment-modal
                                   size="xs"
                                   empty_flag={false}
