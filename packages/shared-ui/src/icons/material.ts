@@ -205,7 +205,6 @@ export class IconMaterial extends LitElement {
       </text>
       <path
         d="M9 32C9 19.85 18.85 10 31 10L119 10C131.15 10 141 19.85 141 32L141 120C141 132.15 131.15 142 119 142L31 142C18.85 142 9 132.15 9 120Z"
-        stroke="#000000"
         stroke-width="4"
         stroke-linejoin="round"
         stroke-miterlimit="10"
