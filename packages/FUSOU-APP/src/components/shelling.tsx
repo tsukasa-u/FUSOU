@@ -22,17 +22,21 @@ export function ShellingComponent(props: ShellingProps) {
   const [deck_ports] = useDeckPorts();
 
   const show_shelling = createMemo<boolean>(() => {
-    if (props.battle_selected() == undefined) return false;
-    if (props.battle_selected().deck_id == null) return false;
-    if (props.battle_selected().hougeki == null) return false;
-    if (props.battle_selected().hougeki[props.shelling_idx] == null)
-      return false;
-    return true;
+    if (props.battle_selected()) {
+      let hougeki = props.battle_selected().hougeki ?? undefined;
+      if (props.battle_selected().deck_id && props.battle_selected().hougeki) {
+        if (hougeki) {
+          if (hougeki[props.shelling_idx]) return true;
+        }
+      }
+    }
+    return false;
   });
 
   const hougeki = createMemo(() => {
-    if (!show_shelling()) return null;
-    return props.battle_selected().hougeki[props.shelling_idx];
+    if (!show_shelling()) return undefined;
+    let hougeki = props.battle_selected().hougeki ?? undefined;
+    return hougeki ? (hougeki[props.shelling_idx] ?? undefined) : undefined;
   });
 
   return (
@@ -53,13 +57,13 @@ export function ShellingComponent(props: ShellingProps) {
                 </tr>
               </thead>
               <tbody>
-                <For each={hougeki()!.at_list}>
+                <For each={hougeki().at_list}>
                   {(at, at_index) => (
                     <tr class="table_hover table_active rounded">
                       <td>
                         <div class="flex flex-nowarp">
                           <Show
-                            when={hougeki()!.at_eflag[at_index()] == 0}
+                            when={hougeki().at_eflag[at_index()] == 0}
                             fallback={
                               <>
                                 <IconFleetNumber
@@ -69,7 +73,7 @@ export function ShellingComponent(props: ShellingProps) {
                                   ship_number={at + 1}
                                   combined_flag={
                                     props.battle_selected().enemy_ship_id
-                                      .length == 12
+                                      ?.length == 12
                                   }
                                 />
                                 <SimpleShipNameComponent
@@ -110,10 +114,10 @@ export function ShellingComponent(props: ShellingProps) {
                       </td>
                       <td>
                         <Show
-                          when={hougeki()!.at_eflag[at_index()] == 0}
+                          when={hougeki().at_eflag[at_index()] == 0}
                           fallback={
                             <SimpleHpBar
-                              v_now={() => hougeki()!.e_now_hps[at_index()][at]}
+                              v_now={() => hougeki().e_now_hps[at_index()][at]}
                               v_max={() =>
                                 props.battle_selected().e_hp_max![at]
                               }
@@ -121,7 +125,7 @@ export function ShellingComponent(props: ShellingProps) {
                           }
                         >
                           <SimpleHpBar
-                            v_now={() => hougeki()!.f_now_hps[at_index()][at]}
+                            v_now={() => hougeki().f_now_hps[at_index()][at]}
                             v_max={() =>
                               ships.ships[
                                 props.deck_ship_id[
@@ -134,11 +138,11 @@ export function ShellingComponent(props: ShellingProps) {
                       </td>
                       <td>
                         <div class="flex flex-col">
-                          <For each={hougeki()!.df_list[at_index()]}>
+                          <For each={hougeki().df_list[at_index()]}>
                             {(df, df_index) => (
                               <div class="flex flex-nowarp">
                                 <Show
-                                  when={hougeki()!.at_eflag[at_index()] == 1}
+                                  when={hougeki().at_eflag[at_index()] == 1}
                                   fallback={
                                     <>
                                       <IconFleetNumber
@@ -191,7 +195,7 @@ export function ShellingComponent(props: ShellingProps) {
                                 </Show>
                                 <Show
                                   when={
-                                    hougeki()!.protect_flag![at_index()][
+                                    hougeki().protect_flag![at_index()][
                                       df_index()
                                     ] == true
                                   }
@@ -205,15 +209,15 @@ export function ShellingComponent(props: ShellingProps) {
                       </td>
                       <td>
                         <div class="flex flex-col">
-                          <For each={hougeki()!.df_list[at_index()]}>
+                          <For each={hougeki().df_list[at_index()]}>
                             {(df) => (
                               <div class="flex flex-nowarp">
                                 <Show
-                                  when={hougeki()!.at_eflag[at_index()] == 1}
+                                  when={hougeki().at_eflag[at_index()] == 1}
                                   fallback={
                                     <SimpleHpBar
                                       v_now={() =>
-                                        hougeki()!.e_now_hps[at_index()][df]
+                                        hougeki().e_now_hps[at_index()][df]
                                       }
                                       v_max={() =>
                                         props.battle_selected().e_hp_max![df]
@@ -223,7 +227,7 @@ export function ShellingComponent(props: ShellingProps) {
                                 >
                                   <SimpleHpBar
                                     v_now={() =>
-                                      hougeki()!.f_now_hps[at_index()][df]
+                                      hougeki().f_now_hps[at_index()][df]
                                     }
                                     v_max={() =>
                                       ships.ships[
@@ -241,12 +245,12 @@ export function ShellingComponent(props: ShellingProps) {
                       </td>
                       <td>
                         <div class="flex flex-col">
-                          <For each={hougeki()!.damage[at_index()]}>
+                          <For each={hougeki().damage[at_index()]}>
                             {(dmg, dmg_index) => (
                               <div
                                 class={(() => {
                                   let cl_flag =
-                                    hougeki()!.cl_list[at_index()][dmg_index()];
+                                    hougeki().cl_list[at_index()][dmg_index()];
                                   if (cl_flag == 0 || dmg == 0) {
                                     return "text-red-500";
                                   } else if (cl_flag == 2) {
@@ -263,13 +267,13 @@ export function ShellingComponent(props: ShellingProps) {
                       <td>
                         <div
                           class={
-                            hougeki()!.df_list![at_index()].length == 1
+                            hougeki().df_list![at_index()].length == 1
                               ? "flex flex-nowrap"
                               : "flex flex-col"
                           }
                         >
-                          <Show when={hougeki()!.si_list![at_index()] != null}>
-                            <For each={hougeki()!.si_list![at_index()]}>
+                          <Show when={hougeki().si_list![at_index()] != null}>
+                            <For each={hougeki().si_list![at_index()]}>
                               {(si) => (
                                 <Show when={si != null}>
                                   <MstEquipmentComponent
@@ -277,7 +281,7 @@ export function ShellingComponent(props: ShellingProps) {
                                     name_flag={true}
                                     compact={true}
                                     show_param={
-                                      hougeki()!.at_eflag![at_index()] == 0
+                                      hougeki().at_eflag![at_index()] == 0
                                     }
                                   />
                                 </Show>
