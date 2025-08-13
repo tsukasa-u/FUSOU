@@ -34,7 +34,7 @@ packages/FUSOU-PROXY/proxy_rust/proxy-https/proxy.pac
 packages/FUSOU-PROXY-DATA*/
 
 packages/FUSOU-APP/src/pages/vanilla/env.js
-packages/FUSOU-APP/src/stories/data
+# packages/FUSOU-APP/src/stories/data
 packages/FUSOU-APP/src-tauri/gen/
 packages/FUSOU-APP/src-tauri/ca
 packages/FUSOU-APP/src-tauri/user/ENV_UNIQ_ID
