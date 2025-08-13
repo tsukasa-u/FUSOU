@@ -3,10 +3,10 @@ import { customElement, property } from "lit/decorators.js";
 import globalStyles from "../../global.css?inline";
 
 import type { SlotItem } from "@ipc-bindings/require_info";
-import { default_slotitem } from "@ipc-bindings/default_state/require_info";
+// import { default_slotitem } from "@ipc-bindings/default_state/require_info";
 
 import type { MstSlotItem } from "@ipc-bindings/get_data";
-import { default_mst_slot_item } from "@ipc-bindings/default_state/get_data";
+// import { default_mst_slot_item } from "@ipc-bindings/default_state/get_data";
 
 import "../../icons/error";
 
@@ -57,10 +57,10 @@ export class ComponentEquipmentTable extends LitElement {
   static styles = [unsafeCSS(globalStyles)];
 
   @property({ type: Object })
-  slot_item?: SlotItem = default_slotitem;
+  slot_item?: SlotItem = undefined;
 
   @property({ type: Object })
-  mst_slot_item?: MstSlotItem = default_mst_slot_item;
+  mst_slot_item?: MstSlotItem = undefined;
 
   @property({ type: String })
   size: keyof typeof class_size = "sm";
@@ -75,13 +75,19 @@ export class ComponentEquipmentTable extends LitElement {
         ].join(" ")}>
           ${this.mst_slot_item.name ?? "Unknown"}
         </h3>
-        <div class=${["place-self-end pl-4 text-accent", class_size[this.size].level_text].join(" ")}>
+        <div class=${[
+          "place-self-end pl-4 text-accent",
+          class_size[this.size].level_text,
+        ].join(" ")}>
           ${signed_number(this.slot_item.level ?? 0)}
         </div>
       </div>
       <div class="pt-2 cursor-default">
         <table class=${["table", class_size[this.size].table].join(" ")}>
-          <caption class=${["truncate pb-2", class_size[this.size].caption_text].join(" ")}>
+          <caption class=${[
+            "truncate pb-2",
+            class_size[this.size].caption_text,
+          ].join(" ")}>
             Equipment Status
           </caption>
           <tbody>
