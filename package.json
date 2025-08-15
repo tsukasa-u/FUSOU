@@ -4,16 +4,16 @@
   "description": "",
   "main": "index.js",
   "engines": {
-    "node": "22.16.x",
-    "npm": "10.9.x",
+    "node": ">=22.16.x",
+    "npm": ">=10.9.x",
     "pnpm": ">=10.14.x"
   },
   "workspaces": [
     "packages/*"
   ],
   "scripts": {
-    "env.encrypt": "dotenvx encrypt -fk ./packages/.env.keys -f ./packages/FUSOU-WEB/.env -f ./packages/FUSOU-APP/kc_api/.env -f ./packages/FUSOU-APP/src-tauri/.env -f ./packages/FUSOU-APP/.env",
-    "env.decrypt": "dotenvx decrypt -fk ./packages/.env.keys -f ./packages/FUSOU-WEB/.env -f ./packages/FUSOU-APP/kc_api/.env -f ./packages/FUSOU-APP/src-tauri/.env -f ./packages/FUSOU-APP/.env",
+    "env.encrypt": "dotenvx encrypt -fk ./packages/.env.keys -f ./packages/FUSOU-WEB/.env -f ./packages/FUSOU-APP/src-tauri/.env -f ./packages/FUSOU-APP/.env",
+    "env.decrypt": "dotenvx decrypt -fk ./packages/.env.keys -f ./packages/FUSOU-WEB/.env -f ./packages/FUSOU-APP/src-tauri/.env -f ./packages/FUSOU-APP/.env",
     "env.ls": "dotenvx ls"
   },
   "keywords": [],

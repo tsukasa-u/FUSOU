@@ -45,6 +45,7 @@ import { DestructionBattleComponent } from "./destruction_battle";
 import { DestructionBattleSummaryComponent } from "./destruction_battle_summary";
 import { EquimentComponent } from "./equipment";
 import { MstEquipmentComponent } from "./mst_equipment";
+import { DataSetShip, get_data_set_ship } from "../utility/get_data_set";
 
 export function BattlesComponent() {
   // const [battles, ] = useBattles();
@@ -58,20 +59,21 @@ export function BattlesComponent() {
 
   const deck_ship_id = createMemo<{ [key: number]: number[] }>(() => {
     const deck_ship_id: { [key: number]: number[] } = {};
-    for (const j of Object.keys(deck_ports.deck_ports)) {
-      for (const i of Object.keys(deck_ports.deck_ports[Number(j)].ship)) {
-        if (deck_ship_id[Number(j)] ?? -1 > 0) {
-          deck_ship_id[Number(j)].push(
-            deck_ports.deck_ports[Number(j)].ship[Number(i)]
-          );
-        }
-      }
-      deck_ship_id[Number(j)] = deck_ports.deck_ports[Number(j)].ship;
-    }
+    Object.entries(deck_ports.deck_ports).forEach(([deck_id, deck]) => {
+      deck_ship_id[Number(deck_id)] = [];
+      deck?.ship?.forEach((ship_id) => {
+        deck_ship_id[Number(deck_id)].push(ship_id);
+      });
+    });
     return deck_ship_id;
   });
 
-  const battle_selected = createMemo<Battle>(() => {
+  const store_data_set_deck_ship = createMemo<DataSetShip>(() => {
+    let ship_id_flatten = Object.values(deck_ship_id()).flat();
+    return get_data_set_ship(ship_id_flatten);
+  });
+
+  const battle_selected = createMemo<Battle | undefined>(() => {
     return cells.battles[cells.cell_index[cell_index_selected()]];
   });
 
@@ -98,10 +100,10 @@ export function BattlesComponent() {
 
   const battle_history = createMemo<JSX.Element[]>(() => {
     if (!show_battle()) return [];
-    if (battle_selected().battle_order == null) return [];
+    if ((battle_selected()?.battle_order ?? undefined) == undefined) return [];
 
     const battle_history: JSX.Element[] = [];
-    battle_selected().battle_order!.forEach((order) => {
+    battle_selected().battle_order.forEach((order) => {
       if (implementsAirBaseAssult(order)) {
         battle_history.push(
           <AirBaseAssaultComponent

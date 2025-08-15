@@ -12,15 +12,16 @@ import type {
 import type { Ship } from "@ipc-bindings/port";
 import type { SlotItem, SlotItems } from "@ipc-bindings/require_info";
 
+export type DataSetEquip = {
+  [key: number]: {
+    slot_item: SlotItem | undefined;
+    mst_slot_item: MstSlotItem | undefined;
+  };
+};
 export const get_data_set_equip = (equip_ids: number[]) => {
   const [slot_items] = useSlotItems();
   const [mst_slot_items] = useMstSlotItems();
-  let ret: {
-    [key: number]: {
-      slot_item: SlotItem | undefined;
-      mst_slot_item: MstSlotItem | undefined;
-    };
-  } = {};
+  let ret: DataSetEquip = {};
   equip_ids.forEach((equip_id) => {
     const slot_item = slot_items.slot_items[equip_id];
 
@@ -38,19 +39,20 @@ export const get_data_set_equip = (equip_ids: number[]) => {
   return ret;
 };
 
+export type DataSetShip = {
+  [key: number]: {
+    ship: Ship | undefined;
+    mst_ship: MstShip | undefined;
+    slot_items: SlotItems | undefined;
+    mst_slot_items: MstSlotItems | undefined;
+  };
+};
 export const get_data_set_ship = (ship_ids: number[]) => {
   const [ships] = useShips();
   const [mst_ships] = useMstShips();
   const [slot_items] = useSlotItems();
   const [mst_slot_items] = useMstSlotItems();
-  let ret: {
-    [key: number]: {
-      ship: Ship | undefined;
-      mst_ship: MstShip | undefined;
-      slot_items: SlotItems | undefined;
-      mst_slot_items: MstSlotItems | undefined;
-    };
-  } = {};
+  let ret: DataSetShip = {};
   ship_ids.forEach((ship_id) => {
     const ship = ships.ships[ship_id];
 
