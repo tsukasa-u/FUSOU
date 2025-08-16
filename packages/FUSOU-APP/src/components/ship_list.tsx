@@ -353,7 +353,7 @@ export function ShipListComponent() {
     return ret;
   });
 
-  const set_range_window = createMemo(() => {
+  const set_range_window = () => {
     let set_range_element: { [key: string]: JSX.Element } = {};
     let params = [
       "Level",
@@ -506,9 +506,9 @@ export function ShipListComponent() {
       );
     });
     return set_range_element;
-  });
+  };
 
-  const set_discrete_range_window = createMemo(() => {
+  const set_discrete_range_window = () => {
     let set_range_element: { [key: string]: JSX.Element } = {};
     let params = ["Speed", "Range"];
     let params_option = [
@@ -695,7 +695,7 @@ export function ShipListComponent() {
       );
     });
     return set_range_element;
-  });
+  };
 
   const table_line_element = (ship_id: number, index: number) => {
     const data_set = store_ship_data_set()[ship_id];
