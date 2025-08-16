@@ -26,6 +26,12 @@ export type DataSetParamShip = {
   e_escort_mst_ship: (MstShip | undefined)[];
   e_escort_mst_slot_items: (MstSlotItems | undefined)[];
   e_escort_color: (string | undefined)[];
+  e_ship_param: number[][];
+  e_ship_slot: number[][];
+  e_ship_max_hp: number[];
+  e_mst_ship: (MstShip | undefined)[];
+  e_mst_slot_items: (MstSlotItems | undefined)[];
+  e_color: (string | undefined)[];
   f_friend_ship_param: number[][];
   f_friend_ship_slot: number[][];
   f_friend_ship_max_hp: number[];
@@ -50,6 +56,12 @@ export const get_data_set_param_ship = (
       e_escort_mst_ship: [],
       e_escort_mst_slot_items: [],
       e_escort_color: [],
+      e_ship_param: [[]],
+      e_ship_slot: [[]],
+      e_ship_max_hp: [],
+      e_mst_ship: [],
+      e_mst_slot_items: [],
+      e_color: [],
       f_friend_ship_param: [[]],
       f_friend_ship_slot: [[]],
       f_friend_ship_max_hp: [],
@@ -145,6 +157,12 @@ export const get_data_set_param_ship = (
     e_escort_mst_ship: e_escort_mst_ship,
     e_escort_mst_slot_items: e_escort_mst_slot_items,
     e_escort_color: e_escort_color,
+    e_ship_param: [...e_main_ship_param, ...e_escort_ship_param],
+    e_ship_slot: [...e_main_ship_slot, ...e_escort_ship_slot],
+    e_ship_max_hp: [...e_main_ship_max_hp, ...e_escort_ship_max_hp],
+    e_mst_ship: [...e_main_mst_ship, ...e_escort_mst_ship],
+    e_mst_slot_items: [...e_main_mst_slot_items, ...e_escort_mst_slot_items],
+    e_color: [...e_main_color, ...e_escort_color],
     f_friend_ship_param: f_friend_ship_param,
     f_friend_ship_slot: f_friend_ship_slot,
     f_friend_ship_max_hp: f_friend_ship_max_hp,
