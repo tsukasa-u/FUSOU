@@ -384,7 +384,7 @@ export function EquipmentListComponent() {
     return ret;
   });
 
-  const set_range_window = createMemo(() => {
+  const set_range_window = () => {
     let set_range_element: { [key: string]: JSX.Element } = {};
     let params = [
       "Level",
@@ -539,7 +539,7 @@ export function EquipmentListComponent() {
       );
     });
     return set_range_element;
-  });
+  };
 
   const table_line_element = (equip_id: number, index: number) => {
     const data_set = store_equip_data_set()[equip_id];
