@@ -8,6 +8,7 @@ import { useDeckPorts } from "../utility/provider";
 import IconExit from "../icons/exit";
 import { DataSetParamShip, DataSetShip } from "../utility/get_data_set";
 import { DeckShipIds } from "../utility/battles";
+import "shared-ui";
 
 interface ButtleSummaryProps {
   deck_ship_id: () => DeckShipIds;
