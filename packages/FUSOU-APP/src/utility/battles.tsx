@@ -3,6 +3,24 @@ import { DataSetShip, get_data_set_ship } from "./get_data_set";
 import { useCells, useDeckPorts, useMstSlotItems } from "./provider";
 import { Battle } from "@ipc-bindings/battle";
 
+export const calc_critical = (
+  dmg: number,
+  cl_flag: number | undefined
+): string => {
+  if (cl_flag == 0 || dmg == 0) {
+    return "text-red-500";
+  } else if (cl_flag == 2) {
+    return "text-yellow-500";
+  } else {
+    return "";
+  }
+};
+
+export const get_mst_slot_item = (id: number) => {
+  const [mst_slot_items] = useMstSlotItems();
+  return mst_slot_items.mst_slot_items[id];
+};
+
 export const get_mst_slot_items_list = (
   mst_slot_item_ids: number[][]
 ): MstSlotItems[] => {
