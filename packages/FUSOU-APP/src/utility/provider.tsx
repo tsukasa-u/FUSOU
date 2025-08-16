@@ -512,7 +512,8 @@ export function useDeckPorts() {
   return context as [DeckPorts, SetStoreFunction<DeckPorts>];
 }
 
-const CellsContext = createContext<(Cells | SetStoreFunction<Cells>)[]>();
+export const CellsContext =
+  createContext<(Cells | SetStoreFunction<Cells>)[]>();
 
 export function CellsContextProvider(props: { children: JSX.Element }) {
   const [data, setData] = createStore(default_cells);
