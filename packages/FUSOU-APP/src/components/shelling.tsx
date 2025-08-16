@@ -3,18 +3,22 @@ import { ShipNameComponent } from "./ship_name";
 import { createMemo, For, Show } from "solid-js";
 
 import "../css/divider.css";
-import { SimpleShipNameComponent } from "./simple_ship_name";
+// import { SimpleShipNameComponent } from "./simple_ship_name";
 import type { Battle } from "@ipc-bindings/battle";
 import IconShield from "../icons/shield";
 import { SimpleHpBar } from "./simple_hp_bar";
 import { useDeckPorts, useShips } from "../utility/provider";
 import IconFleetNumber from "../icons/fleet_number";
 import { MstEquipmentComponent } from "./mst_equipment";
+import "shared-ui";
+import { DataSetParamShip, DataSetShip } from "src/utility/get_data_set";
 
 interface ShellingProps {
   deck_ship_id: { [key: number]: number[] };
   battle_selected: () => Battle;
   shelling_idx: number;
+  store_data_set_deck_ship: () => DataSetShip;
+  store_data_set_param_ship: () => DataSetParamShip;
 }
 
 export function ShellingComponent(props: ShellingProps) {
@@ -57,17 +61,17 @@ export function ShellingComponent(props: ShellingProps) {
                 </tr>
               </thead>
               <tbody>
-                <For each={hougeki().at_list}>
+                <For each={hougeki()?.at_list}>
                   {(at, at_index) => (
-                    <tr class="table_hover table_active rounded">
+                    <tr class="rounded">
                       <td>
                         <div class="flex flex-nowarp">
                           <Show
                             when={hougeki().at_eflag[at_index()] == 0}
                             fallback={
                               <>
-                                <IconFleetNumber
-                                  class="h-6 -mt-1 pr-1"
+                                <icon-fleet-number
+                                  size="xs"
                                   e_flag={1}
                                   fleet_number={1}
                                   ship_number={at + 1}
@@ -76,26 +80,42 @@ export function ShellingComponent(props: ShellingProps) {
                                       ?.length == 12
                                   }
                                 />
-                                <SimpleShipNameComponent
-                                  ship_id={
-                                    props.battle_selected().enemy_ship_id[at]
-                                  }
+                                <component-ship-masked-modal
+                                  size="xs"
                                   ship_max_hp={
-                                    props.battle_selected().e_hp_max![at]
+                                    props.store_data_set_param_ship()
+                                      .e_ship_max_hp[at]
                                   }
                                   ship_param={
-                                    props.battle_selected().e_params![at]
+                                    props.store_data_set_param_ship()
+                                      .e_ship_param[at]
                                   }
                                   ship_slot={
-                                    props.battle_selected().e_slot![at]
+                                    props.store_data_set_param_ship()
+                                      .e_ship_slot[at]
                                   }
+                                  mst_ship={
+                                    props.store_data_set_param_ship()
+                                      .e_mst_ship[at]
+                                  }
+                                  mst_slot_items={
+                                    props.store_data_set_param_ship()
+                                      .e_mst_slot_items[at]
+                                  }
+                                  color={
+                                    props.store_data_set_param_ship().e_color[
+                                      at
+                                    ]
+                                  }
+                                  empty_flag={false}
+                                  name_flag={true}
                                 />
                               </>
                             }
                           >
                             <>
-                              <IconFleetNumber
-                                class="h-6 -mt-1 pr-1"
+                              <icon-fleet-number
+                                size="xs"
                                 e_flag={0}
                                 fleet_number={1}
                                 ship_number={at + 1}
@@ -118,9 +138,7 @@ export function ShellingComponent(props: ShellingProps) {
                           fallback={
                             <SimpleHpBar
                               v_now={() => hougeki().e_now_hps[at_index()][at]}
-                              v_max={() =>
-                                props.battle_selected().e_hp_max![at]
-                              }
+                              v_max={() => props.battle_selected().e_hp_max[at]}
                             />
                           }
                         >
@@ -145,31 +163,44 @@ export function ShellingComponent(props: ShellingProps) {
                                   when={hougeki().at_eflag[at_index()] == 1}
                                   fallback={
                                     <>
-                                      <IconFleetNumber
-                                        class="h-6 -mt-1 pr-1"
+                                      <icon-fleet-number
+                                        size="xs"
                                         e_flag={1}
                                         fleet_number={1}
                                         ship_number={df + 1}
                                         combined_flag={
                                           props.battle_selected().enemy_ship_id
-                                            .length == 12
+                                            ?.length == 12
                                         }
                                       />
-                                      <SimpleShipNameComponent
-                                        ship_id={
-                                          props.battle_selected().enemy_ship_id[
-                                            df
-                                          ]
-                                        }
+                                      <component-ship-masked-modal
+                                        size="xs"
                                         ship_max_hp={
-                                          props.battle_selected().e_hp_max![df]
+                                          props.store_data_set_param_ship()
+                                            .e_ship_max_hp[df]
                                         }
                                         ship_param={
-                                          props.battle_selected().e_params![df]
+                                          props.store_data_set_param_ship()
+                                            .e_ship_param[df]
                                         }
                                         ship_slot={
-                                          props.battle_selected().e_slot![df]
+                                          props.store_data_set_param_ship()
+                                            .e_ship_slot[df]
                                         }
+                                        mst_ship={
+                                          props.store_data_set_param_ship()
+                                            .e_mst_ship[df]
+                                        }
+                                        mst_slot_items={
+                                          props.store_data_set_param_ship()
+                                            .e_mst_slot_items[df]
+                                        }
+                                        color={
+                                          props.store_data_set_param_ship()
+                                            .e_color[df]
+                                        }
+                                        empty_flag={false}
+                                        name_flag={true}
                                       />
                                     </>
                                   }
@@ -195,7 +226,7 @@ export function ShellingComponent(props: ShellingProps) {
                                 </Show>
                                 <Show
                                   when={
-                                    hougeki().protect_flag![at_index()][
+                                    hougeki().protect_flag[at_index()][
                                       df_index()
                                     ] == true
                                   }
@@ -220,7 +251,7 @@ export function ShellingComponent(props: ShellingProps) {
                                         hougeki().e_now_hps[at_index()][df]
                                       }
                                       v_max={() =>
-                                        props.battle_selected().e_hp_max![df]
+                                        props.battle_selected().e_hp_max[df]
                                       }
                                     />
                                   }
@@ -267,13 +298,13 @@ export function ShellingComponent(props: ShellingProps) {
                       <td>
                         <div
                           class={
-                            hougeki().df_list![at_index()].length == 1
+                            hougeki().df_list[at_index()].length == 1
                               ? "flex flex-nowrap"
                               : "flex flex-col"
                           }
                         >
-                          <Show when={hougeki().si_list![at_index()] != null}>
-                            <For each={hougeki().si_list![at_index()]}>
+                          <Show when={hougeki().si_list[at_index()] != null}>
+                            <For each={hougeki().si_list[at_index()]}>
                               {(si) => (
                                 <Show when={si != null}>
                                   <MstEquipmentComponent
@@ -281,7 +312,7 @@ export function ShellingComponent(props: ShellingProps) {
                                     name_flag={true}
                                     compact={true}
                                     show_param={
-                                      hougeki().at_eflag![at_index()] == 0
+                                      hougeki().at_eflag[at_index()] == 0
                                     }
                                   />
                                 </Show>
