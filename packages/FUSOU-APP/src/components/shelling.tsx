@@ -90,11 +90,11 @@ export function ShellingComponent(props: ShellingProps) {
                 color=""
                 empty_flag={false}
                 name_flag={true}
-                ship={props.store_data_set_deck_ship()[at].ship}
-                mst_ship={props.store_data_set_deck_ship()[at].mst_ship}
-                slot_items={props.store_data_set_deck_ship()[at].slot_items}
+                ship={props.store_data_set_deck_ship()[at]?.ship}
+                mst_ship={props.store_data_set_deck_ship()[at]?.mst_ship}
+                slot_items={props.store_data_set_deck_ship()[at]?.slot_items}
                 mst_slot_items={
-                  props.store_data_set_deck_ship()[at].mst_slot_items
+                  props.store_data_set_deck_ship()[at]?.mst_slot_items
                 }
               />
             </>
@@ -107,7 +107,7 @@ export function ShellingComponent(props: ShellingProps) {
   const attacker_hp = (at: number, at_index: () => number) => {
     if (hougeki()?.at_eflag[at_index()] == 0) {
       let v_now = hougeki()?.f_now_hps[at_index()][at];
-      let v_max = props.store_data_set_deck_ship()[at].ship?.maxhp;
+      let v_max = props.store_data_set_deck_ship()[at]?.ship?.maxhp;
       return (
         <td>
           <component-color-bar-label
@@ -190,13 +190,13 @@ export function ShellingComponent(props: ShellingProps) {
                       size="xs"
                       empty_flag={false}
                       name_flag={true}
-                      ship={props.store_data_set_deck_ship()[df].ship}
-                      mst_ship={props.store_data_set_deck_ship()[df].mst_ship}
+                      ship={props.store_data_set_deck_ship()[df]?.ship}
+                      mst_ship={props.store_data_set_deck_ship()[df]?.mst_ship}
                       slot_items={
-                        props.store_data_set_deck_ship()[df].slot_items
+                        props.store_data_set_deck_ship()[df]?.slot_items
                       }
                       mst_slot_items={
-                        props.store_data_set_deck_ship()[df].mst_slot_items
+                        props.store_data_set_deck_ship()[df]?.mst_slot_items
                       }
                       color=""
                     />
@@ -221,7 +221,7 @@ export function ShellingComponent(props: ShellingProps) {
             {(df) => {
               if (hougeki()?.at_eflag[at_index()] == 0) {
                 let v_now = hougeki()?.f_now_hps[at_index()][df];
-                let v_max = props.store_data_set_deck_ship()[df].ship?.maxhp;
+                let v_max = props.store_data_set_deck_ship()[df]?.ship?.maxhp;
                 return (
                   <div class="flex flex-nowarp">
                     <component-color-bar-label
