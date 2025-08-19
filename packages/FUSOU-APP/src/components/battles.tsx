@@ -101,6 +101,10 @@ export function BattlesComponent() {
     );
   });
 
+  createEffect(() => {
+    console.log(cells);
+  });
+
   const show_battle = createMemo<boolean>(() => {
     if (Object.keys(cells.battles).length == 0) return false;
     if (
@@ -199,8 +203,10 @@ export function BattlesComponent() {
       if (implementsHougeki(order)) {
         battle_history.push(
           <ShellingComponent
-            deck_ship_id={deck_ship_id()}
+            deck_ship_id={deck_ship_id}
             battle_selected={battle_selected}
+            store_data_set_deck_ship={store_data_set_deck_ship}
+            store_data_set_param_ship={store_data_set_param_ship}
             shelling_idx={order.Hougeki - 1}
           />
         );
