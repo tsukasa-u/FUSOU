@@ -41,73 +41,72 @@ export function ShellingComponent(props: ShellingProps) {
   });
 
   const attacker_ship = (at: number, at_index: () => number) => {
-    return (
-      <td>
-        <div class="flex flex-nowarp">
-          <Show
-            when={hougeki()?.at_eflag[at_index()] == 0}
-            fallback={
-              <>
-                <icon-fleet-number
-                  size="xs"
-                  e_flag={1}
-                  fleet_number={1}
-                  ship_number={at + 1}
-                  combined_flag={
-                    props.battle_selected()?.enemy_ship_id?.length == 12
-                  }
-                />
-                <component-ship-masked-modal
-                  size="xs"
-                  ship_max_hp={
-                    props.store_data_set_param_ship().e_ship_max_hp[at]
-                  }
-                  ship_param={
-                    props.store_data_set_param_ship().e_ship_param[at]
-                  }
-                  ship_slot={props.store_data_set_param_ship().e_ship_slot[at]}
-                  mst_ship={props.store_data_set_param_ship().e_mst_ship[at]}
-                  mst_slot_items={
-                    props.store_data_set_param_ship().e_mst_slot_items[at]
-                  }
-                  color={props.store_data_set_param_ship().e_color[at]}
-                  empty_flag={false}
-                  name_flag={true}
-                />
-              </>
-            }
-          >
-            <>
-              <icon-fleet-number
-                size="xs"
-                e_flag={0}
-                fleet_number={1}
-                ship_number={at + 1}
-                combined_flag={deck_ports.combined_flag == 1}
-              />
-              <component-ship-modal
-                size="xs"
-                color=""
-                empty_flag={false}
-                name_flag={true}
-                ship={props.store_data_set_deck_ship()[at]?.ship}
-                mst_ship={props.store_data_set_deck_ship()[at]?.mst_ship}
-                slot_items={props.store_data_set_deck_ship()[at]?.slot_items}
-                mst_slot_items={
-                  props.store_data_set_deck_ship()[at]?.mst_slot_items
-                }
-              />
-            </>
-          </Show>
-        </div>
-      </td>
-    );
+    if (hougeki()?.at_eflag[at_index()] == 0) {
+      let ship_id =
+        props.deck_ship_id()[props.battle_selected()?.deck_id ?? 1][at];
+      return (
+        <td>
+          <div class="flex flex-nowarp">
+            <icon-fleet-number
+              size="xs"
+              e_flag={0}
+              fleet_number={props.battle_selected()?.deck_id ?? 1}
+              ship_number={at + 1}
+              combined_flag={deck_ports.combined_flag == 1}
+            />
+            <component-ship-modal
+              size="xs"
+              color=""
+              empty_flag={false}
+              name_flag={true}
+              ship={props.store_data_set_deck_ship()[ship_id]?.ship}
+              mst_ship={props.store_data_set_deck_ship()[ship_id]?.mst_ship}
+              slot_items={props.store_data_set_deck_ship()[ship_id]?.slot_items}
+              mst_slot_items={
+                props.store_data_set_deck_ship()[ship_id]?.mst_slot_items
+              }
+            />
+          </div>
+        </td>
+      );
+    } else {
+      return (
+        <td>
+          <div class="flex flex-nowarp">
+            <icon-fleet-number
+              size="xs"
+              e_flag={1}
+              fleet_number={1}
+              ship_number={at + 1}
+              combined_flag={
+                props.battle_selected()?.enemy_ship_id?.length == 12
+              }
+            />
+            <component-ship-masked-modal
+              size="xs"
+              ship_max_hp={props.store_data_set_param_ship().e_ship_max_hp[at]}
+              ship_param={props.store_data_set_param_ship().e_ship_param[at]}
+              ship_slot={props.store_data_set_param_ship().e_ship_slot[at]}
+              mst_ship={props.store_data_set_param_ship().e_mst_ship[at]}
+              mst_slot_items={
+                props.store_data_set_param_ship().e_mst_slot_items[at]
+              }
+              color={props.store_data_set_param_ship().e_color[at]}
+              empty_flag={false}
+              name_flag={true}
+            />
+          </div>
+        </td>
+      );
+    }
   };
 
   const attacker_hp = (at: number, at_index: () => number) => {
     if (hougeki()?.at_eflag[at_index()] == 0) {
+      let ship_id =
+        props.deck_ship_id()[props.battle_selected()?.deck_id ?? 1][at];
       let v_now = hougeki()?.f_now_hps[at_index()][at];
-      let v_max = props.store_data_set_deck_ship()[at]?.ship?.maxhp;
+      let v_max = props.store_data_set_deck_ship()[ship_id]?.ship?.maxhp;
       return (
         <td>
           <component-color-bar-label
@@ -135,82 +134,93 @@ export function ShellingComponent(props: ShellingProps) {
   };
 
   const defenser_ships = (at_index: () => number) => {
-    return (
-      <td>
-        <div class="flex flex-col">
-          <For each={hougeki()?.df_list[at_index()]}>
-            {(df, df_index) => (
-              <div class="flex flex-nowarp">
-                <Show
-                  when={hougeki()?.at_eflag[at_index()] == 1}
-                  fallback={
-                    <>
-                      <icon-fleet-number
-                        size="xs"
-                        e_flag={1}
-                        fleet_number={1}
-                        ship_number={df + 1}
-                        combined_flag={
-                          props.battle_selected()?.enemy_ship_id?.length == 12
-                        }
-                      />
-                      <component-ship-masked-modal
-                        size="xs"
-                        ship_max_hp={
-                          props.store_data_set_param_ship().e_ship_max_hp[df]
-                        }
-                        ship_param={
-                          props.store_data_set_param_ship().e_ship_param[df]
-                        }
-                        ship_slot={
-                          props.store_data_set_param_ship().e_ship_slot[df]
-                        }
-                        mst_ship={
-                          props.store_data_set_param_ship().e_mst_ship[df]
-                        }
-                        mst_slot_items={
-                          props.store_data_set_param_ship().e_mst_slot_items[df]
-                        }
-                        color={props.store_data_set_param_ship().e_color[df]}
-                        empty_flag={false}
-                        name_flag={true}
-                      />
-                    </>
-                  }
-                >
-                  <>
-                    <icon-fleet-number
-                      size="xs"
-                      e_flag={0}
-                      fleet_number={1}
-                      ship_number={df + 1}
-                      combined_flag={deck_ports.combined_flag == 1}
-                    />
-                    <component-ship-modal
-                      size="xs"
-                      empty_flag={false}
-                      name_flag={true}
-                      ship={props.store_data_set_deck_ship()[df]?.ship}
-                      mst_ship={props.store_data_set_deck_ship()[df]?.mst_ship}
-                      slot_items={
-                        props.store_data_set_deck_ship()[df]?.slot_items
-                      }
-                      mst_slot_items={
-                        props.store_data_set_deck_ship()[df]?.mst_slot_items
-                      }
-                      color=""
-                    />
-                  </>
-                </Show>
-                <Show when={hougeki()?.protect_flag[at_index()][df_index()]}>
-                  <IconShield class="h-5 w-5" />
-                </Show>
-              </div>
-            )}
-          </For>
-        </div>
-      </td>
-    );
+    if (hougeki()?.at_eflag[at_index()] == 0) {
+      return (
+        <td>
+          <div class="flex flex-col">
+            <For each={hougeki()?.df_list[at_index()]}>
+              {(df, df_index) => (
+                <div class="flex flex-nowarp">
+                  <icon-fleet-number
+                    size="xs"
+                    e_flag={1}
+                    fleet_number={1}
+                    ship_number={df + 1}
+                    combined_flag={
+                      props.battle_selected()?.enemy_ship_id?.length == 12
+                    }
+                  />
+                  <component-ship-masked-modal
+                    size="xs"
+                    ship_max_hp={
+                      props.store_data_set_param_ship().e_ship_max_hp[df]
+                    }
+                    ship_param={
+                      props.store_data_set_param_ship().e_ship_param[df]
+                    }
+                    ship_slot={
+                      props.store_data_set_param_ship().e_ship_slot[df]
+                    }
+                    mst_ship={props.store_data_set_param_ship().e_mst_ship[df]}
+                    mst_slot_items={
+                      props.store_data_set_param_ship().e_mst_slot_items[df]
+                    }
+                    color={props.store_data_set_param_ship().e_color[df]}
+                    empty_flag={false}
+                    name_flag={true}
+                  />
+                  <Show when={hougeki()?.protect_flag[at_index()][df_index()]}>
+                    <IconShield class="h-5 w-5" />
+                  </Show>
+                </div>
+              )}
+            </For>
+          </div>
+        </td>
+      );
+    } else {
+      let ship_ids =
+        props.deck_ship_id()[props.battle_selected()?.deck_id ?? 1];
+      return (
+        <td>
+          <div class="flex flex-col">
+            <For each={hougeki()?.df_list[at_index()]}>
+              {(df, df_index) => (
+                <div class="flex flex-nowarp">
+                  <icon-fleet-number
+                    size="xs"
+                    e_flag={0}
+                    fleet_number={props.battle_selected()?.deck_id ?? 1}
+                    ship_number={df + 1}
+                    combined_flag={deck_ports.combined_flag == 1}
+                  />
+                  <component-ship-modal
+                    size="xs"
+                    empty_flag={false}
+                    name_flag={true}
+                    ship={props.store_data_set_deck_ship()[ship_ids[df]]?.ship}
+                    mst_ship={
+                      props.store_data_set_deck_ship()[ship_ids[df]]?.mst_ship
+                    }
+                    slot_items={
+                      props.store_data_set_deck_ship()[ship_ids[df]]?.slot_items
+                    }
+                    mst_slot_items={
+                      props.store_data_set_deck_ship()[ship_ids[df]]
+                        ?.mst_slot_items
+                    }
+                    color=""
+                  />
+                  <Show when={hougeki()?.protect_flag[at_index()][df_index()]}>
+                    <IconShield class="h-5 w-5" />
+                  </Show>
+                </div>
+              )}
+            </For>
+          </div>
+        </td>
+      );
+    }
   };
 
   const defenser_hps = (at_index: () => number) => {
@@ -220,8 +230,10 @@ export function ShellingComponent(props: ShellingProps) {
           <For each={hougeki()?.df_list[at_index()]}>
             {(df) => {
               if (hougeki()?.at_eflag[at_index()] == 0) {
-                let v_now = hougeki()?.f_now_hps[at_index()][df];
-                let v_max = props.store_data_set_deck_ship()[df]?.ship?.maxhp;
+                let v_now = hougeki()?.e_now_hps[at_index()][df];
+                let v_max = props.battle_selected()?.e_hp_max
+                  ? props.battle_selected()?.e_hp_max![df]
+                  : undefined;
                 return (
                   <div class="flex flex-nowarp">
                     <component-color-bar-label
@@ -232,10 +244,11 @@ export function ShellingComponent(props: ShellingProps) {
                   </div>
                 );
               } else {
-                let v_now = hougeki()?.e_now_hps[at_index()][df];
-                let v_max = props.battle_selected()?.e_hp_max
-                  ? props.battle_selected()?.e_hp_max![df]
-                  : undefined;
+                let ship_ids =
+                  props.deck_ship_id()[props.battle_selected()?.deck_id ?? 1];
+                let v_now = hougeki()?.f_now_hps[at_index()][df];
+                let v_max =
+                  props.store_data_set_deck_ship()[ship_ids[df]]?.ship?.maxhp;
                 return (
                   <div class="flex flex-nowarp">
                     <component-color-bar-label
