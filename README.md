@@ -7,7 +7,7 @@
 [![check build](https://github.com/tsukasa-u/FUSOU/actions/workflows/check_build.yml/badge.svg?branch=dev)](https://github.com/tsukasa-u/FUSOU/actions/workflows/check_build.yml)
 [![FOSSA Status](https://app.fossa.com/api/projects/custom%2B52222%2Fgithub.com%2Ftsukasa-u%2FFUSOU.svg?type=shield&issueType=license)](https://app.fossa.com/projects/custom%2B52222%2Fgithub.com%2Ftsukasa-u%2FFUSOU?ref=badge_shield&issueType=license)
 [![FOSSA Status](https://app.fossa.com/api/projects/custom%2B52222%2Fgithub.com%2Ftsukasa-u%2FFUSOU.svg?type=shield&issueType=security)](https://app.fossa.com/projects/custom%2B52222%2Fgithub.com%2Ftsukasa-u%2FFUSOU?ref=badge_shield&issueType=security)
-![visitors](https://visitor-badge.lithub.cc/badge?page_id=tsukasa-u.fusou&left_color=red&right_color=green)
+![visitors](https://visitor-badge.laobi.icu/badge?page_id=tsukasa-u.fusou.readme)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ## Stacks
