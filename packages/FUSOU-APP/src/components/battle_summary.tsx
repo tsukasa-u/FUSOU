@@ -273,8 +273,6 @@ export function BattleSummaryComponent(props: ButtleSummaryProps) {
       // friend_slot: friend_slot,
     };
 
-    console.log(ret);
-
     return ret;
   });
 
