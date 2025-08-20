@@ -404,7 +404,7 @@ export function OpeningTorpedoAttackComponent(props: TorpedoSubmarineProps) {
                   <th>HP</th>
                   <th>Defense</th>
                   <th>HP</th>
-                  <th>Damgage</th>
+                  <th>Damage</th>
                 </tr>
               </thead>
               <tbody>
