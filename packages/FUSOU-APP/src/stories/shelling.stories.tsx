@@ -35,7 +35,7 @@ export default {
     deck_ship_id: get_deck_ship_id,
     store_data_set_param_ship: () =>
       get_data_set_param_ship(get_battle_selected(1)),
-    shelling_idx: 1,
+    shelling_idx: 0,
   },
 };
 
