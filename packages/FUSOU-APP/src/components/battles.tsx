@@ -174,8 +174,10 @@ export function BattlesComponent() {
       if (implementsOpeningRaigeki(order)) {
         battle_history.push(
           <OpeningTorpedoAttackComponent
-            deck_ship_id={deck_ship_id()}
+            deck_ship_id={deck_ship_id}
             battle_selected={battle_selected}
+            store_data_set_deck_ship={store_data_set_deck_ship}
+            store_data_set_param_ship={store_data_set_param_ship}
           />
         );
       }
