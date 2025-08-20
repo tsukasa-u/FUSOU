@@ -332,7 +332,7 @@ export function ShellingComponent(props: ShellingProps) {
                   <th>HP</th>
                   <th>Defense</th>
                   <th>HP</th>
-                  <th>Damgage</th>
+                  <th>Damage</th>
                   <th>CI</th>
                 </tr>
               </thead>
