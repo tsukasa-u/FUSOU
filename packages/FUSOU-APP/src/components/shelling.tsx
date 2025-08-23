@@ -2,7 +2,6 @@ import { createMemo, For, Show } from "solid-js";
 import "../css/divider.css";
 import type { Battle } from "@ipc-bindings/battle";
 import IconShield from "../icons/shield";
-import { useDeckPorts } from "../utility/provider";
 import "shared-ui";
 import type { DataSetParamShip, DataSetShip } from "../utility/get_data_set";
 import { calc_critical, type DeckShipIds } from "../utility/battles";
@@ -23,8 +22,6 @@ interface ShellingProps {
 }
 
 export function ShellingComponent(props: ShellingProps) {
-  const [deck_ports] = useDeckPorts();
-
   const show_shelling = createMemo<boolean>(() => {
     if (props.battle_selected()) {
       let hougeki = props.battle_selected()?.hougeki;
@@ -50,7 +47,6 @@ export function ShellingComponent(props: ShellingProps) {
           <div class="flex flex-nowarp">
             <WrapNumberedOwnShipComponent
               ship_idx={at}
-              combined_flag={deck_ports.combined_flag == 1}
               deck_ship_id={props.deck_ship_id}
               battle_selected={props.battle_selected}
               store_data_set_deck_ship={props.store_data_set_deck_ship}
@@ -64,9 +60,7 @@ export function ShellingComponent(props: ShellingProps) {
           <div class="flex flex-nowarp">
             <WrapNumberedEnemyShipComponent
               ship_idx={at}
-              combined_flag={
-                props.battle_selected()?.enemy_ship_id?.length == 12
-              }
+              battle_selected={props.battle_selected}
               store_data_set_param_ship={props.store_data_set_param_ship}
             />
           </div>
@@ -113,9 +107,7 @@ export function ShellingComponent(props: ShellingProps) {
                 <div class="flex flex-nowarp">
                   <WrapNumberedEnemyShipComponent
                     ship_idx={df}
-                    combined_flag={
-                      props.battle_selected()?.enemy_ship_id?.length == 12
-                    }
+                    battle_selected={props.battle_selected}
                     store_data_set_param_ship={props.store_data_set_param_ship}
                   />
                   <Show when={hougeki()?.protect_flag[at_index()][df_index()]}>
@@ -136,7 +128,6 @@ export function ShellingComponent(props: ShellingProps) {
                 <div class="flex flex-nowarp">
                   <WrapNumberedOwnShipComponent
                     ship_idx={df}
-                    combined_flag={deck_ports.combined_flag == 1}
                     deck_ship_id={props.deck_ship_id}
                     battle_selected={props.battle_selected}
                     store_data_set_deck_ship={props.store_data_set_deck_ship}

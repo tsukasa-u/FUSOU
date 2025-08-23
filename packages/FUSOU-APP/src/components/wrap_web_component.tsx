@@ -2,10 +2,10 @@ import { Battle } from "@ipc-bindings/battle";
 import { DataSetParamShip, DataSetShip } from "src/utility/get_data_set";
 import { get_mst_slot_item, type DeckShipIds } from "../utility/battles";
 import "shared-ui";
+import { useDeckPorts } from "../utility/provider";
 
 interface NumberedOwnShipProps {
   ship_idx: number;
-  combined_flag: boolean;
   deck_ship_id: () => DeckShipIds;
   battle_selected: () => Battle | undefined;
   store_data_set_deck_ship: () => DataSetShip;
@@ -14,6 +14,7 @@ interface NumberedOwnShipProps {
 export function WrapNumberedOwnShipComponent(props: NumberedOwnShipProps) {
   let ship_id =
     props.deck_ship_id()[props.battle_selected()?.deck_id ?? 1][props.ship_idx];
+  const [deck_ports] = useDeckPorts();
   return (
     <>
       <icon-fleet-number
@@ -21,7 +22,7 @@ export function WrapNumberedOwnShipComponent(props: NumberedOwnShipProps) {
         e_flag={0}
         fleet_number={props.battle_selected()?.deck_id ?? 1}
         ship_number={props.ship_idx + 1}
-        combined_flag={props.combined_flag}
+        combined_flag={deck_ports.combined_flag == 1}
       />
       <component-ship-modal
         size="xs"
@@ -41,7 +42,7 @@ export function WrapNumberedOwnShipComponent(props: NumberedOwnShipProps) {
 
 interface NumberedEnemyShipProps {
   ship_idx: number;
-  combined_flag: boolean;
+  battle_selected: () => Battle | undefined;
   store_data_set_param_ship: () => DataSetParamShip;
 }
 
@@ -53,7 +54,7 @@ export function WrapNumberedEnemyShipComponent(props: NumberedEnemyShipProps) {
         e_flag={1}
         fleet_number={1}
         ship_number={props.ship_idx + 1}
-        combined_flag={props.combined_flag}
+        combined_flag={props.battle_selected()?.enemy_ship_id?.length == 12}
       />
       <component-ship-masked-modal
         size="xs"

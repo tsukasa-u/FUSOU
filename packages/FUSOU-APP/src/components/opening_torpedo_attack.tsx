@@ -2,7 +2,6 @@ import { createMemo, For, Show } from "solid-js";
 
 import type { Battle } from "@ipc-bindings/battle";
 import IconShield from "../icons/shield";
-import { useDeckPorts } from "../utility/provider";
 import { calc_critical, DeckShipIds } from "../utility/battles";
 import { DataSetParamShip, DataSetShip } from "../utility/get_data_set";
 import {
@@ -36,8 +35,6 @@ interface TorpedoDamages {
 }
 
 export function OpeningTorpedoAttackComponent(props: TorpedoSubmarineProps) {
-  const [deck_ports] = useDeckPorts();
-
   const show_torpedo_attack = createMemo<boolean>(() => {
     if (!props.battle_selected()) return false;
     if (!props.battle_selected()?.deck_id) return false;
@@ -66,7 +63,6 @@ export function OpeningTorpedoAttackComponent(props: TorpedoSubmarineProps) {
     const opening_raigeki = props.battle_selected()?.opening_raigeki;
     if (opening_raigeki) {
       opening_raigeki.frai_list_items.forEach((frai_list, i) => {
-        // if (frai_list != null) {
         frai_list?.forEach((frai) => {
           if (opening_torpedo_damage.frai.list.includes(frai)) {
             opening_torpedo_damage.frai.dict[frai].ships.push(i);
@@ -79,10 +75,8 @@ export function OpeningTorpedoAttackComponent(props: TorpedoSubmarineProps) {
             };
           }
         });
-        // }
       });
       opening_raigeki.erai_list_items.forEach((erai_list, i) => {
-        // if (erai_list != null) {
         erai_list?.forEach((erai) => {
           if (opening_torpedo_damage.erai.list.includes(erai)) {
             opening_torpedo_damage.erai.dict[erai].ships.push(i);
@@ -95,7 +89,6 @@ export function OpeningTorpedoAttackComponent(props: TorpedoSubmarineProps) {
             };
           }
         });
-        // }
       });
     }
     return opening_torpedo_damage;
@@ -114,7 +107,6 @@ export function OpeningTorpedoAttackComponent(props: TorpedoSubmarineProps) {
                 <div class="flex flex-nowrap">
                   <WrapNumberedOwnShipComponent
                     ship_idx={ship_idx}
-                    combined_flag={deck_ports.combined_flag == 1}
                     deck_ship_id={props.deck_ship_id}
                     battle_selected={props.battle_selected}
                     store_data_set_deck_ship={props.store_data_set_deck_ship}
@@ -141,9 +133,7 @@ export function OpeningTorpedoAttackComponent(props: TorpedoSubmarineProps) {
                 <div class="flex flex-nowrap">
                   <WrapNumberedEnemyShipComponent
                     ship_idx={ship_idx}
-                    combined_flag={
-                      props.battle_selected()?.enemy_ship_id?.length == 12
-                    }
+                    battle_selected={props.battle_selected}
                     store_data_set_param_ship={props.store_data_set_param_ship}
                   />
                 </div>
@@ -210,7 +200,6 @@ export function OpeningTorpedoAttackComponent(props: TorpedoSubmarineProps) {
         <div class="flex flex-nowrap">
           <WrapNumberedOwnShipComponent
             ship_idx={erai}
-            combined_flag={deck_ports.combined_flag == 1}
             deck_ship_id={props.deck_ship_id}
             battle_selected={props.battle_selected}
             store_data_set_deck_ship={props.store_data_set_deck_ship}
@@ -236,7 +225,7 @@ export function OpeningTorpedoAttackComponent(props: TorpedoSubmarineProps) {
         <div class="flex flex-nowrap">
           <WrapNumberedEnemyShipComponent
             ship_idx={frai}
-            combined_flag={props.battle_selected()?.enemy_ship_id?.length == 12}
+            battle_selected={props.battle_selected}
             store_data_set_param_ship={props.store_data_set_param_ship}
           />
           <Show
