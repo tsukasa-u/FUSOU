@@ -212,7 +212,7 @@ export function ClosingTorpedoAttackComponent(props: TorpedoSubmarineProps) {
                 : false
             }
           >
-            <IconShield class="h-5 w-5" />
+            <IconShield class="h-4 self-center ml-auto" />
           </Show>
         </div>
       </td>
@@ -236,7 +236,7 @@ export function ClosingTorpedoAttackComponent(props: TorpedoSubmarineProps) {
                 : false
             }
           >
-            <IconShield class="h-5 w-5" />
+            <IconShield class="h-4 self-center ml-auto" />
           </Show>
         </div>
       </td>
@@ -276,7 +276,7 @@ export function ClosingTorpedoAttackComponent(props: TorpedoSubmarineProps) {
     let dmg = closing_torpedo_damage().erai.dict[erai].dmg;
     return (
       <td>
-        <div class={calc_critical(dmg, cl_flag)}>{dmg}</div>
+        <div class={`text-sm h-6 ${calc_critical(dmg, cl_flag)}`}>{dmg}</div>
       </td>
     );
   };
@@ -286,7 +286,7 @@ export function ClosingTorpedoAttackComponent(props: TorpedoSubmarineProps) {
     let dmg = closing_torpedo_damage().frai.dict[frai].dmg;
     return (
       <td>
-        <div class={calc_critical(dmg, cl_flag)}>{dmg}</div>
+        <div class={`text-sm h-6 ${calc_critical(dmg, cl_flag)}`}>{dmg}</div>
       </td>
     );
   };

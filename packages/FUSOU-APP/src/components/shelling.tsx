@@ -109,7 +109,7 @@ export function ShellingComponent(props: ShellingProps) {
                     store_data_set_param_ship={props.store_data_set_param_ship}
                   />
                   <Show when={hougeki()?.protect_flag[at_index()][df_index()]}>
-                    <IconShield class="h-5 w-5" />
+                    <IconShield class="h-4 self-center ml-auto" />
                   </Show>
                 </div>
               )}
@@ -131,7 +131,7 @@ export function ShellingComponent(props: ShellingProps) {
                     store_data_set_deck_ship={props.store_data_set_deck_ship}
                   />
                   <Show when={hougeki()?.protect_flag[at_index()][df_index()]}>
-                    <IconShield class="h-5 w-5" />
+                    <IconShield class="h-4 self-center ml-auto" />
                   </Show>
                 </div>
               )}
@@ -187,10 +187,10 @@ export function ShellingComponent(props: ShellingProps) {
           <For each={hougeki()?.damage[at_index()]}>
             {(dmg, dmg_index) => (
               <div
-                class={calc_critical(
+                class={`text-sm my-auto ${calc_critical(
                   dmg,
                   hougeki()?.cl_list[at_index()][dmg_index()]
-                )}
+                )}`}
               >
                 {dmg}
               </div>
@@ -214,10 +214,10 @@ export function ShellingComponent(props: ShellingProps) {
           <Show when={hougeki()?.si_list[at_index()]}>
             <For each={hougeki()?.si_list[at_index()]}>
               {(si) => (
-                <Show when={!si}>
+                <Show when={si}>
                   <WrapCIMstEquipComponent
                     si={si!}
-                    e_flag={hougeki()?.at_eflag[at_index()] == 0}
+                    e_flag={hougeki()?.at_eflag[at_index()] !== 0}
                   />
                 </Show>
               )}

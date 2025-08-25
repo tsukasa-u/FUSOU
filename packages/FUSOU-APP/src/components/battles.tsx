@@ -406,7 +406,7 @@ export function BattlesComponent() {
                           </Match>
                         </Switch>
                         <Show when={index() == 0}>
-                          <span class="w-4">/</span>
+                          <div class="w-3 text-center">/</div>
                         </Show>
                       </>
                     )}
@@ -423,9 +423,9 @@ export function BattlesComponent() {
                       !battle_selected()?.smoke_type &&
                       battle_selected()?.smoke_type !== 0
                     }
-                    fallback={<div>_</div>}
+                    fallback={<div class="w-6 text-center">_</div>}
                   >
-                    <Switch fallback={<div>_</div>}>
+                    <Switch fallback={<div class="w-6 text-center">_</div>}>
                       <Match when={battle_selected()?.smoke_type == 1}>
                         <div>Signle</div>
                       </Match>
@@ -441,9 +441,12 @@ export function BattlesComponent() {
                   Combat Ration : <span class="w-1" />
                   <Show
                     when={!battle_selected()?.combat_ration}
-                    fallback={<div>_</div>}
+                    fallback={<div class="w-6 text-center">_</div>}
                   >
-                    <For each={battle_selected()?.combat_ration}>
+                    <For
+                      each={battle_selected()?.combat_ration}
+                      fallback={<div class="w-6 text-center">_</div>}
+                    >
                       {(ration) => (
                         <div>
                           <EquimentComponent
@@ -458,7 +461,7 @@ export function BattlesComponent() {
                   Balloon : <span class="w-1" />
                   <Show
                     when={battle_selected()?.balloon_flag == 1}
-                    fallback={<div>_</div>}
+                    fallback={<div class="w-6 text-center">_</div>}
                   >
                     <MstEquipmentComponent
                       equip_id={513}

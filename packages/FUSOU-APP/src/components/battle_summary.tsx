@@ -321,7 +321,7 @@ export function BattleSummaryComponent(props: ButtleSummaryProps) {
               slot_items={slot_items}
             />
             <Show when={fleet_info().f_main_escape[idx]}>
-              <IconExit class="h-5" />
+              <IconExit class="h-4 self-center ml-auto" />
             </Show>
           </div>
         </td>
@@ -334,7 +334,7 @@ export function BattleSummaryComponent(props: ButtleSummaryProps) {
             />
           </div>
         </td>
-        <td class="text-sm">{fleet_info().f_main_damages[idx]}</td>
+        <td class="my-auto text-sm">{fleet_info().f_main_damages[idx]}</td>
       </Show>
     );
   };
@@ -391,7 +391,7 @@ export function BattleSummaryComponent(props: ButtleSummaryProps) {
             />
           </div>
         </td>
-        <td class="text-sm">{fleet_info().e_main_damages[idx]}</td>
+        <td class="my-auto text-sm">{fleet_info().e_main_damages[idx]}</td>
       </Show>
     );
   };
@@ -452,7 +452,9 @@ export function BattleSummaryComponent(props: ButtleSummaryProps) {
             />
           </div>
         </td>
-        <td class={fleet_info().f_escort_escape[idx] ? "text-blue-200" : ""}>
+        <td
+          class={`my-auto text-sm ${fleet_info().f_escort_escape[idx] ? "text-blue-200" : ""}`}
+        >
           {fleet_info().f_escort_damages[idx]}
         </td>
       </Show>
@@ -513,7 +515,7 @@ export function BattleSummaryComponent(props: ButtleSummaryProps) {
             />
           </div>
         </td>
-        <td>{fleet_info().e_escort_damages[idx]}</td>
+        <td class="my-auto text-sm">{fleet_info().e_escort_damages[idx]}</td>
       </Show>
     );
   };
@@ -560,7 +562,7 @@ export function BattleSummaryComponent(props: ButtleSummaryProps) {
             />
           </div>
         </td>
-        <td>{fleet_info().friend_damages[idx]}</td>
+        <td class="my-auto text-sm">{fleet_info().friend_damages[idx]}</td>
       </Show>
     );
   };

@@ -54,6 +54,7 @@ export function MidnightShellingComponent(props: MidnightShellingProps) {
             />
           </Show>
         </div>
+        <div class="w-3 text-center">/</div>
         <div class="w-6 flex justify-center">
           <Show when={e_midngiht_touchplane > 0} fallback={<div>_</div>}>
             <WrapCIMstEquipComponent si={e_midngiht_touchplane} e_flag={true} />
@@ -71,12 +72,12 @@ export function MidnightShellingComponent(props: MidnightShellingProps) {
       <>
         Flare : <span class="w-1" />
         <Show
-          when={!midnight_flare_pos}
+          when={midnight_flare_pos}
           fallback={
-            <div>
-              <div class="w-24">_</div>
-              <div class="w-3">/</div>
-              <div class="w-24">_</div>
+            <div class="flex flex-nowrap">
+              <div class="w-24 text-center">_</div>
+              <div class="w-3 text-center">/</div>
+              <div class="w-24 text-center">_</div>
             </div>
           }
         >
@@ -91,7 +92,7 @@ export function MidnightShellingComponent(props: MidnightShellingProps) {
               />
             </Show>
           </div>
-          <div class="w-3">/</div>
+          <div class="w-3 text-center">/</div>
           <div class="w-24 flex justify-center">
             <Show when={e_midnight_flare_pos != -1} fallback={<div>_</div>}>
               <WrapEnemyShipComponent
@@ -201,7 +202,7 @@ export function MidnightShellingComponent(props: MidnightShellingProps) {
                           ]
                         }
                       >
-                        <IconShield class="h-5 w-5" />
+                        <IconShield class="h-4 self-center ml-auto" />
                       </Show>
                     </div>
                   );
@@ -233,7 +234,7 @@ export function MidnightShellingComponent(props: MidnightShellingProps) {
                           ]
                         }
                       >
-                        <IconShield class="h-5 w-5" />
+                        <IconShield class="h-4 self-center ml-auto" />
                       </Show>
                     </div>
                   );
@@ -316,14 +317,16 @@ export function MidnightShellingComponent(props: MidnightShellingProps) {
         <div class="flex flex-col">
           <For each={midngiht_hougeki()?.damage?.[at_index()]}>
             {(dmg, dmg_index) => (
-              <div
-                class={calc_critical(
-                  dmg,
-                  midngiht_hougeki()?.cl_list?.[at_index()]?.[dmg_index()]
-                )}
-              >
-                {dmg}
-              </div>
+              <>
+                <div
+                  class={`text-sm h-6 ${calc_critical(
+                    dmg,
+                    midngiht_hougeki()?.cl_list?.[at_index()]?.[dmg_index()]
+                  )}`}
+                >
+                  {dmg}
+                </div>
+              </>
             )}
           </For>
         </div>
@@ -344,10 +347,10 @@ export function MidnightShellingComponent(props: MidnightShellingProps) {
           <Show when={midngiht_hougeki()?.si_list?.[at_index()]}>
             <For each={midngiht_hougeki()?.si_list?.[at_index()]}>
               {(si) => (
-                <Show when={!si}>
+                <Show when={si}>
                   <WrapCIMstEquipComponent
                     si={si!}
-                    e_flag={midngiht_hougeki()?.at_eflag?.[at_index()] == 0}
+                    e_flag={midngiht_hougeki()?.at_eflag?.[at_index()] !== 0}
                   />
                 </Show>
               )}
