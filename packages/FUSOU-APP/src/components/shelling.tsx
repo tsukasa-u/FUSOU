@@ -132,7 +132,9 @@ export function ShellingComponent(props: ShellingProps) {
                     battle_selected={props.battle_selected}
                     store_data_set_deck_ship={props.store_data_set_deck_ship}
                   />
-                  <Show when={hougeki()?.protect_flag[at_index()][df_index()]}>
+                  <Show
+                    when={hougeki()?.protect_flag[at_index()]?.[df_index()]}
+                  >
                     <IconShield class="h-4 self-center ml-auto" />
                   </Show>
                 </div>
