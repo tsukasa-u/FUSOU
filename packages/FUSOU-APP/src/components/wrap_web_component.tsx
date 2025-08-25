@@ -4,6 +4,67 @@ import { get_mst_slot_item, type DeckShipIds } from "../utility/battles";
 import "shared-ui";
 import { useDeckPorts } from "../utility/provider";
 
+interface OwnShipProps {
+  ship_idx: number;
+  deck_ship_id: () => DeckShipIds;
+  battle_selected: () => Battle | undefined;
+  store_data_set_deck_ship: () => DataSetShip;
+  name_flag: boolean;
+}
+
+export function WrapOwnShipComponent(props: OwnShipProps) {
+  let ship_id =
+    props.deck_ship_id()[props.battle_selected()?.deck_id ?? 1][props.ship_idx];
+  return (
+    <>
+      <component-ship-modal
+        size="xs"
+        color=""
+        empty_flag={false}
+        name_flag={props.name_flag}
+        ship={props.store_data_set_deck_ship()[ship_id]?.ship}
+        mst_ship={props.store_data_set_deck_ship()[ship_id]?.mst_ship}
+        slot_items={props.store_data_set_deck_ship()[ship_id]?.slot_items}
+        mst_slot_items={
+          props.store_data_set_deck_ship()[ship_id]?.mst_slot_items
+        }
+      />
+    </>
+  );
+}
+
+interface EnemyShipProps {
+  ship_idx: number;
+  store_data_set_param_ship: () => DataSetParamShip;
+  name_flag: boolean;
+}
+
+export function WrapEnemyShipComponent(props: EnemyShipProps) {
+  return (
+    <>
+      <component-ship-masked-modal
+        size="xs"
+        ship_max_hp={
+          props.store_data_set_param_ship().e_ship_max_hp[props.ship_idx]
+        }
+        ship_param={
+          props.store_data_set_param_ship().e_ship_param[props.ship_idx]
+        }
+        ship_slot={
+          props.store_data_set_param_ship().e_ship_slot[props.ship_idx]
+        }
+        mst_ship={props.store_data_set_param_ship().e_mst_ship[props.ship_idx]}
+        mst_slot_items={
+          props.store_data_set_param_ship().e_mst_slot_items[props.ship_idx]
+        }
+        color={props.store_data_set_param_ship().e_color[props.ship_idx]}
+        empty_flag={false}
+        name_flag={props.name_flag}
+      />
+    </>
+  );
+}
+
 interface NumberedOwnShipProps {
   ship_idx: number;
   deck_ship_id: () => DeckShipIds;
@@ -79,6 +140,31 @@ export function WrapNumberedEnemyShipComponent(props: NumberedEnemyShipProps) {
   );
 }
 
+export function WrapNumberedErrorShipComponent() {
+  return (
+    <>
+      <icon-fleet-number
+        size="xs"
+        e_flag={0}
+        fleet_number={0}
+        ship_number={0}
+        combined_flag={false}
+      />
+      <component-ship-masked-modal
+        size="xs"
+        ship_max_hp={0}
+        ship_param={[0, 0, 0, 0]}
+        ship_slot={[0, 0, 0, 0]}
+        mst_ship={undefined}
+        mst_slot_items={undefined}
+        color=""
+        empty_flag={false}
+        name_flag={true}
+      />
+    </>
+  );
+}
+
 interface WrapCIMstEquipmentProps {
   si: number;
   e_flag: boolean;
@@ -92,7 +178,7 @@ export function WrapCIMstEquipComponent(props: WrapCIMstEquipmentProps) {
       empty_flag={false}
       name_flag={false}
       show_name={true}
-      show_param={props.e_flag}
+      show_param={!props.e_flag}
       mst_slot_item={get_mst_slot_item(props.si)}
     />
   );
@@ -115,85 +201,41 @@ export function WrapOwnPlaneEquipComponent(props: WrapCIMstEquipmentProps) {
   );
 }
 
-interface WrapOwnShipHPPropsType2 {
-  deck_ship_id: () => DeckShipIds;
-  battle_selected: () => Battle | undefined;
-  store_data_set_deck_ship: () => DataSetShip;
-  idx_index: () => number;
-  idx: number;
-  f_now_hps: number[][] | undefined;
-}
-interface WrapOwnShipHPPropsType1 {
+interface WrapOwnShipHPProps {
   deck_ship_id: () => DeckShipIds;
   battle_selected: () => Battle | undefined;
   store_data_set_deck_ship: () => DataSetShip;
   idx: number;
   f_now_hps: number[] | undefined;
 }
-export function WrapOwnShipHPComponent(
-  props: WrapOwnShipHPPropsType1 | WrapOwnShipHPPropsType2
-) {
-  if ("idx_index" in props) {
-    let ship_id =
-      props.deck_ship_id()[props.battle_selected()?.deck_id ?? 1][props.idx];
-    let v_now = props.f_now_hps?.[props.idx_index()]?.[props.idx];
-    let v_max = props.store_data_set_deck_ship()[ship_id]?.ship?.maxhp;
-    return (
-      <component-color-bar-label
-        size="xs"
-        v_max={v_max ?? 0}
-        v_now={v_now ?? 0}
-      />
-    );
-  } else {
-    let ship_id =
-      props.deck_ship_id()[props.battle_selected()?.deck_id ?? 1][props.idx];
-    let v_now = props.f_now_hps?.[props.idx];
-    let v_max = props.store_data_set_deck_ship()[ship_id]?.ship?.maxhp;
-    return (
-      <component-color-bar-label
-        size="xs"
-        v_max={v_max ?? 0}
-        v_now={v_now ?? 0}
-      />
-    );
-  }
+export function WrapOwnShipHPComponent(props: WrapOwnShipHPProps) {
+  let ship_id =
+    props.deck_ship_id()[props.battle_selected()?.deck_id ?? 1][props.idx];
+  let v_now = props.f_now_hps?.[props.idx];
+  let v_max = props.store_data_set_deck_ship()[ship_id]?.ship?.maxhp;
+  return (
+    <component-color-bar-label
+      size="xs"
+      v_max={v_max ?? 0}
+      v_now={v_now ?? 0}
+    />
+  );
 }
 
-interface WrapEnemyShipHPPropsType2 {
-  store_data_set_param_ship: () => DataSetParamShip;
-  idx_index: () => number;
-  idx: number;
-  e_now_hps: number[][] | undefined;
-}
-interface WrapEnemyShipHPPropsType1 {
+interface WrapEnemyShipHPProps {
   store_data_set_param_ship: () => DataSetParamShip;
   idx: number;
   e_now_hps: number[] | undefined;
 }
 
-export function WrapEnemyShipHPComponent(
-  props: WrapEnemyShipHPPropsType1 | WrapEnemyShipHPPropsType2
-) {
-  if ("idx_index" in props) {
-    let v_now = props.e_now_hps?.[props.idx_index()]?.[props.idx];
-    let v_max = props.store_data_set_param_ship().e_ship_max_hp[props.idx];
-    return (
-      <component-color-bar-label
-        size="xs"
-        v_max={v_max ?? 0}
-        v_now={v_now ?? 0}
-      />
-    );
-  } else {
-    let v_now = props.e_now_hps?.[props.idx];
-    let v_max = props.store_data_set_param_ship().e_ship_max_hp[props.idx];
-    return (
-      <component-color-bar-label
-        size="xs"
-        v_max={v_max ?? 0}
-        v_now={v_now ?? 0}
-      />
-    );
-  }
+export function WrapEnemyShipHPComponent(props: WrapEnemyShipHPProps) {
+  let v_now = props.e_now_hps?.[props.idx];
+  let v_max = props.store_data_set_param_ship().e_ship_max_hp[props.idx];
+  return (
+    <component-color-bar-label
+      size="xs"
+      v_max={v_max ?? 0}
+      v_now={v_now ?? 0}
+    />
+  );
 }

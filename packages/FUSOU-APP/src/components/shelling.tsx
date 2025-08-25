@@ -77,9 +77,8 @@ export function ShellingComponent(props: ShellingProps) {
             deck_ship_id={props.deck_ship_id}
             battle_selected={props.battle_selected}
             store_data_set_deck_ship={props.store_data_set_deck_ship}
-            idx_index={() => at_index()}
             idx={at}
-            f_now_hps={hougeki()?.f_now_hps}
+            f_now_hps={hougeki()?.f_now_hps[at_index()]}
           />
         </td>
       );
@@ -88,9 +87,8 @@ export function ShellingComponent(props: ShellingProps) {
         <td>
           <WrapEnemyShipHPComponent
             store_data_set_param_ship={props.store_data_set_param_ship}
-            idx_index={() => at_index()}
             idx={at}
-            e_now_hps={hougeki()?.e_now_hps}
+            e_now_hps={hougeki()?.e_now_hps[at_index()]}
           />
         </td>
       );
@@ -157,9 +155,8 @@ export function ShellingComponent(props: ShellingProps) {
                       store_data_set_param_ship={
                         props.store_data_set_param_ship
                       }
-                      idx_index={() => at_index()}
                       idx={df}
-                      e_now_hps={hougeki()?.e_now_hps}
+                      e_now_hps={hougeki()?.e_now_hps[at_index()]}
                     />
                   </div>
                 );
@@ -170,9 +167,8 @@ export function ShellingComponent(props: ShellingProps) {
                       deck_ship_id={props.deck_ship_id}
                       battle_selected={props.battle_selected}
                       store_data_set_deck_ship={props.store_data_set_deck_ship}
-                      idx_index={() => at_index()}
                       idx={df}
-                      f_now_hps={hougeki()?.f_now_hps}
+                      f_now_hps={hougeki()?.f_now_hps[at_index()]}
                     />
                   </div>
                 );
@@ -215,7 +211,7 @@ export function ShellingComponent(props: ShellingProps) {
               : "flex flex-col"
           }
         >
-          <Show when={!hougeki()?.si_list[at_index()]}>
+          <Show when={hougeki()?.si_list[at_index()]}>
             <For each={hougeki()?.si_list[at_index()]}>
               {(si) => (
                 <Show when={!si}>

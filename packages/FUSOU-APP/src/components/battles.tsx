@@ -1,7 +1,4 @@
-import {
-  /*useBattles,*/ useCells,
-  /*useDeckPorts, useMstShips, useShips*/
-} from "../utility/provider";
+import { useCells } from "../utility/provider";
 import {
   createEffect,
   createMemo,
@@ -45,7 +42,6 @@ import { DestructionBattleComponent } from "./destruction_battle";
 import { DestructionBattleSummaryComponent } from "./destruction_battle_summary";
 import { EquimentComponent } from "./equipment";
 import { MstEquipmentComponent } from "./mst_equipment";
-// import { DataSetShip, get_data_set_ship } from "../utility/get_data_set";
 import {
   DeckShipIds,
   get_deck_ship_id,
@@ -58,31 +54,13 @@ import {
 } from "../utility/get_data_set";
 
 export function BattlesComponent() {
-  // const [battles, ] = useBattles();
-  // const [ships, ] = useShips();
-  // const [mst_ships, ] = useMstShips();
-  // const [deck_ports] = useDeckPorts();
   const [cells] = useCells();
 
   const [cell_index_selected, set_cell_index_selected] =
     createSignal<number>(0);
 
-  // const deck_ship_id = createMemo<{ [key: number]: number[] }>(() => {
-  //   const deck_ship_id: { [key: number]: number[] } = {};
-  //   Object.entries(deck_ports.deck_ports).forEach(([deck_id, deck]) => {
-  //     deck_ship_id[Number(deck_id)] = [];
-  //     deck?.ship?.forEach((ship_id) => {
-  //       deck_ship_id[Number(deck_id)].push(ship_id);
-  //     });
-  //   });
-  //   return deck_ship_id;
-  // });
   const deck_ship_id = createMemo<DeckShipIds>(() => get_deck_ship_id());
 
-  // const store_data_set_deck_ship = createMemo<DataSetShip>(() => {
-  //   let ship_id_flatten = Object.values(deck_ship_id()).flat();
-  //   return get_data_set_ship(ship_id_flatten);
-  // });
   const store_data_set_deck_ship = createMemo<DataSetShip>(() =>
     get_store_data_set_deck_ship()
   );
@@ -199,8 +177,10 @@ export function BattlesComponent() {
       if (implementsMidnightHougeki(order)) {
         battle_history.push(
           <MidnightShellingComponent
-            deck_ship_id={deck_ship_id()}
+            deck_ship_id={deck_ship_id}
             battle_selected={battle_selected}
+            store_data_set_deck_ship={store_data_set_deck_ship}
+            store_data_set_param_ship={store_data_set_param_ship}
           />
         );
       }
