@@ -111,32 +111,117 @@ interface NumberedOwnShipProps {
 }
 
 export function WrapNumberedOwnShipComponent(props: NumberedOwnShipProps) {
-  let ship_id =
-    props.deck_ship_id()[props.battle_selected()?.deck_id ?? 1][props.ship_idx];
-  const [deck_ports] = useDeckPorts();
-  return (
-    <>
-      <icon-fleet-number
-        size="xs"
-        e_flag={0}
-        fleet_number={props.battle_selected()?.deck_id ?? 1}
-        ship_number={props.ship_idx + 1}
-        combined_flag={deck_ports.combined_flag == 1}
-      />
-      <component-ship-modal
-        size="xs"
-        color=""
-        empty_flag={false}
-        name_flag={true}
-        ship={props.store_data_set_deck_ship()[ship_id]?.ship}
-        mst_ship={props.store_data_set_deck_ship()[ship_id]?.mst_ship}
-        slot_items={props.store_data_set_deck_ship()[ship_id]?.slot_items}
-        mst_slot_items={
-          props.store_data_set_deck_ship()[ship_id]?.mst_slot_items
-        }
-      />
-    </>
-  );
+  const deck_id = props.battle_selected()?.deck_id;
+  if (deck_id) {
+    let ship_id = props.deck_ship_id()[deck_id][props.ship_idx];
+    const [deck_ports] = useDeckPorts();
+    return (
+      <>
+        <icon-fleet-number
+          size="xs"
+          e_flag={0}
+          fleet_number={deck_id}
+          ship_number={props.ship_idx + 1}
+          combined_flag={deck_ports.combined_flag == 1}
+        />
+        <component-ship-modal
+          size="xs"
+          color=""
+          empty_flag={false}
+          name_flag={true}
+          ship={props.store_data_set_deck_ship()[ship_id]?.ship}
+          mst_ship={props.store_data_set_deck_ship()[ship_id]?.mst_ship}
+          slot_items={props.store_data_set_deck_ship()[ship_id]?.slot_items}
+          mst_slot_items={
+            props.store_data_set_deck_ship()[ship_id]?.mst_slot_items
+          }
+        />
+      </>
+    );
+  } else {
+    return (
+      <>
+        <icon-fleet-number
+          size="xs"
+          e_flag={0}
+          fleet_number={0}
+          ship_number={0}
+          combined_flag={false}
+        />
+        <component-ship-modal
+          size="xs"
+          color=""
+          empty_flag={false}
+          name_flag={true}
+          ship={undefined}
+          mst_ship={undefined}
+          slot_items={undefined}
+          mst_slot_items={undefined}
+        />
+      </>
+    );
+  }
+}
+
+interface NumberedSupportShipProps {
+  ship_idx: number;
+  deck_ship_id: () => DeckShipIds;
+  support_deck_id: number | undefined;
+  store_data_set_deck_ship: () => DataSetShip;
+}
+
+export function WrapNumberedSupportShipComponent(
+  props: NumberedSupportShipProps
+) {
+  const support_deck_id = props.support_deck_id;
+  if (support_deck_id) {
+    let ship_id = props.deck_ship_id()[support_deck_id][props.ship_idx];
+    return (
+      <>
+        <icon-fleet-number
+          size="xs"
+          e_flag={0}
+          fleet_number={support_deck_id}
+          ship_number={props.ship_idx + 1}
+          combined_flag={false}
+        />
+        <component-ship-modal
+          size="xs"
+          color=""
+          empty_flag={false}
+          name_flag={true}
+          ship={props.store_data_set_deck_ship()[ship_id]?.ship}
+          mst_ship={props.store_data_set_deck_ship()[ship_id]?.mst_ship}
+          slot_items={props.store_data_set_deck_ship()[ship_id]?.slot_items}
+          mst_slot_items={
+            props.store_data_set_deck_ship()[ship_id]?.mst_slot_items
+          }
+        />
+      </>
+    );
+  } else {
+    return (
+      <>
+        <icon-fleet-number
+          size="xs"
+          e_flag={0}
+          fleet_number={0}
+          ship_number={0}
+          combined_flag={false}
+        />
+        <component-ship-modal
+          size="xs"
+          color=""
+          empty_flag={false}
+          name_flag={true}
+          ship={undefined}
+          mst_ship={undefined}
+          slot_items={undefined}
+          mst_slot_items={undefined}
+        />
+      </>
+    );
+  }
 }
 
 interface NumberedEnemyShipProps {
@@ -290,17 +375,21 @@ interface WrapOwnShipHPProps {
   f_now_hps: number[] | undefined;
 }
 export function WrapOwnShipHPComponent(props: WrapOwnShipHPProps) {
-  let ship_id =
-    props.deck_ship_id()[props.battle_selected()?.deck_id ?? 1][props.idx];
-  let v_now = props.f_now_hps?.[props.idx];
-  let v_max = props.store_data_set_deck_ship()[ship_id]?.ship?.maxhp;
-  return (
-    <component-color-bar-label
-      size="xs"
-      v_max={v_max ?? 0}
-      v_now={v_now ?? 0}
-    />
-  );
+  const deck_id = props.battle_selected()?.deck_id;
+  if (deck_id) {
+    let ship_id = props.deck_ship_id()[deck_id][props.idx];
+    let v_now = props.f_now_hps?.[props.idx];
+    let v_max = props.store_data_set_deck_ship()[ship_id]?.ship?.maxhp;
+    return (
+      <component-color-bar-label
+        size="xs"
+        v_max={v_max ?? 0}
+        v_now={v_now ?? 0}
+      />
+    );
+  } else {
+    return <component-color-bar-label size="xs" v_max={0} v_now={0} />;
+  }
 }
 
 interface WrapEnemyShipHPProps {
@@ -337,4 +426,29 @@ export function WrapFriendShipHPComponent(props: WrapFriendShipHPProps) {
       v_now={v_now ?? 0}
     />
   );
+}
+
+interface WrapSupportShipHPProps {
+  deck_ship_id: () => DeckShipIds;
+  support_deck_id: number | undefined;
+  store_data_set_deck_ship: () => DataSetShip;
+  idx: number;
+}
+
+export function WrapSupportShipHPComponent(props: WrapSupportShipHPProps) {
+  const support_deck_id = props.support_deck_id;
+  if (support_deck_id) {
+    let ship_id = props.deck_ship_id()[support_deck_id][props.idx];
+    let v_now = props.store_data_set_deck_ship()[ship_id]?.ship?.nowhp;
+    let v_max = props.store_data_set_deck_ship()[ship_id]?.ship?.maxhp;
+    return (
+      <component-color-bar-label
+        size="xs"
+        v_max={v_max ?? 0}
+        v_now={v_now ?? 0}
+      />
+    );
+  } else {
+    return <component-color-bar-label size="xs" v_max={0} v_now={0} />;
+  }
 }
