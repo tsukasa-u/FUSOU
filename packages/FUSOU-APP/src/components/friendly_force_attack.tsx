@@ -1,6 +1,5 @@
 import { createMemo, For, Show } from "solid-js";
 
-import "../css/divider.css";
 import { SimpleShipNameComponent } from "./simple_ship_name";
 import type { Battle } from "@ipc-bindings/battle";
 import { MstEquipmentComponent } from "./mst_equipment";
@@ -16,11 +15,11 @@ export function FriendlyForceAttackComponent(props: FriendlyForceAttackProps) {
   const show_shelling = createMemo<boolean>(() => {
     if (props.battle_selected() == undefined) return false;
     if (props.battle_selected().friendly_force_attack == null) return false;
-    if (props.battle_selected().friendly_force_attack!.fleet_info == null)
+    if (props.battle_selected().friendly_force_attack.fleet_info == null)
       return false;
-    if (props.battle_selected().friendly_force_attack!.support_hourai == null)
+    if (props.battle_selected().friendly_force_attack.support_hourai == null)
       return false;
-    props.battle_selected().friendly_force_attack!.support_hourai!.hougeki;
+    props.battle_selected().friendly_force_attack.support_hourai.hougeki;
     return true;
   });
 
@@ -34,7 +33,7 @@ export function FriendlyForceAttackComponent(props: FriendlyForceAttackProps) {
               Flare : <span class="w-1" />
               <Show
                 when={
-                  props.battle_selected().friendly_force_attack!.support_hourai!
+                  props.battle_selected().friendly_force_attack.support_hourai!
                     .flare_pos != null
                 }
                 fallback={
@@ -49,7 +48,7 @@ export function FriendlyForceAttackComponent(props: FriendlyForceAttackProps) {
                   <Show
                     when={
                       props.battle_selected().friendly_force_attack!
-                        .support_hourai!.flare_pos![0] != -1
+                        .support_hourai.flare_pos![0] != -1
                     }
                     fallback={<div>_</div>}
                   >
@@ -58,32 +57,32 @@ export function FriendlyForceAttackComponent(props: FriendlyForceAttackProps) {
                         props.battle_selected().friendly_force_attack!
                           .fleet_info.ship_id[
                           props.battle_selected().friendly_force_attack!
-                            .support_hourai!.flare_pos![0]
+                            .support_hourai.flare_pos![0]
                         ]
                       }
                       ship_param={
                         props.battle_selected().friendly_force_attack!
                           .fleet_info.params[
                           props.battle_selected().friendly_force_attack!
-                            .support_hourai!.flare_pos![0]
+                            .support_hourai.flare_pos![0]
                         ]
                       }
                       ship_slot={
                         props.battle_selected().friendly_force_attack!
                           .fleet_info.slot[
                           props.battle_selected().friendly_force_attack!
-                            .support_hourai!.flare_pos![0]
+                            .support_hourai.flare_pos![0]
                         ]
-                      }
-                      ship_max_hp={
+                   
+                        ship_max_hp={
                         props.battle_selected().friendly_force_attack!
                           .fleet_info.now_hps[
                           props.battle_selected().friendly_force_attack!
-                            .support_hourai!.flare_pos![0]
+                            .support_hourai.flare_pos![0]
                         ]
                       }
                     />
-                    {/* <ShipNameComponent ship_id={battle_selected().friendly_force_attack!.fleet_info.ship_id[battle_selected().friendly_force_attack!.support_hourai!.flare_pos![0]]}></ShipNameComponent> */}
+                    {/* <ShipNameComponent ship_id={battle_selected().friendly_force_attack.fleet_info.ship_id[battle_selected().friendly_force_attack.support_hourai.flare_pos![0]]}></ShipNameComponent> */}
                   </Show>
                 </div>
                 <div class="w-3">/</div>
@@ -91,7 +90,7 @@ export function FriendlyForceAttackComponent(props: FriendlyForceAttackProps) {
                   <Show
                     when={
                       props.battle_selected().friendly_force_attack!
-                        .support_hourai!.flare_pos![1] != -1
+                        .support_hourai.flare_pos![1] != -1
                     }
                     fallback={<div>_</div>}
                   >
@@ -99,25 +98,25 @@ export function FriendlyForceAttackComponent(props: FriendlyForceAttackProps) {
                       ship_id={
                         props.battle_selected().enemy_ship_id[
                           props.battle_selected().friendly_force_attack!
-                            .support_hourai!.flare_pos![1]
+                            .support_hourai.flare_pos![1]
                         ]
                       }
                       ship_param={
                         props.battle_selected().e_params![
                           props.battle_selected().friendly_force_attack!
-                            .support_hourai!.flare_pos![1]
+                            .support_hourai.flare_pos![1]
                         ]
                       }
                       ship_slot={
                         props.battle_selected().e_slot![
                           props.battle_selected().friendly_force_attack!
-                            .support_hourai!.flare_pos![1]
+                            .support_hourai.flare_pos![1]
                         ]
                       }
                       ship_max_hp={
                         props.battle_selected().e_hp_max![
                           props.battle_selected().friendly_force_attack!
-                            .support_hourai!.flare_pos![1]
+                            .support_hourai.flare_pos![1]
                         ]
                       }
                     />
@@ -140,13 +139,13 @@ export function FriendlyForceAttackComponent(props: FriendlyForceAttackProps) {
                 <Show
                   when={
                     props.battle_selected().friendly_force_attack!
-                      .support_hourai!.hougeki!.at_list != null
+                      .support_hourai.hougeki.at_list != null
                   }
                 >
                   <For
                     each={
                       props.battle_selected().friendly_force_attack!
-                        .support_hourai!.hougeki!.at_list
+                        .support_hourai.hougeki.at_list
                     }
                   >
                     {(at, at_index) => (
@@ -156,7 +155,7 @@ export function FriendlyForceAttackComponent(props: FriendlyForceAttackProps) {
                             <Show
                               when={
                                 props.battle_selected().friendly_force_attack!
-                                  .support_hourai!.hougeki!.at_eflag![
+                                  .support_hourai.hougeki.at_eflag![
                                   at_index()
                                 ] == 0
                               }
@@ -200,24 +199,24 @@ export function FriendlyForceAttackComponent(props: FriendlyForceAttackProps) {
                                 <SimpleShipNameComponent
                                   ship_id={
                                     props.battle_selected()
-                                      .friendly_force_attack!.fleet_info
+                                      .friendly_force_attack.fleet_info
                                       .ship_id[at]
                                   }
                                   ship_param={
                                     props.battle_selected()
-                                      .friendly_force_attack!.fleet_info.params[
+                                      .friendly_force_attack.fleet_info.params[
                                       at
                                     ]
                                   }
                                   ship_slot={
                                     props.battle_selected()
-                                      .friendly_force_attack!.fleet_info.slot[
+                                      .friendly_force_attack.fleet_info.slot[
                                       at
                                     ]
                                   }
                                   ship_max_hp={
                                     props.battle_selected()
-                                      .friendly_force_attack!.fleet_info
+                                      .friendly_force_attack.fleet_info
                                       .now_hps[at]
                                   }
                                 />
@@ -229,7 +228,7 @@ export function FriendlyForceAttackComponent(props: FriendlyForceAttackProps) {
                           <Show
                             when={
                               props.battle_selected().friendly_force_attack!
-                                .support_hourai!.hougeki!.at_eflag![
+                                .support_hourai.hougeki.at_eflag![
                                 at_index()
                               ] == 0
                             }
@@ -237,7 +236,7 @@ export function FriendlyForceAttackComponent(props: FriendlyForceAttackProps) {
                               <SimpleHpBar
                                 v_now={() =>
                                   props.battle_selected().friendly_force_attack!
-                                    .support_hourai!.hougeki!.e_now_hps[
+                                    .support_hourai.hougeki.e_now_hps[
                                     at_index()
                                   ][at]
                                 }
@@ -250,7 +249,7 @@ export function FriendlyForceAttackComponent(props: FriendlyForceAttackProps) {
                             <SimpleHpBar
                               v_now={() =>
                                 props.battle_selected().friendly_force_attack!
-                                  .support_hourai!.hougeki!.f_now_hps![
+                                  .support_hourai.hougeki.f_now_hps![
                                   at_index()
                                 ][at]
                               }
@@ -266,7 +265,7 @@ export function FriendlyForceAttackComponent(props: FriendlyForceAttackProps) {
                             <For
                               each={
                                 props.battle_selected().friendly_force_attack!
-                                  .support_hourai!.hougeki!.df_list![at_index()]
+                                  .support_hourai.hougeki.df_list![at_index()]
                               }
                             >
                               {(df, df_index) => (
@@ -274,8 +273,8 @@ export function FriendlyForceAttackComponent(props: FriendlyForceAttackProps) {
                                   <Show
                                     when={
                                       props.battle_selected()
-                                        .friendly_force_attack!.support_hourai!
-                                        .hougeki!.at_eflag![at_index()] == 1 &&
+                                        .friendly_force_attack.support_hourai!
+                                        .hougeki.at_eflag![at_index()] == 1 &&
                                       df != -1
                                     }
                                     fallback={
@@ -323,22 +322,22 @@ export function FriendlyForceAttackComponent(props: FriendlyForceAttackProps) {
                                       <SimpleShipNameComponent
                                         ship_id={
                                           props.battle_selected()
-                                            .friendly_force_attack!.fleet_info
+                                            .friendly_force_attack.fleet_info
                                             .ship_id[df]
                                         }
                                         ship_param={
                                           props.battle_selected()
-                                            .friendly_force_attack!.fleet_info
+                                            .friendly_force_attack.fleet_info
                                             .params[df]
                                         }
                                         ship_slot={
                                           props.battle_selected()
-                                            .friendly_force_attack!.fleet_info
+                                            .friendly_force_attack.fleet_info
                                             .slot[df]
                                         }
                                         ship_max_hp={
                                           props.battle_selected()
-                                            .friendly_force_attack!.fleet_info
+                                            .friendly_force_attack.fleet_info
                                             .now_hps[df]
                                         }
                                       />
@@ -347,8 +346,8 @@ export function FriendlyForceAttackComponent(props: FriendlyForceAttackProps) {
                                   <Show
                                     when={
                                       props.battle_selected()
-                                        .friendly_force_attack!.support_hourai!
-                                        .hougeki!.protect_flag![at_index()][
+                                        .friendly_force_attack.support_hourai!
+                                        .hougeki.protect_flag![at_index()][
                                         df_index()
                                       ] == true
                                     }
@@ -365,22 +364,22 @@ export function FriendlyForceAttackComponent(props: FriendlyForceAttackProps) {
                             <For
                               each={
                                 props.battle_selected().friendly_force_attack!
-                                  .support_hourai!.hougeki!.df_list![at_index()]
+                                  .support_hourai.hougeki.df_list![at_index()]
                               }
                             >
                               {(df) => (
                                 <Show
                                   when={
                                     props.battle_selected()
-                                      .friendly_force_attack!.support_hourai!
-                                      .hougeki!.at_eflag![at_index()] == 0
+                                      .friendly_force_attack.support_hourai!
+                                      .hougeki.at_eflag![at_index()] == 0
                                   }
                                   fallback={
                                     <SimpleHpBar
                                       v_now={() =>
                                         props.battle_selected()
                                           .friendly_force_attack!
-                                          .support_hourai!.hougeki!.e_now_hps[
+                                          .support_hourai.hougeki.e_now_hps[
                                           at_index()
                                         ][df]
                                       }
@@ -393,12 +392,12 @@ export function FriendlyForceAttackComponent(props: FriendlyForceAttackProps) {
                                   <SimpleHpBar
                                     v_now={() =>
                                       props.battle_selected()
-                                        .friendly_force_attack!.support_hourai!
-                                        .hougeki!.f_now_hps![at_index()][df]
+                                        .friendly_force_attack.support_hourai!
+                                        .hougeki.f_now_hps![at_index()][df]
                                     }
                                     v_max={() =>
                                       props.battle_selected()
-                                        .friendly_force_attack!.fleet_info
+                                        .friendly_force_attack.fleet_info
                                         .now_hps[df]
                                     }
                                   />
@@ -412,7 +411,7 @@ export function FriendlyForceAttackComponent(props: FriendlyForceAttackProps) {
                             <For
                               each={
                                 props.battle_selected().friendly_force_attack!
-                                  .support_hourai!.hougeki!.damage![at_index()]
+                                  .support_hourai.hougeki.damage![at_index()]
                               }
                             >
                               {(dmg, dmg_index) => (
@@ -422,7 +421,7 @@ export function FriendlyForceAttackComponent(props: FriendlyForceAttackProps) {
                                       let cl_flag =
                                         props.battle_selected()
                                           .friendly_force_attack!
-                                          .support_hourai!.hougeki!.cl_list![
+                                          .support_hourai.hougeki.cl_list![
                                           at_index()
                                         ][dmg_index()];
                                       if (cl_flag == 0 || dmg == 0) {
@@ -443,7 +442,7 @@ export function FriendlyForceAttackComponent(props: FriendlyForceAttackProps) {
                           <div
                             class={
                               props.battle_selected().friendly_force_attack!
-                                .support_hourai!.hougeki!.df_list![at_index()]
+                                .support_hourai.hougeki.df_list![at_index()]
                                 .length == 1
                                 ? "flex flex-nowrap"
                                 : "flex flex-col"
@@ -452,7 +451,7 @@ export function FriendlyForceAttackComponent(props: FriendlyForceAttackProps) {
                             <Show
                               when={
                                 props.battle_selected().friendly_force_attack!
-                                  .support_hourai!.hougeki!.si_list![
+                                  .support_hourai.hougeki.si_list![
                                   at_index()
                                 ] != null
                               }
@@ -460,7 +459,7 @@ export function FriendlyForceAttackComponent(props: FriendlyForceAttackProps) {
                               <For
                                 each={
                                   props.battle_selected().friendly_force_attack!
-                                    .support_hourai!.hougeki!.si_list![
+                                    .support_hourai.hougeki.si_list![
                                     at_index()
                                   ]
                                 }
@@ -474,7 +473,7 @@ export function FriendlyForceAttackComponent(props: FriendlyForceAttackProps) {
                                       show_param={
                                         props.battle_selected()
                                           .friendly_force_attack!
-                                          .support_hourai!.hougeki?.at_eflag![
+                                          .support_hourai.hougeki?.at_eflag![
                                           at_index()
                                         ] == 0
                                       }
