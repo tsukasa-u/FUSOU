@@ -65,6 +65,42 @@ export function WrapEnemyShipComponent(props: EnemyShipProps) {
   );
 }
 
+interface FriendShipProps {
+  ship_idx: number;
+  store_data_set_param_ship: () => DataSetParamShip;
+  name_flag: boolean;
+}
+
+export function WrapFriendShipComponent(props: FriendShipProps) {
+  return (
+    <>
+      <component-ship-masked-modal
+        size="xs"
+        ship_max_hp={
+          props.store_data_set_param_ship().f_friend_ship_max_hp[props.ship_idx]
+        }
+        ship_param={
+          props.store_data_set_param_ship().f_friend_ship_param[props.ship_idx]
+        }
+        ship_slot={
+          props.store_data_set_param_ship().f_friend_ship_slot[props.ship_idx]
+        }
+        mst_ship={
+          props.store_data_set_param_ship().f_friend_mst_ship[props.ship_idx]
+        }
+        mst_slot_items={
+          props.store_data_set_param_ship().f_friend_mst_slot_items[
+            props.ship_idx
+          ]
+        }
+        color={props.store_data_set_param_ship().f_friend_color[props.ship_idx]}
+        empty_flag={false}
+        name_flag={props.name_flag}
+      />
+    </>
+  );
+}
+
 interface NumberedOwnShipProps {
   ship_idx: number;
   deck_ship_id: () => DeckShipIds;
