@@ -4,6 +4,8 @@ import { get_mst_slot_item, type DeckShipIds } from "../utility/battles";
 import "shared-ui";
 import { useDeckPorts } from "../utility/provider";
 
+const friendly_force_number = 5;
+
 interface OwnShipProps {
   ship_idx: number;
   deck_ship_id: () => DeckShipIds;
@@ -176,6 +178,49 @@ export function WrapNumberedEnemyShipComponent(props: NumberedEnemyShipProps) {
   );
 }
 
+interface NumberedFrienShipProps {
+  ship_idx: number;
+  battle_selected: () => Battle | undefined;
+  store_data_set_param_ship: () => DataSetParamShip;
+}
+
+export function WrapNumberedFriendShipComponent(props: NumberedFrienShipProps) {
+  return (
+    <>
+      <icon-fleet-number
+        size="xs"
+        e_flag={0}
+        fleet_number={friendly_force_number}
+        ship_number={props.ship_idx + 1}
+        combined_flag={false}
+      />
+      <component-ship-masked-modal
+        size="xs"
+        ship_max_hp={
+          props.store_data_set_param_ship().f_friend_ship_max_hp[props.ship_idx]
+        }
+        ship_param={
+          props.store_data_set_param_ship().f_friend_ship_param[props.ship_idx]
+        }
+        ship_slot={
+          props.store_data_set_param_ship().f_friend_ship_slot[props.ship_idx]
+        }
+        mst_ship={
+          props.store_data_set_param_ship().f_friend_mst_ship[props.ship_idx]
+        }
+        mst_slot_items={
+          props.store_data_set_param_ship().f_friend_mst_slot_items[
+            props.ship_idx
+          ]
+        }
+        color={props.store_data_set_param_ship().f_friend_color[props.ship_idx]}
+        empty_flag={false}
+        name_flag={true}
+      />
+    </>
+  );
+}
+
 export function WrapNumberedErrorShipComponent() {
   return (
     <>
@@ -267,6 +312,24 @@ interface WrapEnemyShipHPProps {
 export function WrapEnemyShipHPComponent(props: WrapEnemyShipHPProps) {
   let v_now = props.e_now_hps?.[props.idx];
   let v_max = props.store_data_set_param_ship().e_ship_max_hp[props.idx];
+  return (
+    <component-color-bar-label
+      size="xs"
+      v_max={v_max ?? 0}
+      v_now={v_now ?? 0}
+    />
+  );
+}
+
+interface WrapFriendShipHPProps {
+  store_data_set_param_ship: () => DataSetParamShip;
+  idx: number;
+  friend_now_hps: number[] | undefined;
+}
+
+export function WrapFriendShipHPComponent(props: WrapFriendShipHPProps) {
+  let v_now = props.friend_now_hps?.[props.idx];
+  let v_max = props.store_data_set_param_ship().f_friend_ship_max_hp[props.idx];
   return (
     <component-color-bar-label
       size="xs"

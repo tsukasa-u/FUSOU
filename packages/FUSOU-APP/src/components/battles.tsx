@@ -144,8 +144,10 @@ export function BattlesComponent() {
       if (implementsOpeningTaisen(order)) {
         battle_history.push(
           <OpeningAntiSubmarineComponent
-            deck_ship_id={deck_ship_id()}
+            deck_ship_id={deck_ship_id}
             battle_selected={battle_selected}
+            store_data_set_deck_ship={store_data_set_deck_ship}
+            store_data_set_param_ship={store_data_set_param_ship}
           />
         );
       }
@@ -171,7 +173,12 @@ export function BattlesComponent() {
       }
       if (implementsFriendlyForceAttack(order)) {
         battle_history.push(
-          <FriendlyForceAttackComponent battle_selected={battle_selected} />
+          <FriendlyForceAttackComponent
+            battle_selected={battle_selected}
+            deck_ship_id={deck_ship_id}
+            store_data_set_deck_ship={store_data_set_deck_ship}
+            store_data_set_param_ship={store_data_set_param_ship}
+          />
         );
       }
       if (implementsMidnightHougeki(order)) {

@@ -10,6 +10,8 @@ import { DataSetParamShip, DataSetShip } from "../utility/get_data_set";
 import { DeckShipIds } from "../utility/battles";
 import "shared-ui";
 
+const friendly_force_number = 5;
+
 interface ButtleSummaryProps {
   deck_ship_id: () => DeckShipIds;
   battle_selected: () => Battle | undefined;
@@ -533,6 +535,13 @@ export function BattleSummaryComponent(props: ButtleSummaryProps) {
         }
       >
         <td>
+          <icon-fleet-number
+            e_flag={0}
+            fleet_number={friendly_force_number}
+            ship_number={idx + 1}
+            combined_flag={false}
+            size="xs"
+          />
           <component-ship-masked-modal
             size="xs"
             empty_flag={false}
