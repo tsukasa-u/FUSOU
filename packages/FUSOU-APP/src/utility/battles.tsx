@@ -1,6 +1,11 @@
 import { MstSlotItem, MstSlotItems } from "@ipc-bindings/get_data";
 import { DataSetShip, get_data_set_ship } from "./get_data_set";
-import { useCells, useDeckPorts, useMstSlotItems } from "./provider";
+import {
+  useCells,
+  useDeckPorts,
+  useMstSlotItems,
+  useSlotItems,
+} from "./provider";
 import { Battle } from "@ipc-bindings/battle";
 
 export const calc_critical = (
@@ -14,6 +19,12 @@ export const calc_critical = (
   } else {
     return "";
   }
+};
+
+export const get_slot_item = (id: number) => {
+  const [slot_items] = useSlotItems();
+  const mst_slot_item_id = slot_items.slot_items[id]?.slotitem_id;
+  return mst_slot_item_id ? get_mst_slot_item(mst_slot_item_id) : undefined;
 };
 
 export const get_mst_slot_item = (id: number) => {

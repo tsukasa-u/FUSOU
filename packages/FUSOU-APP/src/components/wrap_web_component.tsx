@@ -1,6 +1,10 @@
 import { Battle } from "@ipc-bindings/battle";
 import { DataSetParamShip, DataSetShip } from "src/utility/get_data_set";
-import { get_mst_slot_item, type DeckShipIds } from "../utility/battles";
+import {
+  get_mst_slot_item,
+  get_slot_item,
+  type DeckShipIds,
+} from "../utility/battles";
 import "shared-ui";
 import { useDeckPorts } from "../utility/provider";
 
@@ -350,10 +354,10 @@ export function WrapCIMstEquipComponent(props: WrapCIMstEquipmentProps) {
   );
 }
 
-interface WrapCIMstEquipmentProps {
+interface WrapOwnPlaneEquipmentProps {
   si: number;
 }
-export function WrapOwnPlaneEquipComponent(props: WrapCIMstEquipmentProps) {
+export function WrapOwnPlaneEquipComponent(props: WrapOwnPlaneEquipmentProps) {
   return (
     <component-equipment-mst-modal
       size="xs"
@@ -362,7 +366,7 @@ export function WrapOwnPlaneEquipComponent(props: WrapCIMstEquipmentProps) {
       name_flag={true}
       show_name={true}
       show_param={true}
-      mst_slot_item={get_mst_slot_item(props.si)}
+      mst_slot_item={get_slot_item(props.si)}
     />
   );
 }

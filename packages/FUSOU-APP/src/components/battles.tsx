@@ -109,12 +109,18 @@ export function BattlesComponent() {
           <AirBaseAssaultComponent
             area_id={cells.maparea_id}
             battle_selected={battle_selected}
+            store_data_set_param_ship={store_data_set_param_ship}
           />
         );
       }
       if (implementsCarrierBaseAssault(order)) {
         battle_history.push(
-          <CarrierBaseAssaultComponent battle_selected={battle_selected} />
+          <CarrierBaseAssaultComponent
+            deck_ship_id={deck_ship_id}
+            battle_selected={battle_selected}
+            store_data_set_deck_ship={store_data_set_deck_ship}
+            store_data_set_param_ship={store_data_set_param_ship}
+          />
         );
       }
       if (implementsAirBaseAirAttack(order)) {
@@ -122,14 +128,17 @@ export function BattlesComponent() {
           <AirBaseAirAttackComponent
             area_id={cells.maparea_id}
             battle_selected={battle_selected}
+            store_data_set_param_ship={store_data_set_param_ship}
           />
         );
       }
       if (implementsOpeningAirAttack(order)) {
         battle_history.push(
           <OpeningAirAttackComponent
-            deck_ship_id={deck_ship_id()}
+            deck_ship_id={deck_ship_id}
             battle_selected={battle_selected}
+            store_data_set_deck_ship={store_data_set_deck_ship}
+            store_data_set_param_ship={store_data_set_param_ship}
           />
         );
       }
@@ -358,62 +367,32 @@ export function BattlesComponent() {
                   <For each={battle_selected()?.formation?.slice(0, 2)}>
                     {(formation, index) => (
                       <>
-                        <Switch fallback={<div>_</div>}>
-                          <Match when={formation == 1}>
-                            <div
-                              class={
-                                index() == 0 ? "text-lime-500" : "text-red-500"
-                              }
-                            >
-                              Line Ahead
-                            </div>
-                          </Match>
-                          <Match when={formation == 2}>
-                            <div
-                              class={
-                                index() == 0 ? "text-lime-500" : "text-red-500"
-                              }
-                            >
-                              Double Line
-                            </div>
-                          </Match>
-                          <Match when={formation == 3}>
-                            <div
-                              class={
-                                index() == 0 ? "text-lime-500" : "text-red-500"
-                              }
-                            >
-                              Diamond
-                            </div>
-                          </Match>
-                          <Match when={formation == 4}>
-                            <div
-                              class={
-                                index() == 0 ? "text-lime-500" : "text-red-500"
-                              }
-                            >
-                              Echelon
-                            </div>
-                          </Match>
-                          <Match when={formation == 5}>
-                            <div
-                              class={
-                                index() == 0 ? "text-lime-500" : "text-red-500"
-                              }
-                            >
-                              Line Abreast
-                            </div>
-                          </Match>
-                          <Match when={formation == 6}>
-                            <div
-                              class={
-                                index() == 0 ? "text-lime-500" : "text-red-500"
-                              }
-                            >
-                              Vanguard
-                            </div>
-                          </Match>
-                        </Switch>
+                        <div
+                          class={
+                            index() == 0 ? "text-lime-500" : "text-red-500"
+                          }
+                        >
+                          <Switch fallback={<div>_</div>}>
+                            <Match when={formation == 1}>
+                              <div>Line Ahead</div>
+                            </Match>
+                            <Match when={formation == 2}>
+                              <div>Double Line</div>
+                            </Match>
+                            <Match when={formation == 3}>
+                              <div>Diamond</div>
+                            </Match>
+                            <Match when={formation == 4}>
+                              <div>Echelon</div>
+                            </Match>
+                            <Match when={formation == 5}>
+                              <div>Line Abreast</div>
+                            </Match>
+                            <Match when={formation == 6}>
+                              <div>Vanguard</div>
+                            </Match>
+                          </Switch>
+                        </div>
                         <Show when={index() == 0}>
                           <div class="w-3 text-center">/</div>
                         </Show>
@@ -421,7 +400,6 @@ export function BattlesComponent() {
                     )}
                   </For>
                   <div class="divider divider-horizontal mr-0 ml-0" />
-                  {/* <span class="w-4"></span> */}
                   Form : <span class="w-1" />
                   {form()}
                 </div>

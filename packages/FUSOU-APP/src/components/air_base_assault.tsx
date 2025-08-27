@@ -1,17 +1,20 @@
 import { createMemo, For, Show } from "solid-js";
 
-import "../css/divider.css";
-import { SimpleShipNameComponent } from "./simple_ship_name";
 import type { Battle } from "@ipc-bindings/battle";
-import { EquimentComponent } from "./equipment";
 import { useAirBases, useSlotItems } from "../utility/provider";
 import IconShield from "../icons/shield";
-import { SimpleHpBar } from "./simple_hp_bar";
-import IconFleetNumber from "../icons/fleet_number";
+import { DataSetParamShip } from "../utility/get_data_set";
+import { calc_critical } from "../utility/battles";
+import {
+  WrapEnemyShipHPComponent,
+  WrapNumberedEnemyShipComponent,
+  WrapOwnPlaneEquipComponent,
+} from "./wrap_web_component";
 
 interface AirDamageProps {
   area_id: number;
-  battle_selected: () => Battle;
+  battle_selected: () => Battle | undefined;
+  store_data_set_param_ship: () => DataSetParamShip;
 }
 
 export function AirBaseAssaultComponent(props: AirDamageProps) {
@@ -19,112 +22,189 @@ export function AirBaseAssaultComponent(props: AirDamageProps) {
   const [air_bases] = useAirBases();
 
   const show_air_attack = createMemo<boolean>(() => {
-    if (props.battle_selected() == undefined) return false;
-    if (props.battle_selected().air_base_assault == null) return false;
+    if (!props.battle_selected()) return false;
+    if (!props.battle_selected()?.air_base_assault) return false;
     return true;
   });
 
   const show_damage = createMemo<boolean[][]>(() => {
     let show_damage: boolean[][] = [
-      [
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-      ],
-      [
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-        false,
-      ],
+      new Array(12).fill(false),
+      new Array(12).fill(false),
     ];
-    if (props.battle_selected().air_base_assault == null) return show_damage;
-    if (props.battle_selected().air_base_assault!.e_damage.bak_flag) {
-      props
-        .battle_selected()!
-        .air_base_assault!.e_damage!.bak_flag!.forEach((flag, idx) => {
-          show_damage[0][idx] ||= flag == 1;
-        });
-    }
-    if (props.battle_selected().air_base_assault!.e_damage.rai_flag) {
-      props
-        .battle_selected()!
-        .air_base_assault!.e_damage!.rai_flag!.forEach((flag, idx) => {
-          show_damage[0][idx] ||= flag == 1;
-        });
-    }
-    if (props.battle_selected().air_base_assault!.f_damage.bak_flag) {
-      props
-        .battle_selected()!
-        .air_base_assault!.f_damage!.bak_flag!.forEach((flag, idx) => {
-          show_damage[1][idx] ||= flag == 1;
-        });
-    }
-    if (props.battle_selected().air_base_assault!.f_damage.rai_flag) {
-      props
-        .battle_selected()!
-        .air_base_assault!.f_damage!.rai_flag!.forEach((flag, idx) => {
-          show_damage[1][idx] ||= flag == 1;
-        });
-    }
+    const air_base_assault = props.battle_selected()?.air_base_assault;
+    if (!air_base_assault) return show_damage;
+    air_base_assault?.e_damage.bak_flag?.forEach((flag, idx) => {
+      show_damage[0][idx] ||= flag == 1;
+    });
+    air_base_assault?.e_damage.rai_flag?.forEach((flag, idx) => {
+      show_damage[0][idx] ||= flag == 1;
+    });
+    air_base_assault?.f_damage.bak_flag?.forEach((flag, idx) => {
+      show_damage[1][idx] ||= flag == 1;
+    });
+    air_base_assault?.f_damage.rai_flag?.forEach((flag, idx) => {
+      show_damage[1][idx] ||= flag == 1;
+    });
     return show_damage;
   });
 
   const plane_info = createMemo<number[]>(() => {
-    if (props.battle_selected().air_base_assault == null) return [];
-    if (props.battle_selected().air_base_air_attacks == null) return [];
+    if (!props.battle_selected()?.air_base_assault) return [];
+    if (!props.battle_selected()?.air_base_air_attacks) return [];
 
     let set_base_id: Set<number> = new Set(
       props
         .battle_selected()
-        .air_base_air_attacks.attacks.map((attack) => attack.base_id)
+        ?.air_base_air_attacks?.attacks.map((attack) => attack.base_id)
     );
     let plane_info = Array.from(set_base_id.values())
       .map(
-        (base_id) => air_bases.bases[(props.area_id << 16) | base_id].plane_info
+        (base_id) =>
+          air_bases.bases[(props.area_id << 16) | base_id]?.plane_info
       )
-      .reduce((acc, val) => acc.concat(val), []);
+      .reduce((acc, val) => (acc && val ? acc.concat(val) : acc), []);
 
     let ret: number[] = [];
-    props
-      .battle_selected()
-      .air_base_assault!.squadron_plane.filter(
-        (squadron_plane) => squadron_plane != 0
-      )
-      .forEach((squadron_plane) => {
-        let idx = plane_info.findIndex(
-          (plane) =>
-            slotitems.slot_items[plane.slotid].slotitem_id == squadron_plane
-        );
-        if (idx != -1) {
-          ret.push(plane_info[idx].slotid);
-          delete plane_info[idx];
-        }
-      });
-
+    if (plane_info) {
+      props
+        .battle_selected()
+        ?.air_base_assault?.squadron_plane.filter(
+          (squadron_plane) => squadron_plane != 0
+        )
+        .forEach((squadron_plane) => {
+          let idx = plane_info.findIndex(
+            (plane) =>
+              slotitems.slot_items[plane.slotid]?.slotitem_id == squadron_plane
+          );
+          if (idx && idx != -1) {
+            ret.push(plane_info[idx].slotid);
+            delete plane_info[idx];
+          }
+        });
+    }
     return ret;
   });
+
+  const attacker_planes = () => {
+    return (
+      <td>
+        <div class="flex flex-col">
+          <For each={plane_info()}>
+            {(slot_id, idx) => (
+              <>
+                <Show when={idx() > 0}>
+                  <div class="h-px" />
+                </Show>
+                <WrapOwnPlaneEquipComponent si={slot_id} />
+              </>
+            )}
+          </For>
+        </div>
+      </td>
+    );
+  };
+
+  const defenser_ships = () => {
+    return (
+      <td>
+        <div class="flex flex-col">
+          <For
+            each={props.battle_selected()?.air_base_assault?.e_damage.damages}
+          >
+            {(_, idx) => (
+              <>
+                <Show when={show_damage()[0][idx()]}>
+                  <Show when={idx() > 0}>
+                    <div class="h-px" />
+                  </Show>
+                  <div class="flex flex-nowrap">
+                    <WrapNumberedEnemyShipComponent
+                      battle_selected={props.battle_selected}
+                      ship_idx={idx()}
+                      store_data_set_param_ship={
+                        props.store_data_set_param_ship
+                      }
+                    />
+                    <Show
+                      when={
+                        props
+                          .battle_selected()
+                          ?.air_base_assault?.e_damage.protect_flag?.some(
+                            (flag) => flag
+                          ) ?? false
+                      }
+                    >
+                      <IconShield class="h-4 self-center ml-auto" />
+                    </Show>
+                  </div>
+                </Show>
+              </>
+            )}
+          </For>
+        </div>
+      </td>
+    );
+  };
+
+  const defenser_hps = () => {
+    return (
+      <td>
+        <div class="flex flex-col">
+          <For
+            each={props.battle_selected()?.air_base_assault?.e_damage.damages}
+          >
+            {(_, idx) => (
+              <>
+                <Show when={show_damage()[0][idx()]}>
+                  <WrapEnemyShipHPComponent
+                    e_now_hps={
+                      props.battle_selected()?.air_base_assault?.e_damage
+                        .now_hps
+                    }
+                    idx={idx()}
+                    store_data_set_param_ship={props.store_data_set_param_ship}
+                  />
+                </Show>
+              </>
+            )}
+          </For>
+        </div>
+      </td>
+    );
+  };
+
+  const defenser_damages = () => {
+    return (
+      <td>
+        <div class="flex flex-col">
+          <For
+            each={props.battle_selected()?.air_base_assault?.e_damage.damages}
+          >
+            {(dmg, idx) => (
+              <>
+                <Show when={show_damage()[0][idx()]}>
+                  <Show when={idx() > 0}>
+                    <div class="h-px" />
+                  </Show>
+                  <div
+                    class={`text-sm my-auto ${calc_critical(
+                      dmg,
+                      props.battle_selected()?.air_base_assault?.e_damage.cl?.[
+                        idx()
+                      ]
+                    )}`}
+                  >
+                    {dmg}
+                  </div>
+                </Show>
+              </>
+            )}
+          </For>
+        </div>
+      </td>
+    );
+  };
 
   return (
     <Show when={show_air_attack()}>
@@ -135,146 +215,18 @@ export function AirBaseAssaultComponent(props: AirDamageProps) {
             <table class="table table-xs">
               <thead>
                 <tr>
-                  <th>From</th>
-                  <th>To</th>
-                  <th>HP</th>
                   <th>Attack</th>
+                  <th>To</th>
+                  <th>Defense</th>
+                  <th>Damage</th>
                 </tr>
               </thead>
               <tbody>
-                <tr class="table_hover table_active rounded">
-                  <td>
-                    <div class="flex flex-col">
-                      <For each={plane_info()}>
-                        {(slot_id, idx) => (
-                          <>
-                            <Show when={idx() > 0}>
-                              <div class="h-px" />
-                            </Show>
-                            <EquimentComponent
-                              slot_id={slot_id}
-                              name_flag={true}
-                            />
-                          </>
-                        )}
-                      </For>
-                    </div>
-                  </td>
-                  <td>
-                    <div class="flex flex-col">
-                      <For
-                        each={
-                          props.battle_selected().air_base_assault!.e_damage
-                            .damages ?? []
-                        }
-                      >
-                        {(_, idx) => (
-                          <>
-                            <Show when={show_damage()[0][idx()]}>
-                              <Show when={idx() > 0}>
-                                <div class="h-px" />
-                              </Show>
-                              <div class="flex flex-nowrap">
-                                <IconFleetNumber
-                                  class="h-6 -mt-1 pr-1"
-                                  e_flag={1}
-                                  fleet_number={1}
-                                  ship_number={idx() + 1}
-                                  combined_flag={
-                                    props.battle_selected().enemy_ship_id
-                                      .length == 12
-                                  }
-                                />
-                                <SimpleShipNameComponent
-                                  ship_id={
-                                    props.battle_selected().enemy_ship_id[idx()]
-                                  }
-                                  ship_max_hp={
-                                    props.battle_selected().e_hp_max![idx()]
-                                  }
-                                  ship_param={
-                                    props.battle_selected().e_params![idx()]
-                                  }
-                                  ship_slot={
-                                    props.battle_selected().e_slot![idx()]
-                                  }
-                                />
-                                <Show
-                                  when={props
-                                    .battle_selected()
-                                    .air_base_assault!.e_damage.protect_flag?.some(
-                                      (flag) => flag == true
-                                    )}
-                                >
-                                  <IconShield class="h-4 w-4" />
-                                </Show>
-                              </div>
-                            </Show>
-                          </>
-                        )}
-                      </For>
-                    </div>
-                  </td>
-                  <td>
-                    <div class="flex flex-col">
-                      <For
-                        each={
-                          props.battle_selected().air_base_assault!.e_damage
-                            .damages ?? []
-                        }
-                      >
-                        {(_, idx) => (
-                          <>
-                            <Show when={show_damage()[0][idx()]}>
-                              <SimpleHpBar
-                                v_now={() =>
-                                  props.battle_selected().air_base_assault!
-                                    .e_damage.now_hps![idx()]
-                                }
-                                v_max={() =>
-                                  props.battle_selected().e_hp_max![idx()]
-                                }
-                              />
-                            </Show>
-                          </>
-                        )}
-                      </For>
-                    </div>
-                  </td>
-                  <td>
-                    <div class="flex flex-col">
-                      <For
-                        each={
-                          props.battle_selected().air_base_assault!.e_damage
-                            .damages ?? []
-                        }
-                      >
-                        {(dmg, idx) => (
-                          <>
-                            <Show when={show_damage()[0][idx()]}>
-                              <Show when={idx() > 0}>
-                                <div class="h-[4px]" />
-                              </Show>
-                              <div
-                                class={(() => {
-                                  let cl_flag =
-                                    props.battle_selected().air_base_assault!
-                                      .e_damage.cl![idx()];
-                                  if (cl_flag == 0 || dmg == 0) {
-                                    return "text-red-500";
-                                  } else if (cl_flag == 2) {
-                                    return "text-yellow-500";
-                                  }
-                                })()}
-                              >
-                                {dmg}
-                              </div>
-                            </Show>
-                          </>
-                        )}
-                      </For>
-                    </div>
-                  </td>
+                <tr class="rounded">
+                  {attacker_planes()}
+                  {defenser_ships()}
+                  {defenser_hps()}
+                  {defenser_damages()}
                 </tr>
               </tbody>
             </table>
