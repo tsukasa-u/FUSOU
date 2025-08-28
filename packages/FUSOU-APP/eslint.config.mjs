@@ -6,7 +6,9 @@ import * as tsParser from "@typescript-eslint/parser";
 import solid from "eslint-plugin-solid/configs/typescript";
 
 export default defineConfig([
-  { files: ["**/*.{js,mjs,cjs,ts}"] },
+  {
+    files: ["**/*.{js,mjs,cjs,ts}"],
+  },
   {
     files: ["**/*.{js,mjs,cjs,ts,tsx}"],
     languageOptions: { globals: globals.browser },
@@ -26,16 +28,6 @@ export default defineConfig([
       parserOptions: {
         project: "tsconfig.json",
       },
-    },
-    rules: {
-      "@typescript-eslint/consistent-type-imports": [
-        "error",
-        {
-          prefer: "type-imports", // Enforces `import type { Foo } from '...'`
-          disallowTypeAnnotations: false,
-          fixStyle: "separate-type-imports", // Or "inline-type-imports" for TS 4.5+
-        },
-      ],
     },
   },
 ]);
