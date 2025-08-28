@@ -2,7 +2,7 @@ import { createMemo, For, Show } from "solid-js";
 
 import { useAirBases, useCells } from "../utility/provider";
 import type { Cell } from "@ipc-bindings/cells";
-import { DataSetParamShip } from "../utility/get_data_set";
+import type { DataSetParamShip } from "../utility/get_data_set";
 
 interface ButtleSummaryProps {
   area_id: number;

@@ -2,8 +2,9 @@ import { createMemo, For, Show } from "solid-js";
 
 import type { Battle } from "@ipc-bindings/battle";
 import IconShield from "../icons/shield";
-import { calc_critical, DeckShipIds } from "../utility/battles";
-import { DataSetParamShip, DataSetShip } from "../utility/get_data_set";
+import type { DeckShipIds } from "../utility/battles";
+import { calc_critical } from "../utility/battles";
+import type { DataSetParamShip, DataSetShip } from "../utility/get_data_set";
 import {
   WrapEnemyShipHPComponent,
   WrapNumberedEnemyShipComponent,

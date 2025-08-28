@@ -1,12 +1,15 @@
+import type {
+  JSX} from "solid-js";
 import {
   createContext,
   useContext,
-  JSX,
   createEffect,
   onCleanup,
 } from "solid-js";
-import { createStore, Part, SetStoreFunction } from "solid-js/store";
-import { listen, UnlistenFn } from "@tauri-apps/api/event";
+import type { Part, SetStoreFunction } from "solid-js/store";
+import { createStore } from "solid-js/store";
+import type { UnlistenFn } from "@tauri-apps/api/event";
+import { listen } from "@tauri-apps/api/event";
 
 import type { DeckPorts, Materials, Ship, Ships } from "@ipc-bindings/port";
 import {

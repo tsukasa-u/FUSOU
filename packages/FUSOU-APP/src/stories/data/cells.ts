@@ -1,4 +1,4 @@
-import { Cells } from "@ipc-bindings/cells";
+import type { Cells } from "@ipc-bindings/cells";
 
 export const cells: Cells = {
   maparea_id: 1,

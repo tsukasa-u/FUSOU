@@ -5,12 +5,13 @@ import {
 } from "../utility/provider.tsx";
 
 import "../css/divider.css";
+import type {
+  JSX} from "solid-js";
 import {
   createEffect,
   createMemo,
   createSignal,
   For,
-  JSX,
   Match,
   Show,
   Switch,

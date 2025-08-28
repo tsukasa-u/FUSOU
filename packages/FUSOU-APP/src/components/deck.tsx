@@ -17,12 +17,13 @@ import {
   useShips,
   useSlotItems,
 } from "../utility/provider.tsx";
+import type {
+  JSX} from "solid-js";
 import {
   createEffect,
   createMemo,
   createSignal,
   For,
-  JSX,
   Show,
 } from "solid-js";
 

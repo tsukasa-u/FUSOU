@@ -6,8 +6,8 @@ import "../css/divider.css";
 import type { Battle } from "@ipc-bindings/battle";
 import { useDeckPorts } from "../utility/provider";
 import IconExit from "../icons/exit";
-import { DataSetParamShip, DataSetShip } from "../utility/get_data_set";
-import { DeckShipIds } from "../utility/battles";
+import type { DataSetParamShip, DataSetShip } from "../utility/get_data_set";
+import type { DeckShipIds } from "../utility/battles";
 import "shared-ui";
 
 const friendly_force_number = 5;

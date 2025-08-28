@@ -4,7 +4,8 @@ import { IconXMark } from "../icons/X-mark.tsx";
 import { useMstSlotItems, useSlotItems } from "../utility/provider.tsx";
 
 import "../css/modal.css";
-import { createMemo, createSignal, JSX, Show } from "solid-js";
+import type { JSX} from "solid-js";
+import { createMemo, createSignal, Show } from "solid-js";
 import IconPlaneProficiency1 from "../icons/plane_proficiency1.tsx";
 import IconPlaneProficiency2 from "../icons/plane_proficiency2.tsx";
 import IconPlaneProficiency3 from "../icons/plane_proficiency3.tsx";

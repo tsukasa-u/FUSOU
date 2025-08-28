@@ -1,7 +1,8 @@
 import { useAirBases } from "../utility/provider.tsx";
 
 // import "../css/divider.css";
-import { createMemo, For, JSX } from "solid-js";
+import type { JSX } from "solid-js";
+import { createMemo, For } from "solid-js";
 import IconChevronRightS from "../icons/chevron_right_s.tsx";
 
 import "shared-ui";

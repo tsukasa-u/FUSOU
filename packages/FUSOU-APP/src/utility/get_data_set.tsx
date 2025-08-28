@@ -1,4 +1,4 @@
-import { Battle } from "@ipc-bindings/battle";
+import type { Battle } from "@ipc-bindings/battle";
 import {
   useMstShips,
   useMstSlotItems,
@@ -12,7 +12,7 @@ import type {
 } from "@ipc-bindings/get_data";
 import type { Ship } from "@ipc-bindings/port";
 import type { SlotItem, SlotItems } from "@ipc-bindings/require_info";
-import { DestructionBattle } from "@ipc-bindings/cells";
+import type { DestructionBattle } from "@ipc-bindings/cells";
 
 export type DataSetParamShip = {
   e_main_ship_param: number[][];

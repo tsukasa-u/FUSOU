@@ -1,4 +1,4 @@
-import { AirBases } from "@ipc-bindings/map_info";
+import type { AirBases } from "@ipc-bindings/map_info";
 
 export const air_bases: AirBases = {
   bases: {

@@ -1,4 +1,5 @@
-import { createMemo, JSX } from "solid-js";
+import type { JSX } from "solid-js";
+import { createMemo } from "solid-js";
 
 interface MaterialProps {
   item_number: number;

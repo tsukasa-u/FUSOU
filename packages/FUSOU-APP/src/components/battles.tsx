@@ -1,10 +1,11 @@
 import { useCells } from "../utility/provider";
+import type {
+  JSX} from "solid-js";
 import {
   createEffect,
   createMemo,
   createSignal,
   For,
-  JSX,
   Match,
   Show,
   Switch,
@@ -25,7 +26,7 @@ import {
   implementsOpeningTaisen,
   implementsSupportAttack,
 } from "@ipc-bindings/user_guard";
-import { Battle } from "@ipc-bindings/battle";
+import type { Battle } from "@ipc-bindings/battle";
 import { OpeningAntiSubmarineComponent } from "./opening_anti_submarine";
 import { OpeningTorpedoAttackComponent } from "./opening_torpedo_attack";
 import { ClosingTorpedoAttackComponent } from "./closing_torpedo_attack";
@@ -40,14 +41,16 @@ import { CarrierBaseAssaultComponent } from "./carrier_base_assault";
 import { BattleSummaryComponent } from "./battle_summary";
 import { DestructionBattleComponent } from "./destruction_battle";
 import { DestructionBattleSummaryComponent } from "./destruction_battle_summary";
+import type {
+  DeckShipIds} from "../utility/battles";
 import {
-  DeckShipIds,
   get_deck_ship_id,
   get_store_data_set_deck_ship,
 } from "../utility/battles";
-import {
+import type {
   DataSetParamShip,
-  DataSetShip,
+  DataSetShip} from "../utility/get_data_set";
+import {
   get_data_set_param_ship,
 } from "../utility/get_data_set";
 import { WrapCompactEquipComponent } from "./wrap_web_component";

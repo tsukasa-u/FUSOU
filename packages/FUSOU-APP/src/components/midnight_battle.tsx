@@ -4,7 +4,7 @@ import "../css/divider.css";
 import type { Battle } from "@ipc-bindings/battle";
 import IconShield from "../icons/shield";
 import { calc_critical, type DeckShipIds } from "../utility/battles";
-import { DataSetParamShip, DataSetShip } from "../utility/get_data_set";
+import type { DataSetParamShip, DataSetShip } from "../utility/get_data_set";
 import {
   WrapCIMstEquipComponent,
   WrapEnemyShipComponent,

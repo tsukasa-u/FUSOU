@@ -3,7 +3,7 @@ import { createMemo, For, Show } from "solid-js";
 import type { Battle } from "@ipc-bindings/battle";
 import { useAirBases, useSlotItems } from "../utility/provider";
 import IconShield from "../icons/shield";
-import { DataSetParamShip } from "../utility/get_data_set";
+import type { DataSetParamShip } from "../utility/get_data_set";
 import { calc_critical } from "../utility/battles";
 import {
   WrapEnemyShipHPComponent,

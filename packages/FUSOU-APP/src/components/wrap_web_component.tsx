@@ -1,5 +1,5 @@
-import { Battle } from "@ipc-bindings/battle";
-import { DataSetParamShip, DataSetShip } from "src/utility/get_data_set";
+import type { Battle } from "@ipc-bindings/battle";
+import type { DataSetParamShip, DataSetShip } from "src/utility/get_data_set";
 import {
   get_mst_slot_item,
   get_slot_item,

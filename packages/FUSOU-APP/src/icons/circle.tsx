@@ -1,4 +1,4 @@
-import { JSX } from "solid-js";
+import type { JSX } from "solid-js";
 
 export function IconCircle(props: JSX.HTMLAttributes<SVGSVGElement>) {
   return (

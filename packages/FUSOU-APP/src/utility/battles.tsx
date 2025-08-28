@@ -1,12 +1,13 @@
-import { MstSlotItem, MstSlotItems } from "@ipc-bindings/get_data";
-import { DataSetShip, get_data_set_ship } from "./get_data_set";
+import type { MstSlotItem, MstSlotItems } from "@ipc-bindings/get_data";
+import type { DataSetShip} from "./get_data_set";
+import { get_data_set_ship } from "./get_data_set";
 import {
   useCells,
   useDeckPorts,
   useMstSlotItems,
   useSlotItems,
 } from "./provider";
-import { Battle } from "@ipc-bindings/battle";
+import type { Battle } from "@ipc-bindings/battle";
 
 export const calc_critical = (
   dmg: number,
