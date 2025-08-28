@@ -125,7 +125,7 @@ export function OpeningAirAttackComponent(props: AirDamageProps) {
               />
             </div>
           </Show>
-          <div class="w-1"></div>
+          <div class="w-1" />
           <Show when={air_fire} fallback={<div>_</div>}>
             <For each={air_fire?.use_item}>
               {(item_id, idx) => (

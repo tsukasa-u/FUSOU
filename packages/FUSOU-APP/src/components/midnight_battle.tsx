@@ -174,7 +174,7 @@ export function MidnightShellingComponent(props: MidnightShellingProps) {
         );
       }
     } else {
-      return <td></td>;
+      return <td />;
     }
   };
 
@@ -307,7 +307,7 @@ export function MidnightShellingComponent(props: MidnightShellingProps) {
         );
       }
     } else {
-      return <td></td>;
+      return <td />;
     }
   };
 

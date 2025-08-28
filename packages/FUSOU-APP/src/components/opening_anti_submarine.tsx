@@ -98,7 +98,7 @@ export function OpeningAntiSubmarineComponent(props: AntiSubmarineProps) {
         );
       }
     } else {
-      return <td></td>;
+      return <td />;
     }
   };
 
@@ -226,7 +226,7 @@ export function OpeningAntiSubmarineComponent(props: AntiSubmarineProps) {
     } else {
       return (
         <td>
-          <div class="flex flex-col"></div>
+          <div class="flex flex-col" />
         </td>
       );
     }

@@ -65,19 +65,19 @@ function Close() {
         <div class="max-w-md justify-self-center bg-base-100 h-screen">
           <div class="p-10">
             <h1 class="text-3xl font-bold text-center">Auth</h1>
-            <div class="h-4"></div>
-            <div class="h-4"></div>
+            <div class="h-4" />
+            <div class="h-4" />
 
             <hr class="border-1 border-base-300" />
-            <div class="h-4"></div>
-            <div class="h-4"></div>
+            <div class="h-4" />
+            <div class="h-4" />
 
             <Show when={logIn()}>
               <h1 class="text-2xl text-center">You are logged in</h1>
-              <div class="h-4"></div>
+              <div class="h-4" />
               <h1 class="text-2xl text-center">close to return app</h1>
-              <div class="h-4"></div>
-              <div class="h-4"></div>
+              <div class="h-4" />
+              <div class="h-4" />
               <a class="btn" href={"fusou://auth?provider_refresh_token=" + providerRefreshToken() + "&provider=google&supabase_access_token=" + accessToken() + "&supabase_refresh_token=" + refreshToken()}>
                 In order to continue, please click here to launch the app
               </a>

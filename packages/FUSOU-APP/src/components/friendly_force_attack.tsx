@@ -152,7 +152,7 @@ export function FriendlyForceAttackComponent(props: FriendlyForceAttackProps) {
         );
       }
     } else {
-      return <td></td>;
+      return <td />;
     }
   };
 
@@ -281,7 +281,7 @@ export function FriendlyForceAttackComponent(props: FriendlyForceAttackProps) {
     } else {
       return (
         <td>
-          <div class="flex flex-col"></div>
+          <div class="flex flex-col" />
         </td>
       );
     }
