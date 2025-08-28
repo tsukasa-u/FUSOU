@@ -1,6 +1,6 @@
 # FUSOU
 
-![FUSOU](Docs/title.png)
+![FUSOU](docs/title.png)
 
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/tsukasa-u/FUSOU)
 [![Static Badge](https://img.shields.io/badge/docs.rs-tsukasa--u%2FFUSOU-blue?logo=docsdotrs)](https://tsukasa-u.github.io/FUSOU/app/index.html)
