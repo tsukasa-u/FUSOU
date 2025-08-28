@@ -376,6 +376,24 @@ export function WrapOwnPlaneEquipComponent(props: WrapOwnPlaneEquipmentProps) {
   );
 }
 
+interface WrapCompactEquipmentProps {
+  si: number;
+  name_flag: boolean;
+}
+export function WrapCompactEquipComponent(props: WrapCompactEquipmentProps) {
+  return (
+    <component-equipment-mst-modal
+      size="xs"
+      compact={true}
+      empty_flag={false}
+      name_flag={props.name_flag}
+      show_name={true}
+      show_param={true}
+      mst_slot_item={get_slot_item(props.si)}
+    />
+  );
+}
+
 interface WrapOwnShipHPProps {
   deck_ship_id: () => DeckShipIds;
   battle_selected: () => Battle | undefined;

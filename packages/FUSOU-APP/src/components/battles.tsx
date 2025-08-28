@@ -40,8 +40,6 @@ import { CarrierBaseAssaultComponent } from "./carrier_base_assault";
 import { BattleSummaryComponent } from "./battle_summary";
 import { DestructionBattleComponent } from "./destruction_battle";
 import { DestructionBattleSummaryComponent } from "./destruction_battle_summary";
-import { EquimentComponent } from "./equipment";
-import { MstEquipmentComponent } from "./mst_equipment";
 import {
   DeckShipIds,
   get_deck_ship_id,
@@ -52,6 +50,7 @@ import {
   DataSetShip,
   get_data_set_param_ship,
 } from "../utility/get_data_set";
+import { WrapCompactEquipComponent } from "./wrap_web_component";
 
 export function BattlesComponent() {
   const [cells] = useCells();
@@ -301,6 +300,156 @@ export function BattlesComponent() {
     }
   };
 
+  const display_serach = () => {
+    return (
+      <div class="flex felx-nowrap text-xs py-0.5 pl-2">
+        Search : <span class="w-1" />
+        <Show when={!battle_selected()?.reconnaissance} fallback={<div>_</div>}>
+          {serach_message()}
+        </Show>
+      </div>
+    );
+  };
+
+  const display_formation = () => {
+    return (
+      <>
+        Formation : <span class="w-1" />
+        <For each={battle_selected()?.formation?.slice(0, 2)}>
+          {(formation, index) => (
+            <>
+              <div class={index() == 0 ? "text-lime-500" : "text-red-500"}>
+                <Switch fallback={<div>_</div>}>
+                  <Match when={formation == 1}>
+                    <div>Line Ahead</div>
+                  </Match>
+                  <Match when={formation == 2}>
+                    <div>Double Line</div>
+                  </Match>
+                  <Match when={formation == 3}>
+                    <div>Diamond</div>
+                  </Match>
+                  <Match when={formation == 4}>
+                    <div>Echelon</div>
+                  </Match>
+                  <Match when={formation == 5}>
+                    <div>Line Abreast</div>
+                  </Match>
+                  <Match when={formation == 6}>
+                    <div>Vanguard</div>
+                  </Match>
+                </Switch>
+              </div>
+              <Show when={index() == 0}>
+                <div class="w-3 text-center">/</div>
+              </Show>
+            </>
+          )}
+        </For>
+      </>
+    );
+  };
+
+  const display_form = () => {
+    return (
+      <>
+        Form : <span class="w-1" />
+        {form()}
+      </>
+    );
+  };
+
+  const display_smoke_type = () => {
+    return (
+      <>
+        Smoke Type : <span class="w-1" />
+        <Show
+          when={
+            !battle_selected()?.smoke_type &&
+            battle_selected()?.smoke_type !== 0
+          }
+          fallback={<div class="w-6 text-center">_</div>}
+        >
+          <Switch fallback={<div class="w-6 text-center">_</div>}>
+            <Match when={battle_selected()?.smoke_type == 1}>
+              <div>Signle</div>
+            </Match>
+            <Match when={battle_selected()?.smoke_type == 2}>
+              <div>Double</div>
+            </Match>
+            <Match when={battle_selected()?.smoke_type == 3}>
+              <div>Triple</div>
+            </Match>
+          </Switch>
+        </Show>
+      </>
+    );
+  };
+
+  const display_ombat_ration = () => {
+    return (
+      <>
+        Combat Ration : <span class="w-1" />
+        <Show
+          when={!battle_selected()?.combat_ration}
+          fallback={<div class="w-6 text-center">_</div>}
+        >
+          <For
+            each={battle_selected()?.combat_ration}
+            fallback={<div class="w-6 text-center">_</div>}
+          >
+            {(ration) => (
+              <div>
+                <WrapCompactEquipComponent si={ration} name_flag={false} />
+              </div>
+            )}
+          </For>
+        </Show>
+      </>
+    );
+  };
+
+  const dispaly_balloon = () => {
+    const balloon_id = 513;
+    const deck_id = battle_selected()?.deck_id;
+    let baloon_flag = false;
+    if (deck_id) {
+      const f_ship_ids = deck_ship_id()
+        [deck_id].map((ship_id) => ship_id)
+        .filter((id) => id > 0);
+      const f_mst_slot_item = f_ship_ids
+        ?.map((ship_id) =>
+          Object.values(
+            store_data_set_deck_ship()[ship_id]?.mst_slot_items
+              ?.mst_slot_items ?? {}
+          )
+        )
+        .flat();
+      const f_balloon =
+        f_mst_slot_item.findIndex((slot_item) => slot_item?.id == balloon_id) !=
+        -1;
+      const e_mst_slot_item = store_data_set_param_ship()
+        .e_mst_slot_items.filter((slot_item) => slot_item)
+        .map((slot_item) => Object.values(slot_item!.mst_slot_items))
+        .flat();
+      const e_balloon =
+        e_mst_slot_item.findIndex((slot_item) => slot_item?.id == balloon_id) !=
+        -1;
+      baloon_flag = f_balloon || e_balloon;
+    }
+    return (
+      <>
+        Balloon : <span class="w-1" />
+        <Show
+          when={battle_selected()?.balloon_flag == 1 && baloon_flag}
+          fallback={<div class="w-6 text-center">_</div>}
+        >
+          launched
+        </Show>
+      </>
+    );
+  };
+
   return (
     <>
       <li>
@@ -308,13 +457,9 @@ export function BattlesComponent() {
           <summary class="flex">
             Battles
             <IconChevronRightS class="h-4 w-4" />
-            {/* <Show when={show_battle()}> */}
             <div>
               Map : {cells.maparea_id}-{cells.mapinfo_no}
             </div>
-            <div class="divider divider-horizontal mr-0 ml-0" />
-            <div>Boss Cell : {cells.bosscell_no}</div>
-            {/* </Show> */}
             <span class="flex-auto" />
           </summary>
           <Show
@@ -355,110 +500,18 @@ export function BattlesComponent() {
                 store_data_set_param_ship={store_data_set_param_ship}
               />
               <Show when={show_battle()}>
+                {display_serach()}
                 <div class="flex felx-nowrap text-xs py-0.5 pl-2">
-                  Search : <span class="w-1" />
-                  <Show
-                    when={battle_selected()?.reconnaissance !== null}
-                    fallback={<div>_</div>}
-                  >
-                    {serach_message()}
-                  </Show>
+                  {display_formation()}
+                  <div class="divider divider-horizontal mr-0 ml-0" />
+                  {display_form()}
                 </div>
                 <div class="flex felx-nowrap text-xs py-0.5 pl-2">
-                  Formation : <span class="w-1" />
-                  <For each={battle_selected()?.formation?.slice(0, 2)}>
-                    {(formation, index) => (
-                      <>
-                        <div
-                          class={
-                            index() == 0 ? "text-lime-500" : "text-red-500"
-                          }
-                        >
-                          <Switch fallback={<div>_</div>}>
-                            <Match when={formation == 1}>
-                              <div>Line Ahead</div>
-                            </Match>
-                            <Match when={formation == 2}>
-                              <div>Double Line</div>
-                            </Match>
-                            <Match when={formation == 3}>
-                              <div>Diamond</div>
-                            </Match>
-                            <Match when={formation == 4}>
-                              <div>Echelon</div>
-                            </Match>
-                            <Match when={formation == 5}>
-                              <div>Line Abreast</div>
-                            </Match>
-                            <Match when={formation == 6}>
-                              <div>Vanguard</div>
-                            </Match>
-                          </Switch>
-                        </div>
-                        <Show when={index() == 0}>
-                          <div class="w-3 text-center">/</div>
-                        </Show>
-                      </>
-                    )}
-                  </For>
+                  {display_smoke_type()}
                   <div class="divider divider-horizontal mr-0 ml-0" />
-                  Form : <span class="w-1" />
-                  {form()}
-                </div>
-                <div class="flex felx-nowrap text-xs py-0.5 pl-2">
-                  Smoke Type : <span class="w-1" />
-                  <Show
-                    when={
-                      !battle_selected()?.smoke_type &&
-                      battle_selected()?.smoke_type !== 0
-                    }
-                    fallback={<div class="w-6 text-center">_</div>}
-                  >
-                    <Switch fallback={<div class="w-6 text-center">_</div>}>
-                      <Match when={battle_selected()?.smoke_type == 1}>
-                        <div>Signle</div>
-                      </Match>
-                      <Match when={battle_selected()?.smoke_type == 2}>
-                        <div>Double</div>
-                      </Match>
-                      <Match when={battle_selected()?.smoke_type == 3}>
-                        <div>Triple</div>
-                      </Match>
-                    </Switch>
-                  </Show>
+                  {display_ombat_ration()}
                   <div class="divider divider-horizontal mr-0 ml-0" />
-                  Combat Ration : <span class="w-1" />
-                  <Show
-                    when={!battle_selected()?.combat_ration}
-                    fallback={<div class="w-6 text-center">_</div>}
-                  >
-                    <For
-                      each={battle_selected()?.combat_ration}
-                      fallback={<div class="w-6 text-center">_</div>}
-                    >
-                      {(ration) => (
-                        <div>
-                          <EquimentComponent
-                            slot_id={ration}
-                            name_flag={false}
-                          />
-                        </div>
-                      )}
-                    </For>
-                  </Show>
-                  <div class="divider divider-horizontal mr-0 ml-0" />
-                  Balloon : <span class="w-1" />
-                  <Show
-                    when={battle_selected()?.balloon_flag == 1}
-                    fallback={<div class="w-6 text-center">_</div>}
-                  >
-                    <MstEquipmentComponent
-                      equip_id={513}
-                      compact={true}
-                      show_param={true}
-                      name_flag={true}
-                    />
-                  </Show>
+                  {dispaly_balloon()}
                 </div>
               </Show>
             </ul>
