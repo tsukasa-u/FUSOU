@@ -71,17 +71,20 @@ export function SupportAttackComponent(props: SupportAttackProps) {
     return show_air_damage;
   });
 
-  const support_deck_id =
+  const support_deck_id = () =>
     props.battle_selected()?.support_attack?.support_hourai?.deck_id;
-  const ship_ids = support_deck_id
-    ? props.deck_ship_id()[support_deck_id]
-    : props.battle_selected()?.support_attack?.support_hourai?.ship_id;
+  const ship_ids = () => {
+    const deck_id = support_deck_id();
+    return deck_id
+      ? props.deck_ship_id()[deck_id]
+      : props.battle_selected()?.support_attack?.support_hourai?.ship_id;
+  };
 
   const attacker_ships = () => {
     return (
       <td>
         <div class="flex flex-col">
-          <For each={ship_ids}>
+          <For each={ship_ids()}>
             {(_, idx) => (
               <>
                 <Show when={idx() > 0}>
@@ -90,7 +93,7 @@ export function SupportAttackComponent(props: SupportAttackProps) {
                 <div class="flex flex-nowrap">
                   <WrapNumberedSupportShipComponent
                     ship_idx={idx()}
-                    support_deck_id={support_deck_id}
+                    support_deck_id={support_deck_id()}
                     deck_ship_id={props.deck_ship_id}
                     store_data_set_deck_ship={props.store_data_set_deck_ship}
                   />
@@ -107,13 +110,13 @@ export function SupportAttackComponent(props: SupportAttackProps) {
     return (
       <td>
         <div class="flex flex-col">
-          <For each={ship_ids}>
+          <For each={ship_ids()}>
             {(_, idx) => (
               <>
                 <WrapSupportShipHPComponent
                   deck_ship_id={props.deck_ship_id}
                   idx={idx()}
-                  support_deck_id={support_deck_id}
+                  support_deck_id={support_deck_id()}
                   store_data_set_deck_ship={props.store_data_set_deck_ship}
                 />
               </>
