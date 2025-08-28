@@ -20,9 +20,13 @@ function Close() {
           if (error) {
             console.error("Error getting session:", error);
           } else {
-            setProviderRefreshToken(data.session?.provider_refresh_token);
-            setAccessToken(data.session?.access_token);
-            setRefreshToken(data.session?.refresh_token);
+            const provider_refresh_token = data.session?.provider_refresh_token;
+            if (provider_refresh_token)
+              setProviderRefreshToken(provider_refresh_token);
+            const access_token = data.session?.access_token;
+            if (access_token) setAccessToken(access_token);
+            const refresh_token = data.session?.refresh_token;
+            if (refresh_token) setRefreshToken(refresh_token);
             // supabase.from('users').update({ refresh_token: data.session?.provider_refresh_token! }).eq('id', session?.user.id).then(({ data, error }) => {
             //   if (error) {
             //     console.error('Error updating refresh token:', error);
