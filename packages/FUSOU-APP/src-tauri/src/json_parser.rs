@@ -230,7 +230,7 @@ pub fn emit_data(handle: &tauri::AppHandle, emit_data: EmitData) {
 }
 
 // Should I rewrite this attribute marcro to macro_rules!?
-#[expand_struct_selector(path = "./../kc_api/src/kcapi_main")]
+#[expand_struct_selector(path = "./../../kc_api/src/kcapi_main")]
 pub fn struct_selector_response(
     name: String,
     data: String,
@@ -271,7 +271,7 @@ pub fn struct_selector_response(
 }
 
 // Should I rewrite this attribute marcro to macro_rules!?
-#[expand_struct_selector(path = "./../kc_api/src/kcapi_main")]
+#[expand_struct_selector(path = "./../../kc_api/src/kcapi_main")]
 pub fn struct_selector_resquest(
     name: String,
     data: String,

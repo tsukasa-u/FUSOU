@@ -1,0 +1,20 @@
+export-ts:
+    cargo test export_bindings
+    just replace-bindings
+
+replace-bigint-number file='*':
+    sh util/replace.sh {{file}}
+
+replace-bindings:
+    just replace-bigint-number "./bindings/battle.ts"
+    just replace-bigint-number "./bindings/cells.ts"
+    just replace-bigint-number "./bindings/get_data.ts"
+    just replace-bigint-number "./bindings/map_info.ts"
+    just replace-bigint-number "./bindings/port.ts"
+    just replace-bigint-number "./bindings/require_info.ts"
+
+test-deserialize:
+    cargo test_deserialize
+
+test-with-data:
+    cargo test -- --skip export_bindings

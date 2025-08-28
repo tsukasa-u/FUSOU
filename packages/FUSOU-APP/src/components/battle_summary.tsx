@@ -1,49 +1,47 @@
-import { ShipNameComponent } from "./ship_name";
+/* eslint-disable no-unexpected-multiline */
 
 import { createMemo, For, Show } from "solid-js";
 
 import "../css/divider.css";
-import { SimpleShipNameComponent } from "./simple_ship_name";
-import { Battle } from "../interface/battle";
-import { useDeckPorts, useShips } from "../utility/provider";
-import { SimpleHpBar } from "./simple_hp_bar";
-import IconFleetNumber from "../icons/fleet_number";
+import type { Battle } from "@ipc-bindings/battle";
+import { useDeckPorts } from "../utility/provider";
 import IconExit from "../icons/exit";
+import { DataSetParamShip, DataSetShip } from "../utility/get_data_set";
+import { DeckShipIds } from "../utility/battles";
+import "shared-ui";
+
+const friendly_force_number = 5;
 
 interface ButtleSummaryProps {
-  deck_ship_id: { [key: number]: number[] };
-  battle_selected: () => Battle;
+  deck_ship_id: () => DeckShipIds;
+  battle_selected: () => Battle | undefined;
+  store_data_set_deck_ship: () => DataSetShip;
+  store_data_set_param_ship: () => DataSetParamShip;
 }
 
 interface FleetInfo {
-  f_main_ship_id: number[];
-  f_main_nowhps: number[];
-  f_main_maxhps: number[];
-  f_main_damages: number[];
-  f_main_escape: boolean[];
-  f_escort_ship_id: number[];
-  f_escort_nowhps: number[];
-  f_escort_maxhps: number[];
-  f_escort_damages: number[];
-  f_escort_escape: boolean[];
-  e_main_ship_id: number[];
+  f_main_ship_id: (number | null)[];
+  f_main_nowhps: (number | null)[];
+  f_main_maxhps: (number | null)[];
+  f_main_damages: (number | null)[];
+  f_main_escape: (boolean | null)[];
+  f_escort_ship_id: (number | null)[];
+  f_escort_nowhps: (number | null)[];
+  f_escort_maxhps: (number | null)[];
+  f_escort_damages: (number | null)[];
+  f_escort_escape: (boolean | null)[];
+  e_main_ship_id: (number | null)[];
   e_main_nowhps: number[];
   e_main_maxhps: number[];
   e_main_damages: number[];
-  e_main_prams: number[][];
-  e_main_slot: number[][];
-  e_escort_ship_id: number[];
+  e_escort_ship_id: (number | null)[];
   e_escort_nowhps: number[];
   e_escort_maxhps: number[];
   e_escort_damages: number[];
-  e_escrot_params: number[][];
-  e_escort_slot: number[][];
   friend_ship_id: number[];
   friend_nowhps: number[];
   friend_maxhps: number[];
   friend_damages: number[];
-  friend_params: number[][];
-  friend_slot: number[][];
 }
 
 function select_min(a: number[] | null, b: number[] | null): number[] {
@@ -79,7 +77,6 @@ function add_array(a: number[], b: number[]): number[] {
 
 export function BattleSummaryComponent(props: ButtleSummaryProps) {
   const [deck_ports] = useDeckPorts();
-  const [ships] = useShips();
 
   const show_summary = createMemo<boolean>(() => {
     if (props.battle_selected() == undefined) return false;
@@ -87,7 +84,8 @@ export function BattleSummaryComponent(props: ButtleSummaryProps) {
   });
 
   const fleet_info = createMemo<FleetInfo>(() => {
-    if (props.battle_selected() == undefined)
+    let battle = props.battle_selected();
+    if (!battle)
       return {
         f_main_ship_id: [],
         f_main_nowhps: [],
@@ -103,170 +101,148 @@ export function BattleSummaryComponent(props: ButtleSummaryProps) {
         e_main_nowhps: [],
         e_main_maxhps: [],
         e_main_damages: [],
-        e_main_prams: [[]],
-        e_main_slot: [[]],
         e_escort_ship_id: [],
         e_escort_nowhps: [],
         e_escort_maxhps: [],
         e_escort_damages: [],
-        e_escrot_params: [[]],
-        e_escort_slot: [[]],
         friend_ship_id: [],
         friend_nowhps: [],
         friend_maxhps: [],
         friend_damages: [],
-        friend_params: [[]],
-        friend_slot: [[]],
       };
 
-    // let f_now_hps: number[] = select_min(battle_selected().f_nowhps!, battle_selected().midngiht_f_nowhps!).map((v, i) => v - battle_selected().f_total_damages![i]).map((v) => Math.max(v, 0));
-    // let e_now_hps: number[] = select_min(battle_selected().e_nowhps!, battle_selected().midngiht_e_nowhps!).map((v, i) => v - battle_selected().e_total_damages![i]).map((v) => Math.max(v, 0));
+    const null_list: null[] = Array(12).fill(null);
 
-    let day_f_now_hps: number[] | null =
-      props.battle_selected().f_nowhps !== null
-        ? props
-          .battle_selected()
-          .f_nowhps!.map(
-            (v, i) => v - props.battle_selected().f_total_damages![i],
-          )
+    let day_f_now_hps: number[] | null = battle.f_nowhps
+      ? battle.f_nowhps
+          .map((v, i) => v - battle.f_total_damages![i])
           .map((v) => Math.max(v, 0))
-        : null;
+      : null;
     let day_e_now_hps: number[] | null =
-      props.battle_selected().e_nowhps !== null
-        ? props
-          .battle_selected()
-          .e_nowhps!.map(
-            (v, i) => v - props.battle_selected().e_total_damages![i],
-          )
-          .map((v) => Math.max(v, 0))
+      battle.e_nowhps !== null
+        ? battle.e_nowhps
+            .map((v, i) => v - battle.e_total_damages![i])
+            .map((v) => Math.max(v, 0))
         : null;
     let midnight_f_now_hps: number[] | null =
-      props.battle_selected().midngiht_f_nowhps !== null
-        ? props
-          .battle_selected()
-          .midngiht_f_nowhps!.map(
-            (v, i) =>
-              v - props.battle_selected().midnight_f_total_damages![i],
-          )
-          .map((v) => Math.max(v, 0))
+      battle.midngiht_f_nowhps !== null
+        ? battle.midngiht_f_nowhps
+            .map((v, i) => v - battle.midnight_f_total_damages![i])
+            .map((v) => Math.max(v, 0))
         : null;
     let midnight_e_now_hps: number[] | null =
-      props.battle_selected().midngiht_e_nowhps !== null
-        ? props
-          .battle_selected()
-          .midngiht_e_nowhps!.map(
-            (v, i) =>
-              v - props.battle_selected().midnight_e_total_damages![i],
-          )
-          .map((v) => Math.max(v, 0))
+      battle.midngiht_e_nowhps !== null
+        ? battle.midngiht_e_nowhps
+            .map((v, i) => v - battle.midnight_e_total_damages![i])
+            .map((v) => Math.max(v, 0))
         : null;
 
     let f_damage: number[] = add_array(
-      props.battle_selected().f_total_damages ?? [],
-      props.battle_selected().midnight_f_total_damages ?? [],
+      battle.f_total_damages ?? [],
+      battle.midnight_f_total_damages ?? []
     );
     let e_damage: number[] = add_array(
-      props.battle_selected().e_total_damages ?? [],
-      props.battle_selected().midnight_e_total_damages ?? [],
+      battle.e_total_damages ?? [],
+      battle.midnight_e_total_damages ?? []
     );
 
     let f_now_hps: number[] = select_min(day_f_now_hps, midnight_f_now_hps);
     let e_now_hps: number[] = select_min(day_e_now_hps, midnight_e_now_hps);
 
     let f_escape: boolean[] = [...Array(12)].map((_, i) => {
-      if (props.battle_selected().escape_idx == null) return false;
-      if (props.battle_selected().escape_idx!.map((v) => v == i).filter((v) => v).length > 0) {
-        return true;
-      } else {
-        return false;
-      }
+      if (battle.escape_idx == null) return false;
+      return battle.escape_idx.map((v) => v == i).filter((v) => v).length > 0;
     });
 
-    let f_main_ship_id: number[] = props.deck_ship_id[
-      props.battle_selected().deck_id!
-    ].filter((ship_id) => ship_id != -1);
-    let f_main_nowhps: number[] = f_now_hps!.slice(0, f_main_ship_id.length);
-    let f_main_maxhps: number[] = props.deck_ship_id[
-      props.battle_selected().deck_id!
-    ]
-      .slice(0, f_main_ship_id.length)
-      .map((ship_id) => ships.ships[ship_id].maxhp);
-    let f_main_damages: number[] = f_damage.slice(0, f_main_ship_id.length);
-    let f_main_escape: boolean[] = f_escape.slice(0, f_main_ship_id.length);
+    let f_main_ship_id: (number | null)[] = battle.deck_id
+      ? props.deck_ship_id()[battle.deck_id].filter((ship_id) => ship_id != -1)
+      : [...null_list];
+    let f_main_nowhps: (number | null)[] = f_main_ship_id
+      ? f_now_hps.slice(0, f_main_ship_id.length)
+      : [...null_list];
+    let f_main_maxhps: (number | null)[] =
+      battle.deck_id && f_main_ship_id
+        ? props
+            .deck_ship_id()
+            [battle.deck_id].slice(0, f_main_ship_id.length)
+            .map((ship_id) => {
+              let ship = props.store_data_set_deck_ship()[ship_id]?.ship;
+              return ship ? ship.maxhp : null;
+            })
+        : [...null_list];
+    let f_main_damages: (number | null)[] = f_main_ship_id
+      ? f_damage.slice(0, f_main_ship_id.length)
+      : [...null_list];
+    let f_main_escape: (boolean | null)[] = f_main_ship_id
+      ? f_escape.slice(0, f_main_ship_id.length)
+      : [...null_list];
 
-    let f_escort_ship_id: number[] = [];
-    let f_escort_nowhps: number[] = [];
-    let f_escort_maxhps: number[] = [];
-    let f_escort_damages: number[] = [];
-    let f_escort_escape: boolean[] = [];
+    let f_escort_ship_id: (number | null)[] = [];
+    let f_escort_nowhps: (number | null)[] = [];
+    let f_escort_maxhps: (number | null)[] = [];
+    let f_escort_damages: (number | null)[] = [];
+    let f_escort_escape: (boolean | null)[] = [];
 
-    let e_main_ship_id: number[] = props
-      .battle_selected()
-      .enemy_ship_id.slice(0, 6);
+    let e_main_ship_id: (number | null)[] = battle.enemy_ship_id
+      ? battle.enemy_ship_id.slice(0, 6)
+      : [...null_list];
     let e_main_nowhps: number[] = e_now_hps.slice(0, 6);
-    let e_main_maxhps: number[] = (
-      props.battle_selected().e_hp_max ?? []
-    ).slice(0, 6);
+    let e_main_maxhps: number[] = (battle.e_hp_max ?? []).slice(0, 6);
     let e_main_damages: number[] = e_damage.slice(0, 6);
-    let e_main_prams: number[][] = (
-      props.battle_selected().e_params ?? []
-    ).slice(0, 6);
-    let e_main_slot: number[][] = (props.battle_selected().e_slot ?? []).slice(
-      0,
-      6,
-    );
+    // let e_main_prams: number[][] = (battle.e_params ?? []).slice(0, 6);
+    // let e_main_slot: number[][] = (battle.e_slot ?? []).slice(0, 6);
+    // let e_main_yomi: (string | undefined)[] = get_enemy_yomi(e_main_ship_id);
 
-    let e_escort_ship_id: number[] = props
-      .battle_selected()
-      .enemy_ship_id.slice(6, 12);
+    let e_escort_ship_id: (number | null)[] = battle.enemy_ship_id
+      ? battle.enemy_ship_id.slice(6, 12)
+      : [...null_list];
     let e_escort_nowhps: number[] = e_now_hps.slice(6, 12);
-    let e_escort_maxhps: number[] = (
-      props.battle_selected().e_hp_max ?? []
-    ).slice(6, 12);
+    let e_escort_maxhps: number[] = (battle.e_hp_max ?? []).slice(6, 12);
     let e_escort_damages: number[] = e_damage.slice(6, 12);
-    let e_escrot_params: number[][] = (
-      props.battle_selected().e_params ?? []
-    ).slice(6, 12);
-    let e_escort_slot: number[][] = (
-      props.battle_selected().e_slot ?? []
-    ).slice(6, 12);
+    // let e_escort_params: number[][] = (battle.e_params ?? []).slice(6, 12);
+    // let e_escort_slot: number[][] = (battle.e_slot ?? []).slice(6, 12);
+    // let e_escort_yomi: (string | undefined)[] =
+    //   get_enemy_yomi(e_escort_ship_id);
 
     let friend_ship_id: number[] =
-      props.battle_selected().friendly_force_attack?.fleet_info.ship_id ?? [];
+      battle.friendly_force_attack?.fleet_info.ship_id ?? [];
     let friend_nowhps: number[] =
-      props.battle_selected().friendly_force_attack?.fleet_info.now_hps ?? [];
+      battle.friendly_force_attack?.fleet_info.now_hps ?? [];
     let friend_maxhps: number[] =
-      props.battle_selected().friendly_force_attack?.fleet_info.now_hps ?? [];
-    let friend_damages: number[] =
-      props.battle_selected().friend_total_damages ?? [];
-    let friend_params: number[][] =
-      props.battle_selected().friendly_force_attack?.fleet_info.params ?? [];
-    let friend_slot: number[][] =
-      props.battle_selected().friendly_force_attack?.fleet_info.slot ?? [];
+      battle.friendly_force_attack?.fleet_info.now_hps ?? [];
+    let friend_damages: number[] = battle.friend_total_damages ?? [];
+    // let friend_params: number[][] =
+    //   battle.friendly_force_attack?.fleet_info.params ?? [];
+    // let friend_slot: number[][] =
+    //   battle.friendly_force_attack?.fleet_info.slot ?? [];
 
     if (deck_ports.combined_flag) {
-      f_escort_ship_id = props.deck_ship_id[
-        props.battle_selected().deck_id ?? 1
-      ].slice(0, 6);
+      f_main_ship_id = props.deck_ship_id()[battle.deck_id ?? 1].slice(0, 6);
       f_main_nowhps = f_now_hps.slice(0, 6);
-      f_main_maxhps = props.deck_ship_id[props.battle_selected().deck_id!]
-        .map((ship_id) => ships.ships[ship_id].maxhp)
+      f_main_maxhps = props
+        .deck_ship_id()
+        [battle.deck_id ?? 1].map((ship_id) => {
+          let ship = props.store_data_set_deck_ship()[ship_id]?.ship;
+          return ship ? ship.maxhp : null;
+        })
         .slice(0, 6);
       f_main_damages = f_damage.slice(0, 6);
       f_main_escape = f_escape.slice(0, 6);
 
-      f_escort_ship_id = props.deck_ship_id[
-        props.battle_selected().deck_id!
-      ].slice(6, 12);
+      f_escort_ship_id = props.deck_ship_id()[battle.deck_id ?? 1].slice(6, 12);
       f_escort_nowhps = f_now_hps.slice(6, 12);
-      f_escort_maxhps = props.deck_ship_id[props.battle_selected().deck_id!]
-        .map((ship_id) => ships.ships[ship_id].maxhp)
+      f_escort_maxhps = props
+        .deck_ship_id()
+        [battle.deck_id ?? 1].map((ship_id) => {
+          let ship = props.store_data_set_deck_ship()[ship_id]?.ship;
+          return ship ? ship.maxhp : null;
+        })
         .slice(6, 12);
       f_escort_damages = f_damage.slice(6, 12);
       f_escort_escape = f_escape.slice(6, 12);
     }
 
-    return {
+    let ret: FleetInfo = {
       f_main_ship_id: f_main_ship_id,
       f_main_nowhps: f_main_nowhps,
       f_main_maxhps: f_main_maxhps,
@@ -281,22 +257,324 @@ export function BattleSummaryComponent(props: ButtleSummaryProps) {
       e_main_nowhps: e_main_nowhps,
       e_main_maxhps: e_main_maxhps,
       e_main_damages: e_main_damages,
-      e_main_prams: e_main_prams,
-      e_main_slot: e_main_slot,
+      // e_main_prams: e_main_prams,
+      // e_main_slot: e_main_slot,
+      // e_main_yomi: e_main_yomi,
       e_escort_ship_id: e_escort_ship_id,
       e_escort_nowhps: e_escort_nowhps,
       e_escort_maxhps: e_escort_maxhps,
       e_escort_damages: e_escort_damages,
-      e_escrot_params: e_escrot_params,
-      e_escort_slot: e_escort_slot,
+      // e_escort_params: e_escort_params,
+      // e_escort_slot: e_escort_slot,
+      // e_escort_yomi: e_escort_yomi,
       friend_ship_id: friend_ship_id,
       friend_nowhps: friend_nowhps,
       friend_maxhps: friend_maxhps,
       friend_damages: friend_damages,
-      friend_params: friend_params,
-      friend_slot: friend_slot,
+      // friend_params: friend_params,
+      // friend_slot: friend_slot,
     };
+
+    return ret;
   });
+
+  const f_main_table_line = (idx: number) => {
+    let ship_id = fleet_info().f_main_ship_id[idx];
+    let mst_ship = ship_id
+      ? props.store_data_set_deck_ship()[ship_id].mst_ship
+      : undefined;
+    let ship = ship_id
+      ? props.store_data_set_deck_ship()[ship_id].ship
+      : undefined;
+    let slot_items = ship_id
+      ? props.store_data_set_deck_ship()[ship_id].slot_items
+      : undefined;
+    let mst_slot_items = ship_id
+      ? props.store_data_set_deck_ship()[ship_id].mst_slot_items
+      : undefined;
+    let empty_line = (
+      <>
+        <td>{/* <div class="h-5" /> */}</td>
+        <td />
+        <td />
+      </>
+    );
+    return (
+      <Show
+        when={(fleet_info().f_main_ship_id ?? []).length > idx}
+        fallback={empty_line}
+      >
+        <td>
+          <div class="flex flex-nowrap">
+            <icon-fleet-number
+              e_flag={0}
+              fleet_number={1}
+              ship_number={idx + 1}
+              size="xs"
+            />
+            <component-ship-modal
+              size="xs"
+              color=""
+              name_flag={true}
+              empty_flag={false}
+              mst_ship={mst_ship}
+              mst_slot_items={mst_slot_items}
+              ship={ship}
+              slot_items={slot_items}
+            />
+            <Show when={fleet_info().f_main_escape[idx]}>
+              <IconExit class="h-4 self-center ml-auto" />
+            </Show>
+          </div>
+        </td>
+        <td>
+          <div class="flex-none">
+            <component-color-bar-label
+              size="xs"
+              v_now={fleet_info().f_main_nowhps[idx] ?? 0}
+              v_max={fleet_info().f_main_maxhps[idx] ?? 0}
+            />
+          </div>
+        </td>
+        <td class="my-auto text-sm">{fleet_info().f_main_damages[idx]}</td>
+      </Show>
+    );
+  };
+
+  const e_main_table_line = (idx: number) => {
+    return (
+      <Show
+        when={fleet_info().e_main_ship_id.length > idx}
+        fallback={
+          <>
+            <td>
+              <div class="h-5" />
+            </td>
+            <td />
+            <td />
+          </>
+        }
+      >
+        <td>
+          <div class="flex flex-nowrap">
+            <icon-fleet-number
+              e_flag={1}
+              fleet_number={1}
+              ship_number={idx + 1}
+              size="xs"
+            />
+            <component-ship-masked-modal
+              size="xs"
+              empty_flag={false}
+              name_flag={true}
+              color={props.store_data_set_param_ship().e_main_color[idx]}
+              ship_param={
+                props.store_data_set_param_ship().e_main_ship_param[idx]
+              }
+              ship_slot={
+                props.store_data_set_param_ship().e_main_ship_slot[idx]
+              }
+              ship_max_hp={
+                props.store_data_set_param_ship().e_main_ship_max_hp[idx]
+              }
+              mst_ship={props.store_data_set_param_ship().e_main_mst_ship[idx]}
+              mst_slot_items={
+                props.store_data_set_param_ship().e_main_mst_slot_items[idx]
+              }
+            />
+          </div>
+        </td>
+        <td>
+          <div class="flex-none">
+            <component-color-bar-label
+              size="xs"
+              v_now={fleet_info().e_main_nowhps[idx] ?? 0}
+              v_max={fleet_info().e_main_maxhps[idx] ?? 0}
+            />
+          </div>
+        </td>
+        <td class="my-auto text-sm">{fleet_info().e_main_damages[idx]}</td>
+      </Show>
+    );
+  };
+
+  const f_escort_table_line = (idx: number) => {
+    let ship_id = fleet_info().f_escort_ship_id[idx];
+    let mst_ship = ship_id
+      ? props.store_data_set_deck_ship()[ship_id].mst_ship
+      : undefined;
+    let ship = ship_id
+      ? props.store_data_set_deck_ship()[ship_id].ship
+      : undefined;
+    let slot_items = ship_id
+      ? props.store_data_set_deck_ship()[ship_id].slot_items
+      : undefined;
+    let mst_slot_items = ship_id
+      ? props.store_data_set_deck_ship()[ship_id].mst_slot_items
+      : undefined;
+    let empty_line = (
+      <>
+        <td>{/* <div class="h-5" /> */}</td>
+        <td />
+        <td />
+      </>
+    );
+    return (
+      <Show
+        when={fleet_info().f_escort_ship_id.length > idx}
+        fallback={empty_line}
+      >
+        <td class={fleet_info().f_escort_escape[idx] ? "text-blue-200" : ""}>
+          <div class="flex flex-nowrap">
+            <icon-fleet-number
+              e_flag={0}
+              fleet_number={2}
+              ship_number={idx + 1}
+              combined_flag={true}
+              size="xs"
+            />
+            <component-ship-modal
+              size="xs"
+              color=""
+              empty_flag={false}
+              ship={ship}
+              mst_ship={mst_ship}
+              slot_items={slot_items}
+              mst_slot_items={mst_slot_items}
+              name_flag={true}
+            />
+          </div>
+        </td>
+        <td class={fleet_info().f_escort_escape[idx] ? "text-blue-200" : ""}>
+          <div class="flex-none">
+            <component-color-bar-label
+              size="xs"
+              v_max={fleet_info().f_escort_maxhps[idx] ?? 0}
+              v_now={fleet_info().f_escort_nowhps[idx] ?? 0}
+            />
+          </div>
+        </td>
+        <td
+          class={`my-auto text-sm ${fleet_info().f_escort_escape[idx] ? "text-blue-200" : ""}`}
+        >
+          {fleet_info().f_escort_damages[idx]}
+        </td>
+      </Show>
+    );
+  };
+
+  const e_escort_table_line = (idx: number) => {
+    let empty_line = (
+      <>
+        <td />
+        <td />
+        <td />
+      </>
+    );
+    return (
+      <Show
+        when={fleet_info().e_escort_ship_id.length > idx}
+        fallback={empty_line}
+      >
+        <td>
+          <div class="flex flex-nowrap">
+            <icon-fleet-number
+              e_flag={1}
+              fleet_number={2}
+              ship_number={idx + 1}
+              combined_flag={true}
+              class="xs"
+            />
+            <component-ship-masked-modal
+              size="xs"
+              empty_flag={false}
+              name_flag={true}
+              color={props.store_data_set_param_ship().e_escort_color[idx]}
+              ship_param={
+                props.store_data_set_param_ship().e_escort_ship_param[idx]
+              }
+              ship_slot={
+                props.store_data_set_param_ship().e_escort_ship_slot[idx]
+              }
+              ship_max_hp={
+                props.store_data_set_param_ship().e_escort_ship_max_hp[idx]
+              }
+              mst_ship={
+                props.store_data_set_param_ship().e_escort_mst_ship[idx]
+              }
+              mst_slot_items={
+                props.store_data_set_param_ship().e_escort_mst_slot_items[idx]
+              }
+            />
+          </div>
+        </td>
+        <td>
+          <div class="flex-none">
+            <component-color-bar-label
+              size="xs"
+              v_max={fleet_info().e_escort_maxhps[idx] ?? 0}
+              v_now={fleet_info().e_escort_nowhps[idx] ?? 0}
+            />
+          </div>
+        </td>
+        <td class="my-auto text-sm">{fleet_info().e_escort_damages[idx]}</td>
+      </Show>
+    );
+  };
+
+  const f_friendly_table_line = (idx: number) => {
+    return (
+      <Show
+        when={fleet_info().friend_ship_id.length > idx}
+        fallback={
+          <>
+            <td />
+            <td />
+            <td />
+          </>
+        }
+      >
+        <td>
+          <icon-fleet-number
+            e_flag={0}
+            fleet_number={friendly_force_number}
+            ship_number={idx + 1}
+            combined_flag={false}
+            size="xs"
+          />
+          <component-ship-masked-modal
+            size="xs"
+            empty_flag={false}
+            name_flag={true}
+            color={props.store_data_set_param_ship().f_friend_color[idx]}
+            ship_param={
+              props.store_data_set_param_ship().f_friend_ship_param[idx]
+            }
+            ship_slot={
+              props.store_data_set_param_ship().f_friend_ship_slot[idx]
+            }
+            ship_max_hp={
+              props.store_data_set_param_ship().f_friend_ship_max_hp[idx]
+            }
+            mst_ship={props.store_data_set_param_ship().f_friend_mst_ship[idx]}
+            mst_slot_items={
+              props.store_data_set_param_ship().f_friend_mst_slot_items[idx]
+            }
+          />
+        </td>
+        <td>
+          <div class="flex-none">
+            <component-color-bar-label
+              size="xs"
+              v_max={fleet_info().friend_nowhps[idx] ?? 0}
+              v_now={fleet_info().friend_maxhps[idx] ?? 0}
+            />
+          </div>
+        </td>
+        <td class="my-auto text-sm">{fleet_info().friend_damages[idx]}</td>
+      </Show>
+    );
+  };
 
   return (
     <Show when={show_summary()}>
@@ -321,92 +599,14 @@ export function BattleSummaryComponent(props: ButtleSummaryProps) {
                     0,
                     Math.max(
                       fleet_info().f_main_ship_id.length,
-                      fleet_info().e_main_ship_id.length,
-                    ),
+                      fleet_info().e_main_ship_id.length
+                    )
                   )}
                 >
                   {(idx) => (
-                    <tr class="table_hover table_active rounded">
-                      <Show
-                        when={fleet_info().f_main_ship_id.length > idx}
-                        fallback={
-                          <>
-                            <td>
-                              <div class="h-5" />
-                            </td>
-                            <td />
-                            <td />
-                          </>
-                        }
-                      >
-                        <td>
-                          <div class="flex flex-nowrap">
-                            <IconFleetNumber
-                              class="h-6 -mt-1 pr-1"
-                              e_flag={0}
-                              fleet_number={1}
-                              ship_number={idx + 1}
-                            />
-                            <ShipNameComponent
-                              ship_id={fleet_info().f_main_ship_id[idx]}
-                            />
-                            <Show
-                              when={fleet_info().f_main_escape[idx]}
-                            >
-                              <IconExit class="h-5" />
-                            </Show>
-                          </div>
-                        </td>
-                        <td>
-                          <div class="flex-none">
-                            <SimpleHpBar
-                              v_now={() => fleet_info().f_main_nowhps[idx]}
-                              v_max={() => fleet_info().f_main_maxhps[idx]}
-                            />
-                          </div>
-                        </td>
-                        <td>
-                          {fleet_info().f_main_damages[idx]}
-                        </td>
-                      </Show>
-                      <Show
-                        when={fleet_info().e_main_ship_id.length > idx}
-                        fallback={
-                          <>
-                            <td>
-                              <div class="h-5" />
-                            </td>
-                            <td />
-                            <td />
-                          </>
-                        }
-                      >
-                        <td>
-                          <div class="flex flex-nowrap">
-                            <IconFleetNumber
-                              class="h-6 -mt-1 pr-1"
-                              e_flag={1}
-                              fleet_number={1}
-                              ship_number={idx + 1}
-                            />
-                            <SimpleShipNameComponent
-                              ship_id={fleet_info().e_main_ship_id[idx]}
-                              ship_param={fleet_info().e_main_prams[idx]}
-                              ship_slot={fleet_info().e_main_slot[idx]}
-                              ship_max_hp={fleet_info().e_main_maxhps[idx]}
-                            />
-                          </div>
-                        </td>
-                        <td>
-                          <div class="flex-none">
-                            <SimpleHpBar
-                              v_now={() => fleet_info().e_main_nowhps[idx]}
-                              v_max={() => fleet_info().e_main_maxhps[idx]}
-                            />
-                          </div>
-                        </td>
-                        <td>{fleet_info().e_main_damages[idx]}</td>
-                      </Show>
+                    <tr class="rounded">
+                      {f_main_table_line(idx)}
+                      {e_main_table_line(idx)}
                     </tr>
                   )}
                 </For>
@@ -415,124 +615,25 @@ export function BattleSummaryComponent(props: ButtleSummaryProps) {
                     0,
                     Math.max(
                       fleet_info().f_escort_ship_id.length,
-                      fleet_info().e_escort_ship_id.length,
-                    ),
+                      fleet_info().e_escort_ship_id.length
+                    )
                   )}
                 >
                   {(idx) => (
-                    <tr class="table_hover table_active rounded">
-                      <Show
-                        when={fleet_info().f_escort_ship_id.length > idx}
-                        fallback={
-                          <>
-                            <td />
-                            <td />
-                            <td />
-                          </>
-                        }
-                      >
-                        <td class={fleet_info().f_escort_escape[idx] ? "text-blue-200" : ""}>
-                          <div class="flex flex-nowrap">
-                            <IconFleetNumber
-                              class="h-6 -mt-1 pr-1"
-                              e_flag={0}
-                              fleet_number={2}
-                              ship_number={idx + 1}
-                            />
-                            <ShipNameComponent
-                              ship_id={fleet_info().f_main_ship_id[idx]}
-                            />
-                          </div>
-                        </td>
-                        <td class={fleet_info().f_escort_escape[idx] ? "text-blue-200" : ""}>
-                          <div class="flex-none">
-                            <SimpleHpBar
-                              v_now={() => fleet_info().f_escort_nowhps[idx]}
-                              v_max={() => fleet_info().f_escort_maxhps[idx]}
-                            />
-                          </div>
-                        </td>
-                        <td class={fleet_info().f_escort_escape[idx] ? "text-blue-200" : ""}>
-                          {fleet_info().f_escort_damages[idx]}
-                        </td>
-                      </Show>
-                      <Show
-                        when={fleet_info().e_escort_ship_id.length > idx}
-                        fallback={
-                          <>
-                            <td />
-                            <td />
-                            <td />
-                          </>
-                        }
-                      >
-                        <td>
-                          <div class="flex flex-nowrap">
-                            <IconFleetNumber
-                              class="h-6 -mt-1 pr-1"
-                              e_flag={1}
-                              fleet_number={2}
-                              ship_number={idx + 1}
-                            />
-                            <SimpleShipNameComponent
-                              ship_id={fleet_info().e_escort_ship_id[idx]}
-                              ship_param={fleet_info().e_escrot_params[idx]}
-                              ship_slot={fleet_info().e_escort_slot[idx]}
-                              ship_max_hp={fleet_info().e_escort_maxhps[idx]}
-                            />
-                          </div>
-                        </td>
-                        <td>
-                          <div class="flex-none">
-                            <SimpleHpBar
-                              v_now={() => fleet_info().e_escort_nowhps[idx]}
-                              v_max={() => fleet_info().e_escort_maxhps[idx]}
-                            />
-                          </div>
-                        </td>
-                        <td>{fleet_info().e_escort_damages[idx]}</td>
-                      </Show>
+                    <tr class="rounded">
+                      {f_escort_table_line(idx)}
+                      {e_escort_table_line(idx)}
                     </tr>
                   )}
                 </For>
-                <Show
-                  when={props.battle_selected().friendly_force_attack != null}
-                >
+                <Show when={props.battle_selected()?.friendly_force_attack}>
                   <For each={[0, 1, 2, 3, 4, 5]}>
                     {(idx) => (
-                      <tr class="table_hover table_active rounded">
-                        <Show
-                          when={fleet_info().friend_ship_id.length > idx}
-                          fallback={
-                            <>
-                              <td />
-                              <td />
-                              <td />
-                            </>
-                          }
-                        >
-                          <td>
-                            <SimpleShipNameComponent
-                              ship_id={fleet_info().friend_ship_id[idx]}
-                              ship_param={fleet_info().friend_params[idx]}
-                              ship_slot={fleet_info().friend_slot[idx]}
-                              ship_max_hp={fleet_info().friend_maxhps[idx]}
-                              display={true}
-                            />
-                          </td>
-                          <td>
-                            <div class="flex-none">
-                              <SimpleHpBar
-                                v_now={() => fleet_info().friend_nowhps[idx]}
-                                v_max={() => fleet_info().friend_maxhps[idx]}
-                              />
-                            </div>
-                          </td>
-                          <td>{fleet_info().friend_damages[idx]}</td>
-                          <td />
-                          <td />
-                          <td />
-                        </Show>
+                      <tr class="rounded">
+                        {f_friendly_table_line(idx)}
+                        <td />
+                        <td />
+                        <td />
                       </tr>
                     )}
                   </For>

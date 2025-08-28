@@ -28,8 +28,8 @@ tauri-plugin-shell = { version = "2" }
 tauri-plugin-log = { version = "2" }
 tokio = { version = "1.38.0", features = ["full"] }
 webbrowser = "1.0.1"
-kc_api = { path = "./../kc_api" }
-register_trait = { path = "./../register_trait" }
+kc_api = { path = "./../../kc_api" }
+register_trait = { path = "./../../rust_macro/register_trait" }
 proxy-https = { path = "./../../FUSOU-PROXY/proxy-https" }
 chrono = "0.4.31"
 chrono-tz = "0.10.0"

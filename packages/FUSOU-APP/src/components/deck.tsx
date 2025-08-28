@@ -1,16 +1,22 @@
-import { FuelBulletColorBarComponent } from "./fuel_bullet_color_bar.tsx";
-import { HpColorBarComponent } from "./hp_color_bar.tsx";
+// import { FuelBulletColorBarComponent } from "./fuel_bullet_color_bar.tsx";
+// import { HpColorBarComponent } from "./hp_color_bar.tsx";
 
-import { IconCautionFill } from "../icons/caution_fill.tsx";
-import { IconKira1 } from "../icons/kira1.tsx";
-import { IconKira2 } from "../icons/kira2.tsx";
-import { IconKira3 } from "../icons/kira3.tsx";
+// import { IconCautionFill } from "../icons/caution_fill.tsx";
+// import { IconKira1 } from "../icons/kira1.tsx";
+// import { IconKira2 } from "../icons/kira2.tsx";
+// import { IconKira3 } from "../icons/kira3.tsx";
 
 import { IconChevronRightS } from "../icons/chevron_right_s.tsx";
 
-import { EquimentComponent } from "./equipment.tsx";
-import { ShipNameComponent } from "./ship_name.tsx";
-import { useDeckPorts, useMstShips, useShips } from "../utility/provider.tsx";
+// import { EquimentComponent } from "./equipment.tsx";
+// import { ShipNameComponent } from "./ship_name.tsx";
+import {
+  useDeckPorts,
+  useMstShips,
+  useMstSlotItems,
+  useShips,
+  useSlotItems,
+} from "../utility/provider.tsx";
 import {
   createEffect,
   createMemo,
@@ -19,11 +25,19 @@ import {
   JSX,
   Show,
 } from "solid-js";
-// import { globalmst_ships_context_id, global_ship_context_id } from '../app.tsx';
 
 import "../css/divider.css";
 
-let moreSiganMap: { [key: number]: boolean } = {};
+import "shared-ui";
+import type {
+  MstShip,
+  MstSlotItem,
+  MstSlotItems,
+} from "@ipc-bindings/get_data.ts";
+import type { Ship } from "@ipc-bindings/port.ts";
+import type { SlotItem, SlotItems } from "@ipc-bindings/require_info.ts";
+
+let expandSiganMap: { [key: number]: boolean } = {};
 let fleetOpenSignalMap: { [key: number]: boolean } = {
   1: true,
   2: false,
@@ -39,146 +53,253 @@ interface DeckPortProps {
 export function DeckComponent(props: DeckPortProps) {
   const [mst_ships] = useMstShips();
   const [ships] = useShips();
-  const [_deck_ports] = useDeckPorts();
+  const [slot_items] = useSlotItems();
+  const [mst_slot_items] = useMstSlotItems();
+  const [deck_ports] = useDeckPorts();
+
+  const ship_list = createMemo<Ship[]>(() => {
+    let mst_ship_list: Ship[] = [];
+    if (deck_ports.deck_ports[props.deck_id]) {
+      if (deck_ports.deck_ports[props.deck_id]!.ship) {
+        deck_ports.deck_ports[props.deck_id]!.ship!.forEach((id) => {
+          let tmp = ships.ships[id];
+          if (tmp) mst_ship_list.push(tmp);
+        });
+      }
+    }
+    return mst_ship_list;
+  });
+
+  const mst_ship_list = createMemo<MstShip[]>(() => {
+    let mst_ship_list: MstShip[] = [];
+    ship_list().forEach((ship) => {
+      if (ship.ship_id) {
+        let tmp = mst_ships.mst_ships[ship.ship_id];
+        if (tmp) mst_ship_list.push(tmp);
+      }
+    });
+    return mst_ship_list;
+  });
+
+  const slot_items_list = createMemo<SlotItems[]>(() => {
+    let slot_items_list = ship_list().map((ship) => {
+      let slot_item_dict: { [key: number]: SlotItem } = {};
+      if (ship.slot) {
+        ship.slot.forEach((id) => {
+          let tmp = slot_items.slot_items[id];
+          if (tmp) slot_item_dict[id] = tmp;
+        });
+      }
+      if (ship.slot_ex) {
+        let tmp = slot_items.slot_items[ship.slot_ex];
+        if (tmp) slot_item_dict[ship.slot_ex] = tmp;
+      }
+      return {
+        slot_items: slot_item_dict,
+      } as SlotItems;
+    });
+    return slot_items_list;
+  });
+
+  const mst_slot_itmes_list = createMemo<MstSlotItems[]>(() => {
+    let mst_slot_itmes_list = slot_items_list().map((items) => {
+      let mst_slot_item_dict: { [key: number]: MstSlotItem } = {};
+      Object.values(items.slot_items).forEach((item) => {
+        if (item) {
+          let tmp = mst_slot_items.mst_slot_items[item.slotitem_id];
+          if (tmp) mst_slot_item_dict[item.slotitem_id] = tmp;
+        }
+      });
+      return {
+        mst_slot_items: mst_slot_item_dict,
+      } as MstSlotItems;
+    });
+    return mst_slot_itmes_list;
+  });
 
   const cond_state = createMemo<JSX.Element[]>(() => {
-    // const cond_list: JSX.Element[] = [
-    //     <IconKira3 class="h-4 w-4 fill-yellow-500 stroke-2"></IconKira3>,
-    //     <IconKira2 class="h-4 w-4 fill-yellow-500 stroke-2"></IconKira2>,
-    //     <IconKira1 class="h-4 w-4 fill-yellow-500 stroke-2"></IconKira1>,
-    //     <></>,
-    //     <IconCautionFill class="h-4 w-4 fill-yellow-500 stroke-2"></IconCautionFill>,
-    //     <IconCautionFill class="h-4 w-4 fill-yellow-500 stroke-2"></IconCautionFill>,
-    //     <IconCautionFill class="h-4 w-4 fill-orange-500 stroke-2"></IconCautionFill>,
-    //     <IconCautionFill class="h-4 w-4 fill-red-500 stroke-2"></IconCautionFill>,
-    // ];
     const set_cond_state = (cond: number): JSX.Element => {
       let cond_state: JSX.Element = <></>;
       if (cond >= 71)
-        cond_state = <IconKira3 class="h-4 w-4 fill-yellow-500 stroke-2" />;
+        cond_state = (
+          <div class="size-4">
+            <icon-kira size="full" kira_type={3} />
+          </div>
+        );
       else if (cond >= 58)
-        cond_state = <IconKira2 class="h-4 w-4 fill-yellow-500 stroke-2" />;
+        cond_state = (
+          <div class="size-4">
+            <icon-kira size="full" kira_type={2} />
+          </div>
+        );
       else if (cond >= 50)
-        cond_state = <IconKira1 class="h-4 w-4 fill-yellow-500 stroke-2" />;
+        // cond_state = <IconKira1 class="h-4 w-4 fill-yellow-500 stroke-2" />;
+        cond_state = (
+          <div class="size-4">
+            <icon-kira size="full" kira_type={1} />
+          </div>
+        );
       else if (cond == 49) cond_state = <></>;
       else if (cond >= 40)
         cond_state = (
-          <IconCautionFill class="h-4 w-4 fill-yellow-500 stroke-2" />
+          <div class="size-4">
+            <icon-caution-fill size="full" level={"low"} />
+          </div>
         );
       else if (cond >= 30)
         cond_state = (
-          <IconCautionFill class="h-4 w-4 fill-yellow-500 stroke-2" />
+          <div class="size-4">
+            <icon-caution-fill size="full" level={"low"} />
+          </div>
         );
       else if (cond >= 20)
         cond_state = (
-          <IconCautionFill class="h-4 w-4 fill-orange-500 stroke-2" />
+          <div class="size-4">
+            <icon-caution-fill size="full" level={"middle"} />
+          </div>
         );
       else if (cond >= 0)
-        cond_state = <IconCautionFill class="h-4 w-4 fill-red-500 stroke-2" />;
+        cond_state = (
+          <div class="size-4">
+            <icon-caution-fill size="full" level={"high"} />
+          </div>
+        );
       return cond_state;
     };
 
     let states: JSX.Element[] = [];
-    _deck_ports.deck_ports[props.deck_id].ship?.forEach((shipId) => {
-      states.push(set_cond_state(ships.ships[shipId]?.cond ?? 0));
+    ship_list().forEach((ship) => {
+      states.push(set_cond_state(ship.cond ?? 0));
     });
     return states;
   });
 
   const hp_state = createMemo<JSX.Element[]>(() => {
-    // const hp_list: JSX.Element[] = [
-    //     <></>,
-    //     <IconCautionFill class="h-4 w-4 fill-yellow-500 stroke-2"></IconCautionFill>,
-    //     <IconCautionFill class="h-4 w-4 fill-orange-500 stroke-2"></IconCautionFill>,
-    //     <IconCautionFill class="h-4 w-4 fill-red-500 stroke-2"></IconCautionFill>,
-    //     <></>,
-    // ];
-
     const set_hp_state = (nowhp: number, maxhp: number): JSX.Element => {
       let hp_state: JSX.Element = <></>;
       if (nowhp > 0.75 * maxhp) hp_state = <></>;
       else if (nowhp > 0.5 * maxhp)
-        hp_state = <IconCautionFill class="h-4 w-4 fill-yellow-500 stroke-2" />;
+        hp_state = (
+          <div class="size-4">
+            <icon-caution-fill size="full" level={"low"} />
+          </div>
+        );
       else if (nowhp > 0.25 * maxhp)
-        hp_state = <IconCautionFill class="h-4 w-4 fill-orange-500 stroke-2" />;
+        hp_state = (
+          <div class="size-4">
+            <icon-caution-fill size="full" level={"middle"} />
+          </div>
+        );
       else if (nowhp > 0)
-        hp_state = <IconCautionFill class="h-4 w-4 fill-red-500 stroke-2" />;
+        hp_state = (
+          <div class="size-4">
+            <icon-caution-fill size="full" level={"high"} />
+          </div>
+        );
       return hp_state;
     };
 
     let states: JSX.Element[] = [];
-    _deck_ports.deck_ports[props.deck_id].ship?.forEach((shipId) => {
-      states.push(
-        set_hp_state(
-          ships.ships[shipId]?.nowhp ?? 0,
-          ships.ships[shipId]?.maxhp ?? 0,
-        ),
-      );
+    ship_list().forEach((ship) => {
+      states.push(set_hp_state(ship.nowhp ?? 0, ship.maxhp ?? 0));
     });
 
     return states;
   });
 
   const fuel_bullet_state = createMemo<JSX.Element[]>(() => {
-    // const fuel_bullet_list: JSX.Element[] = [
-    //     <></>,
-    //     <IconCautionFill class="h-4 w-4 fill-yellow-500 stroke-2"></IconCautionFill>,
-    //     <IconCautionFill class="h-4 w-4 fill-orange-500 stroke-2"></IconCautionFill>,
-    //     <IconCautionFill class="h-4 w-4 fill-red-500 stroke-2"></IconCautionFill>,
-    // ];
-
     const set_fuel_bullet_state = (
       nowfuel: number,
       maxfuel: number,
       nowbullet: number,
-      maxbullet: number,
+      maxbullet: number
     ): JSX.Element => {
       let fuel_bullet_state: JSX.Element = <></>;
       if (nowfuel == maxfuel && nowbullet == maxbullet)
         fuel_bullet_state = <></>;
       else if (9 * nowfuel >= 7 * maxfuel && 9 * nowbullet >= 7 * maxbullet)
         fuel_bullet_state = (
-          <IconCautionFill class="h-4 w-4 fill-yellow-500 stroke-2" />
+          <div class="size-4">
+            <icon-caution-fill size="full" level={"low"} />
+          </div>
         );
       else if (9 * nowfuel >= 3 * maxfuel && 9 * nowbullet >= 3 * maxbullet)
         fuel_bullet_state = (
-          <IconCautionFill class="h-4 w-4 fill-orange-500 stroke-2" />
+          <div class="size-4">
+            <icon-caution-fill size="full" level={"middle"} />
+          </div>
         );
       else if (nowfuel >= 0 && nowbullet >= 0)
         fuel_bullet_state = (
-          <IconCautionFill class="h-4 w-4 fill-red-500 stroke-2" />
+          <div class="size-4">
+            <icon-caution-fill size="full" level={"high"} />
+          </div>
         );
       return fuel_bullet_state;
     };
 
     let states: JSX.Element[] = [];
-    _deck_ports.deck_ports[props.deck_id].ship?.forEach((shipId) => {
-      states.push(
-        set_fuel_bullet_state(
-          ships.ships[shipId]?.bull ?? 0,
-          mst_ships.mst_ships[ships.ships[shipId]?.ship_id ?? 0]?.bull_max ?? 0,
-          ships.ships[shipId]?.fuel ?? 0,
-          mst_ships.mst_ships[ships.ships[shipId]?.ship_id ?? 0]?.fuel_max ?? 0,
-        ),
+    ship_list().forEach((ship) => {
+      let mst_ship = mst_ship_list().find(
+        (mst_ship) => mst_ship.id == ship.ship_id
       );
+      if (mst_ship) {
+        states.push(
+          set_fuel_bullet_state(
+            ship.bull ?? 0,
+            mst_ship.bull_max ?? 0,
+            ship.fuel ?? 0,
+            mst_ship.fuel_max ?? 0
+          )
+        );
+      }
     });
 
     return states;
   });
 
-  const [moreSignal, setMoreSignal] = createSignal<boolean>(false);
+  const [expandSignal, setMoreSignal] = createSignal<boolean>(false);
 
   createEffect(() => {
-    setMoreSignal(moreSiganMap[props.deck_id]);
+    setMoreSignal(expandSiganMap[props.deck_id]);
 
-    if (moreSiganMap[props.deck_id] == undefined) {
-      moreSiganMap[props.deck_id] = false;
+    if (expandSiganMap[props.deck_id] == undefined) {
+      expandSiganMap[props.deck_id] = false;
     }
 
     if (fleetOpenSignalMap[props.deck_id] == undefined) {
       fleetOpenSignalMap[props.deck_id] = false;
     }
   });
+
+  const get_deck_name = () => {
+    let tmp = deck_ports.deck_ports[props.deck_id];
+    return tmp ? tmp.name : "";
+  };
+
+  const get_deck_ship = () => {
+    let tmp = deck_ports.deck_ports[props.deck_id];
+    return tmp ? (tmp.ship ?? []) : [];
+  };
+
+  const get_slot_item = (
+    ship_index: number,
+    slot_id: number
+  ): SlotItem | undefined => {
+    return slot_items_list()[ship_index].slot_items[slot_id];
+  };
+
+  const get_mst_slot_item = (ship_index: number, slot_id: number) => {
+    let slot_item_id = get_slot_item(ship_index, slot_id)?.slotitem_id;
+    return slot_item_id
+      ? mst_slot_itmes_list()[ship_index].mst_slot_items[slot_item_id]
+      : undefined;
+  };
+
+  const get_onslot = (ship_index: number, slot_index: number) => {
+    let tmp = ship_list()[ship_index].onslot;
+    return tmp ? tmp[slot_index] : 0;
+  };
 
   return (
     <>
@@ -195,55 +316,74 @@ export function DeckComponent(props: DeckPortProps) {
             <div class="w-4 flex-none -mx-4">
               <IconChevronRightS class="h-4 w-4" />
             </div>
-            <div class="pl-4">
-              {_deck_ports.deck_ports[props.deck_id].name ?? ""}
-            </div>
+            <div class="pl-4">{get_deck_name()}</div>
             <span class="flex-auto" />
             <div class="form-control flex-none">
               <label class="label cursor-pointer h-4">
-                <span class="label-text mb-1.5 pr-2 h-4">more</span>
+                <span
+                  class={`label-text pr-2 h-4${expandSignal() ? " text-info" : ""}`}
+                >
+                  expand
+                </span>
                 <input
                   type="checkbox"
                   onClick={() => {
-                    moreSiganMap[props.deck_id] = !moreSignal();
-                    setMoreSignal(!moreSignal());
+                    expandSiganMap[props.deck_id] = !expandSignal();
+                    setMoreSignal(!expandSignal());
                   }}
-                  class="toggle toggle-xs h-4  border-gray-400 [--tglbg:theme(colors.gray.200)] checked:border-blue-200 checked:bg-blue-300 checked:[--tglbg:theme(colors.blue.100)] rounded-sm"
-                  checked={moreSignal()}
+                  class="toggle toggle-xs h-4 toggle-info rounded-sm [&::before]:rounded-xs"
+                  checked={expandSignal()}
                 />
               </label>
             </div>
           </summary>
           <ul class="pl-0">
-            {/* {_deck_ports.deck_ports[deck_id].ship} */}
-            <For each={_deck_ports.deck_ports[props.deck_id].ship}>
-              {(shipId, idx) => (
+            <For each={get_deck_ship()}>
+              {(shipId, ship_index) => (
                 <Show when={shipId > 0}>
                   <li class="h-auto">
                     <a class="justify-start gap-x-0 gap-y-1 flex flex-wrap">
                       <div class="justify-start gap-0 flex">
                         <div class="pl-2 pr-0.5 truncate flex-1 min-w-12 content-center">
-                          <div class="w-24 h-max">
-                            <ShipNameComponent ship_id={shipId} />
+                          <div class="w-[106px] h-max">
+                            <component-ship-modal
+                              size="xs"
+                              color=""
+                              name_flag={true}
+                              ship={ship_list()[ship_index()]}
+                              mst_ship={mst_ship_list()[ship_index()]}
+                              slot_items={slot_items_list()[ship_index()]}
+                              mst_slot_items={
+                                mst_slot_itmes_list()[ship_index()]
+                              }
+                            />
+                            {/* <ShipNameComponent ship_id={shipId} /> */}
                           </div>
                         </div>
                         <div class="divider divider-horizontal mr-0 ml-0 flex-none" />
                         <div class=" flex-none">
                           <div class="flex justify-center w-8 indicator">
                             <div class="indicator-item indicator-top indicator-end">
-                              {cond_state()[idx()]}
+                              {cond_state()[ship_index()]}
                             </div>
-                            <div class="badge badge-md border-inherit w-9">
-                              {ships.ships[shipId]?.cond ?? 0}
+                            <div class="badge badge-md border-base-300 w-9">
+                              {ship_list()[ship_index()].cond ?? 0}
                             </div>
                           </div>
                         </div>
                         <div class="divider divider-horizontal mr-0 ml-0 flex-none" />
                         <div class="indicator">
-                          <div class="indicator-item indicator-top indicator-end flax space-x-2">
-                            {hp_state()[idx()]}
+                          <div class="indicator-item indicator-top indicator-end space-x-2">
+                            {hp_state()[ship_index()]}
                           </div>
-                          <div class=" flex-none">
+                          <div class="w-16 text-xs">
+                            <component-color-bar-label
+                              v_max={ship_list()[ship_index()].maxhp ?? 0}
+                              v_now={ship_list()[ship_index()].nowhp ?? 0}
+                              size="xs"
+                            />
+                          </div>
+                          {/* <div class="flex-none">
                             <div class="grid h-2.5 w-12 place-content-center">
                               <div class="grid grid-flow-col auto-cols-max gap-1">
                                 <div>{ships.ships[shipId]?.nowhp ?? 0}</div>
@@ -258,16 +398,16 @@ export function DeckComponent(props: DeckPortProps) {
                                 v_max={() => ships.ships[shipId]?.maxhp ?? 0}
                               />
                             </div>
-                          </div>
+                          </div> */}
                         </div>
                         <div class="divider divider-horizontal mr-0 ml-0 flex-none" />
                         <div class="indicator">
-                          <div class="flex-none">
-                            <div class="indicator-item indicator-top indicator-end flax space-x-2">
-                              {fuel_bullet_state()[idx()]}
+                          <div class="flex-none my-auto">
+                            <div class="indicator-item indicator-top indicator-end space-x-2">
+                              {fuel_bullet_state()[ship_index()]}
                             </div>
-                            <div class="grid h-2.5 w-6 place-content-center">
-                              <FuelBulletColorBarComponent
+                            <div class="grid w-8 place-content-center space-y-1">
+                              {/* <FuelBulletColorBarComponent
                                 class="w-6 h-1"
                                 v_now={() => ships.ships[shipId]?.fuel ?? 0}
                                 v_max={() =>
@@ -275,10 +415,8 @@ export function DeckComponent(props: DeckPortProps) {
                                     ships.ships[shipId]?.ship_id ?? 0
                                   ]?.fuel_max ?? 0
                                 }
-                              />
-                            </div>
-                            <div class="grid h-2.5 w-6 place-content-center">
-                              <FuelBulletColorBarComponent
+                              /> */}
+                              {/* <FuelBulletColorBarComponent
                                 class="w-6 h-1"
                                 v_now={() => ships.ships[shipId]?.bull ?? 0}
                                 v_max={() =>
@@ -286,49 +424,85 @@ export function DeckComponent(props: DeckPortProps) {
                                     ships.ships[shipId]?.ship_id ?? 0
                                   ]?.bull_max ?? 0
                                 }
+                              /> */}
+                              <component-color-bar
+                                class="w-8"
+                                v_now={ship_list()[ship_index()].fuel ?? 0}
+                                v_max={
+                                  mst_ship_list()[ship_index()].fuel_max ?? 0
+                                }
+                                size="xs"
+                              />
+                              <component-color-bar
+                                class="w-8"
+                                v_now={ship_list()[ship_index()].bull ?? 0}
+                                v_max={
+                                  mst_ship_list()[ship_index()].bull_max ?? 0
+                                }
+                                size="xs"
                               />
                             </div>
                           </div>
                         </div>
                         <div class="divider divider-horizontal mr-0 ml-0" />
                       </div>
-                      <Show when={moreSignal()}>
+                      <Show when={expandSignal()}>
                         <div class="flex">
-                          <div class="grid grid-cols-5 gap-2 content-center w-52">
+                          <div class="w-[4px]" />
+                          <div class="grid grid-cols-5 gap-2 content-center w-60">
                             <For each={ships.ships[shipId]?.slot}>
                               {(slotId, slotId_index) => (
                                 <Show when={slotId > 0}>
                                   <div class="text-base flex justify-center">
-                                    <EquimentComponent
-                                      slot_id={slotId}
-                                      ex_flag={false}
+                                    <component-equipment-modal
+                                      size="xs"
+                                      empty_flag={false}
                                       name_flag={false}
-                                      onslot={
-                                        ships.ships[shipId]?.onsolot[
-                                          slotId_index()
-                                        ]
-                                      }
+                                      attr:onslot={get_onslot(
+                                        ship_index(),
+                                        slotId_index()
+                                      )}
+                                      slot_item={get_slot_item(
+                                        ship_index(),
+                                        slotId
+                                      )}
+                                      mst_slot_item={get_mst_slot_item(
+                                        ship_index(),
+                                        slotId
+                                      )}
                                     />
                                   </div>
                                 </Show>
                               )}
                             </For>
                           </div>
-                          <span class="w-2" />
-                          <div class="divider divider-horizontal mr-0 ml-0 basis-0 h-auto" />
-                          <span class="w-2" />
+                          <div class="divider divider-horizontal mr-0 ml-0" />
                           <div class="content-center">
                             <div class="text-base flex justify-center w-8">
-                              <Show when={ships.ships[shipId]?.slot_ex > 0}>
-                                <EquimentComponent
-                                  slot_id={ships.ships[shipId]?.slot_ex}
-                                  ex_flag={true}
+                              <Show
+                                when={
+                                  (ship_list()[ship_index()].slot_ex ?? 0) > 0
+                                }
+                              >
+                                <component-equipment-modal
+                                  size="xs"
+                                  empty_flag={false}
                                   name_flag={false}
+                                  attr:onslot={undefined}
+                                  slot_item={get_slot_item(
+                                    ship_index(),
+                                    ship_list()[ship_index()].slot_ex ?? 0
+                                  )}
+                                  mst_slot_item={get_mst_slot_item(
+                                    ship_index(),
+                                    ship_list()[ship_index()].slot_ex ?? 0
+                                  )}
+                                  ex_flag={true}
                                 />
                               </Show>
                             </div>
                           </div>
-                          <span class="w-px" />
+                          {/* <span class="w-px" /> */}
                           <div class="divider divider-horizontal mr-0 ml-0 h-auto" />
                         </div>
                       </Show>

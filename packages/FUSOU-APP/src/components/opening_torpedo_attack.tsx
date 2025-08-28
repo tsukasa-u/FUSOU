@@ -1,18 +1,21 @@
-import { ShipNameComponent } from "./ship_name";
-
 import { createMemo, For, Show } from "solid-js";
 
-import "../css/divider.css";
-import { SimpleShipNameComponent } from "./simple_ship_name";
-import { Battle } from "../interface/battle";
+import type { Battle } from "@ipc-bindings/battle";
 import IconShield from "../icons/shield";
-import { SimpleHpBar } from "./simple_hp_bar";
-import { useDeckPorts, useShips } from "../utility/provider";
-import IconFleetNumber from "../icons/fleet_number";
+import { calc_critical, DeckShipIds } from "../utility/battles";
+import { DataSetParamShip, DataSetShip } from "../utility/get_data_set";
+import {
+  WrapEnemyShipHPComponent,
+  WrapNumberedEnemyShipComponent,
+  WrapNumberedOwnShipComponent,
+  WrapOwnShipHPComponent,
+} from "./wrap_web_component";
 
 interface TorpedoSubmarineProps {
-  deck_ship_id: { [key: number]: number[] };
-  battle_selected: () => Battle;
+  deck_ship_id: () => DeckShipIds;
+  battle_selected: () => Battle | undefined;
+  store_data_set_deck_ship: () => DataSetShip;
+  store_data_set_param_ship: () => DataSetParamShip;
 }
 
 interface TorpedoDamage {
@@ -32,23 +35,17 @@ interface TorpedoDamages {
 }
 
 export function OpeningTorpedoAttackComponent(props: TorpedoSubmarineProps) {
-  const [ships] = useShips();
-  const [deck_ports] = useDeckPorts();
-
   const show_torpedo_attack = createMemo<boolean>(() => {
-    if (props.battle_selected() == undefined) return false;
-    if (props.battle_selected().deck_id == null) return false;
-    if (props.battle_selected().opening_raigeki == null) return false;
-    if (
-      props
-        .battle_selected()
-        .opening_raigeki.frai_list_items.findIndex((val) => val != null) ==
-        -1 &&
-      props
-        .battle_selected()
-        .opening_raigeki.erai_list_items.findIndex((val) => val != null) == -1
-    )
-      return false;
+    if (!props.battle_selected()) return false;
+    if (!props.battle_selected()?.deck_id) return false;
+    const opening_raigeki = props.battle_selected()?.opening_raigeki;
+    if (opening_raigeki) {
+      if (
+        !opening_raigeki.frai_list_items.some((val) => val) &&
+        !opening_raigeki.erai_list_items.some((val) => val)
+      )
+        return false;
+    } else return false;
     return true;
   });
 
@@ -63,47 +60,235 @@ export function OpeningTorpedoAttackComponent(props: TorpedoSubmarineProps) {
         dict: {},
       },
     };
-    if (props.battle_selected().opening_raigeki == null)
-      return opening_torpedo_damage;
-
-    props
-      .battle_selected()
-      .opening_raigeki.frai_list_items.forEach((frai_list, i) => {
-        if (frai_list != null) {
-          frai_list.forEach((frai) => {
-            if (opening_torpedo_damage.frai.list.includes(frai)) {
-              opening_torpedo_damage.frai.dict[frai].ships.push(i);
-            } else {
-              opening_torpedo_damage.frai.list.push(frai);
-              opening_torpedo_damage.frai.dict[frai] = {
-                dmg: props.battle_selected().opening_raigeki.edam[frai],
-                ships: [i],
-                cl: props.battle_selected().opening_raigeki.ecl_list[frai],
-              };
-            }
-          });
-        }
+    const opening_raigeki = props.battle_selected()?.opening_raigeki;
+    if (opening_raigeki) {
+      opening_raigeki.frai_list_items.forEach((frai_list, i) => {
+        frai_list?.forEach((frai) => {
+          if (opening_torpedo_damage.frai.list.includes(frai)) {
+            opening_torpedo_damage.frai.dict[frai].ships.push(i);
+          } else {
+            opening_torpedo_damage.frai.list.push(frai);
+            opening_torpedo_damage.frai.dict[frai] = {
+              dmg: opening_raigeki.edam[frai],
+              ships: [i],
+              cl: opening_raigeki.ecl_list[frai],
+            };
+          }
+        });
       });
-    props
-      .battle_selected()
-      .opening_raigeki.erai_list_items.forEach((erai_list, i) => {
-        if (erai_list != null) {
-          erai_list.forEach((erai) => {
-            if (opening_torpedo_damage.erai.list.includes(erai)) {
-              opening_torpedo_damage.erai.dict[erai].ships.push(i);
-            } else {
-              opening_torpedo_damage.erai.list.push(erai);
-              opening_torpedo_damage.erai.dict[erai] = {
-                dmg: props.battle_selected().opening_raigeki.fdam[erai],
-                ships: [i],
-                cl: props.battle_selected().opening_raigeki.fcl_list[erai],
-              };
-            }
-          });
-        }
+      opening_raigeki.erai_list_items.forEach((erai_list, i) => {
+        erai_list?.forEach((erai) => {
+          if (opening_torpedo_damage.erai.list.includes(erai)) {
+            opening_torpedo_damage.erai.dict[erai].ships.push(i);
+          } else {
+            opening_torpedo_damage.erai.list.push(erai);
+            opening_torpedo_damage.erai.dict[erai] = {
+              dmg: opening_raigeki.fdam[erai],
+              ships: [i],
+              cl: opening_raigeki.fcl_list[erai],
+            };
+          }
+        });
       });
+    }
     return opening_torpedo_damage;
   });
+
+  const f_attacker_ships = (frai: number) => {
+    return (
+      <td>
+        <div class="flex flex-col">
+          <For each={opening_torpedo_damage().frai.dict[frai].ships}>
+            {(ship_idx, ship_id_index) => (
+              <>
+                <Show when={ship_id_index() > 0}>
+                  <div class="h-px" />
+                </Show>
+                <div class="flex flex-nowrap">
+                  <WrapNumberedOwnShipComponent
+                    ship_idx={ship_idx}
+                    deck_ship_id={props.deck_ship_id}
+                    battle_selected={props.battle_selected}
+                    store_data_set_deck_ship={props.store_data_set_deck_ship}
+                  />
+                </div>
+              </>
+            )}
+          </For>
+        </div>
+      </td>
+    );
+  };
+
+  const e_attacker_ships = (erai: number) => {
+    return (
+      <td>
+        <div class="flex flex-col">
+          <For each={opening_torpedo_damage().erai.dict[erai].ships}>
+            {(ship_idx, ship_idx_index) => (
+              <>
+                <Show when={ship_idx_index() > 0}>
+                  <div class="h-px" />
+                </Show>
+                <div class="flex flex-nowrap">
+                  <WrapNumberedEnemyShipComponent
+                    ship_idx={ship_idx}
+                    battle_selected={props.battle_selected}
+                    store_data_set_param_ship={props.store_data_set_param_ship}
+                  />
+                </div>
+              </>
+            )}
+          </For>
+        </div>
+      </td>
+    );
+  };
+
+  const f_attacker_hps = (frai: number) => {
+    const opening_raigeki = props.battle_selected()?.opening_raigeki;
+    return (
+      <td>
+        <div class="flex flex-col">
+          <For each={opening_torpedo_damage().frai.dict[frai].ships}>
+            {(ship_idx) => {
+              return (
+                <>
+                  <WrapOwnShipHPComponent
+                    deck_ship_id={props.deck_ship_id}
+                    battle_selected={props.battle_selected}
+                    store_data_set_deck_ship={props.store_data_set_deck_ship}
+                    idx={ship_idx}
+                    f_now_hps={opening_raigeki?.f_now_hps}
+                  />
+                </>
+              );
+            }}
+          </For>
+        </div>
+      </td>
+    );
+  };
+
+  const e_attacker_hps = (erai: number) => {
+    const opening_raigeki = props.battle_selected()?.opening_raigeki;
+    return (
+      <td>
+        <div class="flex flex-col">
+          <For each={opening_torpedo_damage().erai.dict[erai].ships}>
+            {(ship_idx) => {
+              return (
+                <>
+                  <WrapEnemyShipHPComponent
+                    store_data_set_param_ship={props.store_data_set_param_ship}
+                    idx={ship_idx}
+                    e_now_hps={opening_raigeki?.e_now_hps}
+                  />
+                </>
+              );
+            }}
+          </For>
+        </div>
+      </td>
+    );
+  };
+
+  const f_defenser_ship = (erai: number) => {
+    const opening_raigeki = props.battle_selected()?.opening_raigeki;
+    return (
+      <td>
+        <div class="flex flex-nowrap">
+          <WrapNumberedOwnShipComponent
+            ship_idx={erai}
+            deck_ship_id={props.deck_ship_id}
+            battle_selected={props.battle_selected}
+            store_data_set_deck_ship={props.store_data_set_deck_ship}
+          />
+          <Show
+            when={
+              opening_raigeki
+                ? opening_raigeki.f_protect_flag.some((flag) => flag)
+                : false
+            }
+          >
+            <IconShield class="h-4 self-center ml-auto" />
+          </Show>
+        </div>
+      </td>
+    );
+  };
+
+  const e_defenser_ship = (frai: number) => {
+    const opening_raigeki = props.battle_selected()?.opening_raigeki;
+    return (
+      <td>
+        <div class="flex flex-nowrap">
+          <WrapNumberedEnemyShipComponent
+            ship_idx={frai}
+            battle_selected={props.battle_selected}
+            store_data_set_param_ship={props.store_data_set_param_ship}
+          />
+          <Show
+            when={
+              opening_raigeki
+                ? opening_raigeki.e_protect_flag.some((flag) => flag)
+                : false
+            }
+          >
+            <IconShield class="h-4 self-center ml-auto" />
+          </Show>
+        </div>
+      </td>
+    );
+  };
+
+  const f_defenser_hp = (erai: number) => {
+    const opening_raigeki = props.battle_selected()?.opening_raigeki;
+    return (
+      <td>
+        <WrapOwnShipHPComponent
+          deck_ship_id={props.deck_ship_id}
+          battle_selected={props.battle_selected}
+          store_data_set_deck_ship={props.store_data_set_deck_ship}
+          idx={erai}
+          f_now_hps={opening_raigeki?.f_now_hps}
+        />
+      </td>
+    );
+  };
+
+  const e_defenser_hp = (frai: number) => {
+    const opening_raigeki = props.battle_selected()?.opening_raigeki;
+    return (
+      <td>
+        <WrapEnemyShipHPComponent
+          store_data_set_param_ship={props.store_data_set_param_ship}
+          idx={frai}
+          e_now_hps={opening_raigeki?.e_now_hps}
+        />
+      </td>
+    );
+  };
+
+  const f_damage = (erai: number) => {
+    let cl_flag = opening_torpedo_damage().erai.dict[erai].cl;
+    let dmg = opening_torpedo_damage().erai.dict[erai].dmg;
+    return (
+      <td>
+        <div class={`text-sm h-6 ${calc_critical(dmg, cl_flag)}`}>{dmg}</div>
+      </td>
+    );
+  };
+
+  const e_damage = (frai: number) => {
+    let cl_flag = opening_torpedo_damage().frai.dict[frai].cl;
+    let dmg = opening_torpedo_damage().frai.dict[frai].dmg;
+    return (
+      <td>
+        <div class={`text-sm h-6 ${calc_critical(dmg, cl_flag)}`}>{dmg}</div>
+      </td>
+    );
+  };
 
   return (
     <Show when={show_torpedo_attack()}>
@@ -114,274 +299,33 @@ export function OpeningTorpedoAttackComponent(props: TorpedoSubmarineProps) {
             <table class="table table-xs">
               <thead>
                 <tr>
-                  <th>From</th>
-                  <th>HP</th>
-                  <th>To</th>
-                  <th>HP</th>
                   <th>Attack</th>
+                  <th>HP</th>
+                  <th>Defense</th>
+                  <th>HP</th>
+                  <th>Damage</th>
                 </tr>
               </thead>
               <tbody>
                 <For each={opening_torpedo_damage().frai.list}>
                   {(frai) => (
-                    <tr class="table_hover table_active rounded">
-                      <td>
-                        <div class="flex flex-col">
-                          <For
-                            each={
-                              opening_torpedo_damage().frai.dict[frai].ships
-                            }
-                          >
-                            {(ship_id, ship_id_index) => (
-                              <>
-                                <Show when={ship_id_index() > 0}>
-                                  <div class="h-px" />
-                                </Show>
-                                <div class="flex flex-nowrap">
-                                  <IconFleetNumber
-                                    class="h-6 -mt-1 pr-1"
-                                    e_flag={0}
-                                    fleet_number={1}
-                                    ship_number={ship_id + 1}
-                                    combined_flag={
-                                      deck_ports.combined_flag == 1
-                                    }
-                                  />
-                                  <ShipNameComponent
-                                    ship_id={
-                                      props.deck_ship_id[
-                                        props.battle_selected().deck_id!
-                                      ][ship_id]
-                                    }
-                                  />
-                                </div>
-                              </>
-                            )}
-                          </For>
-                        </div>
-                      </td>
-                      <td>
-                        <div class="flex flex-col">
-                          <For
-                            each={
-                              opening_torpedo_damage().frai.dict[frai].ships
-                            }
-                          >
-                            {(ship_id) => (
-                              <>
-                                <SimpleHpBar
-                                  v_now={() =>
-                                    props.battle_selected().opening_raigeki
-                                      .f_now_hps[ship_id]
-                                  }
-                                  v_max={() =>
-                                    ships.ships[
-                                      props.deck_ship_id[
-                                        props.battle_selected().deck_id!
-                                      ][ship_id]
-                                    ].maxhp
-                                  }
-                                />
-                              </>
-                            )}
-                          </For>
-                        </div>
-                      </td>
-                      <td>
-                        <div class="flex flex-nowrap">
-                          <IconFleetNumber
-                            class="h-6 -mt-1 pr-1"
-                            e_flag={1}
-                            fleet_number={1}
-                            ship_number={frai + 1}
-                            combined_flag={
-                              props.battle_selected().enemy_ship_id.length == 12
-                            }
-                          />
-                          <SimpleShipNameComponent
-                            ship_id={
-                              props.battle_selected().enemy_ship_id[frai]
-                            }
-                            ship_max_hp={
-                              props.battle_selected().e_hp_max![frai]
-                            }
-                            ship_param={props.battle_selected().e_params![frai]}
-                            ship_slot={props.battle_selected().e_slot![frai]}
-                          />
-                          <Show
-                            when={props
-                              .battle_selected()
-                              .opening_raigeki.e_protect_flag.some(
-                                (flag) => flag == true,
-                              )}
-                          >
-                            <IconShield class="h-5 w-5" />
-                          </Show>
-                        </div>
-                      </td>
-                      <td>
-                        <SimpleHpBar
-                          v_now={() =>
-                            props.battle_selected().opening_raigeki.e_now_hps[
-                              frai
-                            ]
-                          }
-                          v_max={() => props.battle_selected().e_hp_max![frai]}
-                        />
-                      </td>
-                      <td>
-                        <div
-                          class={(() => {
-                            let cl_flag =
-                              opening_torpedo_damage().frai.dict[frai].cl;
-                            if (
-                              cl_flag == 0 ||
-                              opening_torpedo_damage().frai.dict[frai].dmg == 0
-                            ) {
-                              return "text-red-500";
-                            } else if (cl_flag == 2) {
-                              return "text-yellow-500";
-                            }
-                          })()}
-                        >
-                          {opening_torpedo_damage().frai.dict[frai].dmg}
-                        </div>
-                      </td>
+                    <tr class="rounded">
+                      {f_attacker_ships(frai)}
+                      {f_attacker_hps(frai)}
+                      {e_defenser_ship(frai)}
+                      {e_defenser_hp(frai)}
+                      {e_damage(frai)}
                     </tr>
                   )}
                 </For>
                 <For each={opening_torpedo_damage().erai.list}>
                   {(erai) => (
-                    <tr class="table_hover table_active rounded">
-                      <td>
-                        <div class="flex flex-col">
-                          <For
-                            each={
-                              opening_torpedo_damage().erai.dict[erai].ships
-                            }
-                          >
-                            {(ship_id, ship_id_index) => (
-                              <>
-                                <Show when={ship_id_index() > 0}>
-                                  <div class="h-px" />
-                                </Show>
-                                <div class="flex flex-nowrap">
-                                  <IconFleetNumber
-                                    class="h-6 -mt-1 pr-1"
-                                    e_flag={1}
-                                    fleet_number={1}
-                                    ship_number={ship_id + 1}
-                                    combined_flag={
-                                      props.battle_selected().enemy_ship_id
-                                        .length == 12
-                                    }
-                                  />
-                                  <SimpleShipNameComponent
-                                    ship_id={
-                                      props.battle_selected().enemy_ship_id[
-                                        ship_id
-                                      ]
-                                    }
-                                    ship_max_hp={
-                                      props.battle_selected().e_hp_max![ship_id]
-                                    }
-                                    ship_param={
-                                      props.battle_selected().e_params![ship_id]
-                                    }
-                                    ship_slot={
-                                      props.battle_selected().e_slot![ship_id]
-                                    }
-                                  />
-                                </div>
-                              </>
-                            )}
-                          </For>
-                        </div>
-                      </td>
-                      <td>
-                        <div class="flex flex-col">
-                          <For
-                            each={
-                              opening_torpedo_damage().erai.dict[erai].ships
-                            }
-                          >
-                            {(ship_id) => (
-                              <>
-                                <SimpleHpBar
-                                  v_now={() =>
-                                    props.battle_selected().opening_raigeki
-                                      .e_now_hps[ship_id]
-                                  }
-                                  v_max={() =>
-                                    props.battle_selected().e_hp_max![ship_id]
-                                  }
-                                />
-                              </>
-                            )}
-                          </For>
-                        </div>
-                      </td>
-                      <td>
-                        <div class="flex flex-nowrap">
-                          <IconFleetNumber
-                            class="h-6 -mt-1 pr-1"
-                            e_flag={0}
-                            fleet_number={1}
-                            ship_number={erai + 1}
-                            combined_flag={deck_ports.combined_flag == 1}
-                          />
-                          <ShipNameComponent
-                            ship_id={
-                              props.deck_ship_id[
-                                props.battle_selected().deck_id!
-                              ][erai]
-                            }
-                          />
-                          <Show
-                            when={props
-                              .battle_selected()
-                              .opening_raigeki.f_protect_flag.some(
-                                (flag) => flag == true,
-                              )}
-                          >
-                            <IconShield class="h-5 w-5" />
-                          </Show>
-                        </div>
-                      </td>
-                      <td>
-                        <SimpleHpBar
-                          v_now={() =>
-                            props.battle_selected().opening_raigeki.f_now_hps[
-                              erai
-                            ]
-                          }
-                          v_max={() =>
-                            ships.ships[
-                              props.deck_ship_id[
-                                props.battle_selected().deck_id!
-                              ][erai]
-                            ].maxhp
-                          }
-                        />
-                      </td>
-                      <td>
-                        <div
-                          class={(() => {
-                            let cl_flag =
-                              opening_torpedo_damage().erai.dict[erai].cl;
-                            if (
-                              cl_flag == 0 ||
-                              opening_torpedo_damage().erai.dict[erai].dmg == 0
-                            ) {
-                              return "text-red-500";
-                            } else if (cl_flag == 2) {
-                              return "text-yellow-500";
-                            }
-                          })()}
-                        >
-                          {opening_torpedo_damage().erai.dict[erai].dmg}
-                        </div>
-                      </td>
+                    <tr class="rounded">
+                      {e_attacker_ships(erai)}
+                      {e_attacker_hps(erai)}
+                      {f_defenser_ship(erai)}
+                      {f_defenser_hp(erai)}
+                      {f_damage(erai)}
                     </tr>
                   )}
                 </For>

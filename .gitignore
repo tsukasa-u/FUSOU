@@ -13,28 +13,37 @@ Cargo.lock
 # MSVC Windows builds of rustc generate these, which store debugging information
 *.pdb
 
-node_modules/
-.VSCodeCounter/
-!FUSOU.code-workspace
-FUSOU-PROXY-DATA*/
-FUSOU-APP/src-tauri/ca/*
+*.log
 
-packages/FUSOU-APP/kc_api/tests/struct_dependency_dot/*.dot
-packages/FUSOU-APP/kc_api/tests/struct_dependency_json/*.json
-packages/FUSOU-APP/kc_api/tests/struct_dependency_svg/*.svg
-packages/FUSOU-APP/kc_api/tests/database_dependency_dot/*.dot
-packages/FUSOU-APP/kc_api/tests/database_dependency_json/*.json
-packages/FUSOU-APP/kc_api/tests/database_dependency_svg/*.svg
-packages/FUSOU-APP/tsconfig.tsbuildinfo
+node_modules/
+
+.VSCodeCounter/
+
+!FUSOU.code-workspace
+
+packages/kc_api/tests/struct_dependency_dot/*.dot
+packages/kc_api/tests/struct_dependency_json/*.json
+packages/kc_api/tests/struct_dependency_svg/*.svg
+packages/kc_api/tests/database_dependency_dot/*.dot
+packages/kc_api/tests/database_dependency_json/*.json
+packages/kc_api/tests/database_dependency_svg/*.svg
+packages/kc_api/.env
+
 packages/FUSOU-PROXY/proxy_rust/proxy-https/proxy.pac
 
-packages/FUSOU-APP/src/pages/vanilla/env.js
+packages/FUSOU-PROXY-DATA*/
 
+packages/FUSOU-APP/src/pages/vanilla/env.js
+# packages/FUSOU-APP/src/stories/data
+packages/FUSOU-APP/src-tauri/gen/
+packages/FUSOU-APP/src-tauri/ca
 packages/FUSOU-APP/src-tauri/user/ENV_UNIQ_ID
+packages/FUSOU-APP/tsconfig.tsbuildinfo
+tsconfig.node.tsbuildinfo
 
 *storybook.log
 storybook-static
-packages/FUSOU-PROXY/proxy_rust/proxy-https/proxy.pac
-packages/FUSOU-APP/src-tauri/gen/
+/packages/shared-ui/src/data
+packages/shared-ui/custom-elements.json
 
-packages/env.keys
+packages/.env.keys

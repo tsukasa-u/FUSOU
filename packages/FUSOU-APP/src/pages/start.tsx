@@ -78,11 +78,13 @@ let server_list: { [key: string]: string } = {
 function open_auth_page() {
   invoke("check_open_window", { label: "main" }).then((flag) => {
     if (flag) {
-      invoke("open_auth_page").then(() => {
-        console.log("open auth page");
-      }).catch((err) => {
-        console.error("open auth page error", err);
-      });
+      invoke("open_auth_page")
+        .then(() => {
+          console.log("open auth page");
+        })
+        .catch((err) => {
+          console.error("open auth page error", err);
+        });
     }
   });
 }
@@ -91,24 +93,25 @@ function Start() {
   createEffect(location_route);
 
   const [runProxyServer, setRunProxyServer] = createSignal<boolean>(
-    Boolean(launch_options["run_proxy_server"]),
+    Boolean(launch_options["run_proxy_server"])
   );
   const [openApp, setOpenApp] = createSignal<boolean>(
-    Boolean(launch_options["open_app"]),
+    Boolean(launch_options["open_app"])
   );
   const [openKancolle, setOpenKancolle] = createSignal<boolean>(
-    Boolean(launch_options["open_kancolle"]),
+    Boolean(launch_options["open_kancolle"])
   );
   const [openKancolleWithWebView, setOpenKancolleWithWebView] =
     createSignal<boolean>(
-      Boolean(launch_options["open_kancolle_with_webview"]),
+      Boolean(launch_options["open_kancolle_with_webview"])
     );
   const [server, setServer] = createSignal<number>(launch_options["server"]);
 
   const [pacServerHealth, setPacServerHealth] = createSignal<number>(-1);
   const [proxyServerHealth, setProxyServerHealth] = createSignal<number>(-1);
 
-  const [advancesSettingsCollapse, setAdavncedSettingsCollpse] = createSignal<boolean>(false);
+  const [advancesSettingsCollapse, setAdavncedSettingsCollpse] =
+    createSignal<boolean>(false);
 
   const [authData, setAuthData] = useAuth();
 
@@ -137,21 +140,22 @@ function Start() {
 
   createEffect(() => {
     if (authData.accessToken !== null && authData.refreshToken !== null) {
-      supabase.auth.setSession({
-        access_token: authData.accessToken,
-        refresh_token: authData.refreshToken,
-      }).then(({ data, error }) => {
-        if (error) {
-          console.error("Error setting session:", error);
-        } else {
-          console.log("Session set successfully:", data);
-        }
-      });
+      supabase.auth
+        .setSession({
+          access_token: authData.accessToken,
+          refresh_token: authData.refreshToken,
+        })
+        .then(({ data, error }) => {
+          if (error) {
+            console.error("Error setting session:", error);
+          } else {
+            console.log("Session set successfully:", data);
+          }
+        });
     }
   });
 
   createEffect(() => {
-
     supabase.auth.getSession().then(({ data, error }) => {
       console.log("session", data, error);
       if (error) {
@@ -164,22 +168,27 @@ function Start() {
           if (data.session.user == null) {
             open_auth_page();
           } else {
-            getRefreshToken(data.session.user.id).then((refreshToken) => {
-              if (refreshToken !== null) {
-                let token: string = refreshToken + "&" + data.session.token_type;
-                invoke("set_refresh_token", {
-                  token: token
-                }).then(() => {
-                  console.log("refresh_token set");
-                }).catch((err) => {
-                  console.error("refresh_token error", err);
-                });
-              } else {
-                console.error("Error getting refresh token");
-              }
-            }).catch((error) => {
-              console.error("Error getting refresh token:", error);
-            });
+            getRefreshToken(data.session.user.id)
+              .then((refreshToken) => {
+                if (refreshToken !== null) {
+                  let token: string =
+                    refreshToken + "&" + data.session.token_type;
+                  invoke("set_refresh_token", {
+                    token: token,
+                  })
+                    .then(() => {
+                      console.log("refresh_token set");
+                    })
+                    .catch((err) => {
+                      console.error("refresh_token error", err);
+                    });
+                } else {
+                  console.error("Error getting refresh token");
+                }
+              })
+              .catch((error) => {
+                console.error("Error getting refresh token:", error);
+              });
           }
         }
       }
@@ -223,7 +232,7 @@ function Start() {
 
   return (
     <>
-      <div class="bg-base-200 h-screen">
+      <div class="bg-base-300 h-screen">
         <div class="max-w-md justify-self-center bg-base-100 h-screen">
           <div class="flex flex-nowrap">
             <h1 class="mx-4 pt-4 text-2xl font-semibold">Launch Options</h1>
@@ -460,48 +469,82 @@ function Start() {
                     </div> */}
             </div>
           </div>
-              <div tabindex="0" class={"collapse collapse-arrow" + (advancesSettingsCollapse() ? " collapse-open" : " collapse-close")}>
-                <div class="collapse-title text-lg font-semibold leading-4 text-slate-700" onClick={() => setAdavncedSettingsCollpse(!advancesSettingsCollapse())}>Advanced Settings</div>
-                <div class="collapse-content text-sm mx-4">
-                  <div class="font-semibold text-slate-700">Set provider (provider) (access/refresh) tokens</div>
-                  <fieldset class="fieldset">
-                    <legend class="fieldset-legen">input tokens for new session</legend>
-                    <div class="flex flex-nowarp align-center">
-                      <input id="tokens" type="text" class="w-full input input-sm focus-within:outline-0 focus:outline-0" placeholder="provider_refresh_token=***&access_token=****&refresh_token=***" />
-                      <kbd class="kbd kbd-sm">ctrl</kbd>
-                      <div class="self-center text-sm px-1">+</div>
-                      <kbd class="kbd kbd-sm">V</kbd>
-                    </div>
-                  </fieldset>
+          <div
+            tabindex="0"
+            class={
+              "collapse collapse-arrow" +
+              (advancesSettingsCollapse()
+                ? " collapse-open"
+                : " collapse-close")
+            }
+          >
+            <div
+              class="collapse-title text-lg font-semibold leading-4 text-slate-700"
+              onClick={() =>
+                setAdavncedSettingsCollpse(!advancesSettingsCollapse())
+              }
+            >
+              Advanced Settings
+            </div>
+            <div class="collapse-content text-sm mx-4">
+              <div class="font-semibold text-slate-700">
+                Set provider (provider) (access/refresh) tokens
+              </div>
+              <fieldset class="fieldset">
+                <legend class="fieldset-legen">
+                  input tokens for new session
+                </legend>
+                <div class="flex flex-nowarp align-center">
+                  <input
+                    id="tokens"
+                    type="text"
+                    class="w-full input input-sm focus-within:outline-0 focus:outline-0"
+                    placeholder="provider_refresh_token=***&access_token=****&refresh_token=***"
+                  />
+                  <kbd class="kbd kbd-sm">ctrl</kbd>
+                  <div class="self-center text-sm px-1">+</div>
+                  <kbd class="kbd kbd-sm">V</kbd>
+                </div>
+              </fieldset>
 
-                <div class="mt-4 flex items-center justify-end">
-                  <span class="flex-auto" />
-                  <div class="form-control flex-none">
-                    <div class="btn btn-sm border-base-300 border-1" onClick={() => {
-                      const input_text: HTMLInputElement | null = document.getElementById("tokens") as HTMLInputElement;
+              <div class="mt-4 flex items-center justify-end">
+                <span class="flex-auto" />
+                <div class="form-control flex-none">
+                  <div
+                    class="btn btn-sm border-base-300 border-1"
+                    onClick={() => {
+                      const input_text: HTMLInputElement | null =
+                        document.getElementById("tokens") as HTMLInputElement;
                       if (input_text == null) return;
 
-                      let tokens = input_text.value?.split('&')!;
-                      let supabase_access_token = tokens[2].split('=');
-                      let supabase_refresh_token = tokens[3].split('=');
-                      let provider_refresh_token = tokens[0].split('=');
+                      let tokens = input_text.value?.split("&")!;
+                      let supabase_access_token = tokens[2].split("=");
+                      let supabase_refresh_token = tokens[3].split("=");
+                      let provider_refresh_token = tokens[0].split("=");
 
-                      if (supabase_access_token[0] != "supabase_access_token") return;
-                      if (supabase_refresh_token[0] != "supabase_refresh_token") return;
-                      if (provider_refresh_token[0] != "provider_refresh_token") return;
-
+                      if (supabase_access_token[0] != "supabase_access_token")
+                        return;
+                      if (supabase_refresh_token[0] != "supabase_refresh_token")
+                        return;
+                      if (provider_refresh_token[0] != "provider_refresh_token")
+                        return;
 
                       setAuthData({
                         accessToken: supabase_access_token[1],
                         refreshToken: supabase_refresh_token[1],
                       });
 
-                      invoke("set_refresh_token", {token: provider_refresh_token + "&bearer"})
-                    }}>Set Token</div>
+                      invoke("set_refresh_token", {
+                        token: provider_refresh_token + "&bearer",
+                      });
+                    }}
+                  >
+                    Set Token
                   </div>
                 </div>
-                </div>
               </div>
+            </div>
+          </div>
           <div class="divider mt-0 mb-0 w-11/12 justify-self-center" />
           <div class="h-8" />
           <div class="flex justify-center">
@@ -510,7 +553,7 @@ function Start() {
               class={start_button_class()}
               href="/app"
               onClick={() => {
-                invoke("launch_with_options", { options: launch_options })
+                invoke("launch_with_options", { options: launch_options });
               }}
             >
               Start

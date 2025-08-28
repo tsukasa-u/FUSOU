@@ -1,13 +1,24 @@
 import { useAirBases } from "../utility/provider.tsx";
 
-import "../css/divider.css";
+// import "../css/divider.css";
 import { createMemo, For, JSX } from "solid-js";
-import { EquimentComponent } from "./equipment.tsx";
-import IconCautionFill from "../icons/caution_fill.tsx";
 import IconChevronRightS from "../icons/chevron_right_s.tsx";
+
+import "shared-ui";
+import { get_data_set_equip } from "../utility/get_data_set.tsx";
 
 export function AirBasesComponent() {
   const [air_bases] = useAirBases();
+
+  const store_equip_data_set = createMemo(() => {
+    let slot_id_list = Object.values(air_bases.bases)
+      .map((base) => base?.plane_info)
+      .flat()
+      .map((palne) => palne?.slotid)
+      .filter((id) => id)
+      .map((id) => id!);
+    return get_data_set_equip(slot_id_list);
+  });
 
   const cond_state = createMemo<JSX.Element[][]>(() => {
     const set_cond_state = (cond: number): JSX.Element => {
@@ -15,32 +26,40 @@ export function AirBasesComponent() {
       if (cond == 1) cond_state = <></>;
       else if (cond == 2)
         cond_state = (
-          <IconCautionFill class="h-4 w-4 fill-yellow-500 stroke-2" />
+          <div class="h-4 w-4">
+            <icon-caution-fill level={"middle"} size="full" />
+          </div>
         );
       else if (cond == 3)
-        cond_state = <IconCautionFill class="h-4 w-4 fill-red-500 stroke-2" />;
+        cond_state = (
+          <div class="h-4 w-4">
+            <icon-caution-fill level={"high"} size="full" />
+          </div>
+        );
       return cond_state;
     };
 
     let states: JSX.Element[][] = [];
-    Object.entries(air_bases.bases).forEach((base) => {
+    Object.values(air_bases.bases).forEach((base) => {
       states.push([]);
       let state: JSX.Element[] = [];
-      base[1].plane_info.forEach((plane) => {
-        state.push(set_cond_state(plane.cond ?? 0));
-      });
+      if (base) {
+        base.plane_info.forEach((plane) => {
+          state.push(set_cond_state(plane.cond ?? 0));
+        });
+      }
     });
     return states;
   });
 
   const base_action_state = createMemo<JSX.Element[]>(() => {
     let base_action_state: JSX.Element[] = [];
-    Object.entries(air_bases.bases).forEach((base) => {
-      if (base[1].action_kind == 1) base_action_state.push("Sortie");
-      else if (base[1].action_kind == 2) base_action_state.push("Defense");
-      else if (base[1].action_kind == 3) base_action_state.push("Evacuation");
-      else if (base[1].action_kind == 4) base_action_state.push("Rest");
-      else if (base[1].action_kind == 0) base_action_state.push("Standby");
+    Object.values(air_bases.bases).forEach((base) => {
+      if (base?.action_kind == 1) base_action_state.push("Sortie");
+      else if (base?.action_kind == 2) base_action_state.push("Defense");
+      else if (base?.action_kind == 3) base_action_state.push("Evacuation");
+      else if (base?.action_kind == 4) base_action_state.push("Rest");
+      else if (base?.action_kind == 0) base_action_state.push("Standby");
       else base_action_state.push("Unknown");
     });
     return base_action_state;
@@ -49,7 +68,7 @@ export function AirBasesComponent() {
   return (
     <>
       <li>
-        <details open>
+        <details>
           <summary>Air Base</summary>
           <ul class="pl-0">
             <For
@@ -58,20 +77,20 @@ export function AirBasesComponent() {
                 <div class="text-xs py-2">Loading Air Base Data ...</div>
               }
             >
-              {(base, base_index) => (
+              {([base_id, base], base_index) => (
                 <>
                   <li>
-                    <details open>
+                    <details>
                       <summary class="flex">
-                        {Number(base[0]) >> 16}
+                        {Number(base_id) >> 16}
                         {"-"}
-                        {Number(base[0]) & 0xffff}
+                        {Number(base_id) & 0xffff}
                         <div class="w-4">
                           <IconChevronRightS class="h-4 w-4" />
                         </div>
-                        <div class="truncate w-32">{base[1].name}</div>
+                        <div class="truncate w-32">{base?.name}</div>
                         <div class="divider divider-horizontal mr-0 ml-0 flex-none" />
-                        <div class="flex-none">R : {base[1].distance}</div>
+                        <div class="flex-none">R : {base?.distance}</div>
                         <div class="divider divider-horizontal mr-0 ml-0 flex-none" />
                         <div class="flex-none">
                           {base_action_state()[base_index()]}
@@ -80,8 +99,8 @@ export function AirBasesComponent() {
                       </summary>
                       <ul class="pl-0">
                         <For
-                          each={base[1].plane_info.filter(
-                            (plane) => plane.slotid != 0,
+                          each={base?.plane_info.filter(
+                            (plane) => plane.slotid != 0
                           )}
                           fallback={
                             <li class="h-auto">
@@ -102,11 +121,19 @@ export function AirBasesComponent() {
                                           "content-box 4px",
                                       }}
                                     >
-                                      <div class="w-48">
-                                        <EquimentComponent
-                                          slot_id={plane.slotid}
+                                      <div class="w-58">
+                                        <component-equipment-modal
+                                          size="xs"
+                                          attr:onslot={plane.count ?? 0}
+                                          slot_item={
+                                            store_equip_data_set()[plane.slotid]
+                                              ?.slot_item
+                                          }
+                                          mst_slot_item={
+                                            store_equip_data_set()[plane.slotid]
+                                              ?.mst_slot_item
+                                          }
                                           name_flag={true}
-                                          onslot={plane.count ?? 0}
                                         />
                                       </div>
                                     </div>
@@ -120,7 +147,7 @@ export function AirBasesComponent() {
                                             ]
                                           }
                                         </div>
-                                        <div class="badge badge-md border-inherit w-9">
+                                        <div class="badge badge-md border-base-300 w-9 text-nowrap">
                                           --
                                         </div>
                                       </div>
