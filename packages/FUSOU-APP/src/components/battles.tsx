@@ -70,7 +70,7 @@ export function BattlesComponent() {
   });
 
   const store_data_set_param_ship = createMemo<DataSetParamShip>(() =>
-    get_data_set_param_ship(battle_selected())
+    get_data_set_param_ship(battle_selected(), cell()?.destruction_battle)
   );
 
   createEffect(() => {
@@ -347,10 +347,12 @@ export function BattlesComponent() {
               <DestructionBattleSummaryComponent
                 area_id={cells.maparea_id}
                 cell={cell}
+                store_data_set_param_ship={store_data_set_param_ship}
               />
               <DestructionBattleComponent
                 area_id={cells.maparea_id}
                 cell={cell}
+                store_data_set_param_ship={store_data_set_param_ship}
               />
               <Show when={show_battle()}>
                 <div class="flex felx-nowrap text-xs py-0.5 pl-2">
@@ -472,17 +474,6 @@ export function BattlesComponent() {
                   store_data_set_param_ship={store_data_set_param_ship}
                 />
                 <For each={battle_history()}>{(battle) => <>{battle}</>}</For>
-                {/* <AirBaseAssaultComponent area_id={cells.maparea_id} battle_selected={battle_selected} />
-                                <CarrierBaseAssaultComponent battle_selected={battle_selected} />
-                                <AirBaseAirAttackComponent area_id={cells.maparea_id} battle_selected={battle_selected} />
-                                <OpeningAirAttackComponent deck_ship_id={deck_ship_id()} battle_selected={battle_selected} />
-                                <SupportAttackComponent deck_ship_id={deck_ship_id()} battle_selected={battle_selected} />
-                                <OpeningAntiSubmarineComponent deck_ship_id={deck_ship_id()} battle_selected={battle_selected} />
-                                <OpeningTorpedoAttackComponent deck_ship_id={deck_ship_id()} battle_selected={battle_selected} />
-                                <ShellingComponent deck_ship_id={deck_ship_id()} battle_selected={battle_selected} />
-                                <ClosingTorpedoAttackComponent deck_ship_id={deck_ship_id()} battle_selected={battle_selected} />
-                                <FriendlyForceAttackComponent battle_selected={battle_selected} />
-                                <MidnightShellingComponent deck_ship_id={deck_ship_id()} battle_selected={battle_selected} /> */}
               </ul>
             </Show>
           </Show>

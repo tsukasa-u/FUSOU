@@ -12,6 +12,7 @@ import type {
 } from "@ipc-bindings/get_data";
 import type { Ship } from "@ipc-bindings/port";
 import type { SlotItem, SlotItems } from "@ipc-bindings/require_info";
+import { DestructionBattle } from "@ipc-bindings/cells";
 
 export type DataSetParamShip = {
   e_main_ship_param: number[][];
@@ -32,6 +33,12 @@ export type DataSetParamShip = {
   e_mst_ship: (MstShip | undefined)[];
   e_mst_slot_items: (MstSlotItems | undefined)[];
   e_color: (string | undefined)[];
+  e_destruction_ship_param: number[][];
+  e_destruction_ship_slot: number[][];
+  e_destruction_ship_max_hp: number[];
+  e_destruction_mst_ship: (MstShip | undefined)[];
+  e_destruction_mst_slot_items: (MstSlotItems | undefined)[];
+  e_destruction_color: (string | undefined)[];
   f_friend_ship_param: number[][];
   f_friend_ship_slot: number[][];
   f_friend_ship_max_hp: number[];
@@ -40,7 +47,8 @@ export type DataSetParamShip = {
   f_friend_color: (string | undefined)[];
 };
 export const get_data_set_param_ship = (
-  battle: Battle | undefined
+  battle: Battle | undefined,
+  destruction_battle?: DestructionBattle | null
 ): DataSetParamShip => {
   if (!battle)
     return {
@@ -62,6 +70,12 @@ export const get_data_set_param_ship = (
       e_mst_ship: [],
       e_mst_slot_items: [],
       e_color: [],
+      e_destruction_ship_param: [[]],
+      e_destruction_ship_slot: [[]],
+      e_destruction_ship_max_hp: [],
+      e_destruction_mst_ship: [],
+      e_destruction_mst_slot_items: [],
+      e_destruction_color: [],
       f_friend_ship_param: [[]],
       f_friend_ship_slot: [[]],
       f_friend_ship_max_hp: [],
@@ -119,6 +133,37 @@ export const get_data_set_param_ship = (
   });
   let e_escort_color: (string | undefined)[] = get_enemy_yomi(e_escort_ship_id);
 
+  let e_destruction_ship_id: (number | null)[] = destruction_battle
+    ? destruction_battle.ship_ke
+    : [...null_list];
+  let e_destruction_ship_param: number[][] = destruction_battle
+    ? destruction_battle.ship_ke.map(() => Array(5).fill(-1))
+    : [];
+  let e_destruction_ship_slot: number[][] = destruction_battle
+    ? destruction_battle.e_slot
+    : [];
+  let e_destruction_ship_max_hp: number[] = destruction_battle
+    ? destruction_battle.e_maxhps
+    : [];
+  let e_destruction_mst_ship = e_destruction_ship_id.map((id) =>
+    id ? mst_ships.mst_ships[id] : undefined
+  );
+  let e_destruction_mst_slot_items = e_destruction_ship_slot.map((slots) => {
+    return {
+      mst_slot_items: slots
+        .map((slot) => mst_slot_itmes.mst_slot_items[slot])
+        .reduce(
+          (dict, slot_item) => (
+            slot_item ? (dict[slot_item.id] = slot_item) : dict, dict
+          ),
+          {} as { [x: number]: MstSlotItem | undefined }
+        ),
+    } as MstSlotItems;
+  });
+  let e_destruction_color: (string | undefined)[] = get_enemy_yomi(
+    e_destruction_ship_id
+  );
+
   let f_friend_ship_id: number[] =
     battle.friendly_force_attack?.fleet_info.ship_id ?? [];
   let f_friend_ship_param: number[][] =
@@ -163,6 +208,12 @@ export const get_data_set_param_ship = (
     e_mst_ship: [...e_main_mst_ship, ...e_escort_mst_ship],
     e_mst_slot_items: [...e_main_mst_slot_items, ...e_escort_mst_slot_items],
     e_color: [...e_main_color, ...e_escort_color],
+    e_destruction_ship_param: e_destruction_ship_param,
+    e_destruction_ship_slot: e_destruction_ship_slot,
+    e_destruction_ship_max_hp: e_destruction_ship_max_hp,
+    e_destruction_mst_ship: e_destruction_mst_ship,
+    e_destruction_mst_slot_items: e_destruction_mst_slot_items,
+    e_destruction_color: e_destruction_color,
     f_friend_ship_param: f_friend_ship_param,
     f_friend_ship_slot: f_friend_ship_slot,
     f_friend_ship_max_hp: f_friend_ship_max_hp,

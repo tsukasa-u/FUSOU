@@ -232,6 +232,7 @@ interface NumberedEnemyShipProps {
   ship_idx: number;
   battle_selected: () => Battle | undefined;
   store_data_set_param_ship: () => DataSetParamShip;
+  combined_flag?: boolean;
 }
 
 export function WrapNumberedEnemyShipComponent(props: NumberedEnemyShipProps) {
@@ -242,7 +243,11 @@ export function WrapNumberedEnemyShipComponent(props: NumberedEnemyShipProps) {
         e_flag={1}
         fleet_number={1}
         ship_number={props.ship_idx + 1}
-        combined_flag={props.battle_selected()?.enemy_ship_id?.length == 12}
+        combined_flag={
+          props.combined_flag
+            ? props.combined_flag
+            : props.battle_selected()?.enemy_ship_id?.length == 12
+        }
       />
       <component-ship-masked-modal
         size="xs"
@@ -455,4 +460,19 @@ export function WrapSupportShipHPComponent(props: WrapSupportShipHPProps) {
   } else {
     return <component-color-bar-label size="xs" v_max={0} v_now={0} />;
   }
+}
+
+interface WrapBaseHPProps {
+  now_hps: number[] | undefined;
+  max_hps: number[] | undefined;
+  idx: number;
+}
+export function WrapBaseHPComponent(props: WrapBaseHPProps) {
+  return (
+    <component-color-bar-label
+      size="xs"
+      v_max={props.max_hps?.[props.idx] ?? 0}
+      v_now={props.now_hps?.[props.idx] ?? 0}
+    />
+  );
 }

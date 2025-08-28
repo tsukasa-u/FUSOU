@@ -1,28 +1,24 @@
 import { createMemo, For, Show } from "solid-js";
 
-import "../css/divider.css";
-import { SimpleShipNameComponent } from "./simple_ship_name";
 import { useAirBases, useCells } from "../utility/provider";
-import { SimpleHpBar } from "./simple_hp_bar";
-import IconFleetNumber from "../icons/fleet_number";
 import type { Cell } from "@ipc-bindings/cells";
+import { DataSetParamShip } from "../utility/get_data_set";
 
 interface ButtleSummaryProps {
   area_id: number;
-  cell: () => Cell;
+  cell: () => Cell | undefined;
+  store_data_set_param_ship: () => DataSetParamShip;
 }
 
 interface FleetInfo {
   f_base_id: number[];
-  f_base_nowhps: number[];
+  f_base_nowhps: (number | null)[];
   f_base_maxhps: number[];
-  f_base_damages: number[];
+  f_base_damages: number[] | null;
   e_main_ship_id: number[];
-  e_main_nowhps: number[];
+  e_main_nowhps: (number | null)[];
   e_main_maxhps: number[];
-  e_main_damages: number[];
-  e_main_prams: (number[] | null)[];
-  e_main_slot: number[][];
+  e_main_damages: number[] | null;
 }
 
 export function DestructionBattleSummaryComponent(props: ButtleSummaryProps) {
@@ -32,17 +28,10 @@ export function DestructionBattleSummaryComponent(props: ButtleSummaryProps) {
   const show_summary = createMemo<boolean>(() => {
     if (Object.keys(cells.cells).length == 0) return false;
 
-    if (props.cell() == null || props.cell() == undefined) return false;
+    if (!props.cell()) return false;
 
-    if (
-      props.cell().destruction_battle == null ||
-      props.cell().destruction_battle == undefined
-    )
-      return false;
-    if (
-      props.cell().destruction_battle!.air_base_attack.map_squadron_plane ==
-      null
-    )
+    if (!props.cell()?.destruction_battle) return false;
+    if (!props.cell()?.destruction_battle?.air_base_attack.map_squadron_plane)
       return false;
     return true;
   });
@@ -57,50 +46,35 @@ export function DestructionBattleSummaryComponent(props: ButtleSummaryProps) {
       e_main_nowhps: [],
       e_main_maxhps: [],
       e_main_damages: [],
-      e_main_prams: [[]],
-      e_main_slot: [[]],
     };
     if (show_summary() == false) return ret;
-
-    // let f_base_id: number[] = Object.keys(props.cell()
-    //     .destruction_battle!.air_base_attack
-    //     .map_squadron_plane!).map((base_id) => {
-    //         return (props.area_id << 16) | Number(base_id);
-    //     });
+    const destruction_battle = props.cell()?.destruction_battle;
+    if (!destruction_battle) return ret;
 
     let f_base_id: number[] = [];
     Object.entries(air_bases.bases).forEach(([base_id, base]) => {
-      // if ((Number(base_id) & (props.area_id << 16)) != 0) {
-      // if (base.action_kind = ) {
-      if (base.area_id == props.area_id) {
+      if (base?.area_id == props.area_id) {
         f_base_id.push(Number(base_id));
       }
-      // }
-      // }
     });
+    let f_base_nowhps: (number | null)[] = destruction_battle.f_nowhps.map(
+      (hp, i) => {
+        const dmg = destruction_battle.f_total_damages?.[i];
+        return dmg ? hp - dmg : null;
+      }
+    );
+    let f_base_maxhps: number[] = destruction_battle.f_maxhps;
+    let f_base_damages: number[] | null = destruction_battle.f_total_damages;
 
-    let f_base_nowhps: number[] = props
-      .cell()
-      .destruction_battle!.f_nowhps.map(
-        (hp, i) => hp - props.cell().destruction_battle!.f_total_damages![i]
-      );
-    let f_base_maxhps: number[] = props.cell().destruction_battle!.f_maxhps;
-    let f_base_damages: number[] =
-      props.cell().destruction_battle!.f_total_damages!;
-
-    let e_main_ship_id: number[] = props.cell().destruction_battle!.ship_ke;
-    let e_main_nowhps: number[] = props
-      .cell()
-      .destruction_battle!.e_nowhps.map(
-        (hp, i) => hp - props.cell().destruction_battle!.e_total_damages![i]
-      );
-    let e_main_maxhps: number[] = props.cell().destruction_battle!.e_maxhps;
-    let e_main_damages: number[] =
-      props.cell().destruction_battle!.e_total_damages!;
-    let e_main_prams: (number[] | null)[] = props
-      .cell()
-      .destruction_battle!.ship_ke.map(() => null);
-    let e_main_slot: number[][] = props.cell().destruction_battle?.e_slot!;
+    let e_main_ship_id: number[] = destruction_battle.ship_ke;
+    let e_main_nowhps: (number | null)[] = destruction_battle.e_nowhps.map(
+      (hp, i) => {
+        const dmg = destruction_battle.e_total_damages?.[i];
+        return dmg ? hp - dmg : null;
+      }
+    );
+    let e_main_maxhps: number[] = destruction_battle.e_maxhps;
+    let e_main_damages: number[] | null = destruction_battle.e_total_damages;
 
     return {
       f_base_id: f_base_id,
@@ -111,10 +85,102 @@ export function DestructionBattleSummaryComponent(props: ButtleSummaryProps) {
       e_main_nowhps: e_main_nowhps,
       e_main_maxhps: e_main_maxhps,
       e_main_damages: e_main_damages,
-      e_main_prams: e_main_prams,
-      e_main_slot: e_main_slot,
     };
   });
+
+  const base_table_line = (idx: number) => {
+    const base_name =
+      air_bases.bases[fleet_info().f_base_id[idx]]?.name ?? "Unknown";
+    return (
+      <Show
+        when={fleet_info().f_base_id.length > idx}
+        fallback={
+          <>
+            <td>
+              <div class="h-6" />
+            </td>
+            <td />
+            <td />
+          </>
+        }
+      >
+        <td>
+          <div class="flex flex-nowrap">{base_name}</div>
+        </td>
+        <td>
+          <div class="flex-none">
+            <component-color-bar-label
+              size="xs"
+              v_now={fleet_info().f_base_nowhps[idx] ?? 0}
+              v_max={fleet_info().f_base_maxhps[idx] ?? 0}
+            />
+          </div>
+        </td>
+        <td>{fleet_info().f_base_damages?.[idx]}</td>
+      </Show>
+    );
+  };
+
+  const enemy_table_line = (idx: number) => {
+    return (
+      <Show
+        when={fleet_info().e_main_ship_id.length > idx}
+        fallback={
+          <>
+            <td>
+              <div class="h-6" />
+            </td>
+            <td />
+            <td />
+          </>
+        }
+      >
+        <td>
+          <div class="flex flex-nowrap">
+            <icon-fleet-number
+              e_flag={1}
+              fleet_number={1}
+              ship_number={idx + 1}
+              size="xs"
+            />
+            <component-ship-masked-modal
+              size="xs"
+              empty_flag={false}
+              name_flag={true}
+              color={props.store_data_set_param_ship().e_destruction_color[idx]}
+              ship_param={
+                props.store_data_set_param_ship().e_destruction_ship_param[idx]
+              }
+              ship_slot={
+                props.store_data_set_param_ship().e_destruction_ship_slot[idx]
+              }
+              ship_max_hp={
+                props.store_data_set_param_ship().e_destruction_ship_max_hp[idx]
+              }
+              mst_ship={
+                props.store_data_set_param_ship().e_destruction_mst_ship[idx]
+              }
+              mst_slot_items={
+                props.store_data_set_param_ship().e_destruction_mst_slot_items[
+                  idx
+                ]
+              }
+            />
+          </div>
+        </td>
+        <td>
+          <div class="flex-none">
+            <component-color-bar-label
+              size="xs"
+              v_now={fleet_info().e_main_nowhps[idx] ?? 0}
+              v_max={fleet_info().e_main_maxhps[idx] ?? 0}
+            />
+          </div>
+        </td>
+        <td>{fleet_info().e_main_damages?.[idx]}</td>
+      </Show>
+    );
+  };
 
   return (
     <Show when={show_summary()}>
@@ -144,72 +210,9 @@ export function DestructionBattleSummaryComponent(props: ButtleSummaryProps) {
                   )}
                 >
                   {(idx) => (
-                    <tr class="table_hover table_active rounded">
-                      <Show
-                        when={fleet_info().f_base_id.length > idx}
-                        fallback={
-                          <>
-                            <td>
-                              <div class="h-5" />
-                            </td>
-                            <td />
-                            <td />
-                          </>
-                        }
-                      >
-                        <td>
-                          <div class="flex flex-nowrap">
-                            {air_bases.bases[fleet_info().f_base_id[idx]].name}
-                          </div>
-                        </td>
-                        <td>
-                          <div class="flex-none">
-                            <SimpleHpBar
-                              v_now={() => fleet_info().f_base_nowhps[idx]}
-                              v_max={() => fleet_info().f_base_maxhps[idx]}
-                            />
-                          </div>
-                        </td>
-                        <td>{fleet_info().f_base_damages[idx]}</td>
-                      </Show>
-                      <Show
-                        when={fleet_info().e_main_ship_id.length > idx}
-                        fallback={
-                          <>
-                            <td>
-                              <div class="h-5" />
-                            </td>
-                            <td />
-                            <td />
-                          </>
-                        }
-                      >
-                        <td>
-                          <div class="flex flex-nowrap">
-                            <IconFleetNumber
-                              class="h-6 -mt-1 pr-1"
-                              e_flag={1}
-                              fleet_number={1}
-                              ship_number={idx + 1}
-                            />
-                            <SimpleShipNameComponent
-                              ship_id={fleet_info().e_main_ship_id[idx]}
-                              ship_param={fleet_info().e_main_prams[idx]}
-                              ship_slot={fleet_info().e_main_slot[idx]}
-                              ship_max_hp={fleet_info().e_main_maxhps[idx]}
-                            />
-                          </div>
-                        </td>
-                        <td>
-                          <div class="flex-none">
-                            <SimpleHpBar
-                              v_now={() => fleet_info().e_main_nowhps[idx]}
-                              v_max={() => fleet_info().e_main_maxhps[idx]}
-                            />
-                          </div>
-                        </td>
-                        <td>{fleet_info().e_main_damages[idx]}</td>
-                      </Show>
+                    <tr class="rounded">
+                      {base_table_line(idx)}
+                      {enemy_table_line(idx)}
                     </tr>
                   )}
                 </For>
