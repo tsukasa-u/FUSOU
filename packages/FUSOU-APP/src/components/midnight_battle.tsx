@@ -33,15 +33,15 @@ export function MidnightShellingComponent(props: MidnightShellingProps) {
 
   const midngiht_hougeki = createMemo(() => {
     if (!show_shelling()) return undefined;
-    let midnight_hougeki = props.battle_selected()?.midnight_hougeki;
+    const midnight_hougeki = props.battle_selected()?.midnight_hougeki;
     return midnight_hougeki ?? undefined;
   });
 
   const display_touch = () => {
-    let midngiht_touchplane = props.battle_selected()?.midngiht_touchplane;
-    let f_midngiht_touchplane =
+    const midngiht_touchplane = props.battle_selected()?.midngiht_touchplane;
+    const f_midngiht_touchplane =
       (midngiht_touchplane ? midngiht_touchplane[0] : undefined) ?? 0;
-    let e_midngiht_touchplane =
+    const e_midngiht_touchplane =
       (midngiht_touchplane ? midngiht_touchplane[1] : undefined) ?? 0;
     return (
       <>
@@ -65,9 +65,9 @@ export function MidnightShellingComponent(props: MidnightShellingProps) {
   };
 
   const display_flare = () => {
-    let midnight_flare_pos = props.battle_selected()?.midnight_flare_pos;
-    let f_midnight_flare_pos = midnight_flare_pos ? midnight_flare_pos[0] : -1;
-    let e_midnight_flare_pos = midnight_flare_pos ? midnight_flare_pos[1] : -1;
+    const midnight_flare_pos = props.battle_selected()?.midnight_flare_pos;
+    const f_midnight_flare_pos = midnight_flare_pos ? midnight_flare_pos[0] : -1;
+    const e_midnight_flare_pos = midnight_flare_pos ? midnight_flare_pos[1] : -1;
     return (
       <>
         Flare : <span class="w-1" />

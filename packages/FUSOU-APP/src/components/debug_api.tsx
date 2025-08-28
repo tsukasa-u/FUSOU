@@ -36,7 +36,7 @@ export function DebugApi() {
   });
 
   const fileExistSignals = createMemo<boolean[]>(() => {
-    let signals: boolean[] = [];
+    const signals: boolean[] = [];
     for (let i = 0; i < filecheackSignals.length; i++) {
       signals.push(
         fileApi().findIndex(
@@ -248,13 +248,13 @@ export function DebugApi() {
               style={{ "z-index": 99 }}
               onClick={() => {
                 // let file_list = fileApi();
-                let file_list: string[] = [];
+                const file_list: string[] = [];
                 for (const item of fileApi()) {
                   if (item !== undefined && item !== null && item !== "") file_list.push(item);
                 }
                 for (let i = 0; i < filecheackSignals.length; i++) {
                   if (filecheackSignals[i] && fileExistSignals()[i]) {
-                    let file = debug_api[1][i + (pageCounter() - 1) * 10];
+                    const file = debug_api[1][i + (pageCounter() - 1) * 10];
                     if (file !== undefined && file !== null && file !== "") file_list.push(file);
                   }
                 }
@@ -270,7 +270,7 @@ export function DebugApi() {
               <button
                 class="btn btn-square bg-base-100"
                 onClick={() => {
-                  let file_list: string[] = [];
+                  const file_list: string[] = [];
                   for (let i = 0; i < fileApi().length; i++) {
                     file_list.push(fileApi()[i]);
                   }
@@ -284,7 +284,7 @@ export function DebugApi() {
               <button
                 class="btn btn-square bg-base-100"
                 onClick={() => {
-                  let file_list: string[] = [];
+                  const file_list: string[] = [];
                   setFileApi(file_list);
                 }}
               >
@@ -303,7 +303,7 @@ export function DebugApi() {
                         <button
                           class="btn btn-circle btn-xs"
                           onClick={() => {
-                            let file_list: string[] = [];
+                            const file_list: string[] = [];
                             for (let i = 0; i < fileApi().length; i++) {
                               if (i != file_idx()) {
                                 file_list.push(fileApi()[i]);

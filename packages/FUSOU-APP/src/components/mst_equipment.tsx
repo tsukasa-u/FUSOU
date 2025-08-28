@@ -62,7 +62,7 @@ export function MstEquipmentComponent(props: EquipmentProps) {
               <button
                 class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2"
                 onClick={() => {
-                  let sleep = (ms: number) =>
+                  const sleep = (ms: number) =>
                     new Promise((resolve) => setTimeout(resolve, ms));
                   (async () => {
                     await sleep(10);
@@ -212,7 +212,7 @@ export function MstEquipmentComponent(props: EquipmentProps) {
           <form method="dialog" class="modal-backdrop">
             <button
               onClick={() => {
-                let sleep = (ms: number) =>
+                const sleep = (ms: number) =>
                   new Promise((resolve) => setTimeout(resolve, ms));
                 (async () => {
                   await sleep(10);

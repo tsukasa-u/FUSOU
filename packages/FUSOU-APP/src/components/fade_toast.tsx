@@ -7,9 +7,9 @@ interface FadeToastProps {
 }
 
 export const showFadeToast = function (id: string, mesage: string) {
-  let toast = document.getElementById(id);
+  const toast = document.getElementById(id);
   if (toast) {
-    let message_container = document.createElement("div");
+    const message_container = document.createElement("div");
     message_container.classList.add("place-content-between");
     message_container.classList.add("alert");
     message_container.classList.add("border-base-content");
@@ -20,7 +20,7 @@ export const showFadeToast = function (id: string, mesage: string) {
     message_container.id = "fade_toast_message" + self.crypto.randomUUID();
     message_container.style.display = "none";
 
-    let new_message = document.createElement("span");
+    const new_message = document.createElement("span");
     new_message.classList.add("flex");
     new_message.classList.add("flex-nowarp");
     new_message.innerHTML +=
@@ -28,7 +28,7 @@ export const showFadeToast = function (id: string, mesage: string) {
       '<span class="w-2"></span>' +
       mesage;
 
-    let close_element = document.createElement("div");
+    const close_element = document.createElement("div");
     close_element.innerHTML +=
       '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" class="size-4"><path fill-rule="evenodd" d="M5.47 5.47a.75.75 0 0 1 1.06 0L12 10.94l5.47-5.47a.75.75 0 1 1 1.06 1.06L13.06 12l5.47 5.47a.75.75 0 1 1-1.06 1.06L12 13.06l-5.47 5.47a.75.75 0 0 1-1.06-1.06L10.94 12 5.47 6.53a.75.75 0 0 1 0-1.06Z" clip-rule="evenodd" /></svg>';
 
@@ -47,7 +47,7 @@ export const showFadeToast = function (id: string, mesage: string) {
 
     toast.prepend(message_container);
 
-    let container_ref = document.getElementById(message_container.id);
+    const container_ref = document.getElementById(message_container.id);
 
     if (container_ref) {
       container_ref.style.display = "block";
@@ -82,7 +82,7 @@ export const showFadeToast = function (id: string, mesage: string) {
 };
 
 export const hideFadeToast = function (id: string) {
-  let new_message = document.getElementById(id);
+  const new_message = document.getElementById(id);
   if (new_message) {
     if (new_message.style.display === "none") return;
     new_message.classList.add("fadeout");

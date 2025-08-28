@@ -1,4 +1,4 @@
-/* eslint-disable no-unexpected-multiline */
+ 
 
 import { createMemo, For, Show } from "solid-js";
 
@@ -51,7 +51,7 @@ function select_min(a: number[] | null, b: number[] | null): number[] {
   }
   if (b == null) return a;
 
-  let ret = [];
+  const ret = [];
   for (let i = 0; i < a.length; i++) {
     ret.push(Math.min(a[i], b[i]));
   }
@@ -68,7 +68,7 @@ function add_array(a: number[], b: number[]): number[] {
   if (a.length == 0) a = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
   if (b == null) b = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
   if (b.length == 0) b = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-  let ret = [];
+  const ret = [];
   for (let i = 0; i < a.length; i++) {
     ret.push(a[i] + b[i]);
   }
@@ -84,7 +84,7 @@ export function BattleSummaryComponent(props: ButtleSummaryProps) {
   });
 
   const fleet_info = createMemo<FleetInfo>(() => {
-    let battle = props.battle_selected();
+    const battle = props.battle_selected();
     if (!battle)
       return {
         f_main_ship_id: [],
@@ -113,43 +113,43 @@ export function BattleSummaryComponent(props: ButtleSummaryProps) {
 
     const null_list: null[] = Array(12).fill(null);
 
-    let day_f_now_hps: number[] | null = battle.f_nowhps
+    const day_f_now_hps: number[] | null = battle.f_nowhps
       ? battle.f_nowhps
           .map((v, i) => v - battle.f_total_damages![i])
           .map((v) => Math.max(v, 0))
       : null;
-    let day_e_now_hps: number[] | null =
+    const day_e_now_hps: number[] | null =
       battle.e_nowhps !== null
         ? battle.e_nowhps
             .map((v, i) => v - battle.e_total_damages![i])
             .map((v) => Math.max(v, 0))
         : null;
-    let midnight_f_now_hps: number[] | null =
+    const midnight_f_now_hps: number[] | null =
       battle.midngiht_f_nowhps !== null
         ? battle.midngiht_f_nowhps
             .map((v, i) => v - battle.midnight_f_total_damages![i])
             .map((v) => Math.max(v, 0))
         : null;
-    let midnight_e_now_hps: number[] | null =
+    const midnight_e_now_hps: number[] | null =
       battle.midngiht_e_nowhps !== null
         ? battle.midngiht_e_nowhps
             .map((v, i) => v - battle.midnight_e_total_damages![i])
             .map((v) => Math.max(v, 0))
         : null;
 
-    let f_damage: number[] = add_array(
+    const f_damage: number[] = add_array(
       battle.f_total_damages ?? [],
       battle.midnight_f_total_damages ?? []
     );
-    let e_damage: number[] = add_array(
+    const e_damage: number[] = add_array(
       battle.e_total_damages ?? [],
       battle.midnight_e_total_damages ?? []
     );
 
-    let f_now_hps: number[] = select_min(day_f_now_hps, midnight_f_now_hps);
-    let e_now_hps: number[] = select_min(day_e_now_hps, midnight_e_now_hps);
+    const f_now_hps: number[] = select_min(day_f_now_hps, midnight_f_now_hps);
+    const e_now_hps: number[] = select_min(day_e_now_hps, midnight_e_now_hps);
 
-    let f_escape: boolean[] = [...Array(12)].map((_, i) => {
+    const f_escape: boolean[] = [...Array(12)].map((_, i) => {
       if (battle.escape_idx == null) return false;
       return battle.escape_idx.map((v) => v == i).filter((v) => v).length > 0;
     });
@@ -166,7 +166,7 @@ export function BattleSummaryComponent(props: ButtleSummaryProps) {
             .deck_ship_id()
             [battle.deck_id].slice(0, f_main_ship_id.length)
             .map((ship_id) => {
-              let ship = props.store_data_set_deck_ship()[ship_id]?.ship;
+              const ship = props.store_data_set_deck_ship()[ship_id]?.ship;
               return ship ? ship.maxhp : null;
             })
         : [...null_list];
@@ -183,34 +183,34 @@ export function BattleSummaryComponent(props: ButtleSummaryProps) {
     let f_escort_damages: (number | null)[] = [];
     let f_escort_escape: (boolean | null)[] = [];
 
-    let e_main_ship_id: (number | null)[] = battle.enemy_ship_id
+    const e_main_ship_id: (number | null)[] = battle.enemy_ship_id
       ? battle.enemy_ship_id.slice(0, 6)
       : [...null_list];
-    let e_main_nowhps: number[] = e_now_hps.slice(0, 6);
-    let e_main_maxhps: number[] = (battle.e_hp_max ?? []).slice(0, 6);
-    let e_main_damages: number[] = e_damage.slice(0, 6);
+    const e_main_nowhps: number[] = e_now_hps.slice(0, 6);
+    const e_main_maxhps: number[] = (battle.e_hp_max ?? []).slice(0, 6);
+    const e_main_damages: number[] = e_damage.slice(0, 6);
     // let e_main_prams: number[][] = (battle.e_params ?? []).slice(0, 6);
     // let e_main_slot: number[][] = (battle.e_slot ?? []).slice(0, 6);
     // let e_main_yomi: (string | undefined)[] = get_enemy_yomi(e_main_ship_id);
 
-    let e_escort_ship_id: (number | null)[] = battle.enemy_ship_id
+    const e_escort_ship_id: (number | null)[] = battle.enemy_ship_id
       ? battle.enemy_ship_id.slice(6, 12)
       : [...null_list];
-    let e_escort_nowhps: number[] = e_now_hps.slice(6, 12);
-    let e_escort_maxhps: number[] = (battle.e_hp_max ?? []).slice(6, 12);
-    let e_escort_damages: number[] = e_damage.slice(6, 12);
+    const e_escort_nowhps: number[] = e_now_hps.slice(6, 12);
+    const e_escort_maxhps: number[] = (battle.e_hp_max ?? []).slice(6, 12);
+    const e_escort_damages: number[] = e_damage.slice(6, 12);
     // let e_escort_params: number[][] = (battle.e_params ?? []).slice(6, 12);
     // let e_escort_slot: number[][] = (battle.e_slot ?? []).slice(6, 12);
     // let e_escort_yomi: (string | undefined)[] =
     //   get_enemy_yomi(e_escort_ship_id);
 
-    let friend_ship_id: number[] =
+    const friend_ship_id: number[] =
       battle.friendly_force_attack?.fleet_info.ship_id ?? [];
-    let friend_nowhps: number[] =
+    const friend_nowhps: number[] =
       battle.friendly_force_attack?.fleet_info.now_hps ?? [];
-    let friend_maxhps: number[] =
+    const friend_maxhps: number[] =
       battle.friendly_force_attack?.fleet_info.now_hps ?? [];
-    let friend_damages: number[] = battle.friend_total_damages ?? [];
+    const friend_damages: number[] = battle.friend_total_damages ?? [];
     // let friend_params: number[][] =
     //   battle.friendly_force_attack?.fleet_info.params ?? [];
     // let friend_slot: number[][] =
@@ -222,7 +222,7 @@ export function BattleSummaryComponent(props: ButtleSummaryProps) {
       f_main_maxhps = props
         .deck_ship_id()
         [battle.deck_id ?? 1].map((ship_id) => {
-          let ship = props.store_data_set_deck_ship()[ship_id]?.ship;
+          const ship = props.store_data_set_deck_ship()[ship_id]?.ship;
           return ship ? ship.maxhp : null;
         })
         .slice(0, 6);
@@ -234,7 +234,7 @@ export function BattleSummaryComponent(props: ButtleSummaryProps) {
       f_escort_maxhps = props
         .deck_ship_id()
         [battle.deck_id ?? 1].map((ship_id) => {
-          let ship = props.store_data_set_deck_ship()[ship_id]?.ship;
+          const ship = props.store_data_set_deck_ship()[ship_id]?.ship;
           return ship ? ship.maxhp : null;
         })
         .slice(6, 12);
@@ -242,7 +242,7 @@ export function BattleSummaryComponent(props: ButtleSummaryProps) {
       f_escort_escape = f_escape.slice(6, 12);
     }
 
-    let ret: FleetInfo = {
+    const ret: FleetInfo = {
       f_main_ship_id: f_main_ship_id,
       f_main_nowhps: f_main_nowhps,
       f_main_maxhps: f_main_maxhps,
@@ -279,20 +279,20 @@ export function BattleSummaryComponent(props: ButtleSummaryProps) {
   });
 
   const f_main_table_line = (idx: number) => {
-    let ship_id = fleet_info().f_main_ship_id[idx];
-    let mst_ship = ship_id
+    const ship_id = fleet_info().f_main_ship_id[idx];
+    const mst_ship = ship_id
       ? props.store_data_set_deck_ship()[ship_id].mst_ship
       : undefined;
-    let ship = ship_id
+    const ship = ship_id
       ? props.store_data_set_deck_ship()[ship_id].ship
       : undefined;
-    let slot_items = ship_id
+    const slot_items = ship_id
       ? props.store_data_set_deck_ship()[ship_id].slot_items
       : undefined;
-    let mst_slot_items = ship_id
+    const mst_slot_items = ship_id
       ? props.store_data_set_deck_ship()[ship_id].mst_slot_items
       : undefined;
-    let empty_line = (
+    const empty_line = (
       <>
         <td>{/* <div class="h-5" /> */}</td>
         <td />
@@ -399,20 +399,20 @@ export function BattleSummaryComponent(props: ButtleSummaryProps) {
   };
 
   const f_escort_table_line = (idx: number) => {
-    let ship_id = fleet_info().f_escort_ship_id[idx];
-    let mst_ship = ship_id
+    const ship_id = fleet_info().f_escort_ship_id[idx];
+    const mst_ship = ship_id
       ? props.store_data_set_deck_ship()[ship_id].mst_ship
       : undefined;
-    let ship = ship_id
+    const ship = ship_id
       ? props.store_data_set_deck_ship()[ship_id].ship
       : undefined;
-    let slot_items = ship_id
+    const slot_items = ship_id
       ? props.store_data_set_deck_ship()[ship_id].slot_items
       : undefined;
-    let mst_slot_items = ship_id
+    const mst_slot_items = ship_id
       ? props.store_data_set_deck_ship()[ship_id].mst_slot_items
       : undefined;
-    let empty_line = (
+    const empty_line = (
       <>
         <td>{/* <div class="h-5" /> */}</td>
         <td />
@@ -464,7 +464,7 @@ export function BattleSummaryComponent(props: ButtleSummaryProps) {
   };
 
   const e_escort_table_line = (idx: number) => {
-    let empty_line = (
+    const empty_line = (
       <>
         <td />
         <td />

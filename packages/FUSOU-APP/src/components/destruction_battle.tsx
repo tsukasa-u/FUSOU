@@ -35,7 +35,7 @@ export function DestructionBattleComponent(props: DestructionBattleProps) {
   });
 
   const show_damage = createMemo<boolean[][]>(() => {
-    let show_damage: boolean[][] = [Array(6).fill(false), Array(6).fill(false)];
+    const show_damage: boolean[][] = [Array(6).fill(false), Array(6).fill(false)];
 
     const destruction_battle = props.cell()?.destruction_battle;
     if (props.cell() == null || props.cell() == undefined) return show_damage;

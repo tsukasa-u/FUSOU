@@ -28,7 +28,7 @@ export function AirBaseAirAttackComponent(props: AirDamageProps) {
   });
 
   const show_damage = createMemo<boolean[][]>(() => {
-    let show_damage: boolean[][] = [];
+    const show_damage: boolean[][] = [];
     if (!show_air_attack()) return show_damage;
     props
       .battle_selected()

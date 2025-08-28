@@ -19,7 +19,7 @@ interface OwnShipProps {
 }
 
 export function WrapOwnShipComponent(props: OwnShipProps) {
-  let ship_id =
+  const ship_id =
     props.deck_ship_id()[props.battle_selected()?.deck_id ?? 1][props.ship_idx];
   return (
     <>
@@ -117,7 +117,7 @@ interface NumberedOwnShipProps {
 export function WrapNumberedOwnShipComponent(props: NumberedOwnShipProps) {
   const deck_id = props.battle_selected()?.deck_id;
   if (deck_id) {
-    let ship_id = props.deck_ship_id()[deck_id][props.ship_idx];
+    const ship_id = props.deck_ship_id()[deck_id][props.ship_idx];
     const [deck_ports] = useDeckPorts();
     return (
       <>
@@ -179,7 +179,7 @@ export function WrapNumberedSupportShipComponent(
 ) {
   const support_deck_id = props.support_deck_id;
   if (support_deck_id) {
-    let ship_id = props.deck_ship_id()[support_deck_id][props.ship_idx];
+    const ship_id = props.deck_ship_id()[support_deck_id][props.ship_idx];
     return (
       <>
         <icon-fleet-number
@@ -404,9 +404,9 @@ interface WrapOwnShipHPProps {
 export function WrapOwnShipHPComponent(props: WrapOwnShipHPProps) {
   const deck_id = props.battle_selected()?.deck_id;
   if (deck_id) {
-    let ship_id = props.deck_ship_id()[deck_id][props.idx];
-    let v_now = props.f_now_hps?.[props.idx];
-    let v_max = props.store_data_set_deck_ship()[ship_id]?.ship?.maxhp;
+    const ship_id = props.deck_ship_id()[deck_id][props.idx];
+    const v_now = props.f_now_hps?.[props.idx];
+    const v_max = props.store_data_set_deck_ship()[ship_id]?.ship?.maxhp;
     return (
       <component-color-bar-label
         size="xs"
@@ -426,8 +426,8 @@ interface WrapEnemyShipHPProps {
 }
 
 export function WrapEnemyShipHPComponent(props: WrapEnemyShipHPProps) {
-  let v_now = props.e_now_hps?.[props.idx];
-  let v_max = props.store_data_set_param_ship().e_ship_max_hp[props.idx];
+  const v_now = props.e_now_hps?.[props.idx];
+  const v_max = props.store_data_set_param_ship().e_ship_max_hp[props.idx];
   return (
     <component-color-bar-label
       size="xs"
@@ -444,8 +444,8 @@ interface WrapFriendShipHPProps {
 }
 
 export function WrapFriendShipHPComponent(props: WrapFriendShipHPProps) {
-  let v_now = props.friend_now_hps?.[props.idx];
-  let v_max = props.store_data_set_param_ship().f_friend_ship_max_hp[props.idx];
+  const v_now = props.friend_now_hps?.[props.idx];
+  const v_max = props.store_data_set_param_ship().f_friend_ship_max_hp[props.idx];
   return (
     <component-color-bar-label
       size="xs"
@@ -465,9 +465,9 @@ interface WrapSupportShipHPProps {
 export function WrapSupportShipHPComponent(props: WrapSupportShipHPProps) {
   const support_deck_id = props.support_deck_id;
   if (support_deck_id) {
-    let ship_id = props.deck_ship_id()[support_deck_id][props.idx];
-    let v_now = props.store_data_set_deck_ship()[ship_id]?.ship?.nowhp;
-    let v_max = props.store_data_set_deck_ship()[ship_id]?.ship?.maxhp;
+    const ship_id = props.deck_ship_id()[support_deck_id][props.idx];
+    const v_now = props.store_data_set_deck_ship()[ship_id]?.ship?.nowhp;
+    const v_max = props.store_data_set_deck_ship()[ship_id]?.ship?.maxhp;
     return (
       <component-color-bar-label
         size="xs"

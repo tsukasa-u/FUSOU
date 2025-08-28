@@ -50,7 +50,7 @@ export function OpeningTorpedoAttackComponent(props: TorpedoSubmarineProps) {
   });
 
   const opening_torpedo_damage = createMemo<TorpedoDamages>(() => {
-    let opening_torpedo_damage: TorpedoDamages = {
+    const opening_torpedo_damage: TorpedoDamages = {
       frai: {
         list: [],
         dict: {},
@@ -271,8 +271,8 @@ export function OpeningTorpedoAttackComponent(props: TorpedoSubmarineProps) {
   };
 
   const f_damage = (erai: number) => {
-    let cl_flag = opening_torpedo_damage().erai.dict[erai].cl;
-    let dmg = opening_torpedo_damage().erai.dict[erai].dmg;
+    const cl_flag = opening_torpedo_damage().erai.dict[erai].cl;
+    const dmg = opening_torpedo_damage().erai.dict[erai].dmg;
     return (
       <td>
         <div class={`text-sm h-6 ${calc_critical(dmg, cl_flag)}`}>{dmg}</div>
@@ -281,8 +281,8 @@ export function OpeningTorpedoAttackComponent(props: TorpedoSubmarineProps) {
   };
 
   const e_damage = (frai: number) => {
-    let cl_flag = opening_torpedo_damage().frai.dict[frai].cl;
-    let dmg = opening_torpedo_damage().frai.dict[frai].dmg;
+    const cl_flag = opening_torpedo_damage().frai.dict[frai].cl;
+    const dmg = opening_torpedo_damage().frai.dict[frai].dmg;
     return (
       <td>
         <div class={`text-sm h-6 ${calc_critical(dmg, cl_flag)}`}>{dmg}</div>

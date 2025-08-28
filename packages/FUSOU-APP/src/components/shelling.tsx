@@ -24,7 +24,7 @@ interface ShellingProps {
 export function ShellingComponent(props: ShellingProps) {
   const show_shelling = createMemo<boolean>(() => {
     if (props.battle_selected()) {
-      let hougeki = props.battle_selected()?.hougeki;
+      const hougeki = props.battle_selected()?.hougeki;
       if (props.battle_selected()?.deck_id) {
         if (hougeki) {
           if (hougeki[props.shelling_idx]) return true;
@@ -36,7 +36,7 @@ export function ShellingComponent(props: ShellingProps) {
 
   const hougeki = createMemo(() => {
     if (!show_shelling()) return undefined;
-    let hougeki = props.battle_selected()?.hougeki;
+    const hougeki = props.battle_selected()?.hougeki;
     return hougeki ? (hougeki[props.shelling_idx] ?? undefined) : undefined;
   });
 

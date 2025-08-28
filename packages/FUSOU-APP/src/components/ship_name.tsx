@@ -90,7 +90,7 @@ export function ShipNameComponent(props: ShipNameProps) {
   });
 
   const sp_effect_item = createMemo(() => {
-    let parameter_map: SpEffectItem = {
+    const parameter_map: SpEffectItem = {
       soukou: 0,
       raisou: 0,
       karyoku: 0,
@@ -103,7 +103,7 @@ export function ShipNameComponent(props: ShipNameProps) {
       return parameter_map;
 
     for (const i of [1, 2]) {
-      let sp_effect_item = _ships.ships[props.ship_id]?.sp_effect_items!.items[i];
+      const sp_effect_item = _ships.ships[props.ship_id]?.sp_effect_items!.items[i];
       if (sp_effect_item) {
         parameter_map.soukou += sp_effect_item.souk ?? 0;
         parameter_map.raisou += sp_effect_item.raig ?? 0;
@@ -142,7 +142,7 @@ export function ShipNameComponent(props: ShipNameProps) {
               <button
                 class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2"
                 onClick={() => {
-                  let sleep = (ms: number) =>
+                  const sleep = (ms: number) =>
                     new Promise((resolve) => setTimeout(resolve, ms));
                   (async () => {
                     await sleep(10);
@@ -302,7 +302,7 @@ export function ShipNameComponent(props: ShipNameProps) {
           <form method="dialog" class="modal-backdrop">
             <button
               onClick={() => {
-                let sleep = (ms: number) =>
+                const sleep = (ms: number) =>
                   new Promise((resolve) => setTimeout(resolve, ms));
                 (async () => {
                   await sleep(10);

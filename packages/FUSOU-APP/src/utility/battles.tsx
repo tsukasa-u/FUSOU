@@ -65,7 +65,7 @@ export const get_deck_ship_id = (): DeckShipIds => {
 };
 
 export const get_store_data_set_deck_ship = (): DataSetShip => {
-  let ship_id_flatten = Object.values(get_deck_ship_id()).flat();
+  const ship_id_flatten = Object.values(get_deck_ship_id()).flat();
   return get_data_set_ship(ship_id_flatten);
 };
 

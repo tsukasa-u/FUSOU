@@ -28,7 +28,7 @@ export function AirBaseAssaultComponent(props: AirDamageProps) {
   });
 
   const show_damage = createMemo<boolean[][]>(() => {
-    let show_damage: boolean[][] = [
+    const show_damage: boolean[][] = [
       new Array(12).fill(false),
       new Array(12).fill(false),
     ];
@@ -53,19 +53,19 @@ export function AirBaseAssaultComponent(props: AirDamageProps) {
     if (!props.battle_selected()?.air_base_assault) return [];
     if (!props.battle_selected()?.air_base_air_attacks) return [];
 
-    let set_base_id: Set<number> = new Set(
+    const set_base_id: Set<number> = new Set(
       props
         .battle_selected()
         ?.air_base_air_attacks?.attacks.map((attack) => attack.base_id)
     );
-    let plane_info = Array.from(set_base_id.values())
+    const plane_info = Array.from(set_base_id.values())
       .map(
         (base_id) =>
           air_bases.bases[(props.area_id << 16) | base_id]?.plane_info
       )
       .reduce((acc, val) => (acc && val ? acc.concat(val) : acc), []);
 
-    let ret: number[] = [];
+    const ret: number[] = [];
     if (plane_info) {
       props
         .battle_selected()
@@ -73,7 +73,7 @@ export function AirBaseAssaultComponent(props: AirDamageProps) {
           (squadron_plane) => squadron_plane != 0
         )
         .forEach((squadron_plane) => {
-          let idx = plane_info.findIndex(
+          const idx = plane_info.findIndex(
             (plane) =>
               slotitems.slot_items[plane.slotid]?.slotitem_id == squadron_plane
           );

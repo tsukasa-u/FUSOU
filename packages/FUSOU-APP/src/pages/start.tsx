@@ -24,7 +24,7 @@ import { useAuth } from "../utility/provider";
 //   getCurrent as getCurrentDeepLinkUrls,
 // } from "@tauri-apps/plugin-deep-link";
 
-let launch_options: { [key: string]: number } = {
+const launch_options: { [key: string]: number } = {
   run_proxy_server: 1,
   open_app: 1,
   open_kancolle: 1,
@@ -32,7 +32,7 @@ let launch_options: { [key: string]: number } = {
   server: -1,
 };
 
-let server_list: { [key: string]: string } = {
+const server_list: { [key: string]: string } = {
   横須賀鎮守府: "w01y.kancolle-server.com", // 横須賀鎮守府
   新呉鎮守府: "w02k.kancolle-server.com", // 新呉鎮守府
   佐世保鎮守府: "w03s.kancolle-server.com", // 佐世保鎮守府
@@ -171,7 +171,7 @@ function Start() {
             getRefreshToken(data.session.user.id)
               .then((refreshToken) => {
                 if (refreshToken !== null) {
-                  let token: string =
+                  const token: string =
                     refreshToken + "&" + data.session.token_type;
                   invoke("set_refresh_token", {
                     token: token,
@@ -517,10 +517,10 @@ function Start() {
                         document.getElementById("tokens") as HTMLInputElement;
                       if (input_text == null) return;
 
-                      let tokens = input_text.value?.split("&")!;
-                      let supabase_access_token = tokens[2].split("=");
-                      let supabase_refresh_token = tokens[3].split("=");
-                      let provider_refresh_token = tokens[0].split("=");
+                      const tokens = input_text.value?.split("&");
+                      const supabase_access_token = tokens[2].split("=");
+                      const supabase_refresh_token = tokens[3].split("=");
+                      const provider_refresh_token = tokens[0].split("=");
 
                       if (supabase_access_token[0] != "supabase_access_token")
                         return;

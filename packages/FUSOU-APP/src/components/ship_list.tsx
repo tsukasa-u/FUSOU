@@ -80,7 +80,7 @@ export function ShipListComponent() {
     [key: string]: boolean;
   }>({});
   createEffect(() => {
-    let check_stype: { [key: string]: boolean } = {};
+    const check_stype: { [key: string]: boolean } = {};
     Object.entries(mst_stypes.mst_stypes).forEach(([, stype]) => {
       check_stype[stype!.name] = true;
     });
@@ -91,7 +91,7 @@ export function ShipListComponent() {
     {}
   );
   createEffect(() => {
-    let check_name: { [key: number]: boolean } = {};
+    const check_name: { [key: number]: boolean } = {};
     Object.entries(ships.ships).forEach(([ship_id]) => {
       check_name[Number(ship_id)] = true;
     });
@@ -104,7 +104,7 @@ export function ShipListComponent() {
     [key: string]: boolean;
   }>(
     (() => {
-      let check_ship_property: { [key: string]: boolean } = {};
+      const check_ship_property: { [key: string]: boolean } = {};
       check_ship_property["Ship Type"] = true;
       ship_properties.forEach((property) => {
         check_ship_property[property] = true;
@@ -119,15 +119,15 @@ export function ShipListComponent() {
   const [set_categorize, set_set_categorize] = createSignal(false);
   const [set_stype, set_set_stype] = createSignal(
     (() => {
-      let stype_name = Object.values(mst_stypes.mst_stypes)[0]?.name;
+      const stype_name = Object.values(mst_stypes.mst_stypes)[0]?.name;
       return stype_name ? stype_name : "海防艦";
     })()
   );
 
   const sort_fn = (a: string | number, b: string | number) => {
     if (set_sort() == "Default") return 0;
-    let a_ship = ships.ships[Number(a)];
-    let b_ship = ships.ships[Number(b)];
+    const a_ship = ships.ships[Number(a)];
+    const b_ship = ships.ships[Number(b)];
     if (a_ship && b_ship) {
       if (set_sort() == "Level") {
         if (a_ship.lv && b_ship.lv) return a_ship.lv - b_ship.lv;
@@ -178,8 +178,8 @@ export function ShipListComponent() {
           return a_ship.lucky[0] - b_ship.lucky[0];
       } else if (set_sort() == "Aircraft installed") {
         if (a_ship.ship_id && b_ship.ship_id) {
-          let a_mst_ship = mst_ships.mst_ships[a_ship.ship_id];
-          let b_mst_ship = mst_ships.mst_ships[b_ship.ship_id];
+          const a_mst_ship = mst_ships.mst_ships[a_ship.ship_id];
+          const b_mst_ship = mst_ships.mst_ships[b_ship.ship_id];
           if (
             a_mst_ship &&
             a_mst_ship.maxeq &&
@@ -208,23 +208,23 @@ export function ShipListComponent() {
   };
 
   const sorted_ship_keys = createMemo<string[]>(() => {
-    let keys = Object.keys(ships.ships);
+    const keys = Object.keys(ships.ships);
     const sorted_keys = keys.sort(sort_fn);
     if (!set_order()) return sorted_keys.reverse();
     else return sorted_keys;
   });
 
   const categorized_ships_keys = createMemo(() => {
-    let categorized_ships_keys: { [key: string]: number[] } = {};
+    const categorized_ships_keys: { [key: string]: number[] } = {};
     Object.entries(mst_stypes.mst_stypes).forEach(([, stype]) => {
       if (stype) categorized_ships_keys[stype.name] = [];
     });
 
     Object.values(store_ship_data_set()).forEach((data_set) => {
-      let ship = data_set.ship;
-      let mst_ship = data_set.mst_ship;
+      const ship = data_set.ship;
+      const mst_ship = data_set.mst_ship;
       if (mst_ship && ship) {
-        let mst_stype = mst_stypes.mst_stypes[mst_ship.stype];
+        const mst_stype = mst_stypes.mst_stypes[mst_ship.stype];
         if (mst_stype) categorized_ships_keys[mst_stype.name].push(ship.id);
       }
     });
@@ -250,7 +250,7 @@ export function ShipListComponent() {
     };
   }>(
     (() => {
-      let range_props: {
+      const range_props: {
         [key: string]: {
           min: number;
           max: number;
@@ -260,8 +260,8 @@ export function ShipListComponent() {
           reset: boolean;
         };
       } = {};
-      let params = ship_properties;
-      let abbreviations = [
+      const params = ship_properties;
+      const abbreviations = [
         "Lv",
         "Dur",
         "Fire",
@@ -294,7 +294,7 @@ export function ShipListComponent() {
     const check_range = (param: string, value: number | number[] | null) => {
       if (range_props[param].reset == true) return true;
       if (value) {
-        let value_0 = typeof value == "number" ? value : value[0];
+        const value_0 = typeof value == "number" ? value : value[0];
         if (range_props[param].range) {
           if (
             Number.isInteger(range_props[param].min) &&
@@ -316,18 +316,18 @@ export function ShipListComponent() {
       return true;
     };
 
-    let ret: { [key: number]: boolean } = {};
+    const ret: { [key: number]: boolean } = {};
     (set_order()
       ? Object.keys(ships.ships)
       : Object.keys(ships.ships).reverse()
     ).forEach((ship_id) => {
       ret[Number(ship_id)] = (() => {
         const data_set = store_ship_data_set()[Number(ship_id)];
-        let ship = data_set.ship;
-        let mst_ship = data_set.mst_ship;
+        const ship = data_set.ship;
+        const mst_ship = data_set.mst_ship;
         if (ship) {
           if (mst_ship) {
-            let mst_stype = mst_stypes.mst_stypes[mst_ship.stype];
+            const mst_stype = mst_stypes.mst_stypes[mst_ship.stype];
             if (mst_stype) {
               if (!check_stype[mst_stype.name]) return false;
             }
@@ -354,8 +354,8 @@ export function ShipListComponent() {
   });
 
   const set_range_window = () => {
-    let set_range_element: { [key: string]: JSX.Element } = {};
-    let params = [
+    const set_range_element: { [key: string]: JSX.Element } = {};
+    const params = [
       "Level",
       "Durability",
       "Firepower",
@@ -509,13 +509,13 @@ export function ShipListComponent() {
   };
 
   const set_discrete_range_window = () => {
-    let set_range_element: { [key: string]: JSX.Element } = {};
-    let params = ["Speed", "Range"];
-    let params_option = [
+    const set_range_element: { [key: string]: JSX.Element } = {};
+    const params = ["Speed", "Range"];
+    const params_option = [
       ["None", "Slow", "Fast", "Fast+", "Fastest"],
       ["None", "Short", "Medium", "Long", "Very Long"],
     ];
-    let param_converter = [
+    const param_converter = [
       [
         "None",
         "",
@@ -699,11 +699,11 @@ export function ShipListComponent() {
 
   const table_line_element = (ship_id: number, index: number) => {
     const data_set = store_ship_data_set()[ship_id];
-    let ship = data_set.ship;
-    let mst_ship = data_set.mst_ship;
-    let slot_item_map = data_set.slot_items;
-    let mst_slot_item_map = data_set.mst_slot_items;
-    let mst_stype = mst_ship
+    const ship = data_set.ship;
+    const mst_ship = data_set.mst_ship;
+    const slot_item_map = data_set.slot_items;
+    const mst_slot_item_map = data_set.mst_slot_items;
+    const mst_stype = mst_ship
       ? mst_stypes.mst_stypes[mst_ship.stype]
       : undefined;
     return (
@@ -1154,15 +1154,15 @@ export function ShipListComponent() {
   };
 
   const cal_search_name = (search_name: string) => {
-    let tmp_name: { [key: number]: boolean } = {};
-    let ships_length = Object.keys(ships.ships).length;
-    let sleep = (ms: number) =>
+    const tmp_name: { [key: number]: boolean } = {};
+    const ships_length = Object.keys(ships.ships).length;
+    const sleep = (ms: number) =>
       new Promise((resolve) => setTimeout(resolve, ms));
     Object.entries(ships.ships).forEach(([ship_id, ship], index) => {
       (async () => {
         if (ship?.ship_id) {
           await sleep(10);
-          let mst_ship = mst_ships.mst_ships[ship.ship_id];
+          const mst_ship = mst_ships.mst_ships[ship.ship_id];
           if (mst_ship) {
             if (mst_ship.name.indexOf(search_name) != -1) {
               tmp_name[Number(ship_id)] = true;

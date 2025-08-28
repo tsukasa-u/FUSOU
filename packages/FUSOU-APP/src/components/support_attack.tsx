@@ -46,7 +46,7 @@ export function SupportAttackComponent(props: SupportAttackProps) {
   });
 
   const show_air_damage = createMemo<boolean[][]>(() => {
-    let show_air_damage: boolean[][] = [
+    const show_air_damage: boolean[][] = [
       new Array(12).fill(false),
       new Array(12).fill(false),
     ];

@@ -9,20 +9,20 @@ function Close() {
   const [accessToken, setAccessToken] = createSignal("");
   const [refreshToken, setRefreshToken] = createSignal("");
 
-  const [logIn , setLogIn] = createSignal(false);
+  const [logIn, setLogIn] = createSignal(false);
 
   createEffect(() => {
     supabase.auth.onAuthStateChange((event, session) => {
-      console.log('Auth state changed:', event, session);
-      if (event === 'SIGNED_IN') {
+      console.log("Auth state changed:", event, session);
+      if (event === "SIGNED_IN") {
         setLogIn(true);
         supabase.auth.getSession().then(async ({ data, error }) => {
           if (error) {
-            console.error('Error getting session:', error);
+            console.error("Error getting session:", error);
           } else {
-            setProviderRefreshToken(data.session?.provider_refresh_token!);
-            setAccessToken(data.session?.access_token!);
-            setRefreshToken(data.session?.refresh_token!);
+            setProviderRefreshToken(data.session?.provider_refresh_token);
+            setAccessToken(data.session?.access_token);
+            setRefreshToken(data.session?.refresh_token);
             // supabase.from('users').update({ refresh_token: data.session?.provider_refresh_token! }).eq('id', session?.user.id).then(({ data, error }) => {
             //   if (error) {
             //     console.error('Error updating refresh token:', error);
@@ -32,13 +32,18 @@ function Close() {
             // }
             // );
             supabase
-              .from('users')
+              .from("users")
               .insert([
-                { id: data.session?.user.id, user_unique_id: null, provider_refresh_token: data.session?.provider_refresh_token! },
+                {
+                  id: data.session?.user.id,
+                  user_unique_id: null,
+                  provider_refresh_token: data.session?.provider_refresh_token,
+                },
               ])
-              .select().then(({ data, error }) => {
+              .select()
+              .then(({ data, error }) => {
                 if (error) {
-                  console.error('Error inserting refresh token:', error);
+                  console.error("Error inserting refresh token:", error);
                   // supabase.from('users').select("*").then(({ data, error }) => {
                   //   if (error) {
                   //     console.error('Error selecting refresh token:', error);
@@ -47,20 +52,18 @@ function Close() {
                   //   }
                   // });
                 } else {
-                  console.log('Refresh token inserted successfully:', data);
+                  console.log("Refresh token inserted successfully:", data);
                 }
-              }
-              );
-            
+              });
           }
         });
-      } else if (event === 'SIGNED_OUT') {
+      } else if (event === "SIGNED_OUT") {
         setLogIn(false);
       }
     });
   });
   return (
-    <> 
+    <>
       <div class="bg-base-200 h-screen">
         <div class="max-w-md justify-self-center bg-base-100 h-screen">
           <div class="p-10">
@@ -78,11 +81,20 @@ function Close() {
               <h1 class="text-2xl text-center">close to return app</h1>
               <div class="h-4" />
               <div class="h-4" />
-              <a class="btn" href={"fusou://auth?provider_refresh_token=" + providerRefreshToken() + "&provider=google&supabase_access_token=" + accessToken() + "&supabase_refresh_token=" + refreshToken()}>
+              <a
+                class="btn"
+                href={
+                  "fusou://auth?provider_refresh_token=" +
+                  providerRefreshToken() +
+                  "&provider=google&supabase_access_token=" +
+                  accessToken() +
+                  "&supabase_refresh_token=" +
+                  refreshToken()
+                }
+              >
                 In order to continue, please click here to launch the app
               </a>
             </Show>
-
           </div>
         </div>
       </div>

@@ -33,7 +33,7 @@ export function CarrierBaseAssaultComponent(props: AirDamageProps) {
   });
 
   const show_damage = createMemo<boolean[][]>(() => {
-    let show_damage: boolean[][] = [
+    const show_damage: boolean[][] = [
       new Array(12).fill(false),
       new Array(12).fill(false),
     ];

@@ -221,14 +221,14 @@ export function BattlesComponent() {
   });
 
   const serach_message = () => {
-    let battle = battle_selected();
-    let empty_message = (
+    const battle = battle_selected();
+    const empty_message = (
       <>
         <div>___</div>
       </>
     );
     if (battle) {
-      let reconnaissance = battle.reconnaissance
+      const reconnaissance = battle.reconnaissance
         ? battle.reconnaissance[0]
         : undefined;
       return (
@@ -272,8 +272,8 @@ export function BattlesComponent() {
   };
 
   const form = () => {
-    let formation = battle_selected()?.formation;
-    let empty_message = (
+    const formation = battle_selected()?.formation;
+    const empty_message = (
       <>
         <div>_</div>
       </>

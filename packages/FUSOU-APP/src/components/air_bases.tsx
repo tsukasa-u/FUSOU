@@ -11,7 +11,7 @@ export function AirBasesComponent() {
   const [air_bases] = useAirBases();
 
   const store_equip_data_set = createMemo(() => {
-    let slot_id_list = Object.values(air_bases.bases)
+    const slot_id_list = Object.values(air_bases.bases)
       .map((base) => base?.plane_info)
       .flat()
       .map((palne) => palne?.slotid)
@@ -39,10 +39,10 @@ export function AirBasesComponent() {
       return cond_state;
     };
 
-    let states: JSX.Element[][] = [];
+    const states: JSX.Element[][] = [];
     Object.values(air_bases.bases).forEach((base) => {
       states.push([]);
-      let state: JSX.Element[] = [];
+      const state: JSX.Element[] = [];
       if (base) {
         base.plane_info.forEach((plane) => {
           state.push(set_cond_state(plane.cond ?? 0));
@@ -53,7 +53,7 @@ export function AirBasesComponent() {
   });
 
   const base_action_state = createMemo<JSX.Element[]>(() => {
-    let base_action_state: JSX.Element[] = [];
+    const base_action_state: JSX.Element[] = [];
     Object.values(air_bases.bases).forEach((base) => {
       if (base?.action_kind == 1) base_action_state.push("Sortie");
       else if (base?.action_kind == 2) base_action_state.push("Defense");

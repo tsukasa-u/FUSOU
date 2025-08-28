@@ -87,16 +87,16 @@ export const get_data_set_param_ship = (
   const [mst_ships] = useMstShips();
   const [mst_slot_itmes] = useMstSlotItems();
 
-  let e_main_ship_id: (number | null)[] = battle.enemy_ship_id
+  const e_main_ship_id: (number | null)[] = battle.enemy_ship_id
     ? battle.enemy_ship_id.slice(0, 6)
     : [...null_list];
-  let e_main_ship_param: number[][] = (battle.e_params ?? []).slice(0, 6);
-  let e_main_ship_slot: number[][] = (battle.e_slot ?? []).slice(0, 6);
-  let e_main_ship_max_hp: number[] = (battle.e_hp_max ?? []).slice(0, 6);
-  let e_main_mst_ship = e_main_ship_id.map((id) =>
+  const e_main_ship_param: number[][] = (battle.e_params ?? []).slice(0, 6);
+  const e_main_ship_slot: number[][] = (battle.e_slot ?? []).slice(0, 6);
+  const e_main_ship_max_hp: number[] = (battle.e_hp_max ?? []).slice(0, 6);
+  const e_main_mst_ship = e_main_ship_id.map((id) =>
     id ? mst_ships.mst_ships[id] : undefined
   );
-  let e_main_mst_slot_items = e_main_ship_slot.map((slots) => {
+  const e_main_mst_slot_items = e_main_ship_slot.map((slots) => {
     return {
       mst_slot_items: slots
         .map((slot) => mst_slot_itmes.mst_slot_items[slot])
@@ -108,18 +108,18 @@ export const get_data_set_param_ship = (
         ),
     } as MstSlotItems;
   });
-  let e_main_color: (string | undefined)[] = get_enemy_yomi(e_main_ship_id);
+  const e_main_color: (string | undefined)[] = get_enemy_yomi(e_main_ship_id);
 
-  let e_escort_ship_id: (number | null)[] = battle.enemy_ship_id
+  const e_escort_ship_id: (number | null)[] = battle.enemy_ship_id
     ? battle.enemy_ship_id.slice(6, 12)
     : [...null_list];
-  let e_escort_ship_param: number[][] = (battle.e_params ?? []).slice(6, 12);
-  let e_escort_ship_slot: number[][] = (battle.e_slot ?? []).slice(6, 12);
-  let e_escort_ship_max_hp: number[] = (battle.e_hp_max ?? []).slice(6, 12);
-  let e_escort_mst_ship = e_escort_ship_id.map((id) =>
+  const e_escort_ship_param: number[][] = (battle.e_params ?? []).slice(6, 12);
+  const e_escort_ship_slot: number[][] = (battle.e_slot ?? []).slice(6, 12);
+  const e_escort_ship_max_hp: number[] = (battle.e_hp_max ?? []).slice(6, 12);
+  const e_escort_mst_ship = e_escort_ship_id.map((id) =>
     id ? mst_ships.mst_ships[id] : undefined
   );
-  let e_escort_mst_slot_items = e_escort_ship_slot.map((slots) => {
+  const e_escort_mst_slot_items = e_escort_ship_slot.map((slots) => {
     return {
       mst_slot_items: slots
         .map((slot) => mst_slot_itmes.mst_slot_items[slot])
@@ -131,24 +131,24 @@ export const get_data_set_param_ship = (
         ),
     } as MstSlotItems;
   });
-  let e_escort_color: (string | undefined)[] = get_enemy_yomi(e_escort_ship_id);
+  const e_escort_color: (string | undefined)[] = get_enemy_yomi(e_escort_ship_id);
 
-  let e_destruction_ship_id: (number | null)[] = destruction_battle
+  const e_destruction_ship_id: (number | null)[] = destruction_battle
     ? destruction_battle.ship_ke
     : [...null_list];
-  let e_destruction_ship_param: number[][] = destruction_battle
+  const e_destruction_ship_param: number[][] = destruction_battle
     ? destruction_battle.ship_ke.map(() => Array(5).fill(-1))
     : [];
-  let e_destruction_ship_slot: number[][] = destruction_battle
+  const e_destruction_ship_slot: number[][] = destruction_battle
     ? destruction_battle.e_slot
     : [];
-  let e_destruction_ship_max_hp: number[] = destruction_battle
+  const e_destruction_ship_max_hp: number[] = destruction_battle
     ? destruction_battle.e_maxhps
     : [];
-  let e_destruction_mst_ship = e_destruction_ship_id.map((id) =>
+  const e_destruction_mst_ship = e_destruction_ship_id.map((id) =>
     id ? mst_ships.mst_ships[id] : undefined
   );
-  let e_destruction_mst_slot_items = e_destruction_ship_slot.map((slots) => {
+  const e_destruction_mst_slot_items = e_destruction_ship_slot.map((slots) => {
     return {
       mst_slot_items: slots
         .map((slot) => mst_slot_itmes.mst_slot_items[slot])
@@ -160,22 +160,22 @@ export const get_data_set_param_ship = (
         ),
     } as MstSlotItems;
   });
-  let e_destruction_color: (string | undefined)[] = get_enemy_yomi(
+  const e_destruction_color: (string | undefined)[] = get_enemy_yomi(
     e_destruction_ship_id
   );
 
-  let f_friend_ship_id: number[] =
+  const f_friend_ship_id: number[] =
     battle.friendly_force_attack?.fleet_info.ship_id ?? [];
-  let f_friend_ship_param: number[][] =
+  const f_friend_ship_param: number[][] =
     battle.friendly_force_attack?.fleet_info.params ?? [];
-  let f_friend_ship_slot: number[][] =
+  const f_friend_ship_slot: number[][] =
     battle.friendly_force_attack?.fleet_info.slot ?? [];
-  let f_friend_ship_max_hp: number[] =
+  const f_friend_ship_max_hp: number[] =
     battle.friendly_force_attack?.fleet_info.now_hps ?? [];
-  let f_friend_mst_ship = f_friend_ship_id.map((id) =>
+  const f_friend_mst_ship = f_friend_ship_id.map((id) =>
     id ? mst_ships.mst_ships[id] : undefined
   );
-  let f_friend_mst_slot_items = f_friend_ship_slot.map((slots) => {
+  const f_friend_mst_slot_items = f_friend_ship_slot.map((slots) => {
     return {
       mst_slot_items: slots
         .map((slot) => mst_slot_itmes.mst_slot_items[slot])
@@ -187,9 +187,9 @@ export const get_data_set_param_ship = (
         ),
     } as MstSlotItems;
   });
-  let f_friend_color = Array(6).fill("");
+  const f_friend_color = Array(6).fill("");
 
-  let ret: DataSetParamShip = {
+  const ret: DataSetParamShip = {
     e_main_ship_param: e_main_ship_param,
     e_main_ship_slot: e_main_ship_slot,
     e_main_ship_max_hp: e_main_ship_max_hp,
@@ -242,7 +242,7 @@ export type DataSetEquip = {
 export const get_data_set_equip = (equip_ids: number[]) => {
   const [slot_items] = useSlotItems();
   const [mst_slot_items] = useMstSlotItems();
-  let ret: DataSetEquip = {};
+  const ret: DataSetEquip = {};
   equip_ids.forEach((equip_id) => {
     const slot_item = slot_items.slot_items[equip_id];
 
@@ -273,7 +273,7 @@ export const get_data_set_ship = (ship_ids: number[]) => {
   const [mst_ships] = useMstShips();
   const [slot_items] = useSlotItems();
   const [mst_slot_items] = useMstSlotItems();
-  let ret: DataSetShip = {};
+  const ret: DataSetShip = {};
   ship_ids.forEach((ship_id) => {
     const ship = ships.ships[ship_id];
 

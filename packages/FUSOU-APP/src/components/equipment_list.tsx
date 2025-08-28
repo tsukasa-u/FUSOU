@@ -79,7 +79,7 @@ export function EquipmentListComponent() {
       0
     )
       return;
-    let _check_equip_types: { [key: string]: boolean } = {};
+    const _check_equip_types: { [key: string]: boolean } = {};
     Object.values(mst_slot_items_equip_types.mst_slotitem_equip_types).forEach(
       (mst_slotitem_equip_types) => {
         if (mst_slotitem_equip_types)
@@ -93,7 +93,7 @@ export function EquipmentListComponent() {
     {}
   );
   createEffect(() => {
-    let check_name: { [key: number]: boolean } = {};
+    const check_name: { [key: number]: boolean } = {};
     Object.entries(slot_items.slot_items).forEach(([slot_item_id]) => {
       check_name[Number(slot_item_id)] = true;
     });
@@ -106,7 +106,7 @@ export function EquipmentListComponent() {
     [key: string]: boolean;
   }>(
     (() => {
-      let check_equip_property: { [key: string]: boolean } = {};
+      const check_equip_property: { [key: string]: boolean } = {};
       check_equip_property["Equip Type"] = true;
       equip_properties.forEach((property) => {
         check_equip_property[property] = true;
@@ -121,7 +121,7 @@ export function EquipmentListComponent() {
   const [set_categorize, set_set_categorize] = createSignal(false);
   const [set_equip_type, set_set_equip_type] = createSignal(
     (() => {
-      let equip_type_name = Object.values(
+      const equip_type_name = Object.values(
         mst_slot_items_equip_types.mst_slotitem_equip_types
       )[0]?.name;
       return equip_type_name ? equip_type_name : "小口径主砲";
@@ -129,17 +129,17 @@ export function EquipmentListComponent() {
   );
 
   const additional_sort_fn = (a: number, b: number, _a: number, _b: number) => {
-    let tmp = a - b;
+    const tmp = a - b;
     if (tmp != 0) return tmp;
     return _a - _b;
   };
 
   const sort_fn = (a: string | number, b: string | number) => {
-    let a_equip = slot_items.slot_items[Number(a)];
-    let b_equip = slot_items.slot_items[Number(b)];
+    const a_equip = slot_items.slot_items[Number(a)];
+    const b_equip = slot_items.slot_items[Number(b)];
     if (a_equip == undefined || b_equip == undefined) return 0;
-    let a_mst_equip = mst_slot_items.mst_slot_items[a_equip.slotitem_id];
-    let b_mst_equip = mst_slot_items.mst_slot_items[b_equip.slotitem_id];
+    const a_mst_equip = mst_slot_items.mst_slot_items[a_equip.slotitem_id];
+    const b_mst_equip = mst_slot_items.mst_slot_items[b_equip.slotitem_id];
     if (a_mst_equip == undefined || b_mst_equip == undefined) return 0;
     if (set_sort() == "Default")
       return additional_sort_fn(
@@ -229,7 +229,7 @@ export function EquipmentListComponent() {
   });
 
   const categorized_equips_keys = createMemo(() => {
-    let categorized_equips_keys: { [key: string]: number[] } = {};
+    const categorized_equips_keys: { [key: string]: number[] } = {};
     if (Object.keys(mst_slot_items.mst_slot_items).length == 0)
       return categorized_equips_keys;
     if (
@@ -245,11 +245,11 @@ export function EquipmentListComponent() {
     );
     Object.entries(slot_items.slot_items).forEach(([equip_id, slot_item]) => {
       if (slot_item) {
-        let mst_slot_item =
+        const mst_slot_item =
           mst_slot_items.mst_slot_items[slot_item.slotitem_id];
         if (mst_slot_item) {
           // which index is true?
-          let equip_type =
+          const equip_type =
             mst_slot_items_equip_types.mst_slotitem_equip_types[
               mst_slot_item.type[2]
             ];
@@ -286,7 +286,7 @@ export function EquipmentListComponent() {
     };
   }>(
     (() => {
-      let range_props: {
+      const range_props: {
         [key: string]: {
           min: number;
           max: number;
@@ -296,8 +296,8 @@ export function EquipmentListComponent() {
           reset: boolean;
         };
       } = {};
-      let params = equip_properties;
-      let abbreviations = equip_properties_abbreviation;
+      const params = equip_properties;
+      const abbreviations = equip_properties_abbreviation;
       params.forEach((param, index) => {
         range_props[param] = {
           min: 0,
@@ -313,7 +313,7 @@ export function EquipmentListComponent() {
   );
 
   const filtered_equips = createMemo<{ [key: number]: boolean }>(() => {
-    let ret: { [key: number]: boolean } = {};
+    const ret: { [key: number]: boolean } = {};
 
     if (Object.keys(mst_slot_items.mst_slot_items).length == 0) return ret;
     if (
@@ -352,11 +352,11 @@ export function EquipmentListComponent() {
     ).forEach((equip_id) => {
       ret[Number(equip_id)] = (() => {
         const data_set = store_equip_data_set()[Number(equip_id)];
-        let slot_item = data_set.slot_item;
-        let mst_slot_item = data_set.mst_slot_item;
+        const slot_item = data_set.slot_item;
+        const mst_slot_item = data_set.mst_slot_item;
         if (slot_item && mst_slot_item) {
           {
-            let mst_slot_items_equip_type =
+            const mst_slot_items_equip_type =
               mst_slot_items_equip_types.mst_slotitem_equip_types[
                 mst_slot_item.type[2]
               ];
@@ -385,8 +385,8 @@ export function EquipmentListComponent() {
   });
 
   const set_range_window = () => {
-    let set_range_element: { [key: string]: JSX.Element } = {};
-    let params = [
+    const set_range_element: { [key: string]: JSX.Element } = {};
+    const params = [
       "Level",
       "Firepower",
       "Torpedo",
@@ -543,9 +543,9 @@ export function EquipmentListComponent() {
 
   const table_line_element = (equip_id: number, index: number) => {
     const data_set = store_equip_data_set()[equip_id];
-    let slot_item = data_set.slot_item;
-    let mst_slot_item = data_set.mst_slot_item;
-    let mst_slot_items_equip_type = mst_slot_item
+    const slot_item = data_set.slot_item;
+    const mst_slot_item = data_set.mst_slot_item;
+    const mst_slot_items_equip_type = mst_slot_item
       ? mst_slot_items_equip_types.mst_slotitem_equip_types[
           mst_slot_item.type[2]
         ]
@@ -1010,16 +1010,16 @@ export function EquipmentListComponent() {
   };
 
   const cal_search_name = (search_name: string) => {
-    let tmp_name: { [key: number]: boolean } = {};
-    let slot_items_length = Object.keys(slot_items.slot_items).length;
-    let sleep = (ms: number) =>
+    const tmp_name: { [key: number]: boolean } = {};
+    const slot_items_length = Object.keys(slot_items.slot_items).length;
+    const sleep = (ms: number) =>
       new Promise((resolve) => setTimeout(resolve, ms));
     Object.entries(slot_items.slot_items).forEach(
       ([equip_id, slotitem], index) => {
         (async () => {
           await sleep(10);
           if (slotitem) {
-            let mst_slot_item =
+            const mst_slot_item =
               mst_slot_items.mst_slot_items[slotitem.slotitem_id];
             if (mst_slot_item) {
               if (mst_slot_item.name.indexOf(search_name) != -1) {

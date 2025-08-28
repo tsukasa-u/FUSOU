@@ -9,7 +9,7 @@ export function SettingsComponent() {
   //     }
   // `);
 
-  let themes = ["default", "light", "dark"];
+  const themes = ["default", "light", "dark"];
 
   return (
     <>

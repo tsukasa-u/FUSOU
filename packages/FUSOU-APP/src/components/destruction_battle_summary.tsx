@@ -37,7 +37,7 @@ export function DestructionBattleSummaryComponent(props: ButtleSummaryProps) {
   });
 
   const fleet_info = createMemo<FleetInfo>(() => {
-    let ret = {
+    const ret = {
       f_base_id: [],
       f_base_nowhps: [],
       f_base_maxhps: [],
@@ -51,30 +51,30 @@ export function DestructionBattleSummaryComponent(props: ButtleSummaryProps) {
     const destruction_battle = props.cell()?.destruction_battle;
     if (!destruction_battle) return ret;
 
-    let f_base_id: number[] = [];
+    const f_base_id: number[] = [];
     Object.entries(air_bases.bases).forEach(([base_id, base]) => {
       if (base?.area_id == props.area_id) {
         f_base_id.push(Number(base_id));
       }
     });
-    let f_base_nowhps: (number | null)[] = destruction_battle.f_nowhps.map(
+    const f_base_nowhps: (number | null)[] = destruction_battle.f_nowhps.map(
       (hp, i) => {
         const dmg = destruction_battle.f_total_damages?.[i];
         return dmg ? hp - dmg : null;
       }
     );
-    let f_base_maxhps: number[] = destruction_battle.f_maxhps;
-    let f_base_damages: number[] | null = destruction_battle.f_total_damages;
+    const f_base_maxhps: number[] = destruction_battle.f_maxhps;
+    const f_base_damages: number[] | null = destruction_battle.f_total_damages;
 
-    let e_main_ship_id: number[] = destruction_battle.ship_ke;
-    let e_main_nowhps: (number | null)[] = destruction_battle.e_nowhps.map(
+    const e_main_ship_id: number[] = destruction_battle.ship_ke;
+    const e_main_nowhps: (number | null)[] = destruction_battle.e_nowhps.map(
       (hp, i) => {
         const dmg = destruction_battle.e_total_damages?.[i];
         return dmg ? hp - dmg : null;
       }
     );
-    let e_main_maxhps: number[] = destruction_battle.e_maxhps;
-    let e_main_damages: number[] | null = destruction_battle.e_total_damages;
+    const e_main_maxhps: number[] = destruction_battle.e_maxhps;
+    const e_main_damages: number[] | null = destruction_battle.e_total_damages;
 
     return {
       f_base_id: f_base_id,

@@ -9,7 +9,7 @@ export function HpColorBarComponent(
   props: ColorBarProps & JSX.HTMLAttributes<HTMLProgressElement>,
 ) {
   const progress_color_state = createMemo(() => {
-    let props_expand = {
+    const props_expand = {
       ...props,
       value:
         props.v_max() != 0

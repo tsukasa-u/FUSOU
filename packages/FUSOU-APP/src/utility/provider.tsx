@@ -633,7 +633,7 @@ const AuthContext =
   createContext<(AuthContextType | SetStoreFunction<AuthContextType>)[]>();
 
 export function AuthProvider(props: { children: JSX.Element }) {
-  let store_data: AuthContextType = {
+  const store_data: AuthContextType = {
     accessToken: null,
     refreshToken: null,
   };
@@ -700,7 +700,7 @@ const DebugApiContext =
   >();
 
 export function DebugApiProvider(props: { children: JSX.Element }) {
-  let store_data: DebugApiContextType = [[], []];
+  const store_data: DebugApiContextType = [[], []];
   const [data, setData] = createStore(store_data);
   const setter = [data, setData];
 

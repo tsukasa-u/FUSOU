@@ -41,8 +41,8 @@ export function EquimentComponent(props: EquipmentProps) {
     ];
   });
 
-  const show_onslot = createMemo<Boolean>(() => {
-    let type =
+  const show_onslot = createMemo<boolean>(() => {
+    const type =
       _mst_slot_items.mst_slot_items[
         _slot_items.slot_items[props.slot_id]?.slotitem_id
       ].type[1];
@@ -82,7 +82,7 @@ export function EquimentComponent(props: EquipmentProps) {
   const [show_dialog, set_show_dialog] = createSignal(false);
 
   const display_tooltip = () => {
-    let tooltip_data = {
+    const tooltip_data = {
       item_id: _slot_items.slot_items[props.slot_id]?.id,
       id: mst_slot_item()?.id,
       type: mst_slot_item()?.type.toString(),
@@ -106,7 +106,7 @@ export function EquimentComponent(props: EquipmentProps) {
       leng: mst_slot_item()?.leng,
       rare: mst_slot_item()?.rare,
     };
-    let tool_tip_string = Object.entries(tooltip_data).reduce(
+    const tool_tip_string = Object.entries(tooltip_data).reduce(
       (acc, [key, value]) => {
         return acc + key + ": " + String(value) + ",\n";
       },
@@ -182,7 +182,7 @@ export function EquimentComponent(props: EquipmentProps) {
               <button
                 class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2"
                 onClick={() => {
-                  let sleep = (ms: number) =>
+                  const sleep = (ms: number) =>
                     new Promise((resolve) => setTimeout(resolve, ms));
                   (async () => {
                     await sleep(10);
@@ -276,7 +276,7 @@ export function EquimentComponent(props: EquipmentProps) {
           <form method="dialog" class="modal-backdrop">
             <button
               onClick={() => {
-                let sleep = (ms: number) =>
+                const sleep = (ms: number) =>
                   new Promise((resolve) => setTimeout(resolve, ms));
                 (async () => {
                   await sleep(10);

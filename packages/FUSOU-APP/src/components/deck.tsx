@@ -37,8 +37,8 @@ import type {
 import type { Ship } from "@ipc-bindings/port.ts";
 import type { SlotItem, SlotItems } from "@ipc-bindings/require_info.ts";
 
-let expandSiganMap: { [key: number]: boolean } = {};
-let fleetOpenSignalMap: { [key: number]: boolean } = {
+const expandSiganMap: { [key: number]: boolean } = {};
+const fleetOpenSignalMap: { [key: number]: boolean } = {
   1: true,
   2: false,
   3: false,
@@ -58,11 +58,11 @@ export function DeckComponent(props: DeckPortProps) {
   const [deck_ports] = useDeckPorts();
 
   const ship_list = createMemo<Ship[]>(() => {
-    let mst_ship_list: Ship[] = [];
+    const mst_ship_list: Ship[] = [];
     if (deck_ports.deck_ports[props.deck_id]) {
       if (deck_ports.deck_ports[props.deck_id]!.ship) {
         deck_ports.deck_ports[props.deck_id]!.ship!.forEach((id) => {
-          let tmp = ships.ships[id];
+          const tmp = ships.ships[id];
           if (tmp) mst_ship_list.push(tmp);
         });
       }
@@ -71,10 +71,10 @@ export function DeckComponent(props: DeckPortProps) {
   });
 
   const mst_ship_list = createMemo<MstShip[]>(() => {
-    let mst_ship_list: MstShip[] = [];
+    const mst_ship_list: MstShip[] = [];
     ship_list().forEach((ship) => {
       if (ship.ship_id) {
-        let tmp = mst_ships.mst_ships[ship.ship_id];
+        const tmp = mst_ships.mst_ships[ship.ship_id];
         if (tmp) mst_ship_list.push(tmp);
       }
     });
@@ -82,16 +82,16 @@ export function DeckComponent(props: DeckPortProps) {
   });
 
   const slot_items_list = createMemo<SlotItems[]>(() => {
-    let slot_items_list = ship_list().map((ship) => {
-      let slot_item_dict: { [key: number]: SlotItem } = {};
+    const slot_items_list = ship_list().map((ship) => {
+      const slot_item_dict: { [key: number]: SlotItem } = {};
       if (ship.slot) {
         ship.slot.forEach((id) => {
-          let tmp = slot_items.slot_items[id];
+          const tmp = slot_items.slot_items[id];
           if (tmp) slot_item_dict[id] = tmp;
         });
       }
       if (ship.slot_ex) {
-        let tmp = slot_items.slot_items[ship.slot_ex];
+        const tmp = slot_items.slot_items[ship.slot_ex];
         if (tmp) slot_item_dict[ship.slot_ex] = tmp;
       }
       return {
@@ -102,11 +102,11 @@ export function DeckComponent(props: DeckPortProps) {
   });
 
   const mst_slot_itmes_list = createMemo<MstSlotItems[]>(() => {
-    let mst_slot_itmes_list = slot_items_list().map((items) => {
-      let mst_slot_item_dict: { [key: number]: MstSlotItem } = {};
+    const mst_slot_itmes_list = slot_items_list().map((items) => {
+      const mst_slot_item_dict: { [key: number]: MstSlotItem } = {};
       Object.values(items.slot_items).forEach((item) => {
         if (item) {
-          let tmp = mst_slot_items.mst_slot_items[item.slotitem_id];
+          const tmp = mst_slot_items.mst_slot_items[item.slotitem_id];
           if (tmp) mst_slot_item_dict[item.slotitem_id] = tmp;
         }
       });
@@ -167,7 +167,7 @@ export function DeckComponent(props: DeckPortProps) {
       return cond_state;
     };
 
-    let states: JSX.Element[] = [];
+    const states: JSX.Element[] = [];
     ship_list().forEach((ship) => {
       states.push(set_cond_state(ship.cond ?? 0));
     });
@@ -199,7 +199,7 @@ export function DeckComponent(props: DeckPortProps) {
       return hp_state;
     };
 
-    let states: JSX.Element[] = [];
+    const states: JSX.Element[] = [];
     ship_list().forEach((ship) => {
       states.push(set_hp_state(ship.nowhp ?? 0, ship.maxhp ?? 0));
     });
@@ -238,9 +238,9 @@ export function DeckComponent(props: DeckPortProps) {
       return fuel_bullet_state;
     };
 
-    let states: JSX.Element[] = [];
+    const states: JSX.Element[] = [];
     ship_list().forEach((ship) => {
-      let mst_ship = mst_ship_list().find(
+      const mst_ship = mst_ship_list().find(
         (mst_ship) => mst_ship.id == ship.ship_id
       );
       if (mst_ship) {
@@ -273,12 +273,12 @@ export function DeckComponent(props: DeckPortProps) {
   });
 
   const get_deck_name = () => {
-    let tmp = deck_ports.deck_ports[props.deck_id];
+    const tmp = deck_ports.deck_ports[props.deck_id];
     return tmp ? tmp.name : "";
   };
 
   const get_deck_ship = () => {
-    let tmp = deck_ports.deck_ports[props.deck_id];
+    const tmp = deck_ports.deck_ports[props.deck_id];
     return tmp ? (tmp.ship ?? []) : [];
   };
 
@@ -290,14 +290,14 @@ export function DeckComponent(props: DeckPortProps) {
   };
 
   const get_mst_slot_item = (ship_index: number, slot_id: number) => {
-    let slot_item_id = get_slot_item(ship_index, slot_id)?.slotitem_id;
+    const slot_item_id = get_slot_item(ship_index, slot_id)?.slotitem_id;
     return slot_item_id
       ? mst_slot_itmes_list()[ship_index].mst_slot_items[slot_item_id]
       : undefined;
   };
 
   const get_onslot = (ship_index: number, slot_index: number) => {
-    let tmp = ship_list()[ship_index].onslot;
+    const tmp = ship_list()[ship_index].onslot;
     return tmp ? tmp[slot_index] : 0;
   };
 
