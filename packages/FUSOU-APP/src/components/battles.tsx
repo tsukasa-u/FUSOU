@@ -58,20 +58,24 @@ export function BattlesComponent() {
   const deck_ship_id = createMemo<DeckShipIds>(() => get_deck_ship_id());
 
   const store_data_set_deck_ship = createMemo<DataSetShip>(() =>
-    get_store_data_set_deck_ship(),
+    get_store_data_set_deck_ship()
   );
 
   const battle_selected = createMemo<Battle | undefined>(() => {
     return cells.battles[cells.cell_index[cell_index_selected()]];
   });
 
+  const cell = createMemo(() => {
+    return cells.cells[cells.cell_index[cell_index_selected()]];
+  });
+
   const store_data_set_param_ship = createMemo<DataSetParamShip>(() =>
-    get_data_set_param_ship(battle_selected(), cell()?.destruction_battle),
+    get_data_set_param_ship(battle_selected(), cell()?.destruction_battle)
   );
 
   createEffect(() => {
     set_cell_index_selected(
-      cells.cell_index.length > 0 ? cells.cell_index.length - 1 : 0,
+      cells.cell_index.length > 0 ? cells.cell_index.length - 1 : 0
     );
   });
 
@@ -83,7 +87,7 @@ export function BattlesComponent() {
     if (Object.keys(cells.battles).length == 0) return false;
     if (
       Object.keys(cells.battles).find(
-        (cell) => Number(cell) == cells.cell_index[cell_index_selected()],
+        (cell) => Number(cell) == cells.cell_index[cell_index_selected()]
       ) == undefined
     )
       return false;
@@ -106,7 +110,7 @@ export function BattlesComponent() {
             area_id={cells.maparea_id}
             battle_selected={battle_selected}
             store_data_set_param_ship={store_data_set_param_ship}
-          />,
+          />
         );
       }
       if (implementsCarrierBaseAssault(order)) {
@@ -116,7 +120,7 @@ export function BattlesComponent() {
             battle_selected={battle_selected}
             store_data_set_deck_ship={store_data_set_deck_ship}
             store_data_set_param_ship={store_data_set_param_ship}
-          />,
+          />
         );
       }
       if (implementsAirBaseAirAttack(order)) {
@@ -125,7 +129,7 @@ export function BattlesComponent() {
             area_id={cells.maparea_id}
             battle_selected={battle_selected}
             store_data_set_param_ship={store_data_set_param_ship}
-          />,
+          />
         );
       }
       if (implementsOpeningAirAttack(order)) {
@@ -135,7 +139,7 @@ export function BattlesComponent() {
             battle_selected={battle_selected}
             store_data_set_deck_ship={store_data_set_deck_ship}
             store_data_set_param_ship={store_data_set_param_ship}
-          />,
+          />
         );
       }
       if (implementsSupportAttack(order)) {
@@ -145,7 +149,7 @@ export function BattlesComponent() {
             battle_selected={battle_selected}
             store_data_set_deck_ship={store_data_set_deck_ship}
             store_data_set_param_ship={store_data_set_param_ship}
-          />,
+          />
         );
       }
       if (implementsOpeningTaisen(order)) {
@@ -155,7 +159,7 @@ export function BattlesComponent() {
             battle_selected={battle_selected}
             store_data_set_deck_ship={store_data_set_deck_ship}
             store_data_set_param_ship={store_data_set_param_ship}
-          />,
+          />
         );
       }
       if (implementsOpeningRaigeki(order)) {
@@ -165,7 +169,7 @@ export function BattlesComponent() {
             battle_selected={battle_selected}
             store_data_set_deck_ship={store_data_set_deck_ship}
             store_data_set_param_ship={store_data_set_param_ship}
-          />,
+          />
         );
       }
       if (implementsClosingRaigeki(order)) {
@@ -175,7 +179,7 @@ export function BattlesComponent() {
             battle_selected={battle_selected}
             store_data_set_deck_ship={store_data_set_deck_ship}
             store_data_set_param_ship={store_data_set_param_ship}
-          />,
+          />
         );
       }
       if (implementsFriendlyForceAttack(order)) {
@@ -185,7 +189,7 @@ export function BattlesComponent() {
             deck_ship_id={deck_ship_id}
             store_data_set_deck_ship={store_data_set_deck_ship}
             store_data_set_param_ship={store_data_set_param_ship}
-          />,
+          />
         );
       }
       if (implementsMidnightHougeki(order)) {
@@ -195,7 +199,7 @@ export function BattlesComponent() {
             battle_selected={battle_selected}
             store_data_set_deck_ship={store_data_set_deck_ship}
             store_data_set_param_ship={store_data_set_param_ship}
-          />,
+          />
         );
       }
       if (implementsHougeki(order)) {
@@ -206,16 +210,12 @@ export function BattlesComponent() {
             store_data_set_deck_ship={store_data_set_deck_ship}
             store_data_set_param_ship={store_data_set_param_ship}
             shelling_idx={order.Hougeki - 1}
-          />,
+          />
         );
       }
     });
     return battle_history;
   };
-
-  const cell = createMemo(() => {
-    return cells.cells[cells.cell_index[cell_index_selected()]];
-  });
 
   const serach_message = () => {
     const battle = battle_selected();
@@ -418,8 +418,8 @@ export function BattlesComponent() {
         ?.map((ship_id) =>
           Object.values(
             store_data_set_deck_ship()[ship_id]?.mst_slot_items
-              ?.mst_slot_items ?? {},
-          ),
+              ?.mst_slot_items ?? {}
+          )
         )
         .flat();
       const f_balloon =
