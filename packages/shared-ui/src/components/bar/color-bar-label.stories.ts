@@ -43,7 +43,7 @@ const ComponentColorBarLabelCatalog = () => {
               quantize=${5}
             ></component-color-bar-label>
           </div>
-        </div>`
+        </div>`,
     )}
   </div>`;
 };

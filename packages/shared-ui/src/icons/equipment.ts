@@ -165,7 +165,7 @@ const bg_slash = [0, 1, 2, 3, 4, 5, 6, 7].map(
       fill="none"
       fill-rule="evenodd"
     ></path>
-  `
+  `,
 );
 
 @customElement("icon-equipment")

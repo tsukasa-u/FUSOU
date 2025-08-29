@@ -24,8 +24,8 @@ const IconShipCatalog = () => {
   const category_type_number = [
     ...new Set(
       get_data.api_data.api_mst_ship.map((x) =>
-        String([x.api_stype, x.apt_ctype])
-      )
+        String([x.api_stype, x.apt_ctype]),
+      ),
     ),
   ].map((s) => s.split(",").map((x) => Number(x)));
 
@@ -44,7 +44,7 @@ const IconShipCatalog = () => {
             color=${"flagship"}
             size=${"xs"}
           ></icon-ship>
-        </div>`
+        </div>`,
     )}
   </div>`;
 };

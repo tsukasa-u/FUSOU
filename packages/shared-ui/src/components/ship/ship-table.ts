@@ -119,15 +119,15 @@ export class ComponentShipTable extends LitElement {
   size: keyof typeof class_size = "sm";
 
   equipmentTemplete(slot: number, index: number) {
-    let onslot =
+    const onslot =
       index != -1 && this.mst_ship && this.mst_ship.maxeq
         ? this.mst_ship.maxeq[index]
         : undefined;
     if (slot > 0) {
-      let slot_item = this.slot_items
+      const slot_item = this.slot_items
         ? this.slot_items.slot_items[slot]
         : undefined;
-      let mst_slot_item =
+      const mst_slot_item =
         slot_item && this.mst_slot_items
           ? this.mst_slot_items.mst_slot_items[slot_item.slotitem_id]
           : undefined;
@@ -181,7 +181,7 @@ export class ComponentShipTable extends LitElement {
         <td class="flex-none w-12 ml-4 py-1 w-full">
           ${this.equipmentTemplete(
             this.ship && this.ship.slot_ex ? this.ship.slot_ex : 0,
-            -1
+            -1,
           )}
         </td>
       </tr>
@@ -195,7 +195,7 @@ export class ComponentShipTable extends LitElement {
   }
 
   SpEffectItem() {
-    let parameter_map = {
+    const parameter_map = {
       soukou: 0,
       raisou: 0,
       karyoku: 0,
@@ -208,7 +208,7 @@ export class ComponentShipTable extends LitElement {
     }
 
     for (const i of [1, 2]) {
-      let sp_effect_item = this.ship.sp_effect_items!.items[i];
+      const sp_effect_item = this.ship.sp_effect_items!.items[i];
       if (sp_effect_item) {
         parameter_map.soukou += sp_effect_item.souk ?? 0;
         parameter_map.raisou += sp_effect_item.raig ?? 0;
@@ -221,8 +221,8 @@ export class ComponentShipTable extends LitElement {
   }
 
   render() {
-    let sp_effect_item = this.SpEffectItem();
-    let max_eq = this.maxEq();
+    const sp_effect_item = this.SpEffectItem();
+    const max_eq = this.maxEq();
     return this.ship && this.mst_ship
       ? html`<div class="cursor-default">
           <div class="flex justify-start">
@@ -255,7 +255,7 @@ export class ComponentShipTable extends LitElement {
             <table class=${["table", class_size[this.size].table].join(" ")}>
               <caption
                 class=${["truncate", class_size[this.size].caption_text].join(
-                  " "
+                  " ",
                 )}
               >
                 Slots
@@ -268,7 +268,7 @@ export class ComponentShipTable extends LitElement {
             <table class=${["table", class_size[this.size].table].join(" ")}>
               <caption
                 class=${["truncate", class_size[this.size].caption_text].join(
-                  " "
+                  " ",
                 )}
               >
                 Ship Status

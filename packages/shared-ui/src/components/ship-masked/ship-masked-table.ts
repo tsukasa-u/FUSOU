@@ -90,7 +90,7 @@ export class ComponentShipMaskedTable extends LitElement {
 
   equipmentTemplete(slot: number) {
     if (slot > 0) {
-      let mst_slot_item = this.mst_slot_items
+      const mst_slot_item = this.mst_slot_items
         ? this.mst_slot_items.mst_slot_items[slot]
         : undefined;
       return html`<component-equipment-mst-modal
@@ -144,7 +144,7 @@ export class ComponentShipMaskedTable extends LitElement {
             <table class=${["table", class_size[this.size].table].join(" ")}>
               <caption
                 class=${["truncate", class_size[this.size].caption_text].join(
-                  " "
+                  " ",
                 )}
               >
                 Slots
@@ -157,7 +157,7 @@ export class ComponentShipMaskedTable extends LitElement {
             <table class=${["table", class_size[this.size].table].join(" ")}>
               <caption
                 class=${["truncate", class_size[this.size].caption_text].join(
-                  " "
+                  " ",
                 )}
               >
                 Ship Status

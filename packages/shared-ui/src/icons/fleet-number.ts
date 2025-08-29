@@ -31,7 +31,7 @@ const bg_slash = [0, 1, 2, 3, 4, 5, 6, 7].map(
       fill="none"
       fill-rule="evenodd"
     ></path>
-  `
+  `,
 );
 
 const get_primary_color = (e_flag: number) => {
@@ -45,7 +45,7 @@ const get_primary_color = (e_flag: number) => {
 const get_fleet_ship_number = (
   fleet_number: number,
   ship_number: number,
-  combined_flag?: boolean
+  combined_flag?: boolean,
 ): [number, number] => {
   if (combined_flag == true && ship_number > 6) {
     return [fleet_number + 1, ship_number - 6];
@@ -85,13 +85,12 @@ export class IconFleetNumber extends LitElement {
   combined_flag = false;
 
   render() {
-    let new_fleet_number,
-      new_ship_number = get_fleet_ship_number(
-        this.fleet_number,
-        this.ship_number,
-        this.combined_flag
-      );
-    let primary_color = get_primary_color(this.e_flag);
+    const [new_fleet_number, new_ship_number] = get_fleet_ship_number(
+      this.fleet_number,
+      this.ship_number,
+      this.combined_flag,
+    );
+    const primary_color = get_primary_color(this.e_flag);
 
     return html` <svg
       fill="currentColor"

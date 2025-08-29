@@ -28,8 +28,8 @@ const IconEquipmentCatalog = () => {
   const category_icon_number = [
     ...new Set(
       get_data.api_data.api_mst_slotitem.map((x) =>
-        String([x.api_type[1], x.api_type[3]])
-      )
+        String([x.api_type[1], x.api_type[3]]),
+      ),
     ),
   ].map((s) => s.split(",").map((x) => Number(x)));
 
@@ -40,7 +40,7 @@ const IconEquipmentCatalog = () => {
           icon_number=${icon_number}
           category_number=${category_number}
           size=${"xs"}
-        ></icon-equipment>`
+        ></icon-equipment>`,
     )}
   </div>`;
 };
@@ -49,8 +49,8 @@ const IconEquipmentCatalogDetail = () => {
   const category_icon_number = [
     ...new Set(
       get_data.api_data.api_mst_slotitem.map((x) =>
-        String([x.api_type[1], x.api_type[2], x.api_type[3]])
-      )
+        String([x.api_type[1], x.api_type[2], x.api_type[3]]),
+      ),
     ),
   ].map((s) => s.split(",").map((x) => Number(x)));
 
@@ -66,10 +66,10 @@ const IconEquipmentCatalogDetail = () => {
     ${category_icon_number.map(
       ([album_slot_number, category_number, icon_number]) => {
         try {
-          let icon_frame = (icon_frames as any)[
+          const icon_frame = (icon_frames as any)[
             `common_icon_weapon_id_${icon_number}`
           ].frame;
-          let album_slot2_frame = (album_slot2_frames as any)[
+          const album_slot2_frame = (album_slot2_frames as any)[
             `album_slot2_id_${album_slot_number}`
           ].frame;
           return html`<div class="flex h-12 items-center">
@@ -99,7 +99,7 @@ const IconEquipmentCatalogDetail = () => {
               ${get_data.api_data.api_mst_slotitem.find(
                 (element) =>
                   element.api_type[2] == category_number &&
-                  element.api_type[3] == icon_number
+                  element.api_type[3] == icon_number,
               )!.api_name ?? "Unknown"}
             </div>
             <div class="w-60 h-full" style="transform: translateY(-36px);">
@@ -111,12 +111,15 @@ const IconEquipmentCatalogDetail = () => {
                 background-size: ${3199 * bg_scale}px, ${2595 * bg_scale}px;
                 width: ${album_slot2_frame.w * bg_scale}px;
                 hieght: ${album_slot2_frame.h * bg_scale}px;
-                background-position: top -${album_slot2_frame.y * bg_scale}px left -${album_slot2_frame.x * bg_scale}px;
+                background-position: top -${
+                  album_slot2_frame.y * bg_scale
+                }px left -${album_slot2_frame.x * bg_scale}px;
                 background-image: url('${album_slot2_png}');
                 `}
               ></div>
             </div>
           </div>`;
+          // eslint-disable-next-line @typescript-eslint/no-unused-vars
         } catch (e) {
           return html`<div class="flex h-12 items-center">
             <icon-equipment
@@ -134,12 +137,12 @@ const IconEquipmentCatalogDetail = () => {
               ${get_data.api_data.api_mst_slotitem.find(
                 (element) =>
                   element.api_type[2] == category_number &&
-                  element.api_type[3] == icon_number
+                  element.api_type[3] == icon_number,
               )!.api_name ?? "Unknown"}
             </div>
           </div>`;
         }
-      }
+      },
     )}
   </div>`;
 };
@@ -171,7 +174,7 @@ export const basic: Story = {
       table: {
         defaultValue: { summary: "xs" },
         type: {
-          summary: size_list.join("\|"),
+          summary: size_list.join("|"),
         },
       },
     },

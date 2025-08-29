@@ -28,7 +28,7 @@ const class_color = {
 
 const calc_value = (v_now: number, v_max: number, quantize?: number) => {
   if (quantize && quantize > 0) {
-    let quantuzed_v_now = v_now - (v_now % (v_max / quantize));
+    const quantuzed_v_now = v_now - (v_now % (v_max / quantize));
     return v_max != 0 ? (quantuzed_v_now * 100) / v_max : 0;
   } else {
     return v_max != 0 ? (v_now * 100) / v_max : 0;
@@ -70,7 +70,7 @@ export class ComponentColorBar extends LitElement {
 
   render() {
     this.color = get_color(this.v_now, this.v_max);
-    let value = calc_value(this.v_now, this.v_max, this.quantize);
+    const value = calc_value(this.v_now, this.v_max, this.quantize);
     return html`<div class="flex items-center">
       <progress
         class=${[

@@ -104,8 +104,10 @@ export class ComponentEquipmentMst extends LitElement {
 
   render() {
     if (this.mst_slot_item || this.empty_flag) {
-      let category_number = this.mst_slot_item ? this.mst_slot_item.type[1] : 0;
-      let icon_number = this.mst_slot_item ? this.mst_slot_item.type[3] : 0;
+      const category_number = this.mst_slot_item
+        ? this.mst_slot_item.type[1]
+        : 0;
+      const icon_number = this.mst_slot_item ? this.mst_slot_item.type[3] : 0;
       return html`
         <div class="flex flex-nowarp w-full">
           <div>

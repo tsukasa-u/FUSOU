@@ -27,7 +27,7 @@ const IconMaterialCatalog = () => {
         html`<icon-material
           item_number=${Number(item_number)}
           size=${"xs"}
-        ></icon-material>`
+        ></icon-material>`,
     )}
   </div>`;
 };
@@ -47,7 +47,7 @@ const IconMaterialCatalogDetail = () => {
   return html`<div class="grid gap-4">
     ${itemicon_id_name.map(([id, name]) => {
       try {
-        let itemicons_frame = (itemicons_frames as any)[
+        const itemicons_frame = (itemicons_frames as any)[
           `common_itemicons_id_${id}`
         ].frame;
         return html`<div class="flex h-12 items-center">
@@ -64,12 +64,15 @@ const IconMaterialCatalogDetail = () => {
               background-size: ${635 * bg_scale}px, ${635 * bg_scale}px;
               width: ${itemicons_frame.w * bg_scale}px;
               hieght: ${itemicons_frame.h * bg_scale}px;
-              background-position: top -${itemicons_frame.y * bg_scale}px left -${itemicons_frame.x * bg_scale}px;
+              background-position: top -${
+                itemicons_frame.y * bg_scale
+              }px left -${itemicons_frame.x * bg_scale}px;
                 background-image: url('${common_itemicons_png}');`}
             ></div>
           </div>
           <div class="w-40">${name}</div>
         </div>`;
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
       } catch (e) {
         return html`<div class="flex h-12 items-center">
           <h1 class="w-20">${id}</h1>
@@ -108,7 +111,7 @@ export const basic: Story = {
       table: {
         defaultValue: { summary: "xs" },
         type: {
-          summary: size_list.join("\|"),
+          summary: size_list.join("|"),
         },
       },
     },

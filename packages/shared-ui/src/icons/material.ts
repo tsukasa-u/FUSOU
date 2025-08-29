@@ -151,7 +151,7 @@ const bg_slash = [0, 1, 2, 3, 4, 5, 6, 7].map(
       fill="none"
       fill-rule="evenodd"
     ></path>
-  `
+  `,
 );
 
 @customElement("icon-material")
@@ -176,8 +176,8 @@ export class IconMaterial extends LitElement {
   size: keyof typeof class_size = "xs";
 
   render() {
-    let name = get_name(this.item_number);
-    let primary_color = get_primary_color(this.item_number);
+    const name = get_name(this.item_number);
+    const primary_color = get_primary_color(this.item_number);
 
     return html` <svg
       fill="currentColor"

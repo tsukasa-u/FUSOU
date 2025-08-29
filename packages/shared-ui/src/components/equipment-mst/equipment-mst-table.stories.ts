@@ -9,7 +9,7 @@ import { ifDefined } from "lit/directives/if-defined.js";
 const size_list = ["xs", "sm", "md", "lg", "xl"];
 
 const ComponentEquipmentMstTableBasic = (
-  args: ComponentEquipmentMstTableProps
+  args: ComponentEquipmentMstTableProps,
 ) => {
   return html`<component-equipment-mst-table
     .mst_slot_item=${args.mst_slot_item}

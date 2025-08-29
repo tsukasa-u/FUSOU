@@ -8,7 +8,7 @@ import { html } from "lit";
 const size_list = ["xs", "sm", "md", "lg", "xl"];
 
 const ComponentEquipmentMstModalBasic = (
-  args: ComponentEquipmentMstModalProps
+  args: ComponentEquipmentMstModalProps,
 ) => {
   return html`<component-equipment-mst-modal
     .mst_slot_item=${args.mst_slot_item}

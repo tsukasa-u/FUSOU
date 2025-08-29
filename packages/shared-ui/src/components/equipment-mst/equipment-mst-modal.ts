@@ -56,7 +56,7 @@ export class ComponentEquipmentMstModal extends LitElement {
     const dialogElement = this.dialogRef.value!;
     dialogElement?.showModal();
   }
-  
+
   private close_modal(e: Event) {
     e.preventDefault();
     this.show_dialog = false;

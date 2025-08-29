@@ -26,7 +26,7 @@ const IconPlaneProficiencyCatalog = () => {
             level=${level}
             size=${"sm"}
           ></icon-plane-proficiency>
-        </div>`
+        </div>`,
     )}
   </div>`;
 };

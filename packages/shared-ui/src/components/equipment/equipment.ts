@@ -72,7 +72,7 @@ const class_size = {
 };
 
 const show_onslot = (mst_slot_item: MstSlotItem) => {
-  let type = mst_slot_item.type[1];
+  const type = mst_slot_item.type[1];
   return (
     type == 5 ||
     type == 7 ||
@@ -179,8 +179,10 @@ export class ComponentEquipment extends LitElement {
 
   render() {
     if ((this.mst_slot_item && this.slot_item) || this.empty_flag) {
-      let category_number = this.mst_slot_item ? this.mst_slot_item.type[1] : 0;
-      let icon_number = this.mst_slot_item ? this.mst_slot_item.type[3] : 0;
+      const category_number = this.mst_slot_item
+        ? this.mst_slot_item.type[1]
+        : 0;
+      const icon_number = this.mst_slot_item ? this.mst_slot_item.type[3] : 0;
 
       return html`
         <div class="flex flex-nowarp w-full">
