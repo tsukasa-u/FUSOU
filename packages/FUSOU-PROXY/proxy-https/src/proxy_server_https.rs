@@ -163,17 +163,17 @@ fn log_response(
 
                     if content_type.eq("application/json") {
                         // this code is for the response not decoded in hudsucker!!
-                        match flate2::read::MultiGzDecoder::new(body.as_slice()).read_to_end(&mut buffer) {
+                        match flate2::read::MultiGzDecoder::new(body.as_slice())
+                            .read_to_end(&mut buffer)
+                        {
                             Ok(_) => {}
                             Err(_) => {
                                 buffer = body.clone();
                             }
                         }
-                        fs::write(file_log_path, buffer)
-                            .expect("Failed to write file");
+                        fs::write(file_log_path, buffer).expect("Failed to write file");
                     } else {
-                        fs::write(file_log_path, body.clone())
-                            .expect("Failed to write file");
+                        fs::write(file_log_path, body.clone()).expect("Failed to write file");
                     }
 
                     // if !file_log_path.exists() {
