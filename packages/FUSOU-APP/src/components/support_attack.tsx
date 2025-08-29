@@ -147,7 +147,7 @@ export function SupportAttackComponent(props: SupportAttackProps) {
                     props
                       .battle_selected()
                       ?.support_attack?.support_hourai?.protect_flag.some(
-                        (flag) => flag
+                        (flag) => flag,
                       ) ?? false
                   }
                 >
@@ -200,7 +200,7 @@ export function SupportAttackComponent(props: SupportAttackProps) {
                   class={`text-sm my-auto ${calc_critical(
                     dmg,
                     props.battle_selected()?.support_attack?.support_hourai
-                      ?.cl_list[dmg_index()]
+                      ?.cl_list[dmg_index()],
                   )}`}
                 >
                   {dmg}
@@ -239,7 +239,7 @@ export function SupportAttackComponent(props: SupportAttackProps) {
                       props
                         .battle_selected()
                         ?.support_attack?.support_airatack?.e_damage?.protect_flag?.some(
-                          (flag) => flag
+                          (flag) => flag,
                         ) ?? false
                     }
                   >
@@ -300,7 +300,7 @@ export function SupportAttackComponent(props: SupportAttackProps) {
                   class={`text-sm my-auto ${calc_critical(
                     dmg,
                     props.battle_selected()?.support_attack?.support_airatack
-                      ?.e_damage?.cl?.[dmg_index()]
+                      ?.e_damage?.cl?.[dmg_index()],
                   )}`}
                 >
                   {dmg}

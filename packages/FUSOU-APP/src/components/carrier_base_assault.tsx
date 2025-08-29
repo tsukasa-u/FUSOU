@@ -143,7 +143,7 @@ export function CarrierBaseAssaultComponent(props: AirDamageProps) {
                   <Show
                     when={
                       carrier_base_assault?.e_damage.protect_flag?.some(
-                        (flag) => flag
+                        (flag) => flag,
                       ) ?? false
                     }
                   >
@@ -193,7 +193,7 @@ export function CarrierBaseAssaultComponent(props: AirDamageProps) {
                 <div
                   class={`text-sm my-auto ${calc_critical(
                     dmg,
-                    carrier_base_assault?.e_damage.cl?.[dmg_index()]
+                    carrier_base_assault?.e_damage.cl?.[dmg_index()],
                   )}`}
                 >
                   {dmg}
@@ -276,7 +276,7 @@ export function CarrierBaseAssaultComponent(props: AirDamageProps) {
                   <Show
                     when={
                       carrier_base_assault?.f_damage.protect_flag?.some(
-                        (flag) => flag
+                        (flag) => flag,
                       ) ?? false
                     }
                   >
@@ -328,7 +328,7 @@ export function CarrierBaseAssaultComponent(props: AirDamageProps) {
                 <div
                   class={`text-sm my-auto ${calc_critical(
                     dmg,
-                    carrier_base_assault?.e_damage.cl?.[dmg_index()]
+                    carrier_base_assault?.e_damage.cl?.[dmg_index()],
                   )}`}
                 >
                   {dmg}

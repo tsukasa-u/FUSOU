@@ -1,5 +1,5 @@
 import type { MstSlotItem, MstSlotItems } from "@ipc-bindings/get_data";
-import type { DataSetShip} from "./get_data_set";
+import type { DataSetShip } from "./get_data_set";
 import { get_data_set_ship } from "./get_data_set";
 import {
   useCells,
@@ -11,7 +11,7 @@ import type { Battle } from "@ipc-bindings/battle";
 
 export const calc_critical = (
   dmg: number,
-  cl_flag: number | undefined
+  cl_flag: number | undefined,
 ): string => {
   if (cl_flag == 0 || dmg == 0) {
     return "text-red-500";
@@ -34,7 +34,7 @@ export const get_mst_slot_item = (id: number) => {
 };
 
 export const get_mst_slot_items_list = (
-  mst_slot_item_ids: number[][]
+  mst_slot_item_ids: number[][],
 ): MstSlotItems[] => {
   const [mst_slot_items] = useMstSlotItems();
 
@@ -46,7 +46,7 @@ export const get_mst_slot_items_list = (
           (dict, slot_item) => (
             slot_item ? (dict[slot_item.id] = slot_item) : dict, dict
           ),
-          {} as { [x: number]: MstSlotItem | undefined }
+          {} as { [x: number]: MstSlotItem | undefined },
         ),
     } as MstSlotItems;
   });

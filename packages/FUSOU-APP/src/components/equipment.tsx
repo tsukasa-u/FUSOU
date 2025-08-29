@@ -4,7 +4,7 @@ import { IconXMark } from "../icons/X-mark.tsx";
 import { useMstSlotItems, useSlotItems } from "../utility/provider.tsx";
 
 import "../css/modal.css";
-import type { JSX} from "solid-js";
+import type { JSX } from "solid-js";
 import { createMemo, createSignal, Show } from "solid-js";
 import IconPlaneProficiency1 from "../icons/plane_proficiency1.tsx";
 import IconPlaneProficiency2 from "../icons/plane_proficiency2.tsx";
@@ -23,7 +23,7 @@ interface EquipmentProps {
 
 const show_modal = (slot_id: number) => {
   const dialogElement = document.getElementById(
-    "deck_equipment_modal_" + slot_id
+    "deck_equipment_modal_" + slot_id,
   ) as HTMLDialogElement | null;
   dialogElement?.showModal();
 };
@@ -111,7 +111,7 @@ export function EquimentComponent(props: EquipmentProps) {
       (acc, [key, value]) => {
         return acc + key + ": " + String(value) + ",\n";
       },
-      ""
+      "",
     );
     return tool_tip_string;
   };

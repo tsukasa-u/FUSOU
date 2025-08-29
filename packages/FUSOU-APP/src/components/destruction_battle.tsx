@@ -35,7 +35,10 @@ export function DestructionBattleComponent(props: DestructionBattleProps) {
   });
 
   const show_damage = createMemo<boolean[][]>(() => {
-    const show_damage: boolean[][] = [Array(6).fill(false), Array(6).fill(false)];
+    const show_damage: boolean[][] = [
+      Array(6).fill(false),
+      Array(6).fill(false),
+    ];
 
     const destruction_battle = props.cell()?.destruction_battle;
     if (props.cell() == null || props.cell() == undefined) return show_damage;
@@ -44,22 +47,22 @@ export function DestructionBattleComponent(props: DestructionBattleProps) {
     destruction_battle?.air_base_attack.e_damage.bak_flag?.forEach(
       (flag, idx) => {
         show_damage[0][idx] ||= flag == 1;
-      }
+      },
     );
     destruction_battle?.air_base_attack.e_damage.rai_flag?.forEach(
       (flag, idx) => {
         show_damage[0][idx] ||= flag == 1;
-      }
+      },
     );
     destruction_battle?.air_base_attack.f_damage.bak_flag?.forEach(
       (flag, idx) => {
         show_damage[1][idx] ||= flag == 1;
-      }
+      },
     );
     destruction_battle?.air_base_attack.f_damage.rai_flag?.forEach(
       (flag, idx) => {
         show_damage[1][idx] ||= flag == 1;
-      }
+      },
     );
     return show_damage;
   });
@@ -166,7 +169,8 @@ export function DestructionBattleComponent(props: DestructionBattleProps) {
 
   const base_attacker_planes = () => {
     const base_ids = Object.keys(
-      props.cell()?.destruction_battle?.air_base_attack.map_squadron_plane ?? {}
+      props.cell()?.destruction_battle?.air_base_attack.map_squadron_plane ??
+        {},
     );
     return (
       <td>
@@ -268,7 +272,7 @@ export function DestructionBattleComponent(props: DestructionBattleProps) {
                     dmg,
                     destruction_battle?.air_base_attack.e_damage.cl?.[
                       dmg_index()
-                    ]
+                    ],
                   )}`}
                 >
                   {dmg}
@@ -402,7 +406,7 @@ export function DestructionBattleComponent(props: DestructionBattleProps) {
                     dmg,
                     destruction_battle?.air_base_attack.f_damage.cl?.[
                       dmg_index()
-                    ]
+                    ],
                   )}`}
                 >
                   {dmg}

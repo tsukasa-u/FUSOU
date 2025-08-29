@@ -1,11 +1,5 @@
-import type {
-  JSX} from "solid-js";
-import {
-  createContext,
-  useContext,
-  createEffect,
-  onCleanup,
-} from "solid-js";
+import type { JSX } from "solid-js";
+import { createContext, useContext, createEffect, onCleanup } from "solid-js";
 import type { Part, SetStoreFunction } from "solid-js/store";
 import { createStore } from "solid-js/store";
 import type { UnlistenFn } from "@tauri-apps/api/event";
@@ -75,7 +69,7 @@ export function ShipsProvider(props: { children: JSX.Element }) {
                   "ships",
                   Number(key1),
                   key2 as Part<Ship, keyof Ship>,
-                  value2
+                  value2,
                 );
               }
             });
@@ -192,7 +186,7 @@ export function MstSlotItemsProvider(props: { children: JSX.Element }) {
         (event) => {
           if (import.meta.env.DEV) console.log("set-kcs-mst-slot-items");
           setData(event.payload);
-        }
+        },
       );
     })();
 
@@ -234,7 +228,7 @@ export function MstEquipExslotShipsProvider(props: { children: JSX.Element }) {
           if (import.meta.env.DEV)
             console.log("set-kcs-mst-equip-exslot-ships");
           setData(event.payload);
-        }
+        },
       );
     })();
 
@@ -254,7 +248,7 @@ export function useMstEquipExslotShips() {
   const context = useContext(MstEquipExslotShipsContext);
   if (!context) {
     throw new Error(
-      "useMstEquipExslotShips: cannot find a MstEquipExslotShipsContext"
+      "useMstEquipExslotShips: cannot find a MstEquipExslotShipsContext",
     );
   }
   return context as [
@@ -283,7 +277,7 @@ export function MstSlotItemEquipTypesProvider(props: {
           if (import.meta.env.DEV)
             console.log("set-kcs-mst-slot-item-equip-types");
           setData(event.payload);
-        }
+        },
       );
     })();
 
@@ -303,7 +297,7 @@ export function useMstSlotItemEquipTypes() {
   const context = useContext(MstSlotItemEquipTypesContext);
   if (!context) {
     throw new Error(
-      "useMstSlotItemEquipTypes: cannot find a MstSlotItemEquipTypesContext"
+      "useMstSlotItemEquipTypes: cannot find a MstSlotItemEquipTypesContext",
     );
   }
 
@@ -328,7 +322,7 @@ export function MstEquipShipsProvider(props: { children: JSX.Element }) {
         (event) => {
           if (import.meta.env.DEV) console.log("set-kcs-mst-equip-ships");
           setData(event.payload);
-        }
+        },
       );
     })();
 
@@ -403,7 +397,7 @@ export function MstUseItemsProvider(props: { children: JSX.Element }) {
         (event) => {
           if (import.meta.env.DEV) console.log("set-kcs-mst-use-items");
           setData(event.payload);
-        }
+        },
       );
     })();
 
@@ -443,7 +437,7 @@ export function MaterialsProvider(props: { children: JSX.Element }) {
         (event) => {
           if (import.meta.env.DEV) console.log("set-kcs-materials");
           setData(event.payload);
-        }
+        },
       );
       unlisten_data_add = await listen<Materials>(
         "add-kcs-materials",
@@ -454,7 +448,7 @@ export function MaterialsProvider(props: { children: JSX.Element }) {
               setData(key as Part<Materials, keyof Materials>, value);
             }
           });
-        }
+        },
       );
     })();
 
@@ -532,7 +526,7 @@ export function CellsContextProvider(props: { children: JSX.Element }) {
         (event) => {
           if (import.meta.env.DEV) console.log("set-kcs-cells");
           setData(event.payload);
-        }
+        },
       );
       // eslint-disable-next-line solid/reactivity
       unlisten_data_add_cell = await listen<Cell>("add-kcs-cell", (event) => {
@@ -548,7 +542,7 @@ export function CellsContextProvider(props: { children: JSX.Element }) {
           if (
             Object.prototype.hasOwnProperty.call(
               data.battles,
-              event.payload.cell_id
+              event.payload.cell_id,
             )
           ) {
             Object.entries(event.payload).forEach(([key, value]) => {
@@ -557,14 +551,14 @@ export function CellsContextProvider(props: { children: JSX.Element }) {
                   "battles",
                   event.payload.cell_id,
                   key as Part<Battle, keyof Battle>,
-                  value
+                  value,
                 );
               }
             });
           } else {
             setData("battles", event.payload.cell_id, event.payload);
           }
-        }
+        },
       );
     })();
 
@@ -715,7 +709,7 @@ export function DebugApiProvider(props: { children: JSX.Element }) {
         (event) => {
           if (import.meta.env.DEV) console.log("set-debug-api-read-dir");
           setData(event.payload);
-        }
+        },
       );
     })();
 

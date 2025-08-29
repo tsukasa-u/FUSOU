@@ -280,7 +280,7 @@ export function OpeningAirAttackComponent(props: AirDamageProps) {
                 <div
                   class={`text-sm my-auto ${calc_critical(
                     dmg,
-                    airattack?.e_damage.cl?.[dmg_index()]
+                    airattack?.e_damage.cl?.[dmg_index()],
                   )}`}
                 >
                   {dmg}
@@ -415,7 +415,7 @@ export function OpeningAirAttackComponent(props: AirDamageProps) {
                 <div
                   class={`text-sm my-auto ${calc_critical(
                     dmg,
-                    airattack?.f_damage.cl?.[dmg_index()]
+                    airattack?.f_damage.cl?.[dmg_index()],
                   )}`}
                 >
                   {dmg}

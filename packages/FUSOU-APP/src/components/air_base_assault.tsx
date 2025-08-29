@@ -56,12 +56,12 @@ export function AirBaseAssaultComponent(props: AirDamageProps) {
     const set_base_id: Set<number> = new Set(
       props
         .battle_selected()
-        ?.air_base_air_attacks?.attacks.map((attack) => attack.base_id)
+        ?.air_base_air_attacks?.attacks.map((attack) => attack.base_id),
     );
     const plane_info = Array.from(set_base_id.values())
       .map(
         (base_id) =>
-          air_bases.bases[(props.area_id << 16) | base_id]?.plane_info
+          air_bases.bases[(props.area_id << 16) | base_id]?.plane_info,
       )
       .reduce((acc, val) => (acc && val ? acc.concat(val) : acc), []);
 
@@ -70,12 +70,12 @@ export function AirBaseAssaultComponent(props: AirDamageProps) {
       props
         .battle_selected()
         ?.air_base_assault?.squadron_plane.filter(
-          (squadron_plane) => squadron_plane != 0
+          (squadron_plane) => squadron_plane != 0,
         )
         .forEach((squadron_plane) => {
           const idx = plane_info.findIndex(
             (plane) =>
-              slotitems.slot_items[plane.slotid]?.slotitem_id == squadron_plane
+              slotitems.slot_items[plane.slotid]?.slotitem_id == squadron_plane,
           );
           if (idx && idx != -1) {
             ret.push(plane_info[idx].slotid);
@@ -131,7 +131,7 @@ export function AirBaseAssaultComponent(props: AirDamageProps) {
                         props
                           .battle_selected()
                           ?.air_base_assault?.e_damage.protect_flag?.some(
-                            (flag) => flag
+                            (flag) => flag,
                           ) ?? false
                       }
                     >
@@ -192,7 +192,7 @@ export function AirBaseAssaultComponent(props: AirDamageProps) {
                       dmg,
                       props.battle_selected()?.air_base_assault?.e_damage.cl?.[
                         idx()
-                      ]
+                      ],
                     )}`}
                   >
                     {dmg}

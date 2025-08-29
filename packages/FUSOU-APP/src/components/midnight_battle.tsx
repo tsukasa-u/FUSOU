@@ -66,8 +66,12 @@ export function MidnightShellingComponent(props: MidnightShellingProps) {
 
   const display_flare = () => {
     const midnight_flare_pos = props.battle_selected()?.midnight_flare_pos;
-    const f_midnight_flare_pos = midnight_flare_pos ? midnight_flare_pos[0] : -1;
-    const e_midnight_flare_pos = midnight_flare_pos ? midnight_flare_pos[1] : -1;
+    const f_midnight_flare_pos = midnight_flare_pos
+      ? midnight_flare_pos[0]
+      : -1;
+    const e_midnight_flare_pos = midnight_flare_pos
+      ? midnight_flare_pos[1]
+      : -1;
     return (
       <>
         Flare : <span class="w-1" />
@@ -321,7 +325,7 @@ export function MidnightShellingComponent(props: MidnightShellingProps) {
                 <div
                   class={`text-sm h-6 ${calc_critical(
                     dmg,
-                    midngiht_hougeki()?.cl_list?.[at_index()]?.[dmg_index()]
+                    midngiht_hougeki()?.cl_list?.[at_index()]?.[dmg_index()],
                   )}`}
                 >
                   {dmg}

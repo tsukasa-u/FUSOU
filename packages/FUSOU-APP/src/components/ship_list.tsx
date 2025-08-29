@@ -1,8 +1,7 @@
 import { useMstShips, useMstStypes, useShips } from "../utility/provider.tsx";
 
 import "../css/divider.css";
-import type {
-  JSX} from "solid-js";
+import type { JSX } from "solid-js";
 import {
   createEffect,
   createMemo,
@@ -89,7 +88,7 @@ export function ShipListComponent() {
   });
 
   const [check_name, set_check_name] = createStore<{ [key: number]: boolean }>(
-    {}
+    {},
   );
   createEffect(() => {
     const check_name: { [key: number]: boolean } = {};
@@ -111,7 +110,7 @@ export function ShipListComponent() {
         check_ship_property[property] = true;
       });
       return check_ship_property;
-    })()
+    })(),
   );
 
   const [set_order, set_set_order] = createSignal(false);
@@ -122,7 +121,7 @@ export function ShipListComponent() {
     (() => {
       const stype_name = Object.values(mst_stypes.mst_stypes)[0]?.name;
       return stype_name ? stype_name : "海防艦";
-    })()
+    })(),
   );
 
   const sort_fn = (a: string | number, b: string | number) => {
@@ -288,7 +287,7 @@ export function ShipListComponent() {
         };
       });
       return range_props;
-    })()
+    })(),
   );
 
   const filtered_ships = createMemo<{ [key: number]: boolean }>(() => {
@@ -602,8 +601,8 @@ export function ShipListComponent() {
                           param,
                           "min",
                           param_converter[param_index].findIndex(
-                            (param_select) => param_select == e.target.value
-                          )
+                            (param_select) => param_select == e.target.value,
+                          ),
                         );
                       }}
                     >
@@ -623,8 +622,8 @@ export function ShipListComponent() {
                           param,
                           "max",
                           param_converter[param_index].findIndex(
-                            (param_select) => param_select == e.target.value
-                          )
+                            (param_select) => param_select == e.target.value,
+                          ),
                         );
                       }}
                     >
@@ -663,8 +662,8 @@ export function ShipListComponent() {
                           param,
                           "eq",
                           param_converter[param_index].findIndex(
-                            (param_select) => param_select == e.target.value
-                          )
+                            (param_select) => param_select == e.target.value,
+                          ),
                         )
                       }
                     >
@@ -1015,7 +1014,7 @@ export function ShipListComponent() {
                                   onClick={() => {
                                     set_check_stype(
                                       stype_name,
-                                      !check_stype[stype_name]
+                                      !check_stype[stype_name],
                                     );
                                   }}
                                 />
@@ -1212,7 +1211,7 @@ export function ShipListComponent() {
                               onClick={() => {
                                 set_check_ship_property(
                                   prop,
-                                  !check_ship_property[prop]
+                                  !check_ship_property[prop],
                                 );
                               }}
                             />

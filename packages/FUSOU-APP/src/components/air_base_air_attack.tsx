@@ -95,7 +95,7 @@ export function AirBaseAirAttackComponent(props: AirDamageProps) {
 
   const defenser_ships = (
     attack: AirBaseAirAttack,
-    attack_idx: () => number
+    attack_idx: () => number,
   ) => {
     return (
       <td>
@@ -157,7 +157,7 @@ export function AirBaseAirAttackComponent(props: AirDamageProps) {
 
   const defenser_damages = (
     attack: AirBaseAirAttack,
-    attack_idx: () => number
+    attack_idx: () => number,
   ) => {
     return (
       <td>
@@ -172,7 +172,7 @@ export function AirBaseAirAttackComponent(props: AirDamageProps) {
                   <div
                     class={`text-sm my-auto ${calc_critical(
                       dmg,
-                      attack.e_damage.cl?.[idx()]
+                      attack.e_damage.cl?.[idx()],
                     )}`}
                   >
                     {dmg}

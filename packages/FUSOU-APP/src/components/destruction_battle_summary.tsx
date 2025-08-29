@@ -61,7 +61,7 @@ export function DestructionBattleSummaryComponent(props: ButtleSummaryProps) {
       (hp, i) => {
         const dmg = destruction_battle.f_total_damages?.[i];
         return dmg ? hp - dmg : null;
-      }
+      },
     );
     const f_base_maxhps: number[] = destruction_battle.f_maxhps;
     const f_base_damages: number[] | null = destruction_battle.f_total_damages;
@@ -71,7 +71,7 @@ export function DestructionBattleSummaryComponent(props: ButtleSummaryProps) {
       (hp, i) => {
         const dmg = destruction_battle.e_total_damages?.[i];
         return dmg ? hp - dmg : null;
-      }
+      },
     );
     const e_main_maxhps: number[] = destruction_battle.e_maxhps;
     const e_main_damages: number[] | null = destruction_battle.e_total_damages;
@@ -205,8 +205,8 @@ export function DestructionBattleSummaryComponent(props: ButtleSummaryProps) {
                     0,
                     Math.max(
                       fleet_info().f_base_id.length,
-                      fleet_info().e_main_ship_id.length
-                    )
+                      fleet_info().e_main_ship_id.length,
+                    ),
                   )}
                 >
                   {(idx) => (

@@ -306,7 +306,7 @@ export function FriendlyForceAttackComponent(props: FriendlyForceAttackProps) {
                     props.battle_selected()?.friendly_force_attack
                       ?.support_hourai?.hougeki?.cl_list?.[at_index()]?.[
                       dmg_index()
-                    ]
+                    ],
                   )}`}
                 >
                   {dmg}

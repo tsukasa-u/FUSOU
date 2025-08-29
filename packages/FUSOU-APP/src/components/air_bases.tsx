@@ -101,7 +101,7 @@ export function AirBasesComponent() {
                       <ul class="pl-0">
                         <For
                           each={base?.plane_info.filter(
-                            (plane) => plane.slotid != 0
+                            (plane) => plane.slotid != 0,
                           )}
                           fallback={
                             <li class="h-auto">

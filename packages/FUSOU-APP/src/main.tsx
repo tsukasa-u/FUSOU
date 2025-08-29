@@ -26,6 +26,6 @@ render(
       </Router>
     </AuthProvider>
   ),
-  document.getElementById("root") as HTMLElement
+  document.getElementById("root") as HTMLElement,
 );
 // render(() => <App />, document.getElementById("root") as HTMLElement);

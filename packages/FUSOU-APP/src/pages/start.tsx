@@ -93,17 +93,17 @@ function Start() {
   createEffect(location_route);
 
   const [runProxyServer, setRunProxyServer] = createSignal<boolean>(
-    Boolean(launch_options["run_proxy_server"])
+    Boolean(launch_options["run_proxy_server"]),
   );
   const [openApp, setOpenApp] = createSignal<boolean>(
-    Boolean(launch_options["open_app"])
+    Boolean(launch_options["open_app"]),
   );
   const [openKancolle, setOpenKancolle] = createSignal<boolean>(
-    Boolean(launch_options["open_kancolle"])
+    Boolean(launch_options["open_kancolle"]),
   );
   const [openKancolleWithWebView, setOpenKancolleWithWebView] =
     createSignal<boolean>(
-      Boolean(launch_options["open_kancolle_with_webview"])
+      Boolean(launch_options["open_kancolle_with_webview"]),
     );
   const [server, setServer] = createSignal<number>(launch_options["server"]);
 

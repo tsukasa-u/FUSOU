@@ -247,7 +247,7 @@ export function OpeningAntiSubmarineComponent(props: AntiSubmarineProps) {
                     dmg,
                     props.battle_selected()?.opening_taisen?.cl_list?.[
                       at_index()
-                    ]?.[dmg_index()]
+                    ]?.[dmg_index()],
                   )}`}
                 >
                   {dmg}

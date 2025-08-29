@@ -1,5 +1,3 @@
- 
-
 import { createMemo, For, Show } from "solid-js";
 
 import "../css/divider.css";
@@ -139,11 +137,11 @@ export function BattleSummaryComponent(props: ButtleSummaryProps) {
 
     const f_damage: number[] = add_array(
       battle.f_total_damages ?? [],
-      battle.midnight_f_total_damages ?? []
+      battle.midnight_f_total_damages ?? [],
     );
     const e_damage: number[] = add_array(
       battle.e_total_damages ?? [],
-      battle.midnight_e_total_damages ?? []
+      battle.midnight_e_total_damages ?? [],
     );
 
     const f_now_hps: number[] = select_min(day_f_now_hps, midnight_f_now_hps);
@@ -599,8 +597,8 @@ export function BattleSummaryComponent(props: ButtleSummaryProps) {
                     0,
                     Math.max(
                       fleet_info().f_main_ship_id.length,
-                      fleet_info().e_main_ship_id.length
-                    )
+                      fleet_info().e_main_ship_id.length,
+                    ),
                   )}
                 >
                   {(idx) => (
@@ -615,8 +613,8 @@ export function BattleSummaryComponent(props: ButtleSummaryProps) {
                     0,
                     Math.max(
                       fleet_info().f_escort_ship_id.length,
-                      fleet_info().e_escort_ship_id.length
-                    )
+                      fleet_info().e_escort_ship_id.length,
+                    ),
                   )}
                 >
                   {(idx) => (

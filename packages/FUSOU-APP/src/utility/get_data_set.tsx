@@ -48,7 +48,7 @@ export type DataSetParamShip = {
 };
 export const get_data_set_param_ship = (
   battle: Battle | undefined,
-  destruction_battle?: DestructionBattle | null
+  destruction_battle?: DestructionBattle | null,
 ): DataSetParamShip => {
   if (!battle)
     return {
@@ -94,7 +94,7 @@ export const get_data_set_param_ship = (
   const e_main_ship_slot: number[][] = (battle.e_slot ?? []).slice(0, 6);
   const e_main_ship_max_hp: number[] = (battle.e_hp_max ?? []).slice(0, 6);
   const e_main_mst_ship = e_main_ship_id.map((id) =>
-    id ? mst_ships.mst_ships[id] : undefined
+    id ? mst_ships.mst_ships[id] : undefined,
   );
   const e_main_mst_slot_items = e_main_ship_slot.map((slots) => {
     return {
@@ -104,7 +104,7 @@ export const get_data_set_param_ship = (
           (dict, slot_item) => (
             slot_item ? (dict[slot_item.id] = slot_item) : dict, dict
           ),
-          {} as { [x: number]: MstSlotItem | undefined }
+          {} as { [x: number]: MstSlotItem | undefined },
         ),
     } as MstSlotItems;
   });
@@ -117,7 +117,7 @@ export const get_data_set_param_ship = (
   const e_escort_ship_slot: number[][] = (battle.e_slot ?? []).slice(6, 12);
   const e_escort_ship_max_hp: number[] = (battle.e_hp_max ?? []).slice(6, 12);
   const e_escort_mst_ship = e_escort_ship_id.map((id) =>
-    id ? mst_ships.mst_ships[id] : undefined
+    id ? mst_ships.mst_ships[id] : undefined,
   );
   const e_escort_mst_slot_items = e_escort_ship_slot.map((slots) => {
     return {
@@ -127,11 +127,12 @@ export const get_data_set_param_ship = (
           (dict, slot_item) => (
             slot_item ? (dict[slot_item.id] = slot_item) : dict, dict
           ),
-          {} as { [x: number]: MstSlotItem | undefined }
+          {} as { [x: number]: MstSlotItem | undefined },
         ),
     } as MstSlotItems;
   });
-  const e_escort_color: (string | undefined)[] = get_enemy_yomi(e_escort_ship_id);
+  const e_escort_color: (string | undefined)[] =
+    get_enemy_yomi(e_escort_ship_id);
 
   const e_destruction_ship_id: (number | null)[] = destruction_battle
     ? destruction_battle.ship_ke
@@ -146,7 +147,7 @@ export const get_data_set_param_ship = (
     ? destruction_battle.e_maxhps
     : [];
   const e_destruction_mst_ship = e_destruction_ship_id.map((id) =>
-    id ? mst_ships.mst_ships[id] : undefined
+    id ? mst_ships.mst_ships[id] : undefined,
   );
   const e_destruction_mst_slot_items = e_destruction_ship_slot.map((slots) => {
     return {
@@ -156,12 +157,12 @@ export const get_data_set_param_ship = (
           (dict, slot_item) => (
             slot_item ? (dict[slot_item.id] = slot_item) : dict, dict
           ),
-          {} as { [x: number]: MstSlotItem | undefined }
+          {} as { [x: number]: MstSlotItem | undefined },
         ),
     } as MstSlotItems;
   });
   const e_destruction_color: (string | undefined)[] = get_enemy_yomi(
-    e_destruction_ship_id
+    e_destruction_ship_id,
   );
 
   const f_friend_ship_id: number[] =
@@ -173,7 +174,7 @@ export const get_data_set_param_ship = (
   const f_friend_ship_max_hp: number[] =
     battle.friendly_force_attack?.fleet_info.now_hps ?? [];
   const f_friend_mst_ship = f_friend_ship_id.map((id) =>
-    id ? mst_ships.mst_ships[id] : undefined
+    id ? mst_ships.mst_ships[id] : undefined,
   );
   const f_friend_mst_slot_items = f_friend_ship_slot.map((slots) => {
     return {
@@ -183,7 +184,7 @@ export const get_data_set_param_ship = (
           (dict, slot_item) => (
             slot_item ? (dict[slot_item.id] = slot_item) : dict, dict
           ),
-          {} as { [x: number]: MstSlotItem | undefined }
+          {} as { [x: number]: MstSlotItem | undefined },
         ),
     } as MstSlotItems;
   });
@@ -225,11 +226,11 @@ export const get_data_set_param_ship = (
 };
 
 const get_enemy_yomi = (
-  mst_ship_ids: (number | null)[]
+  mst_ship_ids: (number | null)[],
 ): (string | undefined)[] => {
   const [mst_ships] = useMstShips();
   return mst_ship_ids.map((id) =>
-    id ? mst_ships.mst_ships[id]?.yomi : undefined
+    id ? mst_ships.mst_ships[id]?.yomi : undefined,
   );
 };
 
@@ -288,20 +289,20 @@ export const get_data_set_ship = (ship_ids: number[]) => {
         : [...slot_item_ids]
       : undefined;
     const slot_item_list = slot_item_id_list?.map(
-      (id) => slot_items.slot_items[id]
+      (id) => slot_items.slot_items[id],
     );
     const slot_item_map = slot_item_list?.reduce(
       (dict, slot_item) => (
         slot_item ? (dict[slot_item.id] = slot_item) : dict, dict
       ),
-      {} as { [x: number]: SlotItem | undefined }
+      {} as { [x: number]: SlotItem | undefined },
     );
 
     const mst_slot_item_list = slot_item_list
       ?.map((slot_item) =>
         slot_item
           ? mst_slot_items.mst_slot_items[slot_item.slotitem_id]
-          : undefined
+          : undefined,
       )
       .filter((slot_item) => slot_item)
       .map((slot_item) => slot_item!);
@@ -309,7 +310,7 @@ export const get_data_set_ship = (ship_ids: number[]) => {
       (dict, slot_item) => (
         slot_item ? (dict[slot_item.id] = slot_item) : dict, dict
       ),
-      {} as { [x: number]: MstSlotItem | undefined }
+      {} as { [x: number]: MstSlotItem | undefined },
     );
 
     ret[ship_id] = {

@@ -17,15 +17,8 @@ import {
   useShips,
   useSlotItems,
 } from "../utility/provider.tsx";
-import type {
-  JSX} from "solid-js";
-import {
-  createEffect,
-  createMemo,
-  createSignal,
-  For,
-  Show,
-} from "solid-js";
+import type { JSX } from "solid-js";
+import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 
 import "../css/divider.css";
 
@@ -213,7 +206,7 @@ export function DeckComponent(props: DeckPortProps) {
       nowfuel: number,
       maxfuel: number,
       nowbullet: number,
-      maxbullet: number
+      maxbullet: number,
     ): JSX.Element => {
       let fuel_bullet_state: JSX.Element = <></>;
       if (nowfuel == maxfuel && nowbullet == maxbullet)
@@ -242,7 +235,7 @@ export function DeckComponent(props: DeckPortProps) {
     const states: JSX.Element[] = [];
     ship_list().forEach((ship) => {
       const mst_ship = mst_ship_list().find(
-        (mst_ship) => mst_ship.id == ship.ship_id
+        (mst_ship) => mst_ship.id == ship.ship_id,
       );
       if (mst_ship) {
         states.push(
@@ -250,8 +243,8 @@ export function DeckComponent(props: DeckPortProps) {
             ship.bull ?? 0,
             mst_ship.bull_max ?? 0,
             ship.fuel ?? 0,
-            mst_ship.fuel_max ?? 0
-          )
+            mst_ship.fuel_max ?? 0,
+          ),
         );
       }
     });
@@ -285,7 +278,7 @@ export function DeckComponent(props: DeckPortProps) {
 
   const get_slot_item = (
     ship_index: number,
-    slot_id: number
+    slot_id: number,
   ): SlotItem | undefined => {
     return slot_items_list()[ship_index].slot_items[slot_id];
   };
@@ -461,15 +454,15 @@ export function DeckComponent(props: DeckPortProps) {
                                       name_flag={false}
                                       attr:onslot={get_onslot(
                                         ship_index(),
-                                        slotId_index()
+                                        slotId_index(),
                                       )}
                                       slot_item={get_slot_item(
                                         ship_index(),
-                                        slotId
+                                        slotId,
                                       )}
                                       mst_slot_item={get_mst_slot_item(
                                         ship_index(),
-                                        slotId
+                                        slotId,
                                       )}
                                     />
                                   </div>
@@ -492,11 +485,11 @@ export function DeckComponent(props: DeckPortProps) {
                                   attr:onslot={undefined}
                                   slot_item={get_slot_item(
                                     ship_index(),
-                                    ship_list()[ship_index()].slot_ex ?? 0
+                                    ship_list()[ship_index()].slot_ex ?? 0,
                                   )}
                                   mst_slot_item={get_mst_slot_item(
                                     ship_index(),
-                                    ship_list()[ship_index()].slot_ex ?? 0
+                                    ship_list()[ship_index()].slot_ex ?? 0,
                                   )}
                                   ex_flag={true}
                                 />

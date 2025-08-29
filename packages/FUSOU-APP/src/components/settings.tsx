@@ -162,7 +162,7 @@ export function SettingsComponent() {
                   invoke("get_mst_slotitem_equip_types");
                   showFadeToast(
                     "setting_toast",
-                    "load mst_slotitem_equip_types"
+                    "load mst_slotitem_equip_types",
                   );
                 }}
               >

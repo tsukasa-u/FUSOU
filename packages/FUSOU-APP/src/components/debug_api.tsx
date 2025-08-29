@@ -250,12 +250,14 @@ export function DebugApi() {
                 // let file_list = fileApi();
                 const file_list: string[] = [];
                 for (const item of fileApi()) {
-                  if (item !== undefined && item !== null && item !== "") file_list.push(item);
+                  if (item !== undefined && item !== null && item !== "")
+                    file_list.push(item);
                 }
                 for (let i = 0; i < filecheackSignals.length; i++) {
                   if (filecheackSignals[i] && fileExistSignals()[i]) {
                     const file = debug_api[1][i + (pageCounter() - 1) * 10];
-                    if (file !== undefined && file !== null && file !== "") file_list.push(file);
+                    if (file !== undefined && file !== null && file !== "")
+                      file_list.push(file);
                   }
                 }
                 setFileApi(file_list);

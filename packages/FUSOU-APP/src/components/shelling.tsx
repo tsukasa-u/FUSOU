@@ -193,7 +193,7 @@ export function ShellingComponent(props: ShellingProps) {
               <div
                 class={`text-sm my-auto ${calc_critical(
                   dmg,
-                  hougeki()?.cl_list[at_index()]?.[dmg_index()]
+                  hougeki()?.cl_list[at_index()]?.[dmg_index()],
                 )}`}
               >
                 {dmg}
