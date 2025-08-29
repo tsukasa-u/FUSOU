@@ -52,7 +52,8 @@
     "storybook-solidjs-vite": "^9.0.2",
     "vite": "^6.2.3",
     "vite-plugin-eslint": "^1.8.1",
-    "vite-plugin-solid": "^2.11.6"
+    "vite-plugin-solid": "^2.11.6",
+    "vitest": "^3.2.4"
   },
   "dependencies": {
     "@solid-primitives/cookies": "^0.0.1",
@@ -63,7 +64,6 @@
     "dotenv": "^16.5.0",
     "shared-ui": "workspace:*",
     "solid-js": "^1.9.5",
-    "virtua": "^0.41.5",
-    "vitest": "^3.2.4"
+    "virtua": "^0.41.5"
   }
 }
