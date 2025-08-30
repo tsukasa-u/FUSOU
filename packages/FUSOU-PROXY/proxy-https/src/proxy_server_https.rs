@@ -560,7 +560,10 @@ pub fn serve_proxy(
     let mut http = hyper_util::client::legacy::connect::HttpConnector::new();
     http.enforce_http(false);
     // http.set_connect_timeout(Some(Duration::from_secs(5)));
-    http.set_keepalive_interval(Some(Duration::from_secs(20)));
+    // http.set_keepalive_interval(Some(Duration::from_secs(20)));
+    http.set_nodelay(true);
+    http.set_recv_buffer_size(Some(8_000_000_usize));
+    http.set_send_buffer_size(Some(8_000_000_usize));
 
     let tls_root_store = {
         // use "rustls-native-certs" crate
