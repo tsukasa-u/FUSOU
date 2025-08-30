@@ -1,7 +1,7 @@
-import { DecksComponent } from "./../components/decks.tsx";
-import { SettingsComponent } from "./../components/settings.tsx";
+import { DecksComponent } from "./../components/deck_port/decks.tsx";
+import { SettingsComponent } from "../components/settings/settings.tsx";
 
-import { MaterialsComponent } from "./../components/materials.tsx";
+import { MaterialsComponent } from "./../components/materials/materials.tsx";
 import {
   AirBasesProvider,
   /*BattleContextProvider,*/ CellsContextProvider,
@@ -14,10 +14,10 @@ import {
   ShipsProvider,
   SlotItemsProvider,
 } from "./../utility/provider.tsx";
-import { BattlesComponent } from "../components/battles.tsx";
-import { AirBasesComponent } from "../components/air_bases.tsx";
-import { ShipListComponent } from "../components/ship_list.tsx";
-import { EquipmentListComponent } from "../components/equipment_list.tsx";
+import { BattlesComponent } from "../components/battles/battles.tsx";
+import { AirBasesComponent } from "../components/airbase/air_bases.tsx";
+import { ShipListComponent } from "../components/specification_table/ship_list.tsx";
+import { EquipmentListComponent } from "../components/specification_table/equipment_list.tsx";
 import { createEffect } from "solid-js";
 import { location_route } from "../utility/location";
 

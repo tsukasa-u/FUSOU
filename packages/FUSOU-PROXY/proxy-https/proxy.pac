@@ -2,7 +2,7 @@ function FindProxyForURL(url, host) {
     // World_*
     if (shExpMatch(host, "w16s.kancolle-server.com")) { // [REPLACE HOST]
 
-        return "PROXY 127.0.0.1:33007"; // [REPLACE ADDR]
+        return "PROXY 127.0.0.1:51568"; // [REPLACE ADDR]
     }
 
     return "DIRECT";
