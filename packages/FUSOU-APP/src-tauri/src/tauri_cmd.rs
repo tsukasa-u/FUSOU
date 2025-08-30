@@ -376,8 +376,7 @@ pub async fn launch_with_options(
                     };
                     if let Some(server_address) = server_address {
                         #[cfg(dev)]
-                        let pac_path =
-                            "./../../FUSOU-PROXY/proxy_rust/proxy-https/proxy.pac".to_string();
+                        let pac_path = "./../../FUSOU-PROXY/proxy-https/proxy.pac".to_string();
                         #[cfg(any(not(dev), check_release))]
                         let pac_path = ROAMING_DIR
                             .get()
