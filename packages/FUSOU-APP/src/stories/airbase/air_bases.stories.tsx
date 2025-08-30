@@ -1,6 +1,6 @@
 import { fn } from "storybook/test";
 
-import { AirBasesComponent } from "../components/airbase/air_bases.tsx";
+import { AirBasesComponent } from "../../components/airbase/air_bases.tsx";
 import {
   DeckPortsContext,
   ShipsContext,
@@ -8,14 +8,14 @@ import {
   MstSlotItemsContext,
   SlotItemsContext,
   AirBasesContext,
-} from "../utility/provider.tsx";
+} from "../../utility/provider.tsx";
 
-import { ships } from "./data/ships.ts";
-import { mst_ships } from "./data/mst_ships.ts";
-import { slot_items } from "./data/slot_items.ts";
-import { mst_slot_itmes } from "./data/mst_slot_items.ts";
-import { deck_port } from "./data/deck_ports.ts";
-import { air_bases } from "./data/air_bases.ts";
+import { ships } from "./../data/ships.ts";
+import { mst_ships } from "./../data/mst_ships.ts";
+import { slot_items } from "./../data/slot_items.ts";
+import { mst_slot_itmes } from "./../data/mst_slot_items.ts";
+import { deck_port } from "./../data/deck_ports.ts";
+import { air_bases } from "./../data/air_bases.ts";
 
 export default {
   title: "components/air_bases",
