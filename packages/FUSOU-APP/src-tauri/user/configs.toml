@@ -6,7 +6,7 @@
 # This is the hostname or IP address of the server, like w16s.kancolle-server.com
 # The correspondence table of server hostname and server name is as follows
 #
-#  No. | server hostname              | server name
+#  No. | server hostname          | server name
 # ---------------------------------------------------
 #   1  | w01y.kancolle-server.com | 横須賀鎮守府
 #   2  | w02k.kancolle-server.com | 新呉鎮守府
@@ -136,7 +136,7 @@ save_file_location = "path/to/save/files"
     # This option is only used when `use_custom_message` is true
     custom_message = ""
     custom_details = ""
-    
+
 
     [app.database]
     # Whether to save KanColle data to the cloud
