@@ -5,7 +5,7 @@ use proxy_https::{
 };
 use tauri::Url;
 
-use crate::cmd;
+use crate::cmd::native_cmd;
 
 pub struct PacChannel {
     pub master: Master<StatusInfo>,
@@ -43,7 +43,7 @@ where
 {
     proxy_https::proxy_server_https::check_ca(ca_path.clone());
 
-    cmd::add_store(app);
+    native_cmd::add_store(app);
 
     // start proxy server
     // let save_path = "./../../FUSOU-PROXY-DATA".to_string();
@@ -82,7 +82,7 @@ where
     let proxy_addr_string = proxy_addr.unwrap().to_string();
     edit_pac(pac_path.as_str(), proxy_addr_string.clone().as_str(), host);
 
-    cmd::add_pac(
+    native_cmd::add_pac(
         format!("http://localhost:{}/proxy.pac", pac_addr.unwrap().port()),
         app,
     );

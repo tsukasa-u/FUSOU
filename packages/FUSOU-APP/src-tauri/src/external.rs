@@ -10,10 +10,10 @@ impl BrowserState {
         BrowserState(Browser::default())
     }
 
-    pub fn set_browser(&mut self, browser: &Browser) {
-        browser.clone_into(&mut self.0);
-        // self.0 = browser.clone();
-    }
+    // pub fn set_browser(&mut self, browser: &Browser) {
+    //     browser.clone_into(&mut self.0);
+    //     // self.0 = browser.clone();
+    // }
 
     pub fn get_browser(&self) -> Browser {
         self.0

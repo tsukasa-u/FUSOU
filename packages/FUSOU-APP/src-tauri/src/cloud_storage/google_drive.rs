@@ -36,7 +36,7 @@ use kc_api::interface::mst_slot_item_equip_type::MstSlotItemEquipType;
 use kc_api::interface::mst_stype::MstStype;
 use kc_api::interface::mst_use_item::MstUseItem;
 
-use crate::auth_server;
+use crate::auth::auth_server;
 
 pub static GOOGLE_FOLDER_IDS: OnceCell<HashMap<String, String>> = OnceCell::const_new();
 
@@ -72,7 +72,7 @@ pub fn set_refresh_token(refresh_token: String, token_type: String) -> Result<()
     *local_access_token = Some(info);
     tokio::task::spawn(async move {
         proxy_https::proxy_server_https::setup_default_crypto_provider();
-        let hub = crate::google_drive::create_client().await;
+        let hub = create_client().await;
         if hub.is_none() {
             let _ = auth_server::open_auth_page();
         }
@@ -80,7 +80,7 @@ pub fn set_refresh_token(refresh_token: String, token_type: String) -> Result<()
     Ok(())
 }
 
-pub static SURVICE_ACCESS_TOKEN: Lazy<Mutex<Option<String>>> = Lazy::new(|| Mutex::new(None));
+// pub static SURVICE_ACCESS_TOKEN: Lazy<Mutex<Option<String>>> = Lazy::new(|| Mutex::new(None));
 
 // static CRYPTO_PROVIDER_LOCK: OnceLock<()> = OnceLock::new();
 

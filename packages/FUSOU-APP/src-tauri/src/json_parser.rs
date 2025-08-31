@@ -1,20 +1,16 @@
-use regex::Regex;
-use std::error::Error;
-use tauri::Emitter;
-// use proxy::bidirectional_channel;
 use proxy_https::bidirectional_channel;
+use regex::Regex;
 use register_trait::expand_struct_selector;
 use register_trait::TraitForConvert;
+use std::error::Error;
+use tauri::Emitter;
 
-use crate::auth_server;
-use crate::database::table::GetDataTable;
-use crate::database::table::PortTable;
+use crate::auth::{auth_server, supabase};
+use crate::database::table::{GetDataTable, PortTable};
 use crate::util::get_user_env_id;
 use kc_api::interface::cells::Cells;
 
-// use crate::kcapi;
-use crate::google_drive;
-use crate::supabase;
+use crate::cloud_storage::google_drive;
 use kc_api::interface::interface::{Add, EmitData, Identifier, Set};
 
 pub fn emit_data(handle: &tauri::AppHandle, emit_data: EmitData) {
@@ -131,7 +127,7 @@ pub fn emit_data(handle: &tauri::AppHandle, emit_data: EmitData) {
                         match port_table.encode() {
                             Ok(port_table_encode) => {
                                 let pariod_tag = supabase::get_period_tag().await;
-                                let hub = crate::google_drive::create_client().await;
+                                let hub = google_drive::create_client().await;
                                 match hub {
                                     Some(mut hub) => {
                                         let folder_name =
@@ -183,7 +179,7 @@ pub fn emit_data(handle: &tauri::AppHandle, emit_data: EmitData) {
                     match get_data_table.encode() {
                         Ok(get_data_table_encode) => {
                             let pariod_tag = supabase::get_period_tag().await;
-                            let hub = crate::google_drive::create_client().await;
+                            let hub = google_drive::create_client().await;
                             match hub {
                                 Some(mut hub) => {
                                     let folder_name = vec!["fusou".to_string(), pariod_tag.clone()];

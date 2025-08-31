@@ -7,11 +7,11 @@ use tauri::AppHandle;
 use tauri::Emitter;
 use tauri::Manager;
 
-use crate::auth_server;
+use crate::auth::auth_server;
 #[cfg(feature = "auth-local-server")]
 use crate::auth_server::AuthChannel;
+use crate::cloud_storage::google_drive;
 use crate::external::create_external_window;
-use crate::google_drive;
 use crate::interface::mst_equip_exslot_ship::MstEquipExslotShips;
 use crate::interface::mst_equip_ship::MstEquipShips;
 use crate::interface::mst_ship::MstShips;
