@@ -10,6 +10,10 @@ use tauri::Manager;
 use crate::auth::auth_server;
 #[cfg(feature = "auth-local-server")]
 use crate::auth_server::AuthChannel;
+use crate::builder_setup::bidirectional_channel::get_pac_bidirectional_channel;
+use crate::builder_setup::bidirectional_channel::get_proxy_bidirectional_channel;
+use crate::builder_setup::bidirectional_channel::get_proxy_log_bidirectional_channel;
+use crate::builder_setup::bidirectional_channel::get_response_parse_bidirectional_channel;
 use crate::cloud_storage::google_drive;
 use crate::external::create_external_window;
 use crate::interface::mst_equip_exslot_ship::MstEquipExslotShips;
@@ -24,7 +28,7 @@ use crate::interface::slot_item::SlotItems;
 use crate::external::SHARED_BROWSER;
 use crate::json_parser;
 use crate::util;
-use crate::wrap_proxy::{self, PacChannel, ProxyChannel, ProxyLogChannel, ResponseParseChannel};
+use crate::wrap_proxy;
 
 #[cfg(any(not(dev), check_release))]
 use crate::RESOURCES_DIR;
@@ -314,22 +318,19 @@ pub async fn open_auth_page(_window: tauri::Window) -> Result<(), ()> {
 }
 
 #[tauri::command]
-pub async fn check_pac_server_health(
-    _window: tauri::Window,
-    pac_channel: tauri::State<'_, PacChannel>,
-) -> Result<String, String> {
-    match bidirectional_channel::check_health(pac_channel.master.clone()).await {
+pub async fn check_pac_server_health(_window: tauri::Window) -> Result<String, String> {
+    match bidirectional_channel::check_health(get_pac_bidirectional_channel().clone_master()).await
+    {
         Ok(_) => Ok("PAC server is running".to_string()),
         Err(e) => Err(e.to_string()),
     }
 }
 
 #[tauri::command]
-pub async fn check_proxy_server_health(
-    _window: tauri::Window,
-    proxy_channel: tauri::State<'_, ProxyChannel>,
-) -> Result<String, String> {
-    match bidirectional_channel::check_health(proxy_channel.master.clone()).await {
+pub async fn check_proxy_server_health(_window: tauri::Window) -> Result<String, String> {
+    match bidirectional_channel::check_health(get_proxy_bidirectional_channel().clone_master())
+        .await
+    {
         Ok(_) => Ok("Proxy server is running".to_string()),
         Err(e) => Err(e.to_string()),
     }
@@ -339,10 +340,6 @@ pub async fn check_proxy_server_health(
 pub async fn launch_with_options(
     window: tauri::Window,
     options: HashMap<String, i32>,
-    pac_channel: tauri::State<'_, PacChannel>,
-    proxy_channel: tauri::State<'_, ProxyChannel>,
-    proxy_log_channel: tauri::State<'_, ProxyLogChannel>,
-    response_parse_channel: tauri::State<'_, ResponseParseChannel>,
 ) -> Result<(), ()> {
     println!("{:?}", options);
 
@@ -426,9 +423,6 @@ pub async fn launch_with_options(
                             save_path,
                             pac_path,
                             ca_path,
-                            proxy_channel.slave.clone(),
-                            proxy_log_channel.master.clone(),
-                            pac_channel.slave.clone(),
                             window.app_handle(),
                             Some(file_prefix),
                         );
@@ -457,8 +451,8 @@ pub async fn launch_with_options(
         if flag != 0 {
             json_parser::serve_reponse_parser(
                 window.app_handle(),
-                response_parse_channel.slave.clone(),
-                proxy_log_channel.slave.clone(),
+                get_response_parse_bidirectional_channel().clone_slave(),
+                get_proxy_log_bidirectional_channel().clone_slave(),
             );
             window
                 .get_webview_window("main")

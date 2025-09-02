@@ -19,6 +19,9 @@
 			"path": "packages/rust_macro"
 		},
 		{
+			"path": "packages/configs"
+		},
+		{
 			"path": "docs"
 		},
 		{

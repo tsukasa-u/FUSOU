@@ -36,7 +36,9 @@ fn setup_deep_link(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error
     Ok(())
 }
 
-fn set_paths(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+fn set_paths(
+    #[allow(unused_variables)] app: &mut tauri::App,
+) -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(dev)]
     RESOURCES_DIR
         .set(PathBuf::from(env!("CARGO_MANIFEST_DIR")))
@@ -412,11 +414,24 @@ pub fn setup_discord() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+pub fn setup_configs() -> Result<(), Box<dyn std::error::Error>> {
+    if let Some(path) = RESOURCES_DIR.get() {
+        let config_path = path.join("user").join("configs.toml");
+        let path_str = config_path.to_string_lossy();
+        configs::set_user_config(&path_str)?;
+    } else {
+        return Err("Failed to get resources directory".into());
+    }
+
+    Ok(())
+}
+
 pub fn setup_init(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let (shutdown_tx, mut shutdown_rx) = mpsc::channel::<()>(1);
 
     setup_deep_link(app)?;
     set_paths(app)?;
+    setup_configs()?;
     setup_tray(app, shutdown_tx)?;
     setup_discord()?;
 

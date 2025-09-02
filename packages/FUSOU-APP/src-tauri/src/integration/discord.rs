@@ -1,7 +1,6 @@
 #![allow(dead_code)]
 
 use discord_rich_presence::{activity, DiscordIpc, DiscordIpcClient};
-use dotenvy::dotenv;
 use std::sync::{LazyLock, Mutex};
 
 static DISCORD_CLIENT: LazyLock<
@@ -9,12 +8,8 @@ static DISCORD_CLIENT: LazyLock<
 > = LazyLock::new(|| Mutex::new(init_client()));
 
 pub fn init_client() -> Result<DiscordIpcClient, Box<dyn std::error::Error + Send + Sync>> {
-    dotenv().expect(".env file not found");
-
     let client_id =
-        std::option_env!("SUPABASE_DATABASE_URL").expect("failed to get supabase database url");
-
-    // let client_id = dotenvy_macro::dotenv!("DISCORD_CLIENT_ID").to_string();
+        std::option_env!("DISCORD_CLIENT_ID").expect("failed to get supabase database url");
 
     let client = DiscordIpcClient::new(client_id);
     match client {

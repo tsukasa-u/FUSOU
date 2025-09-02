@@ -2,44 +2,14 @@
 # By default, the application's features are kept to a minimum. To use restricted features, please change the configuration values.
 
 [proxy]
-# The hostname of the KanColle server you want to connect to
-# This is the hostname or IP address of the server, like w16s.kancolle-server.com
-# The correspondence table of server hostname and server name is as follows
-#
-#  No. | server hostname          | server name
-# ---------------------------------------------------
-#   1  | w01y.kancolle-server.com | 横須賀鎮守府
-#   2  | w02k.kancolle-server.com | 新呉鎮守府
-#   3  | w03s.kancolle-server.com | 佐世保鎮守府
-#   4  | w04m.kancolle-server.com | 舞鶴鎮守府
-#   5  | w05o.kancolle-server.com | 大湊警備府
-#   6  | w06k.kancolle-server.com | トラック泊地
-#   7  | w07l.kancolle-server.com | リンガ泊地
-#   8  | w08r.kancolle-server.com | ラバウル基地
-#   9  | w09s.kancolle-server.com | ショートランド泊地
-#  10  | w10b.kancolle-server.com | ブイン基地
-#  11  | w11t.kancolle-server.com | タウイタウイ泊地
-#  12  | w12p.kancolle-server.com | パラオ泊地
-#  13  | w13b.kancolle-server.com | ブルネイ泊地
-#  14  | w14h.kancolle-server.com | 単冠湾泊地
-#  15  | w15p.kancolle-server.com | 幌筵泊地
-#  16  | w16s.kancolle-server.com | 宿毛湾泊地
-#  17  | w17k.kancolle-server.com | 鹿屋基地
-#  18  | w18i.kancolle-server.com | 岩川基地
-#  19  | w19s.kancolle-server.com | 佐伯湾泊地
-#  20  | w20h.kancolle-server.com | 柱島泊地
-#
-# Set KanColle server hostname or empty if you want to choose KanColle server automatically
-kc_server_name = "w16s.kancolle-server.com"
-
 # Whether to save KanColle API requests
-allow_save_api_requests = false
+allow_save_api_requests = true
 
 # Whether to save KanColle API responses
-allow_save_api_responses = false
+allow_save_api_responses = true
 
 # Whether to save KanColle resources such as images and metadata
-allow_save_resources = false
+allow_save_resources = true
 
 # The location to save files
 # The default location is under the user's Documents directory
@@ -49,8 +19,8 @@ save_file_location = ""
     [proxy.network]    
     # The backend crate used in FUSOU-PROXY
     # You can choose two backend crates
-    # 1. hudsucker          (default) (https://crates.io/crates/hudsucker)
-    # 2. http-mitm-proxy              (https://crates.io/crates/http-mitm-proxy)
+    # 1. hudsucker          (default)         (https://crates.io/crates/hudsucker)
+    # 2. http-mitm-proxy    (not implemented) (https://crates.io/crates/http-mitm-proxy)
     backend_crate = "hudsucker"
 
     # Whether to enforce HTTP to proxy client
@@ -59,15 +29,15 @@ save_file_location = ""
 
     # Whether to set TCP_NODELAY on the proxy server
     # default is false
-    set_nodelay = true
+    set_nodelay = false
 
     # The timeout (in seconds) for connecting to the KanColle server
     # set 0 or negative to use the system default
-    connect_timeout = 30
+    connect_timeout = 0
 
     # The interval (in seconds) to keep the TCP connection alive
     # set 0 or negative to use the system default
-    keepalive_interval = 30
+    keepalive_interval = 0
 
     # The size of the receive buffer
     # set 0 or negative to use the system default
@@ -78,7 +48,7 @@ save_file_location = ""
     send_buffer_size = 8_000_000
 
     # The fixed port of the proxy server
-    # set 0 to use a random port
+    # set 0 to use an unused port automatically
     proxy_server_port = 0
 
 
@@ -106,11 +76,43 @@ save_file_location = ""
     pac_script = "path/to/pac/script.pac"
 
     # The fixed port of the PAC server
-    # set 0 to use a random port
+    # set 0 to use an unused port automatically
     pac_server_port = 0
 
 
 [app]
+    [app.connect_kc_server]
+    # The hostname of the KanColle server you want to connect to
+    # This is the hostname or IP address of the server, like w16s.kancolle-server.com
+    # The correspondence table of server hostname and server name is as follows
+    #
+    #  No. | server hostname          | server name
+    # ---------------------------------------------------
+    #   1  | w01y.kancolle-server.com | 横須賀鎮守府
+    #   2  | w02k.kancolle-server.com | 新呉鎮守府
+    #   3  | w03s.kancolle-server.com | 佐世保鎮守府
+    #   4  | w04m.kancolle-server.com | 舞鶴鎮守府
+    #   5  | w05o.kancolle-server.com | 大湊警備府
+    #   6  | w06k.kancolle-server.com | トラック泊地
+    #   7  | w07l.kancolle-server.com | リンガ泊地
+    #   8  | w08r.kancolle-server.com | ラバウル基地
+    #   9  | w09s.kancolle-server.com | ショートランド泊地
+    #  10  | w10b.kancolle-server.com | ブイン基地
+    #  11  | w11t.kancolle-server.com | タウイタウイ泊地
+    #  12  | w12p.kancolle-server.com | パラオ泊地
+    #  13  | w13b.kancolle-server.com | ブルネイ泊地
+    #  14  | w14h.kancolle-server.com | 単冠湾泊地
+    #  15  | w15p.kancolle-server.com | 幌筵泊地
+    #  16  | w16s.kancolle-server.com | 宿毛湾泊地
+    #  17  | w17k.kancolle-server.com | 鹿屋基地
+    #  18  | w18i.kancolle-server.com | 岩川基地
+    #  19  | w19s.kancolle-server.com | 佐伯湾泊地
+    #  20  | w20h.kancolle-server.com | 柱島泊地
+    #
+    # Set KanColle server hostname or empty if you want to choose KanColle server automatically
+    # kc_server_name = "w16s.kancolle-server.com" # This is example
+    kc_server_name = ""
+
     [app.browser]
     # The URL to open first in the browser
     url = "http://www.dmm.com/netgame/social/-/gadgets/=/app_id=854854/"

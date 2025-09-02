@@ -1,7 +1,6 @@
 use once_cell::sync::OnceCell;
 use proxy_https::bidirectional_channel::{BidirectionalChannel, StatusInfo};
-
-use crate::wrap_proxy;
+use proxy_https::bidirectional_channel::{Master, Slave};
 
 #[cfg(feature = "auth-local-server")]
 use crate::auth_server;
@@ -40,29 +39,54 @@ pub fn get_auth_bidirectional_channel() -> &'static BidirectionalChannel<StatusI
     AUTH_BIDIRECTIONAL_CHANNEL.get_or_init(|| BidirectionalChannel::<StatusInfo>::new(1))
 }
 
-pub fn get_manage_proxy_channel() -> wrap_proxy::ProxyChannel {
-    wrap_proxy::ProxyChannel {
+#[allow(dead_code)]
+pub struct PacChannel {
+    pub master: Master<StatusInfo>,
+    pub slave: Slave<StatusInfo>,
+}
+
+#[allow(dead_code)]
+pub struct ProxyChannel {
+    pub master: Master<StatusInfo>,
+    pub slave: Slave<StatusInfo>,
+}
+
+#[allow(dead_code)]
+pub struct ProxyLogChannel {
+    pub master: Master<StatusInfo>,
+    pub slave: Slave<StatusInfo>,
+}
+
+#[allow(dead_code)]
+pub struct ResponseParseChannel {
+    pub master: Master<StatusInfo>,
+    pub slave: Slave<StatusInfo>,
+}
+
+pub fn get_manage_proxy_channel() -> ProxyChannel {
+    ProxyChannel {
         master: get_proxy_bidirectional_channel().clone_master(),
         slave: get_proxy_bidirectional_channel().clone_slave(),
     }
 }
 
-pub fn get_manage_pac_channel() -> wrap_proxy::PacChannel {
-    wrap_proxy::PacChannel {
+pub fn get_manage_pac_channel() -> PacChannel {
+    PacChannel {
         master: get_pac_bidirectional_channel().clone_master(),
         slave: get_pac_bidirectional_channel().clone_slave(),
     }
 }
 
-pub fn get_manage_proxy_log_channel() -> wrap_proxy::ProxyLogChannel {
-    wrap_proxy::ProxyLogChannel {
+pub fn get_manage_proxy_log_channel() -> ProxyLogChannel {
+    ProxyLogChannel {
         master: get_proxy_log_bidirectional_channel().clone_master(),
         slave: get_proxy_log_bidirectional_channel().clone_slave(),
     }
 }
 
-pub fn get_manage_response_parse_channel() -> wrap_proxy::ResponseParseChannel {
-    wrap_proxy::ResponseParseChannel {
+pub fn get_manage_response_parse_channel() -> ResponseParseChannel {
+    ResponseParseChannel {
+        master: get_response_parse_bidirectional_channel().clone_master(),
         slave: get_response_parse_bidirectional_channel().clone_slave(),
     }
 }

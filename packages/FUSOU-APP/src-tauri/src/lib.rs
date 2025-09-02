@@ -12,7 +12,6 @@ mod auth;
 mod builder_setup;
 mod cloud_storage;
 mod cmd;
-mod configs;
 mod external;
 mod integration;
 mod util;

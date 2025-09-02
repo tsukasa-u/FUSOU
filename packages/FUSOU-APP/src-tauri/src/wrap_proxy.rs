@@ -5,42 +5,32 @@ use proxy_https::{
 };
 use tauri::Url;
 
-use crate::cmd::native_cmd;
-
-pub struct PacChannel {
-    pub master: Master<StatusInfo>,
-    pub slave: Slave<StatusInfo>,
-}
-
-pub struct ProxyChannel {
-    pub master: Master<StatusInfo>,
-    pub slave: Slave<StatusInfo>,
-}
-
-pub struct ProxyLogChannel {
-    pub master: Master<StatusInfo>,
-    pub slave: Slave<StatusInfo>,
-}
-
-pub struct ResponseParseChannel {
-    // pub master: Master<StatusInfo>,
-    pub slave: Slave<StatusInfo>,
-}
+use crate::{
+    builder_setup::bidirectional_channel::{
+        get_pac_bidirectional_channel, get_proxy_bidirectional_channel,
+        get_proxy_log_bidirectional_channel,
+    },
+    cmd::native_cmd,
+};
 
 pub fn serve_proxy<R>(
     proxy_target: String,
     save_path: String,
     pac_path: String,
     ca_path: String,
-    proxy_bidirectional_channel_slave: Slave<StatusInfo>,
-    proxy_log_bidirectional_channel_master: Master<StatusInfo>,
-    pac_bidirectional_channel_slave: Slave<StatusInfo>,
     app: &tauri::AppHandle<R>,
     file_prefix: Option<String>,
 ) -> Result<Url, Box<dyn std::error::Error>>
 where
     R: tauri::Runtime,
 {
+    let proxy_bidirectional_channel_slave: Slave<StatusInfo> =
+        get_proxy_bidirectional_channel().clone_slave();
+    let proxy_log_bidirectional_channel_master: Master<StatusInfo> =
+        get_proxy_log_bidirectional_channel().clone_master();
+    let pac_bidirectional_channel_slave: Slave<StatusInfo> =
+        get_pac_bidirectional_channel().clone_slave();
+
     proxy_https::proxy_server_https::check_ca(ca_path.clone());
 
     native_cmd::add_store(app);

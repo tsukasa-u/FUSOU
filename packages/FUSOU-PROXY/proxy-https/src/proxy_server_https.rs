@@ -13,7 +13,6 @@ use std::{
     net::{IpAddr, Ipv4Addr, SocketAddr},
     path::Path,
     sync::OnceLock,
-    time::Duration,
 };
 
 use chrono::{TimeZone, Utc};
@@ -26,6 +25,8 @@ use std::os::windows::fs::MetadataExt;
 
 use crate::bidirectional_channel;
 
+use configs;
+
 fn log_response(
     parts: response::Parts,
     body: Vec<u8>,
@@ -33,6 +34,8 @@ fn log_response(
     tx_proxy_log: bidirectional_channel::Master<bidirectional_channel::StatusInfo>,
     save_path: String,
     file_prefix: String,
+    allow_save_api_responses: bool,
+    allow_save_resources: bool,
 ) {
     let mut content_type: String = String::new();
     let mut _content_length: i64 = -1;
@@ -66,15 +69,15 @@ fn log_response(
     };
 
     let save: bool = match content_type.as_str() {
-        "text/plain" => true,
-        "application/json" => true,
-        "image/png" => true,
-        "video/mp4" => true,
-        "audio/mpeg" => true,
+        "text/plain" => allow_save_api_responses,
+        "application/json" => allow_save_resources,
+        "image/png" => allow_save_resources,
+        "video/mp4" => allow_save_resources,
+        "audio/mpeg" => allow_save_resources,
         "text/html" => false,
         "text/css" => false,
         "text/javascript" => false,
-        _ => true,
+        _ => allow_save_resources,
     };
 
     let utc: chrono::NaiveDateTime = Utc::now().naive_utc();
@@ -206,6 +209,7 @@ fn log_request(
     tx_proxy_log: bidirectional_channel::Master<bidirectional_channel::StatusInfo>,
     save_path: String,
     file_prefix: String,
+    allow_save_api_requests: bool,
 ) {
     let mut content_type: String = String::new();
     let mut _content_length: i64 = -1;
@@ -232,7 +236,7 @@ fn log_request(
     };
 
     let save: bool = match content_type.as_str() {
-        "application/x-www-form-urlencoded" => true,
+        "application/x-www-form-urlencoded" => allow_save_api_requests,
         _ => false,
     };
 
@@ -346,6 +350,9 @@ struct LogHandler {
     tx_proxy_log: bidirectional_channel::Master<bidirectional_channel::StatusInfo>,
     save_path: String,
     file_prefix: String,
+    allow_save_api_requests: bool,
+    allow_save_api_responses: bool,
+    allow_save_resources: bool,
 }
 
 impl HttpHandler for LogHandler {
@@ -379,6 +386,7 @@ impl HttpHandler for LogHandler {
             self.tx_proxy_log.clone(),
             self.save_path.clone(),
             self.file_prefix.clone(),
+            self.allow_save_api_requests,
         );
 
         let reconstructed_body = hudsucker::Body::from(full_body);
@@ -402,6 +410,8 @@ impl HttpHandler for LogHandler {
             self.tx_proxy_log.clone(),
             self.save_path.clone(),
             self.file_prefix.clone(),
+            self.allow_save_api_responses,
+            self.allow_save_resources,
         );
 
         let reconstructed_body = hudsucker::Body::from(full_body);
@@ -537,13 +547,31 @@ pub fn serve_proxy(
 ) -> Result<SocketAddr, Box<dyn std::error::Error>> {
     setup_default_crypto_provider();
 
-    let ca_dir = Path::new(ca_save_path.as_str());
-    let entity_cert = ca_dir.join("entity_cert.pem");
-    let entity_key = ca_dir.join("entity_key.pem");
-    // let ca_cert = ca_dir.join("ca_cert.pem");
-    // let ca_key = ca_dir.join("ca_key.pem");
+    let configs = configs::get_user_configs_for_proxy();
+    let allow_save_api_requests = configs.get_allow_save_api_requests();
+    let allow_save_api_responses = configs.get_allow_save_api_responses();
+    let allow_save_resources = configs.get_allow_save_resources();
 
-    // check_ca(ca_save_path.clone());
+    let ca_dir = Path::new(ca_save_path.as_str());
+    let use_generated_certs = configs.certificates.get_use_generated_certs();
+
+    let custom_cert_file_path = configs.certificates.get_cert_file();
+    let entity_cert = if use_generated_certs {
+        ca_dir.join("entity_cert.pem")
+    } else if let Some(custom_cert_file_path) = custom_cert_file_path {
+        custom_cert_file_path
+    } else {
+        ca_dir.join("entity_cert.pem")
+    };
+
+    let custom_key_file_path = configs.certificates.get_key_file();
+    let entity_key = if use_generated_certs {
+        ca_dir.join("entity_key.pem")
+    } else if let Some(custom_key_file_path) = custom_key_file_path {
+        custom_key_file_path
+    } else {
+        ca_dir.join("entity_key.pem")
+    };
 
     let key_pair = fs::read_to_string(entity_key.clone()).expect("Failed to open file");
 
@@ -558,12 +586,23 @@ pub fn serve_proxy(
     let ca = RcgenAuthority::new(key_pair, ca_cert, 1_000, aws_lc_rs::default_provider());
 
     let mut http = hyper_util::client::legacy::connect::HttpConnector::new();
-    http.enforce_http(false);
+
+    // http.enforce_http(false);
+    http.enforce_http(configs.network.get_enforce_http());
+
     // http.set_connect_timeout(Some(Duration::from_secs(5)));
+    http.set_connect_timeout(configs.network.get_connect_timeout());
+
     // http.set_keepalive_interval(Some(Duration::from_secs(20)));
-    http.set_nodelay(true);
-    http.set_recv_buffer_size(Some(8_000_000_usize));
-    http.set_send_buffer_size(Some(8_000_000_usize));
+    http.set_keepalive_interval(configs.network.get_keepalive_interval());
+
+    // http.set_nodelay(true);
+    http.set_nodelay(configs.network.get_set_nodelay());
+
+    // http.set_recv_buffer_size(Some(8_000_000_usize));
+    http.set_recv_buffer_size(configs.network.get_recv_buffer_size());
+    // http.set_send_buffer_size(Some(8_000_000_usize));
+    http.set_send_buffer_size(configs.network.get_send_buffer_size());
 
     let tls_root_store = {
         // use "rustls-native-certs" crate
@@ -587,9 +626,15 @@ pub fn serve_proxy(
 
     let client = hyper_util::client::legacy::Client::builder(hyper_util::rt::TokioExecutor::new())
         .build(https);
-    let addr = match port {
-        0 => SocketAddr::from(([127, 0, 0, 1], available_port().unwrap())),
-        _ => SocketAddr::from(([127, 0, 0, 1], port)),
+    let addr = match (port, configs.network.get_proxy_server_port()) {
+        (0, 0) => SocketAddr::from(([127, 0, 0, 1], available_port().unwrap())),
+        (0, port) => SocketAddr::from(([127, 0, 0, 1], port)),
+        (port, _) => SocketAddr::from(([127, 0, 0, 1], port)),
+    };
+    let save_path = if let Some(save_path) = configs.get_save_file_location() {
+        save_path
+    } else {
+        log_save_path.clone()
     };
     let server_proxy = Proxy::builder()
         .with_addr(addr)
@@ -599,8 +644,11 @@ pub fn serve_proxy(
         .with_http_handler(LogHandler {
             tx_proxy_log: tx_proxy_log.clone(),
             request_uri: Uri::default(),
-            save_path: log_save_path.clone(),
+            save_path,
             file_prefix: file_prefix.clone(),
+            allow_save_api_requests,
+            allow_save_api_responses,
+            allow_save_resources,
         })
         .with_graceful_shutdown(async move {
             loop {
