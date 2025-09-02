@@ -29,7 +29,7 @@ packages/kc_api/tests/database_dependency_json/*.json
 packages/kc_api/tests/database_dependency_svg/*.svg
 packages/kc_api/.env
 
-packages/FUSOU-PROXY/proxy_rust/proxy-https/proxy.pac
+packages/FUSOU-PROXY/proxy-https/proxy.pac
 
 packages/FUSOU-PROXY-DATA*/
 
