@@ -43,7 +43,8 @@ allow_save_resources = false
 
 # The location to save files
 # The default location is under the user's Documents directory
-save_file_location = "path/to/save/files"
+# to use the default location, leave this empty
+save_file_location = ""
 
     [proxy.network]    
     # The backend crate used in FUSOU-PROXY
