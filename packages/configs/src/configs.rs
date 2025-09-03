@@ -127,27 +127,59 @@ impl ConfigsProxyNetwork {
 }
 
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
-struct ConfigsAppConnectKcServer {
+pub struct ConfigsAppConnectKcServer {
     kc_server_name: Option<String>,
 }
 
+impl ConfigsAppConnectKcServer {
+    pub fn get_kc_server_name(&self) -> Option<String> {
+        match self.kc_server_name {
+            Some(ref v) if !v.is_empty() => Some(v.clone()),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
-struct ConfigsAppBrowser {
+pub struct ConfigsAppBrowser {
     url: Option<String>,
 }
 
+impl ConfigsAppBrowser {
+    pub fn get_url(&self) -> Option<String> {
+        match self.url {
+            Some(ref v) if !v.is_empty() => Some(v.clone()),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
-struct ConfigsAppTheme {
+pub struct ConfigsAppTheme {
     theme: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Default, Clone)]
-struct ConfigAppFont {
-    font_family: Option<String>,
+impl ConfigsAppTheme {
+    pub fn get_theme(&self) -> String {
+        self.theme.clone().unwrap_or("light".to_string())
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
-struct ConfigsAppDiscord {
+pub struct ConfigAppFont {
+    font_family: Option<String>,
+}
+
+impl ConfigAppFont {
+    pub fn get_font_family(&self) -> String {
+        self.font_family
+            .clone()
+            .unwrap_or("Noto Sans JP, sans-serif".to_string())
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Default, Clone)]
+pub struct ConfigsAppDiscord {
     enable_discord_integration: Option<bool>,
     use_custom_message: Option<bool>,
     custom_message: Option<String>,
@@ -156,14 +188,61 @@ struct ConfigsAppDiscord {
     custom_image: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Default, Clone)]
-struct ConfigsAppDatabase {
-    pub allow_data_to_cloud: Option<bool>,
+impl ConfigsAppDiscord {
+    pub fn get_enable_discord_integration(&self) -> bool {
+        self.enable_discord_integration.unwrap_or(false)
+    }
+
+    pub fn get_use_custom_message(&self) -> bool {
+        self.use_custom_message.unwrap_or(false)
+    }
+
+    pub fn get_custom_message(&self) -> String {
+        match self.custom_message {
+            Some(ref v) if !v.is_empty() => v.clone(),
+            _ => "".to_string(),
+        }
+    }
+
+    pub fn get_custom_details(&self) -> String {
+        match self.custom_details {
+            Some(ref v) if !v.is_empty() => v.clone(),
+            _ => "".to_string(),
+        }
+    }
+
+    pub fn get_use_custom_image(&self) -> bool {
+        self.use_custom_image.unwrap_or(false)
+    }
+
+    pub fn get_custom_image(&self) -> Option<String> {
+        match self.custom_image {
+            Some(ref v) if !v.is_empty() => Some(v.clone()),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
-struct ConfigsAppAuth {
+pub struct ConfigsAppDatabase {
+    allow_data_to_cloud: Option<bool>,
+}
+
+impl ConfigsAppDatabase {
+    pub fn get_allow_data_to_cloud(&self) -> bool {
+        self.allow_data_to_cloud.unwrap_or(false)
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Default, Clone)]
+pub struct ConfigsAppAuth {
     pub deny_auth: Option<bool>,
+}
+
+impl ConfigsAppAuth {
+    pub fn get_deny_auth(&self) -> bool {
+        self.deny_auth.unwrap_or(true)
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
