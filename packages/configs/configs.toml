@@ -140,6 +140,13 @@ save_file_location = ""
     custom_message = ""
     custom_details = ""
 
+    # Whether to use a custom image for Discord Rich Presence
+    use_custom_image = false
+
+    # The custom image to use for Discord Rich Presence
+    # This option is only used when `use_custom_image` is true
+    custom_image = ""
+
 
     [app.database]
     # Whether to save KanColle data to the cloud

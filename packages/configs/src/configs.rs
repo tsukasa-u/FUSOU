@@ -128,30 +128,32 @@ impl ConfigsProxyNetwork {
 
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
 struct ConfigsAppConnectKcServer {
-    pub kc_server_name: Option<String>,
+    kc_server_name: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
 struct ConfigsAppBrowser {
-    pub url: Option<String>,
+    url: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
 struct ConfigsAppTheme {
-    pub theme: Option<String>,
+    theme: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
 struct ConfigAppFont {
-    pub font_family: Option<String>,
+    font_family: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
 struct ConfigsAppDiscord {
-    pub enable_discord_integration: Option<bool>,
-    pub use_custom_message: Option<bool>,
-    pub custom_message: Option<String>,
-    pub custom_details: Option<String>,
+    enable_discord_integration: Option<bool>,
+    use_custom_message: Option<bool>,
+    custom_message: Option<String>,
+    custom_details: Option<String>,
+    use_custom_image: Option<bool>,
+    custom_image: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
