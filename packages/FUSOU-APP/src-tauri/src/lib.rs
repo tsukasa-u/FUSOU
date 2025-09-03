@@ -14,11 +14,9 @@ mod cloud_storage;
 mod cmd;
 mod external;
 mod integration;
+mod sequence;
 mod util;
 mod wrap_proxy;
-
-#[cfg(dev)]
-mod test;
 
 use crate::builder_setup::bidirectional_channel::{
     get_manage_pac_channel, get_manage_proxy_channel, get_manage_proxy_log_channel,
@@ -98,8 +96,6 @@ pub async fn run() {
             cmd::tauri_cmd::open_debug_window,
             #[cfg(dev)]
             cmd::tauri_cmd::close_debug_window,
-            #[cfg(dev)]
-            cmd::tauri_cmd::read_dir,
             #[cfg(dev)]
             cmd::tauri_cmd::read_emit_file,
         ])

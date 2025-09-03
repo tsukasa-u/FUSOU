@@ -17,8 +17,6 @@ use crate::builder_setup::bidirectional_channel::{
 };
 use crate::cmd::{native_cmd, tauri_cmd};
 use crate::integration::discord;
-#[cfg(dev)]
-use crate::test;
 use proxy_https::bidirectional_channel::request_shutdown;
 
 #[cfg(dev)]
@@ -95,15 +93,12 @@ fn setup_tray(
             .build(app)
             .unwrap();
 
-    #[cfg(dev)]
-    let debug_google_drive =
-        MenuItemBuilder::with_id("debug-google-drive".to_string(), "Debug Google Drive")
-            .build(app)
-            .unwrap();
-
     let quit = MenuItemBuilder::with_id("quit".to_string(), "Quit")
         .build(app)
         .unwrap();
+    // let restart = MenuItemBuilder::with_id("restart".to_string(), "Restart")
+    //     .build(app)
+    //     .unwrap();
     let title = MenuItemBuilder::with_id("title".to_string(), "FUSOU")
         .enabled(false)
         .build(app)
@@ -134,8 +129,7 @@ fn setup_tray(
     let danger_ope_sub_menu = danger_ope_sub_menu
         .separator()
         .item(&open_debug_window)
-        .item(&open_auth_window)
-        .item(&debug_google_drive);
+        .item(&open_auth_window);
 
     let danger_ope_sub_menu = danger_ope_sub_menu.build().unwrap();
 
@@ -162,6 +156,7 @@ fn setup_tray(
         .item(&advanced_sub_menu)
         .separator()
         .item(&quit)
+        // .item(&restart)
         .build()
         .unwrap();
 
@@ -185,10 +180,6 @@ fn setup_tray(
             } = event
             {
                 let app = tray.app_handle();
-                // if let Some(webview_window) = app.get_webview_window("main") {
-                //     let _ = webview_window.show();
-                //     let _ = webview_window.set_focus();
-                // }
                 let window = app.get_webview_window("main");
                 match window {
                     Some(window) => {
@@ -247,12 +238,8 @@ fn setup_tray(
                         .unwrap();
                     }
                 },
-                #[cfg(dev)]
-                "debug-google-drive" => {
-                    println!("debug-google-drive");
-                    test::test();
-                }
                 "proxy-serve-shutdown" => {}
+                // "restart" => {}
                 "quit" => {
                     if let Some(window) = tray.get_webview_window("main") {
                         if let Ok(visible) = window.is_visible() {
@@ -276,22 +263,13 @@ fn setup_tray(
                         }
                     }
 
-                    // let _ = app
-                    //     .tray_handle()
-                    //     .get_item("main-open/close")
-                    //     .set_enabled(false);
-                    // let _ = app.tray_handle().get_item("quit").set_enabled(false);
-                    // let _ = app
-                    //     .tray_handle()
-                    //     .get_item("advanced-title")
-                    //     .set_enabled(false);
                     let _ = main_open_close.set_enabled(false);
                     let _ = quit.set_enabled(false);
                     let _ = adavanced_title.set_enabled(false);
 
                     native_cmd::remove_pac(tray.app_handle());
 
-                    // discord::close();
+                    discord::close();
 
                     let shutdown_tx_clone = shutdown_tx.clone();
                     tauri::async_runtime::spawn(async move {
