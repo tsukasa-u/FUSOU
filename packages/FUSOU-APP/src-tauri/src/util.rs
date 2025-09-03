@@ -36,7 +36,7 @@ pub async fn get_user_env_id() -> String {
                 let mut file = fs::File::create(file_path).expect("failed to create file.");
 
                 let new_uuid = Uuid::new_v4().to_string();
-                writeln!(file, "{}", new_uuid).expect("cannot write.");
+                writeln!(file, "{new_uuid}").expect("cannot write.");
                 new_uuid
             }
         })

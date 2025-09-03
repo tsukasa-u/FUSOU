@@ -1,6 +1,4 @@
 use std::collections::HashMap;
-use tauri::AppHandle;
-use tauri::Emitter;
 use tauri::Manager;
 
 use crate::external::create_external_window;
@@ -85,9 +83,9 @@ pub async fn launch_with_options(
                             .to_string();
                         // let ca_path =  window.app_handle().path_resolver().resolve_resource("./resources/ca").expect("failed to resolve app_local_data_dir").as_path().to_str().expect("failed to convert str").to_string();
 
-                        println!("save address: {}", save_path);
-                        println!("ca path: {}", ca_path);
-                        println!("pac path: {}", pac_path);
+                        println!("save address: {save_path}");
+                        println!("ca path: {ca_path}");
+                        println!("pac path: {pac_path}");
 
                         let file_prefix = util::get_user_env_id().await;
 
@@ -102,7 +100,7 @@ pub async fn launch_with_options(
                         match addr {
                             Ok(addr) => Some(addr),
                             Err(e) => {
-                                println!("Error: {}", e);
+                                println!("Error: {e}");
                                 return Err(());
                             }
                         }

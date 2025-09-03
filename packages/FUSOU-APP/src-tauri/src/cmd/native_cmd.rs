@@ -38,7 +38,7 @@ where
     let cmd_path = format!("{}/{}", PATH_PROXY_CRATE, PATH_ADD_PROXY_BAT);
     #[cfg(target_os = "linux")]
     #[cfg(dev)]
-    let cmd_path = format!("{}/{}", PATH_PROXY_CRATE, PATH_ADD_PROXY_SH);
+    let cmd_path = format!("{PATH_PROXY_CRATE}/{PATH_ADD_PROXY_SH}");
 
     #[cfg(target_os = "windows")]
     #[cfg(any(not(dev), check_release))]
@@ -75,7 +75,7 @@ where
         println!("{}", String::from_utf8(output.stdout).unwrap());
     });
 
-    println!("register AutoConfigURL: {}", path_clone);
+    println!("register AutoConfigURL: {path_clone}");
 }
 
 pub fn remove_pac<R>(app: &tauri::AppHandle<R>)
@@ -87,7 +87,7 @@ where
     let cmd_path = format!("{}/{}", PATH_PROXY_CRATE, PATH_DELETE_PROXY_BAT);
     #[cfg(target_os = "linux")]
     #[cfg(dev)]
-    let cmd_path = format!("{}/{}", PATH_PROXY_CRATE, PATH_DELETE_PROXY_SH);
+    let cmd_path = format!("{PATH_PROXY_CRATE}/{PATH_DELETE_PROXY_SH}");
 
     #[cfg(target_os = "windows")]
     #[cfg(any(not(dev), check_release))]
@@ -146,7 +146,7 @@ where
     let cmd_path = format!("{}/{}", PATH_PROXY_CRATE, PATH_ADD_STORE_BAT);
     #[cfg(target_os = "linux")]
     #[cfg(dev)]
-    let cmd_path = format!("{}/{}", PATH_PROXY_CRATE, PATH_ADD_STORE_SH);
+    let cmd_path = format!("{PATH_PROXY_CRATE}/{PATH_ADD_STORE_SH}");
 
     #[cfg(target_os = "windows")]
     #[cfg(any(not(dev), check_release))]

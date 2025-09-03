@@ -59,7 +59,7 @@ pub fn set_refresh_token(refresh_token: String, token_type: String) -> Result<()
         return Err(());
     }
 
-    println!("set refresh token: {}", refresh_token);
+    println!("set refresh token: {refresh_token}");
     let mut local_access_token = USER_ACCESS_TOKEN.lock().unwrap();
     let info = UserAccessTokenInfo {
         refresh_token: refresh_token.to_owned(),
@@ -133,7 +133,7 @@ pub async fn create_auth(
         .expect("failed to create authenticator");
 
     if let Err(e) = auth.token(SCOPES).await {
-        println!("error: {:?}", e)
+        println!("error: {e:?}")
     }
 
     return auth;
@@ -151,7 +151,7 @@ pub async fn create_client() -> Option<
         .clone();
 
     if let Err(e) = auth.force_refreshed_token(SCOPES).await {
-        println!("error: {:?}", e);
+        println!("error: {e:?}");
         return None;
     }
 
@@ -179,7 +179,7 @@ pub async fn get_drive_file_list(
 ) -> Option<Vec<String>> {
     let result = hub.files().list().page_size(page_size).doit().await;
     if result.is_err() {
-        println!("Error: {:?}", result);
+        println!("Error: {result:?}");
         return None;
     }
     let result = result.unwrap();
@@ -201,17 +201,15 @@ pub async fn check_folder(
 ) -> Option<String> {
     let query  = match parent_folder_id {
         Some(parent_folder_id) => format!(
-            "mimeType='application/vnd.google-apps.folder' and name='{}' and trashed = false and '{}' in parents",
-            folder_name, parent_folder_id
+            "mimeType='application/vnd.google-apps.folder' and name='{folder_name}' and trashed = false and '{parent_folder_id}' in parents"
         ),
         None => format!(
-            "mimeType='application/vnd.google-apps.folder' and name='{}' and trashed = false",
-            folder_name
+            "mimeType='application/vnd.google-apps.folder' and name='{folder_name}' and trashed = false"
         ),
     };
     let result = hub.files().list().q(&query).doit().await;
     if result.is_err() {
-        println!("Error: {:?}", result);
+        println!("Error: {result:?}");
         return None;
     }
     let result = result.unwrap();
@@ -286,17 +284,15 @@ pub async fn check_file(
 ) -> Option<String> {
     let query = match parent_folder_id {
         Some(parent_folder_id) => format!(
-            "mimeType='{}' and name='{}' and trashed = false and '{}' in parents",
-            mime_type, file_name, parent_folder_id
+            "mimeType='{mime_type}' and name='{file_name}' and trashed = false and '{parent_folder_id}' in parents"
         ),
         None => format!(
-            "mimeType='{}' and name='{}' and trashed = false",
-            mime_type, file_name
+            "mimeType='{mime_type}' and name='{file_name}' and trashed = false"
         ),
     };
     let result = hub.files().list().q(&query).doit().await;
     if result.is_err() {
-        println!("Error: {:?}", result);
+        println!("Error: {result:?}");
         return None;
     }
     let result = result.unwrap();
@@ -336,7 +332,7 @@ pub async fn create_file(
         .upload(std::io::Cursor::new(content), mime_type.parse().unwrap())
         .await;
     if create_result.is_err() {
-        println!("Error: {:?}", create_result);
+        println!("Error: {create_result:?}");
         return None;
     }
     let create_result = create_result.unwrap();
@@ -372,7 +368,7 @@ pub async fn check_or_create_file(
         .upload(std::io::Cursor::new(content), mime_type.parse().unwrap())
         .await;
     if create_result.is_err() {
-        println!("Error: {:?}", create_result);
+        println!("Error: {create_result:?}");
         return None;
     }
     let create_result = create_result.unwrap();

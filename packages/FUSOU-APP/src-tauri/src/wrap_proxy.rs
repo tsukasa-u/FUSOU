@@ -77,5 +77,5 @@ where
         app,
     );
 
-    return Ok(Url::parse(&format!("http://{}", proxy_addr_string)).unwrap());
+    return Ok(Url::parse(&format!("http://{proxy_addr_string}")).unwrap());
 }

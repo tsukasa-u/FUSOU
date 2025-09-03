@@ -346,7 +346,7 @@ async fn response_parser(
                         println!("Received None message");
                     },
                     Some(bidirectional_channel::StatusInfo::SHUTDOWN { status, message }) => {
-                        println!("Received shutdown message: {} {}", status, message);
+                        println!("Received shutdown message: {status} {message}");
                         let _ = slave.send(bidirectional_channel::StatusInfo::SHUTDOWN {
                             status: "SHUTTING DOWN".to_string(),
                             message: "Response parser is shutting down".to_string(),
@@ -354,7 +354,7 @@ async fn response_parser(
                         break;
                     },
                     Some(bidirectional_channel::StatusInfo::HEALTH { status, message }) => {
-                        println!("Received health message: {} {}", status, message);
+                        println!("Received health message: {status} {message}");
                         let _ = slave.send(bidirectional_channel::StatusInfo::HEALTH {
                             status: "RUNNING".to_string(),
                             message: "Response parser is running".to_string(),

@@ -33,7 +33,7 @@ pub fn create_external_window(app: &AppHandle, browser: Option<Browser>, browse_
                     }
                 }
                 Err(e) => {
-                    println!("Error: {:?}", e);
+                    println!("Error: {e:?}");
                 }
             }
             return;

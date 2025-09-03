@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use std::fs;
-use std::fs::canonicalize;
 
 use proxy_https::bidirectional_channel;
 use tauri::AppHandle;
@@ -260,7 +259,7 @@ pub async fn open_auth_page(_window: tauri::Window) -> Result<(), ()> {
     let result = auth_server::open_auth_page();
 
     if let Err(e) = result {
-        println!("Error: {}", e);
+        println!("Error: {e}");
         return Err(());
     }
     Ok(())
