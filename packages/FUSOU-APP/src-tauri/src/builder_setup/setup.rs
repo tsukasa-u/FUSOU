@@ -11,18 +11,21 @@ use tauri_plugin_deep_link::DeepLinkExt;
 use tokio::sync::mpsc;
 use webbrowser::open_browser;
 
-use crate::builder_setup::bidirectional_channel::{
-    get_pac_bidirectional_channel, get_proxy_bidirectional_channel,
-    get_response_parse_bidirectional_channel,
+use crate::{
+    builder_setup::bidirectional_channel::{
+        get_pac_bidirectional_channel, get_proxy_bidirectional_channel,
+        get_response_parse_bidirectional_channel,
+    },
+    cmd::{native_cmd, tauri_cmd},
+    integration::discord,
+    window::{app, external},
 };
-use crate::cmd::{native_cmd, tauri_cmd};
-use crate::integration::discord;
 use proxy_https::bidirectional_channel::request_shutdown;
 
 #[cfg(dev)]
 use crate::RESOURCES_DIR;
 
-use crate::external::SHARED_BROWSER;
+use crate::window::external::SHARED_BROWSER;
 
 fn setup_deep_link(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(any(target_os = "linux", all(debug_assertions, windows)))]
@@ -190,14 +193,7 @@ fn setup_tray(
                         }
                     }
                     None => {
-                        let _window = tauri::WebviewWindowBuilder::new(
-                            app,
-                            "main",
-                            tauri::WebviewUrl::App("index.html".into()),
-                        )
-                        .title("fusou-app")
-                        .build()
-                        .unwrap();
+                        app::open_main_window(app);
                     }
                 }
 
@@ -292,14 +288,7 @@ fn setup_tray(
                             tauri_cmd::set_launch_page(tray.app_handle());
                         }
                         None => {
-                            let _window = tauri::WebviewWindowBuilder::new(
-                                tray.app_handle(),
-                                "main",
-                                tauri::WebviewUrl::App("index.html".into()),
-                            )
-                            .title("fusou-app")
-                            .build()
-                            .unwrap();
+                            app::open_main_window(tray.app_handle());
                         }
                     }
                 }
@@ -326,14 +315,7 @@ fn setup_tray(
                             _ => {}
                         },
                         None => {
-                            let _window = tauri::WebviewWindowBuilder::new(
-                                tray.app_handle(),
-                                "main",
-                                tauri::WebviewUrl::App("index.html".into()),
-                            )
-                            .title("fusou-app")
-                            .build()
-                            .unwrap();
+                            app::open_main_window(tray.app_handle());
                             // main_open_close.set_text("Close Main Window");
                         }
                     }
@@ -361,7 +343,7 @@ fn setup_tray(
                             _ => {}
                         },
                         None => {
-                            crate::external::create_external_window(tray.app_handle(), None, true);
+                            external::create_external_window(tray.app_handle(), None, true);
                             // // let _ = app
                             // //     .tray_handle()
                             // //     .get_item("external-open/close")

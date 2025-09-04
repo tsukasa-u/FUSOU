@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 use tauri::Manager;
 
-use crate::external::create_external_window;
-use crate::external::SHARED_BROWSER;
+use crate::window::external::create_external_window;
+use crate::window::external::SHARED_BROWSER;
 use crate::{
     builder_setup::bidirectional_channel::{
         get_proxy_log_bidirectional_channel, get_response_parse_bidirectional_channel,

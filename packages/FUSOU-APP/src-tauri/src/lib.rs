@@ -12,10 +12,10 @@ mod auth;
 mod builder_setup;
 mod cloud_storage;
 mod cmd;
-mod external;
 mod integration;
 mod sequence;
 mod util;
+mod window;
 mod wrap_proxy;
 
 use crate::builder_setup::bidirectional_channel::{
@@ -90,6 +90,8 @@ pub async fn run() {
             cmd::tauri_cmd::set_refresh_token,
             cmd::tauri_cmd::open_auth_page,
             cmd::tauri_cmd::check_open_window,
+            cmd::tauri_cmd::get_app_theme,
+            cmd::tauri_cmd::get_app_font,
             #[cfg(dev)]
             cmd::tauri_cmd::open_auth_window,
             #[cfg(dev)]

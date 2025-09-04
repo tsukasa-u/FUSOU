@@ -310,6 +310,24 @@ pub async fn check_open_window(window: tauri::Window, label: &str) -> Result<boo
     return opened_flag.ok_or(());
 }
 
+#[tauri::command]
+pub async fn get_app_theme(_window: tauri::Window) -> Result<String, ()> {
+    let theme = configs::get_user_configs_for_app()
+        .theme
+        .get_theme()
+        .to_string();
+    Ok(theme)
+}
+
+#[tauri::command]
+pub async fn get_app_font(_window: tauri::Window) -> Result<String, ()> {
+    let font = configs::get_user_configs_for_app()
+        .font
+        .get_font_family()
+        .to_string();
+    Ok(font)
+}
+
 //--------------------------------------------------------------
 
 pub fn set_launch_page(app: &AppHandle) {

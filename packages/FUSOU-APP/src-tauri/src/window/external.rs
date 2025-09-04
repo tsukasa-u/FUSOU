@@ -57,7 +57,7 @@ pub fn create_external_window(app: &AppHandle, browser: Option<Browser>, browse_
             println!("can not get webview windows \"external\"");
         }
 
-        let init_script = include_str!(".././../src/init_script.js");
+        let init_script = include_str!("./scripts/external_init_script.js");
 
         let external = tauri::WebviewWindowBuilder::new(
             app,

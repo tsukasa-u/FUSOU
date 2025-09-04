@@ -120,11 +120,14 @@ save_file_location = ""
 
     [app.theme]
     # The theme to use for the application
-    theme = "light"
+    # you can choose between "light" and "dark"
+    theme = "dark"
 
 
     [app.font]
     # The font family to use for the application
+    # you can choose any font family in Google Fonts
+    # keep it empty to use the default font
     font_family = "Noto Sans JP"
 
 
