@@ -2,6 +2,22 @@ use std::sync::{LazyLock, Mutex};
 use tauri::{AppHandle, Manager};
 use webbrowser::{open_browser, Browser};
 
+static DEFAULT_GAME_URL: &str = "http://www.dmm.com/netgame/social/-/gadgets/=/app_id=854854/";
+
+static GAME_URL: once_cell::sync::OnceCell<String> = once_cell::sync::OnceCell::new();
+
+fn get_game_url() -> String {
+    GAME_URL
+        .get_or_init(|| {
+            if let Some(game_url) = configs::get_user_configs_for_app().browser.get_url() {
+                game_url
+            } else {
+                DEFAULT_GAME_URL.to_string()
+            }
+        })
+        .clone()
+}
+
 #[derive(Debug, Default)]
 pub struct BrowserState(Browser);
 
@@ -41,22 +57,14 @@ pub fn create_external_window(app: &AppHandle, browser: Option<Browser>, browse_
             println!("can not get webview windows \"external\"");
         }
 
-        // let init_script = fs::read_to_string("./../src/init_script.js").expect("Unable to read init_script.js");
         let init_script = include_str!(".././../src/init_script.js");
 
         let external = tauri::WebviewWindowBuilder::new(
             app,
             "external",
-            tauri::WebviewUrl::External(
-                "http://www.dmm.com/netgame/social/-/gadgets/=/app_id=854854/"
-                    .parse()
-                    .unwrap(),
-            ),
+            tauri::WebviewUrl::External(get_game_url().parse().unwrap()),
         );
 
-        // if proxy_addr.is_some() {
-        //     external = external.proxy_url(proxy_addr.expect("proxy_addr is None"))
-        // }
         let external_result = external
             .fullscreen(false)
             .title("fusou-viewer")
@@ -69,36 +77,6 @@ pub fn create_external_window(app: &AppHandle, browser: Option<Browser>, browse_
             .show()
             .expect("can not show external window");
     } else {
-        open_browser(
-            browser.unwrap(),
-            "http://www.dmm.com/netgame/social/-/gadgets/=/app_id=854854/",
-        )
-        .unwrap();
+        open_browser(browser.unwrap(), &get_game_url()).unwrap();
     }
-
-    // #[cfg(target_os = "linux")]
-    // {
-    //   let context = webkit2gtk::WebContext::default().expect("Failed to get default WebContext");
-    //   context.set_network_proxy_settings(webkit2gtk::NetworkProxyMode::Default, None);
-    //   // #[cfg(feature = "v2_6")]
-    //   // let webview = webkit2gtk::WebView::with_context(&context);
-    //   // #[cfg(not(feature = "v2_6"))]
-    //   let webview = webkit2gtk::WebViewBuilder::new().web_context(&context).build();
-    //   // println!("{:?}", external.gtk_window().unwrap().default_widget());
-    //   // let widget =  external.gtk_window().unwrap().default_widget().unwrap();
-    //   // external.gtk_window().unwrap().remove(&widget);
-    //   // external.gtk_window().unwrap().add(&webview);
-    //   // external.gtk_window().unwrap().show_all();
-
-    //   let gtk_window = gtk::ApplicationWindow::new(
-    //     &external.gtk_window().unwrap().application().unwrap(),
-    //   );
-    //   // gtk_window.set_app_paintable(true);
-    //   gtk_window.set_window_position(gtk::WindowPosition::Mouse);
-    //   gtk_window.set_height_request(480);
-    //   gtk_window.set_width_request(640);
-    //   gtk_window.add(&webview);
-    //   webview.load_uri("http://www.dmm.com/netgame/social/-/gadgets/=/app_id=854854/");
-    //   gtk_window.show();
-    // }
 }
