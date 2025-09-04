@@ -143,9 +143,9 @@ save_file_location = ""
     # Whether to use a custom image for Discord Rich Presence
     use_custom_image = false
 
-    # The custom image to use for Discord Rich Presence
+    # The custom image url to use for Discord Rich Presence
     # This option is only used when `use_custom_image` is true
-    custom_image = ""
+    custom_image_url = ""
 
 
     [app.database]

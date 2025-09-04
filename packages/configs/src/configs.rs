@@ -185,7 +185,7 @@ pub struct ConfigsAppDiscord {
     custom_message: Option<String>,
     custom_details: Option<String>,
     use_custom_image: Option<bool>,
-    custom_image: Option<String>,
+    custom_image_url: Option<String>,
 }
 
 impl ConfigsAppDiscord {
@@ -215,10 +215,10 @@ impl ConfigsAppDiscord {
         self.use_custom_image.unwrap_or(false)
     }
 
-    pub fn get_custom_image(&self) -> Option<String> {
-        match self.custom_image {
-            Some(ref v) if !v.is_empty() => Some(v.clone()),
-            _ => None,
+    pub fn get_custom_image_url(&self) -> String {
+        match self.custom_image_url {
+            Some(ref v) => v.clone(),
+            None => "".to_string(),
         }
     }
 }
