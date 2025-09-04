@@ -1,6 +1,6 @@
 #[cfg(dev)]
 use std::path::PathBuf;
-use std::time;
+use std::{sync::Mutex, time};
 
 use tauri::{
     menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder},
@@ -160,6 +160,8 @@ fn setup_tray(
         .build()
         .unwrap();
 
+    app.manage(Mutex::new(main_open_close));
+
     let _system_tray = TrayIconBuilder::new()
         .menu(&tray_menu)
         .tooltip("FUSOU")
@@ -263,7 +265,7 @@ fn setup_tray(
                         }
                     }
 
-                    let _ = main_open_close.set_enabled(false);
+                    // let _ = main_open_close.set_enabled(false);
                     let _ = quit.set_enabled(false);
                     let _ = adavanced_title.set_enabled(false);
 
@@ -306,12 +308,12 @@ fn setup_tray(
                     match window {
                         Some(window) => match window.is_visible() {
                             Ok(true) => {
-                                // window.hide().unwrap();
+                                window.hide().unwrap();
                                 // // let _ = app
                                 // //     .tray_handle()
                                 // //     .get_item("main-open/close")
                                 // //     .set_title("Open Main Window");
-                                // main_open_close.set_text("Open Main Window");
+                                // let _ = main_open_close.set_text("Open Main Window");
                             }
                             Ok(false) => {
                                 window.show().unwrap();
@@ -319,7 +321,7 @@ fn setup_tray(
                                 // //     .tray_handle()
                                 // //     .get_item("main-open/close")
                                 // //     .set_title("Close Main Window");
-                                // main_open_close.set_text("Close Main Window");
+                                // let _ = main_open_close.set_text("Close Main Window");
                             }
                             _ => {}
                         },
@@ -332,10 +334,6 @@ fn setup_tray(
                             .title("fusou-app")
                             .build()
                             .unwrap();
-                            // // let _ = app
-                            // //     .tray_handle()
-                            // //     .get_item("main-open/close")
-                            // //     .set_title("Close Main Window");
                             // main_open_close.set_text("Close Main Window");
                         }
                     }
@@ -377,6 +375,7 @@ fn setup_tray(
         })
         .build(app)
         .unwrap();
+
     Ok(())
 }
 

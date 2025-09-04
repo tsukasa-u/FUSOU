@@ -18,6 +18,7 @@ pub fn window_event_handler(window: &tauri::Window, event: &tauri::WindowEvent) 
             "external" => {
                 window.close().unwrap();
             }
+            #[cfg(dev)]
             "debug" => {
                 window.close().unwrap();
             }
