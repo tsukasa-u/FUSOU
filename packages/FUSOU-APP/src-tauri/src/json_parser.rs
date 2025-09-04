@@ -1,16 +1,13 @@
-use proxy_https::bidirectional_channel;
 use regex::Regex;
-use register_trait::expand_struct_selector;
-use register_trait::TraitForConvert;
 use std::error::Error;
 use tauri::Emitter;
+// use proxy::bidirectional_channel;
+use proxy_https::bidirectional_channel;
+use register_trait::expand_struct_selector;
+use register_trait::TraitForConvert;
 
-use crate::auth::{auth_server, supabase};
-use crate::database::table::{GetDataTable, PortTable};
-use crate::util::get_user_env_id;
-use kc_api::interface::cells::Cells;
+use crate::cloud_storage::submit_data;
 
-use crate::cloud_storage::google_drive;
 use kc_api::interface::interface::{Add, EmitData, Identifier, Set};
 
 pub fn emit_data(handle: &tauri::AppHandle, emit_data: EmitData) {
@@ -117,109 +114,11 @@ pub fn emit_data(handle: &tauri::AppHandle, emit_data: EmitData) {
         },
         EmitData::Identifier(data) => match data {
             Identifier::Port(_) => {
-                if Cells::reset_flag() {
-                    let cells = Cells::load();
-                    tokio::task::spawn(async move {
-                        let user_env = get_user_env_id().await;
-                        let timestamp = chrono::Utc::now().timestamp();
-                        let port_table = PortTable::new(cells, user_env, timestamp);
-                        Cells::reset();
-                        match port_table.encode() {
-                            Ok(port_table_encode) => {
-                                let pariod_tag = supabase::get_period_tag().await;
-                                let hub = google_drive::create_client().await;
-                                match hub {
-                                    Some(mut hub) => {
-                                        let folder_name =
-                                            vec!["fusou".to_string(), pariod_tag.clone()];
-                                        let folder_id =
-                                            google_drive::check_or_create_folder_hierarchical(
-                                                &mut hub,
-                                                folder_name,
-                                                Some("root".to_string()),
-                                            )
-                                            .await;
-
-                                        let result = google_drive::write_port_table(
-                                            &mut hub,
-                                            folder_id,
-                                            port_table_encode,
-                                        )
-                                        .await;
-                                        if result.is_none() {
-                                            println!(
-                                                "\x1b[38;5;{}m Failed to write port table\x1b[m ",
-                                                8
-                                            );
-                                        }
-                                    }
-                                    None => {
-                                        println!(
-                                            "\x1b[38;5;{}m Failed to create google drive client\x1b[m ",
-                                            8
-                                        );
-                                        let _ = auth_server::open_auth_page();
-                                    }
-                                };
-                            }
-                            Err(e) => {
-                                println!(
-                                    "\x1b[38;5;{}m Failed to encode port table: {}\x1b[m ",
-                                    8, e
-                                );
-                            }
-                        }
-                    });
-                }
+                submit_data::submit_port_table();
             }
             Identifier::RequireInfo(_) => {}
             Identifier::GetData(_) => {
-                let get_data_table = GetDataTable::new();
-                tokio::task::spawn(async move {
-                    match get_data_table.encode() {
-                        Ok(get_data_table_encode) => {
-                            let pariod_tag = supabase::get_period_tag().await;
-                            let hub = google_drive::create_client().await;
-                            match hub {
-                                Some(mut hub) => {
-                                    let folder_name = vec!["fusou".to_string(), pariod_tag.clone()];
-                                    let folder_id =
-                                        google_drive::check_or_create_folder_hierarchical(
-                                            &mut hub,
-                                            folder_name,
-                                            Some("root".to_string()),
-                                        )
-                                        .await;
-
-                                    let result = google_drive::write_get_data_table(
-                                        &mut hub,
-                                        folder_id,
-                                        get_data_table_encode,
-                                    )
-                                    .await;
-                                    if result.is_none() {
-                                        println!(
-                                            "\x1b[38;5;{}m Failed to write get data table\x1b[m ",
-                                            8
-                                        );
-                                    }
-                                }
-                                None => {
-                                    println!(
-                                        "\x1b[38;5;{}m Failed to create google drive client\x1b[m ",
-                                        8
-                                    );
-                                }
-                            };
-                        }
-                        Err(e) => {
-                            println!(
-                                "\x1b[38;5;{}m Failed to encode get data table: {}\x1b[m ",
-                                8, e
-                            );
-                        }
-                    }
-                });
+                submit_data::submit_get_data_table();
             }
         },
     }
@@ -346,7 +245,7 @@ async fn response_parser(
                         println!("Received None message");
                     },
                     Some(bidirectional_channel::StatusInfo::SHUTDOWN { status, message }) => {
-                        println!("Received shutdown message: {status} {message}");
+                        println!("Received shutdown message: {} {}", status, message);
                         let _ = slave.send(bidirectional_channel::StatusInfo::SHUTDOWN {
                             status: "SHUTTING DOWN".to_string(),
                             message: "Response parser is shutting down".to_string(),
@@ -354,7 +253,7 @@ async fn response_parser(
                         break;
                     },
                     Some(bidirectional_channel::StatusInfo::HEALTH { status, message }) => {
-                        println!("Received health message: {status} {message}");
+                        println!("Received health message: {} {}", status, message);
                         let _ = slave.send(bidirectional_channel::StatusInfo::HEALTH {
                             status: "RUNNING".to_string(),
                             message: "Response parser is running".to_string(),
