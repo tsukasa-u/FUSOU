@@ -155,10 +155,11 @@ save_file_location = ""
     # Whether to save KanColle data to the cloud
     # this feature can be enabled with user authentication
     # check [app.auth]
-    allow_data_to_cloud = false
+    allow_data_to_cloud = true
 
 
     [app.auth]
     # Whether to deny user authentication
-    deny_auth = true
+    # To be careful because there is no method to reset the authentication state until the authentication expires
+    deny_auth = false
 

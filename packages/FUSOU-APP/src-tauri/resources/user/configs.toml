@@ -158,5 +158,6 @@ save_file_location = ""
 
     [app.auth]
     # Whether to deny user authentication
+    # To be careful because there is no method to reset the authentication state until the authentication expires
     deny_auth = true
 

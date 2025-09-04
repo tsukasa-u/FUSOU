@@ -1,3 +1,6 @@
+#[cfg(not(feature = "auth-local-server"))]
+use configs;
+
 #[cfg(feature = "auth-local-server")]
 use std::{net::SocketAddr, sync::OnceLock};
 
@@ -95,6 +98,10 @@ pub fn open_auth_page() -> Result<(), String> {
 
     // let result: Result<(), String> =
     //     webbrowser::open("http://localhost:4321/signinLocalApp").map_err(|e| e.to_string());
+
+    if configs::get_user_configs_for_app().auth.get_deny_auth() {
+        return Err("User authentication is denied".into());
+    }
 
     let result =
         webbrowser::open("https://fusou.pages.dev/signinLocalApp").map_err(|e| e.to_string());
