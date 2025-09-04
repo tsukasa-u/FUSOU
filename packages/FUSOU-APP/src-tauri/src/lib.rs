@@ -92,6 +92,7 @@ pub async fn run() {
             cmd::tauri_cmd::check_open_window,
             cmd::tauri_cmd::get_app_theme,
             cmd::tauri_cmd::get_app_font,
+            cmd::tauri_cmd::get_kc_server_name,
             #[cfg(dev)]
             cmd::tauri_cmd::open_auth_window,
             #[cfg(dev)]

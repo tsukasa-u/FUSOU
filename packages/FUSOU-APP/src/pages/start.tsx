@@ -19,6 +19,7 @@ import { location_route } from "../utility/location";
 import { getRefreshToken, supabase } from "../utility/supabase";
 import { useAuth } from "../utility/provider";
 import { ThemeControllerComponent } from "../components/settings/theme";
+import { createAsyncStore } from "@solidjs/router";
 
 const launch_options: { [key: string]: number } = {
   run_proxy_server: 1,
@@ -229,6 +230,17 @@ function Start() {
     return "btn btn-wide btn-accent border-accent-content";
   });
 
+  const auto_listen = createAsyncStore<string>(async () => {
+    const response_promise = invoke<string>("get_kc_server_name")
+      .then((name) => {
+        console.log("name", name);
+        return name !== "" ? name : "Auto Listen";
+      })
+      .catch(() => "Auto Listen");
+    const server_name = await response_promise;
+    return server_name !== "" ? server_name : "Auto Listen";
+  });
+
   return (
     <>
       <div class="bg-base-100 min-h-dvh flex">
@@ -319,7 +331,7 @@ function Start() {
                       setServer(e.target.selectedIndex);
                     }}
                   >
-                    <option selected>Auto Listen</option>
+                    <option selected>{auto_listen() ?? "Auto Listen"}</option>
                     <For each={Object.keys(server_list)}>
                       {(name, idx) => (
                         <option selected={server() == idx() + 1}>{name}</option>

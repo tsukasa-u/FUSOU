@@ -328,6 +328,15 @@ pub async fn get_app_font(_window: tauri::Window) -> Result<String, ()> {
     Ok(font)
 }
 
+#[tauri::command]
+pub async fn get_kc_server_name(_window: tauri::Window) -> Result<String, ()> {
+    let name = configs::get_user_configs_for_app()
+        .connect_kc_server
+        .get_kc_server_name()
+        .map(|s| s.to_string());
+    Ok(name.unwrap_or("".to_string()))
+}
+
 //--------------------------------------------------------------
 
 pub fn set_launch_page(app: &AppHandle) {

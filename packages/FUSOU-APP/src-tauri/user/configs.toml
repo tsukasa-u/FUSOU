@@ -111,7 +111,7 @@ save_file_location = ""
     #
     # Set KanColle server hostname or empty if you want to choose KanColle server automatically
     # kc_server_name = "w16s.kancolle-server.com" # This is example
-    kc_server_name = ""
+    kc_server_name = "w16s.kancolle-server.com"
 
     [app.browser]
     # The URL to open first in the browser

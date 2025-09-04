@@ -14,12 +14,20 @@ pub async fn launch_with_options(
     window: tauri::Window,
     options: HashMap<String, i32>,
 ) -> Result<(), ()> {
+    let server_name = if let Some(name) = configs::get_user_configs_for_app()
+        .connect_kc_server
+        .get_kc_server_name()
+    {
+        name.clone()
+    } else {
+        String::from("")
+    };
     let _proxy_addr = {
         if let Some(&flag) = options.get("run_proxy_server") {
             if flag != 0 {
                 if let Some(&server_index) = options.get("server") {
                     let server_address = match server_index {
-                        -1 => Some(""),
+                        -1 => Some(server_name.as_str()),
                         1 => Some("w01y.kancolle-server.com"), // 横須賀鎮守府
                         2 => Some("w02k.kancolle-server.com"), // 新呉鎮守府
                         3 => Some("w03s.kancolle-server.com"), // 佐世保鎮守府
