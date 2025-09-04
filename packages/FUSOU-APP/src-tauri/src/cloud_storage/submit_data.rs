@@ -10,6 +10,13 @@ use crate::{
 };
 
 pub fn submit_get_data_table() {
+    if !configs::get_user_configs_for_app()
+        .database
+        .get_allow_data_to_cloud()
+    {
+        return;
+    }
+
     let get_data_table = GetDataTable::new();
     tokio::task::spawn(async move {
         match get_data_table.encode() {
@@ -55,6 +62,13 @@ pub fn submit_get_data_table() {
 }
 
 pub fn submit_port_table() {
+    if !configs::get_user_configs_for_app()
+        .database
+        .get_allow_data_to_cloud()
+    {
+        return;
+    }
+
     if Cells::reset_flag() {
         let cells = Cells::load();
         tokio::task::spawn(async move {
