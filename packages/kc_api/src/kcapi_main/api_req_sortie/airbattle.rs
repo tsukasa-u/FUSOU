@@ -7,17 +7,14 @@
 use serde::Deserialize;
 use serde_json::Value;
 
-use register_trait::add_field;
-use register_trait::register_struct;
+use register_trait::{add_field, register_struct};
 
-use register_trait::Getter;
-use register_trait::TraitForConvert;
-use register_trait::TraitForRoot;
-use register_trait::TraitForTest;
+use register_trait::{Getter, TraitForConvert, TraitForRoot, TraitForTest};
+
+use crate::interface::battle::Battle;
+use crate::interface::interface::{Add, EmitData};
 
 use crate::kcapi_common::common_air::ApiKouku;
-
-use crate::interface::interface::EmitData;
 
 #[derive(Getter, TraitForTest, TraitForRoot, TraitForConvert)]
 #[convert_output(output = EmitData)]
@@ -36,8 +33,7 @@ pub struct Req {
     pub api_recovery_type: String,
 }
 
-#[derive(Getter, TraitForTest, TraitForRoot, TraitForConvert)]
-#[convert_output(output = EmitData)]
+#[derive(Getter, TraitForTest, TraitForRoot)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[register_struct(name = "api_req_sortie/airbattle")]
@@ -102,6 +98,16 @@ pub struct ApiData {
     pub api_stage_flag2: Vec<i64>,
     #[serde(rename = "api_kouku2")]
     pub api_kouku2: ApiKouku,
+    #[serde(rename = "api_escape_idx")]
+    pub api_escape_idx: Option<Vec<i64>>,
+}
+
+impl TraitForConvert for Res {
+    type Output = EmitData;
+    fn convert(&self) -> Option<Vec<EmitData>> {
+        let battle: Battle = self.api_data.clone().into();
+        Some(vec![EmitData::Add(Add::Battle(battle))])
+    }
 }
 
 #[cfg(test)]

@@ -139,6 +139,7 @@ export function BattlesComponent() {
             battle_selected={battle_selected}
             store_data_set_deck_ship={store_data_set_deck_ship}
             store_data_set_param_ship={store_data_set_param_ship}
+            attack_index={order.OpeningAirAttack}
           />
         );
       }
@@ -209,7 +210,7 @@ export function BattlesComponent() {
             battle_selected={battle_selected}
             store_data_set_deck_ship={store_data_set_deck_ship}
             store_data_set_param_ship={store_data_set_param_ship}
-            shelling_idx={order.Hougeki - 1}
+            shelling_idx={order.Hougeki}
           />
         );
       }

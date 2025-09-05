@@ -4,8 +4,8 @@ use crate::database::airbase::{AirBase, PlaneInfo};
 use crate::database::battle::{
     AirBaseAirAttack, AirBaseAirAttackList, AirBaseAssult, Battle, CarrierBaseAssault,
     ClosingRaigeki, FriendlySupportHourai, FriendlySupportHouraiList, Hougeki, HougekiList,
-    MidnightHougeki, MidnightHougekiList, OpeningAirAttack, OpeningRaigeki, OpeningTaisen,
-    OpeningTaisenList, SupportAirattack, SupportHourai,
+    MidnightHougeki, MidnightHougekiList, OpeningAirAttack, OpeningAirAttackList, OpeningRaigeki,
+    OpeningTaisen, OpeningTaisenList, SupportAirattack, SupportHourai,
 };
 use crate::database::cell::Cells;
 use crate::database::deck::{EnemyDeck, FriendDeck, OwnDeck, SupportDeck};
@@ -60,6 +60,7 @@ pub struct PortTable {
     pub midnight_hougeki: Vec<MidnightHougeki>,
     pub midnight_hougeki_list: Vec<MidnightHougekiList>,
     pub opening_airattack: Vec<OpeningAirAttack>,
+    pub opening_airattack_list: Vec<OpeningAirAttackList>,
     pub opening_raigeki: Vec<OpeningRaigeki>,
     pub opening_taisen: Vec<OpeningTaisen>,
     pub opening_taisen_list: Vec<OpeningTaisenList>,
@@ -96,6 +97,7 @@ pub struct PortTableEncode {
     pub midnight_hougeki: Vec<u8>,
     pub midnight_hougeki_list: Vec<u8>,
     pub opening_airattack: Vec<u8>,
+    pub opening_airattack_list: Vec<u8>,
     pub opening_raigeki: Vec<u8>,
     pub opening_taisen: Vec<u8>,
     pub opening_taisen_list: Vec<u8>,
@@ -234,6 +236,11 @@ impl OpeningAirAttack {
         "opening_airattack".to_string()
     }
 }
+impl OpeningAirAttackList {
+    pub fn get_table_name() -> String {
+        "opening_airattack_list".to_string()
+    }
+}
 impl OpeningRaigeki {
     pub fn get_table_name() -> String {
         "opening_raigeki".to_string()
@@ -302,6 +309,7 @@ impl PortTable {
         let midnight_hougeki = encode(self.midnight_hougeki.clone())?;
         let midnight_hougeki_list = encode(self.midnight_hougeki_list.clone())?;
         let opening_airattack = encode(self.opening_airattack.clone())?;
+        let opening_airattack_list = encode(self.opening_airattack_list.clone())?;
         let opening_raigeki = encode(self.opening_raigeki.clone())?;
         let opening_taisen = encode(self.opening_taisen.clone())?;
         let opening_taisen_list = encode(self.opening_taisen_list.clone())?;
@@ -339,6 +347,7 @@ impl PortTable {
             midnight_hougeki,
             midnight_hougeki_list,
             opening_airattack,
+            opening_airattack_list,
             opening_raigeki,
             opening_taisen,
             opening_taisen_list,

@@ -3,7 +3,7 @@ import type { BattleType } from "./battle";
 export type AirBaseAssult = { AirBaseAssult: null };
 export type CarrierBaseAssault = { CarrierBaseAssault: null };
 export type AirBaseAirAttack = { AirBaseAirAttack: null };
-export type OpeningAirAttack = { OpeningAirAttack: null };
+export type OpeningAirAttack = { OpeningAirAttack: number };
 export type SupportAttack = { SupportAttack: null };
 export type OpeningTaisen = { OpeningTaisen: null };
 export type OpeningRaigeki = { OpeningRaigeki: null };

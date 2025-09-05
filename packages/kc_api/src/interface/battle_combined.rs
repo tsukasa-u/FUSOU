@@ -18,7 +18,8 @@ impl From<kcapi_main::api_req_combined_battle::ec_battle::ApiData> for Battle {
     fn from(battle: kcapi_main::api_req_combined_battle::ec_battle::ApiData) -> Self {
         let air_base_air_attacks: Option<AirBaseAirAttacks> =
             Some(battle.api_air_base_attack.into());
-        let opening_air_attack: Option<OpeningAirAttack> = Some(battle.api_kouku.into());
+        let opening_air_attack: Option<Vec<Option<OpeningAirAttack>>> =
+            Some(vec![Some(battle.api_kouku.into())]);
         let opening_taisen: Option<OpeningTaisen> = battle
             .api_opening_taisen
             .map(|opening_taisen| opening_taisen.into());
@@ -53,14 +54,14 @@ impl From<kcapi_main::api_req_combined_battle::ec_battle::ApiData> for Battle {
             BattleType::AirBaseAssult(()),
             BattleType::CarrierBaseAssault(()),
             BattleType::AirBaseAirAttack(()),
-            BattleType::OpeningAirAttack(()),
+            BattleType::OpeningAirAttack(0),
             BattleType::SupportAttack(()),
             BattleType::OpeningTaisen(()),
             BattleType::OpeningRaigeki(()),
-            BattleType::Hougeki(1),
+            BattleType::Hougeki(0),
             BattleType::ClosingRaigeki(()),
+            BattleType::Hougeki(1),
             BattleType::Hougeki(2),
-            BattleType::Hougeki(3),
         ];
 
         let escape_idx_combined: Option<Vec<i64>> = calc_escape_idx(battle.api_escape_idx, None);
@@ -131,14 +132,14 @@ impl From<kcapi_main::api_req_combined_battle::ec_midnight_battle::ApiData> for 
             BattleType::AirBaseAssult(()),
             BattleType::CarrierBaseAssault(()),
             BattleType::AirBaseAirAttack(()),
-            BattleType::OpeningAirAttack(()),
+            BattleType::OpeningAirAttack(0),
             BattleType::SupportAttack(()),
             BattleType::OpeningTaisen(()),
             BattleType::OpeningRaigeki(()),
-            BattleType::Hougeki(1),
+            BattleType::Hougeki(0),
             BattleType::ClosingRaigeki(()),
+            BattleType::Hougeki(1),
             BattleType::Hougeki(2),
-            BattleType::Hougeki(3),
             BattleType::FriendlyForceAttack(()),
             BattleType::MidnightHougeki(()),
         ];
@@ -194,7 +195,8 @@ impl From<kcapi_main::api_req_combined_battle::battle_water::ApiData> for Battle
         let air_base_air_attacks: Option<AirBaseAirAttacks> = battle
             .api_air_base_attack
             .map(|air_base_attack| air_base_attack.into());
-        let opening_air_attack: Option<OpeningAirAttack> = Some(battle.api_kouku.into());
+        let opening_air_attack: Option<Vec<Option<OpeningAirAttack>>> =
+            Some(vec![Some(battle.api_kouku.into())]);
         let opening_taisen: Option<OpeningTaisen> = battle
             .api_opening_taisen
             .map(|opening_taisen| opening_taisen.into());
@@ -232,14 +234,14 @@ impl From<kcapi_main::api_req_combined_battle::battle_water::ApiData> for Battle
             BattleType::AirBaseAssult(()),
             BattleType::CarrierBaseAssault(()),
             BattleType::AirBaseAirAttack(()),
-            BattleType::OpeningAirAttack(()),
+            BattleType::OpeningAirAttack(0),
             BattleType::SupportAttack(()),
             BattleType::OpeningTaisen(()),
             BattleType::OpeningRaigeki(()),
-            BattleType::Hougeki(1),
+            BattleType::Hougeki(0),
             BattleType::ClosingRaigeki(()),
+            BattleType::Hougeki(1),
             BattleType::Hougeki(2),
-            BattleType::Hougeki(3),
         ];
 
         let escape_idx_combined: Option<Vec<i64>> =
@@ -294,7 +296,8 @@ impl From<kcapi_main::api_req_combined_battle::battle::ApiData> for Battle {
         let air_base_air_attacks: Option<AirBaseAirAttacks> = battle
             .api_air_base_attack
             .map(|air_base_attack| air_base_attack.into());
-        let opening_air_attack: Option<OpeningAirAttack> = Some(battle.api_kouku.into());
+        let opening_air_attack: Option<Vec<Option<OpeningAirAttack>>> =
+            Some(vec![Some(battle.api_kouku.into())]);
         let opening_taisen: Option<OpeningTaisen> = battle
             .api_opening_taisen
             .map(|opening_taisen| opening_taisen.into());
@@ -330,14 +333,14 @@ impl From<kcapi_main::api_req_combined_battle::battle::ApiData> for Battle {
             BattleType::AirBaseAssult(()),
             BattleType::CarrierBaseAssault(()),
             BattleType::AirBaseAirAttack(()),
-            BattleType::OpeningAirAttack(()),
+            BattleType::OpeningAirAttack(0),
             BattleType::SupportAttack(()),
             BattleType::OpeningTaisen(()),
             BattleType::OpeningRaigeki(()),
-            BattleType::Hougeki(1),
+            BattleType::Hougeki(0),
             BattleType::ClosingRaigeki(()),
+            BattleType::Hougeki(1),
             BattleType::Hougeki(2),
-            BattleType::Hougeki(3),
         ];
 
         let escape_idx_combined: Option<Vec<i64>> =
@@ -391,7 +394,8 @@ impl From<kcapi_main::api_req_combined_battle::each_battle_water::ApiData> for B
     fn from(battle: kcapi_main::api_req_combined_battle::each_battle_water::ApiData) -> Self {
         let air_base_air_attacks: Option<AirBaseAirAttacks> =
             battle.api_air_base_attack.map(|attack| attack.into());
-        let opening_air_attack: Option<OpeningAirAttack> = Some(battle.api_kouku.into());
+        let opening_air_attack: Option<Vec<Option<OpeningAirAttack>>> =
+            Some(vec![Some(battle.api_kouku.into())]);
         let opening_taisen: Option<OpeningTaisen> = battle
             .api_opening_taisen
             .map(|opening_taisen| opening_taisen.into());
@@ -426,14 +430,14 @@ impl From<kcapi_main::api_req_combined_battle::each_battle_water::ApiData> for B
             BattleType::AirBaseAssult(()),
             BattleType::CarrierBaseAssault(()),
             BattleType::AirBaseAirAttack(()),
-            BattleType::OpeningAirAttack(()),
+            BattleType::OpeningAirAttack(0),
             BattleType::SupportAttack(()),
             BattleType::OpeningTaisen(()),
             BattleType::OpeningRaigeki(()),
-            BattleType::Hougeki(1),
+            BattleType::Hougeki(0),
             BattleType::ClosingRaigeki(()),
+            BattleType::Hougeki(1),
             BattleType::Hougeki(2),
-            BattleType::Hougeki(3),
         ];
 
         let escape_idx_combined: Option<Vec<i64>> =
@@ -488,7 +492,8 @@ impl From<kcapi_main::api_req_combined_battle::each_battle::ApiData> for Battle 
         let air_base_air_attacks: Option<AirBaseAirAttacks> = battle
             .api_air_base_attack
             .map(|air_base_attack| air_base_attack.into());
-        let opening_air_attack: Option<OpeningAirAttack> = Some(battle.api_kouku.into());
+        let opening_air_attack: Option<Vec<Option<OpeningAirAttack>>> =
+            Some(vec![Some(battle.api_kouku.into())]);
         let opening_taisen: Option<OpeningTaisen> = battle
             .api_opening_taisen
             .map(|opening_taisen| opening_taisen.into());
@@ -523,14 +528,14 @@ impl From<kcapi_main::api_req_combined_battle::each_battle::ApiData> for Battle 
             BattleType::AirBaseAssult(()),
             BattleType::CarrierBaseAssault(()),
             BattleType::AirBaseAirAttack(()),
-            BattleType::OpeningAirAttack(()),
+            BattleType::OpeningAirAttack(0),
             BattleType::SupportAttack(()),
             BattleType::OpeningTaisen(()),
             BattleType::OpeningRaigeki(()),
-            BattleType::Hougeki(1),
+            BattleType::Hougeki(0),
             BattleType::ClosingRaigeki(()),
+            BattleType::Hougeki(1),
             BattleType::Hougeki(2),
-            BattleType::Hougeki(3),
         ];
 
         let escape_idx_combined: Option<Vec<i64>> =
@@ -586,7 +591,8 @@ impl From<kcapi_main::api_req_combined_battle::ld_airbattle::ApiData> for Battle
         //     .api_air_base_attack
         //     .map(|air_base_air_attack| air_base_air_attack.into());
         let air_base_air_attacks: Option<AirBaseAirAttacks> = None;
-        let opening_air_attack: Option<OpeningAirAttack> = Some(airbattle.api_kouku.into());
+        let opening_air_attack: Option<Vec<Option<OpeningAirAttack>>> =
+            Some(vec![Some(airbattle.api_kouku.into())]);
 
         // Need to resarch this
         // let support_attack: Option<SupportAttack> = airbattle.api_support_info.and_then(|support_info| Some(support_info.into()));
@@ -603,7 +609,7 @@ impl From<kcapi_main::api_req_combined_battle::ld_airbattle::ApiData> for Battle
 
         let battle_order: Vec<BattleType> = vec![
             BattleType::AirBaseAirAttack(()),
-            BattleType::OpeningAirAttack(()),
+            BattleType::OpeningAirAttack(0),
         ];
 
         let escape_idx_combined: Option<Vec<i64>> =

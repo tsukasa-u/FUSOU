@@ -30,6 +30,7 @@ pub type OpeningTaisenListId = Uuid;
 pub type OpeningTaisenId = Uuid;
 pub type ClosingRaigekiId = Uuid;
 pub type OpeningRaigekiId = Uuid;
+pub type OpeningAirAttackListId = Uuid;
 pub type OpeningAirAttackId = Uuid;
 pub type AirBaseAirAttackListId = Uuid;
 pub type AirBaseAirAttackId = Uuid;
@@ -430,6 +431,46 @@ impl OpeningRaigeki {
         table.opening_raigeki.push(new_data);
 
         return new_uuid;
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
+pub struct OpeningAirAttackList {
+    pub version: String,
+    pub env_uuid: EnvInfoId,
+    pub uuid: OpeningAirAttackListId,
+    pub opening_air_attack: Vec<OpeningAirAttackId>,
+}
+
+impl OpeningAirAttackList {
+    pub fn new_ret_uuid(
+        data: Vec<Option<crate::interface::battle::OpeningAirAttack>>,
+        table: &mut PortTable,
+        env_uuid: EnvInfoId,
+    ) -> Option<Uuid> {
+        if data.iter().all(|x| x.is_none()) {
+            return None;
+        }
+
+        let new_uuid = Uuid::new_v4();
+        let new_opening_air_attack = data
+            .iter()
+            .flatten()
+            .map(|opening_air_attack| {
+                OpeningAirAttack::new_ret_uuid(opening_air_attack.clone(), table, env_uuid)
+            })
+            .collect();
+
+        let new_data = OpeningAirAttackList {
+            version: DATABASE_TABLE_VERSION.to_string(),
+            env_uuid,
+            uuid: new_uuid,
+            opening_air_attack: new_opening_air_attack,
+        };
+
+        table.opening_airattack_list.push(new_data);
+
+        return Some(new_uuid);
     }
 }
 
@@ -1137,7 +1178,8 @@ impl Battle {
         let new_opening_air_attack = data
             .clone()
             .opening_air_attack
-            .map(|attack| OpeningAirAttack::new_ret_uuid(attack, table, env_uuid));
+            .map(|attack| OpeningAirAttackList::new_ret_uuid(attack, table, env_uuid))
+            .unwrap_or(None);
         // let new_support_attack = data
         //     .clone()
         //     .support_attack

@@ -18,7 +18,7 @@ pub enum BattleType {
     AirBaseAssult(()),
     CarrierBaseAssault(()),
     AirBaseAirAttack(()),
-    OpeningAirAttack(()),
+    OpeningAirAttack(i64),
     SupportAttack(()),
     OpeningTaisen(()),
     OpeningRaigeki(()),
@@ -29,16 +29,17 @@ pub enum BattleType {
 }
 
 impl From<BattleType> for i64 {
-    fn from(air_base_air_attack: BattleType) -> Self {
-        match air_base_air_attack {
+    fn from(battle_type: BattleType) -> Self {
+        match battle_type {
             BattleType::AirBaseAssult(()) => 1 << 3,
             BattleType::CarrierBaseAssault(()) => 2 << 3,
             BattleType::AirBaseAirAttack(()) => 3 << 3,
-            BattleType::OpeningAirAttack(()) => 4 << 3,
+            BattleType::OpeningAirAttack(x) if (0..=7).contains(&x) => (4 << 3) | x,
+            BattleType::OpeningAirAttack(_) => (4 << 3) | 0x111,
             BattleType::SupportAttack(()) => 5 << 3,
             BattleType::OpeningTaisen(()) => 6 << 3,
             BattleType::OpeningRaigeki(()) => 7 << 3,
-            BattleType::Hougeki(x) if (0..=2).contains(&x) => (8 << 3) | x,
+            BattleType::Hougeki(x) if (0..=7).contains(&x) => (8 << 3) | x,
             BattleType::Hougeki(_) => (8 << 3) | 0x111,
             BattleType::ClosingRaigeki(()) => 9 << 3,
             BattleType::FriendlyForceAttack(()) => 10 << 3,
@@ -81,7 +82,7 @@ pub struct Battle {
     pub carrier_base_assault: Option<CarrierBaseAssault>,
     pub air_base_air_attacks: Option<AirBaseAirAttacks>,
     // pub friendly_task_force_attack: Option<FriendlyTaskForceAttack>,
-    pub opening_air_attack: Option<OpeningAirAttack>,
+    pub opening_air_attack: Option<Vec<Option<OpeningAirAttack>>>,
     pub support_attack: Option<SupportAttack>,
     pub opening_taisen: Option<OpeningTaisen>,
     pub opening_raigeki: Option<OpeningRaigeki>,
@@ -1303,37 +1304,42 @@ pub fn calc_dmg(battle: &mut Battle) {
                         });
                 }
             }
-            BattleType::OpeningAirAttack(()) => {
-                if let Some(opening_air_attack) = battle.opening_air_attack.as_mut() {
+            BattleType::OpeningAirAttack(x) => {
+                if let Some(opening_air_attack_list) = battle.opening_air_attack.as_mut() {
                     day_flag = true;
 
-                    f_nowhps.iter().enumerate().for_each(|(idx, &f_nowhp)| {
-                        opening_air_attack.f_damage.now_hps[idx] = f_nowhp - f_total_damages[idx];
-                    });
-                    e_nowhps.iter().enumerate().for_each(|(idx, &e_nowhp)| {
-                        opening_air_attack.e_damage.now_hps[idx] = e_nowhp - e_total_damages[idx];
-                    });
+                    if let Some(opening_air_attack) = opening_air_attack_list[*x as usize].as_mut()
+                    {
+                        f_nowhps.iter().enumerate().for_each(|(idx, &f_nowhp)| {
+                            opening_air_attack.f_damage.now_hps[idx] =
+                                f_nowhp - f_total_damages[idx];
+                        });
+                        e_nowhps.iter().enumerate().for_each(|(idx, &e_nowhp)| {
+                            opening_air_attack.e_damage.now_hps[idx] =
+                                e_nowhp - e_total_damages[idx];
+                        });
 
-                    opening_air_attack
-                        .f_damage
-                        .damages
-                        .clone()
-                        .unwrap_or(vec![0_f32; 0])
-                        .iter()
-                        .enumerate()
-                        .for_each(|(idx, &x)| {
-                            f_total_damages[idx] += x as i64;
-                        });
-                    opening_air_attack
-                        .e_damage
-                        .damages
-                        .clone()
-                        .unwrap_or(vec![0_f32; 0])
-                        .iter()
-                        .enumerate()
-                        .for_each(|(idx, &x)| {
-                            e_total_damages[idx] += x as i64;
-                        });
+                        opening_air_attack
+                            .f_damage
+                            .damages
+                            .clone()
+                            .unwrap_or(vec![0_f32; 0])
+                            .iter()
+                            .enumerate()
+                            .for_each(|(idx, &x)| {
+                                f_total_damages[idx] += x as i64;
+                            });
+                        opening_air_attack
+                            .e_damage
+                            .damages
+                            .clone()
+                            .unwrap_or(vec![0_f32; 0])
+                            .iter()
+                            .enumerate()
+                            .for_each(|(idx, &x)| {
+                                e_total_damages[idx] += x as i64;
+                            });
+                    }
                 }
             }
             BattleType::SupportAttack(()) => {
@@ -1437,7 +1443,7 @@ pub fn calc_dmg(battle: &mut Battle) {
                 if let Some(hougeki_list) = battle.hougeki.as_mut() {
                     day_flag = true;
 
-                    if let Some(hougeki) = hougeki_list[*x as usize - 1].as_mut() {
+                    if let Some(hougeki) = hougeki_list[*x as usize].as_mut() {
                         hougeki
                             .at_eflag
                             .iter()
@@ -1611,7 +1617,8 @@ impl From<kcapi_main::api_req_sortie::battle::ApiData> for Battle {
         let air_base_air_attacks: Option<AirBaseAirAttacks> = battle
             .api_air_base_attack
             .map(|air_base_air_attack| air_base_air_attack.into());
-        let opening_air_attack: Option<OpeningAirAttack> = Some(battle.api_kouku.into());
+        let opening_air_attack: Option<Vec<Option<OpeningAirAttack>>> =
+            Some(vec![Some(battle.api_kouku.into()), None]);
         let opening_taisen: Option<OpeningTaisen> = battle
             .api_opening_taisen
             .map(|opening_taisen| opening_taisen.into());
@@ -1650,12 +1657,12 @@ impl From<kcapi_main::api_req_sortie::battle::ApiData> for Battle {
             BattleType::AirBaseAssult(()),
             BattleType::CarrierBaseAssault(()),
             BattleType::AirBaseAirAttack(()),
-            BattleType::OpeningAirAttack(()),
+            BattleType::OpeningAirAttack(0),
             BattleType::SupportAttack(()),
             BattleType::OpeningTaisen(()),
             BattleType::OpeningRaigeki(()),
+            BattleType::Hougeki(0),
             BattleType::Hougeki(1),
-            BattleType::Hougeki(2),
             BattleType::ClosingRaigeki(()),
         ];
 
@@ -1727,12 +1734,13 @@ impl From<kcapi_main::api_req_battle_midnight::battle::ApiData> for Battle {
             BattleType::AirBaseAssult(()),
             BattleType::CarrierBaseAssault(()),
             BattleType::AirBaseAirAttack(()),
-            BattleType::OpeningAirAttack(()),
+            BattleType::OpeningAirAttack(0),
+            BattleType::OpeningAirAttack(1),
             BattleType::SupportAttack(()),
             BattleType::OpeningTaisen(()),
             BattleType::OpeningRaigeki(()),
+            BattleType::Hougeki(0),
             BattleType::Hougeki(1),
-            BattleType::Hougeki(2),
             BattleType::ClosingRaigeki(()),
             BattleType::FriendlyForceAttack(()),
             BattleType::MidnightHougeki(()),
@@ -1850,7 +1858,8 @@ impl From<kcapi_main::api_req_sortie::ld_airbattle::ApiData> for Battle {
         let air_base_air_attacks: Option<AirBaseAirAttacks> = airbattle
             .api_air_base_attack
             .map(|air_base_air_attack| air_base_air_attack.into());
-        let opening_air_attack: Option<OpeningAirAttack> = Some(airbattle.api_kouku.into());
+        let opening_air_attack: Option<Vec<Option<OpeningAirAttack>>> =
+            Some(vec![Some(airbattle.api_kouku.into()), None]);
 
         // Need to resarch this
         // let support_attack: Option<SupportAttack> = airbattle.api_support_info.and_then(|support_info| Some(support_info.into()));
@@ -1867,10 +1876,84 @@ impl From<kcapi_main::api_req_sortie::ld_airbattle::ApiData> for Battle {
 
         let battle_order: Vec<BattleType> = vec![
             BattleType::AirBaseAirAttack(()),
-            BattleType::OpeningAirAttack(()),
+            BattleType::OpeningAirAttack(0),
         ];
 
         let escape_idx_combined: Option<Vec<i64>> = calc_escape_idx(airbattle.api_escape_idx, None);
+
+        let mut ret = Self {
+            battle_order: Some(battle_order),
+            timestamp: Some(Local::now().timestamp()),
+            midnight_timestamp: None,
+            cell_id: cell_no,
+            deck_id: Some(airbattle.api_deck_id),
+            formation: Some(airbattle.api_formation),
+            enemy_ship_id: Some(airbattle.api_ship_ke),
+            e_params: Some(airbattle.api_e_param),
+            e_slot: Some(airbattle.api_e_slot),
+            e_hp_max: Some(airbattle.api_e_maxhps),
+            f_total_damages: None,
+            e_total_damages: None,
+            friend_total_damages: None,
+            midnight_f_total_damages: None,
+            midnight_e_total_damages: None,
+            reconnaissance: Some(airbattle.api_search),
+            escape_idx: escape_idx_combined,
+            smoke_type: Some(airbattle.api_smoke_type),
+            combat_ration: None,
+            balloon_flag: Some(airbattle.api_balloon_cell),
+            air_base_assault,
+            carrier_base_assault,
+            air_base_air_attacks,
+            opening_air_attack,
+            support_attack,
+            opening_taisen: None,
+            opening_raigeki: None,
+            hougeki: None,
+            closing_raigeki: None,
+            friendly_force_attack: None,
+            midnight_flare_pos: None,
+            midngiht_touchplane: None,
+            midnight_hougeki: None,
+            f_nowhps: Some(airbattle.api_f_nowhps),
+            e_nowhps: Some(airbattle.api_e_nowhps),
+            midngiht_f_nowhps: None,
+            midngiht_e_nowhps: None,
+        };
+        calc_dmg(&mut ret);
+        return ret;
+    }
+}
+
+impl From<kcapi_main::api_req_sortie::airbattle::ApiData> for Battle {
+    fn from(airbattle: kcapi_main::api_req_sortie::airbattle::ApiData) -> Self {
+        let air_base_air_attacks = None;
+
+        let air_attack_1: Option<OpeningAirAttack> = Some(airbattle.api_kouku.into());
+        let air_attack_2: Option<OpeningAirAttack> = Some(airbattle.api_kouku2.into());
+        let opening_air_attack: Option<Vec<Option<OpeningAirAttack>>> =
+            Some(vec![air_attack_1, air_attack_2]);
+
+        // Need to resarch this
+        // let support_attack: Option<SupportAttack> = airbattle.api_support_info.and_then(|support_info| Some(support_info.into()));
+        // let air_base_assault: Option<AirBaseAssult> = airbattle.api_air_base_injection.and_then(|air_base_injection| Some(air_base_injection.into()));
+        // let carrier_base_assault: Option<CarrierBaseAssault> = airbattle.api_injection_kouku.and_then(|injection_kouku| Some(injection_kouku.into());
+        let support_attack: Option<SupportAttack> = None;
+        let air_base_assault: Option<AirBaseAssult> = None;
+        let carrier_base_assault: Option<CarrierBaseAssault> = None;
+
+        let cell_no = KCS_CELLS_INDEX
+            .lock()
+            .map(|cells| *cells.last().unwrap_or(&0))
+            .unwrap_or(0);
+
+        let battle_order: Vec<BattleType> = vec![
+            BattleType::OpeningAirAttack(0),
+            BattleType::OpeningAirAttack(1),
+        ];
+
+        // let escape_idx_combined: Option<Vec<i64>> = calc_escape_idx(airbattle.api_escape_idx, None);
+        let escape_idx_combined: Option<Vec<i64>> = None;
 
         let mut ret = Self {
             battle_order: Some(battle_order),

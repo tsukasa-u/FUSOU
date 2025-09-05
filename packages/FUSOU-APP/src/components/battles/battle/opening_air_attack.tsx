@@ -19,6 +19,7 @@ import {
 } from "../wrap_web_component";
 
 interface AirDamageProps {
+  attack_index: number;
   deck_ship_id: () => DeckShipIds;
   battle_selected: () => Battle | undefined;
   store_data_set_deck_ship: () => DataSetShip;
@@ -31,11 +32,19 @@ export function OpeningAirAttackComponent(props: AirDamageProps) {
     if (!props.battle_selected()?.deck_id) return false;
     if (!props.battle_selected()?.opening_air_attack) return false;
     if (
-      !props.battle_selected()?.opening_air_attack?.f_damage.plane_from &&
-      !props.battle_selected()?.opening_air_attack?.e_damage.plane_from
+      !props.battle_selected()?.opening_air_attack?.[props.attack_index]
+        ?.f_damage.plane_from &&
+      !props.battle_selected()?.opening_air_attack?.[props.attack_index]
+        ?.e_damage.plane_from
     )
       return false;
     return true;
+  });
+
+  const airattack = createMemo(() => {
+    if (!show_air_attack()) return undefined;
+    const airattack = props.battle_selected()?.opening_air_attack;
+    return airattack ? (airattack[props.attack_index] ?? undefined) : undefined;
   });
 
   const show_damage = createMemo<boolean[][]>(() => {
@@ -43,26 +52,25 @@ export function OpeningAirAttackComponent(props: AirDamageProps) {
       new Array(12).fill(false),
       new Array(12).fill(false),
     ];
-    const airattack = props.battle_selected()?.opening_air_attack;
-    if (!airattack) return show_damage;
-    airattack?.e_damage?.bak_flag?.forEach((flag, idx) => {
+
+    if (!airattack()) return show_damage;
+    airattack()?.e_damage?.bak_flag?.forEach((flag, idx) => {
       show_damage[0][idx] ||= flag == 1;
     });
-    airattack?.e_damage?.rai_flag?.forEach((flag, idx) => {
+    airattack()?.e_damage?.rai_flag?.forEach((flag, idx) => {
       show_damage[0][idx] ||= flag == 1;
     });
-    airattack?.f_damage?.bak_flag?.forEach((flag, idx) => {
+    airattack()?.f_damage?.bak_flag?.forEach((flag, idx) => {
       show_damage[1][idx] ||= flag == 1;
     });
-    airattack?.f_damage?.rai_flag?.forEach((flag, idx) => {
+    airattack()?.f_damage?.rai_flag?.forEach((flag, idx) => {
       show_damage[1][idx] ||= flag == 1;
     });
     return show_damage;
   });
 
   const display_air_state = () => {
-    const air_state =
-      props.battle_selected()?.opening_air_attack?.air_superiority;
+    const air_state = airattack()?.air_superiority;
     return (
       <>
         Air State :{" "}
@@ -82,10 +90,8 @@ export function OpeningAirAttackComponent(props: AirDamageProps) {
   };
 
   const display_touch = () => {
-    const f_touch_plane =
-      props.battle_selected()?.opening_air_attack?.f_damage.touch_plane;
-    const e_touch_plane =
-      props.battle_selected()?.opening_air_attack?.e_damage.touch_plane;
+    const f_touch_plane = airattack()?.f_damage.touch_plane;
+    const e_touch_plane = airattack()?.e_damage.touch_plane;
 
     return (
       <>
@@ -112,7 +118,7 @@ export function OpeningAirAttackComponent(props: AirDamageProps) {
   };
 
   const display_cut_in = () => {
-    const air_fire = props.battle_selected()?.opening_air_attack?.air_fire;
+    const air_fire = airattack()?.air_fire;
     const air_fire_idx = air_fire?.idx;
     return (
       <>
@@ -148,25 +154,18 @@ export function OpeningAirAttackComponent(props: AirDamageProps) {
   };
 
   const show_f_plane_from = () => {
-    return (
-      (props.battle_selected()?.opening_air_attack?.f_damage?.plane_from ?? [])
-        .length > 0
-    );
+    return (airattack()?.f_damage?.plane_from ?? []).length > 0;
   };
 
   const show_e_plane_from = () => {
-    return (
-      (props.battle_selected()?.opening_air_attack?.e_damage?.plane_from ?? [])
-        .length > 0
-    );
+    return (airattack()?.e_damage?.plane_from ?? []).length > 0;
   };
 
   const f_attacker_ships = () => {
-    const airattack = props.battle_selected()?.opening_air_attack;
     return (
       <td>
         <div class="flex flex-col">
-          <For each={airattack?.f_damage?.plane_from}>
+          <For each={airattack()?.f_damage?.plane_from}>
             {(ship_idx, idx) => (
               <>
                 <Show when={idx() > 0}>
@@ -189,17 +188,16 @@ export function OpeningAirAttackComponent(props: AirDamageProps) {
   };
 
   const f_attacker_hps = () => {
-    const airattack = props.battle_selected()?.opening_air_attack;
     return (
       <td>
         <div class="flex flex-col">
-          <For each={airattack?.f_damage?.plane_from}>
+          <For each={airattack()?.f_damage?.plane_from}>
             {(ship_idx) => (
               <>
                 <WrapOwnShipHPComponent
                   battle_selected={props.battle_selected}
                   deck_ship_id={props.deck_ship_id}
-                  f_now_hps={airattack?.f_damage.now_hps}
+                  f_now_hps={airattack()?.f_damage.now_hps}
                   idx={ship_idx}
                   store_data_set_deck_ship={props.store_data_set_deck_ship}
                 />
@@ -212,10 +210,9 @@ export function OpeningAirAttackComponent(props: AirDamageProps) {
   };
 
   const e_defenser_ships = () => {
-    const airattack = props.battle_selected()?.opening_air_attack;
     return (
       <td>
-        <For each={airattack?.e_damage.damages}>
+        <For each={airattack()?.e_damage.damages}>
           {(_, idx) => (
             <>
               <Show when={show_damage()[0][idx()]}>
@@ -230,8 +227,9 @@ export function OpeningAirAttackComponent(props: AirDamageProps) {
                   />
                   <Show
                     when={
-                      airattack?.e_damage.protect_flag?.some((flag) => flag) ??
-                      false
+                      airattack()?.e_damage.protect_flag?.some(
+                        (flag) => flag
+                      ) ?? false
                     }
                   >
                     <IconShield class="h-4 self-center ml-auto" />
@@ -246,10 +244,9 @@ export function OpeningAirAttackComponent(props: AirDamageProps) {
   };
 
   const e_defenser_hps = () => {
-    const airattack = props.battle_selected()?.opening_air_attack;
     return (
       <td>
-        <For each={airattack?.e_damage?.damages}>
+        <For each={airattack()?.e_damage?.damages}>
           {(_, idx) => (
             <>
               <Show when={show_damage()[0][idx()]}>
@@ -257,7 +254,7 @@ export function OpeningAirAttackComponent(props: AirDamageProps) {
                   <div class="h-px" />
                 </Show>
                 <WrapEnemyShipHPComponent
-                  e_now_hps={airattack?.e_damage?.now_hps}
+                  e_now_hps={airattack()?.e_damage?.now_hps}
                   idx={idx()}
                   store_data_set_param_ship={props.store_data_set_param_ship}
                 />
@@ -270,10 +267,9 @@ export function OpeningAirAttackComponent(props: AirDamageProps) {
   };
 
   const e_defenser_damages = () => {
-    const airattack = props.battle_selected()?.opening_air_attack;
     return (
       <td>
-        <For each={airattack?.e_damage.damages}>
+        <For each={airattack()?.e_damage.damages}>
           {(dmg, dmg_index) => (
             <>
               <Show when={show_damage()[0][dmg_index()]}>
@@ -283,7 +279,7 @@ export function OpeningAirAttackComponent(props: AirDamageProps) {
                 <div
                   class={`text-sm my-auto ${calc_critical(
                     dmg,
-                    airattack?.e_damage.cl?.[dmg_index()]
+                    airattack()?.e_damage.cl?.[dmg_index()]
                   )}`}
                 >
                   {dmg}
@@ -297,11 +293,10 @@ export function OpeningAirAttackComponent(props: AirDamageProps) {
   };
 
   const e_attacker_ships = () => {
-    const airattack = props.battle_selected()?.opening_air_attack;
     return (
       <td>
         <div class="flex flex-col">
-          <For each={airattack?.e_damage?.plane_from}>
+          <For each={airattack()?.e_damage?.plane_from}>
             {(ship_idx, idx) => (
               <>
                 <Show when={idx() > 0}>
@@ -323,15 +318,14 @@ export function OpeningAirAttackComponent(props: AirDamageProps) {
   };
 
   const e_attacker_hps = () => {
-    const airattack = props.battle_selected()?.opening_air_attack;
     return (
       <td>
         <div class="flex flex-col">
-          <For each={airattack?.e_damage.plane_from}>
+          <For each={airattack()?.e_damage.plane_from}>
             {(ship_idx) => (
               <>
                 <WrapEnemyShipHPComponent
-                  e_now_hps={airattack?.e_damage.now_hps}
+                  e_now_hps={airattack()?.e_damage.now_hps}
                   idx={ship_idx}
                   store_data_set_param_ship={props.store_data_set_param_ship}
                 />
@@ -344,10 +338,9 @@ export function OpeningAirAttackComponent(props: AirDamageProps) {
   };
 
   const f_defenser_ships = () => {
-    const airattack = props.battle_selected()?.opening_air_attack;
     return (
       <td>
-        <For each={airattack?.f_damage?.damages}>
+        <For each={airattack()?.f_damage?.damages}>
           {(_, idx) => (
             <>
               <Show when={show_damage()[1][idx()]}>
@@ -363,8 +356,9 @@ export function OpeningAirAttackComponent(props: AirDamageProps) {
                   />
                   <Show
                     when={
-                      airattack?.f_damage.protect_flag?.some((flag) => flag) ??
-                      false
+                      airattack()?.f_damage.protect_flag?.some(
+                        (flag) => flag
+                      ) ?? false
                     }
                   >
                     <IconShield class="h-4 self-center ml-auto" />
@@ -379,10 +373,9 @@ export function OpeningAirAttackComponent(props: AirDamageProps) {
   };
 
   const f_defenser_hps = () => {
-    const airattack = props.battle_selected()?.opening_air_attack;
     return (
       <td>
-        <For each={airattack?.f_damage?.damages}>
+        <For each={airattack()?.f_damage?.damages}>
           {(_, idx) => (
             <>
               <Show when={show_damage()[1][idx()]}>
@@ -392,7 +385,7 @@ export function OpeningAirAttackComponent(props: AirDamageProps) {
                 <WrapOwnShipHPComponent
                   battle_selected={props.battle_selected}
                   deck_ship_id={props.deck_ship_id}
-                  f_now_hps={airattack?.f_damage.now_hps}
+                  f_now_hps={airattack()?.f_damage.now_hps}
                   idx={idx()}
                   store_data_set_deck_ship={props.store_data_set_deck_ship}
                 />
@@ -405,10 +398,9 @@ export function OpeningAirAttackComponent(props: AirDamageProps) {
   };
 
   const f_defenser_damages = () => {
-    const airattack = props.battle_selected()?.opening_air_attack;
     return (
       <td>
-        <For each={airattack?.f_damage.damages}>
+        <For each={airattack()?.f_damage.damages}>
           {(dmg, dmg_index) => (
             <>
               <Show when={show_damage()[1][dmg_index()]}>
@@ -418,7 +410,7 @@ export function OpeningAirAttackComponent(props: AirDamageProps) {
                 <div
                   class={`text-sm my-auto ${calc_critical(
                     dmg,
-                    airattack?.f_damage.cl?.[dmg_index()]
+                    airattack()?.f_damage.cl?.[dmg_index()]
                   )}`}
                 >
                   {dmg}
