@@ -4,13 +4,7 @@ use std::{env, fs::File, io::Write};
 fn main() {
     println!("cargo::rustc-check-cfg=cfg(check_release)");
 
-    // match env::var("CHECK_RELEASE") {
-    //     Ok(var) => match var.as_str() {
-    //         "NO_CHECK" => {}
-    //         _ => println!("cargo::rustc-cfg=check_release"),
-    //     },
-    //     Err(_) => println!("cargo::rustc-cfg=check_release"),
-    // }
+    // println!("cargo::rustc-cfg=check_release");
 
     // echo "export const env = { SUPABASE_URL: ${{ secrets.SUPABASE_URL }}, SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}}" > ../src/pages/vanilla/env.js
     #[cfg(feature = "auth-local-server")]

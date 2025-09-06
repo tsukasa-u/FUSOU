@@ -23,12 +23,6 @@ use crate::interface::slot_item::SlotItems;
 
 use crate::sequence;
 
-#[cfg(any(not(dev), check_release))]
-use crate::RESOURCES_DIR;
-
-#[cfg(any(not(dev), check_release))]
-use crate::ROAMING_DIR;
-
 #[tauri::command]
 pub async fn get_mst_ships(window: tauri::Window) {
     let data = MstShips::load();

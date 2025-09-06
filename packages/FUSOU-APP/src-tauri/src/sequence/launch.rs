@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use tauri::Manager;
 
+use crate::util::get_ROAMING_DIR;
 use crate::window::external::create_external_window;
 use crate::window::external::SHARED_BROWSER;
 use crate::{
@@ -51,18 +52,12 @@ pub async fn launch_with_options(
                         _ => None,
                     };
                     if let Some(server_address) = server_address {
-                        #[cfg(dev)]
-                        let pac_path = "./../../FUSOU-PROXY/proxy-https/proxy.pac".to_string();
-                        #[cfg(any(not(dev), check_release))]
-                        let pac_path = ROAMING_DIR
-                            .get()
-                            .expect("ROAMING_DIR not found")
-                            .join("./resources/pac/proxy.pac")
+                        let pac_path = get_ROAMING_DIR()
+                            .join("./pac/proxy.pac")
                             .as_path()
                             .to_str()
                             .expect("failed to convert str")
                             .to_string();
-                        // let pac_path = window.app_handle().path_resolver().resolve_resource("./resources/pac/proxy.pac").expect("failed to resolve resources/pac/proxy dir").as_path().to_str().expect("failed to convert str").to_string();
 
                         #[cfg(dev)]
                         let save_path = "./../../FUSOU-PROXY-DATA".to_string();
@@ -78,13 +73,8 @@ pub async fn launch_with_options(
                             .expect("failed to convert str")
                             .to_string();
 
-                        #[cfg(dev)]
-                        let ca_path = "./ca/".to_string();
-                        #[cfg(any(not(dev), check_release))]
-                        let ca_path = ROAMING_DIR
-                            .get()
-                            .expect("ROAMING_DIR not found")
-                            .join("./resources/ca")
+                        let ca_path = get_ROAMING_DIR()
+                            .join("./ca")
                             .as_path()
                             .to_str()
                             .expect("failed to convert str")

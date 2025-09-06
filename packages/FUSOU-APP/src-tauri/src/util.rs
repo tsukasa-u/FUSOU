@@ -1,23 +1,46 @@
 use std::fs;
 use std::io::Read;
 use std::io::Write;
-use std::path;
+use std::path::PathBuf;
 use tokio::sync::OnceCell;
 use uuid::Uuid;
 
+use crate::ROAMING_DIR;
 static KC_USER_ENV_UNIQUE_ID: OnceCell<String> = OnceCell::const_new();
+
+#[allow(non_snake_case)]
+pub fn get_ROAMING_DIR() -> PathBuf {
+    let mut path = PathBuf::new();
+    {
+        let roaming_path = ROAMING_DIR
+            .get()
+            .expect("ROAMING_DIR not found")
+            .lock()
+            .unwrap();
+        path = roaming_path.clone();
+    }
+    return path;
+}
+
+#[allow(non_snake_case)]
+pub fn get_RESOURCES_DIR() -> PathBuf {
+    let mut path = PathBuf::new();
+    {
+        let resources_path = crate::RESOURCES_DIR
+            .get()
+            .expect("RESOURCES_DIR not found")
+            .lock()
+            .unwrap();
+        path = resources_path.clone();
+    }
+    return path;
+}
 
 pub async fn get_user_env_id() -> String {
     KC_USER_ENV_UNIQUE_ID
         .get_or_init(|| async {
-            #[cfg(dev)]
-            let directory_path = path::Path::new("./user");
-            #[cfg(any(not(dev), check_release))]
-            let directory_path = ROAMING_DIR
-                .get()
-                .expect("ROAMING_DIR not found")
-                .join("./user")
-                .as_path();
+            let binding = get_ROAMING_DIR().join("./user");
+            let directory_path = binding.as_path();
 
             if !fs::exists(directory_path).expect("failed to check the directory existence") {
                 fs::create_dir_all(directory_path).expect("failed to create folder");

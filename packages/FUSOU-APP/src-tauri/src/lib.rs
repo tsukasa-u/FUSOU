@@ -2,8 +2,9 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 // #![recursion_limit = "256"]
 
+use once_cell::sync::OnceCell;
 use std::path::PathBuf;
-use tokio::sync::OnceCell;
+use std::sync::Mutex;
 
 use kc_api::{database, interface};
 mod json_parser;
@@ -26,10 +27,9 @@ use crate::builder_setup::bidirectional_channel::{
 #[cfg(feature = "auth-local-server")]
 use crate::builder_setup::bidirectional_channel::get_manage_auth_channel;
 
-static RESOURCES_DIR: OnceCell<PathBuf> = OnceCell::const_new();
+static RESOURCES_DIR: OnceCell<Mutex<PathBuf>> = OnceCell::new();
 
-#[cfg(any(not(dev), check_release))]
-static ROAMING_DIR: OnceCell<PathBuf> = OnceCell::const_new();
+static ROAMING_DIR: OnceCell<Mutex<PathBuf>> = OnceCell::new();
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 #[tokio::main]
@@ -53,6 +53,7 @@ pub async fn run() {
 
     #[allow(unused_mut)]
     let mut builder = tauri::Builder::default()
+        .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_single_instance::init(|_app, _args, _cwd| {}))
         .plugin(tauri_plugin_fs::init())
         .plugin(

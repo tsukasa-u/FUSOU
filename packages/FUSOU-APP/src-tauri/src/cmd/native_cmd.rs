@@ -2,9 +2,6 @@
 // use std::process::Command;
 use tauri_plugin_shell::ShellExt;
 
-#[cfg(dev)]
-use proxy_https::pac_server::PATH_PROXY_CRATE;
-
 #[cfg(target_os = "windows")]
 use proxy_https::pac_server::PATH_ADD_PROXY_BAT;
 
@@ -23,38 +20,23 @@ use proxy_https::pac_server::PATH_DELETE_PROXY_SH;
 #[cfg(target_os = "linux")]
 use proxy_https::pac_server::PATH_ADD_STORE_SH;
 
-#[cfg(any(not(dev), check_release))]
-use crate::RESOURCES_DIR;
-
-#[cfg(any(not(dev), check_release))]
-use crate::ROAMING_DIR;
+use crate::util::get_RESOURCES_DIR;
+use crate::util::get_ROAMING_DIR;
 
 pub fn add_pac<R>(path: String, app: &tauri::AppHandle<R>)
 where
     R: tauri::Runtime,
 {
     #[cfg(target_os = "windows")]
-    #[cfg(dev)]
-    let cmd_path = format!("{}/{}", PATH_PROXY_CRATE, PATH_ADD_PROXY_BAT);
-    #[cfg(target_os = "linux")]
-    #[cfg(dev)]
-    let cmd_path = format!("{PATH_PROXY_CRATE}/{PATH_ADD_PROXY_SH}");
-
-    #[cfg(target_os = "windows")]
-    #[cfg(any(not(dev), check_release))]
-    let cmd_path = RESOURCES_DIR
-        .get()
-        .expect("RESOURCES_DIR not found")
+    let cmd_path = get_RESOURCES_DIR()
         .join(PATH_ADD_PROXY_BAT)
         .as_path()
         .to_str()
         .expect("cmd_path not found")
         .to_string();
+
     #[cfg(target_os = "linux")]
-    #[cfg(any(not(dev), check_release))]
-    let cmd_path = RESOURCES_DIR
-        .get()
-        .expect("RESOURCES_DIR not found")
+    let cmd_path = get_RESOURCES_DIR()
         .join(PATH_ADD_PROXY_SH)
         .as_path()
         .to_str()
@@ -83,27 +65,15 @@ where
     R: tauri::Runtime,
 {
     #[cfg(target_os = "windows")]
-    #[cfg(dev)]
-    let cmd_path = format!("{}/{}", PATH_PROXY_CRATE, PATH_DELETE_PROXY_BAT);
-    #[cfg(target_os = "linux")]
-    #[cfg(dev)]
-    let cmd_path = format!("{PATH_PROXY_CRATE}/{PATH_DELETE_PROXY_SH}");
-
-    #[cfg(target_os = "windows")]
-    #[cfg(any(not(dev), check_release))]
-    let cmd_path = RESOURCES_DIR
-        .get()
-        .expect("RESOURCES_DIR not found")
+    let cmd_path = get_RESOURCES_DIR()
         .join(PATH_DELETE_PROXY_BAT)
         .as_path()
         .to_str()
         .expect("cmd_path not found")
         .to_string();
+
     #[cfg(target_os = "linux")]
-    #[cfg(any(not(dev), check_release))]
-    let cmd_path = RESOURCES_DIR
-        .get()
-        .expect("RESOURCES_DIR not found")
+    let cmd_path = get_RESOURCES_DIR()
         .join(PATH_DELETE_PROXY_SH)
         .as_path()
         .to_str()
@@ -129,40 +99,23 @@ pub fn add_store<R>(app: &tauri::AppHandle<R>)
 where
     R: tauri::Runtime,
 {
-    #[cfg(dev)]
-    let ca_path = format!("{}/{}", env!("CARGO_MANIFEST_DIR"), "ca/ca_cert.pem");
-    #[cfg(any(not(dev), check_release))]
-    let ca_path = ROAMING_DIR
-        .get()
-        .expect("ROAMING_DIR not found")
-        .join("resources/ca/ca_cert.pem")
+    let ca_path = get_ROAMING_DIR()
+        .join("ca/ca_cert.pem")
         .as_path()
         .to_str()
         .expect("ca_path not found")
         .to_string();
 
     #[cfg(target_os = "windows")]
-    #[cfg(dev)]
-    let cmd_path = format!("{}/{}", PATH_PROXY_CRATE, PATH_ADD_STORE_BAT);
-    #[cfg(target_os = "linux")]
-    #[cfg(dev)]
-    let cmd_path = format!("{PATH_PROXY_CRATE}/{PATH_ADD_STORE_SH}");
-
-    #[cfg(target_os = "windows")]
-    #[cfg(any(not(dev), check_release))]
-    let cmd_path = RESOURCES_DIR
-        .get()
-        .expect("RESOURCES_DIR not found")
+    let cmd_path = get_RESOURCES_DIR()
         .join(PATH_ADD_STORE_BAT)
         .as_path()
         .to_str()
         .expect("cmd_path not found")
         .to_string();
+
     #[cfg(target_os = "linux")]
-    #[cfg(any(not(dev), check_release))]
-    let cmd_path = RESOURCES_DIR
-        .get()
-        .expect("RESOURCES_DIR not found")
+    let cmd_path = get_RESOURCES_DIR()
         .join(PATH_ADD_STORE_SH)
         .as_path()
         .to_str()
