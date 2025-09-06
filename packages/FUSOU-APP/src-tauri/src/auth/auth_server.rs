@@ -95,7 +95,6 @@ pub fn serve_auth(
 
 #[cfg(not(feature = "auth-local-server"))]
 pub fn open_auth_page() -> Result<(), String> {
-
     // let result: Result<(), String> =
     //     webbrowser::open("http://localhost:4321/signinLocalApp").map_err(|e| e.to_string());
 
