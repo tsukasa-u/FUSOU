@@ -1,13 +1,14 @@
-use regex::Regex;
-use std::error::Error;
-use tauri::Emitter;
-// use proxy::bidirectional_channel;
 use proxy_https::bidirectional_channel;
+use regex::Regex;
 use register_trait::expand_struct_selector;
 use register_trait::TraitForConvert;
+use std::error::Error;
+use tauri::Emitter;
 
 use crate::cloud_storage::submit_data;
 
+use kc_api::interface::air_base::AirBases;
+use kc_api::interface::deck_port::DeckPorts;
 use kc_api::interface::interface::{Add, EmitData, Identifier, Set};
 
 pub fn emit_data(handle: &tauri::AppHandle, emit_data: EmitData) {
@@ -56,7 +57,7 @@ pub fn emit_data(handle: &tauri::AppHandle, emit_data: EmitData) {
             }
             Set::AirBases(data) => {
                 data.restore();
-                let _ = handle.emit_to("main", "set-kcs-air-bases", data);
+                let _ = handle.emit_to("main", "set-kcs-air-bases-ports", data);
             }
             Set::MstShips(data) => {
                 data.restore();
@@ -119,6 +120,10 @@ pub fn emit_data(handle: &tauri::AppHandle, emit_data: EmitData) {
             Identifier::RequireInfo(_) => {}
             Identifier::GetData(_) => {
                 submit_data::submit_get_data_table();
+            }
+            Identifier::MapStart(_) => {
+                let _ = handle.emit_to("main", "set-kcs-air-bases-battles", AirBases::load());
+                let _ = handle.emit_to("main", "set-kcs-deck-battles", DeckPorts::load());
             }
         },
     }

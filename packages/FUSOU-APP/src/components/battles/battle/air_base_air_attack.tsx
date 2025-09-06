@@ -1,7 +1,7 @@
 import { createMemo, For, Show } from "solid-js";
 
 import type { AirBaseAirAttack, Battle } from "@ipc-bindings/battle";
-import { useAirBases } from "../../../utility/provider";
+import { useAirBasesBattles } from "../../../utility/provider";
 import IconShield from "../../../icons/shield";
 import type { DataSetParamShip } from "../../../utility/get_data_set";
 import { calc_critical } from "../../../utility/battles";
@@ -19,7 +19,7 @@ interface AirDamageProps {
 }
 
 export function AirBaseAirAttackComponent(props: AirDamageProps) {
-  const [air_bases] = useAirBases();
+  const [air_bases] = useAirBasesBattles();
 
   const show_air_attack = createMemo<boolean>(() => {
     if (!props.battle_selected()) return false;

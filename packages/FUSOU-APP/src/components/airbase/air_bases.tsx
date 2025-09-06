@@ -1,4 +1,4 @@
-import { useAirBases } from "../../utility/provider.tsx";
+import { useAirBasesPorts } from "../../utility/provider.tsx";
 
 // import "../css/divider.css";
 import type { JSX } from "solid-js";
@@ -9,7 +9,7 @@ import "shared-ui";
 import { get_data_set_equip } from "../../utility/get_data_set.tsx";
 
 export function AirBasesComponent() {
-  const [air_bases] = useAirBases();
+  const [air_bases] = useAirBasesPorts();
 
   const store_equip_data_set = createMemo(() => {
     const slot_id_list = Object.values(air_bases.bases)

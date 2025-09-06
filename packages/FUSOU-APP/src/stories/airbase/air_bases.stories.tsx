@@ -7,7 +7,7 @@ import {
   MstShipsContext,
   MstSlotItemsContext,
   SlotItemsContext,
-  AirBasesContext,
+  AirBasesPortsContext,
 } from "../../utility/provider.tsx";
 
 import { ships } from "./../data/ships.ts";
@@ -36,9 +36,9 @@ export const WithDecorator = {
               <ShipsContext.Provider value={[ships]}>
                 <MstShipsContext.Provider value={[mst_ships]}>
                   <DeckPortsContext.Provider value={[deck_port]}>
-                    <AirBasesContext.Provider value={[air_bases]}>
+                    <AirBasesPortsContext.Provider value={[air_bases]}>
                       <Story {...context.args} />
-                    </AirBasesContext.Provider>
+                    </AirBasesPortsContext.Provider>
                   </DeckPortsContext.Provider>
                 </MstShipsContext.Provider>
               </ShipsContext.Provider>

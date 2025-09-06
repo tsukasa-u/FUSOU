@@ -2,14 +2,16 @@ import { fn } from "storybook/test";
 
 import { BattleSummaryComponent } from "../../../components/battles/battle/battle_summary.tsx";
 import {
-  DeckPortsContext,
+  DeckBattlesContext,
   ShipsContext,
   MstShipsContext,
   MstSlotItemsContext,
   SlotItemsContext,
   CellsContext,
+  AirBasesBattlesContext,
 } from "../../../utility/provider.tsx";
 
+import { air_bases } from "../../data/air_bases.ts";
 import { ships } from "../../data/ships.ts";
 import { mst_ships } from "../../data/mst_ships.ts";
 import { slot_items } from "../../data/slot_items.ts";
@@ -48,11 +50,13 @@ export const WithDecorator = {
             <SlotItemsContext.Provider value={[slot_items]}>
               <ShipsContext.Provider value={[ships]}>
                 <MstShipsContext.Provider value={[mst_ships]}>
-                  <DeckPortsContext.Provider value={[deck_port]}>
-                    <CellsContext.Provider value={[cells]}>
-                      <Story {...context.args} />
-                    </CellsContext.Provider>
-                  </DeckPortsContext.Provider>
+                  <DeckBattlesContext.Provider value={[deck_port]}>
+                    <AirBasesBattlesContext.Provider value={[air_bases]}>
+                      <CellsContext.Provider value={[cells]}>
+                        <Story {...context.args} />
+                      </CellsContext.Provider>
+                    </AirBasesBattlesContext.Provider>
+                  </DeckBattlesContext.Provider>
                 </MstShipsContext.Provider>
               </ShipsContext.Provider>
             </SlotItemsContext.Provider>

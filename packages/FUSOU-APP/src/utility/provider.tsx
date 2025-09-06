@@ -41,14 +41,14 @@ import type { AirBases } from "@ipc-bindings/map_info";
 import { default_air_bases } from "@ipc-bindings/default_state/map_info";
 
 import type { Battle } from "@ipc-bindings/battle";
-// import { supabase } from "./supabase";
-// import { invoke } from "@tauri-apps/api/core";
 
 export const ShipsContext =
   createContext<(Ships | SetStoreFunction<Ships>)[]>();
 
 export function ShipsProvider(props: { children: JSX.Element }) {
-  const [data, setData] = createStore(default_ships);
+  const [data, setData] = createStore<Ships>(
+    JSON.parse(JSON.stringify(default_ships))
+  );
   const setter = [data, setData];
 
   createEffect(() => {
@@ -69,7 +69,7 @@ export function ShipsProvider(props: { children: JSX.Element }) {
                   "ships",
                   Number(key1),
                   key2 as Part<Ship, keyof Ship>,
-                  value2,
+                  value2
                 );
               }
             });
@@ -103,7 +103,9 @@ export const MstShipsContext =
   createContext<(MstShips | SetStoreFunction<MstShips>)[]>();
 
 export function MstShipsProvider(props: { children: JSX.Element }) {
-  const [data, setData] = createStore(default_mst_ships);
+  const [data, setData] = createStore<MstShips>(
+    JSON.parse(JSON.stringify(default_mst_ships))
+  );
   const setter = [data, setData];
 
   createEffect(() => {
@@ -139,7 +141,9 @@ export const SlotItemsContext =
   createContext<(SlotItems | SetStoreFunction<SlotItems>)[]>();
 
 export function SlotItemsProvider(props: { children: JSX.Element }) {
-  const [data, setData] = createStore(default_slotitems);
+  const [data, setData] = createStore<SlotItems>(
+    JSON.parse(JSON.stringify(default_slotitems))
+  );
   const setter = [data, setData];
 
   createEffect(() => {
@@ -175,7 +179,9 @@ export const MstSlotItemsContext =
   createContext<(MstSlotItems | SetStoreFunction<MstSlotItems>)[]>();
 
 export function MstSlotItemsProvider(props: { children: JSX.Element }) {
-  const [data, setData] = createStore(default_mst_slot_items);
+  const [data, setData] = createStore<MstSlotItems>(
+    JSON.parse(JSON.stringify(default_mst_slot_items))
+  );
   const setter = [data, setData];
 
   createEffect(() => {
@@ -186,7 +192,7 @@ export function MstSlotItemsProvider(props: { children: JSX.Element }) {
         (event) => {
           if (import.meta.env.DEV) console.log("set-kcs-mst-slot-items");
           setData(event.payload);
-        },
+        }
       );
     })();
 
@@ -216,7 +222,9 @@ const MstEquipExslotShipsContext =
   >();
 
 export function MstEquipExslotShipsProvider(props: { children: JSX.Element }) {
-  const [data, setData] = createStore(default_mst_equip_exslot_ships);
+  const [data, setData] = createStore<MstEquipExslotShips>(
+    JSON.parse(JSON.stringify(default_mst_equip_exslot_ships))
+  );
   const setter = [data, setData];
 
   createEffect(() => {
@@ -228,7 +236,7 @@ export function MstEquipExslotShipsProvider(props: { children: JSX.Element }) {
           if (import.meta.env.DEV)
             console.log("set-kcs-mst-equip-exslot-ships");
           setData(event.payload);
-        },
+        }
       );
     })();
 
@@ -248,7 +256,7 @@ export function useMstEquipExslotShips() {
   const context = useContext(MstEquipExslotShipsContext);
   if (!context) {
     throw new Error(
-      "useMstEquipExslotShips: cannot find a MstEquipExslotShipsContext",
+      "useMstEquipExslotShips: cannot find a MstEquipExslotShipsContext"
     );
   }
   return context as [
@@ -265,7 +273,9 @@ export const MstSlotItemEquipTypesContext =
 export function MstSlotItemEquipTypesProvider(props: {
   children: JSX.Element;
 }) {
-  const [data, setData] = createStore(default_mst_slotitem_equip_types);
+  const [data, setData] = createStore<MstSlotItemEquipTypes>(
+    JSON.parse(JSON.stringify(default_mst_slotitem_equip_types))
+  );
   const setter = [data, setData];
 
   createEffect(() => {
@@ -277,7 +287,7 @@ export function MstSlotItemEquipTypesProvider(props: {
           if (import.meta.env.DEV)
             console.log("set-kcs-mst-slot-item-equip-types");
           setData(event.payload);
-        },
+        }
       );
     })();
 
@@ -297,7 +307,7 @@ export function useMstSlotItemEquipTypes() {
   const context = useContext(MstSlotItemEquipTypesContext);
   if (!context) {
     throw new Error(
-      "useMstSlotItemEquipTypes: cannot find a MstSlotItemEquipTypesContext",
+      "useMstSlotItemEquipTypes: cannot find a MstSlotItemEquipTypesContext"
     );
   }
 
@@ -311,7 +321,9 @@ const MstEquipShipsContext =
   createContext<(MstEquipShips | SetStoreFunction<MstEquipShips>)[]>();
 
 export function MstEquipShipsProvider(props: { children: JSX.Element }) {
-  const [data, setData] = createStore(default_mst_equip_ships);
+  const [data, setData] = createStore<MstEquipShips>(
+    JSON.parse(JSON.stringify(default_mst_equip_ships))
+  );
   const setter = [data, setData];
 
   createEffect(() => {
@@ -322,7 +334,7 @@ export function MstEquipShipsProvider(props: { children: JSX.Element }) {
         (event) => {
           if (import.meta.env.DEV) console.log("set-kcs-mst-equip-ships");
           setData(event.payload);
-        },
+        }
       );
     })();
 
@@ -350,7 +362,9 @@ export const MstStypesContext =
   createContext<(MstStypes | SetStoreFunction<MstStypes>)[]>();
 
 export function MstStypesProvider(props: { children: JSX.Element }) {
-  const [data, setData] = createStore(default_mst_stypes);
+  const [data, setData] = createStore<MstStypes>(
+    JSON.parse(JSON.stringify(default_mst_stypes))
+  );
   const setter = [data, setData];
 
   createEffect(() => {
@@ -386,7 +400,9 @@ const MstUseItemsContext =
   createContext<(MstUseItems | SetStoreFunction<MstUseItems>)[]>();
 
 export function MstUseItemsProvider(props: { children: JSX.Element }) {
-  const [data, setData] = createStore(default_mst_useitems);
+  const [data, setData] = createStore<MstUseItems>(
+    JSON.parse(JSON.stringify(default_mst_useitems))
+  );
   const setter = [data, setData];
 
   createEffect(() => {
@@ -397,7 +413,7 @@ export function MstUseItemsProvider(props: { children: JSX.Element }) {
         (event) => {
           if (import.meta.env.DEV) console.log("set-kcs-mst-use-items");
           setData(event.payload);
-        },
+        }
       );
     })();
 
@@ -437,7 +453,7 @@ export function MaterialsProvider(props: { children: JSX.Element }) {
         (event) => {
           if (import.meta.env.DEV) console.log("set-kcs-materials");
           setData(event.payload);
-        },
+        }
       );
       unlisten_data_add = await listen<Materials>(
         "add-kcs-materials",
@@ -448,7 +464,7 @@ export function MaterialsProvider(props: { children: JSX.Element }) {
               setData(key as Part<Materials, keyof Materials>, value);
             }
           });
-        },
+        }
       );
     })();
 
@@ -477,7 +493,9 @@ export const DeckPortsContext =
   createContext<(DeckPorts | SetStoreFunction<DeckPorts>)[]>();
 
 export function DeckPortsProvider(props: { children: JSX.Element }) {
-  const [data, setData] = createStore(default_deck_ports);
+  const [data, setData] = createStore<DeckPorts>(
+    JSON.parse(JSON.stringify(default_deck_ports))
+  );
   const setter = [data, setData];
 
   createEffect(() => {
@@ -509,11 +527,55 @@ export function useDeckPorts() {
   return context as [DeckPorts, SetStoreFunction<DeckPorts>];
 }
 
+export const DeckBattlesContext =
+  createContext<(DeckPorts | SetStoreFunction<DeckPorts>)[]>();
+
+export function DeckBattlesProvider(props: { children: JSX.Element }) {
+  const [data, setData] = createStore<DeckPorts>(
+    JSON.parse(JSON.stringify(default_deck_ports))
+  );
+  const setter = [data, setData];
+
+  createEffect(() => {
+    let unlisten_data: UnlistenFn;
+    (async () => {
+      unlisten_data = await listen<DeckPorts>(
+        "set-kcs-deck-battles",
+        (event) => {
+          if (import.meta.env.DEV) console.log("set-kcs-deck-battles");
+          setData(event.payload);
+          console.log(event.payload);
+        }
+      );
+    })();
+
+    onCleanup(() => {
+      if (unlisten_data) unlisten_data();
+    });
+  });
+
+  return (
+    <DeckBattlesContext.Provider value={setter}>
+      {props.children}
+    </DeckBattlesContext.Provider>
+  );
+}
+
+export function useDeckBattles() {
+  const context = useContext(DeckBattlesContext);
+  if (!context) {
+    throw new Error("useDeckBattles: cannot find a DeckBattlesContext");
+  }
+  return context as [DeckPorts, SetStoreFunction<DeckPorts>];
+}
+
 export const CellsContext =
   createContext<(Cells | SetStoreFunction<Cells>)[]>();
 
 export function CellsContextProvider(props: { children: JSX.Element }) {
-  const [data, setData] = createStore(default_cells);
+  const [data, setData] = createStore<Cells>(
+    JSON.parse(JSON.stringify(default_cells))
+  );
   const setter = [data, setData];
 
   createEffect(() => {
@@ -526,7 +588,7 @@ export function CellsContextProvider(props: { children: JSX.Element }) {
         (event) => {
           if (import.meta.env.DEV) console.log("set-kcs-cells");
           setData(event.payload);
-        },
+        }
       );
       // eslint-disable-next-line solid/reactivity
       unlisten_data_add_cell = await listen<Cell>("add-kcs-cell", (event) => {
@@ -542,7 +604,7 @@ export function CellsContextProvider(props: { children: JSX.Element }) {
           if (
             Object.prototype.hasOwnProperty.call(
               data.battles,
-              event.payload.cell_id,
+              event.payload.cell_id
             )
           ) {
             Object.entries(event.payload).forEach(([key, value]) => {
@@ -551,14 +613,14 @@ export function CellsContextProvider(props: { children: JSX.Element }) {
                   "battles",
                   event.payload.cell_id,
                   key as Part<Battle, keyof Battle>,
-                  value,
+                  value
                 );
               }
             });
           } else {
             setData("battles", event.payload.cell_id, event.payload);
           }
-        },
+        }
       );
     })();
 
@@ -584,20 +646,25 @@ export function useCells() {
   return context as [Cells, SetStoreFunction<Cells>];
 }
 
-export const AirBasesContext =
+export const AirBasesPortsContext =
   createContext<(AirBases | SetStoreFunction<AirBases>)[]>();
 
-export function AirBasesProvider(props: { children: JSX.Element }) {
-  const [data, setData] = createStore(default_air_bases);
+export function AirBasesPortsProvider(props: { children: JSX.Element }) {
+  const [data, setData] = createStore<AirBases>(
+    JSON.parse(JSON.stringify(default_air_bases))
+  );
   const setter = [data, setData];
 
   createEffect(() => {
     let unlisten_data: UnlistenFn;
     (async () => {
-      unlisten_data = await listen<AirBases>("set-kcs-air-bases", (event) => {
-        if (import.meta.env.DEV) console.log("set-kcs-air-bases");
-        setData(event.payload);
-      });
+      unlisten_data = await listen<AirBases>(
+        "set-kcs-air-bases-ports",
+        (event) => {
+          if (import.meta.env.DEV) console.log("set-kcs-air-bases-ports");
+          setData(event.payload);
+        }
+      );
     })();
 
     onCleanup(() => {
@@ -606,16 +673,57 @@ export function AirBasesProvider(props: { children: JSX.Element }) {
   });
 
   return (
-    <AirBasesContext.Provider value={setter}>
+    <AirBasesPortsContext.Provider value={setter}>
       {props.children}
-    </AirBasesContext.Provider>
+    </AirBasesPortsContext.Provider>
   );
 }
 
-export function useAirBases() {
-  const context = useContext(AirBasesContext);
+export function useAirBasesPorts() {
+  const context = useContext(AirBasesPortsContext);
   if (!context) {
-    throw new Error("useAirBases: cannot find a AirBasesContext");
+    throw new Error("useAirBasesPorts: cannot find a AirBasesPortsContext");
+  }
+  return context as [AirBases, SetStoreFunction<AirBases>];
+}
+
+export const AirBasesBattlesContext =
+  createContext<(AirBases | SetStoreFunction<AirBases>)[]>();
+
+export function AirBasesBattlesProvider(props: { children: JSX.Element }) {
+  const [data, setData] = createStore<AirBases>(
+    JSON.parse(JSON.stringify(default_air_bases))
+  );
+  const setter = [data, setData];
+
+  createEffect(() => {
+    let unlisten_data: UnlistenFn;
+    (async () => {
+      unlisten_data = await listen<AirBases>(
+        "set-kcs-air-bases-battles",
+        (event) => {
+          if (import.meta.env.DEV) console.log("set-kcs-air-bases-battles");
+          setData(event.payload);
+        }
+      );
+    })();
+
+    onCleanup(() => {
+      if (unlisten_data) unlisten_data();
+    });
+  });
+
+  return (
+    <AirBasesBattlesContext.Provider value={setter}>
+      {props.children}
+    </AirBasesBattlesContext.Provider>
+  );
+}
+
+export function useAirBasesBattles() {
+  const context = useContext(AirBasesBattlesContext);
+  if (!context) {
+    throw new Error("useAirBasesBattles: cannot find a AirBasesBattlesContext");
   }
   return context as [AirBases, SetStoreFunction<AirBases>];
 }
@@ -709,7 +817,7 @@ export function DebugApiProvider(props: { children: JSX.Element }) {
         (event) => {
           if (import.meta.env.DEV) console.log("set-debug-api-read-dir");
           setData(event.payload);
-        },
+        }
       );
     })();
 

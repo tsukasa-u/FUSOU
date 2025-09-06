@@ -508,12 +508,12 @@ function Start() {
                     class="w-full input input-sm focus-within:outline-0 focus:outline-0"
                     placeholder="provider_refresh_token=***&access_token=****&refresh_token=***"
                   />
-                  <div class="w-2" />
-                  <kbd class="self-center kbd kbd-sm bg-info text-info-content">
+                  <div class="w-4" />
+                  <kbd class="self-center kbd kbd-md bg-info text-info-content pt-1">
                     ctrl
                   </kbd>
-                  <div class="self-center text-sm px-1">+</div>
-                  <kbd class="self-center kbd kbd-sm bg-info text-info-content">
+                  <div class="self-center text-md px-1">+</div>
+                  <kbd class="self-center kbd kbd-md bg-info text-info-content pt-1">
                     V
                   </kbd>
                 </div>

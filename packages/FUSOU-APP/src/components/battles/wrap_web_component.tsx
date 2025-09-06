@@ -6,7 +6,7 @@ import {
   type DeckShipIds,
 } from "../../utility/battles";
 import "shared-ui";
-import { useDeckPorts } from "../../utility/provider";
+import { useDeckBattles } from "../../utility/provider";
 import { Show } from "solid-js";
 
 const friendly_force_number = 5;
@@ -167,7 +167,7 @@ export function WrapNumberedOwnShipComponent(props: NumberedOwnShipProps) {
   };
 
   const valid_ship = () => {
-    const [deck_ports] = useDeckPorts();
+    const [deck_ports] = useDeckBattles();
     const valid_deck_id = deck_id()!;
     const ship_id = props.deck_ship_id()[valid_deck_id][props.ship_idx];
 

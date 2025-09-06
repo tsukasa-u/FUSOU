@@ -1,7 +1,7 @@
 import { createMemo, For, Show } from "solid-js";
 
 import type { Battle } from "@ipc-bindings/battle";
-import { useDeckPorts } from "../../../utility/provider";
+import { useDeckBattles } from "../../../utility/provider";
 import IconExit from "../../../icons/exit";
 import type {
   DataSetParamShip,
@@ -76,7 +76,7 @@ function add_array(a: number[], b: number[]): number[] {
 }
 
 export function BattleSummaryComponent(props: ButtleSummaryProps) {
-  const [deck_ports] = useDeckPorts();
+  const [deck_ports] = useDeckBattles();
 
   const show_summary = createMemo<boolean>(() => {
     if (props.battle_selected() == undefined) return false;
