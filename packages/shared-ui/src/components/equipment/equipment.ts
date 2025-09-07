@@ -18,7 +18,7 @@ export interface ComponentEquipmentProps {
   compact?: boolean;
   name_flag?: boolean;
   "attr:onslot"?: number;
-  show_onslot?: boolean;
+  hide_onslot?: boolean;
   ex_flag?: boolean;
   size: "xs" | "sm" | "md" | "lg" | "xl";
   empty_flag?: boolean;

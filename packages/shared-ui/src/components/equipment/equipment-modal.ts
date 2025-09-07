@@ -18,7 +18,7 @@ export interface ComponentEquipmentModalProps {
   ex_flag?: boolean;
   name_flag?: boolean;
   "attr:onslot"?: number;
-  show_onslot?: boolean;
+  hide_onslot?: boolean;
   size: "xs" | "sm" | "md" | "lg" | "xl";
   empty_flag?: boolean;
 }
@@ -40,7 +40,7 @@ export class ComponentEquipmentModal extends LitElement {
   "attr:onslot": number = 0;
 
   @property({ type: Boolean })
-  hide_onslot: boolean = true;
+  hide_onslot: boolean = false;
 
   @property({ type: Boolean })
   name_flag: boolean = false;

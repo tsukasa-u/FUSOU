@@ -569,6 +569,7 @@ export function EquipmentListComponent() {
             slot_item={slot_item}
             empty_flag={false}
             ex_flag={false}
+            hide_onslot={true}
           />
         </td>
         <Show when={check_equip_property["Equip Type"]}>
