@@ -413,7 +413,7 @@ pub fn setup_configs() -> Result<(), Box<dyn std::error::Error>> {
         }
         fs::copy(&resources_config_path, &roaming_config_path)?;
     }
-    let path_str = resources_config_path.to_string_lossy();
+    let path_str = roaming_config_path.to_string_lossy();
     configs::set_user_config(&path_str)?;
     Ok(())
 }
