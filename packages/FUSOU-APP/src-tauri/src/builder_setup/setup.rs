@@ -12,9 +12,12 @@ use tauri_plugin_opener::OpenerExt;
 use tokio::sync::mpsc;
 
 use crate::{
-    builder_setup::bidirectional_channel::{
-        get_pac_bidirectional_channel, get_proxy_bidirectional_channel,
-        get_response_parse_bidirectional_channel,
+    builder_setup::{
+        bidirectional_channel::{
+            get_pac_bidirectional_channel, get_proxy_bidirectional_channel,
+            get_response_parse_bidirectional_channel,
+        },
+        updater::setup_updater,
     },
     cmd::{native_cmd, tauri_cmd},
     integration::discord,
@@ -418,6 +421,8 @@ pub fn setup_configs() -> Result<(), Box<dyn std::error::Error>> {
 pub fn setup_init(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let (shutdown_tx, mut shutdown_rx) = mpsc::channel::<()>(1);
 
+    #[cfg(not(dev))]
+    setup_updater(app)?;
     setup_deep_link(app)?;
     set_paths(app)?;
     setup_configs()?;

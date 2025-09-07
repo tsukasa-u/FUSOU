@@ -5,35 +5,28 @@ use std::path::PathBuf;
 use tokio::sync::OnceCell;
 use uuid::Uuid;
 
+use crate::RESOURCES_DIR;
 use crate::ROAMING_DIR;
 static KC_USER_ENV_UNIQUE_ID: OnceCell<String> = OnceCell::const_new();
 
 #[allow(non_snake_case)]
 pub fn get_ROAMING_DIR() -> PathBuf {
-    let mut path = PathBuf::new();
-    {
-        let roaming_path = ROAMING_DIR
-            .get()
-            .expect("ROAMING_DIR not found")
-            .lock()
-            .unwrap();
-        path = roaming_path.clone();
-    }
-    return path;
+    return ROAMING_DIR
+        .get()
+        .expect("ROAMING_DIR not found")
+        .lock()
+        .unwrap()
+        .clone();
 }
 
 #[allow(non_snake_case)]
 pub fn get_RESOURCES_DIR() -> PathBuf {
-    let mut path = PathBuf::new();
-    {
-        let resources_path = crate::RESOURCES_DIR
-            .get()
-            .expect("RESOURCES_DIR not found")
-            .lock()
-            .unwrap();
-        path = resources_path.clone();
-    }
-    return path;
+    return RESOURCES_DIR
+        .get()
+        .expect("RESOURCES_DIR not found")
+        .lock()
+        .unwrap()
+        .clone();
 }
 
 pub async fn get_user_env_id() -> String {

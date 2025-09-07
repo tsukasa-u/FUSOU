@@ -51,10 +51,10 @@ pub async fn run() {
 
     let ctx = tauri::generate_context!();
 
-    #[allow(unused_mut)]
     let mut builder = tauri::Builder::default()
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_single_instance::init(|_app, _args, _cwd| {}))
         .plugin(tauri_plugin_fs::init())
         .plugin(
             tauri_plugin_log::Builder::new()
@@ -64,6 +64,18 @@ pub async fn run() {
                 ])
                 .build(),
         )
+        .plugin(tauri_plugin_window_state::Builder::default().build())
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_shell::init())
+        // .plugin(tauri_plugin_devtools::init())
+        .plugin(tauri_plugin_deep_link::init())
+        .plugin(tauri_plugin_single_instance::init(
+            move |app: &tauri::AppHandle, argv: Vec<String>, _cwd| {
+                builder_setup::single_instance::single_instance_init(app, argv)
+            },
+        ));
+
+    builder = builder
         .manage(manage_pac_channel)
         .manage(manage_proxy_channel)
         .manage(manage_proxy_log_channel)
@@ -74,7 +86,7 @@ pub async fn run() {
         builder = builder.manage(manage_auth_channel);
     }
 
-    builder
+    builder = builder
         .invoke_handler(tauri::generate_handler![
             // cmd::tauri_cmd::close_splashscreen,
             // cmd::tauri_cmd::show_splashscreen,
@@ -104,23 +116,15 @@ pub async fn run() {
             #[cfg(dev)]
             cmd::tauri_cmd::read_emit_file,
         ])
-        .plugin(tauri_plugin_window_state::Builder::default().build())
-        .plugin(tauri_plugin_process::init())
-        .plugin(tauri_plugin_shell::init())
-        // .plugin(tauri_plugin_devtools::init())
-        .plugin(tauri_plugin_deep_link::init())
-        .plugin(tauri_plugin_single_instance::init(
-            move |app: &tauri::AppHandle, argv: Vec<String>, _cwd| {
-                builder_setup::single_instance::single_instance_init(app, argv)
-            },
-        ))
         .setup(move |app: &mut tauri::App| {
             builder_setup::setup::setup_init(app)?;
             Ok(())
         })
         .on_window_event(move |window: &tauri::Window, event: &tauri::WindowEvent| {
             builder_setup::window_event::window_event_handler(window, event)
-        })
+        });
+
+    builder
         .run(ctx)
         .expect("error while building tauri application");
 }

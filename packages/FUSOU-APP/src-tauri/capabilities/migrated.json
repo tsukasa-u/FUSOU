@@ -45,6 +45,10 @@
           "path": "$RESOURCE/resources/user/configs.toml"
         }
       ]
-    }
+    },
+    "dialog:default",
+    "updater:default",
+    "process:default",
+    "process:allow-restart"
   ]
 }
