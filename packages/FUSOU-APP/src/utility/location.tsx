@@ -1,4 +1,5 @@
-import { listen, UnlistenFn } from "@tauri-apps/api/event";
+import type { UnlistenFn } from "@tauri-apps/api/event";
+import { listen } from "@tauri-apps/api/event";
 import { onCleanup } from "solid-js";
 
 export const location_route = () => {

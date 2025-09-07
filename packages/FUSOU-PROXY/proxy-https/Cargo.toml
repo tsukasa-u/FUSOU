@@ -16,6 +16,7 @@ http = "1.1.0"
 rustls-native-certs = "0.8.0"
 warp = "0.3.7"
 flate2 = "1.0.35"
+configs = { path = "./../../configs" }
 
 [dev-dependencies]
 tracing = { version = "0.1.35", features = ["log"] }

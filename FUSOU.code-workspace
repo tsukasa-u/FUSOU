@@ -13,6 +13,15 @@
 			"path": "packages/shared-ui"
 		},
 		{
+			"path": "packages/kc_api"
+		},
+		{
+			"path": "packages/rust_macro"
+		},
+		{
+			"path": "packages/configs"
+		},
+		{
 			"path": "docs"
 		},
 		{

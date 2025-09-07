@@ -1,4 +1,4 @@
-import { JSX } from "solid-js";
+import type { JSX } from "solid-js";
 
 export function IconPort1(props: JSX.HTMLAttributes<SVGSVGElement>) {
   return (

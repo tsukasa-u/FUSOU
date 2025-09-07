@@ -2,9 +2,7 @@
   "identifier": "migrated",
   "description": "permissions that were migrated from v1",
   "local": true,
-  "windows": [
-    "main"
-  ],
+  "windows": ["main"],
   "permissions": [
     "core:default",
     "deep-link:allow-get-current",
@@ -36,6 +34,21 @@
         }
       ]
     },
-    "fs:default"
+    "fs:default",
+    {
+      "identifier": "opener:allow-open-path",
+      "allow": [
+        {
+          "path": "./../user/configs.toml"
+        },
+        {
+          "path": "$RESOURCE/resources/user/configs.toml"
+        }
+      ]
+    },
+    "dialog:default",
+    "updater:default",
+    "process:default",
+    "process:allow-restart"
   ]
 }

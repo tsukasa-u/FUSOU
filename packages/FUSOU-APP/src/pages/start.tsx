@@ -18,13 +18,10 @@ import IconCheckBoxRed from "../icons/check_box_red";
 import { location_route } from "../utility/location";
 import { getRefreshToken, supabase } from "../utility/supabase";
 import { useAuth } from "../utility/provider";
-// import { redirect, useNavigate } from "@solidjs/router";
-// import {
-//   onOpenUrl,
-//   getCurrent as getCurrentDeepLinkUrls,
-// } from "@tauri-apps/plugin-deep-link";
+import { ThemeControllerComponent } from "../components/settings/theme";
+import { createAsyncStore } from "@solidjs/router";
 
-let launch_options: { [key: string]: number } = {
+const launch_options: { [key: string]: number } = {
   run_proxy_server: 1,
   open_app: 1,
   open_kancolle: 1,
@@ -32,7 +29,7 @@ let launch_options: { [key: string]: number } = {
   server: -1,
 };
 
-let server_list: { [key: string]: string } = {
+const server_list: { [key: string]: string } = {
   横須賀鎮守府: "w01y.kancolle-server.com", // 横須賀鎮守府
   新呉鎮守府: "w02k.kancolle-server.com", // 新呉鎮守府
   佐世保鎮守府: "w03s.kancolle-server.com", // 佐世保鎮守府
@@ -78,11 +75,13 @@ let server_list: { [key: string]: string } = {
 function open_auth_page() {
   invoke("check_open_window", { label: "main" }).then((flag) => {
     if (flag) {
-      invoke("open_auth_page").then(() => {
-        console.log("open auth page");
-      }).catch((err) => {
-        console.error("open auth page error", err);
-      });
+      invoke("open_auth_page")
+        .then(() => {
+          console.log("open auth page");
+        })
+        .catch((err) => {
+          console.error("open auth page error", err);
+        });
     }
   });
 }
@@ -91,24 +90,25 @@ function Start() {
   createEffect(location_route);
 
   const [runProxyServer, setRunProxyServer] = createSignal<boolean>(
-    Boolean(launch_options["run_proxy_server"]),
+    Boolean(launch_options["run_proxy_server"])
   );
   const [openApp, setOpenApp] = createSignal<boolean>(
-    Boolean(launch_options["open_app"]),
+    Boolean(launch_options["open_app"])
   );
   const [openKancolle, setOpenKancolle] = createSignal<boolean>(
-    Boolean(launch_options["open_kancolle"]),
+    Boolean(launch_options["open_kancolle"])
   );
   const [openKancolleWithWebView, setOpenKancolleWithWebView] =
     createSignal<boolean>(
-      Boolean(launch_options["open_kancolle_with_webview"]),
+      Boolean(launch_options["open_kancolle_with_webview"])
     );
   const [server, setServer] = createSignal<number>(launch_options["server"]);
 
   const [pacServerHealth, setPacServerHealth] = createSignal<number>(-1);
   const [proxyServerHealth, setProxyServerHealth] = createSignal<number>(-1);
 
-  const [advancesSettingsCollapse, setAdavncedSettingsCollpse] = createSignal<boolean>(false);
+  const [advancesSettingsCollapse, setAdavncedSettingsCollpse] =
+    createSignal<boolean>(false);
 
   const [authData, setAuthData] = useAuth();
 
@@ -137,21 +137,22 @@ function Start() {
 
   createEffect(() => {
     if (authData.accessToken !== null && authData.refreshToken !== null) {
-      supabase.auth.setSession({
-        access_token: authData.accessToken,
-        refresh_token: authData.refreshToken,
-      }).then(({ data, error }) => {
-        if (error) {
-          console.error("Error setting session:", error);
-        } else {
-          console.log("Session set successfully:", data);
-        }
-      });
+      supabase.auth
+        .setSession({
+          access_token: authData.accessToken,
+          refresh_token: authData.refreshToken,
+        })
+        .then(({ data, error }) => {
+          if (error) {
+            console.error("Error setting session:", error);
+          } else {
+            console.log("Session set successfully:", data);
+          }
+        });
     }
   });
 
   createEffect(() => {
-
     supabase.auth.getSession().then(({ data, error }) => {
       console.log("session", data, error);
       if (error) {
@@ -164,22 +165,27 @@ function Start() {
           if (data.session.user == null) {
             open_auth_page();
           } else {
-            getRefreshToken(data.session.user.id).then((refreshToken) => {
-              if (refreshToken !== null) {
-                let token: string = refreshToken + "&" + data.session.token_type;
-                invoke("set_refresh_token", {
-                  token: token
-                }).then(() => {
-                  console.log("refresh_token set");
-                }).catch((err) => {
-                  console.error("refresh_token error", err);
-                });
-              } else {
-                console.error("Error getting refresh token");
-              }
-            }).catch((error) => {
-              console.error("Error getting refresh token:", error);
-            });
+            getRefreshToken(data.session.user.id)
+              .then((refreshToken) => {
+                if (refreshToken !== null) {
+                  const token: string =
+                    refreshToken + "&" + data.session.token_type;
+                  invoke("set_refresh_token", {
+                    token: token,
+                  })
+                    .then(() => {
+                      console.log("refresh_token set");
+                    })
+                    .catch((err) => {
+                      console.error("refresh_token error", err);
+                    });
+                } else {
+                  console.error("Error getting refresh token");
+                }
+              })
+              .catch((error) => {
+                console.error("Error getting refresh token:", error);
+              });
           }
         }
       }
@@ -215,21 +221,36 @@ function Start() {
   });
 
   const start_button_class = createMemo(() => {
-    if (proxyServerHealth() == -1 || pacServerHealth() == -1)
-      return "btn btn-wide btn-disabled";
-    if (run_proxy_flag() == -1) return "btn btn-wide btn-disabled";
-    return "btn btn-wide";
+    if (
+      proxyServerHealth() == -1 ||
+      pacServerHealth() == -1 ||
+      run_proxy_flag() == -1
+    )
+      return "btn btn-wide btn-disabled btn-accent";
+    return "btn btn-wide btn-accent border-accent-content";
+  });
+
+  const auto_listen = createAsyncStore<string>(async () => {
+    const response_promise = invoke<string>("get_kc_server_name")
+      .then((name) => {
+        console.log("name", name);
+        return name !== "" ? name : "Auto Listen";
+      })
+      .catch(() => "Auto Listen");
+    const server_name = await response_promise;
+    return server_name !== "" ? server_name : "Auto Listen";
   });
 
   return (
     <>
-      <div class="bg-base-200 h-screen">
-        <div class="max-w-md justify-self-center bg-base-100 h-screen">
+      <div class="bg-base-100 min-h-dvh flex">
+        <div class="bg-base-300 min-h-dvh flex flex-1" />
+        <div class="max-w-md justify-self-center bg-base-100 h-fit mx-0">
           <div class="flex flex-nowrap">
             <h1 class="mx-4 pt-4 text-2xl font-semibold">Launch Options</h1>
             <span class="flex-1" />
             <button
-              class="place-self-end btn btn-sm btn-outline btn-info"
+              class="place-self-end btn btn-sm btn-info btn-outline"
               onClick={check_server_status}
             >
               check server status
@@ -240,10 +261,10 @@ function Start() {
           <div class="mx-4 flex">
             <div class="grid">
               <div class="py-2">
-                <h2 class="text-lg font-semibold leading-4 text-slate-700">
+                <h2 class="text-lg font-semibold leading-4">
                   Run Proxy Server
                 </h2>
-                <p class="text-slate-600">
+                <p class="">
                   Run proxy server to copy responsed data from KC server{" "}
                 </p>
                 <div class="flex flex-nowrap mt-4">
@@ -290,7 +311,7 @@ function Start() {
                           onClick={() => {
                             setRunProxyServer(!runProxyServer());
                           }}
-                          class="toggle toggle-sm toggle-primary rounded-sm"
+                          class="toggle toggle-sm toggle-primary rounded-sm [&::before]:rounded-xs"
                           checked={runProxyServer()}
                           disabled={run_proxy_flag() <= 0}
                         />
@@ -303,14 +324,14 @@ function Start() {
                     Your server
                   </div>
                   <select
-                    class="select select-sm select-bordered w-full"
+                    class="select select-sm select-bordered w-full focus-within:outline-0 focus:outline-0"
                     disabled={!runProxyServer()}
                     onChange={(e) => {
                       launch_options["server"] = e.target.selectedIndex;
                       setServer(e.target.selectedIndex);
                     }}
                   >
-                    <option selected>Auto Listen</option>
+                    <option selected>{auto_listen() ?? "Auto Listen"}</option>
                     <For each={Object.keys(server_list)}>
                       {(name, idx) => (
                         <option selected={server() == idx() + 1}>{name}</option>
@@ -367,10 +388,8 @@ function Start() {
                 </div>
               </Show>
               <div class="py-2">
-                <h2 class="text-lg font-semibold leading-4 text-slate-700">
-                  Open App
-                </h2>
-                <p class="text-slate-600">Open internal KanColle data viewer</p>
+                <h2 class="text-lg font-semibold leading-4">Open App</h2>
+                <p class="">Open internal KanColle data viewer</p>
                 <div class="mt-4 flex items-center justify-end">
                   <span class="flex-auto" />
                   <div class="form-control flex-none">
@@ -385,7 +404,7 @@ function Start() {
                         onClick={() => {
                           setOpenApp(!openApp());
                         }}
-                        class="toggle toggle-sm toggle-primary rounded-sm"
+                        class="toggle toggle-sm toggle-primary rounded-sm [&::before]:rounded-xs"
                         checked={openApp()}
                         disabled={run_app_flag() <= 0}
                       />
@@ -394,12 +413,8 @@ function Start() {
                 </div>
               </div>
               <div class="py-2">
-                <h2 class="text-lg font-semibold leading-4 text-slate-700">
-                  Open KanColle
-                </h2>
-                <p class="text-slate-600">
-                  Open KanColle with WebView or native browser
-                </p>
+                <h2 class="text-lg font-semibold leading-4">Open KanColle</h2>
+                <p class="">Open KanColle with WebView or native browser</p>
                 <div class="mt-4 flex items-center justify-end">
                   <span class="flex-auto" />
                   <div class="form-control flex-none">
@@ -415,7 +430,7 @@ function Start() {
                             Number(!openKancolle());
                           setOpenKancolle(!openKancolle());
                         }}
-                        class="toggle toggle-sm toggle-primary rounded-sm"
+                        class="toggle toggle-sm toggle-primary rounded-sm [&::before]:rounded-xs"
                         checked={openKancolle()}
                       />
                     </label>
@@ -460,63 +475,111 @@ function Start() {
                     </div> */}
             </div>
           </div>
-              <div tabindex="0" class={"collapse collapse-arrow" + (advancesSettingsCollapse() ? " collapse-open" : " collapse-close")}>
-                <div class="collapse-title text-lg font-semibold leading-4 text-slate-700" onClick={() => setAdavncedSettingsCollpse(!advancesSettingsCollapse())}>Advanced Settings</div>
-                <div class="collapse-content text-sm mx-4">
-                  <div class="font-semibold text-slate-700">Set provider (provider) (access/refresh) tokens</div>
-                  <fieldset class="fieldset">
-                    <legend class="fieldset-legen">input tokens for new session</legend>
-                    <div class="flex flex-nowarp align-center">
-                      <input id="tokens" type="text" class="w-full input input-sm focus-within:outline-0 focus:outline-0" placeholder="provider_refresh_token=***&access_token=****&refresh_token=***" />
-                      <kbd class="kbd kbd-sm">ctrl</kbd>
-                      <div class="self-center text-sm px-1">+</div>
-                      <kbd class="kbd kbd-sm">V</kbd>
-                    </div>
-                  </fieldset>
+          <div
+            tabindex="0"
+            class={
+              "collapse collapse-arrow" +
+              (advancesSettingsCollapse()
+                ? " collapse-open"
+                : " collapse-close")
+            }
+          >
+            <a
+              class="collapse-title text-lg font-semibold leading-4 cursor-pointer"
+              id="advanced-settings"
+              onClick={() =>
+                setAdavncedSettingsCollpse(!advancesSettingsCollapse())
+              }
+            >
+              Advanced Settings
+            </a>
+            <div class="collapse-content text-sm mx-4">
+              <div class="font-semibold">
+                Set provider (provider) (access/refresh) tokens
+              </div>
+              <fieldset class="fieldset">
+                <legend class="fieldset-legen">
+                  input tokens for new session
+                </legend>
+                <div class="flex flex-nowarp align-center">
+                  <input
+                    id="tokens"
+                    type="text"
+                    class="w-full input input-sm focus-within:outline-0 focus:outline-0"
+                    placeholder="provider_refresh_token=***&access_token=****&refresh_token=***"
+                  />
+                  <div class="w-4" />
+                  <kbd class="self-center kbd kbd-md bg-info text-info-content pt-1">
+                    ctrl
+                  </kbd>
+                  <div class="self-center text-md px-1">+</div>
+                  <kbd class="self-center kbd kbd-md bg-info text-info-content pt-1">
+                    V
+                  </kbd>
+                </div>
+              </fieldset>
 
-                <div class="mt-4 flex items-center justify-end">
-                  <span class="flex-auto" />
-                  <div class="form-control flex-none">
-                    <div class="btn btn-sm border-base-300 border-1" onClick={() => {
-                      const input_text: HTMLInputElement | null = document.getElementById("tokens") as HTMLInputElement;
+              <div class="mt-4 flex items-center justify-end">
+                <span class="flex-auto" />
+                <div class="form-control flex-none">
+                  <div
+                    class="btn btn-sm btn-primary border-1 border-primary-content"
+                    onClick={() => {
+                      const input_text: HTMLInputElement | null =
+                        document.getElementById("tokens") as HTMLInputElement;
                       if (input_text == null) return;
 
-                      let tokens = input_text.value?.split('&')!;
-                      let supabase_access_token = tokens[2].split('=');
-                      let supabase_refresh_token = tokens[3].split('=');
-                      let provider_refresh_token = tokens[0].split('=');
+                      const tokens = input_text.value?.split("&");
+                      const supabase_access_token = tokens[2].split("=");
+                      const supabase_refresh_token = tokens[3].split("=");
+                      const provider_refresh_token = tokens[0].split("=");
 
-                      if (supabase_access_token[0] != "supabase_access_token") return;
-                      if (supabase_refresh_token[0] != "supabase_refresh_token") return;
-                      if (provider_refresh_token[0] != "provider_refresh_token") return;
-
+                      if (supabase_access_token[0] != "supabase_access_token")
+                        return;
+                      if (supabase_refresh_token[0] != "supabase_refresh_token")
+                        return;
+                      if (provider_refresh_token[0] != "provider_refresh_token")
+                        return;
 
                       setAuthData({
                         accessToken: supabase_access_token[1],
                         refreshToken: supabase_refresh_token[1],
                       });
 
-                      invoke("set_refresh_token", {token: provider_refresh_token + "&bearer"})
-                    }}>Set Token</div>
+                      invoke("set_refresh_token", {
+                        token: provider_refresh_token + "&bearer",
+                      });
+                    }}
+                  >
+                    Set Token
                   </div>
                 </div>
-                </div>
               </div>
+
+              <div class="font-semibold">Set Theme</div>
+              <div class="h-4" />
+              <div class="flex justify-end">
+                <ThemeControllerComponent />
+              </div>
+            </div>
+          </div>
           <div class="divider mt-0 mb-0 w-11/12 justify-self-center" />
           <div class="h-8" />
-          <div class="flex justify-center">
+          <div class="flex justify-center" id="start-button">
             <a
               role="button"
               class={start_button_class()}
               href="/app"
               onClick={() => {
-                invoke("launch_with_options", { options: launch_options })
+                invoke("launch_with_options", { options: launch_options });
               }}
             >
               Start
             </a>
           </div>
+          <div class="h-12" />
         </div>
+        <div class="bg-base-300 min-h-dvh flex flex-1" />
       </div>
     </>
   );

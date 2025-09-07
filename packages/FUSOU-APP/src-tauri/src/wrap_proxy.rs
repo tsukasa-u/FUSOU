@@ -5,45 +5,35 @@ use proxy_https::{
 };
 use tauri::Url;
 
-use crate::cmd;
-
-pub struct PacChannel {
-    pub master: Master<StatusInfo>,
-    pub slave: Slave<StatusInfo>,
-}
-
-pub struct ProxyChannel {
-    pub master: Master<StatusInfo>,
-    pub slave: Slave<StatusInfo>,
-}
-
-pub struct ProxyLogChannel {
-    pub master: Master<StatusInfo>,
-    pub slave: Slave<StatusInfo>,
-}
-
-pub struct ResponseParseChannel {
-    // pub master: Master<StatusInfo>,
-    pub slave: Slave<StatusInfo>,
-}
+use crate::{
+    builder_setup::bidirectional_channel::{
+        get_pac_bidirectional_channel, get_proxy_bidirectional_channel,
+        get_proxy_log_bidirectional_channel,
+    },
+    cmd::native_cmd,
+};
 
 pub fn serve_proxy<R>(
     proxy_target: String,
     save_path: String,
     pac_path: String,
     ca_path: String,
-    proxy_bidirectional_channel_slave: Slave<StatusInfo>,
-    proxy_log_bidirectional_channel_master: Master<StatusInfo>,
-    pac_bidirectional_channel_slave: Slave<StatusInfo>,
     app: &tauri::AppHandle<R>,
     file_prefix: Option<String>,
 ) -> Result<Url, Box<dyn std::error::Error>>
 where
     R: tauri::Runtime,
 {
+    let proxy_bidirectional_channel_slave: Slave<StatusInfo> =
+        get_proxy_bidirectional_channel().clone_slave();
+    let proxy_log_bidirectional_channel_master: Master<StatusInfo> =
+        get_proxy_log_bidirectional_channel().clone_master();
+    let pac_bidirectional_channel_slave: Slave<StatusInfo> =
+        get_pac_bidirectional_channel().clone_slave();
+
     proxy_https::proxy_server_https::check_ca(ca_path.clone());
 
-    cmd::add_store(app);
+    native_cmd::add_store(app);
 
     // start proxy server
     // let save_path = "./../../FUSOU-PROXY-DATA".to_string();
@@ -82,10 +72,10 @@ where
     let proxy_addr_string = proxy_addr.unwrap().to_string();
     edit_pac(pac_path.as_str(), proxy_addr_string.clone().as_str(), host);
 
-    cmd::add_pac(
+    native_cmd::add_pac(
         format!("http://localhost:{}/proxy.pac", pac_addr.unwrap().port()),
         app,
     );
 
-    return Ok(Url::parse(&format!("http://{}", proxy_addr_string)).unwrap());
+    return Ok(Url::parse(&format!("http://{proxy_addr_string}")).unwrap());
 }

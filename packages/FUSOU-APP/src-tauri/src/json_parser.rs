@@ -1,20 +1,14 @@
-use regex::Regex;
-use std::error::Error;
-use tauri::Emitter;
-// use proxy::bidirectional_channel;
 use proxy_https::bidirectional_channel;
+use regex::Regex;
 use register_trait::expand_struct_selector;
 use register_trait::TraitForConvert;
+use std::error::Error;
+use tauri::Emitter;
 
-use crate::auth_server;
-use crate::database::table::GetDataTable;
-use crate::database::table::PortTable;
-use crate::util::get_user_env_id;
-use kc_api::interface::cells::Cells;
+use crate::cloud_storage::submit_data;
 
-// use crate::kcapi;
-use crate::google_drive;
-use crate::supabase;
+use kc_api::interface::air_base::AirBases;
+use kc_api::interface::deck_port::DeckPorts;
 use kc_api::interface::interface::{Add, EmitData, Identifier, Set};
 
 pub fn emit_data(handle: &tauri::AppHandle, emit_data: EmitData) {
@@ -63,7 +57,7 @@ pub fn emit_data(handle: &tauri::AppHandle, emit_data: EmitData) {
             }
             Set::AirBases(data) => {
                 data.restore();
-                let _ = handle.emit_to("main", "set-kcs-air-bases", data);
+                let _ = handle.emit_to("main", "set-kcs-air-bases-ports", data);
             }
             Set::MstShips(data) => {
                 data.restore();
@@ -121,116 +115,22 @@ pub fn emit_data(handle: &tauri::AppHandle, emit_data: EmitData) {
         },
         EmitData::Identifier(data) => match data {
             Identifier::Port(_) => {
-                if Cells::reset_flag() {
-                    let cells = Cells::load();
-                    tokio::task::spawn(async move {
-                        let user_env = get_user_env_id().await;
-                        let timestamp = chrono::Utc::now().timestamp();
-                        let port_table = PortTable::new(cells, user_env, timestamp);
-                        Cells::reset();
-                        match port_table.encode() {
-                            Ok(port_table_encode) => {
-                                let pariod_tag = supabase::get_period_tag().await;
-                                let hub = crate::google_drive::create_client().await;
-                                match hub {
-                                    Some(mut hub) => {
-                                        let folder_name =
-                                            vec!["fusou".to_string(), pariod_tag.clone()];
-                                        let folder_id =
-                                            google_drive::check_or_create_folder_hierarchical(
-                                                &mut hub,
-                                                folder_name,
-                                                Some("root".to_string()),
-                                            )
-                                            .await;
-
-                                        let result = google_drive::write_port_table(
-                                            &mut hub,
-                                            folder_id,
-                                            port_table_encode,
-                                        )
-                                        .await;
-                                        if result.is_none() {
-                                            println!(
-                                                "\x1b[38;5;{}m Failed to write port table\x1b[m ",
-                                                8
-                                            );
-                                        }
-                                    }
-                                    None => {
-                                        println!(
-                                            "\x1b[38;5;{}m Failed to create google drive client\x1b[m ",
-                                            8
-                                        );
-                                        let _ = auth_server::open_auth_page();
-                                    }
-                                };
-                            }
-                            Err(e) => {
-                                println!(
-                                    "\x1b[38;5;{}m Failed to encode port table: {}\x1b[m ",
-                                    8, e
-                                );
-                            }
-                        }
-                    });
-                }
+                submit_data::submit_port_table();
             }
             Identifier::RequireInfo(_) => {}
             Identifier::GetData(_) => {
-                let get_data_table = GetDataTable::new();
-                tokio::task::spawn(async move {
-                    match get_data_table.encode() {
-                        Ok(get_data_table_encode) => {
-                            let pariod_tag = supabase::get_period_tag().await;
-                            let hub = crate::google_drive::create_client().await;
-                            match hub {
-                                Some(mut hub) => {
-                                    let folder_name = vec!["fusou".to_string(), pariod_tag.clone()];
-                                    let folder_id =
-                                        google_drive::check_or_create_folder_hierarchical(
-                                            &mut hub,
-                                            folder_name,
-                                            Some("root".to_string()),
-                                        )
-                                        .await;
-
-                                    let result = google_drive::write_get_data_table(
-                                        &mut hub,
-                                        folder_id,
-                                        get_data_table_encode,
-                                    )
-                                    .await;
-                                    if result.is_none() {
-                                        println!(
-                                            "\x1b[38;5;{}m Failed to write get data table\x1b[m ",
-                                            8
-                                        );
-                                    }
-                                }
-                                None => {
-                                    println!(
-                                        "\x1b[38;5;{}m Failed to create google drive client\x1b[m ",
-                                        8
-                                    );
-                                }
-                            };
-                        }
-                        Err(e) => {
-                            println!(
-                                "\x1b[38;5;{}m Failed to encode get data table: {}\x1b[m ",
-                                8, e
-                            );
-                        }
-                    }
-                });
+                submit_data::submit_get_data_table();
+            }
+            Identifier::MapStart(_) => {
+                let _ = handle.emit_to("main", "set-kcs-air-bases-battles", AirBases::load());
+                let _ = handle.emit_to("main", "set-kcs-deck-battles", DeckPorts::load());
             }
         },
     }
 }
 
 // Should I rewrite this attribute marcro to macro_rules!?
-#[expand_struct_selector(path = "./../kc_api/src/kcapi_main")]
+#[expand_struct_selector(path = "./../../kc_api/src/kcapi_main")]
 pub fn struct_selector_response(
     name: String,
     data: String,
@@ -271,7 +171,7 @@ pub fn struct_selector_response(
 }
 
 // Should I rewrite this attribute marcro to macro_rules!?
-#[expand_struct_selector(path = "./../kc_api/src/kcapi_main")]
+#[expand_struct_selector(path = "./../../kc_api/src/kcapi_main")]
 pub fn struct_selector_resquest(
     name: String,
     data: String,

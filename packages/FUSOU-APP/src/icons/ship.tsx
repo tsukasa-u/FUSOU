@@ -1,4 +1,5 @@
-import { createMemo, JSX } from "solid-js";
+import type { JSX } from "solid-js";
+import { createMemo } from "solid-js";
 
 interface ShipProps {
   ship_stype: number;
@@ -40,7 +41,7 @@ const name_list: { [key: number]: string } = {
 };
 
 export function IconShip(props: JSX.HTMLAttributes<SVGSVGElement> & ShipProps) {
-  let primary_color: string = icon_list[""];
+  const primary_color: string = icon_list[""];
   // let secondary_color: string = icon_list[props.color ?? ""];
   // if (secondary_color == undefined) {
   //   secondary_color = "#000000";

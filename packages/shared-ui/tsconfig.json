@@ -1,17 +1,45 @@
+// my-web-components/tsconfig.json (修正案)
 {
-  "extends": "../../tsconfig.json", // ルートのtsconfigを継承
   "compilerOptions": {
-    "outDir": "./dist",
-    "rootDir": "./src",
-    "composite": true,
-    "declaration": true,
-    "declarationMap": true,
-    "sourceMap": true,
-    "experimentalDecorators": true,
-    "useDefineForClassFields": false,
-    "noEmit": false,
-    "moduleResolution": "bundler",
+    "target": "es2022", // 最新のJS機能をターゲット
+    "module": "esnext", // ES Modulesの最新機能を利用
+    "lib": ["es2022", "dom", "dom.iterable"], // DOM.Iterable も含める
+    "declaration": true, // .d.ts ファイルを生成する
+    "declarationMap": true, // .d.ts.map も生成する
+    "experimentalDecorators": true, // LitElementのデコレータ用
+    "useDefineForClassFields": false, // LitElement でのフィールド定義向け
+
+    "outDir": "./dist", // JSファイル出力先 (Viteのビルド用) - 後述
+    "rootDir": "..", // ソースファイルのルートディレクトリを指定
+
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true, // ライブラリの型チェックをスキップ
+
+    "moduleResolution": "bundler", // Viteとの相性が良い
+    "allowImportingTsExtensions": true, // .ts拡張子のimportを許可
+    "verbatimModuleSyntax": true, // 厳密なモジュール解決（推奨）
+    "moduleDetection": "force", // モジュール検出を強制
+
+    // 型定義ファイルの出力先
+    "declarationDir": "./dist/types", // 型定義は dist/types に出力
+    "emitDeclarationOnly": true, // JSはViteがビルドするので、ここでは型定義のみ
+
+    /* Linting (ここも必要に応じて有効化) */
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+
+    // "traceResolution": true
+
+    "baseUrl": ".",
+    "paths": {
+      "@ipc-bindings/*": ["../kc_api/bindings/*"],
+      "@ipc-bindings/default_state/*": ["../kc_api/bindings/default_state/*"]
+    }
   },
-  "include": ["src/**/*.ts"],
-  "exclude": ["node_modules", "dist", "src/**/*.stories.ts"] // ストーリーファイルはビルド対象から除外
+
+  "include": ["src/**/*.ts", "kc_api/bindings/**/*.ts"],
+  // "exclude": ["src/**/*.stories.ts", "node_modules", "dist"]
+  "exclude": ["node_modules", "dist", "**/*.stories.ts"]
 }
