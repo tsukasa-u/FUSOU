@@ -18,6 +18,7 @@ export interface ComponentEquipmentProps {
   compact?: boolean;
   name_flag?: boolean;
   "attr:onslot"?: number;
+  show_onslot?: boolean;
   ex_flag?: boolean;
   size: "xs" | "sm" | "md" | "lg" | "xl";
   empty_flag?: boolean;
@@ -71,22 +72,6 @@ const class_size = {
   },
 };
 
-const show_onslot = (mst_slot_item: MstSlotItem) => {
-  const type = mst_slot_item.type[1];
-  return (
-    type == 5 ||
-    type == 7 ||
-    type == 16 ||
-    type == 33 ||
-    type == 36 ||
-    type == 38 ||
-    type == 39 ||
-    type == 40 ||
-    type == 43 ||
-    type == 44
-  );
-};
-
 @customElement("component-equipment")
 export class ComponentEquipment extends LitElement {
   static styles = [unsafeCSS(globalStyles)];
@@ -104,6 +89,9 @@ export class ComponentEquipment extends LitElement {
   "attr:onslot": number = 0;
 
   @property({ type: Boolean })
+  hide_onslot: boolean = false;
+
+  @property({ type: Boolean })
   name_flag: boolean = false;
 
   @property({ type: String })
@@ -114,6 +102,23 @@ export class ComponentEquipment extends LitElement {
 
   @property({ type: Boolean })
   ex_flag = false;
+
+  show_onslot(mst_slot_item: MstSlotItem) {
+    const type = mst_slot_item.type[1];
+    return (
+      !this.hide_onslot &&
+      (type == 5 ||
+        type == 7 ||
+        type == 16 ||
+        type == 33 ||
+        type == 36 ||
+        type == 38 ||
+        type == 39 ||
+        type == 40 ||
+        type == 43 ||
+        type == 44)
+    );
+  }
 
   proficiencyOnslotTemplete() {
     if (this.slot_item && this.mst_slot_item) {
@@ -141,7 +146,7 @@ export class ComponentEquipment extends LitElement {
               class_size[this.size].onslot_text,
             ].join(" ")}
           >
-            ${show_onslot(this.mst_slot_item) ? this["attr:onslot"] : ""}
+            ${this.show_onslot(this.mst_slot_item) ? this["attr:onslot"] : ""}
           </div>`;
       }
     } else {

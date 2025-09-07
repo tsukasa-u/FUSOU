@@ -18,6 +18,7 @@ export interface ComponentEquipmentModalProps {
   ex_flag?: boolean;
   name_flag?: boolean;
   "attr:onslot"?: number;
+  show_onslot?: boolean;
   size: "xs" | "sm" | "md" | "lg" | "xl";
   empty_flag?: boolean;
 }
@@ -37,6 +38,9 @@ export class ComponentEquipmentModal extends LitElement {
 
   @property({ type: Number })
   "attr:onslot": number = 0;
+
+  @property({ type: Boolean })
+  hide_onslot: boolean = true;
 
   @property({ type: Boolean })
   name_flag: boolean = false;
@@ -99,6 +103,7 @@ export class ComponentEquipmentModal extends LitElement {
               ?name_flag=${this.name_flag}
               ?ex_flag=${this.ex_flag}
               attr:onslot=${this["attr:onslot"]}
+              ?hide_onslot=${this.hide_onslot}
             ></component-equipment>
           </div>
           ${this.show_dialog ? this.dialogTemplete() : html``}
