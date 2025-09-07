@@ -136,6 +136,8 @@ jobs:
         with:
           releaseId: ${{ needs.create-release.outputs.release_id }}
           args: ${{ matrix.args }}
+          includeUpdaterJson: true
+          projectPath: ./packages/FUSOU-APP
 
   publish-release:
     permissions:
