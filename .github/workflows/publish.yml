@@ -28,7 +28,7 @@ jobs:
       - name: get version
         run: |
           echo "PACKAGE_VERSION=$(node -p "require('./package.json').version")" >> $GITHUB_ENV
-          echo ${{ github.ref_name }} | sed -e 's/^v//' | xargs -I {} echo "TAG_VERSION={}" >> "$GITHUB_ENV"
+          echo ${{ github.ref_name }} | sed -e 's/^fusou-v//' | xargs -I {} echo "TAG_VERSION={}" >> "$GITHUB_ENV"
 
       - name: compare version
         run: |
