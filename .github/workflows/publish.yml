@@ -88,7 +88,7 @@ jobs:
 
       - uses: pnpm/action-setup@v4
         with:
-          package_json_file: ../../package.json
+          version: 10
 
       - name: install dependencies (ubuntu only)
         if: matrix.platform == 'ubuntu-22.04' || matrix.platform == 'ubuntu-24.04'
