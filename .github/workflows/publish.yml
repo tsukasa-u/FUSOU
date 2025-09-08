@@ -3,8 +3,6 @@ name: "publish"
 on:
   workflow_dispatch:
   push:
-    branches:
-      - main
     tags:
       - "fusou-v*"
 
@@ -30,7 +28,7 @@ jobs:
       - name: get version
         run: |
           echo "PACKAGE_VERSION=$(node -p "require('./package.json').version")" >> $GITHUB_ENV
-          echo ${{ github.ref_name }} | sed -e 's/^v//' | xargs -I {} echo "TAG_VERSION={}" >> "$GITHUB_ENV"
+          echo ${{ github.ref_name }} | sed -e 's/^fusou-v//' | xargs -I {} echo "TAG_VERSION={}" >> "$GITHUB_ENV"
 
       - name: compare version
         run: |
@@ -50,8 +48,8 @@ jobs:
             const { data } = await github.rest.repos.createRelease({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              tag_name: `app-v${process.env.PACKAGE_VERSION}`,
-              name: `Desktop App v${process.env.PACKAGE_VERSION}`,
+              tag_name: `fusou-v${process.env.PACKAGE_VERSION}`,
+              name: `FUSOU ${process.env.PACKAGE_VERSION}`,
               body: 'Take a look at the assets to download and install this app.',
               draft: true,
               prerelease: false
@@ -73,23 +71,24 @@ jobs:
           #     args: "--target aarch64-apple-darwin"
           #   - platform: "macos-latest" # for Intel based macs.
           #     args: "--target x86_64-apple-darwin"
-          - platform: "ubuntu-22.04"
-            args: ""
           - platform: "ubuntu-24.04"
             args: ""
-          - platform: "ubuntu-22.04-arm" # Only available in public repos.
-            args: ""
-          - platform: "ubuntu-24.04-arm" # Only available in public repos.
-            args: ""
+          # - platform: "ubuntu-24.04-arm"
+          #   args: ""
           - platform: "windows-latest"
             args: ""
 
     runs-on: ${{ matrix.platform }}
+    env:
+      SCCACHE_GHA_ENABLED: "true"
+      RUSTC_WRAPPER: "sccache"
     steps:
       - uses: actions/checkout@v4
 
+      - uses: pnpm/action-setup@v4
+
       - name: install dependencies (ubuntu only)
-        if: matrix.platform == 'ubuntu-22.04' || matrix.platform == 'ubuntu-24.04'
+        if: matrix.platform == 'ubuntu-24.04' || matrix.platform == 'ubuntu-24.04-arm'
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
@@ -98,7 +97,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: lts/*
-          cache: "pnpm" # Set this to npm, yarn or pnpm.
+          cache: "pnpm"
 
       - name: install Rust stable
         uses: dtolnay/rust-toolchain@stable # Set this to dtolnay/rust-toolchain@nightly
@@ -107,10 +106,14 @@ jobs:
           #   targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
           targets: ${{ '' }}
 
-      - name: Rust cache
-        uses: swatinem/rust-cache@v2
-        with:
-          workspaces: "./src-tauri -> target"
+      - name: Run sccache-cache
+        uses: mozilla-actions/sccache-action@v0.0.9
+
+      - name: build shared-ui
+        run: |
+          pnpm install
+          pnpm build
+        working-directory: ./packages/shared-ui
 
       - name: install frontend dependencies
         # If you don't have `beforeBuildCommand` configured you may want to build your frontend here too.
@@ -136,6 +139,8 @@ jobs:
         with:
           releaseId: ${{ needs.create-release.outputs.release_id }}
           args: ${{ matrix.args }}
+          includeUpdaterJson: true
+          projectPath: ./packages/FUSOU-APP
 
   publish-release:
     permissions:
