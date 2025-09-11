@@ -1,5 +1,7 @@
+#[cfg(any(not(dev), check_release))]
 use tauri_plugin_updater::UpdaterExt;
 
+#[cfg(any(not(dev), check_release))]
 pub fn setup_updater(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let handle = app.handle().clone();
     tauri::async_runtime::spawn(async move {
@@ -11,6 +13,7 @@ pub fn setup_updater(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Err
     Ok(())
 }
 
+#[cfg(any(not(dev), check_release))]
 async fn update(app: tauri::AppHandle) -> tauri_plugin_updater::Result<()> {
     if let Some(update) = app.updater()?.check().await? {
         let mut downloaded = 0;
