@@ -8,11 +8,11 @@ use crate::database::env_info::EnvInfoId;
 use crate::database::table::PortTable;
 use crate::database::table::DATABASE_TABLE_VERSION;
 
-use register_trait::TraitForEncode;
+use register_trait::{TraitForDecode, TraitForEncode};
 
 pub type CellsId = Uuid;
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
+#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
 pub struct Cells {
     pub version: String,
     pub env_uuid: EnvInfoId,

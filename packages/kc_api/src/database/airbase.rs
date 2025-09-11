@@ -10,12 +10,12 @@ use crate::database::table::DATABASE_TABLE_VERSION;
 
 use crate::interface::slot_item::SlotItems;
 
-use register_trait::TraitForEncode;
+use register_trait::{TraitForDecode, TraitForEncode};
 
 pub type AirBaseId = Uuid;
 pub type PlaneInfoId = Uuid;
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
+#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
 pub struct AirBase {
     pub version: String,
     pub env_uuid: EnvInfoId,
@@ -52,7 +52,7 @@ impl AirBase {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
+#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
 pub struct PlaneInfo {
     pub version: String,
     pub env_uuid: EnvInfoId,

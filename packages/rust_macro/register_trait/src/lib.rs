@@ -3,6 +3,7 @@ use std::path::PathBuf;
 
 pub use register_macro_derive_and_attr::Getter;
 pub use register_macro_derive_and_attr::TraitForConvert;
+pub use register_macro_derive_and_attr::TraitForDecode;
 pub use register_macro_derive_and_attr::TraitForEmitData;
 pub use register_macro_derive_and_attr::TraitForEncode;
 pub use register_macro_derive_and_attr::TraitForRoot;
@@ -85,3 +86,4 @@ pub trait Getter {
 }
 
 pub trait TraitForEncode {}
+pub trait TraitForDecode {}
