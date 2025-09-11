@@ -1,5 +1,7 @@
 // use dotenvy_macro::dotenv;
 
+use std::str::FromStr;
+
 use crate::database::airbase::{AirBase, PlaneInfo};
 use crate::database::battle::{
     AirBaseAirAttack, AirBaseAirAttackList, AirBaseAssult, Battle, CarrierBaseAssault,
@@ -31,6 +33,43 @@ use crate::interface::mst_use_item::{MstUseItem, MstUseItems};
 // pub const DATABASE_TABLE_VERSION: &str = dotenv!("DATABASE_TABLE_VERSION");
 #[deny(warnings)]
 pub const DATABASE_TABLE_VERSION: &str = include_str!("../../DATABASE_TABLE_VERSION");
+
+#[derive(Debug, Clone)]
+pub enum PortTableEnum {
+    EnvInfo,
+    Cells,
+    AirBase,
+    PlaneInfo,
+    OwnSlotItem,
+    EnemySlotItem,
+    FriendSlotItem,
+    OwnShip,
+    EnemyShip,
+    FriendShip,
+    OwnDeck,
+    SupportDeck,
+    EnemyDeck,
+    FriendDeck,
+    AirBaseAirAttack,
+    AirBaseAirAttackList,
+    AirBaseAssult,
+    CarrierBaseAssault,
+    ClosingRaigeki,
+    FriendlySupportHourai,
+    FriendlySupportHouraiList,
+    Hougeki,
+    HougekiList,
+    MidnightHougeki,
+    MidnightHougekiList,
+    OpeningAirAttack,
+    OpeningAirAttackList,
+    OpeningRaigeki,
+    OpeningTaisen,
+    OpeningTaisenList,
+    SupportAirattack,
+    SupportHourai,
+    Battle,
+}
 
 #[derive(Debug, Clone, Default)]
 pub struct PortTable {
@@ -272,6 +311,95 @@ impl Battle {
     }
 }
 
+pub static PORT_TABLE_NAMES: std::sync::LazyLock<Vec<String>> = std::sync::LazyLock::new(|| {
+    vec![
+        EnvInfo::get_table_name(),
+        Cells::get_table_name(),
+        AirBase::get_table_name(),
+        PlaneInfo::get_table_name(),
+        OwnSlotItem::get_table_name(),
+        EnemySlotItem::get_table_name(),
+        FriendSlotItem::get_table_name(),
+        OwnShip::get_table_name(),
+        EnemyShip::get_table_name(),
+        FriendShip::get_table_name(),
+        OwnDeck::get_table_name(),
+        EnemyDeck::get_table_name(),
+        FriendDeck::get_table_name(),
+        SupportDeck::get_table_name(),
+        SupportAirattack::get_table_name(),
+        OpeningAirAttack::get_table_name(),
+        OpeningRaigeki::get_table_name(),
+        OpeningTaisen::get_table_name(),
+        OpeningTaisenList::get_table_name(),
+        AirBaseAirAttack::get_table_name(),
+        AirBaseAirAttackList::get_table_name(),
+        AirBaseAssult::get_table_name(),
+        CarrierBaseAssault::get_table_name(),
+        FriendlySupportHourai::get_table_name(),
+        FriendlySupportHouraiList::get_table_name(),
+        Hougeki::get_table_name(),
+        HougekiList::get_table_name(),
+        MidnightHougeki::get_table_name(),
+        MidnightHougekiList::get_table_name(),
+        ClosingRaigeki::get_table_name(),
+        Battle::get_table_name(),
+    ]
+});
+
+impl FromStr for PortTableEnum {
+    type Err = ();
+
+    fn from_str(input: &str) -> Result<PortTableEnum, Self::Err> {
+        match input.to_string() {
+            x if x == EnvInfo::get_table_name() => Ok(PortTableEnum::EnvInfo),
+            x if x == Cells::get_table_name() => Ok(PortTableEnum::Cells),
+            x if x == AirBase::get_table_name() => Ok(PortTableEnum::AirBase),
+            x if x == PlaneInfo::get_table_name() => Ok(PortTableEnum::PlaneInfo),
+            x if x == OwnSlotItem::get_table_name() => Ok(PortTableEnum::OwnSlotItem),
+            x if x == EnemySlotItem::get_table_name() => Ok(PortTableEnum::EnemySlotItem),
+            x if x == FriendSlotItem::get_table_name() => Ok(PortTableEnum::FriendSlotItem),
+            x if x == OwnShip::get_table_name() => Ok(PortTableEnum::OwnShip),
+            x if x == EnemyShip::get_table_name() => Ok(PortTableEnum::EnemyShip),
+            x if x == FriendShip::get_table_name() => Ok(PortTableEnum::FriendShip),
+            x if x == OwnDeck::get_table_name() => Ok(PortTableEnum::OwnDeck),
+            x if x == SupportDeck::get_table_name() => Ok(PortTableEnum::SupportDeck),
+            x if x == EnemyDeck::get_table_name() => Ok(PortTableEnum::EnemyDeck),
+            x if x == FriendDeck::get_table_name() => Ok(PortTableEnum::FriendDeck),
+            x if x == AirBaseAirAttack::get_table_name() => Ok(PortTableEnum::AirBaseAirAttack),
+            x if x == AirBaseAirAttackList::get_table_name() => {
+                Ok(PortTableEnum::AirBaseAirAttackList)
+            }
+            x if x == AirBaseAssult::get_table_name() => Ok(PortTableEnum::AirBaseAssult),
+            x if x == CarrierBaseAssault::get_table_name() => Ok(PortTableEnum::CarrierBaseAssault),
+            x if x == ClosingRaigeki::get_table_name() => Ok(PortTableEnum::ClosingRaigeki),
+            x if x == FriendlySupportHourai::get_table_name() => {
+                Ok(PortTableEnum::FriendlySupportHourai)
+            }
+            x if x == FriendlySupportHouraiList::get_table_name() => {
+                Ok(PortTableEnum::FriendlySupportHouraiList)
+            }
+            x if x == Hougeki::get_table_name() => Ok(PortTableEnum::Hougeki),
+            x if x == HougekiList::get_table_name() => Ok(PortTableEnum::HougekiList),
+            x if x == MidnightHougeki::get_table_name() => Ok(PortTableEnum::MidnightHougeki),
+            x if x == MidnightHougekiList::get_table_name() => {
+                Ok(PortTableEnum::MidnightHougekiList)
+            }
+            x if x == OpeningAirAttack::get_table_name() => Ok(PortTableEnum::OpeningAirAttack),
+            x if x == OpeningAirAttackList::get_table_name() => {
+                Ok(PortTableEnum::OpeningAirAttackList)
+            }
+            x if x == OpeningRaigeki::get_table_name() => Ok(PortTableEnum::OpeningRaigeki),
+            x if x == OpeningTaisen::get_table_name() => Ok(PortTableEnum::OpeningTaisen),
+            x if x == OpeningTaisenList::get_table_name() => Ok(PortTableEnum::OpeningTaisenList),
+            x if x == SupportAirattack::get_table_name() => Ok(PortTableEnum::SupportAirattack),
+            x if x == SupportHourai::get_table_name() => Ok(PortTableEnum::SupportHourai),
+            x if x == Battle::get_table_name() => Ok(PortTableEnum::Battle),
+            _ => Err(()),
+        }
+    }
+}
+
 impl PortTable {
     pub fn new(
         interface_cells: crate::interface::cells::Cells,
@@ -396,6 +524,23 @@ pub struct GetDataTableEncode {
     pub mst_ship_upgrade: Vec<u8>,
 }
 
+#[derive(Debug, Clone)]
+pub enum GetDataTableEnum {
+    MstShip,
+    MstSlotItem,
+    MstEquipExslotShip,
+    MstEquipExslot,
+    MstEquipLimitExslot,
+    MstSlotItemEquipType,
+    MstEquipShip,
+    MstStype,
+    MstUseItem,
+    MstMapArea,
+    MstMapInfo,
+    MstShipGraph,
+    MstShipUpgrade,
+}
+
 impl MstShip {
     pub fn get_table_name() -> String {
         "mst_ships".to_string()
@@ -459,6 +604,54 @@ impl MstEquipLimitExslot {
 impl MstEquipShip {
     pub fn get_table_name() -> String {
         "mst_equip_ships".to_string()
+    }
+}
+
+pub static GET_DATA_TABLE_NAMES: std::sync::LazyLock<Vec<String>> =
+    std::sync::LazyLock::new(|| {
+        vec![
+            MstShip::get_table_name(),
+            MstSlotItem::get_table_name(),
+            MstEquipExslotShip::get_table_name(),
+            MstEquipExslot::get_table_name(),
+            MstEquipLimitExslot::get_table_name(),
+            MstSlotItemEquipType::get_table_name(),
+            MstEquipShip::get_table_name(),
+            MstStype::get_table_name(),
+            MstUseItem::get_table_name(),
+            MstMapArea::get_table_name(),
+            MstMapInfo::get_table_name(),
+            MstShipGraph::get_table_name(),
+            MstShipUpgrade::get_table_name(),
+        ]
+    });
+
+impl FromStr for GetDataTableEnum {
+    type Err = ();
+
+    fn from_str(input: &str) -> Result<GetDataTableEnum, Self::Err> {
+        match input.to_string() {
+            x if x == MstShip::get_table_name() => Ok(GetDataTableEnum::MstShip),
+            x if x == MstSlotItem::get_table_name() => Ok(GetDataTableEnum::MstSlotItem),
+            x if x == MstEquipExslotShip::get_table_name() => {
+                Ok(GetDataTableEnum::MstEquipExslotShip)
+            }
+            x if x == MstEquipExslot::get_table_name() => Ok(GetDataTableEnum::MstEquipExslot),
+            x if x == MstEquipLimitExslot::get_table_name() => {
+                Ok(GetDataTableEnum::MstEquipLimitExslot)
+            }
+            x if x == MstSlotItemEquipType::get_table_name() => {
+                Ok(GetDataTableEnum::MstSlotItemEquipType)
+            }
+            x if x == MstEquipShip::get_table_name() => Ok(GetDataTableEnum::MstEquipShip),
+            x if x == MstStype::get_table_name() => Ok(GetDataTableEnum::MstStype),
+            x if x == MstUseItem::get_table_name() => Ok(GetDataTableEnum::MstUseItem),
+            x if x == MstMapArea::get_table_name() => Ok(GetDataTableEnum::MstMapArea),
+            x if x == MstMapInfo::get_table_name() => Ok(GetDataTableEnum::MstMapInfo),
+            x if x == MstShipGraph::get_table_name() => Ok(GetDataTableEnum::MstShipGraph),
+            x if x == MstShipUpgrade::get_table_name() => Ok(GetDataTableEnum::MstShipUpgrade),
+            _ => Err(()),
+        }
     }
 }
 
