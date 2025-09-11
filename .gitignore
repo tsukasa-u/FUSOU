@@ -36,7 +36,10 @@ packages/FUSOU-PROXY-DATA*/
 
 packages/FUSOU-APP/src/pages/vanilla/env.js
 packages/FUSOU-APP/src-tauri/gen/
-packages/FUSOU-APP/src-tauri/roaming/
+packages/FUSOU-APP/src-tauri/roaming/ca/
+packages/FUSOU-APP/src-tauri/roaming/pac/
+packages/FUSOU-APP/src-tauri/roaming/user/ENV_UNIQ_ID
+!packages/FUSOU-APP/src-tauri/roaming/user/configs.toml
 packages/FUSOU-APP/.tauri
 
 packages/shared-ui/src/data

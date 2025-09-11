@@ -444,6 +444,10 @@ pub async fn write_get_data_table(
 ) -> Option<String> {
     let mime_type = "application/avro".to_string();
     let folder_name = "master_data".to_string();
+    let check_folder_result = check_folder(hub, folder_name.clone(), folder_id.clone()).await;
+    if check_folder_result.is_some() {
+        return None;
+    }
     let master_folder_id = check_or_create_folder(hub, folder_name, folder_id.clone()).await?;
 
     for table_names in GET_DATA_TABLE_NAMES.clone() {
@@ -618,7 +622,7 @@ pub async fn integrate_port_table(
             get_file_list_in_folder(hub, Some(folder_id.clone()), page_size, mime_type.clone())
                 .await;
         let file_content_list = if let Some(file_id_list) = file_id_list.clone() {
-            if file_id_list.is_empty() {
+            if file_id_list.is_empty() || file_id_list.len() == 1 {
                 return None;
             }
             let mut file_content_list = Vec::new();

@@ -151,13 +151,21 @@ save_file_location = ""
     custom_image_url = ""
 
 
-
     [app.database]
     # Whether to save KanColle data to the cloud
     # this feature can be enabled with user authentication
     # check [app.auth]
     allow_data_to_cloud = false
 
+
+    [app.database.google_drive]
+        # The size of table user can get from Google Drive at once
+        # this option is only used when [app.database] is enabled
+        page_size = 100
+
+        # The interval (in cron format) to sync data to Google Drive
+        # this option is only used when [app.database] is enabled
+        schedule_cron = "0 0 * * * *" # every hour
 
     [app.auth]
     # Whether to deny user authentication
