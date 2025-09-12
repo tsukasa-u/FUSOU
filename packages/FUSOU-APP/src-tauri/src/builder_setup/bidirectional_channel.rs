@@ -15,6 +15,9 @@ static PROXY_LOG_BIDIRECTIONAL_CHANNEL: OnceCell<BidirectionalChannel<StatusInfo
 static RESPONSE_PARSE_BIDIRECTIONAL_CHANNEL: OnceCell<BidirectionalChannel<StatusInfo>> =
     OnceCell::new();
 
+static SCHEDULER_INTEGRATE_BIDIRECTIONAL_CHANNEL: OnceCell<BidirectionalChannel<StatusInfo>> =
+    OnceCell::new();
+
 #[cfg(feature = "auth-local-server")]
 static AUTH_BIDIRECTIONAL_CHANNEL: OnceCell<BidirectionalChannel<StatusInfo>> = OnceCell::new();
 
@@ -32,6 +35,12 @@ pub fn get_proxy_log_bidirectional_channel() -> &'static BidirectionalChannel<St
 
 pub fn get_response_parse_bidirectional_channel() -> &'static BidirectionalChannel<StatusInfo> {
     RESPONSE_PARSE_BIDIRECTIONAL_CHANNEL.get_or_init(|| BidirectionalChannel::<StatusInfo>::new(1))
+}
+
+pub fn get_scheduler_integrate_bidirectional_channel() -> &'static BidirectionalChannel<StatusInfo>
+{
+    SCHEDULER_INTEGRATE_BIDIRECTIONAL_CHANNEL
+        .get_or_init(|| BidirectionalChannel::<StatusInfo>::new(1))
 }
 
 #[cfg(feature = "auth-local-server")]
@@ -63,6 +72,13 @@ pub struct ResponseParseChannel {
     pub slave: Slave<StatusInfo>,
 }
 
+#[allow(dead_code)]
+pub struct SchedulerIntegrateChannel {
+    pub master: Master<StatusInfo>,
+    pub slave: Slave<StatusInfo>,
+}
+
+#[allow(dead_code)]
 pub fn get_manage_proxy_channel() -> ProxyChannel {
     ProxyChannel {
         master: get_proxy_bidirectional_channel().clone_master(),
@@ -70,6 +86,7 @@ pub fn get_manage_proxy_channel() -> ProxyChannel {
     }
 }
 
+#[allow(dead_code)]
 pub fn get_manage_pac_channel() -> PacChannel {
     PacChannel {
         master: get_pac_bidirectional_channel().clone_master(),
@@ -77,6 +94,7 @@ pub fn get_manage_pac_channel() -> PacChannel {
     }
 }
 
+#[allow(dead_code)]
 pub fn get_manage_proxy_log_channel() -> ProxyLogChannel {
     ProxyLogChannel {
         master: get_proxy_log_bidirectional_channel().clone_master(),
@@ -84,10 +102,19 @@ pub fn get_manage_proxy_log_channel() -> ProxyLogChannel {
     }
 }
 
+#[allow(dead_code)]
 pub fn get_manage_response_parse_channel() -> ResponseParseChannel {
     ResponseParseChannel {
         master: get_response_parse_bidirectional_channel().clone_master(),
         slave: get_response_parse_bidirectional_channel().clone_slave(),
+    }
+}
+
+#[allow(dead_code)]
+pub fn get_manage_scheduler_integrate_channel() -> SchedulerIntegrateChannel {
+    SchedulerIntegrateChannel {
+        master: get_scheduler_integrate_bidirectional_channel().clone_master(),
+        slave: get_scheduler_integrate_bidirectional_channel().clone_slave(),
     }
 }
 

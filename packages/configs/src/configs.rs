@@ -224,8 +224,32 @@ impl ConfigsAppDiscord {
 }
 
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
+pub struct ConfigsAppDatabaseGoogleDrive {
+    schedule_cron: Option<String>,
+    page_size: Option<i64>,
+}
+
+impl ConfigsAppDatabaseGoogleDrive {
+    pub fn get_schedule_cron(&self) -> String {
+        self.schedule_cron
+            .clone()
+            .unwrap_or("0 0 * * * *".to_string()) // every hour
+    }
+
+    pub fn get_page_size(&self) -> i64 {
+        match self.page_size {
+            Some(v) if v <= 0 => 100,
+            Some(v) if v > 100 => 100,
+            Some(v) => v,
+            None => 100,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Default, Clone)]
 pub struct ConfigsAppDatabase {
     allow_data_to_cloud: Option<bool>,
+    pub google_drive: ConfigsAppDatabaseGoogleDrive,
 }
 
 impl ConfigsAppDatabase {

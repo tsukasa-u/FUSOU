@@ -14,10 +14,11 @@ use tokio::sync::mpsc;
 use crate::{
     builder_setup::bidirectional_channel::{
         get_pac_bidirectional_channel, get_proxy_bidirectional_channel,
-        get_response_parse_bidirectional_channel,
+        get_response_parse_bidirectional_channel, get_scheduler_integrate_bidirectional_channel,
     },
     cmd::{native_cmd, tauri_cmd},
     integration::discord,
+    scheduler,
     util::{get_RESOURCES_DIR, get_ROAMING_DIR},
     window::{app, external},
 };
@@ -428,11 +429,14 @@ pub fn setup_init(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>
     setup_configs()?;
     setup_tray(app, shutdown_tx)?;
     setup_discord()?;
+    scheduler::integrate_file::start_scheduler();
 
     let proxy_bidirectional_channel_master_clone = get_proxy_bidirectional_channel().clone_master();
     let pac_bidirectional_channel_master_clone = get_pac_bidirectional_channel().clone_master();
     let response_parse_channel_master_clone =
         get_response_parse_bidirectional_channel().clone_master();
+    let scheduler_integrate_channel_master_clone =
+        get_scheduler_integrate_bidirectional_channel().clone_master();
     #[cfg(feature = "auth-local-server")]
     let auth_bidirectional_channel_master_clone = get_auth_bidirectional_channel().clone_master();
 
@@ -446,12 +450,14 @@ pub fn setup_init(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>
             request_shutdown(pac_bidirectional_channel_master_clone),
             request_shutdown(response_parse_channel_master_clone),
             request_shutdown(auth_bidirectional_channel_master_clone),
+            request_shutdown(scheduler_integrate_channel_master_clone),
         );
         #[cfg(not(feature = "auth-local-server"))]
         let _ = tokio::join!(
             request_shutdown(proxy_bidirectional_channel_master_clone),
             request_shutdown(pac_bidirectional_channel_master_clone),
             request_shutdown(response_parse_channel_master_clone),
+            request_shutdown(scheduler_integrate_channel_master_clone),
         );
 
         tokio::time::sleep(time::Duration::from_millis(2000)).await;
