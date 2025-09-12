@@ -156,7 +156,7 @@ pub async fn check_health(
         .await
     {
         Ok(_) => {
-            println!("Sent health message");
+            tracing::info!("Sent health message");
             tokio::select! {
                 _ = tokio::time::sleep(tokio::time::Duration::from_millis(2000)) => {
                     return Err(
@@ -174,7 +174,7 @@ pub async fn check_health(
             }
         }
         Err(e) => {
-            println!("Error sending health message: {}", e);
+            tracing::error!("Error sending health message: {}", e);
             return Err(e);
         }
     }
@@ -194,7 +194,7 @@ pub async fn request_shutdown(
         .await
     {
         Ok(_) => {
-            println!("Sent shutdown message");
+            tracing::info!("Sent shutdown message");
             tokio::select! {
                 _ = tokio::time::sleep(tokio::time::Duration::from_millis(2000)) => {
                     return Err(SendTimeoutError::<StatusInfo>::Timeout(
@@ -210,7 +210,7 @@ pub async fn request_shutdown(
             }
         }
         Err(e) => {
-            println!("Error sending shutdown message: {}", e);
+            tracing::error!("Error sending shutdown message: {}", e);
             return Err(e);
         }
     }

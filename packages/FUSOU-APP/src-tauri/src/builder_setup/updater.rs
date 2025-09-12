@@ -6,8 +6,8 @@ pub fn setup_updater(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Err
     let handle = app.handle().clone();
     tauri::async_runtime::spawn(async move {
         match update(handle).await {
-            Ok(_) => println!("update check finished"),
-            Err(err) => eprintln!("update check failed: {}", err),
+            Ok(_) => tracing::info!("update check finished"),
+            Err(err) => tracing::error!("update check failed: {}", err),
         }
     });
     Ok(())
@@ -26,12 +26,12 @@ async fn update(app: tauri::AppHandle) -> tauri_plugin_updater::Result<()> {
                     println!("downloaded {downloaded} from {content_length:?}");
                 },
                 || {
-                    println!("download finished");
+                    tracing::info!("download finished");
                 },
             )
             .await?;
 
-        println!("update installed");
+        tracing::info!("update installed");
         app.restart();
     }
 

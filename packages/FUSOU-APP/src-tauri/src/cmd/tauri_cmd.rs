@@ -241,7 +241,7 @@ pub async fn open_auth_page(
         .map_err(|e| e.to_string());
 
     if let Err(e) = result {
-        println!("Error: {}", e);
+        tracing::error!("Error: {}", e);
         return Err(());
     }
     Ok(())
@@ -253,7 +253,7 @@ pub async fn open_auth_page(_window: tauri::Window) -> Result<(), ()> {
     let result = auth_server::open_auth_page();
 
     if let Err(e) = result {
-        println!("Error: {e}");
+        tracing::error!("Error: {e}");
         return Err(());
     }
     Ok(())

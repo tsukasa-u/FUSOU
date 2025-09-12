@@ -8,6 +8,8 @@ use std::path::PathBuf;
 
 use once_cell::sync::OnceCell;
 
+use tracing_unwrap::ResultExt;
+
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
 pub struct ConfigsProxyCertificates {
     use_generated_certs: Option<bool>,
@@ -21,11 +23,11 @@ impl ConfigsProxyCertificates {
     }
 
     pub fn get_cert_file(&self) -> Option<PathBuf> {
-        self.cert_file.clone().map(|p| PathBuf::from(p))
+        self.cert_file.clone().map(PathBuf::from)
     }
 
     pub fn get_key_file(&self) -> Option<PathBuf> {
-        self.key_file.clone().map(|p| PathBuf::from(p))
+        self.key_file.clone().map(PathBuf::from)
     }
 }
 
@@ -331,37 +333,39 @@ pub fn set_user_config(path: &str) -> Result<(), Box<dyn std::error::Error>> {
 }
 
 pub fn get_configs(config_path: &str) -> Configs {
-    println!("Loading configs from: {}", config_path);
+    tracing::info!("Loading configs from: {}", config_path);
     const DEFAULT_TOML_FILE: &str = include_str!("../configs.toml");
     let default_parse_result: Result<Configs, toml::de::Error> = toml::from_str(DEFAULT_TOML_FILE);
     if default_parse_result.is_err() {
-        panic!(
-            "Failed to parse TOML: {}",
+        let error_message = format!(
+            "Failed to parse default TOML: {}",
             default_parse_result.err().unwrap()
         );
+        tracing::error!("{error_message}");
+        panic!("{error_message}");
     }
     let default_configs: Configs = default_parse_result.unwrap();
     DEFAULT_USER_CONFIGS.get_or_init(|| default_configs.clone());
 
     // Write TOML to file
     if fs::metadata(config_path).is_err() {
-        println!(
+        tracing::warn!(
             "Config file not found, creating default at: {}",
             config_path
         );
-        let mut file = File::create(config_path).expect("Failed to create config file");
-        write!(file, "{}", DEFAULT_TOML_FILE).expect("Failed to write default config");
-        file.flush().expect("Failed to flush config file");
+        let mut file = File::create(config_path).expect_or_log("Failed to create config file");
+        write!(file, "{}", DEFAULT_TOML_FILE).expect_or_log("Failed to write default config");
+        file.flush().expect_or_log("Failed to flush config file");
     }
 
     // Read file and parse to Configs
     let user_toml_file: String =
-        fs::read_to_string(config_path).expect("Failed to read config file");
+        fs::read_to_string(config_path).expect_or_log("Failed to read config file");
     let user_parse_result: Result<Configs, toml::de::Error> = toml::from_str(&user_toml_file);
     let user_configs: Configs = match user_parse_result {
         Ok(p) => p,
         Err(_) => {
-            println!("Failed to parse TOML: {}", user_parse_result.err().unwrap());
+            tracing::error!("Failed to parse TOML: {}", user_parse_result.err().unwrap());
             default_configs
         }
     };

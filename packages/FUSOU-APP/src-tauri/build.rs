@@ -12,13 +12,28 @@ fn main() {
         let path = "../src/pages/vanilla/env.js";
         let mut file = File::create(path).expect("failed to create file.");
 
-        writeln!(
+        let supabase_url = match env::var("SUPABASE_URL") {
+            Ok(url) => url,
+            Err(e) => {
+                eprintln!("failed to get env variable SUPABASE_URL: {}", e);
+                return;
+            }
+        };
+        let supabase_anon_key = match env::var("SUPABASE_ANON_KEY") {
+            Ok(key) => key,
+            Err(e) => {
+                eprintln!("failed to get env variable SUPABASE_ANON_KEY: {}", e);
+                return;
+            }
+        };
+        if let Err(e) = writeln!(
             file,
-            "export const env = {{ SUPABASE_URL: {}, SUPABASE_ANON_KEY: {}}}",
-            env::var("SUPABASE_URL").expect("failed to get env variable"),
-            env::var("SUPABASE_ANON_KEY").expect("failed to get env variable")
-        )
-        .expect("cannot write.");
+            "export const env = {{ SUPABASE_URL: \"{}\", SUPABASE_ANON_KEY: \"{}\"}}",
+            supabase_url,
+            supabase_anon_key
+        ) {
+            eprintln!("cannot write to file: {}", e);
+        }
     }
 
     tauri_build::build();

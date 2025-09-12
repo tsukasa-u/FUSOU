@@ -101,7 +101,7 @@ pub async fn run() {
             builder_setup::window_event::window_event_handler(window, event)
         });
 
-    builder
-        .run(ctx)
-        .expect("error while building tauri application");
+    if let Err(e) = builder.run(ctx) {
+        tracing::error!("error while building tauri application: {}", e);
+    }
 }

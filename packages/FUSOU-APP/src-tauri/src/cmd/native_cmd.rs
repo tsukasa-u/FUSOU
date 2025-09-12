@@ -54,10 +54,10 @@ where
             .await
             .expect("failed to execute process");
 
-        println!("{}", String::from_utf8(output.stdout).unwrap());
+        tracing::debug!("{}", String::from_utf8(output.stdout).unwrap());
     });
 
-    println!("register AutoConfigURL: {path_clone}");
+    tracing::info!("register AutoConfigURL: {}", path_clone);
 }
 
 pub fn remove_pac<R>(app: &tauri::AppHandle<R>)
@@ -89,10 +89,10 @@ where
             .await
             .expect("failed to execute process");
 
-        println!("{}", String::from_utf8(output.stdout).unwrap());
+        tracing::debug!("{}", String::from_utf8(output.stdout).unwrap());
     });
 
-    println!("unregister AutoConfigURL");
+    tracing::info!("unregister AutoConfigURL");
 }
 
 pub fn add_store<R>(app: &tauri::AppHandle<R>)
@@ -122,8 +122,8 @@ where
         .expect("cmd_path not found")
         .to_string();
 
-    println!("{}", cmd_path.clone());
-    println!("{}", ca_path.clone());
+    tracing::debug!("cmd_path: {}", cmd_path.clone());
+    tracing::debug!("ca_path: {}", ca_path.clone());
     let app_handle = app.clone();
     tauri::async_runtime::spawn(async move {
         let output = app_handle
@@ -134,6 +134,6 @@ where
             .await
             .expect("failed to execute process");
 
-        println!("{}", String::from_utf8(output.stdout).unwrap());
+        tracing::debug!("{}", String::from_utf8(output.stdout).unwrap());
     });
 }

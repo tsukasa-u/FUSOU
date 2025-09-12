@@ -2,6 +2,7 @@
 
 use discord_rich_presence::{activity, DiscordIpc, DiscordIpcClient};
 use std::sync::{LazyLock, Mutex};
+use tracing_unwrap::OptionExt;
 
 static DISCORD_CLIENT: LazyLock<
     Mutex<Result<DiscordIpcClient, Box<dyn std::error::Error + Send + Sync>>>,
@@ -15,8 +16,8 @@ fn get_enable_integration() -> bool {
 
 pub fn init_client() -> Result<DiscordIpcClient, Box<dyn std::error::Error + Send + Sync>> {
     if get_enable_integration() {
-        let client_id =
-            std::option_env!("DISCORD_CLIENT_ID").expect("failed to get supabase database url");
+        let client_id = std::option_env!("DISCORD_CLIENT_ID")
+            .expect_or_log("failed to get supabase database url");
 
         let client = DiscordIpcClient::new(client_id);
         match client {

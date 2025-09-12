@@ -7,29 +7,53 @@ pub fn start_scheduler() {
     let configs = configs::get_user_configs_for_app();
     let scheduler_cron = configs.database.google_drive.get_schedule_cron();
     tokio::spawn(async move {
-        let job = JobBuilder::new()
+        let job = match JobBuilder::new()
             .with_timezone(chrono_tz::Asia::Tokyo)
             .with_cron_job_type()
             .with_schedule(&scheduler_cron)
-            .unwrap()
-            .with_run_async(Box::new(|uuid, mut l| {
-                Box::pin(async move {
-                    let next_tick = l.next_tick_for_job(uuid).await;
-                    match next_tick {
-                        Ok(Some(ts)) => {
-                            println!("Google Drive sync job running at {:?}", ts);
-                            integrate::integrate_port_table();
+        {
+            Ok(builder) => match builder
+                .with_run_async(Box::new(|uuid, mut l| {
+                    Box::pin(async move {
+                        let next_tick = l.next_tick_for_job(uuid).await;
+                        match next_tick {
+                            Ok(Some(ts)) => {
+                                tracing::info!("Google Drive sync job running at {:?}", ts);
+                                integrate::integrate_port_table();
+                            }
+                            _ => {
+                                tracing::warn!("Could not get next tick for Google Drive sync job")
+                            }
                         }
-                        _ => println!("Could not get next tick for 2s job"),
-                    }
-                })
-            }))
-            .build()
-            .unwrap();
+                    })
+                }))
+                .build()
+            {
+                Ok(job) => job,
+                Err(e) => {
+                    tracing::error!("Failed to build job: {}", e);
+                    return;
+                }
+            },
+            Err(e) => {
+                tracing::error!("Failed to create job builder: {}", e);
+                return;
+            }
+        };
 
-        let sched = JobScheduler::new().await.unwrap();
-        sched.add(job).await.unwrap();
-        sched.start().await.unwrap();
+        let sched = match JobScheduler::new().await {
+            Ok(sched) => sched,
+            Err(e) => {
+                tracing::error!("Failed to create new JobScheduler: {}", e);
+                return;
+            }
+        };
+        if let Err(e) = sched.add(job).await {
+            tracing::error!("Failed to add job to scheduler: {}", e);
+        }
+        if let Err(e) = sched.start().await {
+            tracing::error!("Failed to start scheduler: {}", e);
+        }
 
         // Is this necessary?
         setup_default_crypto_provider();
@@ -40,10 +64,10 @@ pub fn start_scheduler() {
                 recv_msg = slave.recv() => {
                     match recv_msg {
                         None => {
-                            println!("Received None message");
+                            tracing::warn!("Received None message");
                         },
                         Some(bidirectional_channel::StatusInfo::SHUTDOWN { status, message }) => {
-                            println!("Received shutdown message: {} {}", status, message);
+                            tracing::info!("Received shutdown message: {} {}", status, message);
                             let _ = slave.send(bidirectional_channel::StatusInfo::SHUTDOWN {
                                 status: "SHUTTING DOWN".to_string(),
                                 message: "Integrate scheduler is shutting down".to_string(),
@@ -51,7 +75,7 @@ pub fn start_scheduler() {
                             break;
                         },
                         Some(bidirectional_channel::StatusInfo::HEALTH { status, message }) => {
-                            println!("Received health message: {} {}", status, message);
+                            tracing::info!("Received health message: {} {}", status, message);
                             let _ = slave.send(bidirectional_channel::StatusInfo::HEALTH {
                                 status: "RUNNING".to_string(),
                                 message: "Integrate scheduler is running".to_string(),

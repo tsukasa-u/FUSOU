@@ -1,12 +1,13 @@
 use std::path::Path;
 
 use regex::Regex;
+use tracing_unwrap::{OptionExt, ResultExt};
 
 // possibly the process of editing the pac file drive the compiler to rebuild the project, that means the project re build twice in frontend. It induce the late of display window and rendering.
 
 pub fn edit_pac(path: &str, addr: &str, host: Option<&str>) {
     let pac_file = include_str!("../proxy_auto.pac").to_string();
-    // let pac_file = fs::read_to_string(path).expect("Unable to read file");
+    // let pac_file = fs::read_to_string(path).expect_or_log("Unable to read file");
 
     let re = Regex::new(r"return .PROXY 127\.0\.0\.1:[0-9]+.;\s*//\s*\[REPLACE\s+ADDR\]").unwrap();
     let content = format!("return \"PROXY {}\"; // [REPLACE ADDR]", addr);
@@ -17,14 +18,14 @@ pub fn edit_pac(path: &str, addr: &str, host: Option<&str>) {
         let content = format!(r#"if (shExpMatch(host, "{}")) {{ // [REPLACE HOST]"#, host);
         let replaced = re.replace(&replaced, content).to_string();
 
-        std::fs::write(path, replaced).expect("Unable to write file");
+        std::fs::write(path, replaced).expect_or_log("Unable to write file");
     } else {
         let parent_path = Path::new(path)
             .parent()
-            .expect("failed to get parent")
+            .expect_or_log("failed to get parent")
             .to_str()
-            .expect("failed to convert to str");
-        std::fs::create_dir_all(parent_path).expect("failed to create dir");
-        std::fs::write(path, replaced).expect("Unable to write file");
+            .expect_or_log("failed to convert to str");
+        std::fs::create_dir_all(parent_path).expect_or_log("failed to create dir");
+        std::fs::write(path, replaced).expect_or_log("Unable to write file");
     }
 }

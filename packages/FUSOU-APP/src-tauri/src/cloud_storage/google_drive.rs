@@ -5,6 +5,7 @@ use google_drive3::{
 };
 use http_body_util::BodyExt;
 use once_cell::sync::Lazy;
+use proxy_https::proxy_server_https::setup_default_crypto_provider;
 use std::{collections::HashMap, sync::Mutex};
 use tokio::sync::OnceCell;
 use uuid::Uuid;
@@ -48,7 +49,7 @@ pub fn set_refresh_token(refresh_token: String, token_type: String) -> Result<()
         return Err(());
     }
 
-    println!("set refresh token: {refresh_token}");
+    tracing::info!("set refresh token: {refresh_token}");
     let mut local_access_token = USER_ACCESS_TOKEN.lock().unwrap();
     let info = UserAccessTokenInfo {
         refresh_token: refresh_token.to_owned(),
@@ -69,63 +70,56 @@ pub fn set_refresh_token(refresh_token: String, token_type: String) -> Result<()
     Ok(())
 }
 
-// pub static SURVICE_ACCESS_TOKEN: Lazy<Mutex<Option<String>>> = Lazy::new(|| Mutex::new(None));
-
-// static CRYPTO_PROVIDER_LOCK: OnceLock<()> = OnceLock::new();
-
-// fn setup_default_crypto_provider() {
-//     CRYPTO_PROVIDER_LOCK.get_or_init(|| {
-//         rustls::crypto::ring::default_provider()
-//             .install_default()
-//             .expect("Failed to install rustls crypto provider")
-//     });
-// }
-
-pub async fn create_auth(
-) -> Authenticator<hyper_rustls::HttpsConnector<hyper_util::client::legacy::connect::HttpConnector>>
-{
-    // setup_default_crypto_provider();
-
-    let provider_refresh_token = USER_ACCESS_TOKEN
-        .lock()
-        .unwrap()
-        .clone()
-        .unwrap()
-        .refresh_token;
-
-    let token_type = USER_ACCESS_TOKEN
-        .lock()
-        .unwrap()
-        .clone()
-        .unwrap()
-        .token_type
-        .unwrap_or("Bearer".to_string());
-
+pub async fn create_auth() -> Option<
+    Authenticator<hyper_rustls::HttpsConnector<hyper_util::client::legacy::connect::HttpConnector>>,
+> {
+    setup_default_crypto_provider();
+    let token = match USER_ACCESS_TOKEN.lock().unwrap().clone() {
+        Some(token) => token,
+        None => {
+            tracing::error!("USER_ACCESS_TOKEN is not set");
+            return None;
+        }
+    };
+    let provider_refresh_token = token.refresh_token;
+    let token_type = token.token_type.unwrap_or("Bearer".to_string());
     let secret = yup_oauth2::authorized_user::AuthorizedUserSecret {
-        // client_id: dotenv!("GOOGLE_CLIENT_ID").to_string(),
-        client_id: std::option_env!("GOOGLE_CLIENT_ID")
-            .expect("failed to get google client id")
-            .to_string(),
-        // client_secret: dotenv!("GOOGLE_CLIENT_SECRET").to_string(),
-        client_secret: std::option_env!("GOOGLE_CLIENT_SECRET")
-            .expect("failed to get google client secret")
-            .to_string(),
+        client_id: match std::option_env!("GOOGLE_CLIENT_ID") {
+            Some(id) => id.to_string(),
+            None => {
+                tracing::error!("failed to get google client id");
+                return None;
+            }
+        },
+        client_secret: match std::option_env!("GOOGLE_CLIENT_SECRET") {
+            Some(secret) => secret.to_string(),
+            None => {
+                tracing::error!("failed to get google client secret");
+                return None;
+            }
+        },
         refresh_token: provider_refresh_token,
         key_type: token_type,
     };
 
     let auth: Authenticator<
         hyper_rustls::HttpsConnector<hyper_util::client::legacy::connect::HttpConnector>,
-    > = yup_oauth2::AuthorizedUserAuthenticator::builder(secret)
+    > = match yup_oauth2::AuthorizedUserAuthenticator::builder(secret)
         .build()
         .await
-        .expect("failed to create authenticator");
+    {
+        Ok(auth) => auth,
+        Err(e) => {
+            tracing::error!("failed to create authenticator: {e:?}");
+            return None;
+        }
+    };
 
     if let Err(e) = auth.token(SCOPES).await {
-        println!("error: {e:?}")
+        tracing::error!("error: {e:?}")
     }
 
-    return auth;
+    return Some(auth);
 }
 
 pub async fn create_client() -> Option<
@@ -133,14 +127,19 @@ pub async fn create_client() -> Option<
 > {
     let auth = USER_GOOGLE_AUTH
         .get_or_init(|| async {
-            let auth = create_auth().await;
-            return auth;
+            match create_auth().await {
+                Some(auth) => auth,
+                None => {
+                    tracing::error!("failed to create auth");
+                    panic!("failed to create auth");
+                }
+            }
         })
         .await
         .clone();
 
     if let Err(e) = auth.force_refreshed_token(SCOPES).await {
-        println!("error: {e:?}");
+        tracing::error!("error: {e:?}");
         return None;
     }
 
@@ -167,8 +166,8 @@ pub async fn get_drive_file_list(
     page_size: i32,
 ) -> Option<Vec<String>> {
     let result = hub.files().list().page_size(page_size).doit().await;
-    if result.is_err() {
-        println!("Error: {result:?}");
+    if let Err(e) = result {
+        tracing::error!("Error: {e:?}");
         return None;
     }
     let result = result.unwrap();
@@ -188,15 +187,15 @@ pub async fn get_file_content(
     file_id: String,
 ) -> Option<Vec<u8>> {
     let result = hub.files().get(&file_id).param("alt", "media").doit().await;
-    if result.is_err() {
-        println!("Error: {result:?}");
+    if let Err(e) = result {
+        tracing::error!("Error: {e:?}");
         return None;
     }
     let result = result.unwrap();
     let content: Option<Vec<u8>> = match result.0.into_body().collect().await {
         Ok(bytes) => Some(bytes.to_bytes().into()),
         Err(e) => {
-            println!("Error: {e:?}");
+            tracing::error!("Error: {e:?}");
             None
         }
     };
@@ -224,8 +223,8 @@ pub async fn get_file_list_in_folder(
         .page_size(page_size)
         .doit()
         .await;
-    if result.is_err() {
-        println!("Error: {result:?}");
+    if let Err(e) = result {
+        tracing::error!("Error: {e:?}");
         return None;
     }
     let result = result.unwrap();
@@ -254,8 +253,8 @@ pub async fn check_folder(
         ),
     };
     let result = hub.files().list().q(&query).doit().await;
-    if result.is_err() {
-        println!("Error: {result:?}");
+    if let Err(e) = result {
+        tracing::error!("Error: {e:?}");
         return None;
     }
     let result = result.unwrap();
@@ -337,8 +336,8 @@ pub async fn check_file(
         ),
     };
     let result = hub.files().list().q(&query).doit().await;
-    if result.is_err() {
-        println!("Error: {result:?}");
+    if let Err(e) = result {
+        tracing::error!("Error: {e:?}");
         return None;
     }
     let result = result.unwrap();
@@ -356,8 +355,8 @@ pub async fn delete_file(
     file_id: String,
 ) -> bool {
     let result = hub.files().delete(&file_id).doit().await;
-    if result.is_err() {
-        println!("Error: {result:?}");
+    if let Err(e) = result {
+        tracing::error!("Error: {e:?}");
         return false;
     }
     return true;
@@ -391,8 +390,8 @@ pub async fn create_file(
         .create(req)
         .upload(std::io::Cursor::new(content), mime_type.parse().unwrap())
         .await;
-    if create_result.is_err() {
-        println!("Error: {create_result:?}");
+    if let Err(e) = create_result {
+        tracing::error!("Error: {e:?}");
         return None;
     }
     let create_result = create_result.unwrap();
@@ -427,8 +426,8 @@ pub async fn check_or_create_file(
         .create(req)
         .upload(std::io::Cursor::new(content), mime_type.parse().unwrap())
         .await;
-    if create_result.is_err() {
-        println!("Error: {create_result:?}");
+    if let Err(e) = create_result {
+        tracing::error!("Error: {e:?}");
         return None;
     }
     let create_result = create_result.unwrap();

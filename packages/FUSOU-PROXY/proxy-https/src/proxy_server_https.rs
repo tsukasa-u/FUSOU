@@ -27,6 +27,8 @@ use crate::bidirectional_channel;
 
 use configs;
 
+use tracing_unwrap::ResultExt;
+
 fn log_response(
     parts: response::Parts,
     body: Vec<u8>,
@@ -85,14 +87,9 @@ fn log_response(
 
     let re_uri = regex::Regex::new(r"https+://.*\.kancolle-server\.com").unwrap();
     let uri_path = re_uri.replace(uri.path(), "").to_string();
+    let status = parts.status.to_string();
 
-    println!(
-        "{} status: {:?}, path:{:?}, content-type:{:?}",
-        format!("{}", jst.format("%Y-%m-%d %H:%M:%S.%3f %Z")),
-        parts.status,
-        uri_path,
-        content_type
-    );
+    tracing::info!("status: {status}, content-type:{content_type}");
 
     if save || !pass {
         if body.is_empty() {
@@ -118,7 +115,7 @@ fn log_response(
                     };
                     let _ = tx_proxy_log.send(mes).await;
                 } else {
-                    println!("Failed to convert buffer to string");
+                    tracing::warn!("Failed to convert buffer to string");
                 }
             }
             if save {
@@ -128,7 +125,7 @@ fn log_response(
                     let parent = Path::new("kcsapi");
                     let path_parent = path_log.join(parent);
                     if !path_parent.exists() {
-                        fs::create_dir_all(path_parent).expect("Failed to create directory");
+                        fs::create_dir_all(path_parent).expect_or_log("Failed to create directory");
                     }
 
                     // let time_stamped = format!(
@@ -152,13 +149,14 @@ fn log_response(
                     let metadata_buffer = metadata_string.as_bytes();
                     let combined_buffer = [metadata_buffer, buffer.as_slice()].concat();
                     fs::write(path_log.join(Path::new(&time_formated)), combined_buffer)
-                        .expect("Failed to write file");
+                        .expect_or_log("Failed to write file");
                 } else {
                     let path_removed = uri_path.as_str().replacen("/", "", 1);
                     if let Some(parent) = Path::new(path_removed.as_str()).parent() {
                         let path_parent = path_log.join(parent);
                         if !path_parent.exists() {
-                            fs::create_dir_all(path_parent).expect("Failed to create directory");
+                            fs::create_dir_all(path_parent)
+                                .expect_or_log("Failed to create directory");
                         }
                     }
 
@@ -174,26 +172,27 @@ fn log_response(
                                 buffer = body.clone();
                             }
                         }
-                        fs::write(file_log_path, buffer).expect("Failed to write file");
+                        fs::write(file_log_path, buffer).expect_or_log("Failed to write file");
                     } else {
-                        fs::write(file_log_path, body.clone()).expect("Failed to write file");
+                        fs::write(file_log_path, body.clone())
+                            .expect_or_log("Failed to write file");
                     }
 
                     // if !file_log_path.exists() {
                     //     fs::write(file_log_path, body.clone().clone())
-                    //         .expect("Failed to write file");
+                    //         .expect_or_log("Failed to write file");
                     // } else {
                     //     let file_log_metadata =
-                    //         fs::metadata(file_log_path.clone()).expect("Failed to get metadata");
+                    //         fs::metadata(file_log_path.clone()).expect_or_log("Failed to get metadata");
                     //     #[cfg(target_os = "linux")]
                     //     if file_log_metadata.len() == 0 {
                     //         fs::write(file_log_path, body.clone().clone())
-                    //             .expect("Failed to write file");
+                    //             .expect_or_log("Failed to write file");
                     //     }
                     //     #[cfg(target_os = "windows")]
                     //     if file_log_metadata.file_size() == 0 {
                     //         fs::write(file_log_path, body.clone().clone())
-                    //             .expect("Failed to write file");
+                    //             .expect_or_log("Failed to write file");
                     //     }
                     // }
                 }
@@ -246,13 +245,7 @@ fn log_request(
     let re_uri = regex::Regex::new(r"https+://.*\.kancolle-server\.com").unwrap();
     let uri_path = re_uri.replace(uri.path(), "").to_string();
 
-    println!(
-        "{} method: {:?}, path:{:?}, content-type:{:?}",
-        format!("{}", jst.format("%Y-%m-%d %H:%M:%S.%3f %Z")),
-        parts.method,
-        uri_path,
-        content_type
-    );
+    tracing::info!("content-type:{content_type}");
 
     if save || !pass {
         if body.is_empty() {
@@ -273,7 +266,7 @@ fn log_request(
                     };
                     let _ = tx_proxy_log.send(mes).await;
                 } else {
-                    println!("Failed to convert buffer to string");
+                    tracing::warn!("Failed to convert buffer to string");
                 }
             }
             if save {
@@ -285,7 +278,7 @@ fn log_request(
                     let parent = Path::new("kcsapi");
                     let path_parent = path_log.join(parent);
                     if !path_parent.exists() {
-                        fs::create_dir_all(path_parent).expect("Failed to create directory");
+                        fs::create_dir_all(path_parent).expect_or_log("Failed to create directory");
                     }
 
                     // let time_stamped = format!(
@@ -309,13 +302,14 @@ fn log_request(
                     let metadata_buffer = metadata_string.as_bytes();
                     let combined_buffer = [metadata_buffer, buffer.as_slice()].concat();
                     fs::write(path_log.join(Path::new(&time_formated)), combined_buffer)
-                        .expect("Failed to write file");
+                        .expect_or_log("Failed to write file");
                 } else {
                     let path_removed = uri_path.as_str().replacen("/", "", 1);
                     if let Some(parent) = Path::new(path_removed.as_str()).parent() {
                         let path_parent = path_log.join(parent);
                         if !path_parent.exists() {
-                            fs::create_dir_all(path_parent).expect("Failed to create directory");
+                            fs::create_dir_all(path_parent)
+                                .expect_or_log("Failed to create directory");
                         }
                     }
 
@@ -323,19 +317,19 @@ fn log_request(
 
                     if !file_log_path.exists() {
                         fs::write(file_log_path, body.clone().clone())
-                            .expect("Failed to write file");
+                            .expect_or_log("Failed to write file");
                     } else {
-                        let file_log_metadata =
-                            fs::metadata(file_log_path.clone()).expect("Failed to get metadata");
+                        let file_log_metadata = fs::metadata(file_log_path.clone())
+                            .expect_or_log("Failed to get metadata");
                         #[cfg(target_os = "linux")]
                         if file_log_metadata.len() == 0 {
                             fs::write(file_log_path, body.clone().clone())
-                                .expect("Failed to write file");
+                                .expect_or_log("Failed to write file");
                         }
                         #[cfg(target_os = "windows")]
                         if file_log_metadata.file_size() == 0 {
                             fs::write(file_log_path, body.clone().clone())
-                                .expect("Failed to write file");
+                                .expect_or_log("Failed to write file");
                         }
                     }
                 }
@@ -476,24 +470,6 @@ fn create_ca(ca_dir: &Path) {
         ca_dir.join("entity_key.pem"),
         entity_key_pair.serialize_pem(),
     );
-
-    // let mut der_binary = Vec::<u8>::new();
-    // for b in entity_cert.der().bytes() {
-    //     match b {
-    //         Ok(b) => der_binary.push(b),
-    //         Err(e) => println!("{:?}", e)
-    //     }
-    // }
-    // let _ = fs::write(ca_dir.join("entity_cert.der"), der_binary);
-
-    // let mut der_binary = Vec::<u8>::new();
-    // for b in ca_cert.der().bytes() {
-    //     match b {
-    //         Ok(b) => der_binary.push(b),
-    //         Err(e) => println!("{:?}", e)
-    //     }
-    // }
-    // let _ = fs::write(ca_dir.join("ca_cert.der"), der_binary);
 }
 
 pub fn check_ca(ca_save_path: String) {
@@ -507,17 +483,6 @@ pub fn check_ca(ca_save_path: String) {
     if !entity_cert.exists() || !entity_key.exists() || !ca_cert.exists() || !ca_key.exists() {
         create_ca(ca_dir);
     }
-
-    // #[cfg(target_os = "windows")]
-    // let cmd_path = format!("{}/{}", super::pac_server::PATH_PROXY_CRATE, super::pac_server::PATH_ADD_STORE_BAT);
-
-    // let output  = Command::new(cmd_path)
-    // // .args([ca_cert.to_str().expect("Failed to get path")])
-    //     .args([ca_cert.to_str().expect("Failed to get path")])
-    //     .output()
-    //     .expect("failed to execute process");
-
-    // println!("status: {}", output.status);
 }
 
 fn available_port() -> std::io::Result<u16> {
@@ -533,7 +498,7 @@ pub fn setup_default_crypto_provider() {
     CRYPTO_PROVIDER_LOCK.get_or_init(|| {
         rustls::crypto::ring::default_provider()
             .install_default()
-            .expect("Failed to install rustls crypto provider")
+            .expect_or_log("Failed to install rustls crypto provider")
     });
 }
 
@@ -573,15 +538,15 @@ pub fn serve_proxy(
         ca_dir.join("entity_key.pem")
     };
 
-    let key_pair = fs::read_to_string(entity_key.clone()).expect("Failed to open file");
+    let key_pair = fs::read_to_string(entity_key.clone()).expect_or_log("Failed to open file");
 
-    let ca_cert = fs::read_to_string(entity_cert.clone()).expect("Failed to open file");
+    let ca_cert = fs::read_to_string(entity_cert.clone()).expect_or_log("Failed to open file");
 
-    let key_pair = KeyPair::from_pem(&key_pair).expect("Failed to parse private key");
+    let key_pair = KeyPair::from_pem(&key_pair).expect_or_log("Failed to parse private key");
     let ca_cert = CertificateParams::from_ca_cert_pem(&ca_cert)
-        .expect("Failed to parse CA certificate")
+        .expect_or_log("Failed to parse CA certificate")
         .self_signed(&key_pair)
-        .expect("Failed to sign CA certificate");
+        .expect_or_log("Failed to sign CA certificate");
 
     let ca = RcgenAuthority::new(key_pair, ca_cert, 1_000, aws_lc_rs::default_provider());
 
@@ -656,10 +621,10 @@ pub fn serve_proxy(
                     recv_msg = slave.recv() => {
                         match recv_msg {
                             None => {
-                                println!("Received None message");
+                                tracing::warn!("Received None message");
                             },
                             Some(bidirectional_channel::StatusInfo::SHUTDOWN { status, message }) => {
-                                println!("Received shutdown message: {} {}", status, message);
+                                tracing::info!("Received shutdown message: {} {}", status, message);
                                 let _ = slave.send(bidirectional_channel::StatusInfo::SHUTDOWN {
                                     status: "SHUTTING DOWN".to_string(),
                                     message: "Proxy server is shutting down".to_string(),
@@ -667,7 +632,7 @@ pub fn serve_proxy(
                                 break;
                             },
                             Some(bidirectional_channel::StatusInfo::HEALTH { status, message }) => {
-                                println!("Received health message: {} {}", status, message);
+                                tracing::info!("Received health message: {} {}", status, message);
                                 let _ = slave.send(bidirectional_channel::StatusInfo::HEALTH {
                                     status: "RUNNING".to_string(),
                                     message: "Proxy server is running".to_string(),
@@ -683,9 +648,9 @@ pub fn serve_proxy(
             }
         })
         .build()
-        .expect("Failed to create proxy");
+        .expect_or_log("Failed to create proxy");
 
-    println!("Proxy server addr: {}", addr);
+    tracing::info!("Proxy server addr: {}", addr);
 
     tokio::task::spawn(server_proxy.start());
 

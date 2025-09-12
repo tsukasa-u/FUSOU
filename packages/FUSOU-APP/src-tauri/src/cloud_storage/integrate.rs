@@ -27,7 +27,7 @@ pub fn integrate_port_table() {
                 // to figure out how many pages is best
                 let result = google_drive::integrate_port_table(&mut hub, folder_id, 32).await;
                 if result.is_none() {
-                    println!("\x1b[38;5;{}m Failed to integrate port table\x1b[m ", 8);
+                    tracing::error!("Failed to integrate port table");
                 }
             }
             None => {

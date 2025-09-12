@@ -161,10 +161,7 @@ pub fn struct_selector_response(
             }
         },
         Err(e) => {
-            println!(
-                "\x1b[38;5;{}m Failed to parse Res JSON({:?}): {}\x1b[m ",
-                8, name, e
-            );
+            tracing::error!("Failed to parse Res JSON({:?}): {}", name, e);
             return Err(Box::new(e));
         }
     };
@@ -200,10 +197,7 @@ pub fn struct_selector_resquest(
             }
         },
         Err(e) => {
-            println!(
-                "\x1b[38;5;{}m Failed to parse Req JSON({:?}): {}\x1b[m ",
-                8, name, e
-            );
+            tracing::error!("Failed to parse Req JSON({:?}): {}", name, e);
             return Err(Box::new(e));
         }
     };
@@ -219,7 +213,7 @@ async fn response_parser(
             recv_log = proxy_log_slave.recv() => {
                 match recv_log {
                     None => {
-                        println!("Received None message");
+                        tracing::warn!("Received None message");
                     },
                     Some(bidirectional_channel::StatusInfo::RESPONSE { path, content_type: _, content }) => {
                         let handle_clone = handle.clone();
@@ -247,10 +241,10 @@ async fn response_parser(
             recv_msg = slave.recv() => {
                 match recv_msg {
                     None => {
-                        println!("Received None message");
+                        tracing::warn!("Received None message");
                     },
                     Some(bidirectional_channel::StatusInfo::SHUTDOWN { status, message }) => {
-                        println!("Received shutdown message: {} {}", status, message);
+                        tracing::info!("Received shutdown message: {} {}", status, message);
                         let _ = slave.send(bidirectional_channel::StatusInfo::SHUTDOWN {
                             status: "SHUTTING DOWN".to_string(),
                             message: "Response parser is shutting down".to_string(),
@@ -258,7 +252,7 @@ async fn response_parser(
                         break;
                     },
                     Some(bidirectional_channel::StatusInfo::HEALTH { status, message }) => {
-                        println!("Received health message: {} {}", status, message);
+                        tracing::info!("Received health message: {} {}", status, message);
                         let _ = slave.send(bidirectional_channel::StatusInfo::HEALTH {
                             status: "RUNNING".to_string(),
                             message: "Response parser is running".to_string(),
@@ -272,7 +266,7 @@ async fn response_parser(
             },
         }
     }
-    println!("Shutting Response parser");
+    tracing::info!("Shutting Response parser");
 }
 
 pub fn serve_reponse_parser(

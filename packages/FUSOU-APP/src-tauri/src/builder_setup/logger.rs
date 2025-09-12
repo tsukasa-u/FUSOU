@@ -1,8 +1,10 @@
 use tauri::Emitter;
+use time::macros::format_description;
 use tracing::{Event, Subscriber};
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use tracing_subscriber::filter::LevelFilter;
+use tracing_subscriber::fmt::time::LocalTime;
 use tracing_subscriber::layer::{Context, Layer, SubscriberExt};
 use tracing_subscriber::registry;
 
@@ -39,15 +41,20 @@ where
         event.record(&mut visitor);
         let message = visitor.message.unwrap_or_default();
 
-        println!(
-            "[FrontendSender] Received log: {target}: {message}",
-            target = target,
-            message = message.clone()
-        );
+        // tracing::info!(
+        //     "[FrontendSender] Received log: {target}: {message}",
+        //     target = target,
+        //     message = message.clone()
+        // );
         self.app_handle
             .emit(
                 "log-event",
-                (level.to_string(), message, format!("{:?}", metadata)),
+                (
+                    level.to_string(),
+                    target,
+                    message,
+                    format!("{:?}", metadata),
+                ),
             )
             .ok();
     }
@@ -59,7 +66,12 @@ pub fn setup(app: &mut tauri::App) {
     let (non_blocking_appender, _guard) = tracing_appender::non_blocking(file_appender);
     let _ = GUARD_WORKER.set(_guard);
 
+    let timer = LocalTime::new(format_description!(
+        "[year]-[month]-[day]T[hour]:[minute]:[second].[subsecond digits:6][offset_hour sign:mandatory]:[offset_minute]"
+    ));
+
     let file_layer = tracing_subscriber::fmt::layer()
+        .with_timer(timer.clone())
         .with_writer(non_blocking_appender)
         .with_level(true)
         .with_file(true)
@@ -70,6 +82,7 @@ pub fn setup(app: &mut tauri::App) {
         .with_filter(LevelFilter::WARN);
 
     let console_layer = tracing_subscriber::fmt::layer()
+        .with_timer(timer)
         .pretty()
         .with_file(false)
         .with_line_number(false)

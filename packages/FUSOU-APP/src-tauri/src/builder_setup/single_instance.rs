@@ -34,7 +34,13 @@ pub fn single_instance_init(app: &tauri::AppHandle, argv: Vec<String>) {
         }
     }
 
-    let singleton_window = app.get_webview_window("main").unwrap();
+    let singleton_window = match app.get_webview_window("main") {
+        Some(window) => window,
+        None => {
+            tracing::error!("Failed to get main window");
+            return;
+        }
+    };
 
     singleton_window.show().unwrap();
 
