@@ -12,9 +12,13 @@ use tauri_plugin_opener::OpenerExt;
 use tokio::sync::mpsc;
 
 use crate::{
-    builder_setup::bidirectional_channel::{
-        get_pac_bidirectional_channel, get_proxy_bidirectional_channel,
-        get_response_parse_bidirectional_channel, get_scheduler_integrate_bidirectional_channel,
+    builder_setup::{
+        bidirectional_channel::{
+            get_pac_bidirectional_channel, get_proxy_bidirectional_channel,
+            get_response_parse_bidirectional_channel,
+            get_scheduler_integrate_bidirectional_channel,
+        },
+        logger,
     },
     cmd::{native_cmd, tauri_cmd},
     integration::discord,
@@ -218,8 +222,6 @@ fn setup_tray(
                         app::open_main_window(app);
                     }
                 }
-
-                println!("system tray received a left click");
             }
         })
         .on_menu_event({
@@ -406,8 +408,8 @@ pub fn setup_discord() -> Result<(), Box<dyn std::error::Error>> {
 pub fn setup_configs() -> Result<(), Box<dyn std::error::Error>> {
     let resources_config_path = get_RESOURCES_DIR().join("user").join("configs.toml");
     let roaming_config_path = get_ROAMING_DIR().join("user").join("configs.toml");
-    println!("open configs: {:?}", roaming_config_path);
-    println!("default configs: {:?}", resources_config_path);
+    tracing::info!("open configs: {:?}", roaming_config_path);
+    tracing::info!("default configs: {:?}", resources_config_path);
     if fs::metadata(&roaming_config_path).is_err() {
         if let Some(parent) = roaming_config_path.parent() {
             fs::create_dir_all(parent)?;
@@ -422,10 +424,11 @@ pub fn setup_configs() -> Result<(), Box<dyn std::error::Error>> {
 pub fn setup_init(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let (shutdown_tx, mut shutdown_rx) = mpsc::channel::<()>(1);
 
+    set_paths(app)?;
+    logger::setup(app);
     #[cfg(any(not(dev), check_release))]
     setup_updater(app)?;
     setup_deep_link(app)?;
-    set_paths(app)?;
     setup_configs()?;
     setup_tray(app, shutdown_tx)?;
     setup_discord()?;
