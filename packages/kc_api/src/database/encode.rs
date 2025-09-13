@@ -7,7 +7,8 @@ where
     T: TraitForEncode + AvroSchema + Serialize,
 {
     let schema = T::get_schema();
-    let mut writer = Writer::with_codec(&schema, Vec::new(), Codec::Deflate);
+    // let mut writer = Writer::with_codec(&schema, Vec::new(), Codec::Deflate);
+    let mut writer = Writer::with_codec(&schema, Vec::new(), Codec::Null);
 
     for data in datas {
         writer.append_ser(data)?;

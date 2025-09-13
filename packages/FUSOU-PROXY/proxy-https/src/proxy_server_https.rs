@@ -29,6 +29,12 @@ use configs;
 
 use tracing_unwrap::ResultExt;
 
+pub static CA_CERT_NAME_PEM: &str = "fusou_ca_cert.pem";
+pub static CA_CERT_NAME_CRT: &str = "fusou_ca_cert.crt";
+pub static CA_KEY_NAME_PEM: &str = "fusou_ca_key.pem";
+pub static ENTITY_CERT_NAME_PEM: &str = "fusou_entity_cert.pem";
+pub static ENTITY_KEY_NAME_PEM: &str = "fusou_entity_key.pem";
+
 fn log_response(
     parts: response::Parts,
     body: Vec<u8>,
@@ -415,7 +421,8 @@ impl HttpHandler for LogHandler {
     }
 }
 
-fn create_ca(ca_dir: &Path) {
+pub fn create_ca(ca_save_path: String) {
+    let ca_dir = Path::new(ca_save_path.as_str());
     let ca_key_pair = rcgen::KeyPair::generate().unwrap();
 
     let mut ca_param = rcgen::CertificateParams::default();
@@ -462,27 +469,35 @@ fn create_ca(ca_dir: &Path) {
     // let ca_dir = Path::new("./ca");
     let _ = fs::create_dir_all(ca_dir);
 
-    let _ = fs::write(ca_dir.join("ca_cert.pem"), ca_cert.pem());
-    let _ = fs::write(ca_dir.join("ca_key.pem"), ca_key_pair.serialize_pem());
+    let _ = fs::write(ca_dir.join(CA_CERT_NAME_PEM), ca_cert.pem());
+    let _ = fs::write(ca_dir.join(CA_CERT_NAME_CRT), ca_cert.pem());
+    let _ = fs::write(ca_dir.join(CA_KEY_NAME_PEM), ca_key_pair.serialize_pem());
 
-    let _ = fs::write(ca_dir.join("entity_cert.pem"), entity_cert.pem());
+    let _ = fs::write(ca_dir.join(ENTITY_CERT_NAME_PEM), entity_cert.pem());
     let _ = fs::write(
-        ca_dir.join("entity_key.pem"),
+        ca_dir.join(ENTITY_KEY_NAME_PEM),
         entity_key_pair.serialize_pem(),
     );
 }
 
-pub fn check_ca(ca_save_path: String) {
+pub fn check_ca(ca_save_path: String) -> bool {
     // let ca_dir = Path::new("./ca");
     let ca_dir = Path::new(ca_save_path.as_str());
-    let entity_cert = ca_dir.join("entity_cert.pem");
-    let entity_key = ca_dir.join("entity_key.pem");
-    let ca_cert = ca_dir.join("ca_cert.pem");
-    let ca_key = ca_dir.join("ca_key.pem");
+    let entity_cert = ca_dir.join(ENTITY_CERT_NAME_PEM);
+    let entity_key = ca_dir.join(ENTITY_KEY_NAME_PEM);
+    let ca_cert_pem = ca_dir.join(CA_CERT_NAME_PEM);
+    let ca_cert_crt = ca_dir.join(CA_CERT_NAME_CRT);
+    let ca_key = ca_dir.join(CA_KEY_NAME_PEM);
 
-    if !entity_cert.exists() || !entity_key.exists() || !ca_cert.exists() || !ca_key.exists() {
-        create_ca(ca_dir);
+    if !entity_cert.exists()
+        || !entity_key.exists()
+        || !ca_cert_crt.exists()
+        || !ca_cert_pem.exists()
+        || !ca_key.exists()
+    {
+        return false;
     }
+    true
 }
 
 fn available_port() -> std::io::Result<u16> {
@@ -522,20 +537,20 @@ pub fn serve_proxy(
 
     let custom_cert_file_path = configs.certificates.get_cert_file();
     let entity_cert = if use_generated_certs {
-        ca_dir.join("entity_cert.pem")
+        ca_dir.join(ENTITY_CERT_NAME_PEM)
     } else if let Some(custom_cert_file_path) = custom_cert_file_path {
         custom_cert_file_path
     } else {
-        ca_dir.join("entity_cert.pem")
+        ca_dir.join(ENTITY_CERT_NAME_PEM)
     };
 
     let custom_key_file_path = configs.certificates.get_key_file();
     let entity_key = if use_generated_certs {
-        ca_dir.join("entity_key.pem")
+        ca_dir.join(ENTITY_KEY_NAME_PEM)
     } else if let Some(custom_key_file_path) = custom_key_file_path {
         custom_key_file_path
     } else {
-        ca_dir.join("entity_key.pem")
+        ca_dir.join(ENTITY_KEY_NAME_PEM)
     };
 
     let key_pair = fs::read_to_string(entity_key.clone()).expect_or_log("Failed to open file");

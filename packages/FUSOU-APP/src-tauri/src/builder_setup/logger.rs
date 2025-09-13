@@ -14,6 +14,15 @@ use crate::util::get_ROAMING_DIR;
 
 static GUARD_WORKER: once_cell::sync::OnceCell<WorkerGuard> = once_cell::sync::OnceCell::new();
 
+static LOG_FILE_NAME: once_cell::sync::OnceCell<String> = once_cell::sync::OnceCell::new();
+
+pub fn get_log_file_name() -> String {
+    LOG_FILE_NAME
+        .get()
+        .cloned()
+        .unwrap_or_else(|| "fuosu-app.log".to_string())
+}
+
 #[derive(Default, Clone, serde::Serialize)]
 struct MessageVisitor {
     datetime: Option<String>,
@@ -72,10 +81,13 @@ where
 
 pub fn setup(app: &mut tauri::App) {
     let log_path = get_ROAMING_DIR().join("log");
+    let log_file_name = format!("fuosu-app-v{}.log", app.package_info().version);
+    LOG_FILE_NAME.set(log_file_name).ok();
+
     let file_appender = RollingFileAppender::new(
         Rotation::NEVER,
         log_path,
-        format!("fuosu-app-v{}.log", app.package_info().version),
+        LOG_FILE_NAME.get().unwrap().clone(),
     );
     let (non_blocking_appender, _guard) = tracing_appender::non_blocking(file_appender);
     let _ = GUARD_WORKER.set(_guard);

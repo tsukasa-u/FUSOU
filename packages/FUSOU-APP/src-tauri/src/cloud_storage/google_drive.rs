@@ -30,6 +30,17 @@ use crate::auth::auth_server;
 
 pub static GOOGLE_FOLDER_IDS: OnceCell<HashMap<String, String>> = OnceCell::const_new();
 
+static PORT_TABLE_ACCESS_GUARD: tokio::sync::OnceCell<tokio::sync::Mutex<()>> =
+    tokio::sync::OnceCell::const_new();
+
+pub async fn get_port_table_access_guard() -> tokio::sync::MutexGuard<'static, ()> {
+    PORT_TABLE_ACCESS_GUARD
+        .get_or_init(|| async { tokio::sync::Mutex::new(()) })
+        .await
+        .lock()
+        .await
+}
+
 #[derive(Debug, Clone)]
 pub struct UserAccessTokenInfo {
     pub refresh_token: String,
@@ -622,7 +633,7 @@ pub async fn integrate_port_table(
                 .await;
         let file_content_list = if let Some(file_id_list) = file_id_list.clone() {
             if file_id_list.is_empty() || file_id_list.len() == 1 {
-                return None;
+                continue;
             }
             let mut file_content_list = Vec::new();
             for file_id in file_id_list.iter() {
@@ -633,11 +644,11 @@ pub async fn integrate_port_table(
             }
             Some(file_content_list)
         } else {
-            return None;
+            continue;
         };
         if let Some(file_content_list) = file_content_list {
             if file_content_list.is_empty() {
-                return None;
+                continue;
             }
             let integrated_content = if let Ok(table_name) =
                 folder_name.clone().parse::<PortTableEnum>()
@@ -704,7 +715,7 @@ pub async fn integrate_port_table(
             };
             if let Ok(integrated_content) = integrated_content {
                 if integrated_content.is_empty() {
-                    return None;
+                    continue;
                 }
                 create_file(
                     hub,
@@ -718,10 +729,10 @@ pub async fn integrate_port_table(
                     delete_file(hub, file_id.clone()).await;
                 }
             } else {
-                return None;
+                continue;
             }
         } else {
-            return None;
+            continue;
         }
     }
     return Some(integrated_folder_id);

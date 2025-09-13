@@ -20,6 +20,11 @@ use proxy_https::pac_server::PATH_DELETE_PROXY_SH;
 #[cfg(target_os = "linux")]
 use proxy_https::pac_server::PATH_ADD_STORE_SH;
 
+#[cfg(target_os = "linux")]
+use proxy_https::proxy_server_https::CA_CERT_NAME_CRT;
+#[cfg(target_os = "windows")]
+use proxy_https::proxy_server_https::CA_CERT_NAME_PEM;
+
 use crate::util::get_RESOURCES_DIR;
 use crate::util::get_ROAMING_DIR;
 
@@ -99,8 +104,14 @@ pub fn add_store<R>(app: &tauri::AppHandle<R>)
 where
     R: tauri::Runtime,
 {
+    #[cfg(target_os = "windows")]
+    let ca_cert_name = CA_CERT_NAME_PEM;
+    #[cfg(target_os = "linux")]
+    let ca_cert_name = CA_CERT_NAME_CRT;
+
     let ca_path = get_ROAMING_DIR()
-        .join("ca/ca_cert.pem")
+        .join("ca")
+        .join(ca_cert_name)
         .as_path()
         .to_str()
         .expect("ca_path not found")

@@ -66,6 +66,9 @@ pub fn submit_port_table() {
     if Cells::reset_flag() {
         let cells = Cells::load();
         tokio::task::spawn(async move {
+            let _guard: tokio::sync::MutexGuard<'static, ()> =
+                google_drive::get_port_table_access_guard().await;
+
             let user_env = get_user_env_id().await;
             let timestamp = chrono::Utc::now().timestamp();
             let port_table = PortTable::new(cells, user_env, timestamp);

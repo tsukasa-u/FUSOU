@@ -3,6 +3,7 @@ use proxy_https::{
     bidirectional_channel::{Master, Slave, StatusInfo},
     edit_pac::edit_pac,
 };
+use register_trait::check;
 use tauri::Url;
 
 use crate::{
@@ -10,7 +11,7 @@ use crate::{
         get_pac_bidirectional_channel, get_proxy_bidirectional_channel,
         get_proxy_log_bidirectional_channel,
     },
-    cmd::native_cmd,
+    cmd::native_cmd::{self, add_store},
 };
 
 pub fn serve_proxy<R>(
@@ -31,9 +32,16 @@ where
     let pac_bidirectional_channel_slave: Slave<StatusInfo> =
         get_pac_bidirectional_channel().clone_slave();
 
-    proxy_https::proxy_server_https::check_ca(ca_path.clone());
+    let ca_check_result = proxy_https::proxy_server_https::check_ca(ca_path.clone());
 
-    native_cmd::add_store(app);
+    if ca_check_result {
+        tracing::info!("CA certificate already exists");
+        todo!("check if the certificate is valid");
+    } else {
+        tracing::info!("CA certificate does not exist, creating...");
+        proxy_https::proxy_server_https::create_ca(ca_path.clone());
+        add_store(app);
+    }
 
     // start proxy server
     // let save_path = "./../../FUSOU-PROXY-DATA".to_string();

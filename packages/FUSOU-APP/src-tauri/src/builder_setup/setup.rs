@@ -20,6 +20,7 @@ use crate::{
         },
         logger,
     },
+    cloud_storage::integrate,
     cmd::{native_cmd, tauri_cmd},
     integration::discord,
     scheduler,
@@ -127,6 +128,13 @@ fn setup_tray(
     let open_configs =
         MenuItemBuilder::with_id("open-configs".to_string(), "Open Configs").build(app)?;
 
+    let open_log_file =
+        MenuItemBuilder::with_id("open-log-file".to_string(), "Open log file").build(app)?;
+
+    let intergrate_file =
+        MenuItemBuilder::with_id("intergrate_file".to_string(), "Intergrate Cloud File")
+            .build(app)?;
+
     let danger_ope_sub_menu = SubmenuBuilder::new(app, "Danger Zone")
         .item(&danger_ope_sub_menu_title)
         .item(&proxy_serve_shutdown)
@@ -147,7 +155,10 @@ fn setup_tray(
 
     let advanced_sub_menu = SubmenuBuilder::new(app, "Adavanced")
         // .item(&adavanced_title)
-        // .separator()
+        .item(&open_configs)
+        .item(&open_log_file)
+        .item(&intergrate_file)
+        .separator()
         .item(&danger_ope_sub_menu)
         .build()?;
 
@@ -158,7 +169,6 @@ fn setup_tray(
         .item(&main_open_close)
         .item(&external_open_close)
         .item(&open_launch_page)
-        .item(&open_configs)
         .separator()
         .item(&advanced_sub_menu)
         .separator()
@@ -309,6 +319,16 @@ fn setup_tray(
                         let config_path = get_ROAMING_DIR().join("user").join("configs.toml");
                         let path_str = config_path.to_string_lossy();
                         let _ = tray.app_handle().opener().open_path(path_str, None::<&str>);
+                    }
+                    "open-log-file" => {
+                        let log_path = get_ROAMING_DIR()
+                            .join("log")
+                            .join(logger::get_log_file_name());
+                        let path_str = log_path.to_string_lossy();
+                        let _ = tray.app_handle().opener().open_path(path_str, None::<&str>);
+                    }
+                    "intergrate_file" => {
+                        integrate::integrate_port_table();
                     }
                     "main-open/close" => {
                         let window = tray.get_webview_window("main");

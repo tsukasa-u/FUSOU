@@ -2,6 +2,7 @@ use crate::{
     auth::{auth_server, supabase},
     cloud_storage::google_drive,
 };
+use tokio;
 
 pub fn integrate_port_table() {
     if !configs::get_user_configs_for_app()
@@ -12,6 +13,11 @@ pub fn integrate_port_table() {
     }
 
     tokio::task::spawn(async move {
+        let _guard: tokio::sync::MutexGuard<'static, ()> =
+            google_drive::get_port_table_access_guard().await;
+
+        tracing::info!("Start to integrate port table in cloud storage");
+
         let pariod_tag = supabase::get_period_tag().await;
         let hub = google_drive::create_client().await;
         match hub {
@@ -28,13 +34,12 @@ pub fn integrate_port_table() {
                 let result = google_drive::integrate_port_table(&mut hub, folder_id, 32).await;
                 if result.is_none() {
                     tracing::error!("Failed to integrate port table");
+                } else {
+                    tracing::info!("Successfully integrate port table in cloud storage");
                 }
             }
             None => {
-                println!(
-                    "\x1b[38;5;{}m Failed to create google drive client\x1b[m ",
-                    8
-                );
+                tracing::error!("Failed to create google drive client");
                 let _ = auth_server::open_auth_page();
             }
         };
