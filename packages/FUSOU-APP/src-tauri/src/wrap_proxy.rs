@@ -3,7 +3,6 @@ use proxy_https::{
     bidirectional_channel::{Master, Slave, StatusInfo},
     edit_pac::edit_pac,
 };
-use register_trait::check;
 use tauri::Url;
 
 use crate::{
