@@ -1,4 +1,4 @@
-use http::{request, response, HeaderName, Uri};
+use http::{method, request, response, HeaderName, Uri};
 use http_body_util::BodyExt;
 use hudsucker::{
     certificate_authority::RcgenAuthority,
@@ -89,7 +89,7 @@ fn log_response(
     let uri_path = re_uri.replace(uri.path(), "").to_string();
     let status = parts.status.to_string();
 
-    tracing::info!("status: {status}, content-type:{content_type}");
+    tracing::info!(status = %status, uri = %uri_path, content_type = %content_type);
 
     if save || !pass {
         if body.is_empty() {
@@ -245,7 +245,7 @@ fn log_request(
     let re_uri = regex::Regex::new(r"https+://.*\.kancolle-server\.com").unwrap();
     let uri_path = re_uri.replace(uri.path(), "").to_string();
 
-    tracing::info!("content-type:{content_type}");
+    tracing::info!(method = %parts.method, uri = %uri_path, content_type = %content_type);
 
     if save || !pass {
         if body.is_empty() {

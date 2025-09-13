@@ -22,6 +22,7 @@ import { ShipListComponent } from "../components/specification_table/ship_list.t
 import { EquipmentListComponent } from "../components/specification_table/equipment_list.tsx";
 import { createEffect } from "solid-js";
 import { location_route } from "../utility/location";
+import { LogViewerComponent } from "../components/logger/log-viewer.tsx";
 
 function App() {
   createEffect(location_route);
@@ -162,6 +163,24 @@ function App() {
         />
         <div role="tabpanel" class="tab-content pt-0 pb-0 pl-0 bg-base-100">
           <SettingsComponent />
+        </div>
+
+        <input
+          type="radio"
+          name="tabs_fleet"
+          role="tab"
+          class="tab [&::after]:w-18 bg-base-100"
+          aria-label="Logs"
+          style={{
+            position: "sticky",
+            top: "0px",
+            left: "0px",
+            "z-index": "100",
+            "border-radius": 0,
+          }}
+        />
+        <div role="tabpanel" class="tab-content pt-0 pb-0 pl-0 bg-base-100">
+          <LogViewerComponent />
         </div>
       </div>
     </>

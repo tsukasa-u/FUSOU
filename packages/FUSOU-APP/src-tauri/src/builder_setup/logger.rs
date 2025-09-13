@@ -1,3 +1,5 @@
+use chrono::{TimeZone, Utc};
+use chrono_tz::Asia::Tokyo;
 use tauri::Emitter;
 use time::macros::format_description;
 use tracing::{Event, Subscriber};
@@ -12,14 +14,28 @@ use crate::util::get_ROAMING_DIR;
 
 static GUARD_WORKER: once_cell::sync::OnceCell<WorkerGuard> = once_cell::sync::OnceCell::new();
 
+#[derive(Default, Clone, serde::Serialize)]
 struct MessageVisitor {
+    datetime: Option<String>,
+    level: Option<String>,
+    target: Option<String>,
+    metadata: Option<String>,
     message: Option<String>,
+    method: Option<String>,
+    uri: Option<String>,
+    status: Option<String>,
+    content_type: Option<String>,
 }
 
 impl tracing::field::Visit for MessageVisitor {
     fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
-        if field.name() == "message" {
-            self.message = Some(format!("{:?}", value));
+        match field.name() {
+            "method" => self.method = Some(format!("{value:?}")),
+            "uri" => self.uri = Some(format!("{value:?}")),
+            "status" => self.status = Some(format!("{value:?}")),
+            "content_type" => self.content_type = Some(format!("{value:?}")),
+            "message" => self.message = Some(format!("{value:?}")),
+            _ => {}
         }
     }
 }
@@ -37,32 +53,30 @@ where
         let level = metadata.level();
         let target = metadata.target();
 
-        let mut visitor = MessageVisitor { message: None };
+        let mut visitor = MessageVisitor::default();
         event.record(&mut visitor);
-        let message = visitor.message.unwrap_or_default();
 
-        // tracing::info!(
-        //     "[FrontendSender] Received log: {target}: {message}",
-        //     target = target,
-        //     message = message.clone()
-        // );
-        self.app_handle
-            .emit(
-                "log-event",
-                (
-                    level.to_string(),
-                    target,
-                    message,
-                    format!("{:?}", metadata),
-                ),
-            )
-            .ok();
+        let utc: chrono::NaiveDateTime = Utc::now().naive_utc();
+        let jst: chrono::DateTime<chrono_tz::Tz> = Tokyo.from_utc_datetime(&utc);
+        // let formatted = jst.format("%Y-%m-%dT%H:%M:%S.%3f%z").to_string();
+        let formatted = jst.format("%Y-%m-%dT%H:%M:%S.%3f").to_string();
+
+        visitor.datetime = Some(formatted);
+        visitor.level = Some(level.to_string());
+        visitor.target = Some(target.to_string());
+        visitor.metadata = Some(format!("{metadata:?}"));
+
+        self.app_handle.emit("log-event", visitor).ok();
     }
 }
 
 pub fn setup(app: &mut tauri::App) {
     let log_path = get_ROAMING_DIR().join("log");
-    let file_appender = RollingFileAppender::new(Rotation::NEVER, log_path, "fuosu-app.log");
+    let file_appender = RollingFileAppender::new(
+        Rotation::NEVER,
+        log_path,
+        format!("fuosu-app-v{}.log", app.package_info().version),
+    );
     let (non_blocking_appender, _guard) = tracing_appender::non_blocking(file_appender);
     let _ = GUARD_WORKER.set(_guard);
 
