@@ -29,11 +29,15 @@ use configs;
 
 use tracing_unwrap::ResultExt;
 
+pub static CA_CERT_NAME: &str = "fusou_ca_cert";
 pub static CA_CERT_NAME_PEM: &str = "fusou_ca_cert.pem";
 pub static CA_CERT_NAME_CRT: &str = "fusou_ca_cert.crt";
-pub static CA_KEY_NAME_PEM: &str = "fusou_ca_key.pem";
-pub static ENTITY_CERT_NAME_PEM: &str = "fusou_entity_cert.pem";
-pub static ENTITY_KEY_NAME_PEM: &str = "fusou_entity_key.pem";
+static CA_KEY_NAME_PEM: &str = "fusou_ca_key.pem";
+static ENTITY_CERT_NAME_PEM: &str = "fusou_entity_cert.pem";
+static ENTITY_KEY_NAME_PEM: &str = "fusou_entity_key.pem";
+
+static ORGANIZATION_NAME: &str = "FUSOU";
+static COUNTRY_NAME: &str = "JP";
 
 fn log_response(
     parts: response::Parts,
@@ -437,11 +441,11 @@ pub fn create_ca(ca_save_path: String) {
     ca_param.key_usages.push(rcgen::KeyUsagePurpose::CrlSign);
     ca_param.distinguished_name.push(
         rcgen::DnType::CountryName,
-        rcgen::DnValue::PrintableString("JP".try_into().unwrap()),
+        rcgen::DnValue::PrintableString(COUNTRY_NAME.try_into().unwrap()),
     );
     ca_param
         .distinguished_name
-        .push(rcgen::DnType::OrganizationName, "FUSOU");
+        .push(rcgen::DnType::OrganizationName, ORGANIZATION_NAME);
     let ca_cert = ca_param.self_signed(&ca_key_pair).unwrap();
 
     let entity_key_pair = rcgen::KeyPair::generate().unwrap();
