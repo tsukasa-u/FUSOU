@@ -10,6 +10,8 @@ pub mod env_info;
 pub mod ship;
 pub mod slotitem;
 
+pub mod decode;
 pub mod encode;
+pub mod integrate;
 
 pub mod table;

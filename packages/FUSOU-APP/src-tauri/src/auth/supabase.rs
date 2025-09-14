@@ -3,6 +3,7 @@ use sqlx::postgres::PgPoolOptions;
 use sqlx::types::chrono;
 use std::sync::OnceLock;
 use tokio::sync::OnceCell;
+use tracing_unwrap::OptionExt;
 
 static SUPABASE_DATABASE_URL: OnceLock<&str> = OnceLock::new();
 static KC_PERIOD_TAG: OnceCell<String> = OnceCell::const_new();
@@ -10,7 +11,8 @@ static KC_PERIOD_TAG: OnceCell<String> = OnceCell::const_new();
 pub fn get_supabase_database_url() -> &'static str {
     // SUPABASE_DATABASE_URL.get_or_init(|| dotenv!("SUPABASE_DATABASE_URL"))
     SUPABASE_DATABASE_URL.get_or_init(|| {
-        std::option_env!("SUPABASE_DATABASE_URL").expect("failed to get supabase database url")
+        std::option_env!("SUPABASE_DATABASE_URL")
+            .expect_or_log("failed to get supabase database url")
     })
 }
 
@@ -47,7 +49,7 @@ pub async fn get_period_tag() -> String {
                 .max_by_key(|(_, time)| time.timestamp())
                 .map(|(_, time)| *time);
             if latest_tag.is_none() {
-                println!("No latest tag found.");
+                tracing::warn!("No latest tag found.");
                 return "0".to_string();
             }
             let latest_tag = latest_tag.unwrap();

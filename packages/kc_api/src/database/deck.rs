@@ -16,14 +16,14 @@ use crate::database::table::DATABASE_TABLE_VERSION;
 use crate::interface::deck_port::DeckPorts;
 use crate::interface::ship::Ships;
 
-use register_trait::TraitForEncode;
+use register_trait::{TraitForDecode, TraitForEncode};
 
 pub type OwnDeckId = Uuid;
 pub type SupportDeckId = Uuid;
 pub type EnemyDeckId = Uuid;
 pub type FriendDeckId = Uuid;
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
+#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
 pub struct OwnDeck {
     pub version: String,
     pub env_uuid: EnvInfoId,
@@ -67,7 +67,7 @@ impl OwnDeck {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
+#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
 pub struct SupportDeck {
     pub version: String,
     pub env_uuid: EnvInfoId,
@@ -109,7 +109,7 @@ impl SupportDeck {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
+#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
 pub struct EnemyDeck {
     pub version: String,
     pub env_uuid: EnvInfoId,
@@ -159,7 +159,7 @@ impl EnemyDeck {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
+#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
 pub struct FriendDeck {
     pub version: String,
     pub env_uuid: EnvInfoId,

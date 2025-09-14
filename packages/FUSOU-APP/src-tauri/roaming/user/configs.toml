@@ -3,13 +3,13 @@
 
 [proxy]
 # Whether to save KanColle API requests
-allow_save_api_requests = false
+allow_save_api_requests = true
 
 # Whether to save KanColle API responses
-allow_save_api_responses = false
+allow_save_api_responses = true
 
 # Whether to save KanColle resources such as images and metadata
-allow_save_resources = false
+allow_save_resources = true
 
 # The location to save files
 # The default location is under the user's Documents directory
@@ -111,17 +111,17 @@ save_file_location = ""
     #
     # Set KanColle server hostname or empty if you want to choose KanColle server automatically
     # kc_server_name = "w16s.kancolle-server.com" # This is example
-    kc_server_name = ""
+    kc_server_name = "w16s.kancolle-server.com"
 
     [app.browser]
     # The URL to open first in the browser
     url = "http://www.dmm.com/netgame/social/-/gadgets/=/app_id=854854/"
-
+    
 
     [app.theme]
     # The theme to use for the application
     # you can choose between "light" and "dark"
-    theme = "light"
+    theme = "dark"
 
 
     [app.font]
@@ -133,29 +133,32 @@ save_file_location = ""
 
     [app.discord]
     # Whether to enable Discord integration (Discord Rich Presence)
-    enable_discord_integration = false
+    enable_discord_integration = true
 
-    # Whether to use a custom to use for Discord Rich Presence
-    use_custom_message = false
+    # Whether to use a custom message for Discord Rich Presence
+    # this option is only used when `enable_discord_integration` is true
+    use_custom_message = true
 
     # The custom message to use for Discord Rich Presence
     # This option is only used when `use_custom_message` is true
-    custom_message = ""
-    custom_details = ""
+    # this options won't work when you left these options empty string
+    custom_message = "This is experimental implementation"
+    custom_details = "Playing KanColle with FUSOU"
 
     # Whether to use a custom image for Discord Rich Presence
-    use_custom_image = false
+    # this option is only used when `use_custom_message` is true
+    use_custom_image = true
 
     # The custom image url to use for Discord Rich Presence
     # This option is only used when `use_custom_image` is true
-    custom_image_url = ""
+    custom_image_url = "https://avatars.githubusercontent.com/u/68815462?v=4"
 
 
     [app.database]
     # Whether to save KanColle data to the cloud
     # this feature can be enabled with user authentication
     # check [app.auth]
-    allow_data_to_cloud = false
+    allow_data_to_cloud = true
 
 
     [app.database.google_drive]
@@ -166,6 +169,7 @@ save_file_location = ""
         # The interval (in cron format) to sync data to Google Drive
         # this option is only used when [app.database] is enabled
         schedule_cron = "0 0 * * * *" # every hour
+
 
     [app.auth]
     # Whether to deny user authentication

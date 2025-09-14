@@ -1,5 +1,6 @@
 use std::sync::{LazyLock, Mutex};
 use tauri::{AppHandle, Manager};
+use tracing_unwrap::ResultExt;
 use webbrowser::{open_browser, Browser};
 
 static DEFAULT_GAME_URL: &str = "http://www.dmm.com/netgame/social/-/gadgets/=/app_id=854854/";
@@ -45,16 +46,18 @@ pub fn create_external_window(app: &AppHandle, browser: Option<Browser>, browse_
             match window.is_visible() {
                 Ok(visible) => {
                     if !visible {
-                        window.show().expect("Failed to show external window");
+                        window
+                            .show()
+                            .expect_or_log("Failed to show external window");
                     }
                 }
                 Err(e) => {
-                    println!("Error: {e:?}");
+                    tracing::error!("Error: {e:?}");
                 }
             }
             return;
         } else {
-            println!("can not get webview windows \"external\"");
+            tracing::error!("can not get webview windows \"external\"");
         }
 
         let init_script = include_str!("./scripts/external_init_script.js");
@@ -72,10 +75,10 @@ pub fn create_external_window(app: &AppHandle, browser: Option<Browser>, browse_
             .visible(false)
             .initialization_script(init_script)
             .build()
-            .expect("error while building external");
+            .expect_or_log("error while building external");
         external_result
             .show()
-            .expect("can not show external window");
+            .expect_or_log("can not show external window");
     } else {
         open_browser(browser.unwrap(), &get_game_url()).unwrap();
     }

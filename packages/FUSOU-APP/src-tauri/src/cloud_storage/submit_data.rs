@@ -40,22 +40,16 @@ pub fn submit_get_data_table() {
                         )
                         .await;
                         if result.is_none() {
-                            println!("\x1b[38;5;{}m Failed to write get data table\x1b[m ", 8);
+                            tracing::warn!("Failed to write get data table");
                         }
                     }
                     None => {
-                        println!(
-                            "\x1b[38;5;{}m Failed to create google drive client\x1b[m ",
-                            8
-                        );
+                        tracing::error!("Failed to create google drive client");
                     }
                 };
             }
             Err(e) => {
-                println!(
-                    "\x1b[38;5;{}m Failed to encode get data table: {}\x1b[m ",
-                    8, e
-                );
+                tracing::error!("Failed to encode get data table: {}", e);
             }
         }
     });
@@ -72,6 +66,9 @@ pub fn submit_port_table() {
     if Cells::reset_flag() {
         let cells = Cells::load();
         tokio::task::spawn(async move {
+            let _guard: tokio::sync::MutexGuard<'static, ()> =
+                google_drive::get_port_table_access_guard().await;
+
             let user_env = get_user_env_id().await;
             let timestamp = chrono::Utc::now().timestamp();
             let port_table = PortTable::new(cells, user_env, timestamp);
@@ -97,20 +94,17 @@ pub fn submit_port_table() {
                             )
                             .await;
                             if result.is_none() {
-                                println!("\x1b[38;5;{}m Failed to write port table\x1b[m ", 8);
+                                tracing::warn!("Failed to write port table");
                             }
                         }
                         None => {
-                            println!(
-                                "\x1b[38;5;{}m Failed to create google drive client\x1b[m ",
-                                8
-                            );
+                            tracing::error!("Failed to create google drive client");
                             let _ = auth_server::open_auth_page();
                         }
                     };
                 }
                 Err(e) => {
-                    println!("\x1b[38;5;{}m Failed to encode port table: {}\x1b[m ", 8, e);
+                    tracing::error!("Failed to encode port table: {}", e);
                 }
             }
         });

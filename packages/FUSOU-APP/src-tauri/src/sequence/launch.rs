@@ -10,6 +10,7 @@ use crate::{
     },
     json_parser, util, wrap_proxy,
 };
+use tracing_unwrap::OptionExt;
 
 pub async fn launch_with_options(
     window: tauri::Window,
@@ -56,7 +57,7 @@ pub async fn launch_with_options(
                             .join("./pac/proxy.pac")
                             .as_path()
                             .to_str()
-                            .expect("failed to convert str")
+                            .expect_or_log("failed to convert str")
                             .to_string();
 
                         #[cfg(dev)]
@@ -66,24 +67,24 @@ pub async fn launch_with_options(
                             .app_handle()
                             .path()
                             .document_dir()
-                            .expect("failed to get doc dirs")
+                            .expect_or_log("failed to get doc dirs")
                             .join("FUSOU-PROXY-DATA")
                             .as_path()
                             .to_str()
-                            .expect("failed to convert str")
+                            .expect_or_log("failed to convert str")
                             .to_string();
 
                         let ca_path = get_ROAMING_DIR()
                             .join("./ca")
                             .as_path()
                             .to_str()
-                            .expect("failed to convert str")
+                            .expect_or_log("failed to convert str")
                             .to_string();
-                        // let ca_path =  window.app_handle().path_resolver().resolve_resource("./resources/ca").expect("failed to resolve app_local_data_dir").as_path().to_str().expect("failed to convert str").to_string();
+                        // let ca_path =  window.app_handle().path_resolver().resolve_resource("./resources/ca").expect_or_log("failed to resolve app_local_data_dir").as_path().to_str().expect_or_log("failed to convert str").to_string();
 
-                        println!("save address: {save_path}");
-                        println!("ca path: {ca_path}");
-                        println!("pac path: {pac_path}");
+                        tracing::info!("save address: {save_path}");
+                        tracing::info!("ca path: {ca_path}");
+                        tracing::info!("pac path: {pac_path}");
 
                         let file_prefix = util::get_user_env_id().await;
 
@@ -98,7 +99,7 @@ pub async fn launch_with_options(
                         match addr {
                             Ok(addr) => Some(addr),
                             Err(e) => {
-                                println!("Error: {e}");
+                                tracing::error!("Error: {e}");
                                 return Err(());
                             }
                         }
@@ -125,7 +126,7 @@ pub async fn launch_with_options(
             );
             window
                 .get_webview_window("main")
-                .expect("no window labeled 'main' found")
+                .expect_or_log("no window labeled 'main' found")
                 .show()
                 .unwrap();
             // let _ = window
@@ -136,7 +137,7 @@ pub async fn launch_with_options(
         } else {
             window
                 .get_webview_window("main")
-                .expect("no window labeled 'main' found")
+                .expect_or_log("no window labeled 'main' found")
                 .close()
                 .unwrap();
             // let _ = window

@@ -10,8 +10,24 @@ use crate::{
         get_pac_bidirectional_channel, get_proxy_bidirectional_channel,
         get_proxy_log_bidirectional_channel,
     },
-    cmd::native_cmd,
+    cmd::native_cmd::{self, add_store, check_ca_installed},
 };
+
+pub fn check_ca_and_install<R>(app: &tauri::AppHandle<R>)
+where
+    R: tauri::Runtime,
+{
+    let app = app.clone();
+    tokio::task::spawn(async move {
+        #[cfg(target_os = "linux")]
+        if !check_ca_installed(&app).await {
+            tracing::info!("CA certificate is not installed");
+            add_store(&app);
+        }
+        #[cfg(target_os = "windows")]
+        add_store(&app);
+    });
+}
 
 pub fn serve_proxy<R>(
     proxy_target: String,
@@ -31,9 +47,16 @@ where
     let pac_bidirectional_channel_slave: Slave<StatusInfo> =
         get_pac_bidirectional_channel().clone_slave();
 
-    proxy_https::proxy_server_https::check_ca(ca_path.clone());
+    let ca_check_result = proxy_https::proxy_server_https::check_ca(ca_path.clone());
 
-    native_cmd::add_store(app);
+    if ca_check_result {
+        tracing::info!("CA certificate already exists");
+        check_ca_and_install(app);
+    } else {
+        tracing::info!("CA certificate does not exist, creating...");
+        proxy_https::proxy_server_https::create_ca(ca_path.clone());
+        add_store(app);
+    }
 
     // start proxy server
     // let save_path = "./../../FUSOU-PROXY-DATA".to_string();

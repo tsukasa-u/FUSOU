@@ -1,10 +1,7 @@
-use std::collections::HashMap;
-use std::fs;
+use std::{collections::HashMap, fs};
 
 use proxy_https::bidirectional_channel;
-use tauri::AppHandle;
-use tauri::Emitter;
-use tauri::Manager;
+use tauri::{AppHandle, Emitter, Manager};
 
 use crate::auth::auth_server;
 #[cfg(feature = "auth-local-server")]
@@ -22,6 +19,7 @@ use crate::interface::mst_use_item::MstUseItems;
 use crate::interface::slot_item::SlotItems;
 
 use crate::sequence;
+use tracing_unwrap::OptionExt;
 
 #[tauri::command]
 pub async fn get_mst_ships(window: tauri::Window) {
@@ -93,7 +91,7 @@ pub async fn show_splashscreen(window: tauri::Window) {
     // Show splashscreen
     window
         .get_webview_window("splashscreen")
-        .expect("no window labeled 'splashscreen' found")
+        .expect_or_log("no window labeled 'splashscreen' found")
         .show()
         .unwrap();
 }
@@ -104,18 +102,18 @@ pub async fn close_splashscreen(window: tauri::Window) {
     // Close splashscreen
     window
         .get_webview_window("splashscreen")
-        .expect("no window labeled 'splashscreen' found")
+        .expect_or_log("no window labeled 'splashscreen' found")
         .close()
         .unwrap();
     // Show main window
     window
         .get_webview_window("main")
-        .expect("no window labeled 'main' found")
+        .expect_or_log("no window labeled 'main' found")
         .show()
         .unwrap();
     window
         .get_webview_window("external")
-        .expect("no window labeled 'external' found")
+        .expect_or_log("no window labeled 'external' found")
         .show()
         .unwrap();
 }
@@ -184,7 +182,7 @@ pub async fn open_debug_window(window: tauri::Window) {
 pub async fn close_debug_window(window: tauri::Window) {
     window
         .get_webview_window("debug")
-        .expect("no window labeled 'debug' found")
+        .expect_or_log("no window labeled 'debug' found")
         .close()
         .unwrap();
 }
@@ -241,7 +239,7 @@ pub async fn open_auth_page(
         .map_err(|e| e.to_string());
 
     if let Err(e) = result {
-        println!("Error: {}", e);
+        tracing::error!("Error: {}", e);
         return Err(());
     }
     Ok(())
@@ -253,7 +251,7 @@ pub async fn open_auth_page(_window: tauri::Window) -> Result<(), ()> {
     let result = auth_server::open_auth_page();
 
     if let Err(e) = result {
-        println!("Error: {e}");
+        tracing::error!("Error: {e}");
         return Err(());
     }
     Ok(())

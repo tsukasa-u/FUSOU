@@ -6,13 +6,13 @@ use crate::database::env_info::EnvInfoId;
 use crate::database::table::PortTable;
 use crate::database::table::DATABASE_TABLE_VERSION;
 
-use register_trait::TraitForEncode;
+use register_trait::{TraitForDecode, TraitForEncode};
 
 pub type OwnSlotItemId = Uuid;
 pub type EnemySlotItemId = Uuid;
 pub type FriendSlotItemId = Uuid;
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
+#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
 pub struct OwnSlotItem {
     pub version: String,
     pub env_uuid: EnvInfoId,
@@ -45,7 +45,7 @@ impl OwnSlotItem {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
+#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
 pub struct EnemySlotItem {
     pub version: String,
     pub env_uuid: EnvInfoId,
@@ -69,7 +69,7 @@ impl EnemySlotItem {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
+#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
 pub struct FriendSlotItem {
     pub version: String,
     pub env_uuid: EnvInfoId,

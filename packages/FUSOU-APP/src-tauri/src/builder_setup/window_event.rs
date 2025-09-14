@@ -39,12 +39,14 @@ pub fn window_event_handler(window: &tauri::Window, event: &tauri::WindowEvent) 
                     }
                 }
 
-                if size.width != EXTERNAL_WINDOW_SIZE_BEFORE.lock().unwrap().width {
-                    EXTERNAL_WINDOW_SIZE_BEFORE.lock().unwrap().width = size.width;
-                    EXTERNAL_WINDOW_SIZE_BEFORE.lock().unwrap().height = size.width * 712 / 1192;
-                } else {
-                    EXTERNAL_WINDOW_SIZE_BEFORE.lock().unwrap().width = size.height * 1192 / 712;
-                    EXTERNAL_WINDOW_SIZE_BEFORE.lock().unwrap().height = size.height;
+                if let Ok(mut size_before) = EXTERNAL_WINDOW_SIZE_BEFORE.lock() {
+                    if size.width != size_before.width {
+                        size_before.width = size.width;
+                        size_before.height = size.width * 712 / 1192;
+                    } else {
+                        size_before.width = size.height * 1192 / 712;
+                        size_before.height = size.height;
+                    }
                 }
 
                 let _ = window.set_size(*EXTERNAL_WINDOW_SIZE_BEFORE.lock().unwrap());

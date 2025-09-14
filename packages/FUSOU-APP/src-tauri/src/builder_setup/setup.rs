@@ -16,15 +16,21 @@ use crate::{
         bidirectional_channel::{
             get_pac_bidirectional_channel, get_proxy_bidirectional_channel,
             get_response_parse_bidirectional_channel,
+            get_scheduler_integrate_bidirectional_channel,
         },
-        updater::setup_updater,
+        logger,
     },
+    cloud_storage::integrate,
     cmd::{native_cmd, tauri_cmd},
     integration::discord,
+    scheduler,
     util::{get_RESOURCES_DIR, get_ROAMING_DIR},
     window::{app, external},
 };
 use proxy_https::bidirectional_channel::request_shutdown;
+
+#[cfg(any(not(dev), check_release))]
+use crate::builder_setup::updater::setup_updater;
 
 use crate::RESOURCES_DIR;
 use crate::ROAMING_DIR;
@@ -34,7 +40,7 @@ fn setup_deep_link(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error
     app.deep_link().register_all()?;
 
     app.deep_link().on_open_url(|event| {
-        dbg!(event.urls());
+        tracing::info!("urls: {:?}", event.urls());
     });
     Ok(())
 }
@@ -43,37 +49,37 @@ fn set_paths(
     #[allow(unused_variables)] app: &mut tauri::App,
 ) -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(dev)]
-    RESOURCES_DIR
-        .set(Mutex::new(PathBuf::from(format!(
-            "{}/resources",
-            env!("CARGO_MANIFEST_DIR")
-        ))))
-        .unwrap();
+    let _ = RESOURCES_DIR.set(Mutex::new(PathBuf::from(format!(
+        "{}/resources",
+        env!("CARGO_MANIFEST_DIR")
+    ))));
 
     #[cfg(any(not(dev), check_release))]
     match app.path().resource_dir() {
         Ok(path) => {
-            RESOURCES_DIR
-                .set(Mutex::new(path.join("resources")))
-                .unwrap();
+            let _ = RESOURCES_DIR.set(Mutex::new(path.join("resources")));
         }
-        Err(e) => return Err(e.into()),
+        Err(e) => {
+            tracing::error!("Failed to get resource_dir: {}", e);
+            return Err(e.into());
+        }
     }
 
     #[cfg(dev)]
-    ROAMING_DIR
-        .set(Mutex::new(PathBuf::from(format!(
-            "{}/roaming",
-            env!("CARGO_MANIFEST_DIR")
-        ))))
-        .unwrap();
+    let _ = ROAMING_DIR.set(Mutex::new(PathBuf::from(format!(
+        "{}/roaming",
+        env!("CARGO_MANIFEST_DIR")
+    ))));
 
     #[cfg(any(not(dev), check_release))]
     match app.path().app_data_dir() {
         Ok(path) => {
-            ROAMING_DIR.set(Mutex::new(path.clone())).unwrap();
+            let _ = ROAMING_DIR.set(Mutex::new(path.clone()));
         }
-        Err(e) => return Err(e.into()),
+        Err(e) => {
+            tracing::error!("Failed to get app_data_dir: {}", e);
+            return Err(e.into());
+        }
     }
     Ok(())
 }
@@ -85,62 +91,49 @@ fn setup_tray(
     let danger_ope_sub_menu_title =
         MenuItemBuilder::with_id("danger-title".to_string(), "Danger Zone")
             .enabled(false)
-            .build(app)
-            .unwrap();
+            .build(app)?;
     let proxy_serve_shutdown =
         MenuItemBuilder::with_id("proxy-serve-shutdown".to_string(), "Shutdown Proxy Server")
-            .build(app)
-            .unwrap();
+            .build(app)?;
     let pac_server_shutdown =
         MenuItemBuilder::with_id("pac-serve-shutdown".to_string(), "Shutdown PAC Server")
-            .build(app)
-            .unwrap();
+            .build(app)?;
     let delete_registry =
-        MenuItemBuilder::with_id("delete-registry".to_string(), "Delete Registry")
-            .build(app)
-            .unwrap();
+        MenuItemBuilder::with_id("delete-registry".to_string(), "Delete Registry").build(app)?;
 
     #[cfg(dev)]
     let open_debug_window =
         MenuItemBuilder::with_id("open-debug-window".to_string(), "Open Debug Window")
-            .build(app)
-            .unwrap();
+            .build(app)?;
 
     #[cfg(dev)]
     let open_auth_window =
-        MenuItemBuilder::with_id("open-auth-window".to_string(), "Open Auth Window")
-            .build(app)
-            .unwrap();
+        MenuItemBuilder::with_id("open-auth-window".to_string(), "Open Auth Window").build(app)?;
 
-    let quit = MenuItemBuilder::with_id("quit".to_string(), "Quit")
-        .build(app)
-        .unwrap();
+    let quit = MenuItemBuilder::with_id("quit".to_string(), "Quit").build(app)?;
     // let restart = MenuItemBuilder::with_id("restart".to_string(), "Restart")
-    //     .build(app)
-    //     .unwrap();
+    //     .build(app)?;
     let title = MenuItemBuilder::with_id("title".to_string(), "FUSOU")
         .enabled(false)
-        .build(app)
-        .unwrap();
+        .build(app)?;
     let external_open_close =
-        MenuItemBuilder::with_id("external-open/close".to_string(), "Open WebView")
-            .build(app)
-            .unwrap();
+        MenuItemBuilder::with_id("external-open/close".to_string(), "Open WebView").build(app)?;
     let main_open_close =
-        MenuItemBuilder::with_id("main-open/close".to_string(), "Open Main Window")
-            .build(app)
-            .unwrap();
+        MenuItemBuilder::with_id("main-open/close".to_string(), "Open Main Window").build(app)?;
     // let visit_website = MenuItemBuilder::with_id("visit-website".to_string(), "Visit Website")
-    //     .build(app)
-    //     .unwrap();
+    //     .build(app)?;
     let open_launch_page =
-        MenuItemBuilder::with_id("open-launch-page".to_string(), "Open Launch Page")
-            .build(app)
-            .unwrap();
+        MenuItemBuilder::with_id("open-launch-page".to_string(), "Open Launch Page").build(app)?;
 
-    let open_configs = MenuItemBuilder::with_id("open-configs".to_string(), "Open Configs")
-        .build(app)
-        .unwrap();
+    let open_configs =
+        MenuItemBuilder::with_id("open-configs".to_string(), "Open Configs").build(app)?;
+
+    let open_log_file =
+        MenuItemBuilder::with_id("open-log-file".to_string(), "Open log file").build(app)?;
+
+    let intergrate_file =
+        MenuItemBuilder::with_id("intergrate_file".to_string(), "Intergrate Cloud File")
+            .build(app)?;
 
     let danger_ope_sub_menu = SubmenuBuilder::new(app, "Danger Zone")
         .item(&danger_ope_sub_menu_title)
@@ -154,19 +147,20 @@ fn setup_tray(
         .item(&open_debug_window)
         .item(&open_auth_window);
 
-    let danger_ope_sub_menu = danger_ope_sub_menu.build().unwrap();
+    let danger_ope_sub_menu = danger_ope_sub_menu.build()?;
 
     let adavanced_title = MenuItemBuilder::with_id("advanced-title".to_string(), "Advanced")
         .enabled(false)
-        .build(app)
-        .unwrap();
+        .build(app)?;
 
     let advanced_sub_menu = SubmenuBuilder::new(app, "Adavanced")
         // .item(&adavanced_title)
-        // .separator()
+        .item(&open_configs)
+        .item(&open_log_file)
+        .item(&intergrate_file)
+        .separator()
         .item(&danger_ope_sub_menu)
-        .build()
-        .unwrap();
+        .build()?;
 
     let tray_menu = MenuBuilder::new(app)
         .item(&title)
@@ -175,14 +169,12 @@ fn setup_tray(
         .item(&main_open_close)
         .item(&external_open_close)
         .item(&open_launch_page)
-        .item(&open_configs)
         .separator()
         .item(&advanced_sub_menu)
         .separator()
         .item(&quit)
         // .item(&restart)
-        .build()
-        .unwrap();
+        .build()?;
 
     app.manage(Mutex::new(main_open_close));
 
@@ -210,15 +202,15 @@ fn setup_tray(
                 match window {
                     Some(window) => {
                         if let Ok(false) = window.is_visible() {
-                            window.show().unwrap();
+                            if let Err(e) = window.show() {
+                                tracing::error!("Failed to show window: {}", e);
+                            }
                         }
                     }
                     None => {
                         app::open_main_window(app);
                     }
                 }
-
-                println!("system tray received a left click");
             }
         })
         .on_menu_event({
@@ -228,10 +220,12 @@ fn setup_tray(
                     #[cfg(dev)]
                     "open-debug-window" => match tray.get_webview_window("debug") {
                         Some(debug_window) => {
-                            debug_window.show().unwrap();
+                            if let Err(e) = debug_window.show() {
+                                tracing::error!("Failed to show debug window: {}", e);
+                            }
                         }
                         None => {
-                            let _window = tauri::WebviewWindowBuilder::new(
+                            if let Err(e) = tauri::WebviewWindowBuilder::new(
                                 tray.app_handle(),
                                 "debug",
                                 tauri::WebviewUrl::App("/debug".into()),
@@ -239,16 +233,20 @@ fn setup_tray(
                             .fullscreen(false)
                             .title("fusou-debug")
                             .build()
-                            .unwrap();
+                            {
+                                tracing::error!("Failed to build debug window: {}", e);
+                            }
                         }
                     },
                     #[cfg(dev)]
                     "open-auth-window" => match tray.get_webview_window("auth") {
                         Some(debug_window) => {
-                            debug_window.show().unwrap();
+                            if let Err(e) = debug_window.show() {
+                                tracing::error!("Failed to show auth window: {}", e);
+                            }
                         }
                         None => {
-                            let _window = tauri::WebviewWindowBuilder::new(
+                            if let Err(e) = tauri::WebviewWindowBuilder::new(
                                 tray.app_handle(),
                                 "auth",
                                 tauri::WebviewUrl::App("/auth".into()),
@@ -256,7 +254,9 @@ fn setup_tray(
                             .fullscreen(false)
                             .title("fusou-auth")
                             .build()
-                            .unwrap();
+                            {
+                                tracing::error!("Failed to build auth window: {}", e);
+                            }
                         }
                     },
                     "proxy-serve-shutdown" => {}
@@ -265,10 +265,9 @@ fn setup_tray(
                         if let Some(window) = tray.get_webview_window("main") {
                             if let Ok(visible) = window.is_visible() {
                                 if visible {
-                                    tray.get_webview_window("main")
-                                        .expect("no window labeled 'main' found")
-                                        .hide()
-                                        .unwrap();
+                                    if let Err(e) = window.hide() {
+                                        tracing::error!("Failed to hide main window: {}", e);
+                                    }
                                 }
                             }
                         }
@@ -276,10 +275,9 @@ fn setup_tray(
                         if let Some(window) = tray.get_webview_window("external") {
                             if let Ok(visible) = window.is_visible() {
                                 if visible {
-                                    tray.get_webview_window("external")
-                                        .expect("no window labeled 'external' found")
-                                        .hide()
-                                        .unwrap();
+                                    if let Err(e) = window.hide() {
+                                        tracing::error!("Failed to hide external window: {}", e);
+                                    }
                                 }
                             }
                         }
@@ -306,7 +304,9 @@ fn setup_tray(
                         match window {
                             Some(window) => {
                                 if let Ok(false) = window.is_visible() {
-                                    window.show().unwrap();
+                                    if let Err(e) = window.show() {
+                                        tracing::error!("Failed to show main window: {}", e);
+                                    }
                                 }
                                 tauri_cmd::set_launch_page(tray.app_handle());
                             }
@@ -320,12 +320,24 @@ fn setup_tray(
                         let path_str = config_path.to_string_lossy();
                         let _ = tray.app_handle().opener().open_path(path_str, None::<&str>);
                     }
+                    "open-log-file" => {
+                        let log_path = get_ROAMING_DIR()
+                            .join("log")
+                            .join(logger::get_log_file_name());
+                        let path_str = log_path.to_string_lossy();
+                        let _ = tray.app_handle().opener().open_path(path_str, None::<&str>);
+                    }
+                    "intergrate_file" => {
+                        integrate::integrate_port_table();
+                    }
                     "main-open/close" => {
                         let window = tray.get_webview_window("main");
                         match window {
                             Some(window) => match window.is_visible() {
                                 Ok(true) => {
-                                    window.hide().unwrap();
+                                    if let Err(e) = window.hide() {
+                                        tracing::error!("Failed to hide main window: {}", e);
+                                    }
                                     // // let _ = app
                                     // //     .tray_handle()
                                     // //     .get_item("main-open/close")
@@ -333,7 +345,9 @@ fn setup_tray(
                                     // let _ = main_open_close.set_text("Open Main Window");
                                 }
                                 Ok(false) => {
-                                    window.show().unwrap();
+                                    if let Err(e) = window.show() {
+                                        tracing::error!("Failed to show main window: {}", e);
+                                    }
                                     // // let _ = app
                                     // //     .tray_handle()
                                     // //     .get_item("main-open/close")
@@ -353,7 +367,9 @@ fn setup_tray(
                         match window {
                             Some(window) => match window.is_visible() {
                                 Ok(true) => {
-                                    // window.hide().unwrap();
+                                    // if let Err(e) = window.hide() {
+                                    //     tracing::error!("Failed to hide external window: {}", e);
+                                    // }
                                     // // let _ = app
                                     // //     .tray_handle()
                                     // //     .get_item("external-open/close")
@@ -361,7 +377,9 @@ fn setup_tray(
                                     // external_open_close.set_text("Open WebView");
                                 }
                                 Ok(false) => {
-                                    window.show().unwrap();
+                                    if let Err(e) = window.show() {
+                                        tracing::error!("Failed to show external window: {}", e);
+                                    }
                                     // // let _ = app
                                     // //     .tray_handle()
                                     // //     .get_item("external-open/close")
@@ -384,8 +402,7 @@ fn setup_tray(
                 }
             }
         })
-        .build(app)
-        .unwrap();
+        .build(app)?;
 
     Ok(())
 }
@@ -405,8 +422,8 @@ pub fn setup_discord() -> Result<(), Box<dyn std::error::Error>> {
 pub fn setup_configs() -> Result<(), Box<dyn std::error::Error>> {
     let resources_config_path = get_RESOURCES_DIR().join("user").join("configs.toml");
     let roaming_config_path = get_ROAMING_DIR().join("user").join("configs.toml");
-    println!("open configs: {:?}", roaming_config_path);
-    println!("default configs: {:?}", resources_config_path);
+    tracing::info!("open configs: {:?}", roaming_config_path);
+    tracing::info!("default configs: {:?}", resources_config_path);
     if fs::metadata(&roaming_config_path).is_err() {
         if let Some(parent) = roaming_config_path.parent() {
             fs::create_dir_all(parent)?;
@@ -421,18 +438,22 @@ pub fn setup_configs() -> Result<(), Box<dyn std::error::Error>> {
 pub fn setup_init(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let (shutdown_tx, mut shutdown_rx) = mpsc::channel::<()>(1);
 
-    #[cfg(not(dev))]
+    set_paths(app)?;
+    logger::setup(app);
+    #[cfg(any(not(dev), check_release))]
     setup_updater(app)?;
     setup_deep_link(app)?;
-    set_paths(app)?;
     setup_configs()?;
     setup_tray(app, shutdown_tx)?;
     setup_discord()?;
+    scheduler::integrate_file::start_scheduler();
 
     let proxy_bidirectional_channel_master_clone = get_proxy_bidirectional_channel().clone_master();
     let pac_bidirectional_channel_master_clone = get_pac_bidirectional_channel().clone_master();
     let response_parse_channel_master_clone =
         get_response_parse_bidirectional_channel().clone_master();
+    let scheduler_integrate_channel_master_clone =
+        get_scheduler_integrate_bidirectional_channel().clone_master();
     #[cfg(feature = "auth-local-server")]
     let auth_bidirectional_channel_master_clone = get_auth_bidirectional_channel().clone_master();
 
@@ -446,12 +467,14 @@ pub fn setup_init(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>
             request_shutdown(pac_bidirectional_channel_master_clone),
             request_shutdown(response_parse_channel_master_clone),
             request_shutdown(auth_bidirectional_channel_master_clone),
+            request_shutdown(scheduler_integrate_channel_master_clone),
         );
         #[cfg(not(feature = "auth-local-server"))]
         let _ = tokio::join!(
             request_shutdown(proxy_bidirectional_channel_master_clone),
             request_shutdown(pac_bidirectional_channel_master_clone),
             request_shutdown(response_parse_channel_master_clone),
+            request_shutdown(scheduler_integrate_channel_master_clone),
         );
 
         tokio::time::sleep(time::Duration::from_millis(2000)).await;

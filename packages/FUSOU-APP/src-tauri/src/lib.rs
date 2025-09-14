@@ -14,15 +14,11 @@ mod builder_setup;
 mod cloud_storage;
 mod cmd;
 mod integration;
+mod scheduler;
 mod sequence;
 mod util;
 mod window;
 mod wrap_proxy;
-
-use crate::builder_setup::bidirectional_channel::{
-    get_manage_pac_channel, get_manage_proxy_channel, get_manage_proxy_log_channel,
-    get_manage_response_parse_channel,
-};
 
 #[cfg(feature = "auth-local-server")]
 use crate::builder_setup::bidirectional_channel::get_manage_auth_channel;
@@ -34,18 +30,6 @@ static ROAMING_DIR: OnceCell<Mutex<PathBuf>> = OnceCell::new();
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 #[tokio::main]
 pub async fn run() {
-    // let shared_browser = Arc::new(Mutex::new(BrowserState::new()));
-
-    // let browser = shared_browser.lock().unwrap().get_browser();
-
-    let manage_pac_channel = get_manage_pac_channel();
-
-    let manage_proxy_channel = get_manage_proxy_channel();
-
-    let manage_proxy_log_channel = get_manage_proxy_log_channel();
-
-    let manage_response_parse_channel = get_manage_response_parse_channel();
-
     #[cfg(feature = "auth-local-server")]
     let manage_auth_channel = get_manage_auth_channel();
 
@@ -67,19 +51,12 @@ pub async fn run() {
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_shell::init())
-        // .plugin(tauri_plugin_devtools::init())
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_single_instance::init(
             move |app: &tauri::AppHandle, argv: Vec<String>, _cwd| {
                 builder_setup::single_instance::single_instance_init(app, argv)
             },
         ));
-
-    builder = builder
-        .manage(manage_pac_channel)
-        .manage(manage_proxy_channel)
-        .manage(manage_proxy_log_channel)
-        .manage(manage_response_parse_channel);
 
     #[cfg(feature = "auth-local-server")]
     {
@@ -124,7 +101,7 @@ pub async fn run() {
             builder_setup::window_event::window_event_handler(window, event)
         });
 
-    builder
-        .run(ctx)
-        .expect("error while building tauri application");
+    if let Err(e) = builder.run(ctx) {
+        tracing::error!("error while building tauri application: {}", e);
+    }
 }

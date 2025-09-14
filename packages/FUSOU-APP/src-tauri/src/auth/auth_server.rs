@@ -83,7 +83,7 @@ pub fn serve_auth(
                     },
                 }
             }
-            println!("Shutting down Auth server");
+            tracing::info!("Shutting down Auth server");
         });
         println!("Auth server addr: {}", addr);
     

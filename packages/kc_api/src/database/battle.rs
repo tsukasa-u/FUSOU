@@ -19,7 +19,7 @@ use crate::interface::air_base::AirBases;
 use crate::interface::deck_port::DeckPorts;
 use crate::interface::ship::Ships;
 
-use register_trait::TraitForEncode;
+use register_trait::{TraitForDecode, TraitForEncode};
 
 pub type BattleId = Uuid;
 pub type HougekiListId = Uuid;
@@ -41,7 +41,7 @@ pub type FriendlySupportHouraiId = Uuid;
 pub type SupportAirattackId = Uuid;
 pub type FriendlySupportHouraiListId = Uuid;
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
+#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
 pub struct HougekiList {
     pub version: String,
     pub env_uuid: EnvInfoId,
@@ -86,7 +86,7 @@ impl HougekiList {
     // }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
+#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
 pub struct Hougeki {
     pub version: String,
     pub env_uuid: EnvInfoId,
@@ -147,7 +147,7 @@ impl Hougeki {
     // }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
+#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
 pub struct MidnightHougekiList {
     pub version: String,
     pub env_uuid: EnvInfoId,
@@ -195,7 +195,7 @@ impl MidnightHougekiList {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
+#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
 pub struct MidnightHougeki {
     pub version: String,
     pub env_uuid: EnvInfoId,
@@ -256,7 +256,7 @@ impl MidnightHougeki {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
+#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
 pub struct OpeningTaisenList {
     pub version: String,
     pub env_uuid: EnvInfoId,
@@ -286,7 +286,7 @@ impl OpeningTaisenList {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
+#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
 pub struct OpeningTaisen {
     pub version: String,
     pub env_uuid: EnvInfoId,
@@ -340,7 +340,7 @@ impl OpeningTaisen {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
+#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
 pub struct ClosingRaigeki {
     pub version: String,
     pub env_uuid: EnvInfoId,
@@ -387,7 +387,7 @@ impl ClosingRaigeki {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
+#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
 pub struct OpeningRaigeki {
     pub version: String,
     pub env_uuid: EnvInfoId,
@@ -434,7 +434,7 @@ impl OpeningRaigeki {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
+#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
 pub struct OpeningAirAttackList {
     pub version: String,
     pub env_uuid: EnvInfoId,
@@ -474,7 +474,7 @@ impl OpeningAirAttackList {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
+#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
 pub struct OpeningAirAttack {
     pub version: String,
     pub env_uuid: EnvInfoId,
@@ -547,7 +547,7 @@ impl OpeningAirAttack {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
+#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
 pub struct AirBaseAirAttackList {
     pub version: String,
     pub env_uuid: EnvInfoId,
@@ -584,7 +584,7 @@ impl AirBaseAirAttackList {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
+#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
 pub struct AirBaseAirAttack {
     pub version: String,
     pub env_uuid: EnvInfoId,
@@ -659,7 +659,7 @@ impl AirBaseAirAttack {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
+#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
 pub struct AirBaseAssult {
     pub version: String,
     pub env_uuid: EnvInfoId,
@@ -728,7 +728,7 @@ impl AirBaseAssult {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
+#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
 pub struct CarrierBaseAssault {
     pub version: String,
     pub env_uuid: EnvInfoId,
@@ -795,7 +795,7 @@ impl CarrierBaseAssault {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
+#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
 pub struct SupportHourai {
     pub version: String,
     pub env_uuid: EnvInfoId,
@@ -871,7 +871,7 @@ impl SupportHourai {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
+#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
 pub struct SupportAirattack {
     pub version: String,
     pub env_uuid: EnvInfoId,
@@ -965,7 +965,7 @@ impl SupportAirattack {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
+#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
 pub struct FriendlySupportHouraiList {
     pub version: String,
     pub env_uuid: EnvInfoId,
@@ -1015,7 +1015,7 @@ impl FriendlySupportHouraiList {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
+#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
 pub struct FriendlySupportHourai {
     pub version: String,
     pub env_uuid: EnvInfoId,
@@ -1076,7 +1076,7 @@ impl FriendlySupportHourai {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode)]
+#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
 pub struct Battle {
     pub version: String,
     pub env_uuid: EnvInfoId,

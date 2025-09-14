@@ -7,6 +7,7 @@ mod add_field;
 mod doc_util;
 mod expand_struct_selector;
 mod generate_convert;
+mod generate_decode;
 mod generate_emitdata;
 mod generate_encode;
 mod generate_getter;
@@ -109,6 +110,16 @@ pub fn generate_emitdata(item: TokenStream) -> TokenStream {
 pub fn generate_encode(item: TokenStream) -> TokenStream {
     let mut ast = syn::parse_macro_input!(item as DeriveInput);
     let result = generate_encode::generate_encode(&mut ast);
+    match result {
+        Ok(generated) => generated,
+        Err(err) => err.to_compile_error().into(),
+    }
+}
+
+#[proc_macro_derive(TraitForDecode)]
+pub fn generate_decode(item: TokenStream) -> TokenStream {
+    let mut ast = syn::parse_macro_input!(item as DeriveInput);
+    let result = generate_decode::generate_decode(&mut ast);
     match result {
         Ok(generated) => generated,
         Err(err) => err.to_compile_error().into(),
