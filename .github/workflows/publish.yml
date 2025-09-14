@@ -60,10 +60,11 @@ jobs:
         uses: actions/github-script@v6
         env:
           PREVIOUS_TAG: ${{ steps.get-previous.outputs.result }}
+          RELEASE_TAG: ${{ github.ref_name }}
         with:
           script: |
             const previousTag = process.env.PREVIOUS_TAG;
-            const releaseTag = `fusou-v${process.env.PACKAGE_VERSION}`;
+            const releaseTag = process.env.RELEASE_TAG;
 
             console.log(`Previous tag: ${previousTag}`);
             console.log(`Release tag: ${releaseTag}`);
