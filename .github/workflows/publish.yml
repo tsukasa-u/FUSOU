@@ -45,15 +45,30 @@ jobs:
         uses: actions/github-script@v6
         with:
           script: |
+            const previousTag = process.env.PREVIOUS_TAG;
+            const releaseTag = process.env.RELEASE_TAG;
+
+            const releaseNotesParams = {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              tag_name: releaseTag,
+            };
+
+            if (previousTag) {
+              releaseNotesParams.previous_tag_name = previousTag;
+            }
+
+            const releaseNotes = await github.rest.repos.generateReleaseNotes(releaseNotesParams);
+
             const { data } = await github.rest.repos.createRelease({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              tag_name: `fusou-v${process.env.PACKAGE_VERSION}`,
-              name: `FUSOU ${process.env.PACKAGE_VERSION}`,
-              body: 'Take a look at the assets to download and install this app.',
+              tag_name: releaseTag,
+              name: releaseTag,
+              body: releaseNotes.data.body,
               draft: true,
               prerelease: false
-            })
+            });
             return data.id
 
   build-tauri:
