@@ -40,13 +40,31 @@ jobs:
           fi
           echo "Version check passed."
 
+      - name: Get previous tag
+        uses: actions/github-script@v7
+        id: get-previous
+        with:
+          script: |
+            const previousTags = await github.rest.repos.listTags({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              per_page: 1
+            })
+            const previousTag = previousTags.data.length > 0 ? previousTags.data[0].name : '';
+
+            return previousTag
+          result-encoding: string
+
       - name: create release
         id: create-release
         uses: actions/github-script@v6
         with:
           script: |
             const previousTag = process.env.PREVIOUS_TAG;
-            const releaseTag = process.env.RELEASE_TAG;
+            const releaseTag = `FUSOU ${process.env.PACKAGE_VERSION}`;
+
+            console.log(`Previous tag: ${previousTag}`);
+            console.log(`Release tag: ${releaseTag}`);
 
             const releaseNotesParams = {
               owner: context.repo.owner,
