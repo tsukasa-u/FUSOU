@@ -10,8 +10,11 @@ use crate::{
         get_pac_bidirectional_channel, get_proxy_bidirectional_channel,
         get_proxy_log_bidirectional_channel,
     },
-    cmd::native_cmd::{self, add_store, check_ca_installed},
+    cmd::native_cmd::{self, add_store},
 };
+
+#[cfg(target_os = "linux")]
+use crate::cmd::native_cmd::check_ca_installed;
 
 pub fn check_ca_and_install<R>(app: &tauri::AppHandle<R>)
 where

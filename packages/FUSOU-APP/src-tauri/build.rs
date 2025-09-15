@@ -29,8 +29,7 @@ fn main() {
         if let Err(e) = writeln!(
             file,
             "export const env = {{ SUPABASE_URL: \"{}\", SUPABASE_ANON_KEY: \"{}\"}}",
-            supabase_url,
-            supabase_anon_key
+            supabase_url, supabase_anon_key
         ) {
             eprintln!("cannot write to file: {}", e);
         }
