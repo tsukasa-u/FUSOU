@@ -32,7 +32,7 @@
       "providerShortName": null,
       "signingIdentity": null
     },
-    "resources": ["./resources/cmd/*", "./resources/pac/*"],
+    "resources": ["./resources/**/*"],
     "shortDescription": "",
     "linux": {
       "deb": {
