@@ -18,6 +18,13 @@ pub fn edit_pac(path: &str, addr: &str, host: Option<&str>) {
         let content = format!(r#"if (shExpMatch(host, "{}")) {{ // [REPLACE HOST]"#, host);
         let replaced = re.replace(&replaced, content).to_string();
 
+        tracing::info!("Edited PAC file path :\n{}", path);
+        std::fs::create_dir_all(
+            Path::new(path)
+                .parent()
+                .expect_or_log("failed to get parent"),
+        )
+        .expect_or_log("failed to create dir");
         std::fs::write(path, replaced).expect_or_log("Unable to write file");
     } else {
         let parent_path = Path::new(path)
