@@ -26,7 +26,7 @@ import {
 import { get_data_set_param_ship } from "../../../utility/get_data_set.tsx";
 
 export default {
-  title: "components/opening_torpedo_attack",
+  title: "components/battles/battle/opening_torpedo_attack",
   component: OpeningTorpedoAttackComponent,
   tags: ["autodocs"],
   // Use `fn` to spy on the onClick arg, which will appear in the actions panel once invoked: https://storybook.js.org/docs/essentials/actions#action-args

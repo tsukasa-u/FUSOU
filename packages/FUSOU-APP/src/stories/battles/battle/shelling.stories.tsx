@@ -26,7 +26,7 @@ import {
 import { get_data_set_param_ship } from "../../../utility/get_data_set.tsx";
 
 export default {
-  title: "components/shelling",
+  title: "components/battles/battle/shelling",
   component: ShellingComponent,
   tags: ["autodocs"],
   // Use `fn` to spy on the onClick arg, which will appear in the actions panel once invoked: https://storybook.js.org/docs/essentials/actions#action-args

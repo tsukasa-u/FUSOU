@@ -18,7 +18,7 @@ import { deck_port } from "./../data/deck_ports.ts";
 import { air_bases } from "./../data/air_bases.ts";
 
 export default {
-  title: "components/air_bases",
+  title: "components/air_bases/air_bases",
   component: AirBasesComponent,
   tags: ["autodocs"],
   // Use `fn` to spy on the onClick arg, which will appear in the actions panel once invoked: https://storybook.js.org/docs/essentials/actions#action-args
