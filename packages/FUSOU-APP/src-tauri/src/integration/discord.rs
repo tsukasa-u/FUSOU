@@ -2,7 +2,7 @@
 
 use discord_rich_presence::{activity, DiscordIpc, DiscordIpcClient};
 use std::sync::{LazyLock, Mutex};
-use tracing_unwrap::OptionExt;
+use tracing_unwrap::{OptionExt, ResultExt};
 
 static DISCORD_CLIENT: LazyLock<
     Mutex<Result<DiscordIpcClient, Box<dyn std::error::Error + Send + Sync>>>,
@@ -17,7 +17,7 @@ fn get_enable_integration() -> bool {
 pub fn init_client() -> Result<DiscordIpcClient, Box<dyn std::error::Error + Send + Sync>> {
     if get_enable_integration() {
         let client_id = std::option_env!("DISCORD_CLIENT_ID")
-            .expect_or_log("failed to get supabase database url");
+            .expect_or_log("failed to get DISCORD_CLIENT_ID env variable");
 
         let client = DiscordIpcClient::new(client_id);
         match client {
@@ -111,24 +111,22 @@ pub fn connect() {
     if DISCORD_CLIENT.lock().unwrap().is_err() || !get_enable_integration() {
         return;
     }
-    DISCORD_CLIENT
-        .lock()
-        .unwrap()
-        .as_mut()
-        .unwrap()
-        .connect()
-        .unwrap();
+    let result = DISCORD_CLIENT.lock().unwrap().as_mut().unwrap().connect();
+
+    match result {
+        Ok(_) => tracing::info!("Connected to Discord"),
+        Err(e) => tracing::error!("Failed to connect to Discord: {}", e),
+    }
 }
 
 pub fn close() {
     if DISCORD_CLIENT.lock().unwrap().is_err() || !get_enable_integration() {
         return;
     }
-    DISCORD_CLIENT
-        .lock()
-        .unwrap()
-        .as_mut()
-        .unwrap()
-        .close()
-        .unwrap();
+    let result = DISCORD_CLIENT.lock().unwrap().as_mut().unwrap().close();
+
+    match result {
+        Ok(_) => tracing::info!("Disconnected from Discord"),
+        Err(e) => tracing::error!("Failed to disconnect from Discord: {}", e),
+    }
 }

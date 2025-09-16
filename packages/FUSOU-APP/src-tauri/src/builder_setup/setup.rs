@@ -459,7 +459,14 @@ pub fn setup_init(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>
 
     let app_handle = app.handle().clone();
     tauri::async_runtime::spawn(async move {
-        let _ = shutdown_rx.recv().await;
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {
+                tracing::info!("Received Ctrl+C, shutting down.");
+            }
+            _ = shutdown_rx.recv() => {
+                tracing::info!("Received shutdown signal, shutting down.");
+            }
+        }
         // is it needed to add select! for timeout?
         #[cfg(feature = "auth-local-server")]
         let _ = tokio::join!(
