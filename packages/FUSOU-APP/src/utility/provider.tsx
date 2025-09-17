@@ -544,7 +544,7 @@ export function DeckBattlesProvider(props: { children: JSX.Element }) {
         (event) => {
           if (import.meta.env.DEV) console.log("set-kcs-deck-battles");
           setData(event.payload);
-          console.log(event.payload);
+          if (import.meta.env.DEV) console.log(event.payload);
         }
       );
     })();
@@ -704,6 +704,7 @@ export function AirBasesBattlesProvider(props: { children: JSX.Element }) {
         (event) => {
           if (import.meta.env.DEV) console.log("set-kcs-air-bases-battles");
           setData(event.payload);
+          if (import.meta.env.DEV) console.log(event.payload);
         }
       );
     })();

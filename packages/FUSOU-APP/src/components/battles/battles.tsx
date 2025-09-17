@@ -79,10 +79,6 @@ export function BattlesComponent() {
     );
   });
 
-  createEffect(() => {
-    console.log(cells);
-  });
-
   const show_battle = createMemo<boolean>(() => {
     if (Object.keys(cells.battles).length == 0) return false;
     if (
@@ -479,6 +475,7 @@ export function BattlesComponent() {
                         style={{ "box-shadow": "none" }}
                         onClick={() => {
                           set_cell_index_selected(index());
+                          if (import.meta.env.DEV) console.log(cells);
                         }}
                       >
                         {cells.cell_index[index()]}

@@ -154,7 +154,7 @@ function Start() {
 
   createEffect(() => {
     supabase.auth.getSession().then(({ data, error }) => {
-      console.log("session", data, error);
+      if (import.meta.env.DEV) console.log("session", data, error);
       if (error) {
         console.error("Error getting session:", error);
         open_auth_page();
@@ -233,7 +233,7 @@ function Start() {
   const auto_listen = createAsyncStore<string>(async () => {
     const response_promise = invoke<string>("get_kc_server_name")
       .then((name) => {
-        console.log("name", name);
+        if (import.meta.env.DEV) console.log("name", name);
         return name !== "" ? name : "Auto Listen";
       })
       .catch(() => "Auto Listen");
