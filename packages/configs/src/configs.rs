@@ -272,9 +272,26 @@ impl ConfigsAppAuth {
 }
 
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
+pub struct ConfigsAppPasswordPersistent {
+    enable_email_address: Option<bool>,
+    enable_password: Option<bool>,
+}
+
+impl ConfigsAppPasswordPersistent {
+    pub fn get_enable_email_address(&self) -> bool {
+        self.enable_email_address.unwrap_or(false)
+    }
+
+    pub fn get_enable_password(&self) -> bool {
+        self.enable_password.unwrap_or(false)
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Default, Clone)]
 pub struct ConfigsApp {
     pub connect_kc_server: ConfigsAppConnectKcServer,
     pub browser: ConfigsAppBrowser,
+    pub password_persistent: ConfigsAppPasswordPersistent,
     pub theme: ConfigsAppTheme,
     pub font: ConfigAppFont,
     pub discord: ConfigsAppDiscord,
