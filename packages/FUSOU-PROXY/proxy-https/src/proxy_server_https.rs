@@ -1,4 +1,4 @@
-use http::{method, request, response, HeaderName, Uri};
+use http::{request, response, HeaderName, Uri};
 use http_body_util::BodyExt;
 use hudsucker::{
     certificate_authority::RcgenAuthority,
@@ -18,8 +18,8 @@ use std::{
 use chrono::{TimeZone, Utc};
 use chrono_tz::Asia::Tokyo;
 
-#[cfg(target_os = "linux")]
-use std::os::linux::fs::MetadataExt;
+// #[cfg(target_os = "linux")]
+// use std::os::linux::fs::MetadataExt;
 #[cfg(target_os = "windows")]
 use std::os::windows::fs::MetadataExt;
 
@@ -239,10 +239,7 @@ fn log_request(
         }
     }
 
-    let pass: bool = match content_type.as_str() {
-        "application/x-www-form-urlencoded" => false,
-        _ => true,
-    };
+    let pass: bool = !matches!(content_type.as_str(), "application/x-www-form-urlencoded");
 
     let save: bool = match content_type.as_str() {
         "application/x-www-form-urlencoded" => allow_save_api_requests,

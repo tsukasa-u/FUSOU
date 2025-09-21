@@ -52,8 +52,6 @@ tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.20", features = ["fmt", "env-filter", "time", "local-time"] }
 tracing-appender = "0.2.3"
 tracing-unwrap = "1.0.1"
-keyring = { version = "3.6.3", features = ["apple-native", "windows-native", "sync-secret-service"] }
-whoami = "1.6.1"
 
 [features]
 # this feature is used for production builds or when `devPath` points to the filesystem and the built-in dev server is disabled.

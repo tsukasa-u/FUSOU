@@ -1,8 +1,10 @@
-use std::{collections::HashMap, fs};
+use std::collections::HashMap;
+
+#[cfg(dev)]
+use std::fs;
 
 use proxy_https::bidirectional_channel;
 use tauri::{AppHandle, Emitter, Manager};
-use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
 
 use crate::auth::auth_server;
 #[cfg(feature = "auth-local-server")]
@@ -19,7 +21,6 @@ use crate::interface::mst_stype::MstStypes;
 use crate::interface::mst_use_item::MstUseItems;
 use crate::interface::slot_item::SlotItems;
 
-use crate::secret_persistent;
 use crate::sequence;
 use tracing_unwrap::OptionExt;
 
@@ -329,46 +330,6 @@ pub async fn get_kc_server_name(_window: tauri::Window) -> Result<String, ()> {
         .get_kc_server_name()
         .map(|s| s.to_string());
     Ok(name.unwrap_or("".to_string()))
-}
-
-#[tauri::command]
-pub async fn get_dmm_login_email(_window: tauri::Window) -> Result<String, String> {
-    secret_persistent::keyring::get_email()
-        .await
-        .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub async fn get_dmm_login_password(_window: tauri::Window) -> Result<String, String> {
-    secret_persistent::keyring::get_password()
-        .await
-        .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub async fn set_dmm_login_email_password(
-    window: tauri::Window,
-    email: &str,
-    password: &str,
-) -> Result<(), ()> {
-    let answer = window
-        .dialog()
-        .message(
-            format!("Are you sure to save your DMM login credentials according to the configured rules?\nmailaddress: {}\npassword: ********", email)
-        )
-        .title("secret persistent")
-        .buttons(MessageDialogButtons::OkCancel)
-        .blocking_show();
-
-    if answer {
-        secret_persistent::keyring::set_credentials(email, password)
-            .await
-            .map_err(|e| {
-                tracing::error!("Error: {}", e);
-            })?;
-        tracing::info!("DMM login credentials saved");
-    }
-    Ok(())
 }
 
 //--------------------------------------------------------------

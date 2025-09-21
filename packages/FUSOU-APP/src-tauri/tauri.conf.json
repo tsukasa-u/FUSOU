@@ -63,7 +63,6 @@
     }
   },
   "app": {
-    "withGlobalTauri": true,
     "windows": [
       {
         "label": "main",

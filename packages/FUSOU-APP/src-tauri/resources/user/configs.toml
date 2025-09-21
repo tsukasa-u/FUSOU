@@ -118,13 +118,6 @@ save_file_location = ""
     url = "http://www.dmm.com/netgame/social/-/gadgets/=/app_id=854854/"
     
 
-    [app.password_persistent]
-    # Whether to enable password persistence
-    # If this option is enabled, the email and password will be saved in the system's keyring
-    enable_email_address = false
-    enable_password = false
-
-
     [app.theme]
     # The theme to use for the application
     # you can choose between "light" and "dark"

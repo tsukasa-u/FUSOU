@@ -68,12 +68,17 @@ pub fn create_external_window(app: &AppHandle, browser: Option<Browser>, browse_
             tauri::WebviewUrl::External(get_game_url().parse().unwrap()),
         );
 
-        let external_result = external
+        let external = external
             .fullscreen(false)
             .title("fusou-viewer")
             .inner_size(1192_f64, 712_f64)
             .visible(false)
-            .initialization_script(init_script)
+            .initialization_script(init_script);
+
+        #[cfg(dev)]
+        let external = external.devtools(true);
+
+        let external_result = external
             .build()
             .expect_or_log("error while building external");
         external_result

@@ -2,7 +2,7 @@
 
 use discord_rich_presence::{activity, DiscordIpc, DiscordIpcClient};
 use std::sync::{LazyLock, Mutex};
-use tracing_unwrap::{OptionExt, ResultExt};
+use tracing_unwrap::OptionExt;
 
 static DISCORD_CLIENT: LazyLock<
     Mutex<Result<DiscordIpcClient, Box<dyn std::error::Error + Send + Sync>>>,

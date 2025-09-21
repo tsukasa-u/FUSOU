@@ -272,26 +272,9 @@ impl ConfigsAppAuth {
 }
 
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
-pub struct ConfigsAppPasswordPersistent {
-    enable_email_address: Option<bool>,
-    enable_password: Option<bool>,
-}
-
-impl ConfigsAppPasswordPersistent {
-    pub fn get_enable_email_address(&self) -> bool {
-        self.enable_email_address.unwrap_or(false)
-    }
-
-    pub fn get_enable_password(&self) -> bool {
-        self.enable_password.unwrap_or(false)
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize, Default, Clone)]
 pub struct ConfigsApp {
     pub connect_kc_server: ConfigsAppConnectKcServer,
     pub browser: ConfigsAppBrowser,
-    pub password_persistent: ConfigsAppPasswordPersistent,
     pub theme: ConfigsAppTheme,
     pub font: ConfigAppFont,
     pub discord: ConfigsAppDiscord,
@@ -371,7 +354,7 @@ pub fn get_configs(config_path: &str) -> Configs {
             config_path
         );
         let mut file = File::create(config_path).expect_or_log("Failed to create config file");
-        write!(file, "{}", DEFAULT_TOML_FILE).expect_or_log("Failed to write default config");
+        write!(file, "{DEFAULT_TOML_FILE}").expect_or_log("Failed to write default config");
         file.flush().expect_or_log("Failed to flush config file");
     }
 

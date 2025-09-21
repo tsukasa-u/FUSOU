@@ -15,7 +15,6 @@ mod cloud_storage;
 mod cmd;
 mod integration;
 mod scheduler;
-mod secret_persistent;
 mod sequence;
 mod util;
 mod window;
@@ -85,9 +84,6 @@ pub async fn run() {
             cmd::tauri_cmd::get_app_theme,
             cmd::tauri_cmd::get_app_font,
             cmd::tauri_cmd::get_kc_server_name,
-            cmd::tauri_cmd::get_dmm_login_email,
-            cmd::tauri_cmd::get_dmm_login_password,
-            cmd::tauri_cmd::set_dmm_login_email_password,
             #[cfg(dev)]
             cmd::tauri_cmd::open_auth_window,
             #[cfg(dev)]
