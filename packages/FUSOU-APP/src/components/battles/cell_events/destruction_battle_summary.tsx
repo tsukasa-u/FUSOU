@@ -1,6 +1,6 @@
 import { createMemo, For, Show } from "solid-js";
 
-import { useAirBasesBattles, useCells } from "../../../utility/provider";
+import { useAirBasesBattles } from "../../../utility/provider";
 import type { Cell } from "@ipc-bindings/cells";
 import type { DataSetParamShip } from "../../../utility/get_data_set";
 import "shared-ui";
@@ -23,12 +23,9 @@ interface FleetInfo {
 }
 
 export function DestructionBattleSummaryComponent(props: ButtleSummaryProps) {
-  const [cells] = useCells();
   const [air_bases] = useAirBasesBattles();
 
   const show_summary = createMemo<boolean>(() => {
-    if (Object.keys(cells.cells).length == 0) return false;
-
     if (!props.cell()) return false;
 
     if (!props.cell()?.destruction_battle) return false;

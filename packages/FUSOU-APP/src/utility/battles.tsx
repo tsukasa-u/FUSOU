@@ -8,6 +8,7 @@ import {
   useSlotItems,
 } from "./provider";
 import type { Battle } from "@ipc-bindings/battle";
+import type { Cell } from "@ipc-bindings/cells";
 
 export const calc_critical = (
   dmg: number,
@@ -73,4 +74,9 @@ export const get_store_data_set_deck_ship = (): DataSetShip => {
 export const get_battle_selected = (index: number): Battle | undefined => {
   const [cells] = useCells();
   return cells.battles[cells.cell_index[index]];
+};
+
+export const get_cell_selected = (index: number): Cell | undefined => {
+  const [cells] = useCells();
+  return cells.cells[cells.cell_index[index]];
 };
