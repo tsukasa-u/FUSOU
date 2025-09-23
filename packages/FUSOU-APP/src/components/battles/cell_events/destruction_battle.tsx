@@ -1,7 +1,7 @@
 import { createMemo, For, Match, Show, Switch } from "solid-js";
 
 import "../../../css/divider.css";
-import { useAirBasesBattles, useCells } from "../../../utility/provider";
+import { useAirBasesBattles } from "../../../utility/provider";
 import type { Cell } from "@ipc-bindings/cells";
 import type { DataSetParamShip } from "../../../utility/get_data_set";
 import {
@@ -20,12 +20,9 @@ interface DestructionBattleProps {
 }
 
 export function DestructionBattleComponent(props: DestructionBattleProps) {
-  const [cells] = useCells();
   const [air_bases] = useAirBasesBattles();
 
   const show_destruction_battle = createMemo<boolean>(() => {
-    if (Object.keys(cells.cells).length == 0) return false;
-
     if (!props.cell()) return false;
 
     if (!props.cell()?.destruction_battle) return false;

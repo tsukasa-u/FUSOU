@@ -16,7 +16,7 @@ import { mst_slot_itmes } from "../data/mst_slot_items.ts";
 import { materials } from "../data/materilas.ts";
 
 export default {
-  title: "components/materials",
+  title: "components/materials/materials",
   component: MaterialsComponent,
   tags: ["autodocs"],
   // Use `fn` to spy on the onClick arg, which will appear in the actions panel once invoked: https://storybook.js.org/docs/essentials/actions#action-args

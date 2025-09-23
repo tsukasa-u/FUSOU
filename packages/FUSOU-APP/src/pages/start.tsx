@@ -154,7 +154,7 @@ function Start() {
 
   createEffect(() => {
     supabase.auth.getSession().then(({ data, error }) => {
-      console.log("session", data, error);
+      if (import.meta.env.DEV) console.log("session", data, error);
       if (error) {
         console.error("Error getting session:", error);
         open_auth_page();
@@ -226,14 +226,14 @@ function Start() {
       pacServerHealth() == -1 ||
       run_proxy_flag() == -1
     )
-      return "btn btn-wide btn-disabled btn-accent";
-    return "btn btn-wide btn-accent border-accent-content";
+      return "btn w-full btn-disabled btn-accent";
+    return "btn w-full btn-accent border-accent-content";
   });
 
   const auto_listen = createAsyncStore<string>(async () => {
     const response_promise = invoke<string>("get_kc_server_name")
       .then((name) => {
-        console.log("name", name);
+        if (import.meta.env.DEV) console.log("name", name);
         return name !== "" ? name : "Auto Listen";
       })
       .catch(() => "Auto Listen");
@@ -244,7 +244,7 @@ function Start() {
   return (
     <>
       <div class="bg-base-100 min-h-dvh flex">
-        <div class="bg-base-300 min-h-dvh flex flex-1" />
+        <div class="bg-base-100 min-h-dvh flex flex-1" />
         <div class="max-w-md justify-self-center bg-base-100 h-fit mx-0">
           <div class="flex flex-nowrap">
             <h1 class="mx-4 pt-4 text-2xl font-semibold">Launch Options</h1>
@@ -563,9 +563,8 @@ function Start() {
               </div>
             </div>
           </div>
-          <div class="divider mt-0 mb-0 w-11/12 justify-self-center" />
-          <div class="h-8" />
-          <div class="flex justify-center" id="start-button">
+          <div class="h-4" />
+          <div class="flex justify-center mx-4" id="start-button">
             <a
               role="button"
               class={start_button_class()}
@@ -579,7 +578,7 @@ function Start() {
           </div>
           <div class="h-12" />
         </div>
-        <div class="bg-base-300 min-h-dvh flex flex-1" />
+        <div class="bg-base-100 min-h-dvh flex flex-1" />
       </div>
     </>
   );

@@ -32,7 +32,7 @@ export function LogViewerComponent() {
     (async () => {
       // eslint-disable-next-line solid/reactivity
       unlisten_data = await listen<MessageVisitor>("log-event", (event) => {
-        if (import.meta.env.DEV) console.log("log-event");
+        // if (import.meta.env.DEV) console.log("log-event");
 
         let message = event.payload.message ?? "";
         if (event.payload.content_type) {

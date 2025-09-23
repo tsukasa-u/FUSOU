@@ -10,12 +10,12 @@ pub fn edit_pac(path: &str, addr: &str, host: Option<&str>) {
     // let pac_file = fs::read_to_string(path).expect_or_log("Unable to read file");
 
     let re = Regex::new(r"return .PROXY 127\.0\.0\.1:[0-9]+.;\s*//\s*\[REPLACE\s+ADDR\]").unwrap();
-    let content = format!("return \"PROXY {}\"; // [REPLACE ADDR]", addr);
+    let content = format!("return \"PROXY {addr}\"; // [REPLACE ADDR]");
     let replaced = re.replace(&pac_file, content).to_string();
 
     if let Some(host) = host {
         let re = Regex::new(r#"if \(shExpMatch\(host, ".*"\)( \|\|\r?\n\s*shExpMatch\(host, ".*"\))*\) \{ // \[REPLACE HOST\]"#).unwrap();
-        let content = format!(r#"if (shExpMatch(host, "{}")) {{ // [REPLACE HOST]"#, host);
+        let content = format!(r#"if (shExpMatch(host, "{host}")) {{ // [REPLACE HOST]"#);
         let replaced = re.replace(&replaced, content).to_string();
 
         tracing::info!("Edited PAC file path :\n{}", path);

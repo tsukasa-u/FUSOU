@@ -1,4 +1,7 @@
-use std::{collections::HashMap, fs};
+use std::collections::HashMap;
+
+#[cfg(dev)]
+use std::fs;
 
 use proxy_https::bidirectional_channel;
 use tauri::{AppHandle, Emitter, Manager};

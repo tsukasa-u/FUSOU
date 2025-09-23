@@ -1,9 +1,11 @@
 use proxy_https::bidirectional_channel;
-use regex::Regex;
 use register_trait::expand_struct_selector;
 use register_trait::TraitForConvert;
 use std::error::Error;
 use tauri::Emitter;
+
+#[cfg(dev)]
+use regex::Regex;
 
 use crate::cloud_storage::submit_data;
 

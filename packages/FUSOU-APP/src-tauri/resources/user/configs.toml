@@ -116,7 +116,7 @@ save_file_location = ""
     [app.browser]
     # The URL to open first in the browser
     url = "http://www.dmm.com/netgame/social/-/gadgets/=/app_id=854854/"
-
+    
 
     [app.theme]
     # The theme to use for the application

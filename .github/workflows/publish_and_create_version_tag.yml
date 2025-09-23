@@ -1,4 +1,4 @@
-name: "publish with version tag"
+name: "publish_and_create_version_tag"
 
 on:
   workflow_dispatch:

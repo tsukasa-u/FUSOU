@@ -354,7 +354,7 @@ pub fn get_configs(config_path: &str) -> Configs {
             config_path
         );
         let mut file = File::create(config_path).expect_or_log("Failed to create config file");
-        write!(file, "{}", DEFAULT_TOML_FILE).expect_or_log("Failed to write default config");
+        write!(file, "{DEFAULT_TOML_FILE}").expect_or_log("Failed to write default config");
         file.flush().expect_or_log("Failed to flush config file");
     }
 

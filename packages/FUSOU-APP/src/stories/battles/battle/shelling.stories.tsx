@@ -1,5 +1,3 @@
-import { fn } from "storybook/test";
-
 import { ShellingComponent } from "../../../components/battles/battle/shelling.tsx";
 import {
   DeckBattlesContext,
@@ -16,8 +14,8 @@ import { ships } from "../../data/ships.ts";
 import { mst_ships } from "../../data/mst_ships.ts";
 import { slot_items } from "../../data/slot_items.ts";
 import { mst_slot_itmes } from "../../data/mst_slot_items.ts";
-import { deck_port } from "../../data/deck_ports.ts";
-import { cells } from "../../data/cells.ts";
+import { ports_3_5 } from "../../data/3-5/ports.ts";
+import { cells_3_5 } from "../../data/3-5/cells.ts";
 import {
   get_deck_ship_id,
   get_battle_selected,
@@ -26,18 +24,30 @@ import {
 import { get_data_set_param_ship } from "../../../utility/get_data_set.tsx";
 
 export default {
-  title: "components/shelling",
+  title: "components/battles/battle/shelling",
   component: ShellingComponent,
   tags: ["autodocs"],
-  // Use `fn` to spy on the onClick arg, which will appear in the actions panel once invoked: https://storybook.js.org/docs/essentials/actions#action-args
   args: {
-    onClick: fn(),
-    store_data_set_deck_ship: get_store_data_set_deck_ship,
-    battle_selected: () => get_battle_selected(1),
-    deck_ship_id: get_deck_ship_id,
-    store_data_set_param_ship: () =>
-      get_data_set_param_ship(get_battle_selected(1)),
+    battle_index: 1,
     shelling_idx: 0,
+    store_data_set_deck_ship: get_store_data_set_deck_ship,
+    battle_selected: (x: number) => get_battle_selected(x),
+    deck_ship_id: get_deck_ship_id,
+    store_data_set_param_ship: (x: number) =>
+      get_data_set_param_ship(get_battle_selected(x)),
+  },
+  render: function Render(args: any) {
+    return (
+      <ShellingComponent
+        store_data_set_deck_ship={args.store_data_set_deck_ship}
+        deck_ship_id={args.deck_ship_id}
+        battle_selected={() => args.battle_selected(args.battle_index)}
+        store_data_set_param_ship={() =>
+          args.store_data_set_param_ship(args.battle_index)
+        }
+        shelling_idx={args.shelling_idx}
+      />
+    );
   },
 };
 
@@ -51,9 +61,9 @@ export const WithDecorator = {
             <SlotItemsContext.Provider value={[slot_items]}>
               <ShipsContext.Provider value={[ships]}>
                 <MstShipsContext.Provider value={[mst_ships]}>
-                  <DeckBattlesContext.Provider value={[deck_port]}>
+                  <DeckBattlesContext.Provider value={[ports_3_5]}>
                     <AirBasesBattlesContext.Provider value={[air_bases]}>
-                      <CellsContext.Provider value={[cells]}>
+                      <CellsContext.Provider value={[cells_3_5]}>
                         <Story {...context.args} />
                       </CellsContext.Provider>
                     </AirBasesBattlesContext.Provider>

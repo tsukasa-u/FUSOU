@@ -16,7 +16,7 @@ import { mst_slot_itmes } from "../data/mst_slot_items.ts";
 import { mst_slot_item_equip_types } from "../data/mst_slot_item_equip_types.ts";
 
 export default {
-  title: "components/equipment_list",
+  title: "components/specification table/equipment_list",
   component: EquipmentListComponent,
   tags: ["autodocs"],
   // Use `fn` to spy on the onClick arg, which will appear in the actions panel once invoked: https://storybook.js.org/docs/essentials/actions#action-args

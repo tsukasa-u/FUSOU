@@ -44,7 +44,7 @@
   "productName": "fusou",
   "mainBinaryName": "fusou",
   "version": "0.2.1",
-  "identifier": "fusou.dev",
+  "identifier": "fusou",
   "plugins": {
     "deep-link": {
       "schema": "fusou",
