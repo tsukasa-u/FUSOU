@@ -4,8 +4,8 @@
 
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/tsukasa-u/FUSOU)
 [![Static Badge](https://img.shields.io/badge/docs.rs-tsukasa--u%2FFUSOU-blue?logo=docsdotrs)](https://tsukasa-u.github.io/FUSOU/app/index.html)
-[![export doc](https://github.com/tsukasa-u/FUSOU/actions/workflows/export_doc.yml/badge.svg?branch=dev)](https://github.com/tsukasa-u/FUSOU/actions/workflows/export_doc.yml)
-[![check build](https://github.com/tsukasa-u/FUSOU/actions/workflows/check_build.yml/badge.svg?branch=dev)](https://github.com/tsukasa-u/FUSOU/actions/workflows/check_build.yml)
+[![docs](https://github.com/tsukasa-u/FUSOU/actions/workflows/export_doc.yml/badge.svg?branch=dev)](https://github.com/tsukasa-u/FUSOU/actions/workflows/export_doc.yml)
+[![build](https://github.com/tsukasa-u/FUSOU/actions/workflows/check_build.yml/badge.svg?branch=dev)](https://github.com/tsukasa-u/FUSOU/actions/workflows/check_build.yml)
 [![FOSSA Status](https://app.fossa.com/api/projects/custom%2B52222%2Fgithub.com%2Ftsukasa-u%2FFUSOU.svg?type=shield&issueType=license)](https://app.fossa.com/projects/custom%2B52222%2Fgithub.com%2Ftsukasa-u%2FFUSOU?ref=badge_shield&issueType=license)
 [![FOSSA Status](https://app.fossa.com/api/projects/custom%2B52222%2Fgithub.com%2Ftsukasa-u%2FFUSOU.svg?type=shield&issueType=security)](https://app.fossa.com/projects/custom%2B52222%2Fgithub.com%2Ftsukasa-u%2FFUSOU?ref=badge_shield&issueType=security)
 ![visitors](https://visitor-badge.laobi.icu/badge?page_id=tsukasa-u.fusou.readme)
