@@ -50,7 +50,10 @@ export function MidnightShellingComponent(props: MidnightShellingProps) {
       <>
         touch : <span class="w-1" />
         <div class="w-6 flex justify-center">
-          <Show when={f_midngiht_touchplane > 0} fallback={<div>_</div>}>
+          <Show
+            when={f_midngiht_touchplane > 0}
+            fallback={<div class="w-6 text-center">_</div>}
+          >
             <WrapCIMstEquipComponent
               si={f_midngiht_touchplane}
               e_flag={false}
@@ -59,7 +62,10 @@ export function MidnightShellingComponent(props: MidnightShellingProps) {
         </div>
         <div class="w-3 text-center">/</div>
         <div class="w-6 flex justify-center">
-          <Show when={e_midngiht_touchplane > 0} fallback={<div>_</div>}>
+          <Show
+            when={e_midngiht_touchplane > 0}
+            fallback={<div class="w-6 text-center">_</div>}
+          >
             <WrapCIMstEquipComponent si={e_midngiht_touchplane} e_flag={true} />
           </Show>
         </div>
@@ -82,14 +88,17 @@ export function MidnightShellingComponent(props: MidnightShellingProps) {
           when={midnight_flare_pos}
           fallback={
             <div class="flex flex-nowrap">
-              <div class="w-24 text-center">_</div>
+              <div class="w-24 text-center">___</div>
               <div class="w-3 text-center">/</div>
-              <div class="w-24 text-center">_</div>
+              <div class="w-24 text-center">___</div>
             </div>
           }
         >
           <div class="w-24 flex justify-center">
-            <Show when={f_midnight_flare_pos != -1} fallback={<div>_</div>}>
+            <Show
+              when={f_midnight_flare_pos != -1}
+              fallback={<div class="w-6 text-center">___</div>}
+            >
               <WrapOwnShipComponent
                 ship_idx={f_midnight_flare_pos}
                 deck_ship_id={props.deck_ship_id}
@@ -101,7 +110,10 @@ export function MidnightShellingComponent(props: MidnightShellingProps) {
           </div>
           <div class="w-3 text-center">/</div>
           <div class="w-24 flex justify-center">
-            <Show when={e_midnight_flare_pos != -1} fallback={<div>_</div>}>
+            <Show
+              when={e_midnight_flare_pos != -1}
+              fallback={<div class="w-6 text-center">___</div>}
+            >
               <WrapEnemyShipComponent
                 ship_idx={e_midnight_flare_pos}
                 store_data_set_param_ship={props.store_data_set_param_ship}
@@ -374,7 +386,7 @@ export function MidnightShellingComponent(props: MidnightShellingProps) {
         <details open={true}>
           <summary>Midnight Shelling</summary>
           <ul class="pl-0">
-            <div class="pl-2 text-xs flex flex-nowrap">
+            <div class="pl-2 text-xs flex flex-nowrap items-center">
               {display_touch()}
               <div class="divider divider-horizontal mr-0 ml-0" />
               {display_flare()}

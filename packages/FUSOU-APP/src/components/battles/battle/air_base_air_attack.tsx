@@ -55,13 +55,19 @@ export function AirBaseAirAttackComponent(props: AirDamageProps) {
       <>
         touch : <span class="w-1" />
         <div class="w-6 flex justify-center">
-          <Show when={f_touch_plane > 0} fallback={<div>_</div>}>
+          <Show
+            when={f_touch_plane > 0}
+            fallback={<div class="w-6 text-center">_</div>}
+          >
             <WrapCIMstEquipComponent e_flag={false} si={f_touch_plane} />
           </Show>
         </div>
         <div class="w-3 text-center">/</div>
         <div class="w-6 flex justify-center">
-          <Show when={e_touch_plane > 0} fallback={<div>_</div>}>
+          <Show
+            when={e_touch_plane > 0}
+            fallback={<div class="w-6 text-center">_</div>}
+          >
             <WrapCIMstEquipComponent e_flag={true} si={e_touch_plane} />
           </Show>
         </div>
@@ -207,7 +213,7 @@ export function AirBaseAirAttackComponent(props: AirDamageProps) {
                 >
                   {(attack, attack_idx) => (
                     <>
-                      <div class="flex flex-nowrap pl-2">
+                      <div class="flex flex-nowrap pl-2 items-center">
                         {display_touch(attack)}
                       </div>
                       <tr class="rounded">

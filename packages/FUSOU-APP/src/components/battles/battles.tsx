@@ -269,7 +269,7 @@ export function BattlesComponent() {
     const formation = battle_selected()?.formation;
     const empty_message = (
       <>
-        <div>_</div>
+        <div>___</div>
       </>
     );
     if (formation) {
@@ -298,7 +298,10 @@ export function BattlesComponent() {
     return (
       <div class="flex felx-nowrap text-xs py-0.5 pl-2">
         Search : <span class="w-1" />
-        <Show when={battle_selected()?.reconnaissance} fallback={<div>_</div>}>
+        <Show
+          when={battle_selected()?.reconnaissance}
+          fallback={<div>___</div>}
+        >
           {serach_message()}
         </Show>
       </div>
@@ -313,7 +316,7 @@ export function BattlesComponent() {
           {(formation, index) => (
             <>
               <div class={index() == 0 ? "text-lime-500" : "text-red-500"}>
-                <Switch fallback={<div>_</div>}>
+                <Switch fallback={<div>___</div>}>
                   <Match when={formation == 1}>
                     <div>Line Ahead</div>
                   </Match>

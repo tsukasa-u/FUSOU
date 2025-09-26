@@ -60,7 +60,10 @@ export function FriendlyForceAttackComponent(props: FriendlyForceAttackProps) {
           }
         >
           <div class="w-24 flex justify-center">
-            <Show when={f_flare_pos != -1} fallback={<div>_</div>}>
+            <Show
+              when={f_flare_pos != -1}
+              fallback={<div class="w-6 text-center">_</div>}
+            >
               <WrapFriendShipComponent
                 ship_idx={f_flare_pos}
                 store_data_set_param_ship={props.store_data_set_param_ship}
@@ -70,7 +73,10 @@ export function FriendlyForceAttackComponent(props: FriendlyForceAttackProps) {
           </div>
           <div class="w-3 text-center">/</div>
           <div class="w-24 flex justify-center">
-            <Show when={e_flare_pos != -1} fallback={<div>_</div>}>
+            <Show
+              when={e_flare_pos != -1}
+              fallback={<div class="w-6 text-center">_</div>}
+            >
               <WrapEnemyShipComponent
                 ship_idx={e_flare_pos}
                 store_data_set_param_ship={props.store_data_set_param_ship}

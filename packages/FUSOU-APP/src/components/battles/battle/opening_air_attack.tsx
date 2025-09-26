@@ -124,7 +124,10 @@ export function OpeningAirAttackComponent(props: AirDamageProps) {
       <>
         CI : <span class="w-1" />
         <div class="flex justify-center">
-          <Show when={air_fire && air_fire_idx} fallback={<div>_</div>}>
+          <Show
+            when={air_fire && air_fire_idx}
+            fallback={<div class="w-6 text-center">_</div>}
+          >
             <div class="w-24">
               <WrapOwnShipComponent
                 battle_selected={props.battle_selected}
@@ -136,7 +139,7 @@ export function OpeningAirAttackComponent(props: AirDamageProps) {
             </div>
           </Show>
           <div class="w-1" />
-          <Show when={air_fire} fallback={<div>_</div>}>
+          <Show when={air_fire} fallback={<div class="w-6 text-center">_</div>}>
             <For each={air_fire?.use_item}>
               {(item_id, idx) => (
                 <>
@@ -429,7 +432,7 @@ export function OpeningAirAttackComponent(props: AirDamageProps) {
         <details open={true}>
           <summary>Opening Air Attack</summary>
           <ul class="pl-0">
-            <div class="pl-2 text-xs flex felx-nowarp">
+            <div class="pl-2 text-xs flex flex-nowrap items-center">
               {display_air_state()}
               <div class="divider divider-horizontal mr-0 ml-0" />
               {display_touch()}
