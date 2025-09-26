@@ -4,13 +4,13 @@ import type { AirBaseAirAttack, Battle } from "@ipc-bindings/battle";
 import { useAirBasesBattles } from "../../../utility/provider";
 import IconShield from "../../../icons/shield";
 import type { DataSetParamShip } from "../../../utility/get_data_set";
-import { calc_critical } from "../../../utility/battles";
 import {
   WrapCIMstEquipComponent,
   WrapEnemyShipHPComponent,
   WrapNumberedEnemyShipComponent,
   WrapOwnPlaneEquipComponent,
 } from "../wrap_web_component";
+import { DamageCommonComponent } from "../dmg";
 
 interface AirDamageProps {
   area_id: number;
@@ -55,13 +55,19 @@ export function AirBaseAirAttackComponent(props: AirDamageProps) {
       <>
         touch : <span class="w-1" />
         <div class="w-6 flex justify-center">
-          <Show when={f_touch_plane > 0} fallback={<div>_</div>}>
+          <Show
+            when={f_touch_plane > 0}
+            fallback={<div class="w-6 text-center">_</div>}
+          >
             <WrapCIMstEquipComponent e_flag={false} si={f_touch_plane} />
           </Show>
         </div>
         <div class="w-3 text-center">/</div>
         <div class="w-6 flex justify-center">
-          <Show when={e_touch_plane > 0} fallback={<div>_</div>}>
+          <Show
+            when={e_touch_plane > 0}
+            fallback={<div class="w-6 text-center">_</div>}
+          >
             <WrapCIMstEquipComponent e_flag={true} si={e_touch_plane} />
           </Show>
         </div>
@@ -141,6 +147,9 @@ export function AirBaseAirAttackComponent(props: AirDamageProps) {
             {(_, idx) => (
               <>
                 <Show when={show_damage()[attack_idx()][idx()]}>
+                  <Show when={idx() > 0}>
+                    <div class="h-px" />
+                  </Show>
                   <WrapEnemyShipHPComponent
                     e_now_hps={attack.e_damage.now_hps}
                     idx={idx()}
@@ -169,14 +178,10 @@ export function AirBaseAirAttackComponent(props: AirDamageProps) {
                   <Show when={idx() > 0}>
                     <div class="h-px" />
                   </Show>
-                  <div
-                    class={`text-sm my-auto ${calc_critical(
-                      dmg,
-                      attack.e_damage.cl?.[idx()]
-                    )}`}
-                  >
-                    {dmg}
-                  </div>
+                  <DamageCommonComponent
+                    dmg={dmg}
+                    critical_flag={attack.e_damage.cl?.[idx()]}
+                  />
                 </Show>
               </>
             )}
@@ -195,10 +200,11 @@ export function AirBaseAirAttackComponent(props: AirDamageProps) {
             <table class="table table-xs">
               <thead>
                 <tr>
-                  <th>Attack</th>
-                  <th>To</th>
-                  <th>Defense</th>
-                  <th>Damage</th>
+                  <th class="w-3/8">Attack</th>
+                  <th class="w-2/8">Defense</th>
+                  <th class="w-1/8">HP</th>
+                  <th class="w-1/8">Damage</th>
+                  <th class="w-1/8" />
                 </tr>
               </thead>
               <tbody>
@@ -207,7 +213,7 @@ export function AirBaseAirAttackComponent(props: AirDamageProps) {
                 >
                   {(attack, attack_idx) => (
                     <>
-                      <div class="flex flex-nowrap pl-2">
+                      <div class="flex flex-nowrap pl-2 items-center">
                         {display_touch(attack)}
                       </div>
                       <tr class="rounded">

@@ -4,7 +4,6 @@ import "../../../css/divider.css";
 import type { Battle } from "@ipc-bindings/battle";
 import IconShield from "../../../icons/shield";
 import type { DeckShipIds } from "../../../utility/battles";
-import { calc_critical } from "../../../utility/battles";
 import type {
   DataSetParamShip,
   DataSetShip,
@@ -17,6 +16,7 @@ import {
   WrapOwnShipComponent,
   WrapOwnShipHPComponent,
 } from "../wrap_web_component";
+import { DamageCommonComponent } from "../dmg";
 
 interface AirDamageProps {
   attack_index: number;
@@ -124,7 +124,10 @@ export function OpeningAirAttackComponent(props: AirDamageProps) {
       <>
         CI : <span class="w-1" />
         <div class="flex justify-center">
-          <Show when={air_fire && air_fire_idx} fallback={<div>_</div>}>
+          <Show
+            when={air_fire && air_fire_idx}
+            fallback={<div class="w-6 text-center">_</div>}
+          >
             <div class="w-24">
               <WrapOwnShipComponent
                 battle_selected={props.battle_selected}
@@ -136,7 +139,7 @@ export function OpeningAirAttackComponent(props: AirDamageProps) {
             </div>
           </Show>
           <div class="w-1" />
-          <Show when={air_fire} fallback={<div>_</div>}>
+          <Show when={air_fire} fallback={<div class="w-6 text-center">_</div>}>
             <For each={air_fire?.use_item}>
               {(item_id, idx) => (
                 <>
@@ -192,8 +195,11 @@ export function OpeningAirAttackComponent(props: AirDamageProps) {
       <td>
         <div class="flex flex-col">
           <For each={airattack()?.f_damage?.plane_from}>
-            {(ship_idx) => (
+            {(ship_idx, idx) => (
               <>
+                <Show when={idx() > 0}>
+                  <div class="h-px" />
+                </Show>
                 <WrapOwnShipHPComponent
                   battle_selected={props.battle_selected}
                   deck_ship_id={props.deck_ship_id}
@@ -276,14 +282,10 @@ export function OpeningAirAttackComponent(props: AirDamageProps) {
                 <Show when={dmg_index() > 0}>
                   <div class="h-px" />
                 </Show>
-                <div
-                  class={`text-sm my-auto ${calc_critical(
-                    dmg,
-                    airattack()?.e_damage.cl?.[dmg_index()]
-                  )}`}
-                >
-                  {dmg}
-                </div>
+                <DamageCommonComponent
+                  dmg={dmg}
+                  critical_flag={airattack()?.e_damage.cl?.[dmg_index()]}
+                />
               </Show>
             </>
           )}
@@ -322,8 +324,11 @@ export function OpeningAirAttackComponent(props: AirDamageProps) {
       <td>
         <div class="flex flex-col">
           <For each={airattack()?.e_damage.plane_from}>
-            {(ship_idx) => (
+            {(ship_idx, idx) => (
               <>
+                <Show when={idx() > 0}>
+                  <div class="h-px" />
+                </Show>
                 <WrapEnemyShipHPComponent
                   e_now_hps={airattack()?.e_damage.now_hps}
                   idx={ship_idx}
@@ -407,14 +412,10 @@ export function OpeningAirAttackComponent(props: AirDamageProps) {
                 <Show when={dmg_index() > 0}>
                   <div class="h-px" />
                 </Show>
-                <div
-                  class={`text-sm my-auto ${calc_critical(
-                    dmg,
-                    airattack()?.f_damage.cl?.[dmg_index()]
-                  )}`}
-                >
-                  {dmg}
-                </div>
+                <DamageCommonComponent
+                  dmg={dmg}
+                  critical_flag={airattack()?.f_damage.cl?.[dmg_index()]}
+                />
               </Show>
             </>
           )}
@@ -429,7 +430,7 @@ export function OpeningAirAttackComponent(props: AirDamageProps) {
         <details open={true}>
           <summary>Opening Air Attack</summary>
           <ul class="pl-0">
-            <div class="pl-2 text-xs flex felx-nowarp">
+            <div class="pl-2 text-xs flex flex-nowrap items-center">
               {display_air_state()}
               <div class="divider divider-horizontal mr-0 ml-0" />
               {display_touch()}
@@ -440,11 +441,12 @@ export function OpeningAirAttackComponent(props: AirDamageProps) {
               <table class="table table-xs">
                 <thead>
                   <tr>
-                    <th>Attack</th>
-                    <th>HP</th>
-                    <th>Defense</th>
-                    <th>HP</th>
-                    <th>Damage</th>
+                    <th class="w-2/8">Attack</th>
+                    <th class="w-1/8">HP</th>
+                    <th class="w-2/8">Defense</th>
+                    <th class="w-1/8">HP</th>
+                    <th class="w-1/8">Damage</th>
+                    <th class="w-1/8" />
                   </tr>
                 </thead>
                 <tbody>

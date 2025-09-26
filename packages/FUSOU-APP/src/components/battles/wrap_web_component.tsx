@@ -394,15 +394,17 @@ interface WrapCIMstEquipmentProps {
 
 export function WrapCIMstEquipComponent(props: WrapCIMstEquipmentProps) {
   return (
-    <component-equipment-mst-modal
-      size="xs"
-      compact={true}
-      empty_flag={false}
-      name_flag={false}
-      show_name={true}
-      show_param={!props.e_flag}
-      mst_slot_item={get_mst_slot_item(props.si)}
-    />
+    <div class="w-6 overflow-hidden">
+      <component-equipment-mst-modal
+        size="xs"
+        compact={true}
+        empty_flag={false}
+        name_flag={false}
+        show_name={true}
+        show_param={!props.e_flag}
+        mst_slot_item={get_mst_slot_item(props.si)}
+      />
+    </div>
   );
 }
 

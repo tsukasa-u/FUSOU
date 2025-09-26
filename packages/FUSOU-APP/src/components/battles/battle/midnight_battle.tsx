@@ -3,7 +3,7 @@ import { createMemo, For, Show } from "solid-js";
 import "../../../css/divider.css";
 import type { Battle } from "@ipc-bindings/battle";
 import IconShield from "../../../icons/shield";
-import { calc_critical, type DeckShipIds } from "../../../utility/battles";
+import type { DeckShipIds } from "../../../utility/battles";
 import type {
   DataSetParamShip,
   DataSetShip,
@@ -18,6 +18,7 @@ import {
   WrapOwnShipComponent,
   WrapOwnShipHPComponent,
 } from "../wrap_web_component";
+import { DamageCommonComponent } from "../dmg";
 
 interface MidnightShellingProps {
   deck_ship_id: () => DeckShipIds;
@@ -50,7 +51,10 @@ export function MidnightShellingComponent(props: MidnightShellingProps) {
       <>
         touch : <span class="w-1" />
         <div class="w-6 flex justify-center">
-          <Show when={f_midngiht_touchplane > 0} fallback={<div>_</div>}>
+          <Show
+            when={f_midngiht_touchplane > 0}
+            fallback={<div class="w-6 text-center">_</div>}
+          >
             <WrapCIMstEquipComponent
               si={f_midngiht_touchplane}
               e_flag={false}
@@ -59,7 +63,10 @@ export function MidnightShellingComponent(props: MidnightShellingProps) {
         </div>
         <div class="w-3 text-center">/</div>
         <div class="w-6 flex justify-center">
-          <Show when={e_midngiht_touchplane > 0} fallback={<div>_</div>}>
+          <Show
+            when={e_midngiht_touchplane > 0}
+            fallback={<div class="w-6 text-center">_</div>}
+          >
             <WrapCIMstEquipComponent si={e_midngiht_touchplane} e_flag={true} />
           </Show>
         </div>
@@ -82,14 +89,17 @@ export function MidnightShellingComponent(props: MidnightShellingProps) {
           when={midnight_flare_pos}
           fallback={
             <div class="flex flex-nowrap">
-              <div class="w-24 text-center">_</div>
+              <div class="w-24 text-center">___</div>
               <div class="w-3 text-center">/</div>
-              <div class="w-24 text-center">_</div>
+              <div class="w-24 text-center">___</div>
             </div>
           }
         >
           <div class="w-24 flex justify-center">
-            <Show when={f_midnight_flare_pos != -1} fallback={<div>_</div>}>
+            <Show
+              when={f_midnight_flare_pos != -1}
+              fallback={<div class="w-6 text-center">___</div>}
+            >
               <WrapOwnShipComponent
                 ship_idx={f_midnight_flare_pos}
                 deck_ship_id={props.deck_ship_id}
@@ -101,7 +111,10 @@ export function MidnightShellingComponent(props: MidnightShellingProps) {
           </div>
           <div class="w-3 text-center">/</div>
           <div class="w-24 flex justify-center">
-            <Show when={e_midnight_flare_pos != -1} fallback={<div>_</div>}>
+            <Show
+              when={e_midnight_flare_pos != -1}
+              fallback={<div class="w-6 text-center">___</div>}
+            >
               <WrapEnemyShipComponent
                 ship_idx={e_midnight_flare_pos}
                 store_data_set_param_ship={props.store_data_set_param_ship}
@@ -278,15 +291,11 @@ export function MidnightShellingComponent(props: MidnightShellingProps) {
             <div class="flex flex-col">
               <For each={midngiht_hougeki()?.df_list?.[at_index()]}>
                 {(df) => (
-                  <div class="flex flex-nowrap">
-                    <WrapEnemyShipHPComponent
-                      store_data_set_param_ship={
-                        props.store_data_set_param_ship
-                      }
-                      idx={df}
-                      e_now_hps={midngiht_hougeki()?.e_now_hps?.[at_index()]}
-                    />
-                  </div>
+                  <WrapEnemyShipHPComponent
+                    store_data_set_param_ship={props.store_data_set_param_ship}
+                    idx={df}
+                    e_now_hps={midngiht_hougeki()?.e_now_hps?.[at_index()]}
+                  />
                 )}
               </For>
             </div>
@@ -298,15 +307,13 @@ export function MidnightShellingComponent(props: MidnightShellingProps) {
             <div class="flex flex-col">
               <For each={midngiht_hougeki()?.df_list?.[at_index()]}>
                 {(df) => (
-                  <div class="flex flex-nowrap">
-                    <WrapOwnShipHPComponent
-                      deck_ship_id={props.deck_ship_id}
-                      battle_selected={props.battle_selected}
-                      store_data_set_deck_ship={props.store_data_set_deck_ship}
-                      idx={df}
-                      f_now_hps={midngiht_hougeki()?.f_now_hps[at_index()]}
-                    />
-                  </div>
+                  <WrapOwnShipHPComponent
+                    deck_ship_id={props.deck_ship_id}
+                    battle_selected={props.battle_selected}
+                    store_data_set_deck_ship={props.store_data_set_deck_ship}
+                    idx={df}
+                    f_now_hps={midngiht_hougeki()?.f_now_hps[at_index()]}
+                  />
                 )}
               </For>
             </div>
@@ -325,14 +332,12 @@ export function MidnightShellingComponent(props: MidnightShellingProps) {
           <For each={midngiht_hougeki()?.damage?.[at_index()]}>
             {(dmg, dmg_index) => (
               <>
-                <div
-                  class={`text-sm h-6 ${calc_critical(
-                    dmg,
+                <DamageCommonComponent
+                  dmg={dmg}
+                  critical_flag={
                     midngiht_hougeki()?.cl_list?.[at_index()]?.[dmg_index()]
-                  )}`}
-                >
-                  {dmg}
-                </div>
+                  }
+                />
               </>
             )}
           </For>
@@ -374,7 +379,7 @@ export function MidnightShellingComponent(props: MidnightShellingProps) {
         <details open={true}>
           <summary>Midnight Shelling</summary>
           <ul class="pl-0">
-            <div class="pl-2 text-xs flex flex-nowrap">
+            <div class="pl-2 text-xs flex flex-nowrap items-center">
               {display_touch()}
               <div class="divider divider-horizontal mr-0 ml-0" />
               {display_flare()}
@@ -382,12 +387,12 @@ export function MidnightShellingComponent(props: MidnightShellingProps) {
             <table class="table table-xs">
               <thead>
                 <tr>
-                  <th>Attack</th>
-                  <th>HP</th>
-                  <th>Defense</th>
-                  <th>HP</th>
-                  <th>Damage</th>
-                  <th>CI</th>
+                  <th class="w-2/8">Attack</th>
+                  <th class="w-1/8">HP</th>
+                  <th class="w-2/8">Defense</th>
+                  <th class="w-1/8">HP</th>
+                  <th class="w-1/8">Damage</th>
+                  <th class="w-1/8">CI</th>
                 </tr>
               </thead>
               <tbody>

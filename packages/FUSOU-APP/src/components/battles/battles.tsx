@@ -269,7 +269,7 @@ export function BattlesComponent() {
     const formation = battle_selected()?.formation;
     const empty_message = (
       <>
-        <div>_</div>
+        <div>___</div>
       </>
     );
     if (formation) {
@@ -298,7 +298,10 @@ export function BattlesComponent() {
     return (
       <div class="flex felx-nowrap text-xs py-0.5 pl-2">
         Search : <span class="w-1" />
-        <Show when={!battle_selected()?.reconnaissance} fallback={<div>_</div>}>
+        <Show
+          when={battle_selected()?.reconnaissance}
+          fallback={<div>___</div>}
+        >
           {serach_message()}
         </Show>
       </div>
@@ -313,7 +316,7 @@ export function BattlesComponent() {
           {(formation, index) => (
             <>
               <div class={index() == 0 ? "text-lime-500" : "text-red-500"}>
-                <Switch fallback={<div>_</div>}>
+                <Switch fallback={<div>___</div>}>
                   <Match when={formation == 1}>
                     <div>Line Ahead</div>
                   </Match>
@@ -331,6 +334,18 @@ export function BattlesComponent() {
                   </Match>
                   <Match when={formation == 6}>
                     <div>Vanguard</div>
+                  </Match>
+                  <Match when={formation == 11}>
+                    <div>1st cruising formation</div>
+                  </Match>
+                  <Match when={formation == 12}>
+                    <div>2nd cruising formation</div>
+                  </Match>
+                  <Match when={formation == 13}>
+                    <div>3rd cruising formation</div>
+                  </Match>
+                  <Match when={formation == 14}>
+                    <div>4th cruising formation</div>
                   </Match>
                 </Switch>
               </div>

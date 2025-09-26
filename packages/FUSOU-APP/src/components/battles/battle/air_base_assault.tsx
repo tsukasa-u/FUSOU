@@ -4,12 +4,12 @@ import type { Battle } from "@ipc-bindings/battle";
 import { useAirBasesBattles, useSlotItems } from "../../../utility/provider";
 import IconShield from "../../../icons/shield";
 import type { DataSetParamShip } from "../../../utility/get_data_set";
-import { calc_critical } from "../../../utility/battles";
 import {
   WrapEnemyShipHPComponent,
   WrapNumberedEnemyShipComponent,
   WrapOwnPlaneEquipComponent,
 } from "../wrap_web_component";
+import { DamageCommonComponent } from "../dmg";
 
 interface AirDamageProps {
   area_id: number;
@@ -157,6 +157,9 @@ export function AirBaseAssaultComponent(props: AirDamageProps) {
             {(_, idx) => (
               <>
                 <Show when={show_damage()[0][idx()]}>
+                  <Show when={idx() > 0}>
+                    <div class="h-px" />
+                  </Show>
                   <WrapEnemyShipHPComponent
                     e_now_hps={
                       props.battle_selected()?.air_base_assault?.e_damage
@@ -187,16 +190,14 @@ export function AirBaseAssaultComponent(props: AirDamageProps) {
                   <Show when={idx() > 0}>
                     <div class="h-px" />
                   </Show>
-                  <div
-                    class={`text-sm my-auto ${calc_critical(
-                      dmg,
+                  <DamageCommonComponent
+                    dmg={dmg}
+                    critical_flag={
                       props.battle_selected()?.air_base_assault?.e_damage.cl?.[
                         idx()
                       ]
-                    )}`}
-                  >
-                    {dmg}
-                  </div>
+                    }
+                  />
                 </Show>
               </>
             )}
@@ -215,10 +216,11 @@ export function AirBaseAssaultComponent(props: AirDamageProps) {
             <table class="table table-xs">
               <thead>
                 <tr>
-                  <th>Attack</th>
-                  <th>To</th>
-                  <th>Defense</th>
-                  <th>Damage</th>
+                  <th class="w-3/8">Attack</th>
+                  <th class="w-2/8">Defense</th>
+                  <th class="w-1/8">HP</th>
+                  <th class="w-1/8">Damage</th>
+                  <th class="w-1/8" />
                 </tr>
               </thead>
               <tbody>

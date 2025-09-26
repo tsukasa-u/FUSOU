@@ -7,7 +7,6 @@ import type {
   DataSetShip,
 } from "../../../utility/get_data_set";
 import type { DeckShipIds } from "../../../utility/battles";
-import { calc_critical } from "../../../utility/battles";
 import {
   WrapEnemyShipHPComponent,
   WrapNumberedEnemyShipComponent,
@@ -15,6 +14,7 @@ import {
   WrapNumberedOwnShipComponent,
   WrapOwnShipHPComponent,
 } from "../wrap_web_component";
+import { DamageCommonComponent } from "../dmg";
 
 interface AntiSubmarineProps {
   deck_ship_id: () => DeckShipIds;
@@ -245,16 +245,14 @@ export function OpeningAntiSubmarineComponent(props: AntiSubmarineProps) {
           >
             {(dmg, dmg_index) => (
               <>
-                <div
-                  class={`text-sm h-6 ${calc_critical(
-                    dmg,
+                <DamageCommonComponent
+                  dmg={dmg}
+                  critical_flag={
                     props.battle_selected()?.opening_taisen?.cl_list?.[
                       at_index()
                     ]?.[dmg_index()]
-                  )}`}
-                >
-                  {dmg}
-                </div>
+                  }
+                />
               </>
             )}
           </For>
@@ -272,11 +270,12 @@ export function OpeningAntiSubmarineComponent(props: AntiSubmarineProps) {
             <table class="table table-xs">
               <thead>
                 <tr>
-                  <th>From</th>
-                  <th>HP</th>
-                  <th>To</th>
-                  <th>HP</th>
-                  <th>Attack</th>
+                  <th class="w-2/8">Attack</th>
+                  <th class="w-1/8">HP</th>
+                  <th class="w-2/8">Defense</th>
+                  <th class="w-1/8">HP</th>
+                  <th class="w-1/8">Damage</th>
+                  <th class="w-1/8" />
                 </tr>
               </thead>
               <tbody>

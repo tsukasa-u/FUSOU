@@ -11,7 +11,7 @@ import {
   WrapNumberedEnemyShipComponent,
   WrapOwnPlaneEquipComponent,
 } from "../wrap_web_component";
-import { calc_critical } from "../../../utility/battles";
+import { DamageCommonComponent } from "../dmg";
 
 interface DestructionBattleProps {
   area_id: number;
@@ -74,7 +74,7 @@ export function DestructionBattleComponent(props: DestructionBattleProps) {
           {(formation, index) => (
             <>
               <div class={index() == 0 ? "text-lime-500" : "text-red-500"}>
-                <Switch fallback={<div>_</div>}>
+                <Switch fallback={<div>___</div>}>
                   <Match when={formation == 1}>
                     <div>Line Ahead</div>
                   </Match>
@@ -96,7 +96,7 @@ export function DestructionBattleComponent(props: DestructionBattleProps) {
                 </Switch>
               </div>
               <Show when={index() == 0}>
-                <span class="w-4">/</span>
+                <span class="w-3 text-center">/</span>
               </Show>
             </>
           )}
@@ -151,13 +151,19 @@ export function DestructionBattleComponent(props: DestructionBattleProps) {
       <>
         touch : <span class="w-1" />
         <div class="w-6 flex justify-center">
-          <Show when={f_touch_plane > 0} fallback={<div>_</div>}>
+          <Show
+            when={f_touch_plane > 0}
+            fallback={<div class="w-6 text-center">_</div>}
+          >
             <WrapCIMstEquipComponent e_flag={false} si={f_touch_plane} />
           </Show>
         </div>
         <div class="w-3 text-center">/</div>
         <div class="w-6 flex justify-center">
-          <Show when={e_touch_plane > 0} fallback={<div>_</div>}>
+          <Show
+            when={e_touch_plane > 0}
+            fallback={<div class="w-6 text-center">_</div>}
+          >
             <WrapCIMstEquipComponent e_flag={true} si={e_touch_plane} />
           </Show>
         </div>
@@ -264,16 +270,14 @@ export function DestructionBattleComponent(props: DestructionBattleProps) {
                 <Show when={dmg_index() > 0}>
                   <div class="h-px" />
                 </Show>
-                <div
-                  class={`text-sm my-auto ${calc_critical(
-                    dmg,
+                <DamageCommonComponent
+                  dmg={dmg}
+                  critical_flag={
                     destruction_battle?.air_base_attack.e_damage.cl?.[
                       dmg_index()
                     ]
-                  )}`}
-                >
-                  {dmg}
-                </div>
+                  }
+                />
               </Show>
             </>
           )}
@@ -398,16 +402,14 @@ export function DestructionBattleComponent(props: DestructionBattleProps) {
                 <Show when={dmg_index() > 0}>
                   <div class="h-px" />
                 </Show>
-                <div
-                  class={`text-sm my-auto ${calc_critical(
-                    dmg,
+                <DamageCommonComponent
+                  dmg={dmg}
+                  critical_flag={
                     destruction_battle?.air_base_attack.f_damage.cl?.[
                       dmg_index()
                     ]
-                  )}`}
-                >
-                  {dmg}
-                </div>
+                  }
+                />
               </Show>
             </>
           )}
@@ -421,7 +423,7 @@ export function DestructionBattleComponent(props: DestructionBattleProps) {
       <li>
         <details open={true}>
           <summary>Destruction Battle</summary>
-          <div class="flex felx-nowrap text-xs py-0.5 pl-4">
+          <div class="flex flex-nowrap text-xs py-0.5 pl-4 items-center">
             {display_formation()}
             <div class="divider divider-horizontal mr-0 ml-0" />
             {display_air_state()}

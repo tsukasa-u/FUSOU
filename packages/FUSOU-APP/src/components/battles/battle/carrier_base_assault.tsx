@@ -3,7 +3,6 @@ import { createMemo, For, Show } from "solid-js";
 import type { Battle } from "@ipc-bindings/battle";
 import IconShield from "../../../icons/shield";
 import type { DeckShipIds } from "../../../utility/battles";
-import { calc_critical } from "../../../utility/battles";
 import type {
   DataSetParamShip,
   DataSetShip,
@@ -15,6 +14,7 @@ import {
   WrapNumberedOwnShipComponent,
   WrapOwnShipHPComponent,
 } from "../wrap_web_component";
+import { DamageCommonComponent } from "../dmg";
 
 interface AirDamageProps {
   deck_ship_id: () => DeckShipIds;
@@ -109,8 +109,11 @@ export function CarrierBaseAssaultComponent(props: AirDamageProps) {
       <td>
         <div class="flex flex-col">
           <For each={carrier_base_assault?.f_damage.plane_from}>
-            {(ship_idx) => (
+            {(ship_idx, idx) => (
               <>
+                <Show when={idx() > 0}>
+                  <div class="h-px" />
+                </Show>
                 <WrapOwnShipHPComponent
                   f_now_hps={carrier_base_assault?.f_damage.now_hps}
                   battle_selected={props.battle_selected}
@@ -150,7 +153,7 @@ export function CarrierBaseAssaultComponent(props: AirDamageProps) {
                       ) ?? false
                     }
                   >
-                    <IconShield class="h-4 w-4" />
+                    <IconShield class="h-4 self-center ml-auto" />
                   </Show>
                 </div>
               </Show>
@@ -193,14 +196,12 @@ export function CarrierBaseAssaultComponent(props: AirDamageProps) {
                 <Show when={dmg_index() > 0}>
                   <div class="h-px" />
                 </Show>
-                <div
-                  class={`text-sm my-auto ${calc_critical(
-                    dmg,
+                <DamageCommonComponent
+                  dmg={dmg}
+                  critical_flag={
                     carrier_base_assault?.e_damage.cl?.[dmg_index()]
-                  )}`}
-                >
-                  {dmg}
-                </div>
+                  }
+                />
               </Show>
             </>
           )}
@@ -241,8 +242,11 @@ export function CarrierBaseAssaultComponent(props: AirDamageProps) {
       <td>
         <div class="flex flex-col">
           <For each={carrier_base_assault?.e_damage.plane_from}>
-            {(ship_idx) => (
+            {(ship_idx, idx) => (
               <>
+                <Show when={idx() > 0}>
+                  <div class="h-px" />
+                </Show>
                 <div class="flex flex-nowrap">
                   <WrapEnemyShipHPComponent
                     e_now_hps={carrier_base_assault?.e_damage.now_hps}
@@ -302,6 +306,9 @@ export function CarrierBaseAssaultComponent(props: AirDamageProps) {
           {(_, idx) => (
             <>
               <Show when={show_damage()[1][idx()]}>
+                <Show when={idx() > 0}>
+                  <div class="h-px" />
+                </Show>
                 <WrapOwnShipHPComponent
                   f_now_hps={carrier_base_assault?.f_damage.now_hps}
                   battle_selected={props.battle_selected}
@@ -328,14 +335,12 @@ export function CarrierBaseAssaultComponent(props: AirDamageProps) {
                 <Show when={dmg_index() > 0}>
                   <div class="h-px" />
                 </Show>
-                <div
-                  class={`text-sm my-auto ${calc_critical(
-                    dmg,
-                    carrier_base_assault?.e_damage.cl?.[dmg_index()]
-                  )}`}
-                >
-                  {dmg}
-                </div>
+                <DamageCommonComponent
+                  dmg={dmg}
+                  critical_flag={
+                    carrier_base_assault?.f_damage.cl?.[dmg_index()]
+                  }
+                />
               </Show>
             </>
           )}
@@ -353,11 +358,12 @@ export function CarrierBaseAssaultComponent(props: AirDamageProps) {
             <table class="table table-xs">
               <thead>
                 <tr>
-                  <th>Attack</th>
-                  <th>HP</th>
-                  <th>Defense</th>
-                  <th>HP</th>
-                  <th>Damage</th>
+                  <th class="w-2/8">Attack</th>
+                  <th class="w-1/8">HP</th>
+                  <th class="w-2/8">Defense</th>
+                  <th class="w-1/8">HP</th>
+                  <th class="w-1/8">Damage</th>
+                  <th class="w-1/8" />
                 </tr>
               </thead>
               <tbody>

@@ -3,7 +3,6 @@ import { createMemo, For, Show } from "solid-js";
 import type { Battle } from "@ipc-bindings/battle";
 import IconShield from "../../../icons/shield";
 import type { DeckShipIds } from "../../../utility/battles";
-import { calc_critical } from "../../../utility/battles";
 import type {
   DataSetParamShip,
   DataSetShip,
@@ -18,6 +17,7 @@ import {
   WrapNumberedErrorShipComponent,
   WrapNumberedFriendShipComponent,
 } from "../wrap_web_component";
+import { DamageCommonComponent } from "../dmg";
 
 interface FriendlyForceAttackProps {
   deck_ship_id: () => DeckShipIds;
@@ -60,7 +60,10 @@ export function FriendlyForceAttackComponent(props: FriendlyForceAttackProps) {
           }
         >
           <div class="w-24 flex justify-center">
-            <Show when={f_flare_pos != -1} fallback={<div>_</div>}>
+            <Show
+              when={f_flare_pos != -1}
+              fallback={<div class="w-6 text-center">_</div>}
+            >
               <WrapFriendShipComponent
                 ship_idx={f_flare_pos}
                 store_data_set_param_ship={props.store_data_set_param_ship}
@@ -70,7 +73,10 @@ export function FriendlyForceAttackComponent(props: FriendlyForceAttackProps) {
           </div>
           <div class="w-3 text-center">/</div>
           <div class="w-24 flex justify-center">
-            <Show when={e_flare_pos != -1} fallback={<div>_</div>}>
+            <Show
+              when={e_flare_pos != -1}
+              fallback={<div class="w-6 text-center">_</div>}
+            >
               <WrapEnemyShipComponent
                 ship_idx={e_flare_pos}
                 store_data_set_param_ship={props.store_data_set_param_ship}
@@ -187,7 +193,7 @@ export function FriendlyForceAttackComponent(props: FriendlyForceAttackProps) {
                         }
                       />
                       <Show when={protect_flag?.[at_index()]?.[df_index()]}>
-                        <IconShield class="h-5 w-5" />
+                        <IconShield class="h-4 self-center ml-auto" />
                       </Show>
                     </div>
                   )}
@@ -212,7 +218,7 @@ export function FriendlyForceAttackComponent(props: FriendlyForceAttackProps) {
                         }
                       />
                       <Show when={protect_flag?.[at_index()]?.[df_index()]}>
-                        <IconShield class="h-5 w-5" />
+                        <IconShield class="h-4 self-center ml-auto" />
                       </Show>
                     </div>
                   )}
@@ -303,17 +309,15 @@ export function FriendlyForceAttackComponent(props: FriendlyForceAttackProps) {
           >
             {(dmg, dmg_index) => (
               <>
-                <div
-                  class={`text-sm h-6 ${calc_critical(
-                    dmg,
+                <DamageCommonComponent
+                  dmg={dmg}
+                  critical_flag={
                     props.battle_selected()?.friendly_force_attack
                       ?.support_hourai?.hougeki?.cl_list?.[at_index()]?.[
                       dmg_index()
                     ]
-                  )}`}
-                >
-                  {dmg}
-                </div>
+                  }
+                />
               </>
             )}
           </For>
@@ -373,12 +377,12 @@ export function FriendlyForceAttackComponent(props: FriendlyForceAttackProps) {
             <table class="table table-xs">
               <thead>
                 <tr>
-                  <th>Attack</th>
-                  <th>HP</th>
-                  <th>Defense</th>
-                  <th>HP</th>
-                  <th>Damage</th>
-                  <th>CI</th>
+                  <th class="w-2/8">Attack</th>
+                  <th class="w-1/8">HP</th>
+                  <th class="w-2/8">Defense</th>
+                  <th class="w-1/8">HP</th>
+                  <th class="w-1/8">Damage</th>
+                  <th class="w-1/8">CI</th>
                 </tr>
               </thead>
               <tbody>

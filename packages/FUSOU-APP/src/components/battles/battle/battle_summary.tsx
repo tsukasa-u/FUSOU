@@ -585,12 +585,12 @@ export function BattleSummaryComponent(props: ButtleSummaryProps) {
             <table class="table table-xs">
               <thead>
                 <tr>
-                  <th>Own Main</th>
-                  <th>HP</th>
-                  <th>damage</th>
-                  <th>Enemy Main</th>
-                  <th>HP</th>
-                  <th>damage</th>
+                  <th class="w-2/10">Own Main</th>
+                  <th class="w-2/10">HP</th>
+                  <th class="w-1/10">Damage</th>
+                  <th class="w-2/10">Enemy Main</th>
+                  <th class="w-2/10">HP</th>
+                  <th class="w-1/10">Damage</th>
                 </tr>
               </thead>
               <tbody>

@@ -3,7 +3,6 @@ import { createMemo, For, Show } from "solid-js";
 import type { Battle } from "@ipc-bindings/battle";
 import IconShield from "../../../icons/shield";
 import type { DeckShipIds } from "../../../utility/battles";
-import { calc_critical } from "../../../utility/battles";
 import type {
   DataSetParamShip,
   DataSetShip,
@@ -14,6 +13,7 @@ import {
   WrapNumberedOwnShipComponent,
   WrapOwnShipHPComponent,
 } from "../wrap_web_component";
+import { DamageCommonComponent } from "../dmg";
 
 interface TorpedoSubmarineProps {
   deck_ship_id: () => DeckShipIds;
@@ -279,7 +279,7 @@ export function OpeningTorpedoAttackComponent(props: TorpedoSubmarineProps) {
     const dmg = opening_torpedo_damage().erai.dict[erai].dmg;
     return (
       <td>
-        <div class={`text-sm h-6 ${calc_critical(dmg, cl_flag)}`}>{dmg}</div>
+        <DamageCommonComponent dmg={dmg} critical_flag={cl_flag} />
       </td>
     );
   };
@@ -289,7 +289,7 @@ export function OpeningTorpedoAttackComponent(props: TorpedoSubmarineProps) {
     const dmg = opening_torpedo_damage().frai.dict[frai].dmg;
     return (
       <td>
-        <div class={`text-sm h-6 ${calc_critical(dmg, cl_flag)}`}>{dmg}</div>
+        <DamageCommonComponent dmg={dmg} critical_flag={cl_flag} />
       </td>
     );
   };
@@ -303,11 +303,12 @@ export function OpeningTorpedoAttackComponent(props: TorpedoSubmarineProps) {
             <table class="table table-xs">
               <thead>
                 <tr>
-                  <th>Attack</th>
-                  <th>HP</th>
-                  <th>Defense</th>
-                  <th>HP</th>
-                  <th>Damage</th>
+                  <th class="w-2/8">Attack</th>
+                  <th class="w-1/8">HP</th>
+                  <th class="w-2/8">Defense</th>
+                  <th class="w-1/8">HP</th>
+                  <th class="w-1/8">Damage</th>
+                  <th class="w-1/8" />
                 </tr>
               </thead>
               <tbody>
