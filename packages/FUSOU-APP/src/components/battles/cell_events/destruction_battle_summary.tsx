@@ -58,7 +58,7 @@ export function DestructionBattleSummaryComponent(props: ButtleSummaryProps) {
     const f_base_nowhps: (number | null)[] = destruction_battle.f_nowhps.map(
       (hp, i) => {
         const dmg = destruction_battle.f_total_damages?.[i];
-        return dmg ? hp - dmg : null;
+        return dmg ? hp - dmg : hp;
       }
     );
     const f_base_maxhps: number[] = destruction_battle.f_maxhps;
@@ -68,7 +68,7 @@ export function DestructionBattleSummaryComponent(props: ButtleSummaryProps) {
     const e_main_nowhps: (number | null)[] = destruction_battle.e_nowhps.map(
       (hp, i) => {
         const dmg = destruction_battle.e_total_damages?.[i];
-        return dmg ? hp - dmg : null;
+        return dmg ? hp - dmg : hp;
       }
     );
     const e_main_maxhps: number[] = destruction_battle.e_maxhps;
@@ -94,9 +94,7 @@ export function DestructionBattleSummaryComponent(props: ButtleSummaryProps) {
         when={fleet_info().f_base_id.length > idx}
         fallback={
           <>
-            <td>
-              <div class="h-6" />
-            </td>
+            <td />
             <td />
             <td />
           </>
