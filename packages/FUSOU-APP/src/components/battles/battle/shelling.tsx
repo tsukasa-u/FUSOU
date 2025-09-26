@@ -157,27 +157,21 @@ export function ShellingComponent(props: ShellingProps) {
             {(df) => {
               if (hougeki()?.at_eflag[at_index()] == 0) {
                 return (
-                  <div class="flex flex-nowarp">
-                    <WrapEnemyShipHPComponent
-                      store_data_set_param_ship={
-                        props.store_data_set_param_ship
-                      }
-                      idx={df}
-                      e_now_hps={hougeki()?.e_now_hps[at_index()]}
-                    />
-                  </div>
+                  <WrapEnemyShipHPComponent
+                    store_data_set_param_ship={props.store_data_set_param_ship}
+                    idx={df}
+                    e_now_hps={hougeki()?.e_now_hps[at_index()]}
+                  />
                 );
               } else {
                 return (
-                  <div class="flex flex-nowarp">
-                    <WrapOwnShipHPComponent
-                      deck_ship_id={props.deck_ship_id}
-                      battle_selected={props.battle_selected}
-                      store_data_set_deck_ship={props.store_data_set_deck_ship}
-                      idx={df}
-                      f_now_hps={hougeki()?.f_now_hps[at_index()]}
-                    />
-                  </div>
+                  <WrapOwnShipHPComponent
+                    deck_ship_id={props.deck_ship_id}
+                    battle_selected={props.battle_selected}
+                    store_data_set_deck_ship={props.store_data_set_deck_ship}
+                    idx={df}
+                    f_now_hps={hougeki()?.f_now_hps[at_index()]}
+                  />
                 );
               }
             }}
@@ -240,12 +234,12 @@ export function ShellingComponent(props: ShellingProps) {
             <table class="table table-xs">
               <thead>
                 <tr>
-                  <th>Attack</th>
-                  <th>HP</th>
-                  <th>Defense</th>
-                  <th>HP</th>
-                  <th>Damage</th>
-                  <th>CI</th>
+                  <th class="w-2/8">Attack</th>
+                  <th class="w-1/8">HP</th>
+                  <th class="w-2/8">Defense</th>
+                  <th class="w-1/8">HP</th>
+                  <th class="w-1/8">Damage</th>
+                  <th class="w-1/8">CI</th>
                 </tr>
               </thead>
               <tbody>

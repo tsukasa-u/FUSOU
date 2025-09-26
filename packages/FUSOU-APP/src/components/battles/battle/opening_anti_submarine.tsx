@@ -270,11 +270,12 @@ export function OpeningAntiSubmarineComponent(props: AntiSubmarineProps) {
             <table class="table table-xs">
               <thead>
                 <tr>
-                  <th>From</th>
-                  <th>HP</th>
-                  <th>To</th>
-                  <th>HP</th>
-                  <th>Attack</th>
+                  <th class="w-2/8">Attack</th>
+                  <th class="w-1/8">HP</th>
+                  <th class="w-2/8">Defense</th>
+                  <th class="w-1/8">HP</th>
+                  <th class="w-1/8">Damage</th>
+                  <th class="w-1/8" />
                 </tr>
               </thead>
               <tbody>
