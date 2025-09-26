@@ -1,0 +1,3 @@
+.line-sm-h {
+  height: calc(var(--space) * 6);
+}

@@ -6,7 +6,7 @@ import type {
   DataSetParamShip,
   DataSetShip,
 } from "../../../utility/get_data_set";
-import { calc_critical, type DeckShipIds } from "../../../utility/battles";
+import type { DeckShipIds } from "../../../utility/battles";
 import {
   WrapCIMstEquipComponent,
   WrapEnemyShipHPComponent,
@@ -14,6 +14,7 @@ import {
   WrapNumberedEnemyShipComponent,
   WrapNumberedOwnShipComponent,
 } from "../wrap_web_component";
+import { DamageCommonComponent } from "../dmg";
 
 interface ShellingProps {
   shelling_idx: number;
@@ -192,14 +193,10 @@ export function ShellingComponent(props: ShellingProps) {
         <div class="flex flex-col">
           <For each={hougeki()?.damage[at_index()]}>
             {(dmg, dmg_index) => (
-              <div
-                class={`text-sm my-auto ${calc_critical(
-                  dmg,
-                  hougeki()?.cl_list[at_index()]?.[dmg_index()]
-                )}`}
-              >
-                {dmg}
-              </div>
+              <DamageCommonComponent
+                dmg={dmg}
+                critical_flag={hougeki()?.cl_list[at_index()]?.[dmg_index()]}
+              />
             )}
           </For>
         </div>

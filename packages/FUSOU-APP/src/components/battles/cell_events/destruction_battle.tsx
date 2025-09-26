@@ -11,7 +11,7 @@ import {
   WrapNumberedEnemyShipComponent,
   WrapOwnPlaneEquipComponent,
 } from "../wrap_web_component";
-import { calc_critical } from "../../../utility/battles";
+import { DamageCommonComponent } from "../dmg";
 
 interface DestructionBattleProps {
   area_id: number;
@@ -270,16 +270,14 @@ export function DestructionBattleComponent(props: DestructionBattleProps) {
                 <Show when={dmg_index() > 0}>
                   <div class="h-px" />
                 </Show>
-                <div
-                  class={`text-sm my-auto ${calc_critical(
-                    dmg,
+                <DamageCommonComponent
+                  dmg={dmg}
+                  critical_flag={
                     destruction_battle?.air_base_attack.e_damage.cl?.[
                       dmg_index()
                     ]
-                  )}`}
-                >
-                  {dmg}
-                </div>
+                  }
+                />
               </Show>
             </>
           )}
@@ -404,16 +402,14 @@ export function DestructionBattleComponent(props: DestructionBattleProps) {
                 <Show when={dmg_index() > 0}>
                   <div class="h-px" />
                 </Show>
-                <div
-                  class={`text-sm my-auto ${calc_critical(
-                    dmg,
+                <DamageCommonComponent
+                  dmg={dmg}
+                  critical_flag={
                     destruction_battle?.air_base_attack.f_damage.cl?.[
                       dmg_index()
                     ]
-                  )}`}
-                >
-                  {dmg}
-                </div>
+                  }
+                />
               </Show>
             </>
           )}

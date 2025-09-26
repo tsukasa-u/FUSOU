@@ -3,7 +3,7 @@ import { createMemo, For, Show } from "solid-js";
 import "../../../css/divider.css";
 import type { Battle } from "@ipc-bindings/battle";
 import IconShield from "../../../icons/shield";
-import { calc_critical, type DeckShipIds } from "../../../utility/battles";
+import type { DeckShipIds } from "../../../utility/battles";
 import type {
   DataSetParamShip,
   DataSetShip,
@@ -18,6 +18,7 @@ import {
   WrapOwnShipComponent,
   WrapOwnShipHPComponent,
 } from "../wrap_web_component";
+import { DamageCommonComponent } from "../dmg";
 
 interface MidnightShellingProps {
   deck_ship_id: () => DeckShipIds;
@@ -290,15 +291,11 @@ export function MidnightShellingComponent(props: MidnightShellingProps) {
             <div class="flex flex-col">
               <For each={midngiht_hougeki()?.df_list?.[at_index()]}>
                 {(df) => (
-                  <div class="flex flex-nowrap">
-                    <WrapEnemyShipHPComponent
-                      store_data_set_param_ship={
-                        props.store_data_set_param_ship
-                      }
-                      idx={df}
-                      e_now_hps={midngiht_hougeki()?.e_now_hps?.[at_index()]}
-                    />
-                  </div>
+                  <WrapEnemyShipHPComponent
+                    store_data_set_param_ship={props.store_data_set_param_ship}
+                    idx={df}
+                    e_now_hps={midngiht_hougeki()?.e_now_hps?.[at_index()]}
+                  />
                 )}
               </For>
             </div>
@@ -310,15 +307,13 @@ export function MidnightShellingComponent(props: MidnightShellingProps) {
             <div class="flex flex-col">
               <For each={midngiht_hougeki()?.df_list?.[at_index()]}>
                 {(df) => (
-                  <div class="flex flex-nowrap">
-                    <WrapOwnShipHPComponent
-                      deck_ship_id={props.deck_ship_id}
-                      battle_selected={props.battle_selected}
-                      store_data_set_deck_ship={props.store_data_set_deck_ship}
-                      idx={df}
-                      f_now_hps={midngiht_hougeki()?.f_now_hps[at_index()]}
-                    />
-                  </div>
+                  <WrapOwnShipHPComponent
+                    deck_ship_id={props.deck_ship_id}
+                    battle_selected={props.battle_selected}
+                    store_data_set_deck_ship={props.store_data_set_deck_ship}
+                    idx={df}
+                    f_now_hps={midngiht_hougeki()?.f_now_hps[at_index()]}
+                  />
                 )}
               </For>
             </div>
@@ -337,14 +332,12 @@ export function MidnightShellingComponent(props: MidnightShellingProps) {
           <For each={midngiht_hougeki()?.damage?.[at_index()]}>
             {(dmg, dmg_index) => (
               <>
-                <div
-                  class={`text-sm h-6 ${calc_critical(
-                    dmg,
+                <DamageCommonComponent
+                  dmg={dmg}
+                  critical_flag={
                     midngiht_hougeki()?.cl_list?.[at_index()]?.[dmg_index()]
-                  )}`}
-                >
-                  {dmg}
-                </div>
+                  }
+                />
               </>
             )}
           </For>

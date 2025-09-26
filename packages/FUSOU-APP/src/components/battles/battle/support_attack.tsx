@@ -7,13 +7,15 @@ import type {
   DataSetShip,
 } from "../../../utility/get_data_set";
 import type { DeckShipIds } from "../../../utility/battles";
-import { calc_critical } from "../../../utility/battles";
 import {
   WrapEnemyShipHPComponent,
   WrapNumberedEnemyShipComponent,
   WrapNumberedSupportShipComponent,
   WrapSupportShipHPComponent,
 } from "../wrap_web_component";
+
+import "../../../css/battle_table_common.css";
+import { DamageCommonComponent } from "../dmg";
 
 interface SupportAttackProps {
   deck_ship_id: () => DeckShipIds;
@@ -37,16 +39,9 @@ export function SupportAttackComponent(props: SupportAttackProps) {
   });
 
   const show_support_airattack = createMemo<boolean>(() => {
-    const f_plane_from =
-      props.battle_selected()?.support_attack?.support_airatack?.f_damage
-        .plane_from;
-    if (f_plane_from) {
-      if (f_plane_from.length > 0) {
-        return true;
-      }
-    }
-
-    return false;
+    return props.battle_selected()?.support_attack?.support_airatack
+      ? true
+      : false;
   });
 
   const show_air_damage = createMemo<boolean[][]>(() => {
@@ -74,13 +69,19 @@ export function SupportAttackComponent(props: SupportAttackProps) {
     return show_air_damage;
   });
 
-  const support_deck_id = () =>
-    props.battle_selected()?.support_attack?.support_hourai?.deck_id;
+  const support_deck_id = () => {
+    if (show_support_hourai()) {
+      return props.battle_selected()?.support_attack?.support_hourai?.deck_id;
+    } else if (show_support_airattack()) {
+      return props.battle_selected()?.support_attack?.support_airatack?.deck_id;
+    } else {
+      return undefined;
+    }
+  };
   const ship_ids = () => {
     const deck_id = support_deck_id();
-    return deck_id
-      ? props.deck_ship_id()[deck_id]
-      : props.battle_selected()?.support_attack?.support_hourai?.ship_id;
+    if (!deck_id) return undefined;
+    return props.deck_ship_id()[deck_id];
   };
 
   const attacker_ships = () => {
@@ -116,6 +117,9 @@ export function SupportAttackComponent(props: SupportAttackProps) {
           <For each={ship_ids()}>
             {(_, idx) => (
               <>
+                <Show when={idx() > 0}>
+                  <div class="h-px" />
+                </Show>
                 <WrapSupportShipHPComponent
                   deck_ship_id={props.deck_ship_id}
                   idx={idx()}
@@ -170,6 +174,9 @@ export function SupportAttackComponent(props: SupportAttackProps) {
         <For each={props.battle_selected()?.enemy_ship_id}>
           {(_, idx) => (
             <>
+              <Show when={idx() > 0}>
+                <div class="h-px" />
+              </Show>
               <WrapEnemyShipHPComponent
                 idx={idx()}
                 store_data_set_param_ship={props.store_data_set_param_ship}
@@ -190,24 +197,25 @@ export function SupportAttackComponent(props: SupportAttackProps) {
       <td>
         <div class="flex flex-col">
           <For
-            each={
-              props.battle_selected()?.support_attack?.support_hourai?.damage
-            }
+            each={props
+              .battle_selected()
+              ?.support_attack?.support_hourai?.damage.slice(
+                0,
+                props.battle_selected()?.enemy_ship_id?.length
+              )}
           >
             {(dmg, dmg_index) => (
               <>
                 <Show when={dmg_index() > 0}>
                   <div class="h-px" />
                 </Show>
-                <div
-                  class={`text-sm my-auto ${calc_critical(
-                    dmg,
+                <DamageCommonComponent
+                  dmg={dmg}
+                  critical_flag={
                     props.battle_selected()?.support_attack?.support_hourai
                       ?.cl_list[dmg_index()]
-                  )}`}
-                >
-                  {dmg}
-                </div>
+                  }
+                />
               </>
             )}
           </For>
@@ -268,6 +276,9 @@ export function SupportAttackComponent(props: SupportAttackProps) {
           {(_, idx) => (
             <>
               <Show when={show_air_damage()[0][idx()]}>
+                <Show when={idx() > 0}>
+                  <div class="h-px" />
+                </Show>
                 <WrapEnemyShipHPComponent
                   idx={idx()}
                   store_data_set_param_ship={props.store_data_set_param_ship}
@@ -288,10 +299,12 @@ export function SupportAttackComponent(props: SupportAttackProps) {
     return (
       <td>
         <For
-          each={
-            props.battle_selected()?.support_attack?.support_airatack?.e_damage
-              .damages
-          }
+          each={props
+            .battle_selected()
+            ?.support_attack?.support_airatack?.e_damage.damages?.slice(
+              0,
+              props.battle_selected()?.enemy_ship_id?.length
+            )}
         >
           {(dmg, dmg_index) => (
             <>
@@ -299,15 +312,13 @@ export function SupportAttackComponent(props: SupportAttackProps) {
                 <Show when={dmg_index() > 0}>
                   <div class="h-px" />
                 </Show>
-                <div
-                  class={`text-sm my-auto ${calc_critical(
-                    dmg,
+                <DamageCommonComponent
+                  dmg={dmg}
+                  critical_flag={
                     props.battle_selected()?.support_attack?.support_airatack
                       ?.e_damage?.cl?.[dmg_index()]
-                  )}`}
-                >
-                  {dmg}
-                </div>
+                  }
+                />
               </Show>
             </>
           )}

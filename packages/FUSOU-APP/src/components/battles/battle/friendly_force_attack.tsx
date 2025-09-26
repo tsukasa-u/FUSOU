@@ -3,7 +3,6 @@ import { createMemo, For, Show } from "solid-js";
 import type { Battle } from "@ipc-bindings/battle";
 import IconShield from "../../../icons/shield";
 import type { DeckShipIds } from "../../../utility/battles";
-import { calc_critical } from "../../../utility/battles";
 import type {
   DataSetParamShip,
   DataSetShip,
@@ -18,6 +17,7 @@ import {
   WrapNumberedErrorShipComponent,
   WrapNumberedFriendShipComponent,
 } from "../wrap_web_component";
+import { DamageCommonComponent } from "../dmg";
 
 interface FriendlyForceAttackProps {
   deck_ship_id: () => DeckShipIds;
@@ -309,17 +309,15 @@ export function FriendlyForceAttackComponent(props: FriendlyForceAttackProps) {
           >
             {(dmg, dmg_index) => (
               <>
-                <div
-                  class={`text-sm h-6 ${calc_critical(
-                    dmg,
+                <DamageCommonComponent
+                  dmg={dmg}
+                  critical_flag={
                     props.battle_selected()?.friendly_force_attack
                       ?.support_hourai?.hougeki?.cl_list?.[at_index()]?.[
                       dmg_index()
                     ]
-                  )}`}
-                >
-                  {dmg}
-                </div>
+                  }
+                />
               </>
             )}
           </For>

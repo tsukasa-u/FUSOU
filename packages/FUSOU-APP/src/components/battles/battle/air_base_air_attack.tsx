@@ -4,13 +4,13 @@ import type { AirBaseAirAttack, Battle } from "@ipc-bindings/battle";
 import { useAirBasesBattles } from "../../../utility/provider";
 import IconShield from "../../../icons/shield";
 import type { DataSetParamShip } from "../../../utility/get_data_set";
-import { calc_critical } from "../../../utility/battles";
 import {
   WrapCIMstEquipComponent,
   WrapEnemyShipHPComponent,
   WrapNumberedEnemyShipComponent,
   WrapOwnPlaneEquipComponent,
 } from "../wrap_web_component";
+import { DamageCommonComponent } from "../dmg";
 
 interface AirDamageProps {
   area_id: number;
@@ -147,6 +147,9 @@ export function AirBaseAirAttackComponent(props: AirDamageProps) {
             {(_, idx) => (
               <>
                 <Show when={show_damage()[attack_idx()][idx()]}>
+                  <Show when={idx() > 0}>
+                    <div class="h-px" />
+                  </Show>
                   <WrapEnemyShipHPComponent
                     e_now_hps={attack.e_damage.now_hps}
                     idx={idx()}
@@ -175,14 +178,10 @@ export function AirBaseAirAttackComponent(props: AirDamageProps) {
                   <Show when={idx() > 0}>
                     <div class="h-px" />
                   </Show>
-                  <div
-                    class={`text-sm my-auto ${calc_critical(
-                      dmg,
-                      attack.e_damage.cl?.[idx()]
-                    )}`}
-                  >
-                    {dmg}
-                  </div>
+                  <DamageCommonComponent
+                    dmg={dmg}
+                    critical_flag={attack.e_damage.cl?.[idx()]}
+                  />
                 </Show>
               </>
             )}
@@ -202,8 +201,8 @@ export function AirBaseAirAttackComponent(props: AirDamageProps) {
               <thead>
                 <tr>
                   <th>Attack</th>
-                  <th>To</th>
                   <th>Defense</th>
+                  <th>HP</th>
                   <th>Damage</th>
                 </tr>
               </thead>

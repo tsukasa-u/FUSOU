@@ -3,7 +3,6 @@ import { createMemo, For, Show } from "solid-js";
 import type { Battle } from "@ipc-bindings/battle";
 import IconShield from "../../../icons/shield";
 import type { DeckShipIds } from "../../../utility/battles";
-import { calc_critical } from "../../../utility/battles";
 import type {
   DataSetParamShip,
   DataSetShip,
@@ -14,6 +13,7 @@ import {
   WrapNumberedOwnShipComponent,
   WrapOwnShipHPComponent,
 } from "../wrap_web_component";
+import { DamageCommonComponent } from "../dmg";
 
 interface TorpedoSubmarineProps {
   deck_ship_id: () => DeckShipIds;
@@ -156,9 +156,12 @@ export function ClosingTorpedoAttackComponent(props: TorpedoSubmarineProps) {
       <td>
         <div class="flex flex-col">
           <For each={closing_torpedo_damage().frai.dict[frai].ships}>
-            {(ship_idx) => {
+            {(ship_idx, idx) => {
               return (
                 <>
+                  <Show when={idx() > 0}>
+                    <div class="h-px" />
+                  </Show>
                   <WrapOwnShipHPComponent
                     deck_ship_id={props.deck_ship_id}
                     battle_selected={props.battle_selected}
@@ -181,9 +184,12 @@ export function ClosingTorpedoAttackComponent(props: TorpedoSubmarineProps) {
       <td>
         <div class="flex flex-col">
           <For each={closing_torpedo_damage().erai.dict[erai].ships}>
-            {(ship_idx) => {
+            {(ship_idx, idx) => {
               return (
                 <>
+                  <Show when={idx() > 0}>
+                    <div class="h-px" />
+                  </Show>
                   <WrapEnemyShipHPComponent
                     store_data_set_param_ship={props.store_data_set_param_ship}
                     idx={ship_idx}
@@ -280,7 +286,7 @@ export function ClosingTorpedoAttackComponent(props: TorpedoSubmarineProps) {
     const dmg = closing_torpedo_damage().erai.dict[erai].dmg;
     return (
       <td>
-        <div class={`text-sm h-6 ${calc_critical(dmg, cl_flag)}`}>{dmg}</div>
+        <DamageCommonComponent dmg={dmg} critical_flag={cl_flag} />
       </td>
     );
   };
@@ -290,7 +296,7 @@ export function ClosingTorpedoAttackComponent(props: TorpedoSubmarineProps) {
     const dmg = closing_torpedo_damage().frai.dict[frai].dmg;
     return (
       <td>
-        <div class={`text-sm h-6 ${calc_critical(dmg, cl_flag)}`}>{dmg}</div>
+        <DamageCommonComponent dmg={dmg} critical_flag={cl_flag} />
       </td>
     );
   };

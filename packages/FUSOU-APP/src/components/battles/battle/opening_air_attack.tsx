@@ -4,7 +4,6 @@ import "../../../css/divider.css";
 import type { Battle } from "@ipc-bindings/battle";
 import IconShield from "../../../icons/shield";
 import type { DeckShipIds } from "../../../utility/battles";
-import { calc_critical } from "../../../utility/battles";
 import type {
   DataSetParamShip,
   DataSetShip,
@@ -17,6 +16,7 @@ import {
   WrapOwnShipComponent,
   WrapOwnShipHPComponent,
 } from "../wrap_web_component";
+import { DamageCommonComponent } from "../dmg";
 
 interface AirDamageProps {
   attack_index: number;
@@ -195,8 +195,11 @@ export function OpeningAirAttackComponent(props: AirDamageProps) {
       <td>
         <div class="flex flex-col">
           <For each={airattack()?.f_damage?.plane_from}>
-            {(ship_idx) => (
+            {(ship_idx, idx) => (
               <>
+                <Show when={idx() > 0}>
+                  <div class="h-px" />
+                </Show>
                 <WrapOwnShipHPComponent
                   battle_selected={props.battle_selected}
                   deck_ship_id={props.deck_ship_id}
@@ -279,14 +282,10 @@ export function OpeningAirAttackComponent(props: AirDamageProps) {
                 <Show when={dmg_index() > 0}>
                   <div class="h-px" />
                 </Show>
-                <div
-                  class={`text-sm my-auto ${calc_critical(
-                    dmg,
-                    airattack()?.e_damage.cl?.[dmg_index()]
-                  )}`}
-                >
-                  {dmg}
-                </div>
+                <DamageCommonComponent
+                  dmg={dmg}
+                  critical_flag={airattack()?.e_damage.cl?.[dmg_index()]}
+                />
               </Show>
             </>
           )}
@@ -325,8 +324,11 @@ export function OpeningAirAttackComponent(props: AirDamageProps) {
       <td>
         <div class="flex flex-col">
           <For each={airattack()?.e_damage.plane_from}>
-            {(ship_idx) => (
+            {(ship_idx, idx) => (
               <>
+                <Show when={idx() > 0}>
+                  <div class="h-px" />
+                </Show>
                 <WrapEnemyShipHPComponent
                   e_now_hps={airattack()?.e_damage.now_hps}
                   idx={ship_idx}
@@ -410,14 +412,10 @@ export function OpeningAirAttackComponent(props: AirDamageProps) {
                 <Show when={dmg_index() > 0}>
                   <div class="h-px" />
                 </Show>
-                <div
-                  class={`text-sm my-auto ${calc_critical(
-                    dmg,
-                    airattack()?.f_damage.cl?.[dmg_index()]
-                  )}`}
-                >
-                  {dmg}
-                </div>
+                <DamageCommonComponent
+                  dmg={dmg}
+                  critical_flag={airattack()?.f_damage.cl?.[dmg_index()]}
+                />
               </Show>
             </>
           )}
