@@ -1,7 +1,7 @@
 {
   "name": "shared-ui",
   "private": true,
-  "version": "0.1.0-01aa02f9-75f4-4875-b9ed-6d576421e0d4",
+  "version": "0.1.1",
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",

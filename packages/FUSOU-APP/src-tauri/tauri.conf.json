@@ -43,7 +43,7 @@
   },
   "productName": "fusou",
   "mainBinaryName": "fusou",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "identifier": "fusou",
   "plugins": {
     "deep-link": {
