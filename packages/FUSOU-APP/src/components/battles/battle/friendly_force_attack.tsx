@@ -187,7 +187,7 @@ export function FriendlyForceAttackComponent(props: FriendlyForceAttackProps) {
                         }
                       />
                       <Show when={protect_flag?.[at_index()]?.[df_index()]}>
-                        <IconShield class="h-5 w-5" />
+                        <IconShield class="h-4 self-center ml-auto" />
                       </Show>
                     </div>
                   )}
@@ -212,7 +212,7 @@ export function FriendlyForceAttackComponent(props: FriendlyForceAttackProps) {
                         }
                       />
                       <Show when={protect_flag?.[at_index()]?.[df_index()]}>
-                        <IconShield class="h-5 w-5" />
+                        <IconShield class="h-4 self-center ml-auto" />
                       </Show>
                     </div>
                   )}

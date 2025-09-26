@@ -150,7 +150,7 @@ export function CarrierBaseAssaultComponent(props: AirDamageProps) {
                       ) ?? false
                     }
                   >
-                    <IconShield class="h-4 w-4" />
+                    <IconShield class="h-4 self-center ml-auto" />
                   </Show>
                 </div>
               </Show>
