@@ -337,3 +337,7 @@ pub async fn get_kc_server_name(_window: tauri::Window) -> Result<String, ()> {
 pub fn set_launch_page(app: &AppHandle) {
     let _ = app.emit_to("main", "set-main-page-launch", ());
 }
+
+pub fn set_update_page(app: &AppHandle) {
+    let _ = app.emit_to("main", "set-main-page-update", ());
+}

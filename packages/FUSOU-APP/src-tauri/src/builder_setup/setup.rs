@@ -135,6 +135,9 @@ fn setup_tray(
         MenuItemBuilder::with_id("intergrate_file".to_string(), "Intergrate Cloud File")
             .build(app)?;
 
+    let check_update =
+        MenuItemBuilder::with_id("check-update".to_string(), "Check Update").build(app)?;
+
     let danger_ope_sub_menu = SubmenuBuilder::new(app, "Danger Zone")
         .item(&danger_ope_sub_menu_title)
         .item(&proxy_serve_shutdown)
@@ -158,6 +161,7 @@ fn setup_tray(
         .item(&open_configs)
         .item(&open_log_file)
         .item(&intergrate_file)
+        .item(&check_update)
         .separator()
         .item(&danger_ope_sub_menu)
         .build()?;
@@ -329,6 +333,23 @@ fn setup_tray(
                     }
                     "intergrate_file" => {
                         integrate::integrate_port_table();
+                    }
+                    "check-update" => {
+                        let window = tray.get_webview_window("main");
+                        match window {
+                            Some(window) => {
+                                if let Ok(false) = window.is_visible() {
+                                    if let Err(e) = window.show() {
+                                        tracing::error!("Failed to show main window: {}", e);
+                                    }
+                                }
+                                tauri_cmd::set_update_page(tray.app_handle());
+                            }
+                            None => {
+                                app::open_main_window(tray.app_handle());
+                                tauri_cmd::set_update_page(tray.app_handle());
+                            }
+                        }
                     }
                     "main-open/close" => {
                         let window = tray.get_webview_window("main");
