@@ -282,6 +282,7 @@ export function DeckComponent(props: DeckPortProps) {
 
   const get_onslot = (ship_index: number, slot_index: number) => {
     const tmp = ship_list()[ship_index].onslot;
+    console.log(tmp ? tmp[slot_index] : 0);
     return tmp ? tmp[slot_index] : 0;
   };
 

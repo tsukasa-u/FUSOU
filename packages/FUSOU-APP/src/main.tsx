@@ -9,6 +9,7 @@ import NotFound from "./pages/not_found.tsx";
 import Debug from "./pages/debug.tsx";
 import Login from "./pages/login.tsx";
 import Close from "./pages/close.tsx";
+import Updater from "./pages/update.tsx";
 
 import "./global.css";
 import { AuthProvider } from "./utility/provider.tsx";
@@ -53,6 +54,7 @@ render(
         <Route path="/debug" component={Debug} />
         <Route path="/auth" component={Login} />
         <Route path="/close" component={Close} />
+        <Route path="/update" component={Updater} />
       </Router>
     </AuthProvider>
   ),
