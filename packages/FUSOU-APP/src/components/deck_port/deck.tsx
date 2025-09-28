@@ -443,7 +443,7 @@ export function DeckComponent(props: DeckPortProps) {
                                       size="xs"
                                       empty_flag={false}
                                       name_flag={false}
-                                      attr:onslot={get_onslot(
+                                      attr_onslot={get_onslot(
                                         ship_index(),
                                         slotId_index()
                                       )}
@@ -473,7 +473,7 @@ export function DeckComponent(props: DeckPortProps) {
                                   size="xs"
                                   empty_flag={false}
                                   name_flag={false}
-                                  attr:onslot={undefined}
+                                  attr_onslot={undefined}
                                   slot_item={get_slot_item(
                                     ship_index(),
                                     ship_list()[ship_index()].slot_ex ?? 0

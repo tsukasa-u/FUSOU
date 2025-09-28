@@ -17,7 +17,7 @@ export interface ComponentEquipmentProps {
   slot_item?: SlotItem;
   compact?: boolean;
   name_flag?: boolean;
-  "attr:onslot"?: number;
+  attr_onslot?: number;
   hide_onslot?: boolean;
   ex_flag?: boolean;
   size: "xs" | "sm" | "md" | "lg" | "xl";
@@ -86,7 +86,7 @@ export class ComponentEquipment extends LitElement {
   compact: boolean = false;
 
   @property({ type: Number })
-  "attr:onslot": number = 0;
+  attr_onslot: number = 0;
 
   @property({ type: Boolean })
   hide_onslot: boolean = false;
@@ -146,7 +146,7 @@ export class ComponentEquipment extends LitElement {
               class_size[this.size].onslot_text,
             ].join(" ")}
           >
-            ${this.show_onslot(this.mst_slot_item) ? this["attr:onslot"] : ""}
+            ${this.show_onslot(this.mst_slot_item) ? this.attr_onslot : ""}
           </div>`;
       }
     } else {
