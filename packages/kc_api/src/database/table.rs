@@ -329,6 +329,7 @@ pub static PORT_TABLE_NAMES: std::sync::LazyLock<Vec<String>> = std::sync::LazyL
         SupportDeck::get_table_name(),
         SupportAirattack::get_table_name(),
         OpeningAirAttack::get_table_name(),
+        OpeningAirAttackList::get_table_name(),
         OpeningRaigeki::get_table_name(),
         OpeningTaisen::get_table_name(),
         OpeningTaisenList::get_table_name(),
