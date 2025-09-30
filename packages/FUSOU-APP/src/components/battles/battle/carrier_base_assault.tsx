@@ -8,7 +8,6 @@ import type {
   DataSetShip,
 } from "../../../utility/get_data_set";
 import {
-  WrapEnemyShipComponent,
   WrapEnemyShipHPComponent,
   WrapNumberedEnemyShipComponent,
   WrapNumberedOwnShipComponent,
@@ -141,9 +140,9 @@ export function CarrierBaseAssaultComponent(props: AirDamageProps) {
                   <div class="h-px" />
                 </Show>
                 <div class="flex flex-nowrap">
-                  <WrapEnemyShipComponent
+                  <WrapNumberedEnemyShipComponent
+                    battle_selected={props.battle_selected}
                     ship_idx={idx()}
-                    name_flag={true}
                     store_data_set_param_ship={props.store_data_set_param_ship}
                   />
                   <Show
