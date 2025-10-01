@@ -560,7 +560,9 @@ export function EquipmentListComponent() {
               class="btn btn-xs btn-ghost -mx-1"
               onClick={() =>
                 (
-                  document.getElementById("my_modal_1") as HTMLDialogElement
+                  document.getElementById(
+                    "equipment_modal_sort"
+                  ) as HTMLDialogElement
                 ).showModal()
               }
             >
@@ -568,7 +570,7 @@ export function EquipmentListComponent() {
             </div>
           </div>
         </div>
-        <dialog id="my_modal_1" class="modal modal-top">
+        <dialog id="equipment_modal_sort" class="modal modal-top">
           <div class="modal-box border-1 border-base-300 text-base-content rounded-md  mx-auto w-72">
             <table class="table table-sm ">
               <tbody>
