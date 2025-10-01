@@ -439,7 +439,7 @@ export function EquipmentListComponent() {
           </div>
           <div
             tabindex="0"
-            class="dropdown-content z-[2] card card-compact bg-base-100 z-[1] w-64"
+            class="dropdown-content z-[2] card card-compact bg-base-100 w-64"
           >
             <div class="card-body border-1 border-base-300 text-base-content rounded-md">
               <div class="form-control">
@@ -542,6 +542,81 @@ export function EquipmentListComponent() {
       );
     });
     return set_range_element;
+  };
+
+  const sort_window = () => {
+    return (
+      <>
+        <div>
+          <div class="indicator">
+            <span class="indicator-item badge badge-secondary badge-xs -mx-2 max-w-16 truncate flex justify-start">
+              <Switch fallback="">
+                <Match when={set_order()}>▲</Match>
+                <Match when={!set_order()}>▼</Match>
+              </Switch>
+              {set_sort()}
+            </span>
+            <div
+              class="btn btn-xs btn-ghost -mx-1"
+              onClick={() =>
+                (
+                  document.getElementById("my_modal_1") as HTMLDialogElement
+                ).showModal()
+              }
+            >
+              No
+            </div>
+          </div>
+        </div>
+        <dialog id="my_modal_1" class="modal modal-top">
+          <div class="modal-box border-1 border-base-300 text-base-content rounded-md  mx-auto w-72">
+            <table class="table table-sm ">
+              <tbody>
+                <tr class="flex" style={{ "border-bottom-width": "0px" }}>
+                  <td class="flex-1">order</td>
+                  <td class="flex-none h-6">
+                    <label class="swap swap-rotate">
+                      <input
+                        type="checkbox"
+                        onClick={(e) => set_set_order(e.currentTarget.checked)}
+                      />
+                      <div class="swap-on flex flex-nowrap items-center">
+                        <IconUpArrow class="h-6 w-6" />
+                        <div class="label-text text-xs">ASC</div>
+                      </div>
+                      <div class="swap-off flex flex-nowrap items-center">
+                        <IconDownArrow class="h-6 w-6" />
+                        <div class="label-text text-xs">DESC</div>
+                      </div>
+                    </label>
+                  </td>
+                </tr>
+                <tr
+                  class="flex items-center"
+                  style={{ "border-bottom-width": "0px" }}
+                >
+                  <td class="flex-1">sort parameters</td>
+                  <td class="flex-none">
+                    <select
+                      class="select select-bordered select-sm w-28"
+                      onChange={(e) => set_set_sort(e.target.value)}
+                    >
+                      <option>Default</option>
+                      <For each={equip_properties}>
+                        {(property) => <option>{property}</option>}
+                      </For>
+                    </select>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <form method="dialog" class="modal-backdrop">
+            <button>close</button>
+          </form>
+        </dialog>
+      </>
+    );
   };
 
   const table_line_element = (equip_id: number, index: number) => {
@@ -690,75 +765,7 @@ export function EquipmentListComponent() {
     return (
       <thead>
         <tr class="flex mt-1">
-          <th class="w-10 flex bg-base-100 z-[3]">
-            <div class="dropdown" style={{ "z-index": "3" }}>
-              <div class="indicator">
-                <span class="indicator-item badge badge-secondary badge-xs -mx-2 max-w-16 truncate flex justify-start">
-                  <Switch fallback="">
-                    <Match when={set_order()}>▲</Match>
-                    <Match when={!set_order()}>▼</Match>
-                  </Switch>
-                  {set_sort()}
-                </span>
-                <div
-                  tabindex="0"
-                  role="button"
-                  class="btn btn-xs btn-ghost -mx-1"
-                >
-                  No
-                </div>
-              </div>
-              <div
-                tabindex="0"
-                class="dropdown-content z-[2] card card-compact bg-base-100 w-72 rounded-md"
-              >
-                <div class="card-body border-1 border-base-300 text-base-content rounded-md">
-                  <table class="table table-sm">
-                    <tbody>
-                      <tr class="flex" style={{ "border-bottom-width": "0px" }}>
-                        <td class="flex-1">order</td>
-                        <td class="flex-none h-6">
-                          <label class="swap swap-rotate">
-                            <input
-                              type="checkbox"
-                              onClick={(e) =>
-                                set_set_order(e.currentTarget.checked)
-                              }
-                            />
-                            <div class="swap-on flex flex-nowrap items-center">
-                              <IconUpArrow class="h-6 w-6" />
-                              <div class="label-text text-xs">ASC</div>
-                            </div>
-                            <div class="swap-off flex flex-nowrap items-center">
-                              <IconDownArrow class="h-6 w-6" />
-                              <div class="label-text text-xs">DESC</div>
-                            </div>
-                          </label>
-                        </td>
-                      </tr>
-                      <tr
-                        class="flex items-center"
-                        style={{ "border-bottom-width": "0px" }}
-                      >
-                        <td class="flex-1">sort parameters</td>
-                        <td class="flex-none">
-                          <select
-                            class="select select-bordered select-sm w-28"
-                            onChange={(e) => set_set_sort(e.target.value)}
-                          >
-                            <option>Default</option>
-                            <For each={equip_properties}>
-                              {(property) => <option>{property}</option>}
-                            </For>
-                          </select>
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
-          </th>
+          <th class="w-10 flex bg-base-100 z-[3]">{sort_window()}</th>
           <th class="w-48">
             <div class="dropdown">
               <div class="indicator">
@@ -781,7 +788,7 @@ export function EquipmentListComponent() {
               </div>
               <div
                 tabindex="0"
-                class="dropdown-content z-[2] card card-compact bg-base-100 z-[1] w-72 rounded-md"
+                class="dropdown-content z-[2] card card-compact bg-base-100 w-72 rounded-md"
               >
                 <div class="card-body border-1 border-base-300 text-base-content rounded-md">
                   <label class="input input-sm input-bordered flex items-center gap-2">
