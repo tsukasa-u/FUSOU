@@ -571,7 +571,7 @@ export function EquipmentListComponent() {
           </div>
         </div>
         <dialog id="equipment_modal_sort" class="modal modal-top">
-          <div class="modal-box border-1 border-base-300 text-base-content rounded-md  mx-auto w-72">
+          <div class="modal-box border-1 border-base-300 text-base-content rounded-md mx-auto w-72">
             <table class="table table-sm ">
               <tbody>
                 <tr class="flex" style={{ "border-bottom-width": "0px" }}>
@@ -612,6 +612,75 @@ export function EquipmentListComponent() {
                 </tr>
               </tbody>
             </table>
+          </div>
+          <form method="dialog" class="modal-backdrop">
+            <button>close</button>
+          </form>
+        </dialog>
+      </>
+    );
+  };
+
+  const search_name_window = () => {
+    return (
+      <>
+        <div>
+          <div class="indicator">
+            <Show
+              when={
+                Object.values(check_name).findIndex((value) => !value) != -1
+              }
+            >
+              <span class="indicator-item badge badge-secondary badge-xs -mx-2">
+                filtered
+              </span>
+            </Show>
+            <div
+              class="btn btn-xs btn-ghost -mx-2"
+              onClick={() =>
+                (
+                  document.getElementById(
+                    "equipment_modal_search_name"
+                  ) as HTMLDialogElement
+                ).showModal()
+              }
+            >
+              Equip Name
+            </div>
+          </div>
+        </div>
+        <dialog id="equipment_modal_search_name" class="modal modal-top">
+          <div class="modal-box border-1 border-base-300 text-base-content rounded-md mx-auto w-72">
+            <label class="input input-sm input-bordered flex items-center gap-2">
+              <input
+                type="text"
+                class="grow"
+                placeholder="Search Name"
+                onChange={(e) => {
+                  set_search_name(e.target.value);
+                  cal_search_name(e.target.value);
+                }}
+              />
+              <div
+                class="btn btn-ghost btn-sm -mr-3"
+                onClick={() => {
+                  cal_search_name(search_name());
+                }}
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  viewBox="0 0 16 16"
+                  fill="currentColor"
+                  class="h-4 w-4 opacity-70"
+                >
+                  <path
+                    fill-rule="evenodd"
+                    d="M9.965 11.026a5 5 0 1 1 1.06-1.06l2.755 2.754a.75.75 0 1 1-1.06 1.06l-2.755-2.754ZM10.5 7a3.5 3.5 0 1 1-7 0 3.5 3.5 0 0 1 7 0Z"
+                    clip-rule="evenodd"
+                  />
+                </svg>
+              </div>
+            </label>
           </div>
           <form method="dialog" class="modal-backdrop">
             <button>close</button>
@@ -768,65 +837,7 @@ export function EquipmentListComponent() {
       <thead>
         <tr class="flex mt-1">
           <th class="w-10 flex bg-base-100 z-[3]">{sort_window()}</th>
-          <th class="w-48">
-            <div class="dropdown">
-              <div class="indicator">
-                <Show
-                  when={
-                    Object.values(check_name).findIndex((value) => !value) != -1
-                  }
-                >
-                  <span class="indicator-item badge badge-secondary badge-xs -mx-2">
-                    filtered
-                  </span>
-                </Show>
-                <div
-                  tabindex="0"
-                  role="button"
-                  class="btn btn-xs btn-ghost -mx-2"
-                >
-                  Equip Name
-                </div>
-              </div>
-              <div
-                tabindex="0"
-                class="dropdown-content z-[2] card card-compact bg-base-100 w-72 rounded-md"
-              >
-                <div class="card-body border-1 border-base-300 text-base-content rounded-md">
-                  <label class="input input-sm input-bordered flex items-center gap-2">
-                    <input
-                      type="text"
-                      class="grow"
-                      placeholder="Search Name"
-                      onChange={(e) => {
-                        set_search_name(e.target.value);
-                        cal_search_name(e.target.value);
-                      }}
-                    />
-                    <div
-                      class="btn btn-ghost btn-sm -mr-3"
-                      onClick={() => {
-                        cal_search_name(search_name());
-                      }}
-                    >
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        viewBox="0 0 16 16"
-                        fill="currentColor"
-                        class="h-4 w-4 opacity-70"
-                      >
-                        <path
-                          fill-rule="evenodd"
-                          d="M9.965 11.026a5 5 0 1 1 1.06-1.06l2.755 2.754a.75.75 0 1 1-1.06 1.06l-2.755-2.754ZM10.5 7a3.5 3.5 0 1 1-7 0 3.5 3.5 0 0 1 7 0Z"
-                          clip-rule="evenodd"
-                        />
-                      </svg>
-                    </div>
-                  </label>
-                </div>
-              </div>
-            </div>
-          </th>
+          <th class="w-48">{search_name_window()}</th>
           <Show when={check_equip_property["Equip Type"]}>
             <th class="w-[96px]">
               <div class="dropdown">
