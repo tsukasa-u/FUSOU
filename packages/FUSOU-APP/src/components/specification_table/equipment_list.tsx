@@ -761,7 +761,7 @@ export function EquipmentListComponent() {
               </button>
             </div>
           </div>
-          <ul class="modal-box mx-auto w-72 menu menu-xs rounded-md grid h-full overflow-y-scroll flex border-1 pt-[40px]">
+          <ul class="modal-box mx-auto w-72 menu menu-xs rounded-md grid overflow-y-scroll flex border-1 pt-[40px]">
             <For each={Object.keys(check_equip_types)}>
               {(equip_type_name) => (
                 <Show
@@ -788,12 +788,6 @@ export function EquipmentListComponent() {
                           }
                           disabled={set_categorize()}
                           class="checkbox checkbox-sm"
-                          // onClick={() => {
-                          //   set_check_equip_types(
-                          //     equip_type_name,
-                          //     !check_equip_types[equip_type_name]
-                          //   );
-                          // }}
                         />
                         {equip_type_name}
                       </div>
@@ -1047,13 +1041,20 @@ export function EquipmentListComponent() {
   };
 
   const table_element_none_categorized = (equip_ids: (number | string)[]) => {
-    const _equip_count = Object.keys(filtered_equips()).filter(
-      (value) => value
-    ).length;
+    // const _equip_count = Object.keys(filtered_equips()).filter(
+    //   (value) => value
+    // ).length;
+    const table_element = equip_ids
+      .map((equip_id, index) => [
+        Number(equip_id),
+        filtered_equips()[Number(equip_id)] ?? false,
+        index,
+      ])
+      .filter(([, flag]) => flag as boolean);
     return (
       <table class={`table table-xs max-w-[${table_width}]`}>
         <tbody>
-          <VList
+          {/* <VList
             data={equip_ids}
             style={{
               height: "calc(100dvh - 126px)",
@@ -1064,6 +1065,20 @@ export function EquipmentListComponent() {
             {(equip_id, index) => (
               <Show when={filtered_equips()[Number(equip_id)] ?? false}>
                 {table_line_element(Number(equip_id), index())}
+              </Show>
+            )}
+          </VList> */}
+          <VList
+            data={table_element}
+            style={{
+              height: "calc(100dvh - 126px)",
+              width: table_width,
+            }}
+            class="overflow-x-hidden"
+          >
+            {([equip_id, , index]) => (
+              <Show when={filtered_equips()[Number(equip_id)] ?? false}>
+                {table_line_element(Number(equip_id), Number(index))}
               </Show>
             )}
           </VList>
@@ -1121,6 +1136,53 @@ export function EquipmentListComponent() {
     );
   };
 
+  const select_properties_window = () => {
+    return (
+      <>
+        <button
+          class="btn btn-xs btn-ghost"
+          onClick={() =>
+            (
+              document.getElementById(
+                "equipment_modal_select_properties"
+              ) as HTMLDialogElement
+            ).showModal()
+          }
+        >
+          select properties
+        </button>
+        <dialog id="equipment_modal_select_properties" class="modal modal-top">
+          <ul class="modal-box mx-auto w-72 menu menu-xs rounded-md grid overflow-y-scroll flex border-1 pt-[40px]">
+            <For each={Object.keys(check_equip_property)}>
+              {(prop) => (
+                <li
+                  class="flex-col w-full"
+                  onClick={() => {
+                    set_check_equip_property(prop, !check_equip_property[prop]);
+                  }}
+                >
+                  <a>
+                    <div class="flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={check_equip_property[prop]}
+                        class="checkbox checkbox-sm"
+                      />
+                      {prop}
+                    </div>
+                  </a>
+                </li>
+              )}
+            </For>
+          </ul>
+          <form method="dialog" class="modal-backdrop">
+            <button>close</button>
+          </form>
+        </dialog>
+      </>
+    );
+  };
+
   let parentScrollElement!: HTMLDivElement;
 
   return (
@@ -1133,40 +1195,7 @@ export function EquipmentListComponent() {
           </div>
           <div class="divider divider-horizontal mr-0 ml-0 flex-none" />
           <div class="flex flex-nowrap items-center">
-            <details class="dropdown">
-              <summary class="btn btn-xs btn-ghost text-nowrap">
-                select properties
-              </summary>
-              <ul
-                tabindex="0"
-                class="dropdown-content z-[2] menu menu-xs bg-base-100 rounded-md flex border-1 border-base-300"
-              >
-                <For each={Object.keys(check_equip_property)}>
-                  {(prop) => (
-                    <li class="flex-col w-32">
-                      <a>
-                        <div class="form-control">
-                          <label class="label cursor-pointer py-0">
-                            <input
-                              type="checkbox"
-                              checked={check_equip_property[prop]}
-                              class="checkbox checkbox-sm"
-                              onClick={() => {
-                                set_check_equip_property(
-                                  prop,
-                                  !check_equip_property[prop]
-                                );
-                              }}
-                            />
-                            <span class="label-text text-xs pl-2">{prop}</span>
-                          </label>
-                        </div>
-                      </a>
-                    </li>
-                  )}
-                </For>
-              </ul>
-            </details>
+            {select_properties_window()}
             <div class="divider divider-horizontal mr-0 ml-0 flex-none" />
             <div class="form-control">
               <label class="label cursor-pointer h-4">
