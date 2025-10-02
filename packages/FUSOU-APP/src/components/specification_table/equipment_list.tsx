@@ -731,8 +731,37 @@ export function EquipmentListComponent() {
           </div>
         </div>
         <dialog id="equipment_modal_type" class="modal modal-top">
-          {/* <div class="modal-box border-1 border-base-300 text-base-content rounded-md mx-auto w-72"> */}
-          <ul class="modal-box mx-auto w-72 menu menu-xs rounded-md grid h-full overflow-y-scroll flex border-1">
+          <div class="absolute w-full top-2 right-4 z-[3]">
+            <div class="w-72 mx-auto flex justify-end">
+              <button
+                class="btn btn-sm btn-outline bg-base-100"
+                onClick={() => {
+                  const _check_equip_types: { [key: string]: boolean } = {};
+                  if (
+                    Object.values(check_equip_types).findIndex(
+                      (value) => value
+                    ) != -1
+                  ) {
+                    Object.keys(check_equip_types).forEach((key) => {
+                      _check_equip_types[key] = false;
+                    });
+                    set_check_equip_types(_check_equip_types);
+                  } else {
+                    Object.keys(check_equip_types).forEach((key) => {
+                      _check_equip_types[key] = true;
+                    });
+                    set_check_equip_types(_check_equip_types);
+                  }
+                }}
+              >
+                {Object.values(check_equip_types).findIndex((value) => value) !=
+                -1
+                  ? "filter all"
+                  : "show all"}
+              </button>
+            </div>
+          </div>
+          <ul class="modal-box mx-auto w-72 menu menu-xs rounded-md grid h-full overflow-y-scroll flex border-1 pt-[40px]">
             <For each={Object.keys(check_equip_types)}>
               {(equip_type_name) => (
                 <Show
@@ -740,45 +769,33 @@ export function EquipmentListComponent() {
                 >
                   <li
                     class="flex-col w-full"
-                    // onClick={() => {
-                    //   set_check_equip_types(
-                    //     equip_type_name,
-                    //     !check_equip_types[equip_type_name]
-                    //   );
-                    // }}
+                    onClick={() => {
+                      const _check_equip_types = { ...check_equip_types };
+                      _check_equip_types[equip_type_name] =
+                        !check_equip_types[equip_type_name];
+                      set_check_equip_types(_check_equip_types);
+                    }}
                   >
                     <a>
-                      <div class="form-control">
-                        <label class="label cursor-pointer py-0">
-                          <input
-                            type="checkbox"
-                            checked={
-                              (check_equip_types[equip_type_name] &&
-                                !set_categorize()) ||
-                              (set_equip_type() == equip_type_name &&
-                                set_categorize())
-                            }
-                            disabled={set_categorize()}
-                            class="checkbox checkbox-sm"
-                            onClick={() => {
-                              set_check_equip_types(
-                                equip_type_name,
-                                !check_equip_types[equip_type_name]
-                              );
-                            }}
-                          />
-                          <span
-                            class="label-text text-xs pl-2"
-                            // onClick={() => {
-                            //   set_check_equip_types(
-                            //     equip_type_name,
-                            //     !check_equip_types[equip_type_name]
-                            //   );
-                            // }}
-                          >
-                            {equip_type_name}
-                          </span>
-                        </label>
+                      <div class="flex items-center gap-2 text-sm">
+                        <input
+                          type="checkbox"
+                          checked={
+                            (check_equip_types[equip_type_name] &&
+                              !set_categorize()) ||
+                            (set_equip_type() == equip_type_name &&
+                              set_categorize())
+                          }
+                          disabled={set_categorize()}
+                          class="checkbox checkbox-sm"
+                          // onClick={() => {
+                          //   set_check_equip_types(
+                          //     equip_type_name,
+                          //     !check_equip_types[equip_type_name]
+                          //   );
+                          // }}
+                        />
+                        {equip_type_name}
                       </div>
                     </a>
                   </li>
@@ -786,7 +803,6 @@ export function EquipmentListComponent() {
               )}
             </For>
           </ul>
-          {/* </div> */}
           <form method="dialog" class="modal-backdrop">
             <button>close</button>
           </form>
@@ -1031,6 +1047,9 @@ export function EquipmentListComponent() {
   };
 
   const table_element_none_categorized = (equip_ids: (number | string)[]) => {
+    const _equip_count = Object.keys(filtered_equips()).filter(
+      (value) => value
+    ).length;
     return (
       <table class={`table table-xs max-w-[${table_width}]`}>
         <tbody>
