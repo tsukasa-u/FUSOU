@@ -406,42 +406,50 @@ export function EquipmentListComponent() {
     ];
     params.forEach((param) => {
       set_range_element[param] = (
-        <div class="dropdown dropdown-end">
-          <div class="indicator">
-            <Show
-              when={(() => {
-                let ret = false;
-                if (range_props[param].reset) return false;
-                if (range_props[param].range) {
-                  if (
-                    Number.isInteger(range_props[param].min) &&
-                    range_props[param].min != 0
-                  )
-                    ret = true;
-                  if (
-                    Number.isInteger(range_props[param].max) &&
-                    range_props[param].max != 0
-                  )
-                    ret = true;
-                } else {
-                  if (Number.isInteger(range_props[param].eq)) ret = true;
+        <>
+          <div>
+            <div class="indicator">
+              <Show
+                when={(() => {
+                  let ret = false;
+                  if (range_props[param].reset) return false;
+                  if (range_props[param].range) {
+                    if (
+                      Number.isInteger(range_props[param].min) &&
+                      range_props[param].min != 0
+                    )
+                      ret = true;
+                    if (
+                      Number.isInteger(range_props[param].max) &&
+                      range_props[param].max != 0
+                    )
+                      ret = true;
+                  } else {
+                    if (Number.isInteger(range_props[param].eq)) ret = true;
+                  }
+                  return ret;
+                })()}
+              >
+                <span class="indicator-item badge badge-secondary badge-xs -mx-2">
+                  filtered
+                </span>
+              </Show>
+              <div
+                class="btn btn-xs btn-ghost -mx-2"
+                onClick={() =>
+                  (
+                    document.getElementById(
+                      `equipment_modal_${param}`
+                    ) as HTMLDialogElement
+                  ).showModal()
                 }
-                return ret;
-              })()}
-            >
-              <span class="indicator-item badge badge-secondary badge-xs -mx-2">
-                filtered
-              </span>
-            </Show>
-            <div tabindex="0" role="button" class="btn btn-xs btn-ghost -mx-2">
-              {param}
+              >
+                {param}
+              </div>
             </div>
           </div>
-          <div
-            tabindex="0"
-            class="dropdown-content z-[2] card card-compact bg-base-100 w-64"
-          >
-            <div class="card-body border-1 border-base-300 text-base-content rounded-md">
+          <dialog id={`equipment_modal_${param}`} class="modal modal-top">
+            <div class="modal-box border-1 border-base-300 text-base-content rounded-md mx-auto w-72">
               <div class="form-control">
                 <label class="label cursor-pointer relative">
                   <input
@@ -537,8 +545,11 @@ export function EquipmentListComponent() {
                 </button>
               </div>
             </div>
-          </div>
-        </div>
+            <form method="dialog" class="modal-backdrop">
+              <button>close</button>
+            </form>
+          </dialog>
+        </>
       );
     });
     return set_range_element;
@@ -682,6 +693,100 @@ export function EquipmentListComponent() {
               </div>
             </label>
           </div>
+          <form method="dialog" class="modal-backdrop">
+            <button>close</button>
+          </form>
+        </dialog>
+      </>
+    );
+  };
+
+  const set_equip_type_window = () => {
+    return (
+      <>
+        <div>
+          <div class="indicator">
+            <Show
+              when={
+                Object.values(check_equip_types).findIndex((value) => !value) !=
+                -1
+              }
+            >
+              <span class="indicator-item badge badge-secondary badge-xs -mx-2">
+                filtered
+              </span>
+            </Show>
+            <div
+              class="btn btn-xs btn-ghost -mx-2"
+              onClick={() =>
+                (
+                  document.getElementById(
+                    "equipment_modal_type"
+                  ) as HTMLDialogElement
+                ).showModal()
+              }
+            >
+              Equip Type
+            </div>
+          </div>
+        </div>
+        <dialog id="equipment_modal_type" class="modal modal-top">
+          {/* <div class="modal-box border-1 border-base-300 text-base-content rounded-md mx-auto w-72"> */}
+          <ul class="modal-box mx-auto w-72 menu menu-xs rounded-md grid h-full overflow-y-scroll flex border-1">
+            <For each={Object.keys(check_equip_types)}>
+              {(equip_type_name) => (
+                <Show
+                  when={categorized_equips_keys()[equip_type_name].length != 0}
+                >
+                  <li
+                    class="flex-col w-full"
+                    // onClick={() => {
+                    //   set_check_equip_types(
+                    //     equip_type_name,
+                    //     !check_equip_types[equip_type_name]
+                    //   );
+                    // }}
+                  >
+                    <a>
+                      <div class="form-control">
+                        <label class="label cursor-pointer py-0">
+                          <input
+                            type="checkbox"
+                            checked={
+                              (check_equip_types[equip_type_name] &&
+                                !set_categorize()) ||
+                              (set_equip_type() == equip_type_name &&
+                                set_categorize())
+                            }
+                            disabled={set_categorize()}
+                            class="checkbox checkbox-sm"
+                            onClick={() => {
+                              set_check_equip_types(
+                                equip_type_name,
+                                !check_equip_types[equip_type_name]
+                              );
+                            }}
+                          />
+                          <span
+                            class="label-text text-xs pl-2"
+                            // onClick={() => {
+                            //   set_check_equip_types(
+                            //     equip_type_name,
+                            //     !check_equip_types[equip_type_name]
+                            //   );
+                            // }}
+                          >
+                            {equip_type_name}
+                          </span>
+                        </label>
+                      </div>
+                    </a>
+                  </li>
+                </Show>
+              )}
+            </For>
+          </ul>
+          {/* </div> */}
           <form method="dialog" class="modal-backdrop">
             <button>close</button>
           </form>
@@ -839,71 +944,7 @@ export function EquipmentListComponent() {
           <th class="w-10 flex bg-base-100 z-[3]">{sort_window()}</th>
           <th class="w-48">{search_name_window()}</th>
           <Show when={check_equip_property["Equip Type"]}>
-            <th class="w-[96px]">
-              <div class="dropdown">
-                <div class="indicator">
-                  <Show
-                    when={
-                      Object.values(check_equip_types).findIndex(
-                        (value) => !value
-                      ) != -1
-                    }
-                  >
-                    <span class="indicator-item badge badge-secondary badge-xs -mx-2">
-                      filtered
-                    </span>
-                  </Show>
-                  <div
-                    tabindex="0"
-                    role="button"
-                    class="btn btn-xs btn-ghost -mx-2"
-                  >
-                    Equip Type
-                  </div>
-                </div>
-                <ul
-                  tabindex="0"
-                  class="dropdown-content z-[2] menu menu-xs bg-base-100 rounded-md  grid h-100 overflow-y-scroll flex border-1 border-base-300 text-base-content"
-                >
-                  <For each={Object.keys(check_equip_types)}>
-                    {(equip_type_name) => (
-                      <Show
-                        when={
-                          categorized_equips_keys()[equip_type_name].length != 0
-                        }
-                      >
-                        <li class="flex-col w-32">
-                          <a>
-                            <div class="form-control">
-                              <label class="label cursor-pointer py-0">
-                                <input
-                                  type="checkbox"
-                                  checked={
-                                    check_equip_types[equip_type_name] ||
-                                    (set_equip_type() == equip_type_name &&
-                                      set_categorize())
-                                  }
-                                  class="checkbox checkbox-sm"
-                                  onClick={() => {
-                                    set_check_equip_types(
-                                      equip_type_name,
-                                      !check_equip_types[equip_type_name]
-                                    );
-                                  }}
-                                />
-                                <span class="label-text text-xs pl-2">
-                                  {equip_type_name}
-                                </span>
-                              </label>
-                            </div>
-                          </a>
-                        </li>
-                      </Show>
-                    )}
-                  </For>
-                </ul>
-              </div>
-            </th>
+            <th class="w-[96px]">{set_equip_type_window()}</th>
           </Show>
           <Show when={check_equip_property["Level"]}>
             <th class="w-12 flex">
