@@ -1109,7 +1109,7 @@ export function EquipmentListComponent() {
       <div class="bg-base-100 z-[4]">
         <div class="h-2" />
         <div class="px-2 py-1 text-xs flex flex-wrap items-center">
-          <div class="px-4 flex-none text-sm w-56">
+          <div class="px-4 flex-none text-sm w-60">
             Equipment Specification Table
           </div>
           <div class="divider divider-horizontal mr-0 ml-0 flex-none" />
