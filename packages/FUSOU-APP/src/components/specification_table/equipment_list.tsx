@@ -361,7 +361,7 @@ export function EquipmentListComponent() {
     return ret;
   });
 
-  const set_range_window = () => {
+  const set_range_window = (modal_prefix: string) => {
     const params = [
       "Level",
       "Firepower",
@@ -378,7 +378,12 @@ export function EquipmentListComponent() {
       "Distance",
     ];
 
-    return set_range_window_list(params, range_props, set_range_props);
+    return set_range_window_list(
+      modal_prefix,
+      params,
+      range_props,
+      set_range_props
+    );
   };
 
   const table_line_element = (equip_id: number, index: number) => {
@@ -549,7 +554,7 @@ export function EquipmentListComponent() {
       set_equip_type,
       set_categorize
     );
-    const set_range_window_elements = set_range_window();
+    const set_range_window_elements = set_range_window(modal_prefix);
 
     return (
       <thead>
@@ -644,9 +649,6 @@ export function EquipmentListComponent() {
   };
 
   const table_element_none_categorized = (equip_ids: (number | string)[]) => {
-    // const _equip_count = Object.keys(filtered_equips()).filter(
-    //   (value) => value
-    // ).length;
     const table_element = equip_ids
       .map((equip_id, index) => [
         Number(equip_id),
@@ -680,9 +682,7 @@ export function EquipmentListComponent() {
             class="overflow-x-hidden"
           >
             {([equip_id, , index]) => (
-              <Show when={filtered_equips()[Number(equip_id)] ?? false}>
-                {table_line_element(Number(equip_id), Number(index))}
-              </Show>
+              <>{table_line_element(Number(equip_id), Number(index))}</>
             )}
           </VList>
         </tbody>
@@ -691,10 +691,17 @@ export function EquipmentListComponent() {
   };
 
   const table_element_categorized = (equip_ids: (number | string)[]) => {
+    const table_element = equip_ids
+      .map((equip_id, index) => [
+        Number(equip_id),
+        filtered_equips()[Number(equip_id)] ?? false,
+        index,
+      ])
+      .filter(([, flag]) => flag as boolean);
     return (
       <table class={`table table-xs max-w-[${table_width}]`}>
         <tbody>
-          <VList
+          {/* <VList
             data={equip_ids}
             style={{
               height: "calc(100dvh - 159px)",
@@ -704,6 +711,18 @@ export function EquipmentListComponent() {
           >
             {(equip_id, index) => (
               <>{table_line_element(Number(equip_id), index())}</>
+            )}
+          </VList> */}
+          <VList
+            data={table_element}
+            style={{
+              height: "calc(100dvh - 159px)",
+              width: table_width,
+            }}
+            class="overflow-x-hidden"
+          >
+            {([equip_id, , index]) => (
+              <>{table_line_element(Number(equip_id), Number(index))}</>
             )}
           </VList>
         </tbody>
@@ -739,14 +758,14 @@ export function EquipmentListComponent() {
     );
   };
 
-  let parentScrollElement!: HTMLDivElement;
-
   const wrap_select_properties_window = () =>
     select_properties_window(
       "equip_spec_modal",
       check_equip_property,
       set_check_equip_property
     );
+
+  let parentScrollElement!: HTMLDivElement;
 
   return (
     <>

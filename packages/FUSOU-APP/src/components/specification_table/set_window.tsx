@@ -34,6 +34,7 @@ export const init_range_props = (
 };
 
 export const set_range_window_list = (
+  modal_prefix: string,
   params: string[],
   range_props: RangeProps,
   set_range_props: SetStoreFunction<RangeProps>
@@ -74,7 +75,7 @@ export const set_range_window_list = (
               onClick={() =>
                 (
                   document.getElementById(
-                    `equipment_modal_${param}`
+                    `${modal_prefix}_${param}`
                   ) as HTMLDialogElement
                 ).showModal()
               }
@@ -83,7 +84,7 @@ export const set_range_window_list = (
             </div>
           </div>
         </div>
-        <dialog id={`equipment_modal_${param}`} class="modal modal-top">
+        <dialog id={`${modal_prefix}_${param}`} class="modal modal-top">
           <div class="modal-box border-1 border-base-300 text-base-content rounded-md mx-auto w-72">
             <div class="form-control">
               <label class="label cursor-pointer relative">
@@ -191,6 +192,7 @@ export const set_range_window_list = (
 };
 
 export const set_discrete_range_window_list = (
+  modal_prefix: string,
   params: string[],
   params_option: string[][],
   params_converter: string[][],
@@ -200,42 +202,50 @@ export const set_discrete_range_window_list = (
   const paramWindow: { [key: string]: JSX.Element } = {};
   params.forEach((param, param_index) => {
     paramWindow[param] = (
-      <div class="dropdown dropdown-end">
-        <div class="indicator">
-          <Show
-            when={(() => {
-              let ret = false;
-              if (range_props[param].reset) return ret;
-              if (range_props[param].range) {
-                if (
-                  Number.isInteger(range_props[param].min) &&
-                  range_props[param].min != 0
-                )
-                  ret = true;
-                if (
-                  Number.isInteger(range_props[param].max) &&
-                  range_props[param].max != 0
-                )
-                  ret = true;
-              } else {
-                if (Number.isInteger(range_props[param].eq)) ret = true;
+      <>
+        <div>
+          <div class="indicator">
+            <Show
+              when={(() => {
+                let ret = false;
+                if (range_props[param].reset) return ret;
+                if (range_props[param].range) {
+                  if (
+                    Number.isInteger(range_props[param].min) &&
+                    range_props[param].min != 0
+                  )
+                    ret = true;
+                  if (
+                    Number.isInteger(range_props[param].max) &&
+                    range_props[param].max != 0
+                  )
+                    ret = true;
+                } else {
+                  if (Number.isInteger(range_props[param].eq)) ret = true;
+                }
+                return ret;
+              })()}
+            >
+              <span class="indicator-item badge badge-secondary badge-xs -mx-2">
+                filtered
+              </span>
+            </Show>
+            <div
+              class="btn btn-xs btn-ghost -mx-2"
+              onClick={() =>
+                (
+                  document.getElementById(
+                    `${modal_prefix}_${param}`
+                  ) as HTMLDialogElement
+                ).showModal()
               }
-              return ret;
-            })()}
-          >
-            <span class="indicator-item badge badge-secondary badge-xs -mx-2">
-              filtered
-            </span>
-          </Show>
-          <div tabindex="0" role="button" class="btn btn-xs btn-ghost -mx-2">
-            {param}
+            >
+              {param}
+            </div>
           </div>
         </div>
-        <div
-          tabindex="0"
-          class="dropdown-content z-[2] card card-compact bg-base-100 z-[1] w-90 rounded-md"
-        >
-          <div class="card-body border-1 border-base-300 text-base-content rounded-md">
+        <dialog id={`${modal_prefix}_${param}`} class="modal modal-top">
+          <div class="modal-box border-1 border-base-300 text-base-content rounded-md mx-auto w-92">
             <div class="form-control">
               <label class="label cursor-pointer relative">
                 <input
@@ -347,8 +357,11 @@ export const set_discrete_range_window_list = (
               </button>
             </div>
           </div>
-        </div>
-      </div>
+          <form method="dialog" class="modal-backdrop">
+            <button>close</button>
+          </form>
+        </dialog>
+      </>
     );
   });
   return paramWindow;
