@@ -4,7 +4,6 @@ import {
   useSlotItems,
 } from "../../utility/provider.tsx";
 
-import type { JSX } from "solid-js";
 import {
   createEffect,
   createMemo,
@@ -16,9 +15,6 @@ import {
 } from "solid-js";
 import { createStore } from "solid-js/store";
 
-import IconUpArrow from "../../icons/up_arrow.tsx";
-import IconDownArrow from "../../icons/down_arrow.tsx";
-
 import { VList } from "virtua/solid";
 import { get_data_set_equip } from "../../utility/get_data_set.tsx";
 import {
@@ -29,6 +25,20 @@ import {
 
 import "../../css/divider.css";
 import "shared-ui";
+import type {
+  CheckName,
+  CheckProps,
+  CheckTypes,
+  RangeProps,
+} from "./set_window.tsx";
+import {
+  init_range_props,
+  search_name_window,
+  select_properties_window,
+  set_range_window_list,
+  set_type_window,
+  sort_window,
+} from "./set_window.tsx";
 
 const table_width = "1240px";
 
@@ -73,16 +83,16 @@ export function EquipmentListComponent() {
     );
   });
 
-  const [check_equip_types, set_check_equip_types] = createStore<{
-    [key: string]: boolean;
-  }>({});
+  const [check_equip_types, set_check_equip_types] = createStore<CheckTypes>(
+    {}
+  );
   createEffect(() => {
     if (
       Object.keys(mst_slot_items_equip_types.mst_slotitem_equip_types).length ==
       0
     )
       return;
-    const _check_equip_types: { [key: string]: boolean } = {};
+    const _check_equip_types: CheckTypes = {};
     Object.values(mst_slot_items_equip_types.mst_slotitem_equip_types).forEach(
       (mst_slotitem_equip_types) => {
         if (mst_slotitem_equip_types)
@@ -92,11 +102,9 @@ export function EquipmentListComponent() {
     set_check_equip_types(_check_equip_types);
   });
 
-  const [check_name, set_check_name] = createStore<{ [key: number]: boolean }>(
-    {}
-  );
+  const [check_name, set_check_name] = createStore<CheckName>({});
   createEffect(() => {
-    const check_name: { [key: number]: boolean } = {};
+    const check_name: CheckName = {};
     Object.entries(slot_items.slot_items).forEach(([slot_item_id]) => {
       check_name[Number(slot_item_id)] = true;
     });
@@ -105,18 +113,17 @@ export function EquipmentListComponent() {
 
   const [search_name, set_search_name] = createSignal("");
 
-  const [check_equip_property, set_check_equip_property] = createStore<{
-    [key: string]: boolean;
-  }>(
-    (() => {
-      const check_equip_property: { [key: string]: boolean } = {};
-      check_equip_property["Equip Type"] = true;
-      equip_properties.forEach((property) => {
-        check_equip_property[property] = true;
-      });
-      return check_equip_property;
-    })()
-  );
+  const [check_equip_property, set_check_equip_property] =
+    createStore<CheckProps>(
+      (() => {
+        const check_equip_property: CheckProps = {};
+        check_equip_property["Equip Type"] = true;
+        equip_properties.forEach((property) => {
+          check_equip_property[property] = true;
+        });
+        return check_equip_property;
+      })()
+    );
 
   const [set_order, set_set_order] = createSignal(false);
   const [set_sort, set_set_sort] = createSignal("Default");
@@ -278,41 +285,8 @@ export function EquipmentListComponent() {
     return categorized_equips_keys;
   });
 
-  const [range_props, set_range_props] = createStore<{
-    [key: string]: {
-      min: number;
-      max: number;
-      eq: number;
-      range: boolean;
-      abbreviation: string;
-      reset: boolean;
-    };
-  }>(
-    (() => {
-      const range_props: {
-        [key: string]: {
-          min: number;
-          max: number;
-          eq: number;
-          range: boolean;
-          abbreviation: string;
-          reset: boolean;
-        };
-      } = {};
-      const params = equip_properties;
-      const abbreviations = equip_properties_abbreviation;
-      params.forEach((param, index) => {
-        range_props[param] = {
-          min: 0,
-          max: 0,
-          eq: 0,
-          range: true,
-          abbreviation: abbreviations[index],
-          reset: true,
-        };
-      });
-      return range_props;
-    })()
+  const [range_props, set_range_props] = createStore<RangeProps>(
+    init_range_props(equip_properties, equip_properties_abbreviation)
   );
 
   const filtered_equips = createMemo<{ [key: number]: boolean }>(() => {
@@ -388,7 +362,6 @@ export function EquipmentListComponent() {
   });
 
   const set_range_window = () => {
-    const set_range_element: { [key: string]: JSX.Element } = {};
     const params = [
       "Level",
       "Firepower",
@@ -404,405 +377,8 @@ export function EquipmentListComponent() {
       "Interception",
       "Distance",
     ];
-    params.forEach((param) => {
-      set_range_element[param] = (
-        <>
-          <div>
-            <div class="indicator">
-              <Show
-                when={(() => {
-                  let ret = false;
-                  if (range_props[param].reset) return false;
-                  if (range_props[param].range) {
-                    if (
-                      Number.isInteger(range_props[param].min) &&
-                      range_props[param].min != 0
-                    )
-                      ret = true;
-                    if (
-                      Number.isInteger(range_props[param].max) &&
-                      range_props[param].max != 0
-                    )
-                      ret = true;
-                  } else {
-                    if (Number.isInteger(range_props[param].eq)) ret = true;
-                  }
-                  return ret;
-                })()}
-              >
-                <span class="indicator-item badge badge-secondary badge-xs -mx-2">
-                  filtered
-                </span>
-              </Show>
-              <div
-                class="btn btn-xs btn-ghost -mx-2"
-                onClick={() =>
-                  (
-                    document.getElementById(
-                      `equipment_modal_${param}`
-                    ) as HTMLDialogElement
-                  ).showModal()
-                }
-              >
-                {param}
-              </div>
-            </div>
-          </div>
-          <dialog id={`equipment_modal_${param}`} class="modal modal-top">
-            <div class="modal-box border-1 border-base-300 text-base-content rounded-md mx-auto w-72">
-              <div class="form-control">
-                <label class="label cursor-pointer relative">
-                  <input
-                    type="radio"
-                    name="radio-Level"
-                    class="radio radio-sm"
-                    checked={
-                      range_props[param].range && !range_props[param].reset
-                    }
-                    onClick={() => {
-                      set_range_props(param, "reset", false);
-                      set_range_props(param, "range", true);
-                    }}
-                  />
-                  <span class="label-text text-sm">
-                    <input
-                      type="text"
-                      placeholder="Min"
-                      class="input input-sm input-bordered w-14"
-                      onInput={(e) => {
-                        set_range_props(param, "min", Number(e.target.value));
-                      }}
-                    />{" "}
-                    &#8804; {range_props[param].abbreviation} &#8804;{" "}
-                    <input
-                      type="text"
-                      placeholder="Max"
-                      class="input input-sm input-bordered w-14"
-                      onInput={(e) => {
-                        set_range_props(param, "max", Number(e.target.value));
-                      }}
-                    />
-                    <Show when={!Number.isInteger(range_props[param].max)}>
-                      <div class="label absolute -bottom-4 right-0">
-                        <span class="label-text-alt text-error">
-                          Input Number
-                        </span>
-                      </div>
-                    </Show>
-                    <Show when={!Number.isInteger(range_props[param].min)}>
-                      <div class="label absolute -bottom-4 right-[116px]">
-                        <span class="label-text-alt text-error">
-                          Input Number
-                        </span>
-                      </div>
-                    </Show>
-                  </span>
-                </label>
-              </div>
-              <div class="divider my-0.5">OR</div>
-              <div class="form-control">
-                <label class="label cursor-pointer relative">
-                  <input
-                    type="radio"
-                    name="radio-Level"
-                    class="radio radio-sm"
-                    checked={
-                      !range_props[param].range && !range_props[param].reset
-                    }
-                    onClick={() => {
-                      set_range_props(param, "reset", false);
-                      set_range_props(param, "range", false);
-                    }}
-                  />
-                  <span class="label-text text-sm">
-                    {range_props[param].abbreviation} ={" "}
-                    <input
-                      type="text"
-                      placeholder="Eq"
-                      class="input input-sm input-bordered w-32"
-                      onInput={(e) => {
-                        set_range_props(param, "eq", Number(e.target.value));
-                      }}
-                    />
-                    <Show when={!Number.isInteger(range_props[param].eq)}>
-                      <div class="label absolute -bottom-4 right-0">
-                        <span class="label-text-alt text-error">
-                          Input Number
-                        </span>
-                      </div>
-                    </Show>
-                  </span>
-                </label>
-              </div>
-              <div class="flex justify-end">
-                <button
-                  class="btn btn-ghost btn-xs -mb-4"
-                  onClick={() => {
-                    set_range_props(param, "reset", true);
-                  }}
-                >
-                  reset filter
-                </button>
-              </div>
-            </div>
-            <form method="dialog" class="modal-backdrop">
-              <button>close</button>
-            </form>
-          </dialog>
-        </>
-      );
-    });
-    return set_range_element;
-  };
 
-  const sort_window = () => {
-    return (
-      <>
-        <div>
-          <div class="indicator">
-            <span class="indicator-item badge badge-secondary badge-xs -mx-2 max-w-16 truncate flex justify-start">
-              <Switch fallback="">
-                <Match when={set_order()}>▲</Match>
-                <Match when={!set_order()}>▼</Match>
-              </Switch>
-              {set_sort()}
-            </span>
-            <div
-              class="btn btn-xs btn-ghost -mx-1"
-              onClick={() =>
-                (
-                  document.getElementById(
-                    "equipment_modal_sort"
-                  ) as HTMLDialogElement
-                ).showModal()
-              }
-            >
-              No
-            </div>
-          </div>
-        </div>
-        <dialog id="equipment_modal_sort" class="modal modal-top">
-          <div class="modal-box border-1 border-base-300 text-base-content rounded-md mx-auto w-72">
-            <table class="table table-sm ">
-              <tbody>
-                <tr class="flex" style={{ "border-bottom-width": "0px" }}>
-                  <td class="flex-1">order</td>
-                  <td class="flex-none h-6">
-                    <label class="swap swap-rotate">
-                      <input
-                        type="checkbox"
-                        onClick={(e) => set_set_order(e.currentTarget.checked)}
-                      />
-                      <div class="swap-on flex flex-nowrap items-center">
-                        <IconUpArrow class="h-6 w-6" />
-                        <div class="label-text text-xs">ASC</div>
-                      </div>
-                      <div class="swap-off flex flex-nowrap items-center">
-                        <IconDownArrow class="h-6 w-6" />
-                        <div class="label-text text-xs">DESC</div>
-                      </div>
-                    </label>
-                  </td>
-                </tr>
-                <tr
-                  class="flex items-center"
-                  style={{ "border-bottom-width": "0px" }}
-                >
-                  <td class="flex-1">sort parameters</td>
-                  <td class="flex-none">
-                    <select
-                      class="select select-bordered select-sm w-28"
-                      onChange={(e) => set_set_sort(e.target.value)}
-                    >
-                      <option>Default</option>
-                      <For each={equip_properties}>
-                        {(property) => <option>{property}</option>}
-                      </For>
-                    </select>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-          <form method="dialog" class="modal-backdrop">
-            <button>close</button>
-          </form>
-        </dialog>
-      </>
-    );
-  };
-
-  const search_name_window = () => {
-    return (
-      <>
-        <div>
-          <div class="indicator">
-            <Show
-              when={
-                Object.values(check_name).findIndex((value) => !value) != -1
-              }
-            >
-              <span class="indicator-item badge badge-secondary badge-xs -mx-2">
-                filtered
-              </span>
-            </Show>
-            <div
-              class="btn btn-xs btn-ghost -mx-2"
-              onClick={() =>
-                (
-                  document.getElementById(
-                    "equipment_modal_search_name"
-                  ) as HTMLDialogElement
-                ).showModal()
-              }
-            >
-              Equip Name
-            </div>
-          </div>
-        </div>
-        <dialog id="equipment_modal_search_name" class="modal modal-top">
-          <div class="modal-box border-1 border-base-300 text-base-content rounded-md mx-auto w-72">
-            <label class="input input-sm input-bordered flex items-center gap-2">
-              <input
-                type="text"
-                class="grow"
-                placeholder="Search Name"
-                onChange={(e) => {
-                  set_search_name(e.target.value);
-                  cal_search_name(e.target.value);
-                }}
-              />
-              <div
-                class="btn btn-ghost btn-sm -mr-3"
-                onClick={() => {
-                  cal_search_name(search_name());
-                }}
-              >
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  viewBox="0 0 16 16"
-                  fill="currentColor"
-                  class="h-4 w-4 opacity-70"
-                >
-                  <path
-                    fill-rule="evenodd"
-                    d="M9.965 11.026a5 5 0 1 1 1.06-1.06l2.755 2.754a.75.75 0 1 1-1.06 1.06l-2.755-2.754ZM10.5 7a3.5 3.5 0 1 1-7 0 3.5 3.5 0 0 1 7 0Z"
-                    clip-rule="evenodd"
-                  />
-                </svg>
-              </div>
-            </label>
-          </div>
-          <form method="dialog" class="modal-backdrop">
-            <button>close</button>
-          </form>
-        </dialog>
-      </>
-    );
-  };
-
-  const set_equip_type_window = () => {
-    return (
-      <>
-        <div>
-          <div class="indicator">
-            <Show
-              when={
-                Object.values(check_equip_types).findIndex((value) => !value) !=
-                -1
-              }
-            >
-              <span class="indicator-item badge badge-secondary badge-xs -mx-2">
-                filtered
-              </span>
-            </Show>
-            <div
-              class="btn btn-xs btn-ghost -mx-2"
-              onClick={() =>
-                (
-                  document.getElementById(
-                    "equipment_modal_type"
-                  ) as HTMLDialogElement
-                ).showModal()
-              }
-            >
-              Equip Type
-            </div>
-          </div>
-        </div>
-        <dialog id="equipment_modal_type" class="modal modal-top">
-          <div class="absolute w-full top-2 right-4 z-[3]">
-            <div class="w-72 mx-auto flex justify-end">
-              <button
-                class="btn btn-sm btn-outline bg-base-100"
-                onClick={() => {
-                  const _check_equip_types: { [key: string]: boolean } = {};
-                  if (
-                    Object.values(check_equip_types).findIndex(
-                      (value) => value
-                    ) != -1
-                  ) {
-                    Object.keys(check_equip_types).forEach((key) => {
-                      _check_equip_types[key] = false;
-                    });
-                    set_check_equip_types(_check_equip_types);
-                  } else {
-                    Object.keys(check_equip_types).forEach((key) => {
-                      _check_equip_types[key] = true;
-                    });
-                    set_check_equip_types(_check_equip_types);
-                  }
-                }}
-              >
-                {Object.values(check_equip_types).findIndex((value) => value) !=
-                -1
-                  ? "filter all"
-                  : "show all"}
-              </button>
-            </div>
-          </div>
-          <ul class="modal-box mx-auto w-72 menu menu-xs rounded-md grid overflow-y-scroll flex border-1 pt-[40px]">
-            <For each={Object.keys(check_equip_types)}>
-              {(equip_type_name) => (
-                <Show
-                  when={categorized_equips_keys()[equip_type_name].length != 0}
-                >
-                  <li
-                    class="flex-col w-full"
-                    onClick={() => {
-                      const _check_equip_types = { ...check_equip_types };
-                      _check_equip_types[equip_type_name] =
-                        !check_equip_types[equip_type_name];
-                      set_check_equip_types(_check_equip_types);
-                    }}
-                  >
-                    <a>
-                      <div class="flex items-center gap-2 text-sm">
-                        <input
-                          type="checkbox"
-                          checked={
-                            (check_equip_types[equip_type_name] &&
-                              !set_categorize()) ||
-                            (set_equip_type() == equip_type_name &&
-                              set_categorize())
-                          }
-                          disabled={set_categorize()}
-                          class="checkbox checkbox-sm"
-                        />
-                        {equip_type_name}
-                      </div>
-                    </a>
-                  </li>
-                </Show>
-              )}
-            </For>
-          </ul>
-          <form method="dialog" class="modal-backdrop">
-            <button>close</button>
-          </form>
-        </dialog>
-      </>
-    );
+    return set_range_window_list(params, range_props, set_range_props);
   };
 
   const table_line_element = (equip_id: number, index: number) => {
@@ -948,91 +524,118 @@ export function EquipmentListComponent() {
     );
   };
   const table_header = () => {
+    const modal_prefix = "equipment_spec_modal";
+    const sort_window_element = sort_window(
+      equip_properties,
+      modal_prefix,
+      set_order,
+      set_set_order,
+      set_sort,
+      set_set_sort
+    );
+    const search_name_window_element = search_name_window(
+      "Equip Name",
+      modal_prefix,
+      check_name,
+      search_name,
+      set_search_name,
+      cal_search_name
+    );
+    const set_equip_type_window_element = set_type_window(
+      "Equip Type",
+      modal_prefix,
+      check_equip_types,
+      set_check_equip_types,
+      set_equip_type,
+      set_categorize
+    );
+    const set_range_window_elements = set_range_window();
+
     return (
       <thead>
         <tr class="flex mt-1">
-          <th class="w-10 flex bg-base-100 z-[3]">{sort_window()}</th>
-          <th class="w-48">{search_name_window()}</th>
+          <th class="w-10 flex bg-base-100 z-[3]">{sort_window_element}</th>
+          <th class="w-48">{search_name_window_element}</th>
           <Show when={check_equip_property["Equip Type"]}>
-            <th class="w-[96px]">{set_equip_type_window()}</th>
+            <th class="w-[96px]">{set_equip_type_window_element}</th>
           </Show>
           <Show when={check_equip_property["Level"]}>
             <th class="w-12 flex">
               <span class="flex-1" />
-              {set_range_window()["Level"]}
+              {set_range_window_elements["Level"]}
             </th>
           </Show>
           <Show when={check_equip_property["Firepower"]}>
             <th class="w-[72px] flex">
               <span class="flex-1" />
-              {set_range_window()["Firepower"]}
+              {set_range_window_elements["Firepower"]}
             </th>
           </Show>
           <Show when={check_equip_property["Torpedo"]}>
             <th class="w-16 flex">
               <span class="flex-1" />
-              {set_range_window()["Torpedo"]}
+              {set_range_window_elements["Torpedo"]}
             </th>
           </Show>
           <Show when={check_equip_property["Anti-Air"]}>
             <th class="w-16 flex">
               <span class="flex-1" />
-              {set_range_window()["Anti-Air"]}
+              {set_range_window_elements["Anti-Air"]}
             </th>
           </Show>
           <Show when={check_equip_property["Armor"]}>
             <th class="w-14 flex">
               <span class="flex-1" />
-              {set_range_window()["Armor"]}
+              {set_range_window_elements["Armor"]}
             </th>
           </Show>
           <Show when={check_equip_property["Evasion"]}>
             <th class="w-16 flex">
               <span class="flex-1" />
-              {set_range_window()["Evasion"]}
+              {set_range_window_elements["Evasion"]}
             </th>
           </Show>
           <Show when={check_equip_property["Anti-Submarine"]}>
             <th class="w-24 flex">
               <span class="flex-1" />
-              {set_range_window()["Anti-Submarine"]}
+              {set_range_window_elements["Anti-Submarine"]}
             </th>
           </Show>
           <Show when={check_equip_property["Reconnaissance"]}>
             <th class="w-24 flex">
               <span class="flex-1" />
-              {set_range_window()["Reconnaissance"]}
+              {set_range_window_elements["Reconnaissance"]}
             </th>
           </Show>
           <Show when={check_equip_property["Proficiency"]}>
             <th class="w-20 flex">
               <span class="flex-1" />
               {/* {set_discrete_range_window_image()["Proficiency"]} */}
-              {set_range_window()["Proficiency"]}
+              {set_range_window_elements["Proficiency"]}
             </th>
           </Show>
           <Show when={check_equip_property["Bomb"]}>
             <th class="w-12 flex">
               <span class="flex-1" />
-              {set_range_window()["Bomb"]}
+              {set_range_window_elements["Bomb"]}
             </th>
           </Show>
           <Show when={check_equip_property["Anti-Bomber"]}>
             <th class="w-20 flex">
               <span class="flex-1" />
-              {set_range_window()["Anti-Bomber"]}
+              {set_range_window_elements["Anti-Bomber"]}
             </th>
           </Show>
           <Show when={check_equip_property["Interception"]}>
             <th class="w-20 flex">
               <span class="flex-1" />
-              {set_range_window()["Interception"]}
+              {set_range_window_elements["Interception"]}
             </th>
           </Show>
           <Show when={check_equip_property["Distance"]}>
             <th class="w-12 flex">
               <span class="flex-1" />
-              {set_range_window()["Distance"]}
+              {set_range_window_elements["Distance"]}
             </th>
           </Show>
         </tr>
@@ -1109,7 +712,7 @@ export function EquipmentListComponent() {
   };
 
   const cal_search_name = (search_name: string) => {
-    const tmp_name: { [key: number]: boolean } = {};
+    const tmp_name: CheckName = {};
     const slot_items_length = Object.keys(slot_items.slot_items).length;
     const sleep = (ms: number) =>
       new Promise((resolve) => setTimeout(resolve, ms));
@@ -1136,54 +739,14 @@ export function EquipmentListComponent() {
     );
   };
 
-  const select_properties_window = () => {
-    return (
-      <>
-        <button
-          class="btn btn-xs btn-ghost"
-          onClick={() =>
-            (
-              document.getElementById(
-                "equipment_modal_select_properties"
-              ) as HTMLDialogElement
-            ).showModal()
-          }
-        >
-          select properties
-        </button>
-        <dialog id="equipment_modal_select_properties" class="modal modal-top">
-          <ul class="modal-box mx-auto w-72 menu menu-xs rounded-md grid overflow-y-scroll flex border-1 pt-[40px]">
-            <For each={Object.keys(check_equip_property)}>
-              {(prop) => (
-                <li
-                  class="flex-col w-full"
-                  onClick={() => {
-                    set_check_equip_property(prop, !check_equip_property[prop]);
-                  }}
-                >
-                  <a>
-                    <div class="flex items-center gap-2 text-sm">
-                      <input
-                        type="checkbox"
-                        checked={check_equip_property[prop]}
-                        class="checkbox checkbox-sm"
-                      />
-                      {prop}
-                    </div>
-                  </a>
-                </li>
-              )}
-            </For>
-          </ul>
-          <form method="dialog" class="modal-backdrop">
-            <button>close</button>
-          </form>
-        </dialog>
-      </>
-    );
-  };
-
   let parentScrollElement!: HTMLDivElement;
+
+  const wrap_select_properties_window = () =>
+    select_properties_window(
+      "equip_spec_modal",
+      check_equip_property,
+      set_check_equip_property
+    );
 
   return (
     <>
@@ -1195,7 +758,7 @@ export function EquipmentListComponent() {
           </div>
           <div class="divider divider-horizontal mr-0 ml-0 flex-none" />
           <div class="flex flex-nowrap items-center">
-            {select_properties_window()}
+            {wrap_select_properties_window()}
             <div class="divider divider-horizontal mr-0 ml-0 flex-none" />
             <div class="form-control">
               <label class="label cursor-pointer h-4">
