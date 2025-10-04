@@ -52,12 +52,12 @@ export function EquipmentListComponent() {
     "Firepower",
     "Torpedo",
     "Anti-Air",
-    "Bomb",
     "Armor",
     "Evasion",
     "Anti-Submarine",
     "Reconnaissance",
     "Proficiency",
+    "Bomb",
     "Anti-Bomber",
     "Interception",
     "Distance",
@@ -67,12 +67,12 @@ export function EquipmentListComponent() {
     "Fire",
     "Tor",
     "AA",
-    "Bomb",
     "Arm",
     "Eva",
     "ASW",
     "Rec",
     "Prof",
+    "Bomb",
     "AB",
     "Int",
     "Dis",
@@ -198,8 +198,8 @@ export function EquipmentListComponent() {
       );
     if (set_sort() == "Evasion")
       return additional_sort_fn(
-        a_mst_equip.houk,
-        b_mst_equip.houk,
+        a_mst_equip.houm,
+        b_mst_equip.houm,
         a_mst_equip.sortno,
         b_mst_equip.sortno
       );
@@ -228,6 +228,27 @@ export function EquipmentListComponent() {
       return additional_sort_fn(
         a_mst_equip.baku,
         b_mst_equip.baku,
+        a_mst_equip.sortno,
+        b_mst_equip.sortno
+      );
+    if (set_sort() == "Anti-Bomber")
+      return additional_sort_fn(
+        a_mst_equip.taibaku,
+        b_mst_equip.taibaku,
+        a_mst_equip.sortno,
+        b_mst_equip.sortno
+      );
+    if (set_sort() == "Interception")
+      return additional_sort_fn(
+        a_mst_equip.geigeki,
+        b_mst_equip.geigeki,
+        a_mst_equip.sortno,
+        b_mst_equip.sortno
+      );
+    if (set_sort() == "Distance")
+      return additional_sort_fn(
+        a_mst_equip.distance ?? 0,
+        b_mst_equip.distance ?? 0,
         a_mst_equip.sortno,
         b_mst_equip.sortno
       );
@@ -460,7 +481,7 @@ export function EquipmentListComponent() {
           <td class="w-14 content-center">
             <div class="w-6 flex justify-self-center">
               <span class="flex-1" />
-              {mst_slot_item?.taik}
+              {mst_slot_item?.souk}
             </div>
           </td>
         </Show>
