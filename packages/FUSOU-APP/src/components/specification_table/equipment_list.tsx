@@ -256,10 +256,10 @@ export function EquipmentListComponent() {
   };
 
   const sorted_equip_keys = createMemo(() => {
-    let keys = Object.keys(slot_items.slot_items);
-    keys = keys.sort(sort_fn);
-    if (!set_order()) keys = keys.reverse();
-    return keys;
+    const keys = Object.keys(slot_items.slot_items);
+    const sorted_keys = keys.sort(sort_fn);
+    if (!set_order()) sorted_keys.reverse();
+    return sorted_keys;
   });
 
   const categorized_equips_keys = createMemo(() => {

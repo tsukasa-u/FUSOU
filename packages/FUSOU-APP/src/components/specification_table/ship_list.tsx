@@ -152,84 +152,115 @@ export function ShipListComponent() {
     })()
   );
 
+  const additional_sort_fn = (a: number, b: number, _a: number, _b: number) => {
+    const tmp = a - b;
+    if (tmp != 0) return tmp;
+    return _a - _b;
+  };
+
   const sort_fn = (a: string | number, b: string | number) => {
-    if (set_sort() == "Default") return 0;
     const a_ship = ships.ships[Number(a)];
     const b_ship = ships.ships[Number(b)];
+    const a_ship_id = a_ship?.ship_id ?? 0;
+    const b_ship_id = b_ship?.ship_id ?? 0;
     if (a_ship && b_ship) {
-      if (set_sort() == "Level") {
-        if (a_ship.lv && b_ship.lv) return a_ship.lv - b_ship.lv;
+      if (set_sort() == "Default") {
+        return additional_sort_fn(a_ship_id, b_ship_id, a_ship_id, b_ship_id);
+      } else if (set_sort() == "Level") {
+        return additional_sort_fn(
+          a_ship.lv ?? 0,
+          b_ship.lv ?? 0,
+          a_ship_id,
+          b_ship_id
+        );
       } else if (set_sort() == "Durability") {
-        if (a_ship.maxhp && b_ship.maxhp) return a_ship.maxhp - b_ship.maxhp;
+        return additional_sort_fn(
+          a_ship.maxhp ?? 0,
+          b_ship.maxhp ?? 0,
+          a_ship_id,
+          b_ship_id
+        );
       } else if (set_sort() == "Firepower") {
-        if (
-          a_ship.karyoku &&
-          a_ship.karyoku[0] &&
-          b_ship.karyoku &&
-          b_ship.karyoku[0]
-        )
-          return a_ship.karyoku[0] - b_ship.karyoku[0];
+        return additional_sort_fn(
+          a_ship.karyoku?.[0] ?? 0,
+          b_ship.karyoku?.[0] ?? 0,
+          a_ship_id,
+          b_ship_id
+        );
       } else if (set_sort() == "Torpedo") {
-        if (
-          a_ship.raisou &&
-          a_ship.raisou[0] &&
-          b_ship.raisou &&
-          b_ship.raisou[0]
-        )
-          return a_ship.raisou[0] - b_ship.raisou[0];
+        return additional_sort_fn(
+          a_ship.raisou?.[0] ?? 0,
+          b_ship.raisou?.[0] ?? 0,
+          a_ship_id,
+          b_ship_id
+        );
       } else if (set_sort() == "Anti-Air") {
-        if (a_ship.taiku && a_ship.taiku[0] && b_ship.taiku && b_ship.taiku[0])
-          return a_ship.taiku[0] - b_ship.taiku[0];
+        return additional_sort_fn(
+          a_ship.taiku?.[0] ?? 0,
+          b_ship.taiku?.[0] ?? 0,
+          a_ship_id,
+          b_ship_id
+        );
       } else if (set_sort() == "Speed") {
-        if (a_ship.soku && b_ship.soku) return a_ship.soku - b_ship.soku;
+        return additional_sort_fn(
+          a_ship.soku ?? 0,
+          b_ship.soku ?? 0,
+          a_ship_id,
+          b_ship_id
+        );
       } else if (set_sort() == "Armor") {
-        if (
-          a_ship.soukou &&
-          a_ship.soukou[0] &&
-          b_ship.soukou &&
-          b_ship.soukou[0]
-        )
-          return a_ship.soukou[0] - b_ship.soukou[0];
+        return additional_sort_fn(
+          a_ship.soukou?.[0] ?? 0,
+          b_ship.soukou?.[0] ?? 0,
+          a_ship_id,
+          b_ship_id
+        );
       } else if (set_sort() == "Evasion") {
-        if (a_ship.kaihi && a_ship.kaihi[0] && b_ship.kaihi && b_ship.kaihi[0])
-          return a_ship.kaihi[0] - b_ship.kaihi[0];
+        return additional_sort_fn(
+          a_ship.kaihi?.[0] ?? 0,
+          b_ship.kaihi?.[0] ?? 0,
+          a_ship_id,
+          b_ship_id
+        );
       } else if (set_sort() == "Anti-Submarine") {
-        if (
-          a_ship.taisen &&
-          a_ship.taisen[0] &&
-          b_ship.taisen &&
-          b_ship.taisen[0]
-        )
-          return a_ship.taisen[0] - b_ship.taisen[0];
+        return additional_sort_fn(
+          a_ship.taisen?.[0] ?? 0,
+          b_ship.taisen?.[0] ?? 0,
+          a_ship_id,
+          b_ship_id
+        );
       } else if (set_sort() == "Luck") {
-        if (a_ship.lucky && a_ship.lucky[0] && b_ship.lucky && b_ship.lucky[0])
-          return a_ship.lucky[0] - b_ship.lucky[0];
+        return additional_sort_fn(
+          a_ship.lucky?.[0] ?? 0,
+          b_ship.lucky?.[0] ?? 0,
+          a_ship_id,
+          b_ship_id
+        );
       } else if (set_sort() == "Aircraft installed") {
         if (a_ship.ship_id && b_ship.ship_id) {
           const a_mst_ship = mst_ships.mst_ships[a_ship.ship_id];
           const b_mst_ship = mst_ships.mst_ships[b_ship.ship_id];
-          if (
-            a_mst_ship &&
-            a_mst_ship.maxeq &&
-            b_mst_ship &&
-            b_mst_ship.maxeq
-          ) {
-            return (
-              a_mst_ship.maxeq.reduce((a, b) => a + b, 0) -
-              b_mst_ship.maxeq.reduce((a, b) => a + b, 0)
-            );
-          }
+          return additional_sort_fn(
+            a_mst_ship?.maxeq?.reduce((a, b) => a + b, 0) ?? 0,
+            b_mst_ship?.maxeq?.reduce((a, b) => a + b, 0) ?? 0,
+            a_ship_id,
+            b_ship_id
+          );
         }
       } else if (set_sort() == "Reconnaissance") {
-        if (
-          a_ship.sakuteki &&
-          a_ship.sakuteki[0] &&
-          b_ship.sakuteki &&
-          b_ship.sakuteki[0]
-        )
-          return a_ship.sakuteki[0] - b_ship.sakuteki[0];
+        return additional_sort_fn(
+          a_ship.sakuteki?.[0] ?? 0,
+          b_ship.sakuteki?.[0] ?? 0,
+          a_ship_id,
+          b_ship_id
+        );
       } else if (set_sort() == "Range") {
-        if (a_ship.leng && b_ship.leng) return a_ship.leng - b_ship.leng;
+        return additional_sort_fn(
+          a_ship.leng ?? 0,
+          b_ship.leng ?? 0,
+          a_ship_id,
+          b_ship_id
+        );
       }
     }
     return 0;
@@ -542,7 +573,7 @@ export function ShipListComponent() {
   };
 
   const table_header = () => {
-    const modal_prefix = "ship_spec";
+    const modal_prefix = "ship_spec_modal";
     const sort_window_elements = sort_window(
       ship_properties,
       modal_prefix,
