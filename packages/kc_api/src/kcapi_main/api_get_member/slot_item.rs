@@ -6,15 +6,12 @@
 
 use serde::Deserialize;
 
-use register_trait::add_field;
-use register_trait::register_struct;
+use register_trait::{add_field, register_struct};
 
-use register_trait::Getter;
-use register_trait::TraitForConvert;
-use register_trait::TraitForRoot;
-use register_trait::TraitForTest;
+use register_trait::{Getter, TraitForConvert, TraitForRoot, TraitForTest};
 
-use crate::interface::interface::EmitData;
+use crate::interface::interface::{EmitData, Set};
+use crate::interface::slot_item::SlotItems;
 
 #[derive(Getter, TraitForTest, TraitForRoot, TraitForConvert)]
 #[convert_output(output = EmitData)]
@@ -29,8 +26,7 @@ pub struct Req {
     pub api_verno: String,
 }
 
-#[derive(Getter, TraitForTest, TraitForRoot, TraitForConvert)]
-#[convert_output(output = EmitData)]
+#[derive(Getter, TraitForTest, TraitForRoot)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[register_struct(name = "api_get_member/slot_item")]
@@ -61,6 +57,15 @@ pub struct ApiData {
     pub api_level: i64,
     #[serde(rename = "api_alv")]
     pub api_alv: Option<i64>,
+}
+
+impl TraitForConvert for Res {
+    type Output = EmitData;
+    fn convert(&self) -> Option<Vec<EmitData>> {
+        let slot_item: SlotItems = self.api_data.clone().into();
+
+        Some(vec![EmitData::Set(Set::SlotItems(slot_item))])
+    }
 }
 
 #[cfg(test)]
