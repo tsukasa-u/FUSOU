@@ -37,7 +37,8 @@ export const set_range_window_list = (
   modal_prefix: string,
   params: string[],
   range_props: RangeProps,
-  set_range_props: SetStoreFunction<RangeProps>
+  set_range_props: SetStoreFunction<RangeProps>,
+  set_spec_modal: Setter<boolean>
 ): { [key: string]: JSX.Element } => {
   const paramWindow: { [key: string]: JSX.Element } = {};
   params.forEach((param) => {
@@ -72,13 +73,14 @@ export const set_range_window_list = (
             </Show>
             <div
               class="btn btn-xs btn-ghost -mx-2"
-              onClick={() =>
+              onClick={() => {
+                set_spec_modal(true);
                 (
                   document.getElementById(
                     `${modal_prefix}_${param}`
                   ) as HTMLDialogElement
-                ).showModal()
-              }
+                ).showModal();
+              }}
             >
               {param}
             </div>
@@ -182,7 +184,7 @@ export const set_range_window_list = (
             </div>
           </div>
           <form method="dialog" class="modal-backdrop">
-            <button>close</button>
+            <button onClick={() => set_spec_modal(false)}>close</button>
           </form>
         </dialog>
       </>
@@ -197,7 +199,8 @@ export const set_discrete_range_window_list = (
   params_option: string[][],
   params_converter: string[][],
   range_props: RangeProps,
-  set_range_props: SetStoreFunction<RangeProps>
+  set_range_props: SetStoreFunction<RangeProps>,
+  set_spec_modal: Setter<boolean>
 ): { [key: string]: JSX.Element } => {
   const paramWindow: { [key: string]: JSX.Element } = {};
   params.forEach((param, param_index) => {
@@ -232,13 +235,14 @@ export const set_discrete_range_window_list = (
             </Show>
             <div
               class="btn btn-xs btn-ghost -mx-2"
-              onClick={() =>
+              onClick={() => {
+                set_spec_modal(true);
                 (
                   document.getElementById(
                     `${modal_prefix}_${param}`
                   ) as HTMLDialogElement
-                ).showModal()
-              }
+                ).showModal();
+              }}
             >
               {param}
             </div>
@@ -358,7 +362,7 @@ export const set_discrete_range_window_list = (
             </div>
           </div>
           <form method="dialog" class="modal-backdrop">
-            <button>close</button>
+            <button onClick={() => set_spec_modal(false)}>close</button>
           </form>
         </dialog>
       </>
@@ -373,7 +377,8 @@ export const sort_window = (
   set_order: Accessor<boolean>,
   set_set_order: Setter<boolean>,
   set_sort: Accessor<string>,
-  set_set_sort: Setter<string>
+  set_set_sort: Setter<string>,
+  set_spec_modal: Setter<boolean>
 ) => {
   return (
     <>
@@ -388,13 +393,14 @@ export const sort_window = (
           </span>
           <div
             class="btn btn-xs btn-ghost -mx-1"
-            onClick={() =>
+            onClick={() => {
+              set_spec_modal(true);
               (
                 document.getElementById(
                   `${modal_prefix}_sort`
                 ) as HTMLDialogElement
-              ).showModal()
-            }
+              ).showModal();
+            }}
           >
             No
           </div>
@@ -444,7 +450,7 @@ export const sort_window = (
           </table>
         </div>
         <form method="dialog" class="modal-backdrop">
-          <button>close</button>
+          <button onClick={() => set_spec_modal(false)}>close</button>
         </form>
       </dialog>
     </>
@@ -461,7 +467,8 @@ export const search_name_window = (
   check_name: CheckName,
   search_name: Accessor<string>,
   set_search_name: Setter<string>,
-  cal_search_name: (search_name: string) => void
+  cal_search_name: (search_name: string) => void,
+  set_spec_modal: Setter<boolean>
 ) => {
   return (
     <>
@@ -476,13 +483,14 @@ export const search_name_window = (
           </Show>
           <div
             class="btn btn-xs btn-ghost -mx-2"
-            onClick={() =>
+            onClick={() => {
+              set_spec_modal(true);
               (
                 document.getElementById(
                   `${modal_prefix}_search_name`
                 ) as HTMLDialogElement
-              ).showModal()
-            }
+              ).showModal();
+            }}
           >
             {title}
           </div>
@@ -522,7 +530,7 @@ export const search_name_window = (
           </label>
         </div>
         <form method="dialog" class="modal-backdrop">
-          <button>close</button>
+          <button onClick={() => set_spec_modal(false)}>close</button>
         </form>
       </dialog>
     </>
@@ -539,7 +547,8 @@ export const set_type_window = (
   check_types: CheckTypes,
   set_check_types: SetStoreFunction<CheckTypes>,
   set_type: Accessor<string>,
-  set_categorize: Accessor<boolean>
+  set_categorize: Accessor<boolean>,
+  set_spec_modal: Setter<boolean>
 ) => {
   return (
     <>
@@ -554,81 +563,84 @@ export const set_type_window = (
           </Show>
           <div
             class="btn btn-xs btn-ghost -mx-2"
-            onClick={() =>
+            onClick={() => {
+              set_spec_modal(true);
               (
                 document.getElementById(
                   `${modal_prefix}_type`
                 ) as HTMLDialogElement
-              ).showModal()
-            }
+              ).showModal();
+            }}
           >
             {title}
           </div>
         </div>
       </div>
       <dialog id={`${modal_prefix}_type`} class="modal modal-top">
-        <div class="absolute w-full top-2 right-4 z-[3]">
-          <div class="w-72 mx-auto flex justify-end">
-            <button
-              class="btn btn-sm btn-outline bg-base-100"
-              onClick={() => {
-                const _check_types: { [key: string]: boolean } = {};
-                if (
-                  Object.values(check_types).findIndex((value) => value) != -1
-                ) {
-                  Object.keys(check_types).forEach((key) => {
-                    _check_types[key] = false;
-                  });
-                  set_check_types(_check_types);
-                } else {
-                  Object.keys(check_types).forEach((key) => {
-                    _check_types[key] = true;
-                  });
-                  set_check_types(_check_types);
-                }
-              }}
-            >
-              {Object.values(check_types).findIndex((value) => value) != -1
-                ? "filter all"
-                : "show all"}
-            </button>
-          </div>
-        </div>
-        <ul class="modal-box mx-auto w-72 menu menu-xs rounded-md grid overflow-y-scroll flex border-1 pt-[40px]">
-          <For each={Object.keys(check_types)}>
-            {(type_name) => (
-              // <Show
-              //   when={categorized_keys()[type_name].length != 0}
-              // >
-              <li
-                class="flex-col w-full"
+        <div class="modal-box mx-auto w-72 border-1 ">
+          <div class="w-full z-[3]">
+            <div class="w-full mx-auto flex justify-end">
+              <button
+                class="btn btn-sm btn-outline bg-base-100"
                 onClick={() => {
-                  const _check_types = { ...check_types };
-                  _check_types[type_name] = !check_types[type_name];
-                  set_check_types(_check_types);
+                  const _check_types: { [key: string]: boolean } = {};
+                  if (
+                    Object.values(check_types).findIndex((value) => value) != -1
+                  ) {
+                    Object.keys(check_types).forEach((key) => {
+                      _check_types[key] = false;
+                    });
+                    set_check_types(_check_types);
+                  } else {
+                    Object.keys(check_types).forEach((key) => {
+                      _check_types[key] = true;
+                    });
+                    set_check_types(_check_types);
+                  }
                 }}
               >
-                <a>
-                  <div class="flex items-center gap-2 text-sm">
-                    <input
-                      type="checkbox"
-                      checked={
-                        (check_types[type_name] && !set_categorize()) ||
-                        (set_type() == type_name && set_categorize())
-                      }
-                      disabled={set_categorize()}
-                      class="checkbox checkbox-sm"
-                    />
-                    {type_name}
-                  </div>
-                </a>
-              </li>
-              // </Show>
-            )}
-          </For>
-        </ul>
+                {Object.values(check_types).findIndex((value) => value) != -1
+                  ? "filter all"
+                  : "show all"}
+              </button>
+            </div>
+          </div>
+          <ul class="menu menu-xs rounded-md grid flex w-full">
+            <For each={Object.keys(check_types)}>
+              {(type_name) => (
+                // <Show
+                //   when={categorized_keys()[type_name].length != 0}
+                // >
+                <li
+                  class="flex-col w-full"
+                  onClick={() => {
+                    const _check_types = { ...check_types };
+                    _check_types[type_name] = !check_types[type_name];
+                    set_check_types(_check_types);
+                  }}
+                >
+                  <a>
+                    <div class="flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={
+                          (check_types[type_name] && !set_categorize()) ||
+                          (set_type() == type_name && set_categorize())
+                        }
+                        disabled={set_categorize()}
+                        class="checkbox checkbox-sm"
+                      />
+                      {type_name}
+                    </div>
+                  </a>
+                </li>
+                // </Show>
+              )}
+            </For>
+          </ul>
+        </div>
         <form method="dialog" class="modal-backdrop">
-          <button>close</button>
+          <button onClick={() => set_spec_modal(false)}>close</button>
         </form>
       </dialog>
     </>
@@ -642,48 +654,80 @@ export type CheckProps = {
 export const select_properties_window = (
   modal_prefix: string,
   check_property: CheckProps,
-  set_check_property: SetStoreFunction<CheckProps>
+  set_check_property: SetStoreFunction<CheckProps>,
+  set_spec_modal: Setter<boolean>
 ) => {
   return (
     <>
       <button
         class="btn btn-xs btn-ghost"
-        onClick={() =>
+        onClick={() => {
+          set_spec_modal(true);
           (
             document.getElementById(
               `${modal_prefix}_select_properties`
             ) as HTMLDialogElement
-          ).showModal()
-        }
+          ).showModal();
+        }}
       >
         select properties
       </button>
       <dialog id={`${modal_prefix}_select_properties`} class="modal modal-top">
-        <ul class="modal-box mx-auto w-72 menu menu-xs rounded-md grid overflow-y-scroll flex border-1 pt-[40px]">
-          <For each={Object.keys(check_property)}>
-            {(prop) => (
-              <li
-                class="flex-col w-full"
+        <div class="modal-box mx-auto w-72 border-1 ">
+          <div class="w-full z-[3]">
+            <div class="w-full mx-auto flex justify-end">
+              <button
+                class="btn btn-sm btn-outline bg-base-100"
                 onClick={() => {
-                  set_check_property(prop, !check_property[prop]);
+                  const _check_property: { [key: string]: boolean } = {};
+                  if (
+                    Object.values(check_property).findIndex((value) => value) !=
+                    -1
+                  ) {
+                    Object.keys(check_property).forEach((key) => {
+                      _check_property[key] = false;
+                    });
+                    set_check_property(_check_property);
+                  } else {
+                    Object.keys(check_property).forEach((key) => {
+                      _check_property[key] = true;
+                    });
+                    set_check_property(_check_property);
+                  }
                 }}
               >
-                <a>
-                  <div class="flex items-center gap-2 text-sm">
-                    <input
-                      type="checkbox"
-                      checked={check_property[prop]}
-                      class="checkbox checkbox-sm"
-                    />
-                    {prop}
-                  </div>
-                </a>
-              </li>
-            )}
-          </For>
-        </ul>
+                {Object.values(check_property).findIndex((value) => value) != -1
+                  ? "filter all"
+                  : "show all"}
+              </button>
+            </div>
+          </div>
+          <ul class="menu menu-xs rounded-md grid flex w-full">
+            <For each={Object.keys(check_property)}>
+              {(prop) => (
+                <li
+                  class="flex-col w-full"
+                  onClick={() => {
+                    set_check_property(prop, !check_property[prop]);
+                  }}
+                >
+                  <a>
+                    <div class="flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={check_property[prop]}
+                        class="checkbox checkbox-sm"
+                      />
+                      {prop}
+                    </div>
+                  </a>
+                </li>
+              )}
+            </For>
+          </ul>
+        </div>
         <form method="dialog" class="modal-backdrop">
-          <button>close</button>
+          <button onClick={() => set_spec_modal(false)}>close</button>
         </form>
       </dialog>
     </>

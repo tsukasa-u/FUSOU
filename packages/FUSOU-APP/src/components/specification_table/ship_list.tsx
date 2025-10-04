@@ -98,6 +98,8 @@ export function ShipListComponent() {
     "Rng",
   ];
 
+  const [ship_spec_modal, set_ship_spec_modal] = createSignal(false);
+
   const store_ship_data_set = createMemo(() => {
     return get_data_set_ship(Object.keys(ships.ships).map((id) => Number(id)));
   });
@@ -351,7 +353,8 @@ export function ShipListComponent() {
       modal_prefix,
       params,
       range_props,
-      set_range_props
+      set_range_props,
+      set_ship_spec_modal
     );
   };
 
@@ -394,7 +397,8 @@ export function ShipListComponent() {
       params_option,
       param_converter,
       range_props,
-      set_range_props
+      set_range_props,
+      set_ship_spec_modal
     );
   };
 
@@ -545,7 +549,8 @@ export function ShipListComponent() {
       set_order,
       set_set_order,
       set_sort,
-      set_set_sort
+      set_set_sort,
+      set_ship_spec_modal
     );
     const search_name_window_element = search_name_window(
       "Ship Name",
@@ -553,7 +558,8 @@ export function ShipListComponent() {
       check_name,
       search_name,
       set_search_name,
-      cal_search_name
+      cal_search_name,
+      set_ship_spec_modal
     );
     const set_ship_type_window_element = set_type_window(
       "Ship Type",
@@ -561,7 +567,8 @@ export function ShipListComponent() {
       check_stype,
       set_check_stype,
       set_stype,
-      set_categorize
+      set_categorize,
+      set_ship_spec_modal
     );
     const set_range_window_elements = set_range_window(modal_prefix);
     const set_discrete_range_window_elements =
@@ -762,7 +769,8 @@ export function ShipListComponent() {
     select_properties_window(
       "ship_spec_modal",
       check_ship_property,
-      set_check_ship_property
+      set_check_ship_property,
+      set_ship_spec_modal
     );
 
   let parentScrollElement!: HTMLDivElement;
@@ -800,8 +808,8 @@ export function ShipListComponent() {
           <div
             class={`overflow-x-auto max-w-[${table_width}]`}
             ref={(el) => {
-              scroll_fn(el);
-              drag_scroll_fn(el);
+              scroll_fn(el, ship_spec_modal);
+              drag_scroll_fn(el, ship_spec_modal);
             }}
             style={{ "scrollbar-width": "none" }}
           >
@@ -835,8 +843,8 @@ export function ShipListComponent() {
           >
             <div
               ref={(el) => {
-                scroll_parent_fn(el, parentScrollElement);
-                drag_scroll_fn(parentScrollElement);
+                scroll_parent_fn(el, parentScrollElement, ship_spec_modal);
+                drag_scroll_fn(parentScrollElement, ship_spec_modal);
               }}
             >
               <table class={`table table-xs max-w-[${table_width}]`}>
@@ -858,8 +866,8 @@ export function ShipListComponent() {
           >
             <div
               ref={(el) => {
-                scroll_parent_fn(el, parentScrollElement);
-                drag_scroll_fn(parentScrollElement);
+                scroll_parent_fn(el, parentScrollElement, ship_spec_modal);
+                drag_scroll_fn(parentScrollElement, ship_spec_modal);
               }}
             >
               <table class={`table table-xs max-w-[${table_width}]`}>

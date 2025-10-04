@@ -77,6 +77,9 @@ export function EquipmentListComponent() {
     "Int",
     "Dis",
   ];
+
+  const [equip_spec_modal, set_equip_spec_modal] = createSignal(false);
+
   const store_equip_data_set = createMemo(() => {
     return get_data_set_equip(
       Object.keys(slot_items.slot_items).map((id) => Number(id))
@@ -382,7 +385,8 @@ export function EquipmentListComponent() {
       modal_prefix,
       params,
       range_props,
-      set_range_props
+      set_range_props,
+      set_equip_spec_modal
     );
   };
 
@@ -536,7 +540,8 @@ export function EquipmentListComponent() {
       set_order,
       set_set_order,
       set_sort,
-      set_set_sort
+      set_set_sort,
+      set_equip_spec_modal
     );
     const search_name_window_element = search_name_window(
       "Equip Name",
@@ -544,7 +549,8 @@ export function EquipmentListComponent() {
       check_name,
       search_name,
       set_search_name,
-      cal_search_name
+      cal_search_name,
+      set_equip_spec_modal
     );
     const set_equip_type_window_element = set_type_window(
       "Equip Type",
@@ -552,7 +558,8 @@ export function EquipmentListComponent() {
       check_equip_types,
       set_check_equip_types,
       set_equip_type,
-      set_categorize
+      set_categorize,
+      set_equip_spec_modal
     );
     const set_range_window_elements = set_range_window(modal_prefix);
 
@@ -762,7 +769,8 @@ export function EquipmentListComponent() {
     select_properties_window(
       "equip_spec_modal",
       check_equip_property,
-      set_check_equip_property
+      set_check_equip_property,
+      set_equip_spec_modal
     );
 
   let parentScrollElement!: HTMLDivElement;
@@ -800,8 +808,8 @@ export function EquipmentListComponent() {
           <div
             class={`overflow-x-auto max-w-[${table_width}]`}
             ref={(el) => {
-              scroll_fn(el);
-              drag_scroll_fn(el);
+              scroll_fn(el, equip_spec_modal);
+              drag_scroll_fn(el, equip_spec_modal);
             }}
             style={{ "scrollbar-width": "none" }}
           >
@@ -840,8 +848,8 @@ export function EquipmentListComponent() {
           >
             <div
               ref={(el) => {
-                scroll_parent_fn(el, parentScrollElement);
-                drag_scroll_fn(parentScrollElement);
+                scroll_parent_fn(el, parentScrollElement, equip_spec_modal);
+                drag_scroll_fn(parentScrollElement, equip_spec_modal);
               }}
             >
               <table class={`table table-xs max-w-[${table_width}]`}>
@@ -865,8 +873,8 @@ export function EquipmentListComponent() {
           >
             <div
               ref={(el) => {
-                scroll_parent_fn(el, parentScrollElement);
-                drag_scroll_fn(parentScrollElement);
+                scroll_parent_fn(el, parentScrollElement, equip_spec_modal);
+                drag_scroll_fn(parentScrollElement, equip_spec_modal);
               }}
             >
               <table class={`table table-xs max-w-[${table_width}]`}>
