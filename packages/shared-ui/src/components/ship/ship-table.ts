@@ -135,7 +135,7 @@ export class ComponentShipTable extends LitElement {
         ?name_flag=${true}
         .slot_item=${slot_item}
         .mst_slot_item=${mst_slot_item}
-        attr:onslot=${ifDefined(onslot)}
+        attr_onslot=${ifDefined(onslot)}
         size=${this.size}
       ></component-equipment-modal>`;
     } else {
@@ -248,7 +248,7 @@ export class ComponentShipTable extends LitElement {
                 class_size[this.size].level_text,
               ].join(" ")}
             >
-              next ${this.ship.exp ? this.ship.exp[1] ?? 0 : ""}
+              next ${this.ship.exp ? (this.ship.exp[1] ?? 0) : ""}
             </div>
           </div>
           <div class="pt-2">
@@ -292,7 +292,7 @@ export class ComponentShipTable extends LitElement {
                           ? `+${sp_effect_item.karyoku}`
                           : ""}
                       </span>
-                      ${this.ship.karyoku ? this.ship.karyoku[0] ?? 0 : 0}
+                      ${this.ship.karyoku ? (this.ship.karyoku[0] ?? 0) : 0}
                     </div>
                   </td>
                 </tr>
@@ -310,7 +310,7 @@ export class ComponentShipTable extends LitElement {
                           ? `+${sp_effect_item.soukou}`
                           : ""}
                       </span>
-                      ${this.ship.soukou ? this.ship.soukou[0] ?? 0 : 0}
+                      ${this.ship.soukou ? (this.ship.soukou[0] ?? 0) : 0}
                     </div>
                   </td>
                   <th class="truncate flex-1 w-2">Torpedo</th>
@@ -326,7 +326,7 @@ export class ComponentShipTable extends LitElement {
                           ? `+${sp_effect_item.raisou}`
                           : ""}
                       </span>
-                      ${this.ship.raisou ? this.ship.raisou[0] ?? 0 : 0}
+                      ${this.ship.raisou ? (this.ship.raisou[0] ?? 0) : 0}
                     </div>
                   </td>
                 </tr>
@@ -344,12 +344,12 @@ export class ComponentShipTable extends LitElement {
                           ? `+${sp_effect_item.kaihi}`
                           : ""}
                       </span>
-                      ${this.ship.kaihi ? this.ship.kaihi[0] ?? 0 : 0}
+                      ${this.ship.kaihi ? (this.ship.kaihi[0] ?? 0) : 0}
                     </div>
                   </td>
                   <th class="truncate flex-1 w-2">Anti-Air</th>
                   <td class="flex-none w-12 flex justify-end pr-4">
-                    ${this.ship.taiku ? this.ship.taiku[0] ?? 0 : 0}
+                    ${this.ship.taiku ? (this.ship.taiku[0] ?? 0) : 0}
                   </td>
                 </tr>
                 <tr class="flex rounded">
@@ -359,7 +359,7 @@ export class ComponentShipTable extends LitElement {
                   </td>
                   <th class="truncate flex-1 w-2">Anti-Submarine</th>
                   <td class="flex-none w-12 flex justify-end pr-4">
-                    ${this.ship.taisen ? this.ship.taisen[0] ?? 0 : 0}
+                    ${this.ship.taisen ? (this.ship.taisen[0] ?? 0) : 0}
                   </td>
                 </tr>
                 <tr class="flex rounded">
@@ -369,7 +369,7 @@ export class ComponentShipTable extends LitElement {
                   </td>
                   <th class="truncate flex-1 w-2">Reconnaissance</th>
                   <td class="flex-none w-12 flex justify-end pr-4">
-                    ${this.ship.sakuteki ? this.ship.sakuteki[0] ?? 0 : 0}
+                    ${this.ship.sakuteki ? (this.ship.sakuteki[0] ?? 0) : 0}
                   </td>
                 </tr>
                 <tr class="flex rounded">
@@ -379,7 +379,7 @@ export class ComponentShipTable extends LitElement {
                   </td>
                   <th class="truncate flex-1 w-2">Luck</th>
                   <td class="flex-none w-12 flex justify-end pr-4">
-                    ${this.ship.lucky ? this.ship.lucky[0] ?? 0 : 0}
+                    ${this.ship.lucky ? (this.ship.lucky[0] ?? 0) : 0}
                   </td>
                 </tr>
               </tbody>

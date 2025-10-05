@@ -13,10 +13,11 @@ import Updater from "./pages/update.tsx";
 
 import "./global.css";
 import { AuthProvider } from "./utility/provider.tsx";
-import { onMount } from "solid-js";
+import { ErrorBoundary, onMount } from "solid-js";
 
 import { fetch_font } from "./utility/google_font.ts";
 import { invoke } from "@tauri-apps/api/core";
+import { ErrorFallback } from "./utility/ErrorFallback.tsx";
 
 onMount(async () => {
   invoke<string>("get_app_theme", {})
@@ -47,15 +48,21 @@ onMount(async () => {
 render(
   () => (
     <AuthProvider>
-      <Router>
-        <Route path="/app" component={App} />
-        <Route path="/" component={Start} />
-        <Route path="*" component={NotFound} />
-        <Route path="/debug" component={Debug} />
-        <Route path="/auth" component={Login} />
-        <Route path="/close" component={Close} />
-        <Route path="/update" component={Updater} />
-      </Router>
+      <ErrorBoundary
+        fallback={(error, reset) => (
+          <ErrorFallback error={error} reset={reset} />
+        )}
+      >
+        <Router>
+          <Route path="/app" component={App} />
+          <Route path="/" component={Start} />
+          <Route path="*" component={NotFound} />
+          <Route path="/debug" component={Debug} />
+          <Route path="/auth" component={Login} />
+          <Route path="/close" component={Close} />
+          <Route path="/update" component={Updater} />
+        </Router>
+      </ErrorBoundary>
     </AuthProvider>
   ),
   document.getElementById("root") as HTMLElement

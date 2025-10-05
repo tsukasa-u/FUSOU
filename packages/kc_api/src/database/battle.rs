@@ -1105,7 +1105,7 @@ pub struct Battle {
     pub air_base_assault: Option<AirBaseAssultId>,
     pub carrier_base_assault: Option<CarrierBaseAssaultId>,
     pub air_base_air_attacks: Option<AirBaseAirAttackListId>,
-    pub opening_air_attack: Option<OpeningAirAttackId>,
+    pub opening_air_attack: Option<OpeningAirAttackListId>,
     pub support_hourai: Option<SupportHouraiId>,
     pub support_airattack: Option<SupportAirattackId>,
     pub opening_taisen: Option<OpeningTaisenListId>,

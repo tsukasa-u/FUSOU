@@ -11,6 +11,7 @@ import type { JSX } from "solid-js";
 import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 
 import "../../css/divider.css";
+import "../../css/back_slash.css";
 
 import "shared-ui";
 import type {
@@ -282,7 +283,6 @@ export function DeckComponent(props: DeckPortProps) {
 
   const get_onslot = (ship_index: number, slot_index: number) => {
     const tmp = ship_list()[ship_index].onslot;
-    console.log(tmp ? tmp[slot_index] : 0);
     return tmp ? tmp[slot_index] : 0;
   };
 
@@ -326,7 +326,7 @@ export function DeckComponent(props: DeckPortProps) {
             <For each={get_deck_ship()}>
               {(shipId, ship_index) => (
                 <Show when={shipId > 0}>
-                  <li class="h-auto">
+                  <li class="h-auto ">
                     <a class="justify-start gap-x-0 gap-y-1 flex flex-wrap">
                       <div class="justify-start gap-0 flex">
                         <div class="pl-2 pr-0.5 truncate flex-1 min-w-12 content-center">
@@ -435,15 +435,30 @@ export function DeckComponent(props: DeckPortProps) {
                         <div class="flex">
                           <div class="w-[4px]" />
                           <div class="grid grid-cols-5 gap-2 content-center w-60">
-                            <For each={ships.ships[shipId]?.slot}>
+                            <For
+                              each={ships.ships[shipId]?.slot?.slice(
+                                0,
+                                ships.ships[shipId]?.slotnum ?? 0
+                              )}
+                            >
                               {(slotId, slotId_index) => (
-                                <Show when={slotId > 0}>
+                                <Show
+                                  when={slotId > 0}
+                                  fallback={
+                                    <div class="text-base flex justify-center">
+                                      <component-equipment-modal
+                                        size="xs"
+                                        empty_flag={true}
+                                      />
+                                    </div>
+                                  }
+                                >
                                   <div class="text-base flex justify-center">
                                     <component-equipment-modal
                                       size="xs"
                                       empty_flag={false}
                                       name_flag={false}
-                                      attr:onslot={get_onslot(
+                                      attr_onslot={get_onslot(
                                         ship_index(),
                                         slotId_index()
                                       )}
@@ -460,9 +475,22 @@ export function DeckComponent(props: DeckPortProps) {
                                 </Show>
                               )}
                             </For>
+                            <For
+                              each={[
+                                ...Array(
+                                  5 - (ships.ships[shipId]?.slotnum ?? 0)
+                                ).keys(),
+                              ]}
+                            >
+                              {() => (
+                                <div class="rounded back_slash_color bg-[size:16px_16px] bg-top-left bg-[image:repeating-linear-gradient(45deg,currentColor_0,currentColor_0.5px,transparent_0,transparent_50%)]" />
+                              )}
+                            </For>
                           </div>
                           <div class="divider divider-horizontal mr-0 ml-0" />
-                          <div class="content-center">
+                          <div
+                            class={`content-center ${(ship_list()[ship_index()].slot_ex ?? 0) > 0 ? "" : "back_slash_color bg-[size:16px_16px] bg-top-left bg-[image:repeating-linear-gradient(45deg,currentColor_0,currentColor_0.5px,transparent_0,transparent_50%)]"}`}
+                          >
                             <div class="text-base flex justify-center w-8">
                               <Show
                                 when={
@@ -473,7 +501,7 @@ export function DeckComponent(props: DeckPortProps) {
                                   size="xs"
                                   empty_flag={false}
                                   name_flag={false}
-                                  attr:onslot={undefined}
+                                  attr_onslot={undefined}
                                   slot_item={get_slot_item(
                                     ship_index(),
                                     ship_list()[ship_index()].slot_ex ?? 0
@@ -487,7 +515,6 @@ export function DeckComponent(props: DeckPortProps) {
                               </Show>
                             </div>
                           </div>
-                          {/* <span class="w-px" /> */}
                           <div class="divider divider-horizontal mr-0 ml-0 h-auto" />
                         </div>
                       </Show>

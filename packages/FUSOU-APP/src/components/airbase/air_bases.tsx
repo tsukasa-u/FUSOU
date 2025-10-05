@@ -125,7 +125,7 @@ export function AirBasesComponent() {
                                       <div class="w-58">
                                         <component-equipment-modal
                                           size="xs"
-                                          attr:onslot={plane.count ?? 0}
+                                          attr_onslot={plane.count ?? 0}
                                           slot_item={
                                             store_equip_data_set()[plane.slotid]
                                               ?.slot_item

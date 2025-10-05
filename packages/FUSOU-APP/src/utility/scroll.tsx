@@ -1,4 +1,9 @@
-export const drag_scroll_fn = (el: HTMLDivElement) => {
+import type { Accessor } from "solid-js/types/server/reactive.js";
+
+export const drag_scroll_fn = (
+  el: HTMLDivElement,
+  spec_modal: Accessor<boolean>
+) => {
   let isDragging = false;
   let startX = 0;
   let scrollStartX = 0;
@@ -8,6 +13,7 @@ export const drag_scroll_fn = (el: HTMLDivElement) => {
   let lastPageX = 0;
 
   el.addEventListener("mousedown", (e) => {
+    if (spec_modal()) return;
     if (e.button !== 0) return;
     isDragging = true;
     startX = e.pageX;
@@ -21,6 +27,7 @@ export const drag_scroll_fn = (el: HTMLDivElement) => {
   });
 
   document.addEventListener("mousemove", (e) => {
+    if (spec_modal()) return;
     if (!isDragging) return;
 
     const deltaX = e.pageX - startX;
@@ -31,6 +38,7 @@ export const drag_scroll_fn = (el: HTMLDivElement) => {
   });
 
   document.addEventListener("mouseup", () => {
+    if (spec_modal()) return;
     if (isDragging) {
       isDragging = false;
       el.style.cursor = "auto";
@@ -40,6 +48,7 @@ export const drag_scroll_fn = (el: HTMLDivElement) => {
   });
 
   el.addEventListener("mouseleave", () => {
+    if (spec_modal()) return;
     if (isDragging) {
       isDragging = false;
       el.style.cursor = "auto";
@@ -61,8 +70,13 @@ export const drag_scroll_fn = (el: HTMLDivElement) => {
   }
 };
 
-export const scroll_parent_fn = (el: HTMLDivElement, pa: HTMLDivElement) => {
+export const scroll_parent_fn = (
+  el: HTMLDivElement,
+  pa: HTMLDivElement,
+  spec_modal: Accessor<boolean>
+) => {
   el.addEventListener("wheel", (e) => {
+    if (spec_modal()) return;
     if (
       el.offsetLeft > e.pageX ||
       e.pageX > el.offsetLeft + el.clientWidth ||
@@ -85,8 +99,12 @@ export const scroll_parent_fn = (el: HTMLDivElement, pa: HTMLDivElement) => {
   });
 };
 
-export const scroll_fn = (el: HTMLDivElement) => {
+export const scroll_fn = (
+  el: HTMLDivElement,
+  spec_modal: Accessor<boolean>
+) => {
   el.addEventListener("wheel", (e) => {
+    if (spec_modal()) return;
     if (
       el.offsetLeft > e.pageX ||
       e.pageX > el.offsetLeft + el.clientWidth ||

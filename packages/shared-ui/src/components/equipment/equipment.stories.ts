@@ -15,7 +15,7 @@ const ComponentEquipmentBasic = (args: ComponentEquipmentProps) => {
     .mst_slot_item=${args.mst_slot_item}
     ?compact=${args.compact}
     ?name_flag=${args.name_flag}
-    attr:onslot=${ifDefined(args["attr:onslot"])}
+    attr_onslot=${ifDefined(args.attr_onslot)}
     size=${args.size}
     ?empty_flag=${args.empty_flag}
     ?ex_flag=${args.empty_flag}

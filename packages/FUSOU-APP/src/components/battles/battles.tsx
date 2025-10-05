@@ -294,9 +294,9 @@ export function BattlesComponent() {
     }
   };
 
-  const display_serach = () => {
+  const display_search = () => {
     return (
-      <div class="flex felx-nowrap text-xs py-0.5 pl-2">
+      <div class="flex flex-nowrap text-xs py-0.5 pl-2">
         Search : <span class="w-1" />
         <Show
           when={battle_selected()?.reconnaissance}
@@ -395,7 +395,7 @@ export function BattlesComponent() {
     );
   };
 
-  const display_ombat_ration = () => {
+  const display_combat_ration = () => {
     return (
       <>
         Combat Ration : <span class="w-1" />
@@ -418,7 +418,7 @@ export function BattlesComponent() {
     );
   };
 
-  const dispaly_balloon = () => {
+  const display_balloon = () => {
     const balloon_id = 513;
     const deck_id = battle_selected()?.deck_id;
     let baloon_flag = false;
@@ -510,18 +510,18 @@ export function BattlesComponent() {
                 store_data_set_param_ship={store_data_set_param_ship}
               />
               <Show when={show_battle()}>
-                {display_serach()}
-                <div class="flex felx-nowrap text-xs py-0.5 pl-2">
+                {display_search()}
+                <div class="flex flex-nowrap text-xs py-0.5 pl-2 items-center">
                   {display_formation()}
                   <div class="divider divider-horizontal mr-0 ml-0" />
                   {display_form()}
                 </div>
-                <div class="flex felx-nowrap text-xs py-0.5 pl-2">
+                <div class="flex flex-nowrap text-xs py-0.5 pl-2 items-center">
                   {display_smoke_type()}
                   <div class="divider divider-horizontal mr-0 ml-0" />
-                  {display_ombat_ration()}
+                  {display_combat_ration()}
                   <div class="divider divider-horizontal mr-0 ml-0" />
-                  {dispaly_balloon()}
+                  {display_balloon()}
                 </div>
               </Show>
             </ul>
