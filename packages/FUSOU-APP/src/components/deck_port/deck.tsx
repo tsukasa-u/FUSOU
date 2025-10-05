@@ -11,6 +11,7 @@ import type { JSX } from "solid-js";
 import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 
 import "../../css/divider.css";
+import "../../css/back_slash.css";
 
 import "shared-ui";
 import type {
@@ -325,7 +326,7 @@ export function DeckComponent(props: DeckPortProps) {
             <For each={get_deck_ship()}>
               {(shipId, ship_index) => (
                 <Show when={shipId > 0}>
-                  <li class="h-auto">
+                  <li class="h-auto ">
                     <a class="justify-start gap-x-0 gap-y-1 flex flex-wrap">
                       <div class="justify-start gap-0 flex">
                         <div class="pl-2 pr-0.5 truncate flex-1 min-w-12 content-center">
@@ -459,9 +460,25 @@ export function DeckComponent(props: DeckPortProps) {
                                 </Show>
                               )}
                             </For>
+                            <For
+                              each={[
+                                ...Array(
+                                  5 -
+                                    (ships.ships[shipId]?.slot?.filter(
+                                      (id) => id > 0
+                                    ).length ?? 0)
+                                ).keys(),
+                              ]}
+                            >
+                              {() => (
+                                <div class="rounded back_slash_color bg-[size:16px_16px] bg-top-left bg-[image:repeating-linear-gradient(45deg,currentColor_0,currentColor_0.5px,transparent_0,transparent_50%)]" />
+                              )}
+                            </For>
                           </div>
                           <div class="divider divider-horizontal mr-0 ml-0" />
-                          <div class="content-center">
+                          <div
+                            class={`content-center ${(ship_list()[ship_index()].slot_ex ?? 0) > 0 ? "" : "back_slash_color bg-[size:16px_16px] bg-top-left bg-[image:repeating-linear-gradient(45deg,currentColor_0,currentColor_0.5px,transparent_0,transparent_50%)]"}`}
+                          >
                             <div class="text-base flex justify-center w-8">
                               <Show
                                 when={
@@ -486,7 +503,6 @@ export function DeckComponent(props: DeckPortProps) {
                               </Show>
                             </div>
                           </div>
-                          {/* <span class="w-px" /> */}
                           <div class="divider divider-horizontal mr-0 ml-0 h-auto" />
                         </div>
                       </Show>

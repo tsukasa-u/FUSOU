@@ -126,7 +126,7 @@ export function OpeningAirAttackComponent(props: AirDamageProps) {
         <div class="flex justify-center">
           <Show
             when={air_fire && air_fire_idx}
-            fallback={<div class="w-6 text-center">_</div>}
+            fallback={<div class="w-24 text-center">___</div>}
           >
             <div class="w-24">
               <WrapOwnShipComponent
@@ -139,7 +139,16 @@ export function OpeningAirAttackComponent(props: AirDamageProps) {
             </div>
           </Show>
           <div class="w-1" />
-          <Show when={air_fire} fallback={<div class="w-6 text-center">_</div>}>
+          <Show
+            when={air_fire}
+            fallback={
+              <>
+                <div class="w-6 text-center">_</div>
+                <div class="w-1" />
+                <div class="w-6 text-center">_</div>
+              </>
+            }
+          >
             <For each={air_fire?.use_item}>
               {(item_id, idx) => (
                 <>
