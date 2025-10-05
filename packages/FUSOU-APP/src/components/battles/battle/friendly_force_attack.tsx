@@ -9,9 +9,7 @@ import type {
 } from "../../../utility/get_data_set";
 import {
   WrapCIMstEquipComponent,
-  WrapEnemyShipComponent,
   WrapEnemyShipHPComponent,
-  WrapFriendShipComponent,
   WrapFriendShipHPComponent,
   WrapNumberedEnemyShipComponent,
   WrapNumberedErrorShipComponent,
@@ -52,37 +50,39 @@ export function FriendlyForceAttackComponent(props: FriendlyForceAttackProps) {
         <Show
           when={flare_pos}
           fallback={
-            <div>
-              <div class="w-24 text-center">_</div>
+            <div class="flex flex-nowrap">
+              <div class="w-24 text-center">___</div>
               <div class="w-3 text-center">/</div>
-              <div class="w-24 text-center">_</div>
+              <div class="w-24 text-center">___</div>
             </div>
           }
         >
-          <div class="w-24 flex justify-center">
-            <Show
-              when={f_flare_pos != -1}
-              fallback={<div class="w-6 text-center">_</div>}
-            >
-              <WrapFriendShipComponent
-                ship_idx={f_flare_pos}
-                store_data_set_param_ship={props.store_data_set_param_ship}
-                name_flag={false}
-              />
-            </Show>
-          </div>
-          <div class="w-3 text-center">/</div>
-          <div class="w-24 flex justify-center">
-            <Show
-              when={e_flare_pos != -1}
-              fallback={<div class="w-6 text-center">_</div>}
-            >
-              <WrapEnemyShipComponent
-                ship_idx={e_flare_pos}
-                store_data_set_param_ship={props.store_data_set_param_ship}
-                name_flag={false}
-              />
-            </Show>
+          <div class="flex flex-nowrap">
+            <div class="w-24 flex justify-center">
+              <Show
+                when={f_flare_pos != -1}
+                fallback={<div class="text-center">___</div>}
+              >
+                <WrapNumberedFriendShipComponent
+                  ship_idx={f_flare_pos}
+                  battle_selected={props.battle_selected}
+                  store_data_set_param_ship={props.store_data_set_param_ship}
+                />
+              </Show>
+            </div>
+            <div class="w-3 text-center">/</div>
+            <div class="w-24 flex justify-center">
+              <Show
+                when={e_flare_pos != -1}
+                fallback={<div class="text-center">___</div>}
+              >
+                <WrapNumberedEnemyShipComponent
+                  ship_idx={e_flare_pos}
+                  battle_selected={props.battle_selected}
+                  store_data_set_param_ship={props.store_data_set_param_ship}
+                />
+              </Show>
+            </div>
           </div>
         </Show>
       </>
