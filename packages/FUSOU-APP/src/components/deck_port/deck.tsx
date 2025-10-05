@@ -435,9 +435,24 @@ export function DeckComponent(props: DeckPortProps) {
                         <div class="flex">
                           <div class="w-[4px]" />
                           <div class="grid grid-cols-5 gap-2 content-center w-60">
-                            <For each={ships.ships[shipId]?.slot}>
+                            <For
+                              each={ships.ships[shipId]?.slot?.slice(
+                                0,
+                                ships.ships[shipId]?.slotnum ?? 0
+                              )}
+                            >
                               {(slotId, slotId_index) => (
-                                <Show when={slotId > 0}>
+                                <Show
+                                  when={slotId > 0}
+                                  fallback={
+                                    <div class="text-base flex justify-center">
+                                      <component-equipment-modal
+                                        size="xs"
+                                        empty_flag={true}
+                                      />
+                                    </div>
+                                  }
+                                >
                                   <div class="text-base flex justify-center">
                                     <component-equipment-modal
                                       size="xs"
@@ -463,10 +478,7 @@ export function DeckComponent(props: DeckPortProps) {
                             <For
                               each={[
                                 ...Array(
-                                  5 -
-                                    (ships.ships[shipId]?.slot?.filter(
-                                      (id) => id > 0
-                                    ).length ?? 0)
+                                  5 - (ships.ships[shipId]?.slotnum ?? 0)
                                 ).keys(),
                               ]}
                             >
