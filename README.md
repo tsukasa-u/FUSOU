@@ -1,28 +1,32 @@
-# FUSOU
+![FUSOU](docs/images/title.png)
 
-![FUSOU](docs/title.png)
+# FUSOU
 
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/tsukasa-u/FUSOU)
 [![Static Badge](https://img.shields.io/badge/docs.rs-tsukasa--u%2FFUSOU-blue?logo=docsdotrs)](https://tsukasa-u.github.io/FUSOU/app/index.html)
 [![docs](https://github.com/tsukasa-u/FUSOU/actions/workflows/export_doc.yml/badge.svg?branch=dev)](https://github.com/tsukasa-u/FUSOU/actions/workflows/export_doc.yml)
 [![build](https://github.com/tsukasa-u/FUSOU/actions/workflows/check_build.yml/badge.svg?branch=dev)](https://github.com/tsukasa-u/FUSOU/actions/workflows/check_build.yml)
-[![FOSSA Status](https://app.fossa.com/api/projects/custom%2B52222%2Fgithub.com%2Ftsukasa-u%2FFUSOU.svg?type=shield&issueType=license)](https://app.fossa.com/projects/custom%2B52222%2Fgithub.com%2Ftsukasa-u%2FFUSOU?ref=badge_shield&issueType=license)
-[![FOSSA Status](https://app.fossa.com/api/projects/custom%2B52222%2Fgithub.com%2Ftsukasa-u%2FFUSOU.svg?type=shield&issueType=security)](https://app.fossa.com/projects/custom%2B52222%2Fgithub.com%2Ftsukasa-u%2FFUSOU?ref=badge_shield&issueType=security)
-![visitors](https://visitor-badge.laobi.icu/badge?page_id=tsukasa-u.fusou.readme)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-## Stacks
+FUSOU is a simple data viewer for [Kantai Collection](https://games.dmm.com/detail/kancolle) (艦隊これくしょん -艦これ-).<br>
+The goal of this app is to display only the data that users can normally obtain through regular gameplay and to perform analysis using that data, unlike other similar apps.
 
-<p style="display: inline">
-  <img alt="Static Badge" src="https://img.shields.io/badge/rust-000000?style=for-the-badge&logo=rust&logoColor=FFFFFF&color=000000">
-  <img alt="Static Badge" src="https://img.shields.io/badge/Typescript-000000?style=for-the-badge&logo=typescript&logoColor=FFFFFF&color=3178C6">
-  <img alt="Static Badge" src="https://img.shields.io/badge/Go-000000?style=for-the-badge&logo=go&logoColor=FFFFFF&color=00ADD8">
-  <img alt="Static Badge" src="https://img.shields.io/badge/tauri-000000?style=for-the-badge&logo=tauri&logoColor=FFFFFF&color=24C8D8">
-  <img alt="Static Badge" src="https://img.shields.io/badge/pnpm-000000?style=for-the-badge&logo=pnpm&logoColor=FFFFFF&color=F69220">
-  <img alt="Static Badge" src="https://img.shields.io/badge/cargo-000000?style=for-the-badge&logo=rust&logoColor=FFFFFF&color=000000">
-  <img alt="Static Badge" src="https://img.shields.io/badge/tailwind css-000000?style=for-the-badge&logo=tailwindcss&logoColor=FFFFFF&color=06B6D4">
-  <img alt="Static Badge" src="https://img.shields.io/badge/Solid-000000?style=for-the-badge&logo=solid&logoColor=FFFFFF&color=2C4F7C">
-</p>
+FUSOU は [艦隊これくしょん](https://games.dmm.com/detail/kancolle) の簡易データ閲覧アプリです。<br>
+このアプリは他の類似アプリと異なり、ユーザーが通常のプレイで取得し得るデータのみを表示し、そのデータを用いた解析を行うことを目標としています。
+
+## Demo
+
+![FUSOU Demo](docs/images/fusou-app-demo.gif)
+
+## Download
+
+Windows(latest) and Linux(latest-LTS)(x64, arm64) are supported.<br>
+macOS is not supported because I don't have a mac.<br>
+You can download the latest release from [Releases · tsukasa-u/FUSOU (github.com)](https://github.com/tsukasa-u/FUSOU/releases/latest)
+
+Windows(最新)と Linux(最新-LTS)(x64, arm64)に対応しています。<br>
+macOS は持っていないので対応していません。<br>
+最新リリースは [Releases · tsukasa-u/FUSOU (github.com)](https://github.com/tsukasa-u/FUSOU/releases/latest)
 
 ## What for? 何のために？
 
@@ -35,8 +39,8 @@ Furthermore, I can't rely on the analyzed data because such data is a lot on the
 ## System Configuration システム構成
 
 FUOSU-PROXY : <br>
-&emsp; proxy http communication via proxy server<br>
-&emsp; プロキシサーバを経由して http 通信を中継
+&emsp; proxy http communication via proxy server. https communication supported<br>
+&emsp; プロキシサーバを経由して http 通信を中継. https 通信に対応
 
 FUSOU-APP : <br>
 &emsp; A simple in-game data viewer<br>
@@ -46,31 +50,36 @@ FUSOU-WEB : <br>
 &emsp; Data viewer for analyzed data<br>
 &emsp; 解析データ閲覧用
 
-## Set up for Dev
+## Enviroment Variables Management
 
-### 1. install pnpm
+We use [dotenvx](https://dotenvx.com/) to securely manage and encrypt environment variables for both local development and deployment. dotenvx enables encrypted `.env` files, making it easy to sync, share, and integrate environment variables across different environments and CI/CD pipelines while ensuring sensitive information remains protected.
 
-On windows, using PowerShell
+| カテゴリ      | 変数名                                                        | 用途                               |
+| ------------- | ------------------------------------------------------------- | ---------------------------------- |
+| Supabase 認証 | VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY                     | フロントエンドからの Supabase 接続 |
+| SupabaseDB    | SUPABASE_DATABASE_URL                                         | バックエンドからのデータベース接続 |
+| Google OAuth  | GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET                        | Google 認証                        |
+| Discord RPC   | DISCORD_CLIENT_ID                                             | Discord Rich Presence 統合         |
+| Tauri 署名    | TAURI_SIGNING_PRIVATE_KEY, TAURI_SIGNING_PRIVATE_KEY_PASSWORD | アプリケーション署名               |
 
-```
-Invoke-WebRequest https://get.pnpm.io/install.ps1 -UseBasicParsing | Invoke-Expression
-```
+## Set up FUSOU-APP for Dev
 
-check the pnpm installation guide :
-https://pnpm.io/installation
+### PreRequirement 事前準備
 
-### 2. install rust
+- pnpm (https://pnpm.io/en/installation)
+- rust (https://rust-lang.org/en/tools/install/)
+  - just (Optional) (https://crates.io/crates/just)
 
-On windows, install rustup installer.
-check https://forge.rust-lang.org/infra/other-installation-methods.html
-
-### 3. install module
+### 1. install module
 
 run on terminal
 
 ```
+cd "your-path-to-FUSOU"
 pnpm install
 ```
+
+### 2. (install dependencies for linux)
 
 on Linux(Ubuntu), you have to install additional library
 
@@ -82,7 +91,17 @@ for v2, install library as tauri installation gaide and additionally install thi
 
 ```
 apt install libayatana-appindicator3-dev
-apt install  librsvg2-dev
+apt install librsvg2-dev
+```
+
+### 3. build shared-ui library
+
+run on terminal
+
+```
+cd "your-path-to-FUSOU"/packages/shared-ui
+pnpm build
+pnpm install
 ```
 
 ### 4. launch tauri
@@ -90,7 +109,7 @@ apt install  librsvg2-dev
 run on terminal
 
 ```
-cd "your-path-to-FUSOU"/FUSOU-APP
+cd "your-path-to-FUSOU"/packages/FUSOU-APP
 pnpm tuari dev
 ```
 
@@ -102,6 +121,8 @@ HP や装備などのユーザがアクセスできるパラメータと、普�
 
 # In the Future 今後
 
-I improve my App to be able to use for playing Kancolle. And then, add code for data analysis.
+~~I improve my App to be able to use for playing Kancolle. And then, add code for data analysis.~~
+I'm going to code data analysis because I released the app.
 
-艦これをプレイすることができる状態まで開発を続けます。その後はデータ解析のプログラムをかく予定です。
+~~艦これをプレイすることができる状態まで開発を続けます。その後はデータ解析のプログラムをかく予定です。~~
+リリースしたので、今後はデータ解析のプログラムをかく予定です。
