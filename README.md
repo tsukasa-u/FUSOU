@@ -2,17 +2,17 @@
 
 # FUSOU
 
-FUSOU is a simple data viewer for [Kantai Collection](https://games.dmm.com/detail/kancolle) (艦隊これくしょん -艦これ-).<br>
-The goal of this app is to display only the data that users can normally obtain through regular gameplay and to perform analysis using that data, unlike other similar apps.
-
-FUSOU は [艦隊これくしょん](https://games.dmm.com/detail/kancolle) の簡易データ閲覧アプリです。<br>
-このアプリは他の類似アプリと異なり、ユーザーが通常のプレイで取得し得るデータのみを表示し、そのデータを用いた解析を行うことを目標としています。
-
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/tsukasa-u/FUSOU)
 [![Static Badge](https://img.shields.io/badge/docs.rs-tsukasa--u%2FFUSOU-blue?logo=docsdotrs)](https://tsukasa-u.github.io/FUSOU/app/index.html)
 [![docs](https://github.com/tsukasa-u/FUSOU/actions/workflows/export_doc.yml/badge.svg?branch=dev)](https://github.com/tsukasa-u/FUSOU/actions/workflows/export_doc.yml)
 [![build](https://github.com/tsukasa-u/FUSOU/actions/workflows/check_build.yml/badge.svg?branch=dev)](https://github.com/tsukasa-u/FUSOU/actions/workflows/check_build.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
+FUSOU is a simple data viewer for [Kantai Collection](https://games.dmm.com/detail/kancolle) (艦隊これくしょん -艦これ-).<br>
+The goal of this app is to display only the data that users can normally obtain through regular gameplay and to perform analysis using that data, unlike other similar apps.
+
+FUSOU は [艦隊これくしょん](https://games.dmm.com/detail/kancolle) の簡易データ閲覧アプリです。<br>
+このアプリは他の類似アプリと異なり、ユーザーが通常のプレイで取得し得るデータのみを表示し、そのデータを用いた解析を行うことを目標としています。
 
 ## Demo
 
