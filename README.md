@@ -16,6 +16,10 @@ FUSOU は [艦隊これくしょん](https://games.dmm.com/detail/kancolle) の�
 
 ## Demo
 
+After starting, this app will reside in the system tray. You can display each window and perform other operations by right-clicking the icon in the system tray.
+
+このアプリは起動後システムトレイに常駐します。各ウィンドウの表示や他の操作はシステムトレイのアイコンを右クリックして行います。
+
 ![FUSOU Demo](docs/images/fusou-app-demo.gif)
 
 ## Download
