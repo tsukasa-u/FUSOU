@@ -2,6 +2,10 @@ import { defineConfig } from "vite";
 import tailwindcss from "@tailwindcss/vite";
 import { resolve } from "path";
 
+import terser from "@rollup/plugin-terser";
+import { minifyTemplateLiterals } from "rollup-plugin-minify-template-literals";
+import summary from "rollup-plugin-summary";
+
 export default defineConfig({
   build: {
     lib: {
@@ -15,6 +19,7 @@ export default defineConfig({
     emptyOutDir: false,
     rollupOptions: {
       external: /^lit/,
+      plugins: [minifyTemplateLiterals(), terser(), summary()],
     },
   },
   plugins: [tailwindcss()],

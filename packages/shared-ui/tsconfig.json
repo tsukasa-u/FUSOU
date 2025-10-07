@@ -32,7 +32,6 @@
 
     // "traceResolution": true
 
-    "baseUrl": ".",
     "paths": {
       "@ipc-bindings/*": ["../kc_api/bindings/*"],
       "@ipc-bindings/default_state/*": ["../kc_api/bindings/default_state/*"]

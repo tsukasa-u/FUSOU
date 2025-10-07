@@ -1,9 +1,9 @@
-import typescript from "@rollup/plugin-typescript";
 import alias from "@rollup/plugin-alias";
 import { resolve } from "path";
 import dts from "rollup-plugin-dts";
 import path from "path";
 import { fileURLToPath } from "url";
+import summary from "rollup-plugin-summary";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -14,6 +14,7 @@ export default [
     output: [{ file: "dist/index.d.ts", format: "es" }], // ★ 最終的な出力パスとファイル名
     plugins: [
       dts(),
+      summary(),
       alias({
         entries: [
           {
