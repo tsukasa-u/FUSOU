@@ -121,7 +121,7 @@ save_file_location = ""
     [app.theme]
     # The theme to use for the application
     # you can choose between "light" and "dark"
-    theme = "dark"
+    theme = "light"
 
 
     [app.font]
