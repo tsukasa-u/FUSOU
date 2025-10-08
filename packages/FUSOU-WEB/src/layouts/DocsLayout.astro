@@ -28,7 +28,7 @@ const { entry, Content, headings } = Astro.props;
         <LeftMenu />
       </aside>
 
-      <div class="py-4 px-8 col-span-6 md:col-span-6 mr-auto">
+      <div class="py-4 px-8 col-span-10 md:col-span-6 mr-auto">
         <Breadcrumb entry={entry} />
         <h1 class="text-3xl font-bold mb-4">{entry.data.title}</h1>
         <Content />
@@ -49,5 +49,6 @@ const { entry, Content, headings } = Astro.props;
     height: 100%;
     /* scrollbar-gutter: stable; */
     scrollbar-width: none;
+    scroll-padding-top: 100px !important;
   }
 </style>
