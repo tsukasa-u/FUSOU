@@ -30,8 +30,8 @@ const { entry, Content, headings } = Astro.props;
 
       <div class="py-4 px-8 col-span-10 md:col-span-6 mr-auto">
         <Breadcrumb entry={entry} />
-        <h1 class="text-3xl font-bold mb-4">{entry.data.title}</h1>
-        <Content />
+        <!-- <h1 class="text-3xl font-bold mb-4">{entry.data.title}</h1> -->
+        <div class="markdown"><Content /></div>
       </div>
 
       <aside class="hidden lg:block col-span-2 pl-4 pr-8 justify-self-start">

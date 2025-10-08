@@ -2,3 +2,82 @@
 @plugin "daisyui" {
   themes: light --default;
 }
+
+.markdown h1 {
+  @apply text-3xl font-bold;
+  margin-bottom: 1rem;
+  cursor: default;
+}
+
+.markdown h2 {
+  @apply text-xl font-bold;
+  padding-top: 0.5rem;
+  margin-bottom: 0.5rem;
+  cursor: default;
+}
+
+.markdown h3 {
+  @apply text-lg font-bold;
+  padding-top: 0.5rem;
+  margin-bottom: 0.5rem;
+  cursor: default;
+}
+
+.markdown table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 1rem;
+  cursor: default;
+}
+
+.markdown th,
+.markdown td {
+  padding: 0.5rem;
+  text-align: left;
+}
+
+.markdown th {
+  border-bottom: 1px solid #ddd;
+  font-weight: bold;
+}
+
+.markdown ul {
+  list-style-type: disc;
+  margin-left: 1.5rem;
+  margin-bottom: 1rem;
+  cursor: default;
+}
+
+.markdown ol {
+  list-style-type: decimal;
+  margin-left: 1.5rem;
+  margin-bottom: 1rem;
+  cursor: default;
+}
+
+.markdown ol li {
+  margin-bottom: 0.25rem;
+  cursor: default;
+}
+
+.markdown ul li {
+  margin-bottom: 0.25rem;
+  cursor: default;
+}
+
+.markdown pre {
+  padding: 1rem 1rem;
+  overflow-x: auto;
+  margin-bottom: 1rem;
+  cursor: default;
+  @apply rounded-md;
+}
+
+.markdown p {
+  margin-bottom: 1rem;
+  cursor: default;
+}
+
+.markdown a {
+  @apply text-blue-600 hover:underline;
+}

@@ -1,21 +1,25 @@
 ---
-import HeroImg from '../assets/hero_bg.webp';
+import HeroImg from "../assets/hero_bg.webp";
 ---
+
 <div
   class="hero min-h-screen absolute top-0 left-0"
   style={"background-image:  url('" + HeroImg.src + "');"}
 >
   <!-- <div class="hero-overlay"></div> -->
   <div class="hero-content text-center">
-    <div class="max-w-lg">
+    <div class="max-w-xl">
       <h1 class="mb-5 text-5xl font-bold">Hello there</h1>
       <p class="mb-5">
-        FUSOU is a tool for retrieving and analyzing proxied data, offering insights into battles. It aids in understanding combat dynamics and optimizing strategies, making it invaluable for strategists and analysts.
+        FUSOU is a web app for collecting and visualizing Kantai Collection
+        battle logs. It helps users organize and view their battle data easily.
       </p>
       <div class="sm:flex justify-center">
-        <a class="btn btn-neutral btn-xl" href="/chartPage">Play Ground</a>
+        <a class="btn btn-neutral btn-xl" href="/docs/start/quick_start"
+          >Getting Start</a
+        >
         <div class="w-10 h-4"></div>
-        <button class="btn btn-neutral btn-xl btn-disabled">Download</button>
+        <button class="btn btn-xl">Play Ground</button>
       </div>
     </div>
   </div>
