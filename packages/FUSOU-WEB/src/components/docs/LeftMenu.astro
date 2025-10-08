@@ -1,4 +1,6 @@
 ---
+import { reference } from "astro:content";
+
 const rawPosts = await Astro.glob("../../content/docs/**/*.md");
 
 const normalizeSlug = (value: string | undefined) =>
@@ -10,6 +12,12 @@ const formatSegment = (segment: string) =>
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
 
+type Posts = {
+  slug: string;
+  segments: string[];
+  title: string;
+  url: string;
+}[];
 const posts = rawPosts
   .map((post) => {
     const slug = normalizeSlug(post.frontmatter?.slug);
@@ -23,12 +31,7 @@ const posts = rawPosts
       url: `/docs/${slug}`,
     };
   })
-  .filter(Boolean) as {
-  slug: string;
-  segments: string[];
-  title: string;
-  url: string;
-}[];
+  .filter(Boolean) as Posts;
 
 const root = new Map<
   string,
@@ -55,9 +58,24 @@ for (const entry of posts) {
   });
 }
 
+const segmentOrder: Record<string, number> = {
+  start: 0x10,
+  guide: 0x20,
+  reference: 0x30,
+  quick_start: 0x11,
+};
+
+const compareSegments = (a: any, b: any) => {
+  console.log(a.segment, b.segment);
+  const aOrder = segmentOrder[a.segment] ?? 0xff;
+  const bOrder = segmentOrder[b.segment] ?? 0xff;
+  if (aOrder !== bOrder) return aOrder - bOrder;
+  return a.segment.localeCompare(b.segment);
+};
+
 const mapToArray = (nodeMap: Map<string, any>) =>
   Array.from(nodeMap.values())
-    .sort((a, b) => a.segment.localeCompare(b.segment))
+    .sort(compareSegments)
     .map((node) => ({
       title: node.title,
       url: node.url,
