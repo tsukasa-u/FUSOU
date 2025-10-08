@@ -1,0 +1,13 @@
+---
+const { entry } = Astro.props;
+---
+
+<div class="flex flex-nowrap">
+  <div class="breadcrumbs text-sm">
+    <ul>
+      <li><a href="/">Home</a></li>
+      <li><a href="/docs">Documents</a></li>
+      <li><a href={`/docs/${entry.slug}`}>{entry.data.title}</a></li>
+    </ul>
+  </div>
+</div>

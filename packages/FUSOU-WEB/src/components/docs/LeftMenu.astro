@@ -1,0 +1,104 @@
+---
+const rawPosts = await Astro.glob("../../content/docs/**/*.md");
+
+const normalizeSlug = (value: string | undefined) =>
+  (value ?? "").replace(/^\/+|\/+$/g, "").replace(/^docs\//, "");
+
+const formatSegment = (segment: string) =>
+  segment
+    .split(/[-_]/g)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+
+const posts = rawPosts
+  .map((post) => {
+    const slug = normalizeSlug(post.frontmatter?.slug);
+    const segments = slug.split("/").filter(Boolean);
+    if (segments.length === 0) return null;
+
+    return {
+      slug,
+      segments,
+      title: post.frontmatter?.title ?? formatSegment(segments.at(-1)!),
+      url: `/docs/${slug}`,
+    };
+  })
+  .filter(Boolean) as {
+  slug: string;
+  segments: string[];
+  title: string;
+  url: string;
+}[];
+
+const root = new Map<
+  string,
+  { segment: string; title: string; url?: string; children: Map<string, any> }
+>();
+
+for (const entry of posts) {
+  let current = root;
+  entry.segments.forEach((segment, index) => {
+    const isLeaf = index === entry.segments.length - 1;
+    if (!current.has(segment)) {
+      current.set(segment, {
+        segment,
+        title: isLeaf ? entry.title : formatSegment(segment),
+        url: isLeaf ? entry.url : undefined,
+        children: new Map(),
+      });
+    } else if (isLeaf) {
+      const node = current.get(segment)!;
+      node.title = entry.title;
+      node.url = entry.url;
+    }
+    current = current.get(segment)!.children;
+  });
+}
+
+const mapToArray = (nodeMap: Map<string, any>) =>
+  Array.from(nodeMap.values())
+    .sort((a, b) => a.segment.localeCompare(b.segment))
+    .map((node) => ({
+      title: node.title,
+      url: node.url,
+      children: mapToArray(node.children),
+    }));
+
+const menuTree = mapToArray(root);
+
+const escapeHtml = (value: string) =>
+  value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+
+const renderMenuHtml = (nodes: typeof menuTree): string =>
+  nodes
+    .map((node) => {
+      const children = node.children.length
+        ? `<ul class="ml-3 pl-3 space-y-2">${renderMenuHtml(
+            node.children
+          )}</ul>`
+        : "";
+      const label = node.url
+        ? `<a href="${node.url}" class="text-sm font-medium text-base-content">${escapeHtml(node.title)}</a>`
+        : `<details open><summary class="text-sm font-semibold text-base-content/80">${escapeHtml(node.title)}</summary>${
+            children
+          }</details>`;
+      return `<li class="my-px">${label}</li>`;
+    })
+    .join("");
+
+const menuHtml = renderMenuHtml(menuTree);
+---
+
+<div class="sticky top-20">
+  <div class="max-h-[calc(100vh-5rem)] overflow-y-auto pr-2">
+    <h2 class="text-xl font-bold mb-4">Documentation</h2>
+    <nav>
+      <ul class="menu bg-base-100 rounded-box" set:html={menuHtml} />
+    </nav>
+  </div>
+</div>
