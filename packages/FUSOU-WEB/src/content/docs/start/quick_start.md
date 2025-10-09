@@ -1,6 +1,6 @@
 ---
 title: Quick Start
-author: tsukasa-u
+contributors: ["tsukasa-u"]
 description: Quick start guide for FUSOU-APP
 date: 2025-10-08
 slug: start/quick_start
@@ -233,6 +233,3 @@ A. 主要パッケージの互換性を確認し、`pnpm up astro` でアップ�
 - API ドキュメントの自動生成
 - テストカバレッジレポートの導入
 - GitHub Discussions でフィードバック収集
-
-<br>
-<br>
