@@ -34,10 +34,13 @@
 .markdown td {
   padding: 0.5rem;
   text-align: left;
+  border-bottom: 1px solid
+    color-mix(in oklch, var(--color-base-content) 10%, transparent);
 }
 
 .markdown th {
-  border-bottom: 1px solid #ddd;
+  border-bottom: 2px solid
+    color-mix(in oklch, var(--color-base-content) 10%, transparent);
   font-weight: bold;
 }
 
