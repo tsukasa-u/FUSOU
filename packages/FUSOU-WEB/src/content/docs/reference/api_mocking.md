@@ -1,6 +1,6 @@
 ---
 title: API Mocking Playbook
-author: test-writer
+contributors: ["tsukasa-u"]
 description: How to emulate backend responses during development
 date: 2025-10-10
 slug: reference/api_mocking

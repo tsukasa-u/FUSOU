@@ -1,6 +1,6 @@
 ---
 title: Testing Strategy Blueprint
-author: test-writer
+contributors: ["tsukasa-u"]
 description: Balanced approach across unit, integration, and E2E
 date: 2025-10-10
 slug: guide/testing_strategy

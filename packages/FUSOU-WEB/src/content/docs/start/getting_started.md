@@ -1,6 +1,6 @@
 ---
 title: Getting Started Snapshot
-author: test-writer
+contributors: ["tsukasa-u"]
 description: Minimal onboarding checklist for new contributors
 date: 2025-10-10
 slug: start/getting_started

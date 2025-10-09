@@ -1,6 +1,6 @@
 ---
 title: Environment Setup Walkthrough
-author: test-writer
+contributors: ["tsukasa-u"]
 description: Detailed setup guide including tooling notes
 date: 2025-10-10
 slug: start/environment_setup

@@ -1,6 +1,6 @@
 ---
 title: Deployment Basics
-author: test-writer
+contributors: ["tsukasa-u"]
 description: Overview of staging and production promotions
 date: 2025-10-10
 slug: guide/deployment_basics

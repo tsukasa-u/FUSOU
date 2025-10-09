@@ -1,6 +1,6 @@
 ---
 title: CLI Reference Cheat Sheet
-author: test-writer
+contributors: ["tsukasa-u"]
 description: Frequently used pnpm commands with scenarios
 date: 2025-10-10
 slug: start/cli_reference

@@ -1,6 +1,6 @@
 ---
 title: Configuration Matrix
-author: test-writer
+contributors: ["tsukasa-u"]
 description: Matrix of environment configurations used across deployments
 date: 2025-10-10
 slug: reference/configuration_matrix

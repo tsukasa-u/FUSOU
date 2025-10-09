@@ -1,6 +1,6 @@
 ---
 title: Project Glossary
-author: test-writer
+contributors: ["tsukasa-u"]
 description: Common terminology used across the FUSOU project
 date: 2025-10-10
 slug: reference/glossary

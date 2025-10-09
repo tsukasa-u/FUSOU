@@ -1,6 +1,6 @@
 ---
 title: UI Patterns Overview
-author: test-writer
+contributors: ["tsukasa-u"]
 description: Catalog of reusable UI decisions adopted by the team
 date: 2025-10-10
 slug: guide/ui_patterns

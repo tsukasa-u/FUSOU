@@ -1,6 +1,6 @@
 ---
 title: Performance Tuning Notes
-author: test-writer
+contributors: ["tsukasa-u"]
 description: Profiling, metrics, and optimization guidelines
 date: 2025-10-10
 slug: reference/performance_tuning
