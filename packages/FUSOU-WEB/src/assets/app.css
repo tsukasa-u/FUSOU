@@ -85,11 +85,10 @@
   @apply text-blue-600 hover:underline;
 }
 
-.markdown aside[note] {
+.markdown aside:is([note], [dangerous], [caution], [tip], [important]) {
   @apply bg-base-100 p-4;
   margin-bottom: 1rem;
   cursor: default;
-  border-left: 4px solid var(--color-info);
   border-right: 1px solid
     color-mix(in oklch, var(--color-base-content) 10%, transparent);
   border-top: 1px solid
@@ -98,43 +97,75 @@
     color-mix(in oklch, var(--color-base-content) 10%, transparent);
 }
 
-.markdown aside[note]::before {
-  content: "🐫";
+.markdown aside:is([note], [dangerous], [caution], [tip], [important])::before {
+  font-family: "Material Symbols Outlined";
+  font-weight: normal;
+  font-style: normal;
+  font-size: 24px;
+  line-height: 1;
+  letter-spacing: normal;
+  text-transform: none;
   display: inline-block;
+  white-space: nowrap;
+  word-wrap: normal;
+  direction: ltr;
+  -webkit-font-smoothing: antialiased;
+
+  vertical-align: top;
+  margin-right: 0.25rem;
 }
 
-.markdown aside[note] * {
-  margin-left: 24px;
+.markdown aside:is([note], [dangerous], [caution], [tip], [important]) * {
+  margin-left: calc(24px + 0.5rem);
 }
 
-.markdown aside[note] *:last-child {
+.markdown
+  aside:is([note], [dangerous], [caution], [tip], [important])
+  *:last-child {
   margin-bottom: 0px;
 }
 
+.markdown aside[note] {
+  border-left: 4px solid var(--color-info);
+}
+
+.markdown aside[note]::before {
+  content: "\e88e";
+  color: var(--color-info);
+}
+
 .markdown aside[warning] {
-  @apply bg-base-100 p-4;
-  margin-bottom: 1rem;
-  cursor: default;
   border-left: 4px solid var(--color-warning);
 }
 
+.markdown aside[warning]::before {
+  content: "\e002";
+  color: var(--color-warning);
+}
+
 .markdown aside[caution] {
-  @apply bg-base-100 p-4;
-  margin-bottom: 1rem;
-  cursor: default;
   border-left: 4px solid var(--color-error);
 }
 
+.markdown aside[caution]::before {
+  content: "\e160";
+  color: var(--color-error);
+}
+
 .markdown aside[tip] {
-  @apply bg-base-100 p-4;
-  margin-bottom: 1rem;
-  cursor: default;
   border-left: 4px solid var(--color-success);
 }
 
+.markdown aside[tip]::before {
+  content: "\e0f0";
+  color: var(--color-success);
+}
+
 .markdown aside[important] {
-  @apply bg-base-100 p-4;
-  margin-bottom: 1rem;
-  cursor: default;
   border-left: 4px solid var(--color-accent);
+}
+
+.markdown aside[important]::before {
+  content: "\e87f";
+  color: var(--color-accent);
 }

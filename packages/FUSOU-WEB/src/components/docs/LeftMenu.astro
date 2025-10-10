@@ -1,7 +1,8 @@
 ---
 import { reference } from "astro:content";
 
-const rawPosts = await Astro.glob("../../content/docs/**/*.md");
+const rawPostsGlobResult = import.meta.glob("../../content/docs/**/*.md", { eager: true });
+const rawPosts = Object.values(rawPostsGlobResult).reverse() as MarkdownInstance<Record<string, any>>[];
 
 const normalizeSlug = (value: string | undefined) =>
   (value ?? "").replace(/^\/+|\/+$/g, "").replace(/^docs\//, "");
