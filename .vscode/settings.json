@@ -1,6 +1,27 @@
 {
   "html.customData": ["./packages/shared-ui/custom-elements.json"],
   "css.customData": ["./packages/shared-ui/custom-elements.json"],
+  "extensions.ignoreRecommendations": false,
+  "[astro]": {
+    "editor.defaultFormatter": "astro-build.astro-vscode"
+  },
+  "[rust]": {
+    "editor.defaultFormatter": "rust-lang.rust-analyzer",
+    "editor.formatOnSave": true
+  },
   "editor.formatOnSave": true,
-  "extensions.ignoreRecommendations": false
+  "editor.inlineSuggest.enabled": true,
+  "rust-analyzer.check.command": "clippy",
+  "rust-analyzer.check.extraArgs": [
+    "--",
+    "-A",
+    "clippy::needless_return",
+    "-A",
+    "clippy::ptr_arg",
+    "-A",
+    "clippy::expect_fun_call"
+  ],
+  "rust-analyzer.checkOnSave": true,
+  "rust-analyzer.linkedProjects": [],
+  "typescript.updateImportsOnFileMove.enabled": "always"
 }
