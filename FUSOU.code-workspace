@@ -1,35 +1,38 @@
 {
-	"folders": [
-		{
-			"path": "packages/FUSOU-APP"
-		},
-		{
-			"path": "packages/FUSOU-PROXY"
-		},
-		{
-			"path": "packages/FUSOU-WEB"
-		},
-		{
-			"path": "packages/shared-ui"
-		},
-		{
-			"path": "packages/kc_api"
-		},
-		{
-			"path": "packages/rust_macro"
-		},
-		{
-			"path": "packages/configs"
-		},
-		{
-			"path": "docs"
-		},
-		{
-			"path": ".github"
-		}
-	],
-	"settings": {
-		"jupyter.disableJupyterAutoStart": true,
-		"vite.autoStart": false
-	}
+  "folders": [
+    {
+      "path": "packages/FUSOU-APP"
+    },
+    {
+      "path": "packages/FUSOU-PROXY"
+    },
+    {
+      "path": "packages/FUSOU-WEB"
+    },
+    {
+      "path": "packages/shared-ui"
+    },
+    {
+      "path": "packages/kc_api"
+    },
+    {
+      "path": "packages/rust_macro"
+    },
+    {
+      "path": "packages/configs"
+    },
+    {
+      "path": "docs"
+    },
+    {
+      "path": ".github"
+    }
+  ],
+  "settings": {
+    "jupyter.disableJupyterAutoStart": true,
+    "vite.autoStart": false
+  },
+  "extensions": {
+    "recommendations": ["ms-python.python"]
+  }
 }
