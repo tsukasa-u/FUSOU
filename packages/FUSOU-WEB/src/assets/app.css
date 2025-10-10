@@ -97,6 +97,18 @@
     color-mix(in oklch, var(--color-base-content) 10%, transparent);
 }
 
+.markdown
+  aside:is([note], [dangerous], [caution], [tip], [important])::first-line {
+  font-weight: bold;
+  text-transform: uppercase;
+}
+
+.markdown
+  aside:is([note], [dangerous], [caution], [tip], [important])
+  p:first-of-type {
+  margin-top: 0.25rem;
+}
+
 .markdown aside:is([note], [dangerous], [caution], [tip], [important])::before {
   font-family: "Material Symbols Outlined";
   font-weight: normal;

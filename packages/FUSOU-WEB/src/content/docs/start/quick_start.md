@@ -18,16 +18,14 @@ tags: [start, quick_start]
 - Windows 11 (latest)
 - Ubuntu 24.04 LTS
 
-**以上の OS での動作を確認していますが、他のバージョン、ディストリビューションで動く可能性があります(特に Linux)。ぜひ動作確認にご協力ください。**
+<aside important>
+   IMPORTANT
 
-<aside note>
-   INFO
-
-FUSOU-APP は Electron を使用しており、Node.js と Chromium を組み合わせてデスクトップアプリケーションを構築しています。（嘘です）
+以上の OS での動作を確認していますが、他のバージョン、ディストリビューションで動く可能性があります(特に Linux)。ぜひ動作確認にご協力ください。
 
 </aside>
 
-開発者は macOS を持っていないため、macOS での開発、動作確認はできていません。
+開発者は macOS を持っていないため、**macOS での開発、動作確認はできていません**。
 
 ### 推奨ツール
 
