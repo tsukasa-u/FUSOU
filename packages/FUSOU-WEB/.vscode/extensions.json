@@ -4,6 +4,7 @@
     "ms-vscode.vscode-typescript-next",
     "esbenp.prettier-vscode",
     "christian-kohler.path-intellisense",
-    "bradlc.vscode-tailwindcss"
+    "bradlc.vscode-tailwindcss",
+    "davidanson.vscode-markdownlint"
   ]
 }
