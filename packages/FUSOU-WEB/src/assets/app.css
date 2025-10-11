@@ -81,6 +81,18 @@
   cursor: default;
 }
 
+.markdown p + ul {
+  margin-top: -0.25rem;
+}
+
+.markdown p + ol {
+  margin-top: -0.25rem;
+}
+
+.markdown li > p:first-of-type {
+  margin-bottom: 0.25rem;
+}
+
 .markdown a {
   @apply text-blue-600 hover:underline;
 }
