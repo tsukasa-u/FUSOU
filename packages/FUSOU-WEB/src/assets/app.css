@@ -58,11 +58,7 @@
   cursor: default;
 }
 
-.markdown ol > li {
-  margin-bottom: 0.25rem;
-  cursor: default;
-}
-
+.markdown ol > li,
 .markdown ul > li {
   margin-bottom: 0.25rem;
   cursor: default;
@@ -81,10 +77,7 @@
   cursor: default;
 }
 
-.markdown p + ul {
-  margin-top: -0.25rem;
-}
-
+.markdown p + ul,
 .markdown p + ol {
   margin-top: -0.25rem;
 }
@@ -98,17 +91,17 @@
 }
 
 .markdown code {
+  @apply bg-base-300 px-1 rounded;
   font-family: "Fira Code", monospace;
   font-size: 0.875rem;
 }
 
-.markdown p > code {
-  @apply bg-base-300 px-1 rounded;
-  margin-left: 0 !important;
+.markdown pre > code {
+  @apply bg-transparent;
 }
 
+.markdown p > code,
 .markdown li > code {
-  @apply bg-base-300 px-1 rounded;
   margin-left: 0 !important;
 }
 
