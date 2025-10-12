@@ -71,6 +71,12 @@ jobs:
         if: matrix.platform != 'windows-11-arm'
         uses: mozilla-actions/sccache-action@v0.0.9
 
+      - name: rewrite sccache env vars
+        if: matrix.platform != 'windows-11-arm'
+        run: |
+          echo "SCCACHE_GHA_ENABLED=false" >> $GITHUB_ENV
+          echo "RUSTC_WRAPPER=rustc" >> $GITHUB_ENV
+
       - name: build shared-ui
         run: |
           pnpm install
