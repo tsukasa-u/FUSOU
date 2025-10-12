@@ -1,0 +1,46 @@
+---
+const { lastUpdated, contributors } = Astro.props;
+---
+{lastUpdated && (
+  <div class="text-md text-gray-600">
+    Last updated: &nbsp; {new Date(lastUpdated).toLocaleDateString(undefined, {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+    })}
+  </div>
+)}
+{contributors && contributors.length > 0 && (
+  <div class="my-4 flex">
+    <h3 class="text-md text-gray-600 content-center">Contributors: &nbsp;&nbsp;</h3>
+    <ul class="list-none p-0 m-0">
+      {contributors.map((contributor) => (
+        <li class="flex items-center">
+          {contributor.data.github_avatar ? (
+            <img                            
+              src={contributor.data.github_avatar}
+              alt={contributor.data.github_username}
+              class="size-8 rounded-full mr-2"
+            />
+          ) : (
+            <div class="size-8 rounded-full bg-gray-300 flex items-center justify-center text-gray-600 mr-2">
+              {contributor.data.github_username.charAt(0).toUpperCase()}
+            </div>
+          )}
+          {contributor.data.github_url ? (
+            <a
+              href={contributor.data.github_url}
+              class="text-md text-blue-500 hover:underline"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              {contributor.data.github_username}
+            </a>
+          ) : (
+            <span class="text-md text-gray-800">{contributor.data.github_username}</span>
+          )}
+        </li>
+      ))}
+    </ul>
+  </div>
+)}

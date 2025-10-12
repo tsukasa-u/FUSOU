@@ -2,3 +2,202 @@
 @plugin "daisyui" {
   themes: light --default;
 }
+
+.markdown h1 {
+  @apply text-3xl font-bold;
+  margin-bottom: 1rem;
+  cursor: default;
+}
+
+.markdown h2 {
+  @apply text-xl font-bold;
+  padding-top: 0.5rem;
+  margin-bottom: 0.5rem;
+  cursor: default;
+}
+
+.markdown h3 {
+  @apply text-lg font-bold;
+  padding-top: 0.5rem;
+  margin-bottom: 0.5rem;
+  cursor: default;
+}
+
+.markdown table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 1rem;
+  cursor: default;
+}
+
+.markdown th,
+.markdown td {
+  padding: 0.5rem;
+  text-align: left;
+  border-bottom: 1px solid
+    color-mix(in oklch, var(--color-base-content) 10%, transparent);
+}
+
+.markdown th {
+  border-bottom: 2px solid
+    color-mix(in oklch, var(--color-base-content) 10%, transparent);
+  font-weight: bold;
+}
+
+.markdown ul {
+  list-style-type: disc;
+  margin-left: 1.5rem;
+  margin-bottom: 1rem;
+  cursor: default;
+}
+
+.markdown ol {
+  list-style-type: decimal;
+  margin-left: 1.5rem;
+  margin-bottom: 1rem;
+  cursor: default;
+}
+
+.markdown ol > li,
+.markdown ul > li {
+  margin-bottom: 0.25rem;
+  cursor: default;
+}
+
+.markdown pre {
+  padding: 1rem 1rem;
+  overflow-x: auto;
+  margin-bottom: 1rem;
+  cursor: default;
+  @apply rounded-md;
+}
+
+.markdown p {
+  margin-bottom: 1rem;
+  cursor: default;
+}
+
+.markdown p + ul,
+.markdown p + ol {
+  margin-top: -0.25rem;
+}
+
+.markdown li > p:first-of-type {
+  margin-bottom: 0.25rem;
+}
+
+.markdown a {
+  @apply text-blue-600 hover:underline;
+}
+
+.markdown code {
+  @apply bg-base-300 px-1 rounded;
+  font-family: "Fira Code", monospace;
+  font-size: 0.875rem;
+}
+
+.markdown pre > code {
+  @apply bg-transparent;
+}
+
+.markdown p > code,
+.markdown li > code {
+  margin-left: 0 !important;
+}
+
+.markdown aside:is([note], [dangerous], [caution], [tip], [important]) {
+  @apply bg-base-100 p-4;
+  margin-bottom: 1rem;
+  cursor: default;
+  border-right: 1px solid
+    color-mix(in oklch, var(--color-base-content) 10%, transparent);
+  border-top: 1px solid
+    color-mix(in oklch, var(--color-base-content) 10%, transparent);
+  border-bottom: 1px solid
+    color-mix(in oklch, var(--color-base-content) 10%, transparent);
+}
+
+.markdown
+  aside:is([note], [dangerous], [caution], [tip], [important])::first-line {
+  font-weight: bold;
+  text-transform: uppercase;
+}
+
+.markdown
+  aside:is([note], [dangerous], [caution], [tip], [important])
+  p:first-of-type {
+  margin-top: 0.25rem;
+}
+
+.markdown aside:is([note], [dangerous], [caution], [tip], [important])::before {
+  font-family: "Material Symbols Outlined";
+  font-weight: normal;
+  font-style: normal;
+  font-size: 24px;
+  line-height: 1;
+  letter-spacing: normal;
+  text-transform: none;
+  display: inline-block;
+  white-space: nowrap;
+  word-wrap: normal;
+  direction: ltr;
+  -webkit-font-smoothing: antialiased;
+
+  vertical-align: top;
+  margin-right: 0.25rem;
+}
+
+.markdown aside:is([note], [dangerous], [caution], [tip], [important]) * {
+  margin-left: calc(24px + 0.5rem);
+}
+
+.markdown
+  aside:is([note], [dangerous], [caution], [tip], [important])
+  *:last-child {
+  margin-bottom: 0px;
+}
+
+.markdown aside[note] {
+  border-left: 4px solid var(--color-info);
+}
+
+.markdown aside[note]::before {
+  content: "\e88e";
+  color: var(--color-info);
+}
+
+.markdown aside[warning] {
+  border-left: 4px solid var(--color-warning);
+}
+
+.markdown aside[warning]::before {
+  content: "\e002";
+  color: var(--color-warning);
+}
+
+.markdown aside[caution] {
+  border-left: 4px solid var(--color-error);
+}
+
+.markdown aside[caution]::before {
+  content: "\e160";
+  color: var(--color-error);
+}
+
+.markdown aside[tip] {
+  border-left: 4px solid var(--color-success);
+}
+
+.markdown aside[tip]::before {
+  content: "\e0f0";
+  color: var(--color-success);
+}
+
+.markdown aside[important] {
+  border-left: 4px solid var(--color-accent);
+}
+
+.markdown aside[important]::before {
+  content: "\e87f";
+  color: var(--color-accent);
+}

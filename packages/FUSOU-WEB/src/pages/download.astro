@@ -1,0 +1,380 @@
+---
+import "../assets/app.css";
+import Layout from "../layouts/Layout.astro";
+import Navigation from "../components/Navigation.astro";
+
+const releaseBase =
+  "https://github.com/tsukasa-u/FUSOU/releases/latest/download";
+const releasePage = "https://github.com/tsukasa-u/FUSOU/releases/latest";
+
+const platforms = [
+  {
+    id: "windows",
+    name: "Windows",
+    summary: "Supported on Windows 11 (64-bit).",
+    guide: "Most users should choose the MSI installer for x64.",
+    architectures: [
+      {
+        id: "win-x64",
+        label: "x64 (64-bit)",
+        recommended: true,
+        downloads: [
+          {
+            label: "MSI installer (.msi)",
+            url: `${releaseBase}/fusou-windows-x64.msi`,
+            description: "Includes automatic updates. For most users.",
+            recommended: true,
+            available: true,
+          },
+          {
+            label: "EXE installer (.exe)",
+            url: `${releaseBase}/fusou-windows-x64.exe`,
+            description: "not includes auto-updates. need to update manually.",
+            available: true,
+          },
+        ],
+      },
+      {
+        id: "win-arm64",
+        label: "ARM64 (preview)",
+        downloads: [
+          {
+            label: "MSI installer (.msi)",
+            url: `${releaseBase}/fusou-windows-arm64.msi`,
+            description:
+              "For ARM-based Windows devices like Surface Pro X. includes automatic updates.",
+            available: true,
+          },
+          {
+            label: "EXE installer (.exe)",
+            url: `${releaseBase}/fusou-windows-arm64.exe`,
+            description:
+              "For ARM-based Windows devices like Surface Pro X. not includes auto-updates. need to update manually.",
+            available: true,
+          },
+        ],
+      },
+    ],
+  },
+  {
+    id: "macos",
+    name: "macOS",
+    summary: "Supports macOS 12 Monterey or later.",
+    guide: "Choose the universal DMG unless you prefer the manual ZIP.",
+    architectures: [
+      {
+        id: "mac-universal",
+        label: "Universal (Intel & Apple Silicon)",
+        recommended: true,
+        downloads: [
+          {
+            label: "DMG installer (recommended)",
+            url: `${releaseBase}/fusou-darwin.dmg`,
+            description: "Future macOS builds will appear here once available.",
+            recommended: true,
+            available: false,
+          },
+        ],
+      },
+    ],
+  },
+  {
+    id: "linux",
+    name: "Linux",
+    summary: "Tested on Ubuntu 24.04 LTS. Other distributions may work.",
+    guide:
+      "AppImage works almost everywhere. Debian/Ubuntu users can pick the DEB.",
+    architectures: [
+      {
+        id: "linux-amd64",
+        label: "x86_64 / amd64",
+        recommended: true,
+        downloads: [
+          {
+            label: "AppImage (.AppImage)",
+            url: `${releaseBase}/fusou-linux-amd64.AppImage`,
+            description:
+              "For most desktop Linux distributions (Ubuntu, Fedora, etc.). includes automatic updates.",
+            recommended: true,
+            available: true,
+          },
+          {
+            label: "Debian package (.deb)",
+            url: `${releaseBase}/fusou-linux-amd64.deb`,
+            description:
+              "Ubuntu / Debian installer. not includes automatic updates; update manually if needed.",
+            available: true,
+          },
+          {
+            label: "rpm package (.rpm)",
+            url: `${releaseBase}/fusou-linux-amd64.rpm`,
+            description:
+              "For Fedora, CentOS, openSUSE, and other RPM-based distros. not includes automatic updates; update manually if needed.",
+            available: true,
+          },
+        ],
+      },
+      {
+        id: "linux-arm64",
+        label: "ARM64 / aarch64",
+        downloads: [
+          {
+            label: "AppImage (.AppImage)",
+            url: `${releaseBase}/fusou-linux-arm64.AppImage`,
+            description: "For ARM boards and servers (Raspberry Pi 4+, etc.).",
+            available: true,
+          },
+          {
+            label: "Debian package (.deb)",
+            url: `${releaseBase}/fusou-linux-arm64.deb`,
+            description:
+              "For ARM-based Ubuntu / Debian systems (Raspberry Pi OS, etc.).",
+            available: true,
+          },
+          {
+            label: "rpm package (.rpm)",
+            url: `${releaseBase}/fusou-linux-arm64.rpm`,
+            description:
+              "For ARM-based Fedora, CentOS, openSUSE, and other RPM-based distros.",
+            available: true,
+          },
+        ],
+      },
+    ],
+  },
+  {
+    id: "ios",
+    name: "iOS",
+    summary: "Currently not distributed via App Store.",
+    guide:
+      "Native iOS builds are not yet available. Follow GitHub for updates.",
+    architectures: [
+      {
+        id: "ios",
+        label: "iOS",
+        downloads: [
+          {
+            label: "Visit GitHub Releases",
+            url: releasePage,
+            description: "Future iOS builds will appear here once available.",
+            available: false,
+          },
+        ],
+      },
+    ],
+  },
+  {
+    id: "android",
+    name: "Android",
+    summary: "APK distribution is not ready yet.",
+    guide:
+      "No Android packages are published yet. Keep an eye on release notes.",
+    architectures: [
+      {
+        id: "android",
+        label: "Android",
+        downloads: [
+          {
+            label: "Visit GitHub Releases",
+            url: releasePage,
+            description: "Future APK builds will appear here once available.",
+            available: false,
+          },
+        ],
+      },
+    ],
+  },
+];
+---
+
+<Layout title="Download FUSOU" />
+<div class="h-16"></div>
+<div class="bg-base-100 flex flex-col items-center py-6 px-6">
+  <div class="w-full max-w-3xl flex flex-col gap-8">
+    <header class="flex flex-col gap-3">
+      <h1 class="text-4xl sm:text-5xl font-semibold">Download FUSOU</h1>
+      <p class="text-base-content">
+        Pick your operating system, choose the right architecture, and grab the
+        installer that matches your setup. Every download points to the latest
+        GitHub release.
+      </p>
+      <a
+        class="text-sm text-primary underline hover:no-underline"
+        href={releasePage}
+        target="_blank"
+        rel="noopener noreferrer"
+      >
+        View all release assets on GitHub
+      </a>
+    </header>
+
+    <section class="flex flex-col gap-4">
+      <div class="flex flex-wrap gap-2" id="platform-tabs">
+        {
+          platforms.map((platform, index) => (
+            <button
+              type="button"
+              class={`btn shadow-none border ${
+                index === 0
+                  ? "btn-primary border-primary-content"
+                  : "btn-outline border-base-300"
+              }`}
+              data-platform={platform.id}
+              data-active={index === 0}
+            >
+              {platform.name}
+            </button>
+          ))
+        }
+      </div>
+
+      {
+        platforms.map((platform, platformIndex) => (
+          <article
+            class={`border border-base-300 p-6 flex flex-col gap-6 ${platformIndex === 0 ? "" : "hidden"}`}
+            data-platform-panel={platform.id}
+          >
+            <div class="flex flex-col gap-2">
+              <h2 class="text-2xl font-semibold">{platform.name}</h2>
+              <p>{platform.summary}</p>
+              <p class="text-sm text-base-content">{platform.guide}</p>
+            </div>
+
+            <div class="flex flex-wrap gap-2" data-arch-tabs>
+              {platform.architectures.map((arch, archIndex) => (
+                <button
+                  type="button"
+                  class={`btn shadow-none border ${
+                    archIndex === 0
+                      ? "btn-accent border-accent-content"
+                      : "btn-outline border-base-300"
+                  }`}
+                  data-arch={arch.id}
+                  data-active={archIndex === 0}
+                >
+                  {arch.label}
+                  {arch.recommended && (
+                    <span class="ml-2 text-xs uppercase tracking-wide">
+                      Recommended
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
+
+            {platform.architectures.map((arch, archIndex) => (
+              <div
+                class={`${archIndex === 0 ? "" : "hidden"} flex flex-col gap-4`}
+                data-arch-panel={arch.id}
+              >
+                {arch.downloads.map((entry) => (
+                  <div class="border border-base-300 p-4 flex flex-col gap-2">
+                    <div class="flex flex-wrap items-baseline gap-2">
+                      <span class="text-lg font-semibold">{entry.label}</span>
+                      {entry.recommended && (
+                        <span class="text-xs uppercase text-primary">
+                          Recommended
+                        </span>
+                      )}
+                    </div>
+                    <p class="text-sm text-base-content">{entry.description}</p>
+                    {entry.available && entry.url ? (
+                      <a
+                        class="btn btn-primary border border-primary-content shadow-none w-full sm:w-auto"
+                        href={entry.url}
+                      >
+                        Download
+                      </a>
+                    ) : (
+                      <a
+                        class="btn btn-outline border border-base-300 shadow-none w-full sm:w-auto"
+                        href={releasePage}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        Check availability on GitHub
+                      </a>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ))}
+          </article>
+        ))
+      }
+    </section>
+  </div>
+</div>
+<Navigation />
+
+<script>
+  const platformTabs =
+    document.querySelectorAll<HTMLButtonElement>("[data-platform]");
+  const platformPanels = document.querySelectorAll<HTMLElement>(
+    "[data-platform-panel]"
+  );
+
+  platformTabs.forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const target = btn.dataset.platform;
+      platformTabs.forEach((tab) =>
+        tab.classList.replace("btn-primary", "btn-outline")
+      );
+      platformTabs.forEach((tab) =>
+        tab.classList.replace("border-primary-content", "border-base-300")
+      );
+      btn.classList.replace("btn-outline", "btn-primary");
+      btn.classList.replace("border-base-300", "border-primary-content");
+
+      platformPanels.forEach((panel) => {
+        const isActive = panel.dataset.platformPanel === target;
+        panel.classList.toggle("hidden", !isActive);
+
+        if (isActive) {
+          const archTabs =
+            panel.querySelectorAll<HTMLButtonElement>("[data-arch]");
+          const archPanels =
+            panel.querySelectorAll<HTMLElement>("[data-arch-panel]");
+          archTabs.forEach((archBtn, index) => {
+            const active = index === 0;
+            archBtn.classList.toggle("btn-accent", active);
+            archBtn.classList.toggle("border-accent-content", active);
+            archBtn.classList.toggle("btn-outline", !active);
+            archBtn.classList.toggle("border-base-300", !active);
+            archBtn.dataset.active = active.toString();
+          });
+          archPanels.forEach((archPanel, index) => {
+            archPanel.classList.toggle("hidden", index !== 0);
+          });
+        }
+      });
+    });
+  });
+
+  const archTabContainers =
+    document.querySelectorAll<HTMLElement>("[data-arch-tabs]");
+  archTabContainers.forEach((container) => {
+    const archTabs =
+      container.querySelectorAll<HTMLButtonElement>("[data-arch]");
+    const archPanels =
+      container.parentElement?.querySelectorAll<HTMLElement>(
+        "[data-arch-panel]"
+      ) ?? [];
+    archTabs.forEach((archBtn) => {
+      archBtn.addEventListener("click", () => {
+        const target = archBtn.dataset.arch;
+        archTabs.forEach((tab) => {
+          const active = tab === archBtn;
+          tab.classList.toggle("btn-accent", active);
+          tab.classList.toggle("border-accent-content", active);
+          tab.classList.toggle("btn-outline", !active);
+          tab.classList.toggle("border-base-300", !active);
+          tab.dataset.active = active.toString();
+        });
+        archPanels.forEach((panel) => {
+          panel.classList.toggle("hidden", panel.dataset.archPanel !== target);
+        });
+      });
+    });
+  });
+</script>

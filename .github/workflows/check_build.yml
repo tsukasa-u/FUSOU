@@ -1,3 +1,5 @@
+# https://docs.github.com/en/actions/concepts/runners/github-hosted-runners
+
 name: check build
 
 on:
@@ -10,9 +12,6 @@ env:
 
 jobs:
   build:
-    env:
-      SCCACHE_GHA_ENABLED: "true"
-      RUSTC_WRAPPER: "sccache"
     defaults:
       run:
         working-directory: ./packages/FUSOU-APP
@@ -24,13 +23,25 @@ jobs:
         include:
           # - platform: "macos-latest" # for Arm based macs (M1 and above).
           #   args: "--target aarch64-apple-darwin"
+          #   SCCACHE_GHA_ENABLED: "true"
+          #   RUSTC_WRAPPER: "sccache"
           # - platform: "macos-latest" # for Intel based macs.
           #   args: "--target x86_64-apple-darwin"
+          #   SCCACHE_GHA_ENABLED: "true"
+          #   RUSTC_WRAPPER: "sccache"
           - platform: "ubuntu-24.04"
             args: ""
+            SCCACHE_GHA_ENABLED: "true"
+            RUSTC_WRAPPER: "sccache"
           - platform: "ubuntu-24.04-arm"
             args: ""
+            SCCACHE_GHA_ENABLED: "true"
+            RUSTC_WRAPPER: "sccache"
           - platform: "windows-latest"
+            args: ""
+            SCCACHE_GHA_ENABLED: "true"
+            RUSTC_WRAPPER: "sccache"
+          - platform: "windows-11-arm"
             args: ""
 
     runs-on: ${{ matrix.platform }}
@@ -64,6 +75,7 @@ jobs:
           targets: ${{ '' }}
 
       - name: Run sccache-cache
+        if: matrix.platform == 'windows-latest' || matrix.platform == 'ubuntu-24.04' || matrix.platform == 'ubuntu-24.04-arm'
         uses: mozilla-actions/sccache-action@v0.0.9
 
       - name: build shared-ui

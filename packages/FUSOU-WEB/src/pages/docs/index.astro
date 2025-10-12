@@ -1,0 +1,155 @@
+---
+import "../../assets/app.css";
+import "../../styles/global.css";
+import Navigation from "../../components/Navigation.astro";
+import LeftMenu from "../../components/docs/LeftMenu.astro";
+import Layout from "../../layouts/Layout.astro";
+
+const rawDocs = await Astro.glob("../../content/docs/**/*.md");
+
+const normalizeSlug = (value: string | undefined) =>
+  (value ?? "").replace(/^\/+|\/+$/g, "").replace(/^docs\//, "");
+
+const formatSegment = (segment: string) =>
+  segment
+    .split(/[-_]/g)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+
+const docs = rawDocs
+  .map((doc) => {
+    const slug = normalizeSlug(doc.frontmatter?.slug);
+    const segments = slug.split("/").filter(Boolean);
+    if (segments.length === 0) return null;
+
+    return {
+      slug,
+      segments,
+      title: doc.frontmatter?.title ?? formatSegment(segments.at(-1)!),
+      description: doc.frontmatter?.description ?? "",
+      url: `/docs/${slug}`,
+    };
+  })
+  .filter(Boolean) as {
+  slug: string;
+  segments: string[];
+  title: string;
+  description: string;
+  url: string;
+}[];
+
+type MenuNode = {
+  title: string;
+  url?: string;
+  description?: string;
+  children: MenuNode[];
+};
+
+const root = new Map<
+  string,
+  {
+    segment: string;
+    title: string;
+    url?: string;
+    description?: string;
+    children: Map<string, any>;
+  }
+>();
+
+for (const entry of docs) {
+  let current = root;
+  entry.segments.forEach((segment, index) => {
+    const isLeaf = index === entry.segments.length - 1;
+    if (!current.has(segment)) {
+      current.set(segment, {
+        segment,
+        title: isLeaf ? entry.title : formatSegment(segment),
+        url: isLeaf ? entry.url : undefined,
+        description: isLeaf ? entry.description : undefined,
+        children: new Map(),
+      });
+    } else if (isLeaf) {
+      const node = current.get(segment)!;
+      node.title = entry.title;
+      node.url = entry.url;
+      node.description = entry.description;
+    }
+    current = current.get(segment)!.children;
+  });
+}
+
+const mapToArray = (nodeMap: Map<string, any>): MenuNode[] =>
+  Array.from(nodeMap.values())
+    .sort((a, b) => a.segment.localeCompare(b.segment))
+    .map((node) => ({
+      title: node.title,
+      url: node.url,
+      description: node.description,
+      children: mapToArray(node.children),
+    }));
+
+const menuTree = mapToArray(root);
+
+const escapeHtml = (value: string) =>
+  value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+
+const renderMenuHtml = (
+  nodes: MenuNode[],
+  depth: number,
+  maxDepth: number
+): string =>
+  nodes
+    .map((node) => {
+      const label = node.url
+        ? `<div class="space-y-${maxDepth / depth}"><a href="${node.url}" class="text-lg font-semibold text-sky-600 hover:underline">${escapeHtml(
+            node.title
+          )}</a>${
+            node.description
+              ? `<p class="text-sm text-base-content/70">${escapeHtml(node.description)}</p>`
+              : ""
+          }</div>`
+        : `<span class="text-xl font-bold pl-2 tracking-wide text-base-content/80">${escapeHtml(
+            node.title
+          )}</span>`;
+      const children = node.children.length
+        ? `<ul class="ml-3 border-base-300 pl-4 space-y-${maxDepth / depth}">${renderMenuHtml(
+            node.children,
+            depth * 2,
+            maxDepth
+          )}</ul>`
+        : "";
+      return `<li class="space-y-${maxDepth / depth}">${label}${children}</li>`;
+    })
+    .join("");
+
+const menuHtml = renderMenuHtml(menuTree, 2, 4);
+---
+
+<Layout>
+  <div class="h-16"></div>
+  <div class="grid grid-cols-10 gap-x-8 pt-4">
+    <aside
+      class="hidden md:block md:col-span-3 xl:col-span-2 pr-4 pl-8 justify-self-end"
+    >
+      <LeftMenu />
+    </aside>
+
+    <div class="py-4 px-8 col-span-6 md:col-span-6 mr-auto">
+      <h1 class="text-3xl font-bold text-base-content">Documentation Index</h1>
+      <p class="mt-2 text-base text-base-content/80">
+        Browse every guide, quick start, and reference entry grouped by their
+        slug hierarchy.
+      </p>
+      <ul class="bg-base-100 rounded-xl py-6 space-y-8" set:html={menuHtml} />
+    </div>
+
+    <aside class="hidden lg:block col-span-2 pl-4 pr-8 justify-self-start">
+    </aside>
+  </div>
+  <Navigation />
+</Layout>
