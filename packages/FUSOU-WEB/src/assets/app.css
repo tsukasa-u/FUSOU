@@ -105,6 +105,173 @@
   margin-left: 0 !important;
 }
 
+.markdown [data-callout] {
+  & {
+    @apply my-6 space-y-2 border p-4;
+    border-color: color-mix(
+      in oklch,
+      var(--color-base-content) 10%,
+      transparent
+    );
+  }
+
+  & > [data-callout-title] {
+    & {
+      @apply flex flex-row items-start gap-2 p-0 font-bold text-lg;
+    }
+
+    &:not:only-child {
+      @apply mb-2;
+    }
+
+    &::before {
+      font-family: "Material Symbols Outlined";
+      font-weight: normal;
+      font-style: normal;
+      font-size: 1.725rem;
+      line-height: 1;
+      letter-spacing: normal;
+      text-transform: none;
+      display: inline-block;
+      white-space: nowrap;
+      word-wrap: normal;
+      direction: ltr;
+      -webkit-font-smoothing: antialiased;
+
+      vertical-align: top;
+    }
+  }
+
+  & > [data-callout-body] {
+    & {
+      @apply space-y-2 px-1;
+    }
+
+    & > * {
+      @apply m-0;
+    }
+  }
+}
+
+.markdown details[data-callout] > summary[data-callout-title] {
+  & {
+    @apply cursor-pointer;
+  }
+
+  &::after {
+    @apply w-full bg-right bg-no-repeat;
+    content: "";
+  }
+
+  &:not(:empty)::after {
+    @apply my-auto ml-auto h-6 w-6;
+  }
+}
+
+.markdown [data-callout][data-callout-type="note"] {
+  & {
+    border-left: 4px solid var(--color-info);
+  }
+
+  & > [data-callout-title] {
+    & {
+      color: var(--color-info-content);
+    }
+
+    &::before {
+      content: "\e88e";
+      color: var(--color-info);
+    }
+
+    &:empty::after {
+      content: "Note";
+    }
+  }
+}
+
+.markdown [data-callout][data-callout-type="important"] {
+  & {
+    border-left: 4px solid var(--color-accent);
+  }
+
+  & > [data-callout-title] {
+    & {
+      color: var(--color-accent-content);
+    }
+
+    &::before {
+      content: "\e87f";
+      color: var(--color-accent);
+    }
+    &:empty::after {
+      content: "Important";
+    }
+  }
+}
+
+.markdown [data-callout][data-callout-type="warning"] {
+  & {
+    border-left: 4px solid var(--color-warning);
+  }
+
+  & > [data-callout-title] {
+    & {
+      color: var(--color-warning-content);
+    }
+
+    &::before {
+      content: "\e002";
+      color: var(--color-warning);
+    }
+
+    &:empty::after {
+      content: "Warning";
+    }
+  }
+}
+
+.markdown [data-callout][data-callout-type="caution"] {
+  & {
+    border-left: 4px solid var(--color-error);
+  }
+
+  & > [data-callout-title] {
+    & {
+      color: var(--color-error-content);
+    }
+
+    &::before {
+      content: "\e160";
+      color: var(--color-error);
+    }
+
+    &:empty::after {
+      content: "Caution";
+    }
+  }
+}
+
+.markdown [data-callout][data-callout-type="tip"] {
+  & {
+    border-left: 4px solid var(--color-success);
+  }
+
+  & > [data-callout-title] {
+    & {
+      color: var(--color-success-content);
+    }
+
+    &::before {
+      content: "\e0f0";
+      color: var(--color-success);
+    }
+
+    &:empty::after {
+      content: "Tip";
+    }
+  }
+}
+
 .markdown aside:is([note], [dangerous], [caution], [tip], [important]) {
   @apply bg-base-100 p-4;
   margin-bottom: 1rem;

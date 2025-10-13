@@ -5,7 +5,7 @@ import Navigation from "../../components/Navigation.astro";
 import LeftMenu from "../../components/docs/LeftMenu.astro";
 import Layout from "../../layouts/Layout.astro";
 
-const rawDocs = await Astro.glob("../../content/docs/**/*.md");
+const rawDocs = await Astro.glob("../../../../../docs/contents/**/*.md");
 
 const normalizeSlug = (value: string | undefined) =>
   (value ?? "").replace(/^\/+|\/+$/g, "").replace(/^docs\//, "");

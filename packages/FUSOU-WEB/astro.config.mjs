@@ -6,6 +6,7 @@ import cloudflare from "@astrojs/cloudflare";
 import sitemap from "@astrojs/sitemap";
 import icon from "astro-icon";
 import react from "@astrojs/react";
+import remarkCallout from "@r4ai/remark-callout";
 
 // https://astro.build/config
 // @ts-ignore
@@ -44,5 +45,8 @@ export default defineConfig({
         "react-dom/server": "react-dom/server.edge",
       },
     },
+  },
+  markdown: {
+    remarkPlugins: [remarkCallout],
   },
 });
