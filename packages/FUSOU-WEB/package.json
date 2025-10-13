@@ -19,6 +19,7 @@
     "@faker-js/faker": "^9.8.0",
     "@nanostores/persistent": "^1.0.0",
     "@nanostores/solid": "^1.0.0",
+    "@r4ai/remark-callout": "^0.6.2",
     "@supabase/supabase-js": "2.49.4",
     "@tailwindcss/vite": "^4.1.8",
     "@types/react": "^19.1.6",
