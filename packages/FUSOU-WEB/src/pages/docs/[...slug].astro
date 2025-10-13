@@ -1,7 +1,7 @@
 ---
 import DocsLayout from "../../layouts/DocsLayout.astro";
 
-import { getEntry } from "astro:content";
+import { getEntry, render } from "astro:content";
 const { slug } = Astro.params;
 if (slug === undefined) {
   throw new Error("Slug is required");
@@ -10,7 +10,7 @@ const entry = await getEntry("docs", slug);
 if (entry === undefined) {
   return Astro.redirect("/404");
 }
-const { Content, headings } = await entry.render();
+const { Content, headings } = await render(entry);
 ---
 
 <DocsLayout entry={entry} Content={Content} headings={headings}>

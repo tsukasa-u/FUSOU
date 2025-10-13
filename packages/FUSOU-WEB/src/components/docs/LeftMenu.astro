@@ -1,9 +1,12 @@
 ---
 import type { MarkdownInstance } from "astro";
 
-const rawPostsGlobResult = import.meta.glob("../../content/docs/**/*.md", {
-  eager: true,
-});
+const rawPostsGlobResult = import.meta.glob(
+  "../../../../../docs/contents/**/*.md",
+  {
+    eager: true,
+  }
+);
 const rawPosts = Object.values(
   rawPostsGlobResult
 ).reverse() as MarkdownInstance<Record<string, any>>[];
