@@ -5,8 +5,14 @@ import Navigation from "@/components/Navigation.astro";
 import LeftMenu from "@/components/docs/LeftMenu.astro";
 import Layout from "@/layouts/Layout.astro";
 import { compareSegments } from "@/utility/page_sorter";
+import type { MarkdownInstance } from "astro";
 
-const rawDocs = await Astro.glob("@docs/**/*.md");
+const rawDocsGlobResult = import.meta.glob("@docs/**/*.md", {
+  eager: true,
+});
+const rawDocs = Object.values(rawDocsGlobResult).reverse() as MarkdownInstance<
+  Record<string, any>
+>[];
 
 const normalizeSlug = (value: string | undefined) =>
   (value ?? "").replace(/^\/+|\/+$/g, "").replace(/^docs\//, "");
