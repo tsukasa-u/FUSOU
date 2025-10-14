@@ -1,7 +1,8 @@
 ---
 title: Install FUSOU
 contributors: ["tsukasa-u"]
-description: Install FUSOU-APP
+description: >-
+  FUSOU-APPをWindowsおよびLinux各ディストリビューションで導入するためのインストーラー選択指針、OSとアーキテクチャの判別方法、AppImage・deb・rpmそれぞれの具体的なインストール手順をまとめたガイド
 date: 2025-10-13
 slug: start/install
 tags: [start, install]

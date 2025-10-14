@@ -1,7 +1,8 @@
 ---
 title: What is FUSOU
 contributors: ["tsukasa-u"]
-description: What is FUSOU
+description: >-
+  FUSOUエコシステム全体のコンセプトやFUSOU-APP・FUSOU-WEBの役割、データ収集方針、オープンソースとしての開発姿勢を紹介する概要ドキュメント
 date: 2025-10-09
 slug: start/what_is_fusou
 tags: [start, what_is_fusou]
