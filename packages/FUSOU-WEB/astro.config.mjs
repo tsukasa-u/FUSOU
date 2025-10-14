@@ -7,6 +7,7 @@ import sitemap from "@astrojs/sitemap";
 import icon from "astro-icon";
 import react from "@astrojs/react";
 import remarkCallout from "@r4ai/remark-callout";
+import { fileURLToPath, URL } from "node:url";
 
 // https://astro.build/config
 // @ts-ignore
@@ -41,8 +42,12 @@ export default defineConfig({
     },
     resolve: {
       // @ts-ignore
-      alias: import.meta.env.PROD && {
-        "react-dom/server": "react-dom/server.edge",
+      alias: {
+        ...(import.meta.env.PROD && {
+          "react-dom/server": "react-dom/server.edge",
+        }),
+        "@": fileURLToPath(new URL("./src", import.meta.url)),
+        "@docs": fileURLToPath(new URL("../../docs/contents", import.meta.url)),
       },
     },
   },
