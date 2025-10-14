@@ -1,7 +1,8 @@
 ---
 title: Quick Start
 contributors: ["tsukasa-u"]
-description: Quick start guide for FUSOU-APP
+description: >-
+  FUSOU-APPの開発環境をWindows 11およびUbuntu 24.04 LTSで構築し、インストールから初期設定、起動、アップデート確認までを段階的に案内するクイックスタートガイド
 date: 2025-10-08
 slug: start/quick_start
 tags: [start, quick_start]

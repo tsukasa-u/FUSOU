@@ -1,12 +1,10 @@
 ---
 import type { MarkdownInstance } from "astro";
+import { compareSegments } from "@/utility/page_sorter";
 
-const rawPostsGlobResult = import.meta.glob(
-  "../../../../../docs/contents/**/*.md",
-  {
-    eager: true,
-  }
-);
+const rawPostsGlobResult = import.meta.glob("@docs/**/*.md", {
+  eager: true,
+});
 const rawPosts = Object.values(
   rawPostsGlobResult
 ).reverse() as MarkdownInstance<Record<string, any>>[];
@@ -65,20 +63,6 @@ for (const entry of posts) {
     current = current.get(segment)!.children;
   });
 }
-
-const segmentOrder: Record<string, number> = {
-  start: 0x10,
-  guide: 0x20,
-  reference: 0x30,
-  quick_start: 0x11,
-};
-
-const compareSegments = (a: any, b: any) => {
-  const aOrder = segmentOrder[a.segment] ?? 0xff;
-  const bOrder = segmentOrder[b.segment] ?? 0xff;
-  if (aOrder !== bOrder) return aOrder - bOrder;
-  return a.segment.localeCompare(b.segment);
-};
 
 const mapToArray = (nodeMap: Map<string, any>) =>
   Array.from(nodeMap.values())
