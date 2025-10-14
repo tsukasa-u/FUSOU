@@ -6,7 +6,6 @@ use crate::database::env_info::EnvInfoId;
 use crate::database::slotitem::OwnSlotItem;
 use crate::database::slotitem::OwnSlotItemId;
 use crate::database::table::PortTable;
-use crate::database::table::DATABASE_TABLE_VERSION;
 
 use crate::interface::slot_item::SlotItems;
 
@@ -17,7 +16,6 @@ pub type PlaneInfoId = Uuid;
 
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
 pub struct AirBase {
-    pub version: String,
     pub env_uuid: EnvInfoId,
     pub uuid: AirBaseId,
     pub action_kind: i64,
@@ -38,7 +36,6 @@ impl AirBase {
             .filter_map(|plane_info| PlaneInfo::new_ret_uuid(plane_info.clone(), table, env_uuid))
             .collect();
         let new_air_base = AirBase {
-            version: DATABASE_TABLE_VERSION.to_string(),
             env_uuid,
             uuid: new_uuid,
             action_kind: data.action_kind,
@@ -54,7 +51,6 @@ impl AirBase {
 
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
 pub struct PlaneInfo {
-    pub version: String,
     pub env_uuid: EnvInfoId,
     pub uuid: PlaneInfoId,
     pub cond: Option<i64>,
@@ -77,7 +73,6 @@ impl PlaneInfo {
         let new_slot_item = OwnSlotItem::new_ret_uuid(slot_item.clone(), table, env_uuid);
 
         let new_plane_info: PlaneInfo = PlaneInfo {
-            version: DATABASE_TABLE_VERSION.to_string(),
             uuid: new_uuid,
             env_uuid,
             cond: data.cond,

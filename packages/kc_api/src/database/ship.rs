@@ -10,7 +10,6 @@ use crate::database::slotitem::FriendSlotItemId;
 use crate::database::slotitem::OwnSlotItem;
 use crate::database::slotitem::OwnSlotItemId;
 use crate::database::table::PortTable;
-use crate::database::table::DATABASE_TABLE_VERSION;
 
 use crate::interface::ship::Ships;
 use crate::interface::slot_item::SlotItems;
@@ -23,7 +22,6 @@ pub type FriendShipId = Uuid;
 
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
 pub struct OwnShip {
-    pub version: String,
     pub env_uuid: EnvInfoId,
     pub uuid: OwnShipId,
     pub ship_id: Option<i64>,
@@ -72,7 +70,6 @@ impl OwnShip {
         });
 
         let new_data: OwnShip = OwnShip {
-            version: DATABASE_TABLE_VERSION.to_string(),
             env_uuid,
             uuid: new_uuid,
             ship_id: ship.ship_id,
@@ -109,7 +106,6 @@ impl OwnShip {
 
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
 pub struct EnemyShip {
-    pub version: String,
     pub env_uuid: EnvInfoId,
     pub uuid: EnemyShipId,
     pub mst_ship_id: Option<i64>,
@@ -142,7 +138,6 @@ impl EnemyShip {
         });
 
         let new_data: EnemyShip = EnemyShip {
-            version: DATABASE_TABLE_VERSION.to_string(),
             env_uuid,
             uuid: new_uuid,
             lv: data.0,
@@ -172,7 +167,6 @@ pub type FriendShipProps = (
 );
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
 pub struct FriendShip {
-    pub version: String,
     pub env_uuid: EnvInfoId,
     pub uuid: FriendShipId,
     pub mst_ship_id: Option<i64>,
@@ -198,7 +192,6 @@ impl FriendShip {
         });
 
         let new_data: FriendShip = FriendShip {
-            version: DATABASE_TABLE_VERSION.to_string(),
             env_uuid,
             uuid: new_uuid,
             lv: data.0,

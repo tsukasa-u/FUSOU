@@ -12,7 +12,6 @@ use crate::database::ship::FriendShipProps;
 use crate::database::ship::OwnShip;
 use crate::database::ship::OwnShipId;
 use crate::database::table::PortTable;
-use crate::database::table::DATABASE_TABLE_VERSION;
 use crate::interface::deck_port::DeckPorts;
 use crate::interface::ship::Ships;
 
@@ -25,7 +24,6 @@ pub type FriendDeckId = Uuid;
 
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
 pub struct OwnDeck {
-    pub version: String,
     pub env_uuid: EnvInfoId,
     pub uuid: OwnDeckId,
     pub ship_ids: Vec<Option<OwnShipId>>,
@@ -54,7 +52,6 @@ impl OwnDeck {
         })?;
 
         let new_data = OwnDeck {
-            version: DATABASE_TABLE_VERSION.to_string(),
             env_uuid,
             uuid: new_uuid,
             ship_ids: new_ship_ids,
@@ -69,7 +66,6 @@ impl OwnDeck {
 
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
 pub struct SupportDeck {
-    pub version: String,
     pub env_uuid: EnvInfoId,
     pub uuid: SupportDeckId,
     pub ship_ids: Vec<Option<OwnShipId>>,
@@ -97,7 +93,6 @@ impl SupportDeck {
         })?;
 
         let new_data = SupportDeck {
-            version: DATABASE_TABLE_VERSION.to_string(),
             env_uuid,
             uuid: new_uuid,
             ship_ids: new_ship_ids,
@@ -111,7 +106,6 @@ impl SupportDeck {
 
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
 pub struct EnemyDeck {
-    pub version: String,
     pub env_uuid: EnvInfoId,
     pub uuid: EnemyDeckId,
     pub ship_ids: Vec<EnemyShipId>,
@@ -148,7 +142,6 @@ impl EnemyDeck {
             .unwrap_or_default();
 
         let new_data = EnemyDeck {
-            version: DATABASE_TABLE_VERSION.to_string(),
             env_uuid,
             uuid: new_uuid,
             ship_ids: new_ship_ids,
@@ -161,7 +154,6 @@ impl EnemyDeck {
 
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
 pub struct FriendDeck {
-    pub version: String,
     pub env_uuid: EnvInfoId,
     pub uuid: FriendDeckId,
     pub ship_ids: Vec<FriendShipId>,
@@ -195,7 +187,6 @@ impl FriendDeck {
             .collect();
 
         let new_data = FriendDeck {
-            version: DATABASE_TABLE_VERSION.to_string(),
             env_uuid,
             uuid: new_uuid,
             ship_ids: new_ship_ids,

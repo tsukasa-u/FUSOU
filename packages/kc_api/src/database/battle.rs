@@ -14,7 +14,6 @@ use crate::database::deck::SupportDeck;
 use crate::database::deck::SupportDeckId;
 use crate::database::env_info::EnvInfoId;
 use crate::database::table::PortTable;
-use crate::database::table::DATABASE_TABLE_VERSION;
 use crate::interface::air_base::AirBases;
 use crate::interface::deck_port::DeckPorts;
 use crate::interface::ship::Ships;
@@ -43,7 +42,6 @@ pub type FriendlySupportHouraiListId = Uuid;
 
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
 pub struct HougekiList {
-    pub version: String,
     pub env_uuid: EnvInfoId,
     pub uuid: HougekiListId,
     pub hougeki: Vec<Vec<HougekiId>>,
@@ -67,7 +65,6 @@ impl HougekiList {
             .collect();
 
         let new_data = HougekiList {
-            version: DATABASE_TABLE_VERSION.to_string(),
             env_uuid,
             uuid: new_uuid,
             hougeki: new_hougeki,
@@ -88,7 +85,6 @@ impl HougekiList {
 
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
 pub struct Hougeki {
-    pub version: String,
     pub env_uuid: EnvInfoId,
     pub uuid: HougekiId,
     pub at: i64,
@@ -115,7 +111,6 @@ impl Hougeki {
                 let new_uuid = Uuid::new_v4();
 
                 let new_data = Hougeki {
-                    version: DATABASE_TABLE_VERSION.to_string(),
                     env_uuid,
                     uuid: new_uuid,
                     at: data.at_list[i],
@@ -149,7 +144,6 @@ impl Hougeki {
 
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
 pub struct MidnightHougekiList {
-    pub version: String,
     pub env_uuid: EnvInfoId,
     pub uuid: MidnightHougekiListId,
     pub f_flare_pos: Option<i64>,
@@ -170,7 +164,6 @@ impl MidnightHougekiList {
             MidnightHougeki::new_ret_uuid(midnight_hougeki, table, env_uuid)
         });
         let new_data = MidnightHougekiList {
-            version: DATABASE_TABLE_VERSION.to_string(),
             env_uuid,
             uuid: new_uuid,
             f_flare_pos: data.midnight_flare_pos.clone().map(|pos| pos[0]),
@@ -197,7 +190,6 @@ impl MidnightHougekiList {
 
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
 pub struct MidnightHougeki {
-    pub version: String,
     pub env_uuid: EnvInfoId,
     pub uuid: MidnightHougekiId,
     pub at: Option<i64>,
@@ -225,7 +217,6 @@ impl MidnightHougeki {
                         let new_uuid = Uuid::new_v4();
 
                         let new_data = MidnightHougeki {
-                            version: DATABASE_TABLE_VERSION.to_string(),
                             env_uuid,
                             uuid: new_uuid,
                             at: data.at_list.clone().map(|x| x[i]),
@@ -258,7 +249,6 @@ impl MidnightHougeki {
 
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
 pub struct OpeningTaisenList {
-    pub version: String,
     pub env_uuid: EnvInfoId,
     pub uuid: OpeningTaisenListId,
     pub opening_taisen: Vec<OpeningTaisenId>,
@@ -274,7 +264,6 @@ impl OpeningTaisenList {
         let new_opening_taisen = OpeningTaisen::new_ret_uuid(data, table, env_uuid);
 
         let new_data = OpeningTaisenList {
-            version: DATABASE_TABLE_VERSION.to_string(),
             env_uuid,
             uuid: new_uuid,
             opening_taisen: new_opening_taisen,
@@ -288,7 +277,6 @@ impl OpeningTaisenList {
 
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
 pub struct OpeningTaisen {
-    pub version: String,
     pub env_uuid: EnvInfoId,
     pub uuid: OpeningTaisenId,
     pub at: i64,
@@ -315,7 +303,6 @@ impl OpeningTaisen {
                 let new_uuid = Uuid::new_v4();
 
                 let new_data = OpeningTaisen {
-                    version: DATABASE_TABLE_VERSION.to_string(),
                     env_uuid,
                     uuid: new_uuid,
                     at: data.at_list.clone()[i],
@@ -342,7 +329,6 @@ impl OpeningTaisen {
 
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
 pub struct ClosingRaigeki {
-    pub version: String,
     pub env_uuid: EnvInfoId,
     pub uuid: ClosingRaigekiId,
     pub f_dam: Vec<i64>,
@@ -366,7 +352,6 @@ impl ClosingRaigeki {
         let new_uuid = Uuid::new_v4();
 
         let new_data = ClosingRaigeki {
-            version: DATABASE_TABLE_VERSION.to_string(),
             env_uuid,
             uuid: new_uuid,
             f_dam: data.fdam.iter().map(|x| *x as i64).collect(),
@@ -389,7 +374,6 @@ impl ClosingRaigeki {
 
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
 pub struct OpeningRaigeki {
-    pub version: String,
     pub env_uuid: EnvInfoId,
     pub uuid: OpeningRaigekiId,
     pub f_dam: Vec<i64>,
@@ -413,7 +397,6 @@ impl OpeningRaigeki {
         let new_uuid = Uuid::new_v4();
 
         let new_data = OpeningRaigeki {
-            version: DATABASE_TABLE_VERSION.to_string(),
             env_uuid,
             uuid: new_uuid,
             f_dam: data.fdam.iter().map(|x| *x as i64).collect(),
@@ -436,7 +419,6 @@ impl OpeningRaigeki {
 
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
 pub struct OpeningAirAttackList {
-    pub version: String,
     pub env_uuid: EnvInfoId,
     pub uuid: OpeningAirAttackListId,
     pub opening_air_attack: Vec<OpeningAirAttackId>,
@@ -462,7 +444,6 @@ impl OpeningAirAttackList {
             .collect();
 
         let new_data = OpeningAirAttackList {
-            version: DATABASE_TABLE_VERSION.to_string(),
             env_uuid,
             uuid: new_uuid,
             opening_air_attack: new_opening_air_attack,
@@ -476,7 +457,6 @@ impl OpeningAirAttackList {
 
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
 pub struct OpeningAirAttack {
-    pub version: String,
     pub env_uuid: EnvInfoId,
     pub uuid: OpeningAirAttackId,
     pub f_plane_from: Option<Vec<i64>>,
@@ -513,7 +493,6 @@ impl OpeningAirAttack {
         let new_uuid = Uuid::new_v4();
 
         let new_data = OpeningAirAttack {
-            version: DATABASE_TABLE_VERSION.to_string(),
             env_uuid,
             uuid: new_uuid,
             f_plane_from: data.f_damage.plane_from,
@@ -549,7 +528,6 @@ impl OpeningAirAttack {
 
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
 pub struct AirBaseAirAttackList {
-    pub version: String,
     pub env_uuid: EnvInfoId,
     pub uuid: AirBaseAirAttackListId,
     pub air_base_air_attack: Vec<AirBaseAirAttackId>,
@@ -572,7 +550,6 @@ impl AirBaseAirAttackList {
             .collect();
 
         let new_data = AirBaseAirAttackList {
-            version: DATABASE_TABLE_VERSION.to_string(),
             env_uuid,
             uuid: new_uuid,
             air_base_air_attack: new_air_base_air_attack,
@@ -586,7 +563,6 @@ impl AirBaseAirAttackList {
 
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
 pub struct AirBaseAirAttack {
-    pub version: String,
     pub env_uuid: EnvInfoId,
     pub uuid: AirBaseAirAttackId,
     pub f_plane_from: Option<Vec<i64>>,
@@ -626,7 +602,6 @@ impl AirBaseAirAttack {
         let new_airbase_id = AirBase::new_ret_uuid(air_base.clone(), table, env_uuid);
 
         let new_data = AirBaseAirAttack {
-            version: DATABASE_TABLE_VERSION.to_string(),
             env_uuid,
             uuid: new_uuid,
             f_plane_from: data.f_damage.plane_from,
@@ -661,7 +636,6 @@ impl AirBaseAirAttack {
 
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
 pub struct AirBaseAssult {
-    pub version: String,
     pub env_uuid: EnvInfoId,
     pub uuid: AirBaseAssultId,
     pub squadron_plane: Vec<i64>,
@@ -696,7 +670,6 @@ impl AirBaseAssult {
         let new_uuid = Uuid::new_v4();
 
         let new_data = AirBaseAssult {
-            version: DATABASE_TABLE_VERSION.to_string(),
             env_uuid,
             uuid: new_uuid,
             squadron_plane: data.squadron_plane,
@@ -730,7 +703,6 @@ impl AirBaseAssult {
 
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
 pub struct CarrierBaseAssault {
-    pub version: String,
     pub env_uuid: EnvInfoId,
     pub uuid: CarrierBaseAssaultId,
     pub f_plane_from: Option<Vec<i64>>,
@@ -764,7 +736,6 @@ impl CarrierBaseAssault {
         let new_uuid = Uuid::new_v4();
 
         let new_data = CarrierBaseAssault {
-            version: DATABASE_TABLE_VERSION.to_string(),
             env_uuid,
             uuid: new_uuid,
             f_plane_from: data.f_damage.plane_from,
@@ -797,7 +768,6 @@ impl CarrierBaseAssault {
 
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
 pub struct SupportHourai {
-    pub version: String,
     pub env_uuid: EnvInfoId,
     pub uuid: SupportHouraiId,
     pub f_cl: Vec<i64>,
@@ -852,7 +822,6 @@ impl SupportHourai {
         new_vec_false.fill(false);
 
         let new_data = SupportHourai {
-            version: DATABASE_TABLE_VERSION.to_string(),
             env_uuid,
             uuid: new_uuid,
             f_cl: new_vec_0.clone(),
@@ -873,7 +842,6 @@ impl SupportHourai {
 
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
 pub struct SupportAirattack {
-    pub version: String,
     pub env_uuid: EnvInfoId,
     pub uuid: SupportAirattackId,
     pub f_plane_from: Option<Vec<i64>>,
@@ -938,7 +906,6 @@ impl SupportAirattack {
         new_vec_false.fill(false);
 
         let new_data = SupportAirattack {
-            version: DATABASE_TABLE_VERSION.to_string(),
             env_uuid,
             uuid: new_uuid,
             f_plane_from: data.f_damage.plane_from,
@@ -967,7 +934,6 @@ impl SupportAirattack {
 
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
 pub struct FriendlySupportHouraiList {
-    pub version: String,
     pub env_uuid: EnvInfoId,
     pub uuid: FriendlySupportHouraiListId,
     pub f_flare_pos: Option<i64>,
@@ -994,7 +960,6 @@ impl FriendlySupportHouraiList {
         };
 
         let new_data = FriendlySupportHouraiList {
-            version: DATABASE_TABLE_VERSION.to_string(),
             env_uuid,
             uuid: new_uuid,
             f_flare_pos: new_f_flare_pos,
@@ -1017,7 +982,6 @@ impl FriendlySupportHouraiList {
 
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
 pub struct FriendlySupportHourai {
-    pub version: String,
     pub env_uuid: EnvInfoId,
     pub uuid: FriendlySupportHouraiId,
     pub at: Option<i64>,
@@ -1045,7 +1009,6 @@ impl FriendlySupportHourai {
                         let new_uuid = Uuid::new_v4();
 
                         let new_data = MidnightHougeki {
-                            version: DATABASE_TABLE_VERSION.to_string(),
                             env_uuid,
                             uuid: new_uuid,
                             at: data.at_list.clone().map(|x| x[i]),
@@ -1078,7 +1041,6 @@ impl FriendlySupportHourai {
 
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
 pub struct Battle {
-    pub version: String,
     pub env_uuid: EnvInfoId,
     pub uuid: BattleId,
     pub battle_order: Vec<i64>,
@@ -1250,7 +1212,6 @@ impl Battle {
         let new_midngiht_e_nowhps = data.clone().midngiht_e_nowhps;
 
         let new_data = Battle {
-            version: DATABASE_TABLE_VERSION.to_string(),
             env_uuid,
             uuid: new_uuid,
             battle_order: new_battle_order,

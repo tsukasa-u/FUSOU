@@ -6,7 +6,6 @@ use crate::database::battle::Battle;
 use crate::database::battle::BattleId;
 use crate::database::env_info::EnvInfoId;
 use crate::database::table::PortTable;
-use crate::database::table::DATABASE_TABLE_VERSION;
 
 use register_trait::{TraitForDecode, TraitForEncode};
 
@@ -14,7 +13,6 @@ pub type CellsId = Uuid;
 
 #[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
 pub struct Cells {
-    pub version: String,
     pub env_uuid: EnvInfoId,
     pub uuid: CellsId,
     pub maparea_id: i64,
@@ -38,7 +36,6 @@ impl Cells {
             .collect();
 
         let new_data = Cells {
-            version: DATABASE_TABLE_VERSION.to_string(),
             env_uuid,
             uuid: new_uuid,
             maparea_id: data.maparea_id,
