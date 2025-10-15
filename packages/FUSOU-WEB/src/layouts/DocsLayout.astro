@@ -46,11 +46,15 @@ const authors = await Promise.all(
       href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0&icon_names=lightbulb"
     />
     <!-- Cloudflare Web Analytics -->
-    <script
-      defer
-      src="https://static.cloudflareinsights.com/beacon.min.js"
-      data-cf-beacon='{"token": "7c805332187e47d19eb1e0f3447e8639"}'
-    ></script><!-- End Cloudflare Web Analytics -->
+    {
+      import.meta.env.PROD && (
+        <script
+          defer
+          src="https://static.cloudflareinsights.com/beacon.min.js"
+          data-cf-beacon='{"token": "7c805332187e47d19eb1e0f3447e8639"}'
+        />
+      )
+    }<!-- End Cloudflare Web Analytics -->
   </head>
   <body>
     <Navigation />
