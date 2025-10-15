@@ -137,7 +137,7 @@ const kc_update = ["2025-03-07", "2025-04-23", "2025-05-12", "2025-5-30"];
   let period_filter = window.document.getElementById("apply-period-filter")!;
   period_filter.addEventListener("click", async (e) => {
     let period_range: string[] = [];
-    let filter_type = null;
+    let filter_type: number | null = null;
     let filter_radio = Object.values(
       window.document.getElementsByClassName("period-filter-radio")!
     ).filter((element) => (element as HTMLInputElement).checked);

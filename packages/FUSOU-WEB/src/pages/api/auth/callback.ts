@@ -1,5 +1,5 @@
 import type { APIRoute } from "astro";
-import { supabase } from "../../../lib/supabase";
+import { supabase } from "@/utility/supabase";
 
 export const GET: APIRoute = async ({ url, cookies, redirect }) => {
   const authCode = url.searchParams.get("code");
@@ -14,7 +14,12 @@ export const GET: APIRoute = async ({ url, cookies, redirect }) => {
     return new Response(error.message, { status: 500 });
   }
 
-  const { access_token, refresh_token, provider_token, provider_refresh_token } = data.session;
+  const {
+    access_token,
+    refresh_token,
+    provider_token,
+    provider_refresh_token,
+  } = data.session;
 
   cookies.set("sb-access-token", access_token, {
     path: "/",
@@ -28,7 +33,6 @@ export const GET: APIRoute = async ({ url, cookies, redirect }) => {
   cookies.set("sb-provider-refresh-token", provider_refresh_token!, {
     path: "/",
   });
-
 
   return redirect("/dashboard");
 };

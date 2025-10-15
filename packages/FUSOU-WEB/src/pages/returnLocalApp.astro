@@ -1,8 +1,9 @@
 ---
 import Layout from "../layouts/Layout.astro";
 import Navigation from "../components/Navigation.astro";
-import { supabase } from "../lib/supabase";
+import { supabase } from "@/utility/supabase";
 import { Icon } from "astro-icon/components";
+import type { AuthResponse } from "@supabase/supabase-js";
 
 const accessToken = Astro.cookies.get("sb-access-token");
 const refreshToken = Astro.cookies.get("sb-refresh-token");
@@ -10,13 +11,13 @@ const providerToken = Astro.cookies.get("sb-provider-token");
 const providerRefreshToken = Astro.cookies.get("sb-provider-refresh-token");
 const provider = Astro.cookies.get("sb-provider");
 
-let error_message = null;
-let return_params = null;
-let return_href = null;
-let set_session_error_flag = null;
-let sb_insert_error_flag = null;
-let sb_insert_success_flag = null;
-let session = null;
+let error_message: string | null = null;
+let return_params: string | null = null;
+let return_href: string | null = null;
+let set_session_error_flag: boolean | null = null;
+let sb_insert_error_flag: boolean | null = null;
+let sb_insert_success_flag: boolean | null = null;
+let session: AuthResponse | null = null;
 
 if (
   refreshToken &&
@@ -206,18 +207,20 @@ Astro.cookies.delete("sb-provider", { path: "/" });
         if (setSessionErrorFlag == "true") {
           document
             .getElementById("set_session_error")
-            .classList.remove("hidden");
+            ?.classList.remove("hidden");
         }
         if (sbInsertErrorFlag == "true")
-          document.getElementById("sb_insert_error").classList.remove("hidden");
+          document
+            .getElementById("sb_insert_error")
+            ?.classList.remove("hidden");
         if (sbInsertSuccessFlag == "true")
           document
             .getElementById("sb_insert_success")
-            .classList.remove("hidden");
+            ?.classList.remove("hidden");
       });
 
       window.addEventListener("load", () => {
-        window.location.href = returnHref;
+        window.location.href = returnHref || "/";
       });
     }
   }
@@ -232,7 +235,7 @@ Astro.cookies.delete("sb-provider", { path: "/" });
 <script>
   const copy_token = () => {
     const swap_label = document.getElementById("copy-swap-id");
-    swap_label.classList.add("swap-active");
+    swap_label?.classList.add("swap-active");
     const input_text = document.getElementById("tokens")! as HTMLInputElement;
     console.log(input_text.value);
     if (navigator.clipboard) {
@@ -244,7 +247,7 @@ Astro.cookies.delete("sb-provider", { path: "/" });
     new Promise<void>((resolve, reject) => {
       setTimeout(() => resolve(), 2000);
     }).then(() => {
-      swap_label.classList.remove("swap-active");
+      swap_label?.classList.remove("swap-active");
     });
   };
   const copy_button = document.getElementById("copy-button")!;
