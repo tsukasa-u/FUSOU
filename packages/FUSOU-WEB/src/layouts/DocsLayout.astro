@@ -45,6 +45,17 @@ const authors = await Promise.all(
       rel="stylesheet"
       href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0&icon_names=lightbulb"
     />
+    {
+      import.meta.env.PROD && (
+        <!-- Cloudflare Web Analytics -->
+        <script
+          defer
+          src="https://static.cloudflareinsights.com/beacon.min.js"
+          data-cf-beacon={`{"token": "${import.meta.env.PUBLIC_CLOUDFLARE_ANALYTICS_TOKEN}"}`}
+        />
+        <!-- End Cloudflare Web Analytics -->
+      )
+    }
   </head>
   <body>
     <Navigation />
