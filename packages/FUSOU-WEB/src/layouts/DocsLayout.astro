@@ -7,6 +7,7 @@ import RightMenu from "@/components/docs/RightMenu.astro";
 import Breadcrumb from "@/components/docs/Breadcrumb.astro";
 import DocumentInfo from "@/components/docs/DocumentInfo.astro";
 import { getEntry } from "astro:content";
+import '@dotenvx/dotenvx/config';
 
 const { entry, Content, headings } = Astro.props;
 const authors = await Promise.all(
@@ -51,7 +52,7 @@ const authors = await Promise.all(
         <script
           defer
           src="https://static.cloudflareinsights.com/beacon.min.js"
-          data-cf-beacon={`{"token": "${import.meta.env.PUBLIC_CLOUDFLARE_ANALYTICS_TOKEN}"}`}
+          data-cf-beacon={`{"token": "${process.env.PUBLIC_CLOUDFLARE_ANALYTICS_TOKEN}"}`}
         />
         <!-- End Cloudflare Web Analytics -->
       )
