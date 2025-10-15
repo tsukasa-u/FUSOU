@@ -17,7 +17,12 @@ const { title = "FUSOU", ...rest } = Astro.props;
     <meta
       name="description"
       content="FUSOU is a website designed to extract, display, analyze, and utilize data from Kantai Collection (KanColle) using a proxy server, providing innovative tools and insights for users."
-    />
+    /><!-- Cloudflare Web Analytics -->
+    <script
+      defer
+      src="https://static.cloudflareinsights.com/beacon.min.js"
+      data-cf-beacon='{"token": "7c805332187e47d19eb1e0f3447e8639"}'
+    ></script><!-- End Cloudflare Web Analytics -->
   </head>
   <body>
     <slot />
