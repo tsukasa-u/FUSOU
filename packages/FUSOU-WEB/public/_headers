@@ -1,2 +1,17 @@
-https://*.pages.dev/
+https://*.pages.dev/chartPage
+  ! X-Robots-Tag
+
+https://*.pages.dev/signin
+  ! X-Robots-Tag
+
+https://*.pages.dev/signinLocalApp
+  ! X-Robots-Tag
+
+https://*.pages.dev/returnLocalApp
+  ! X-Robots-Tag
+
+https://*.pages.dev/register
+  ! X-Robots-Tag
+
+https://*.pages.dev/dashboard
   ! X-Robots-Tag
