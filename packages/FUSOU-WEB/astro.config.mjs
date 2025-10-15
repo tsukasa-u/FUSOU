@@ -39,6 +39,9 @@ export default defineConfig({
       "import.meta.env.PUBLIC_SITE_URL": JSON.stringify(
         process.env.PUBLIC_SITE_URL
       ),
+      "import.meta.env.PUBLIC_CLOUDFLARE_ANALYTICS_TOKEN": JSON.stringify(
+        process.env.PUBLIC_CLOUDFLARE_ANALYTICS_TOKEN
+      ),
     },
     resolve: {
       // @ts-ignore
