@@ -7,7 +7,6 @@ import RightMenu from "@/components/docs/RightMenu.astro";
 import Breadcrumb from "@/components/docs/Breadcrumb.astro";
 import DocumentInfo from "@/components/docs/DocumentInfo.astro";
 import { getEntry } from "astro:content";
-import '@dotenvx/dotenvx/config';
 
 const { entry, Content, headings } = Astro.props;
 const authors = await Promise.all(
