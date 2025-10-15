@@ -7,7 +7,7 @@ const { entry } = Astro.props;
     <ul>
       <li><a href="/">Home</a></li>
       <li><a href="/docs">Docs Index</a></li>
-      <li><a href={`/docs/${entry.slug}`}>{entry.data.title}</a></li>
+      <li><a href=`${Astro.url}`>{entry.data.title}</a></li>
     </ul>
   </div>
 </div>
