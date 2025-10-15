@@ -15,3 +15,6 @@ https://*.pages.dev/register
 
 https://*.pages.dev/dashboard
   ! X-Robots-Tag
+
+https://dev.fusou.pages.dev/*
+  ! X-Robots-Tag
