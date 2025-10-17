@@ -10,9 +10,6 @@ tags: [guide, https]
 
 # Set up HTTPS for FUSOU-APP
 
-> [!IMPORTANT]
-> 2025/10/17/19:00 現在、FUSOU-APP は TLS Connection を確立できず、艦これサーバーとの通信ができない問題が発生しています。この問題は FUSOU-APP のバグであり、現在修正中です。修正が完了次第、本ドキュメントを更新します。
-
 このページでは FUSOU-APP で HTTPS を設定する方法について説明します。
 
 ## 前提知識

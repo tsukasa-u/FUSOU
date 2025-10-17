@@ -7,13 +7,7 @@ use hudsucker::{
     rustls::crypto::aws_lc_rs,
     *,
 };
-use std::{
-    fs,
-    io::Read,
-    net::{IpAddr, Ipv4Addr, SocketAddr},
-    path::Path,
-    sync::OnceLock,
-};
+use std::{fs, io::Read, net::SocketAddr, path::Path, sync::OnceLock};
 
 use chrono::{TimeZone, Utc};
 use chrono_tz::Asia::Tokyo;
@@ -33,8 +27,6 @@ pub static CA_CERT_NAME: &str = "fusou_ca_cert";
 pub static CA_CERT_NAME_PEM: &str = "fusou_ca_cert.pem";
 pub static CA_CERT_NAME_CRT: &str = "fusou_ca_cert.crt";
 static CA_KEY_NAME_PEM: &str = "fusou_ca_key.pem";
-static ENTITY_CERT_NAME_PEM: &str = "fusou_entity_cert.pem";
-static ENTITY_KEY_NAME_PEM: &str = "fusou_entity_key.pem";
 
 static ORGANIZATION_NAME: &str = "FUSOU";
 static COUNTRY_NAME: &str = "JP";
@@ -357,15 +349,6 @@ struct LogHandler {
 }
 
 impl HttpHandler for LogHandler {
-    // async fn handle_request(
-    //     &mut self,
-    //     _ctx: &HttpContext,
-    //     req: Request<Body>,
-    // ) -> RequestOrResponse {
-    //     self.request_uri = req.uri().clone();
-    //     req.into()
-    // }
-
     async fn handle_request(
         &mut self,
         _ctx: &HttpContext,
@@ -445,57 +428,20 @@ pub fn create_ca(ca_save_path: String) {
         .push(rcgen::DnType::OrganizationName, ORGANIZATION_NAME);
     let ca_cert = ca_param.self_signed(&ca_key_pair).unwrap();
 
-    let entity_key_pair = rcgen::KeyPair::generate().unwrap();
-
-    let mut entity_param = rcgen::CertificateParams::default();
-    entity_param.is_ca = rcgen::IsCa::NoCa;
-    entity_param.use_authority_key_identifier_extension = true;
-    entity_param
-        .key_usages
-        .push(rcgen::KeyUsagePurpose::DigitalSignature);
-    entity_param
-        .extended_key_usages
-        .push(rcgen::ExtendedKeyUsagePurpose::ServerAuth);
-    entity_param
-        .distinguished_name
-        .push(rcgen::DnType::CommonName, "localhost");
-    entity_param.subject_alt_names.extend(vec![
-        rcgen::SanType::IpAddress(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1))),
-        rcgen::SanType::DnsName("localhost".try_into().unwrap()),
-    ]);
-    let entity_cert = entity_param
-        .signed_by(&entity_key_pair, &ca_cert, &ca_key_pair)
-        .unwrap();
-
-    // let ca_dir = Path::new("./ca");
     let _ = fs::create_dir_all(ca_dir);
 
     let _ = fs::write(ca_dir.join(CA_CERT_NAME_PEM), ca_cert.pem());
     let _ = fs::write(ca_dir.join(CA_CERT_NAME_CRT), ca_cert.pem());
     let _ = fs::write(ca_dir.join(CA_KEY_NAME_PEM), ca_key_pair.serialize_pem());
-
-    let _ = fs::write(ca_dir.join(ENTITY_CERT_NAME_PEM), entity_cert.pem());
-    let _ = fs::write(
-        ca_dir.join(ENTITY_KEY_NAME_PEM),
-        entity_key_pair.serialize_pem(),
-    );
 }
 
 pub fn check_ca(ca_save_path: String) -> bool {
-    // let ca_dir = Path::new("./ca");
     let ca_dir = Path::new(ca_save_path.as_str());
-    let entity_cert = ca_dir.join(ENTITY_CERT_NAME_PEM);
-    let entity_key = ca_dir.join(ENTITY_KEY_NAME_PEM);
     let ca_cert_pem = ca_dir.join(CA_CERT_NAME_PEM);
     let ca_cert_crt = ca_dir.join(CA_CERT_NAME_CRT);
     let ca_key = ca_dir.join(CA_KEY_NAME_PEM);
 
-    if !entity_cert.exists()
-        || !entity_key.exists()
-        || !ca_cert_crt.exists()
-        || !ca_cert_pem.exists()
-        || !ca_key.exists()
-    {
+    if !ca_cert_crt.exists() || !ca_cert_pem.exists() || !ca_key.exists() {
         return false;
     }
     true
@@ -537,29 +483,28 @@ pub fn serve_proxy(
     let use_generated_certs = configs.certificates.get_use_generated_certs();
 
     let custom_cert_file_path = configs.certificates.get_cert_file();
-    let entity_cert = if use_generated_certs {
-        ca_dir.join(ENTITY_CERT_NAME_PEM)
+    let ca_cert_path = if use_generated_certs {
+        ca_dir.join(CA_CERT_NAME_PEM)
     } else if let Some(custom_cert_file_path) = custom_cert_file_path {
         custom_cert_file_path
     } else {
-        ca_dir.join(ENTITY_CERT_NAME_PEM)
+        ca_dir.join(CA_CERT_NAME_PEM)
     };
 
     let custom_key_file_path = configs.certificates.get_key_file();
-    let entity_key = if use_generated_certs {
-        ca_dir.join(ENTITY_KEY_NAME_PEM)
+    let ca_key_path = if use_generated_certs {
+        ca_dir.join(CA_KEY_NAME_PEM)
     } else if let Some(custom_key_file_path) = custom_key_file_path {
         custom_key_file_path
     } else {
-        ca_dir.join(ENTITY_KEY_NAME_PEM)
+        ca_dir.join(CA_KEY_NAME_PEM)
     };
 
-    let key_pair = fs::read_to_string(entity_key.clone()).expect_or_log("Failed to open file");
+    let key_pair_pem = fs::read_to_string(ca_key_path).expect_or_log("Failed to open CA key file");
+    let ca_cert_pem = fs::read_to_string(ca_cert_path).expect_or_log("Failed to open CA cert file");
 
-    let ca_cert = fs::read_to_string(entity_cert.clone()).expect_or_log("Failed to open file");
-
-    let key_pair = KeyPair::from_pem(&key_pair).expect_or_log("Failed to parse private key");
-    let ca_cert = CertificateParams::from_ca_cert_pem(&ca_cert)
+    let key_pair = KeyPair::from_pem(&key_pair_pem).expect_or_log("Failed to parse private key");
+    let ca_cert = CertificateParams::from_ca_cert_pem(&ca_cert_pem)
         .expect_or_log("Failed to parse CA certificate")
         .self_signed(&key_pair)
         .expect_or_log("Failed to sign CA certificate");

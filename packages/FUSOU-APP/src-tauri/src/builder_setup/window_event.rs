@@ -42,9 +42,9 @@ pub fn window_event_handler(window: &tauri::Window, event: &tauri::WindowEvent) 
                 if let Ok(mut size_before) = EXTERNAL_WINDOW_SIZE_BEFORE.lock() {
                     if size.width != size_before.width {
                         size_before.width = size.width;
-                        size_before.height = size.width * 712 / 1192;
+                        size_before.height = size.width * 720 / 1200;
                     } else {
-                        size_before.width = size.height * 1192 / 712;
+                        size_before.width = size.height * 1200 / 720;
                         size_before.height = size.height;
                     }
                 }

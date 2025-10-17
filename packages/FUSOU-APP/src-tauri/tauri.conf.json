@@ -43,7 +43,7 @@
   },
   "productName": "fusou",
   "mainBinaryName": "fusou",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "identifier": "fusou",
   "plugins": {
     "deep-link": {
@@ -67,10 +67,10 @@
       {
         "label": "main",
         "fullscreen": false,
-        "height": 640,
+        "height": 720,
         "resizable": true,
         "title": "fusou-app",
-        "width": 800,
+        "width": 1200,
         "visible": false,
         "useHttpsScheme": true
       }
