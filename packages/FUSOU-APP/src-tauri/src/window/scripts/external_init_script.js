@@ -1,69 +1,74 @@
-window.addEventListener("DOMContentLoaded", () => {
-  observer.observe(window.document.body, {
-    subtree: true,
-    childList: true,
-    attributes: true,
-    characterData: true,
+const GAME_FRAME_HEIGHT = 720;
+const GAME_FRAME_WIDTH = 1200;
+let oldUrl = "";
+let isInitialized = false;
+
+const adjustGameFrameScale = (
+  frame = document.getElementById("game_frame")
+) => {
+  if (!frame) return;
+  const scale = window.innerHeight / GAME_FRAME_HEIGHT;
+  frame.style.transform = `scale(${scale}, ${scale})`;
+};
+
+const applyLayout = () => {
+  const htmlElement = document.documentElement;
+  if (htmlElement) {
+    htmlElement.style.setProperty("overflow", "hidden", "important");
+  }
+
+  ["header", "footer", "aside"].forEach((tag) => {
+    const element = document.getElementsByTagName(tag)[0];
+    if (element) {
+      element.style.setProperty("display", "none", "important");
+    }
   });
 
-  let html_element = document.getElementsByTagName("html")[0];
-  if (html_element) html_element.setAttribute("style", "overflow: hidden;");
+  const gameFrame = document.getElementById("game_frame");
+  if (!gameFrame) return;
 
-  let dmm_ntgnavi = document.getElementsByClassName("dmm-ntgnavi")[0];
-  if (dmm_ntgnavi) dmm_ntgnavi.setAttribute("style", "display: none;");
+  gameFrame.style.position = "fixed";
+  gameFrame.style.margin = "0";
+  gameFrame.style.top = "0";
+  gameFrame.style.left = "0";
+  gameFrame.style.transformOrigin = "0 0";
+  gameFrame.style.width = `${GAME_FRAME_WIDTH}px`;
 
-  let foot = document.getElementById("foot");
-  if (foot) foot.setAttribute("style", "display: none;");
-
-  let ntg_recommend = document.getElementById("ntg-recommend");
-  if (ntg_recommend) ntg_recommend.setAttribute("style", "display: none;");
-
-  let area_naviapp = document.getElementsByClassName("area-naviapp")[0];
-  if (area_naviapp) area_naviapp.setAttribute("style", "display: none;");
-
-  let game_frame = document.getElementById("game_frame");
-  if (game_frame) {
-    game_frame.setAttribute(
-      "style",
-      "position: fixed; margin: 0; margin-right: auto; margin-left: auto; top: -24px; left: -8px; transform-origin: 8px 24px;"
-    );
-    game_frame.style.transform =
-      "scale(" +
-      window.innerHeight / 712 +
-      ", " +
-      window.innerHeight / 712 +
-      ")";
-  }
-});
-
-window.addEventListener("resize", () => {
-  let game_frame = document.getElementById("game_frame");
-  if (game_frame)
-    game_frame.style.transform =
-      "scale(" +
-      window.innerHeight / 712 +
-      ", " +
-      window.innerHeight / 712 +
-      ")";
-});
-
-// window.addEventListener("contextmenu", async (e) => {
-//     e.preventDefault();
-// });
-
-let oldUrl = "";
+  adjustGameFrameScale(gameFrame);
+};
 
 const observer = new MutationObserver(() => {
   if (oldUrl !== location.href) {
     window.dispatchEvent(new CustomEvent("urlChange"));
     oldUrl = location.href;
   }
+  applyLayout();
 });
 
-window.addEventListener("urlChange", () => {
-  console.log("URL changed", location.href);
-});
+const initialize = () => {
+  if (isInitialized || !document.body) return;
+  isInitialized = true;
+  oldUrl = location.href;
+  observer.observe(document.body, {
+    subtree: true,
+    childList: true,
+    attributes: true,
+    characterData: true,
+  });
+  applyLayout();
+};
 
+if (document.readyState === "loading") {
+  window.addEventListener("DOMContentLoaded", initialize);
+} else {
+  initialize();
+}
+
+window.addEventListener("load", initialize);
+window.addEventListener("resize", () => adjustGameFrameScale());
+window.addEventListener("urlChange", applyLayout);
+
+// ...existing code...
 window.addEventListener("keydown", function (event) {
   if (event.code === "F5") {
     window.location.reload();
