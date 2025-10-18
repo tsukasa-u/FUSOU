@@ -1,14 +1,15 @@
 ---
-import PageLayout from "../layouts/Layout.astro";
-import Navigation from "../components/Navigation.astro";
-import MyChart from "../components/solid/chartSample.tsx";
-import SidePage from "../components/solid/sidePage";
-import LoadDataComponent from "../components/solid/loadData";
-import { supabase } from "../lib/supabase";
-import PeriodFilter from "../components/PeriodFilter.astro";
+import PageLayout from "@/layouts/Layout.astro";
+import Navigation from "@/components/Navigation.astro";
+import MyChart from "@/components/solid/chartSample.tsx";
+import SidePage from "@/components/solid/sidePage";
+import LoadDataComponent from "@/components/solid/loadData";
+import { supabase } from "@/utility/supabase";
+import PeriodFilter from "@/components/PeriodFilter.astro";
 import { Icon } from "astro-icon/components";
-import VTable from "../components/react/vtable";
-import { ChartComponent } from "../components/react/chart";
+import VTable from "@/components/react/vtable";
+import { ChartComponent } from "@/components/react/chart";
+import type { AuthResponse } from "@supabase/supabase-js";
 
 let storedAccessToken = Astro.cookies.get("stored-sb-access-token");
 let storedRefreshToken = Astro.cookies.get("stored-sb-refresh-token");
@@ -47,11 +48,11 @@ const providerRefreshTokenList = (
   storedProviderRefreshToken?.json() as storedToken
 ).data;
 
-let validAccessTokenList = [];
-let validRefreshTokenList = [];
-let validProviderTokenList = [];
-let validProviderRefreshTokenList = [];
-let validSessionList = [];
+let validAccessTokenList: string[] = [];
+let validRefreshTokenList: string[] = [];
+let validProviderTokenList: string[] = [];
+let validProviderRefreshTokenList: string[] = [];
+let validSessionList: AuthResponse[] = [];
 
 const tokenListLength = accessTokenList.length;
 for (let i = 0; i < tokenListLength; i++) {

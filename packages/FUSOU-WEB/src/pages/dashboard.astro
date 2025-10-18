@@ -1,8 +1,9 @@
 ---
-import Layout from "../layouts/Layout.astro";
-import Navigation from "../components/Navigation.astro";
-import { supabase } from "../lib/supabase";
+import Layout from "@/layouts/Layout.astro";
+import Navigation from "@/components/Navigation.astro";
+import { supabase } from "@/utility/supabase";
 import { Icon } from "astro-icon/components";
+import type { AuthResponse } from "@supabase/supabase-js";
 
 const accessToken = Astro.cookies.get("sb-access-token");
 const refreshToken = Astro.cookies.get("sb-refresh-token");
@@ -12,26 +13,41 @@ const providerRefreshToken = Astro.cookies.get("sb-provider-refresh-token");
 let storedAccessToken = Astro.cookies.get("stored-sb-access-token");
 let storedRefreshToken = Astro.cookies.get("stored-sb-refresh-token");
 let storedProviderToken = Astro.cookies.get("stored-sb-provider-token");
-let storedProviderRefreshToken = Astro.cookies.get("stored-sb-provider-refresh-token");
+let storedProviderRefreshToken = Astro.cookies.get(
+  "stored-sb-provider-refresh-token"
+);
 
-if (!storedAccessToken || !storedRefreshToken || !storedProviderToken || !storedProviderRefreshToken) {
+if (
+  !storedAccessToken ||
+  !storedRefreshToken ||
+  !storedProviderToken ||
+  !storedProviderRefreshToken
+) {
   Astro.cookies.set("stored-sb-access-token", { data: [] }, { path: "/" });
   Astro.cookies.set("stored-sb-refresh-token", { data: [] }, { path: "/" });
   Astro.cookies.set("stored-sb-provider-token", { data: [] }, { path: "/" });
-  Astro.cookies.set("stored-sb-provider-refresh-token", { data: [] }, { path: "/" });
+  Astro.cookies.set(
+    "stored-sb-provider-refresh-token",
+    { data: [] },
+    { path: "/" }
+  );
   storedAccessToken = Astro.cookies.get("stored-sb-access-token");
   storedRefreshToken = Astro.cookies.get("stored-sb-refresh-token");
   storedProviderToken = Astro.cookies.get("stored-sb-provider-token");
-  storedProviderRefreshToken = Astro.cookies.get("stored-sb-provider-refresh-token");
+  storedProviderRefreshToken = Astro.cookies.get(
+    "stored-sb-provider-refresh-token"
+  );
 }
 
 type storedToken = { data: string[] };
 let accessTokenList = (storedAccessToken?.json() as storedToken).data;
 const refreshTokenList = (storedRefreshToken?.json() as storedToken).data;
 const providerTokenList = (storedProviderToken?.json() as storedToken).data;
-const providerRefreshTokenList = (storedProviderRefreshToken?.json() as storedToken).data;
+const providerRefreshTokenList = (
+  storedProviderRefreshToken?.json() as storedToken
+).data;
 
-let currentSession = null;
+let currentSession: AuthResponse | null = null;
 if (refreshToken && accessToken && providerToken && providerRefreshToken) {
   try {
     const session = await supabase.auth.setSession({
@@ -55,11 +71,11 @@ if (refreshToken && accessToken && providerToken && providerRefreshToken) {
   }
 }
 
-let validAccessTokenList = [];
-let validRefreshTokenList = [];
-let validProviderTokenList = [];
-let validProviderRefreshTokenList = [];
-let validSessionList = [];
+let validAccessTokenList: string[] = [];
+let validRefreshTokenList: string[] = [];
+let validProviderTokenList: string[] = [];
+let validProviderRefreshTokenList: string[] = [];
+let validSessionList: AuthResponse[] = [];
 
 const tokenListLength = accessTokenList.length;
 for (let i = 0; i < tokenListLength; i++) {
@@ -94,22 +110,50 @@ for (let i = 0; i < tokenListLength; i++) {
   }
 }
 
-if (currentSession && accessToken && refreshToken && providerToken && providerRefreshToken) {
+if (
+  currentSession &&
+  accessToken &&
+  refreshToken &&
+  providerToken &&
+  providerRefreshToken
+) {
   validSessionList.push(currentSession);
   validAccessTokenList.push(accessToken.value);
   validRefreshTokenList.push(refreshToken.value);
   validProviderTokenList.push(providerToken.value);
   validProviderRefreshTokenList.push(providerRefreshToken.value);
 } else {
-  if (validAccessTokenList.length == 0 || validRefreshTokenList.length == 0 || validSessionList.length == 0 || validProviderTokenList.length == 0 || validProviderRefreshTokenList.length == 0) {
+  if (
+    validAccessTokenList.length == 0 ||
+    validRefreshTokenList.length == 0 ||
+    validSessionList.length == 0 ||
+    validProviderTokenList.length == 0 ||
+    validProviderRefreshTokenList.length == 0
+  ) {
     return Astro.redirect("/signin");
   }
 }
 
-Astro.cookies.set("stored-sb-access-token", { data: validAccessTokenList }, { path: "/" });
-Astro.cookies.set("stored-sb-refresh-token", { data: validRefreshTokenList }, { path: "/" });
-Astro.cookies.set("stored-sb-provider-token", { data: validProviderTokenList }, { path: "/" });
-Astro.cookies.set("stored-sb-provider-refresh-token", { data: validProviderRefreshTokenList }, { path: "/" });
+Astro.cookies.set(
+  "stored-sb-access-token",
+  { data: validAccessTokenList },
+  { path: "/" }
+);
+Astro.cookies.set(
+  "stored-sb-refresh-token",
+  { data: validRefreshTokenList },
+  { path: "/" }
+);
+Astro.cookies.set(
+  "stored-sb-provider-token",
+  { data: validProviderTokenList },
+  { path: "/" }
+);
+Astro.cookies.set(
+  "stored-sb-provider-refresh-token",
+  { data: validProviderRefreshTokenList },
+  { path: "/" }
+);
 ---
 
 <Layout title="dashboard">
@@ -143,9 +187,15 @@ Astro.cookies.set("stored-sb-provider-refresh-token", { data: validProviderRefre
                     data-access-token={session?.data.session?.access_token}
                     data-refresh-token={session?.data.session?.refresh_token}
                     data-provider-token={validProviderTokenList[idx]}
-                    data-provider-refresh-token={validProviderRefreshTokenList[idx]}
-                    data-provider={session?.data.session?.user.app_metadata.provider}
-                    data-username={session?.data.session?.user.user_metadata.name}
+                    data-provider-refresh-token={
+                      validProviderRefreshTokenList[idx]
+                    }
+                    data-provider={
+                      session?.data.session?.user.app_metadata.provider
+                    }
+                    data-username={
+                      session?.data.session?.user.user_metadata.name
+                    }
                     data-email={session?.data.user?.email}
                     data-date={Date.now()}
                   />
@@ -188,7 +238,10 @@ Astro.cookies.set("stored-sb-provider-refresh-token", { data: validProviderRefre
 
 <script>
   import { createUniqueId } from "solid-js";
-  import { resetSession, setSession } from "../components/states/persistentSupabaseSessionAtom";
+  import {
+    resetSession,
+    setSession,
+  } from "../components/states/persistentSupabaseSessionAtom";
   resetSession();
 
   class AstroDataAccountInfo extends HTMLElement {
@@ -203,7 +256,17 @@ Astro.cookies.set("stored-sb-provider-refresh-token", { data: validProviderRefre
       const providerRefreshToken = this.dataset.providerRefreshToken!;
       const date = this.dataset.date!;
 
-      setSession({ id: createUniqueId(), accessToken, refreshToken, email, provider, username, providerToken, providerRefreshToken, date});
+      setSession({
+        id: createUniqueId(),
+        accessToken,
+        refreshToken,
+        email,
+        provider,
+        username,
+        providerToken,
+        providerRefreshToken,
+        date,
+      });
     }
   }
 
