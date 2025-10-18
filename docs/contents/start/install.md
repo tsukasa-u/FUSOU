@@ -3,38 +3,41 @@ title: Install FUSOU
 contributors: ["tsukasa-u"]
 description: >-
   FUSOU-APPをWindowsおよびLinux各ディストリビューションで導入するためのインストーラー選択指針、OSとアーキテクチャの判別方法、AppImage・deb・rpmそれぞれの具体的なインストール手順をまとめたガイド
-date: 2025-10-13
+date: 2025-10-17
 slug: start/install
 tags: [start, install]
 ---
 
 # Install FUSOU-APP
 
-このページではFUSOU-APPのインストローラーのダウンロード方法について説明します。
+このページでは FUSOU-APP のインストローラーのダウンロード方法について説明します。
 
-Linux向けには以下のパッケージ形式が提供されています:
+Windows 向けには`.msi`および`.exe`形式のインストーラーが提供されています。
 
-| パッケージ形式 (拡張子) | 対応ディストリビューション                            |
-| ----------------------- | ----------------------------------------------------- |
-| `.deb`                  | Debian, Ubuntu, Linux Mint, Pop!\_OS (Debian系)       |
-| `.rpm`                  | RHEL, Fedora, CentOS, openSUSE, AlmaLinux (Red Hat系) |
-| `.AppImage`             | ユニバーサル (ディストリビューション非依存)           |
+Linux 向けには以下のパッケージ形式が提供されています:
+
+| パッケージ形式 (拡張子) | 対応ディストリビューション                             |
+| ----------------------- | ------------------------------------------------------ |
+| `.deb`                  | Debian, Ubuntu, Linux Mint, Pop!\_OS (Debian 系)       |
+| `.rpm`                  | RHEL, Fedora, CentOS, openSUSE, AlmaLinux (Red Hat 系) |
+| `.AppImage`             | ユニバーサル (ディストリビューション非依存)            |
 
 どのパッケージ形式を選べば良いかわからない場合は、以下のディストリビューション、アーキテクチャの判別方法を参考にしてください。
 
-## 対応環境とOS・アーキテクチャの判別
+## 対応環境と OS・アーキテクチャの判別
 
 - Windows: Windows 10 以降 (64bit) x86_64 / arm64 に対応 (`.msi`, `.exe`)
 - Linux: x86_64 / arm64 に対応 (`.AppImage`, `.deb`, `.rpm`)
 
-### Windowsでの確認方法
+### Windows での確認方法
 
-```powershell
-# PowerShell
-Get-CimInstance Win32_OperatingSystem | Select-Object Caption, OSArchitecture, Version
+```cmd
+# コマンドプロンプト
+echo %PROCESSOR_ARCHITECTURE%
+# AMD64 (x86_64) OR ARM64
 ```
 
-### Linuxでの確認方法
+### Linux での確認方法
 
 ```bash
 # アーキテクチャ
@@ -46,7 +49,7 @@ $ grep ^NAME= /etc/os-release
 
 ## ダウンロードとインストール方法
 
-1. [FUSOU-APPのリリースページ](https://github.com/tsukasa-u/FUSOU/releases/latest) もしくは [ダウンロードページ](/download) にアクセスします。
+1. [FUSOU-APP のリリースページ](https://github.com/tsukasa-u/FUSOU/releases/latest) もしくは [ダウンロードページ](/download) にアクセスします。
 2. 最新のリリースを見つけて、適切なインストーラーをダウンロードします。
 3. ダウンロードしたファイルを実行して、インストールを完了させます。
 
@@ -77,7 +80,7 @@ $ grep ^NAME= /etc/os-release
    $./fusou-linux-<arch>.AppImage
    ```
 
-## Debian系 (Ubuntu 等) `.deb` パッケージ
+## Debian 系 (Ubuntu 等) `.deb` パッケージ
 
 ### `apt` を用いたインストール
 
@@ -115,7 +118,7 @@ $ grep ^NAME= /etc/os-release
    fusou
    ```
 
-## RPM系 (Fedora, CentOS 等) `.rpm` パッケージ
+## RPM 系 (Fedora, CentOS 等) `.rpm` パッケージ
 
 1. ダウンロードした `fusou-linux-<arch>.rpm` を実行します。
 2. DNF または Zypper を用いてインストールします。
