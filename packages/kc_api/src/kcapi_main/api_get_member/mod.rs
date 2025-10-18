@@ -1,4 +1,5 @@
 pub mod basic;
+pub mod chart_additional_info;
 pub mod deck;
 pub mod furniture;
 pub mod kdock;
