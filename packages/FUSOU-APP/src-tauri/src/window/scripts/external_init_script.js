@@ -1,73 +1,74 @@
-window.addEventListener("load", () => {
-  observer.observe(window.document.body, {
-    subtree: true,
-    childList: true,
-    attributes: true,
-    characterData: true,
+const GAME_FRAME_HEIGHT = 720;
+const GAME_FRAME_WIDTH = 1200;
+let oldUrl = "";
+let isInitialized = false;
+
+const adjustGameFrameScale = (
+  frame = document.getElementById("game_frame")
+) => {
+  if (!frame) return;
+  const scale = window.innerHeight / GAME_FRAME_HEIGHT;
+  frame.style.transform = `scale(${scale}, ${scale})`;
+};
+
+const applyLayout = () => {
+  const htmlElement = document.documentElement;
+  if (htmlElement) {
+    htmlElement.style.setProperty("overflow", "hidden", "important");
+  }
+
+  ["header", "footer", "aside"].forEach((tag) => {
+    const element = document.getElementsByTagName(tag)[0];
+    if (element) {
+      element.style.setProperty("display", "none", "important");
+    }
   });
 
-  let html_element = document.getElementsByTagName("html")[0];
-  if (html_element) html_element.setAttribute("style", "overflow: hidden;");
+  const gameFrame = document.getElementById("game_frame");
+  if (!gameFrame) return;
 
-  let header = document.getElementsByTagName("header")[0];
-  console.log("header:", header);
-  if (header) header.setAttribute("style", "display: none;");
+  gameFrame.style.position = "fixed";
+  gameFrame.style.margin = "0";
+  gameFrame.style.top = "0";
+  gameFrame.style.left = "0";
+  gameFrame.style.transformOrigin = "0 0";
+  gameFrame.style.width = `${GAME_FRAME_WIDTH}px`;
 
-  let footer = document.getElementsByTagName("footer")[0];
-  console.log("footer:", footer);
-  if (footer) footer.setAttribute("style", "display: none;");
-
-  let aside = document.getElementsByTagName("aside")[0];
-  console.log("aside:", aside);
-  if (aside) aside.setAttribute("style", "display: none;");
-
-  let game_frame = document.getElementById("game_frame");
-  const game_frame_height = 720;
-  const game_frame_width = 1200;
-  if (game_frame) {
-    game_frame.setAttribute(
-      "style",
-      `position: fixed; margin: 0px 0px; top: 0px; left: 0px; transform-origin: 0px 0px; transform: scale(1.12083, 1.12083); width: ${game_frame_width}px;`
-    );
-    game_frame.style.transform =
-      "scale(" +
-      window.innerHeight / game_frame_height +
-      ", " +
-      window.innerHeight / game_frame_height +
-      ")";
-  }
-});
-
-window.addEventListener("resize", () => {
-  let game_frame = document.getElementById("game_frame");
-  const game_frame_height = 720;
-  // const game_frame_width = 1200;
-  if (game_frame)
-    game_frame.style.transform =
-      "scale(" +
-      window.innerHeight / game_frame_height +
-      ", " +
-      window.innerHeight / game_frame_height +
-      ")";
-});
-
-// window.addEventListener("contextmenu", async (e) => {
-//     e.preventDefault();
-// });
-
-let oldUrl = "";
+  adjustGameFrameScale(gameFrame);
+};
 
 const observer = new MutationObserver(() => {
   if (oldUrl !== location.href) {
     window.dispatchEvent(new CustomEvent("urlChange"));
     oldUrl = location.href;
   }
+  applyLayout();
 });
 
-window.addEventListener("urlChange", () => {
-  console.log("URL changed", location.href);
-});
+const initialize = () => {
+  if (isInitialized || !document.body) return;
+  isInitialized = true;
+  oldUrl = location.href;
+  observer.observe(document.body, {
+    subtree: true,
+    childList: true,
+    attributes: true,
+    characterData: true,
+  });
+  applyLayout();
+};
 
+if (document.readyState === "loading") {
+  window.addEventListener("DOMContentLoaded", initialize);
+} else {
+  initialize();
+}
+
+window.addEventListener("load", initialize);
+window.addEventListener("resize", () => adjustGameFrameScale());
+window.addEventListener("urlChange", applyLayout);
+
+// ...existing code...
 window.addEventListener("keydown", function (event) {
   if (event.code === "F5") {
     window.location.reload();
