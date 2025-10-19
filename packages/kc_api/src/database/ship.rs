@@ -1,4 +1,5 @@
-use apache_avro::AvroSchema;
+use parquet_derive::ParquetRecordWriter;
+
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -20,7 +21,9 @@ pub type OwnShipId = Uuid;
 pub type EnemyShipId = Uuid;
 pub type FriendShipId = Uuid;
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
+#[derive(
+    Debug, Clone, Deserialize, Serialize, ParquetRecordWriter, TraitForEncode, TraitForDecode,
+)]
 pub struct OwnShip {
     pub env_uuid: EnvInfoId,
     pub uuid: OwnShipId,
@@ -104,7 +107,9 @@ impl OwnShip {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
+#[derive(
+    Debug, Clone, Deserialize, Serialize, ParquetRecordWriter, TraitForEncode, TraitForDecode,
+)]
 pub struct EnemyShip {
     pub env_uuid: EnvInfoId,
     pub uuid: EnemyShipId,
@@ -165,20 +170,25 @@ pub type FriendShipProps = (
     Option<Vec<i64>>, // 火力 雷装 対空 装甲
     Option<i64>,      // mst_id
 );
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
+#[derive(
+    Debug, Clone, Deserialize, Serialize, ParquetRecordWriter, TraitForEncode, TraitForDecode,
+)]
 pub struct FriendShip {
-    pub env_uuid: EnvInfoId,
-    pub uuid: FriendShipId,
+    /// UUID of EnvInfo.
+    pub env_uuid: Vec<u8>,
+    /// UUID of FriendShip.
+    pub uuid: Vec<u8>,
     pub mst_ship_id: Option<i64>,
-    pub lv: Option<i64>,                     // レベル
-    pub nowhp: Option<i64>,                  // 現在HP
-    pub maxhp: Option<i64>,                  // 最大HP
-    pub slot: Option<Vec<FriendSlotItemId>>, // 装備
-    pub slotnum: Option<i64>,                // 装備スロット数
-    pub karyoku: Option<i64>,                // 火力
-    pub raisou: Option<i64>,                 // 雷装
-    pub taiku: Option<i64>,                  // 対空
-    pub soukou: Option<i64>,                 // 装甲
+    pub lv: Option<i64>,    // レベル
+    pub nowhp: Option<i64>, // 現在HP
+    pub maxhp: Option<i64>, // 最大HP
+    /// UUID of FriendSlotItem. This UUID may be referenced multiple times.
+    pub slot: Option<Vec<u8>>, // 装備
+    pub slotnum: Option<i64>, // 装備スロット数
+    pub karyoku: Option<i64>, // 火力
+    pub raisou: Option<i64>, // 雷装
+    pub taiku: Option<i64>, // 対空
+    pub soukou: Option<i64>, // 装甲
 }
 
 impl FriendShip {

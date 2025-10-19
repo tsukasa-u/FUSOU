@@ -10,7 +10,8 @@ serde_qs = "0.14.0"
 register_trait = { path = "../rust_macro/register_trait" }
 chrono = "0.4.31"
 once_cell = "1.21.3"
-apache-avro = { version = "0.17.0", features = ["derive"] }
+parquet = "56.2.0"
+parquet_derive = "56.2.0"
 uuid = { version = "1.16.0", features = ["v4"] }
 ts-rs = "11.0.1"
 

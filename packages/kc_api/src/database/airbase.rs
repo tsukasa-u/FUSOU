@@ -1,4 +1,5 @@
-use apache_avro::AvroSchema;
+use parquet_derive::ParquetRecordWriter;
+
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -11,36 +12,47 @@ use crate::interface::slot_item::SlotItems;
 
 use register_trait::{TraitForDecode, TraitForEncode};
 
-pub type AirBaseId = Uuid;
-pub type PlaneInfoId = Uuid;
+pub type AirBaseId = Vec<u8>;
+pub type PlaneInfoId = Vec<u8>;
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
+#[derive(
+    Debug, Clone, Deserialize, Serialize, ParquetRecordWriter, TraitForEncode, TraitForDecode,
+)]
 pub struct AirBase {
-    pub env_uuid: EnvInfoId,
-    pub uuid: AirBaseId,
+    /// UUID of EnvInfo.
+    pub env_uuid: Vec<u8>,
+    /// UUID of AirBase.
+    pub uuid: Vec<u8>,
     pub action_kind: i64,
     pub distance: i64,
-    pub plane_info: Vec<PlaneInfoId>,
+    /// UUID of PlaneInfo. This UUID may be referenced multiple times.
+    pub plane_info_uuid: Vec<u8>,
+    pub idx: u64,
 }
 
 impl AirBase {
     pub fn new_ret_uuid(
         data: crate::interface::air_base::AirBase,
+        idx: u64,
         table: &mut PortTable,
         env_uuid: EnvInfoId,
     ) -> Uuid {
-        let new_uuid = Uuid::new_v4();
-        let new_plane_info = data
+        let new_uuid = Uuid::new_v4().to_vec();
+        let new_plane_info: Vec<u8> = data
             .plane_info
             .iter()
-            .filter_map(|plane_info| PlaneInfo::new_ret_uuid(plane_info.clone(), table, env_uuid))
+            .enumerate()
+            .filter_map(|(idx, plane_info)| {
+                PlaneInfo::new_ret_uuid(plane_info.clone(), idx, table, env_uuid)
+            })
             .collect();
         let new_air_base = AirBase {
-            env_uuid,
-            uuid: new_uuid,
+            env_uuid: env_uuid.as_bytes().to_vec(),
+            uuid: new_uuid.as_bytes().to_vec(),
             action_kind: data.action_kind,
             distance: data.distance,
-            plane_info: new_plane_info,
+            plane_info_uuid: new_plane_info,
+            idx,
         };
 
         table.airbase.push(new_air_base);
@@ -49,20 +61,28 @@ impl AirBase {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
+#[derive(
+    Debug, Clone, Deserialize, Serialize, ParquetRecordWriter, TraitForEncode, TraitForDecode,
+)]
 pub struct PlaneInfo {
-    pub env_uuid: EnvInfoId,
-    pub uuid: PlaneInfoId,
+    /// UUID of EnvInfo.
+    pub env_uuid: Vec<u8>,
+    /// UUID of PlaneInfo.
+    pub uuid: Vec<u8>,
     pub cond: Option<i64>,
     pub state: i64,
     pub max_count: Option<i64>,
     pub count: Option<i64>,
-    pub slotid: OwnSlotItemId,
+    /// UUID of OwnSlotItem.
+    pub slotid: Vec<u8>,
+    /// Index of PlaneInfo.
+    pub idx: u64,
 }
 
 impl PlaneInfo {
     pub fn new_ret_uuid(
         data: crate::interface::air_base::PlaneInfo,
+        idx: u64,
         table: &mut PortTable,
         env_uuid: EnvInfoId,
     ) -> Option<Uuid> {
@@ -70,16 +90,17 @@ impl PlaneInfo {
         let slot_item = slot_items.slot_items.get(&data.slotid)?;
 
         let new_uuid: Uuid = Uuid::new_v4();
-        let new_slot_item = OwnSlotItem::new_ret_uuid(slot_item.clone(), table, env_uuid);
+        let new_slot_item: Uuid = OwnSlotItem::new_ret_uuid(slot_item.clone(), table, env_uuid);
 
         let new_plane_info: PlaneInfo = PlaneInfo {
-            uuid: new_uuid,
-            env_uuid,
+            uuid: new_uuid.as_bytes().to_vec(),
+            env_uuid: env_uuid.as_bytes().to_vec(),
             cond: data.cond,
             state: data.state,
             max_count: data.max_count,
             count: data.count,
-            slotid: new_slot_item,
+            slotid: new_slot_item.as_bytes().to_vec(),
+            idx,
         };
 
         table.plane_info.push(new_plane_info);
