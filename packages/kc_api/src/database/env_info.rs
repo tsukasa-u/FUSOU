@@ -1,4 +1,4 @@
-use apache_avro::AvroSchema;
+use parquet_derive::ParquetRecordWriter;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -15,11 +15,13 @@ pub type EnvInfoProps = (
     i64, // timestamp
 );
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
+#[derive(
+    Debug, Clone, Deserialize, Serialize, ParquetRecordWriter, TraitForEncode, TraitForDecode,
+)]
 pub struct EnvInfo {
     pub version: String,
-    pub uuid: EnvInfoId,
-    pub user_env_unique: UserEnv,
+    pub uuid: Vec<u8>,
+    pub user_env_unique: String,
     pub timestamp: i64,
 }
 

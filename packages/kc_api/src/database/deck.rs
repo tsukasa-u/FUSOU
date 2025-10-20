@@ -1,4 +1,4 @@
-use apache_avro::AvroSchema;
+use parquet_derive::ParquetRecordWriter;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -22,11 +22,16 @@ pub type SupportDeckId = Uuid;
 pub type EnemyDeckId = Uuid;
 pub type FriendDeckId = Uuid;
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
+#[derive(
+    Debug, Clone, Deserialize, Serialize, ParquetRecordWriter, TraitForEncode, TraitForDecode,
+)]
 pub struct OwnDeck {
-    pub env_uuid: EnvInfoId,
-    pub uuid: OwnDeckId,
-    pub ship_ids: Vec<Option<OwnShipId>>,
+    /// UUID of EnvInfo.
+    pub env_uuid: Vec<u8>,
+    /// UUID of OwnDeck.
+    pub uuid: Vec<u8>,
+    /// UUID of OwnShip. This UUID may be referenced multiple times.
+    pub ship_ids: Vec<u8>,
     pub combined_flag: Option<i64>,
 }
 
@@ -64,11 +69,16 @@ impl OwnDeck {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
+#[derive(
+    Debug, Clone, Deserialize, Serialize, ParquetRecordWriter, TraitForEncode, TraitForDecode,
+)]
 pub struct SupportDeck {
-    pub env_uuid: EnvInfoId,
-    pub uuid: SupportDeckId,
-    pub ship_ids: Vec<Option<OwnShipId>>,
+    /// UUID of EnvInfo.
+    pub env_uuid: Vec<u8>,
+    /// UUID of SupportDeck.
+    pub uuid: Vec<u8>,
+    /// UUID of OwnShip. This UUID may be referenced multiple times.
+    pub ship_ids: Vec<u8>,
 }
 
 impl SupportDeck {
@@ -104,11 +114,16 @@ impl SupportDeck {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
+#[derive(
+    Debug, Clone, Deserialize, Serialize, ParquetRecordWriter, TraitForEncode, TraitForDecode,
+)]
 pub struct EnemyDeck {
-    pub env_uuid: EnvInfoId,
-    pub uuid: EnemyDeckId,
-    pub ship_ids: Vec<EnemyShipId>,
+    /// UUID of EnvInfo.
+    pub env_uuid: Vec<u8>,
+    /// UUID of EnemyDeck.
+    pub uuid: Vec<u8>,
+    /// UUID of EnemyShip. This UUID may be referenced multiple times.
+    pub ship_ids: Vec<u8>,
 }
 
 impl EnemyDeck {
@@ -152,11 +167,16 @@ impl EnemyDeck {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
+#[derive(
+    Debug, Clone, Deserialize, Serialize, ParquetRecordWriter, TraitForEncode, TraitForDecode,
+)]
 pub struct FriendDeck {
-    pub env_uuid: EnvInfoId,
-    pub uuid: FriendDeckId,
-    pub ship_ids: Vec<FriendShipId>,
+    /// UUID of EnvInfo.
+    pub env_uuid: Vec<u8>,
+    /// UUID of FriendDeck.
+    pub uuid: Vec<u8>,
+    /// UUID of FriendShip. This UUID may be referenced multiple times.
+    pub ship_ids: Vec<u8>,
 }
 
 impl FriendDeck {

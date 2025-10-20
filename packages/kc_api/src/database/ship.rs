@@ -3,13 +3,9 @@ use parquet_derive::ParquetRecordWriter;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::database::env_info::EnvInfoId;
 use crate::database::slotitem::EnemySlotItem;
-use crate::database::slotitem::EnemySlotItemId;
 use crate::database::slotitem::FriendSlotItem;
-use crate::database::slotitem::FriendSlotItemId;
 use crate::database::slotitem::OwnSlotItem;
-use crate::database::slotitem::OwnSlotItemId;
 use crate::database::table::PortTable;
 
 use crate::interface::ship::Ships;
@@ -25,34 +21,39 @@ pub type FriendShipId = Uuid;
     Debug, Clone, Deserialize, Serialize, ParquetRecordWriter, TraitForEncode, TraitForDecode,
 )]
 pub struct OwnShip {
-    pub env_uuid: EnvInfoId,
-    pub uuid: OwnShipId,
+    /// UUID of EnvInfo.
+    pub env_uuid: Vec<u8>,
+    /// UUID of OwnShip.
+    pub uuid: Vec<u8>,
     pub ship_id: Option<i64>,
-    pub lv: Option<i64>,                          // レベル
-    pub nowhp: Option<i64>,                       // 現在HP
-    pub maxhp: Option<i64>,                       // 最大HP
-    pub soku: Option<i64>,                        // 速力
-    pub leng: Option<i64>,                        // 射程
-    pub slot: Option<Vec<Option<OwnSlotItemId>>>, // 装備
-    pub onsolot: Option<Vec<i64>>,                // 艦載機搭載数
-    pub slot_ex: Option<i64>,                     // 補強増設
-    pub fuel: Option<i64>,                        // 燃料
-    pub bull: Option<i64>,                        // 弾薬
-    pub cond: Option<i64>,                        // 疲労度
-    pub karyoku: Option<Vec<i64>>,                // 火力
-    pub raisou: Option<Vec<i64>>,                 // 雷装
-    pub taiku: Option<Vec<i64>>,                  // 対空
-    pub soukou: Option<Vec<i64>>,                 // 装甲
-    pub kaihi: Option<Vec<i64>>,                  // 回避
-    pub taisen: Option<Vec<i64>>,                 // 対潜
-    pub sakuteki: Option<Vec<i64>>,               // 索敵
-    pub lucky: Option<Vec<i64>>,                  // 運
+    pub lv: Option<i64>,    // レベル
+    pub nowhp: Option<i64>, // 現在HP
+    pub maxhp: Option<i64>, // 最大HP
+    pub soku: Option<i64>,  // 速力
+    pub leng: Option<i64>,  // 射程
+    /// UUID of OwnSlotItem. This UUID may be referenced multiple times.
+    pub slot: Option<Vec<u8>>,
+    /// This is not UUID                        // 装備
+    pub onsolot: Option<Vec<u8>>, // 艦載機搭載数
+    pub slot_ex: Option<i64>,  // 補強増設
+    pub fuel: Option<i64>,     // 燃料
+    pub bull: Option<i64>,     // 弾薬
+    pub cond: Option<i64>,     // 疲労度
+    pub karyoku: Option<i64>,  // 火力
+    pub raisou: Option<i64>,   // 雷装
+    pub taiku: Option<i64>,    // 対空
+    pub soukou: Option<i64>,   // 装甲
+    pub kaihi: Option<i64>,    // 回避
+    pub taisen: Option<i64>,   // 対潜
+    pub sakuteki: Option<i64>, // 索敵
+    pub lucky: Option<i64>,    // 運
     pub sally_area: Option<i64>,
-    pub sp_effect_items: Option<Vec<i64>>,
+    /// This is not UUID
+    pub sp_effect_items: Option<Vec<u8>>,
 }
 
 impl OwnShip {
-    pub fn new_ret_uuid(data: i64, table: &mut PortTable, env_uuid: EnvInfoId) -> Option<Uuid> {
+    pub fn new_ret_uuid(data: i64, table: &mut PortTable, env_uuid: Vec<u8>) -> Option<Uuid> {
         let new_uuid: Uuid = Uuid::new_v4();
 
         let ships = Ships::load();
@@ -111,17 +112,20 @@ impl OwnShip {
     Debug, Clone, Deserialize, Serialize, ParquetRecordWriter, TraitForEncode, TraitForDecode,
 )]
 pub struct EnemyShip {
-    pub env_uuid: EnvInfoId,
-    pub uuid: EnemyShipId,
+    /// UUID of EnvInfo.
+    pub env_uuid: Vec<u8>,
+    /// UUID of EnemyShip.
+    pub uuid: Vec<u8>,
     pub mst_ship_id: Option<i64>,
-    pub lv: Option<i64>,                    // レベル
-    pub nowhp: Option<i64>,                 // 現在HP
-    pub maxhp: Option<i64>,                 // 最大HP
-    pub slot: Option<Vec<EnemySlotItemId>>, // 装備
-    pub karyoku: Option<i64>,               // 火力
-    pub raisou: Option<i64>,                // 雷装
-    pub taiku: Option<i64>,                 // 対空
-    pub soukou: Option<i64>,                // 装甲
+    pub lv: Option<i64>,    // レベル
+    pub nowhp: Option<i64>, // 現在HP
+    pub maxhp: Option<i64>, // 最大HP
+    /// UUID of EnemySlotItem. This UUID may be referenced multiple times.
+    pub slot: Option<Vec<u8>>, // 装備
+    pub karyoku: Option<i64>, // 火力
+    pub raisou: Option<i64>, // 雷装
+    pub taiku: Option<i64>, // 対空
+    pub soukou: Option<i64>, // 装甲
 }
 
 pub type EnemyShipProps = (
@@ -133,7 +137,7 @@ pub type EnemyShipProps = (
     Option<i64>,      // mst_id
 );
 impl EnemyShip {
-    pub fn new_ret_uuid(data: EnemyShipProps, table: &mut PortTable, env_uuid: EnvInfoId) -> Uuid {
+    pub fn new_ret_uuid(data: EnemyShipProps, table: &mut PortTable, env_uuid: Vec<u8>) -> Uuid {
         let new_uuid: Uuid = Uuid::new_v4();
 
         let new_slot = data.3.clone().map(|slot| {
@@ -192,7 +196,7 @@ pub struct FriendShip {
 }
 
 impl FriendShip {
-    pub fn new_ret_uuid(data: FriendShipProps, table: &mut PortTable, env_uuid: EnvInfoId) -> Uuid {
+    pub fn new_ret_uuid(data: FriendShipProps, table: &mut PortTable, env_uuid: Vec<u8>) -> Uuid {
         let new_uuid: Uuid = Uuid::new_v4();
 
         let new_slot = data.3.clone().map(|slot| {

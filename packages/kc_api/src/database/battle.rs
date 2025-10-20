@@ -1,4 +1,4 @@
-use apache_avro::AvroSchema;
+use parquet_derive::ParquetRecordWriter;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -40,7 +40,9 @@ pub type FriendlySupportHouraiId = Uuid;
 pub type SupportAirattackId = Uuid;
 pub type FriendlySupportHouraiListId = Uuid;
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
+#[derive(
+    Debug, Clone, Deserialize, Serialize, ParquetRecordWriter, TraitForEncode, TraitForDecode,
+)]
 pub struct HougekiList {
     pub env_uuid: EnvInfoId,
     pub uuid: HougekiListId,
@@ -83,7 +85,9 @@ impl HougekiList {
     // }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
+#[derive(
+    Debug, Clone, Deserialize, Serialize, ParquetRecordWriter, TraitForEncode, TraitForDecode,
+)]
 pub struct Hougeki {
     pub env_uuid: EnvInfoId,
     pub uuid: HougekiId,
@@ -142,7 +146,9 @@ impl Hougeki {
     // }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
+#[derive(
+    Debug, Clone, Deserialize, Serialize, ParquetRecordWriter, TraitForEncode, TraitForDecode,
+)]
 pub struct MidnightHougekiList {
     pub env_uuid: EnvInfoId,
     pub uuid: MidnightHougekiListId,
@@ -188,7 +194,9 @@ impl MidnightHougekiList {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
+#[derive(
+    Debug, Clone, Deserialize, Serialize, ParquetRecordWriter, TraitForEncode, TraitForDecode,
+)]
 pub struct MidnightHougeki {
     pub env_uuid: EnvInfoId,
     pub uuid: MidnightHougekiId,
@@ -247,7 +255,9 @@ impl MidnightHougeki {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
+#[derive(
+    Debug, Clone, Deserialize, Serialize, ParquetRecordWriter, TraitForEncode, TraitForDecode,
+)]
 pub struct OpeningTaisenList {
     pub env_uuid: EnvInfoId,
     pub uuid: OpeningTaisenListId,
@@ -275,7 +285,9 @@ impl OpeningTaisenList {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
+#[derive(
+    Debug, Clone, Deserialize, Serialize, ParquetRecordWriter, TraitForEncode, TraitForDecode,
+)]
 pub struct OpeningTaisen {
     pub env_uuid: EnvInfoId,
     pub uuid: OpeningTaisenId,
@@ -327,7 +339,9 @@ impl OpeningTaisen {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
+#[derive(
+    Debug, Clone, Deserialize, Serialize, ParquetRecordWriter, TraitForEncode, TraitForDecode,
+)]
 pub struct ClosingRaigeki {
     pub env_uuid: EnvInfoId,
     pub uuid: ClosingRaigekiId,
@@ -372,7 +386,9 @@ impl ClosingRaigeki {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
+#[derive(
+    Debug, Clone, Deserialize, Serialize, ParquetRecordWriter, TraitForEncode, TraitForDecode,
+)]
 pub struct OpeningRaigeki {
     pub env_uuid: EnvInfoId,
     pub uuid: OpeningRaigekiId,
@@ -417,7 +433,9 @@ impl OpeningRaigeki {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
+#[derive(
+    Debug, Clone, Deserialize, Serialize, ParquetRecordWriter, TraitForEncode, TraitForDecode,
+)]
 pub struct OpeningAirAttackList {
     pub env_uuid: EnvInfoId,
     pub uuid: OpeningAirAttackListId,
@@ -455,7 +473,9 @@ impl OpeningAirAttackList {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
+#[derive(
+    Debug, Clone, Deserialize, Serialize, ParquetRecordWriter, TraitForEncode, TraitForDecode,
+)]
 pub struct OpeningAirAttack {
     pub env_uuid: EnvInfoId,
     pub uuid: OpeningAirAttackId,
@@ -526,7 +546,9 @@ impl OpeningAirAttack {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
+#[derive(
+    Debug, Clone, Deserialize, Serialize, ParquetRecordWriter, TraitForEncode, TraitForDecode,
+)]
 pub struct AirBaseAirAttackList {
     pub env_uuid: EnvInfoId,
     pub uuid: AirBaseAirAttackListId,
@@ -561,7 +583,9 @@ impl AirBaseAirAttackList {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
+#[derive(
+    Debug, Clone, Deserialize, Serialize, ParquetRecordWriter, TraitForEncode, TraitForDecode,
+)]
 pub struct AirBaseAirAttack {
     pub env_uuid: EnvInfoId,
     pub uuid: AirBaseAirAttackId,
@@ -634,7 +658,9 @@ impl AirBaseAirAttack {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
+#[derive(
+    Debug, Clone, Deserialize, Serialize, ParquetRecordWriter, TraitForEncode, TraitForDecode,
+)]
 pub struct AirBaseAssult {
     pub env_uuid: EnvInfoId,
     pub uuid: AirBaseAssultId,
@@ -701,7 +727,9 @@ impl AirBaseAssult {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
+#[derive(
+    Debug, Clone, Deserialize, Serialize, ParquetRecordWriter, TraitForEncode, TraitForDecode,
+)]
 pub struct CarrierBaseAssault {
     pub env_uuid: EnvInfoId,
     pub uuid: CarrierBaseAssaultId,
@@ -766,7 +794,9 @@ impl CarrierBaseAssault {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
+#[derive(
+    Debug, Clone, Deserialize, Serialize, ParquetRecordWriter, TraitForEncode, TraitForDecode,
+)]
 pub struct SupportHourai {
     pub env_uuid: EnvInfoId,
     pub uuid: SupportHouraiId,
@@ -840,7 +870,9 @@ impl SupportHourai {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
+#[derive(
+    Debug, Clone, Deserialize, Serialize, ParquetRecordWriter, TraitForEncode, TraitForDecode,
+)]
 pub struct SupportAirattack {
     pub env_uuid: EnvInfoId,
     pub uuid: SupportAirattackId,
@@ -932,7 +964,9 @@ impl SupportAirattack {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
+#[derive(
+    Debug, Clone, Deserialize, Serialize, ParquetRecordWriter, TraitForEncode, TraitForDecode,
+)]
 pub struct FriendlySupportHouraiList {
     pub env_uuid: EnvInfoId,
     pub uuid: FriendlySupportHouraiListId,
@@ -980,7 +1014,9 @@ impl FriendlySupportHouraiList {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
+#[derive(
+    Debug, Clone, Deserialize, Serialize, ParquetRecordWriter, TraitForEncode, TraitForDecode,
+)]
 pub struct FriendlySupportHourai {
     pub env_uuid: EnvInfoId,
     pub uuid: FriendlySupportHouraiId,
@@ -1039,7 +1075,9 @@ impl FriendlySupportHourai {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
+#[derive(
+    Debug, Clone, Deserialize, Serialize, ParquetRecordWriter, TraitForEncode, TraitForDecode,
+)]
 pub struct Battle {
     pub env_uuid: EnvInfoId,
     pub uuid: BattleId,

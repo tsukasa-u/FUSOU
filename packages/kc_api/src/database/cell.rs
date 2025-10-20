@@ -1,4 +1,4 @@
-use apache_avro::AvroSchema;
+use parquet_derive::ParquetRecordWriter;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -11,7 +11,9 @@ use register_trait::{TraitForDecode, TraitForEncode};
 
 pub type CellsId = Uuid;
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
+#[derive(
+    Debug, Clone, Deserialize, Serialize, ParquetRecordWriter, TraitForEncode, TraitForDecode,
+)]
 pub struct Cells {
     pub env_uuid: EnvInfoId,
     pub uuid: CellsId,
