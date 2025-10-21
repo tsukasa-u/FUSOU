@@ -722,10 +722,8 @@ impl TraitForConvert for Res {
 
 #[cfg(test)]
 mod tests {
-    use register_trait::simple_root_check_number_size;
-    use register_trait::simple_root_test;
-    // use crate::util::type_of;
     use dotenvy::dotenv;
+    use register_trait::{simple_root_check_number_size, simple_root_test};
 
     use super::*;
     #[test]

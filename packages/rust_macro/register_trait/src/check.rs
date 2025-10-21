@@ -1,5 +1,4 @@
 use core::panic;
-use std::collections::hash_map;
 use std::collections::HashMap;
 
 use crate::EnumNumberSize;
@@ -13,10 +12,14 @@ use std::io::Write;
 use std::path;
 use std::path::PathBuf;
 
+#[cfg(test)]
+use std::collections::hash_map;
+
 impl<T> NumberSizeChecker for Vec<T>
 where
     T: NumberSizeChecker,
 {
+    #[cfg(test)]
     fn check_number(&self, log_map: &mut LogMapNumberSize, key: Option<(String, String, String)>) {
         for v in self {
             v.check_number(log_map, key.clone());
@@ -28,6 +31,7 @@ impl<T> NumberSizeChecker for Option<T>
 where
     T: NumberSizeChecker,
 {
+    #[cfg(test)]
     fn check_number(&self, log_map: &mut LogMapNumberSize, key: Option<(String, String, String)>) {
         if let Some(v) = self {
             v.check_number(log_map, key.clone())
@@ -40,6 +44,7 @@ where
     T: NumberSizeChecker,
     U: NumberSizeChecker,
 {
+    #[cfg(test)]
     fn check_number(&self, log_map: &mut LogMapNumberSize, key: Option<(String, String, String)>) {
         for (k, v) in self {
             v.check_number(log_map, key.clone());
@@ -57,10 +62,12 @@ where
 }
 
 impl NumberSizeChecker for Value {
+    #[cfg(test)]
     fn check_number(&self, _: &mut LogMapNumberSize, _: Option<(String, String, String)>) {}
 }
 
 impl NumberSizeChecker for i8 {
+    #[cfg(test)]
     fn check_number(&self, log_map: &mut LogMapNumberSize, key: Option<(String, String, String)>) {
         if let Some(key) = key {
             let bit_size = (0usize..7)
@@ -83,7 +90,9 @@ impl NumberSizeChecker for i8 {
         }
     }
 }
+
 impl NumberSizeChecker for i16 {
+    #[cfg(test)]
     fn check_number(&self, log_map: &mut LogMapNumberSize, key: Option<(String, String, String)>) {
         if let Some(key) = key {
             let bit_size = (0usize..15)
@@ -106,7 +115,9 @@ impl NumberSizeChecker for i16 {
         }
     }
 }
+
 impl NumberSizeChecker for i32 {
+    #[cfg(test)]
     fn check_number(&self, log_map: &mut LogMapNumberSize, key: Option<(String, String, String)>) {
         if let Some(key) = key {
             let bit_size = (0usize..31)
@@ -129,7 +140,9 @@ impl NumberSizeChecker for i32 {
         }
     }
 }
+
 impl NumberSizeChecker for i64 {
+    #[cfg(test)]
     fn check_number(&self, log_map: &mut LogMapNumberSize, key: Option<(String, String, String)>) {
         if let Some(key) = key {
             let bit_size = (0usize..64)
@@ -147,13 +160,16 @@ impl NumberSizeChecker for i64 {
         }
     }
 }
+
 impl NumberSizeChecker for i128 {
+    #[cfg(test)]
     fn check_number(&self, _: &mut LogMapNumberSize, _: Option<(String, String, String)>) {
         println!("not implemented");
     }
 }
 
 impl NumberSizeChecker for u8 {
+    #[cfg(test)]
     fn check_number(&self, log_map: &mut LogMapNumberSize, key: Option<(String, String, String)>) {
         if let Some(key) = key {
             let bit_size = (0usize..8)
@@ -175,7 +191,9 @@ impl NumberSizeChecker for u8 {
         }
     }
 }
+
 impl NumberSizeChecker for u16 {
+    #[cfg(test)]
     fn check_number(&self, log_map: &mut LogMapNumberSize, key: Option<(String, String, String)>) {
         if let Some(key) = key {
             let bit_size = (0usize..16)
@@ -197,7 +215,9 @@ impl NumberSizeChecker for u16 {
         }
     }
 }
+
 impl NumberSizeChecker for u32 {
+    #[cfg(test)]
     fn check_number(&self, log_map: &mut LogMapNumberSize, key: Option<(String, String, String)>) {
         if let Some(key) = key {
             let bit_size = (0usize..32)
@@ -219,7 +239,9 @@ impl NumberSizeChecker for u32 {
         }
     }
 }
+
 impl NumberSizeChecker for u64 {
+    #[cfg(test)]
     fn check_number(&self, log_map: &mut LogMapNumberSize, key: Option<(String, String, String)>) {
         if let Some(key) = key {
             let bit_size = (0usize..64)
@@ -243,6 +265,7 @@ impl NumberSizeChecker for u64 {
 }
 
 impl NumberSizeChecker for u128 {
+    #[cfg(test)]
     fn check_number(&self, _: &mut LogMapNumberSize, _: Option<(String, String, String)>) {
         println!("not implemented");
     }
