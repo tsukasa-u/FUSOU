@@ -15,13 +15,16 @@ pub type CellsId = Uuid;
     Debug, Clone, Deserialize, Serialize, ParquetRecordWriter, TraitForEncode, TraitForDecode,
 )]
 pub struct Cells {
-    pub env_uuid: EnvInfoId,
-    pub uuid: CellsId,
+    /// UUID of EnvInfo.
+    pub env_uuid: Vec<u8>,
+    /// UUID of Cells.
+    pub uuid: Vec<u8>,
     pub maparea_id: i64,
     pub mapinfo_no: i64,
-    pub cell_index: Vec<i64>,
-    pub battle_index: Vec<i64>,
-    pub battles: Vec<Option<BattleId>>,
+    pub cell_index: Vec<u8>,
+    pub battle_index: Vec<u8>,
+    /// UUIDs of Battles. These UUIDs may be referenced multiple times.
+    pub battles: Vec<u8>,
 }
 
 impl Cells {

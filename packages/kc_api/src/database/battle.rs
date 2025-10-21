@@ -44,9 +44,12 @@ pub type FriendlySupportHouraiListId = Uuid;
     Debug, Clone, Deserialize, Serialize, ParquetRecordWriter, TraitForEncode, TraitForDecode,
 )]
 pub struct HougekiList {
-    pub env_uuid: EnvInfoId,
-    pub uuid: HougekiListId,
-    pub hougeki: Vec<Vec<HougekiId>>,
+    /// UUID of EnvInfo.
+    pub env_uuid: Vec<u8>,
+    /// UUID of HougekiList.
+    pub uuid: Vec<u8>,
+    /// UUIDs of Hougeki. These UUIDs may be referenced multiple times.
+    pub hougeki: Vec<u8>,
 }
 
 impl HougekiList {
@@ -89,18 +92,21 @@ impl HougekiList {
     Debug, Clone, Deserialize, Serialize, ParquetRecordWriter, TraitForEncode, TraitForDecode,
 )]
 pub struct Hougeki {
-    pub env_uuid: EnvInfoId,
-    pub uuid: HougekiId,
-    pub at: i64,
-    pub at_type: i64,
-    pub df: Vec<i64>,
-    pub cl: Vec<i64>,
-    pub damage: Vec<i64>,
-    pub at_eflag: i64,
-    pub si: Vec<Option<i64>>,
-    pub protect_flag: Vec<bool>,
-    pub f_now_hps: Vec<i64>,
-    pub e_now_hps: Vec<i64>,
+    /// UUID of EnvInfo.
+    pub env_uuid: Vec<u8>,
+    /// UUID of Hougeki.
+    pub uuid: Vec<u8>,
+    pub at: u8,
+    pub at_type: u8,
+    pub df: u8,
+    pub cl: u8,
+    pub damage: u32,
+    pub at_eflag: u8,
+    /// UUIDs of MstSlotItem. These UUIDs may be referenced multiple times.
+    pub si: Vec<u8>,
+    pub protect_flag: u8,
+    pub f_now_hps: u32,
+    pub e_now_hps: u32,
 }
 
 impl Hougeki {
@@ -150,7 +156,7 @@ impl Hougeki {
     Debug, Clone, Deserialize, Serialize, ParquetRecordWriter, TraitForEncode, TraitForDecode,
 )]
 pub struct MidnightHougekiList {
-    pub env_uuid: EnvInfoId,
+    pub env_uuid: Vec<u8>,
     pub uuid: MidnightHougekiListId,
     pub f_flare_pos: Option<i64>,
     pub f_touch_plane: Option<i64>,
@@ -198,7 +204,7 @@ impl MidnightHougekiList {
     Debug, Clone, Deserialize, Serialize, ParquetRecordWriter, TraitForEncode, TraitForDecode,
 )]
 pub struct MidnightHougeki {
-    pub env_uuid: EnvInfoId,
+    pub env_uuid: Vec<u8>,
     pub uuid: MidnightHougekiId,
     pub at: Option<i64>,
     pub df: Option<Vec<i64>>,
@@ -259,7 +265,7 @@ impl MidnightHougeki {
     Debug, Clone, Deserialize, Serialize, ParquetRecordWriter, TraitForEncode, TraitForDecode,
 )]
 pub struct OpeningTaisenList {
-    pub env_uuid: EnvInfoId,
+    pub env_uuid: Vec<u8>,
     pub uuid: OpeningTaisenListId,
     pub opening_taisen: Vec<OpeningTaisenId>,
 }
@@ -289,7 +295,7 @@ impl OpeningTaisenList {
     Debug, Clone, Deserialize, Serialize, ParquetRecordWriter, TraitForEncode, TraitForDecode,
 )]
 pub struct OpeningTaisen {
-    pub env_uuid: EnvInfoId,
+    pub env_uuid: Vec<u8>,
     pub uuid: OpeningTaisenId,
     pub at: i64,
     pub at_type: i64,
@@ -343,7 +349,7 @@ impl OpeningTaisen {
     Debug, Clone, Deserialize, Serialize, ParquetRecordWriter, TraitForEncode, TraitForDecode,
 )]
 pub struct ClosingRaigeki {
-    pub env_uuid: EnvInfoId,
+    pub env_uuid: Vec<u8>,
     pub uuid: ClosingRaigekiId,
     pub f_dam: Vec<i64>,
     pub e_dam: Vec<i64>,
@@ -390,7 +396,7 @@ impl ClosingRaigeki {
     Debug, Clone, Deserialize, Serialize, ParquetRecordWriter, TraitForEncode, TraitForDecode,
 )]
 pub struct OpeningRaigeki {
-    pub env_uuid: EnvInfoId,
+    pub env_uuid: Vec<u8>,
     pub uuid: OpeningRaigekiId,
     pub f_dam: Vec<i64>,
     pub e_dam: Vec<i64>,
@@ -437,7 +443,7 @@ impl OpeningRaigeki {
     Debug, Clone, Deserialize, Serialize, ParquetRecordWriter, TraitForEncode, TraitForDecode,
 )]
 pub struct OpeningAirAttackList {
-    pub env_uuid: EnvInfoId,
+    pub env_uuid: Vec<u8>,
     pub uuid: OpeningAirAttackListId,
     pub opening_air_attack: Vec<OpeningAirAttackId>,
 }
@@ -477,7 +483,7 @@ impl OpeningAirAttackList {
     Debug, Clone, Deserialize, Serialize, ParquetRecordWriter, TraitForEncode, TraitForDecode,
 )]
 pub struct OpeningAirAttack {
-    pub env_uuid: EnvInfoId,
+    pub env_uuid: Vec<u8>,
     pub uuid: OpeningAirAttackId,
     pub f_plane_from: Option<Vec<i64>>,
     pub f_touch_plane: Option<i64>,
@@ -550,7 +556,7 @@ impl OpeningAirAttack {
     Debug, Clone, Deserialize, Serialize, ParquetRecordWriter, TraitForEncode, TraitForDecode,
 )]
 pub struct AirBaseAirAttackList {
-    pub env_uuid: EnvInfoId,
+    pub env_uuid: Vec<u8>,
     pub uuid: AirBaseAirAttackListId,
     pub air_base_air_attack: Vec<AirBaseAirAttackId>,
 }
@@ -587,7 +593,7 @@ impl AirBaseAirAttackList {
     Debug, Clone, Deserialize, Serialize, ParquetRecordWriter, TraitForEncode, TraitForDecode,
 )]
 pub struct AirBaseAirAttack {
-    pub env_uuid: EnvInfoId,
+    pub env_uuid: Vec<u8>,
     pub uuid: AirBaseAirAttackId,
     pub f_plane_from: Option<Vec<i64>>,
     pub f_touch_plane: Option<i64>,
@@ -662,7 +668,7 @@ impl AirBaseAirAttack {
     Debug, Clone, Deserialize, Serialize, ParquetRecordWriter, TraitForEncode, TraitForDecode,
 )]
 pub struct AirBaseAssult {
-    pub env_uuid: EnvInfoId,
+    pub env_uuid: Vec<u8>,
     pub uuid: AirBaseAssultId,
     pub squadron_plane: Vec<i64>,
     pub f_plane_from: Option<Vec<i64>>,
@@ -731,7 +737,7 @@ impl AirBaseAssult {
     Debug, Clone, Deserialize, Serialize, ParquetRecordWriter, TraitForEncode, TraitForDecode,
 )]
 pub struct CarrierBaseAssault {
-    pub env_uuid: EnvInfoId,
+    pub env_uuid: Vec<u8>,
     pub uuid: CarrierBaseAssaultId,
     pub f_plane_from: Option<Vec<i64>>,
     pub f_touch_plane: Option<i64>,
@@ -798,7 +804,7 @@ impl CarrierBaseAssault {
     Debug, Clone, Deserialize, Serialize, ParquetRecordWriter, TraitForEncode, TraitForDecode,
 )]
 pub struct SupportHourai {
-    pub env_uuid: EnvInfoId,
+    pub env_uuid: Vec<u8>,
     pub uuid: SupportHouraiId,
     pub f_cl: Vec<i64>,
     pub f_damage: Vec<i64>,
@@ -874,7 +880,7 @@ impl SupportHourai {
     Debug, Clone, Deserialize, Serialize, ParquetRecordWriter, TraitForEncode, TraitForDecode,
 )]
 pub struct SupportAirattack {
-    pub env_uuid: EnvInfoId,
+    pub env_uuid: Vec<u8>,
     pub uuid: SupportAirattackId,
     pub f_plane_from: Option<Vec<i64>>,
     pub f_touch_plane: Option<i64>,
@@ -968,7 +974,7 @@ impl SupportAirattack {
     Debug, Clone, Deserialize, Serialize, ParquetRecordWriter, TraitForEncode, TraitForDecode,
 )]
 pub struct FriendlySupportHouraiList {
-    pub env_uuid: EnvInfoId,
+    pub env_uuid: Vec<u8>,
     pub uuid: FriendlySupportHouraiListId,
     pub f_flare_pos: Option<i64>,
     pub e_flare_pos: Option<i64>,
@@ -1018,7 +1024,7 @@ impl FriendlySupportHouraiList {
     Debug, Clone, Deserialize, Serialize, ParquetRecordWriter, TraitForEncode, TraitForDecode,
 )]
 pub struct FriendlySupportHourai {
-    pub env_uuid: EnvInfoId,
+    pub env_uuid: Vec<u8>,
     pub uuid: FriendlySupportHouraiId,
     pub at: Option<i64>,
     pub df: Option<Vec<i64>>,
@@ -1079,7 +1085,7 @@ impl FriendlySupportHourai {
     Debug, Clone, Deserialize, Serialize, ParquetRecordWriter, TraitForEncode, TraitForDecode,
 )]
 pub struct Battle {
-    pub env_uuid: EnvInfoId,
+    pub env_uuid: Vec<u8>,
     pub uuid: BattleId,
     pub battle_order: Vec<i64>,
     pub timestamp: Option<i64>,

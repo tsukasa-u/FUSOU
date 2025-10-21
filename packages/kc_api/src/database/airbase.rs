@@ -5,7 +5,6 @@ use uuid::Uuid;
 
 use crate::database::env_info::EnvInfoId;
 use crate::database::slotitem::OwnSlotItem;
-use crate::database::slotitem::OwnSlotItemId;
 use crate::database::table::PortTable;
 
 use crate::interface::slot_item::SlotItems;
