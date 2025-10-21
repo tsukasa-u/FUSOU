@@ -1,3 +1,4 @@
+use core::panic;
 use std::collections::hash_map;
 use std::collections::HashMap;
 
@@ -269,28 +270,58 @@ fn write_log_check_number_size(log_path: String, log_map: &LogMapNumberSize) -> 
         "struct_name / field_name / type_name: min, max, bit_size, size",
     )
     .expect(&format!("\x1b[38;5;{}m cannot write.\x1b[m ", 8));
+
+    let mut invalid_count = 0;
     for ((struct_name, field_name, type_name), log) in log_map.iter() {
-        let size_name = match log[3] {
-            x if x == EnumNumberSize::U8 as i64 => "u8",
-            x if x == EnumNumberSize::U16 as i64 => "u16",
-            x if x == EnumNumberSize::U32 as i64 => "u32",
-            x if x == EnumNumberSize::U64 as i64 => "u64",
-            x if x == EnumNumberSize::I8 as i64 => "i8",
-            x if x == EnumNumberSize::I16 as i64 => "i16",
-            x if x == EnumNumberSize::I32 as i64 => "i32",
-            x if x == EnumNumberSize::I64 as i64 => "i64",
-            _ => "unknown",
+        let bit_size = log[2];
+        let abs_size = log[3];
+        let min_num = log[0];
+        let unmatch_sign_flag = bit_size % 2 == 0 && min_num < 0;
+        let unmatch_range_flag = match abs_size {
+            x if x == EnumNumberSize::U8 as i64 => bit_size > 8,
+            x if x == EnumNumberSize::U16 as i64 => bit_size > 16 || bit_size <= 8,
+            x if x == EnumNumberSize::U32 as i64 => bit_size > 32 || bit_size <= 16,
+            x if x == EnumNumberSize::U64 as i64 => bit_size > 64 || bit_size <= 32,
+            x if x == EnumNumberSize::I8 as i64 => bit_size > 7,
+            x if x == EnumNumberSize::I16 as i64 => bit_size > 15 || bit_size <= 7,
+            x if x == EnumNumberSize::I32 as i64 => bit_size > 31 || bit_size <= 15,
+            x if x == EnumNumberSize::I64 as i64 => bit_size > 63 || bit_size <= 31,
+            _ => panic!("unknown size. not implemented"),
         };
-        writeln!(
-            file,
-            "{} / {} / {}: {}, {}, {}, {}, {}",
-            struct_name, field_name, type_name, log[0], log[1], log[2], log[3], size_name
-        )
-        .expect(&format!("\x1b[38;5;{}m cannot write.\x1b[m ", 8));
+
+        if unmatch_range_flag || unmatch_sign_flag {
+            invalid_count += 1;
+            let size_name = match log[3] {
+                x if x == EnumNumberSize::U8 as i64 => "u8",
+                x if x == EnumNumberSize::U16 as i64 => "u16",
+                x if x == EnumNumberSize::U32 as i64 => "u32",
+                x if x == EnumNumberSize::U64 as i64 => "u64",
+                x if x == EnumNumberSize::I8 as i64 => "i8",
+                x if x == EnumNumberSize::I16 as i64 => "i16",
+                x if x == EnumNumberSize::I32 as i64 => "i32",
+                x if x == EnumNumberSize::I64 as i64 => "i64",
+                _ => "unknown",
+            };
+            if unmatch_sign_flag {
+                writeln!(
+                    file,
+                    "{} / {} / {}: {}, {}, {}, {}  <-- sign mismatch",
+                    struct_name, field_name, type_name, log[0], log[1], log[2], size_name
+                )
+                .expect(&format!("\x1b[38;5;{}m cannot write.\x1b[m ", 8));
+            } else {
+                writeln!(
+                    file,
+                    "{} / {} / {}: {}, {}, {}, {}  <-- range mismatch",
+                    struct_name, field_name, type_name, log[0], log[1], log[2], size_name
+                )
+                .expect(&format!("\x1b[38;5;{}m cannot write.\x1b[m ", 8));
+            }
+        }
     }
     // file.write_all(format!("{:#?}", log_map).as_bytes())
     //     .expect(&format!("\x1b[38;5;{}m cannot write.\x1b[m ", 8));
-    return log_map.len();
+    return invalid_count;
 }
 
 pub fn simple_root_check_number_size<T>(target_path: String, pattren_str: String, log_path: String)
@@ -318,5 +349,10 @@ where
 {
     let log_map: LogMapNumberSize = T::check_number_size(file_list);
 
-    write_log_check_number_size(log_path.clone(), &log_map);
+    if write_log_check_number_size(log_path.clone(), &log_map) > 0 {
+        println!(
+            "\x1b[38;5;{}m some warnings are exist. check the log file({})\x1b[m ",
+            11, log_path
+        );
+    }
 }

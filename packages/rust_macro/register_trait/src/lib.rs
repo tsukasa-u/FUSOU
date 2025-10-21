@@ -63,16 +63,16 @@ pub trait TraitForTest {
 pub type LogMapType = HashMap<(String, String, String), Vec<String>>;
 pub type LogMapNumberSize = HashMap<(String, String, String), Vec<i64>>;
 pub enum EnumNumberSize {
-    U8,
-    U16,
-    U32,
-    U64,
-    U128,
-    I8,
-    I16,
-    I32,
-    I64,
-    I128,
+    U8 = 8,
+    U16 = 16,
+    U32 = 32,
+    U64 = 64,
+    U128 = 128,
+    I8 = 7,
+    I16 = 15,
+    I32 = 31,
+    I64 = 63,
+    I128 = 127,
 }
 
 pub trait TraitForRoot {
