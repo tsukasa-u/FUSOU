@@ -62,6 +62,18 @@ pub trait TraitForTest {
 
 pub type LogMapType = HashMap<(String, String, String), Vec<String>>;
 pub type LogMapNumberSize = HashMap<(String, String, String), Vec<i64>>;
+pub enum EnumNumberSize {
+    U8,
+    U16,
+    U32,
+    U64,
+    U128,
+    I8,
+    I16,
+    I32,
+    I64,
+    I128,
+}
 
 pub trait TraitForRoot {
     fn test_deserialize<I>(_: I) -> LogMapType

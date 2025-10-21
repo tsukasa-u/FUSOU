@@ -1,6 +1,7 @@
 use std::collections::hash_map;
 use std::collections::HashMap;
 
+use crate::EnumNumberSize;
 use crate::LogMapNumberSize;
 use crate::NumberSizeChecker;
 use crate::TraitForRoot;
@@ -66,7 +67,12 @@ impl NumberSizeChecker for i8 {
                 .unwrap_or(0) as i64
                 + 1i64;
             if let hash_map::Entry::Vacant(e) = log_map.entry(key.clone()) {
-                e.insert(vec![*self as i64, *self as i64, bit_size]);
+                e.insert(vec![
+                    *self as i64,
+                    *self as i64,
+                    bit_size,
+                    EnumNumberSize::I8 as i64,
+                ]);
             } else {
                 let value = log_map.get_mut(&key).unwrap();
                 value[0] = value[0].min(*self as i64);
@@ -84,7 +90,12 @@ impl NumberSizeChecker for i16 {
                 .unwrap_or(0) as i64
                 + 1i64;
             if let hash_map::Entry::Vacant(e) = log_map.entry(key.clone()) {
-                e.insert(vec![*self as i64, *self as i64, bit_size]);
+                e.insert(vec![
+                    *self as i64,
+                    *self as i64,
+                    bit_size,
+                    EnumNumberSize::I16 as i64,
+                ]);
             } else {
                 let value = log_map.get_mut(&key).unwrap();
                 value[0] = value[0].min(*self as i64);
@@ -102,7 +113,12 @@ impl NumberSizeChecker for i32 {
                 .unwrap_or(0) as i64
                 + 1i64;
             if let hash_map::Entry::Vacant(e) = log_map.entry(key.clone()) {
-                e.insert(vec![*self as i64, *self as i64, bit_size]);
+                e.insert(vec![
+                    *self as i64,
+                    *self as i64,
+                    bit_size,
+                    EnumNumberSize::I32 as i64,
+                ]);
             } else {
                 let value = log_map.get_mut(&key).unwrap();
                 value[0] = value[0].min(*self as i64);
@@ -120,7 +136,7 @@ impl NumberSizeChecker for i64 {
                 .unwrap_or(0) as i64
                 + 1i64;
             if let hash_map::Entry::Vacant(e) = log_map.entry(key.clone()) {
-                e.insert(vec![*self, *self, bit_size]);
+                e.insert(vec![*self, *self, bit_size, EnumNumberSize::I64 as i64]);
             } else {
                 let value = log_map.get_mut(&key).unwrap();
                 value[0] = value[0].min(*self);
@@ -143,7 +159,12 @@ impl NumberSizeChecker for u8 {
                 .rposition(|x| (*self & (1u8 << x)) != 0)
                 .unwrap_or(0) as i64;
             if let hash_map::Entry::Vacant(e) = log_map.entry(key.clone()) {
-                e.insert(vec![*self as i64, *self as i64, bit_size]);
+                e.insert(vec![
+                    *self as i64,
+                    *self as i64,
+                    bit_size,
+                    EnumNumberSize::U8 as i64,
+                ]);
             } else {
                 let value = log_map.get_mut(&key).unwrap();
                 value[0] = value[0].min(*self as i64);
@@ -160,7 +181,12 @@ impl NumberSizeChecker for u16 {
                 .rposition(|x| (*self & (1u16 << x)) != 0)
                 .unwrap_or(0) as i64;
             if let hash_map::Entry::Vacant(e) = log_map.entry(key.clone()) {
-                e.insert(vec![*self as i64, *self as i64, bit_size]);
+                e.insert(vec![
+                    *self as i64,
+                    *self as i64,
+                    bit_size,
+                    EnumNumberSize::U16 as i64,
+                ]);
             } else {
                 let value = log_map.get_mut(&key).unwrap();
                 value[0] = value[0].min(*self as i64);
@@ -177,7 +203,12 @@ impl NumberSizeChecker for u32 {
                 .rposition(|x| (*self & (1u32 << x)) != 0)
                 .unwrap_or(0) as i64;
             if let hash_map::Entry::Vacant(e) = log_map.entry(key.clone()) {
-                e.insert(vec![*self as i64, *self as i64, bit_size]);
+                e.insert(vec![
+                    *self as i64,
+                    *self as i64,
+                    bit_size,
+                    EnumNumberSize::U32 as i64,
+                ]);
             } else {
                 let value = log_map.get_mut(&key).unwrap();
                 value[0] = value[0].min(*self as i64);
@@ -194,7 +225,12 @@ impl NumberSizeChecker for u64 {
                 .rposition(|x| (*self & (1u64 << x)) != 0)
                 .unwrap_or(0) as i64;
             if let hash_map::Entry::Vacant(e) = log_map.entry(key.clone()) {
-                e.insert(vec![*self as i64, *self as i64, bit_size]);
+                e.insert(vec![
+                    *self as i64,
+                    *self as i64,
+                    bit_size,
+                    EnumNumberSize::U64 as i64,
+                ]);
             } else {
                 let value = log_map.get_mut(&key).unwrap();
                 value[0] = value[0].min(*self as i64);
@@ -228,16 +264,32 @@ fn write_log_check_number_size(log_path: String, log_map: &LogMapNumberSize) -> 
     let local: chrono::DateTime<chrono::Local> = chrono::Local::now();
     writeln!(file, "check number size result [{}]", local)
         .expect(&format!("\x1b[38;5;{}m cannot write.\x1b[m ", 8));
-    // file.write_all(format!("{:#?}", log_map).as_bytes())
-    //     .expect(&format!("\x1b[38;5;{}m cannot write.\x1b[m ", 8));
+    writeln!(
+        file,
+        "struct_name / field_name / type_name: min, max, bit_size, size",
+    )
+    .expect(&format!("\x1b[38;5;{}m cannot write.\x1b[m ", 8));
     for ((struct_name, field_name, type_name), log) in log_map.iter() {
+        let size_name = match log[3] {
+            x if x == EnumNumberSize::U8 as i64 => "u8",
+            x if x == EnumNumberSize::U16 as i64 => "u16",
+            x if x == EnumNumberSize::U32 as i64 => "u32",
+            x if x == EnumNumberSize::U64 as i64 => "u64",
+            x if x == EnumNumberSize::I8 as i64 => "i8",
+            x if x == EnumNumberSize::I16 as i64 => "i16",
+            x if x == EnumNumberSize::I32 as i64 => "i32",
+            x if x == EnumNumberSize::I64 as i64 => "i64",
+            _ => "unknown",
+        };
         writeln!(
             file,
-            "{} / {} / {}: {:#?}",
-            struct_name, field_name, type_name, log
+            "{} / {} / {}: {}, {}, {}, {}, {}",
+            struct_name, field_name, type_name, log[0], log[1], log[2], log[3], size_name
         )
         .expect(&format!("\x1b[38;5;{}m cannot write.\x1b[m ", 8));
     }
+    // file.write_all(format!("{:#?}", log_map).as_bytes())
+    //     .expect(&format!("\x1b[38;5;{}m cannot write.\x1b[m ", 8));
     return log_map.len();
 }
 
@@ -245,7 +297,6 @@ pub fn simple_root_check_number_size<T>(target_path: String, pattren_str: String
 where
     T: TraitForRoot + NumberSizeChecker,
 {
-    // let target_path = "./src/kc2api/test_data";
     let target = path::PathBuf::from(target_path);
     let files = target
         .read_dir()
