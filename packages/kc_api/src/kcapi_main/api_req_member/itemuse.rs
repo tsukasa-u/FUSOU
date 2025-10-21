@@ -9,14 +9,14 @@ use serde::Deserialize;
 use register_trait::add_field;
 use register_trait::register_struct;
 
-use register_trait::Getter;
+use register_trait::NumberSizeChecker;
 use register_trait::TraitForConvert;
 use register_trait::TraitForRoot;
 use register_trait::TraitForTest;
 
 use crate::interface::interface::EmitData;
 
-#[derive(Getter, TraitForTest, TraitForRoot, TraitForConvert)]
+#[derive(NumberSizeChecker, TraitForTest, TraitForRoot, TraitForConvert)]
 #[convert_output(output = EmitData)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
@@ -35,7 +35,7 @@ pub struct Req {
     pub api_exchange_type: String,
 }
 
-#[derive(Getter, TraitForTest, TraitForRoot, TraitForConvert)]
+#[derive(NumberSizeChecker, TraitForTest, TraitForRoot, TraitForConvert)]
 #[convert_output(output = EmitData)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
@@ -51,7 +51,7 @@ pub struct Res {
     pub api_data: ApiData,
 }
 
-#[derive(Getter, TraitForTest)]
+#[derive(NumberSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
@@ -67,7 +67,7 @@ pub struct ApiData {
     pub api_material: Option<Vec<i64>>,
 }
 
-#[derive(Getter, TraitForTest)]
+#[derive(NumberSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
@@ -83,7 +83,7 @@ pub struct ApiGetitem {
     pub api_slotitem: Option<ApiSlotitem>,
 }
 
-#[derive(Getter, TraitForTest)]
+#[derive(NumberSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]

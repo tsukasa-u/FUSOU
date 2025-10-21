@@ -10,7 +10,7 @@ mod generate_convert;
 mod generate_decode;
 mod generate_emitdata;
 mod generate_encode;
-mod generate_getter;
+mod generate_number_size_checker;
 mod generate_test_root;
 mod generate_test_struct;
 mod register_struct;
@@ -56,10 +56,10 @@ pub fn add_field(attr: TokenStream, item: TokenStream) -> TokenStream {
     }
 }
 
-#[proc_macro_derive(Getter)]
-pub fn generate_getter(item: TokenStream) -> TokenStream {
+#[proc_macro_derive(NumberSizeChecker)]
+pub fn generate_number_size_checker(item: TokenStream) -> TokenStream {
     let mut ast = syn::parse_macro_input!(item as DeriveInput);
-    let result = generate_getter::generate_getter(&mut ast);
+    let result = generate_number_size_checker::generate_number_size_checker(&mut ast);
     match result {
         Ok(generated) => generated,
         Err(err) => err.to_compile_error().into(),

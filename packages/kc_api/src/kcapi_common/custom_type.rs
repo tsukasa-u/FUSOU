@@ -1,4 +1,4 @@
-use register_trait::{Getter, LogMapNumberSize, TraitForTest};
+use register_trait::{LogMapNumberSize, NumberSizeChecker, TraitForTest};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -19,10 +19,10 @@ where
     }
 }
 
-impl<S, T> Getter for DuoType<S, T>
+impl<S, T> NumberSizeChecker for DuoType<S, T>
 where
-    S: Getter,
-    T: Getter,
+    S: NumberSizeChecker,
+    T: NumberSizeChecker,
 {
     fn check_number(&self, log_map: &mut LogMapNumberSize, key: Option<(String, String, String)>) {
         match self {

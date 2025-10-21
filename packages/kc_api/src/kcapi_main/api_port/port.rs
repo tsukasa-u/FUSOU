@@ -10,7 +10,7 @@ use std::collections::HashMap;
 
 use register_trait::{add_field, register_struct};
 
-use register_trait::{Getter, TraitForConvert, TraitForRoot, TraitForTest};
+use register_trait::{NumberSizeChecker, TraitForConvert, TraitForRoot, TraitForTest};
 
 use crate::interface::deck_port::DeckPorts;
 use crate::interface::interface::{EmitData, Identifier, Set};
@@ -19,7 +19,7 @@ use crate::interface::material::Materials;
 use crate::interface::n_dock::NDocks;
 use crate::interface::ship::Ships;
 
-#[derive(Getter, TraitForTest, TraitForRoot, TraitForConvert)]
+#[derive(NumberSizeChecker, TraitForTest, TraitForRoot, TraitForConvert)]
 #[convert_output(output = EmitData)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
@@ -38,7 +38,7 @@ pub struct Req {
     pub api_sort_order: String,
 }
 
-#[derive(Getter, TraitForTest, TraitForRoot)]
+#[derive(NumberSizeChecker, TraitForTest, TraitForRoot)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[register_struct(name = "api_port/port")]
@@ -53,7 +53,7 @@ pub struct Res {
     pub api_data: ApiData,
 }
 
-#[derive(Getter, TraitForTest)]
+#[derive(NumberSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
@@ -91,7 +91,7 @@ pub struct ApiData {
     pub api_plane_info: Option<ApiPlaneInfo>,
 }
 
-#[derive(Getter, TraitForTest)]
+#[derive(NumberSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
@@ -103,7 +103,7 @@ pub struct ApiPlaneInfo {
     pub api_unset_slot: Option<Vec<ApiUnsetSlot>>,
 }
 
-#[derive(Getter, TraitForTest)]
+#[derive(NumberSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
@@ -115,7 +115,7 @@ pub struct ApiUnsetSlot {
     api_slot_list: Vec<i64>,
 }
 
-#[derive(Getter, TraitForTest)]
+#[derive(NumberSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
@@ -127,7 +127,7 @@ pub struct ApiFriendlySetting {
     api_request_type: i64,
 }
 
-#[derive(Getter, TraitForTest)]
+#[derive(NumberSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
@@ -141,7 +141,7 @@ pub struct ApiEventObject {
     pub api_m_flag2: Option<i64>,
 }
 
-#[derive(Getter, TraitForTest)]
+#[derive(NumberSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
@@ -155,7 +155,7 @@ pub struct ApiMaterial {
     pub api_value: i64,
 }
 
-#[derive(Getter, TraitForTest)]
+#[derive(NumberSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
@@ -177,7 +177,7 @@ pub struct ApiDeckPort {
     pub api_ship: Vec<i64>,
 }
 
-#[derive(Getter, TraitForTest)]
+#[derive(NumberSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
@@ -205,7 +205,7 @@ pub struct ApiNdock {
     pub api_item4: i64,
 }
 
-#[derive(Getter, TraitForTest)]
+#[derive(NumberSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
@@ -279,7 +279,7 @@ pub struct ApiShip {
     pub api_sp_effect_items: Option<Vec<ApiSpEffectItem>>,
 }
 
-#[derive(Getter, TraitForTest)]
+#[derive(NumberSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
@@ -297,7 +297,7 @@ pub struct ApiSpEffectItem {
     pub api_kaih: Option<i64>,
 }
 
-#[derive(Getter, TraitForTest)]
+#[derive(NumberSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
@@ -373,7 +373,7 @@ pub struct ApiBasic {
     pub api_large_dock: i64,
 }
 
-#[derive(Getter, TraitForTest)]
+#[derive(NumberSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
@@ -389,7 +389,7 @@ pub struct ApiLog {
     pub api_message: String,
 }
 
-#[derive(Getter, TraitForTest)]
+#[derive(NumberSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
@@ -422,8 +422,8 @@ impl TraitForConvert for Res {
 
 #[cfg(test)]
 mod tests {
-    use register_trait::simple_root_test;
     use dotenvy::dotenv;
+    use register_trait::simple_root_test;
 
     use super::*;
     #[test]

@@ -8,7 +8,7 @@ use serde::Deserialize;
 
 use register_trait::{add_field, register_struct};
 
-use register_trait::{Getter, TraitForConvert, TraitForRoot, TraitForTest};
+use register_trait::{NumberSizeChecker, TraitForConvert, TraitForRoot, TraitForTest};
 
 use crate::interface::cells::Cells;
 use crate::interface::interface::{EmitData, Identifier, Set};
@@ -20,7 +20,7 @@ use crate::kcapi_common::common_map::ApiEventmap;
 use crate::kcapi_common::common_map::ApiHappening;
 use crate::kcapi_common::common_map::ApiSelectRoute;
 
-#[derive(Getter, TraitForTest, TraitForRoot, TraitForConvert)]
+#[derive(NumberSizeChecker, TraitForTest, TraitForRoot, TraitForConvert)]
 #[convert_output(output = EmitData)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
@@ -41,7 +41,7 @@ pub struct Req {
     pub api_maparea_id: String,
 }
 
-#[derive(Getter, TraitForTest, TraitForRoot)]
+#[derive(NumberSizeChecker, TraitForTest, TraitForRoot)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[register_struct(name = "api_req_map/start")]
@@ -56,7 +56,7 @@ pub struct Res {
     pub api_data: ApiData,
 }
 
-#[derive(Getter, TraitForTest)]
+#[derive(NumberSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
@@ -106,7 +106,7 @@ pub struct ApiData {
     pub api_happening: Option<ApiHappening>,
 }
 
-#[derive(Getter, TraitForTest)]
+#[derive(NumberSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
@@ -124,7 +124,7 @@ pub struct ApiItemget {
     pub api_icon_id: i64,
 }
 
-#[derive(Getter, TraitForTest)]
+#[derive(NumberSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]

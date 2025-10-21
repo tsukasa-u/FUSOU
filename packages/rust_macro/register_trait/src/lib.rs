@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-pub use register_macro_derive_and_attr::Getter;
+pub use register_macro_derive_and_attr::NumberSizeChecker;
 pub use register_macro_derive_and_attr::TraitForConvert;
 pub use register_macro_derive_and_attr::TraitForDecode;
 pub use register_macro_derive_and_attr::TraitForEmitData;
@@ -81,7 +81,7 @@ pub trait TraitForConvert {
     }
 }
 
-pub trait Getter {
+pub trait NumberSizeChecker {
     fn check_number(&self, _: &mut LogMapNumberSize, _: Option<(String, String, String)>) {}
 }
 

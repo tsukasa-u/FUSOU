@@ -10,14 +10,14 @@ use std::collections::HashMap;
 use register_trait::add_field;
 use register_trait::register_struct;
 
-use register_trait::Getter;
+use register_trait::NumberSizeChecker;
 use register_trait::TraitForConvert;
 use register_trait::TraitForRoot;
 use register_trait::TraitForTest;
 
 use crate::interface::interface::EmitData;
 
-#[derive(Getter, TraitForTest, TraitForRoot, TraitForConvert)]
+#[derive(NumberSizeChecker, TraitForTest, TraitForRoot, TraitForConvert)]
 #[convert_output(output = EmitData)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
@@ -36,7 +36,7 @@ pub struct Req {
     pub api_sort_order: String,
 }
 
-#[derive(Getter, TraitForTest, TraitForRoot, TraitForConvert)]
+#[derive(NumberSizeChecker, TraitForTest, TraitForRoot, TraitForConvert)]
 #[convert_output(output = EmitData)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
@@ -52,7 +52,7 @@ pub struct Res {
     pub api_data: ApiData,
 }
 
-#[derive(Getter, TraitForTest)]
+#[derive(NumberSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
@@ -66,7 +66,7 @@ pub struct ApiData {
     pub api_slot_data: HashMap<String, Vec<i64>>,
 }
 
-#[derive(Getter, TraitForTest)]
+#[derive(NumberSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
@@ -140,7 +140,7 @@ pub struct ApiShipData {
     pub api_sp_effect_items: Option<Vec<ApiSpEffectItems>>,
 }
 
-#[derive(Getter, TraitForTest)]
+#[derive(NumberSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
@@ -158,7 +158,7 @@ pub struct ApiSpEffectItems {
     pub api_kaih: Option<i64>,
 }
 
-#[derive(Getter, TraitForTest)]
+#[derive(NumberSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]

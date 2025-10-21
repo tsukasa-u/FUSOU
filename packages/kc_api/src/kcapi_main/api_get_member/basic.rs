@@ -10,11 +10,11 @@ use serde_json::Value;
 use register_trait::add_field;
 use register_trait::register_struct;
 
-use register_trait::{Getter, TraitForConvert, TraitForRoot, TraitForTest};
+use register_trait::{NumberSizeChecker, TraitForConvert, TraitForRoot, TraitForTest};
 
 use crate::interface::interface::EmitData;
 
-#[derive(Getter, TraitForTest, TraitForRoot, TraitForConvert)]
+#[derive(NumberSizeChecker, TraitForTest, TraitForRoot, TraitForConvert)]
 #[convert_output(output = EmitData)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
@@ -27,7 +27,7 @@ pub struct Req {
     pub api_verno: String,
 }
 
-#[derive(Getter, TraitForTest, TraitForRoot, TraitForConvert)]
+#[derive(NumberSizeChecker, TraitForTest, TraitForRoot, TraitForConvert)]
 #[convert_output(output = EmitData)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
@@ -43,7 +43,7 @@ pub struct Res {
     pub api_data: ApiData,
 }
 
-#[derive(Getter, TraitForTest)]
+#[derive(NumberSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]

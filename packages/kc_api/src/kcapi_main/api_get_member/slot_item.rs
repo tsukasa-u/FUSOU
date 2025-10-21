@@ -8,12 +8,12 @@ use serde::Deserialize;
 
 use register_trait::{add_field, register_struct};
 
-use register_trait::{Getter, TraitForConvert, TraitForRoot, TraitForTest};
+use register_trait::{NumberSizeChecker, TraitForConvert, TraitForRoot, TraitForTest};
 
 use crate::interface::interface::{EmitData, Set};
 use crate::interface::slot_item::SlotItems;
 
-#[derive(Getter, TraitForTest, TraitForRoot, TraitForConvert)]
+#[derive(NumberSizeChecker, TraitForTest, TraitForRoot, TraitForConvert)]
 #[convert_output(output = EmitData)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
@@ -26,7 +26,7 @@ pub struct Req {
     pub api_verno: String,
 }
 
-#[derive(Getter, TraitForTest, TraitForRoot)]
+#[derive(NumberSizeChecker, TraitForTest, TraitForRoot)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[register_struct(name = "api_get_member/slot_item")]
@@ -41,7 +41,7 @@ pub struct Res {
     pub api_data: Vec<ApiData>,
 }
 
-#[derive(Getter, TraitForTest)]
+#[derive(NumberSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]

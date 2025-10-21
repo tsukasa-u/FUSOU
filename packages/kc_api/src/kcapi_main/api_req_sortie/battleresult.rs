@@ -12,7 +12,7 @@ use crate::kcapi_common::custom_type::DuoType;
 use register_trait::add_field;
 use register_trait::register_struct;
 
-use register_trait::Getter;
+use register_trait::NumberSizeChecker;
 use register_trait::TraitForConvert;
 use register_trait::TraitForRoot;
 use register_trait::TraitForTest;
@@ -24,7 +24,7 @@ use crate::kcapi_common::common_result::ApiLandingHp;
 
 use crate::interface::interface::EmitData;
 
-#[derive(Getter, TraitForTest, TraitForRoot, TraitForConvert)]
+#[derive(NumberSizeChecker, TraitForTest, TraitForRoot, TraitForConvert)]
 #[convert_output(output = EmitData)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
@@ -63,7 +63,7 @@ pub struct Req {
     pub api_l_value3_5: Option<String>,
 }
 
-#[derive(Getter, TraitForTest, TraitForRoot, TraitForConvert)]
+#[derive(NumberSizeChecker, TraitForTest, TraitForRoot, TraitForConvert)]
 #[convert_output(output = EmitData)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
@@ -79,7 +79,7 @@ pub struct Res {
     pub api_data: ApiData,
 }
 
-#[derive(Getter, TraitForTest)]
+#[derive(NumberSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
@@ -147,7 +147,7 @@ pub struct ApiData {
     pub api_get_useitem: Option<ApiGetUseitem>,
 }
 
-#[derive(Getter, TraitForTest)]
+#[derive(NumberSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
@@ -159,7 +159,7 @@ pub struct ApiGetUseitem {
     pub api_useitem_name: String,
 }
 
-// #[derive(Getter, TraitForTest)]
+// #[derive(NumberSizeChecker, TraitForTest)]
 // #[struct_test_case(field_extra, type_value, integration)]
 // #[add_field(extra)]
 // #[derive(Debug, Clone, Deserialize)]
@@ -173,7 +173,7 @@ pub struct ApiGetUseitem {
 //     pub api_value: i64,
 // }
 
-#[derive(Getter, TraitForTest)]
+#[derive(NumberSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
@@ -189,7 +189,7 @@ pub struct ApiSelectRewardDict {
     pub api_value: i64,
 }
 
-// #[derive(Getter, TraitForTest)]
+// #[derive(NumberSizeChecker, TraitForTest)]
 // #[struct_test_case(field_extra, type_value, integration)]
 // #[add_field(extra)]
 // #[derive(Debug, Clone, Deserialize)]
@@ -203,7 +203,7 @@ pub struct ApiSelectRewardDict {
 //     pub api_sub_value: Option<DuoType<i64, String>>,
 // }
 
-#[derive(Getter, TraitForTest)]
+#[derive(NumberSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
@@ -215,7 +215,7 @@ pub struct ApiEscapeFlag {
     pub api_escape_type: i64,
 }
 
-// #[derive(Getter, TraitForTest)]
+// #[derive(NumberSizeChecker, TraitForTest)]
 // #[struct_test_case(field_extra, type_value, integration)]
 // #[add_field(extra)]
 // #[derive(Debug, Clone, Deserialize)]
@@ -231,7 +231,7 @@ pub struct ApiEscapeFlag {
 //     pub api_ship_getmes: String,
 // }
 
-// #[derive(Getter, TraitForTest)]
+// #[derive(NumberSizeChecker, TraitForTest)]
 // #[struct_test_case(field_extra, type_value, integration)]
 // #[add_field(extra)]
 // #[derive(Debug, Clone, Deserialize)]

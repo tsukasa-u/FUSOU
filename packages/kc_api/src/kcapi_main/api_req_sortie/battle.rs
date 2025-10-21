@@ -8,7 +8,7 @@ use serde::Deserialize;
 
 use register_trait::{add_field, register_struct};
 
-use register_trait::{Getter, TraitForConvert, TraitForRoot, TraitForTest};
+use register_trait::{NumberSizeChecker, TraitForConvert, TraitForRoot, TraitForTest};
 
 use crate::interface::battle::Battle;
 use crate::interface::interface::{Add, EmitData};
@@ -23,7 +23,7 @@ use crate::kcapi_common::common_battle::ApiOpeningTaisen;
 use crate::kcapi_common::common_battle::ApiRaigeki;
 use crate::kcapi_common::common_battle::ApiSupportInfo;
 
-#[derive(Getter, TraitForTest, TraitForRoot, TraitForConvert)]
+#[derive(NumberSizeChecker, TraitForTest, TraitForRoot, TraitForConvert)]
 #[convert_output(output = EmitData)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
@@ -46,7 +46,7 @@ pub struct Req {
     pub api_start: Option<String>,
 }
 
-#[derive(Getter, TraitForTest, TraitForRoot)]
+#[derive(NumberSizeChecker, TraitForTest, TraitForRoot)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[register_struct(name = "api_req_sortie/battle")]
@@ -61,7 +61,7 @@ pub struct Res {
     pub api_data: ApiData,
 }
 
-#[derive(Getter, TraitForTest)]
+#[derive(NumberSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]

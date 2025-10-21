@@ -5,10 +5,10 @@ use crate::kcapi_common::custom_type::DuoType;
 
 use register_trait::add_field;
 
-use register_trait::Getter;
+use register_trait::NumberSizeChecker;
 use register_trait::TraitForTest;
 
-#[derive(Getter, TraitForTest)]
+#[derive(NumberSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
@@ -32,7 +32,7 @@ pub struct ApiRaigeki {
     pub api_eydam: Vec<i64>,
 }
 
-#[derive(Getter, TraitForTest)]
+#[derive(NumberSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
@@ -54,7 +54,7 @@ pub struct ApiHougeki {
     pub api_damage: Vec<Vec<f32>>,
 }
 
-#[derive(Getter, TraitForTest)]
+#[derive(NumberSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
@@ -76,7 +76,7 @@ pub struct ApiOpeningTaisen {
     pub api_damage: Vec<Vec<f32>>,
 }
 
-#[derive(Getter, TraitForTest)]
+#[derive(NumberSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
@@ -100,7 +100,7 @@ pub struct ApiOpeningAtack {
     pub api_eydam_list_items: Vec<Option<Vec<i64>>>,
 }
 
-#[derive(Getter, TraitForTest)]
+#[derive(NumberSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
@@ -112,7 +112,7 @@ pub struct ApiSupportInfo {
     pub api_support_hourai: Option<ApiSupportHourai>,
 }
 
-#[derive(Getter, TraitForTest)]
+#[derive(NumberSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
@@ -140,7 +140,7 @@ pub struct ApiFlavoInfo {
     // pub api_support_hourai: Option<ApiSupportHourai>,
 }
 
-#[derive(Getter, TraitForTest)]
+#[derive(NumberSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
@@ -158,7 +158,7 @@ pub struct ApiSupportHourai {
     pub api_damage: Vec<f32>,
 }
 
-#[derive(Getter, TraitForTest)]
+#[derive(NumberSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]

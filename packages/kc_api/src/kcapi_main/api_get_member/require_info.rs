@@ -9,12 +9,12 @@ use std::collections::HashMap;
 
 use register_trait::{add_field, register_struct};
 
-use register_trait::{Getter, TraitForConvert, TraitForRoot, TraitForTest};
+use register_trait::{NumberSizeChecker, TraitForConvert, TraitForRoot, TraitForTest};
 
 use crate::interface::interface::{EmitData, Identifier, Set};
 use crate::interface::slot_item::SlotItems;
 
-#[derive(Getter, TraitForTest, TraitForRoot, TraitForConvert)]
+#[derive(NumberSizeChecker, TraitForTest, TraitForRoot, TraitForConvert)]
 #[convert_output(output = EmitData)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
@@ -27,7 +27,7 @@ pub struct Req {
     pub api_verno: String,
 }
 
-#[derive(Getter, TraitForTest, TraitForRoot)]
+#[derive(NumberSizeChecker, TraitForTest, TraitForRoot)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[register_struct(name = "api_get_member/require_info")]
@@ -42,7 +42,7 @@ pub struct Res {
     pub api_data: ApiData,
 }
 
-#[derive(Getter, TraitForTest)]
+#[derive(NumberSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
@@ -70,7 +70,7 @@ pub struct ApiData {
     pub api_position_id: i64,
 }
 
-#[derive(Getter, TraitForTest)]
+#[derive(NumberSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
@@ -82,7 +82,7 @@ pub struct ApiBasic {
     pub api_firstflag: i64,
 }
 
-#[derive(Getter, TraitForTest)]
+#[derive(NumberSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
@@ -100,7 +100,7 @@ pub struct ApiSlotItem {
     pub api_alv: Option<i64>,
 }
 
-#[derive(Getter, TraitForTest)]
+#[derive(NumberSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
@@ -128,7 +128,7 @@ pub struct ApiKdock {
     pub api_item5: i64,
 }
 
-#[derive(Getter, TraitForTest)]
+#[derive(NumberSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
@@ -140,7 +140,7 @@ pub struct ApiUseitem {
     pub api_count: i64,
 }
 
-#[derive(Getter, TraitForTest)]
+#[derive(NumberSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
@@ -156,7 +156,7 @@ pub struct ApiFurniture {
     pub api_furniture_id: i64,
 }
 
-#[derive(Getter, TraitForTest)]
+#[derive(NumberSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]

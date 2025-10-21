@@ -2,10 +2,10 @@ use serde::Deserialize;
 
 use register_trait::add_field;
 
-use register_trait::Getter;
+use register_trait::NumberSizeChecker;
 use register_trait::TraitForTest;
 
-#[derive(Getter, TraitForTest)]
+#[derive(NumberSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
@@ -25,7 +25,7 @@ pub struct ApiStage1 {
     pub api_touch_plane: Option<Vec<i64>>,
 }
 
-#[derive(Getter, TraitForTest)]
+#[derive(NumberSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
@@ -43,7 +43,7 @@ pub struct ApiStage2 {
     pub api_air_fire: Option<ApiAirFire>,
 }
 
-#[derive(Getter, TraitForTest)]
+#[derive(NumberSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
@@ -57,7 +57,7 @@ pub struct ApiAirFire {
     pub api_use_items: Vec<i64>,
 }
 
-#[derive(Getter, TraitForTest)]
+#[derive(NumberSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
@@ -85,7 +85,7 @@ pub struct ApiStage3 {
     pub api_e_sp_list: Option<Vec<Option<Vec<i64>>>>,
 }
 
-#[derive(Getter, TraitForTest)]
+#[derive(NumberSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
@@ -103,7 +103,7 @@ pub struct ApiKouku {
     pub api_stage3_combined: Option<ApiStage3>,
 }
 
-#[derive(Getter, TraitForTest)]
+#[derive(NumberSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
@@ -127,7 +127,7 @@ pub struct ApiAirBaseAttack {
     pub api_stage3_combined: Option<ApiStage3>,
 }
 
-#[derive(Getter, TraitForTest)]
+#[derive(NumberSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
@@ -139,7 +139,7 @@ pub struct ApiSquadronPlane {
     pub api_count: Option<i64>,
 }
 
-#[derive(Getter, TraitForTest)]
+#[derive(NumberSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
@@ -159,7 +159,7 @@ pub struct ApiAirBaseInjection {
     pub api_stage3_combined: Option<ApiStage3>,
 }
 
-#[derive(Getter, TraitForTest)]
+#[derive(NumberSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
@@ -171,7 +171,7 @@ pub struct ApiAirBaseData {
     pub api_count: i64,
 }
 
-#[derive(Getter, TraitForTest)]
+#[derive(NumberSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]

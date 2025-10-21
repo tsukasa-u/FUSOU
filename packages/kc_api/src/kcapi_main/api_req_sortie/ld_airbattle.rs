@@ -9,7 +9,7 @@ use serde::Deserialize;
 use register_trait::add_field;
 use register_trait::register_struct;
 
-use register_trait::Getter;
+use register_trait::NumberSizeChecker;
 use register_trait::TraitForConvert;
 use register_trait::TraitForRoot;
 use register_trait::TraitForTest;
@@ -20,7 +20,7 @@ use crate::interface::interface::{Add, EmitData};
 use crate::kcapi_common::common_air::ApiAirBaseAttack;
 use crate::kcapi_common::common_air::ApiKouku;
 
-#[derive(Getter, TraitForTest, TraitForRoot, TraitForConvert)]
+#[derive(NumberSizeChecker, TraitForTest, TraitForRoot, TraitForConvert)]
 #[convert_output(output = EmitData)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
@@ -41,7 +41,7 @@ pub struct Req {
     pub api_smoke_flag: Option<String>,
 }
 
-#[derive(Getter, TraitForTest, TraitForRoot)]
+#[derive(NumberSizeChecker, TraitForTest, TraitForRoot)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[register_struct(name = "api_req_sortie/ld_airbattle")]
@@ -56,7 +56,7 @@ pub struct Res {
     pub api_data: ApiData,
 }
 
-#[derive(Getter, TraitForTest)]
+#[derive(NumberSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
@@ -104,7 +104,7 @@ pub struct ApiData {
     pub api_air_base_attack: Option<Vec<ApiAirBaseAttack>>,
 }
 
-// #[derive(Getter, TraitForTest)]
+// #[derive(NumberSizeChecker, TraitForTest)]
 // #[struct_test_case(field_extra, type_value, integration)]
 // #[add_field(extra)]
 // #[derive(Debug, Clone, Deserialize)]
@@ -126,7 +126,7 @@ pub struct ApiData {
 //     pub api_stage3: Option<ApiStage3>,
 // }
 
-// #[derive(Getter, TraitForTest)]
+// #[derive(NumberSizeChecker, TraitForTest)]
 // #[struct_test_case(field_extra, type_value, integration)]
 // #[add_field(extra)]
 // #[derive(Debug, Clone, Deserialize)]
@@ -138,7 +138,7 @@ pub struct ApiData {
 //     api_count: i64,
 // }
 
-// #[derive(Getter, TraitForTest)]
+// #[derive(NumberSizeChecker, TraitForTest)]
 // #[struct_test_case(field_extra, type_value, integration)]
 // #[add_field(extra)]
 // #[derive(Debug, Clone, Deserialize)]
