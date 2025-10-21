@@ -23,17 +23,11 @@ use crate::interface::interface::{EmitData /*Add*/};
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct Req {
-    #[serde(rename = "api_token")]
     pub api_token: String,
-    #[serde(rename = "api_verno")]
     pub api_verno: String,
-    #[serde(rename = "api_kind")]
     pub api_kind: String,
-    #[serde(rename = "api_onslot")]
     pub api_onslot: String,
-    #[serde(rename = "api_id_items")]
     pub api_id_items: String,
 }
 
@@ -42,13 +36,9 @@ pub struct Req {
 #[add_field(extra)]
 #[register_struct(name = "api_req_hokyu/charge")]
 #[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct Res {
-    #[serde(rename = "api_result")]
     pub api_result: i64,
-    #[serde(rename = "api_result_msg")]
     pub api_result_msg: String,
-    #[serde(rename = "api_data")]
     pub api_data: ApiData,
 }
 
@@ -56,13 +46,9 @@ pub struct Res {
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct ApiData {
-    #[serde(rename = "api_ship")]
     pub api_ship: Vec<ApiShip>,
-    #[serde(rename = "api_material")]
     pub api_material: Vec<i64>,
-    #[serde(rename = "api_use_bou")]
     pub api_use_bou: i64,
 }
 
@@ -70,15 +56,10 @@ pub struct ApiData {
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct ApiShip {
-    #[serde(rename = "api_id")]
     pub api_id: i64,
-    #[serde(rename = "api_fuel")]
     pub api_fuel: i64,
-    #[serde(rename = "api_bull")]
     pub api_bull: i64,
-    #[serde(rename = "api_onslot")]
     pub api_onslot: Vec<i64>,
 }
 

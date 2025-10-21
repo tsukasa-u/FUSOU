@@ -21,17 +21,11 @@ use crate::interface::interface::EmitData;
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct Req {
-    #[serde(rename = "api_token")]
     pub api_token: String,
-    #[serde(rename = "api_verno")]
     pub api_verno: String,
-    #[serde(rename = "api_quest_id")]
     pub api_quest_id: String,
-    #[serde(rename = "api_select_no")]
     pub api_select_no: Option<String>,
-    #[serde(rename = "api_select_no2")]
     pub api_select_no2: Option<String>,
 }
 
@@ -41,13 +35,9 @@ pub struct Req {
 #[add_field(extra)]
 #[register_struct(name = "api_req_quest/clearitemget")]
 #[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct Res {
-    #[serde(rename = "api_result")]
     pub api_result: i64,
-    #[serde(rename = "api_result_msg")]
     pub api_result_msg: String,
-    #[serde(rename = "api_data")]
     pub api_data: ApiData,
 }
 
@@ -55,13 +45,9 @@ pub struct Res {
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct ApiData {
-    #[serde(rename = "api_material")]
     pub api_material: Vec<i64>,
-    #[serde(rename = "api_bounus_count")]
     pub api_bounus_count: i64,
-    #[serde(rename = "api_bounus")]
     pub api_bounus: Vec<ApiBounu>,
 }
 
@@ -69,13 +55,9 @@ pub struct ApiData {
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct ApiBounu {
-    #[serde(rename = "api_type")]
     pub api_type: i64,
-    #[serde(rename = "api_count")]
     pub api_count: i64,
-    #[serde(rename = "api_item")]
     pub api_item: Option<ApiItem>,
 }
 
@@ -83,23 +65,14 @@ pub struct ApiBounu {
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct ApiItem {
-    #[serde(rename = "api_id")]
     pub api_id: Option<i64>,
-    #[serde(rename = "api_name")]
     pub api_name: Option<String>,
-    #[serde(rename = "api_id_from")]
     pub api_id_from: Option<i64>,
-    #[serde(rename = "api_id_to")]
     pub api_id_to: Option<i64>,
-    #[serde(rename = "api_message")]
     pub api_message: Option<String>,
-    #[serde(rename = "api_slotitem_level")]
     pub api_slotitem_level: Option<i64>,
-    #[serde(rename = "api_ship_id")]
     pub api_ship_id: Option<i64>,
-    #[serde(rename = "api_getmes")]
     pub api_getmes: Option<String>,
 }
 

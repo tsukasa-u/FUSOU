@@ -21,17 +21,11 @@ use crate::interface::interface::EmitData;
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct Req {
-    #[serde(rename = "api_token")]
     pub api_token: String,
-    #[serde(rename = "api_verno")]
     pub api_verno: String,
-    #[serde(rename = "api_certain_flag")]
     pub api_certain_flag: String,
-    #[serde(rename = "api_id")]
     pub api_id: String,
-    #[serde(rename = "api_slot_id")]
     pub api_slot_id: String,
 }
 
@@ -41,13 +35,9 @@ pub struct Req {
 #[add_field(extra)]
 #[register_struct(name = "api_req_kousyou/remodel_slot")]
 #[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct Res {
-    #[serde(rename = "api_result")]
     pub api_result: i64,
-    #[serde(rename = "api_result_msg")]
     pub api_result_msg: String,
-    #[serde(rename = "api_data")]
     pub api_data: ApiData,
 }
 
@@ -55,21 +45,13 @@ pub struct Res {
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct ApiData {
-    #[serde(rename = "api_remodel_flag")]
     pub api_remodel_flag: i64,
-    #[serde(rename = "api_remodel_id")]
     pub api_remodel_id: Vec<i64>,
-    #[serde(rename = "api_after_material")]
     pub api_after_material: Vec<i64>,
-    #[serde(rename = "api_voice_ship_id")]
     pub api_voice_ship_id: i64,
-    #[serde(rename = "api_voice_id")]
     pub api_voice_id: i64,
-    #[serde(rename = "api_after_slot")]
     pub api_after_slot: Option<ApiAfterSlot>,
-    #[serde(rename = "api_use_slot_id")]
     pub api_use_slot_id: Option<Vec<i64>>,
 }
 
@@ -77,17 +59,11 @@ pub struct ApiData {
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct ApiAfterSlot {
-    #[serde(rename = "api_id")]
     pub api_id: i64,
-    #[serde(rename = "api_slotitem_id")]
     pub api_slotitem_id: i64,
-    #[serde(rename = "api_locked")]
     pub api_locked: i64,
-    #[serde(rename = "api_level")]
     pub api_level: i64,
-    #[serde(rename = "api_alv")]
     pub api_alv: Option<i64>,
 }
 

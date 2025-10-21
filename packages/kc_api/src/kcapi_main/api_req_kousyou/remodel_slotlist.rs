@@ -21,11 +21,8 @@ use crate::interface::interface::EmitData;
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct Req {
-    #[serde(rename = "api_token")]
     pub api_token: String,
-    #[serde(rename = "api_verno")]
     pub api_verno: String,
 }
 
@@ -35,13 +32,9 @@ pub struct Req {
 #[add_field(extra)]
 #[register_struct(name = "api_req_kousyou/remodel_slotlist")]
 #[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct Res {
-    #[serde(rename = "api_result")]
     pub api_result: i64,
-    #[serde(rename = "api_result_msg")]
     pub api_result_msg: String,
-    #[serde(rename = "api_data")]
     pub api_data: Vec<ApiData>,
 }
 
@@ -49,29 +42,17 @@ pub struct Res {
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct ApiData {
-    #[serde(rename = "api_id")]
     pub api_id: i64,
-    #[serde(rename = "api_slot_id")]
     pub api_slot_id: i64,
-    #[serde(rename = "api_sp_type")]
     pub api_sp_type: i64,
-    #[serde(rename = "api_req_fuel")]
     pub api_req_fuel: i64,
-    #[serde(rename = "api_req_bull")]
     pub api_req_bull: i64,
-    #[serde(rename = "api_req_steel")]
     pub api_req_steel: i64,
-    #[serde(rename = "api_req_bauxite")]
     pub api_req_bauxite: i64,
-    #[serde(rename = "api_req_buildkit")]
     pub api_req_buildkit: i64,
-    #[serde(rename = "api_req_remodelkit")]
     pub api_req_remodelkit: i64,
-    #[serde(rename = "api_req_slot_id")]
     pub api_req_slot_id: i64,
-    #[serde(rename = "api_req_slot_num")]
     pub api_req_slot_num: i64,
 }
 

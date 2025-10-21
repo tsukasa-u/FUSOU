@@ -21,11 +21,8 @@ use crate::interface::interface::EmitData;
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct Req {
-    #[serde(rename = "api_token")]
     pub api_token: String,
-    #[serde(rename = "api_verno")]
     pub api_verno: String,
 }
 
@@ -35,13 +32,9 @@ pub struct Req {
 #[add_field(extra)]
 #[register_struct(name = "api_req_furniture/music_list")]
 #[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct Res {
-    #[serde(rename = "api_result")]
     pub api_result: i64,
-    #[serde(rename = "api_result_msg")]
     pub api_result_msg: String,
-    #[serde(rename = "api_data")]
     pub api_data: Vec<ApiData>,
 }
 
@@ -49,21 +42,13 @@ pub struct Res {
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct ApiData {
-    #[serde(rename = "api_id")]
     pub api_id: i64,
-    #[serde(rename = "api_name")]
     pub api_name: String,
-    #[serde(rename = "api_description")]
     pub api_description: String,
-    #[serde(rename = "api_bgm_id")]
     pub api_bgm_id: i64,
-    #[serde(rename = "api_use_coin")]
     pub api_use_coin: i64,
-    #[serde(rename = "api_bgm_flag")]
     pub api_bgm_flag: i64,
-    #[serde(rename = "api_loops")]
     pub api_loops: i64,
 }
 
