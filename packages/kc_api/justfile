@@ -1,5 +1,5 @@
 export-ts:
-    cargo test export_bindings
+    cargo test export_bindings --nocapture
     just replace-bindings
 
 replace-bigint-number file='*':
@@ -14,7 +14,7 @@ replace-bindings:
     just replace-bigint-number "./bindings/require_info.ts"
 
 test-deserialize:
-    cargo test_deserialize
+    cargo test_deserialize --nocapture
 
 test-with-data:
-    cargo test -- --skip export_bindings
+    cargo test -- --skip export_bindings --nocapture
