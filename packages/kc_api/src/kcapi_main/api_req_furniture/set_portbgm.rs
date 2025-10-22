@@ -21,8 +21,11 @@ use crate::interface::interface::EmitData;
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Req {
+    #[serde(rename = "api_token")]
     pub api_token: String,
+    #[serde(rename = "api_verno")]
     pub api_verno: String,
 }
 
@@ -32,8 +35,11 @@ pub struct Req {
 #[add_field(extra)]
 #[register_struct(name = "api_req_furniture/set_portbgm")]
 #[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Res {
+    #[serde(rename = "api_result")]
     pub api_result: i64,
+    #[serde(rename = "api_result_msg")]
     pub api_result_msg: String,
 }
 

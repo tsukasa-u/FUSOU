@@ -21,8 +21,11 @@ use crate::interface::interface::EmitData;
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Req {
+    #[serde(rename = "api_token")]
     pub api_token: String,
+    #[serde(rename = "api_verno")]
     pub api_verno: String,
 }
 
@@ -32,9 +35,13 @@ pub struct Req {
 #[add_field(extra)]
 #[register_struct(name = "api_get_member/record")]
 #[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Res {
+    #[serde(rename = "api_result")]
     pub api_result: i64,
+    #[serde(rename = "api_result_msg")]
     pub api_result_msg: String,
+    #[serde(rename = "api_data")]
     pub api_data: ApiData,
 }
 
@@ -42,29 +49,53 @@ pub struct Res {
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ApiData {
+    #[serde(rename = "api_member_id")]
     pub api_member_id: i64,
+    #[serde(rename = "api_nickname")]
     pub api_nickname: String,
+    #[serde(rename = "api_nickname_id")]
     pub api_nickname_id: String,
+    #[serde(rename = "api_cmt")]
     pub api_cmt: String,
+    #[serde(rename = "api_cmt_id")]
     pub api_cmt_id: String,
+    #[serde(rename = "api_photo_url")]
     pub api_photo_url: String,
+    #[serde(rename = "api_level")]
     pub api_level: i64,
+    #[serde(rename = "api_rank")]
     pub api_rank: i64,
+    #[serde(rename = "api_experience")]
     pub api_experience: Vec<i64>,
+    #[serde(rename = "api_war")]
     pub api_war: ApiWar,
+    #[serde(rename = "api_mission")]
     pub api_mission: ApiMission,
+    #[serde(rename = "api_practice")]
     pub api_practice: ApiPractice,
+    #[serde(rename = "api_friend")]
     pub api_friend: i64,
+    #[serde(rename = "api_deck")]
     pub api_deck: i64,
+    #[serde(rename = "api_kdoc")]
     pub api_kdoc: i64,
+    #[serde(rename = "api_ndoc")]
     pub api_ndoc: i64,
+    #[serde(rename = "api_ship")]
     pub api_ship: Vec<i64>,
+    #[serde(rename = "api_slotitem")]
     pub api_slotitem: Vec<i64>,
+    #[serde(rename = "api_furniture")]
     pub api_furniture: i64,
+    #[serde(rename = "api_complate")]
     pub api_complate: Vec<String>,
+    #[serde(rename = "api_large_dock")]
     pub api_large_dock: i64,
+    #[serde(rename = "api_material_max")]
     pub api_material_max: i64,
+    #[serde(rename = "api_air_base_expanded_info")]
     pub api_air_base_expanded_info: Vec<ApiAirBaseExpandedInfo>,
 }
 
@@ -72,9 +103,13 @@ pub struct ApiData {
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ApiWar {
+    #[serde(rename = "api_win")]
     pub api_win: String,
+    #[serde(rename = "api_lose")]
     pub api_lose: String,
+    #[serde(rename = "api_rate")]
     pub api_rate: String,
 }
 
@@ -82,9 +117,13 @@ pub struct ApiWar {
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ApiMission {
+    #[serde(rename = "api_count")]
     pub api_count: String,
+    #[serde(rename = "api_success")]
     pub api_success: String,
+    #[serde(rename = "api_rate")]
     pub api_rate: String,
 }
 
@@ -92,9 +131,13 @@ pub struct ApiMission {
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ApiPractice {
+    #[serde(rename = "api_win")]
     pub api_win: String,
+    #[serde(rename = "api_lose")]
     pub api_lose: String,
+    #[serde(rename = "api_rate")]
     pub api_rate: String,
 }
 
@@ -102,8 +145,11 @@ pub struct ApiPractice {
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ApiAirBaseExpandedInfo {
+    #[serde(rename = "api_area_id")]
     pub api_area_id: i64,
+    #[serde(rename = "api_maintenance_level")]
     pub api_maintenance_level: i64,
 }
 
