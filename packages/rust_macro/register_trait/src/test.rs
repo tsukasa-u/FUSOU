@@ -7,22 +7,18 @@ use std::path;
 use std::path::PathBuf;
 
 // impl<T> TraitForTest for Vec<T> where T: TraitForTest {
-//     #[cfg(test)]
 //     fn is_vec(&self) -> bool { return true; }
 // }
 
 // impl<T> TraitForTest for Option<T> where T: TraitForTest {
-//     #[cfg(test)]
 //     fn is_option(&self) -> bool { return true; }
 // }
 
 // impl<T, U> TraitForTest for HashMap<T, U> where T: TraitForTest, U: TraitForTest {
-//     #[cfg(test)]
 //     fn is_hashmap(&self) -> bool { return true; }
 // }
 
 impl TraitForTest for Value {
-    #[cfg(test)]
     fn is_value(&self) -> bool {
         return true;
     }
