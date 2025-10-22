@@ -21,9 +21,13 @@ use crate::interface::interface::EmitData;
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Req {
+    #[serde(rename = "api_token")]
     pub api_token: String,
+    #[serde(rename = "api_verno")]
     pub api_verno: String,
+    #[serde(rename = "api_combined_type")]
     pub api_combined_type: Option<String>,
 }
 
@@ -33,9 +37,13 @@ pub struct Req {
 #[add_field(extra)]
 #[register_struct(name = "api_req_hensei/combined")]
 #[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Res {
+    #[serde(rename = "api_result")]
     pub api_result: i64,
+    #[serde(rename = "api_result_msg")]
     pub api_result_msg: String,
+    #[serde(rename = "api_data")]
     pub api_data: ApiData,
 }
 
@@ -43,7 +51,9 @@ pub struct Res {
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ApiData {
+    #[serde(rename = "api_combined")]
     pub api_combined: i64,
 }
 

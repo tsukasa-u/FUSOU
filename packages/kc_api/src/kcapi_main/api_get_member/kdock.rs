@@ -21,8 +21,11 @@ use crate::interface::interface::EmitData;
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Req {
+    #[serde(rename = "api_token")]
     pub api_token: String,
+    #[serde(rename = "api_verno")]
     pub api_verno: String,
 }
 
@@ -32,9 +35,13 @@ pub struct Req {
 #[add_field(extra)]
 #[register_struct(name = "api_get_member/kdock")]
 #[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Res {
+    #[serde(rename = "api_result")]
     pub api_result: i64,
+    #[serde(rename = "api_result_msg")]
     pub api_result_msg: String,
+    #[serde(rename = "api_data")]
     pub api_data: Vec<ApiData>,
 }
 
@@ -42,16 +49,27 @@ pub struct Res {
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ApiData {
+    #[serde(rename = "api_id")]
     pub api_id: i64,
+    #[serde(rename = "api_state")]
     pub api_state: i64,
+    #[serde(rename = "api_created_ship_id")]
     pub api_created_ship_id: i64,
+    #[serde(rename = "api_complete_time")]
     pub api_complete_time: i64,
+    #[serde(rename = "api_complete_time_str")]
     pub api_complete_time_str: String,
+    #[serde(rename = "api_item1")]
     pub api_item1: i64,
+    #[serde(rename = "api_item2")]
     pub api_item2: i64,
+    #[serde(rename = "api_item3")]
     pub api_item3: i64,
+    #[serde(rename = "api_item4")]
     pub api_item4: i64,
+    #[serde(rename = "api_item5")]
     pub api_item5: i64,
 }
 

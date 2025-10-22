@@ -21,11 +21,17 @@ use crate::interface::interface::EmitData;
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Req {
+    #[serde(rename = "api_token")]
     pub api_token: String,
+    #[serde(rename = "api_verno")]
     pub api_verno: String,
+    #[serde(rename = "api_base_id")]
     pub api_base_id: String,
+    #[serde(rename = "api_squadron_id")]
     pub api_squadron_id: String,
+    #[serde(rename = "api_area_id")]
     pub api_area_id: String,
 }
 
@@ -35,9 +41,13 @@ pub struct Req {
 #[add_field(extra)]
 #[register_struct(name = "api_req_air_corps/supply")]
 #[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Res {
+    #[serde(rename = "api_result")]
     pub api_result: i64,
+    #[serde(rename = "api_result_msg")]
     pub api_result_msg: String,
+    #[serde(rename = "api_data")]
     pub api_data: ApiData,
 }
 
@@ -45,10 +55,15 @@ pub struct Res {
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ApiData {
+    #[serde(rename = "api_after_fuel")]
     pub api_after_fuel: i64,
+    #[serde(rename = "api_after_bauxite")]
     pub api_after_bauxite: i64,
+    #[serde(rename = "api_distance")]
     pub api_distance: ApiDistance,
+    #[serde(rename = "api_plane_info")]
     pub api_plane_info: Vec<ApiPlaneInfo>,
 }
 
@@ -56,8 +71,11 @@ pub struct ApiData {
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ApiDistance {
+    #[serde(rename = "api_base")]
     pub api_base: i64,
+    #[serde(rename = "api_bonus")]
     pub api_bonus: i64,
 }
 
@@ -65,12 +83,19 @@ pub struct ApiDistance {
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ApiPlaneInfo {
+    #[serde(rename = "api_squadron_id")]
     pub api_squadron_id: i64,
+    #[serde(rename = "api_state")]
     pub api_state: i64,
+    #[serde(rename = "api_slotid")]
     pub api_slotid: i64,
+    #[serde(rename = "api_count")]
     pub api_count: i64,
+    #[serde(rename = "api_max_count")]
     pub api_max_count: i64,
+    #[serde(rename = "api_cond")]
     pub api_cond: i64,
 }
 

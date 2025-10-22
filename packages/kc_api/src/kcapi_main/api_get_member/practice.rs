@@ -21,8 +21,11 @@ use crate::interface::interface::EmitData;
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Req {
+    #[serde(rename = "api_token")]
     pub api_token: String,
+    #[serde(rename = "api_verno")]
     pub api_verno: String,
 }
 
@@ -32,9 +35,13 @@ pub struct Req {
 #[add_field(extra)]
 #[register_struct(name = "api_get_member/practice")]
 #[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Res {
+    #[serde(rename = "api_result")]
     pub api_result: i64,
+    #[serde(rename = "api_result_msg")]
     pub api_result_msg: String,
+    #[serde(rename = "api_data")]
     pub api_data: ApiData,
 }
 
@@ -42,10 +49,15 @@ pub struct Res {
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ApiData {
+    #[serde(rename = "api_create_kind")]
     pub api_create_kind: i64,
+    #[serde(rename = "api_selected_kind")]
     pub api_selected_kind: i64,
+    #[serde(rename = "api_entry_limit")]
     pub api_entry_limit: Option<i64>,
+    #[serde(rename = "api_list")]
     pub api_list: Vec<ApiList>,
 }
 
@@ -53,17 +65,29 @@ pub struct ApiData {
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ApiList {
+    #[serde(rename = "api_enemy_id")]
     pub api_enemy_id: i64,
+    #[serde(rename = "api_enemy_name")]
     pub api_enemy_name: String,
+    #[serde(rename = "api_enemy_name_id")]
     pub api_enemy_name_id: String,
+    #[serde(rename = "api_enemy_level")]
     pub api_enemy_level: i64,
+    #[serde(rename = "api_enemy_rank")]
     pub api_enemy_rank: String,
+    #[serde(rename = "api_enemy_flag")]
     pub api_enemy_flag: i64,
+    #[serde(rename = "api_enemy_flag_ship")]
     pub api_enemy_flag_ship: i64,
+    #[serde(rename = "api_enemy_comment")]
     pub api_enemy_comment: String,
+    #[serde(rename = "api_enemy_comment_id")]
     pub api_enemy_comment_id: String,
+    #[serde(rename = "api_state")]
     pub api_state: i64,
+    #[serde(rename = "api_medals")]
     pub api_medals: i64,
 }
 

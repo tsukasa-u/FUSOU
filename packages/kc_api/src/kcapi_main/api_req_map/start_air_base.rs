@@ -21,10 +21,15 @@ use crate::interface::interface::EmitData;
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Req {
+    #[serde(rename = "api_token")]
     pub api_token: String,
+    #[serde(rename = "api_verno")]
     pub api_verno: String,
+    #[serde(rename = "api_strike_point_1")]
     pub api_strike_point_1: Option<String>,
+    #[serde(rename = "api_strike_point_2")]
     pub api_strike_point_2: Option<String>,
 }
 
@@ -34,8 +39,11 @@ pub struct Req {
 #[add_field(extra)]
 #[register_struct(name = "api_req_map/start_air_base")]
 #[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Res {
+    #[serde(rename = "api_result")]
     pub api_result: i64,
+    #[serde(rename = "api_result_msg")]
     pub api_result_msg: String,
 }
 

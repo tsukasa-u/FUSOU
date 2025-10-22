@@ -21,8 +21,11 @@ use crate::interface::interface::EmitData;
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Req {
+    #[serde(rename = "api_token")]
     pub api_token: String,
+    #[serde(rename = "api_verno")]
     pub api_verno: String,
 }
 
@@ -32,9 +35,13 @@ pub struct Req {
 #[add_field(extra)]
 #[register_struct(name = "api_req_map/select_eventmap_rank")]
 #[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Res {
+    #[serde(rename = "api_result")]
     pub api_result: i64,
+    #[serde(rename = "api_result_msg")]
     pub api_result_msg: String,
+    #[serde(rename = "api_data")]
     pub api_data: ApiData,
 }
 
@@ -42,11 +49,17 @@ pub struct Res {
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ApiData {
+    #[serde(rename = "api_maphp")]
     pub api_maphp: ApiMaphp,
+    #[serde(rename = "api_sally_flag")]
     pub api_sally_flag: Vec<i64>,
+    #[serde(rename = "api_m10")]
     pub api_m10: Option<i64>,
+    #[serde(rename = "api_s_no")]
     pub api_s_no: i64,
+    #[serde(rename = "api_air_base_decks")]
     pub api_air_base_decks: Option<i64>,
 }
 
@@ -54,10 +67,15 @@ pub struct ApiData {
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ApiMaphp {
+    #[serde(rename = "api_now_maphp")]
     pub api_now_maphp: i64,
+    #[serde(rename = "api_max_maphp")]
     pub api_max_maphp: i64,
+    #[serde(rename = "api_gauge_type")]
     pub api_gauge_type: i64,
+    #[serde(rename = "api_gauge_num")]
     pub api_gauge_num: i64,
 }
 

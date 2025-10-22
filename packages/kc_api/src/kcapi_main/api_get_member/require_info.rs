@@ -19,8 +19,11 @@ use crate::interface::slot_item::SlotItems;
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Req {
+    #[serde(rename = "api_token")]
     pub api_token: String,
+    #[serde(rename = "api_verno")]
     pub api_verno: String,
 }
 
@@ -29,9 +32,13 @@ pub struct Req {
 #[add_field(extra)]
 #[register_struct(name = "api_get_member/require_info")]
 #[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Res {
+    #[serde(rename = "api_result")]
     pub api_result: i64,
+    #[serde(rename = "api_result_msg")]
     pub api_result_msg: String,
+    #[serde(rename = "api_data")]
     pub api_data: ApiData,
 }
 
@@ -39,16 +46,27 @@ pub struct Res {
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ApiData {
+    #[serde(rename = "api_basic")]
     pub api_basic: ApiBasic,
+    #[serde(rename = "api_slot_item")]
     pub api_slot_item: Vec<ApiSlotItem>,
+    #[serde(rename = "api_unsetslot")]
     pub api_unsetslot: HashMap<String, Vec<i64>>,
+    #[serde(rename = "api_kdock")]
     pub api_kdock: Vec<ApiKdock>,
+    #[serde(rename = "api_useitem")]
     pub api_useitem: Vec<ApiUseitem>,
+    #[serde(rename = "api_furniture")]
     pub api_furniture: Vec<ApiFurniture>,
+    #[serde(rename = "api_extra_supply")]
     pub api_extra_supply: Vec<i64>,
+    #[serde(rename = "api_oss_setting")]
     pub api_oss_setting: ApiOssSetting,
+    #[serde(rename = "api_skin_id")]
     pub api_skin_id: i64,
+    #[serde(rename = "api_position_id")]
     pub api_position_id: i64,
 }
 
@@ -56,8 +74,11 @@ pub struct ApiData {
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ApiBasic {
+    #[serde(rename = "api_member_id")]
     pub api_member_id: i64,
+    #[serde(rename = "api_firstflag")]
     pub api_firstflag: i64,
 }
 
@@ -65,11 +86,17 @@ pub struct ApiBasic {
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ApiSlotItem {
+    #[serde(rename = "api_id")]
     pub api_id: i64,
+    #[serde(rename = "api_slotitem_id")]
     pub api_slotitem_id: i64,
+    #[serde(rename = "api_locked")]
     pub api_locked: i64,
+    #[serde(rename = "api_level")]
     pub api_level: i64,
+    #[serde(rename = "api_alv")]
     pub api_alv: Option<i64>,
 }
 
@@ -77,16 +104,27 @@ pub struct ApiSlotItem {
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ApiKdock {
+    #[serde(rename = "api_id")]
     pub api_id: i64,
+    #[serde(rename = "api_state")]
     pub api_state: i64,
+    #[serde(rename = "api_created_ship_id")]
     pub api_created_ship_id: i64,
+    #[serde(rename = "api_complete_time")]
     pub api_complete_time: i64,
+    #[serde(rename = "api_complete_time_str")]
     pub api_complete_time_str: String,
+    #[serde(rename = "api_item1")]
     pub api_item1: i64,
+    #[serde(rename = "api_item2")]
     pub api_item2: i64,
+    #[serde(rename = "api_item3")]
     pub api_item3: i64,
+    #[serde(rename = "api_item4")]
     pub api_item4: i64,
+    #[serde(rename = "api_item5")]
     pub api_item5: i64,
 }
 
@@ -94,8 +132,11 @@ pub struct ApiKdock {
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ApiUseitem {
+    #[serde(rename = "api_id")]
     pub api_id: i64,
+    #[serde(rename = "api_count")]
     pub api_count: i64,
 }
 
@@ -103,10 +144,15 @@ pub struct ApiUseitem {
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ApiFurniture {
+    #[serde(rename = "api_id")]
     pub api_id: i64,
+    #[serde(rename = "api_furniture_type")]
     pub api_furniture_type: i64,
+    #[serde(rename = "api_furniture_no")]
     pub api_furniture_no: i64,
+    #[serde(rename = "api_furniture_id")]
     pub api_furniture_id: i64,
 }
 
@@ -114,8 +160,11 @@ pub struct ApiFurniture {
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ApiOssSetting {
+    #[serde(rename = "api_language_type")]
     pub api_language_type: i64,
+    #[serde(rename = "api_oss_items")]
     pub api_oss_items: Vec<i64>,
 }
 
