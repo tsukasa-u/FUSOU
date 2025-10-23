@@ -15,6 +15,7 @@ use darling::FromMeta;
 pub struct MacroArgs4ExpandStructSelector {
     #[darling(default)]
     path: path::PathBuf,
+    root_crate: Option<bool>,
 }
 
 pub fn expand_struct_selector(
@@ -201,9 +202,14 @@ pub fn expand_struct_selector(
         // let use_ident = syn::Ident::new(&format!("kcapi_main::{}::{}::Root;",s1 ,s2), Span::call_site());
         let ident_s2_0 = syn::Ident::new(&s2.0, Span::call_site());
         let ident_s2_1 = syn::Ident::new(&s2.1, Span::call_site());
+        let idnet_crate = if let Some(true) = &args.root_crate {
+            syn::Ident::new("crate", Span::call_site())
+        } else {
+            syn::Ident::new("kc_api", Span::call_site())
+        };
         match_list.push(quote! {
             #lit => {
-                use kc_api::kcapi_main::#ident_s2_0::#ident_s2_1 as kcsapi_lib;
+                use #idnet_crate::kcapi_main::#ident_s2_0::#ident_s2_1 as kcsapi_lib;
                 #(#body)*
             },
         });

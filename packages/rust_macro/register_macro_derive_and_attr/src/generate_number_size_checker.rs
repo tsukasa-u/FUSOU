@@ -31,7 +31,6 @@ pub fn generate_number_size_checker(ast: &mut DeriveInput) -> Result<TokenStream
         #[cfg(test)]
         impl #impl_generics NumberSizeChecker for #struct_name #ty_generics #where_clause {
             
-            #[cfg(test)]
             fn check_number(&self, log_map: &mut register_trait::LogMapNumberSize, key: Option<(String, String, String)>) {
                 #(#filed_check_number)*
             }

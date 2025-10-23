@@ -9,12 +9,21 @@ use crate::database::table::PortTable;
 
 use crate::interface::slot_item::SlotItems;
 
-use register_trait::{TraitForDecode, TraitForEncode};
+use register_trait::{NumberSizeChecker, TraitForDecode, TraitForEncode};
 
 pub type AirBaseId = Uuid;
 pub type PlaneInfoId = Uuid;
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
+#[derive(
+    Debug,
+    Clone,
+    Deserialize,
+    Serialize,
+    AvroSchema,
+    TraitForEncode,
+    TraitForDecode,
+    NumberSizeChecker,
+)]
 pub struct AirBase {
     pub env_uuid: EnvInfoId,
     pub uuid: AirBaseId,
@@ -49,7 +58,16 @@ impl AirBase {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
+#[derive(
+    Debug,
+    Clone,
+    Deserialize,
+    Serialize,
+    AvroSchema,
+    TraitForEncode,
+    TraitForDecode,
+    NumberSizeChecker,
+)]
 pub struct PlaneInfo {
     pub env_uuid: EnvInfoId,
     pub uuid: PlaneInfoId,

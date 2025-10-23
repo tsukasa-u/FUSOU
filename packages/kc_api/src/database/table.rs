@@ -30,6 +30,8 @@ use crate::interface::mst_slot_item_equip_type::{MstSlotItemEquipType, MstSlotIt
 use crate::interface::mst_stype::{MstStype, MstStypes};
 use crate::interface::mst_use_item::{MstUseItem, MstUseItems};
 
+use register_trait::NumberSizeChecker;
+
 // pub const DATABASE_TABLE_VERSION: &str = dotenv!("DATABASE_TABLE_VERSION");
 #[deny(warnings)]
 pub const DATABASE_TABLE_VERSION: &str = include_str!("../../DATABASE_TABLE_VERSION");
@@ -71,7 +73,7 @@ pub enum PortTableEnum {
     Battle,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, NumberSizeChecker)]
 pub struct PortTable {
     pub env_info: Vec<EnvInfo>,
     pub cells: Vec<Cells>,

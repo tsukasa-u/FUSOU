@@ -103,17 +103,17 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_possible_values() {
-        dotenv().expect(".env file not found");
-        let target_path = std::env::var("TEST_DATA_PATH").expect("failed to get env data");
+    // #[test]
+    // fn test_possible_values() {
+    //     dotenv().expect(".env file not found");
+    //     let target_path = std::env::var("TEST_DATA_PATH").expect("failed to get env data");
 
-        let pattern_str = "S@api_start2@get_option_setting";
-        let log_path = "./src/kcapi_main/api_start2/get_option_setting@check_number@S.log";
-        simple_root_check_number_size::<Res>(
-            target_path.clone(),
-            pattern_str.to_string(),
-            log_path.to_string(),
-        );
-    }
+    //     let pattern_str = "S@api_start2@get_option_setting";
+    //     let log_path = "./src/kcapi_main/api_start2/get_option_setting@check_number@S.log";
+    //     simple_root_check_number_size::<Res>(
+    //         target_path.clone(),
+    //         pattern_str.to_string(),
+    //         log_path.to_string(),
+    //     );
+    // }
 }

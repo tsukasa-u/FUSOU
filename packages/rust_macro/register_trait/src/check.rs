@@ -264,6 +264,8 @@ impl NumberSizeChecker for bool {}
 impl NumberSizeChecker for char {}
 impl NumberSizeChecker for String {}
 
+impl NumberSizeChecker for uuid::Uuid {}
+
 //-------------------------------------------------------------------------
 
 fn write_log_check_number_size(log_path: String, log_map: &LogMapNumberSize) -> usize {

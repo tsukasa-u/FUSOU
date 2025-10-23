@@ -5,7 +5,7 @@ use uuid::Uuid;
 use crate::database::table::PortTable;
 use crate::database::table::DATABASE_TABLE_VERSION;
 
-use register_trait::{TraitForDecode, TraitForEncode};
+use register_trait::{NumberSizeChecker, TraitForDecode, TraitForEncode};
 
 pub type UserEnv = String;
 pub type EnvInfoId = Uuid;
@@ -15,7 +15,16 @@ pub type EnvInfoProps = (
     i64, // timestamp
 );
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
+#[derive(
+    Debug,
+    Clone,
+    Deserialize,
+    Serialize,
+    AvroSchema,
+    TraitForEncode,
+    TraitForDecode,
+    NumberSizeChecker,
+)]
 pub struct EnvInfo {
     pub version: String,
     pub uuid: EnvInfoId,
