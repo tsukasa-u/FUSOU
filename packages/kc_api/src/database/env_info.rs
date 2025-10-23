@@ -5,7 +5,7 @@ use uuid::Uuid;
 use crate::database::table::PortTable;
 use crate::database::table::DATABASE_TABLE_VERSION;
 
-use register_trait::{NumberSizeChecker, TraitForDecode, TraitForEncode};
+use register_trait::{FieldSizeChecker, TraitForDecode, TraitForEncode};
 
 pub type UserEnv = String;
 pub type EnvInfoId = Uuid;
@@ -23,7 +23,7 @@ pub type EnvInfoProps = (
     AvroSchema,
     TraitForEncode,
     TraitForDecode,
-    NumberSizeChecker,
+    FieldSizeChecker,
 )]
 pub struct EnvInfo {
     pub version: String,

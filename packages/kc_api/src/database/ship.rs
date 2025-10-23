@@ -14,7 +14,7 @@ use crate::database::table::PortTable;
 use crate::interface::ship::Ships;
 use crate::interface::slot_item::SlotItems;
 
-use register_trait::{NumberSizeChecker, TraitForDecode, TraitForEncode};
+use register_trait::{FieldSizeChecker, TraitForDecode, TraitForEncode};
 
 pub type OwnShipId = Uuid;
 pub type EnemyShipId = Uuid;
@@ -28,7 +28,7 @@ pub type FriendShipId = Uuid;
     AvroSchema,
     TraitForEncode,
     TraitForDecode,
-    NumberSizeChecker,
+    FieldSizeChecker,
 )]
 pub struct OwnShip {
     pub env_uuid: EnvInfoId,
@@ -121,7 +121,7 @@ impl OwnShip {
     AvroSchema,
     TraitForEncode,
     TraitForDecode,
-    NumberSizeChecker,
+    FieldSizeChecker,
 )]
 pub struct EnemyShip {
     pub env_uuid: EnvInfoId,
@@ -191,7 +191,7 @@ pub type FriendShipProps = (
     AvroSchema,
     TraitForEncode,
     TraitForDecode,
-    NumberSizeChecker,
+    FieldSizeChecker,
 )]
 pub struct FriendShip {
     pub env_uuid: EnvInfoId,

@@ -7,7 +7,7 @@ use crate::database::battle::BattleId;
 use crate::database::env_info::EnvInfoId;
 use crate::database::table::PortTable;
 
-use register_trait::{NumberSizeChecker, TraitForDecode, TraitForEncode};
+use register_trait::{FieldSizeChecker, TraitForDecode, TraitForEncode};
 
 pub type CellsId = Uuid;
 
@@ -19,7 +19,7 @@ pub type CellsId = Uuid;
     AvroSchema,
     TraitForEncode,
     TraitForDecode,
-    NumberSizeChecker,
+    FieldSizeChecker,
 )]
 pub struct Cells {
     pub env_uuid: EnvInfoId,

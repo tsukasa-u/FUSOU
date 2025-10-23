@@ -5,7 +5,7 @@ use uuid::Uuid;
 use crate::database::env_info::EnvInfoId;
 use crate::database::table::PortTable;
 
-use register_trait::{NumberSizeChecker, TraitForDecode, TraitForEncode};
+use register_trait::{FieldSizeChecker, TraitForDecode, TraitForEncode};
 
 pub type OwnSlotItemId = Uuid;
 pub type EnemySlotItemId = Uuid;
@@ -19,7 +19,7 @@ pub type FriendSlotItemId = Uuid;
     AvroSchema,
     TraitForEncode,
     TraitForDecode,
-    NumberSizeChecker,
+    FieldSizeChecker,
 )]
 pub struct OwnSlotItem {
     pub env_uuid: EnvInfoId,
@@ -59,7 +59,7 @@ impl OwnSlotItem {
     AvroSchema,
     TraitForEncode,
     TraitForDecode,
-    NumberSizeChecker,
+    FieldSizeChecker,
 )]
 pub struct EnemySlotItem {
     pub env_uuid: EnvInfoId,
@@ -90,7 +90,7 @@ impl EnemySlotItem {
     AvroSchema,
     TraitForEncode,
     TraitForDecode,
-    NumberSizeChecker,
+    FieldSizeChecker,
 )]
 pub struct FriendSlotItem {
     pub env_uuid: EnvInfoId,

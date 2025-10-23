@@ -9,14 +9,14 @@ use serde::Deserialize;
 use register_trait::add_field;
 use register_trait::register_struct;
 
-use register_trait::NumberSizeChecker;
+use register_trait::FieldSizeChecker;
 use register_trait::TraitForConvert;
 use register_trait::TraitForRoot;
 use register_trait::TraitForTest;
 
 use crate::interface::interface::EmitData;
 
-#[derive(NumberSizeChecker, TraitForTest, TraitForRoot, TraitForConvert)]
+#[derive(FieldSizeChecker, TraitForTest, TraitForRoot, TraitForConvert)]
 #[convert_output(output = EmitData)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
@@ -31,7 +31,7 @@ pub struct Req {
     pub api_deck_rid: String,
 }
 
-#[derive(NumberSizeChecker, TraitForTest, TraitForRoot, TraitForConvert)]
+#[derive(FieldSizeChecker, TraitForTest, TraitForRoot, TraitForConvert)]
 #[convert_output(output = EmitData)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
@@ -47,7 +47,7 @@ pub struct Res {
     pub api_data: ApiData,
 }
 
-#[derive(NumberSizeChecker, TraitForTest)]
+#[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
@@ -59,7 +59,7 @@ pub struct ApiData {
     pub api_deck_data: Vec<ApiDeckData>,
 }
 
-#[derive(NumberSizeChecker, TraitForTest)]
+#[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
@@ -133,7 +133,7 @@ pub struct ApiShipData {
     pub api_sp_effect_items: Option<Vec<ApiSpEffectItems>>,
 }
 
-#[derive(NumberSizeChecker, TraitForTest)]
+#[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
@@ -151,7 +151,7 @@ pub struct ApiSpEffectItems {
     pub api_kaih: Option<i64>,
 }
 
-#[derive(NumberSizeChecker, TraitForTest)]
+#[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]

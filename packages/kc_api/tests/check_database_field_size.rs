@@ -1,3 +1,5 @@
+#![cfg(test)]
+
 use chrono::DateTime;
 use kc_api::{
     database::table::{GetDataTable, PortTable},
@@ -6,15 +8,10 @@ use kc_api::{
         interface::{Add, EmitData, Identifier, Set},
     },
 };
-use register_trait::NumberSizeChecker;
-use std::{
-    collections::HashMap,
-    fs::{self, File},
-    io::Write,
-    path::{self, PathBuf},
-    str::FromStr, /*process::Command*/
-};
+use std::{fs, path::PathBuf};
 use uuid::Uuid;
+
+use register_trait::FieldSizeChecker;
 
 use dotenvy::dotenv;
 
@@ -23,7 +20,7 @@ enum ReturnType {
     GetDataTable(GetDataTable),
 }
 
-pub fn emit_data(emit_data: EmitData) -> Option<ReturnType> {
+fn emit_data(emit_data: EmitData) -> Option<ReturnType> {
     match emit_data {
         EmitData::Add(data) => match data {
             Add::Materials(data) => {}
@@ -129,6 +126,8 @@ pub fn emit_data(emit_data: EmitData) -> Option<ReturnType> {
 }
 
 pub fn check_database_field_size() {
+    use regex::Regex;
+
     dotenv().expect(".env file not found");
     let target_path = std::env::var("TEST_DATA_PATH").expect("failed to get env data");
 
@@ -155,10 +154,17 @@ pub fn check_database_field_size() {
         }
     }
 
+    let re_metadata = Regex::new(r"---\r?\n.*\r?\n.*\r?\n.*\r?\n.*\s*---\r?\n").unwrap();
+
     for file_api_seq in file_api_seq_vec {
         for file_path in file_api_seq {
             let file_content = fs::read_to_string(file_path.clone())
                 .expect(&format!("can not read the file({})", file_path.display()));
+
+            let data_removed_bom: String = file_content.replace("\u{feff}", "");
+            let data_removed_svdata: String = data_removed_bom.replace("svdata=", "");
+            let data_removed_metadata: String =
+                re_metadata.replace(&data_removed_svdata, "").to_string();
 
             let parse_path = file_path
                 .file_name()
@@ -168,38 +174,45 @@ pub fn check_database_field_size() {
                 .split("@")
                 .collect::<Vec<&str>>();
             if parse_path.len() < 3 {
-                panic!("file name format is invalid({})", file_path.display());
+                panic!(
+                    "file name format is invalid({}): {:?}",
+                    file_path.display(),
+                    parse_path
+                );
             }
-            let path_name = format!("{}/{}", parse_path[1], parse_path[2]);
+            let path_name = format!("/kcsapi/{}/{}", parse_path[1], parse_path[2]);
 
-            let emit_data_list =
-                match path_name.as_str() {
-                    s if s.ends_with("S") => {
-                        let emit_data_list: Vec<EmitData> =
-                            kc_api::parser::response_parser(path_name, file_content).expect(
-                                &format!("failed to parse the file({})", file_path.display()),
-                            );
-                        emit_data_list
-                    }
-                    s if s.ends_with("Q") => {
-                        let emit_data_list: Vec<EmitData> =
-                            kc_api::parser::request_parser(path_name, file_content).expect(
-                                &format!("failed to parse the file({})", file_path.display()),
-                            );
-                        emit_data_list
-                    }
-                    _ => {
-                        panic!("file name format is invalid({})", file_path.display());
-                    }
-                };
+            let emit_data_list = match parse_path[0] {
+                s if s.ends_with("S") => {
+                    let emit_data_list: Vec<EmitData> =
+                        kc_api::parser::response_parser(path_name, data_removed_metadata).expect(
+                            &format!("failed to parse the file({})", file_path.display()),
+                        );
+                    emit_data_list
+                }
+                s if s.ends_with("Q") => {
+                    let emit_data_list: Vec<EmitData> =
+                        kc_api::parser::request_parser(path_name, data_removed_metadata).expect(
+                            &format!("failed to parse the file({})", file_path.display()),
+                        );
+                    emit_data_list
+                }
+                _ => {
+                    panic!("file name format is invalid({})", file_path.display());
+                }
+            };
             for data in emit_data_list {
                 match emit_data(data) {
-                    Some(ReturnType::PortTable(mut port_table)) => {
+                    Some(ReturnType::PortTable(port_table)) => {
                         let mut log_map: register_trait::LogMapNumberSize =
                             std::collections::HashMap::new();
 
-                        // call the trait method explicitly to avoid method resolution issues
                         port_table.check_number(&mut log_map, None);
+                        println!(
+                            "Checked PortTable field sizes for file({})\n{:#?}",
+                            file_path.display(),
+                            log_map
+                        );
                     }
                     Some(ReturnType::GetDataTable(get_data_table)) => {
                         // get_data_table.check_number().expect(&format!(

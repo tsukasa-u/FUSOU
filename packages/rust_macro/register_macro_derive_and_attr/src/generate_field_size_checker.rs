@@ -2,7 +2,7 @@ use proc_macro::TokenStream;
 use quote::quote;
 use syn::DeriveInput;
 
-pub fn generate_number_size_checker(ast: &mut DeriveInput) -> Result<TokenStream, syn::Error> {
+pub fn generate_field_size_checker(ast: &mut DeriveInput) -> Result<TokenStream, syn::Error> {
     let struct_name = &ast.ident;
     let mut filed_check_number = Vec::new();
     match ast.data {
@@ -21,15 +21,14 @@ pub fn generate_number_size_checker(ast: &mut DeriveInput) -> Result<TokenStream
         _ => {
             return Err(syn::Error::new_spanned(
                 &ast.ident,
-                "#[NumberSizeChecker] is only defined for structs, not for enums or unions, etc.",
+                "#[FieldSizeChecker] is only defined for structs, not for enums or unions, etc.",
             ));
         }
     }
     let (impl_generics, ty_generics, where_clause) = ast.generics.split_for_impl();
 
     let expanded = quote! {
-        #[cfg(test)]
-        impl #impl_generics NumberSizeChecker for #struct_name #ty_generics #where_clause {
+        impl #impl_generics FieldSizeChecker for #struct_name #ty_generics #where_clause {
             
             fn check_number(&self, log_map: &mut register_trait::LogMapNumberSize, key: Option<(String, String, String)>) {
                 #(#filed_check_number)*

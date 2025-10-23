@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-pub use register_macro_derive_and_attr::NumberSizeChecker;
+pub use register_macro_derive_and_attr::FieldSizeChecker;
 pub use register_macro_derive_and_attr::TraitForConvert;
 pub use register_macro_derive_and_attr::TraitForDecode;
 pub use register_macro_derive_and_attr::TraitForEmitData;
@@ -19,8 +19,8 @@ pub use serde_json::Value;
 pub mod check;
 pub mod test;
 pub mod util;
-pub use check::custom_root_check_number_size;
-pub use check::simple_root_check_number_size;
+pub use check::custom_root_check_field_size;
+pub use check::simple_root_check_field_size;
 pub use test::custom_root_test;
 pub use test::simple_root_test;
 
@@ -62,7 +62,7 @@ pub trait TraitForTest {
 
 pub type LogMapType = HashMap<(String, String, String), Vec<String>>;
 pub type LogMapNumberSize = HashMap<(String, String, String), Vec<i64>>;
-pub enum EnumNumberSize {
+pub enum EnumFieldNumberSize {
     U8 = 8,
     U16 = 16,
     U32 = 32,
@@ -93,7 +93,7 @@ pub trait TraitForConvert {
     }
 }
 
-pub trait NumberSizeChecker {
+pub trait FieldSizeChecker {
     fn check_number(&self, _: &mut LogMapNumberSize, _: Option<(String, String, String)>) {}
 }
 

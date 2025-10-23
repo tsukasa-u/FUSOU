@@ -18,7 +18,7 @@ use crate::interface::air_base::AirBases;
 use crate::interface::deck_port::DeckPorts;
 use crate::interface::ship::Ships;
 
-use register_trait::{NumberSizeChecker, TraitForDecode, TraitForEncode};
+use register_trait::{FieldSizeChecker, TraitForDecode, TraitForEncode};
 
 pub type BattleId = Uuid;
 pub type HougekiListId = Uuid;
@@ -48,7 +48,7 @@ pub type FriendlySupportHouraiListId = Uuid;
     AvroSchema,
     TraitForEncode,
     TraitForDecode,
-    NumberSizeChecker,
+    FieldSizeChecker,
 )]
 pub struct HougekiList {
     pub env_uuid: EnvInfoId,
@@ -100,7 +100,7 @@ impl HougekiList {
     AvroSchema,
     TraitForEncode,
     TraitForDecode,
-    NumberSizeChecker,
+    FieldSizeChecker,
 )]
 pub struct Hougeki {
     pub env_uuid: EnvInfoId,
@@ -168,7 +168,7 @@ impl Hougeki {
     AvroSchema,
     TraitForEncode,
     TraitForDecode,
-    NumberSizeChecker,
+    FieldSizeChecker,
 )]
 pub struct MidnightHougekiList {
     pub env_uuid: EnvInfoId,
@@ -223,7 +223,7 @@ impl MidnightHougekiList {
     AvroSchema,
     TraitForEncode,
     TraitForDecode,
-    NumberSizeChecker,
+    FieldSizeChecker,
 )]
 pub struct MidnightHougeki {
     pub env_uuid: EnvInfoId,
@@ -291,7 +291,7 @@ impl MidnightHougeki {
     AvroSchema,
     TraitForEncode,
     TraitForDecode,
-    NumberSizeChecker,
+    FieldSizeChecker,
 )]
 pub struct OpeningTaisenList {
     pub env_uuid: EnvInfoId,
@@ -328,7 +328,7 @@ impl OpeningTaisenList {
     AvroSchema,
     TraitForEncode,
     TraitForDecode,
-    NumberSizeChecker,
+    FieldSizeChecker,
 )]
 pub struct OpeningTaisen {
     pub env_uuid: EnvInfoId,
@@ -389,7 +389,7 @@ impl OpeningTaisen {
     AvroSchema,
     TraitForEncode,
     TraitForDecode,
-    NumberSizeChecker,
+    FieldSizeChecker,
 )]
 pub struct ClosingRaigeki {
     pub env_uuid: EnvInfoId,
@@ -443,7 +443,7 @@ impl ClosingRaigeki {
     AvroSchema,
     TraitForEncode,
     TraitForDecode,
-    NumberSizeChecker,
+    FieldSizeChecker,
 )]
 pub struct OpeningRaigeki {
     pub env_uuid: EnvInfoId,
@@ -497,7 +497,7 @@ impl OpeningRaigeki {
     AvroSchema,
     TraitForEncode,
     TraitForDecode,
-    NumberSizeChecker,
+    FieldSizeChecker,
 )]
 pub struct OpeningAirAttackList {
     pub env_uuid: EnvInfoId,
@@ -544,7 +544,7 @@ impl OpeningAirAttackList {
     AvroSchema,
     TraitForEncode,
     TraitForDecode,
-    NumberSizeChecker,
+    FieldSizeChecker,
 )]
 pub struct OpeningAirAttack {
     pub env_uuid: EnvInfoId,
@@ -624,7 +624,7 @@ impl OpeningAirAttack {
     AvroSchema,
     TraitForEncode,
     TraitForDecode,
-    NumberSizeChecker,
+    FieldSizeChecker,
 )]
 pub struct AirBaseAirAttackList {
     pub env_uuid: EnvInfoId,
@@ -668,7 +668,7 @@ impl AirBaseAirAttackList {
     AvroSchema,
     TraitForEncode,
     TraitForDecode,
-    NumberSizeChecker,
+    FieldSizeChecker,
 )]
 pub struct AirBaseAirAttack {
     pub env_uuid: EnvInfoId,
@@ -750,7 +750,7 @@ impl AirBaseAirAttack {
     AvroSchema,
     TraitForEncode,
     TraitForDecode,
-    NumberSizeChecker,
+    FieldSizeChecker,
 )]
 pub struct AirBaseAssult {
     pub env_uuid: EnvInfoId,
@@ -826,7 +826,7 @@ impl AirBaseAssult {
     AvroSchema,
     TraitForEncode,
     TraitForDecode,
-    NumberSizeChecker,
+    FieldSizeChecker,
 )]
 pub struct CarrierBaseAssault {
     pub env_uuid: EnvInfoId,
@@ -900,7 +900,7 @@ impl CarrierBaseAssault {
     AvroSchema,
     TraitForEncode,
     TraitForDecode,
-    NumberSizeChecker,
+    FieldSizeChecker,
 )]
 pub struct SupportHourai {
     pub env_uuid: EnvInfoId,
@@ -983,7 +983,7 @@ impl SupportHourai {
     AvroSchema,
     TraitForEncode,
     TraitForDecode,
-    NumberSizeChecker,
+    FieldSizeChecker,
 )]
 pub struct SupportAirattack {
     pub env_uuid: EnvInfoId,
@@ -1084,7 +1084,7 @@ impl SupportAirattack {
     AvroSchema,
     TraitForEncode,
     TraitForDecode,
-    NumberSizeChecker,
+    FieldSizeChecker,
 )]
 pub struct FriendlySupportHouraiList {
     pub env_uuid: EnvInfoId,
@@ -1141,7 +1141,7 @@ impl FriendlySupportHouraiList {
     AvroSchema,
     TraitForEncode,
     TraitForDecode,
-    NumberSizeChecker,
+    FieldSizeChecker,
 )]
 pub struct FriendlySupportHourai {
     pub env_uuid: EnvInfoId,
@@ -1209,7 +1209,7 @@ impl FriendlySupportHourai {
     AvroSchema,
     TraitForEncode,
     TraitForDecode,
-    NumberSizeChecker,
+    FieldSizeChecker,
 )]
 pub struct Battle {
     pub env_uuid: EnvInfoId,

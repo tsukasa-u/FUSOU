@@ -1,3 +1,5 @@
+#![cfg(test)]
+
 use dotenvy::dotenv;
 use std::env;
 

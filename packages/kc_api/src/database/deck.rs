@@ -15,7 +15,7 @@ use crate::database::table::PortTable;
 use crate::interface::deck_port::DeckPorts;
 use crate::interface::ship::Ships;
 
-use register_trait::{NumberSizeChecker, TraitForDecode, TraitForEncode};
+use register_trait::{FieldSizeChecker, TraitForDecode, TraitForEncode};
 
 pub type OwnDeckId = Uuid;
 pub type SupportDeckId = Uuid;
@@ -30,7 +30,7 @@ pub type FriendDeckId = Uuid;
     AvroSchema,
     TraitForEncode,
     TraitForDecode,
-    NumberSizeChecker,
+    FieldSizeChecker,
 )]
 pub struct OwnDeck {
     pub env_uuid: EnvInfoId,
@@ -81,7 +81,7 @@ impl OwnDeck {
     AvroSchema,
     TraitForEncode,
     TraitForDecode,
-    NumberSizeChecker,
+    FieldSizeChecker,
 )]
 pub struct SupportDeck {
     pub env_uuid: EnvInfoId,
@@ -130,7 +130,7 @@ impl SupportDeck {
     AvroSchema,
     TraitForEncode,
     TraitForDecode,
-    NumberSizeChecker,
+    FieldSizeChecker,
 )]
 pub struct EnemyDeck {
     pub env_uuid: EnvInfoId,
@@ -187,7 +187,7 @@ impl EnemyDeck {
     AvroSchema,
     TraitForEncode,
     TraitForDecode,
-    NumberSizeChecker,
+    FieldSizeChecker,
 )]
 pub struct FriendDeck {
     pub env_uuid: EnvInfoId,
