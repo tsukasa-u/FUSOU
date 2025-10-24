@@ -1,5 +1,3 @@
-#![cfg(test)]
-
 use chrono::DateTime;
 use kc_api::{
     database::table::{GetDataTable, PortTable},
