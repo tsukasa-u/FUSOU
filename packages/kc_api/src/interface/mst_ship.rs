@@ -6,7 +6,7 @@ use apache_avro::AvroSchema;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use register_trait::TraitForEncode;
+use register_trait::{TraitForEncode, FieldSizeChecker};
 
 // Is it better to use onecell::sync::Lazy or std::sync::Lazy?
 pub(crate) static KCS_MST_SHIPS: Lazy<Mutex<MstShips>> = Lazy::new(|| {
@@ -23,7 +23,9 @@ pub struct MstShips {
     pub mst_ships: HashMap<i64, MstShip>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, AvroSchema, TraitForEncode, TS)]
+#[derive(
+    Debug, Clone, Serialize, Deserialize, AvroSchema, TraitForEncode, TS, FieldSizeChecker,
+)]
 #[ts(export, export_to = "get_data.ts")]
 pub struct MstShip {
     pub id: i64,

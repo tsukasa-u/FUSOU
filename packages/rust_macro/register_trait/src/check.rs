@@ -4,13 +4,13 @@ use std::collections::HashMap;
 use crate::EnumFieldNumberSize;
 use crate::FieldSizeChecker;
 use crate::LogMapNumberSize;
-use crate::TraitForRoot;
+// use crate::TraitForRoot;
 use serde_json::Value;
 
 use std::fs::File;
 use std::io::Write;
-use std::path;
-use std::path::PathBuf;
+// use std::path;
+// use std::path::PathBuf;
 
 use std::collections::hash_map;
 
@@ -273,7 +273,7 @@ impl FieldSizeChecker for uuid::Uuid {}
 
 //-------------------------------------------------------------------------
 
-fn write_log_check_field_size(log_path: String, log_map: &LogMapNumberSize) -> usize {
+pub fn write_log_check_field_size(log_path: String, log_map: &LogMapNumberSize) -> usize {
     let mut file =
         File::create(log_path).expect(&format!("\x1b[38;5;{}m can not create file\x1b[m ", 8));
 
@@ -290,16 +290,17 @@ fn write_log_check_field_size(log_path: String, log_map: &LogMapNumberSize) -> u
     for ((struct_name, field_name, type_name), log) in log_map.iter() {
         let bit_size = log[2];
         let abs_size = log[3];
-        let min_num = log[0];
-        let unmatch_sign_flag = bit_size % 2 == 0 && min_num < 0;
+        // let min_num = log[0];
+        // check the int type is i32 or i64. others are invalid.
+        let unmatch_sign_flag = abs_size % 2 == 0;
         let unmatch_range_flag = match abs_size {
-            x if x == EnumFieldNumberSize::U8 as i64 => bit_size > 8,
-            x if x == EnumFieldNumberSize::U16 as i64 => bit_size > 16 || bit_size <= 8,
-            x if x == EnumFieldNumberSize::U32 as i64 => bit_size > 32 || bit_size <= 16,
-            x if x == EnumFieldNumberSize::U64 as i64 => bit_size > 64 || bit_size <= 32,
-            x if x == EnumFieldNumberSize::I8 as i64 => bit_size > 7,
-            x if x == EnumFieldNumberSize::I16 as i64 => bit_size > 15 || bit_size <= 7,
-            x if x == EnumFieldNumberSize::I32 as i64 => bit_size > 31 || bit_size <= 15,
+            x if x == EnumFieldNumberSize::U8 as i64 => true, // u8 is not supported in avro schema
+            x if x == EnumFieldNumberSize::U16 as i64 => true, // u16 is not supported in avro schema
+            x if x == EnumFieldNumberSize::U32 as i64 => true, // u32 is not supported in avro schema
+            x if x == EnumFieldNumberSize::U64 as i64 => true, // u64 is not supported in avro schema
+            x if x == EnumFieldNumberSize::I8 as i64 => true,  // i8 is not supported in avro schema
+            x if x == EnumFieldNumberSize::I16 as i64 => true, // i16 is not supported in avro schema
+            x if x == EnumFieldNumberSize::I32 as i64 => bit_size > 31,
             x if x == EnumFieldNumberSize::I64 as i64 => bit_size > 63 || bit_size <= 31,
             _ => panic!("unknown size. not implemented"),
         };
@@ -339,35 +340,35 @@ fn write_log_check_field_size(log_path: String, log_map: &LogMapNumberSize) -> u
     return invalid_count;
 }
 
-pub fn simple_root_check_field_size<T>(target_path: String, pattren_str: String, log_path: String)
-where
-    T: TraitForRoot + FieldSizeChecker,
-{
-    let target = path::PathBuf::from(target_path);
-    let files = target
-        .read_dir()
-        .expect(&format!("\x1b[38;5;{}m read_dir call failed\x1b[m ", 8));
-    let file_list = files
-        .map(|dir_entry| {
-            let file_path = dir_entry.unwrap().path();
-            // file_path.exists();
-            return file_path;
-        })
-        .filter(|file_path| file_path.to_str().unwrap().ends_with(pattren_str.as_str()));
+// pub fn simple_root_check_field_size<T>(target_path: String, pattren_str: String, log_path: String)
+// where
+//     T: TraitForRoot + FieldSizeChecker,
+// {
+//     let target = path::PathBuf::from(target_path);
+//     let files = target
+//         .read_dir()
+//         .expect(&format!("\x1b[38;5;{}m read_dir call failed\x1b[m ", 8));
+//     let file_list = files
+//         .map(|dir_entry| {
+//             let file_path = dir_entry.unwrap().path();
+//             // file_path.exists();
+//             return file_path;
+//         })
+//         .filter(|file_path| file_path.to_str().unwrap().ends_with(pattren_str.as_str()));
 
-    custom_root_check_field_size::<T>(file_list, log_path);
-}
+//     custom_root_check_field_size::<T>(file_list, log_path);
+// }
 
-pub fn custom_root_check_field_size<T>(file_list: impl Iterator<Item = PathBuf>, log_path: String)
-where
-    T: TraitForRoot + FieldSizeChecker,
-{
-    let log_map: LogMapNumberSize = T::check_number_size(file_list);
+// pub fn custom_root_check_field_size<T>(file_list: impl Iterator<Item = PathBuf>, log_path: String)
+// where
+//     T: TraitForRoot + FieldSizeChecker,
+// {
+//     let log_map: LogMapNumberSize = T::check_number_size(file_list);
 
-    if write_log_check_field_size(log_path.clone(), &log_map) > 0 {
-        println!(
-            "\x1b[38;5;{}m some warnings are exist. check the log file({})\x1b[m ",
-            11, log_path
-        );
-    }
-}
+//     if write_log_check_field_size(log_path.clone(), &log_map) > 0 {
+//         println!(
+//             "\x1b[38;5;{}m some warnings are exist. check the log file({})\x1b[m ",
+//             11, log_path
+//         );
+//     }
+// }

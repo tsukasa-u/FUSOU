@@ -723,7 +723,6 @@ impl TraitForConvert for Res {
 #[cfg(test)]
 mod tests {
     use dotenvy::dotenv;
-    // use register_trait::simple_root_check_field_size;
     use register_trait::simple_root_test;
 
     use super::*;
@@ -748,18 +747,4 @@ mod tests {
             log_path.to_string(),
         );
     }
-
-    // #[test]
-    // fn test_possible_values() {
-    //     dotenv().expect(".env file not found");
-    //     let target_path = std::env::var("TEST_DATA_PATH").expect("failed to get env data");
-
-    //     let pattern_str = "S@api_start2@getData";
-    //     let log_path = "./src/kcapi_main/api_start2/get_data@check_number@S.log";
-    //     simple_root_check_number_size::<Res>(
-    //         target_path.clone(),
-    //         pattern_str.to_string(),
-    //         log_path.to_string(),
-    //     );
-    // }
 }

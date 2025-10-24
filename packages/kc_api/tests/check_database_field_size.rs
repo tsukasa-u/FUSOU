@@ -9,7 +9,7 @@ use kc_api::{
 use std::{fs, path::PathBuf};
 use uuid::Uuid;
 
-use register_trait::FieldSizeChecker;
+use register_trait::{check::write_log_check_field_size, FieldSizeChecker};
 
 use dotenvy::dotenv;
 
@@ -155,6 +155,8 @@ pub fn check_database_field_size() {
     let re_metadata = Regex::new(r"---\r?\n.*\r?\n.*\r?\n.*\r?\n.*\s*---\r?\n").unwrap();
 
     let mut log_map_port_table: register_trait::LogMapNumberSize = std::collections::HashMap::new();
+    let mut log_map_get_data_table: register_trait::LogMapNumberSize =
+        std::collections::HashMap::new();
 
     for file_api_seq in file_api_seq_vec {
         for file_path in file_api_seq {
@@ -208,15 +210,20 @@ pub fn check_database_field_size() {
                         port_table.check_number(&mut log_map_port_table, None);
                     }
                     Some(ReturnType::GetDataTable(get_data_table)) => {
-                        // get_data_table.check_number().expect(&format!(
-                        //     "failed to check database size for get_data_table from file({})",
-                        //     file_path.display()
-                        // ));
+                        get_data_table.check_number(&mut log_map_get_data_table, None);
                     }
                     None => { /* do nothing */ }
                 }
             }
         }
     }
-    println!("Checked PortTable field sizes\n{:#?}", log_map_port_table);
+
+    write_log_check_field_size(
+        "./tests/check_database_field_size@port_table.log".to_string(),
+        &log_map_port_table,
+    );
+    write_log_check_field_size(
+        "./tests/check_database_field_size@get_data_table.log".to_string(),
+        &log_map_get_data_table,
+    );
 }

@@ -6,7 +6,7 @@ use apache_avro::AvroSchema;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use register_trait::TraitForEncode;
+use register_trait::{FieldSizeChecker, TraitForEncode};
 
 pub(crate) static KCS_MST_SHIP_UPGRADE: Lazy<Mutex<MstShipUpgrades>> = Lazy::new(|| {
     Mutex::new(MstShipUpgrades {
@@ -22,7 +22,9 @@ pub struct MstShipUpgrades {
     pub mst_ship_upgrades: HashMap<i64, MstShipUpgrade>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, AvroSchema, TraitForEncode, TS)]
+#[derive(
+    Debug, Clone, Serialize, Deserialize, AvroSchema, TraitForEncode, TS, FieldSizeChecker,
+)]
 #[ts(export, export_to = "get_data.ts")]
 pub struct MstShipUpgrade {
     pub api_id: i64,

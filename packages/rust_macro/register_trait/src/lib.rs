@@ -19,8 +19,8 @@ pub use serde_json::Value;
 pub mod check;
 pub mod test;
 pub mod util;
-pub use check::custom_root_check_field_size;
-pub use check::simple_root_check_field_size;
+// pub use check::custom_root_check_field_size;
+// pub use check::simple_root_check_field_size;
 pub use test::custom_root_test;
 pub use test::simple_root_test;
 
@@ -79,9 +79,9 @@ pub trait TraitForRoot {
     fn test_deserialize<I>(_: I) -> LogMapType
     where
         I: Iterator<Item = PathBuf>;
-    fn check_number_size<I>(_: I) -> LogMapNumberSize
-    where
-        I: Iterator<Item = PathBuf>;
+    // fn check_number_size<I>(_: I) -> LogMapNumberSize
+    // where
+    //     I: Iterator<Item = PathBuf>;
 }
 
 pub trait TraitForEmitData {}
