@@ -156,6 +156,8 @@ pub fn check_database_field_size() {
 
     let re_metadata = Regex::new(r"---\r?\n.*\r?\n.*\r?\n.*\r?\n.*\s*---\r?\n").unwrap();
 
+    let mut log_map_port_table: register_trait::LogMapNumberSize = std::collections::HashMap::new();
+
     for file_api_seq in file_api_seq_vec {
         for file_path in file_api_seq {
             let file_content = fs::read_to_string(file_path.clone())
@@ -201,18 +203,11 @@ pub fn check_database_field_size() {
                     panic!("file name format is invalid({})", file_path.display());
                 }
             };
+
             for data in emit_data_list {
                 match emit_data(data) {
                     Some(ReturnType::PortTable(port_table)) => {
-                        let mut log_map: register_trait::LogMapNumberSize =
-                            std::collections::HashMap::new();
-
-                        port_table.check_number(&mut log_map, None);
-                        println!(
-                            "Checked PortTable field sizes for file({})\n{:#?}",
-                            file_path.display(),
-                            log_map
-                        );
+                        port_table.check_number(&mut log_map_port_table, None);
                     }
                     Some(ReturnType::GetDataTable(get_data_table)) => {
                         // get_data_table.check_number().expect(&format!(
@@ -225,4 +220,5 @@ pub fn check_database_field_size() {
             }
         }
     }
+    println!("Checked PortTable field sizes\n{:#?}", log_map_port_table);
 }
