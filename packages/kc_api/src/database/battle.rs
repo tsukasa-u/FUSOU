@@ -18,7 +18,7 @@ use crate::interface::air_base::AirBases;
 use crate::interface::deck_port::DeckPorts;
 use crate::interface::ship::Ships;
 
-use register_trait::{TraitForDecode, TraitForEncode};
+use register_trait::{FieldSizeChecker, TraitForDecode, TraitForEncode};
 
 pub type BattleId = Uuid;
 pub type HougekiListId = Uuid;
@@ -40,7 +40,16 @@ pub type FriendlySupportHouraiId = Uuid;
 pub type SupportAirattackId = Uuid;
 pub type FriendlySupportHouraiListId = Uuid;
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
+#[derive(
+    Debug,
+    Clone,
+    Deserialize,
+    Serialize,
+    AvroSchema,
+    TraitForEncode,
+    TraitForDecode,
+    FieldSizeChecker,
+)]
 pub struct HougekiList {
     pub env_uuid: EnvInfoId,
     pub uuid: HougekiListId,
@@ -83,7 +92,16 @@ impl HougekiList {
     // }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
+#[derive(
+    Debug,
+    Clone,
+    Deserialize,
+    Serialize,
+    AvroSchema,
+    TraitForEncode,
+    TraitForDecode,
+    FieldSizeChecker,
+)]
 pub struct Hougeki {
     pub env_uuid: EnvInfoId,
     pub uuid: HougekiId,
@@ -142,7 +160,16 @@ impl Hougeki {
     // }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
+#[derive(
+    Debug,
+    Clone,
+    Deserialize,
+    Serialize,
+    AvroSchema,
+    TraitForEncode,
+    TraitForDecode,
+    FieldSizeChecker,
+)]
 pub struct MidnightHougekiList {
     pub env_uuid: EnvInfoId,
     pub uuid: MidnightHougekiListId,
@@ -188,7 +215,16 @@ impl MidnightHougekiList {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
+#[derive(
+    Debug,
+    Clone,
+    Deserialize,
+    Serialize,
+    AvroSchema,
+    TraitForEncode,
+    TraitForDecode,
+    FieldSizeChecker,
+)]
 pub struct MidnightHougeki {
     pub env_uuid: EnvInfoId,
     pub uuid: MidnightHougekiId,
@@ -247,7 +283,16 @@ impl MidnightHougeki {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
+#[derive(
+    Debug,
+    Clone,
+    Deserialize,
+    Serialize,
+    AvroSchema,
+    TraitForEncode,
+    TraitForDecode,
+    FieldSizeChecker,
+)]
 pub struct OpeningTaisenList {
     pub env_uuid: EnvInfoId,
     pub uuid: OpeningTaisenListId,
@@ -275,7 +320,16 @@ impl OpeningTaisenList {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
+#[derive(
+    Debug,
+    Clone,
+    Deserialize,
+    Serialize,
+    AvroSchema,
+    TraitForEncode,
+    TraitForDecode,
+    FieldSizeChecker,
+)]
 pub struct OpeningTaisen {
     pub env_uuid: EnvInfoId,
     pub uuid: OpeningTaisenId,
@@ -327,7 +381,16 @@ impl OpeningTaisen {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
+#[derive(
+    Debug,
+    Clone,
+    Deserialize,
+    Serialize,
+    AvroSchema,
+    TraitForEncode,
+    TraitForDecode,
+    FieldSizeChecker,
+)]
 pub struct ClosingRaigeki {
     pub env_uuid: EnvInfoId,
     pub uuid: ClosingRaigekiId,
@@ -372,7 +435,16 @@ impl ClosingRaigeki {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
+#[derive(
+    Debug,
+    Clone,
+    Deserialize,
+    Serialize,
+    AvroSchema,
+    TraitForEncode,
+    TraitForDecode,
+    FieldSizeChecker,
+)]
 pub struct OpeningRaigeki {
     pub env_uuid: EnvInfoId,
     pub uuid: OpeningRaigekiId,
@@ -417,7 +489,16 @@ impl OpeningRaigeki {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
+#[derive(
+    Debug,
+    Clone,
+    Deserialize,
+    Serialize,
+    AvroSchema,
+    TraitForEncode,
+    TraitForDecode,
+    FieldSizeChecker,
+)]
 pub struct OpeningAirAttackList {
     pub env_uuid: EnvInfoId,
     pub uuid: OpeningAirAttackListId,
@@ -455,7 +536,16 @@ impl OpeningAirAttackList {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
+#[derive(
+    Debug,
+    Clone,
+    Deserialize,
+    Serialize,
+    AvroSchema,
+    TraitForEncode,
+    TraitForDecode,
+    FieldSizeChecker,
+)]
 pub struct OpeningAirAttack {
     pub env_uuid: EnvInfoId,
     pub uuid: OpeningAirAttackId,
@@ -526,7 +616,16 @@ impl OpeningAirAttack {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
+#[derive(
+    Debug,
+    Clone,
+    Deserialize,
+    Serialize,
+    AvroSchema,
+    TraitForEncode,
+    TraitForDecode,
+    FieldSizeChecker,
+)]
 pub struct AirBaseAirAttackList {
     pub env_uuid: EnvInfoId,
     pub uuid: AirBaseAirAttackListId,
@@ -561,7 +660,16 @@ impl AirBaseAirAttackList {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
+#[derive(
+    Debug,
+    Clone,
+    Deserialize,
+    Serialize,
+    AvroSchema,
+    TraitForEncode,
+    TraitForDecode,
+    FieldSizeChecker,
+)]
 pub struct AirBaseAirAttack {
     pub env_uuid: EnvInfoId,
     pub uuid: AirBaseAirAttackId,
@@ -634,7 +742,16 @@ impl AirBaseAirAttack {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
+#[derive(
+    Debug,
+    Clone,
+    Deserialize,
+    Serialize,
+    AvroSchema,
+    TraitForEncode,
+    TraitForDecode,
+    FieldSizeChecker,
+)]
 pub struct AirBaseAssult {
     pub env_uuid: EnvInfoId,
     pub uuid: AirBaseAssultId,
@@ -701,7 +818,16 @@ impl AirBaseAssult {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
+#[derive(
+    Debug,
+    Clone,
+    Deserialize,
+    Serialize,
+    AvroSchema,
+    TraitForEncode,
+    TraitForDecode,
+    FieldSizeChecker,
+)]
 pub struct CarrierBaseAssault {
     pub env_uuid: EnvInfoId,
     pub uuid: CarrierBaseAssaultId,
@@ -766,7 +892,16 @@ impl CarrierBaseAssault {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
+#[derive(
+    Debug,
+    Clone,
+    Deserialize,
+    Serialize,
+    AvroSchema,
+    TraitForEncode,
+    TraitForDecode,
+    FieldSizeChecker,
+)]
 pub struct SupportHourai {
     pub env_uuid: EnvInfoId,
     pub uuid: SupportHouraiId,
@@ -840,7 +975,16 @@ impl SupportHourai {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
+#[derive(
+    Debug,
+    Clone,
+    Deserialize,
+    Serialize,
+    AvroSchema,
+    TraitForEncode,
+    TraitForDecode,
+    FieldSizeChecker,
+)]
 pub struct SupportAirattack {
     pub env_uuid: EnvInfoId,
     pub uuid: SupportAirattackId,
@@ -932,7 +1076,16 @@ impl SupportAirattack {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
+#[derive(
+    Debug,
+    Clone,
+    Deserialize,
+    Serialize,
+    AvroSchema,
+    TraitForEncode,
+    TraitForDecode,
+    FieldSizeChecker,
+)]
 pub struct FriendlySupportHouraiList {
     pub env_uuid: EnvInfoId,
     pub uuid: FriendlySupportHouraiListId,
@@ -980,7 +1133,16 @@ impl FriendlySupportHouraiList {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
+#[derive(
+    Debug,
+    Clone,
+    Deserialize,
+    Serialize,
+    AvroSchema,
+    TraitForEncode,
+    TraitForDecode,
+    FieldSizeChecker,
+)]
 pub struct FriendlySupportHourai {
     pub env_uuid: EnvInfoId,
     pub uuid: FriendlySupportHouraiId,
@@ -1039,7 +1201,16 @@ impl FriendlySupportHourai {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
+#[derive(
+    Debug,
+    Clone,
+    Deserialize,
+    Serialize,
+    AvroSchema,
+    TraitForEncode,
+    TraitForDecode,
+    FieldSizeChecker,
+)]
 pub struct Battle {
     pub env_uuid: EnvInfoId,
     pub uuid: BattleId,

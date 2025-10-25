@@ -1,7 +1,10 @@
+#![cfg(test)]
+
 use dotenvy::dotenv;
 use std::env;
 
 mod check_database_dependency;
+mod check_database_field_size;
 mod check_struct_defined;
 mod check_struct_dependency;
 pub mod util;
@@ -34,4 +37,9 @@ fn test_struct_dependency() {
 #[test]
 fn test_database_dependency() {
     check_database_dependency::check_database_dependency();
+}
+
+#[test]
+fn test_database_number_size() {
+    check_database_field_size::check_database_field_size();
 }

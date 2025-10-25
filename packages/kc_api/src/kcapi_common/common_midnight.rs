@@ -4,10 +4,10 @@ use crate::kcapi_common::custom_type::DuoType;
 
 use register_trait::add_field;
 
-use register_trait::NumberSizeChecker;
+use register_trait::FieldSizeChecker;
 use register_trait::TraitForTest;
 
-#[derive(NumberSizeChecker, TraitForTest)]
+#[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
@@ -31,7 +31,7 @@ pub struct ApiHougeki {
     pub api_damage: Option<Vec<Vec<f32>>>,
 }
 
-#[derive(NumberSizeChecker, TraitForTest)]
+#[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
@@ -59,7 +59,7 @@ pub struct ApiFriendlyInfo {
     pub api_nowhps: Vec<i64>,
 }
 
-#[derive(NumberSizeChecker, TraitForTest)]
+#[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]

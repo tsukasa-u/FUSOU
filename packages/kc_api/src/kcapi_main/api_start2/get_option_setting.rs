@@ -9,14 +9,14 @@ use serde::Deserialize;
 use register_trait::add_field;
 use register_trait::register_struct;
 
-use register_trait::NumberSizeChecker;
+use register_trait::FieldSizeChecker;
 use register_trait::TraitForConvert;
 use register_trait::TraitForRoot;
 use register_trait::TraitForTest;
 
 use crate::interface::interface::EmitData;
 
-#[derive(NumberSizeChecker, TraitForTest, TraitForRoot, TraitForConvert)]
+#[derive(FieldSizeChecker, TraitForTest, TraitForRoot, TraitForConvert)]
 #[convert_output(output = EmitData)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
@@ -29,7 +29,7 @@ pub struct Req {
     pub api_verno: String,
 }
 
-#[derive(NumberSizeChecker, TraitForTest, TraitForRoot, TraitForConvert)]
+#[derive(FieldSizeChecker, TraitForTest, TraitForRoot, TraitForConvert)]
 #[convert_output(output = EmitData)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
@@ -45,7 +45,7 @@ pub struct Res {
     pub api_data: ApiData,
 }
 
-#[derive(NumberSizeChecker, TraitForTest)]
+#[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
@@ -57,7 +57,7 @@ pub struct ApiData {
     pub api_volume_setting: Option<ApiVolumeSetting>,
 }
 
-#[derive(NumberSizeChecker, TraitForTest)]
+#[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
@@ -78,7 +78,7 @@ pub struct ApiVolumeSetting {
 #[cfg(test)]
 mod tests {
     use dotenvy::dotenv;
-    use register_trait::{simple_root_check_number_size, simple_root_test};
+    use register_trait::simple_root_test;
 
     use super::*;
     #[test]
@@ -97,20 +97,6 @@ mod tests {
         let pattern_str = "Q@api_start2@get_option_setting";
         let log_path = "./src/kcapi_main/api_start2/get_option_setting@Q.log";
         simple_root_test::<Req>(
-            target_path.clone(),
-            pattern_str.to_string(),
-            log_path.to_string(),
-        );
-    }
-
-    #[test]
-    fn test_possible_values() {
-        dotenv().expect(".env file not found");
-        let target_path = std::env::var("TEST_DATA_PATH").expect("failed to get env data");
-
-        let pattern_str = "S@api_start2@get_option_setting";
-        let log_path = "./src/kcapi_main/api_start2/get_option_setting@check_number@S.log";
-        simple_root_check_number_size::<Res>(
             target_path.clone(),
             pattern_str.to_string(),
             log_path.to_string(),

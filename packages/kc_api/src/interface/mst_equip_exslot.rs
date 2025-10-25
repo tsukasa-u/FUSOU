@@ -6,7 +6,7 @@ use apache_avro::AvroSchema;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use register_trait::TraitForEncode;
+use register_trait::{FieldSizeChecker, TraitForEncode};
 
 struct MstEquipExslotType(i64);
 
@@ -24,7 +24,9 @@ pub struct MstEquipExslots {
     pub mst_equip_exslots: HashMap<i64, MstEquipExslot>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, AvroSchema, TraitForEncode, TS)]
+#[derive(
+    Debug, Clone, Serialize, Deserialize, AvroSchema, TraitForEncode, TS, FieldSizeChecker,
+)]
 #[ts(export, export_to = "get_data.ts")]
 pub struct MstEquipExslot {
     pub equip: i64,

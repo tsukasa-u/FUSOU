@@ -7,3 +7,4 @@ edition = "2021"
 chrono = "0.4.38"
 register_macro_derive_and_attr = { path = "./../register_macro_derive_and_attr" }
 serde_json = "1.0.124"
+uuid = { version = "1.16.0", features = ["v4"] }
