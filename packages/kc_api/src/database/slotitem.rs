@@ -5,13 +5,22 @@ use uuid::Uuid;
 use crate::database::env_info::EnvInfoId;
 use crate::database::table::PortTable;
 
-use register_trait::{TraitForDecode, TraitForEncode};
+use register_trait::{FieldSizeChecker, TraitForDecode, TraitForEncode};
 
 pub type OwnSlotItemId = Uuid;
 pub type EnemySlotItemId = Uuid;
 pub type FriendSlotItemId = Uuid;
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
+#[derive(
+    Debug,
+    Clone,
+    Deserialize,
+    Serialize,
+    AvroSchema,
+    TraitForEncode,
+    TraitForDecode,
+    FieldSizeChecker,
+)]
 pub struct OwnSlotItem {
     pub env_uuid: EnvInfoId,
     pub uuid: OwnSlotItemId,
@@ -42,7 +51,16 @@ impl OwnSlotItem {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
+#[derive(
+    Debug,
+    Clone,
+    Deserialize,
+    Serialize,
+    AvroSchema,
+    TraitForEncode,
+    TraitForDecode,
+    FieldSizeChecker,
+)]
 pub struct EnemySlotItem {
     pub env_uuid: EnvInfoId,
     pub uuid: EnemySlotItemId,
@@ -64,7 +82,16 @@ impl EnemySlotItem {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
+#[derive(
+    Debug,
+    Clone,
+    Deserialize,
+    Serialize,
+    AvroSchema,
+    TraitForEncode,
+    TraitForDecode,
+    FieldSizeChecker,
+)]
 pub struct FriendSlotItem {
     pub env_uuid: EnvInfoId,
     pub uuid: FriendSlotItemId,

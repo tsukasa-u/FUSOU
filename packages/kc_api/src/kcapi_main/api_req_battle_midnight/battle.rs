@@ -9,7 +9,7 @@ use serde::Deserialize;
 use register_trait::add_field;
 use register_trait::register_struct;
 
-use register_trait::NumberSizeChecker;
+use register_trait::FieldSizeChecker;
 use register_trait::TraitForConvert;
 use register_trait::TraitForRoot;
 use register_trait::TraitForTest;
@@ -21,7 +21,7 @@ use crate::kcapi_common::common_midnight::ApiHougeki;
 use crate::interface::battle::Battle;
 use crate::interface::interface::{Add, EmitData};
 
-#[derive(NumberSizeChecker, TraitForTest, TraitForRoot, TraitForConvert)]
+#[derive(FieldSizeChecker, TraitForTest, TraitForRoot, TraitForConvert)]
 #[convert_output(output = EmitData)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
@@ -34,7 +34,7 @@ pub struct Req {
     pub api_verno: String,
 }
 
-#[derive(NumberSizeChecker, TraitForTest, TraitForRoot)]
+#[derive(FieldSizeChecker, TraitForTest, TraitForRoot)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[register_struct(name = "api_req_battle_midnight/battle")]
@@ -49,7 +49,7 @@ pub struct Res {
     pub api_data: ApiData,
 }
 
-#[derive(NumberSizeChecker, TraitForTest)]
+#[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]

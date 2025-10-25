@@ -7,11 +7,20 @@ use crate::database::battle::BattleId;
 use crate::database::env_info::EnvInfoId;
 use crate::database::table::PortTable;
 
-use register_trait::{TraitForDecode, TraitForEncode};
+use register_trait::{FieldSizeChecker, TraitForDecode, TraitForEncode};
 
 pub type CellsId = Uuid;
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
+#[derive(
+    Debug,
+    Clone,
+    Deserialize,
+    Serialize,
+    AvroSchema,
+    TraitForEncode,
+    TraitForDecode,
+    FieldSizeChecker,
+)]
 pub struct Cells {
     pub env_uuid: EnvInfoId,
     pub uuid: CellsId,

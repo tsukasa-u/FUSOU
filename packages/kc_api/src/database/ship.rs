@@ -14,13 +14,22 @@ use crate::database::table::PortTable;
 use crate::interface::ship::Ships;
 use crate::interface::slot_item::SlotItems;
 
-use register_trait::{TraitForDecode, TraitForEncode};
+use register_trait::{FieldSizeChecker, TraitForDecode, TraitForEncode};
 
 pub type OwnShipId = Uuid;
 pub type EnemyShipId = Uuid;
 pub type FriendShipId = Uuid;
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
+#[derive(
+    Debug,
+    Clone,
+    Deserialize,
+    Serialize,
+    AvroSchema,
+    TraitForEncode,
+    TraitForDecode,
+    FieldSizeChecker,
+)]
 pub struct OwnShip {
     pub env_uuid: EnvInfoId,
     pub uuid: OwnShipId,
@@ -104,7 +113,16 @@ impl OwnShip {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
+#[derive(
+    Debug,
+    Clone,
+    Deserialize,
+    Serialize,
+    AvroSchema,
+    TraitForEncode,
+    TraitForDecode,
+    FieldSizeChecker,
+)]
 pub struct EnemyShip {
     pub env_uuid: EnvInfoId,
     pub uuid: EnemyShipId,
@@ -165,7 +183,16 @@ pub type FriendShipProps = (
     Option<Vec<i64>>, // 火力 雷装 対空 装甲
     Option<i64>,      // mst_id
 );
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
+#[derive(
+    Debug,
+    Clone,
+    Deserialize,
+    Serialize,
+    AvroSchema,
+    TraitForEncode,
+    TraitForDecode,
+    FieldSizeChecker,
+)]
 pub struct FriendShip {
     pub env_uuid: EnvInfoId,
     pub uuid: FriendShipId,

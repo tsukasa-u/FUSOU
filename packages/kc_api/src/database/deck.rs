@@ -15,14 +15,23 @@ use crate::database::table::PortTable;
 use crate::interface::deck_port::DeckPorts;
 use crate::interface::ship::Ships;
 
-use register_trait::{TraitForDecode, TraitForEncode};
+use register_trait::{FieldSizeChecker, TraitForDecode, TraitForEncode};
 
 pub type OwnDeckId = Uuid;
 pub type SupportDeckId = Uuid;
 pub type EnemyDeckId = Uuid;
 pub type FriendDeckId = Uuid;
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
+#[derive(
+    Debug,
+    Clone,
+    Deserialize,
+    Serialize,
+    AvroSchema,
+    TraitForEncode,
+    TraitForDecode,
+    FieldSizeChecker,
+)]
 pub struct OwnDeck {
     pub env_uuid: EnvInfoId,
     pub uuid: OwnDeckId,
@@ -64,7 +73,16 @@ impl OwnDeck {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
+#[derive(
+    Debug,
+    Clone,
+    Deserialize,
+    Serialize,
+    AvroSchema,
+    TraitForEncode,
+    TraitForDecode,
+    FieldSizeChecker,
+)]
 pub struct SupportDeck {
     pub env_uuid: EnvInfoId,
     pub uuid: SupportDeckId,
@@ -104,7 +122,16 @@ impl SupportDeck {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
+#[derive(
+    Debug,
+    Clone,
+    Deserialize,
+    Serialize,
+    AvroSchema,
+    TraitForEncode,
+    TraitForDecode,
+    FieldSizeChecker,
+)]
 pub struct EnemyDeck {
     pub env_uuid: EnvInfoId,
     pub uuid: EnemyDeckId,
@@ -152,7 +179,16 @@ impl EnemyDeck {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize, AvroSchema, TraitForEncode, TraitForDecode)]
+#[derive(
+    Debug,
+    Clone,
+    Deserialize,
+    Serialize,
+    AvroSchema,
+    TraitForEncode,
+    TraitForDecode,
+    FieldSizeChecker,
+)]
 pub struct FriendDeck {
     pub env_uuid: EnvInfoId,
     pub uuid: FriendDeckId,

@@ -9,14 +9,14 @@ use serde_json::Value;
 
 use register_trait::{add_field, register_struct};
 
-use register_trait::{NumberSizeChecker, TraitForConvert, TraitForRoot, TraitForTest};
+use register_trait::{FieldSizeChecker, TraitForConvert, TraitForRoot, TraitForTest};
 
 use crate::interface::battle::Battle;
 use crate::interface::interface::{Add, EmitData};
 
 use crate::kcapi_common::common_air::ApiKouku;
 
-#[derive(NumberSizeChecker, TraitForTest, TraitForRoot, TraitForConvert)]
+#[derive(FieldSizeChecker, TraitForTest, TraitForRoot, TraitForConvert)]
 #[convert_output(output = EmitData)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
@@ -33,7 +33,7 @@ pub struct Req {
     pub api_recovery_type: String,
 }
 
-#[derive(NumberSizeChecker, TraitForTest, TraitForRoot)]
+#[derive(FieldSizeChecker, TraitForTest, TraitForRoot)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[register_struct(name = "api_req_sortie/airbattle")]
@@ -48,7 +48,7 @@ pub struct Res {
     pub api_data: ApiData,
 }
 
-#[derive(NumberSizeChecker, TraitForTest)]
+#[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]

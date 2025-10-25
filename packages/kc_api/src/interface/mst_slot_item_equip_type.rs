@@ -6,7 +6,7 @@ use apache_avro::AvroSchema;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use register_trait::TraitForEncode;
+use register_trait::{FieldSizeChecker, TraitForEncode};
 
 pub(crate) static KCS_MST_SLOT_ITEM_EQUIP_TYPES: Lazy<Mutex<MstSlotItemEquipTypes>> =
     Lazy::new(|| {
@@ -23,7 +23,9 @@ pub struct MstSlotItemEquipTypes {
     pub mst_slotitem_equip_types: HashMap<i64, MstSlotItemEquipType>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, AvroSchema, TraitForEncode, TS)]
+#[derive(
+    Debug, Clone, Serialize, Deserialize, AvroSchema, TraitForEncode, TS, FieldSizeChecker,
+)]
 #[ts(export, export_to = "get_data.ts")]
 pub struct MstSlotItemEquipType {
     pub id: i64,

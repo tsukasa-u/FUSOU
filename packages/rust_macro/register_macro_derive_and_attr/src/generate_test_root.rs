@@ -84,32 +84,32 @@ pub fn generate_test_root(ast: &mut DeriveInput) -> Result<TokenStream, syn::Err
                         log_map
                     }
 
-                    fn check_number_size<I>(iter_file_path: I) -> register_trait::LogMapNumberSize where I: Iterator<Item = std::path::PathBuf> {
+                    // fn check_number_size<I>(iter_file_path: I) -> register_trait::LogMapNumberSize where I: Iterator<Item = std::path::PathBuf> {
 
-                        let mut log_map: register_trait::LogMapNumberSize = std::collections::HashMap::new();
-                        let re_metadata = regex::Regex::new(r"---\r?\n.*\r?\n.*\r?\n.*\r?\n.*\s*---\r?\n").unwrap();
+                    //     let mut log_map: register_trait::LogMapNumberSize = std::collections::HashMap::new();
+                    //     let re_metadata = regex::Regex::new(r"---\r?\n.*\r?\n.*\r?\n.*\r?\n.*\s*---\r?\n").unwrap();
                         
-                        for file_path in iter_file_path {
-                            let data_wrap = std::fs::read_to_string(file_path.clone());
-                            match data_wrap {
-                                Ok(data) => {
-                                    let data_removed_bom: String = data.replace("\u{feff}", "");
-                                    let data_removed_svdata: String = data_removed_bom.replace("svdata=", "");
-                                    let data_removed_metadata: String = re_metadata.replace(&data_removed_svdata, "").to_string();
+                    //     for file_path in iter_file_path {
+                    //         let data_wrap = std::fs::read_to_string(file_path.clone());
+                    //         match data_wrap {
+                    //             Ok(data) => {
+                    //                 let data_removed_bom: String = data.replace("\u{feff}", "");
+                    //                 let data_removed_svdata: String = data_removed_bom.replace("svdata=", "");
+                    //                 let data_removed_metadata: String = re_metadata.replace(&data_removed_svdata, "").to_string();
 
-                                    let root_wrap: Result<#struct_name, serde_json::Error> = serde_json::from_str(data_removed_metadata.as_str());
-                                    match root_wrap {
-                                        Ok(root) => {
-                                            root.check_number(&mut log_map, None);
-                                        },
-                                        Err(_e) => {}
-                                    };
-                                },
-                                Err(_e) => {}
-                            };
-                        }
-                        log_map
-                    }
+                    //                 let root_wrap: Result<#struct_name, serde_json::Error> = serde_json::from_str(data_removed_metadata.as_str());
+                    //                 match root_wrap {
+                    //                     Ok(root) => {
+                    //                         root.check_number(&mut log_map, None);
+                    //                     },
+                    //                     Err(_e) => {}
+                    //                 };
+                    //             },
+                    //             Err(_e) => {}
+                    //         };
+                    //     }
+                    //     log_map
+                    // }
                 }
             });
         }

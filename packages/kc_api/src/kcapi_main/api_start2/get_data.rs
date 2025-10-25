@@ -9,7 +9,7 @@ use std::collections::HashMap;
 
 use register_trait::{add_field, register_struct};
 
-use register_trait::{NumberSizeChecker, TraitForConvert, TraitForRoot, TraitForTest};
+use register_trait::{FieldSizeChecker, TraitForConvert, TraitForRoot, TraitForTest};
 
 use crate::interface::interface::{EmitData, Identifier, Set};
 use crate::interface::mst_equip_exslot::MstEquipExslots;
@@ -27,7 +27,7 @@ use crate::interface::mst_slot_item_equip_type::MstSlotItemEquipTypes;
 use crate::interface::mst_stype::MstStypes;
 use crate::interface::mst_use_item::MstUseItems;
 
-#[derive(NumberSizeChecker, TraitForTest, TraitForRoot, TraitForConvert)]
+#[derive(FieldSizeChecker, TraitForTest, TraitForRoot, TraitForConvert)]
 #[convert_output(output = EmitData)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
@@ -40,7 +40,7 @@ pub struct Req {
     pub api_verno: String,
 }
 
-#[derive(NumberSizeChecker, TraitForTest, TraitForRoot)]
+#[derive(FieldSizeChecker, TraitForTest, TraitForRoot)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[register_struct(name = "api_start2/getData")]
@@ -55,7 +55,7 @@ pub struct Res {
     pub api_data: ApiData,
 }
 
-#[derive(NumberSizeChecker, TraitForTest)]
+#[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
@@ -110,7 +110,7 @@ pub struct ApiData {
     pub api_mst_furniture: Vec<ApiMstFurniture>,
 }
 
-#[derive(NumberSizeChecker, TraitForTest)]
+#[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
@@ -130,7 +130,7 @@ pub struct ApiMstStype {
     pub api_equip_type: HashMap<String, i64>,
 }
 
-#[derive(NumberSizeChecker, TraitForTest)]
+#[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
@@ -198,7 +198,7 @@ pub struct ApiMstShip {
     pub api_tais: Option<Vec<i64>>,
 }
 
-#[derive(NumberSizeChecker, TraitForTest)]
+#[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
@@ -254,7 +254,7 @@ pub struct ApiMstShipgraph {
     pub api_wedd: Option<Vec<i64>>,
 }
 
-#[derive(NumberSizeChecker, TraitForTest)]
+#[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
@@ -268,7 +268,7 @@ pub struct ApiMstSlotitemEquiptype {
     pub api_show_flg: i64,
 }
 
-#[derive(NumberSizeChecker, TraitForTest)]
+#[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
@@ -284,7 +284,7 @@ pub struct ApiMstEquipExslotShip {
     pub api_req_level: i64,
 }
 
-#[derive(NumberSizeChecker, TraitForTest)]
+#[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
@@ -348,7 +348,7 @@ pub struct ApiMstSlotitem {
     pub api_distance: Option<i64>,
 }
 
-#[derive(NumberSizeChecker, TraitForTest)]
+#[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
@@ -366,7 +366,7 @@ pub struct ApiMstFurnituregraph {
     pub api_version: String,
 }
 
-#[derive(NumberSizeChecker, TraitForTest)]
+#[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
@@ -386,7 +386,7 @@ pub struct ApiMstUseitem {
     pub api_price: i64,
 }
 
-#[derive(NumberSizeChecker, TraitForTest)]
+#[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
@@ -408,7 +408,7 @@ pub struct ApiMstPayitem {
     pub api_price: i64,
 }
 
-#[derive(NumberSizeChecker, TraitForTest)]
+#[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
@@ -420,7 +420,7 @@ pub struct ApiMstItemShop {
     pub api_cabinet_2: Vec<i64>,
 }
 
-#[derive(NumberSizeChecker, TraitForTest)]
+#[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
@@ -434,7 +434,7 @@ pub struct ApiMstMaparea {
     pub api_type: i64,
 }
 
-#[derive(NumberSizeChecker, TraitForTest)]
+#[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
@@ -464,7 +464,7 @@ pub struct ApiMstMapinfo {
     pub api_sally_flag: Vec<i64>,
 }
 
-#[derive(NumberSizeChecker, TraitForTest)]
+#[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
@@ -484,7 +484,7 @@ pub struct ApiMstMapbgm {
     pub api_boss_bgm: Vec<i64>,
 }
 
-#[derive(NumberSizeChecker, TraitForTest)]
+#[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
@@ -526,7 +526,7 @@ pub struct ApiMstMission {
     pub api_sample_fleet: Vec<i64>,
 }
 
-#[derive(NumberSizeChecker, TraitForTest)]
+#[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
@@ -540,7 +540,7 @@ pub struct ApiMstConst {
     pub api_dpflag_quest: ApiDpflagQuest,
 }
 
-#[derive(NumberSizeChecker, TraitForTest)]
+#[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
@@ -552,7 +552,7 @@ pub struct ApiParallelQuestMax {
     pub api_int_value: i64,
 }
 
-#[derive(NumberSizeChecker, TraitForTest)]
+#[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
@@ -564,7 +564,7 @@ pub struct ApiBokoMaxShips {
     pub api_int_value: i64,
 }
 
-#[derive(NumberSizeChecker, TraitForTest)]
+#[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
@@ -576,7 +576,7 @@ pub struct ApiDpflagQuest {
     pub api_int_value: i64,
 }
 
-#[derive(NumberSizeChecker, TraitForTest)]
+#[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
@@ -610,7 +610,7 @@ pub struct ApiMstShipupgrade {
     pub api_boiler_count: Option<i64>,
 }
 
-#[derive(NumberSizeChecker, TraitForTest)]
+#[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
@@ -622,7 +622,7 @@ pub struct ApiMstBgm {
     pub api_name: String,
 }
 
-#[derive(NumberSizeChecker, TraitForTest)]
+#[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
@@ -639,7 +639,7 @@ pub struct ApiMstEquipShip {
     pub api_equip_type: HashMap<i64, Option<Vec<i64>>>,
 }
 
-#[derive(NumberSizeChecker, TraitForTest)]
+#[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
@@ -723,7 +723,7 @@ impl TraitForConvert for Res {
 #[cfg(test)]
 mod tests {
     use dotenvy::dotenv;
-    use register_trait::{simple_root_check_number_size, simple_root_test};
+    use register_trait::simple_root_test;
 
     use super::*;
     #[test]
@@ -742,20 +742,6 @@ mod tests {
         let pattern_str = "Q@api_start2@getData";
         let log_path = "./src/kcapi_main/api_start2/get_data@Q.log";
         simple_root_test::<Req>(
-            target_path.clone(),
-            pattern_str.to_string(),
-            log_path.to_string(),
-        );
-    }
-
-    #[test]
-    fn test_possible_values() {
-        dotenv().expect(".env file not found");
-        let target_path = std::env::var("TEST_DATA_PATH").expect("failed to get env data");
-
-        let pattern_str = "S@api_start2@getData";
-        let log_path = "./src/kcapi_main/api_start2/get_data@check_number@S.log";
-        simple_root_check_number_size::<Res>(
             target_path.clone(),
             pattern_str.to_string(),
             log_path.to_string(),

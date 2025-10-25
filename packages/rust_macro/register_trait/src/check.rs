@@ -1,22 +1,22 @@
 use core::panic;
 use std::collections::HashMap;
 
-use crate::EnumNumberSize;
+use crate::EnumFieldNumberSize;
+use crate::FieldSizeChecker;
 use crate::LogMapNumberSize;
-use crate::NumberSizeChecker;
-use crate::TraitForRoot;
+// use crate::TraitForRoot;
 use serde_json::Value;
 
 use std::fs::File;
 use std::io::Write;
-use std::path;
-use std::path::PathBuf;
+// use std::path;
+// use std::path::PathBuf;
 
 use std::collections::hash_map;
 
-impl<T> NumberSizeChecker for Vec<T>
+impl<T> FieldSizeChecker for Vec<T>
 where
-    T: NumberSizeChecker,
+    T: FieldSizeChecker,
 {
     fn check_number(&self, log_map: &mut LogMapNumberSize, key: Option<(String, String, String)>) {
         for v in self {
@@ -25,9 +25,9 @@ where
     }
 }
 
-impl<T> NumberSizeChecker for Option<T>
+impl<T> FieldSizeChecker for Option<T>
 where
-    T: NumberSizeChecker,
+    T: FieldSizeChecker,
 {
     fn check_number(&self, log_map: &mut LogMapNumberSize, key: Option<(String, String, String)>) {
         if let Some(v) = self {
@@ -36,10 +36,10 @@ where
     }
 }
 
-impl<T, U> NumberSizeChecker for HashMap<T, U>
+impl<T, U> FieldSizeChecker for HashMap<T, U>
 where
-    T: NumberSizeChecker,
-    U: NumberSizeChecker,
+    T: FieldSizeChecker,
+    U: FieldSizeChecker,
 {
     fn check_number(&self, log_map: &mut LogMapNumberSize, key: Option<(String, String, String)>) {
         for (k, v) in self {
@@ -57,11 +57,11 @@ where
     }
 }
 
-impl NumberSizeChecker for Value {
+impl FieldSizeChecker for Value {
     fn check_number(&self, _: &mut LogMapNumberSize, _: Option<(String, String, String)>) {}
 }
 
-impl NumberSizeChecker for i8 {
+impl FieldSizeChecker for i8 {
     fn check_number(&self, log_map: &mut LogMapNumberSize, key: Option<(String, String, String)>) {
         if let Some(key) = key {
             let bit_size = (0usize..7)
@@ -73,7 +73,7 @@ impl NumberSizeChecker for i8 {
                     *self as i64,
                     *self as i64,
                     bit_size,
-                    EnumNumberSize::I8 as i64,
+                    EnumFieldNumberSize::I8 as i64,
                 ]);
             } else {
                 let value = log_map.get_mut(&key).unwrap();
@@ -85,7 +85,7 @@ impl NumberSizeChecker for i8 {
     }
 }
 
-impl NumberSizeChecker for i16 {
+impl FieldSizeChecker for i16 {
     fn check_number(&self, log_map: &mut LogMapNumberSize, key: Option<(String, String, String)>) {
         if let Some(key) = key {
             let bit_size = (0usize..15)
@@ -97,7 +97,7 @@ impl NumberSizeChecker for i16 {
                     *self as i64,
                     *self as i64,
                     bit_size,
-                    EnumNumberSize::I16 as i64,
+                    EnumFieldNumberSize::I16 as i64,
                 ]);
             } else {
                 let value = log_map.get_mut(&key).unwrap();
@@ -109,7 +109,7 @@ impl NumberSizeChecker for i16 {
     }
 }
 
-impl NumberSizeChecker for i32 {
+impl FieldSizeChecker for i32 {
     fn check_number(&self, log_map: &mut LogMapNumberSize, key: Option<(String, String, String)>) {
         if let Some(key) = key {
             let bit_size = (0usize..31)
@@ -121,7 +121,7 @@ impl NumberSizeChecker for i32 {
                     *self as i64,
                     *self as i64,
                     bit_size,
-                    EnumNumberSize::I32 as i64,
+                    EnumFieldNumberSize::I32 as i64,
                 ]);
             } else {
                 let value = log_map.get_mut(&key).unwrap();
@@ -133,7 +133,7 @@ impl NumberSizeChecker for i32 {
     }
 }
 
-impl NumberSizeChecker for i64 {
+impl FieldSizeChecker for i64 {
     fn check_number(&self, log_map: &mut LogMapNumberSize, key: Option<(String, String, String)>) {
         if let Some(key) = key {
             let bit_size = (0usize..64)
@@ -141,7 +141,12 @@ impl NumberSizeChecker for i64 {
                 .unwrap_or(0) as i64
                 + 1i64;
             if let hash_map::Entry::Vacant(e) = log_map.entry(key.clone()) {
-                e.insert(vec![*self, *self, bit_size, EnumNumberSize::I64 as i64]);
+                e.insert(vec![
+                    *self,
+                    *self,
+                    bit_size,
+                    EnumFieldNumberSize::I64 as i64,
+                ]);
             } else {
                 let value = log_map.get_mut(&key).unwrap();
                 value[0] = value[0].min(*self);
@@ -152,13 +157,13 @@ impl NumberSizeChecker for i64 {
     }
 }
 
-impl NumberSizeChecker for i128 {
+impl FieldSizeChecker for i128 {
     fn check_number(&self, _: &mut LogMapNumberSize, _: Option<(String, String, String)>) {
         println!("not implemented");
     }
 }
 
-impl NumberSizeChecker for u8 {
+impl FieldSizeChecker for u8 {
     fn check_number(&self, log_map: &mut LogMapNumberSize, key: Option<(String, String, String)>) {
         if let Some(key) = key {
             let bit_size = (0usize..8)
@@ -169,7 +174,7 @@ impl NumberSizeChecker for u8 {
                     *self as i64,
                     *self as i64,
                     bit_size,
-                    EnumNumberSize::U8 as i64,
+                    EnumFieldNumberSize::U8 as i64,
                 ]);
             } else {
                 let value = log_map.get_mut(&key).unwrap();
@@ -181,7 +186,7 @@ impl NumberSizeChecker for u8 {
     }
 }
 
-impl NumberSizeChecker for u16 {
+impl FieldSizeChecker for u16 {
     fn check_number(&self, log_map: &mut LogMapNumberSize, key: Option<(String, String, String)>) {
         if let Some(key) = key {
             let bit_size = (0usize..16)
@@ -192,7 +197,7 @@ impl NumberSizeChecker for u16 {
                     *self as i64,
                     *self as i64,
                     bit_size,
-                    EnumNumberSize::U16 as i64,
+                    EnumFieldNumberSize::U16 as i64,
                 ]);
             } else {
                 let value = log_map.get_mut(&key).unwrap();
@@ -204,7 +209,7 @@ impl NumberSizeChecker for u16 {
     }
 }
 
-impl NumberSizeChecker for u32 {
+impl FieldSizeChecker for u32 {
     fn check_number(&self, log_map: &mut LogMapNumberSize, key: Option<(String, String, String)>) {
         if let Some(key) = key {
             let bit_size = (0usize..32)
@@ -215,7 +220,7 @@ impl NumberSizeChecker for u32 {
                     *self as i64,
                     *self as i64,
                     bit_size,
-                    EnumNumberSize::U32 as i64,
+                    EnumFieldNumberSize::U32 as i64,
                 ]);
             } else {
                 let value = log_map.get_mut(&key).unwrap();
@@ -227,7 +232,7 @@ impl NumberSizeChecker for u32 {
     }
 }
 
-impl NumberSizeChecker for u64 {
+impl FieldSizeChecker for u64 {
     fn check_number(&self, log_map: &mut LogMapNumberSize, key: Option<(String, String, String)>) {
         if let Some(key) = key {
             let bit_size = (0usize..64)
@@ -238,7 +243,7 @@ impl NumberSizeChecker for u64 {
                     *self as i64,
                     *self as i64,
                     bit_size,
-                    EnumNumberSize::U64 as i64,
+                    EnumFieldNumberSize::U64 as i64,
                 ]);
             } else {
                 let value = log_map.get_mut(&key).unwrap();
@@ -250,23 +255,25 @@ impl NumberSizeChecker for u64 {
     }
 }
 
-impl NumberSizeChecker for u128 {
+impl FieldSizeChecker for u128 {
     fn check_number(&self, _: &mut LogMapNumberSize, _: Option<(String, String, String)>) {
         println!("not implemented");
     }
 }
 
-impl NumberSizeChecker for isize {}
-impl NumberSizeChecker for usize {}
-impl NumberSizeChecker for f32 {}
-impl NumberSizeChecker for f64 {}
-impl NumberSizeChecker for bool {}
-impl NumberSizeChecker for char {}
-impl NumberSizeChecker for String {}
+impl FieldSizeChecker for isize {}
+impl FieldSizeChecker for usize {}
+impl FieldSizeChecker for f32 {}
+impl FieldSizeChecker for f64 {}
+impl FieldSizeChecker for bool {}
+impl FieldSizeChecker for char {}
+impl FieldSizeChecker for String {}
+
+impl FieldSizeChecker for uuid::Uuid {}
 
 //-------------------------------------------------------------------------
 
-fn write_log_check_number_size(log_path: String, log_map: &LogMapNumberSize) -> usize {
+pub fn write_log_check_field_size(log_path: String, log_map: &LogMapNumberSize) -> usize {
     let mut file =
         File::create(log_path).expect(&format!("\x1b[38;5;{}m can not create file\x1b[m ", 8));
 
@@ -283,31 +290,32 @@ fn write_log_check_number_size(log_path: String, log_map: &LogMapNumberSize) -> 
     for ((struct_name, field_name, type_name), log) in log_map.iter() {
         let bit_size = log[2];
         let abs_size = log[3];
-        let min_num = log[0];
-        let unmatch_sign_flag = bit_size % 2 == 0 && min_num < 0;
+        // let min_num = log[0];
+        // check the int type is i32 or i64. others are invalid.
+        let unmatch_sign_flag = abs_size % 2 == 0;
         let unmatch_range_flag = match abs_size {
-            x if x == EnumNumberSize::U8 as i64 => bit_size > 8,
-            x if x == EnumNumberSize::U16 as i64 => bit_size > 16 || bit_size <= 8,
-            x if x == EnumNumberSize::U32 as i64 => bit_size > 32 || bit_size <= 16,
-            x if x == EnumNumberSize::U64 as i64 => bit_size > 64 || bit_size <= 32,
-            x if x == EnumNumberSize::I8 as i64 => bit_size > 7,
-            x if x == EnumNumberSize::I16 as i64 => bit_size > 15 || bit_size <= 7,
-            x if x == EnumNumberSize::I32 as i64 => bit_size > 31 || bit_size <= 15,
-            x if x == EnumNumberSize::I64 as i64 => bit_size > 63 || bit_size <= 31,
+            x if x == EnumFieldNumberSize::U8 as i64 => true, // u8 is not supported in avro schema
+            x if x == EnumFieldNumberSize::U16 as i64 => true, // u16 is not supported in avro schema
+            x if x == EnumFieldNumberSize::U32 as i64 => true, // u32 is not supported in avro schema
+            x if x == EnumFieldNumberSize::U64 as i64 => true, // u64 is not supported in avro schema
+            x if x == EnumFieldNumberSize::I8 as i64 => true,  // i8 is not supported in avro schema
+            x if x == EnumFieldNumberSize::I16 as i64 => true, // i16 is not supported in avro schema
+            x if x == EnumFieldNumberSize::I32 as i64 => bit_size > 31,
+            x if x == EnumFieldNumberSize::I64 as i64 => bit_size > 63 || bit_size <= 31,
             _ => panic!("unknown size. not implemented"),
         };
 
         if unmatch_range_flag || unmatch_sign_flag {
             invalid_count += 1;
             let size_name = match log[3] {
-                x if x == EnumNumberSize::U8 as i64 => "u8",
-                x if x == EnumNumberSize::U16 as i64 => "u16",
-                x if x == EnumNumberSize::U32 as i64 => "u32",
-                x if x == EnumNumberSize::U64 as i64 => "u64",
-                x if x == EnumNumberSize::I8 as i64 => "i8",
-                x if x == EnumNumberSize::I16 as i64 => "i16",
-                x if x == EnumNumberSize::I32 as i64 => "i32",
-                x if x == EnumNumberSize::I64 as i64 => "i64",
+                x if x == EnumFieldNumberSize::U8 as i64 => "u8",
+                x if x == EnumFieldNumberSize::U16 as i64 => "u16",
+                x if x == EnumFieldNumberSize::U32 as i64 => "u32",
+                x if x == EnumFieldNumberSize::U64 as i64 => "u64",
+                x if x == EnumFieldNumberSize::I8 as i64 => "i8",
+                x if x == EnumFieldNumberSize::I16 as i64 => "i16",
+                x if x == EnumFieldNumberSize::I32 as i64 => "i32",
+                x if x == EnumFieldNumberSize::I64 as i64 => "i64",
                 _ => "unknown",
             };
             if unmatch_sign_flag {
@@ -332,35 +340,35 @@ fn write_log_check_number_size(log_path: String, log_map: &LogMapNumberSize) -> 
     return invalid_count;
 }
 
-pub fn simple_root_check_number_size<T>(target_path: String, pattren_str: String, log_path: String)
-where
-    T: TraitForRoot + NumberSizeChecker,
-{
-    let target = path::PathBuf::from(target_path);
-    let files = target
-        .read_dir()
-        .expect(&format!("\x1b[38;5;{}m read_dir call failed\x1b[m ", 8));
-    let file_list = files
-        .map(|dir_entry| {
-            let file_path = dir_entry.unwrap().path();
-            // file_path.exists();
-            return file_path;
-        })
-        .filter(|file_path| file_path.to_str().unwrap().ends_with(pattren_str.as_str()));
+// pub fn simple_root_check_field_size<T>(target_path: String, pattren_str: String, log_path: String)
+// where
+//     T: TraitForRoot + FieldSizeChecker,
+// {
+//     let target = path::PathBuf::from(target_path);
+//     let files = target
+//         .read_dir()
+//         .expect(&format!("\x1b[38;5;{}m read_dir call failed\x1b[m ", 8));
+//     let file_list = files
+//         .map(|dir_entry| {
+//             let file_path = dir_entry.unwrap().path();
+//             // file_path.exists();
+//             return file_path;
+//         })
+//         .filter(|file_path| file_path.to_str().unwrap().ends_with(pattren_str.as_str()));
 
-    custom_root_check_number_size::<T>(file_list, log_path);
-}
+//     custom_root_check_field_size::<T>(file_list, log_path);
+// }
 
-pub fn custom_root_check_number_size<T>(file_list: impl Iterator<Item = PathBuf>, log_path: String)
-where
-    T: TraitForRoot + NumberSizeChecker,
-{
-    let log_map: LogMapNumberSize = T::check_number_size(file_list);
+// pub fn custom_root_check_field_size<T>(file_list: impl Iterator<Item = PathBuf>, log_path: String)
+// where
+//     T: TraitForRoot + FieldSizeChecker,
+// {
+//     let log_map: LogMapNumberSize = T::check_number_size(file_list);
 
-    if write_log_check_number_size(log_path.clone(), &log_map) > 0 {
-        println!(
-            "\x1b[38;5;{}m some warnings are exist. check the log file({})\x1b[m ",
-            11, log_path
-        );
-    }
-}
+//     if write_log_check_field_size(log_path.clone(), &log_map) > 0 {
+//         println!(
+//             "\x1b[38;5;{}m some warnings are exist. check the log file({})\x1b[m ",
+//             11, log_path
+//         );
+//     }
+// }

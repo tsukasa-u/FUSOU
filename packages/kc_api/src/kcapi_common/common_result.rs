@@ -4,10 +4,10 @@ use crate::kcapi_common::custom_type::DuoType;
 
 use register_trait::add_field;
 
-use register_trait::NumberSizeChecker;
+use register_trait::FieldSizeChecker;
 use register_trait::TraitForTest;
 
-#[derive(NumberSizeChecker, TraitForTest)]
+#[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
@@ -23,7 +23,7 @@ pub struct ApiGetShip {
     pub api_ship_getmes: String,
 }
 
-#[derive(NumberSizeChecker, TraitForTest)]
+#[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
@@ -37,7 +37,7 @@ pub struct ApiEnemyInfo {
     pub api_deck_name: String,
 }
 
-#[derive(NumberSizeChecker, TraitForTest)]
+#[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
@@ -53,7 +53,7 @@ pub struct ApiGetEventitem {
     pub api_slot_level: Option<i64>,
 }
 
-#[derive(NumberSizeChecker, TraitForTest)]
+#[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
