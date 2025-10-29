@@ -29,7 +29,7 @@ pub struct AirBase {
     pub uuid: AirBaseId,
     pub action_kind: i64,
     pub distance: i64,
-    pub plane_info: Vec<PlaneInfoId>,
+    pub plane_info: PlaneInfoId,
 }
 
 impl AirBase {
@@ -71,6 +71,7 @@ impl AirBase {
 pub struct PlaneInfo {
     pub env_uuid: EnvInfoId,
     pub uuid: PlaneInfoId,
+    pub index: i64,
     pub cond: Option<i64>,
     pub state: i64,
     pub max_count: Option<i64>,

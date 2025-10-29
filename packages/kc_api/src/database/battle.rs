@@ -53,24 +53,24 @@ pub type FriendlySupportHouraiListId = Uuid;
 pub struct HougekiList {
     pub env_uuid: EnvInfoId,
     pub uuid: HougekiListId,
-    pub hougeki: Vec<Vec<HougekiId>>,
+    pub hougeki: HougekiId,
 }
 
 impl HougekiList {
-    pub fn new_ret_uuid(
+    pub fn new(
         data: Vec<Option<crate::interface::battle::Hougeki>>,
         table: &mut PortTable,
         env_uuid: EnvInfoId,
-    ) -> Option<Uuid> {
+    ) {
         if data.iter().all(|x| x.is_none()) {
             return None;
         }
 
-        let new_uuid = Uuid::new_v4();
+        let new_uuid = Uuid::new_v7(ts);
         let new_hougeki = data
             .iter()
             .flatten()
-            .map(|hougeki| Hougeki::new_ret_uuid(hougeki.clone(), table, env_uuid))
+            .map(|hougeki| Hougeki::new(hougeki.clone(), table, env_uuid))
             .collect();
 
         let new_data = HougekiList {
@@ -80,8 +80,6 @@ impl HougekiList {
         };
 
         table.hougeki_list.push(new_data);
-
-        return Some(new_uuid);
     }
 
     // pub fn encode(data: Vec<HougekiList>) -> Result<Vec<u8>, apache_avro::Error> {
@@ -105,6 +103,8 @@ impl HougekiList {
 pub struct Hougeki {
     pub env_uuid: EnvInfoId,
     pub uuid: HougekiId,
+    pub index_1: i64,
+    pub index_2: i64,
     pub at: i64,
     pub at_type: i64,
     pub df: Vec<i64>,
@@ -118,7 +118,7 @@ pub struct Hougeki {
 }
 
 impl Hougeki {
-    pub fn new_ret_uuid(
+    pub fn new(
         data: crate::interface::battle::Hougeki,
         table: &mut PortTable,
         env_uuid: EnvInfoId,
@@ -126,7 +126,7 @@ impl Hougeki {
         let data_len = data.at_list.len();
         let new_uuid_list = (0..data_len)
             .map(|i| {
-                let new_uuid = Uuid::new_v4();
+                let new_uuid = Uuid::new_v7(ts);
 
                 let new_data = Hougeki {
                     env_uuid,
@@ -177,19 +177,15 @@ pub struct MidnightHougekiList {
     pub f_touch_plane: Option<i64>,
     pub e_flare_pos: Option<i64>,
     pub e_touch_plane: Option<i64>,
-    pub midnight_hougeki: Option<Vec<MidnightHougekiId>>,
+    pub midnight_hougeki: MidnightHougekiId,
 }
 
 impl MidnightHougekiList {
-    pub fn new_ret_uuid(
-        data: crate::interface::battle::Battle,
-        table: &mut PortTable,
-        env_uuid: EnvInfoId,
-    ) -> Option<Uuid> {
-        let new_uuid = Uuid::new_v4();
-        let new_midnight_hougeki = data.midnight_hougeki.and_then(|midnight_hougeki| {
-            MidnightHougeki::new_ret_uuid(midnight_hougeki, table, env_uuid)
-        });
+    pub fn new(data: crate::interface::battle::Battle, table: &mut PortTable, env_uuid: EnvInfoId) {
+        let new_uuid = Uuid::new_v7(ts);
+        let new_midnight_hougeki = data
+            .midnight_hougeki
+            .and_then(|midnight_hougeki| MidnightHougeki::new(midnight_hougeki, table, env_uuid));
         let new_data = MidnightHougekiList {
             env_uuid,
             uuid: new_uuid,
@@ -210,8 +206,6 @@ impl MidnightHougekiList {
         }
 
         table.midnight_hougeki_list.push(new_data);
-
-        return Some(new_uuid);
     }
 }
 
@@ -228,6 +222,7 @@ impl MidnightHougekiList {
 pub struct MidnightHougeki {
     pub env_uuid: EnvInfoId,
     pub uuid: MidnightHougekiId,
+    pub index: i64,
     pub at: Option<i64>,
     pub df: Option<Vec<i64>>,
     pub cl: Option<Vec<i64>>,
@@ -240,7 +235,7 @@ pub struct MidnightHougeki {
 }
 
 impl MidnightHougeki {
-    pub fn new_ret_uuid(
+    pub fn new(
         data: crate::interface::battle::MidnightHougeki,
         table: &mut PortTable,
         env_uuid: EnvInfoId,
@@ -250,7 +245,7 @@ impl MidnightHougeki {
                 let data_len = data.at_list.clone().unwrap().len();
                 let new_uuid_list = (0..data_len)
                     .map(|i| {
-                        let new_uuid = Uuid::new_v4();
+                        let new_uuid = Uuid::new_v7(ts);
 
                         let new_data = MidnightHougeki {
                             env_uuid,
@@ -296,17 +291,17 @@ impl MidnightHougeki {
 pub struct OpeningTaisenList {
     pub env_uuid: EnvInfoId,
     pub uuid: OpeningTaisenListId,
-    pub opening_taisen: Vec<OpeningTaisenId>,
+    pub opening_taisen: OpeningTaisenId,
 }
 
 impl OpeningTaisenList {
-    pub fn new_ret_uuid(
+    pub fn new(
         data: crate::interface::battle::OpeningTaisen,
         table: &mut PortTable,
         env_uuid: EnvInfoId,
     ) -> Uuid {
-        let new_uuid = Uuid::new_v4();
-        let new_opening_taisen = OpeningTaisen::new_ret_uuid(data, table, env_uuid);
+        let new_uuid = Uuid::new_v7(ts);
+        let new_opening_taisen = OpeningTaisen::new(data, table, env_uuid);
 
         let new_data = OpeningTaisenList {
             env_uuid,
@@ -333,6 +328,7 @@ impl OpeningTaisenList {
 pub struct OpeningTaisen {
     pub env_uuid: EnvInfoId,
     pub uuid: OpeningTaisenId,
+    pub index: i64,
     pub at: i64,
     pub at_type: i64,
     pub df: Vec<i64>,
@@ -346,7 +342,7 @@ pub struct OpeningTaisen {
 }
 
 impl OpeningTaisen {
-    pub fn new_ret_uuid(
+    pub fn new(
         data: crate::interface::battle::OpeningTaisen,
         table: &mut PortTable,
         env_uuid: EnvInfoId,
@@ -354,7 +350,7 @@ impl OpeningTaisen {
         let data_len = data.at_list.clone().len();
         let new_uuid_list = (0..data_len)
             .map(|i| {
-                let new_uuid = Uuid::new_v4();
+                let new_uuid = Uuid::new_v7(ts);
 
                 let new_data = OpeningTaisen {
                     env_uuid,
@@ -407,12 +403,12 @@ pub struct ClosingRaigeki {
 }
 
 impl ClosingRaigeki {
-    pub fn new_ret_uuid(
+    pub fn new(
         data: crate::interface::battle::ClosingRaigeki,
         table: &mut PortTable,
         env_uuid: EnvInfoId,
     ) -> Uuid {
-        let new_uuid = Uuid::new_v4();
+        let new_uuid = Uuid::new_v7(ts);
 
         let new_data = ClosingRaigeki {
             env_uuid,
@@ -461,12 +457,12 @@ pub struct OpeningRaigeki {
 }
 
 impl OpeningRaigeki {
-    pub fn new_ret_uuid(
+    pub fn new(
         data: crate::interface::battle::OpeningRaigeki,
         table: &mut PortTable,
         env_uuid: EnvInfoId,
     ) -> Uuid {
-        let new_uuid = Uuid::new_v4();
+        let new_uuid = Uuid::new_v7(ts);
 
         let new_data = OpeningRaigeki {
             env_uuid,
@@ -502,25 +498,25 @@ impl OpeningRaigeki {
 pub struct OpeningAirAttackList {
     pub env_uuid: EnvInfoId,
     pub uuid: OpeningAirAttackListId,
-    pub opening_air_attack: Vec<OpeningAirAttackId>,
+    pub opening_air_attack: OpeningAirAttackId,
 }
 
 impl OpeningAirAttackList {
-    pub fn new_ret_uuid(
+    pub fn new(
         data: Vec<Option<crate::interface::battle::OpeningAirAttack>>,
         table: &mut PortTable,
         env_uuid: EnvInfoId,
-    ) -> Option<Uuid> {
+    ) {
         if data.iter().all(|x| x.is_none()) {
             return None;
         }
 
-        let new_uuid = Uuid::new_v4();
+        let new_uuid = Uuid::new_v7(ts);
         let new_opening_air_attack = data
             .iter()
             .flatten()
             .map(|opening_air_attack| {
-                OpeningAirAttack::new_ret_uuid(opening_air_attack.clone(), table, env_uuid)
+                OpeningAirAttack::new(opening_air_attack.clone(), table, env_uuid)
             })
             .collect();
 
@@ -531,8 +527,6 @@ impl OpeningAirAttackList {
         };
 
         table.opening_airattack_list.push(new_data);
-
-        return Some(new_uuid);
     }
 }
 
@@ -549,6 +543,7 @@ impl OpeningAirAttackList {
 pub struct OpeningAirAttack {
     pub env_uuid: EnvInfoId,
     pub uuid: OpeningAirAttackId,
+    pub index: i64,
     pub f_plane_from: Option<Vec<i64>>,
     pub f_touch_plane: Option<i64>,
     pub f_loss_plane1: i64,
@@ -575,12 +570,12 @@ pub struct OpeningAirAttack {
 }
 
 impl OpeningAirAttack {
-    pub fn new_ret_uuid(
+    pub fn new(
         data: crate::interface::battle::OpeningAirAttack,
         table: &mut PortTable,
         env_uuid: EnvInfoId,
     ) -> Uuid {
-        let new_uuid = Uuid::new_v4();
+        let new_uuid = Uuid::new_v7(ts);
 
         let new_data = OpeningAirAttack {
             env_uuid,
@@ -629,22 +624,22 @@ impl OpeningAirAttack {
 pub struct AirBaseAirAttackList {
     pub env_uuid: EnvInfoId,
     pub uuid: AirBaseAirAttackListId,
-    pub air_base_air_attack: Vec<AirBaseAirAttackId>,
+    pub air_base_air_attack: AirBaseAirAttackId,
 }
 
 impl AirBaseAirAttackList {
-    pub fn new_ret_uuid(
+    pub fn new(
         data: crate::interface::battle::AirBaseAirAttacks,
         table: &mut PortTable,
         env_uuid: EnvInfoId,
     ) -> Uuid {
-        let new_uuid = Uuid::new_v4();
+        let new_uuid = Uuid::new_v7(ts);
 
         let new_air_base_air_attack = data
             .attacks
             .iter()
             .filter_map(|air_base_air_attack| {
-                AirBaseAirAttack::new_ret_uuid(air_base_air_attack.clone(), table, env_uuid)
+                AirBaseAirAttack::new(air_base_air_attack.clone(), table, env_uuid)
             })
             .collect();
 
@@ -673,6 +668,7 @@ impl AirBaseAirAttackList {
 pub struct AirBaseAirAttack {
     pub env_uuid: EnvInfoId,
     pub uuid: AirBaseAirAttackId,
+    pub index: i64,
     pub f_plane_from: Option<Vec<i64>>,
     pub f_touch_plane: Option<i64>,
     pub f_loss_plane1: i64,
@@ -698,16 +694,16 @@ pub struct AirBaseAirAttack {
 }
 
 impl AirBaseAirAttack {
-    pub fn new_ret_uuid(
+    pub fn new(
         data: crate::interface::battle::AirBaseAirAttack,
         table: &mut PortTable,
         env_uuid: EnvInfoId,
-    ) -> Option<Uuid> {
+    ) {
         let air_bases = AirBases::load();
         let air_base = air_bases.bases.get(&(data.base_id).to_string())?;
 
-        let new_uuid = Uuid::new_v4();
-        let new_airbase_id = AirBase::new_ret_uuid(air_base.clone(), table, env_uuid);
+        let new_uuid = Uuid::new_v7(ts);
+        let new_airbase_id = AirBase::new(air_base.clone(), table, env_uuid);
 
         let new_data = AirBaseAirAttack {
             env_uuid,
@@ -737,8 +733,6 @@ impl AirBaseAirAttack {
         };
 
         table.airbase_airattack.push(new_data);
-
-        return Some(new_uuid);
     }
 }
 
@@ -779,12 +773,12 @@ pub struct AirBaseAssult {
 }
 
 impl AirBaseAssult {
-    pub fn new_ret_uuid(
+    pub fn new(
         data: crate::interface::battle::AirBaseAssult,
         table: &mut PortTable,
         env_uuid: EnvInfoId,
     ) -> Uuid {
-        let new_uuid = Uuid::new_v4();
+        let new_uuid = Uuid::new_v7(ts);
 
         let new_data = AirBaseAssult {
             env_uuid,
@@ -854,12 +848,12 @@ pub struct CarrierBaseAssault {
 }
 
 impl CarrierBaseAssault {
-    pub fn new_ret_uuid(
+    pub fn new(
         data: crate::interface::battle::CarrierBaseAssault,
         table: &mut PortTable,
         env_uuid: EnvInfoId,
     ) -> Uuid {
-        let new_uuid = Uuid::new_v4();
+        let new_uuid = Uuid::new_v7(ts);
 
         let new_data = CarrierBaseAssault {
             env_uuid,
@@ -916,12 +910,12 @@ pub struct SupportHourai {
 }
 
 impl SupportHourai {
-    pub fn new_ret_uuid(
+    pub fn new(
         data: crate::interface::battle::SupportHourai,
         table: &mut PortTable,
         env_uuid: EnvInfoId,
-    ) -> Option<Uuid> {
-        let new_uuid = Uuid::new_v4();
+    ) {
+        let new_uuid = Uuid::new_v7(ts);
 
         let decks = DeckPorts::load();
         let deck = decks.deck_ports.get(&data.deck_id)?;
@@ -948,7 +942,7 @@ impl SupportHourai {
             })
             .collect();
 
-        // let new_deck_id = SupportDeck::new_ret_uuid(deck.clone(), table, env_uuid)?;
+        // let new_deck_id = SupportDeck::new(deck.clone(), table, env_uuid)?;
 
         let deck_len = deck.ship.clone().unwrap().len();
         let mut new_vec_0 = Vec::with_capacity(deck_len);
@@ -970,8 +964,6 @@ impl SupportHourai {
         };
 
         table.support_hourai.push(new_data);
-
-        return Some(new_uuid);
     }
 }
 
@@ -1009,12 +1001,12 @@ pub struct SupportAirattack {
 }
 
 impl SupportAirattack {
-    pub fn new_ret_uuid(
+    pub fn new(
         data: crate::interface::battle::SupportAiratack,
         table: &mut PortTable,
         env_uuid: EnvInfoId,
-    ) -> Option<Uuid> {
-        let new_uuid = Uuid::new_v4();
+    ) {
+        let new_uuid = Uuid::new_v7(ts);
 
         let decks = DeckPorts::load();
         let deck = decks.deck_ports.get(&data.deck_id)?;
@@ -1041,7 +1033,7 @@ impl SupportAirattack {
             })
             .collect();
 
-        // let new_deck_id = SupportDeck::new_ret_uuid(deck.clone(), table, env_uuid)?;
+        // let new_deck_id = SupportDeck::new(deck.clone(), table, env_uuid)?;
 
         let deck_len = deck.ship.clone().unwrap().len();
         let mut new_vec_0 = Vec::with_capacity(deck_len);
@@ -1072,7 +1064,6 @@ impl SupportAirattack {
             e_now_hps: data.e_damage.now_hps,
         };
         table.support_airattack.push(new_data);
-        return Some(new_uuid);
     }
 }
 
@@ -1091,17 +1082,17 @@ pub struct FriendlySupportHouraiList {
     pub uuid: FriendlySupportHouraiListId,
     pub f_flare_pos: Option<i64>,
     pub e_flare_pos: Option<i64>,
-    pub hourai_list: Option<Vec<FriendlySupportHouraiId>>,
+    pub hourai_list: FriendlySupportHouraiId,
 }
 
 impl FriendlySupportHouraiList {
-    pub fn new_ret_uuid(
+    pub fn new(
         data: crate::interface::battle::FriendlySupportHourai,
         table: &mut PortTable,
         env_uuid: EnvInfoId,
-    ) -> Option<Uuid> {
-        let new_uuid = Uuid::new_v4();
-        let new_hourai_list = FriendlySupportHourai::new_ret_uuid(data.hougeki, table, env_uuid);
+    ) {
+        let new_uuid = Uuid::new_v7(ts);
+        let new_hourai_list = FriendlySupportHourai::new(data.hougeki, table, env_uuid);
 
         let new_f_flare_pos = match data.flare_pos.clone()[0] {
             -1 => None,
@@ -1128,8 +1119,6 @@ impl FriendlySupportHouraiList {
         }
 
         table.friendly_support_hourai_list.push(new_data);
-
-        return Some(new_uuid);
     }
 }
 
@@ -1146,6 +1135,7 @@ impl FriendlySupportHouraiList {
 pub struct FriendlySupportHourai {
     pub env_uuid: EnvInfoId,
     pub uuid: FriendlySupportHouraiId,
+    pub index: i64,
     pub at: Option<i64>,
     pub df: Option<Vec<i64>>,
     pub cl: Option<Vec<i64>>,
@@ -1158,7 +1148,7 @@ pub struct FriendlySupportHourai {
 }
 
 impl FriendlySupportHourai {
-    pub fn new_ret_uuid(
+    pub fn new(
         data: crate::interface::battle::MidnightHougeki,
         table: &mut PortTable,
         env_uuid: EnvInfoId,
@@ -1168,7 +1158,7 @@ impl FriendlySupportHourai {
                 let data_len = data.at_list.clone().unwrap().len();
                 let new_uuid_list = (0..data_len)
                     .map(|i| {
-                        let new_uuid = Uuid::new_v4();
+                        let new_uuid = Uuid::new_v7(ts);
 
                         let new_data = MidnightHougeki {
                             env_uuid,
@@ -1214,6 +1204,7 @@ impl FriendlySupportHourai {
 pub struct Battle {
     pub env_uuid: EnvInfoId,
     pub uuid: BattleId,
+    pub index: i64,
     pub battle_order: Vec<i64>,
     pub timestamp: Option<i64>,
     pub midnight_timestamp: Option<i64>,
@@ -1254,12 +1245,15 @@ pub struct Battle {
 }
 
 impl Battle {
-    pub fn new_ret_uuid(
+    pub fn new(
+        ts: uuid::Timestamp,
+        uuid: Uuid,
         data: crate::interface::battle::Battle,
         table: &mut PortTable,
         env_uuid: EnvInfoId,
-    ) -> Option<Uuid> {
-        let new_uuid = Uuid::new_v4();
+        index: usize,
+    ) {
+        let new_uuid = Uuid::new_v7(ts);
 
         let new_battle_order: Vec<i64> = data
             .clone()
@@ -1272,16 +1266,16 @@ impl Battle {
             })
             .unwrap_or_default();
 
-        let new_f_deck_id = data
-            .clone()
+        let new_f_deck_id = Uuid::new_v7(ts);
+        data.clone()
             .deck_id
-            .map(|deck_id| OwnDeck::new_ret_uuid(deck_id, table, env_uuid))
-            .unwrap_or(None);
-        let new_e_deck_id = EnemyDeck::new_ret_uuid(data.clone(), table, env_uuid);
+            .map(|deck_id| OwnDeck::new(ts, new_f_deck_id, deck_id, table, env_uuid));
+
+        let new_e_deck_id = EnemyDeck::new(data.clone(), table, env_uuid);
         let new_friend_deck_id = data
             .clone()
             .friendly_force_attack
-            .map(|attack| FriendDeck::new_ret_uuid(attack.fleet_info, table, env_uuid))
+            .map(|attack| FriendDeck::new(attack.fleet_info, table, env_uuid))
             .unwrap_or(None);
         let new_support_deck_id = data
             .clone()
@@ -1291,7 +1285,7 @@ impl Battle {
                     .support_airatack
                     .map(|air| air.deck_id)
                     .or(attack.support_hourai.map(|hourai| hourai.deck_id))
-                    .map(|deck_id| SupportDeck::new_ret_uuid(deck_id, table, env_uuid))
+                    .map(|deck_id| SupportDeck::new(deck_id, table, env_uuid))
                     .unwrap_or(None)
             })
             .unwrap_or(None);
@@ -1299,19 +1293,19 @@ impl Battle {
         let new_air_base_assault = data
             .clone()
             .air_base_assault
-            .map(|assult| AirBaseAssult::new_ret_uuid(assult, table, env_uuid));
+            .map(|assult| AirBaseAssult::new(assult, table, env_uuid));
         let new_carrier_base_assault = data
             .clone()
             .carrier_base_assault
-            .map(|assult| CarrierBaseAssault::new_ret_uuid(assult, table, env_uuid));
+            .map(|assult| CarrierBaseAssault::new(assult, table, env_uuid));
         let new_air_base_air_attacks = data
             .clone()
             .air_base_air_attacks
-            .map(|attacks| AirBaseAirAttackList::new_ret_uuid(attacks, table, env_uuid));
+            .map(|attacks| AirBaseAirAttackList::new(attacks, table, env_uuid));
         let new_opening_air_attack = data
             .clone()
             .opening_air_attack
-            .map(|attack| OpeningAirAttackList::new_ret_uuid(attack, table, env_uuid))
+            .map(|attack| OpeningAirAttackList::new(attack, table, env_uuid))
             .unwrap_or(None);
         // let new_support_attack = data
         //     .clone()
@@ -1319,9 +1313,9 @@ impl Battle {
         //     .clone()
         //     .map(|attack| {
         //         if let Some(air) = attack.support_airattack {
-        //             SupportAirattack::new_ret_uuid(air, table, env_uuid)
+        //             SupportAirattack::new(air, table, env_uuid)
         //         } else if let Some(hourai) = attack.support_hourai {
-        //             SupportHourai::new_ret_uuid(hourai, table, env_uuid)
+        //             SupportHourai::new(hourai, table, env_uuid)
         //         } else {
         //             None
         //         }
@@ -1334,7 +1328,7 @@ impl Battle {
             .map(|attack| {
                 attack
                     .support_hourai
-                    .map(|hourai| SupportHourai::new_ret_uuid(hourai, table, env_uuid))
+                    .map(|hourai| SupportHourai::new(hourai, table, env_uuid))
                     .unwrap_or(None)
             })
             .unwrap_or(None);
@@ -1345,38 +1339,38 @@ impl Battle {
             .map(|attack| {
                 attack
                     .support_airatack
-                    .map(|airattack| SupportAirattack::new_ret_uuid(airattack, table, env_uuid))
+                    .map(|airattack| SupportAirattack::new(airattack, table, env_uuid))
                     .unwrap_or(None)
             })
             .unwrap_or(None);
         let new_opening_taisen = data
             .clone()
             .opening_taisen
-            .map(|taisen| OpeningTaisenList::new_ret_uuid(taisen, table, env_uuid));
+            .map(|taisen| OpeningTaisenList::new(taisen, table, env_uuid));
         let new_opening_raigeki = data
             .clone()
             .opening_raigeki
-            .map(|raigeki| OpeningRaigeki::new_ret_uuid(raigeki, table, env_uuid));
+            .map(|raigeki| OpeningRaigeki::new(raigeki, table, env_uuid));
         let new_hougeki = data
             .clone()
             .hougeki
-            .map(|hougeki| HougekiList::new_ret_uuid(hougeki, table, env_uuid))
+            .map(|hougeki| HougekiList::new(hougeki, table, env_uuid))
             .unwrap_or(None);
         let new_closing_raigeki = data
             .clone()
             .closing_raigeki
-            .map(|raigeki| ClosingRaigeki::new_ret_uuid(raigeki, table, env_uuid));
+            .map(|raigeki| ClosingRaigeki::new(raigeki, table, env_uuid));
         let new_friendly_force_attack = data
             .clone()
             .friendly_force_attack
             .map(|attack| {
                 attack
                     .support_hourai
-                    .map(|hourai| FriendlySupportHouraiList::new_ret_uuid(hourai, table, env_uuid))
+                    .map(|hourai| FriendlySupportHouraiList::new(hourai, table, env_uuid))
                     .unwrap_or(None)
             })
             .unwrap_or(None);
-        let new_midnight_hougeki = MidnightHougekiList::new_ret_uuid(data.clone(), table, env_uuid);
+        let new_midnight_hougeki = MidnightHougekiList::new(data.clone(), table, env_uuid);
         let new_f_nowhps = data.clone().f_nowhps;
         let new_e_nowhps = data.clone().e_nowhps;
         let new_midngiht_f_nowhps = data.clone().midngiht_f_nowhps;
@@ -1384,7 +1378,7 @@ impl Battle {
 
         let new_data = Battle {
             env_uuid,
-            uuid: new_uuid,
+            uuid,
             battle_order: new_battle_order,
             timestamp: data.clone().timestamp,
             midnight_timestamp: data.clone().midnight_timestamp,
@@ -1426,6 +1420,5 @@ impl Battle {
         };
 
         table.battle.push(new_data);
-        return Some(new_uuid);
     }
 }

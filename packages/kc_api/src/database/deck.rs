@@ -1,5 +1,6 @@
 use apache_avro::AvroSchema;
 use serde::{Deserialize, Serialize};
+use tracing_unwrap::OptionExt;
 use uuid::Uuid;
 
 use crate::database::env_info::EnvInfoId;
@@ -35,41 +36,58 @@ pub type FriendDeckId = Uuid;
 pub struct OwnDeck {
     pub env_uuid: EnvInfoId,
     pub uuid: OwnDeckId,
-    pub ship_ids: Vec<Option<OwnShipId>>,
+    pub ship_ids: OwnShipId,
     pub combined_flag: Option<i64>,
 }
 
 impl OwnDeck {
-    pub fn new_ret_uuid(data: i64, table: &mut PortTable, env_uuid: EnvInfoId) -> Option<Uuid> {
-        let new_uuid = Uuid::new_v4();
-
+    pub fn new(
+        ts: uuid::Timestamp,
+        uuid: Uuid,
+        data: i64,
+        table: &mut PortTable,
+        env_uuid: EnvInfoId,
+    ) {
         let decks = DeckPorts::load();
-        let deck = decks.deck_ports.get(&data)?;
+        let deck_option = decks.deck_ports.get(&data);
+        let deck = match deck_option {
+            Some(d) => d,
+            None => {
+                tracing::warn!("OwnDeck::new: deck not found for id {}", data);
+                return;
+            }
+        };
 
         let ships = Ships::load();
-        let new_ship_ids = deck.ship.clone().map(|ship_ids| {
-            let ret: Vec<Option<Uuid>> = ship_ids
-                .into_iter()
-                .map(|ship_id| {
-                    let ship = ships.ships.get(&ship_id)?;
-                    let ship_id = ship.ship_id?;
-                    let new_ship = OwnShip::new_ret_uuid(ship_id, table, env_uuid);
-                    return new_ship;
-                })
-                .collect();
-            return ret;
-        })?;
+        let new_ship_ids = Uuid::new_v7(ts);
+        deck.ship.clone().map(|ship_ids| {
+            ship_ids.iter().enumerate().map(|(ship_id_index, ship_id)| {
+                let ship = match ships.ships.get(&ship_id) {
+                    Some(ship) => ship,
+                    None => {
+                        tracing::warn!("OwnDeck::new: ship not found for id {}", ship_id);
+                        return;
+                    }
+                };
+                let ship_id = match ship.ship_id {
+                    Some(id) => id,
+                    None => {
+                        tracing::warn!("OwnDeck::new: ship_id is None for ship id {}", ship_id);
+                        return;
+                    }
+                };
+                OwnShip::new(ts, new_ship_ids, ship_id, table, env_uuid, ship_id_index);
+            });
+        });
 
         let new_data = OwnDeck {
             env_uuid,
-            uuid: new_uuid,
+            uuid,
             ship_ids: new_ship_ids,
             combined_flag: decks.combined_flag,
         };
 
         table.own_deck.push(new_data);
-
-        return Some(new_uuid);
     }
 }
 
@@ -86,39 +104,55 @@ impl OwnDeck {
 pub struct SupportDeck {
     pub env_uuid: EnvInfoId,
     pub uuid: SupportDeckId,
-    pub ship_ids: Vec<Option<OwnShipId>>,
+    pub ship_ids: OwnShipId,
 }
 
 impl SupportDeck {
-    pub fn new_ret_uuid(data: i64, table: &mut PortTable, env_uuid: EnvInfoId) -> Option<Uuid> {
-        let new_uuid = Uuid::new_v4();
-
+    pub fn new(
+        ts: uuid::Timestamp,
+        uuid: Uuid,
+        data: i64,
+        table: &mut PortTable,
+        env_uuid: EnvInfoId,
+    ) {
         let decks = DeckPorts::load();
-        let deck = decks.deck_ports.get(&data)?;
+        let deck = match decks.deck_ports.get(&data) {
+            Some(deck) => deck,
+            None => {
+                tracing::warn!("SupportDeck::new: deck not found for id {}", data);
+                return;
+            }
+        };
 
         let ships = Ships::load();
-        let new_ship_ids = deck.ship.clone().map(|ship_ids| {
-            let ret: Vec<Option<Uuid>> = ship_ids
-                .into_iter()
-                .map(|ship_id| {
-                    let ship = ships.ships.get(&ship_id)?;
-                    let ship_id = ship.ship_id?;
-                    let new_ship = OwnShip::new_ret_uuid(ship_id, table, env_uuid);
-                    return new_ship;
-                })
-                .collect();
-            return ret;
+        let new_ship_ids = Uuid::new_v7(ts);
+        deck.ship.clone().map(|ship_ids| {
+            ship_ids.iter().enumerate().map(|(ship_id_index, ship_id)| {
+                let ship = match ships.ships.get(&ship_id) {
+                    Some(ship) => ship,
+                    None => {
+                        tracing::warn!("SupportDeck::new: ship not found for id {}", ship_id);
+                        return None;
+                    }
+                };
+                let ship_id = match ship.ship_id {
+                    Some(id) => id,
+                    None => {
+                        tracing::warn!("SupportDeck::new: ship_id is None for ship id {}", ship_id);
+                        return None;
+                    }
+                };
+                OwnShip::new(ts, new_ship_ids, ship_id, table, env_uuid, ship_id_index);
+            });
         })?;
 
         let new_data = SupportDeck {
             env_uuid,
-            uuid: new_uuid,
+            uuid,
             ship_ids: new_ship_ids,
         };
 
         table.support_deck.push(new_data);
-
-        return Some(new_uuid);
     }
 }
 
@@ -135,15 +169,11 @@ impl SupportDeck {
 pub struct EnemyDeck {
     pub env_uuid: EnvInfoId,
     pub uuid: EnemyDeckId,
-    pub ship_ids: Vec<EnemyShipId>,
+    pub ship_ids: EnemyShipId,
 }
 
 impl EnemyDeck {
-    pub fn new_ret_uuid(
-        data: crate::interface::battle::Battle,
-        table: &mut PortTable,
-        env_uuid: EnvInfoId,
-    ) -> Option<Uuid> {
+    pub fn new(data: crate::interface::battle::Battle, table: &mut PortTable, env_uuid: EnvInfoId) {
         let new_uuid = Uuid::new_v4();
 
         let new_ship_ids = data
@@ -161,7 +191,7 @@ impl EnemyDeck {
                             data.e_params.clone().map(|param| param[i].clone()),
                             Some(*ship_id),
                         );
-                        let new_ship = EnemyShip::new_ret_uuid(props, table, env_uuid);
+                        let new_ship = EnemyShip::new(props, table, env_uuid);
                         return new_ship;
                     })
                     .collect()
@@ -174,8 +204,6 @@ impl EnemyDeck {
             ship_ids: new_ship_ids,
         };
         table.enemy_deck.push(new_data);
-
-        return Some(new_uuid);
     }
 }
 
@@ -192,15 +220,15 @@ impl EnemyDeck {
 pub struct FriendDeck {
     pub env_uuid: EnvInfoId,
     pub uuid: FriendDeckId,
-    pub ship_ids: Vec<FriendShipId>,
+    pub ship_ids: FriendShipId,
 }
 
 impl FriendDeck {
-    pub fn new_ret_uuid(
+    pub fn new(
         data: crate::interface::battle::FriendlyForceInfo,
         table: &mut PortTable,
         env_uuid: EnvInfoId,
-    ) -> Option<Uuid> {
+    ) {
         let new_uuid = Uuid::new_v4();
 
         let new_ship_ids = data
@@ -217,7 +245,7 @@ impl FriendDeck {
                     Some(data.params[i].clone()),
                     Some(*ship_id),
                 );
-                let new_ship = FriendShip::new_ret_uuid(friend_props, table, env_uuid);
+                let new_ship = FriendShip::new(friend_props, table, env_uuid);
                 return new_ship;
             })
             .collect();
@@ -228,7 +256,5 @@ impl FriendDeck {
             ship_ids: new_ship_ids,
         };
         table.friend_deck.push(new_data);
-
-        return Some(new_uuid);
     }
 }

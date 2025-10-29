@@ -8,6 +8,7 @@ where
 {
     let schema = T::get_schema();
     // let mut writer = Writer::with_codec(&schema, Vec::new(), Codec::Deflate);
+    // let mut writer = Writer::with_codec(&schema, Vec::new(), Codec::Zstandard);
     let mut writer = Writer::with_codec(&schema, Vec::new(), Codec::Null);
 
     for data in datas {
