@@ -1,6 +1,5 @@
 use apache_avro::AvroSchema;
 use serde::{Deserialize, Serialize};
-use tracing_unwrap::OptionExt;
 use uuid::Uuid;
 
 use crate::database::env_info::EnvInfoId;
@@ -36,7 +35,7 @@ pub type FriendDeckId = Uuid;
 pub struct OwnDeck {
     pub env_uuid: EnvInfoId,
     pub uuid: OwnDeckId,
-    pub ship_ids: OwnShipId,
+    pub ship_ids: Option<OwnShipId>,
     pub combined_flag: Option<i64>,
 }
 
@@ -47,14 +46,14 @@ impl OwnDeck {
         data: i64,
         table: &mut PortTable,
         env_uuid: EnvInfoId,
-    ) {
+    ) -> Option<()> {
         let decks = DeckPorts::load();
         let deck_option = decks.deck_ports.get(&data);
         let deck = match deck_option {
             Some(d) => d,
             None => {
                 tracing::warn!("OwnDeck::new: deck not found for id {}", data);
-                return;
+                return None;
             }
         };
 
@@ -64,36 +63,40 @@ impl OwnDeck {
             ship_ids
                 .iter()
                 .enumerate()
-                .for_each(|(ship_id_index, ship_id)| {
+                .map(|(ship_id_index, ship_id)| {
                     let ship = match ships.ships.get(&ship_id) {
                         Some(ship) => ship,
                         None => {
                             tracing::warn!("OwnDeck::new: ship not found for id {}", ship_id);
-                            return;
+                            return None;
                         }
                     };
                     let ship_id = match ship.ship_id {
                         Some(id) => id,
                         None => {
                             tracing::warn!("OwnDeck::new: ship_id is None for ship id {}", ship_id);
-                            return;
+                            return None;
                         }
                     };
-                    OwnShip::new(ts, new_ship_ids, ship_id, table, env_uuid, ship_id_index);
-                });
+                    OwnShip::new(ts, new_ship_ids, ship_id, table, env_uuid, ship_id_index)
+                })
+                .collect::<Vec<_>>()
         });
-        if result.is_none() {
-            tracing::info!("OwnDeck::new: no ships in deck for id {}", data);
-        }
+        let new_ship_ids_wrap = match result {
+            Some(v) if v.iter().any(|x| x.is_some()) => Some(new_ship_ids),
+            _ => None,
+        };
 
         let new_data = OwnDeck {
             env_uuid,
             uuid,
-            ship_ids: new_ship_ids,
+            ship_ids: new_ship_ids_wrap,
             combined_flag: decks.combined_flag,
         };
 
         table.own_deck.push(new_data);
+
+        Some(())
     }
 }
 
@@ -110,7 +113,7 @@ impl OwnDeck {
 pub struct SupportDeck {
     pub env_uuid: EnvInfoId,
     pub uuid: SupportDeckId,
-    pub ship_ids: OwnShipId,
+    pub ship_ids: Option<OwnShipId>,
 }
 
 impl SupportDeck {
@@ -120,13 +123,13 @@ impl SupportDeck {
         data: i64,
         table: &mut PortTable,
         env_uuid: EnvInfoId,
-    ) {
+    ) -> Option<()> {
         let decks = DeckPorts::load();
         let deck = match decks.deck_ports.get(&data) {
             Some(deck) => deck,
             None => {
                 tracing::warn!("SupportDeck::new: deck not found for id {}", data);
-                return;
+                return None;
             }
         };
 
@@ -136,12 +139,12 @@ impl SupportDeck {
             ship_ids
                 .iter()
                 .enumerate()
-                .for_each(|(ship_id_index, ship_id)| {
+                .map(|(ship_id_index, ship_id)| {
                     let ship = match ships.ships.get(&ship_id) {
                         Some(ship) => ship,
                         None => {
                             tracing::warn!("SupportDeck::new: ship not found for id {}", ship_id);
-                            return;
+                            return None;
                         }
                     };
                     let ship_id = match ship.ship_id {
@@ -151,23 +154,27 @@ impl SupportDeck {
                                 "SupportDeck::new: ship_id is None for ship id {}",
                                 ship_id
                             );
-                            return;
+                            return None;
                         }
                     };
-                    OwnShip::new(ts, new_ship_ids, ship_id, table, env_uuid, ship_id_index);
-                });
+                    OwnShip::new(ts, new_ship_ids, ship_id, table, env_uuid, ship_id_index)
+                })
+                .collect::<Vec<_>>()
         });
-        if result.is_none() {
-            tracing::info!("SupportDeck::new: no ships in deck for id {}", data);
-        }
+        let new_ship_ids_wrap = match result {
+            Some(v) if v.iter().any(|x| x.is_some()) => Some(new_ship_ids),
+            _ => None,
+        };
 
         let new_data = SupportDeck {
             env_uuid,
             uuid,
-            ship_ids: new_ship_ids,
+            ship_ids: new_ship_ids_wrap,
         };
 
         table.support_deck.push(new_data);
+
+        Some(())
     }
 }
 
@@ -184,7 +191,7 @@ impl SupportDeck {
 pub struct EnemyDeck {
     pub env_uuid: EnvInfoId,
     pub uuid: EnemyDeckId,
-    pub ship_ids: EnemyShipId,
+    pub ship_ids: Option<EnemyShipId>,
 }
 
 impl EnemyDeck {
@@ -194,13 +201,13 @@ impl EnemyDeck {
         data: crate::interface::battle::Battle,
         table: &mut PortTable,
         env_uuid: EnvInfoId,
-    ) {
+    ) -> Option<()> {
         let new_ship_ids = Uuid::new_v7(ts);
         let result = data.enemy_ship_id.map(|ship_ids| {
             ship_ids
                 .iter()
                 .enumerate()
-                .for_each(|(ship_id_index, ship_id)| {
+                .map(|(ship_id_index, ship_id)| {
                     let props: EnemyShipProps = (
                         None, // data.e_lv.clone().map(|lv| lv[i]),
                         data.e_hp_max.clone().map(|hp| hp[ship_id_index]),
@@ -211,19 +218,23 @@ impl EnemyDeck {
                             .map(|param| param[ship_id_index].clone()),
                         *ship_id,
                     );
-                    EnemyShip::new(ts, new_ship_ids, props, table, env_uuid, ship_id_index);
-                });
+                    EnemyShip::new(ts, new_ship_ids, props, table, env_uuid, ship_id_index)
+                })
+                .collect::<Vec<_>>()
         });
-        if result.is_none() {
-            tracing::info!("EnemyDeck::new: no enemy ships in battle data");
-        }
+        let new_ship_ids_wrap = match result {
+            Some(v) if v.iter().any(|x| x.is_some()) => Some(new_ship_ids),
+            _ => None,
+        };
 
         let new_data = EnemyDeck {
             env_uuid,
             uuid,
-            ship_ids: new_ship_ids,
+            ship_ids: new_ship_ids_wrap,
         };
         table.enemy_deck.push(new_data);
+
+        Some(())
     }
 }
 
@@ -240,7 +251,7 @@ impl EnemyDeck {
 pub struct FriendDeck {
     pub env_uuid: EnvInfoId,
     pub uuid: FriendDeckId,
-    pub ship_ids: FriendShipId,
+    pub ship_ids: Option<FriendShipId>,
 }
 
 impl FriendDeck {
@@ -250,12 +261,13 @@ impl FriendDeck {
         data: crate::interface::battle::FriendlyForceInfo,
         table: &mut PortTable,
         env_uuid: EnvInfoId,
-    ) {
+    ) -> Option<()> {
         let new_ship_ids = Uuid::new_v7(ts);
-        data.ship_id
+        let result = data
+            .ship_id
             .iter()
             .enumerate()
-            .for_each(|(ship_id_index, ship_id)| {
+            .map(|(ship_id_index, ship_id)| {
                 let friend_props: FriendShipProps = (
                     Some(data.ship_lv[ship_id_index]),
                     Some(data.now_hps[ship_id_index]),
@@ -272,14 +284,21 @@ impl FriendDeck {
                     table,
                     env_uuid,
                     ship_id_index,
-                );
-            });
+                )
+            })
+            .collect::<Vec<_>>();
+        let new_ship_ids_wrap = match result.iter().any(|x| x.is_some()) {
+            true => Some(new_ship_ids),
+            false => None,
+        };
 
         let new_data = FriendDeck {
             env_uuid,
             uuid,
-            ship_ids: new_ship_ids,
+            ship_ids: new_ship_ids_wrap,
         };
         table.friend_deck.push(new_data);
+
+        Some(())
     }
 }

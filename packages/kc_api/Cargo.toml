@@ -14,7 +14,6 @@ apache-avro = { version = "0.17.0", features = ["derive", "zstandard"] }
 uuid = { version = "1.16.0", features = ["v7"] }
 ts-rs = "11.0.1"
 tracing = "0.1.41"
-tracing-unwrap = "1.0.1"
 
 [dev-dependencies]
 confy = "0.6.1"

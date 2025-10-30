@@ -32,13 +32,13 @@ pub struct OwnSlotItem {
 
 impl OwnSlotItem {
     pub fn new(
-        ts: uuid::Timestamp,
+        _ts: uuid::Timestamp,
         uuid: Uuid,
         data: crate::interface::slot_item::SlotItem,
         table: &mut PortTable,
         env_uuid: EnvInfoId,
         index: usize,
-    ) {
+    ) -> Option<()> {
         let new_data: OwnSlotItem = OwnSlotItem {
             env_uuid,
             uuid,
@@ -49,6 +49,8 @@ impl OwnSlotItem {
         };
 
         table.own_slotitem.push(new_data);
+
+        Some(())
     }
 }
 
@@ -71,13 +73,13 @@ pub struct EnemySlotItem {
 
 impl EnemySlotItem {
     pub fn new(
-        ts: uuid::Timestamp,
+        _ts: uuid::Timestamp,
         uuid: Uuid,
         data: i64,
         table: &mut PortTable,
         env_uuid: EnvInfoId,
         index: usize,
-    ) {
+    ) -> Option<()> {
         let new_data: EnemySlotItem = EnemySlotItem {
             env_uuid,
             uuid,
@@ -86,6 +88,8 @@ impl EnemySlotItem {
         };
 
         table.enemy_slotitem.push(new_data);
+
+        Some(())
     }
 }
 
@@ -108,13 +112,13 @@ pub struct FriendSlotItem {
 
 impl FriendSlotItem {
     pub fn new(
-        ts: uuid::Timestamp,
+        _ts: uuid::Timestamp,
         uuid: Uuid,
         data: i64,
         table: &mut PortTable,
         env_uuid: EnvInfoId,
         index: usize,
-    ) {
+    ) -> Option<()> {
         let new_data: FriendSlotItem = FriendSlotItem {
             env_uuid,
             uuid,
@@ -123,5 +127,7 @@ impl FriendSlotItem {
         };
 
         table.friend_slotitem.push(new_data);
+
+        Some(())
     }
 }

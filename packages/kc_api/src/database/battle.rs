@@ -63,7 +63,7 @@ impl HougekiList {
         data: Vec<Option<crate::interface::battle::Hougeki>>,
         table: &mut PortTable,
         env_uuid: EnvInfoId,
-    ) {
+    ) -> Option<()> {
         if data.iter().all(|x| x.is_none()) {
             return None;
         }
