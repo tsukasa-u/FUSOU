@@ -991,7 +991,7 @@ impl SupportHourai {
         let decks = DeckPorts::load();
         let deck = decks.deck_ports.get(&data.deck_id)?;
 
-        match deck.ship {
+        match deck.ship.clone() {
             Some(ship) if !ship.is_empty() => { /* do nothing */ }
             _ => return None,
         }
@@ -1083,7 +1083,7 @@ impl SupportAirattack {
         let decks = DeckPorts::load();
         let deck = decks.deck_ports.get(&data.deck_id)?;
 
-        match deck.ship {
+        match deck.ship.clone() {
             Some(ship) if !ship.is_empty() => { /* do nothing */ }
             _ => return None,
         }
@@ -1155,7 +1155,7 @@ pub struct FriendlySupportHouraiList {
     pub uuid: FriendlySupportHouraiListId,
     pub f_flare_pos: Option<i64>,
     pub e_flare_pos: Option<i64>,
-    pub hourai_list: FriendlySupportHouraiId,
+    pub hourai_list: Option<FriendlySupportHouraiId>,
 }
 
 impl FriendlySupportHouraiList {
@@ -1166,7 +1166,12 @@ impl FriendlySupportHouraiList {
         table: &mut PortTable,
         env_uuid: EnvInfoId,
     ) -> Option<()> {
-        let new_hourai_list = FriendlySupportHourai::new(data.hougeki, table, env_uuid);
+        let new_hourai_list = Uuid::new_v7(ts);
+        let result = FriendlySupportHourai::new(ts, new_hourai_list, data.hougeki, table, env_uuid);
+        let new_hourai_list_wrap = match result {
+            Some(_) => Some(new_hourai_list),
+            None => None,
+        };
 
         let new_f_flare_pos = match data.flare_pos.clone()[0] {
             -1 => None,
@@ -1182,7 +1187,7 @@ impl FriendlySupportHouraiList {
             uuid,
             f_flare_pos: new_f_flare_pos,
             e_flare_pos: new_e_flare_pos,
-            hourai_list: new_hourai_list,
+            hourai_list: new_hourai_list_wrap,
         };
 
         if new_data.f_flare_pos.is_none()
@@ -1230,35 +1235,34 @@ impl FriendlySupportHourai {
         data: crate::interface::battle::MidnightHougeki,
         table: &mut PortTable,
         env_uuid: EnvInfoId,
-    ) -> Option<Vec<Uuid>> {
+    ) -> Option<()> {
         let ret = match data.at_list {
             Some(_) => {
                 let data_len = data.at_list.clone().unwrap().len();
-                let new_uuid_list = (0..data_len)
-                    .map(|i| {
-                        let new_data = MidnightHougeki {
-                            env_uuid,
-                            uuid,
-                            at: data.at_list.clone().map(|x| x[i]),
-                            df: data.df_list.clone().map(|x| x[i].clone()),
-                            cl: data.cl_list.clone().map(|x| x[i].clone()),
-                            damage: data
-                                .damage
-                                .clone()
-                                .map(|x| x[i].iter().map(|x| *x as i64).collect()),
-                            at_eflag: data.at_eflag.clone().map(|x| x[i]),
-                            si: data.si_list.clone().map(|x| x[i].clone()),
-                            protect_flag: data.protect_flag.clone().map(|x| x[i].clone()),
-                            f_now_hps: Some(data.f_now_hps.clone()[i].clone()),
-                            e_now_hps: Some(data.e_now_hps.clone()[i].clone()),
-                        };
+                (0..data_len).for_each(|i| {
+                    let new_data = MidnightHougeki {
+                        env_uuid,
+                        uuid,
+                        index: i as i64,
+                        at: data.at_list.clone().map(|x| x[i]),
+                        df: data.df_list.clone().map(|x| x[i].clone()),
+                        cl: data.cl_list.clone().map(|x| x[i].clone()),
+                        damage: data
+                            .damage
+                            .clone()
+                            .map(|x| x[i].iter().map(|x| *x as i64).collect()),
+                        at_eflag: data.at_eflag.clone().map(|x| x[i]),
+                        si: data.si_list.clone().map(|x| x[i].clone()),
+                        protect_flag: data.protect_flag.clone().map(|x| x[i].clone()),
+                        f_now_hps: Some(data.f_now_hps.clone()[i].clone()),
+                        e_now_hps: Some(data.e_now_hps.clone()[i].clone()),
+                    };
 
-                        table.midnight_hougeki.push(new_data);
+                    table.midnight_hougeki.push(new_data);
 
-                        return new_uuid;
-                    })
-                    .collect();
-                return Some(new_uuid_list);
+                    return new_uuid;
+                });
+                Some(())
             }
             None => None,
         };
