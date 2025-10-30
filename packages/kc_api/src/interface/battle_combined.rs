@@ -98,12 +98,12 @@ impl From<kcapi_main::api_req_combined_battle::ec_battle::ApiData> for Battle {
             closing_raigeki: closing_taigeki,
             friendly_force_attack: None,
             midnight_flare_pos: None,
-            midngiht_touchplane: None,
+            midnight_touchplane: None,
             midnight_hougeki: None,
             f_nowhps: Some(battle.api_f_nowhps),
             e_nowhps: Some([battle.api_e_nowhps, battle.api_e_nowhps_combined].concat()),
-            midngiht_f_nowhps: None,
-            midngiht_e_nowhps: None,
+            midnight_f_nowhps: None,
+            midnight_e_nowhps: None,
         };
         calc_dmg(&mut ret);
         return ret;
@@ -178,12 +178,12 @@ impl From<kcapi_main::api_req_combined_battle::ec_midnight_battle::ApiData> for 
             closing_raigeki: None,
             friendly_force_attack,
             midnight_flare_pos: Some(battle.api_flare_pos),
-            midngiht_touchplane: Some(battle.api_touch_plane),
+            midnight_touchplane: Some(battle.api_touch_plane),
             midnight_hougeki,
             f_nowhps: None,
             e_nowhps: None,
-            midngiht_f_nowhps: Some(battle.api_f_nowhps),
-            midngiht_e_nowhps: Some([battle.api_e_nowhps, battle.api_e_nowhps_combined].concat()),
+            midnight_f_nowhps: Some(battle.api_f_nowhps),
+            midnight_e_nowhps: Some([battle.api_e_nowhps, battle.api_e_nowhps_combined].concat()),
         };
         calc_dmg(&mut ret);
         return ret;
@@ -279,12 +279,12 @@ impl From<kcapi_main::api_req_combined_battle::battle_water::ApiData> for Battle
             closing_raigeki: closing_taigeki,
             friendly_force_attack: None,
             midnight_flare_pos: None,
-            midngiht_touchplane: None,
+            midnight_touchplane: None,
             midnight_hougeki: None,
             f_nowhps: Some([battle.api_f_nowhps, battle.api_f_nowhps_combined].concat()),
             e_nowhps: Some(battle.api_e_nowhps),
-            midngiht_f_nowhps: None,
-            midngiht_e_nowhps: None,
+            midnight_f_nowhps: None,
+            midnight_e_nowhps: None,
         };
         calc_dmg(&mut ret);
         return ret;
@@ -378,12 +378,12 @@ impl From<kcapi_main::api_req_combined_battle::battle::ApiData> for Battle {
             closing_raigeki: closing_taigeki,
             friendly_force_attack: None,
             midnight_flare_pos: None,
-            midngiht_touchplane: None,
+            midnight_touchplane: None,
             midnight_hougeki: None,
             f_nowhps: Some([battle.api_f_nowhps, battle.api_f_nowhps_combined].concat()),
             e_nowhps: Some(battle.api_e_nowhps),
-            midngiht_f_nowhps: None,
-            midngiht_e_nowhps: None,
+            midnight_f_nowhps: None,
+            midnight_e_nowhps: None,
         };
         calc_dmg(&mut ret);
         return ret;
@@ -475,12 +475,12 @@ impl From<kcapi_main::api_req_combined_battle::each_battle_water::ApiData> for B
             closing_raigeki: closing_taigeki,
             friendly_force_attack: None,
             midnight_flare_pos: None,
-            midngiht_touchplane: None,
+            midnight_touchplane: None,
             midnight_hougeki: None,
             f_nowhps: Some([battle.api_f_nowhps, battle.api_f_nowhps_combined].concat()),
             e_nowhps: Some([battle.api_e_nowhps, battle.api_e_nowhps_combined].concat()),
-            midngiht_f_nowhps: None,
-            midngiht_e_nowhps: None,
+            midnight_f_nowhps: None,
+            midnight_e_nowhps: None,
         };
         calc_dmg(&mut ret);
         return ret;
@@ -573,12 +573,12 @@ impl From<kcapi_main::api_req_combined_battle::each_battle::ApiData> for Battle 
             closing_raigeki: closing_taigeki,
             friendly_force_attack: None,
             midnight_flare_pos: None,
-            midngiht_touchplane: None,
+            midnight_touchplane: None,
             midnight_hougeki: None,
             f_nowhps: Some([battle.api_f_nowhps, battle.api_f_nowhps_combined].concat()),
             e_nowhps: Some([battle.api_e_nowhps, battle.api_e_nowhps_combined].concat()),
-            midngiht_f_nowhps: None,
-            midngiht_e_nowhps: None,
+            midnight_f_nowhps: None,
+            midnight_e_nowhps: None,
         };
         calc_dmg(&mut ret);
         return ret;
@@ -647,12 +647,12 @@ impl From<kcapi_main::api_req_combined_battle::ld_airbattle::ApiData> for Battle
             closing_raigeki: None,
             friendly_force_attack: None,
             midnight_flare_pos: None,
-            midngiht_touchplane: None,
+            midnight_touchplane: None,
             midnight_hougeki: None,
             f_nowhps: Some([airbattle.api_f_nowhps, airbattle.api_f_nowhps_combined].concat()),
             e_nowhps: Some(airbattle.api_e_nowhps),
-            midngiht_f_nowhps: None,
-            midngiht_e_nowhps: None,
+            midnight_f_nowhps: None,
+            midnight_e_nowhps: None,
         };
         calc_dmg(&mut ret);
         return ret;
@@ -709,12 +709,12 @@ impl From<kcapi_main::api_req_combined_battle::midnight_battle::ApiData> for Bat
             closing_raigeki: None,
             friendly_force_attack,
             midnight_flare_pos: Some(battle.api_flare_pos),
-            midngiht_touchplane: Some(battle.api_touch_plane),
+            midnight_touchplane: Some(battle.api_touch_plane),
             midnight_hougeki,
             f_nowhps: None,
             e_nowhps: None,
-            midngiht_f_nowhps: Some([battle.api_f_nowhps, battle.api_f_nowhps_combined].concat()),
-            midngiht_e_nowhps: Some(battle.api_e_nowhps),
+            midnight_f_nowhps: Some([battle.api_f_nowhps, battle.api_f_nowhps_combined].concat()),
+            midnight_e_nowhps: Some(battle.api_e_nowhps),
         };
         calc_dmg(&mut ret);
         return ret;
@@ -771,12 +771,12 @@ impl From<kcapi_main::api_req_combined_battle::sp_midnight::ApiData> for Battle 
             closing_raigeki: None,
             friendly_force_attack,
             midnight_flare_pos: Some(battle.api_flare_pos),
-            midngiht_touchplane: Some(battle.api_touch_plane),
+            midnight_touchplane: Some(battle.api_touch_plane),
             midnight_hougeki,
             f_nowhps: None,
             e_nowhps: None,
-            midngiht_f_nowhps: Some([battle.api_f_nowhps, battle.api_f_nowhps_combined].concat()),
-            midngiht_e_nowhps: Some(battle.api_e_nowhps),
+            midnight_f_nowhps: Some([battle.api_f_nowhps, battle.api_f_nowhps_combined].concat()),
+            midnight_e_nowhps: Some(battle.api_e_nowhps),
         };
         calc_dmg(&mut ret);
         return ret;

@@ -53,7 +53,7 @@ pub type FriendlySupportHouraiListId = Uuid;
 pub struct HougekiList {
     pub env_uuid: EnvInfoId,
     pub uuid: HougekiListId,
-    pub hougeki: HougekiId,
+    pub hougeki: Option<HougekiId>,
 }
 
 impl HougekiList {
@@ -68,27 +68,37 @@ impl HougekiList {
             return None;
         }
 
-        let new_hougeki = data
+        let new_hougeki = Uuid::new_v7(ts);
+        let result = data
             .iter()
-            .flatten()
-            .map(|hougeki| Hougeki::new(hougeki.clone(), table, env_uuid))
-            .collect();
+            .enumerate()
+            .map(|(hougeki_index, hougeki)| match hougeki {
+                Some(hougeki) => Hougeki::new(
+                    ts,
+                    new_hougeki,
+                    hougeki.clone(),
+                    table,
+                    env_uuid,
+                    hougeki_index,
+                ),
+                None => None,
+            })
+            .collect::<Vec<_>>();
+        let new_hougeki_wrap = match result.iter().all(|x| x.is_some()) {
+            true => Some(new_hougeki),
+            false => None,
+        };
 
         let new_data = HougekiList {
             env_uuid,
             uuid,
-            hougeki: new_hougeki,
+            hougeki: new_hougeki_wrap,
         };
 
         table.hougeki_list.push(new_data);
-    }
 
-    // pub fn encode(data: Vec<HougekiList>) -> Result<Vec<u8>, apache_avro::Error> {
-    //     let schema = HougekiList::get_schema();
-    //     let mut writer = Writer::with_codec(&schema, Vec::new(), Codec::Deflate);
-    //     writer.append_ser(data)?;
-    //     writer.into_inner()
-    // }
+        Some(())
+    }
 }
 
 #[derive(
@@ -120,37 +130,36 @@ pub struct Hougeki {
 
 impl Hougeki {
     pub fn new(
-        ts: uuid::Timestamp,
+        _ts: uuid::Timestamp,
         uuid: Uuid,
         data: crate::interface::battle::Hougeki,
         table: &mut PortTable,
         env_uuid: EnvInfoId,
+        index: usize,
     ) -> Option<()> {
         let data_len = data.at_list.len();
-        let new_uuid_list = (0..data_len)
-            .map(|i| {
-                let new_data = Hougeki {
-                    env_uuid,
-                    uuid,
-                    at: data.at_list[i],
-                    at_type: data.at_type[i],
-                    df: data.df_list[i].clone(),
-                    cl: data.cl_list[i].clone(),
-                    damage: data.damage[i].iter().map(|x| *x as i64).collect(),
-                    at_eflag: data.at_eflag[i],
-                    si: data.si_list[i].clone(),
-                    protect_flag: data.protect_flag[i].clone(),
-                    f_now_hps: data.f_now_hps[i].clone(),
-                    e_now_hps: data.e_now_hps[i].clone(),
-                };
+        (0..data_len).for_each(|i| {
+            let new_data = Hougeki {
+                env_uuid,
+                uuid,
+                index_1: index as i64,
+                index_2: i as i64,
+                at: data.at_list[i],
+                at_type: data.at_type[i],
+                df: data.df_list[i].clone(),
+                cl: data.cl_list[i].clone(),
+                damage: data.damage[i].iter().map(|x| *x as i64).collect(),
+                at_eflag: data.at_eflag[i],
+                si: data.si_list[i].clone(),
+                protect_flag: data.protect_flag[i].clone(),
+                f_now_hps: data.f_now_hps[i].clone(),
+                e_now_hps: data.e_now_hps[i].clone(),
+            };
 
-                table.hougeki.push(new_data);
+            table.hougeki.push(new_data);
+        });
 
-                return new_uuid;
-            })
-            .collect();
-
-        return new_uuid_list;
+        Some(())
     }
 
     // pub fn encode(data: Vec<HougekiList>) -> Result<Vec<u8>, apache_avro::Error> {
@@ -182,17 +191,27 @@ pub struct MidnightHougekiList {
 }
 
 impl MidnightHougekiList {
-    pub fn new(data: crate::interface::battle::Battle, table: &mut PortTable, env_uuid: EnvInfoId) {
-        let new_midnight_hougeki = data
-            .midnight_hougeki
-            .and_then(|midnight_hougeki| MidnightHougeki::new(midnight_hougeki, table, env_uuid));
+    pub fn new(
+        ts: uuid::Timestamp,
+        uuid: Uuid,
+        data: crate::interface::battle::Battle,
+        table: &mut PortTable,
+        env_uuid: EnvInfoId,
+    ) -> Option<()> {
+        let new_midnight_hougeki = Uuid::new_v7(ts);
+        let result = data.midnight_hougeki.and_then(|midnight_hougeki| {
+            MidnightHougeki::new(ts, new_midnight_hougeki, midnight_hougeki, table, env_uuid)
+        });
+        if result.is_none() {
+            return None;
+        }
         let new_data = MidnightHougekiList {
             env_uuid,
             uuid,
             f_flare_pos: data.midnight_flare_pos.clone().map(|pos| pos[0]),
-            f_touch_plane: data.midngiht_touchplane.clone().map(|plane| plane[0]),
+            f_touch_plane: data.midnight_touchplane.clone().map(|plane| plane[0]),
             e_flare_pos: data.midnight_flare_pos.clone().map(|pos| pos[1]),
-            e_touch_plane: data.midngiht_touchplane.clone().map(|plane| plane[1]),
+            e_touch_plane: data.midnight_touchplane.clone().map(|plane| plane[1]),
             midnight_hougeki: new_midnight_hougeki,
         };
 
@@ -206,6 +225,8 @@ impl MidnightHougekiList {
         }
 
         table.midnight_hougeki_list.push(new_data);
+
+        Some(())
     }
 }
 
@@ -241,35 +262,32 @@ impl MidnightHougeki {
         data: crate::interface::battle::MidnightHougeki,
         table: &mut PortTable,
         env_uuid: EnvInfoId,
-    ) -> Option<Vec<Uuid>> {
+    ) -> Option<()> {
         let ret = match data.at_list {
             Some(_) => {
                 let data_len = data.at_list.clone().unwrap().len();
-                let new_uuid_list = (0..data_len)
-                    .map(|i| {
-                        let new_data = MidnightHougeki {
-                            env_uuid,
-                            uuid,
-                            at: data.at_list.clone().map(|x| x[i]),
-                            df: data.df_list.clone().map(|x| x[i].clone()),
-                            cl: data.cl_list.clone().map(|x| x[i].clone()),
-                            damage: data
-                                .damage
-                                .clone()
-                                .map(|x| x[i].iter().map(|x| *x as i64).collect()),
-                            at_eflag: data.at_eflag.clone().map(|x| x[i]),
-                            si: data.si_list.clone().map(|x| x[i].clone()),
-                            protect_flag: data.protect_flag.clone().map(|x| x[i].clone()),
-                            f_now_hps: Some(data.f_now_hps.clone()[i].clone()),
-                            e_now_hps: Some(data.e_now_hps.clone()[i].clone()),
-                        };
+                (0..data_len).for_each(|i| {
+                    let new_data = MidnightHougeki {
+                        env_uuid,
+                        uuid,
+                        index: i as i64,
+                        at: data.at_list.clone().map(|x| x[i]),
+                        df: data.df_list.clone().map(|x| x[i].clone()),
+                        cl: data.cl_list.clone().map(|x| x[i].clone()),
+                        damage: data
+                            .damage
+                            .clone()
+                            .map(|x| x[i].iter().map(|x| *x as i64).collect()),
+                        at_eflag: data.at_eflag.clone().map(|x| x[i]),
+                        si: data.si_list.clone().map(|x| x[i].clone()),
+                        protect_flag: data.protect_flag.clone().map(|x| x[i].clone()),
+                        f_now_hps: Some(data.f_now_hps.clone()[i].clone()),
+                        e_now_hps: Some(data.e_now_hps.clone()[i].clone()),
+                    };
 
-                        table.midnight_hougeki.push(new_data);
-
-                        return new_uuid;
-                    })
-                    .collect();
-                return Some(new_uuid_list);
+                    table.midnight_hougeki.push(new_data);
+                });
+                return Some(());
             }
             None => None,
         };
