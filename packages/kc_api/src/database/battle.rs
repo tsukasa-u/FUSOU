@@ -187,7 +187,7 @@ pub struct MidnightHougekiList {
     pub f_touch_plane: Option<i64>,
     pub e_flare_pos: Option<i64>,
     pub e_touch_plane: Option<i64>,
-    pub midnight_hougeki: MidnightHougekiId,
+    pub midnight_hougeki: Option<MidnightHougekiId>,
 }
 
 impl MidnightHougekiList {
@@ -202,9 +202,10 @@ impl MidnightHougekiList {
         let result = data.midnight_hougeki.and_then(|midnight_hougeki| {
             MidnightHougeki::new(ts, new_midnight_hougeki, midnight_hougeki, table, env_uuid)
         });
-        if result.is_none() {
-            return None;
-        }
+        let new_midnight_hougeki_wrap = match result {
+            Some(_) => Some(new_midnight_hougeki),
+            None => None,
+        };
         let new_data = MidnightHougekiList {
             env_uuid,
             uuid,
@@ -212,7 +213,7 @@ impl MidnightHougekiList {
             f_touch_plane: data.midnight_touchplane.clone().map(|plane| plane[0]),
             e_flare_pos: data.midnight_flare_pos.clone().map(|pos| pos[1]),
             e_touch_plane: data.midnight_touchplane.clone().map(|plane| plane[1]),
-            midnight_hougeki: new_midnight_hougeki,
+            midnight_hougeki: new_midnight_hougeki_wrap,
         };
 
         if new_data.f_flare_pos.is_none()
@@ -309,7 +310,7 @@ impl MidnightHougeki {
 pub struct OpeningTaisenList {
     pub env_uuid: EnvInfoId,
     pub uuid: OpeningTaisenListId,
-    pub opening_taisen: OpeningTaisenId,
+    pub opening_taisen: Option<OpeningTaisenId>,
 }
 
 impl OpeningTaisenList {
@@ -319,18 +320,23 @@ impl OpeningTaisenList {
         data: crate::interface::battle::OpeningTaisen,
         table: &mut PortTable,
         env_uuid: EnvInfoId,
-    ) -> Uuid {
-        let new_opening_taisen = OpeningTaisen::new(data, table, env_uuid);
+    ) -> Option<()> {
+        let new_opening_taisen = Uuid::new_v7(ts);
+        let result = OpeningTaisen::new(ts, new_opening_taisen, data, table, env_uuid);
+        let new_opening_taisen_wrap = match result {
+            Some(_) => Some(new_opening_taisen),
+            None => None,
+        };
 
         let new_data = OpeningTaisenList {
             env_uuid,
             uuid,
-            opening_taisen: new_opening_taisen,
+            opening_taisen: new_opening_taisen_wrap,
         };
 
         table.opening_taisen_list.push(new_data);
 
-        return new_uuid;
+        Some(())
     }
 }
 
@@ -369,30 +375,27 @@ impl OpeningTaisen {
         env_uuid: EnvInfoId,
     ) -> Option<()> {
         let data_len = data.at_list.clone().len();
-        let new_uuid_list = (0..data_len)
-            .map(|i| {
-                let new_data = OpeningTaisen {
-                    env_uuid,
-                    uuid,
-                    at: data.at_list.clone()[i],
-                    at_type: data.at_list.clone()[i],
-                    df: data.df_list.clone()[i].clone(),
-                    cl: data.cl_list.clone()[i].clone(),
-                    damage: data.damage.clone()[i].iter().map(|x| *x as i64).collect(),
-                    at_eflag: data.at_eflag.clone()[i],
-                    si: data.si_list.clone()[i].clone(),
-                    protect_flag: data.protect_flag.clone()[i].clone(),
-                    f_now_hps: data.f_now_hps.clone()[i].clone(),
-                    e_now_hps: data.e_now_hps.clone()[i].clone(),
-                };
+        (0..data_len).for_each(|i| {
+            let new_data = OpeningTaisen {
+                env_uuid,
+                uuid,
+                index: i as i64,
+                at: data.at_list.clone()[i],
+                at_type: data.at_list.clone()[i],
+                df: data.df_list.clone()[i].clone(),
+                cl: data.cl_list.clone()[i].clone(),
+                damage: data.damage.clone()[i].iter().map(|x| *x as i64).collect(),
+                at_eflag: data.at_eflag.clone()[i],
+                si: data.si_list.clone()[i].clone(),
+                protect_flag: data.protect_flag.clone()[i].clone(),
+                f_now_hps: data.f_now_hps.clone()[i].clone(),
+                e_now_hps: data.e_now_hps.clone()[i].clone(),
+            };
 
-                table.opening_taisen.push(new_data);
+            table.opening_taisen.push(new_data);
+        });
 
-                return new_uuid;
-            })
-            .collect();
-
-        return new_uuid_list;
+        Some(())
     }
 }
 
@@ -428,7 +431,7 @@ impl ClosingRaigeki {
         data: crate::interface::battle::ClosingRaigeki,
         table: &mut PortTable,
         env_uuid: EnvInfoId,
-    ) -> Uuid {
+    ) -> Option<()> {
         let new_data = ClosingRaigeki {
             env_uuid,
             uuid,
@@ -446,7 +449,7 @@ impl ClosingRaigeki {
 
         table.closing_raigeki.push(new_data);
 
-        return new_uuid;
+        Some(())
     }
 }
 
@@ -482,7 +485,7 @@ impl OpeningRaigeki {
         data: crate::interface::battle::OpeningRaigeki,
         table: &mut PortTable,
         env_uuid: EnvInfoId,
-    ) -> Uuid {
+    ) -> Option<()> {
         let new_data = OpeningRaigeki {
             env_uuid,
             uuid,
@@ -500,7 +503,7 @@ impl OpeningRaigeki {
 
         table.opening_raigeki.push(new_data);
 
-        return new_uuid;
+        Some(())
     }
 }
 
@@ -517,7 +520,7 @@ impl OpeningRaigeki {
 pub struct OpeningAirAttackList {
     pub env_uuid: EnvInfoId,
     pub uuid: OpeningAirAttackListId,
-    pub opening_air_attack: OpeningAirAttackId,
+    pub opening_air_attack: Option<OpeningAirAttackId>,
 }
 
 impl OpeningAirAttackList {
@@ -527,26 +530,43 @@ impl OpeningAirAttackList {
         data: Vec<Option<crate::interface::battle::OpeningAirAttack>>,
         table: &mut PortTable,
         env_uuid: EnvInfoId,
-    ) {
+    ) -> Option<()> {
         if data.iter().all(|x| x.is_none()) {
             return None;
         }
 
-        let new_opening_air_attack = data
+        let new_opening_air_attack = Uuid::new_v7(ts);
+        let result = data
             .iter()
-            .flatten()
-            .map(|opening_air_attack| {
-                OpeningAirAttack::new(opening_air_attack.clone(), table, env_uuid)
-            })
-            .collect();
+            .enumerate()
+            .map(
+                |(opening_air_attack_index, opening_air_attack)| match opening_air_attack {
+                    Some(opening_air_attack) => OpeningAirAttack::new(
+                        ts,
+                        new_opening_air_attack,
+                        opening_air_attack.clone(),
+                        table,
+                        env_uuid,
+                        opening_air_attack_index,
+                    ),
+                    None => None,
+                },
+            )
+            .collect::<Vec<_>>();
+        let new_opening_air_attack_wrap = match result.iter().all(|x| x.is_some()) {
+            true => Some(new_opening_air_attack),
+            false => None,
+        };
 
         let new_data = OpeningAirAttackList {
             env_uuid,
             uuid,
-            opening_air_attack: new_opening_air_attack,
+            opening_air_attack: new_opening_air_attack_wrap,
         };
 
         table.opening_airattack_list.push(new_data);
+
+        Some(())
     }
 }
 
@@ -591,15 +611,17 @@ pub struct OpeningAirAttack {
 
 impl OpeningAirAttack {
     pub fn new(
-        ts: uuid::Timestamp,
+        _ts: uuid::Timestamp,
         uuid: Uuid,
         data: crate::interface::battle::OpeningAirAttack,
         table: &mut PortTable,
         env_uuid: EnvInfoId,
-    ) -> Uuid {
+        index: usize,
+    ) -> Option<()> {
         let new_data = OpeningAirAttack {
             env_uuid,
             uuid,
+            index: index as i64,
             f_plane_from: data.f_damage.plane_from,
             f_touch_plane: data.f_damage.touch_plane,
             f_loss_plane1: data.f_damage.loss_plane1,
@@ -627,7 +649,7 @@ impl OpeningAirAttack {
 
         table.opening_airattack.push(new_data);
 
-        return new_uuid;
+        Some(())
     }
 }
 
@@ -644,7 +666,7 @@ impl OpeningAirAttack {
 pub struct AirBaseAirAttackList {
     pub env_uuid: EnvInfoId,
     pub uuid: AirBaseAirAttackListId,
-    pub air_base_air_attack: AirBaseAirAttackId,
+    pub air_base_air_attack: Option<AirBaseAirAttackId>,
 }
 
 impl AirBaseAirAttackList {
@@ -654,24 +676,37 @@ impl AirBaseAirAttackList {
         data: crate::interface::battle::AirBaseAirAttacks,
         table: &mut PortTable,
         env_uuid: EnvInfoId,
-    ) -> Uuid {
-        let new_air_base_air_attack = data
+    ) -> Option<()> {
+        let new_air_base_air_attack = Uuid::new_v7(ts);
+        let result = data
             .attacks
             .iter()
-            .filter_map(|air_base_air_attack| {
-                AirBaseAirAttack::new(air_base_air_attack.clone(), table, env_uuid)
+            .enumerate()
+            .map(|(air_base_air_attack_index, air_base_air_attack)| {
+                AirBaseAirAttack::new(
+                    ts,
+                    new_air_base_air_attack,
+                    air_base_air_attack.clone(),
+                    table,
+                    env_uuid,
+                    air_base_air_attack_index,
+                )
             })
-            .collect();
+            .collect::<Vec<_>>();
+        let new_air_base_air_attack_wrap = match result.iter().all(|x| x.is_some()) {
+            true => new_air_base_air_attack,
+            false => return None,
+        };
 
         let new_data = AirBaseAirAttackList {
             env_uuid,
             uuid,
-            air_base_air_attack: new_air_base_air_attack,
+            air_base_air_attack: new_air_base_air_attack_wrap,
         };
 
         table.airbase_airattack_list.push(new_data);
 
-        return new_uuid;
+        Some(())
     }
 }
 
@@ -720,15 +755,28 @@ impl AirBaseAirAttack {
         data: crate::interface::battle::AirBaseAirAttack,
         table: &mut PortTable,
         env_uuid: EnvInfoId,
-    ) {
+        index: usize,
+    ) -> Option<()> {
         let air_bases = AirBases::load();
-        let air_base = air_bases.bases.get(&(data.base_id).to_string())?;
+        let air_base = match air_bases.bases.get(&(data.base_id).to_string()) {
+            Some(air_base) => air_base,
+            None => return None,
+        };
 
-        let new_airbase_id = AirBase::new(air_base.clone(), table, env_uuid);
+        // ------------------------------------------------------------------------
+        // Create AirBase record
+        let new_airbase_id = Uuid::new_v7(ts);
+        let result = AirBase::new(ts, new_airbase_id, air_base.clone(), table, env_uuid);
+        let _new_airbase_id_wrap = match result {
+            Some(_) => Some(new_airbase_id),
+            None => None,
+        };
+        // ------------------------------------------------------------------------
 
         let new_data = AirBaseAirAttack {
             env_uuid,
             uuid,
+            index: index as i64,
             f_plane_from: data.f_damage.plane_from,
             f_touch_plane: data.f_damage.touch_plane,
             f_loss_plane1: data.f_damage.loss_plane1,
@@ -754,6 +802,8 @@ impl AirBaseAirAttack {
         };
 
         table.airbase_airattack.push(new_data);
+
+        Some(())
     }
 }
 
@@ -800,7 +850,7 @@ impl AirBaseAssult {
         data: crate::interface::battle::AirBaseAssult,
         table: &mut PortTable,
         env_uuid: EnvInfoId,
-    ) -> Uuid {
+    ) -> Option<()> {
         let new_data = AirBaseAssult {
             env_uuid,
             uuid,
@@ -829,7 +879,7 @@ impl AirBaseAssult {
 
         table.airbase_assult.push(new_data);
 
-        return new_uuid;
+        Some(())
     }
 }
 
@@ -875,7 +925,7 @@ impl CarrierBaseAssault {
         data: crate::interface::battle::CarrierBaseAssault,
         table: &mut PortTable,
         env_uuid: EnvInfoId,
-    ) -> Uuid {
+    ) -> Option<()> {
         let new_data = CarrierBaseAssault {
             env_uuid,
             uuid,
@@ -903,7 +953,7 @@ impl CarrierBaseAssault {
 
         table.carrierbase_assault.push(new_data);
 
-        return new_uuid;
+        Some(())
     }
 }
 
@@ -937,13 +987,13 @@ impl SupportHourai {
         data: crate::interface::battle::SupportHourai,
         table: &mut PortTable,
         env_uuid: EnvInfoId,
-    ) {
+    ) -> Option<()> {
         let decks = DeckPorts::load();
         let deck = decks.deck_ports.get(&data.deck_id)?;
 
-        deck.ship.as_ref()?;
-        if deck.ship.clone().unwrap().is_empty() {
-            return None;
+        match deck.ship {
+            Some(ship) if !ship.is_empty() => { /* do nothing */ }
+            _ => return None,
         }
 
         let ships = Ships::load();
@@ -954,12 +1004,11 @@ impl SupportHourai {
             .unwrap()
             .iter()
             .map(|ship_id| {
-                let ret = match ships.ships.get(ship_id) {
+                match ships.ships.get(ship_id) {
                     Some(ship) => ship.nowhp,
                     None => Some(0),
                 }
-                .unwrap_or(0);
-                return ret;
+                .unwrap_or(0)
             })
             .collect();
 
@@ -985,6 +1034,8 @@ impl SupportHourai {
         };
 
         table.support_hourai.push(new_data);
+
+        Some(())
     }
 }
 
@@ -1028,13 +1079,13 @@ impl SupportAirattack {
         data: crate::interface::battle::SupportAiratack,
         table: &mut PortTable,
         env_uuid: EnvInfoId,
-    ) {
+    ) -> Option<()> {
         let decks = DeckPorts::load();
         let deck = decks.deck_ports.get(&data.deck_id)?;
 
-        deck.ship.as_ref()?;
-        if deck.ship.clone().unwrap().is_empty() {
-            return None;
+        match deck.ship {
+            Some(ship) if !ship.is_empty() => { /* do nothing */ }
+            _ => return None,
         }
 
         let ships = Ships::load();
@@ -1045,12 +1096,11 @@ impl SupportAirattack {
             .unwrap()
             .iter()
             .map(|ship_id| {
-                let ret = match ships.ships.get(ship_id) {
+                match ships.ships.get(ship_id) {
                     Some(ship) => ship.nowhp,
                     None => Some(0),
                 }
-                .unwrap_or(0);
-                return ret;
+                .unwrap_or(0)
             })
             .collect();
 
@@ -1085,6 +1135,8 @@ impl SupportAirattack {
             e_now_hps: data.e_damage.now_hps,
         };
         table.support_airattack.push(new_data);
+
+        Some(())
     }
 }
 
@@ -1113,7 +1165,7 @@ impl FriendlySupportHouraiList {
         data: crate::interface::battle::FriendlySupportHourai,
         table: &mut PortTable,
         env_uuid: EnvInfoId,
-    ) {
+    ) -> Option<()> {
         let new_hourai_list = FriendlySupportHourai::new(data.hougeki, table, env_uuid);
 
         let new_f_flare_pos = match data.flare_pos.clone()[0] {
@@ -1141,6 +1193,8 @@ impl FriendlySupportHouraiList {
         }
 
         table.friendly_support_hourai_list.push(new_data);
+
+        Some(())
     }
 }
 
