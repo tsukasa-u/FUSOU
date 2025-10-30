@@ -125,7 +125,7 @@ impl Hougeki {
         data: crate::interface::battle::Hougeki,
         table: &mut PortTable,
         env_uuid: EnvInfoId,
-    ) -> Vec<Uuid> {
+    ) -> Option<()> {
         let data_len = data.at_list.len();
         let new_uuid_list = (0..data_len)
             .map(|i| {
@@ -349,7 +349,7 @@ impl OpeningTaisen {
         data: crate::interface::battle::OpeningTaisen,
         table: &mut PortTable,
         env_uuid: EnvInfoId,
-    ) -> Vec<Uuid> {
+    ) -> Option<()> {
         let data_len = data.at_list.clone().len();
         let new_uuid_list = (0..data_len)
             .map(|i| {
