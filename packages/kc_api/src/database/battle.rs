@@ -84,7 +84,7 @@ impl HougekiList {
                 None => None,
             })
             .collect::<Vec<_>>();
-        let new_hougeki_wrap = match result.iter().all(|x| x.is_some()) {
+        let new_hougeki_wrap = match result.iter().any(|x| x.is_some()) {
             true => Some(new_hougeki),
             false => None,
         };
@@ -553,7 +553,7 @@ impl OpeningAirAttackList {
                 },
             )
             .collect::<Vec<_>>();
-        let new_opening_air_attack_wrap = match result.iter().all(|x| x.is_some()) {
+        let new_opening_air_attack_wrap = match result.iter().any(|x| x.is_some()) {
             true => Some(new_opening_air_attack),
             false => None,
         };
@@ -693,9 +693,9 @@ impl AirBaseAirAttackList {
                 )
             })
             .collect::<Vec<_>>();
-        let new_air_base_air_attack_wrap = match result.iter().all(|x| x.is_some()) {
-            true => new_air_base_air_attack,
-            false => return None,
+        let new_air_base_air_attack_wrap = match result.iter().any(|x| x.is_some()) {
+            true => Some(new_air_base_air_attack),
+            false => None,
         };
 
         let new_data = AirBaseAirAttackList {
