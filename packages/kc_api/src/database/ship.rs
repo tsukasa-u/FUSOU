@@ -69,16 +69,25 @@ impl OwnShip {
         index: usize,
     ) {
         let ships = Ships::load();
-        let ship = ships.ships.get(&data)?;
+        let ship = match ships.ships.get(&data) {
+            Some(ship) => ship,
+            None => {
+                tracing::warn!("OwnShip::new: ship not found for id {}", data);
+                return;
+            }
+        };
 
         let slot_item = SlotItems::load();
         let new_slot = Uuid::new_v7(ts);
         ship.slot.clone().map(|slot| {
             slot.iter().enumerate().for_each(|(slot_index, slot_id)| {
-                let slot_item = slot_item
-                    .slot_items
-                    .get(slot_id)
-                    .expect_or_log("Failed to get slot item when creating OwnShip");
+                let slot_item = match slot_item.slot_items.get(slot_id) {
+                    Some(item) => item,
+                    None => {
+                        tracing::warn!("OwnShip::new: slot_item not found for id {}", slot_id);
+                        return;
+                    }
+                };
                 OwnSlotItem::new(ts, new_slot, slot_item.clone(), table, env_uuid, slot_index);
             });
         });
@@ -132,46 +141,51 @@ pub struct EnemyShip {
     pub uuid: EnemyShipId,
     pub index: i64,
     pub mst_ship_id: i64,
-    pub lv: i64,               // レベル
-    pub nowhp: i64,            // 現在HP
-    pub maxhp: i64,            // 最大HP
+    pub lv: Option<i64>,       // レベル
+    pub nowhp: Option<i64>,    // 現在HP
+    pub maxhp: Option<i64>,    // 最大HP
     pub slot: EnemySlotItemId, // 装備
-    pub karyoku: i64,          // 火力
-    pub raisou: i64,           // 雷装
-    pub taiku: i64,            // 対空
-    pub soukou: i64,           // 装甲
+    pub karyoku: Option<i64>,  // 火力
+    pub raisou: Option<i64>,   // 雷装
+    pub taiku: Option<i64>,    // 対空
+    pub soukou: Option<i64>,   // 装甲
 }
 
 pub type EnemyShipProps = (
-    i64,      // レベル
-    i64,      // 現在HP
-    i64,      // 最大HP
-    Vec<i64>, // 装備
-    Vec<i64>, // 火力 雷装 対空 装甲
-    i64,      // mst_id
+    Option<i64>,      // レベル
+    Option<i64>,      // 現在HP
+    Option<i64>,      // 最大HP
+    Option<Vec<i64>>, // 装備
+    Option<Vec<i64>>, // 火力 雷装 対空 装甲
+    i64,              // mst_id
 );
 impl EnemyShip {
     pub fn new(
         ts: uuid::Timestamp,
+        uuid: Uuid,
         data: EnemyShipProps,
         table: &mut PortTable,
         env_uuid: EnvInfoId,
         index: usize,
     ) {
-        let new_uuid: Uuid = Uuid::new_v7(ts);
-
         let new_slot: Uuid = Uuid::new_v7(ts);
-        data.3
-            .clone()
-            .iter()
-            .enumerate()
-            .for_each(|(index, slot_id)| {
-                EnemySlotItem::new(ts, *slot_id, table, env_uuid, index);
-            });
+        let result = data.3.clone().map(|slot| {
+            slot.iter()
+                .enumerate()
+                .for_each(|(slot_id_index, slot_id)| {
+                    EnemySlotItem::new(ts, new_slot, *slot_id, table, env_uuid, slot_id_index);
+                });
+        });
+        if result.is_none() {
+            tracing::info!(
+                "EnemyShip::new: no slot items for enemy ship at index {}",
+                index
+            );
+        }
 
         let new_data: EnemyShip = EnemyShip {
             env_uuid,
-            uuid: new_uuid,
+            uuid,
             index: index as i64,
             lv: data.0,
             nowhp: data.1,
@@ -194,7 +208,7 @@ pub type FriendShipProps = (
     Option<Vec<i64>>, // 装備
     Option<i64>,      // 補強増設
     Option<Vec<i64>>, // 火力 雷装 対空 装甲
-    Option<i64>,      // mst_id
+    i64,              // mst_id
 );
 #[derive(
     Debug,
@@ -210,7 +224,7 @@ pub struct FriendShip {
     pub env_uuid: EnvInfoId,
     pub uuid: FriendShipId,
     pub index: i64,
-    pub mst_ship_id: Option<i64>,
+    pub mst_ship_id: i64,
     pub lv: Option<i64>,        // レベル
     pub nowhp: Option<i64>,     // 現在HP
     pub maxhp: Option<i64>,     // 最大HP
@@ -225,21 +239,29 @@ pub struct FriendShip {
 impl FriendShip {
     pub fn new(
         ts: uuid::Timestamp,
+        uuid: Uuid,
         data: FriendShipProps,
         table: &mut PortTable,
         env_uuid: EnvInfoId,
+        index: usize,
     ) {
-        let new_uuid: Uuid = Uuid::new_v7(ts);
-
-        let new_slot = data.3.clone().map(|slot| {
-            slot.iter()
-                .map(|slot_id| FriendSlotItem::new(*slot_id, table, env_uuid))
-                .collect()
+        let new_slot = Uuid::new_v7(ts);
+        let result = data.3.clone().map(|slot| {
+            slot.iter().enumerate().map(|(slot_id_index, slot_id)| {
+                FriendSlotItem::new(ts, new_slot, *slot_id, table, env_uuid, slot_id_index);
+            });
         });
+        if result.is_none() {
+            tracing::info!(
+                "FriendShip::new: no slot items for friend ship at index {}",
+                index
+            );
+        }
 
         let new_data: FriendShip = FriendShip {
             env_uuid,
-            uuid: new_uuid,
+            uuid,
+            index: index as i64,
             lv: data.0,
             nowhp: data.1,
             maxhp: data.2,

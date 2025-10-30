@@ -33,28 +33,36 @@ pub struct AirBase {
 }
 
 impl AirBase {
-    pub fn new_ret_uuid(
+    pub fn new(
+        ts: uuid::Timestamp,
+        uuid: Uuid,
         data: crate::interface::air_base::AirBase,
         table: &mut PortTable,
         env_uuid: EnvInfoId,
-    ) -> Uuid {
-        let new_uuid = Uuid::new_v4();
-        let new_plane_info = data
-            .plane_info
+    ) {
+        let new_plane_info = Uuid::new_v7(ts);
+        data.plane_info
             .iter()
-            .filter_map(|plane_info| PlaneInfo::new_ret_uuid(plane_info.clone(), table, env_uuid))
-            .collect();
+            .enumerate()
+            .for_each(|(plane_info_index, plane_info)| {
+                PlaneInfo::new(
+                    ts,
+                    new_plane_info,
+                    plane_info.clone(),
+                    table,
+                    env_uuid,
+                    plane_info_index,
+                )
+            });
         let new_air_base = AirBase {
             env_uuid,
-            uuid: new_uuid,
+            uuid,
             action_kind: data.action_kind,
             distance: data.distance,
             plane_info: new_plane_info,
         };
 
         table.airbase.push(new_air_base);
-
-        return new_uuid;
     }
 }
 
@@ -80,19 +88,29 @@ pub struct PlaneInfo {
 }
 
 impl PlaneInfo {
-    pub fn new_ret_uuid(
+    pub fn new(
+        ts: uuid::Timestamp,
+        uuid: Uuid,
         data: crate::interface::air_base::PlaneInfo,
         table: &mut PortTable,
         env_uuid: EnvInfoId,
-    ) -> Option<Uuid> {
+        index: usize,
+    ) {
         let slot_items = SlotItems::load();
-        let slot_item = slot_items.slot_items.get(&data.slotid)?;
+        let slot_item = match slot_items.slot_items.get(&data.slotid) {
+            Some(item) => item,
+            None => {
+                tracing::warn!("PlaneInfo::new: slot_item not found for id {}", data.slotid);
+                return;
+            }
+        };
 
-        let new_uuid: Uuid = Uuid::new_v4();
-        let new_slot_item = OwnSlotItem::new_ret_uuid(slot_item.clone(), table, env_uuid);
+        let new_slot_item = Uuid::new_v7(ts);
+        OwnSlotItem::new(ts, new_slot_item, slot_item.clone(), table, env_uuid, 0);
 
         let new_plane_info: PlaneInfo = PlaneInfo {
-            uuid: new_uuid,
+            uuid,
+            index: index as i64,
             env_uuid,
             cond: data.cond,
             state: data.state,
@@ -102,7 +120,5 @@ impl PlaneInfo {
         };
 
         table.plane_info.push(new_plane_info);
-
-        return Some(new_uuid);
     }
 }
