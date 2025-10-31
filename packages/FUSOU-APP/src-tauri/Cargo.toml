@@ -31,7 +31,6 @@ tauri-plugin-opener = "2.5.0"
 tokio = { version = "1.38.0", features = ["full"] }
 webbrowser = "1.0.1"
 kc_api = { path = "./../../kc_api" }
-register_trait = { path = "./../../rust_macro/register_trait" }
 proxy-https = { path = "./../../FUSOU-PROXY/proxy-https" }
 configs = { path = "./../../configs" }
 chrono = "0.4.31"
