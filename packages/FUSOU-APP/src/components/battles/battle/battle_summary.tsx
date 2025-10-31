@@ -125,14 +125,14 @@ export function BattleSummaryComponent(props: ButtleSummaryProps) {
             .map((v) => Math.max(v, 0))
         : null;
     const midnight_f_now_hps: number[] | null =
-      battle.midngiht_f_nowhps !== null
-        ? battle.midngiht_f_nowhps
+      battle.midnight_f_nowhps !== null
+        ? battle.midnight_f_nowhps
             .map((v, i) => v - battle.midnight_f_total_damages![i])
             .map((v) => Math.max(v, 0))
         : null;
     const midnight_e_now_hps: number[] | null =
-      battle.midngiht_e_nowhps !== null
-        ? battle.midngiht_e_nowhps
+      battle.midnight_e_nowhps !== null
+        ? battle.midnight_e_nowhps
             .map((v, i) => v - battle.midnight_e_total_damages![i])
             .map((v) => Math.max(v, 0))
         : null;
