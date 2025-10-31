@@ -920,7 +920,7 @@ pub struct CarrierBaseAssault {
 
 impl CarrierBaseAssault {
     pub fn new(
-        ts: uuid::Timestamp,
+        _ts: uuid::Timestamp,
         uuid: Uuid,
         data: crate::interface::battle::CarrierBaseAssault,
         table: &mut PortTable,
@@ -982,7 +982,7 @@ pub struct SupportHourai {
 
 impl SupportHourai {
     pub fn new(
-        ts: uuid::Timestamp,
+        _ts: uuid::Timestamp,
         uuid: Uuid,
         data: crate::interface::battle::SupportHourai,
         table: &mut PortTable,
@@ -1074,7 +1074,7 @@ pub struct SupportAirattack {
 
 impl SupportAirattack {
     pub fn new(
-        ts: uuid::Timestamp,
+        _ts: uuid::Timestamp,
         uuid: Uuid,
         data: crate::interface::battle::SupportAiratack,
         table: &mut PortTable,
@@ -1230,7 +1230,7 @@ pub struct FriendlySupportHourai {
 
 impl FriendlySupportHourai {
     pub fn new(
-        ts: uuid::Timestamp,
+        _ts: uuid::Timestamp,
         uuid: Uuid,
         data: crate::interface::battle::MidnightHougeki,
         table: &mut PortTable,
@@ -1259,8 +1259,6 @@ impl FriendlySupportHourai {
                     };
 
                     table.midnight_hougeki.push(new_data);
-
-                    return new_uuid;
                 });
                 Some(())
             }
@@ -1320,8 +1318,8 @@ pub struct Battle {
     pub midnight_hougeki: Option<MidnightHougekiListId>,
     pub f_nowhps: Option<Vec<i64>>,
     pub e_nowhps: Option<Vec<i64>>,
-    pub midngiht_f_nowhps: Option<Vec<i64>>,
-    pub midngiht_e_nowhps: Option<Vec<i64>>,
+    pub midnight_f_nowhps: Option<Vec<i64>>,
+    pub midnight_e_nowhps: Option<Vec<i64>>,
 }
 
 impl Battle {
@@ -1344,119 +1342,141 @@ impl Battle {
             })
             .unwrap_or_default();
 
-        let new_f_deck_id = Uuid::new_v7(ts);
-        data.clone()
-            .deck_id
-            .map(|deck_id| OwnDeck::new(ts, new_f_deck_id, deck_id, table, env_uuid));
-
-        let new_e_deck_id = EnemyDeck::new(data.clone(), table, env_uuid);
-        let new_friend_deck_id = data
-            .clone()
-            .friendly_force_attack
-            .map(|attack| FriendDeck::new(attack.fleet_info, table, env_uuid))
-            .unwrap_or(None);
-        let new_support_deck_id = data
-            .clone()
-            .support_attack
-            .map(|attack| {
-                attack
-                    .support_airatack
-                    .map(|air| air.deck_id)
-                    .or(attack.support_hourai.map(|hourai| hourai.deck_id))
-                    .map(|deck_id| SupportDeck::new(deck_id, table, env_uuid))
-                    .unwrap_or(None)
-            })
-            .unwrap_or(None);
-
-        let new_air_base_assault = data
-            .clone()
-            .air_base_assault
-            .map(|assult| AirBaseAssult::new(assult, table, env_uuid));
-        let new_carrier_base_assault = data
-            .clone()
-            .carrier_base_assault
-            .map(|assult| CarrierBaseAssault::new(assult, table, env_uuid));
-        let new_air_base_air_attacks = data
-            .clone()
-            .air_base_air_attacks
-            .map(|attacks| AirBaseAirAttackList::new(attacks, table, env_uuid));
-        let new_opening_air_attack = data
-            .clone()
-            .opening_air_attack
-            .map(|attack| OpeningAirAttackList::new(attack, table, env_uuid))
-            .unwrap_or(None);
-        // let new_support_attack = data
-        //     .clone()
-        //     .support_attack
-        //     .clone()
-        //     .map(|attack| {
-        //         if let Some(air) = attack.support_airattack {
-        //             SupportAirattack::new(air, table, env_uuid)
-        //         } else if let Some(hourai) = attack.support_hourai {
-        //             SupportHourai::new(hourai, table, env_uuid)
-        //         } else {
-        //             None
-        //         }
-        //     })
-        //     .unwrap_or(None);
-        let new_support_hourai = data
-            .clone()
-            .support_attack
-            .clone()
-            .map(|attack| {
-                attack
-                    .support_hourai
-                    .map(|hourai| SupportHourai::new(hourai, table, env_uuid))
-                    .unwrap_or(None)
-            })
-            .unwrap_or(None);
-        let new_support_airattack = data
-            .clone()
-            .support_attack
-            .clone()
-            .map(|attack| {
-                attack
-                    .support_airatack
-                    .map(|airattack| SupportAirattack::new(airattack, table, env_uuid))
-                    .unwrap_or(None)
-            })
-            .unwrap_or(None);
-        let new_opening_taisen = data
-            .clone()
-            .opening_taisen
-            .map(|taisen| OpeningTaisenList::new(taisen, table, env_uuid));
-        let new_opening_raigeki = data
-            .clone()
-            .opening_raigeki
-            .map(|raigeki| OpeningRaigeki::new(raigeki, table, env_uuid));
-        let new_hougeki = data
-            .clone()
-            .hougeki
-            .map(|hougeki| HougekiList::new(hougeki, table, env_uuid))
-            .unwrap_or(None);
-        let new_closing_raigeki = data
-            .clone()
-            .closing_raigeki
-            .map(|raigeki| ClosingRaigeki::new(raigeki, table, env_uuid));
-        let new_friendly_force_attack = data
-            .clone()
-            .friendly_force_attack
-            .map(|attack| {
-                attack
-                    .support_hourai
-                    .map(|hourai| FriendlySupportHouraiList::new(hourai, table, env_uuid))
-                    .unwrap_or(None)
-            })
-            .unwrap_or(None);
-        let new_midnight_hougeki = MidnightHougekiList::new(data.clone(), table, env_uuid);
+        let new_f_deck_id = {
+            let uuid = Uuid::new_v7(ts);
+            data.clone()
+                .deck_id
+                .and_then(|deck_id| OwnDeck::new(ts, uuid, deck_id, table, env_uuid))
+                .map(|_| uuid)
+        };
+        let new_e_deck_id = {
+            let uuid = Uuid::new_v7(ts);
+            EnemyDeck::new(ts, uuid, data.clone(), table, env_uuid).map(|_| uuid)
+        };
+        let new_friend_deck_id = {
+            let uuid = Uuid::new_v7(ts);
+            data.clone()
+                .friendly_force_attack
+                .and_then(|attack| FriendDeck::new(ts, uuid, attack.fleet_info, table, env_uuid))
+                .map(|_| uuid)
+        };
+        let new_support_deck_id = {
+            let uuid = Uuid::new_v7(ts);
+            data.clone()
+                .support_attack
+                .and_then(|attack| {
+                    attack
+                        .support_airatack
+                        .map(|air| air.deck_id)
+                        .or(attack.support_hourai.map(|hourai| hourai.deck_id))
+                        .and_then(|deck_id| SupportDeck::new(ts, uuid, deck_id, table, env_uuid))
+                })
+                .map(|_| uuid)
+        };
+        let new_air_base_assault = {
+            let uuid = Uuid::new_v7(ts);
+            data.clone()
+                .air_base_assault
+                .and_then(|assult| AirBaseAssult::new(ts, uuid, assult, table, env_uuid))
+                .map(|_| uuid)
+        };
+        let new_carrier_base_assault = {
+            let uuid = Uuid::new_v7(ts);
+            data.clone()
+                .carrier_base_assault
+                .and_then(|assult| CarrierBaseAssault::new(ts, uuid, assult, table, env_uuid))
+                .map(|_| uuid)
+        };
+        let new_air_base_air_attacks = {
+            let uuid = Uuid::new_v7(ts);
+            data.clone()
+                .air_base_air_attacks
+                .and_then(|attacks| AirBaseAirAttackList::new(ts, uuid, attacks, table, env_uuid))
+                .map(|_| uuid)
+        };
+        let new_opening_air_attack = {
+            let uuid = Uuid::new_v7(ts);
+            data.clone()
+                .opening_air_attack
+                .and_then(|attack| OpeningAirAttackList::new(ts, uuid, attack, table, env_uuid))
+                .map(|_| uuid)
+        };
+        let new_support_hourai = {
+            let uuid = Uuid::new_v7(ts);
+            data.clone()
+                .support_attack
+                .clone()
+                .and_then(|attack| {
+                    attack
+                        .support_hourai
+                        .and_then(|hourai| SupportHourai::new(ts, uuid, hourai, table, env_uuid))
+                })
+                .map(|_| uuid)
+        };
+        let new_support_airattack = {
+            let uuid = Uuid::new_v7(ts);
+            data.clone()
+                .support_attack
+                .clone()
+                .and_then(|attack| {
+                    attack.support_airatack.and_then(|airattack| {
+                        SupportAirattack::new(ts, uuid, airattack, table, env_uuid)
+                    })
+                })
+                .map(|_| uuid)
+        };
+        let new_opening_taisen = {
+            let uuid = Uuid::new_v7(ts);
+            data.clone()
+                .opening_taisen
+                .map(|taisen| OpeningTaisenList::new(ts, uuid, taisen, table, env_uuid))
+                .map(|_| uuid)
+        };
+        let new_opening_raigeki = {
+            let uuid = Uuid::new_v7(ts);
+            data.clone()
+                .opening_raigeki
+                .map(|raigeki| OpeningRaigeki::new(ts, uuid, raigeki, table, env_uuid))
+                .map(|_| uuid)
+        };
+        let new_hougeki = {
+            let uuid = Uuid::new_v7(ts);
+            data.clone()
+                .hougeki
+                .and_then(|hougeki| HougekiList::new(ts, uuid, hougeki, table, env_uuid))
+                .map(|_| uuid)
+        };
+        let new_closing_raigeki = {
+            let uuid = Uuid::new_v7(ts);
+            data.clone()
+                .closing_raigeki
+                .map(|raigeki| ClosingRaigeki::new(ts, uuid, raigeki, table, env_uuid))
+                .map(|_| uuid)
+        };
+        let new_friendly_force_attack = {
+            let uuid = Uuid::new_v7(ts);
+            data.clone()
+                .friendly_force_attack
+                .and_then(|attack| {
+                    attack.support_hourai.and_then(|hourai| {
+                        FriendlySupportHouraiList::new(ts, uuid, hourai, table, env_uuid)
+                    })
+                })
+                .map(|_| uuid)
+        };
+        let new_midnight_hougeki = {
+            let uuid = Uuid::new_v7(ts);
+            MidnightHougekiList::new(ts, uuid, data.clone(), table, env_uuid).map(|_| uuid)
+        };
         let new_f_nowhps = data.clone().f_nowhps;
         let new_e_nowhps = data.clone().e_nowhps;
-        let new_midngiht_f_nowhps = data.clone().midngiht_f_nowhps;
-        let new_midngiht_e_nowhps = data.clone().midngiht_e_nowhps;
+        let new_midnight_f_nowhps = data.clone().midnight_f_nowhps;
+        let new_midnight_e_nowhps = data.clone().midnight_e_nowhps;
 
         let new_data = Battle {
             env_uuid,
             uuid,
+            index: index as i64,
             battle_order: new_battle_order,
             timestamp: data.clone().timestamp,
             midnight_timestamp: data.clone().midnight_timestamp,
@@ -1493,8 +1513,8 @@ impl Battle {
             midnight_hougeki: new_midnight_hougeki,
             f_nowhps: new_f_nowhps,
             e_nowhps: new_e_nowhps,
-            midngiht_f_nowhps: new_midngiht_f_nowhps,
-            midngiht_e_nowhps: new_midngiht_e_nowhps,
+            midnight_f_nowhps: new_midnight_f_nowhps,
+            midnight_e_nowhps: new_midnight_e_nowhps,
         };
 
         table.battle.push(new_data);

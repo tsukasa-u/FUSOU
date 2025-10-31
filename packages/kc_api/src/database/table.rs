@@ -31,6 +31,7 @@ use crate::interface::mst_stype::{MstStype, MstStypes};
 use crate::interface::mst_use_item::{MstUseItem, MstUseItems};
 
 use register_trait::FieldSizeChecker;
+use uuid::Uuid;
 
 // pub const DATABASE_TABLE_VERSION: &str = dotenv!("DATABASE_TABLE_VERSION");
 #[deny(warnings)]
@@ -410,8 +411,14 @@ impl PortTable {
         timestamp: i64,
     ) -> PortTable {
         let mut table = PortTable::default();
-        let env_uuid = EnvInfo::new_ret_uuid((user_env, timestamp), &mut table);
-        let _cells_uuid = Cells::new_ret_uuid(interface_cells, &mut table, env_uuid);
+        let timestamp_context = uuid::ContextV7::new().with_additional_precision();
+        let ts: uuid::Timestamp =
+            uuid::Timestamp::from_unix(&timestamp_context, timestamp as u64, 0);
+        let env_uuid = EnvInfo::new_ret_uuid(ts, (user_env, timestamp), &mut table);
+        {
+            let uuid = Uuid::new_v7(ts);
+            Cells::new(ts, uuid, interface_cells, &mut table, env_uuid)
+        };
         return table;
     }
 
