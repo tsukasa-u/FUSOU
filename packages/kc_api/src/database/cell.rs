@@ -32,7 +32,7 @@ pub struct Cells {
 }
 
 impl Cells {
-    pub fn new(
+    pub fn new_ret_option(
         ts: uuid::Timestamp,
         uuid: Uuid,
         data: crate::interface::cells::Cells,
@@ -44,7 +44,7 @@ impl Cells {
             .values()
             .enumerate()
             .for_each(|(battle_index, battle)| {
-                Battle::new(
+                Battle::new_ret_option(
                     ts,
                     new_battle,
                     battle.clone(),

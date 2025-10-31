@@ -40,7 +40,7 @@ pub struct OwnDeck {
 }
 
 impl OwnDeck {
-    pub fn new(
+    pub fn new_ret_option(
         ts: uuid::Timestamp,
         uuid: Uuid,
         data: i64,
@@ -64,7 +64,7 @@ impl OwnDeck {
                 .iter()
                 .enumerate()
                 .map(|(ship_id_index, ship_id)| {
-                    let ship = match ships.ships.get(&ship_id) {
+                    let ship = match ships.ships.get(ship_id) {
                         Some(ship) => ship,
                         None => {
                             tracing::warn!("OwnDeck::new: ship not found for id {}", ship_id);
@@ -78,7 +78,14 @@ impl OwnDeck {
                             return None;
                         }
                     };
-                    OwnShip::new(ts, new_ship_ids, ship_id, table, env_uuid, ship_id_index)
+                    OwnShip::new_ret_option(
+                        ts,
+                        new_ship_ids,
+                        ship_id,
+                        table,
+                        env_uuid,
+                        ship_id_index,
+                    )
                 })
                 .collect::<Vec<_>>()
         });
@@ -117,7 +124,7 @@ pub struct SupportDeck {
 }
 
 impl SupportDeck {
-    pub fn new(
+    pub fn new_ret_option(
         ts: uuid::Timestamp,
         uuid: Uuid,
         data: i64,
@@ -140,7 +147,7 @@ impl SupportDeck {
                 .iter()
                 .enumerate()
                 .map(|(ship_id_index, ship_id)| {
-                    let ship = match ships.ships.get(&ship_id) {
+                    let ship = match ships.ships.get(ship_id) {
                         Some(ship) => ship,
                         None => {
                             tracing::warn!("SupportDeck::new: ship not found for id {}", ship_id);
@@ -157,7 +164,14 @@ impl SupportDeck {
                             return None;
                         }
                     };
-                    OwnShip::new(ts, new_ship_ids, ship_id, table, env_uuid, ship_id_index)
+                    OwnShip::new_ret_option(
+                        ts,
+                        new_ship_ids,
+                        ship_id,
+                        table,
+                        env_uuid,
+                        ship_id_index,
+                    )
                 })
                 .collect::<Vec<_>>()
         });
@@ -195,7 +209,7 @@ pub struct EnemyDeck {
 }
 
 impl EnemyDeck {
-    pub fn new(
+    pub fn new_ret_option(
         ts: uuid::Timestamp,
         uuid: Uuid,
         data: crate::interface::battle::Battle,
@@ -218,7 +232,14 @@ impl EnemyDeck {
                             .map(|param| param[ship_id_index].clone()),
                         *ship_id,
                     );
-                    EnemyShip::new(ts, new_ship_ids, props, table, env_uuid, ship_id_index)
+                    EnemyShip::new_ret_option(
+                        ts,
+                        new_ship_ids,
+                        props,
+                        table,
+                        env_uuid,
+                        ship_id_index,
+                    )
                 })
                 .collect::<Vec<_>>()
         });
@@ -255,7 +276,7 @@ pub struct FriendDeck {
 }
 
 impl FriendDeck {
-    pub fn new(
+    pub fn new_ret_option(
         ts: uuid::Timestamp,
         uuid: Uuid,
         data: crate::interface::battle::FriendlyForceInfo,
@@ -277,7 +298,7 @@ impl FriendDeck {
                     Some(data.params[ship_id_index].clone()),
                     *ship_id,
                 );
-                FriendShip::new(
+                FriendShip::new_ret_option(
                     ts,
                     new_ship_ids,
                     friend_props,

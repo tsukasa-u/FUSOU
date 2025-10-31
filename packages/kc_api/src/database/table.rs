@@ -417,7 +417,7 @@ impl PortTable {
         let env_uuid = EnvInfo::new_ret_uuid(ts, (user_env, timestamp), &mut table);
         {
             let uuid = Uuid::new_v7(ts);
-            Cells::new(ts, uuid, interface_cells, &mut table, env_uuid)
+            Cells::new_ret_option(ts, uuid, interface_cells, &mut table, env_uuid)
         };
         return table;
     }

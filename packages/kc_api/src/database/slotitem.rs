@@ -31,7 +31,7 @@ pub struct OwnSlotItem {
 }
 
 impl OwnSlotItem {
-    pub fn new(
+    pub fn new_ret_option(
         _ts: uuid::Timestamp,
         uuid: Uuid,
         data: crate::interface::slot_item::SlotItem,
@@ -72,7 +72,7 @@ pub struct EnemySlotItem {
 }
 
 impl EnemySlotItem {
-    pub fn new(
+    pub fn new_ret_option(
         _ts: uuid::Timestamp,
         uuid: Uuid,
         data: i64,
@@ -111,7 +111,7 @@ pub struct FriendSlotItem {
 }
 
 impl FriendSlotItem {
-    pub fn new(
+    pub fn new_ret_option(
         _ts: uuid::Timestamp,
         uuid: Uuid,
         data: i64,

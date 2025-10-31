@@ -33,7 +33,7 @@ pub struct AirBase {
 }
 
 impl AirBase {
-    pub fn new(
+    pub fn new_ret_option(
         ts: uuid::Timestamp,
         uuid: Uuid,
         data: crate::interface::air_base::AirBase,
@@ -46,7 +46,7 @@ impl AirBase {
             .iter()
             .enumerate()
             .map(|(plane_info_index, plane_info)| {
-                PlaneInfo::new(
+                PlaneInfo::new_ret_option(
                     ts,
                     new_plane_info,
                     plane_info.clone(),
@@ -97,7 +97,7 @@ pub struct PlaneInfo {
 }
 
 impl PlaneInfo {
-    pub fn new(
+    pub fn new_ret_option(
         ts: uuid::Timestamp,
         uuid: Uuid,
         data: crate::interface::air_base::PlaneInfo,
@@ -115,11 +115,9 @@ impl PlaneInfo {
         };
 
         let new_slot_item = Uuid::new_v7(ts);
-        let result = OwnSlotItem::new(ts, new_slot_item, slot_item.clone(), table, env_uuid, 0);
-        let new_slot_item_wrap = match result {
-            Some(()) => Some(new_slot_item),
-            None => None,
-        };
+        let new_slot_item_wrap =
+            OwnSlotItem::new_ret_option(ts, new_slot_item, slot_item.clone(), table, env_uuid, 0)
+                .map(|()| new_slot_item);
 
         let new_plane_info: PlaneInfo = PlaneInfo {
             uuid,

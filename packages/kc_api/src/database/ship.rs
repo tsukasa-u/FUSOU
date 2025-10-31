@@ -59,7 +59,7 @@ pub struct OwnShip {
 }
 
 impl OwnShip {
-    pub fn new(
+    pub fn new_ret_option(
         ts: uuid::Timestamp,
         uuid: Uuid,
         data: i64,
@@ -89,7 +89,14 @@ impl OwnShip {
                             return None;
                         }
                     };
-                    OwnSlotItem::new(ts, new_slot, slot_item.clone(), table, env_uuid, slot_index)
+                    OwnSlotItem::new_ret_option(
+                        ts,
+                        new_slot,
+                        slot_item.clone(),
+                        table,
+                        env_uuid,
+                        slot_index,
+                    )
                 })
                 .collect::<Vec<_>>()
         });
@@ -99,7 +106,7 @@ impl OwnShip {
         };
 
         let new_ex_slot = Uuid::new_v7(ts);
-        let new_ex_slot_result = ship.slot_ex.clone().map(|slot_ex_id| {
+        let new_ex_slot_result = ship.slot_ex.map(|slot_ex_id| {
             let slot_item = match slot_item.slot_items.get(&slot_ex_id) {
                 Some(item) => item,
                 None => {
@@ -107,7 +114,7 @@ impl OwnShip {
                     return None;
                 }
             };
-            OwnSlotItem::new(ts, new_ex_slot, slot_item.clone(), table, env_uuid, 0)
+            OwnSlotItem::new_ret_option(ts, new_ex_slot, slot_item.clone(), table, env_uuid, 0)
         });
         let new_ex_slot_wrap = match new_ex_slot_result {
             Some(v) if v.is_some() => Some(new_ex_slot),
@@ -184,7 +191,7 @@ pub type EnemyShipProps = (
     i64,              // mst_id
 );
 impl EnemyShip {
-    pub fn new(
+    pub fn new_ret_option(
         ts: uuid::Timestamp,
         uuid: Uuid,
         data: EnemyShipProps,
@@ -197,7 +204,14 @@ impl EnemyShip {
             slot.iter()
                 .enumerate()
                 .map(|(slot_id_index, slot_id)| {
-                    EnemySlotItem::new(ts, new_slot, *slot_id, table, env_uuid, slot_id_index)
+                    EnemySlotItem::new_ret_option(
+                        ts,
+                        new_slot,
+                        *slot_id,
+                        table,
+                        env_uuid,
+                        slot_id_index,
+                    )
                 })
                 .collect::<Vec<_>>()
         });
@@ -262,7 +276,7 @@ pub struct FriendShip {
 }
 
 impl FriendShip {
-    pub fn new(
+    pub fn new_ret_option(
         ts: uuid::Timestamp,
         uuid: Uuid,
         data: FriendShipProps,
@@ -275,7 +289,14 @@ impl FriendShip {
             slot.iter()
                 .enumerate()
                 .map(|(slot_id_index, slot_id)| {
-                    FriendSlotItem::new(ts, new_slot, *slot_id, table, env_uuid, slot_id_index)
+                    FriendSlotItem::new_ret_option(
+                        ts,
+                        new_slot,
+                        *slot_id,
+                        table,
+                        env_uuid,
+                        slot_id_index,
+                    )
                 })
                 .collect::<Vec<_>>()
         });
