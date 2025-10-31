@@ -1,0 +1,17 @@
+[package]
+name = "kc-api"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+kc-api-interface = { path = "../kc-api-interface" }
+kc-api-database = { path = "../kc-api-database" }
+kc-api-dto = { path = "../kc-api-dto" }
+kc-api-parser = { path = "../kc-api-parser" }
+
+[features]
+default = ["graphviz", "from20250627"]
+graphviz = ["kc-api-interface/graphviz", "kc-api-dto/graphviz"]
+cytoscape = ["kc-api-interface/cytoscape", "kc-api-dto/cytoscape"]
+from20250627 = ["kc-api-interface/from20250627", "kc-api-dto/from20250627"]
+20250627 = ["kc-api-interface/20250627", "kc-api-dto/20250627"]

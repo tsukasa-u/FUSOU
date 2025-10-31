@@ -1,0 +1,18 @@
+[package]
+name = "register_macro_derive_and_attr"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+proc-macro2 = { workspace = true }
+quote = { workspace = true }
+syn = { workspace = true }
+confy = { workspace = true }
+serde_json = { workspace = true }
+serde = { workspace = true }
+darling = "0.20.10"
+sqids = { workspace = true }
+regex = { workspace = true }
+
+[lib]
+proc-macro = true

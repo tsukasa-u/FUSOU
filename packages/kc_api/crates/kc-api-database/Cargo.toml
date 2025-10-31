@@ -1,0 +1,13 @@
+[package]
+name = "kc-api-database"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+apache-avro = { workspace = true }
+register_trait = { workspace = true }
+serde = { workspace = true }
+uuid = { workspace = true }
+tracing = { workspace = true }
+kc-api-interface = { path = "../kc-api-interface" }
+# kc-api-interface-adapter = { path = "../kc-api-interface-adapter" }
