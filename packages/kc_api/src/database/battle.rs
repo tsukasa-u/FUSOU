@@ -95,9 +95,7 @@ impl HougekiList {
             hougeki: new_hougeki_wrap,
         };
 
-        if new_data.hougeki.is_none() {
-            return None;
-        }
+        new_data.hougeki?;
 
         table.hougeki_list.push(new_data);
 
@@ -332,16 +330,15 @@ impl OpeningTaisenList {
     ) -> Option<()> {
         let new_opening_taisen = Uuid::new_v7(ts);
         let result = OpeningTaisen::new_ret_option(ts, new_opening_taisen, data, table, env_uuid);
-        let new_opening_taisen_wrap = match result {
-            Some(_) => Some(new_opening_taisen),
-            None => None,
-        };
+        let new_opening_taisen_wrap = result.map(|_| new_opening_taisen);
 
         let new_data = OpeningTaisenList {
             env_uuid,
             uuid,
             opening_taisen: new_opening_taisen_wrap,
         };
+
+        new_data.opening_taisen?;
 
         table.opening_taisen_list.push(new_data);
 
@@ -377,7 +374,7 @@ pub struct OpeningTaisen {
 
 impl OpeningTaisen {
     pub fn new_ret_option(
-        ts: uuid::Timestamp,
+        _ts: uuid::Timestamp,
         uuid: Uuid,
         data: crate::interface::battle::OpeningTaisen,
         table: &mut PortTable,
@@ -435,7 +432,7 @@ pub struct ClosingRaigeki {
 
 impl ClosingRaigeki {
     pub fn new_ret_option(
-        ts: uuid::Timestamp,
+        _ts: uuid::Timestamp,
         uuid: Uuid,
         data: crate::interface::battle::ClosingRaigeki,
         table: &mut PortTable,
@@ -489,7 +486,7 @@ pub struct OpeningRaigeki {
 
 impl OpeningRaigeki {
     pub fn new_ret_option(
-        ts: uuid::Timestamp,
+        _ts: uuid::Timestamp,
         uuid: Uuid,
         data: crate::interface::battle::OpeningRaigeki,
         table: &mut PortTable,
@@ -572,6 +569,8 @@ impl OpeningAirAttackList {
             uuid,
             opening_air_attack: new_opening_air_attack_wrap,
         };
+
+        new_data.opening_air_attack?;
 
         table.opening_airattack_list.push(new_data);
 
@@ -713,6 +712,8 @@ impl AirBaseAirAttackList {
             air_base_air_attack: new_air_base_air_attack_wrap,
         };
 
+        new_data.air_base_air_attack?;
+
         table.airbase_airattack_list.push(new_data);
 
         Some(())
@@ -769,17 +770,17 @@ impl AirBaseAirAttack {
         let air_bases = AirBases::load();
         let air_base = match air_bases.bases.get(&(data.base_id).to_string()) {
             Some(air_base) => air_base,
-            None => return None,
+            None => {
+                tracing::warn!("AirBaseAirAttack: AirBase ID {} not found", data.base_id);
+                return None;
+            }
         };
 
         // ------------------------------------------------------------------------
         // Create AirBase record
         let new_airbase_id = Uuid::new_v7(ts);
         let result = AirBase::new_ret_option(ts, new_airbase_id, air_base.clone(), table, env_uuid);
-        let _new_airbase_id_wrap = match result {
-            Some(_) => Some(new_airbase_id),
-            None => None,
-        };
+        let _new_airbase_id_wrap = result.map(|_| new_airbase_id);
         // ------------------------------------------------------------------------
 
         let new_data = AirBaseAirAttack {
@@ -854,7 +855,7 @@ pub struct AirBaseAssult {
 
 impl AirBaseAssult {
     pub fn new_ret_option(
-        ts: uuid::Timestamp,
+        _ts: uuid::Timestamp,
         uuid: Uuid,
         data: crate::interface::battle::AirBaseAssult,
         table: &mut PortTable,
@@ -1183,10 +1184,7 @@ impl FriendlySupportHouraiList {
             table,
             env_uuid,
         );
-        let new_hourai_list_wrap = match result {
-            Some(_) => Some(new_hourai_list),
-            None => None,
-        };
+        let new_hourai_list_wrap = result.map(|_| new_hourai_list);
 
         let new_f_flare_pos = match data.flare_pos.clone()[0] {
             -1 => None,
