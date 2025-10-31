@@ -33,28 +33,28 @@ export function MidnightShellingComponent(props: MidnightShellingProps) {
     return true;
   });
 
-  const midngiht_hougeki = createMemo(() => {
+  const midnight_hougeki = createMemo(() => {
     if (!show_shelling()) return undefined;
     const midnight_hougeki = props.battle_selected()?.midnight_hougeki;
     return midnight_hougeki ?? undefined;
   });
 
   const display_touch = () => {
-    const midngiht_touchplane = props.battle_selected()?.midngiht_touchplane;
-    const f_midngiht_touchplane =
-      (midngiht_touchplane ? midngiht_touchplane[0] : undefined) ?? 0;
-    const e_midngiht_touchplane =
-      (midngiht_touchplane ? midngiht_touchplane[1] : undefined) ?? 0;
+    const midnight_touchplane = props.battle_selected()?.midnight_touchplane;
+    const f_midnight_touchplane =
+      (midnight_touchplane ? midnight_touchplane[0] : undefined) ?? 0;
+    const e_midnight_touchplane =
+      (midnight_touchplane ? midnight_touchplane[1] : undefined) ?? 0;
     return (
       <>
         touch : <span class="w-1" />
         <div class="w-6 flex justify-center">
           <Show
-            when={f_midngiht_touchplane > 0}
+            when={f_midnight_touchplane > 0}
             fallback={<div class="w-6 text-center">_</div>}
           >
             <WrapCIMstEquipComponent
-              si={f_midngiht_touchplane}
+              si={f_midnight_touchplane}
               e_flag={false}
             />
           </Show>
@@ -62,10 +62,10 @@ export function MidnightShellingComponent(props: MidnightShellingProps) {
         <div class="w-3 text-center">/</div>
         <div class="w-6 flex justify-center">
           <Show
-            when={e_midngiht_touchplane > 0}
+            when={e_midnight_touchplane > 0}
             fallback={<div class="w-6 text-center">_</div>}
           >
-            <WrapCIMstEquipComponent si={e_midngiht_touchplane} e_flag={true} />
+            <WrapCIMstEquipComponent si={e_midnight_touchplane} e_flag={true} />
           </Show>
         </div>
       </>
@@ -127,7 +127,7 @@ export function MidnightShellingComponent(props: MidnightShellingProps) {
   };
 
   const attacker_ship = (at: number, at_index: () => number) => {
-    const at_eflag = midngiht_hougeki()?.at_eflag;
+    const at_eflag = midnight_hougeki()?.at_eflag;
     if (at_eflag) {
       if (at_eflag[at_index()] == 0) {
         return (
@@ -167,7 +167,7 @@ export function MidnightShellingComponent(props: MidnightShellingProps) {
   };
 
   const attacker_hp = (at: number, at_index: () => number) => {
-    const at_eflag = midngiht_hougeki()?.at_eflag;
+    const at_eflag = midnight_hougeki()?.at_eflag;
     if (at_eflag) {
       if (at_eflag[at_index()] == 0) {
         return (
@@ -177,7 +177,7 @@ export function MidnightShellingComponent(props: MidnightShellingProps) {
               battle_selected={props.battle_selected}
               store_data_set_deck_ship={props.store_data_set_deck_ship}
               idx={at}
-              f_now_hps={midngiht_hougeki()?.f_now_hps[at_index()]}
+              f_now_hps={midnight_hougeki()?.f_now_hps[at_index()]}
             />
           </td>
         );
@@ -187,7 +187,7 @@ export function MidnightShellingComponent(props: MidnightShellingProps) {
             <WrapEnemyShipHPComponent
               store_data_set_param_ship={props.store_data_set_param_ship}
               idx={at}
-              e_now_hps={midngiht_hougeki()?.e_now_hps[at_index()]}
+              e_now_hps={midnight_hougeki()?.e_now_hps[at_index()]}
             />
           </td>
         );
@@ -198,12 +198,12 @@ export function MidnightShellingComponent(props: MidnightShellingProps) {
   };
 
   const defenser_ships = (at_index: () => number) => {
-    if (midngiht_hougeki()?.at_eflag) {
-      if (midngiht_hougeki()?.at_eflag?.[at_index()] == 0) {
+    if (midnight_hougeki()?.at_eflag) {
+      if (midnight_hougeki()?.at_eflag?.[at_index()] == 0) {
         return (
           <td>
             <div class="flex flex-col">
-              <For each={midngiht_hougeki()?.df_list?.[at_index()]}>
+              <For each={midnight_hougeki()?.df_list?.[at_index()]}>
                 {(df, df_index) => {
                   return (
                     <div class="flex flex-nowrap">
@@ -216,7 +216,7 @@ export function MidnightShellingComponent(props: MidnightShellingProps) {
                       />
                       <Show
                         when={
-                          midngiht_hougeki()?.protect_flag?.[at_index()]?.[
+                          midnight_hougeki()?.protect_flag?.[at_index()]?.[
                             df_index()
                           ]
                         }
@@ -234,7 +234,7 @@ export function MidnightShellingComponent(props: MidnightShellingProps) {
         return (
           <td>
             <div class="flex flex-col">
-              <For each={midngiht_hougeki()?.df_list?.[at_index()]}>
+              <For each={midnight_hougeki()?.df_list?.[at_index()]}>
                 {(df, df_index) => {
                   return (
                     <div class="flex flex-nowrap">
@@ -248,7 +248,7 @@ export function MidnightShellingComponent(props: MidnightShellingProps) {
                       />
                       <Show
                         when={
-                          midngiht_hougeki()?.protect_flag?.[at_index()]?.[
+                          midnight_hougeki()?.protect_flag?.[at_index()]?.[
                             df_index()
                           ]
                         }
@@ -267,7 +267,7 @@ export function MidnightShellingComponent(props: MidnightShellingProps) {
       return (
         <td>
           <div class="flex flex-col">
-            <For each={midngiht_hougeki()?.df_list?.[at_index()]}>
+            <For each={midnight_hougeki()?.df_list?.[at_index()]}>
               {() => {
                 return (
                   <div class="flex flex-nowrap">
@@ -283,17 +283,17 @@ export function MidnightShellingComponent(props: MidnightShellingProps) {
   };
 
   const defenser_hps = (at_index: () => number) => {
-    if (midngiht_hougeki()?.at_eflag && midngiht_hougeki()?.df_list) {
-      if (midngiht_hougeki()?.at_eflag?.[at_index()] == 0) {
+    if (midnight_hougeki()?.at_eflag && midnight_hougeki()?.df_list) {
+      if (midnight_hougeki()?.at_eflag?.[at_index()] == 0) {
         return (
           <td>
             <div class="flex flex-col">
-              <For each={midngiht_hougeki()?.df_list?.[at_index()]}>
+              <For each={midnight_hougeki()?.df_list?.[at_index()]}>
                 {(df) => (
                   <WrapEnemyShipHPComponent
                     store_data_set_param_ship={props.store_data_set_param_ship}
                     idx={df}
-                    e_now_hps={midngiht_hougeki()?.e_now_hps?.[at_index()]}
+                    e_now_hps={midnight_hougeki()?.e_now_hps?.[at_index()]}
                   />
                 )}
               </For>
@@ -304,14 +304,14 @@ export function MidnightShellingComponent(props: MidnightShellingProps) {
         return (
           <td>
             <div class="flex flex-col">
-              <For each={midngiht_hougeki()?.df_list?.[at_index()]}>
+              <For each={midnight_hougeki()?.df_list?.[at_index()]}>
                 {(df) => (
                   <WrapOwnShipHPComponent
                     deck_ship_id={props.deck_ship_id}
                     battle_selected={props.battle_selected}
                     store_data_set_deck_ship={props.store_data_set_deck_ship}
                     idx={df}
-                    f_now_hps={midngiht_hougeki()?.f_now_hps[at_index()]}
+                    f_now_hps={midnight_hougeki()?.f_now_hps[at_index()]}
                   />
                 )}
               </For>
@@ -328,13 +328,13 @@ export function MidnightShellingComponent(props: MidnightShellingProps) {
     return (
       <td>
         <div class="flex flex-col">
-          <For each={midngiht_hougeki()?.damage?.[at_index()]}>
+          <For each={midnight_hougeki()?.damage?.[at_index()]}>
             {(dmg, dmg_index) => (
               <>
                 <DamageCommonComponent
                   dmg={dmg}
                   critical_flag={
-                    midngiht_hougeki()?.cl_list?.[at_index()]?.[dmg_index()]
+                    midnight_hougeki()?.cl_list?.[at_index()]?.[dmg_index()]
                   }
                 />
               </>
@@ -350,18 +350,18 @@ export function MidnightShellingComponent(props: MidnightShellingProps) {
       <td>
         <div
           class={
-            midngiht_hougeki()?.df_list?.[at_index()].length == 1
+            midnight_hougeki()?.df_list?.[at_index()].length == 1
               ? "flex flex-nowrap"
               : "flex flex-col"
           }
         >
-          <Show when={midngiht_hougeki()?.si_list?.[at_index()]}>
-            <For each={midngiht_hougeki()?.si_list?.[at_index()]}>
+          <Show when={midnight_hougeki()?.si_list?.[at_index()]}>
+            <For each={midnight_hougeki()?.si_list?.[at_index()]}>
               {(si) => (
                 <Show when={si}>
                   <WrapCIMstEquipComponent
                     si={si!}
-                    e_flag={midngiht_hougeki()?.at_eflag?.[at_index()] !== 0}
+                    e_flag={midnight_hougeki()?.at_eflag?.[at_index()] !== 0}
                   />
                 </Show>
               )}
@@ -395,8 +395,8 @@ export function MidnightShellingComponent(props: MidnightShellingProps) {
                 </tr>
               </thead>
               <tbody>
-                <Show when={midngiht_hougeki()?.at_list}>
-                  <For each={midngiht_hougeki()?.at_list}>
+                <Show when={midnight_hougeki()?.at_list}>
+                  <For each={midnight_hougeki()?.at_list}>
                     {(at, at_index) => (
                       <tr class="rounded">
                         {attacker_ship(at, at_index)}

@@ -28,25 +28,35 @@ pub struct Cells {
     pub mapinfo_no: i64,
     pub cell_index: Vec<i64>,
     pub battle_index: Vec<i64>,
-    pub battles: Vec<Option<BattleId>>,
+    pub battles: BattleId,
 }
 
 impl Cells {
-    pub fn new_ret_uuid(
+    pub fn new_ret_option(
+        ts: uuid::Timestamp,
+        uuid: Uuid,
         data: crate::interface::cells::Cells,
         table: &mut PortTable,
         env_uuid: EnvInfoId,
-    ) -> Option<Uuid> {
-        let new_uuid = Uuid::new_v4();
-        let new_battle = data
-            .battles
+    ) {
+        let new_battle = Uuid::new_v7(ts);
+        data.battles
             .values()
-            .map(|battle| Battle::new_ret_uuid(battle.clone(), table, env_uuid))
-            .collect();
+            .enumerate()
+            .for_each(|(battle_index, battle)| {
+                Battle::new_ret_option(
+                    ts,
+                    new_battle,
+                    battle.clone(),
+                    table,
+                    env_uuid,
+                    battle_index,
+                )
+            });
 
         let new_data = Cells {
             env_uuid,
-            uuid: new_uuid,
+            uuid,
             maparea_id: data.maparea_id,
             mapinfo_no: data.mapinfo_no,
             cell_index: data.cell_index,
@@ -55,6 +65,5 @@ impl Cells {
         };
 
         table.cells.push(new_data);
-        return Some(new_uuid);
     }
 }

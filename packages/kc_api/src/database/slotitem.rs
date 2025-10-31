@@ -24,22 +24,25 @@ pub type FriendSlotItemId = Uuid;
 pub struct OwnSlotItem {
     pub env_uuid: EnvInfoId,
     pub uuid: OwnSlotItemId,
+    pub index: i64,
     pub mst_slotitem_id: i64,
     pub level: i64,
     pub alv: Option<i64>,
 }
 
 impl OwnSlotItem {
-    pub fn new_ret_uuid(
+    pub fn new_ret_option(
+        _ts: uuid::Timestamp,
+        uuid: Uuid,
         data: crate::interface::slot_item::SlotItem,
         table: &mut PortTable,
         env_uuid: EnvInfoId,
-    ) -> Uuid {
-        let new_uuid: Uuid = Uuid::new_v4();
-
+        index: usize,
+    ) -> Option<()> {
         let new_data: OwnSlotItem = OwnSlotItem {
             env_uuid,
-            uuid: new_uuid,
+            uuid,
+            index: index as i64,
             mst_slotitem_id: data.slotitem_id,
             level: data.level,
             alv: data.alv,
@@ -47,7 +50,7 @@ impl OwnSlotItem {
 
         table.own_slotitem.push(new_data);
 
-        return new_uuid;
+        Some(())
     }
 }
 
@@ -64,21 +67,29 @@ impl OwnSlotItem {
 pub struct EnemySlotItem {
     pub env_uuid: EnvInfoId,
     pub uuid: EnemySlotItemId,
+    pub index: i64,
     pub mst_slotitem_id: i64,
 }
 
 impl EnemySlotItem {
-    pub fn new_ret_uuid(data: i64, table: &mut PortTable, env_uuid: EnvInfoId) -> Uuid {
-        let new_uuid = Uuid::new_v4();
+    pub fn new_ret_option(
+        _ts: uuid::Timestamp,
+        uuid: Uuid,
+        data: i64,
+        table: &mut PortTable,
+        env_uuid: EnvInfoId,
+        index: usize,
+    ) -> Option<()> {
         let new_data: EnemySlotItem = EnemySlotItem {
             env_uuid,
-            uuid: new_uuid,
+            uuid,
             mst_slotitem_id: data,
+            index: index as i64,
         };
 
         table.enemy_slotitem.push(new_data);
 
-        return new_uuid;
+        Some(())
     }
 }
 
@@ -95,20 +106,28 @@ impl EnemySlotItem {
 pub struct FriendSlotItem {
     pub env_uuid: EnvInfoId,
     pub uuid: FriendSlotItemId,
+    pub index: i64,
     pub mst_slotitem_id: i64,
 }
 
 impl FriendSlotItem {
-    pub fn new_ret_uuid(data: i64, table: &mut PortTable, env_uuid: EnvInfoId) -> Uuid {
-        let new_uuid = Uuid::new_v4();
+    pub fn new_ret_option(
+        _ts: uuid::Timestamp,
+        uuid: Uuid,
+        data: i64,
+        table: &mut PortTable,
+        env_uuid: EnvInfoId,
+        index: usize,
+    ) -> Option<()> {
         let new_data: FriendSlotItem = FriendSlotItem {
             env_uuid,
-            uuid: new_uuid,
+            uuid,
             mst_slotitem_id: data,
+            index: index as i64,
         };
 
         table.friend_slotitem.push(new_data);
 
-        return new_uuid;
+        Some(())
     }
 }

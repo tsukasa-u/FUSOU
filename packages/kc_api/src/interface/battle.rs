@@ -90,12 +90,12 @@ pub struct Battle {
     pub closing_raigeki: Option<ClosingRaigeki>,
     pub friendly_force_attack: Option<FriendlyForceAttack>,
     pub midnight_flare_pos: Option<Vec<i64>>,
-    pub midngiht_touchplane: Option<Vec<i64>>,
+    pub midnight_touchplane: Option<Vec<i64>>,
     pub midnight_hougeki: Option<MidnightHougeki>,
     pub f_nowhps: Option<Vec<i64>>,
     pub e_nowhps: Option<Vec<i64>>,
-    pub midngiht_f_nowhps: Option<Vec<i64>>,
-    pub midngiht_e_nowhps: Option<Vec<i64>>,
+    pub midnight_f_nowhps: Option<Vec<i64>>,
+    pub midnight_e_nowhps: Option<Vec<i64>>,
 }
 
 impl Battle {
@@ -186,24 +186,24 @@ impl Battle {
                         .midnight_flare_pos
                         .clone()
                         .or(self.midnight_flare_pos.clone()),
-                    midngiht_touchplane: battle
-                        .midngiht_touchplane
+                    midnight_touchplane: battle
+                        .midnight_touchplane
                         .clone()
-                        .or(self.midngiht_touchplane.clone()),
+                        .or(self.midnight_touchplane.clone()),
                     midnight_hougeki: battle
                         .midnight_hougeki
                         .clone()
                         .or(self.midnight_hougeki.clone()),
                     f_nowhps: battle.f_nowhps.clone().or(self.f_nowhps.clone()),
                     e_nowhps: battle.e_nowhps.clone().or(self.e_nowhps.clone()),
-                    midngiht_f_nowhps: battle
-                        .midngiht_f_nowhps
+                    midnight_f_nowhps: battle
+                        .midnight_f_nowhps
                         .clone()
-                        .or(self.midngiht_f_nowhps.clone()),
-                    midngiht_e_nowhps: battle
-                        .midngiht_e_nowhps
+                        .or(self.midnight_f_nowhps.clone()),
+                    midnight_e_nowhps: battle
+                        .midnight_e_nowhps
                         .clone()
-                        .or(self.midngiht_e_nowhps.clone()),
+                        .or(self.midnight_e_nowhps.clone()),
                 };
                 battles.battles.insert(self.cell_id, battle_or);
             }
@@ -1175,8 +1175,8 @@ pub fn calc_dmg(battle: &mut Battle) {
 
     let f_nowhps: Vec<i64> = battle.f_nowhps.clone().unwrap_or(vec![0; 12]);
     let e_nowhps: Vec<i64> = battle.e_nowhps.clone().unwrap_or(vec![0; 12]);
-    let midngiht_f_nowhps: Vec<i64> = battle.midngiht_f_nowhps.clone().unwrap_or(vec![0; 12]);
-    let midngiht_e_nowhps: Vec<i64> = battle.midngiht_e_nowhps.clone().unwrap_or(vec![0; 12]);
+    let midnight_f_nowhps: Vec<i64> = battle.midnight_f_nowhps.clone().unwrap_or(vec![0; 12]);
+    let midnight_e_nowhps: Vec<i64> = battle.midnight_e_nowhps.clone().unwrap_or(vec![0; 12]);
     let friend_nowhps: Vec<i64> = battle
         .friendly_force_attack
         .clone()
@@ -1517,7 +1517,7 @@ pub fn calc_dmg(battle: &mut Battle) {
                                             support_hourai.hougeki.f_now_hps[eflag_idx][idx] =
                                                 f_nowhp - friend_total_damages[idx];
                                         });
-                                    midngiht_e_nowhps.iter().enumerate().for_each(
+                                    midnight_e_nowhps.iter().enumerate().for_each(
                                         |(idx, &e_nowhp)| {
                                             support_hourai.hougeki.e_now_hps[eflag_idx][idx] =
                                                 e_nowhp - midnight_e_total_damages[idx];
@@ -1554,14 +1554,14 @@ pub fn calc_dmg(battle: &mut Battle) {
                     if let Some(at_eflag) = &midnight_hougeki.at_eflag {
                         at_eflag.iter().enumerate().for_each(|(eflag_idx, &eflag)| {
                             if let Some(df_list) = &midnight_hougeki.df_list {
-                                midngiht_f_nowhps
+                                midnight_f_nowhps
                                     .iter()
                                     .enumerate()
                                     .for_each(|(idx, &f_nowhp)| {
                                         midnight_hougeki.f_now_hps[eflag_idx][idx] =
                                             f_nowhp - midnight_f_total_damages[idx];
                                     });
-                                midngiht_e_nowhps
+                                midnight_e_nowhps
                                     .iter()
                                     .enumerate()
                                     .for_each(|(idx, &e_nowhp)| {
@@ -1700,12 +1700,12 @@ impl From<kcapi_main::api_req_sortie::battle::ApiData> for Battle {
             closing_raigeki: closing_taigeki,
             friendly_force_attack: None,
             midnight_flare_pos: None,
-            midngiht_touchplane: None,
+            midnight_touchplane: None,
             midnight_hougeki: None,
             f_nowhps: Some(battle.api_f_nowhps),
             e_nowhps: Some(battle.api_e_nowhps),
-            midngiht_f_nowhps: None,
-            midngiht_e_nowhps: None,
+            midnight_f_nowhps: None,
+            midnight_e_nowhps: None,
         };
         calc_dmg(&mut ret);
         return ret;
@@ -1780,12 +1780,12 @@ impl From<kcapi_main::api_req_battle_midnight::battle::ApiData> for Battle {
             closing_raigeki: None,
             friendly_force_attack,
             midnight_flare_pos: Some(battle.api_flare_pos),
-            midngiht_touchplane: Some(battle.api_touch_plane),
+            midnight_touchplane: Some(battle.api_touch_plane),
             midnight_hougeki,
             f_nowhps: None,
             e_nowhps: None,
-            midngiht_f_nowhps: Some(battle.api_f_nowhps),
-            midngiht_e_nowhps: Some(battle.api_e_nowhps),
+            midnight_f_nowhps: Some(battle.api_f_nowhps),
+            midnight_e_nowhps: Some(battle.api_e_nowhps),
         };
         calc_dmg(&mut ret);
         return ret;
@@ -1841,12 +1841,12 @@ impl From<kcapi_main::api_req_battle_midnight::sp_midnight::ApiData> for Battle 
             closing_raigeki: None,
             friendly_force_attack,
             midnight_flare_pos: Some(battle.api_flare_pos),
-            midngiht_touchplane: Some(battle.api_touch_plane),
+            midnight_touchplane: Some(battle.api_touch_plane),
             midnight_hougeki,
             f_nowhps: None,
             e_nowhps: None,
-            midngiht_f_nowhps: Some(battle.api_f_nowhps),
-            midngiht_e_nowhps: Some(battle.api_e_nowhps),
+            midnight_f_nowhps: Some(battle.api_f_nowhps),
+            midnight_e_nowhps: Some(battle.api_e_nowhps),
         };
         calc_dmg(&mut ret);
         return ret;
@@ -1913,12 +1913,12 @@ impl From<kcapi_main::api_req_sortie::ld_airbattle::ApiData> for Battle {
             closing_raigeki: None,
             friendly_force_attack: None,
             midnight_flare_pos: None,
-            midngiht_touchplane: None,
+            midnight_touchplane: None,
             midnight_hougeki: None,
             f_nowhps: Some(airbattle.api_f_nowhps),
             e_nowhps: Some(airbattle.api_e_nowhps),
-            midngiht_f_nowhps: None,
-            midngiht_e_nowhps: None,
+            midnight_f_nowhps: None,
+            midnight_e_nowhps: None,
         };
         calc_dmg(&mut ret);
         return ret;
@@ -1987,12 +1987,12 @@ impl From<kcapi_main::api_req_sortie::airbattle::ApiData> for Battle {
             closing_raigeki: None,
             friendly_force_attack: None,
             midnight_flare_pos: None,
-            midngiht_touchplane: None,
+            midnight_touchplane: None,
             midnight_hougeki: None,
             f_nowhps: Some(airbattle.api_f_nowhps),
             e_nowhps: Some(airbattle.api_e_nowhps),
-            midngiht_f_nowhps: None,
-            midngiht_e_nowhps: None,
+            midnight_f_nowhps: None,
+            midnight_e_nowhps: None,
         };
         calc_dmg(&mut ret);
         return ret;

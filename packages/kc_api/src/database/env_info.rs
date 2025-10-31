@@ -33,8 +33,12 @@ pub struct EnvInfo {
 }
 
 impl EnvInfo {
-    pub fn new_ret_uuid(data: EnvInfoProps, table: &mut PortTable) -> Uuid {
-        let new_uuid: Uuid = Uuid::new_v4();
+    pub fn new_ret_uuid(
+        ts: uuid::Timestamp,
+        data: EnvInfoProps,
+        table: &mut PortTable,
+    ) -> EnvInfoId {
+        let new_uuid = Uuid::new_v7(ts);
 
         let new_data: EnvInfo = EnvInfo {
             version: DATABASE_TABLE_VERSION.to_string(),
