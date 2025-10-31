@@ -10,7 +10,7 @@ use register_trait::add_field;
 use register_trait::register_struct;
 
 use register_trait::FieldSizeChecker;
-use register_trait::TraitForConvert;
+
 use register_trait::TraitForRoot;
 use register_trait::TraitForTest;
 
@@ -24,10 +24,10 @@ use crate::common::common_battle::ApiOpeningTaisen;
 use crate::common::common_battle::ApiRaigeki;
 use crate::common::common_battle::ApiSupportInfo;
 
-use kc_api_interface::interface::EmitData;
 
-#[derive(FieldSizeChecker, TraitForTest, TraitForRoot, TraitForConvert)]
-#[convert_output(output = EmitData)]
+
+#[derive(FieldSizeChecker, TraitForTest, TraitForRoot)]
+
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
@@ -45,8 +45,8 @@ pub struct Req {
     pub api_start: Option<String>,
 }
 
-#[derive(FieldSizeChecker, TraitForTest, TraitForRoot, TraitForConvert)]
-#[convert_output(output = EmitData)]
+#[derive(FieldSizeChecker, TraitForTest, TraitForRoot)]
+
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[register_struct(name = "api_req_combined_battle/battle_water")]

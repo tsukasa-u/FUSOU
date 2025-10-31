@@ -16,7 +16,7 @@ use kc_api_interface::mst_use_item::MstUseItems;
 
 use kc_api_dto::main::api_start2::*;
 
-use register_trait::TraitForConvert;
+use crate::TraitForConvert;
 
 impl TraitForConvert for get_data::Res {
     type Output = EmitData;

@@ -6,7 +6,6 @@ use syn::{DeriveInput, ItemFn};
 mod add_field;
 mod doc_util;
 mod expand_struct_selector;
-mod generate_convert;
 mod generate_decode;
 mod generate_emitdata;
 mod generate_encode;
@@ -80,16 +79,6 @@ pub fn generate_test_struct(item: TokenStream) -> TokenStream {
 pub fn generate_test_root(item: TokenStream) -> TokenStream {
     let mut ast = syn::parse_macro_input!(item as DeriveInput);
     let result = generate_test_root::generate_test_root(&mut ast);
-    match result {
-        Ok(generated) => generated,
-        Err(err) => err.to_compile_error().into(),
-    }
-}
-
-#[proc_macro_derive(TraitForConvert, attributes(convert_output))]
-pub fn generate_convert(item: TokenStream) -> TokenStream {
-    let mut ast = syn::parse_macro_input!(item as DeriveInput);
-    let result = generate_convert::generate_convert(&mut ast);
     match result {
         Ok(generated) => generated,
         Err(err) => err.to_compile_error().into(),

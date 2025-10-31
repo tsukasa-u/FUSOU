@@ -10,16 +10,11 @@ use register_trait::add_field;
 use register_trait::register_struct;
 
 use register_trait::FieldSizeChecker;
-use register_trait::TraitForConvert;
+
 use register_trait::TraitForRoot;
 use register_trait::TraitForTest;
 
-use kc_api_interface::interface::{EmitData /*Add*/};
-// use kc_api_interface::ship::Ships;
-// use kc_api_interface::material::Materials;
-
-#[derive(FieldSizeChecker, TraitForTest, TraitForRoot, TraitForConvert)]
-#[convert_output(output = EmitData)]
+#[derive(FieldSizeChecker, TraitForTest, TraitForRoot)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
@@ -80,18 +75,6 @@ pub struct ApiShip {
     pub api_bull: i64,
     #[serde(rename = "api_onslot")]
     pub api_onslot: Vec<i64>,
-}
-
-impl TraitForConvert for Res {
-    type Output = EmitData;
-    fn convert(&self) -> Option<Vec<EmitData>> {
-        // let materials: Materials = Materials::from(self.api_data.clone());
-        // let ships: Ships = Ships::from(self.api_data.clone());
-        // Some(vec![
-        //     EmitData::Add(Add::Ships(ships)),
-        //     EmitData::Add(Add::Materials(materials))])
-        Some(vec![])
-    }
 }
 
 #[cfg(test)]

@@ -3,7 +3,7 @@ use kc_api_interface::interface::{Add, EmitData};
 
 use kc_api_dto::main::api_req_battle_midnight::*;
 
-use register_trait::TraitForConvert;
+use crate::TraitForConvert;
 
 impl TraitForConvert for battle::Res {
     type Output = EmitData;

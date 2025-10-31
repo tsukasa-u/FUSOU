@@ -3,7 +3,7 @@ use kc_api_interface::interface::{Add, EmitData};
 
 use kc_api_dto::main::api_req_combined_battle::*;
 
-use register_trait::TraitForConvert;
+use crate::TraitForConvert;
 
 impl TraitForConvert for ec_battle::Res {
     type Output = EmitData;

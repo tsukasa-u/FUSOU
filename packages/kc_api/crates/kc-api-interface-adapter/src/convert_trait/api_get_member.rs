@@ -4,7 +4,7 @@ use kc_api_interface::slot_item::SlotItems;
 
 use kc_api_dto::main::api_get_member::*;
 
-use register_trait::TraitForConvert;
+use crate::TraitForConvert;
 
 impl TraitForConvert for mapinfo::Res {
     type Output = EmitData;

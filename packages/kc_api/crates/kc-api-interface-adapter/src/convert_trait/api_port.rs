@@ -7,7 +7,7 @@ use kc_api_interface::ship::Ships;
 
 use kc_api_dto::main::api_port::*;
 
-use register_trait::TraitForConvert;
+use crate::TraitForConvert;
 
 impl TraitForConvert for port::Res {
     type Output = EmitData;

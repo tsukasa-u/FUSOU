@@ -4,6 +4,8 @@ use kc_api_interface::interface::{EmitData, Identifier, Set};
 
 use kc_api_dto::main::api_req_map::*;
 
+use crate::TraitForConvert;
+
 impl TraitForConvert for next::Res {
     type Output = EmitData;
     fn convert(&self) -> Option<Vec<EmitData>> {

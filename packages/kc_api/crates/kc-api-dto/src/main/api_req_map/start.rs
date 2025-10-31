@@ -8,9 +8,9 @@ use serde::Deserialize;
 
 use register_trait::{add_field, register_struct};
 
-use register_trait::{FieldSizeChecker, TraitForConvert, TraitForRoot, TraitForTest};
+use register_trait::{FieldSizeChecker, TraitForRoot, TraitForTest};
 
-use kc_api_interface::interface::EmitData;
+
 
 use crate::common::common_map::ApiAirsearch;
 use crate::common::common_map::ApiCellFlavor;
@@ -19,8 +19,8 @@ use crate::common::common_map::ApiEventmap;
 use crate::common::common_map::ApiHappening;
 use crate::common::common_map::ApiSelectRoute;
 
-#[derive(FieldSizeChecker, TraitForTest, TraitForRoot, TraitForConvert)]
-#[convert_output(output = EmitData)]
+#[derive(FieldSizeChecker, TraitForTest, TraitForRoot)]
+
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]

@@ -2,41 +2,35 @@ use std::vec;
 
 use chrono::Local;
 
-use crate::kcapi_main;
+use crate::InterfaceWrapper;
+use kc_api_dto::main as kcapi_main;
 
-use crate::interface::battle::calc_dmg;
-use crate::interface::battle::calc_escape_idx;
-use crate::interface::battle::BattleType;
-use crate::interface::battle::{
+use super::battle::{calc_dmg, calc_escape_idx, unwrap_into};
+use kc_api_interface::battle::BattleType;
+use kc_api_interface::battle::{
     AirBaseAirAttacks, AirBaseAssult, Battle, CarrierBaseAssault, ClosingRaigeki,
     FriendlyForceAttack, Hougeki, MidnightHougeki, OpeningAirAttack, OpeningRaigeki, OpeningTaisen,
     SupportAttack,
 };
-use crate::interface::cells::KCS_CELLS_INDEX;
+use kc_api_interface::cells::KCS_CELLS_INDEX;
 
-impl From<kcapi_main::api_req_combined_battle::ec_battle::ApiData> for Battle {
+impl From<kcapi_main::api_req_combined_battle::ec_battle::ApiData> for InterfaceWrapper<Battle> {
     fn from(battle: kcapi_main::api_req_combined_battle::ec_battle::ApiData) -> Self {
         let air_base_air_attacks: Option<AirBaseAirAttacks> =
-            Some(battle.api_air_base_attack.into());
+            Some(unwrap_into(battle.api_air_base_attack));
         let opening_air_attack: Option<Vec<Option<OpeningAirAttack>>> =
-            Some(vec![Some(battle.api_kouku.into())]);
-        let opening_taisen: Option<OpeningTaisen> = battle
-            .api_opening_taisen
-            .map(|opening_taisen| opening_taisen.into());
-        let opening_raigeki: Option<OpeningRaigeki> = Some(battle.api_opening_atack.into());
-        let closing_taigeki: Option<ClosingRaigeki> = Some(battle.api_raigeki.into());
-        let hougeki_1: Option<Hougeki> = Some(battle.api_hougeki1.into());
-        let hougeki_2: Option<Hougeki> = Some(battle.api_hougeki2.into());
-        let hougeki_3: Option<Hougeki> = battle.api_hougeki3.map(|hougeki| hougeki.into());
-        let support_attack: Option<SupportAttack> = battle
-            .api_support_info
-            .map(|support_attack| support_attack.into());
-        let air_base_assault: Option<AirBaseAssult> = battle
-            .api_air_base_injection
-            .map(|air_base_injection| air_base_injection.into());
-        let carrier_base_assault: Option<CarrierBaseAssault> = battle
-            .api_injection_kouku
-            .map(|injection_kouku| injection_kouku.into());
+            Some(vec![Some(unwrap_into(battle.api_kouku))]);
+        let opening_taisen: Option<OpeningTaisen> = battle.api_opening_taisen.map(unwrap_into);
+        let opening_raigeki: Option<OpeningRaigeki> = Some(unwrap_into(battle.api_opening_atack));
+        let closing_taigeki: Option<ClosingRaigeki> = Some(unwrap_into(battle.api_raigeki));
+        let hougeki_1: Option<Hougeki> = Some(unwrap_into(battle.api_hougeki1));
+        let hougeki_2: Option<Hougeki> = Some(unwrap_into(battle.api_hougeki2));
+        let hougeki_3: Option<Hougeki> = battle.api_hougeki3.map(unwrap_into);
+        let support_attack: Option<SupportAttack> = battle.api_support_info.map(unwrap_into);
+        let air_base_assault: Option<AirBaseAssult> =
+            battle.api_air_base_injection.map(unwrap_into);
+        let carrier_base_assault: Option<CarrierBaseAssault> =
+            battle.api_injection_kouku.map(unwrap_into);
 
         let hougeki: Option<Vec<Option<Hougeki>>> =
             if hougeki_1.is_some() || hougeki_2.is_some() || hougeki_3.is_some() {
@@ -66,7 +60,7 @@ impl From<kcapi_main::api_req_combined_battle::ec_battle::ApiData> for Battle {
 
         let escape_idx_combined: Option<Vec<i64>> = calc_escape_idx(battle.api_escape_idx, None);
 
-        let mut ret = Self {
+        let mut ret = Self(Battle {
             battle_order: Some(battle_order),
             timestamp: Some(Local::now().timestamp()),
             midnight_timestamp: None,
@@ -104,15 +98,17 @@ impl From<kcapi_main::api_req_combined_battle::ec_battle::ApiData> for Battle {
             e_nowhps: Some([battle.api_e_nowhps, battle.api_e_nowhps_combined].concat()),
             midnight_f_nowhps: None,
             midnight_e_nowhps: None,
-        };
+        });
         calc_dmg(&mut ret);
         return ret;
     }
 }
 
-impl From<kcapi_main::api_req_combined_battle::ec_midnight_battle::ApiData> for Battle {
+impl From<kcapi_main::api_req_combined_battle::ec_midnight_battle::ApiData>
+    for InterfaceWrapper<Battle>
+{
     fn from(battle: kcapi_main::api_req_combined_battle::ec_midnight_battle::ApiData) -> Self {
-        let midnight_hougeki: Option<MidnightHougeki> = Some(battle.api_hougeki.into());
+        let midnight_hougeki: Option<MidnightHougeki> = Some(unwrap_into(battle.api_hougeki));
         let friendly_force_attack: Option<FriendlyForceAttack> =
             if battle.api_friendly_info.is_some() && battle.api_friendly_battle.is_some() {
                 Some(FriendlyForceAttack::from_api_data(
@@ -190,33 +186,23 @@ impl From<kcapi_main::api_req_combined_battle::ec_midnight_battle::ApiData> for 
     }
 }
 
-impl From<kcapi_main::api_req_combined_battle::battle_water::ApiData> for Battle {
+impl From<kcapi_main::api_req_combined_battle::battle_water::ApiData> for InterfaceWrapper<Battle> {
     fn from(battle: kcapi_main::api_req_combined_battle::battle_water::ApiData) -> Self {
-        let air_base_air_attacks: Option<AirBaseAirAttacks> = battle
-            .api_air_base_attack
-            .map(|air_base_attack| air_base_attack.into());
+        let air_base_air_attacks: Option<AirBaseAirAttacks> =
+            battle.api_air_base_attack.map(unwrap_into);
         let opening_air_attack: Option<Vec<Option<OpeningAirAttack>>> =
-            Some(vec![Some(battle.api_kouku.into())]);
-        let opening_taisen: Option<OpeningTaisen> = battle
-            .api_opening_taisen
-            .map(|opening_taisen| opening_taisen.into());
-        let opening_raigeki: Option<OpeningRaigeki> = battle
-            .api_opening_atack
-            .map(|opening_raigeki| opening_raigeki.into());
-        let closing_taigeki: Option<ClosingRaigeki> =
-            battle.api_raigeki.map(|raigeki| raigeki.into());
-        let hougeki_1: Option<Hougeki> = battle.api_hougeki1.map(|hougeki| hougeki.into());
-        let hougeki_2: Option<Hougeki> = battle.api_hougeki2.map(|hougeki| hougeki.into());
-        let hougeki_3: Option<Hougeki> = battle.api_hougeki3.map(|hougeki| hougeki.into());
-        let support_attack: Option<SupportAttack> = battle
-            .api_support_info
-            .map(|support_attack| support_attack.into());
-        let air_base_assault: Option<AirBaseAssult> = battle
-            .api_air_base_injection
-            .map(|air_base_injection| air_base_injection.into());
-        let carrier_base_assault: Option<CarrierBaseAssault> = battle
-            .api_injection_kouku
-            .map(|injection_kouku| injection_kouku.into());
+            Some(vec![Some(unwrap_into(battle.api_kouku))]);
+        let opening_taisen: Option<OpeningTaisen> = battle.api_opening_taisen.map(unwrap_into);
+        let opening_raigeki: Option<OpeningRaigeki> = battle.api_opening_atack.map(unwrap_into);
+        let closing_taigeki: Option<ClosingRaigeki> = battle.api_raigeki.map(unwrap_into);
+        let hougeki_1: Option<Hougeki> = battle.api_hougeki1.map(unwrap_into);
+        let hougeki_2: Option<Hougeki> = battle.api_hougeki2.map(unwrap_into);
+        let hougeki_3: Option<Hougeki> = battle.api_hougeki3.map(unwrap_into);
+        let support_attack: Option<SupportAttack> = battle.api_support_info.map(unwrap_into);
+        let air_base_assault: Option<AirBaseAssult> =
+            battle.api_air_base_injection.map(unwrap_into);
+        let carrier_base_assault: Option<CarrierBaseAssault> =
+            battle.api_injection_kouku.map(unwrap_into);
 
         let hougeki: Option<Vec<Option<Hougeki>>> =
             if hougeki_1.is_some() || hougeki_2.is_some() || hougeki_3.is_some() {
@@ -291,31 +277,23 @@ impl From<kcapi_main::api_req_combined_battle::battle_water::ApiData> for Battle
     }
 }
 
-impl From<kcapi_main::api_req_combined_battle::battle::ApiData> for Battle {
+impl From<kcapi_main::api_req_combined_battle::battle::ApiData> for InterfaceWrapper<Battle> {
     fn from(battle: kcapi_main::api_req_combined_battle::battle::ApiData) -> Self {
-        let air_base_air_attacks: Option<AirBaseAirAttacks> = battle
-            .api_air_base_attack
-            .map(|air_base_attack| air_base_attack.into());
+        let air_base_air_attacks: Option<AirBaseAirAttacks> =
+            battle.api_air_base_attack.map(unwrap_into);
         let opening_air_attack: Option<Vec<Option<OpeningAirAttack>>> =
-            Some(vec![Some(battle.api_kouku.into())]);
-        let opening_taisen: Option<OpeningTaisen> = battle
-            .api_opening_taisen
-            .map(|opening_taisen| opening_taisen.into());
-        let opening_raigeki: Option<OpeningRaigeki> = Some(battle.api_opening_atack.into());
-        let closing_taigeki: Option<ClosingRaigeki> =
-            battle.api_raigeki.map(|raigeki| raigeki.into());
-        let hougeki_1: Option<Hougeki> = Some(battle.api_hougeki1.into());
-        let hougeki_2: Option<Hougeki> = battle.api_hougeki2.map(|hougeki| hougeki.into());
-        let hougeki_3: Option<Hougeki> = battle.api_hougeki3.map(|hougeki| hougeki.into());
-        let support_attack: Option<SupportAttack> = battle
-            .api_support_info
-            .map(|support_attack| support_attack.into());
-        let air_base_assault: Option<AirBaseAssult> = battle
-            .api_air_base_injection
-            .map(|air_base_injection| air_base_injection.into());
-        let carrier_base_assault: Option<CarrierBaseAssault> = battle
-            .api_injection_kouku
-            .map(|injection_kouku| injection_kouku.into());
+            Some(vec![Some(unwrap_into(battle.api_kouku))]);
+        let opening_taisen: Option<OpeningTaisen> = battle.api_opening_taisen.map(unwrap_into);
+        let opening_raigeki: Option<OpeningRaigeki> = Some(unwrap_into(battle.api_opening_atack));
+        let closing_taigeki: Option<ClosingRaigeki> = battle.api_raigeki.map(unwrap_into);
+        let hougeki_1: Option<Hougeki> = Some(unwrap_into(battle.api_hougeki1));
+        let hougeki_2: Option<Hougeki> = battle.api_hougeki2.map(unwrap_into);
+        let hougeki_3: Option<Hougeki> = battle.api_hougeki3.map(unwrap_into);
+        let support_attack: Option<SupportAttack> = battle.api_support_info.map(unwrap_into);
+        let air_base_assault: Option<AirBaseAssult> =
+            battle.api_air_base_injection.map(unwrap_into);
+        let carrier_base_assault: Option<CarrierBaseAssault> =
+            battle.api_injection_kouku.map(unwrap_into);
 
         let hougeki: Option<Vec<Option<Hougeki>>> =
             if hougeki_1.is_some() || hougeki_2.is_some() || hougeki_3.is_some() {
@@ -390,29 +368,25 @@ impl From<kcapi_main::api_req_combined_battle::battle::ApiData> for Battle {
     }
 }
 
-impl From<kcapi_main::api_req_combined_battle::each_battle_water::ApiData> for Battle {
+impl From<kcapi_main::api_req_combined_battle::each_battle_water::ApiData>
+    for InterfaceWrapper<Battle>
+{
     fn from(battle: kcapi_main::api_req_combined_battle::each_battle_water::ApiData) -> Self {
         let air_base_air_attacks: Option<AirBaseAirAttacks> =
-            battle.api_air_base_attack.map(|attack| attack.into());
+            battle.api_air_base_attack.map(unwrap_into);
         let opening_air_attack: Option<Vec<Option<OpeningAirAttack>>> =
-            Some(vec![Some(battle.api_kouku.into())]);
-        let opening_taisen: Option<OpeningTaisen> = battle
-            .api_opening_taisen
-            .map(|opening_taisen| opening_taisen.into());
-        let opening_raigeki: Option<OpeningRaigeki> = Some(battle.api_opening_atack.into());
-        let closing_taigeki: Option<ClosingRaigeki> = Some(battle.api_raigeki.into());
-        let hougeki_1: Option<Hougeki> = Some(battle.api_hougeki1.into());
-        let hougeki_2: Option<Hougeki> = Some(battle.api_hougeki2.into());
-        let hougeki_3: Option<Hougeki> = battle.api_hougeki3.map(|hougeki| hougeki.into());
-        let support_attack: Option<SupportAttack> = battle
-            .api_support_info
-            .map(|support_attack| support_attack.into());
-        let air_base_assault: Option<AirBaseAssult> = battle
-            .api_air_base_injection
-            .map(|air_base_injection| air_base_injection.into());
-        let carrier_base_assault: Option<CarrierBaseAssault> = battle
-            .api_injection_kouku
-            .map(|injection_kouku| injection_kouku.into());
+            Some(vec![Some(unwrap_into(battle.api_kouku))]);
+        let opening_taisen: Option<OpeningTaisen> = battle.api_opening_taisen.map(unwrap_into);
+        let opening_raigeki: Option<OpeningRaigeki> = Some(unwrap_into(battle.api_opening_atack));
+        let closing_taigeki: Option<ClosingRaigeki> = Some(unwrap_into(battle.api_raigeki));
+        let hougeki_1: Option<Hougeki> = Some(unwrap_into(battle.api_hougeki1));
+        let hougeki_2: Option<Hougeki> = Some(unwrap_into(battle.api_hougeki2));
+        let hougeki_3: Option<Hougeki> = battle.api_hougeki3.map(unwrap_into);
+        let support_attack: Option<SupportAttack> = battle.api_support_info.map(unwrap_into);
+        let air_base_assault: Option<AirBaseAssult> =
+            battle.api_air_base_injection.map(unwrap_into);
+        let carrier_base_assault: Option<CarrierBaseAssault> =
+            battle.api_injection_kouku.map(unwrap_into);
 
         let hougeki: Option<Vec<Option<Hougeki>>> =
             if hougeki_1.is_some() || hougeki_2.is_some() || hougeki_3.is_some() {
@@ -487,30 +461,23 @@ impl From<kcapi_main::api_req_combined_battle::each_battle_water::ApiData> for B
     }
 }
 
-impl From<kcapi_main::api_req_combined_battle::each_battle::ApiData> for Battle {
+impl From<kcapi_main::api_req_combined_battle::each_battle::ApiData> for InterfaceWrapper<Battle> {
     fn from(battle: kcapi_main::api_req_combined_battle::each_battle::ApiData) -> Self {
-        let air_base_air_attacks: Option<AirBaseAirAttacks> = battle
-            .api_air_base_attack
-            .map(|air_base_attack| air_base_attack.into());
+        let air_base_air_attacks: Option<AirBaseAirAttacks> =
+            battle.api_air_base_attack.map(unwrap_into);
         let opening_air_attack: Option<Vec<Option<OpeningAirAttack>>> =
-            Some(vec![Some(battle.api_kouku.into())]);
-        let opening_taisen: Option<OpeningTaisen> = battle
-            .api_opening_taisen
-            .map(|opening_taisen| opening_taisen.into());
-        let opening_raigeki: Option<OpeningRaigeki> = Some(battle.api_opening_atack.into());
-        let closing_taigeki: Option<ClosingRaigeki> = Some(battle.api_raigeki.into());
-        let hougeki_1: Option<Hougeki> = Some(battle.api_hougeki1.into());
-        let hougeki_2: Option<Hougeki> = battle.api_hougeki2.map(|hougeki| hougeki.into());
-        let hougeki_3: Option<Hougeki> = battle.api_hougeki3.map(|hougeki| hougeki.into());
-        let support_attack: Option<SupportAttack> = battle
-            .api_support_info
-            .map(|support_attack| support_attack.into());
-        let air_base_assault: Option<AirBaseAssult> = battle
-            .api_air_base_injection
-            .map(|air_base_injection| air_base_injection.into());
-        let carrier_base_assault: Option<CarrierBaseAssault> = battle
-            .api_injection_kouku
-            .map(|injection_kouku| injection_kouku.into());
+            Some(vec![Some(unwrap_into(battle.api_kouku))]);
+        let opening_taisen: Option<OpeningTaisen> = battle.api_opening_taisen.map(unwrap_into);
+        let opening_raigeki: Option<OpeningRaigeki> = Some(unwrap_into(battle.api_opening_atack));
+        let closing_taigeki: Option<ClosingRaigeki> = Some(unwrap_into(battle.api_raigeki));
+        let hougeki_1: Option<Hougeki> = Some(unwrap_into(battle.api_hougeki1));
+        let hougeki_2: Option<Hougeki> = battle.api_hougeki2.map(unwrap_into);
+        let hougeki_3: Option<Hougeki> = battle.api_hougeki3.map(unwrap_into);
+        let support_attack: Option<SupportAttack> = battle.api_support_info.map(unwrap_into);
+        let air_base_assault: Option<AirBaseAssult> =
+            battle.api_air_base_injection.map(unwrap_into);
+        let carrier_base_assault: Option<CarrierBaseAssault> =
+            battle.api_injection_kouku.map(unwrap_into);
 
         let hougeki: Option<Vec<Option<Hougeki>>> =
             if hougeki_1.is_some() || hougeki_2.is_some() || hougeki_3.is_some() {
@@ -585,7 +552,7 @@ impl From<kcapi_main::api_req_combined_battle::each_battle::ApiData> for Battle 
     }
 }
 
-impl From<kcapi_main::api_req_combined_battle::ld_airbattle::ApiData> for Battle {
+impl From<kcapi_main::api_req_combined_battle::ld_airbattle::ApiData> for InterfaceWrapper<Battle> {
     fn from(airbattle: kcapi_main::api_req_combined_battle::ld_airbattle::ApiData) -> Self {
         // let air_base_air_attacks: Option<AirBaseAirAttacks> = airbattle
         //     .api_air_base_attack
@@ -659,7 +626,9 @@ impl From<kcapi_main::api_req_combined_battle::ld_airbattle::ApiData> for Battle
     }
 }
 
-impl From<kcapi_main::api_req_combined_battle::midnight_battle::ApiData> for Battle {
+impl From<kcapi_main::api_req_combined_battle::midnight_battle::ApiData>
+    for InterfaceWrapper<Battle>
+{
     fn from(battle: kcapi_main::api_req_combined_battle::midnight_battle::ApiData) -> Self {
         let midnight_hougeki: Option<MidnightHougeki> = Some(battle.api_hougeki.into());
         let friendly_force_attack: Option<FriendlyForceAttack> = None;
@@ -721,7 +690,7 @@ impl From<kcapi_main::api_req_combined_battle::midnight_battle::ApiData> for Bat
     }
 }
 
-impl From<kcapi_main::api_req_combined_battle::sp_midnight::ApiData> for Battle {
+impl From<kcapi_main::api_req_combined_battle::sp_midnight::ApiData> for InterfaceWrapper<Battle> {
     fn from(battle: kcapi_main::api_req_combined_battle::sp_midnight::ApiData) -> Self {
         let midnight_hougeki: Option<MidnightHougeki> = Some(battle.api_hougeki.into());
         let friendly_force_attack: Option<FriendlyForceAttack> = None;
