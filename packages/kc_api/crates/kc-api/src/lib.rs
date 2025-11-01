@@ -6,8 +6,8 @@ pub use kc_api_interface as interface;
 pub use kc_api_parser as parser;
 
 pub mod prelude {
-    pub use kc_api_database::*;
-    pub use kc_api_dto::*;
-    pub use kc_api_interface::*;
-    pub use kc_api_parser::*;
+    pub use kc_api_database;
+    pub use kc_api_dto;
+    pub use kc_api_interface;
+    pub use kc_api_parser;
 }

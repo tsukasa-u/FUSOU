@@ -98,9 +98,10 @@ impl From<kcapi_main::api_req_combined_battle::ec_battle::ApiData> for Interface
             e_nowhps: Some([battle.api_e_nowhps, battle.api_e_nowhps_combined].concat()),
             midnight_f_nowhps: None,
             midnight_e_nowhps: None,
-        });
+        })
+        .unwrap();
         calc_dmg(&mut ret);
-        return ret;
+        return Self(ret);
     }
 }
 
@@ -112,7 +113,7 @@ impl From<kcapi_main::api_req_combined_battle::ec_midnight_battle::ApiData>
         let friendly_force_attack: Option<FriendlyForceAttack> =
             if battle.api_friendly_info.is_some() && battle.api_friendly_battle.is_some() {
                 Some(
-                    FriendlyForceAttack::from_api_data(
+                    InterfaceWrapper::from_api_data(
                         battle.api_friendly_info.unwrap(),
                         battle.api_friendly_battle.unwrap(),
                     )
@@ -329,7 +330,7 @@ impl From<kcapi_main::api_req_combined_battle::battle::ApiData> for InterfaceWra
         let escape_idx_combined: Option<Vec<i64>> =
             calc_escape_idx(battle.api_escape_idx, battle.api_escape_idx_combined);
 
-        let mut ret = Self {
+        let mut ret = Self(Battle {
             battle_order: Some(battle_order),
             timestamp: Some(Local::now().timestamp()),
             midnight_timestamp: None,
@@ -367,9 +368,10 @@ impl From<kcapi_main::api_req_combined_battle::battle::ApiData> for InterfaceWra
             e_nowhps: Some(battle.api_e_nowhps),
             midnight_f_nowhps: None,
             midnight_e_nowhps: None,
-        };
+        })
+        .unwrap();
         calc_dmg(&mut ret);
-        return ret;
+        return Self(ret);
     }
 }
 
@@ -422,7 +424,7 @@ impl From<kcapi_main::api_req_combined_battle::each_battle_water::ApiData>
         let escape_idx_combined: Option<Vec<i64>> =
             calc_escape_idx(battle.api_escape_idx, battle.api_escape_idx_combined);
 
-        let mut ret = Self {
+        let mut ret = Self(Battle {
             battle_order: Some(battle_order),
             timestamp: Some(Local::now().timestamp()),
             midnight_timestamp: None,
@@ -460,9 +462,10 @@ impl From<kcapi_main::api_req_combined_battle::each_battle_water::ApiData>
             e_nowhps: Some([battle.api_e_nowhps, battle.api_e_nowhps_combined].concat()),
             midnight_f_nowhps: None,
             midnight_e_nowhps: None,
-        };
+        })
+        .unwrap();
         calc_dmg(&mut ret);
-        return ret;
+        return Self(ret);
     }
 }
 
@@ -513,7 +516,7 @@ impl From<kcapi_main::api_req_combined_battle::each_battle::ApiData> for Interfa
         let escape_idx_combined: Option<Vec<i64>> =
             calc_escape_idx(battle.api_escape_idx, battle.api_escape_idx_combined);
 
-        let mut ret = Self {
+        let mut ret = Self(Battle {
             battle_order: Some(battle_order),
             timestamp: Some(Local::now().timestamp()),
             midnight_timestamp: None,
@@ -551,9 +554,10 @@ impl From<kcapi_main::api_req_combined_battle::each_battle::ApiData> for Interfa
             e_nowhps: Some([battle.api_e_nowhps, battle.api_e_nowhps_combined].concat()),
             midnight_f_nowhps: None,
             midnight_e_nowhps: None,
-        };
+        })
+        .unwrap();
         calc_dmg(&mut ret);
-        return ret;
+        return Self(ret);
     }
 }
 
@@ -587,7 +591,7 @@ impl From<kcapi_main::api_req_combined_battle::ld_airbattle::ApiData> for Interf
         let escape_idx_combined: Option<Vec<i64>> =
             calc_escape_idx(airbattle.api_escape_idx, airbattle.api_escape_idx_combined);
 
-        let mut ret = Self {
+        let mut ret = Self(Battle {
             battle_order: Some(battle_order),
             timestamp: Some(Local::now().timestamp()),
             midnight_timestamp: None,
@@ -625,9 +629,10 @@ impl From<kcapi_main::api_req_combined_battle::ld_airbattle::ApiData> for Interf
             e_nowhps: Some(airbattle.api_e_nowhps),
             midnight_f_nowhps: None,
             midnight_e_nowhps: None,
-        };
+        })
+        .unwrap();
         calc_dmg(&mut ret);
-        return ret;
+        return Self(ret);
     }
 }
 
@@ -651,7 +656,7 @@ impl From<kcapi_main::api_req_combined_battle::midnight_battle::ApiData>
         let escape_idx_combined: Option<Vec<i64>> =
             calc_escape_idx(battle.api_escape_idx, battle.api_escape_idx_combined);
 
-        let mut ret = Self {
+        let mut ret = Self(Battle {
             battle_order: Some(battle_order),
             timestamp: None,
             midnight_timestamp: Some(Local::now().timestamp()),
@@ -689,9 +694,10 @@ impl From<kcapi_main::api_req_combined_battle::midnight_battle::ApiData>
             e_nowhps: None,
             midnight_f_nowhps: Some([battle.api_f_nowhps, battle.api_f_nowhps_combined].concat()),
             midnight_e_nowhps: Some(battle.api_e_nowhps),
-        };
+        })
+        .unwrap();
         calc_dmg(&mut ret);
-        return ret;
+        return Self(ret);
     }
 }
 
@@ -713,7 +719,7 @@ impl From<kcapi_main::api_req_combined_battle::sp_midnight::ApiData> for Interfa
         let escape_idx_combined: Option<Vec<i64>> =
             calc_escape_idx(battle.api_escape_idx, battle.api_escape_idx_combined);
 
-        let mut ret = Self {
+        let mut ret = Self(Battle {
             battle_order: Some(battle_order),
             timestamp: None,
             midnight_timestamp: Some(Local::now().timestamp()),
@@ -751,8 +757,9 @@ impl From<kcapi_main::api_req_combined_battle::sp_midnight::ApiData> for Interfa
             e_nowhps: None,
             midnight_f_nowhps: Some([battle.api_f_nowhps, battle.api_f_nowhps_combined].concat()),
             midnight_e_nowhps: Some(battle.api_e_nowhps),
-        };
+        })
+        .unwrap();
         calc_dmg(&mut ret);
-        return ret;
+        return Self(ret);
     }
 }
