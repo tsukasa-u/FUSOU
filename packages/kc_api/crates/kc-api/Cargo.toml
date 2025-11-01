@@ -4,10 +4,11 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
-kc-api-interface = { path = "../kc-api-interface" }
-kc-api-database = { path = "../kc-api-database" }
-kc-api-dto = { path = "../kc-api-dto" }
-kc-api-parser = { path = "../kc-api-parser" }
+kc-api-interface = { workspace = true }
+kc-api-interface-adapter = { workspace = true }
+kc-api-database = { workspace = true }
+kc-api-dto = { workspace = true }
+kc-api-parser = { workspace = true }
 
 [features]
 default = ["graphviz", "from20250627"]

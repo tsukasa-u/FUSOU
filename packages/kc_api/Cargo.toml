@@ -28,6 +28,11 @@ proc-macro2 = "1.0.86"
 quote = "1.0.38"
 register_macro_derive_and_attr = { path = "crates/register_macro_derive_and_attr" }
 register_trait = { path = "crates/register_trait" }
+kc-api-database = { path = "crates/kc-api-database" }
+kc-api-interface = { path = "crates/kc-api-interface" }
+kc-api-dto = { path = "crates/kc-api-dto" }
+kc-api-parser = { path = "crates/kc-api-parser" }
+kc-api-interface-adapter = { path = "crates/kc-api-interface-adapter" }
 regex = "1.10.6"
 sqids = "0.4.1"
 serde = { version = "1.0", features = ["derive"] }

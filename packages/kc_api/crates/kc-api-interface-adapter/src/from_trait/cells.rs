@@ -8,8 +8,6 @@ use kc_api_dto::main as kcapi_main;
 
 use super::battle::calc_air_damage;
 
-use kc_api_interface::battle::{AirDamage, Battle};
-
 use kc_api_interface::cells::{
     AirBaseAttack, Cell, CellData, Cells, DestructionBattle, EDeckInfo, Eventmap, Happening,
     KCS_CELLS_INDEX,
