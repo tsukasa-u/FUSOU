@@ -1,7 +1,7 @@
 use kc_api_interface::battle::Battle;
 use kc_api_interface::interface::{Add, EmitData};
 
-use kc_api_dto::main::api_req_battle_midnight::*;
+use kc_api_dto::endpoints::api_req_battle_midnight::*;
 
 use crate::{register_trait, InterfaceWrapper, TraitForConvert};
 

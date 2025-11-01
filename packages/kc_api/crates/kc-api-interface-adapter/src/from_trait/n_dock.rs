@@ -1,6 +1,6 @@
 use crate::InterfaceWrapper;
 use chrono::Utc;
-use kc_api_dto::main as kcapi_main;
+use kc_api_dto::endpoints as kcapi_main;
 use kc_api_interface::n_dock::{NDock, NDocks};
 
 impl From<Vec<kcapi_main::api_port::port::ApiNdock>> for InterfaceWrapper<NDocks> {

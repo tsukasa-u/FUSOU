@@ -14,7 +14,7 @@ use kc_api_interface::mst_slot_item_equip_type::MstSlotItemEquipTypes;
 use kc_api_interface::mst_stype::MstStypes;
 use kc_api_interface::mst_use_item::MstUseItems;
 
-use kc_api_dto::main::api_start2::*;
+use kc_api_dto::endpoints::api_start2::*;
 
 use crate::{register_trait, InterfaceWrapper, TraitForConvert};
 

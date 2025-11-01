@@ -5,7 +5,7 @@ use kc_api_interface::material::Materials;
 use kc_api_interface::n_dock::NDocks;
 use kc_api_interface::ship::Ships;
 
-use kc_api_dto::main::api_port::*;
+use kc_api_dto::endpoints::api_port::*;
 
 use crate::{register_trait, InterfaceWrapper, TraitForConvert};
 

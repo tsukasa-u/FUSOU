@@ -2,7 +2,7 @@ use kc_api_interface::air_base::AirBases;
 use kc_api_interface::interface::{EmitData, Identifier, Set};
 use kc_api_interface::slot_item::SlotItems;
 
-use kc_api_dto::main::api_get_member::*;
+use kc_api_dto::endpoints::api_get_member::*;
 
 use crate::{register_trait, InterfaceWrapper, TraitForConvert};
 

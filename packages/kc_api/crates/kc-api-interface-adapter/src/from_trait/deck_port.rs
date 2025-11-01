@@ -1,5 +1,5 @@
 use crate::InterfaceWrapper;
-use kc_api_dto::main as kcapi_main;
+use kc_api_dto::endpoints as kcapi_main;
 use kc_api_interface::deck_port::{DeckPort, DeckPorts};
 use std::collections::HashMap;
 

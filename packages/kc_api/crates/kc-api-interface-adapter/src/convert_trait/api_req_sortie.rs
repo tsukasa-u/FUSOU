@@ -1,7 +1,7 @@
 use kc_api_interface::battle::Battle;
 use kc_api_interface::interface::{Add, EmitData};
 
-use kc_api_dto::main::api_req_sortie::*;
+use kc_api_dto::endpoints::api_req_sortie::*;
 
 use crate::{register_trait, InterfaceWrapper, TraitForConvert};
 

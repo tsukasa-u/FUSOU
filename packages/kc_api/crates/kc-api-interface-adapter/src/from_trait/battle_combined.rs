@@ -3,7 +3,7 @@ use std::vec;
 use chrono::Local;
 
 use crate::InterfaceWrapper;
-use kc_api_dto::main as kcapi_main;
+use kc_api_dto::endpoints as kcapi_main;
 
 use super::battle::{calc_dmg, calc_escape_idx, unwrap_into};
 use kc_api_interface::battle::BattleType;

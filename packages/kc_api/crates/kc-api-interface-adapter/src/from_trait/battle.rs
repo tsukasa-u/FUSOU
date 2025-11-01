@@ -3,7 +3,7 @@ use chrono::Local;
 use crate::InterfaceWrapper;
 use kc_api_dto::common as kcapi_common;
 use kc_api_dto::common::custom_type::DuoType;
-use kc_api_dto::main as kcapi_main;
+use kc_api_dto::endpoints as kcapi_main;
 use kc_api_interface::battle::{
     AirBaseAirAttack, AirBaseAirAttacks, AirBaseAssult, AirDamage, AirFire, Battle, BattleType,
     CarrierBaseAssault, ClosingRaigeki, FriendlyForceAttack, FriendlyForceInfo,

@@ -1,6 +1,6 @@
 use kc_api_interface::interface::EmitData;
 
-use kc_api_dto::main::api_req_hensei::*;
+use kc_api_dto::endpoints::api_req_hensei::*;
 
 use crate::{register_trait, TraitForConvert};
 
