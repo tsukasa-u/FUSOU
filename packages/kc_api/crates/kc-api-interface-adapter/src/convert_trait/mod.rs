@@ -8,6 +8,7 @@ pub mod api_req_furniture;
 pub mod api_req_hensei;
 pub mod api_req_hokyu;
 pub mod api_req_kaisou;
+pub mod api_req_kousyou;
 pub mod api_req_map;
 pub mod api_req_member;
 pub mod api_req_mission;

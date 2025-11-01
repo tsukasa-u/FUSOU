@@ -6,6 +6,9 @@ use std::error::Error;
 
 use kc_api_dto;
 
+use kc_api_interface_adapter::convert_trait;
+use kc_api_interface_adapter::TraitForConvert;
+
 #[expand_struct_selector(path = "../kc-api-dto/src/main", root_crate = false)]
 pub fn response_parser(name: String, data: String) -> Result<Vec<EmitData>, Box<dyn Error>> {
     let root_wrap: Result<kcsapi_lib::Res, serde_json::Error> = serde_json::from_str(&data);

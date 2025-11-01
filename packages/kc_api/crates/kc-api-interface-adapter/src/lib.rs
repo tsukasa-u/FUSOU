@@ -17,7 +17,7 @@ pub trait TraitForConvert {
 
 #[macro_export]
 macro_rules! register_trait {
-    ($($ident1:ident),*) => {$(impl TraitForConvert for $ident1::Res {
+    ($ident2:ident, ($($ident1:ident),*)) => {$(impl TraitForConvert for $ident1::$ident2 {
         type Output = EmitData;
         fn convert(&self) -> Option<Vec<EmitData>> {
             Some(vec![])
