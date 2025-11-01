@@ -15,7 +15,6 @@ use darling::FromMeta;
 pub struct MacroArgs4ExpandStructSelector {
     #[darling(default)]
     path: path::PathBuf,
-    root_crate: Option<bool>,
 }
 
 pub fn expand_struct_selector(
@@ -119,14 +118,17 @@ pub fn expand_struct_selector(
     if !args.path.exists() {
         return Err(syn::Error::new_spanned(
             ast.sig.output.clone(),
-            "The path is not exist",
+            format!(
+                "The path is not exist. current path is {}",
+                std::env::current_dir().unwrap().join(&args.path).display()
+            ),
         ));
     }
     let paths = fs::read_dir(args.path);
     if paths.is_err() {
         return Err(syn::Error::new_spanned(
             ast.sig.output.clone(),
-            "The path is not exist",
+            "The path is not a directory",
         ));
     }
     let paths = paths.unwrap();
@@ -202,14 +204,10 @@ pub fn expand_struct_selector(
         // let use_ident = syn::Ident::new(&format!("kcapi_main::{}::{}::Root;",s1 ,s2), Span::call_site());
         let ident_s2_0 = syn::Ident::new(&s2.0, Span::call_site());
         let ident_s2_1 = syn::Ident::new(&s2.1, Span::call_site());
-        let idnet_crate = if let Some(true) = &args.root_crate {
-            syn::Ident::new("crate", Span::call_site())
-        } else {
-            syn::Ident::new("kc_api_dto", Span::call_site())
-        };
+        let idnet_crate = syn::Ident::new("kc_api_dto", Span::call_site());
         match_list.push(quote! {
             #lit => {
-                use #idnet_crate::main::#ident_s2_0::#ident_s2_1 as kcsapi_lib;
+                use #idnet_crate::endpoints::#ident_s2_0::#ident_s2_1 as kcsapi_lib;
                 #(#body)*
             },
         });
