@@ -1,11 +1,12 @@
 use register_trait::expand_struct_selector;
-use register_trait::TraitForConvert;
 
 use kc_api_interface::interface::EmitData;
 
 use std::error::Error;
 
-#[expand_struct_selector(path = "../kc-api-dto/src/main", root_crate = true)]
+use kc_api_dto;
+
+#[expand_struct_selector(path = "../kc-api-dto/src/main", root_crate = false)]
 pub fn response_parser(name: String, data: String) -> Result<Vec<EmitData>, Box<dyn Error>> {
     let root_wrap: Result<kcsapi_lib::Res, serde_json::Error> = serde_json::from_str(&data);
 
@@ -25,7 +26,7 @@ pub fn response_parser(name: String, data: String) -> Result<Vec<EmitData>, Box<
     };
 }
 
-#[expand_struct_selector(path = "../kc-api-dto/src/main", root_crate = true)]
+#[expand_struct_selector(path = "../kc-api-dto/src/main", root_crate = false)]
 pub fn request_parser(name: String, data: String) -> Result<Vec<EmitData>, Box<dyn Error>> {
     let root_wrap: Result<kcsapi_lib::Req, serde_qs::Error> = serde_qs::from_str(&data);
 

@@ -7,7 +7,9 @@ use kc_api_interface::ship::Ships;
 
 use kc_api_dto::main::api_port::*;
 
-use crate::{InterfaceWrapper, TraitForConvert};
+use crate::{register_trait, InterfaceWrapper, TraitForConvert};
+
+register_trait!(air_corps_cond_recovery_with_timer);
 
 impl TraitForConvert for port::Res {
     type Output = EmitData;

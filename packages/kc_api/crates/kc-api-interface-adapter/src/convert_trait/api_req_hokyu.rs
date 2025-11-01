@@ -1,6 +1,10 @@
-use crate::TraitForConvert;
+use kc_api_interface::interface::{Add, EmitData, Identifier, Set};
 
-impl TraitForConvert for Res {
+use kc_api_dto::main::api_req_hokyu::*;
+
+use crate::{register_trait, InterfaceWrapper, TraitForConvert};
+
+impl TraitForConvert for charge::Res {
     type Output = EmitData;
     fn convert(&self) -> Option<Vec<EmitData>> {
         // let materials: Materials = Materials::from(self.api_data.clone());
@@ -9,13 +13,5 @@ impl TraitForConvert for Res {
         //     EmitData::Add(Add::Ships(ships)),
         //     EmitData::Add(Add::Materials(materials))])
         Some(vec![])
-    }
-}
-
-pub struct InterfaceWrapper<T>(T);
-
-impl<T> TraitForConvert for InterfaceWrapper<T> {
-    fn unwrap(self) -> T {
-        self.0
     }
 }

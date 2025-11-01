@@ -4,7 +4,31 @@ use kc_api_interface::slot_item::SlotItems;
 
 use kc_api_dto::main::api_get_member::*;
 
-use crate::{InterfaceWrapper, TraitForConvert};
+use crate::{register_trait, InterfaceWrapper, TraitForConvert};
+
+register_trait!(
+    basic,
+    chart_additional_info,
+    deck,
+    furniture,
+    kdock,
+    material,
+    mission,
+    ndock,
+    payitem,
+    picture_book,
+    practice,
+    preset_deck,
+    preset_slot,
+    questlist,
+    record,
+    ship_deck,
+    ship2,
+    ship3,
+    sortie_conditions,
+    unsetslot,
+    useitem
+);
 
 impl TraitForConvert for mapinfo::Res {
     type Output = EmitData;

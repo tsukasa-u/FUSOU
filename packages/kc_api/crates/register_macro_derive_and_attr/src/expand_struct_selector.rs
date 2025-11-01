@@ -205,11 +205,11 @@ pub fn expand_struct_selector(
         let idnet_crate = if let Some(true) = &args.root_crate {
             syn::Ident::new("crate", Span::call_site())
         } else {
-            syn::Ident::new("kc_api", Span::call_site())
+            syn::Ident::new("kc_api_dto", Span::call_site())
         };
         match_list.push(quote! {
             #lit => {
-                use #idnet_crate::kcapi_main::#ident_s2_0::#ident_s2_1 as kcsapi_lib;
+                use #idnet_crate::main::#ident_s2_0::#ident_s2_1 as kcsapi_lib;
                 #(#body)*
             },
         });

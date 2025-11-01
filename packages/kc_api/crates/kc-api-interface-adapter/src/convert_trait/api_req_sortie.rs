@@ -3,7 +3,9 @@ use kc_api_interface::interface::{Add, EmitData};
 
 use kc_api_dto::main::api_req_sortie::*;
 
-use crate::{InterfaceWrapper, TraitForConvert};
+use crate::{register_trait, InterfaceWrapper, TraitForConvert};
+
+register_trait!(battleresult, goback_port);
 
 impl TraitForConvert for airbattle::Res {
     type Output = EmitData;

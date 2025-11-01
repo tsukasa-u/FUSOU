@@ -3,7 +3,19 @@ use kc_api_interface::interface::{Add, EmitData};
 
 use kc_api_dto::main::api_req_combined_battle::*;
 
-use crate::{InterfaceWrapper, TraitForConvert};
+use crate::{register_trait, InterfaceWrapper, TraitForConvert};
+
+register_trait!(
+    battle_water,
+    battle,
+    battleresult,
+    each_battle_water,
+    each_battle,
+    goback_port,
+    ld_airbattle,
+    midnight_battle,
+    sp_midnight
+);
 
 impl TraitForConvert for ec_battle::Res {
     type Output = EmitData;
