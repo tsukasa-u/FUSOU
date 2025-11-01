@@ -744,7 +744,7 @@ impl From<kcapi_common::common_midnight::ApiFriendlyBattle>
     }
 }
 
-impl FriendlyForceAttack {
+impl InterfaceWrapper<FriendlyForceAttack> {
     pub fn from_api_data(
         friendly_force_info: kcapi_common::common_midnight::ApiFriendlyInfo,
         friendly_support_hourai: kcapi_common::common_midnight::ApiFriendlyBattle,
@@ -752,10 +752,10 @@ impl FriendlyForceAttack {
         let force_info: FriendlyForceInfo = InterfaceWrapper::from(friendly_force_info).unwrap();
         let support_hourai: Option<FriendlySupportHourai> =
             Some(InterfaceWrapper::from(friendly_support_hourai).unwrap());
-        Self {
+        Self(FriendlyForceAttack {
             fleet_info: force_info,
             support_hourai,
-        }
+        })
     }
 }
 
@@ -1335,10 +1335,13 @@ impl From<kcapi_main::api_req_battle_midnight::battle::ApiData> for InterfaceWra
             Some(InterfaceWrapper::from(battle.api_hougeki).unwrap());
         let friendly_force_attack: Option<FriendlyForceAttack> =
             if battle.api_friendly_info.is_some() && battle.api_friendly_battle.is_some() {
-                Some(FriendlyForceAttack::from_api_data(
-                    battle.api_friendly_info.unwrap(),
-                    battle.api_friendly_battle.unwrap(),
-                ))
+                Some(
+                    InterfaceWrapper::from_api_data(
+                        battle.api_friendly_info.unwrap(),
+                        battle.api_friendly_battle.unwrap(),
+                    )
+                    .unwrap(),
+                )
             } else {
                 None
             };

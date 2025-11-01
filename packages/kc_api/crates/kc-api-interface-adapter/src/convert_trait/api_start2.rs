@@ -16,45 +16,63 @@ use kc_api_interface::mst_use_item::MstUseItems;
 
 use kc_api_dto::main::api_start2::*;
 
-use crate::TraitForConvert;
+use crate::{InterfaceWrapper, TraitForConvert};
 
 impl TraitForConvert for get_data::Res {
     type Output = EmitData;
     fn convert(&self) -> Option<Vec<EmitData>> {
         // need to add other fields
-        let mst_ships: MstShips = self.api_data.api_mst_ship.clone().into();
-
-        let mst_slot_items: MstSlotItems = self.api_data.api_mst_slotitem.clone().into();
-
-        let mst_equip_exslot_ship: MstEquipExslotShips =
-            self.api_data.api_mst_equip_exslot_ship.clone().into();
-
-        let mst_slot_item_equip_type: MstSlotItemEquipTypes =
-            self.api_data.api_mst_slotitem_equiptype.clone().into();
-
-        let mst_equip_ship: MstEquipShips = self.api_data.api_mst_equip_ship.clone().into();
+        let mst_ships =
+            InterfaceWrapper::<MstShips>::from(self.api_data.api_mst_ship.clone()).unwrap();
+        let mst_slot_items =
+            InterfaceWrapper::<MstSlotItems>::from(self.api_data.api_mst_slotitem.clone()).unwrap();
+        let mst_equip_exslot_ship = InterfaceWrapper::<MstEquipExslotShips>::from(
+            self.api_data.api_mst_equip_exslot_ship.clone(),
+        )
+        .unwrap();
+        let mst_slot_item_equip_type = InterfaceWrapper::<MstSlotItemEquipTypes>::from(
+            self.api_data.api_mst_slotitem_equiptype.clone(),
+        )
+        .unwrap();
+        let mst_equip_ship =
+            InterfaceWrapper::<MstEquipShips>::from(self.api_data.api_mst_equip_ship.clone())
+                .unwrap();
 
         #[cfg(feature = "20250627")]
-        let mst_equip_limit_exslot: MstEquipLimitExslots = self.api_data.clone().into();
+        let mst_equip_limit_exslot =
+            InterfaceWrapper::<MstEquipLimitExslots>::from(self.api_data.clone()).unwrap();
 
-        let mst_equip_exslot: MstEquipExslots = self.api_data.clone().into();
+        let mst_equip_exslot =
+            InterfaceWrapper::<MstEquipExslots>::from(self.api_data.clone()).unwrap();
+        let mst_stype =
+            InterfaceWrapper::<MstStypes>::from(self.api_data.api_mst_stype.clone()).unwrap();
+        let mst_use_item =
+            InterfaceWrapper::<MstUseItems>::from(self.api_data.api_mst_useitem.clone()).unwrap();
+        let mst_ship_graphs =
+            InterfaceWrapper::<MstShipGraphs>::from(self.api_data.api_mst_shipgraph.clone())
+                .unwrap();
+        let mst_map_areas =
+            InterfaceWrapper::<MstMapAreas>::from(self.api_data.api_mst_maparea.clone()).unwrap();
+        let mst_map_infos =
+            InterfaceWrapper::<MstMapInfos>::from(self.api_data.api_mst_mapinfo.clone()).unwrap();
+        let mst_ship_upgrades =
+            InterfaceWrapper::<MstShipUpgrades>::from(self.api_data.api_mst_shipupgrade.clone())
+                .unwrap();
 
-        let mst_stype: MstStypes = self.api_data.api_mst_stype.clone().into();
-
-        let mst_use_item: MstUseItems = self.api_data.api_mst_useitem.clone().into();
-
-        let mst_ship_graphs: MstShipGraphs = self.api_data.api_mst_shipgraph.clone().into();
-        let mst_map_areas: MstMapAreas = self.api_data.api_mst_maparea.clone().into();
-        let mst_map_infos: MstMapInfos = self.api_data.api_mst_mapinfo.clone().into();
-        let mst_ship_upgrades: MstShipUpgrades = self.api_data.api_mst_shipupgrade.clone().into();
-
-        Some(vec![
+        let mut events = vec![
             EmitData::Set(Set::MstShips(mst_ships)),
             EmitData::Set(Set::MstSlotItems(mst_slot_items)),
             EmitData::Set(Set::MstEquipExslotShips(mst_equip_exslot_ship)),
             EmitData::Set(Set::MstSlotItemEquipTypes(mst_slot_item_equip_type)),
             EmitData::Set(Set::MstEquipShips(mst_equip_ship)),
-            EmitData::Set(Set::MstEquipLimitExslots(mst_equip_limit_exslot)),
+        ];
+
+        #[cfg(feature = "20250627")]
+        events.push(EmitData::Set(Set::MstEquipLimitExslots(
+            mst_equip_limit_exslot,
+        )));
+
+        events.extend(vec![
             EmitData::Set(Set::MstEquipExslots(mst_equip_exslot)),
             EmitData::Set(Set::MstStypes(mst_stype)),
             EmitData::Set(Set::MstUseItems(mst_use_item)),
@@ -63,6 +81,8 @@ impl TraitForConvert for get_data::Res {
             EmitData::Set(Set::MstMapInfos(mst_map_infos)),
             EmitData::Set(Set::MstShipUpgrades(mst_ship_upgrades)),
             EmitData::Identifier(Identifier::GetData(())),
-        ])
+        ]);
+
+        Some(events)
     }
 }

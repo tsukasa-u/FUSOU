@@ -111,10 +111,13 @@ impl From<kcapi_main::api_req_combined_battle::ec_midnight_battle::ApiData>
         let midnight_hougeki: Option<MidnightHougeki> = Some(unwrap_into(battle.api_hougeki));
         let friendly_force_attack: Option<FriendlyForceAttack> =
             if battle.api_friendly_info.is_some() && battle.api_friendly_battle.is_some() {
-                Some(FriendlyForceAttack::from_api_data(
-                    battle.api_friendly_info.unwrap(),
-                    battle.api_friendly_battle.unwrap(),
-                ))
+                Some(
+                    FriendlyForceAttack::from_api_data(
+                        battle.api_friendly_info.unwrap(),
+                        battle.api_friendly_battle.unwrap(),
+                    )
+                    .unwrap(),
+                )
             } else {
                 None
             };
@@ -142,7 +145,7 @@ impl From<kcapi_main::api_req_combined_battle::ec_midnight_battle::ApiData>
 
         let escape_idx_combined: Option<Vec<i64>> = calc_escape_idx(battle.api_escape_idx, None);
 
-        let mut ret = Self {
+        let mut ret = Self(Battle {
             battle_order: Some(battle_order),
             timestamp: None,
             midnight_timestamp: Some(Local::now().timestamp()),
@@ -180,9 +183,10 @@ impl From<kcapi_main::api_req_combined_battle::ec_midnight_battle::ApiData>
             e_nowhps: None,
             midnight_f_nowhps: Some(battle.api_f_nowhps),
             midnight_e_nowhps: Some([battle.api_e_nowhps, battle.api_e_nowhps_combined].concat()),
-        };
+        })
+        .unwrap();
         calc_dmg(&mut ret);
-        return ret;
+        return Self(ret);
     }
 }
 
@@ -233,7 +237,7 @@ impl From<kcapi_main::api_req_combined_battle::battle_water::ApiData> for Interf
         let escape_idx_combined: Option<Vec<i64>> =
             calc_escape_idx(battle.api_escape_idx, battle.api_escape_idx_combined);
 
-        let mut ret = Self {
+        let mut ret = Self(Battle {
             battle_order: Some(battle_order),
             timestamp: Some(Local::now().timestamp()),
             midnight_timestamp: None,
@@ -271,9 +275,10 @@ impl From<kcapi_main::api_req_combined_battle::battle_water::ApiData> for Interf
             e_nowhps: Some(battle.api_e_nowhps),
             midnight_f_nowhps: None,
             midnight_e_nowhps: None,
-        };
+        })
+        .unwrap();
         calc_dmg(&mut ret);
-        return ret;
+        return Self(ret);
     }
 }
 
