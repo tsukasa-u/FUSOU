@@ -7,27 +7,60 @@ use kc_api_dto::main::api_get_member::*;
 use crate::{register_trait, InterfaceWrapper, TraitForConvert};
 
 register_trait!(
-    basic,
-    chart_additional_info,
-    deck,
-    furniture,
-    kdock,
-    material,
-    mission,
-    ndock,
-    payitem,
-    picture_book,
-    practice,
-    preset_deck,
-    preset_slot,
-    questlist,
-    record,
-    ship_deck,
-    ship2,
-    ship3,
-    sortie_conditions,
-    unsetslot,
-    useitem
+    Req,
+    (
+        basic,
+        chart_additional_info,
+        deck,
+        furniture,
+        kdock,
+        material,
+        mapinfo,
+        mission,
+        ndock,
+        payitem,
+        picture_book,
+        practice,
+        preset_deck,
+        preset_slot,
+        questlist,
+        record,
+        require_info,
+        ship_deck,
+        ship2,
+        ship3,
+        slot_item,
+        sortie_conditions,
+        unsetslot,
+        useitem
+    )
+);
+
+register_trait!(
+    Res,
+    (
+        basic,
+        chart_additional_info,
+        deck,
+        furniture,
+        kdock,
+        material,
+        mission,
+        ndock,
+        payitem,
+        picture_book,
+        practice,
+        preset_deck,
+        preset_slot,
+        questlist,
+        record,
+        ship_deck,
+        ship2,
+        ship3,
+        sortie_conditions,
+        unsetslot,
+        useitem
+    )
 );
 
 impl TraitForConvert for mapinfo::Res {

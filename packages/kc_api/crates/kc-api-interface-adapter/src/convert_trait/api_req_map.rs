@@ -5,7 +5,8 @@ use kc_api_dto::main::api_req_map::*;
 
 use crate::{register_trait, InterfaceWrapper, TraitForConvert};
 
-register_trait!(select_eventmap_rank, start_air_base);
+register_trait!(Req, (next, select_eventmap_rank, start_air_base, start));
+register_trait!(Res, (select_eventmap_rank, start_air_base));
 
 impl TraitForConvert for next::Res {
     type Output = EmitData;

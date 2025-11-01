@@ -9,7 +9,8 @@ use kc_api_dto::main::api_port::*;
 
 use crate::{register_trait, InterfaceWrapper, TraitForConvert};
 
-register_trait!(air_corps_cond_recovery_with_timer);
+register_trait!(Req, (air_corps_cond_recovery_with_timer, port));
+register_trait!(Res, (air_corps_cond_recovery_with_timer));
 
 impl TraitForConvert for port::Res {
     type Output = EmitData;

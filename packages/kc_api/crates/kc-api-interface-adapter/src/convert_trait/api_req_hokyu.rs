@@ -1,8 +1,11 @@
-use kc_api_interface::interface::{Add, EmitData, Identifier, Set};
+use kc_api_interface::interface::EmitData;
 
 use kc_api_dto::main::api_req_hokyu::*;
 
-use crate::{register_trait, InterfaceWrapper, TraitForConvert};
+use crate::{register_trait, TraitForConvert};
+
+register_trait!(Req, (charge));
+// register_trait!(Res, ());
 
 impl TraitForConvert for charge::Res {
     type Output = EmitData;

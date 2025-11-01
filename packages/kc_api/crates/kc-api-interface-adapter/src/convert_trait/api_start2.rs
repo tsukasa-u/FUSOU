@@ -18,7 +18,8 @@ use kc_api_dto::main::api_start2::*;
 
 use crate::{register_trait, InterfaceWrapper, TraitForConvert};
 
-register_trait!(get_option_setting);
+register_trait!(Req, (get_data, get_option_setting));
+register_trait!(Res, (get_option_setting));
 
 impl TraitForConvert for get_data::Res {
     type Output = EmitData;

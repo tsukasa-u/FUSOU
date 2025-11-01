@@ -5,7 +5,11 @@ use kc_api_dto::main::api_req_sortie::*;
 
 use crate::{register_trait, InterfaceWrapper, TraitForConvert};
 
-register_trait!(battleresult, goback_port);
+register_trait!(
+    Req,
+    (airbattle, battleresult, battle, goback_port, ld_airbattle)
+);
+register_trait!(Res, (battleresult, goback_port));
 
 impl TraitForConvert for airbattle::Res {
     type Output = EmitData;

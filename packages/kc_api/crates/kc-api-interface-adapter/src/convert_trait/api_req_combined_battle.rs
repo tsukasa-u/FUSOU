@@ -6,15 +6,34 @@ use kc_api_dto::main::api_req_combined_battle::*;
 use crate::{register_trait, InterfaceWrapper, TraitForConvert};
 
 register_trait!(
-    battle_water,
-    battle,
-    battleresult,
-    each_battle_water,
-    each_battle,
-    goback_port,
-    ld_airbattle,
-    midnight_battle,
-    sp_midnight
+    Req,
+    (
+        battle_water,
+        battle,
+        battleresult,
+        each_battle_water,
+        each_battle,
+        ec_battle,
+        ec_midnight_battle,
+        goback_port,
+        ld_airbattle,
+        midnight_battle,
+        sp_midnight
+    )
+);
+register_trait!(
+    Res,
+    (
+        battle_water,
+        battle,
+        battleresult,
+        each_battle_water,
+        each_battle,
+        goback_port,
+        ld_airbattle,
+        midnight_battle,
+        sp_midnight
+    )
 );
 
 impl TraitForConvert for ec_battle::Res {
