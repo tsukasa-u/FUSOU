@@ -1,29 +1,26 @@
-use once_cell::sync::Lazy;
+use crate::InterfaceWrapper;
+use kc_api_dto::main as kcapi_main;
+use kc_api_interface::mst_ship::{MstShip, MstShips};
 use std::collections::HashMap;
-use std::sync::Mutex;
 
-use apache_avro::AvroSchema;
-use serde::{Deserialize, Serialize};
-use ts_rs::TS;
-
-use register_trait::{FieldSizeChecker, TraitForEncode};
-
-impl From<Vec<kcapi_main::api_start2::get_data::ApiMstShip>> for MstShips {
+impl From<Vec<kcapi_main::api_start2::get_data::ApiMstShip>> for InterfaceWrapper<MstShips> {
     fn from(ships: Vec<kcapi_main::api_start2::get_data::ApiMstShip>) -> Self {
         let mut ship_map = HashMap::<i64, MstShip>::with_capacity(ships.len());
-        // let mut ship_map = HashMap::new();
         for ship in ships {
-            ship_map.insert(ship.api_id, ship.into());
+            ship_map.insert(
+                ship.api_id,
+                InterfaceWrapper::<MstShip>::from(ship).unwrap(),
+            );
         }
-        Self {
+        Self(MstShips {
             mst_ships: ship_map,
-        }
+        })
     }
 }
 
-impl From<kcapi_main::api_start2::get_data::ApiMstShip> for MstShip {
+impl From<kcapi_main::api_start2::get_data::ApiMstShip> for InterfaceWrapper<MstShip> {
     fn from(ship: kcapi_main::api_start2::get_data::ApiMstShip) -> Self {
-        Self {
+        Self(MstShip {
             id: ship.api_id,
             sortno: ship.api_sortno,
             sort_id: ship.api_sort_id,
@@ -54,6 +51,6 @@ impl From<kcapi_main::api_start2::get_data::ApiMstShip> for MstShip {
             bull_max: ship.api_bull_max,
             voicef: ship.api_voicef,
             tais: ship.api_tais,
-        }
+        })
     }
 }

@@ -559,7 +559,7 @@ impl From<kcapi_main::api_req_combined_battle::ld_airbattle::ApiData> for Interf
         //     .map(|air_base_air_attack| air_base_air_attack.into());
         let air_base_air_attacks: Option<AirBaseAirAttacks> = None;
         let opening_air_attack: Option<Vec<Option<OpeningAirAttack>>> =
-            Some(vec![Some(airbattle.api_kouku.into())]);
+            Some(vec![Some(unwrap_into(airbattle.api_kouku))]);
 
         // Need to resarch this
         // let support_attack: Option<SupportAttack> = airbattle.api_support_info.and_then(|support_info| Some(support_info.into()));
@@ -630,7 +630,7 @@ impl From<kcapi_main::api_req_combined_battle::midnight_battle::ApiData>
     for InterfaceWrapper<Battle>
 {
     fn from(battle: kcapi_main::api_req_combined_battle::midnight_battle::ApiData) -> Self {
-        let midnight_hougeki: Option<MidnightHougeki> = Some(battle.api_hougeki.into());
+        let midnight_hougeki: Option<MidnightHougeki> = Some(unwrap_into(battle.api_hougeki));
         let friendly_force_attack: Option<FriendlyForceAttack> = None;
 
         let cell_no = KCS_CELLS_INDEX
@@ -692,7 +692,7 @@ impl From<kcapi_main::api_req_combined_battle::midnight_battle::ApiData>
 
 impl From<kcapi_main::api_req_combined_battle::sp_midnight::ApiData> for InterfaceWrapper<Battle> {
     fn from(battle: kcapi_main::api_req_combined_battle::sp_midnight::ApiData) -> Self {
-        let midnight_hougeki: Option<MidnightHougeki> = Some(battle.api_hougeki.into());
+        let midnight_hougeki: Option<MidnightHougeki> = Some(unwrap_into(battle.api_hougeki));
         let friendly_force_attack: Option<FriendlyForceAttack> = None;
 
         let cell_no = KCS_CELLS_INDEX

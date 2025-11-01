@@ -1,29 +1,28 @@
-use once_cell::sync::Lazy;
+use crate::InterfaceWrapper;
+use kc_api_dto::main as kcapi_main;
+use kc_api_interface::mst_ship_graph::{MstShipGraph, MstShipGraphs};
 use std::collections::HashMap;
-use std::sync::Mutex;
 
-use apache_avro::AvroSchema;
-use serde::{Deserialize, Serialize};
-use ts_rs::TS;
-
-use register_trait::{FieldSizeChecker, TraitForEncode};
-
-impl From<Vec<kcapi_main::api_start2::get_data::ApiMstShipgraph>> for MstShipGraphs {
+impl From<Vec<kcapi_main::api_start2::get_data::ApiMstShipgraph>>
+    for InterfaceWrapper<MstShipGraphs>
+{
     fn from(ship_graphs: Vec<kcapi_main::api_start2::get_data::ApiMstShipgraph>) -> Self {
         let mut ship_graph_map = HashMap::<i64, MstShipGraph>::with_capacity(ship_graphs.len());
-        // let mut ship_map = HashMap::new();
         for ship_graph in ship_graphs {
-            ship_graph_map.insert(ship_graph.api_id, ship_graph.into());
+            ship_graph_map.insert(
+                ship_graph.api_id,
+                InterfaceWrapper::<MstShipGraph>::from(ship_graph).unwrap(),
+            );
         }
-        Self {
+        Self(MstShipGraphs {
             mst_ship_graphs: ship_graph_map,
-        }
+        })
     }
 }
 
-impl From<kcapi_main::api_start2::get_data::ApiMstShipgraph> for MstShipGraph {
+impl From<kcapi_main::api_start2::get_data::ApiMstShipgraph> for InterfaceWrapper<MstShipGraph> {
     fn from(ship_graph: kcapi_main::api_start2::get_data::ApiMstShipgraph) -> Self {
-        Self {
+        Self(MstShipGraph {
             api_id: ship_graph.api_id,
             api_filename: ship_graph.api_filename,
             api_version: ship_graph.api_version,
@@ -48,6 +47,6 @@ impl From<kcapi_main::api_start2::get_data::ApiMstShipgraph> for MstShipGraph {
             api_sp_flag: ship_graph.api_sp_flag,
             api_wedc: ship_graph.api_wedc,
             api_wedd: ship_graph.api_wedd,
-        }
+        })
     }
 }

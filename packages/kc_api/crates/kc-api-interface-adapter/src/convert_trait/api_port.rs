@@ -7,17 +7,18 @@ use kc_api_interface::ship::Ships;
 
 use kc_api_dto::main::api_port::*;
 
-use crate::TraitForConvert;
+use crate::{InterfaceWrapper, TraitForConvert};
 
 impl TraitForConvert for port::Res {
     type Output = EmitData;
     fn convert(&self) -> Option<Vec<EmitData>> {
-        let materials: Materials = self.api_data.api_material.clone().into();
-        let ships: Ships = self.api_data.api_ship.clone().into();
-        let ndocks: NDocks = self.api_data.api_ndock.clone().into();
-        let logs: Logs = self.api_data.api_log.clone().into();
-        // let deck_ports: DeckPorts = self.api_data.api_deck_port.clone().into();
-        let deck_ports: DeckPorts = self.api_data.clone().into();
+        let materials =
+            InterfaceWrapper::<Materials>::from(self.api_data.api_material.clone()).unwrap();
+        let ships = InterfaceWrapper::<Ships>::from(self.api_data.api_ship.clone()).unwrap();
+        let ndocks = InterfaceWrapper::<NDocks>::from(self.api_data.api_ndock.clone()).unwrap();
+        let logs = InterfaceWrapper::<Logs>::from(self.api_data.api_log.clone()).unwrap();
+        // let deck_ports = InterfaceWrapper::<DeckPorts>::from(self.api_data.api_deck_port.clone()).unwrap();
+        let deck_ports = InterfaceWrapper::<DeckPorts>::from(self.api_data.clone()).unwrap();
 
         Some(vec![
             EmitData::Set(Set::Materials(materials)),

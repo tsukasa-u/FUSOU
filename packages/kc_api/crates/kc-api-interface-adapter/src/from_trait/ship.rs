@@ -1,24 +1,21 @@
-use once_cell::sync::Lazy;
+use crate::InterfaceWrapper;
+use kc_api_dto::main as kcapi_main;
+use kc_api_interface::ship::{Ship, Ships, SpEffectItem, SpEffectItems};
 use std::collections::HashMap;
-use std::sync::Mutex;
 
-use serde::{Deserialize, Serialize};
-use ts_rs::TS;
-
-impl From<Vec<kcapi_main::api_port::port::ApiShip>> for Ships {
+impl From<Vec<kcapi_main::api_port::port::ApiShip>> for InterfaceWrapper<Ships> {
     fn from(ships: Vec<kcapi_main::api_port::port::ApiShip>) -> Self {
         let mut ship_map = HashMap::<i64, Ship>::with_capacity(ships.len());
-        // let mut ship_map = HashMap::new();
         for ship in ships {
-            ship_map.insert(ship.api_id, ship.into());
+            ship_map.insert(ship.api_id, InterfaceWrapper::<Ship>::from(ship).unwrap());
         }
-        Self { ships: ship_map }
+        Self(Ships { ships: ship_map })
     }
 }
 
-impl From<kcapi_main::api_port::port::ApiShip> for Ship {
+impl From<kcapi_main::api_port::port::ApiShip> for InterfaceWrapper<Ship> {
     fn from(ship: kcapi_main::api_port::port::ApiShip) -> Self {
-        Self {
+        Self(Ship {
             id: ship.api_id,
             ship_id: Some(ship.api_ship_id),
             lv: Some(ship.api_lv),
@@ -43,30 +40,35 @@ impl From<kcapi_main::api_port::port::ApiShip> for Ship {
             sakuteki: Some(ship.api_sakuteki),
             lucky: Some(ship.api_lucky),
             sally_area: ship.api_sally_area,
-            sp_effect_items: ship.api_sp_effect_items.map(|items| items.into()),
-        }
+            sp_effect_items: ship
+                .api_sp_effect_items
+                .map(|items| InterfaceWrapper::<SpEffectItems>::from(items).unwrap()),
+        })
     }
 }
 
-impl From<Vec<kcapi_main::api_port::port::ApiSpEffectItem>> for SpEffectItems {
+impl From<Vec<kcapi_main::api_port::port::ApiSpEffectItem>> for InterfaceWrapper<SpEffectItems> {
     fn from(items: Vec<kcapi_main::api_port::port::ApiSpEffectItem>) -> Self {
         let mut item_map = HashMap::<i64, SpEffectItem>::with_capacity(items.len());
         for item in items {
-            item_map.insert(item.api_kind, item.into());
+            item_map.insert(
+                item.api_kind,
+                InterfaceWrapper::<SpEffectItem>::from(item).unwrap(),
+            );
         }
-        Self { items: item_map }
+        Self(SpEffectItems { items: item_map })
     }
 }
 
-impl From<kcapi_main::api_port::port::ApiSpEffectItem> for SpEffectItem {
+impl From<kcapi_main::api_port::port::ApiSpEffectItem> for InterfaceWrapper<SpEffectItem> {
     fn from(item: kcapi_main::api_port::port::ApiSpEffectItem) -> Self {
-        Self {
+        Self(SpEffectItem {
             kind: item.api_kind,
             raig: item.api_raig,
             souk: item.api_souk,
             houg: item.api_houg,
             kaih: item.api_kaih,
-        }
+        })
     }
 }
 
@@ -130,7 +132,7 @@ impl From<kcapi_main::api_port::port::ApiSpEffectItem> for SpEffectItem {
 //     }
 // }
 
-impl From<kcapi_main::api_req_hokyu::charge::ApiData> for Ships {
+impl From<kcapi_main::api_req_hokyu::charge::ApiData> for InterfaceWrapper<Ships> {
     fn from(charge_data: kcapi_main::api_req_hokyu::charge::ApiData) -> Self {
         let mut ship_map = HashMap::<i64, Ship>::with_capacity(charge_data.api_ship.clone().len());
 
@@ -167,6 +169,6 @@ impl From<kcapi_main::api_req_hokyu::charge::ApiData> for Ships {
             );
         }
 
-        Ships { ships: ship_map }
+        Self(Ships { ships: ship_map })
     }
 }

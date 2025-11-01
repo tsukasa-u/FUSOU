@@ -1,25 +1,26 @@
-use once_cell::sync::Lazy;
+use crate::InterfaceWrapper;
+use kc_api_dto::main as kcapi_main;
+use kc_api_interface::mst_slot_item::{MstSlotItem, MstSlotItems};
 use std::collections::HashMap;
-use std::sync::Mutex;
 
-use apache_avro::AvroSchema;
-use serde::{Deserialize, Serialize};
-use ts_rs::TS;
-
-impl From<Vec<kcapi_main::api_start2::get_data::ApiMstSlotitem>> for MstSlotItems {
+impl From<Vec<kcapi_main::api_start2::get_data::ApiMstSlotitem>>
+    for InterfaceWrapper<MstSlotItems>
+{
     fn from(slot_items: Vec<kcapi_main::api_start2::get_data::ApiMstSlotitem>) -> Self {
         let mut slot_item_map = HashMap::<i64, MstSlotItem>::with_capacity(slot_items.len());
-        // let mut ship_map = HashMap::new();
         for slot_item in slot_items {
-            slot_item_map.insert(slot_item.api_id, slot_item.into());
+            slot_item_map.insert(
+                slot_item.api_id,
+                InterfaceWrapper::<MstSlotItem>::from(slot_item).unwrap(),
+            );
         }
-        Self {
+        Self(MstSlotItems {
             mst_slot_items: slot_item_map,
-        }
+        })
     }
 }
 
-impl From<kcapi_main::api_start2::get_data::ApiMstSlotitem> for MstSlotItem {
+impl From<kcapi_main::api_start2::get_data::ApiMstSlotitem> for InterfaceWrapper<MstSlotItem> {
     fn from(slot_item: kcapi_main::api_start2::get_data::ApiMstSlotitem) -> Self {
         let mut kaihi = slot_item.api_houk;
         let mut meityu = slot_item.api_houm;
@@ -31,7 +32,7 @@ impl From<kcapi_main::api_start2::get_data::ApiMstSlotitem> for MstSlotItem {
             taibaku = meityu;
             meityu = 0;
         }
-        Self {
+        Self(MstSlotItem {
             id: slot_item.api_id,
             sortno: slot_item.api_sortno,
             name: slot_item.api_name,
@@ -62,6 +63,6 @@ impl From<kcapi_main::api_start2::get_data::ApiMstSlotitem> for MstSlotItem {
             version: slot_item.api_version,
             cost: slot_item.api_cost,
             distance: slot_item.api_distance,
-        }
+        })
     }
 }

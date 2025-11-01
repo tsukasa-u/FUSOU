@@ -3,12 +3,12 @@ use kc_api_interface::interface::{Add, EmitData};
 
 use kc_api_dto::main::api_req_combined_battle::*;
 
-use crate::TraitForConvert;
+use crate::{InterfaceWrapper, TraitForConvert};
 
 impl TraitForConvert for ec_battle::Res {
     type Output = EmitData;
     fn convert(&self) -> Option<Vec<EmitData>> {
-        let battle: Battle = self.api_data.clone().into();
+        let battle = InterfaceWrapper::<Battle>::from(self.api_data.clone()).unwrap();
         Some(vec![EmitData::Add(Add::Battle(battle))])
     }
 }
@@ -16,7 +16,7 @@ impl TraitForConvert for ec_battle::Res {
 impl TraitForConvert for ec_midnight_battle::Res {
     type Output = EmitData;
     fn convert(&self) -> Option<Vec<EmitData>> {
-        let battle: Battle = self.api_data.clone().into();
+        let battle = InterfaceWrapper::<Battle>::from(self.api_data.clone()).unwrap();
         Some(vec![EmitData::Add(Add::Battle(battle))])
     }
 }
