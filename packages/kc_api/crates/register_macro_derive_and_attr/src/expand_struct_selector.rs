@@ -15,6 +15,8 @@ use darling::FromMeta;
 pub struct MacroArgs4ExpandStructSelector {
     #[darling(default)]
     path: path::PathBuf,
+    #[darling(default)]
+    subpath: path::PathBuf,
 }
 
 pub fn expand_struct_selector(
@@ -115,16 +117,29 @@ pub fn expand_struct_selector(
     }
 
     let mut file_list: Vec<((String, String), (String, String))> = Vec::new();
-    if !args.path.exists() {
+    let if_arg_path_not_exists = !args.path.exists();
+    // let if_sub_arg_path_not_exists = match &args.subpath {
+    //     Some(p) => !p.exists(),
+    //     None => false,
+    // };
+    let if_sub_arg_path_not_exists = !args.subpath.exists();
+    if if_arg_path_not_exists && if_sub_arg_path_not_exists {
         return Err(syn::Error::new_spanned(
             ast.sig.output.clone(),
-            format!(
-                "The path is not exist. current path is {}",
-                std::env::current_dir().unwrap().join(&args.path).display()
-            ),
+            "The path is not exist.",
         ));
     }
-    let paths = fs::read_dir(args.path);
+    let paths = match if_arg_path_not_exists {
+        false => fs::read_dir(args.path.clone()),
+        // true if if_sub_arg_path_not_exists => fs::read_dir(args.subpath.clone().unwrap()),
+        true if if_sub_arg_path_not_exists => fs::read_dir(args.subpath.clone()),
+        _ => {
+            return Err(syn::Error::new_spanned(
+                ast.sig.output.clone(),
+                "The path(& subpath) is not exist.",
+            ))
+        }
+    };
     if paths.is_err() {
         return Err(syn::Error::new_spanned(
             ast.sig.output.clone(),

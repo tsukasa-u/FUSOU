@@ -14,10 +14,7 @@ use register_trait::FieldSizeChecker;
 use register_trait::TraitForRoot;
 use register_trait::TraitForTest;
 
-
-
 #[derive(FieldSizeChecker, TraitForTest, TraitForRoot)]
-
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
@@ -30,7 +27,6 @@ pub struct Req {
 }
 
 #[derive(FieldSizeChecker, TraitForTest, TraitForRoot)]
-
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[register_struct(name = "api_req_ranking/mxltvkpyuklh")]
@@ -98,7 +94,7 @@ mod tests {
         let target_path = std::env::var("TEST_DATA_PATH").expect("failed to get env data");
 
         let pattern_str = Regex::new(r".*S@api_req_ranking@[a-z]*").unwrap();
-        let log_path = "./src/kcapi_main/api_req_ranking/ranking@S.log";
+        let log_path = "./src/endpoints/api_req_ranking/ranking@S.log";
 
         let target = path::PathBuf::from(target_path);
         let files = target.read_dir().expect("read_dir call failed");

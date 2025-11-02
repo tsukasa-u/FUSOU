@@ -14,10 +14,7 @@ use register_trait::FieldSizeChecker;
 use register_trait::TraitForRoot;
 use register_trait::TraitForTest;
 
-
-
 #[derive(FieldSizeChecker, TraitForTest, TraitForRoot)]
-
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[derive(Debug, Clone, Deserialize)]
@@ -36,7 +33,6 @@ pub struct Req {
 }
 
 #[derive(FieldSizeChecker, TraitForTest, TraitForRoot)]
-
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
 #[register_struct(name = "api_get_member/ship2")]
@@ -124,6 +120,8 @@ pub struct ApiData {
     #[serde(rename = "api_sp_effect_items")]
     #[serde(default)]
     pub api_sp_effect_items: Vec<ApiSpEffectItem>,
+    #[serde(rename = "api_sally_area")]
+    pub api_sally_area: Option<i64>,
 }
 
 #[derive(FieldSizeChecker, TraitForTest)]
@@ -178,7 +176,7 @@ mod tests {
         let target_path = std::env::var("TEST_DATA_PATH").expect("failed to get env data");
 
         let pattern_str = "S@api_get_member@ship2";
-        let log_path = "./src/kcapi_main/api_get_member/ship2@S.log";
+        let log_path = "./src/endpoints/api_get_member/ship2@S.log";
         simple_root_test::<Res>(
             target_path.clone(),
             pattern_str.to_string(),
@@ -186,7 +184,7 @@ mod tests {
         );
 
         let pattern_str = "Q@api_get_member@ship2";
-        let log_path = "./src/kcapi_main/api_get_member/ship2@Q.log";
+        let log_path = "./src/endpoints/api_get_member/ship2@Q.log";
         simple_root_test::<Req>(
             target_path.clone(),
             pattern_str.to_string(),

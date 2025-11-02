@@ -3,11 +3,8 @@
 use dotenvy::dotenv;
 use std::env;
 
-mod check_database_dependency;
-mod check_database_field_size;
 mod check_struct_defined;
 mod check_struct_dependency;
-pub mod util;
 
 fn target_path() -> String {
     let mut target_path = "./../../FUSOU-PROXY-DATA/kcsapi".to_string();
@@ -32,14 +29,4 @@ fn test_struct_defined() {
 #[test]
 fn test_struct_dependency() {
     check_struct_dependency::check_struct_dependency();
-}
-
-#[test]
-fn test_database_dependency() {
-    check_database_dependency::check_database_dependency();
-}
-
-#[test]
-fn test_database_number_size() {
-    check_database_field_size::check_database_field_size();
 }

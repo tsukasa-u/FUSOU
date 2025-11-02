@@ -11,3 +11,16 @@ uuid = { workspace = true }
 tracing = { workspace = true }
 kc-api-interface = { workspace = true }
 kc-api-interface-adapter = { workspace = true }
+
+[dev-dependencies]
+dotenvy = { workspace = true }
+regex = { workspace = true }
+dot-writer = { workspace = true }
+
+[features]
+default = [ "graphviz", "from20250627" ]
+graphviz = []
+cytoscape = []
+
+from20250627 = ["20250627"]
+20250627 = []

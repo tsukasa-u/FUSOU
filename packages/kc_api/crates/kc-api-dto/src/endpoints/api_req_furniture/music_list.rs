@@ -79,7 +79,7 @@ mod tests {
         let target_path = std::env::var("TEST_DATA_PATH").expect("failed to get env data");
 
         let pattern_str = "S@api_req_furniture@music_list";
-        let log_path = "./src/kcapi_main/api_req_furniture/music_list@S.log";
+        let log_path = "./src/endpoints/api_req_furniture/music_list@S.log";
         simple_root_test::<Res>(
             target_path.clone(),
             pattern_str.to_string(),
@@ -87,7 +87,7 @@ mod tests {
         );
 
         let pattern_str = "Q@api_req_furniture@music_list";
-        let log_path = "./src/kcapi_main/api_req_furniture/music_list@Q.log";
+        let log_path = "./src/endpoints/api_req_furniture/music_list@Q.log";
         simple_root_test::<Req>(
             target_path.clone(),
             pattern_str.to_string(),

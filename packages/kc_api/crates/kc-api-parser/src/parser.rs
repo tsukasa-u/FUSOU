@@ -6,7 +6,10 @@ use kc_api_dto;
 use kc_api_interface::interface::EmitData;
 use kc_api_interface_adapter::TraitForConvert;
 
-#[expand_struct_selector(path = "../kc-api-dto/src/endpoints")]
+#[expand_struct_selector(
+    path = "../kc-api-dto/src/endpoints",
+    subpath = "./crates/kc-api-dto/src/endpoints"
+)]
 pub fn response_parser(name: String, data: String) -> Result<Vec<EmitData>, Box<dyn Error>> {
     let root_wrap: Result<kcsapi_lib::Res, serde_json::Error> = serde_json::from_str(&data);
 
@@ -26,7 +29,10 @@ pub fn response_parser(name: String, data: String) -> Result<Vec<EmitData>, Box<
     };
 }
 
-#[expand_struct_selector(path = "../kc-api-dto/src/endpoints")]
+#[expand_struct_selector(
+    path = "../kc-api-dto/src/endpoints",
+    subpath = "./crates/kc-api-dto/src/endpoints"
+)]
 pub fn request_parser(name: String, data: String) -> Result<Vec<EmitData>, Box<dyn Error>> {
     let root_wrap: Result<kcsapi_lib::Req, serde_qs::Error> = serde_qs::from_str(&data);
 

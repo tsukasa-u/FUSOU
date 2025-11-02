@@ -12,6 +12,8 @@ serde_qs = { workspace = true }
 
 [dev-dependencies]
 dotenvy = { workspace = true }
+confy = { workspace = true }
+dot-writer = { workspace = true }
 
 [features]
 default = [ "graphviz", "from20250627" ]

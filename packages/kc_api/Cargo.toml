@@ -8,6 +8,7 @@ members = [
 	"crates/kc-api-parser",
 	"crates/register_trait",
 	"crates/register_macro_derive_and_attr",
+	"crates/kc-api-integration-test",
 ]
 resolver = "2"
 

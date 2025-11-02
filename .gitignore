@@ -24,13 +24,12 @@ node_modules/
 *storybook.log
 storybook-static
 
-packages/kc_api/tests/struct_dependency_dot/*.dot
-packages/kc_api/tests/struct_dependency_json/*.json
-packages/kc_api/tests/struct_dependency_svg/*.svg
-packages/kc_api/tests/database_dependency_dot/*.dot
-packages/kc_api/tests/database_dependency_json/*.json
-packages/kc_api/tests/database_dependency_svg/*.svg
-packages/kc_api/.env
+packages/kc_api/crates/kc-api-dto/tests/struct_dependency_dot/**/*.dot
+packages/kc_api/crates/kc-api-dto/tests/struct_dependency_svg/**/*.svg
+packages/kc_api/crates/kc-api-database/tests/database_dependency_dot/**/*.dot
+packages/kc_api/crates/kc-api-database/tests/database_dependency_svg/**/*.svg
+packages/kc_api/crates/kc-api-dto/.env
+packages/kc_api/crates/kc-api-integration-test/.env
 
 packages/FUSOU-PROXY-DATA*/
 

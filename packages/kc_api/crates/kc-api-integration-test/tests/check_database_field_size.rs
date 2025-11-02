@@ -1,11 +1,10 @@
 use chrono::DateTime;
-use kc_api::{
-    database::table::{GetDataTable, PortTable},
-    interface::{
-        cells::Cells,
-        interface::{Add, EmitData, Identifier, Set},
-    },
+use kc_api_database::table::{GetDataTable, PortTable};
+use kc_api_interface::{
+    cells::Cells,
+    interface::{Add, EmitData, Identifier, Set},
 };
+use kc_api_parser::parser;
 use std::{fs, path::PathBuf};
 use uuid::Uuid;
 
@@ -184,25 +183,26 @@ pub fn check_database_field_size() {
             }
             let path_name = format!("/kcsapi/{}/{}", parse_path[1], parse_path[2]);
 
-            let emit_data_list = match parse_path[0] {
-                s if s.ends_with("S") => {
-                    let emit_data_list: Vec<EmitData> =
-                        kc_api::parser::response_parser(path_name, data_removed_metadata).expect(
-                            &format!("failed to parse the file({})", file_path.display()),
-                        );
-                    emit_data_list
-                }
-                s if s.ends_with("Q") => {
-                    let emit_data_list: Vec<EmitData> =
-                        kc_api::parser::request_parser(path_name, data_removed_metadata).expect(
-                            &format!("failed to parse the file({})", file_path.display()),
-                        );
-                    emit_data_list
-                }
-                _ => {
-                    panic!("file name format is invalid({})", file_path.display());
-                }
-            };
+            let emit_data_list =
+                match parse_path[0] {
+                    s if s.ends_with("S") => {
+                        let emit_data_list: Vec<EmitData> =
+                            parser::response_parser(path_name, data_removed_metadata).expect(
+                                &format!("failed to parse the file({})", file_path.display()),
+                            );
+                        emit_data_list
+                    }
+                    s if s.ends_with("Q") => {
+                        let emit_data_list: Vec<EmitData> =
+                            parser::request_parser(path_name, data_removed_metadata).expect(
+                                &format!("failed to parse the file({})", file_path.display()),
+                            );
+                        emit_data_list
+                    }
+                    _ => {
+                        panic!("file name format is invalid({})", file_path.display());
+                    }
+                };
 
             for data in emit_data_list {
                 match emit_data(data) {

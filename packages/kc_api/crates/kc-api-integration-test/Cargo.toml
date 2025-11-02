@@ -1,0 +1,16 @@
+[package]
+name = "kc-api-integration-test"
+version.workspace = true
+edition.workspace = true
+
+
+[dev-dependencies]
+chrono = { workspace = true }
+kc-api-database = { workspace = true }
+kc-api-interface = { workspace = true }
+kc-api-parser = { workspace = true }
+register_trait = { workspace = true }
+uuid = { workspace = true }
+dotenvy = { workspace = true }
+regex = { workspace = true }
+
