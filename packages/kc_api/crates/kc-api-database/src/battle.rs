@@ -300,7 +300,7 @@ impl MidnightHougeki {
             None => None,
         };
 
-        return ret;
+        ret
     }
 }
 
@@ -1278,7 +1278,7 @@ impl FriendlySupportHourai {
             None => None,
         };
 
-        return ret;
+        ret
     }
 }
 

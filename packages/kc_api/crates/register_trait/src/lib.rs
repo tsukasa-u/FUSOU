@@ -36,26 +36,26 @@ pub trait TraitForTest {
     // fn is_vec(&self) -> bool { return false; }
     // fn is_hashmap(&self) -> bool { return false; }
     fn is_value(&self) -> bool {
-        return false;
+        false
     }
 
     fn is_null(&self) -> bool {
-        return false;
+        false
     }
     fn is_boolean(&self) -> bool {
-        return false;
+        false
     }
     fn is_number(&self) -> bool {
-        return false;
+        false
     }
     fn is_string(&self) -> bool {
-        return false;
+        false
     }
     fn is_array(&self) -> bool {
-        return false;
+        false
     }
     fn is_object(&self) -> bool {
-        return false;
+        false
     }
 }
 

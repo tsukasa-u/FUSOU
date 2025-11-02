@@ -149,7 +149,7 @@ pub fn check_database_dependency() {
     }
 
     let mut file = File::create("./tests/database_dependency.log").unwrap();
-    file.write_all(format!("{:#?}", books).as_bytes())
+    file.write_all(format!("{books:#?}").as_bytes())
         .expect("write failed");
 
     let books_vec: ApiFieldTypeInfoVec = create_api_field_type_info_vec_sorted(&books);
@@ -171,12 +171,12 @@ pub fn check_database_dependency() {
                 for (struct_name, fields) in fieldm.iter() {
                     let node_struct_name_id = {
                         let mut node_struct_name = cluster
-                            .node_named(format!("{}__{}__{}", api_name_1, api_name_2, struct_name));
+                            .node_named(format!("{api_name_1}__{api_name_2}__{struct_name}"));
                         set_node_struct_name(&mut node_struct_name, struct_name, fields);
                         node_struct_name.id()
                     };
                     struct_node_list.insert(
-                        format!("{}__{}__{}", api_name_1, api_name_2, struct_name),
+                        format!("{api_name_1}__{api_name_2}__{struct_name}"),
                         node_struct_name_id.clone(),
                     );
 
@@ -395,7 +395,7 @@ fn create_api_field_type_info_vec_sorted(books: &ApiFieldTypeInfo) -> ApiFieldTy
 
 #[cfg(feature = "graphviz")]
 fn set_cluster(cluster: &mut Scope, api_name_1: &str, api_name_2: &str) {
-    cluster.set_label(&format!("{} / {}", api_name_1, api_name_2));
+    cluster.set_label(&format!("{api_name_1} / {api_name_2}"));
     cluster
         .node_attributes()
         .set_style(Style::Filled)
@@ -426,8 +426,7 @@ fn get_struct_label(fields: &FieldTypeInfo) -> String {
 fn set_node_struct_name(node_struct_name: &mut Node, struct_name: &str, fields: &FieldTypeInfo) {
     let struct_label: String = get_struct_label(fields);
     node_struct_name.set_label(&format!(
-        "<{}> {} {}",
-        struct_name, struct_name, struct_label
+        "<{struct_name}> {struct_name} {struct_label}"
     ));
     node_struct_name.set_shape(Shape::Record);
 }

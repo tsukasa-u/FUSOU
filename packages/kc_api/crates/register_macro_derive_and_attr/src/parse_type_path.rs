@@ -39,7 +39,7 @@ pub fn psrse_type_path(ty: syn::TypePath) -> Result<String, syn::Error> {
                 let args = &path_segment.arguments;
                 match args {
                     syn::PathArguments::None => {
-                        type_indent.push_str(&format!("{}", ident));
+                        type_indent.push_str(&format!("{ident}"));
                     }
                     syn::PathArguments::AngleBracketed(AngleBracketedGenericArguments {
                         colon2_token,
@@ -53,7 +53,7 @@ pub fn psrse_type_path(ty: syn::TypePath) -> Result<String, syn::Error> {
                             ));
                         }
 
-                        type_indent.push_str(&format!("{}<", ident));
+                        type_indent.push_str(&format!("{ident}<"));
 
                         match args.len() {
                             0 => {
@@ -146,18 +146,18 @@ pub fn expand_children(
     if re_vec.is_match(&str) {
         let cap = re_vec.captures(&str).unwrap();
         let ty = cap.get(1).unwrap().as_str();
-        let iter_num = proc_macro2::Ident::new(&format!("i{}", num), Span::call_site());
+        let iter_num = proc_macro2::Ident::new(&format!("i{num}"), Span::call_site());
         let res = expand_children(ty.to_owned(), num + 1, iter_num.clone(), closure);
         let for_token = quote! {
             for #iter_num in #x {
                 #res
             }
         };
-        return for_token;
+        for_token
     } else if re_option.is_match(&str) {
         let cap = re_option.captures(&str).unwrap();
         let ty = cap.get(1).unwrap().as_str();
-        let iter_num = proc_macro2::Ident::new(&format!("i{}", num), Span::call_site());
+        let iter_num = proc_macro2::Ident::new(&format!("i{num}"), Span::call_site());
         let res = expand_children(ty.to_owned(), num + 1, iter_num.clone(), closure);
         let option_token = quote! {
             match #x {
@@ -172,7 +172,7 @@ pub fn expand_children(
         let cap = re_hashmap.captures(&str).unwrap();
         let _ty1 = cap.get(1).unwrap().as_str();
         let ty2 = cap.get(2).unwrap().as_str();
-        let iter_num = proc_macro2::Ident::new(&format!("i{}", num), Span::call_site());
+        let iter_num = proc_macro2::Ident::new(&format!("i{num}"), Span::call_site());
         let res = expand_children(ty2.to_owned(), num + 1, iter_num.clone(), closure);
         let hashmap_token = quote! {
             for (_, #iter_num) in #x {
@@ -191,7 +191,7 @@ pub fn expand_children_from_self(
     x: proc_macro2::Ident,
     closure: &dyn Fn(&syn::Ident) -> proc_macro2::TokenStream,
 ) -> proc_macro2::TokenStream {
-    let ident_num = proc_macro2::Ident::new(&format!("i{}", num), Span::call_site());
+    let ident_num = proc_macro2::Ident::new(&format!("i{num}"), Span::call_site());
     let res = expand_children(str, num, ident_num.clone(), closure);
     let repalce_token = quote! {
         let #ident_num = &self.#x;
@@ -199,5 +199,5 @@ pub fn expand_children_from_self(
             #res
         }
     };
-    return repalce_token;
+    repalce_token
 }

@@ -116,7 +116,7 @@ pub fn generate_test_struct(ast: &mut DeriveInput) -> Result<TokenStream, syn::E
                                         0,
                                         Ident::new(&format!("{}", ident.clone()), proc_macro2::Span::call_site()),
                                         &|x: &proc_macro2::Ident| {
-                                            return quote! {
+                                            quote! {
                                                 if #x.is_value() {
                                                     // assert!(!#x.is_null(), "{} in {} is null", stringify!(#ident), stringify!(#struct_name));
                                                     // assert!(!#x.is_boolean(), "{} in {} is a boolean", stringify!(#ident), stringify!(#struct_name));
@@ -150,7 +150,7 @@ pub fn generate_test_struct(ast: &mut DeriveInput) -> Result<TokenStream, syn::E
                                                     log_vec.sort();
                                                     log_vec.dedup();
                                                 }
-                                            };
+                                            }
                                         }
                                     )
                                 );
@@ -187,13 +187,13 @@ pub fn generate_test_struct(ast: &mut DeriveInput) -> Result<TokenStream, syn::E
                                         proc_macro2::Span::call_site(),
                                     ),
                                     &|x: &proc_macro2::Ident| {
-                                        return quote! {
+                                        quote! {
                                             if !#x.is_value() {
                                                 #x.test_extra(log_map);
                                                 #x.test_type_value(log_map);
                                                 #x.test_integration(log_map);
                                             }
-                                        };
+                                        }
                                     },
                                 ));
                             }

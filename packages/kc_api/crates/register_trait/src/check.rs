@@ -275,16 +275,16 @@ impl FieldSizeChecker for uuid::Uuid {}
 
 pub fn write_log_check_field_size(log_path: String, log_map: &LogMapNumberSize) -> usize {
     let mut file =
-        File::create(log_path).expect(&format!("\x1b[38;5;{}m can not create file\x1b[m ", 8));
+        File::create(log_path).unwrap_or_else(|_| panic!("\x1b[38;5;{}m can not create file\x1b[m ", 8));
 
     let local: chrono::DateTime<chrono::Local> = chrono::Local::now();
-    writeln!(file, "check number size result [{}]", local)
-        .expect(&format!("\x1b[38;5;{}m cannot write.\x1b[m ", 8));
+    writeln!(file, "check number size result [{local}]")
+        .unwrap_or_else(|_| panic!("\x1b[38;5;{}m cannot write.\x1b[m ", 8));
     writeln!(
         file,
         "struct_name / field_name / type_name: min, max, bit_size, size",
     )
-    .expect(&format!("\x1b[38;5;{}m cannot write.\x1b[m ", 8));
+    .unwrap_or_else(|_| panic!("\x1b[38;5;{}m cannot write.\x1b[m ", 8));
 
     let mut invalid_count = 0;
     for ((struct_name, field_name, type_name), log) in log_map.iter() {
@@ -324,20 +324,20 @@ pub fn write_log_check_field_size(log_path: String, log_map: &LogMapNumberSize) 
                     "{} / {} / {}: {}, {}, {}, {}  <-- sign mismatch",
                     struct_name, field_name, type_name, log[0], log[1], log[2], size_name
                 )
-                .expect(&format!("\x1b[38;5;{}m cannot write.\x1b[m ", 8));
+                .unwrap_or_else(|_| panic!("\x1b[38;5;{}m cannot write.\x1b[m ", 8));
             } else {
                 writeln!(
                     file,
                     "{} / {} / {}: {}, {}, {}, {}  <-- range mismatch",
                     struct_name, field_name, type_name, log[0], log[1], log[2], size_name
                 )
-                .expect(&format!("\x1b[38;5;{}m cannot write.\x1b[m ", 8));
+                .unwrap_or_else(|_| panic!("\x1b[38;5;{}m cannot write.\x1b[m ", 8));
             }
         }
     }
     // file.write_all(format!("{:#?}", log_map).as_bytes())
     //     .expect(&format!("\x1b[38;5;{}m cannot write.\x1b[m ", 8));
-    return invalid_count;
+    invalid_count
 }
 
 // pub fn simple_root_check_field_size<T>(target_path: String, pattren_str: String, log_path: String)

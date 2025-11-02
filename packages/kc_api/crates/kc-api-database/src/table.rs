@@ -418,7 +418,7 @@ impl PortTable {
             let uuid = Uuid::new_v7(ts);
             Cells::new_ret_option(ts, uuid, interface_cells, &mut table, env_uuid)
         };
-        return table;
+        table
     }
 
     pub fn encode(&self) -> Result<PortTableEncode, apache_avro::Error> {
@@ -492,7 +492,7 @@ impl PortTable {
             support_hourai,
             battle,
         };
-        return Ok(table_encode);
+        Ok(table_encode)
     }
 }
 
@@ -658,7 +658,8 @@ impl GetDataTable {
             .cloned()
             .collect();
 
-        let table = GetDataTable {
+        
+        GetDataTable {
             mst_ship,
             mst_slot_item,
             mst_equip_exslot_ship,
@@ -672,8 +673,7 @@ impl GetDataTable {
             mst_map_info,
             mst_ship_graph,
             mst_ship_upgrade,
-        };
-        return table;
+        }
     }
 
     pub fn encode(&self) -> Result<GetDataTableEncode, apache_avro::Error> {
@@ -706,6 +706,6 @@ impl GetDataTable {
             mst_map_info,
             mst_ship_upgrade,
         };
-        return Ok(table_encode);
+        Ok(table_encode)
     }
 }

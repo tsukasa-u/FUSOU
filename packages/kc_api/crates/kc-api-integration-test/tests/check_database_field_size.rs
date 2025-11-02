@@ -160,7 +160,7 @@ pub fn check_database_field_size() {
     for file_api_seq in file_api_seq_vec {
         for file_path in file_api_seq {
             let file_content = fs::read_to_string(file_path.clone())
-                .expect(&format!("can not read the file({})", file_path.display()));
+                .unwrap_or_else(|_| panic!("can not read the file({})", file_path.display()));
 
             let data_removed_bom: String = file_content.replace("\u{feff}", "");
             let data_removed_svdata: String = data_removed_bom.replace("svdata=", "");
@@ -187,16 +187,12 @@ pub fn check_database_field_size() {
                 match parse_path[0] {
                     s if s.ends_with("S") => {
                         let emit_data_list: Vec<EmitData> =
-                            parser::response_parser(path_name, data_removed_metadata).expect(
-                                &format!("failed to parse the file({})", file_path.display()),
-                            );
+                            parser::response_parser(path_name, data_removed_metadata).unwrap_or_else(|_| panic!("failed to parse the file({})", file_path.display()));
                         emit_data_list
                     }
                     s if s.ends_with("Q") => {
                         let emit_data_list: Vec<EmitData> =
-                            parser::request_parser(path_name, data_removed_metadata).expect(
-                                &format!("failed to parse the file({})", file_path.display()),
-                            );
+                            parser::request_parser(path_name, data_removed_metadata).unwrap_or_else(|_| panic!("failed to parse the file({})", file_path.display()));
                         emit_data_list
                     }
                     _ => {

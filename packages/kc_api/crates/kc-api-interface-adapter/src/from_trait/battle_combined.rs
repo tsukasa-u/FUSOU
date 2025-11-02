@@ -101,7 +101,7 @@ impl From<kcapi_main::api_req_combined_battle::ec_battle::ApiData> for Interface
         })
         .unwrap();
         calc_dmg(&mut ret);
-        return Self(ret);
+        Self(ret)
     }
 }
 
@@ -187,7 +187,7 @@ impl From<kcapi_main::api_req_combined_battle::ec_midnight_battle::ApiData>
         })
         .unwrap();
         calc_dmg(&mut ret);
-        return Self(ret);
+        Self(ret)
     }
 }
 
@@ -279,7 +279,7 @@ impl From<kcapi_main::api_req_combined_battle::battle_water::ApiData> for Interf
         })
         .unwrap();
         calc_dmg(&mut ret);
-        return Self(ret);
+        Self(ret)
     }
 }
 
@@ -371,7 +371,7 @@ impl From<kcapi_main::api_req_combined_battle::battle::ApiData> for InterfaceWra
         })
         .unwrap();
         calc_dmg(&mut ret);
-        return Self(ret);
+        Self(ret)
     }
 }
 
@@ -465,7 +465,7 @@ impl From<kcapi_main::api_req_combined_battle::each_battle_water::ApiData>
         })
         .unwrap();
         calc_dmg(&mut ret);
-        return Self(ret);
+        Self(ret)
     }
 }
 
@@ -557,7 +557,7 @@ impl From<kcapi_main::api_req_combined_battle::each_battle::ApiData> for Interfa
         })
         .unwrap();
         calc_dmg(&mut ret);
-        return Self(ret);
+        Self(ret)
     }
 }
 
@@ -632,7 +632,7 @@ impl From<kcapi_main::api_req_combined_battle::ld_airbattle::ApiData> for Interf
         })
         .unwrap();
         calc_dmg(&mut ret);
-        return Self(ret);
+        Self(ret)
     }
 }
 
@@ -697,7 +697,7 @@ impl From<kcapi_main::api_req_combined_battle::midnight_battle::ApiData>
         })
         .unwrap();
         calc_dmg(&mut ret);
-        return Self(ret);
+        Self(ret)
     }
 }
 
@@ -760,6 +760,6 @@ impl From<kcapi_main::api_req_combined_battle::sp_midnight::ApiData> for Interfa
         })
         .unwrap();
         calc_dmg(&mut ret);
-        return Self(ret);
+        Self(ret)
     }
 }

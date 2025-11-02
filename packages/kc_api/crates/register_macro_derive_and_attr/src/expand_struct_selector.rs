@@ -81,7 +81,7 @@ pub fn expand_struct_selector(
         } else {
             return false;
         }
-        return false;
+        false
     });
 
     if !name_in {
@@ -155,10 +155,8 @@ pub fn expand_struct_selector(
     };
 
     for file_path in paths.flatten().map(|entry| entry.path()) {
-        let metadata = fs::metadata(file_path.clone()).expect(&format!(
-            "can not get metadata of the file({})",
-            file_path.display()
-        ));
+        let metadata = fs::metadata(file_path.clone()).unwrap_or_else(|_| panic!("can not get metadata of the file({})",
+            file_path.display()));
         let file_type = metadata.file_type();
         if file_type.is_dir() {
             let file_dir = fs::read_dir(file_path.clone());

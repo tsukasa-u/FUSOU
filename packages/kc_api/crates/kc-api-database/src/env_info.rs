@@ -49,6 +49,6 @@ impl EnvInfo {
 
         table.env_info.push(new_data);
 
-        return new_uuid;
+        new_uuid
     }
 }

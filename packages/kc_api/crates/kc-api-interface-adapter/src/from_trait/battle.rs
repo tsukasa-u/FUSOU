@@ -526,9 +526,9 @@ impl From<kcapi_common::common_midnight::ApiHougeki> for InterfaceWrapper<Midnig
                             n if n < 100 => {
                                 let df_0 = df_list[idx][0];
                                 if df_list[idx].iter().all(|x| *x == df_0) {
-                                    return vec![damages.iter().fold(0_f32, |acc, y| acc + *y)];
+                                    vec![damages.iter().fold(0_f32, |acc, y| acc + *y)]
                                 } else {
-                                    return damages;
+                                    damages
                                 }
                             }
                             _ => damages,
@@ -553,9 +553,9 @@ impl From<kcapi_common::common_midnight::ApiHougeki> for InterfaceWrapper<Midnig
                                 n if n < 100 => {
                                     let df_0 = df_list[idx][0];
                                     if df_list[idx].iter().all(|x| *x == df_0) {
-                                        return vec![cl_list.iter().max().unwrap_or(&0).to_owned()];
+                                        vec![cl_list.iter().max().unwrap_or(&0).to_owned()]
                                     } else {
-                                        return cl_list;
+                                        cl_list
                                     }
                                 }
                                 _ => cl_list,
@@ -591,9 +591,9 @@ impl From<kcapi_common::common_midnight::ApiHougeki> for InterfaceWrapper<Midnig
                         n if n < 100 => {
                             let df_0 = df_list[0];
                             if df_list.iter().all(|x| *x == df_0) {
-                                return vec![df_0];
+                                vec![df_0]
                             } else {
-                                return df_list;
+                                df_list
                             }
                         }
                         _ => df_list,
