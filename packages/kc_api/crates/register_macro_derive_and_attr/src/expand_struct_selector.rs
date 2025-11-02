@@ -131,8 +131,8 @@ pub fn expand_struct_selector(
     }
     let paths = match if_arg_path_not_exists {
         false => fs::read_dir(args.path.clone()),
-        // true if if_sub_arg_path_not_exists => fs::read_dir(args.subpath.clone().unwrap()),
-        true if if_sub_arg_path_not_exists => fs::read_dir(args.subpath.clone()),
+        // true if !if_sub_arg_path_not_exists => fs::read_dir(args.subpath.clone().unwrap()),
+        true if !if_sub_arg_path_not_exists => fs::read_dir(args.subpath.clone()),
         _ => {
             return Err(syn::Error::new_spanned(
                 ast.sig.output.clone(),
