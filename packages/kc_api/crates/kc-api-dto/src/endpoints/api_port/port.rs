@@ -1,7 +1,7 @@
 #![doc = "# kanColle API"]
 #![doc = "KC APIs are also dependent on kcapi::kcapi_common."]
 #![doc = "The dependency graph of the APIs is shown below."]
-#![doc = register_trait::insert_svg!(path="./tests/struct_dependency_svg/api_port@port.svg", id="kc-dependency-svg-embed", style="border: 1px solid black; height:80vh; width:100%", role="img", aria_label="KC_API_dependency(api_port/port)")]
+#![doc = register_trait::insert_svg!(path="../../tests/struct_dependency_svg/api_port@port.svg", id="kc-dependency-svg-embed", style="border: 1px solid black; height:80vh; width:100%", role="img", aria_label="KC_API_dependency(api_port/port)")]
 #![doc = include_str!("../../../../../js/svg_pan_zoom.html")]
 
 use serde::Deserialize;
