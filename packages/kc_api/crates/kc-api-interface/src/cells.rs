@@ -62,7 +62,7 @@ impl Cells {
 
     pub fn reset_flag() -> bool {
         let cells = KCS_CELLS.lock().unwrap();
-        return cells.maparea_id == 0
+        cells.maparea_id == 0
             && cells.mapinfo_no == 0
             && cells.bosscell_no == 0
             && cells.bosscomp == 0
@@ -70,7 +70,7 @@ impl Cells {
             && cells.cell_index.is_empty()
             && cells.event_map.is_none()
             && cells.cell_data.is_empty()
-            && cells.battles.is_empty();
+            && cells.battles.is_empty()
     }
 }
 

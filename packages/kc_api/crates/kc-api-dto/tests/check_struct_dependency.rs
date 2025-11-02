@@ -174,7 +174,7 @@ pub fn check_struct_dependency() {
     }
 
     let mut file = File::create("./tests/struct_dependency.log").unwrap();
-    file.write_all(format!("{:#?}", books).as_bytes())
+    file.write_all(format!("{books:#?}").as_bytes())
         .expect("write failed");
 
     let books_vec: ApiFieldTypeInfoVec = create_api_field_type_info_vec_sorted(&books);
@@ -196,7 +196,7 @@ pub fn check_struct_dependency() {
                 for (struct_name, fields) in fieldm.iter() {
                     let node_struct_name_id = {
                         let mut node_struct_name = cluster
-                            .node_named(format!("{}__{}__{}", api_name_1, api_name_2, struct_name));
+                            .node_named(format!("{api_name_1}__{api_name_2}__{struct_name}"));
                         set_node_struct_name(&mut node_struct_name, struct_name, fields);
                         check_dobule_resitering_struct_name(
                             &mut node_struct_name,
@@ -207,7 +207,7 @@ pub fn check_struct_dependency() {
                         node_struct_name.id()
                     };
                     struct_node_list.insert(
-                        format!("{}__{}__{}", api_name_1, api_name_2, struct_name),
+                        format!("{api_name_1}__{api_name_2}__{struct_name}"),
                         node_struct_name_id.clone(),
                     );
 
@@ -435,15 +435,14 @@ pub fn check_struct_dependency() {
                     for (struct_name, fields) in fieldm.iter() {
                         let node_struct_name_id = {
                             let mut node_struct_name = cluster.node_named(format!(
-                                "{}__{}__{}",
-                                api_name_1, api_name_2, struct_name
+                                "{api_name_1}__{api_name_2}__{struct_name}"
                             ));
                             set_node_struct_name(&mut node_struct_name, struct_name, fields);
 
                             node_struct_name.id()
                         };
                         struct_node_list.insert(
-                            format!("{}__{}__{}", api_name_1, api_name_2, struct_name),
+                            format!("{api_name_1}__{api_name_2}__{struct_name}"),
                             node_struct_name_id.clone(),
                         );
 
@@ -503,7 +502,7 @@ pub fn check_struct_dependency() {
                             [field_type_location_parse.len() - 1]
                             .to_string();
 
-                        let key = format!("{}__{}", api_name_1, api_name_2);
+                        let key = format!("{api_name_1}__{api_name_2}");
                         if let std::collections::hash_map::Entry::Vacant(e) =
                             field_type_location_parse_uniq.entry(key.clone())
                         {
@@ -560,15 +559,14 @@ pub fn check_struct_dependency() {
                             .unwrap();
                         let node_struct_name_id = {
                             let mut node_struct_name = cluster.node_named(format!(
-                                "{}__{}__{}",
-                                api_name_1, api_name_2, struct_name
+                                "{api_name_1}__{api_name_2}__{struct_name}"
                             ));
                             set_node_struct_name(&mut node_struct_name, struct_name, fields);
 
                             node_struct_name.id()
                         };
                         struct_node_list.insert(
-                            format!("{}__{}__{}", api_name_1, api_name_2, struct_name),
+                            format!("{api_name_1}__{api_name_2}__{struct_name}"),
                             node_struct_name_id.clone(),
                         );
 
@@ -621,8 +619,7 @@ pub fn check_struct_dependency() {
             }
 
             let mut file = File::create(format!(
-                "../../tests/struct_dependency_dot/{}@{}.dot",
-                api_name_1, api_name_2
+                "../../tests/struct_dependency_dot/{api_name_1}@{api_name_2}.dot"
             ))
             .unwrap();
             file.write_all(output_bytes.as_slice())
@@ -653,7 +650,7 @@ fn create_api_field_type_info_vec_sorted(books: &ApiFieldTypeInfo) -> ApiFieldTy
 
 #[cfg(feature = "graphviz")]
 fn set_cluster(cluster: &mut Scope, api_name_1: &str, api_name_2: &str) {
-    cluster.set_label(&format!("{} / {}", api_name_1, api_name_2));
+    cluster.set_label(&format!("{api_name_1} / {api_name_2}"));
     cluster
         .node_attributes()
         .set_style(Style::Filled)
@@ -684,8 +681,7 @@ fn get_struct_label(fields: &FieldTypeInfo) -> String {
 fn set_node_struct_name(node_struct_name: &mut Node, struct_name: &str, fields: &FieldTypeInfo) {
     let struct_label: String = get_struct_label(fields);
     node_struct_name.set_label(&format!(
-        "<{}> {} {}",
-        struct_name, struct_name, struct_label
+        "<{struct_name}> {struct_name} {struct_label}"
     ));
     node_struct_name.set_shape(Shape::Record);
 }
@@ -735,7 +731,7 @@ fn get_self_node_field_type_id(
     api_name_2: &String,
     type_name: &String,
 ) -> NodeId {
-    let key: String = format!("{}__{}__{}", api_name_1, api_name_2, type_name);
+    let key: String = format!("{api_name_1}__{api_name_2}__{type_name}");
     if struct_node_list.contains_key(&key) {
         struct_node_list.get(&key).unwrap().clone()
     } else {

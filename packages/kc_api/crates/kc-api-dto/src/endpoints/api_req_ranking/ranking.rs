@@ -102,7 +102,7 @@ mod tests {
             .map(|dir_entry| {
                 let file_path = dir_entry.unwrap().path();
                 // file_path.exists();
-                return file_path;
+                file_path
             })
             .filter(|file_path| pattern_str.is_match(file_path.to_str().unwrap()));
         custom_root_test::<Res>(file_list, log_path.to_string());

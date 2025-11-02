@@ -59,7 +59,7 @@ pub fn check_struct_defined(target_path: String) {
         .as_bytes(),
     )
     .expect("write failed");
-    file.write_all(format!("{:#?}\n", content).as_bytes())
+    file.write_all(format!("{content:#?}\n").as_bytes())
         .expect("write failed");
 
     file.write_all("\n".as_bytes()).expect("write failed");
@@ -72,7 +72,7 @@ pub fn check_struct_defined(target_path: String) {
         .as_bytes(),
     )
     .expect("write failed");
-    file.write_all(format!("{:#?}\n", cfg_hash_set).as_bytes())
+    file.write_all(format!("{cfg_hash_set:#?}\n").as_bytes())
         .expect("write failed");
 
     file.write_all("\n".as_bytes()).expect("write failed");
@@ -85,13 +85,13 @@ pub fn check_struct_defined(target_path: String) {
         .as_bytes(),
     )
     .expect("write failed");
-    file.write_all(format!("{:#?}\n", diff_not_in_data).as_bytes())
+    file.write_all(format!("{diff_not_in_data:#?}\n").as_bytes())
         .expect("write failed");
 
     file.write_all("\n".as_bytes()).expect("write failed");
     file.write_all(format!("all struct ({})\n", cfg_hash_set.clone().len()).as_bytes())
         .expect("write failed");
-    file.write_all(format!("{:#?}\n", cfg_hash_set).as_bytes())
+    file.write_all(format!("{cfg_hash_set:#?}\n").as_bytes())
         .expect("write failed");
 
     if diff.clone().count() > 0 {

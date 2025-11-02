@@ -11,7 +11,7 @@ impl<T> InterfaceWrapper<T> {
 pub trait TraitForConvert {
     type Output;
     fn convert(&self) -> Option<Vec<Self::Output>> {
-        return None;
+        None
     }
 }
 

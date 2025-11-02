@@ -20,7 +20,7 @@ use std::path::PathBuf;
 
 impl TraitForTest for Value {
     fn is_value(&self) -> bool {
-        return true;
+        true
     }
 }
 
@@ -35,24 +35,20 @@ register_trait!(
 //-------------------------------------------------------------------------
 
 fn write_log_test(log_path: String, log_map: &LogMapType) -> usize {
-    let mut file =
-        File::create(log_path).expect(&format!("\x1b[38;5;{}m can not create file\x1b[m ", 8));
+    let mut file = File::create(log_path)
+        .unwrap_or_else(|_| panic!("\x1b[38;5;{}m can not create file\x1b[m ", 8));
 
     let local: chrono::DateTime<chrono::Local> = chrono::Local::now();
-    writeln!(file, "test result [{}]", local)
-        .expect(&format!("\x1b[38;5;{}m cannot write.\x1b[m ", 8));
+    writeln!(file, "test result [{local}]")
+        .unwrap_or_else(|_| panic!("\x1b[38;5;{}m cannot write.\x1b[m ", 8));
     writeln!(file, "test_name / struct_name / field_name / found types")
-        .expect(&format!("\x1b[38;5;{}m cannot write.\x1b[m ", 8));
+        .unwrap_or_else(|_| panic!("\x1b[38;5;{}m cannot write.\x1b[m ", 8));
 
     for ((test_name, struct_name, field_name), log) in log_map.iter() {
-        writeln!(
-            file,
-            "{} / {} / {}: {:#?}",
-            test_name, struct_name, field_name, log
-        )
-        .expect(&format!("\x1b[38;5;{}m cannot write.\x1b[m ", 8));
+        writeln!(file, "{test_name} / {struct_name} / {field_name}: {log:#?}")
+            .unwrap_or_else(|_| panic!("\x1b[38;5;{}m cannot write.\x1b[m ", 8));
     }
-    return log_map.len();
+    log_map.len()
 }
 
 pub fn simple_root_test<T>(target_path: String, pattren_str: String, log_path: String)
@@ -63,12 +59,11 @@ where
     let target = path::PathBuf::from(target_path);
     let files = target
         .read_dir()
-        .expect(&format!("\x1b[38;5;{}m read_dir call failed\x1b[m ", 8));
+        .unwrap_or_else(|_| panic!("\x1b[38;5;{}m read_dir call failed\x1b[m ", 8));
     let file_list = files
         .map(|dir_entry| {
-            let file_path = dir_entry.unwrap().path();
             // file_path.exists();
-            return file_path;
+            dir_entry.unwrap().path()
         })
         .filter(|file_path| file_path.to_str().unwrap().ends_with(pattren_str.as_str()));
 

@@ -42,7 +42,7 @@ pub fn insert_svg(attr: TokenStream) -> Result<TokenStream, syn::Error> {
             ));
         } else {
             let error_msg = "failed to load svg file";
-            return match format!("r##\"{}\"##", error_msg).parse() {
+            return match format!("r##\"{error_msg}\"##").parse() {
                 Ok(s) => Ok(s),
                 Err(e) => Err(syn::Error::new_spanned(e.to_string(), "faild to parse")),
             };
@@ -73,7 +73,7 @@ pub fn insert_svg(attr: TokenStream) -> Result<TokenStream, syn::Error> {
     let contents_add_id = match args.id {
         Some(id) => {
             let contents_add_id =
-                re_svg.replace(&contents_remove_endline, format!("<svg id=\"{}\"", id));
+                re_svg.replace(&contents_remove_endline, format!("<svg id=\"{id}\""));
             contents_add_id
         }
         None => contents_remove_endline,
@@ -82,7 +82,7 @@ pub fn insert_svg(attr: TokenStream) -> Result<TokenStream, syn::Error> {
     let contents_add_style = match args.style {
         Some(style) => {
             let contents_add_style =
-                re_svg.replace(&contents_add_id, format!("<svg style=\"{}\"", style));
+                re_svg.replace(&contents_add_id, format!("<svg style=\"{style}\""));
             contents_add_style
         }
         None => contents_add_id,
@@ -91,7 +91,7 @@ pub fn insert_svg(attr: TokenStream) -> Result<TokenStream, syn::Error> {
     let contents_add_role = match args.role {
         Some(role) => {
             let contents_add_role =
-                re_svg.replace(&contents_add_style, format!("<svg srole=\"{}\"", role));
+                re_svg.replace(&contents_add_style, format!("<svg srole=\"{role}\""));
             contents_add_role
         }
         None => contents_add_style,
@@ -100,16 +100,16 @@ pub fn insert_svg(attr: TokenStream) -> Result<TokenStream, syn::Error> {
     let contents_add_label = match args.aria_label {
         Some(label) => {
             let contents_add_label =
-                re_svg.replace(&contents_add_role, format!("<svg aria-label=\"{}\"", label));
+                re_svg.replace(&contents_add_role, format!("<svg aria-label=\"{label}\""));
             contents_add_label
         }
         None => contents_add_role,
     };
 
-    let contents_formated = format!("r##\"{}\"##", contents_add_label);
+    let contents_formated = format!("r##\"{contents_add_label}\"##");
 
-    return match contents_formated.parse() {
+    match contents_formated.parse() {
         Ok(s) => Ok(s),
         Err(e) => Err(syn::Error::new_spanned(e.to_string(), "failed to parse")),
-    };
+    }
 }
