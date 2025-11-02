@@ -11,6 +11,8 @@ use kc_api::interface::air_base::AirBases;
 use kc_api::interface::deck_port::DeckPorts;
 use kc_api::interface::interface::{Add, EmitData, Identifier, Set};
 
+use kc_api::parser::parser::{request_parser, response_parser};
+
 pub fn emit_data(handle: &tauri::AppHandle, emit_data: EmitData) {
     match emit_data {
         EmitData::Add(data) => match data {
@@ -143,10 +145,10 @@ pub fn struct_selector_response(
     let data_removed_metadata: String = re_metadata.replace(&data_removed_svdata, "").to_string();
 
     #[cfg(dev)]
-    return kc_api::parser::response_parser(name, data_removed_metadata);
+    return response_parser(name, data_removed_metadata);
 
     #[cfg(any(not(dev), check_release))]
-    return kc_api::parser::response_parser(name, data_removed_svdata);
+    return response_parser(name, data_removed_svdata);
 }
 
 pub fn struct_selector_resquest(
@@ -162,13 +164,13 @@ pub fn struct_selector_resquest(
     let data_removed_metadata: String = re_metadata.replace(&data_removed_bom, "").to_string();
 
     #[cfg(dev)]
-    return kc_api::parser::request_parser(name, data_removed_metadata);
+    return request_parser(name, data_removed_metadata);
 
     #[cfg(any(not(dev), check_release))]
-    return kc_api::parser::request_parser(name, data_removed_bom);
+    return request_parser(name, data_removed_bom);
 }
 
-async fn response_parser(
+async fn parser_server(
     handle: &tauri::AppHandle,
     mut slave: bidirectional_channel::Slave<bidirectional_channel::StatusInfo>,
     mut proxy_log_slave: bidirectional_channel::Slave<bidirectional_channel::StatusInfo>,
@@ -240,5 +242,5 @@ pub fn serve_reponse_parser(
     proxy_log_slave: bidirectional_channel::Slave<bidirectional_channel::StatusInfo>,
 ) {
     let handle_clone = handle.clone();
-    tokio::task::spawn(async move { response_parser(&handle_clone, slave, proxy_log_slave).await });
+    tokio::task::spawn(async move { parser_server(&handle_clone, slave, proxy_log_slave).await });
 }

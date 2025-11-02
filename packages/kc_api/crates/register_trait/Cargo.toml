@@ -1,0 +1,10 @@
+[package]
+name = "register_trait"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+chrono = { workspace = true }
+register_macro_derive_and_attr = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true }
