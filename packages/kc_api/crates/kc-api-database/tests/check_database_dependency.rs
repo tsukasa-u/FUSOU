@@ -226,9 +226,9 @@ pub fn check_database_dependency() {
             }
         }
 
-        std::fs::create_dir_all("./tests/database_dependency_dot").expect("create dir failed");
-        std::fs::create_dir_all("./tests/database_dependency_svg").expect("create dir failed");
-        let mut file = File::create("./tests/database_dependency_dot/all.dot").unwrap();
+        std::fs::create_dir_all("../../tests/database_dependency_dot").expect("create dir failed");
+        std::fs::create_dir_all("../../tests/database_dependency_svg").expect("create dir failed");
+        let mut file = File::create("../../tests/database_dependency_dot/all.dot").unwrap();
         file.write_all(output_bytes.as_slice())
             .expect("write failed");
     }
@@ -358,8 +358,8 @@ pub fn check_database_dependency() {
             element_json_list.push(element);
         }
 
-        std::fs::create_dir_all("./tests/database_dependency_json").expect("create dir failed");
-        let mut file = File::create("./tests/database_dependency_json/all.json").unwrap();
+        std::fs::create_dir_all("../../tests/database_dependency_json").expect("create dir failed");
+        let mut file = File::create("../../tests/database_dependency_json/all.json").unwrap();
 
         let output_bytes: String = serde_json::to_string(&element_json_list).unwrap();
         let removed_output_bytes = output_bytes

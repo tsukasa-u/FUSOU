@@ -12,9 +12,6 @@ ts-rs = { workspace = true }
 apache-avro = { workspace = true }
 
 [features]
-default = [ "graphviz", "from20250627" ]
-graphviz = []
-cytoscape = []
-
+default = [ "from20250627" ]
 from20250627 = ["20250627"]
 20250627 = []

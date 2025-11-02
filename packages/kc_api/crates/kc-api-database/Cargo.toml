@@ -18,9 +18,6 @@ regex = { workspace = true }
 dot-writer = { workspace = true }
 
 [features]
-default = [ "graphviz", "from20250627" ]
+default = [ "graphviz" ]
 graphviz = []
 cytoscape = []
-
-from20250627 = ["20250627"]
-20250627 = []

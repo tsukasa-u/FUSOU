@@ -52,14 +52,13 @@ jobs:
         working-directory: ./packages/kc_api
       - name: export dependencies svg
         run: |
-          cat  ./tests/export_svg.sh
           chmod +x ./tests/export_svg.sh
           sudo ./tests/export_svg.sh
         working-directory: ./packages/kc_api
       - name: Clean docs folder
         run: cargo clean --doc
       - name: Build docs
-        run: dotenvx run  -f .env --verbose --overload -- cargo doc --no-deps -p kc_api -p app -p proxy-https -p register_trait -p register_macro_derive_and_attr --document-private-items
+        run: dotenvx run  -f .env --verbose --overload -- cargo doc --no-deps -p kc_api -p app -p proxy-https --document-private-items
       - name: Add redirect
         run: echo '<meta http-equiv="refresh" content="0;url=app/index.html">' > target/doc/index.html
       - name: Remove lock file

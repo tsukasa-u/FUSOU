@@ -12,7 +12,21 @@ kc-api-parser = { workspace = true }
 
 [features]
 default = ["graphviz", "from20250627"]
-graphviz = ["kc-api-interface/graphviz", "kc-api-dto/graphviz"]
-cytoscape = ["kc-api-interface/cytoscape", "kc-api-dto/cytoscape"]
-from20250627 = ["kc-api-interface/from20250627", "kc-api-dto/from20250627"]
-20250627 = ["kc-api-interface/20250627", "kc-api-dto/20250627"]
+graphviz = [
+    "kc-api-database/graphviz",
+    "kc-api-dto/graphviz",
+]
+cytoscape = [
+    "kc-api-database/cytoscape",
+    "kc-api-dto/cytoscape",
+]
+from20250627 = [
+    "kc-api-interface/from20250627",
+    "kc-api-interface-adapter/from20250627",
+    "kc-api-dto/from20250627",
+]
+20250627 = [
+    "kc-api-interface/20250627",
+    "kc-api-interface-adapter/20250627",
+    "kc-api-dto/20250627",
+]

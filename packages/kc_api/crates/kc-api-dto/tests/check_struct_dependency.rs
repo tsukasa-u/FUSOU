@@ -269,9 +269,9 @@ pub fn check_struct_dependency() {
             }
         }
 
-        std::fs::create_dir_all("./tests/struct_dependency_dot").expect("create dir failed");
-        std::fs::create_dir_all("./tests/struct_dependency_svg").expect("create dir failed");
-        let mut file = File::create("./tests/struct_dependency_dot/all.dot").unwrap();
+        std::fs::create_dir_all("../../tests/struct_dependency_dot").expect("create dir failed");
+        std::fs::create_dir_all("../../tests/struct_dependency_svg").expect("create dir failed");
+        let mut file = File::create("../../tests/struct_dependency_dot/all.dot").unwrap();
         file.write_all(output_bytes.as_slice())
             .expect("write failed");
     }
@@ -398,8 +398,8 @@ pub fn check_struct_dependency() {
             element_json_list.push(element);
         }
 
-        std::fs::create_dir_all("./tests/struct_dependency_json").expect("create dir failed");
-        let mut file = File::create("./tests/struct_dependency_json/all.json").unwrap();
+        std::fs::create_dir_all("../../tests/struct_dependency_json").expect("create dir failed");
+        let mut file = File::create("../../tests/struct_dependency_json/all.json").unwrap();
 
         let output_bytes: String = serde_json::to_string(&element_json_list).unwrap();
         let removed_output_bytes = output_bytes
@@ -621,7 +621,7 @@ pub fn check_struct_dependency() {
             }
 
             let mut file = File::create(format!(
-                "./tests/struct_dependency_dot/{}@{}.dot",
+                "../../tests/struct_dependency_dot/{}@{}.dot",
                 api_name_1, api_name_2
             ))
             .unwrap();
@@ -629,27 +629,6 @@ pub fn check_struct_dependency() {
                 .expect("write failed");
         }
     }
-
-    // Command::new("dot")
-    //     .arg("-Tsvg")
-    //     .arg("./tests/struct_dependency.dot")
-    //     .arg(">")
-    //     .arg("./tests/struct_dependency.svg")
-    //     .output()
-    //     .expect("failed to execute process");
-
-    // on windows, the dot cmd in bat file is not working because of "permmision denied"
-    // on Linux, ?
-    // #[cfg(target_os = "windows")]
-    // let output = Command::new("./tests/export_svg.bat")
-    //     .output()
-    //     .expect("failed to execute process");
-    // #[cfg(target_os = "linux")]
-    // let output  = Command::new("./tests/export_svg.sh")
-    //     .output()
-    //     .expect("failed to execute process");
-
-    // println!("{:?}", output);
 }
 
 #[cfg(feature = "graphviz")]

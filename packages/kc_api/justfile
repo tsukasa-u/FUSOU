@@ -1,5 +1,6 @@
 export-ts:
-    cargo test export_bindings --nocapture
+    cargo test export_bindings
+    mv -f ./crates/kc-api-interface/bindings/. .
     just replace-bindings
 
 replace-bigint-number file='*':
