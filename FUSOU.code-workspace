@@ -16,9 +16,6 @@
       "path": "packages/kc_api"
     },
     {
-      "path": "packages/rust_macro"
-    },
-    {
       "path": "packages/configs"
     },
     {

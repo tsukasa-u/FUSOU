@@ -1,6 +1,4 @@
 use proxy_https::bidirectional_channel;
-use register_trait::expand_struct_selector;
-use register_trait::TraitForConvert;
 use std::error::Error;
 use tauri::Emitter;
 
@@ -12,6 +10,8 @@ use crate::cloud_storage::submit_data;
 use kc_api::interface::air_base::AirBases;
 use kc_api::interface::deck_port::DeckPorts;
 use kc_api::interface::interface::{Add, EmitData, Identifier, Set};
+
+use kc_api::parser::parser::{request_parser, response_parser};
 
 pub fn emit_data(handle: &tauri::AppHandle, emit_data: EmitData) {
     match emit_data {
@@ -131,8 +131,6 @@ pub fn emit_data(handle: &tauri::AppHandle, emit_data: EmitData) {
     }
 }
 
-// Should I rewrite this attribute marcro to macro_rules!?
-#[expand_struct_selector(path = "./../../kc_api/src/kcapi_main")]
 pub fn struct_selector_response(
     name: String,
     data: String,
@@ -147,30 +145,12 @@ pub fn struct_selector_response(
     let data_removed_metadata: String = re_metadata.replace(&data_removed_svdata, "").to_string();
 
     #[cfg(dev)]
-    let root_wrap: Result<kcsapi_lib::Res, serde_json::Error> =
-        serde_json::from_str(&data_removed_metadata);
-    #[cfg(any(not(dev), check_release))]
-    let root_wrap: Result<kcsapi_lib::Res, serde_json::Error> =
-        serde_json::from_str(&data_removed_svdata);
+    return response_parser(name, data_removed_metadata);
 
-    match root_wrap {
-        Ok(root) => match root.convert() {
-            Some(emit_data_list) => {
-                return Ok(emit_data_list);
-            }
-            None => {
-                return Ok(Vec::new());
-            }
-        },
-        Err(e) => {
-            tracing::error!("Failed to parse Res JSON({:?}): {}", name, e);
-            return Err(Box::new(e));
-        }
-    };
+    #[cfg(any(not(dev), check_release))]
+    return response_parser(name, data_removed_svdata);
 }
 
-// Should I rewrite this attribute marcro to macro_rules!?
-#[expand_struct_selector(path = "./../../kc_api/src/kcapi_main")]
 pub fn struct_selector_resquest(
     name: String,
     data: String,
@@ -184,28 +164,13 @@ pub fn struct_selector_resquest(
     let data_removed_metadata: String = re_metadata.replace(&data_removed_bom, "").to_string();
 
     #[cfg(dev)]
-    let root_wrap: Result<kcsapi_lib::Req, serde_qs::Error> =
-        serde_qs::from_str(&data_removed_metadata);
-    #[cfg(any(not(dev), check_release))]
-    let root_wrap: Result<kcsapi_lib::Req, serde_qs::Error> = serde_qs::from_str(&data_removed_bom);
+    return request_parser(name, data_removed_metadata);
 
-    match root_wrap {
-        Ok(root) => match root.convert() {
-            Some(emit_data_list) => {
-                return Ok(emit_data_list);
-            }
-            None => {
-                return Ok(Vec::new());
-            }
-        },
-        Err(e) => {
-            tracing::error!("Failed to parse Req JSON({:?}): {}", name, e);
-            return Err(Box::new(e));
-        }
-    };
+    #[cfg(any(not(dev), check_release))]
+    return request_parser(name, data_removed_bom);
 }
 
-async fn response_parser(
+async fn parser_server(
     handle: &tauri::AppHandle,
     mut slave: bidirectional_channel::Slave<bidirectional_channel::StatusInfo>,
     mut proxy_log_slave: bidirectional_channel::Slave<bidirectional_channel::StatusInfo>,
@@ -277,5 +242,5 @@ pub fn serve_reponse_parser(
     proxy_log_slave: bidirectional_channel::Slave<bidirectional_channel::StatusInfo>,
 ) {
     let handle_clone = handle.clone();
-    tokio::task::spawn(async move { response_parser(&handle_clone, slave, proxy_log_slave).await });
+    tokio::task::spawn(async move { parser_server(&handle_clone, slave, proxy_log_slave).await });
 }

@@ -131,8 +131,13 @@ jobs:
             RUSTC_WRAPPER: "sccache"
           - platform: "windows-11-arm"
             args: ""
+            SCCACHE_GHA_ENABLED: "false"
+            RUSTC_WRAPPER: ""
 
     runs-on: ${{ matrix.platform }}
+    env:
+      RUSTC_WRAPPER: ${{ matrix.RUSTC_WRAPPER }}
+      SCCACHE_GHA_ENABLED: ${{ matrix.SCCACHE_GHA_ENABLED }}
     steps:
       - uses: actions/checkout@v4
 
@@ -163,7 +168,7 @@ jobs:
           targets: ${{ '' }}
 
       - name: Run sccache-cache
-        if: matrix.platform == 'windows-latest' || matrix.platform == 'ubuntu-24.04' || matrix.platform == 'ubuntu-24.04-arm'
+        if: matrix.SCCACHE_GHA_ENABLED == 'true'
         uses: mozilla-actions/sccache-action@v0.0.9
 
       - name: build shared-ui

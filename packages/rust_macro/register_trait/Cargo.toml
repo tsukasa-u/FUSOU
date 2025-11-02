@@ -1,9 +1,0 @@
-[package]
-name = "register_trait"
-version = "0.1.0"
-edition = "2021"
-
-[dependencies]
-chrono = "0.4.38"
-register_macro_derive_and_attr = { path = "./../register_macro_derive_and_attr" }
-serde_json = "1.0.124"

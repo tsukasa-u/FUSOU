@@ -1,0 +1,24 @@
+[package]
+name = "kc-api-dto"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+register_trait = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+regex = { workspace = true }
+serde_qs = { workspace = true }
+
+[dev-dependencies]
+dotenvy = { workspace = true }
+confy = { workspace = true }
+dot-writer = { workspace = true }
+
+[features]
+default = [ "graphviz", "from20250627" ]
+graphviz = []
+cytoscape = []
+
+from20250627 = ["20250627"]
+20250627 = []

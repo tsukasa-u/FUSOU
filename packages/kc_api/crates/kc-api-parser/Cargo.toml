@@ -1,0 +1,13 @@
+[package]
+name = "kc-api-parser"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+kc-api-interface = { workspace = true }
+kc-api-interface-adapter = { workspace = true }
+kc-api-dto = { workspace = true }
+register_trait = { workspace = true }
+serde_json = { workspace = true }
+serde_qs = { workspace = true }
+tracing = { workspace = true }
