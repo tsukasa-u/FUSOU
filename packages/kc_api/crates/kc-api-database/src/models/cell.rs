@@ -2,9 +2,9 @@ use apache_avro::AvroSchema;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::battle::Battle;
-use crate::battle::BattleId;
-use crate::env_info::EnvInfoId;
+use crate::models::battle::Battle;
+use crate::models::battle::BattleId;
+use crate::models::env_info::EnvInfoId;
 use crate::table::PortTable;
 
 use register_trait::{FieldSizeChecker, TraitForDecode, TraitForEncode};

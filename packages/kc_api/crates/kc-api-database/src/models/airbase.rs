@@ -2,9 +2,9 @@ use apache_avro::AvroSchema;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::env_info::EnvInfoId;
-use crate::slotitem::OwnSlotItem;
-use crate::slotitem::OwnSlotItemId;
+use crate::models::env_info::EnvInfoId;
+use crate::models::slotitem::OwnSlotItem;
+use crate::models::slotitem::OwnSlotItemId;
 use crate::table::PortTable;
 
 use kc_api_interface::slot_item::SlotItems;

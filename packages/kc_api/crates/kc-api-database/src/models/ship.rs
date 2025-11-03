@@ -2,13 +2,13 @@ use apache_avro::AvroSchema;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::env_info::EnvInfoId;
-use crate::slotitem::EnemySlotItem;
-use crate::slotitem::EnemySlotItemId;
-use crate::slotitem::FriendSlotItem;
-use crate::slotitem::FriendSlotItemId;
-use crate::slotitem::OwnSlotItem;
-use crate::slotitem::OwnSlotItemId;
+use crate::models::env_info::EnvInfoId;
+use crate::models::slotitem::EnemySlotItem;
+use crate::models::slotitem::EnemySlotItemId;
+use crate::models::slotitem::FriendSlotItem;
+use crate::models::slotitem::FriendSlotItemId;
+use crate::models::slotitem::OwnSlotItem;
+use crate::models::slotitem::OwnSlotItemId;
 use crate::table::PortTable;
 
 use kc_api_interface::ship::Ships;

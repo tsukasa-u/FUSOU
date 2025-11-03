@@ -10,21 +10,21 @@ use std::{collections::HashMap, sync::Mutex};
 use tokio::sync::OnceCell;
 use uuid::Uuid;
 
-use kc_api::database::airbase::{AirBase, PlaneInfo};
-use kc_api::database::battle::{
+use kc_api::database::models::airbase::{AirBase, PlaneInfo};
+use kc_api::database::models::battle::{
     AirBaseAirAttack, AirBaseAirAttackList, AirBaseAssult, Battle, CarrierBaseAssault,
     ClosingRaigeki, FriendlySupportHourai, FriendlySupportHouraiList, Hougeki, HougekiList,
     MidnightHougeki, MidnightHougekiList, OpeningAirAttack, OpeningAirAttackList, OpeningRaigeki,
     OpeningTaisen, OpeningTaisenList, SupportAirattack, SupportHourai,
 };
-use kc_api::database::cell::Cells;
-use kc_api::database::deck::{EnemyDeck, FriendDeck, OwnDeck, SupportDeck};
-use kc_api::database::ship::{EnemyShip, FriendShip, OwnShip};
-use kc_api::database::slotitem::{EnemySlotItem, FriendSlotItem, OwnSlotItem};
+use kc_api::database::models::cell::Cells;
+use kc_api::database::models::deck::{EnemyDeck, FriendDeck, OwnDeck, SupportDeck};
+use kc_api::database::models::ship::{EnemyShip, FriendShip, OwnShip};
+use kc_api::database::models::slotitem::{EnemySlotItem, FriendSlotItem, OwnSlotItem};
 use kc_api::database::table::{
     GetDataTableEnum, PortTableEnum, GET_DATA_TABLE_NAMES, PORT_TABLE_NAMES,
 };
-use kc_api::database::{env_info::EnvInfo, integrate::integrate};
+use kc_api::database::{integrate::integrate, models::env_info::EnvInfo};
 
 use crate::auth::auth_server;
 

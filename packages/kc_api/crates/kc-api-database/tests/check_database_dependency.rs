@@ -10,7 +10,7 @@ use std::{
 use uuid::Uuid;
 
 pub fn check_database_dependency() {
-    let sub_target_path = "./src".to_string();
+    let sub_target_path = "./src/models/".to_string();
 
     let re_struct = regex::Regex::new(r#"\n(pub\s+)?struct [A-Za-z0-9]+ \{[^\}]*\}"#).unwrap();
     let re_struct_name =
@@ -41,11 +41,7 @@ pub fn check_database_dependency() {
     for file_path in file_path_list {
         let file_path_str = file_path.to_string_lossy().to_string();
 
-        if file_path_str.ends_with(".rs")
-            && !(file_path_str.ends_with("mod.rs")
-                || file_path_str.ends_with("encode.rs")
-                || file_path_str.ends_with("table.rs"))
-        {
+        if file_path_str.ends_with(".rs") && !(file_path_str.ends_with("mod.rs")) {
             let mut bookm: StructFieldTypeInfo = StructFieldTypeInfo::new();
 
             let content = fs::read_to_string(file_path.clone()).expect("failed to read file");
@@ -184,6 +180,9 @@ pub fn check_database_dependency() {
                     {
                         match field_type_location.to_string().as_str() {
                             "self" => {
+                                if field_name.eq("uuid") {
+                                    continue;
+                                }
                                 let node_field_type_id = get_self_node_field_type_id(
                                     &mut cluster,
                                     &struct_node_list,
@@ -200,6 +199,9 @@ pub fn check_database_dependency() {
                                 );
                             }
                             s if s.starts_with("crate") && s.ends_with("Id") => {
+                                if s.eq("crate::models::env_info::EnvInfoId") {
+                                    continue;
+                                }
                                 let key = get_crate_node_key_remove_id(field_type_location);
                                 edge_list.push((
                                     node_struct_name_id.clone().port(field_name),
@@ -213,12 +215,16 @@ pub fn check_database_dependency() {
             }
             for (from, to) in edge_list {
                 if let Some(to_node) = struct_node_list.get(&to.0) {
+                    let type_name = match to.1.as_str() {
+                        t if t.ends_with("Id") => t.replace("Id", ""),
+                        _ => to.1.clone(),
+                    };
                     deps_graph
                         .edge(
                             from.position(dot_writer::PortPosition::East),
                             to_node
                                 .clone()
-                                .port(&to.1)
+                                .port(&type_name)
                                 .position(dot_writer::PortPosition::West),
                         )
                         .attributes();
@@ -425,9 +431,7 @@ fn get_struct_label(fields: &FieldTypeInfo) -> String {
 #[cfg(feature = "graphviz")]
 fn set_node_struct_name(node_struct_name: &mut Node, struct_name: &str, fields: &FieldTypeInfo) {
     let struct_label: String = get_struct_label(fields);
-    node_struct_name.set_label(&format!(
-        "<{struct_name}> {struct_name} {struct_label}"
-    ));
+    node_struct_name.set_label(&format!("<{struct_name}> {struct_name} {struct_label}"));
     node_struct_name.set_shape(Shape::Record);
 }
 
@@ -462,7 +466,10 @@ fn get_self_node_field_type_id(
         "{}__{}__{}",
         api_name_1,
         api_name_2,
-        type_name.replace("Id", "")
+        match type_name {
+            t if t.ends_with("Id") => t.replace("Id", ""),
+            _ => type_name.clone(),
+        }
     );
     if struct_node_list.contains_key(&key) {
         struct_node_list.get(&key).unwrap().clone()
@@ -479,7 +486,10 @@ fn get_crate_node_key_remove_id(field_type_location: &String) -> String {
         "{}__{}__{}",
         field_type_location_parse[field_type_location_parse.len() - 3],
         field_type_location_parse[field_type_location_parse.len() - 2],
-        field_type_location_parse[field_type_location_parse.len() - 1].replace("Id", "")
+        match field_type_location_parse[field_type_location_parse.len() - 1] {
+            t if t.ends_with("Id") => t.replace("Id", ""),
+            _ => field_type_location_parse[field_type_location_parse.len() - 1].to_string(),
+        }
     );
     key
 }
