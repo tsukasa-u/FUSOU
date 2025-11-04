@@ -17,7 +17,7 @@ use register_trait::TraitForTest;
 #[derive(FieldSizeChecker, TraitForTest, TraitForRoot)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Req {
     #[serde(rename = "api_token")]
@@ -101,12 +101,13 @@ mod tests {
     }
 
     #[test]
-    fn test_normalize() {
+    fn test_organize_test_data() {
         dotenv().expect(".env file not found");
         let target_path = std::env::var("TEST_DATA_PATH").expect("failed to get env data");
+        let snap_file_path = std::env::var("TEST_DATA_REPO_PATH").expect("failed to get env data");
 
         let pattern_str = "S@api_start2@get_option_setting";
-        let snap_path = "./src/snap";
+        let snap_path = format!("{snap_file_path}/kcsapi");
         glob_match_normalize::<Res>(
             target_path.clone(),
             pattern_str.to_string(),
