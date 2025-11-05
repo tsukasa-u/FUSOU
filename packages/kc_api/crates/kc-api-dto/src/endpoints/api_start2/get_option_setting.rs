@@ -17,7 +17,7 @@ use register_trait::TraitForTest;
 #[derive(FieldSizeChecker, TraitForTest, TraitForRoot)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra)]
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Req {
     #[serde(rename = "api_token")]
@@ -73,7 +73,7 @@ pub struct ApiVolumeSetting {
 
 #[cfg(test)]
 mod tests {
-    use crate::test_utils::struct_normalize::glob_match_normalize;
+    use crate::test_utils::{struct_normalize::glob_match_normalize, struct_normalize::FormatType};
     use dotenvy::dotenv;
     use register_trait::simple_root_test;
 
@@ -112,13 +112,15 @@ mod tests {
             target_path.clone(),
             pattern_str.to_string(),
             snap_path.to_string(),
+            FormatType::Json,
         );
 
-        // let pattern_str = "S@api_start2@get_option_setting";
-        // glob_match_normalize::<Req>(
-        //     target_path.clone(),
-        //     pattern_str.to_string(),
-        //     snap_path.to_string(),
-        // );
+        let pattern_str = "S@api_start2@get_option_setting";
+        glob_match_normalize::<Req>(
+            target_path.clone(),
+            pattern_str.to_string(),
+            snap_path.to_string(),
+            FormatType::QueryString,
+        );
     }
 }

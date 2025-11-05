@@ -3,7 +3,14 @@
 use std::path::{self, PathBuf};
 
 use serde_json::Value;
+use serde_qs;
 use std::io::Write;
+
+#[derive(Clone)]
+pub enum FormatType {
+    Json,
+    QueryString,
+}
 
 fn remove_metadata(data: String) -> String {
     let re_metadata = regex::Regex::new(r"---\r?\n.*\r?\n.*\r?\n.*\r?\n.*\s*---\r?\n").unwrap();
@@ -42,9 +49,18 @@ fn normalize_for_mask_seacret(val: Value) -> Value {
     }
 }
 
-fn keep_test_data(val: Value, file_name: String, snap_file_path: String, timestamp: String) {
+fn keep_test_data(
+    val: Value,
+    file_name: String,
+    snap_file_path: String,
+    timestamp: String,
+    format_type: FormatType,
+) {
     let val_masked = normalize_for_mask_seacret(val);
-    let serialized = serde_json::to_string_pretty(&val_masked).unwrap();
+    let serialized = match format_type {
+        FormatType::Json => serde_json::to_string_pretty(&val_masked).unwrap(),
+        FormatType::QueryString => serde_qs::to_string(&val_masked).unwrap(),
+    };
 
     let mut file_name_formatted = file_name;
 
@@ -143,6 +159,7 @@ pub fn custom_match_normalize<T>(
     test_data_paths: impl Iterator<Item = PathBuf>,
     pattern_str: String,
     snap_file_path: String,
+    format_type: FormatType,
 ) where
     T: serde::de::DeserializeOwned + serde::Serialize + std::fmt::Debug,
 {
@@ -161,19 +178,34 @@ pub fn custom_match_normalize<T>(
                 panic!("failed to read snap file: {}", snap_file_path.display())
             });
             let data_removed_metadata = remove_metadata(file_content);
-            let snap_json: T = serde_json::from_str(&data_removed_metadata).unwrap_or_else(|_| {
-                panic!(
-                    "failed to parse snap file as JSON: {}",
-                    snap_file_path.display()
-                )
-            });
-            let snap_value: Value = serde_json::to_value(&snap_json).unwrap_or_else(|_| {
+            let parsed: T = match format_type.clone() {
+                FormatType::Json => {
+                    let parsed: T =
+                        serde_json::from_str(&data_removed_metadata).unwrap_or_else(|_| {
+                            panic!(
+                                "failed to parse snap file as JSON: {}",
+                                snap_file_path.display()
+                            )
+                        });
+                    parsed
+                }
+                FormatType::QueryString => {
+                    let parsed: T =
+                        serde_qs::from_str(&data_removed_metadata).unwrap_or_else(|_| {
+                            panic!(
+                                "failed to parse snap file as query string: {}",
+                                snap_file_path.display()
+                            )
+                        });
+                    parsed
+                }
+            };
+            serde_json::to_value(&parsed).unwrap_or_else(|_| {
                 panic!(
                     "failed to convert snap data to Value: {}",
                     snap_file_path.display()
                 )
-            });
-            snap_value
+            })
         })
         .collect();
 
@@ -233,14 +265,19 @@ pub fn custom_match_normalize<T>(
                 test_file_name,
                 snap_file_path.to_string_lossy().to_string(),
                 timestamp,
+                format_type.clone(),
             );
             snap_values.push(expected_value.clone());
         }
     }
 }
 
-pub fn glob_match_normalize<T>(test_data_path: String, pattern_str: String, snap_file_path: String)
-where
+pub fn glob_match_normalize<T>(
+    test_data_path: String,
+    pattern_str: String,
+    snap_file_path: String,
+    format_type: FormatType,
+) where
     T: serde::de::DeserializeOwned + serde::Serialize + std::fmt::Debug,
 {
     let target = path::PathBuf::from(test_data_path);
@@ -252,5 +289,10 @@ where
         .filter(|file_path| file_path.to_str().unwrap().ends_with(&pattern_str))
         .collect::<Vec<_>>();
 
-    custom_match_normalize::<T>(target_file_list.into_iter(), pattern_str, snap_file_path);
+    custom_match_normalize::<T>(
+        target_file_list.into_iter(),
+        pattern_str,
+        snap_file_path,
+        format_type,
+    );
 }
