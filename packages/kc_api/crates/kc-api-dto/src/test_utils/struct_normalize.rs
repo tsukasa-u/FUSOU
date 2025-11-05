@@ -26,7 +26,7 @@ fn normalize_for_mask_seacret(key: String, val: Value) -> Value {
 
         Value::String(s) => {
             if key.eq("api_token") {
-                Value::String(r"[API_TOKEN]".to_string())
+                Value::String("__API_TOKEN__".to_string())
             } else {
                 Value::String(s)
             }
@@ -114,19 +114,19 @@ fn normalize_for_test(key: String, val: Value) -> Value {
         Value::Number(n) => {
             if let Some(i) = n.as_i64() {
                 if i > 0 {
-                    Value::String(r"[POS_INT]".to_string())
+                    Value::String("__POS_INT__".to_string())
                 } else if i < 0 {
-                    Value::String(r"[NEG_INT]".to_string())
+                    Value::String("__NEG_INT__".to_string())
                 } else {
-                    Value::String(r"[ZERO_INT]".to_string())
+                    Value::String("__ZERO_INT__".to_string())
                 }
             } else if let Some(f) = n.as_f64() {
                 if f > 0.0 {
-                    Value::String(r"[POS_FLOAT]".to_string())
+                    Value::String("__POS_FLOAT__".to_string())
                 } else if f < 0.0 {
-                    Value::String(r"[NEG_FLOAT]".to_string())
+                    Value::String("__NEG_FLOAT__".to_string())
                 } else {
-                    Value::String(r"[ZERO_FLOAT]".to_string())
+                    Value::String("__ZERO_FLOAT__".to_string())
                 }
             } else {
                 // fallback: keep the original number if none of the checks matched
@@ -136,7 +136,7 @@ fn normalize_for_test(key: String, val: Value) -> Value {
 
         Value::String(s) => {
             if key.eq("api_token") {
-                Value::String(r"[API_TOKEN]".to_string())
+                Value::String("__API_TOKEN__".to_string())
             } else {
                 Value::String(s)
             }
