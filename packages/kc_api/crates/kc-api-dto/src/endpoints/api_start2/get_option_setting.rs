@@ -106,19 +106,18 @@ mod tests {
         let target_path = std::env::var("TEST_DATA_PATH").expect("failed to get env data");
         let snap_file_path = std::env::var("TEST_DATA_REPO_PATH").expect("failed to get env data");
 
-        let pattern_str = "S@api_start2@get_option_setting";
+        let req_and_res_pattern_str = "@api_start2@get_option_setting";
         let snap_path = format!("{snap_file_path}/kcsapi");
-        glob_match_normalize::<Res>(
+        glob_match_normalize::<Req, Res>(
             target_path.clone(),
-            pattern_str.to_string(),
+            req_and_res_pattern_str.to_string(),
             snap_path.to_string(),
             FormatType::Json,
         );
 
-        let pattern_str = "S@api_start2@get_option_setting";
-        glob_match_normalize::<Req>(
+        glob_match_normalize::<Req, Res>(
             target_path.clone(),
-            pattern_str.to_string(),
+            req_and_res_pattern_str.to_string(),
             snap_path.to_string(),
             FormatType::QueryString,
         );

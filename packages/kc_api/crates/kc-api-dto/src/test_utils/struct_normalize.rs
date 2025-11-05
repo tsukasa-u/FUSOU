@@ -1,12 +1,10 @@
 #![cfg(test)]
 
-use std::path::{self, Path, PathBuf};
+use std::path::{self, PathBuf};
 
 use serde_json::Value;
 use serde_qs;
 use std::io::Write;
-
-use crate::endpoints::api_get_member::preset_deck::N;
 
 #[derive(Clone)]
 pub enum FormatType {
@@ -22,27 +20,30 @@ fn remove_metadata(data: String) -> String {
     data_removed_metadata
 }
 
-fn normalize_for_mask_seacret(val: Value) -> Value {
+fn normalize_for_mask_seacret(key: String, val: Value) -> Value {
     match val {
         Value::Number(n) => Value::Number(n),
 
         Value::String(s) => {
-            if s.eq("api_token") {
-                Value::String("[API_TOKEN]".to_string())
+            if key.eq("api_token") {
+                Value::String(r"[API_TOKEN]".to_string())
             } else {
                 Value::String(s)
             }
         }
 
         Value::Array(arr) => {
-            let normalized_arr = arr.into_iter().map(normalize_for_mask_seacret).collect();
+            let normalized_arr = arr
+                .into_iter()
+                .map(|v| normalize_for_mask_seacret(key.clone(), v))
+                .collect();
             Value::Array(normalized_arr)
         }
 
         Value::Object(map) => {
             let normalized_map = map
                 .into_iter()
-                .map(|(k, v)| (k, normalize_for_mask_seacret(v)))
+                .map(|(k, v)| (k.clone(), normalize_for_mask_seacret(k, v)))
                 .collect();
             Value::Object(normalized_map)
         }
@@ -59,12 +60,12 @@ fn keep_test_data(
     timestamp: String,
     format_type: FormatType,
 ) {
-    let val_masked = normalize_for_mask_seacret(val);
+    let val_masked = normalize_for_mask_seacret("root".to_string(), val);
     let serialized = match format_type {
         FormatType::Json => serde_json::to_string_pretty(&val_masked).unwrap(),
         FormatType::QueryString => serde_qs::to_string(&val_masked).unwrap(),
     };
-    let another_val_masked = normalize_for_mask_seacret(another_val);
+    let another_val_masked = normalize_for_mask_seacret("root".to_string(), another_val);
     let another_serialized = match format_type {
         FormatType::QueryString => serde_json::to_string_pretty(&another_val_masked).unwrap(),
         FormatType::Json => serde_qs::to_string(&another_val_masked).unwrap(),
@@ -102,26 +103,30 @@ fn keep_test_data(
             writeln!(res_file, "{another_serialized}").expect("can not write.")
         }
     }
+    println!(
+        "\x1b[38;5;{}m added test data to snap file path: {}\x1b[m ",
+        10, snap_file_path
+    );
 }
 
-fn normalize_for_test(val: Value) -> Value {
+fn normalize_for_test(key: String, val: Value) -> Value {
     match val {
         Value::Number(n) => {
             if let Some(i) = n.as_i64() {
                 if i > 0 {
-                    Value::String("[POS_INT]".to_string())
+                    Value::String(r"[POS_INT]".to_string())
                 } else if i < 0 {
-                    Value::String("[NEG_INT]".to_string())
+                    Value::String(r"[NEG_INT]".to_string())
                 } else {
-                    Value::String("[ZERO_INT]".to_string())
+                    Value::String(r"[ZERO_INT]".to_string())
                 }
             } else if let Some(f) = n.as_f64() {
                 if f > 0.0 {
-                    Value::String("[POS_FLOAT]".to_string())
+                    Value::String(r"[POS_FLOAT]".to_string())
                 } else if f < 0.0 {
-                    Value::String("[NEG_FLOAT]".to_string())
+                    Value::String(r"[NEG_FLOAT]".to_string())
                 } else {
-                    Value::String("[ZERO_FLOAT]".to_string())
+                    Value::String(r"[ZERO_FLOAT]".to_string())
                 }
             } else {
                 // fallback: keep the original number if none of the checks matched
@@ -130,23 +135,25 @@ fn normalize_for_test(val: Value) -> Value {
         }
 
         Value::String(s) => {
-            // if s.starts_with("user_") {
-            //     Value::String("[USER_ID]".to_string())
-            // } else {
-            //     Value::String(s)
-            // }
-            Value::String(s)
+            if key.eq("api_token") {
+                Value::String(r"[API_TOKEN]".to_string())
+            } else {
+                Value::String(s)
+            }
         }
 
         Value::Array(arr) => {
-            let normalized_arr = arr.into_iter().map(normalize_for_test).collect();
+            let normalized_arr = arr
+                .into_iter()
+                .map(|v| normalize_for_test(key.clone(), v))
+                .collect();
             Value::Array(normalized_arr)
         }
 
         Value::Object(map) => {
             let normalized_map = map
                 .into_iter()
-                .map(|(k, v)| (k, normalize_for_test(v)))
+                .map(|(k, v)| (k.clone(), normalize_for_test(k, v)))
                 .collect();
             Value::Object(normalized_map)
         }
@@ -156,10 +163,10 @@ fn normalize_for_test(val: Value) -> Value {
 }
 
 pub fn test_match_normalize(expected: Value, snap_values: Vec<Value>) -> bool {
-    let normalized_expected = normalize_for_test(expected.clone());
+    let normalized_expected = normalize_for_test("root".to_string(), expected.clone());
     let normalized_snap = snap_values
         .into_iter()
-        .map(normalize_for_test)
+        .map(|v| normalize_for_test("root".to_string(), v))
         .collect::<Vec<_>>();
 
     let result_eq = normalized_snap
@@ -170,24 +177,27 @@ pub fn test_match_normalize(expected: Value, snap_values: Vec<Value>) -> bool {
     result_eq
 }
 
-fn convert_test_data_to_value<T>(file_content: String, format_type: FormatType) -> Value
+fn convert_test_data_to_value<T, U>(file_content: String, format_type: FormatType) -> Value
 where
     T: serde::de::DeserializeOwned + serde::Serialize,
+    U: serde::de::DeserializeOwned + serde::Serialize,
 {
     let data_removed_metadata = remove_metadata(file_content);
-    let parsed: T = match format_type {
+    let parsed: Value = match format_type {
         FormatType::Json => {
-            let parsed: T = serde_json::from_str(&data_removed_metadata)
+            let parsed: U = serde_json::from_str(&data_removed_metadata)
                 .unwrap_or_else(|_| panic!("failed to parse test data file as JSON"));
-            parsed
+            serde_json::to_value(&parsed)
+                .unwrap_or_else(|_| panic!("failed to convert test data to Value"))
         }
         FormatType::QueryString => {
             let parsed: T = serde_qs::from_str(&data_removed_metadata)
                 .unwrap_or_else(|_| panic!("failed to parse test data file as query string"));
-            parsed
+            serde_json::to_value(&parsed)
+                .unwrap_or_else(|_| panic!("failed to convert test data to Value"))
         }
     };
-    serde_json::to_value(&parsed).unwrap_or_else(|_| panic!("failed to convert test data to Value"))
+    parsed
 }
 
 fn get_timestamp_from_file_content(file_path: PathBuf) -> String {
@@ -205,28 +215,30 @@ fn get_timestamp_from_file_content(file_path: PathBuf) -> String {
     timestamp
 }
 
-fn convert_content_to_value<T>(file_path: PathBuf, format_type: FormatType) -> Value
+fn convert_content_to_value<T, U>(file_path: PathBuf, format_type: FormatType) -> Value
 where
     T: serde::de::DeserializeOwned + serde::Serialize,
+    U: serde::de::DeserializeOwned + serde::Serialize,
 {
     let file_content = std::fs::read_to_string(file_path.clone())
         .unwrap_or_else(|_| panic!("failed to read test data file: {}", file_path.display()));
     let data_removed_metadata = remove_metadata(file_content.clone());
-    convert_test_data_to_value::<T>(data_removed_metadata, format_type)
+    convert_test_data_to_value::<T, U>(data_removed_metadata, format_type)
 }
 
-pub fn custom_match_normalize<T>(
+pub fn custom_match_normalize<T, U>(
     test_data_paths: impl Iterator<Item = PathBuf>,
     another_test_data_paths: impl Iterator<Item = PathBuf>,
     snap_file_paths: impl Iterator<Item = PathBuf>,
     snap_file_directory_path: String,
     format_type: FormatType,
 ) where
-    T: serde::de::DeserializeOwned + serde::Serialize + std::fmt::Debug,
+    T: serde::de::DeserializeOwned + serde::Serialize,
+    U: serde::de::DeserializeOwned + serde::Serialize,
 {
     let mut snap_values: Vec<Value> = snap_file_paths
         .map(|snap_file_path| {
-            convert_content_to_value::<T>(snap_file_path.clone(), format_type.clone())
+            convert_content_to_value::<T, U>(snap_file_path.clone(), format_type.clone())
         })
         .collect();
 
@@ -239,12 +251,12 @@ pub fn custom_match_normalize<T>(
 
     for test_data_path in test_data_paths {
         let expected_value: Value =
-            convert_content_to_value::<T>(test_data_path.clone(), format_type.clone());
+            convert_content_to_value::<T, U>(test_data_path.clone(), format_type.clone());
 
         let keep_value = expected_value.clone();
         if !test_match_normalize(expected_value.clone(), snap_values.clone()) {
             println!(
-                "\x1b[38;5;{}m unmatched snapshot, add test data {} to snap file path {}\x1b[m ",
+                "\x1b[38;5;{}m unmatched snapshot, tray to add test data {} to snap file path {}\x1b[m ",
                 13,
                 test_data_path.display(),
                 snap_file_directory_path
@@ -270,7 +282,7 @@ pub fn custom_match_normalize<T>(
                         .keys()
                         .filter(|&&ts| ts <= ts_int && ts + 2000 >= ts_int)
                         .max_by_key(|&&ts| ts)
-                        .map(|&ts| another_timestamp_map.get(&ts).clone())
+                        .map(|&ts| another_timestamp_map.get(&ts))
                         .unwrap_or_else(|| {
                             panic!(
                                 "another test data file not found for timestamp: {}",
@@ -281,7 +293,7 @@ pub fn custom_match_normalize<T>(
                         .keys()
                         .filter(|&&ts| ts >= ts_int && ts <= ts_int + 2000)
                         .min_by_key(|&&ts| ts)
-                        .map(|&ts| another_timestamp_map.get(&ts).clone())
+                        .map(|&ts| another_timestamp_map.get(&ts))
                         .unwrap_or_else(|| {
                             panic!(
                                 "another test data file not found for timestamp: {}",
@@ -299,8 +311,12 @@ pub fn custom_match_normalize<T>(
                 );
                 continue;
             }
+            let another_format_type = match format_type {
+                FormatType::Json => FormatType::QueryString,
+                FormatType::QueryString => FormatType::Json,
+            };
             let another_expected_value: Value =
-                convert_content_to_value::<T>(another_test_data_path, format_type.clone());
+                convert_content_to_value::<T, U>(another_test_data_path, another_format_type);
 
             keep_test_data(
                 keep_value,
@@ -315,13 +331,14 @@ pub fn custom_match_normalize<T>(
     }
 }
 
-pub fn glob_match_normalize<T>(
+pub fn glob_match_normalize<T, U>(
     test_data_path: String,
     pattern_str: String,
     snap_file_path: String,
     format_type: FormatType,
 ) where
-    T: serde::de::DeserializeOwned + serde::Serialize + std::fmt::Debug,
+    T: serde::de::DeserializeOwned + serde::Serialize,
+    U: serde::de::DeserializeOwned + serde::Serialize,
 {
     let target_pattern = match format_type {
         FormatType::Json => format!("S{}", pattern_str),
@@ -363,11 +380,15 @@ pub fn glob_match_normalize<T>(
         .filter(|file_path| file_path.to_str().unwrap().ends_with(&target_pattern))
         .collect::<Vec<_>>();
 
-    custom_match_normalize::<T>(
+    custom_match_normalize::<T, U>(
         target_file_list.into_iter(),
         another_target_file_list.into_iter(),
         snap_file_list.into_iter(),
         snap_file_path,
         format_type,
+    );
+    println!(
+        "\x1b[38;5;{}m completed test data normalization for pattern: {}\x1b[m ",
+        10, pattern_str
     );
 }
