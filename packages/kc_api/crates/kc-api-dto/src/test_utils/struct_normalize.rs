@@ -28,7 +28,11 @@ fn normalize_for_mask_seacret(key: String, val: Value) -> Value {
             if key.eq("api_token") {
                 Value::String("__API_TOKEN__".to_string())
             } else {
-                Value::String(s)
+                if s.ends_with("\n") {
+                    Value::String(s.replace("\n", ""))
+                } else {
+                    Value::String(s)
+                }
             }
         }
 
@@ -138,7 +142,11 @@ fn normalize_for_test(key: String, val: Value) -> Value {
             if key.eq("api_token") {
                 Value::String("__API_TOKEN__".to_string())
             } else {
-                Value::String(s)
+                if s.ends_with("\n") {
+                    Value::String(s.replace("\n", ""))
+                } else {
+                    Value::String(s)
+                }
             }
         }
 
@@ -261,6 +269,7 @@ pub fn custom_match_normalize<T, U>(
                 test_data_path.display(),
                 snap_file_directory_path
             );
+
             let test_file_name = test_data_path
                 .file_name()
                 .unwrap_or_else(|| panic!("failed to get file name: {}", test_data_path.display()))
