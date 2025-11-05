@@ -1,10 +1,12 @@
 #![cfg(test)]
 
-use std::path::{self, PathBuf};
+use std::path::{self, Path, PathBuf};
 
 use serde_json::Value;
 use serde_qs;
 use std::io::Write;
+
+use crate::endpoints::api_get_member::preset_deck::N;
 
 #[derive(Clone)]
 pub enum FormatType {
@@ -51,6 +53,7 @@ fn normalize_for_mask_seacret(val: Value) -> Value {
 
 fn keep_test_data(
     val: Value,
+    another_val: Value,
     file_name: String,
     snap_file_path: String,
     timestamp: String,
@@ -61,32 +64,44 @@ fn keep_test_data(
         FormatType::Json => serde_json::to_string_pretty(&val_masked).unwrap(),
         FormatType::QueryString => serde_qs::to_string(&val_masked).unwrap(),
     };
+    let another_val_masked = normalize_for_mask_seacret(another_val);
+    let another_serialized = match format_type {
+        FormatType::QueryString => serde_json::to_string_pretty(&another_val_masked).unwrap(),
+        FormatType::Json => serde_qs::to_string(&another_val_masked).unwrap(),
+    };
 
-    let mut file_name_formatted = file_name;
-
-    file_name_formatted = file_name_formatted
+    let file_name_formatted = file_name
         .split_once("@")
-        .map(|(prefix, suffix)| {
-            let last_char = prefix
-                .chars()
-                .last()
-                .map(|c| c.to_string())
-                .unwrap_or_default();
-            format!("{timestamp}{last_char}@{suffix}")
-        })
+        .map(|(_prefix, suffix)| format!("{timestamp}#@{suffix}"))
         .expect("can not get 1th of file name splitted with '@'");
 
-    if !file_name_formatted.ends_with(".json") {
-        file_name_formatted = format!("{file_name_formatted}.json");
-    }
-    file_name_formatted = format!(
-        "{}/{}",
-        snap_file_path.trim_end_matches("/"),
-        file_name_formatted
-    );
+    let req_file_name_formatted = {
+        let formatted = file_name_formatted
+            .split_once("#")
+            .map(|(prefix, suffix)| format!("{prefix}Q{suffix}"))
+            .unwrap_or(file_name_formatted.clone());
+        format!("{}/{}", snap_file_path.trim_end_matches("/"), formatted)
+    };
+    let res_file_name_formatted = {
+        let formatted = file_name_formatted
+            .split_once("#")
+            .map(|(prefix, suffix)| format!("{prefix}S{suffix}"))
+            .unwrap_or(file_name_formatted.clone());
+        format!("{}/{}", snap_file_path.trim_end_matches("/"), formatted)
+    };
 
-    let mut file = std::fs::File::create(file_name_formatted).expect("can not create file");
-    writeln!(file, "{serialized}").expect("can not write.");
+    let mut req_file = std::fs::File::create(req_file_name_formatted).expect("can not create file");
+    match format_type {
+        FormatType::Json => writeln!(req_file, "{another_serialized}").expect("can not write."),
+        FormatType::QueryString => writeln!(req_file, "{serialized}").expect("can not write."),
+    }
+    let mut res_file = std::fs::File::create(res_file_name_formatted).expect("can not create file");
+    match format_type {
+        FormatType::Json => writeln!(res_file, "{serialized}").expect("can not write."),
+        FormatType::QueryString => {
+            writeln!(res_file, "{another_serialized}").expect("can not write.")
+        }
+    }
 }
 
 fn normalize_for_test(val: Value) -> Value {
@@ -155,91 +170,76 @@ pub fn test_match_normalize(expected: Value, snap_values: Vec<Value>) -> bool {
     result_eq
 }
 
+fn convert_test_data_to_value<T>(file_content: String, format_type: FormatType) -> Value
+where
+    T: serde::de::DeserializeOwned + serde::Serialize,
+{
+    let data_removed_metadata = remove_metadata(file_content);
+    let parsed: T = match format_type {
+        FormatType::Json => {
+            let parsed: T = serde_json::from_str(&data_removed_metadata)
+                .unwrap_or_else(|_| panic!("failed to parse test data file as JSON"));
+            parsed
+        }
+        FormatType::QueryString => {
+            let parsed: T = serde_qs::from_str(&data_removed_metadata)
+                .unwrap_or_else(|_| panic!("failed to parse test data file as query string"));
+            parsed
+        }
+    };
+    serde_json::to_value(&parsed).unwrap_or_else(|_| panic!("failed to convert test data to Value"))
+}
+
+fn get_timestamp_from_file_content(file_path: PathBuf) -> String {
+    let regex_timestamp = regex::Regex::new(r#"Timestamp: ([0-9]+)"#).unwrap();
+    let file_content = std::fs::read_to_string(file_path.clone())
+        .unwrap_or_else(|_| panic!("failed to read test data file: {}", file_path.display()));
+    let timestamp = file_content
+        .lines()
+        .find_map(|line| {
+            regex_timestamp
+                .captures(line)
+                .and_then(|caps| caps.get(1).map(|m| m.as_str().to_string()))
+        })
+        .expect("failed to get timestamp in test data");
+    timestamp
+}
+
+fn convert_content_to_value<T>(file_path: PathBuf, format_type: FormatType) -> Value
+where
+    T: serde::de::DeserializeOwned + serde::Serialize,
+{
+    let file_content = std::fs::read_to_string(file_path.clone())
+        .unwrap_or_else(|_| panic!("failed to read test data file: {}", file_path.display()));
+    let data_removed_metadata = remove_metadata(file_content.clone());
+    convert_test_data_to_value::<T>(data_removed_metadata, format_type)
+}
+
 pub fn custom_match_normalize<T>(
     test_data_paths: impl Iterator<Item = PathBuf>,
-    pattern_str: String,
-    snap_file_path: String,
+    another_test_data_paths: impl Iterator<Item = PathBuf>,
+    snap_file_paths: impl Iterator<Item = PathBuf>,
+    snap_file_directory_path: String,
     format_type: FormatType,
 ) where
     T: serde::de::DeserializeOwned + serde::Serialize + std::fmt::Debug,
 {
-    let snap_file_path = path::PathBuf::from(snap_file_path);
-    let snap_files = snap_file_path
-        .read_dir()
-        .unwrap_or_else(|_| panic!("\x1b[38;5;{}m read_dir call failed\x1b[m ", 8));
-    let snap_file_list = snap_files
-        .map(|dir_entry| dir_entry.unwrap().path())
-        .filter(|file_path| file_path.to_str().unwrap().ends_with(&pattern_str))
-        .collect::<Vec<_>>();
-    let mut snap_values: Vec<Value> = snap_file_list
-        .iter()
+    let mut snap_values: Vec<Value> = snap_file_paths
         .map(|snap_file_path| {
-            let file_content = std::fs::read_to_string(snap_file_path).unwrap_or_else(|_| {
-                panic!("failed to read snap file: {}", snap_file_path.display())
-            });
-            let data_removed_metadata = remove_metadata(file_content);
-            let parsed: T = match format_type.clone() {
-                FormatType::Json => {
-                    let parsed: T =
-                        serde_json::from_str(&data_removed_metadata).unwrap_or_else(|_| {
-                            panic!(
-                                "failed to parse snap file as JSON: {}",
-                                snap_file_path.display()
-                            )
-                        });
-                    parsed
-                }
-                FormatType::QueryString => {
-                    let parsed: T =
-                        serde_qs::from_str(&data_removed_metadata).unwrap_or_else(|_| {
-                            panic!(
-                                "failed to parse snap file as query string: {}",
-                                snap_file_path.display()
-                            )
-                        });
-                    parsed
-                }
-            };
-            serde_json::to_value(&parsed).unwrap_or_else(|_| {
-                panic!(
-                    "failed to convert snap data to Value: {}",
-                    snap_file_path.display()
-                )
-            })
+            convert_content_to_value::<T>(snap_file_path.clone(), format_type.clone())
         })
         .collect();
 
-    let regex_timestamp = regex::Regex::new(r#"Timestamp: ([0-9]+)"#).unwrap();
+    let another_timestamp_map: std::collections::HashMap<i64, PathBuf> = another_test_data_paths
+        .map(|path| {
+            let timestamp = get_timestamp_from_file_content(path.clone());
+            (timestamp.parse::<i64>().unwrap_or(0), path)
+        })
+        .collect();
+
     for test_data_path in test_data_paths {
-        let file_content = std::fs::read_to_string(test_data_path.clone()).unwrap_or_else(|_| {
-            panic!(
-                "failed to read test data file: {}",
-                test_data_path.display()
-            )
-        });
-        let data_removed_metadata = remove_metadata(file_content.clone());
-        let test_data: T = serde_json::from_str(&data_removed_metadata).unwrap_or_else(|_| {
-            panic!(
-                "failed to parse test data file as JSON: {}",
-                test_data_path.display()
-            )
-        });
-
-        let expected_value: Value = serde_json::to_value(&test_data).unwrap_or_else(|_| {
-            panic!(
-                "failed to convert test data to Value: {}",
-                test_data_path.display()
-            )
-        });
-
-        let timestamp = file_content
-            .lines()
-            .find_map(|line| {
-                regex_timestamp
-                    .captures(line)
-                    .and_then(|caps| caps.get(1).map(|m| m.as_str().to_string()))
-            })
-            .expect("failed to get timestamp in test data");
+        let expected_value: Value =
+            convert_content_to_value::<T>(test_data_path.clone(), format_type.clone());
 
         let keep_value = expected_value.clone();
         if !test_match_normalize(expected_value.clone(), snap_values.clone()) {
@@ -247,7 +247,7 @@ pub fn custom_match_normalize<T>(
                 "\x1b[38;5;{}m unmatched snapshot, add test data {} to snap file path {}\x1b[m ",
                 13,
                 test_data_path.display(),
-                snap_file_path.display()
+                snap_file_directory_path
             );
             let test_file_name = test_data_path
                 .file_name()
@@ -260,10 +260,53 @@ pub fn custom_match_normalize<T>(
                     )
                 })
                 .to_string();
+
+            let timestamp = get_timestamp_from_file_content(test_data_path.clone());
+
+            let another_test_data_path = {
+                let ts_int = timestamp.parse::<i64>().unwrap_or(0);
+                let value = match format_type {
+                    FormatType::Json => another_timestamp_map
+                        .keys()
+                        .filter(|&&ts| ts <= ts_int && ts + 2000 >= ts_int)
+                        .max_by_key(|&&ts| ts)
+                        .map(|&ts| another_timestamp_map.get(&ts).clone())
+                        .unwrap_or_else(|| {
+                            panic!(
+                                "another test data file not found for timestamp: {}",
+                                timestamp
+                            )
+                        }),
+                    FormatType::QueryString => another_timestamp_map
+                        .keys()
+                        .filter(|&&ts| ts >= ts_int && ts <= ts_int + 2000)
+                        .min_by_key(|&&ts| ts)
+                        .map(|&ts| another_timestamp_map.get(&ts).clone())
+                        .unwrap_or_else(|| {
+                            panic!(
+                                "another test data file not found for timestamp: {}",
+                                timestamp
+                            )
+                        }),
+                };
+                value.expect("failed to get another test data path").clone()
+            };
+            if !another_test_data_path.exists() {
+                println!(
+                    "\x1b[38;5;{}m another test data file not found: {}\x1b[m ",
+                    9,
+                    another_test_data_path.display()
+                );
+                continue;
+            }
+            let another_expected_value: Value =
+                convert_content_to_value::<T>(another_test_data_path, format_type.clone());
+
             keep_test_data(
                 keep_value,
+                another_expected_value,
                 test_file_name,
-                snap_file_path.to_string_lossy().to_string(),
+                snap_file_directory_path.clone(),
                 timestamp,
                 format_type.clone(),
             );
@@ -280,18 +323,50 @@ pub fn glob_match_normalize<T>(
 ) where
     T: serde::de::DeserializeOwned + serde::Serialize + std::fmt::Debug,
 {
-    let target = path::PathBuf::from(test_data_path);
+    let target_pattern = match format_type {
+        FormatType::Json => format!("S{}", pattern_str),
+        FormatType::QueryString => format!("Q{}", pattern_str),
+    };
+    let another_target_pattern = match format_type {
+        FormatType::Json => format!("Q{}", pattern_str),
+        FormatType::QueryString => format!("S{}", pattern_str),
+    };
+
+    let target = path::PathBuf::from(test_data_path.clone());
     let target_files = target
         .read_dir()
         .unwrap_or_else(|_| panic!("\x1b[38;5;{}m read_dir call failed\x1b[m ", 8));
     let target_file_list = target_files
         .map(|dir_entry| dir_entry.unwrap().path())
-        .filter(|file_path| file_path.to_str().unwrap().ends_with(&pattern_str))
+        .filter(|file_path| file_path.to_str().unwrap().ends_with(&target_pattern))
+        .collect::<Vec<_>>();
+
+    let another_target = path::PathBuf::from(test_data_path.clone());
+    let another_target_files = another_target
+        .read_dir()
+        .unwrap_or_else(|_| panic!("\x1b[38;5;{}m read_dir call failed\x1b[m ", 8));
+    let another_target_file_list = another_target_files
+        .map(|dir_entry| dir_entry.unwrap().path())
+        .filter(|file_path| {
+            file_path
+                .to_str()
+                .unwrap()
+                .ends_with(&another_target_pattern)
+        })
+        .collect::<Vec<_>>();
+
+    let snap_files = path::PathBuf::from(snap_file_path.clone())
+        .read_dir()
+        .unwrap_or_else(|_| panic!("\x1b[38;5;{}m read_dir call failed\x1b[m ", 8));
+    let snap_file_list = snap_files
+        .map(|dir_entry| dir_entry.unwrap().path())
+        .filter(|file_path| file_path.to_str().unwrap().ends_with(&target_pattern))
         .collect::<Vec<_>>();
 
     custom_match_normalize::<T>(
         target_file_list.into_iter(),
-        pattern_str,
+        another_target_file_list.into_iter(),
+        snap_file_list.into_iter(),
         snap_file_path,
         format_type,
     );
