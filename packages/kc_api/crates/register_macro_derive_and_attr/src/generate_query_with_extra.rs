@@ -22,7 +22,7 @@ pub fn expand(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
         _ => {
             return Err(syn::Error::new_spanned(
                 struct_ident,
-                "QueryWithExtra は構造体のみ対応",
+                "QueryWithExtra only supports structs",
             ))
         }
     };
@@ -32,7 +32,7 @@ pub fn expand(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
         _ => {
             return Err(syn::Error::new_spanned(
                 struct_ident,
-                "QueryWithExtra は名前付きフィールドをもつ構造体のみ対応",
+                "QueryWithExtra only supports structs with named fields",
             ))
         }
     };
@@ -45,13 +45,8 @@ pub fn expand(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
         let mut rename = ident.to_string();
         let mut is_extra = false;
 
-        for attr in field
-            .attrs
-            .iter()
-            .filter(|a| a.path().is_ident("qs") || a.path().is_ident("serde"))
-        {
-            let is_qs_attr = attr.path().is_ident("qs");
-            parse_qs_attr(attr, is_qs_attr, &mut rename, &mut is_extra)?;
+        for attr in field.attrs.iter().filter(|a| a.path().is_ident("qs")) {
+            parse_qs_attr(attr, &mut rename, &mut is_extra)?;
         }
 
         let info = FieldInfo {
@@ -65,7 +60,7 @@ pub fn expand(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
             if extra_field.is_some() {
                 return Err(syn::Error::new_spanned(
                     ident,
-                    "qs(extra) は 1 フィールドのみ指定できます",
+                    "qs(extra) can be specified on only one field",
                 ));
             }
             extra_field = Some(info);
@@ -74,12 +69,8 @@ pub fn expand(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
         }
     }
 
-    let extra = extra_field.ok_or_else(|| {
-        syn::Error::new_spanned(
-            &struct_ident,
-            "qs(extra) が付いたフィールドが見つかりません",
-        )
-    })?;
+    let extra = extra_field
+        .ok_or_else(|| syn::Error::new_spanned(&struct_ident, "qs(extra) field not found"))?;
 
     let (impl_generics, ty_generics, _) = generics.split_for_impl();
     let mut serialize_where: WhereClause =
@@ -230,12 +221,7 @@ pub fn expand(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
     Ok(generated)
 }
 
-fn parse_qs_attr(
-    attr: &Attribute,
-    is_qs_attr: bool,
-    rename: &mut String,
-    is_extra: &mut bool,
-) -> syn::Result<()> {
+fn parse_qs_attr(attr: &Attribute, rename: &mut String, is_extra: &mut bool) -> syn::Result<()> {
     let metas = attr.parse_args_with(
         syn::punctuated::Punctuated::<Meta, syn::token::Comma>::parse_terminated,
     )?;
@@ -250,7 +236,7 @@ fn parse_qs_attr(
                 else {
                     return Err(syn::Error::new_spanned(
                         &nv.value,
-                        "rename = ... には文字列リテラルを指定してください",
+                        "rename = ... requires a string literal",
                     ));
                 };
                 *rename = lit_str.value();
@@ -259,12 +245,10 @@ fn parse_qs_attr(
                 *is_extra = true;
             }
             _ => {
-                if is_qs_attr {
-                    return Err(syn::Error::new_spanned(
-                        meta,
-                        "qs では rename=\"...\" と extra のみ指定できます",
-                    ));
-                }
+                return Err(syn::Error::new_spanned(
+                    meta,
+                    "qs attributes only support rename=\"...\" and extra",
+                ));
             }
         }
     }

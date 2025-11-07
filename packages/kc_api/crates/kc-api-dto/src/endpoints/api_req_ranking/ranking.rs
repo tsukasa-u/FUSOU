@@ -100,9 +100,9 @@ mod tests {
         let files = target.read_dir().expect("read_dir call failed");
         let file_list = files
             .map(|dir_entry| {
-                let file_path = dir_entry.unwrap().path();
+                
                 // file_path.exists();
-                file_path
+                dir_entry.unwrap().path()
             })
             .filter(|file_path| pattern_str.is_match(file_path.to_str().unwrap()));
         custom_root_test::<Res>(file_list, log_path.to_string());

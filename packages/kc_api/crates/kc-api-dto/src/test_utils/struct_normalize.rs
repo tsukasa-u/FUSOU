@@ -27,12 +27,10 @@ fn normalize_for_mask_seacret(key: String, val: Value) -> Value {
         Value::String(s) => {
             if key.eq("api_token") {
                 Value::String("__API_TOKEN__".to_string())
+            } else if s.ends_with("\n") {
+                Value::String(s.replace("\n", ""))
             } else {
-                if s.ends_with("\n") {
-                    Value::String(s.replace("\n", ""))
-                } else {
-                    Value::String(s)
-                }
+                Value::String(s)
             }
         }
 
@@ -141,12 +139,10 @@ fn normalize_for_test(key: String, val: Value) -> Value {
         Value::String(s) => {
             if key.eq("api_token") {
                 Value::String("__API_TOKEN__".to_string())
+            } else if s.ends_with("\n") {
+                Value::String(s.replace("\n", ""))
             } else {
-                if s.ends_with("\n") {
-                    Value::String(s.replace("\n", ""))
-                } else {
-                    Value::String(s)
-                }
+                Value::String(s)
             }
         }
 
@@ -294,8 +290,7 @@ pub fn custom_match_normalize<T, U>(
                         .map(|&ts| another_timestamp_map.get(&ts))
                         .unwrap_or_else(|| {
                             panic!(
-                                "another test data file not found for timestamp: {}",
-                                timestamp
+                                "another test data file not found for timestamp: {timestamp}"
                             )
                         }),
                     FormatType::QueryString => another_timestamp_map
@@ -305,8 +300,7 @@ pub fn custom_match_normalize<T, U>(
                         .map(|&ts| another_timestamp_map.get(&ts))
                         .unwrap_or_else(|| {
                             panic!(
-                                "another test data file not found for timestamp: {}",
-                                timestamp
+                                "another test data file not found for timestamp: {timestamp}"
                             )
                         }),
                 };
@@ -350,12 +344,12 @@ pub fn glob_match_normalize<T, U>(
     U: serde::de::DeserializeOwned + serde::Serialize,
 {
     let target_pattern = match format_type {
-        FormatType::Json => format!("S{}", pattern_str),
-        FormatType::QueryString => format!("Q{}", pattern_str),
+        FormatType::Json => format!("S{pattern_str}"),
+        FormatType::QueryString => format!("Q{pattern_str}"),
     };
     let another_target_pattern = match format_type {
-        FormatType::Json => format!("Q{}", pattern_str),
-        FormatType::QueryString => format!("S{}", pattern_str),
+        FormatType::Json => format!("Q{pattern_str}"),
+        FormatType::QueryString => format!("S{pattern_str}"),
     };
 
     let target = path::PathBuf::from(test_data_path.clone());
