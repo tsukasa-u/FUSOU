@@ -1,7 +1,7 @@
 extern crate proc_macro;
 
 use proc_macro::TokenStream;
-use syn::{DeriveInput, ItemFn};
+use syn::{parse_macro_input, DeriveInput, ItemFn};
 
 mod add_field;
 mod doc_util;
@@ -10,6 +10,7 @@ mod generate_decode;
 mod generate_emitdata;
 mod generate_encode;
 mod generate_field_size_checker;
+mod generate_query_with_extra;
 mod generate_test_root;
 mod generate_test_struct;
 mod register_struct;
@@ -113,4 +114,12 @@ pub fn generate_decode(item: TokenStream) -> TokenStream {
         Ok(generated) => generated,
         Err(err) => err.to_compile_error().into(),
     }
+}
+
+#[proc_macro_derive(QueryWithExtra, attributes(qs))]
+pub fn derive_query_with_extra(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    generate_query_with_extra::expand(input)
+        .unwrap_or_else(|err| err.to_compile_error())
+        .into()
 }

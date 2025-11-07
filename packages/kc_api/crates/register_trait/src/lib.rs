@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 pub use register_macro_derive_and_attr::FieldSizeChecker;
+pub use register_macro_derive_and_attr::QueryWithExtra;
 pub use register_macro_derive_and_attr::TraitForDecode;
 pub use register_macro_derive_and_attr::TraitForEmitData;
 pub use register_macro_derive_and_attr::TraitForEncode;
@@ -91,3 +92,5 @@ pub trait FieldSizeChecker {
 
 pub trait TraitForEncode {}
 pub trait TraitForDecode {}
+
+pub trait QueryWithExtra {}

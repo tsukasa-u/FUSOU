@@ -6,6 +6,7 @@ edition.workspace = true
 [dependencies]
 register_trait = { workspace = true }
 serde = { workspace = true }
+serde-aux = { workspace = true }
 serde_json = { workspace = true }
 regex = { workspace = true }
 serde_qs = { workspace = true }
