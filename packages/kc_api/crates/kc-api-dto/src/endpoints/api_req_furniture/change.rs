@@ -13,38 +13,38 @@ use register_trait::FieldSizeChecker;
 
 use register_trait::TraitForRoot;
 use register_trait::TraitForTest;
+use register_trait::QueryWithExtra;
 
 
 
 #[derive(FieldSizeChecker, TraitForTest, TraitForRoot)]
 
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[add_field(extra_for_qs)]
+#[derive(Debug, Clone, QueryWithExtra)]
 pub struct Req {
-    #[serde(rename = "api_token")]
+    #[qs(rename = "api_token")]
     pub api_token: String,
-    #[serde(rename = "api_verno")]
+    #[qs(rename = "api_verno")]
     pub api_verno: String,
-    #[serde(rename = "api_floor")]
+    #[qs(rename = "api_floor")]
     pub api_floor: String,
-    #[serde(rename = "api_shelf")]
+    #[qs(rename = "api_shelf")]
     pub api_shelf: String,
-    #[serde(rename = "api_wallpaper")]
+    #[qs(rename = "api_wallpaper")]
     pub api_wallpaper: String,
-    #[serde(rename = "api_window")]
+    #[qs(rename = "api_window")]
     pub api_window: String,
-    #[serde(rename = "api_wallhanging")]
+    #[qs(rename = "api_wallhanging")]
     pub api_wallhanging: String,
-    #[serde(rename = "api_desk")]
+    #[qs(rename = "api_desk")]
     pub api_desk: String,
 }
 
 #[derive(FieldSizeChecker, TraitForTest, TraitForRoot)]
 
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
+#[add_field(extra_with_flatten)]
 #[register_struct(name = "api_req_furniture/change")]
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]

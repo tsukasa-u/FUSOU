@@ -13,44 +13,44 @@ use register_trait::FieldSizeChecker;
 
 use register_trait::TraitForRoot;
 use register_trait::TraitForTest;
+use register_trait::QueryWithExtra;
 
 
 
 #[derive(FieldSizeChecker, TraitForTest, TraitForRoot)]
 
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[add_field(extra_for_qs)]
+#[derive(Debug, Clone, QueryWithExtra)]
 pub struct Req {
-    #[serde(rename = "api_token")]
+    #[qs(rename = "api_token")]
     pub api_token: String,
-    #[serde(rename = "api_verno")]
+    #[qs(rename = "api_verno")]
     pub api_verno: String,
-    #[serde(rename = "api_language_type")]
+    #[qs(rename = "api_language_type")]
     pub api_language_type: String,
-    #[serde(rename = "api_oss_items[0]")]
+    #[qs(rename = "api_oss_items[0]")]
     pub api_oss_items_0: String,
-    #[serde(rename = "api_oss_items[1]")]
+    #[qs(rename = "api_oss_items[1]")]
     pub api_oss_items_1: String,
-    #[serde(rename = "api_oss_items[2]")]
+    #[qs(rename = "api_oss_items[2]")]
     pub api_oss_items_2: String,
-    #[serde(rename = "api_oss_items[3]")]
+    #[qs(rename = "api_oss_items[3]")]
     pub api_oss_items_3: String,
-    #[serde(rename = "api_oss_items[4]")]
+    #[qs(rename = "api_oss_items[4]")]
     pub api_oss_items_4: String,
-    #[serde(rename = "api_oss_items[5]")]
+    #[qs(rename = "api_oss_items[5]")]
     pub api_oss_items_5: String,
-    #[serde(rename = "api_oss_items[6]")]
+    #[qs(rename = "api_oss_items[6]")]
     pub api_oss_items_6: String,
-    #[serde(rename = "api_oss_items[7]")]
+    #[qs(rename = "api_oss_items[7]")]
     pub api_oss_items_7: String,
 }
 
 #[derive(FieldSizeChecker, TraitForTest, TraitForRoot)]
 
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
+#[add_field(extra_with_flatten)]
 #[register_struct(name = "api_req_member/set_oss_condition")]
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]

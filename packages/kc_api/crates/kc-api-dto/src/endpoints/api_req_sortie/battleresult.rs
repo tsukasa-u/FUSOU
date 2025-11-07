@@ -16,6 +16,7 @@ use register_trait::FieldSizeChecker;
 
 use register_trait::TraitForRoot;
 use register_trait::TraitForTest;
+use register_trait::QueryWithExtra;
 
 use crate::common::common_result::ApiEnemyInfo;
 use crate::common::common_result::ApiGetEventitem;
@@ -27,46 +28,45 @@ use crate::common::common_result::ApiLandingHp;
 #[derive(FieldSizeChecker, TraitForTest, TraitForRoot)]
 
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[add_field(extra_for_qs)]
+#[derive(Debug, Clone, QueryWithExtra)]
 pub struct Req {
-    #[serde(rename = "api_token")]
+    #[qs(rename = "api_token")]
     pub api_token: String,
-    #[serde(rename = "api_verno")]
+    #[qs(rename = "api_verno")]
     pub api_verno: String,
-    #[serde(rename = "api_btime")]
+    #[qs(rename = "api_btime")]
     pub api_btime: String,
-    #[serde(rename = "api_l_value[0]")]
+    #[qs(rename = "api_l_value[0]")]
     pub api_l_value_0: Option<String>,
-    #[serde(rename = "api_l_value[1]")]
+    #[qs(rename = "api_l_value[1]")]
     pub api_l_value_1: Option<String>,
-    #[serde(rename = "api_l_value[2]")]
+    #[qs(rename = "api_l_value[2]")]
     pub api_l_value_2: Option<String>,
-    #[serde(rename = "api_l_value[3]")]
+    #[qs(rename = "api_l_value[3]")]
     pub api_l_value_3: Option<String>,
-    #[serde(rename = "api_l_value[4]")]
+    #[qs(rename = "api_l_value[4]")]
     pub api_l_value_4: Option<String>,
-    #[serde(rename = "api_l_value[5]")]
+    #[qs(rename = "api_l_value[5]")]
     pub api_l_value_5: Option<String>,
-    #[serde(rename = "api_l_value3[0]")]
+    #[qs(rename = "api_l_value3[0]")]
     pub api_l_value3_0: Option<String>,
-    #[serde(rename = "api_l_value3[1]")]
+    #[qs(rename = "api_l_value3[1]")]
     pub api_l_value3_1: Option<String>,
-    #[serde(rename = "api_l_value3[2]")]
+    #[qs(rename = "api_l_value3[2]")]
     pub api_l_value3_2: Option<String>,
-    #[serde(rename = "api_l_value3[3]")]
+    #[qs(rename = "api_l_value3[3]")]
     pub api_l_value3_3: Option<String>,
-    #[serde(rename = "api_l_value3[4]")]
+    #[qs(rename = "api_l_value3[4]")]
     pub api_l_value3_4: Option<String>,
-    #[serde(rename = "api_l_value3[5]")]
+    #[qs(rename = "api_l_value3[5]")]
     pub api_l_value3_5: Option<String>,
 }
 
 #[derive(FieldSizeChecker, TraitForTest, TraitForRoot)]
 
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
+#[add_field(extra_with_flatten)]
 #[register_struct(name = "api_req_sortie/battleresult")]
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -81,7 +81,7 @@ pub struct Res {
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
+#[add_field(extra_with_flatten)]
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiData {
@@ -149,7 +149,7 @@ pub struct ApiData {
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
+#[add_field(extra_with_flatten)]
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiGetUseitem {
@@ -161,7 +161,7 @@ pub struct ApiGetUseitem {
 
 // #[derive(FieldSizeChecker, TraitForTest)]
 // #[struct_test_case(field_extra, type_value, integration)]
-// #[add_field(extra)]
+// #[add_field(extra_with_flatten)]
 // #[derive(Debug, Clone, Deserialize)]
 // #[serde(rename_all = "camelCase")]
 // pub struct ApiGetEventitem {
@@ -175,7 +175,7 @@ pub struct ApiGetUseitem {
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
+#[add_field(extra_with_flatten)]
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiSelectRewardDict {
@@ -191,7 +191,7 @@ pub struct ApiSelectRewardDict {
 
 // #[derive(FieldSizeChecker, TraitForTest)]
 // #[struct_test_case(field_extra, type_value, integration)]
-// #[add_field(extra)]
+// #[add_field(extra_with_flatten)]
 // #[derive(Debug, Clone, Deserialize)]
 // #[serde(rename_all = "camelCase")]
 // pub struct ApiLandingHp {
@@ -205,7 +205,7 @@ pub struct ApiSelectRewardDict {
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
+#[add_field(extra_with_flatten)]
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiEscapeFlag {
@@ -217,7 +217,7 @@ pub struct ApiEscapeFlag {
 
 // #[derive(FieldSizeChecker, TraitForTest)]
 // #[struct_test_case(field_extra, type_value, integration)]
-// #[add_field(extra)]
+// #[add_field(extra_with_flatten)]
 // #[derive(Debug, Clone, Deserialize)]
 // #[serde(rename_all = "camelCase")]
 // pub struct ApiGetShip {
@@ -233,7 +233,7 @@ pub struct ApiEscapeFlag {
 
 // #[derive(FieldSizeChecker, TraitForTest)]
 // #[struct_test_case(field_extra, type_value, integration)]
-// #[add_field(extra)]
+// #[add_field(extra_with_flatten)]
 // #[derive(Debug, Clone, Deserialize)]
 // #[serde(rename_all = "camelCase")]
 // pub struct ApiEnemyInfo {

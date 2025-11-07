@@ -13,6 +13,7 @@ use register_trait::FieldSizeChecker;
 
 use register_trait::TraitForRoot;
 use register_trait::TraitForTest;
+use register_trait::QueryWithExtra;
 
 use crate::common::common_air::ApiKouku;
 
@@ -21,26 +22,25 @@ use crate::common::common_air::ApiKouku;
 #[derive(FieldSizeChecker, TraitForTest, TraitForRoot)]
 
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[add_field(extra_for_qs)]
+#[derive(Debug, Clone, QueryWithExtra)]
 pub struct Req {
-    #[serde(rename = "api_token")]
+    #[qs(rename = "api_token")]
     pub api_token: String,
-    #[serde(rename = "api_verno")]
+    #[qs(rename = "api_verno")]
     pub api_verno: String,
-    #[serde(rename = "api_formation")]
+    #[qs(rename = "api_formation")]
     pub api_formation: String,
-    #[serde(rename = "api_recovery_type")]
+    #[qs(rename = "api_recovery_type")]
     pub api_recovery_type: String,
-    #[serde(rename = "api_start")]
+    #[qs(rename = "api_start")]
     pub api_start: Option<String>,
 }
 
 #[derive(FieldSizeChecker, TraitForTest, TraitForRoot)]
 
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
+#[add_field(extra_with_flatten)]
 #[register_struct(name = "api_req_combined_battle/ld_airbattle")]
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -55,7 +55,7 @@ pub struct Res {
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
+#[add_field(extra_with_flatten)]
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiData {

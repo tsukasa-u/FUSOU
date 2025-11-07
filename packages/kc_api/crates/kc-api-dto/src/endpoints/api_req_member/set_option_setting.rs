@@ -13,38 +13,38 @@ use register_trait::FieldSizeChecker;
 
 use register_trait::TraitForRoot;
 use register_trait::TraitForTest;
+use register_trait::QueryWithExtra;
 
 
 
 #[derive(FieldSizeChecker, TraitForTest, TraitForRoot)]
 
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[add_field(extra_for_qs)]
+#[derive(Debug, Clone, QueryWithExtra)]
 pub struct Req {
-    #[serde(rename = "api_token")]
+    #[qs(rename = "api_token")]
     pub api_token: String,
-    #[serde(rename = "api_verno")]
+    #[qs(rename = "api_verno")]
     pub api_verno: String,
-    #[serde(rename = "api_vol_voice")]
+    #[qs(rename = "api_vol_voice")]
     pub api_vol_voice: String,
-    #[serde(rename = "api_v_duty")]
+    #[qs(rename = "api_v_duty")]
     pub api_v_duty: String,
-    #[serde(rename = "api_skin_id")]
+    #[qs(rename = "api_skin_id")]
     pub api_skin_id: String,
-    #[serde(rename = "api_vol_bgm")]
+    #[qs(rename = "api_vol_bgm")]
     pub api_vol_bgm: String,
-    #[serde(rename = "api_v_be_left")]
+    #[qs(rename = "api_v_be_left")]
     pub api_v_be_left: String,
-    #[serde(rename = "api_vol_se")]
+    #[qs(rename = "api_vol_se")]
     pub api_vol_se: String,
 }
 
 #[derive(FieldSizeChecker, TraitForTest, TraitForRoot)]
 
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
+#[add_field(extra_with_flatten)]
 #[register_struct(name = "api_req_member/set_option_setting")]
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
