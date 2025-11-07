@@ -26,7 +26,7 @@ pub struct Req {
     #[qs(rename = "api_token")]
     pub api_token: String,
     #[qs(rename = "api_verno")]
-    pub api_verno: String,
+    pub api_verno: i64,
     #[qs(rename = "api_slot_dest_flag")]
     pub api_slot_dest_flag: String,
     #[qs(rename = "api_limited_feed_type")]

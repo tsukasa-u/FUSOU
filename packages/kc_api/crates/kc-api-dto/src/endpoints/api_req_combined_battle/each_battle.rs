@@ -36,7 +36,7 @@ pub struct Req {
     #[qs(rename = "api_token")]
     pub api_token: String,
     #[qs(rename = "api_verno")]
-    pub api_verno: String,
+    pub api_verno: i64,
 }
 
 #[derive(FieldSizeChecker, TraitForTest, TraitForRoot)]
