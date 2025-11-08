@@ -239,7 +239,7 @@ fn parse_qs_attr(attr: &Attribute, rename: &mut String, is_extra: &mut bool) -> 
                         "rename = ... requires a string literal",
                     ));
                 };
-                *rename = lit_str.value().trim_end_matches('\n').trim_end_matches('\r').to_string();
+                *rename = lit_str.value();
             }
             Meta::Path(path) if path.is_ident("extra") => {
                 *is_extra = true;
