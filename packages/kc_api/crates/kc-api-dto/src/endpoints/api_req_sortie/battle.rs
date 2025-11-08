@@ -8,10 +8,8 @@ use serde::Deserialize;
 
 use register_trait::{add_field, register_struct};
 
-use register_trait::{FieldSizeChecker, TraitForRoot, TraitForTest};
 use register_trait::QueryWithExtra;
-
-
+use register_trait::{FieldSizeChecker, TraitForRoot, TraitForTest};
 
 use crate::common::common_air::ApiAirBaseAttack;
 use crate::common::common_air::ApiAirBaseInjection;
@@ -24,7 +22,6 @@ use crate::common::common_battle::ApiRaigeki;
 use crate::common::common_battle::ApiSupportInfo;
 
 #[derive(FieldSizeChecker, TraitForTest, TraitForRoot)]
-
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra_for_qs)]
 #[derive(Debug, Clone, QueryWithExtra)]
@@ -38,7 +35,7 @@ pub struct Req {
     #[qs(rename = "api_recovery_type")]
     pub api_recovery_type: String,
     #[qs(rename = "api_smoke_flag")]
-    pub api_smoke_flag: Option<String>,
+    pub api_smoke_flag: Option<i64>,
     #[qs(rename = "api_ration_flag")]
     pub api_ration_flag: Option<String>,
     #[qs(rename = "api_start")]

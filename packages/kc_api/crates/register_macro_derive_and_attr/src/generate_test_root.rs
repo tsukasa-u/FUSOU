@@ -24,7 +24,8 @@ pub fn generate_test_root(ast: &mut DeriveInput) -> Result<TokenStream, syn::Err
                         let data_removed_bom: String = data.replace("\u{feff}", "");
                         let data_removed_svdata: String = data_removed_bom.replace("svdata=", "");
                         let data_removed_metadata: String = re_metadata.replace(&data_removed_svdata, "").to_string();
-                        let root_wrap: Result<#struct_name, serde_qs::Error> = serde_qs::from_str(data_removed_metadata.as_str());
+                        let data_replaced = data_removed_metadata.replace("%5B", "[").replace("%5D", "]");
+                        let root_wrap: Result<#struct_name, serde_qs::Error> = serde_qs::from_str(data_replaced.as_str());
                     }
                 }
                 _ => return Err(syn::Error::new_spanned(
