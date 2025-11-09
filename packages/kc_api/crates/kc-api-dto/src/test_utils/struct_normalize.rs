@@ -28,8 +28,12 @@ fn normalize_for_mask_seacret(key: String, val: Value) -> Value {
         Value::String(s) => {
             if key.eq("api_token") {
                 Value::String("__API_TOKEN__".to_string())
-            } else if s.ends_with("\n") {
-                Value::String(s.replace("\n", ""))
+            } else if key.eq("api_port") {
+                Value::String("__API_PORT__".to_string())
+            } else if key.eq("api_serial_cid") {
+                Value::String("__API_SERIAL_CID__".to_string())
+            // } else if s.ends_with("\n") {
+            //     Value::String(s.replace("\n", ""))
             } else {
                 Value::String(s)
             }
@@ -148,17 +152,25 @@ fn normalize_for_test(key: String, val: Value) -> Value {
         }
 
         Value::Array(arr) => {
-            let normalized_arr = arr
+            let normalized_set: std::collections::HashSet<Value> = arr
                 .into_iter()
                 .map(|v| normalize_for_test(key.clone(), v))
                 .collect();
-            Value::Array(normalized_arr)
+            Value::Array(normalized_set.into_iter().collect())
         }
 
         Value::Object(map) => {
+            let mut seen = std::collections::HashSet::new();
             let normalized_map = map
                 .into_iter()
-                .map(|(k, v)| (k.clone(), normalize_for_test(k, v)))
+                .filter_map(|(k, v)| {
+                    let normalized_v = normalize_for_test(k.clone(), v);
+                    if seen.insert(normalized_v.clone()) {
+                        Some((k, normalized_v))
+                    } else {
+                        None
+                    }
+                })
                 .collect();
             Value::Object(normalized_map)
         }
