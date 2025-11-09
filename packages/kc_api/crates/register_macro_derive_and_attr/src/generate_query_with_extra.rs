@@ -80,7 +80,7 @@ pub fn expand(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
         let ty = &info.ty;
         serialize_where
             .predicates
-            .push(parse_quote!(#ty: ::serde::de::DeserializeOwned + ::serde::ser::Serialize));
+            .push(parse_quote!(#ty: ::serde::de::DeserializeOwned + ::serde::ser::Serialize + ::core::default::Default));
     }
     let extra_ty = &extra.ty;
     serialize_where
@@ -158,7 +158,7 @@ pub fn expand(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
         let key = &info.rename;
         let ident = &info.ident;
         quote! {
-            #ident: #var.ok_or_else(|| ::serde::de::Error::missing_field(#key))?
+            #ident: #var.unwrap_or_default()
         }
     });
 
