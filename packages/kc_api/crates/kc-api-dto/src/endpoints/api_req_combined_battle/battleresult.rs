@@ -173,6 +173,7 @@ pub struct ApiEscape {
 
 #[cfg(test)]
 mod tests {
+    use crate::test_utils::struct_normalize::{glob_match_normalize, FormatType};
     use dotenvy::dotenv;
     use register_trait::simple_root_test;
 

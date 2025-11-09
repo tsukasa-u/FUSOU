@@ -75,6 +75,7 @@ pub struct ApiList {
 
 #[cfg(test)]
 mod tests {
+    use crate::test_utils::struct_normalize::{glob_match_normalize, FormatType};
     use std::path;
 
     use dotenvy::dotenv;
