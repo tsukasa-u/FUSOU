@@ -29,7 +29,7 @@ pub struct Req {
     #[qs(rename = "api_onslot")]
     pub api_onslot: i64,
     #[qs(rename = "api_id_items")]
-    pub api_id_items: i64,
+    pub api_id_items: Vec<i64>,
 }
 
 #[derive(FieldSizeChecker, TraitForTest, TraitForRoot)]

@@ -1,8 +1,9 @@
 use proc_macro2::Span;
 use quote::{format_ident, quote};
 use syn::{
-    parse_quote, Attribute, Data, DeriveInput, Expr, ExprLit, Fields, GenericParam, Ident,
-    Lifetime, LifetimeParam, Lit, Meta, Type, WhereClause,
+    parse_quote, Attribute, Data, DeriveInput, Expr, ExprLit, Fields, GenericArgument,
+    GenericParam, Ident, Lifetime, LifetimeParam, Lit, Meta, PathArguments, Type, TypePath,
+    WhereClause,
 };
 
 type Predicates = syn::punctuated::Punctuated<syn::WherePredicate, syn::token::Comma>;
@@ -12,6 +13,7 @@ struct FieldInfo {
     ty: Type,
     rename: String,
     is_extra: bool,
+    vec_inner_ty: Option<Type>,
 }
 
 pub fn expand(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
@@ -54,6 +56,7 @@ pub fn expand(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
             ty: field.ty.clone(),
             rename,
             is_extra,
+            vec_inner_ty: extract_vec_inner_ty(&field.ty),
         };
 
         if info.is_extra {
@@ -81,6 +84,14 @@ pub fn expand(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
         serialize_where
             .predicates
             .push(parse_quote!(#ty: ::serde::de::DeserializeOwned + ::serde::ser::Serialize + ::core::default::Default));
+        if let ::core::option::Option::Some(inner) = &info.vec_inner_ty {
+            serialize_where
+                .predicates
+                .push(parse_quote!(#inner: ::core::str::FromStr));
+            serialize_where
+                .predicates
+                .push(parse_quote!(<#inner as ::core::str::FromStr>::Err: ::core::fmt::Display));
+        }
     }
     let extra_ty = &extra.ty;
     serialize_where
@@ -108,6 +119,45 @@ pub fn expand(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
     let match_arms = infos.iter().zip(&field_vars).map(|(info, var)| {
         let key = &info.rename;
         let ty = &info.ty;
+        let string_fallback = if let ::core::option::Option::Some(inner) = &info.vec_inner_ty {
+            quote! {
+                if s.is_empty() {
+                    ::core::default::Default::default()
+                } else {
+                    match ::serde_json::from_str::<#ty>(s) {
+                        ::core::result::Result::Ok(v) => v,
+                        ::core::result::Result::Err(_) => {
+                            let parsed = s
+                                .split(',')
+                                .map(|part| part.trim())
+                                .filter(|part| !part.is_empty())
+                                .map(|part| part.parse::<#inner>().map_err(|err| {
+                                    ::serde::de::Error::custom(format!(
+                                        "failed to decode field `{}`: {}",
+                                        #key, err
+                                    ))
+                                }))
+                                .collect::<::core::result::Result<::std::vec::Vec<#inner>, _>>()?;
+                            let parsed: #ty = parsed;
+                            parsed
+                        }
+                    }
+                }
+            }
+        } else {
+            quote! {
+                if s.is_empty() {
+                    ::core::default::Default::default()
+                } else {
+                    ::serde_json::from_str::<#ty>(s).map_err(|err| {
+                        ::serde::de::Error::custom(format!(
+                            "failed to decode field `{}`: {}",
+                            #key, err
+                        ))
+                    })?
+                }
+            }
+        };
         quote! {
             #key => {
                 if (#var).is_some() {
@@ -118,16 +168,7 @@ pub fn expand(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
                     ::core::result::Result::Ok(v) => v,
                     ::core::result::Result::Err(_) => {
                         if let ::serde_json::Value::String(ref s) = raw {
-                            if s.is_empty() {
-                                ::core::default::Default::default()
-                            } else {
-                                ::serde_json::from_str::<#ty>(s).map_err(|err| {
-                                    ::serde::de::Error::custom(format!(
-                                        "failed to decode field `{}`: {}",
-                                        #key, err
-                                    ))
-                                })?
-                            }
+                            #string_fallback
                         } else if let ::serde_json::Value::Array(ref arr) = raw {
                             let normalized = arr
                                 .iter()
@@ -283,4 +324,25 @@ fn empty_where() -> WhereClause {
         where_token: Default::default(),
         predicates: Predicates::new(),
     }
+}
+
+fn extract_vec_inner_ty(ty: &Type) -> Option<Type> {
+    let Type::Path(TypePath { qself: None, path }) = ty else {
+        return None;
+    };
+
+    let segment = path.segments.last()?;
+    if segment.ident != "Vec" {
+        return None;
+    }
+
+    let PathArguments::AngleBracketed(args) = &segment.arguments else {
+        return None;
+    };
+
+    let Some(GenericArgument::Type(inner_ty)) = args.args.first() else {
+        return None;
+    };
+
+    Some(inner_ty.clone())
 }

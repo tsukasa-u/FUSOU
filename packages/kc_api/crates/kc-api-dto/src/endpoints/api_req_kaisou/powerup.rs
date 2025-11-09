@@ -25,13 +25,13 @@ pub struct Req {
     #[qs(rename = "api_verno")]
     pub api_verno: i64,
     #[qs(rename = "api_slot_dest_flag")]
-    pub api_slot_dest_flag: String,
+    pub api_slot_dest_flag: i64,
     #[qs(rename = "api_limited_feed_type")]
-    pub api_limited_feed_type: String,
+    pub api_limited_feed_type: i64,
     #[qs(rename = "api_id")]
-    pub api_id: String,
+    pub api_id: i64,
     #[qs(rename = "api_id_items")]
-    pub api_id_items: String,
+    pub api_id_items: Vec<i64>,
 }
 
 #[derive(FieldSizeChecker, TraitForTest, TraitForRoot)]

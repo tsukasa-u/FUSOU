@@ -25,7 +25,7 @@ pub struct Req {
     #[qs(rename = "api_verno")]
     pub api_verno: i64,
     #[qs(rename = "api_deck_rid")]
-    pub api_deck_rid: i64,
+    pub api_deck_rid: Vec<i64>,
 }
 
 #[derive(FieldSizeChecker, TraitForTest, TraitForRoot)]

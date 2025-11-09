@@ -25,9 +25,9 @@ pub struct Req {
     #[qs(rename = "api_verno")]
     pub api_verno: i64,
     #[qs(rename = "api_strike_point_1")]
-    pub api_strike_point_1: Option<i64>,
+    pub api_strike_point_1: Option<Vec<i64>>,
     #[qs(rename = "api_strike_point_2")]
-    pub api_strike_point_2: Option<i64>,
+    pub api_strike_point_2: Option<Vec<i64>>,
 }
 
 #[derive(FieldSizeChecker, TraitForTest, TraitForRoot)]

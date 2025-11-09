@@ -27,7 +27,7 @@ pub struct Req {
     #[qs(rename = "api_base_id")]
     pub api_base_id: i64,
     #[qs(rename = "api_squadron_id")]
-    pub api_squadron_id: i64,
+    pub api_squadron_id: Vec<i64>,
     #[qs(rename = "api_area_id")]
     pub api_area_id: i64,
 }
