@@ -6,45 +6,35 @@
 
 use serde::Deserialize;
 
-use register_trait::add_field;
-use register_trait::register_struct;
-
-use register_trait::FieldSizeChecker;
-
-use register_trait::TraitForRoot;
-use register_trait::TraitForTest;
-
-
+use register_trait::{add_field, register_struct};
+use register_trait::{FieldSizeChecker, QueryWithExtra, TraitForRoot, TraitForTest};
 
 #[derive(FieldSizeChecker, TraitForTest, TraitForRoot)]
-
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[add_field(extra_for_qs)]
+#[derive(Debug, Clone, QueryWithExtra)]
 pub struct Req {
-    #[serde(rename = "api_token")]
+    #[qs(rename = "api_token")]
     pub api_token: String,
-    #[serde(rename = "api_verno")]
-    pub api_verno: String,
-    #[serde(rename = "api_set_slot_kind")]
-    pub api_set_slot_kind: String,
-    #[serde(rename = "api_set_idx")]
-    pub api_set_idx: String,
-    #[serde(rename = "api_set_ship")]
-    pub api_set_ship: String,
-    #[serde(rename = "api_unset_idx")]
-    pub api_unset_idx: String,
-    #[serde(rename = "api_unset_slot_kind")]
-    pub api_unset_slot_kind: String,
-    #[serde(rename = "api_unset_ship")]
-    pub api_unset_ship: String,
+    #[qs(rename = "api_verno")]
+    pub api_verno: i64,
+    #[qs(rename = "api_set_slot_kind")]
+    pub api_set_slot_kind: i64,
+    #[qs(rename = "api_set_idx")]
+    pub api_set_idx: i64,
+    #[qs(rename = "api_set_ship")]
+    pub api_set_ship: i64,
+    #[qs(rename = "api_unset_idx")]
+    pub api_unset_idx: i64,
+    #[qs(rename = "api_unset_slot_kind")]
+    pub api_unset_slot_kind: i64,
+    #[qs(rename = "api_unset_ship")]
+    pub api_unset_ship: i64,
 }
 
 #[derive(FieldSizeChecker, TraitForTest, TraitForRoot)]
-
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
+#[add_field(extra_with_flatten)]
 #[register_struct(name = "api_req_kaisou/slot_deprive")]
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -59,7 +49,7 @@ pub struct Res {
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
+#[add_field(extra_with_flatten)]
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiData {
@@ -71,7 +61,7 @@ pub struct ApiData {
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
+#[add_field(extra_with_flatten)]
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiShipData {
@@ -83,7 +73,7 @@ pub struct ApiShipData {
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
+#[add_field(extra_with_flatten)]
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiUnsetShip {
@@ -157,7 +147,7 @@ pub struct ApiUnsetShip {
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
+#[add_field(extra_with_flatten)]
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiSetShip {
@@ -231,7 +221,7 @@ pub struct ApiSetShip {
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
+#[add_field(extra_with_flatten)]
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiSpEffectItems {
@@ -249,7 +239,7 @@ pub struct ApiSpEffectItems {
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
+#[add_field(extra_with_flatten)]
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiUnsetList {

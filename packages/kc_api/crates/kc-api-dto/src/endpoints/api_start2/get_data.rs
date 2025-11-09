@@ -8,27 +8,22 @@ use serde::Deserialize;
 use std::collections::HashMap;
 
 use register_trait::{add_field, register_struct};
-
-use register_trait::{FieldSizeChecker, TraitForRoot, TraitForTest};
-
-
+use register_trait::{FieldSizeChecker, QueryWithExtra, TraitForRoot, TraitForTest};
 
 #[derive(FieldSizeChecker, TraitForTest, TraitForRoot)]
-
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[add_field(extra_for_qs)]
+#[derive(Debug, Clone, QueryWithExtra)]
 pub struct Req {
-    #[serde(rename = "api_token")]
+    #[qs(rename = "api_token")]
     pub api_token: String,
-    #[serde(rename = "api_verno")]
-    pub api_verno: String,
+    #[qs(rename = "api_verno")]
+    pub api_verno: i64,
 }
 
 #[derive(FieldSizeChecker, TraitForTest, TraitForRoot)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
+#[add_field(extra_with_flatten)]
 #[register_struct(name = "api_start2/getData")]
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -43,7 +38,7 @@ pub struct Res {
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
+#[add_field(extra_with_flatten)]
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiData {
@@ -98,7 +93,7 @@ pub struct ApiData {
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
+#[add_field(extra_with_flatten)]
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiMstStype {
@@ -118,7 +113,7 @@ pub struct ApiMstStype {
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
+#[add_field(extra_with_flatten)]
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiMstShip {
@@ -186,7 +181,7 @@ pub struct ApiMstShip {
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
+#[add_field(extra_with_flatten)]
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiMstShipgraph {
@@ -242,7 +237,7 @@ pub struct ApiMstShipgraph {
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
+#[add_field(extra_with_flatten)]
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiMstSlotitemEquiptype {
@@ -256,7 +251,7 @@ pub struct ApiMstSlotitemEquiptype {
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
+#[add_field(extra_with_flatten)]
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiMstEquipExslotShip {
@@ -272,7 +267,7 @@ pub struct ApiMstEquipExslotShip {
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
+#[add_field(extra_with_flatten)]
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiMstSlotitem {
@@ -336,7 +331,7 @@ pub struct ApiMstSlotitem {
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
+#[add_field(extra_with_flatten)]
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiMstFurnituregraph {
@@ -354,7 +349,7 @@ pub struct ApiMstFurnituregraph {
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
+#[add_field(extra_with_flatten)]
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiMstUseitem {
@@ -374,7 +369,7 @@ pub struct ApiMstUseitem {
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
+#[add_field(extra_with_flatten)]
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiMstPayitem {
@@ -396,7 +391,7 @@ pub struct ApiMstPayitem {
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
+#[add_field(extra_with_flatten)]
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiMstItemShop {
@@ -408,7 +403,7 @@ pub struct ApiMstItemShop {
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
+#[add_field(extra_with_flatten)]
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiMstMaparea {
@@ -422,7 +417,7 @@ pub struct ApiMstMaparea {
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
+#[add_field(extra_with_flatten)]
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiMstMapinfo {
@@ -452,7 +447,7 @@ pub struct ApiMstMapinfo {
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
+#[add_field(extra_with_flatten)]
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiMstMapbgm {
@@ -472,7 +467,7 @@ pub struct ApiMstMapbgm {
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
+#[add_field(extra_with_flatten)]
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiMstMission {
@@ -514,7 +509,7 @@ pub struct ApiMstMission {
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
+#[add_field(extra_with_flatten)]
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiMstConst {
@@ -528,7 +523,7 @@ pub struct ApiMstConst {
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
+#[add_field(extra_with_flatten)]
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiParallelQuestMax {
@@ -540,7 +535,7 @@ pub struct ApiParallelQuestMax {
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
+#[add_field(extra_with_flatten)]
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiBokoMaxShips {
@@ -552,7 +547,7 @@ pub struct ApiBokoMaxShips {
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
+#[add_field(extra_with_flatten)]
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiDpflagQuest {
@@ -564,7 +559,7 @@ pub struct ApiDpflagQuest {
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
+#[add_field(extra_with_flatten)]
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiMstShipupgrade {
@@ -598,7 +593,7 @@ pub struct ApiMstShipupgrade {
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
+#[add_field(extra_with_flatten)]
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiMstBgm {
@@ -610,7 +605,7 @@ pub struct ApiMstBgm {
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
+#[add_field(extra_with_flatten)]
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiMstEquipShip {
@@ -627,7 +622,7 @@ pub struct ApiMstEquipShip {
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
+#[add_field(extra_with_flatten)]
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiMstFurniture {

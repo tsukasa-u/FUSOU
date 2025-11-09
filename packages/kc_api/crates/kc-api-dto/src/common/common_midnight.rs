@@ -9,7 +9,7 @@ use register_trait::TraitForTest;
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
+#[add_field(extra_with_flatten)]
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiHougeki {
@@ -33,7 +33,7 @@ pub struct ApiHougeki {
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
+#[add_field(extra_with_flatten)]
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiFriendlyInfo {
@@ -61,7 +61,7 @@ pub struct ApiFriendlyInfo {
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
+#[add_field(extra_with_flatten)]
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiFriendlyBattle {

@@ -10,7 +10,7 @@ use register_trait::TraitForTest;
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
+#[add_field(extra_with_flatten)]
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiRaigeki {
@@ -34,7 +34,7 @@ pub struct ApiRaigeki {
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
+#[add_field(extra_with_flatten)]
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiHougeki {
@@ -56,7 +56,7 @@ pub struct ApiHougeki {
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
+#[add_field(extra_with_flatten)]
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiOpeningTaisen {
@@ -78,7 +78,7 @@ pub struct ApiOpeningTaisen {
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
+#[add_field(extra_with_flatten)]
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiOpeningAtack {
@@ -102,7 +102,7 @@ pub struct ApiOpeningAtack {
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
+#[add_field(extra_with_flatten)]
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiSupportInfo {
@@ -114,7 +114,7 @@ pub struct ApiSupportInfo {
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
+#[add_field(extra_with_flatten)]
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiFlavoInfo {
@@ -142,7 +142,7 @@ pub struct ApiFlavoInfo {
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
+#[add_field(extra_with_flatten)]
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiSupportHourai {
@@ -160,7 +160,7 @@ pub struct ApiSupportHourai {
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
+#[add_field(extra_with_flatten)]
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiFlavorInfo {

@@ -6,33 +6,23 @@
 
 use serde::Deserialize;
 
-use register_trait::add_field;
-use register_trait::register_struct;
-
-use register_trait::FieldSizeChecker;
-
-use register_trait::TraitForRoot;
-use register_trait::TraitForTest;
-
-
+use register_trait::{add_field, register_struct};
+use register_trait::{FieldSizeChecker, QueryWithExtra, TraitForRoot, TraitForTest};
 
 #[derive(FieldSizeChecker, TraitForTest, TraitForRoot)]
-
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[add_field(extra_for_qs)]
+#[derive(Debug, Clone, QueryWithExtra)]
 pub struct Req {
-    #[serde(rename = "api_token")]
+    #[qs(rename = "api_token")]
     pub api_token: String,
-    #[serde(rename = "api_verno")]
-    pub api_verno: String,
+    #[qs(rename = "api_verno")]
+    pub api_verno: i64,
 }
 
 #[derive(FieldSizeChecker, TraitForTest, TraitForRoot)]
-
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
+#[add_field(extra_with_flatten)]
 #[register_struct(name = "api_req_practice/battle_result")]
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -47,7 +37,7 @@ pub struct Res {
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
+#[add_field(extra_with_flatten)]
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiData {
@@ -75,7 +65,7 @@ pub struct ApiData {
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
+#[add_field(extra_with_flatten)]
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiEnemyInfo {
