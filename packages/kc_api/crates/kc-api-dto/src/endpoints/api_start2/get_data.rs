@@ -654,7 +654,7 @@ pub struct ApiMstFurniture {
 
 #[cfg(test)]
 mod tests {
-    use crate::test_utils::struct_normalize::{glob_match_normalize, FormatType};
+    use crate::test_utils::struct_normalize::{glob_match_normalize_with_range, FormatType};
     use dotenvy::dotenv;
     use register_trait::simple_root_test;
 
@@ -687,20 +687,29 @@ mod tests {
         let target_path = std::env::var("TEST_DATA_PATH").expect("failed to get env data");
         let snap_file_path = std::env::var("TEST_DATA_REPO_PATH").expect("failed to get env data");
 
-        let req_and_res_pattern_str = "@api_start2@get_data";
+        #[cfg(feature = "from20250627")]
+        let (range_start, range_end) = (Some(1750993200), None);
+        #[cfg(not(feature = "from20250627"))]
+        let (range_start, range_end) = (None, Some(1750993200));
+
+        let req_and_res_pattern_str = "@api_start2@getData";
         let snap_path = format!("{snap_file_path}/kcsapi");
-        glob_match_normalize::<Req, Res>(
+        glob_match_normalize_with_range::<Req, Res>(
             target_path.clone(),
             req_and_res_pattern_str.to_string(),
             snap_path.to_string(),
             FormatType::Json,
+            range_start,
+            range_end,
         );
 
-        glob_match_normalize::<Req, Res>(
+        glob_match_normalize_with_range::<Req, Res>(
             target_path.clone(),
             req_and_res_pattern_str.to_string(),
             snap_path.to_string(),
             FormatType::QueryString,
+            range_start,
+            range_end,
         );
     }
 }

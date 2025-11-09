@@ -1,5 +1,6 @@
 #![cfg(test)]
 
+use core::panic;
 use std::path::{self, PathBuf};
 
 use serde_json::Value;
@@ -215,7 +216,7 @@ fn get_timestamp_from_file_content(file_path: PathBuf) -> String {
                 .captures(line)
                 .and_then(|caps| caps.get(1).map(|m| m.as_str().to_string()))
         })
-        .expect("failed to get timestamp in test data");
+        .unwrap_or("0".to_string());
     timestamp
 }
 
@@ -289,9 +290,7 @@ pub fn custom_match_normalize<T, U>(
                         .max_by_key(|&&ts| ts)
                         .map(|&ts| another_timestamp_map.get(&ts))
                         .unwrap_or_else(|| {
-                            panic!(
-                                "another test data file not found for timestamp: {timestamp}"
-                            )
+                            panic!("another test data file not found for timestamp: {timestamp}")
                         }),
                     FormatType::QueryString => another_timestamp_map
                         .keys()
@@ -299,9 +298,7 @@ pub fn custom_match_normalize<T, U>(
                         .min_by_key(|&&ts| ts)
                         .map(|&ts| another_timestamp_map.get(&ts))
                         .unwrap_or_else(|| {
-                            panic!(
-                                "another test data file not found for timestamp: {timestamp}"
-                            )
+                            panic!("another test data file not found for timestamp: {timestamp}")
                         }),
                 };
                 value.expect("failed to get another test data path").clone()
@@ -332,6 +329,112 @@ pub fn custom_match_normalize<T, U>(
             snap_values.push(expected_value.clone());
         }
     }
+}
+
+pub fn glob_match_normalize_with_range<T, U>(
+    test_data_path: String,
+    pattern_str: String,
+    snap_file_path: String,
+    format_type: FormatType,
+    range_start: Option<i64>,
+    range_end: Option<i64>,
+) where
+    T: serde::de::DeserializeOwned + serde::Serialize,
+    U: serde::de::DeserializeOwned + serde::Serialize,
+{
+    if range_end.is_none() && range_start.is_none() {
+        panic!("either range_start or range_end must be Some value");
+    }
+
+    let target_pattern = match format_type {
+        FormatType::Json => format!("S{pattern_str}"),
+        FormatType::QueryString => format!("Q{pattern_str}"),
+    };
+    let another_target_pattern = match format_type {
+        FormatType::Json => format!("Q{pattern_str}"),
+        FormatType::QueryString => format!("S{pattern_str}"),
+    };
+
+    let target = path::PathBuf::from(test_data_path.clone());
+    let target_files = target
+        .read_dir()
+        .unwrap_or_else(|_| panic!("\x1b[38;5;{}m read_dir call failed\x1b[m ", 8));
+    let target_file_list = target_files
+        .map(|dir_entry| dir_entry.unwrap().path())
+        .filter(|file_path| {
+            file_path.to_str().unwrap().ends_with(&target_pattern) && {
+                let timestamp = get_timestamp_from_file_content(file_path.clone())
+                    .parse::<i64>()
+                    .unwrap_or(0);
+                match (range_start, range_end) {
+                    (Some(start), Some(end)) => timestamp >= start && timestamp < end,
+                    (Some(start), None) => timestamp >= start,
+                    (None, Some(end)) => timestamp < end,
+                    (None, None) => panic!("either range_start or range_end must be Some value"),
+                }
+            }
+        })
+        .collect::<Vec<_>>();
+
+    let another_target = path::PathBuf::from(test_data_path.clone());
+    let another_target_files = another_target
+        .read_dir()
+        .unwrap_or_else(|_| panic!("\x1b[38;5;{}m read_dir call failed\x1b[m ", 8));
+    let another_target_file_list = another_target_files
+        .map(|dir_entry| dir_entry.unwrap().path())
+        .filter(|file_path| {
+            file_path
+                .to_str()
+                .unwrap()
+                .ends_with(&another_target_pattern)
+                && {
+                    let timestamp = get_timestamp_from_file_content(file_path.clone())
+                        .parse::<i64>()
+                        .unwrap_or(0);
+                    match (range_start, range_end) {
+                        (Some(start), Some(end)) => timestamp >= start && timestamp < end,
+                        (Some(start), None) => timestamp >= start,
+                        (None, Some(end)) => timestamp < end,
+                        (None, None) => {
+                            panic!("either range_start or range_end must be Some value")
+                        }
+                    }
+                }
+        })
+        .collect::<Vec<_>>();
+
+    let snap_files = path::PathBuf::from(snap_file_path.clone())
+        .read_dir()
+        .unwrap_or_else(|_| panic!("\x1b[38;5;{}m read_dir call failed\x1b[m ", 8));
+    let snap_file_list = snap_files
+        .map(|dir_entry| dir_entry.unwrap().path())
+        .filter(|file_path| file_path.to_str().unwrap().ends_with(&target_pattern))
+        .filter(|file_path| {
+            file_path.to_str().unwrap().ends_with(&target_pattern) && {
+                let timestamp = get_timestamp_from_file_content(file_path.clone())
+                    .parse::<i64>()
+                    .unwrap_or(0);
+                match (range_start, range_end) {
+                    (Some(start), Some(end)) => timestamp >= start && timestamp < end,
+                    (Some(start), None) => timestamp >= start,
+                    (None, Some(end)) => timestamp < end,
+                    (None, None) => panic!("either range_start or range_end must be Some value"),
+                }
+            }
+        })
+        .collect::<Vec<_>>();
+
+    custom_match_normalize::<T, U>(
+        target_file_list.into_iter(),
+        another_target_file_list.into_iter(),
+        snap_file_list.into_iter(),
+        snap_file_path,
+        format_type,
+    );
+    println!(
+        "\x1b[38;5;{}m completed test data normalization for pattern: {}\x1b[m ",
+        10, pattern_str
+    );
 }
 
 pub fn glob_match_normalize<T, U>(
