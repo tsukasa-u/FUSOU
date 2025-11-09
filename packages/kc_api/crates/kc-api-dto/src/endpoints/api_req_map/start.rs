@@ -8,10 +8,8 @@ use serde::Deserialize;
 
 use register_trait::{add_field, register_struct};
 
-use register_trait::{FieldSizeChecker, TraitForRoot, TraitForTest};
 use register_trait::QueryWithExtra;
-
-
+use register_trait::{FieldSizeChecker, TraitForRoot, TraitForTest};
 
 use crate::common::common_map::ApiAirsearch;
 use crate::common::common_map::ApiCellFlavor;
@@ -21,7 +19,6 @@ use crate::common::common_map::ApiHappening;
 use crate::common::common_map::ApiSelectRoute;
 
 #[derive(FieldSizeChecker, TraitForTest, TraitForRoot)]
-
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra_for_qs)]
 #[derive(Debug, Clone, QueryWithExtra)]
@@ -31,13 +28,14 @@ pub struct Req {
     #[qs(rename = "api_verno")]
     pub api_verno: i64,
     #[qs(rename = "api_mapinfo_no")]
-    pub api_mapinfo_no: String,
+    pub api_mapinfo_no: i64,
     #[qs(rename = "api_deck_id")]
-    pub api_deck_id: String,
+    pub api_deck_id: i64,
+    /// 21 digits number string
     #[qs(rename = "api_serial_cid")]
     pub api_serial_cid: String,
     #[qs(rename = "api_maparea_id")]
-    pub api_maparea_id: String,
+    pub api_maparea_id: i64,
 }
 
 #[derive(FieldSizeChecker, TraitForTest, TraitForRoot)]

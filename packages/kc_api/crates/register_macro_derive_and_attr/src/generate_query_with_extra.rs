@@ -118,12 +118,16 @@ pub fn expand(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
                     ::core::result::Result::Ok(v) => v,
                     ::core::result::Result::Err(_) => {
                         if let ::serde_json::Value::String(ref s) = raw {
-                            ::serde_json::from_str::<#ty>(s).map_err(|err| {
-                                ::serde::de::Error::custom(format!(
-                                    "failed to decode field `{}`: {}",
-                                    #key, err
-                                ))
-                            })?
+                            if s.is_empty() {
+                                ::core::default::Default::default()
+                            } else {
+                                ::serde_json::from_str::<#ty>(s).map_err(|err| {
+                                    ::serde::de::Error::custom(format!(
+                                        "failed to decode field `{}`: {}",
+                                        #key, err
+                                    ))
+                                })?
+                            }
                         } else if let ::serde_json::Value::Array(ref arr) = raw {
                             let normalized = arr
                                 .iter()
