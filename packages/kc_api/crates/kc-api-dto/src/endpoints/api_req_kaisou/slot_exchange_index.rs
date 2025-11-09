@@ -170,4 +170,27 @@ mod tests {
             log_path.to_string(),
         );
     }
+    #[test]
+    fn test_organize_test_data() {
+        dotenv().expect(".env file not found");
+        let target_path = std::env::var("TEST_DATA_PATH").expect("failed to get env data");
+        let snap_file_path = std::env::var("TEST_DATA_REPO_PATH").expect("failed to get env data");
+
+        let req_and_res_pattern_str = "@api_req_kaisou@slot_exchange_index";
+        let snap_path = format!("{snap_file_path}/kcsapi");
+        glob_match_normalize::<Req, Res>(
+            target_path.clone(),
+            req_and_res_pattern_str.to_string(),
+            snap_path.to_string(),
+            FormatType::Json,
+        );
+
+        glob_match_normalize::<Req, Res>(
+            target_path.clone(),
+            req_and_res_pattern_str.to_string(),
+            snap_path.to_string(),
+            FormatType::QueryString,
+        );
+    }
+
 }
