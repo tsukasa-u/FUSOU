@@ -11,14 +11,11 @@ use register_trait::register_struct;
 
 use register_trait::FieldSizeChecker;
 
+use register_trait::QueryWithExtra;
 use register_trait::TraitForRoot;
 use register_trait::TraitForTest;
-use register_trait::QueryWithExtra;
-
-
 
 #[derive(FieldSizeChecker, TraitForTest, TraitForRoot)]
-
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra_for_qs)]
 #[derive(Debug, Clone, QueryWithExtra)]
@@ -30,13 +27,12 @@ pub struct Req {
     #[qs(rename = "api_name")]
     pub api_name: String,
     #[qs(rename = "api_deck_id")]
-    pub api_deck_id: String,
+    pub api_deck_id: i64,
     #[qs(rename = "api_name_id")]
-    pub api_name_id: String,
+    pub api_name_id: i64,
 }
 
 #[derive(FieldSizeChecker, TraitForTest, TraitForRoot)]
-
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra_with_flatten)]
 #[register_struct(name = "api_req_member/updatedeckname")]

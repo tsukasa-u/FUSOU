@@ -10,13 +10,10 @@ use std::collections::HashMap;
 
 use register_trait::{add_field, register_struct};
 
-use register_trait::{FieldSizeChecker, TraitForRoot, TraitForTest};
 use register_trait::QueryWithExtra;
-
-
+use register_trait::{FieldSizeChecker, TraitForRoot, TraitForTest};
 
 #[derive(FieldSizeChecker, TraitForTest, TraitForRoot)]
-
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra_for_qs)]
 #[derive(Debug, Clone, QueryWithExtra)]
@@ -26,11 +23,12 @@ pub struct Req {
     #[qs(rename = "api_verno")]
     pub api_verno: i64,
     #[qs(rename = "api_port")]
+    /// 30 digits number string
     pub api_port: String,
     #[qs(rename = "api_sort_key")]
-    pub api_sort_key: String,
+    pub api_sort_key: i64,
     #[qs(rename = "spi_sort_order")]
-    pub api_sort_order: String,
+    pub api_sort_order: i64,
 }
 
 #[derive(FieldSizeChecker, TraitForTest, TraitForRoot)]

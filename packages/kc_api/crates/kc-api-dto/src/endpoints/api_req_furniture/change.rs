@@ -11,14 +11,11 @@ use register_trait::register_struct;
 
 use register_trait::FieldSizeChecker;
 
+use register_trait::QueryWithExtra;
 use register_trait::TraitForRoot;
 use register_trait::TraitForTest;
-use register_trait::QueryWithExtra;
-
-
 
 #[derive(FieldSizeChecker, TraitForTest, TraitForRoot)]
-
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra_for_qs)]
 #[derive(Debug, Clone, QueryWithExtra)]
@@ -28,21 +25,20 @@ pub struct Req {
     #[qs(rename = "api_verno")]
     pub api_verno: i64,
     #[qs(rename = "api_floor")]
-    pub api_floor: String,
+    pub api_floor: i64,
     #[qs(rename = "api_shelf")]
-    pub api_shelf: String,
+    pub api_shelf: i64,
     #[qs(rename = "api_wallpaper")]
-    pub api_wallpaper: String,
+    pub api_wallpaper: i64,
     #[qs(rename = "api_window")]
-    pub api_window: String,
+    pub api_window: i64,
     #[qs(rename = "api_wallhanging")]
-    pub api_wallhanging: String,
+    pub api_wallhanging: i64,
     #[qs(rename = "api_desk")]
-    pub api_desk: String,
+    pub api_desk: i64,
 }
 
 #[derive(FieldSizeChecker, TraitForTest, TraitForRoot)]
-
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra_with_flatten)]
 #[register_struct(name = "api_req_furniture/change")]

@@ -11,9 +11,9 @@ use register_trait::register_struct;
 
 use register_trait::FieldSizeChecker;
 
+use register_trait::QueryWithExtra;
 use register_trait::TraitForRoot;
 use register_trait::TraitForTest;
-use register_trait::QueryWithExtra;
 
 #[derive(FieldSizeChecker, TraitForTest, TraitForRoot)]
 #[struct_test_case(field_extra, type_value, integration)]
@@ -25,11 +25,11 @@ pub struct Req {
     #[qs(rename = "api_verno")]
     pub api_verno: i64,
     #[qs(rename = "api_kind")]
-    pub api_kind: String,
+    pub api_kind: i64,
     #[qs(rename = "api_onslot")]
-    pub api_onslot: String,
+    pub api_onslot: i64,
     #[qs(rename = "api_id_items")]
-    pub api_id_items: String,
+    pub api_id_items: i64,
 }
 
 #[derive(FieldSizeChecker, TraitForTest, TraitForRoot)]

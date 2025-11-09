@@ -11,14 +11,13 @@ use register_trait::register_struct;
 
 use register_trait::FieldSizeChecker;
 
+use register_trait::QueryWithExtra;
 use register_trait::TraitForRoot;
 use register_trait::TraitForTest;
-use register_trait::QueryWithExtra;
 
-
+use std::collections::HashMap;
 
 #[derive(FieldSizeChecker, TraitForTest, TraitForRoot)]
-
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra_for_qs)]
 #[derive(Debug, Clone, QueryWithExtra)]
@@ -27,12 +26,11 @@ pub struct Req {
     pub api_token: String,
     #[qs(rename = "api_verno")]
     pub api_verno: i64,
-    #[qs(rename = "api_selected_dict[221]")]
-    pub api_selected_dict_221: Option<String>,
+    #[qs(rename = "api_selected_dict")]
+    pub api_selected_dict_221: Option<HashMap<i64, i64>>,
 }
 
 #[derive(FieldSizeChecker, TraitForTest, TraitForRoot)]
-
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra_with_flatten)]
 #[register_struct(name = "api_req_member/get_event_selected_reward")]

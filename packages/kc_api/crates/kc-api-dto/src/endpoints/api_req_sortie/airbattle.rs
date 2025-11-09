@@ -9,15 +9,12 @@ use serde_json::Value;
 
 use register_trait::{add_field, register_struct};
 
-use register_trait::{FieldSizeChecker, TraitForRoot, TraitForTest};
 use register_trait::QueryWithExtra;
-
-
+use register_trait::{FieldSizeChecker, TraitForRoot, TraitForTest};
 
 use crate::common::common_air::ApiKouku;
 
 #[derive(FieldSizeChecker, TraitForTest, TraitForRoot)]
-
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra_for_qs)]
 #[derive(Debug, Clone, QueryWithExtra)]
@@ -27,9 +24,9 @@ pub struct Req {
     #[qs(rename = "api_verno")]
     pub api_verno: i64,
     #[qs(rename = "api_formation")]
-    pub api_formation: String,
+    pub api_formation: i64,
     #[qs(rename = "api_recovery_type")]
-    pub api_recovery_type: String,
+    pub api_recovery_type: i64,
 }
 
 #[derive(FieldSizeChecker, TraitForTest, TraitForRoot)]

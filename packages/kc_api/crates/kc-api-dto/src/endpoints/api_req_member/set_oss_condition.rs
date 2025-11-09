@@ -25,7 +25,7 @@ pub struct Req {
     #[qs(rename = "api_verno")]
     pub api_verno: i64,
     #[qs(rename = "api_language_type")]
-    pub api_language_type: String,
+    pub api_language_type: i64,
     /// OSS Condition Items (8 items)
     #[qs(rename = "api_oss_items")]
     pub api_oss_items: Vec<i64>,

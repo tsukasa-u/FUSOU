@@ -12,9 +12,9 @@ use register_trait::register_struct;
 
 use register_trait::FieldSizeChecker;
 
+use register_trait::QueryWithExtra;
 use register_trait::TraitForRoot;
 use register_trait::TraitForTest;
-use register_trait::QueryWithExtra;
 
 use crate::common::common_result::ApiEnemyInfo;
 use crate::common::common_result::ApiGetEventitem;
@@ -23,10 +23,7 @@ use crate::common::common_result::ApiLandingHp;
 
 use crate::common::custom_type::DuoType;
 
-
-
 #[derive(FieldSizeChecker, TraitForTest, TraitForRoot)]
-
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra_for_qs)]
 #[derive(Debug, Clone, QueryWithExtra)]
@@ -37,58 +34,21 @@ pub struct Req {
     pub api_verno: i64,
     #[qs(rename = "api_btime")]
     pub api_btime: String,
-    #[qs(rename = "api_l_value[0]")]
-    pub api_l_value_0: String,
-    #[qs(rename = "api_l_value[1]")]
-    pub api_l_value_1: String,
-    #[qs(rename = "api_l_value[2]")]
-    pub api_l_value_2: String,
-    #[qs(rename = "api_l_value[3]")]
-    pub api_l_value_3: String,
-    #[qs(rename = "api_l_value[4]")]
-    pub api_l_value_4: String,
-    #[qs(rename = "api_l_value[5]")]
-    pub api_l_value_5: String,
-    #[qs(rename = "api_l_value2[0]")]
-    pub api_l_value2_0: Option<String>,
-    #[qs(rename = "api_l_value2[1]")]
-    pub api_l_value2_1: Option<String>,
-    #[qs(rename = "api_l_value2[2]")]
-    pub api_l_value2_2: Option<String>,
-    #[qs(rename = "api_l_value2[3]")]
-    pub api_l_value2_3: Option<String>,
-    #[qs(rename = "api_l_value2[4]")]
-    pub api_l_value2_4: Option<String>,
-    #[qs(rename = "api_l_value2[5]")]
-    pub api_l_value2_5: Option<String>,
-    #[qs(rename = "api_l_value3[0]")]
-    pub api_l_value3_0: Option<String>,
-    #[qs(rename = "api_l_value3[1]")]
-    pub api_l_value3_1: Option<String>,
-    #[qs(rename = "api_l_value3[2]")]
-    pub api_l_value3_2: Option<String>,
-    #[qs(rename = "api_l_value3[3]")]
-    pub api_l_value3_3: Option<String>,
-    #[qs(rename = "api_l_value3[4]")]
-    pub api_l_value3_4: Option<String>,
-    #[qs(rename = "api_l_value3[5]")]
-    pub api_l_value3_5: Option<String>,
-    #[qs(rename = "api_l_value4[0]")]
-    pub api_l_value4_0: Option<String>,
-    #[qs(rename = "api_l_value4[1]")]
-    pub api_l_value4_1: Option<String>,
-    #[qs(rename = "api_l_value4[2]")]
-    pub api_l_value4_2: Option<String>,
-    #[qs(rename = "api_l_value4[3]")]
-    pub api_l_value4_3: Option<String>,
-    #[qs(rename = "api_l_value4[4]")]
-    pub api_l_value4_4: Option<String>,
-    #[qs(rename = "api_l_value4[5]")]
-    pub api_l_value4_5: Option<String>,
+    /// Array of 6 elements
+    #[qs(rename = "api_l_value")]
+    pub api_l_value_0: Vec<String>,
+    /// Array of 6 elements
+    #[qs(rename = "api_l_value2")]
+    pub api_l_value2_0: Option<Vec<String>>,
+    /// Array of 6 elements
+    #[qs(rename = "api_l_value3")]
+    pub api_l_value3_0: Option<Vec<String>>,
+    /// Array of 6 elements
+    #[qs(rename = "api_l_value4")]
+    pub api_l_value4_0: Option<Vec<String>>,
 }
 
 #[derive(FieldSizeChecker, TraitForTest, TraitForRoot)]
-
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra_with_flatten)]
 #[register_struct(name = "api_req_combined_battle/battleresult")]

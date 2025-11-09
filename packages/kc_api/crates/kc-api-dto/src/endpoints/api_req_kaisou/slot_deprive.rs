@@ -11,14 +11,11 @@ use register_trait::register_struct;
 
 use register_trait::FieldSizeChecker;
 
+use register_trait::QueryWithExtra;
 use register_trait::TraitForRoot;
 use register_trait::TraitForTest;
-use register_trait::QueryWithExtra;
-
-
 
 #[derive(FieldSizeChecker, TraitForTest, TraitForRoot)]
-
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra_for_qs)]
 #[derive(Debug, Clone, QueryWithExtra)]
@@ -28,21 +25,20 @@ pub struct Req {
     #[qs(rename = "api_verno")]
     pub api_verno: i64,
     #[qs(rename = "api_set_slot_kind")]
-    pub api_set_slot_kind: String,
+    pub api_set_slot_kind: i64,
     #[qs(rename = "api_set_idx")]
-    pub api_set_idx: String,
+    pub api_set_idx: i64,
     #[qs(rename = "api_set_ship")]
-    pub api_set_ship: String,
+    pub api_set_ship: i64,
     #[qs(rename = "api_unset_idx")]
-    pub api_unset_idx: String,
+    pub api_unset_idx: i64,
     #[qs(rename = "api_unset_slot_kind")]
-    pub api_unset_slot_kind: String,
+    pub api_unset_slot_kind: i64,
     #[qs(rename = "api_unset_ship")]
-    pub api_unset_ship: String,
+    pub api_unset_ship: i64,
 }
 
 #[derive(FieldSizeChecker, TraitForTest, TraitForRoot)]
-
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra_with_flatten)]
 #[register_struct(name = "api_req_kaisou/slot_deprive")]
