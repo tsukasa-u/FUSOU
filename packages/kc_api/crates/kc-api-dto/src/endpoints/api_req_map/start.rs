@@ -7,9 +7,7 @@
 use serde::Deserialize;
 
 use register_trait::{add_field, register_struct};
-
-use register_trait::QueryWithExtra;
-use register_trait::{FieldSizeChecker, TraitForRoot, TraitForTest};
+use register_trait::{FieldSizeChecker, QueryWithExtra, TraitForRoot, TraitForTest};
 
 use crate::common::common_map::ApiAirsearch;
 use crate::common::common_map::ApiCellFlavor;

@@ -6,14 +6,8 @@
 
 use serde::Deserialize;
 
-use register_trait::add_field;
-use register_trait::register_struct;
-
-use register_trait::FieldSizeChecker;
-
-use register_trait::TraitForRoot;
-use register_trait::TraitForTest;
-use register_trait::QueryWithExtra;
+use register_trait::{add_field, register_struct};
+use register_trait::{FieldSizeChecker, QueryWithExtra, TraitForRoot, TraitForTest};
 
 #[derive(FieldSizeChecker, TraitForTest, TraitForRoot)]
 #[struct_test_case(field_extra, type_value, integration)]
@@ -100,7 +94,6 @@ mod tests {
         let files = target.read_dir().expect("read_dir call failed");
         let file_list = files
             .map(|dir_entry| {
-                
                 // file_path.exists();
                 dir_entry.unwrap().path()
             })

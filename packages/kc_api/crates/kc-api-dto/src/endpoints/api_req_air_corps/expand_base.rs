@@ -6,19 +6,10 @@
 
 use serde::Deserialize;
 
-use register_trait::add_field;
-use register_trait::register_struct;
-
-use register_trait::FieldSizeChecker;
-
-use register_trait::TraitForRoot;
-use register_trait::TraitForTest;
-use register_trait::QueryWithExtra;
-
-
+use register_trait::{add_field, register_struct};
+use register_trait::{FieldSizeChecker, QueryWithExtra, TraitForRoot, TraitForTest};
 
 #[derive(FieldSizeChecker, TraitForTest, TraitForRoot)]
-
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra_for_qs)]
 #[derive(Debug, Clone, QueryWithExtra)]
@@ -30,7 +21,6 @@ pub struct Req {
 }
 
 #[derive(FieldSizeChecker, TraitForTest, TraitForRoot)]
-
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra_with_flatten)]
 #[register_struct(name = "api_req_air_corps/expand_base")]

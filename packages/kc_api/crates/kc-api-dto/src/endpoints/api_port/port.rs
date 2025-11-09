@@ -9,9 +9,7 @@ use serde_json::Value;
 use std::collections::HashMap;
 
 use register_trait::{add_field, register_struct};
-
-use register_trait::QueryWithExtra;
-use register_trait::{FieldSizeChecker, TraitForRoot, TraitForTest};
+use register_trait::{FieldSizeChecker, QueryWithExtra, TraitForRoot, TraitForTest};
 
 #[derive(FieldSizeChecker, TraitForTest, TraitForRoot)]
 #[struct_test_case(field_extra, type_value, integration)]

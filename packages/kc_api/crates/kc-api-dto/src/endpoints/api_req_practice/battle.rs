@@ -7,14 +7,8 @@
 use serde::Deserialize;
 use serde_json::Value;
 
-use register_trait::add_field;
-use register_trait::register_struct;
-
-use register_trait::FieldSizeChecker;
-
-use register_trait::QueryWithExtra;
-use register_trait::TraitForRoot;
-use register_trait::TraitForTest;
+use register_trait::{add_field, register_struct};
+use register_trait::{FieldSizeChecker, QueryWithExtra, TraitForRoot, TraitForTest};
 
 use crate::common::common_air::ApiKouku;
 use crate::common::common_battle::ApiHougeki;
