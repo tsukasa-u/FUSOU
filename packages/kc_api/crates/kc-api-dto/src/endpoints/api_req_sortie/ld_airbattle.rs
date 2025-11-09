@@ -94,56 +94,6 @@ pub struct ApiData {
     pub api_air_base_attack: Option<Vec<ApiAirBaseAttack>>,
 }
 
-// #[derive(FieldSizeChecker, TraitForTest)]
-// #[struct_test_case(field_extra, type_value, integration)]
-// #[add_field(extra_with_flatten)]
-// #[derive(Debug, Clone, Deserialize, Serialize)]
-// #[serde(rename_all = "camelCase")]
-// pub struct ApiAirBaseAttack {
-//     #[serde(rename = "api_base_id")]
-//     api_base_id: i64,
-//     #[serde(rename = "api_stage_flag")]
-//     api_stage_flag: Vec<i64>,
-//     #[serde(rename = "api_plane_from")]
-//     api_plane_from: Vec<Option<Vec<i64>>>,
-//     #[serde(rename = "api_squadron_plane")]
-//     pub api_squadron_plane: Option<Vec<ApiSquadronPlane>>,
-//     #[serde(rename = "api_stage1")]
-//     pub api_stage1: ApiStage1,
-//     #[serde(rename = "api_stage2")]
-//     pub api_stage2: Option<ApiStage2>,
-//     #[serde(rename = "api_stage3")]
-//     pub api_stage3: Option<ApiStage3>,
-// }
-
-// #[derive(FieldSizeChecker, TraitForTest)]
-// #[struct_test_case(field_extra, type_value, integration)]
-// #[add_field(extra_with_flatten)]
-// #[derive(Debug, Clone, Deserialize, Serialize)]
-// #[serde(rename_all = "camelCase")]
-// pub struct ApiSquadronPlane {
-//     #[serde(rename = "api_mst_id")]
-//     api_mst_id: i64,
-//     #[serde(rename = "api_count")]
-//     api_count: i64,
-// }
-
-// #[derive(FieldSizeChecker, TraitForTest)]
-// #[struct_test_case(field_extra, type_value, integration)]
-// #[add_field(extra_with_flatten)]
-// #[derive(Debug, Clone, Deserialize, Serialize)]
-// #[serde(rename_all = "camelCase")]
-// pub struct ApiKouku {
-//     #[serde(rename = "api_plane_from")]
-//     pub api_plane_from: Vec<Option<Vec<i64>>>,
-//     #[serde(rename = "api_stage1")]
-//     pub api_stage1: ApiStage1,
-//     #[serde(rename = "api_stage2")]
-//     pub api_stage2: ApiStage2,
-//     #[serde(rename = "api_stage3")]
-//     pub api_stage3: Option<ApiStage3>,
-// }
-
 #[cfg(test)]
 mod tests {
     use crate::test_utils::struct_normalize::{glob_match_normalize, FormatType};
