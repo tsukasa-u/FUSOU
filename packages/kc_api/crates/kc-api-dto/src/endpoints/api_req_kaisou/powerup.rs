@@ -11,14 +11,11 @@ use register_trait::register_struct;
 
 use register_trait::FieldSizeChecker;
 
+use register_trait::QueryWithExtra;
 use register_trait::TraitForRoot;
 use register_trait::TraitForTest;
-use register_trait::QueryWithExtra;
-
-
 
 #[derive(FieldSizeChecker, TraitForTest, TraitForRoot)]
-
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra_for_qs)]
 #[derive(Debug, Clone, QueryWithExtra)]
@@ -38,7 +35,6 @@ pub struct Req {
 }
 
 #[derive(FieldSizeChecker, TraitForTest, TraitForRoot)]
-
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra_with_flatten)]
 #[register_struct(name = "api_req_kaisou/powerup")]
@@ -151,6 +147,26 @@ pub struct ApiShip {
     pub api_locked_equip: i64,
     #[serde(rename = "api_sally_area")]
     pub api_sally_area: Option<i64>,
+    #[serde(rename = "api_sp_effect_items")]
+    pub api_sp_effect_items: Option<Vec<ApiSpEffectItems>>,
+}
+
+#[derive(FieldSizeChecker, TraitForTest)]
+#[struct_test_case(field_extra, type_value, integration)]
+#[add_field(extra_with_flatten)]
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApiSpEffectItems {
+    #[serde(rename = "api_kind")]
+    pub api_kind: i64,
+    #[serde(rename = "api_raig")]
+    pub api_raig: Option<i64>,
+    #[serde(rename = "api_souk")]
+    pub api_souk: Option<i64>,
+    #[serde(rename = "api_houg")]
+    pub api_houg: Option<i64>,
+    #[serde(rename = "api_kaih")]
+    pub api_kaih: Option<i64>,
 }
 
 #[derive(FieldSizeChecker, TraitForTest)]

@@ -31,15 +31,15 @@ pub struct Req {
     #[qs(rename = "api_verno")]
     pub api_verno: i64,
     #[qs(rename = "api_formation")]
-    pub api_formation: String,
+    pub api_formation: i64,
     #[qs(rename = "api_recovery_type")]
-    pub api_recovery_type: String,
+    pub api_recovery_type: i64,
     #[qs(rename = "api_smoke_flag")]
     pub api_smoke_flag: Option<i64>,
     #[qs(rename = "api_ration_flag")]
-    pub api_ration_flag: Option<String>,
+    pub api_ration_flag: Option<i64>,
     #[qs(rename = "api_start")]
-    pub api_start: Option<String>,
+    pub api_start: Option<i64>,
 }
 
 #[derive(FieldSizeChecker, TraitForTest, TraitForRoot)]

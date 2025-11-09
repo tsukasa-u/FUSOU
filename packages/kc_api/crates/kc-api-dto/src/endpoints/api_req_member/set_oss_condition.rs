@@ -11,14 +11,11 @@ use register_trait::register_struct;
 
 use register_trait::FieldSizeChecker;
 
+use register_trait::QueryWithExtra;
 use register_trait::TraitForRoot;
 use register_trait::TraitForTest;
-use register_trait::QueryWithExtra;
-
-
 
 #[derive(FieldSizeChecker, TraitForTest, TraitForRoot)]
-
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra_for_qs)]
 #[derive(Debug, Clone, QueryWithExtra)]
@@ -29,26 +26,12 @@ pub struct Req {
     pub api_verno: i64,
     #[qs(rename = "api_language_type")]
     pub api_language_type: String,
-    #[qs(rename = "api_oss_items[0]")]
-    pub api_oss_items_0: String,
-    #[qs(rename = "api_oss_items[1]")]
-    pub api_oss_items_1: String,
-    #[qs(rename = "api_oss_items[2]")]
-    pub api_oss_items_2: String,
-    #[qs(rename = "api_oss_items[3]")]
-    pub api_oss_items_3: String,
-    #[qs(rename = "api_oss_items[4]")]
-    pub api_oss_items_4: String,
-    #[qs(rename = "api_oss_items[5]")]
-    pub api_oss_items_5: String,
-    #[qs(rename = "api_oss_items[6]")]
-    pub api_oss_items_6: String,
-    #[qs(rename = "api_oss_items[7]")]
-    pub api_oss_items_7: String,
+    /// OSS Condition Items (8 items)
+    #[qs(rename = "api_oss_items")]
+    pub api_oss_items: Vec<i64>,
 }
 
 #[derive(FieldSizeChecker, TraitForTest, TraitForRoot)]
-
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra_with_flatten)]
 #[register_struct(name = "api_req_member/set_oss_condition")]
