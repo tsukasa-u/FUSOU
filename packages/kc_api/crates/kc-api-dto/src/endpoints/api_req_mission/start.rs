@@ -4,7 +4,7 @@
 #![doc = register_trait::insert_svg!(path="../../tests/struct_dependency_svg/api_req_mission@start.svg", id="kc-dependency-svg-embed", style="border: 1px solid black; height:80vh; width:100%", role="img", aria_label="KC_API_dependency(api_req_mission/start)")]
 #![doc = include_str!("../../../../../js/svg_pan_zoom.html")]
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use register_trait::{add_field, register_struct};
 use register_trait::{FieldSizeChecker, QueryWithExtra, TraitForRoot, TraitForTest};

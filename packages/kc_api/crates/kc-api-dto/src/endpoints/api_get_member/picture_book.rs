@@ -5,7 +5,7 @@
 #![doc = include_str!("../../../../../js/svg_pan_zoom.html")]
 
 use crate::common::custom_type::DuoType;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use register_trait::{add_field, register_struct};
 use register_trait::{FieldSizeChecker, QueryWithExtra, TraitForRoot, TraitForTest};
