@@ -1,16 +1,13 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::common::custom_type::DuoType;
 
-use register_trait::add_field;
-
-use register_trait::FieldSizeChecker;
-use register_trait::TraitForTest;
+use register_trait::{add_field, FieldSizeChecker, TraitForTest};
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra_with_flatten)]
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiHougeki {
     #[serde(rename = "api_at_eflag")]
@@ -34,7 +31,7 @@ pub struct ApiHougeki {
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra_with_flatten)]
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiFriendlyInfo {
     #[serde(rename = "api_production_type")]
@@ -62,7 +59,7 @@ pub struct ApiFriendlyInfo {
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra_with_flatten)]
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiFriendlyBattle {
     #[serde(rename = "api_flare_pos")]

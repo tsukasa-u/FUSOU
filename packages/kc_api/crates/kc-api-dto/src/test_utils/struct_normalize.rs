@@ -331,6 +331,22 @@ pub fn custom_match_normalize<T, U>(
     }
 }
 
+fn filter_range_start_end(
+    file_path: PathBuf,
+    range_start: Option<i64>,
+    range_end: Option<i64>,
+) -> bool {
+    let ts_int = get_timestamp_from_file_content(file_path.clone())
+        .parse::<i64>()
+        .unwrap_or(0);
+    match (range_start, range_end) {
+        (Some(start), Some(end)) => ts_int >= start && ts_int < end,
+        (Some(start), None) => ts_int >= start,
+        (None, Some(end)) => ts_int < end,
+        (None, None) => panic!("either range_start or range_end must be Some value"),
+    }
+}
+
 pub fn glob_match_normalize_with_range<T, U>(
     test_data_path: String,
     pattern_str: String,
@@ -362,17 +378,8 @@ pub fn glob_match_normalize_with_range<T, U>(
     let target_file_list = target_files
         .map(|dir_entry| dir_entry.unwrap().path())
         .filter(|file_path| {
-            file_path.to_str().unwrap().ends_with(&target_pattern) && {
-                let timestamp = get_timestamp_from_file_content(file_path.clone())
-                    .parse::<i64>()
-                    .unwrap_or(0);
-                match (range_start, range_end) {
-                    (Some(start), Some(end)) => timestamp >= start && timestamp < end,
-                    (Some(start), None) => timestamp >= start,
-                    (None, Some(end)) => timestamp < end,
-                    (None, None) => panic!("either range_start or range_end must be Some value"),
-                }
-            }
+            file_path.to_str().unwrap().ends_with(&target_pattern)
+                && filter_range_start_end(file_path.clone(), range_start, range_end)
         })
         .collect::<Vec<_>>();
 
@@ -387,19 +394,7 @@ pub fn glob_match_normalize_with_range<T, U>(
                 .to_str()
                 .unwrap()
                 .ends_with(&another_target_pattern)
-                && {
-                    let timestamp = get_timestamp_from_file_content(file_path.clone())
-                        .parse::<i64>()
-                        .unwrap_or(0);
-                    match (range_start, range_end) {
-                        (Some(start), Some(end)) => timestamp >= start && timestamp < end,
-                        (Some(start), None) => timestamp >= start,
-                        (None, Some(end)) => timestamp < end,
-                        (None, None) => {
-                            panic!("either range_start or range_end must be Some value")
-                        }
-                    }
-                }
+                && filter_range_start_end(file_path.clone(), range_start, range_end)
         })
         .collect::<Vec<_>>();
 
@@ -408,19 +403,9 @@ pub fn glob_match_normalize_with_range<T, U>(
         .unwrap_or_else(|_| panic!("\x1b[38;5;{}m read_dir call failed\x1b[m ", 8));
     let snap_file_list = snap_files
         .map(|dir_entry| dir_entry.unwrap().path())
-        .filter(|file_path| file_path.to_str().unwrap().ends_with(&target_pattern))
         .filter(|file_path| {
-            file_path.to_str().unwrap().ends_with(&target_pattern) && {
-                let timestamp = get_timestamp_from_file_content(file_path.clone())
-                    .parse::<i64>()
-                    .unwrap_or(0);
-                match (range_start, range_end) {
-                    (Some(start), Some(end)) => timestamp >= start && timestamp < end,
-                    (Some(start), None) => timestamp >= start,
-                    (None, Some(end)) => timestamp < end,
-                    (None, None) => panic!("either range_start or range_end must be Some value"),
-                }
-            }
+            file_path.to_str().unwrap().ends_with(&target_pattern)
+            // && filter_range_start_end(file_path.clone(), range_start, range_end)
         })
         .collect::<Vec<_>>();
 

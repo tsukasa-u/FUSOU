@@ -1,17 +1,14 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+
+use register_trait::{add_field, FieldSizeChecker, TraitForTest};
 
 use crate::common::common_air::ApiSupportAiratack;
 use crate::common::custom_type::DuoType;
 
-use register_trait::add_field;
-
-use register_trait::FieldSizeChecker;
-use register_trait::TraitForTest;
-
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra_with_flatten)]
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiRaigeki {
     #[serde(rename = "api_frai")]
@@ -35,7 +32,7 @@ pub struct ApiRaigeki {
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra_with_flatten)]
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiHougeki {
     #[serde(rename = "api_at_eflag")]
@@ -57,7 +54,7 @@ pub struct ApiHougeki {
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra_with_flatten)]
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiOpeningTaisen {
     #[serde(rename = "api_at_eflag")]
@@ -79,7 +76,7 @@ pub struct ApiOpeningTaisen {
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra_with_flatten)]
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiOpeningAtack {
     #[serde(rename = "api_frai_list_items")]
@@ -103,7 +100,7 @@ pub struct ApiOpeningAtack {
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra_with_flatten)]
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiSupportInfo {
     #[serde(rename = "api_support_airatack")]
@@ -115,7 +112,7 @@ pub struct ApiSupportInfo {
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra_with_flatten)]
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiFlavoInfo {
     #[serde(rename = "api_boss_ship_id")]
@@ -143,7 +140,7 @@ pub struct ApiFlavoInfo {
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra_with_flatten)]
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiSupportHourai {
     #[serde(rename = "api_deck_id")]
@@ -161,7 +158,7 @@ pub struct ApiSupportHourai {
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra_with_flatten)]
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiFlavorInfo {
     #[serde(rename = "api_boss_ship_id")]

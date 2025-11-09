@@ -1,14 +1,11 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
-use register_trait::add_field;
-
-use register_trait::FieldSizeChecker;
-use register_trait::TraitForTest;
+use register_trait::{add_field, FieldSizeChecker, TraitForTest};
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra_with_flatten)]
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiStage1 {
     #[serde(rename = "api_f_count")]
@@ -28,7 +25,7 @@ pub struct ApiStage1 {
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra_with_flatten)]
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiStage2 {
     #[serde(rename = "api_f_count")]
@@ -46,7 +43,7 @@ pub struct ApiStage2 {
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra_with_flatten)]
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiAirFire {
     #[serde(rename = "api_idx")]
@@ -60,7 +57,7 @@ pub struct ApiAirFire {
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra_with_flatten)]
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiStage3 {
     #[serde(rename = "api_frai_flag")]
@@ -88,7 +85,7 @@ pub struct ApiStage3 {
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra_with_flatten)]
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiKouku {
     #[serde(rename = "api_plane_from")]
@@ -106,7 +103,7 @@ pub struct ApiKouku {
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra_with_flatten)]
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiAirBaseAttack {
     #[serde(rename = "api_stage1")]
@@ -130,7 +127,7 @@ pub struct ApiAirBaseAttack {
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra_with_flatten)]
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiSquadronPlane {
     #[serde(rename = "api_mst_id")]
@@ -142,7 +139,7 @@ pub struct ApiSquadronPlane {
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra_with_flatten)]
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiAirBaseInjection {
     #[serde(rename = "api_plane_from")]
@@ -162,7 +159,7 @@ pub struct ApiAirBaseInjection {
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra_with_flatten)]
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiAirBaseData {
     #[serde(rename = "api_mst_id")]
@@ -174,7 +171,7 @@ pub struct ApiAirBaseData {
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
 #[add_field(extra_with_flatten)]
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiSupportAiratack {
     #[serde(rename = "api_deck_id")]
