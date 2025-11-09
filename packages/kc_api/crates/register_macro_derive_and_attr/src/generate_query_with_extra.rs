@@ -124,6 +124,24 @@ pub fn expand(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
                                     #key, err
                                 ))
                             })?
+                        } else if let ::serde_json::Value::Array(ref arr) = raw {
+                            let normalized = arr
+                                .iter()
+                                .map(|item| match item {
+                                    ::serde_json::Value::String(inner) => {
+                                        ::serde_json::from_str::<::serde_json::Value>(inner)
+                                            .unwrap_or_else(|_| ::serde_json::Value::String(inner.clone()))
+                                    }
+                                    other => other.clone(),
+                                })
+                                .collect::<::std::vec::Vec<_>>();
+
+                            ::serde_json::from_value::<#ty>(::serde_json::Value::Array(normalized)).map_err(|err| {
+                                ::serde::de::Error::custom(format!(
+                                    "failed to decode field `{}`: {}",
+                                    #key, err
+                                ))
+                            })?
                         } else {
                             return ::core::result::Result::Err(::serde::de::Error::custom(
                                 format!("failed to decode field `{}`: {:?}", #key, raw)
