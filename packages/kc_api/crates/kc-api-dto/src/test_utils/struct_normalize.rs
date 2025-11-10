@@ -28,10 +28,6 @@ fn normalize_for_mask_seacret(key: String, val: Value) -> Value {
         Value::String(s) => {
             if key.eq("api_token") {
                 Value::String("__API_TOKEN__".to_string())
-            } else if key.eq("api_port") {
-                Value::String("__API_PORT__".to_string())
-            } else if key.eq("api_serial_cid") {
-                Value::String("__API_SERIAL_CID__".to_string())
             // } else if s.ends_with("\n") {
             //     Value::String(s.replace("\n", ""))
             } else {
@@ -141,15 +137,7 @@ fn normalize_for_test(key: String, val: Value) -> Value {
             }
         }
 
-        Value::String(s) => {
-            if key.eq("api_token") {
-                Value::String("__API_TOKEN__".to_string())
-            } else if s.ends_with("\n") {
-                Value::String(s.replace("\n", ""))
-            } else {
-                Value::String(s)
-            }
-        }
+        Value::String(s) => Value::String(format!("__{}__", key.to_uppercase())),
 
         Value::Array(arr) => {
             let normalized_set: std::collections::HashSet<Value> = arr
