@@ -1,7 +1,11 @@
 #![cfg(test)]
 
+use chrono;
 use core::panic;
-use std::path::{self, PathBuf};
+use std::{
+    fs::File,
+    path::{self, PathBuf},
+};
 
 use serde_json::Value;
 use serde_qs;
@@ -134,6 +138,7 @@ fn normalize_for_test(key: String, val: Value) -> Value {
             } else {
                 // fallback: keep the original number if none of the checks matched
                 Value::Number(n)
+                // Value::String("__NUMBER__".to_string())
             }
         }
 
@@ -144,7 +149,9 @@ fn normalize_for_test(key: String, val: Value) -> Value {
                 .into_iter()
                 .map(|v| normalize_for_test(key.clone(), v))
                 .collect();
-            Value::Array(normalized_set.into_iter().collect())
+            let mut normalized_vec = normalized_set.iter().cloned().collect::<Vec<_>>();
+            normalized_vec.sort_by_key(|a| a.to_string());
+            Value::Array(normalized_vec)
         }
 
         Value::Object(map) => {
@@ -174,10 +181,21 @@ pub fn test_match_normalize(expected: Value, snap_values: Vec<Value>) -> bool {
         .map(|v| normalize_for_test("root".to_string(), v))
         .collect::<Vec<_>>();
 
-    let result_eq = normalized_snap
+    let serialize_expected =
+        serde_json::to_string_pretty(&normalized_expected).unwrap_or_else(|_| {
+            panic!(
+                "failed to serialize normalized expected value: {:#?}",
+                normalized_expected
+            )
+        });
+    let serialize_snap = normalized_snap
         .iter()
-        .zip(std::iter::repeat(&normalized_expected))
-        .any(|(a, b)| a == b);
+        .map(|v| serde_json::to_string_pretty(v).unwrap())
+        .collect::<Vec<_>>();
+
+    let result_eq = serialize_snap
+        .iter()
+        .any(|serialized_snap| *serialized_snap == serialize_expected);
 
     result_eq
 }
@@ -331,14 +349,21 @@ pub fn custom_match_normalize<T, U>(
         }
     }
 
-    let file = std::fs::File::open(log_path.clone())
-        .unwrap_or_else(|_| panic!("failed to open log file: {}", log_path.clone()));
+    let mut file = File::create(log_path)
+        .unwrap_or_else(|_| panic!("\x1b[38;5;{}m can not create file\x1b[m ", 8));
 
     let local: chrono::DateTime<chrono::Local> = chrono::Local::now();
     writeln!(file, "test result [{local}]")
         .unwrap_or_else(|_| panic!("\x1b[38;5;{}m cannot write.\x1b[m ", 8));
-    writeln!(file, "{:#?}", snap_values)
-        .unwrap_or_else(|_| panic!("\x1b[38;5;{}m cannot write.\x1b[m ", 8));
+    let mut normalized_snap = snap_values
+        .iter()
+        .map(|v| normalize_for_test("root".to_string(), v.clone()))
+        .collect::<Vec<_>>();
+    normalized_snap.sort_by_key(|a| a.to_string());
+    for normalized in &normalized_snap {
+        writeln!(file, "{:?}", normalized)
+            .unwrap_or_else(|_| panic!("\x1b[38;5;{}m cannot write.\x1b[m ", 8));
+    }
 }
 
 fn filter_range_start_end(
