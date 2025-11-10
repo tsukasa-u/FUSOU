@@ -187,18 +187,22 @@ mod tests {
 
         let req_and_res_pattern_str = "@api_req_combined_battle@each_battle_water";
         let snap_path = format!("{snap_file_path}/kcsapi");
+        let log_path = "./src/endpoints/api_req_combined_battle/each_battle_water@snap_data@S.log";
         glob_match_normalize::<Req, Res>(
             target_path.clone(),
             req_and_res_pattern_str.to_string(),
             snap_path.to_string(),
             FormatType::Json,
+            log_path.to_string(),
         );
 
+        let log_path = "./src/endpoints/api_req_combined_battle/each_battle_water@snap_data@Q.log";
         glob_match_normalize::<Req, Res>(
             target_path.clone(),
             req_and_res_pattern_str.to_string(),
             snap_path.to_string(),
             FormatType::QueryString,
+            log_path.to_string(),
         );
     }
 

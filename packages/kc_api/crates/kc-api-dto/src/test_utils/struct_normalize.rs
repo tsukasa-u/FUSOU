@@ -237,6 +237,7 @@ pub fn custom_match_normalize<T, U>(
     snap_file_paths: impl Iterator<Item = PathBuf>,
     snap_file_directory_path: String,
     format_type: FormatType,
+    log_path: String,
 ) where
     T: serde::de::DeserializeOwned + serde::Serialize,
     U: serde::de::DeserializeOwned + serde::Serialize,
@@ -329,6 +330,15 @@ pub fn custom_match_normalize<T, U>(
             snap_values.push(expected_value.clone());
         }
     }
+
+    let file = std::fs::File::open(log_path.clone())
+        .unwrap_or_else(|_| panic!("failed to open log file: {}", log_path.clone()));
+
+    let local: chrono::DateTime<chrono::Local> = chrono::Local::now();
+    writeln!(file, "test result [{local}]")
+        .unwrap_or_else(|_| panic!("\x1b[38;5;{}m cannot write.\x1b[m ", 8));
+    writeln!(file, "{:#?}", snap_values)
+        .unwrap_or_else(|_| panic!("\x1b[38;5;{}m cannot write.\x1b[m ", 8));
 }
 
 fn filter_range_start_end(
@@ -352,6 +362,7 @@ pub fn glob_match_normalize_with_range<T, U>(
     pattern_str: String,
     snap_file_path: String,
     format_type: FormatType,
+    log_path: String,
     range_start: Option<i64>,
     range_end: Option<i64>,
 ) where
@@ -415,6 +426,7 @@ pub fn glob_match_normalize_with_range<T, U>(
         snap_file_list.into_iter(),
         snap_file_path,
         format_type,
+        log_path.clone(),
     );
     println!(
         "\x1b[38;5;{}m completed test data normalization for pattern: {}\x1b[m ",
@@ -427,6 +439,7 @@ pub fn glob_match_normalize<T, U>(
     pattern_str: String,
     snap_file_path: String,
     format_type: FormatType,
+    log_path: String,
 ) where
     T: serde::de::DeserializeOwned + serde::Serialize,
     U: serde::de::DeserializeOwned + serde::Serialize,
@@ -477,6 +490,7 @@ pub fn glob_match_normalize<T, U>(
         snap_file_list.into_iter(),
         snap_file_path,
         format_type,
+        log_path.clone(),
     );
     println!(
         "\x1b[38;5;{}m completed test data normalization for pattern: {}\x1b[m ",
