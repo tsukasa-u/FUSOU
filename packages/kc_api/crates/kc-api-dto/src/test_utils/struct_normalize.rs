@@ -156,17 +156,20 @@ fn normalize_for_test(key: String, val: Value) -> Value {
 
         Value::Object(map) => {
             let mut seen = std::collections::HashSet::new();
-            let normalized_map = map
+            let mut normalized_vec = map
                 .into_iter()
                 .filter_map(|(k, v)| {
                     let normalized_v = normalize_for_test(k.clone(), v);
                     if seen.insert(normalized_v.clone()) {
-                        Some((k, normalized_v))
+                        Some((format!("__{}__KEY__", key.to_uppercase()), normalized_v))
                     } else {
                         None
                     }
                 })
-                .collect();
+                .collect::<Vec<_>>();
+            normalized_vec.sort_by_key(|(_, v)| v.to_string());
+            let normalized_map: serde_json::Map<String, Value> =
+                normalized_vec.into_iter().collect();
             Value::Object(normalized_map)
         }
 
