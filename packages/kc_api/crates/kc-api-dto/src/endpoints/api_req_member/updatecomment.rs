@@ -18,6 +18,10 @@ pub struct Req {
     pub api_token: String,
     #[qs(rename = "api_verno")]
     pub api_verno: i64,
+    #[qs(rename = "api_cmt_id")]
+    pub api_cmt_id: i64,
+    #[qs(rename = "api_cmt")]
+    pub api_cmt: String,
 }
 
 #[derive(FieldSizeChecker, TraitForTest, TraitForRoot)]
@@ -69,6 +73,10 @@ mod tests {
 
         let req_and_res_pattern_str = "@api_req_member@updatecomment";
         let snap_path = format!("{snap_file_path}/kcsapi");
+        let mask_patterns = vec![
+            r"req\.api_cmt_id",
+            r"req\.api_cmt",
+        ];
         let log_path = "./src/endpoints/api_req_member/updatecomment@snap_data@S.log";
         glob_match_normalize::<Req, Res>(
             target_path.clone(),
@@ -76,7 +84,7 @@ mod tests {
             snap_path.to_string(),
             FormatType::Json,
             log_path.to_string(),
-            None,
+            Some(mask_patterns.clone()),
         );
 
         let log_path = "./src/endpoints/api_req_member/updatecomment@snap_data@Q.log";
@@ -86,7 +94,7 @@ mod tests {
             snap_path.to_string(),
             FormatType::QueryString,
             log_path.to_string(),
-            None,
+            Some(mask_patterns.clone()),
         );
     }
 
