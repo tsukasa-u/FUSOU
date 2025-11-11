@@ -25,15 +25,29 @@ fn remove_metadata(data: String) -> String {
     data_removed_metadata
 }
 
-fn normalize_for_mask_seacret(key: String, val: Value) -> Value {
+fn normalize_for_mask_seacret(
+    key: String,
+    val: Value,
+    keys: Vec<String>,
+    mask_patterns: Vec<String>,
+) -> Value {
+    let matched_mask = mask_patterns.iter().find_map(|mask| {
+        let joined_keys = keys.join(".");
+        if regex::Regex::new(mask).unwrap().is_match(&joined_keys) {
+            Some(Value::String(format!("__MASKED_{}__", key.to_uppercase())))
+        } else {
+            None
+        }
+    });
+    if let Some(masked) = matched_mask {
+        return masked;
+    }
     match val {
         Value::Number(n) => Value::Number(n),
 
         Value::String(s) => {
             if key.eq("api_token") {
                 Value::String("__API_TOKEN__".to_string())
-            // } else if s.ends_with("\n") {
-            //     Value::String(s.replace("\n", ""))
             } else {
                 Value::String(s)
             }
@@ -42,7 +56,9 @@ fn normalize_for_mask_seacret(key: String, val: Value) -> Value {
         Value::Array(arr) => {
             let normalized_arr = arr
                 .into_iter()
-                .map(|v| normalize_for_mask_seacret(key.clone(), v))
+                .map(|v| {
+                    normalize_for_mask_seacret(key.clone(), v, keys.clone(), mask_patterns.clone())
+                })
                 .collect();
             Value::Array(normalized_arr)
         }
@@ -50,12 +66,28 @@ fn normalize_for_mask_seacret(key: String, val: Value) -> Value {
         Value::Object(map) => {
             let normalized_map = map
                 .into_iter()
-                .map(|(k, v)| (k.clone(), normalize_for_mask_seacret(k, v)))
+                .map(|(k, v)| {
+                    // clone the key for use as the map key and for the recursive call
+                    let key_for_map = k.clone();
+                    let key_for_call = k.clone();
+                    // create a new keys vector by cloning and appending the current key
+                    let mut new_keys = keys.clone();
+                    new_keys.push(key_for_call.clone());
+                    (
+                        key_for_map,
+                        normalize_for_mask_seacret(
+                            key_for_call,
+                            v,
+                            new_keys,
+                            mask_patterns.clone(),
+                        ),
+                    )
+                })
                 .collect();
             Value::Object(normalized_map)
         }
-
-        _ => val,
+        Value::Bool(b) => Value::Bool(b),
+        Value::Null => Value::Null,
     }
 }
 
@@ -66,13 +98,24 @@ fn keep_test_data(
     snap_file_path: String,
     timestamp: String,
     format_type: FormatType,
+    mask_patterns: Vec<String>,
 ) {
-    let val_masked = normalize_for_mask_seacret("root".to_string(), val);
+    let val_masked = normalize_for_mask_seacret(
+        "root".to_string(),
+        val,
+        vec!["root".to_string()],
+        mask_patterns.clone(),
+    );
     let serialized = match format_type {
         FormatType::Json => serde_json::to_string_pretty(&val_masked).unwrap(),
         FormatType::QueryString => serde_qs::to_string(&val_masked).unwrap(),
     };
-    let another_val_masked = normalize_for_mask_seacret("root".to_string(), another_val);
+    let another_val_masked = normalize_for_mask_seacret(
+        "root".to_string(),
+        another_val,
+        vec!["root".to_string()],
+        mask_patterns,
+    );
     let another_serialized = match format_type {
         FormatType::QueryString => serde_json::to_string_pretty(&another_val_masked).unwrap(),
         FormatType::Json => serde_qs::to_string(&another_val_masked).unwrap(),
@@ -138,11 +181,10 @@ fn normalize_for_test(key: String, val: Value) -> Value {
             } else {
                 // fallback: keep the original number if none of the checks matched
                 Value::Number(n)
-                // Value::String("__NUMBER__".to_string())
             }
         }
 
-        Value::String(s) => Value::String(format!("__{}__", key.to_uppercase())),
+        Value::String(_s) => Value::String(format!("__{}__", key.to_uppercase())),
 
         Value::Array(arr) => {
             let normalized_set: std::collections::HashSet<Value> = arr
@@ -155,25 +197,31 @@ fn normalize_for_test(key: String, val: Value) -> Value {
         }
 
         Value::Object(map) => {
-            let mut seen = std::collections::HashSet::new();
+            let mut seen: std::collections::HashSet<(String, Value)> =
+                std::collections::HashSet::new();
             let mut normalized_vec = map
                 .into_iter()
                 .filter_map(|(k, v)| {
                     let normalized_v = normalize_for_test(k.clone(), v);
-                    if seen.insert(normalized_v.clone()) {
-                        Some((format!("__{}__KEY__", key.to_uppercase()), normalized_v))
+                    if seen.insert((k.clone(), normalized_v.clone())) {
+                        if let Ok(_i) = k.parse::<i64>() {
+                            Some((format!("__{}__INT_KEY__", key.to_uppercase()), normalized_v))
+                        } else {
+                            Some((k, normalized_v))
+                        }
                     } else {
                         None
                     }
                 })
                 .collect::<Vec<_>>();
-            normalized_vec.sort_by_key(|(_, v)| v.to_string());
+            normalized_vec.sort_by_key(|(k, v)| format!("{}: {}", k, v));
             let normalized_map: serde_json::Map<String, Value> =
                 normalized_vec.into_iter().collect();
             Value::Object(normalized_map)
         }
 
-        _ => val,
+        Value::Bool(b) => Value::Bool(b),
+        Value::Null => Value::Null,
     }
 }
 
@@ -203,7 +251,11 @@ pub fn test_match_normalize(expected: Value, snap_values: Vec<Value>) -> bool {
     result_eq
 }
 
-fn convert_test_data_to_value<T, U>(file_content: String, format_type: FormatType) -> Value
+fn convert_test_data_to_value<T, U>(
+    file_content: String,
+    format_type: FormatType,
+    file_path: PathBuf,
+) -> Value
 where
     T: serde::de::DeserializeOwned + serde::Serialize,
     U: serde::de::DeserializeOwned + serde::Serialize,
@@ -211,16 +263,32 @@ where
     let data_removed_metadata = remove_metadata(file_content);
     let parsed: Value = match format_type {
         FormatType::Json => {
-            let parsed: U = serde_json::from_str(&data_removed_metadata)
-                .unwrap_or_else(|_| panic!("failed to parse test data file as JSON"));
-            serde_json::to_value(&parsed)
-                .unwrap_or_else(|_| panic!("failed to convert test data to Value"))
+            let parsed: U = serde_json::from_str(&data_removed_metadata).unwrap_or_else(|_| {
+                panic!(
+                    "failed to parse test data file as JSON: {}",
+                    file_path.display()
+                )
+            });
+            serde_json::to_value(&parsed).unwrap_or_else(|_| {
+                panic!(
+                    "failed to convert test data to Value: {}",
+                    file_path.display()
+                )
+            })
         }
         FormatType::QueryString => {
-            let parsed: T = serde_qs::from_str(&data_removed_metadata)
-                .unwrap_or_else(|_| panic!("failed to parse test data file as query string"));
-            serde_json::to_value(&parsed)
-                .unwrap_or_else(|_| panic!("failed to convert test data to Value"))
+            let parsed: T = serde_qs::from_str(&data_removed_metadata).unwrap_or_else(|_| {
+                panic!(
+                    "failed to parse test data file as query string: {}",
+                    file_path.display()
+                )
+            });
+            serde_json::to_value(&parsed).unwrap_or_else(|_| {
+                panic!(
+                    "failed to convert test data to Value: {}",
+                    file_path.display()
+                )
+            })
         }
     };
     parsed
@@ -237,7 +305,33 @@ fn get_timestamp_from_file_content(file_path: PathBuf) -> String {
                 .captures(line)
                 .and_then(|caps| caps.get(1).map(|m| m.as_str().to_string()))
         })
-        .unwrap_or("0".to_string());
+        .unwrap_or({
+            let (prefix, _) = file_path
+                .file_name()
+                .unwrap_or_else(|| panic!("failed to get file name: {}", file_path.display()))
+                .to_str()
+                .unwrap_or_else(|| {
+                    panic!(
+                        "failed to convert file name to str: {}",
+                        file_path.display()
+                    )
+                })
+                .split_once("@")
+                .unwrap_or_else(|| panic!("failed to split file name: {}", file_path.display()));
+            let splited_under = match prefix.split_once("_") {
+                Some((_, suffix)) => suffix.to_string(),
+                None => prefix.to_string(),
+            };
+            let timestamp_part = if splited_under.ends_with('S') || splited_under.ends_with('Q') {
+                splited_under[..splited_under.len() - 1].to_string()
+            } else {
+                panic!(
+                    "failed to get timestamp from file name: {}",
+                    file_path.display()
+                )
+            };
+            timestamp_part
+        });
     timestamp
 }
 
@@ -249,7 +343,7 @@ where
     let file_content = std::fs::read_to_string(file_path.clone())
         .unwrap_or_else(|_| panic!("failed to read test data file: {}", file_path.display()));
     let data_removed_metadata = remove_metadata(file_content.clone());
-    convert_test_data_to_value::<T, U>(data_removed_metadata, format_type)
+    convert_test_data_to_value::<T, U>(data_removed_metadata, format_type, file_path)
 }
 
 pub fn custom_match_normalize<T, U>(
@@ -259,6 +353,7 @@ pub fn custom_match_normalize<T, U>(
     snap_file_directory_path: String,
     format_type: FormatType,
     log_path: String,
+    mask_patterns: Vec<String>,
 ) where
     T: serde::de::DeserializeOwned + serde::Serialize,
     U: serde::de::DeserializeOwned + serde::Serialize,
@@ -274,6 +369,7 @@ pub fn custom_match_normalize<T, U>(
             let timestamp = get_timestamp_from_file_content(path.clone());
             (timestamp.parse::<i64>().unwrap_or(0), path)
         })
+        .filter(|(ts_int, _)| *ts_int > 0)
         .collect();
 
     for test_data_path in test_data_paths {
@@ -305,25 +401,33 @@ pub fn custom_match_normalize<T, U>(
 
             let another_test_data_path = {
                 let ts_int = timestamp.parse::<i64>().unwrap_or(0);
+                if ts_int == 0 {
+                    continue;
+                }
+
                 let value = match format_type {
                     FormatType::Json => another_timestamp_map
                         .keys()
                         .filter(|&&ts| ts <= ts_int && ts + 2000 >= ts_int)
                         .max_by_key(|&&ts| ts)
-                        .map(|&ts| another_timestamp_map.get(&ts))
-                        .unwrap_or_else(|| {
-                            panic!("another test data file not found for timestamp: {timestamp}")
-                        }),
+                        .and_then(|&ts| another_timestamp_map.get(&ts)),
                     FormatType::QueryString => another_timestamp_map
                         .keys()
                         .filter(|&&ts| ts >= ts_int && ts <= ts_int + 2000)
                         .min_by_key(|&&ts| ts)
-                        .map(|&ts| another_timestamp_map.get(&ts))
-                        .unwrap_or_else(|| {
-                            panic!("another test data file not found for timestamp: {timestamp}")
-                        }),
+                        .and_then(|&ts| another_timestamp_map.get(&ts)),
                 };
-                value.expect("failed to get another test data path").clone()
+                let ret = match value {
+                    Some(path) => path,
+                    None => {
+                        println!(
+                            "\x1b[38;5;{}m another test data file not found for timestamp: {}\x1b[m ",
+                            9, timestamp
+                        );
+                        continue;
+                    }
+                };
+                ret.clone()
             };
             if !another_test_data_path.exists() {
                 println!(
@@ -347,6 +451,7 @@ pub fn custom_match_normalize<T, U>(
                 snap_file_directory_path.clone(),
                 timestamp,
                 format_type.clone(),
+                mask_patterns.clone(),
             );
             snap_values.push(expected_value.clone());
         }
@@ -377,6 +482,9 @@ fn filter_range_start_end(
     let ts_int = get_timestamp_from_file_content(file_path.clone())
         .parse::<i64>()
         .unwrap_or(0);
+    if ts_int == 0 {
+        return false;
+    }
     match (range_start, range_end) {
         (Some(start), Some(end)) => ts_int >= start && ts_int < end,
         (Some(start), None) => ts_int >= start,
@@ -393,6 +501,7 @@ pub fn glob_match_normalize_with_range<T, U>(
     log_path: String,
     range_start: Option<i64>,
     range_end: Option<i64>,
+    mask_patterns: Option<Vec<String>>,
 ) where
     T: serde::de::DeserializeOwned + serde::Serialize,
     U: serde::de::DeserializeOwned + serde::Serialize,
@@ -455,10 +564,11 @@ pub fn glob_match_normalize_with_range<T, U>(
         snap_file_path,
         format_type,
         log_path.clone(),
+        mask_patterns.unwrap_or(vec![]),
     );
     println!(
-        "\x1b[38;5;{}m completed test data normalization for pattern: {}\x1b[m ",
-        10, pattern_str
+        "\x1b[38;5;{}m completed test data normalization for target pattern: {}\x1b[m ",
+        10, target_pattern
     );
 }
 
@@ -468,6 +578,7 @@ pub fn glob_match_normalize<T, U>(
     snap_file_path: String,
     format_type: FormatType,
     log_path: String,
+    mask_patterns: Option<Vec<String>>,
 ) where
     T: serde::de::DeserializeOwned + serde::Serialize,
     U: serde::de::DeserializeOwned + serde::Serialize,
@@ -519,9 +630,10 @@ pub fn glob_match_normalize<T, U>(
         snap_file_path,
         format_type,
         log_path.clone(),
+        mask_patterns.unwrap_or(vec![]),
     );
     println!(
-        "\x1b[38;5;{}m completed test data normalization for pattern: {}\x1b[m ",
-        10, pattern_str
+        "\x1b[38;5;{}m completed test data normalization for target pattern: {}\x1b[m ",
+        10, target_pattern
     );
 }

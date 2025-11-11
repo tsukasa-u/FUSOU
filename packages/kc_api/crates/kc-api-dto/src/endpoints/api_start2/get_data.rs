@@ -703,6 +703,7 @@ mod tests {
             log_path.to_string(),
             range_start,
             range_end,
+            None,
         );
 
         let log_path = "./src/endpoints/api_start2/get_data@snap_data@Q.log";
@@ -714,6 +715,7 @@ mod tests {
             log_path.to_string(),
             range_start,
             range_end,
+            None,
         );
     }
 }

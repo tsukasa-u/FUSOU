@@ -102,6 +102,7 @@ mod tests {
             snap_path.to_string(),
             FormatType::Json,
             log_path.to_string(),
+            None,
         );
 
         let log_path = "./src/endpoints/api_get_member/mission@snap_data@Q.log";
@@ -111,6 +112,7 @@ mod tests {
             snap_path.to_string(),
             FormatType::QueryString,
             log_path.to_string(),
+            None,
         );
     }
 
