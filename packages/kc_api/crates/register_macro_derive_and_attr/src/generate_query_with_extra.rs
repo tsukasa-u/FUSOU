@@ -13,7 +13,12 @@ struct FieldInfo {
     ty: Type,
     rename: String,
     is_extra: bool,
-    vec_inner_ty: Option<Type>,
+    vec_like: Option<VecLikeInfo>,
+}
+
+struct VecLikeInfo {
+    inner: Type,
+    wraps_option: bool,
 }
 
 pub fn expand(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
@@ -56,7 +61,7 @@ pub fn expand(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
             ty: field.ty.clone(),
             rename,
             is_extra,
-            vec_inner_ty: extract_vec_inner_ty(&field.ty),
+            vec_like: extract_vec_like(&field.ty),
         };
 
         if info.is_extra {
@@ -84,13 +89,17 @@ pub fn expand(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
         serialize_where
             .predicates
             .push(parse_quote!(#ty: ::serde::de::DeserializeOwned + ::serde::ser::Serialize + ::core::default::Default));
-        if let ::core::option::Option::Some(inner) = &info.vec_inner_ty {
+        if let ::core::option::Option::Some(vec_like) = &info.vec_like {
+            let inner = &vec_like.inner;
             serialize_where
                 .predicates
                 .push(parse_quote!(#inner: ::core::str::FromStr));
             serialize_where
                 .predicates
                 .push(parse_quote!(<#inner as ::core::str::FromStr>::Err: ::core::fmt::Display));
+            serialize_where
+                .predicates
+                .push(parse_quote!(#inner: ::core::fmt::Display));
         }
     }
     let extra_ty = &extra.ty;
@@ -119,7 +128,13 @@ pub fn expand(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
     let match_arms = infos.iter().zip(&field_vars).map(|(info, var)| {
         let key = &info.rename;
         let ty = &info.ty;
-        let string_fallback = if let ::core::option::Option::Some(inner) = &info.vec_inner_ty {
+        let string_fallback = if let ::core::option::Option::Some(vec_like) = &info.vec_like {
+            let inner = &vec_like.inner;
+            let wrap_vec = if vec_like.wraps_option {
+                quote! { ::core::option::Option::Some(parsed_vec) }
+            } else {
+                quote! { parsed_vec }
+            };
             quote! {
                 if s.is_empty() {
                     ::core::default::Default::default()
@@ -127,7 +142,7 @@ pub fn expand(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
                     match ::serde_json::from_str::<#ty>(s) {
                         ::core::result::Result::Ok(v) => v,
                         ::core::result::Result::Err(_) => {
-                            let parsed = s
+                            let parsed_vec = s
                                 .split(',')
                                 .map(|part| part.trim())
                                 .filter(|part| !part.is_empty())
@@ -138,8 +153,7 @@ pub fn expand(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
                                     ))
                                 }))
                                 .collect::<::core::result::Result<::std::vec::Vec<#inner>, _>>()?;
-                            let parsed: #ty = parsed;
-                            parsed
+                            #wrap_vec
                         }
                     }
                 }
@@ -200,7 +214,6 @@ pub fn expand(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
     });
 
     let known_field_inits = infos.iter().zip(&field_vars).map(|(info, var)| {
-        let key = &info.rename;
         let ident = &info.ident;
         quote! {
             #ident: #var.unwrap_or_default()
@@ -211,8 +224,32 @@ pub fn expand(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
     let serialize_known_fields = infos.iter().map(|info| {
         let key = &info.rename;
         let ident = &info.ident;
-        quote! {
-            map.serialize_entry(#key, &self.#ident)?;
+        if let ::core::option::Option::Some(vec_like) = &info.vec_like {
+            if vec_like.wraps_option {
+                quote! {
+                    if let ::core::option::Option::Some(vec) = &self.#ident {
+                        let serialized = vec
+                            .iter()
+                            .map(|item| ::std::format!("{}", item))
+                            .collect::<::std::vec::Vec<_>>()
+                            .join(",");
+                        map.serialize_entry(#key, &serialized)?;
+                    }
+                }
+            } else {
+                quote! {
+                    let serialized = self.#ident
+                        .iter()
+                        .map(|item| ::std::format!("{}", item))
+                        .collect::<::std::vec::Vec<_>>()
+                        .join(",");
+                    map.serialize_entry(#key, &serialized)?;
+                }
+            }
+        } else {
+            quote! {
+                map.serialize_entry(#key, &self.#ident)?;
+            }
         }
     });
 
@@ -345,4 +382,35 @@ fn extract_vec_inner_ty(ty: &Type) -> Option<Type> {
     };
 
     Some(inner_ty.clone())
+}
+
+fn extract_vec_like(ty: &Type) -> Option<VecLikeInfo> {
+    if let ::core::option::Option::Some(inner) = extract_vec_inner_ty(ty) {
+        return ::core::option::Option::Some(VecLikeInfo {
+            inner,
+            wraps_option: false,
+        });
+    }
+
+    let Type::Path(TypePath { qself: None, path }) = ty else {
+        return None;
+    };
+
+    let segment = path.segments.last()?;
+    if segment.ident != "Option" {
+        return None;
+    }
+
+    let PathArguments::AngleBracketed(args) = &segment.arguments else {
+        return None;
+    };
+
+    let Some(GenericArgument::Type(inner_ty)) = args.args.first() else {
+        return None;
+    };
+
+    extract_vec_inner_ty(inner_ty).map(|inner| VecLikeInfo {
+        inner,
+        wraps_option: true,
+    })
 }
