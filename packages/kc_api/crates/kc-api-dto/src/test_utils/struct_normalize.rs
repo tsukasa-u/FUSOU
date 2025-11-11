@@ -29,12 +29,22 @@ fn normalize_for_mask_seacret(
     key: String,
     val: Value,
     keys: Vec<String>,
-    mask_patterns: Vec<String>,
+    mask_patterns: Vec<&str>,
 ) -> Value {
     let matched_mask = mask_patterns.iter().find_map(|mask| {
         let joined_keys = keys.join(".");
+        println!("masking key matched: {} : {}", joined_keys, mask);
         if regex::Regex::new(mask).unwrap().is_match(&joined_keys) {
-            Some(Value::String(format!("__MASKED_{}__", key.to_uppercase())))
+            match val {
+                Value::Number(_) => Some(Value::Number(i64::MIN.into())),
+                Value::String(_) => {
+                    Some(Value::String(format!("__MASKED_{}__", key.to_uppercase())))
+                }
+                Value::Bool(_) => Some(Value::Bool(false)),
+                Value::Null => Some(Value::Null),
+                Value::Array(_) => Some(Value::Array(vec![])),
+                Value::Object(_) => Some(Value::Object(serde_json::Map::new())),
+            }
         } else {
             None
         }
@@ -47,7 +57,7 @@ fn normalize_for_mask_seacret(
 
         Value::String(s) => {
             if key.eq("api_token") {
-                Value::String("__API_TOKEN__".to_string())
+                Value::String("__MASKED_API_TOKEN__".to_string())
             } else {
                 Value::String(s)
             }
@@ -98,22 +108,26 @@ fn keep_test_data(
     snap_file_path: String,
     timestamp: String,
     format_type: FormatType,
-    mask_patterns: Vec<String>,
+    mask_patterns: Vec<&str>,
 ) {
-    let val_masked = normalize_for_mask_seacret(
-        "root".to_string(),
-        val,
-        vec!["root".to_string()],
-        mask_patterns.clone(),
-    );
+    let key_root = match format_type {
+        FormatType::Json => "res".to_string(),
+        FormatType::QueryString => "req".to_string(),
+    };
+    let another_key_root = match format_type {
+        FormatType::Json => "req".to_string(),
+        FormatType::QueryString => "res".to_string(),
+    };
+    let val_masked =
+        normalize_for_mask_seacret(key_root.clone(), val, vec![key_root], mask_patterns.clone());
     let serialized = match format_type {
         FormatType::Json => serde_json::to_string_pretty(&val_masked).unwrap(),
         FormatType::QueryString => serde_qs::to_string(&val_masked).unwrap(),
     };
     let another_val_masked = normalize_for_mask_seacret(
-        "root".to_string(),
+        another_key_root.clone(),
         another_val,
-        vec!["root".to_string()],
+        vec![another_key_root],
         mask_patterns,
     );
     let another_serialized = match format_type {
@@ -226,10 +240,10 @@ fn normalize_for_test(key: String, val: Value) -> Value {
 }
 
 pub fn test_match_normalize(expected: Value, snap_values: Vec<Value>) -> bool {
-    let normalized_expected = normalize_for_test("root".to_string(), expected.clone());
+    let normalized_expected = normalize_for_test("req_or_res".to_string(), expected.clone());
     let normalized_snap = snap_values
         .into_iter()
-        .map(|v| normalize_for_test("root".to_string(), v))
+        .map(|v| normalize_for_test("req_or_res".to_string(), v))
         .collect::<Vec<_>>();
 
     let serialize_expected =
@@ -353,7 +367,7 @@ pub fn custom_match_normalize<T, U>(
     snap_file_directory_path: String,
     format_type: FormatType,
     log_path: String,
-    mask_patterns: Vec<String>,
+    mask_patterns: Vec<&str>,
 ) where
     T: serde::de::DeserializeOwned + serde::Serialize,
     U: serde::de::DeserializeOwned + serde::Serialize,
@@ -465,7 +479,7 @@ pub fn custom_match_normalize<T, U>(
         .unwrap_or_else(|_| panic!("\x1b[38;5;{}m cannot write.\x1b[m ", 8));
     let mut normalized_snap = snap_values
         .iter()
-        .map(|v| normalize_for_test("root".to_string(), v.clone()))
+        .map(|v| normalize_for_test("req_or_res".to_string(), v.clone()))
         .collect::<Vec<_>>();
     normalized_snap.sort_by_key(|a| a.to_string());
     for normalized in &normalized_snap {
@@ -501,7 +515,7 @@ pub fn glob_match_normalize_with_range<T, U>(
     log_path: String,
     range_start: Option<i64>,
     range_end: Option<i64>,
-    mask_patterns: Option<Vec<String>>,
+    mask_patterns: Option<Vec<&str>>,
 ) where
     T: serde::de::DeserializeOwned + serde::Serialize,
     U: serde::de::DeserializeOwned + serde::Serialize,
@@ -578,7 +592,7 @@ pub fn glob_match_normalize<T, U>(
     snap_file_path: String,
     format_type: FormatType,
     log_path: String,
-    mask_patterns: Option<Vec<String>>,
+    mask_patterns: Option<Vec<&str>>,
 ) where
     T: serde::de::DeserializeOwned + serde::Serialize,
     U: serde::de::DeserializeOwned + serde::Serialize,
