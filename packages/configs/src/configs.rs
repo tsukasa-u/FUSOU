@@ -272,6 +272,17 @@ impl ConfigsAppAuth {
 }
 
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
+pub struct ConfigsAppWindow {
+    pub resize_debounce_millis: Option<u64>,
+}
+
+impl ConfigsAppWindow {
+    pub fn get_resize_debounce_millis(&self) -> u64 {
+        self.resize_debounce_millis.unwrap_or(1000)
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Default, Clone)]
 pub struct ConfigsApp {
     pub connect_kc_server: ConfigsAppConnectKcServer,
     pub browser: ConfigsAppBrowser,
@@ -280,6 +291,7 @@ pub struct ConfigsApp {
     pub discord: ConfigsAppDiscord,
     pub database: ConfigsAppDatabase,
     pub auth: ConfigsAppAuth,
+    pub window: ConfigsAppWindow,
 }
 
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]

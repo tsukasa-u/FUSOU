@@ -113,6 +113,7 @@ save_file_location = ""
     # kc_server_name = "w16s.kancolle-server.com" # This is example
     kc_server_name = "w16s.kancolle-server.com"
 
+
     [app.browser]
     # The URL to open first in the browser
     url = "http://www.dmm.com/netgame/social/-/gadgets/=/app_id=854854/"
@@ -162,13 +163,13 @@ save_file_location = ""
 
 
     [app.database.google_drive]
-        # The size of table user can get from Google Drive at once
-        # this option is only used when [app.database] is enabled
-        page_size = 100
+    # The size of table user can get from Google Drive at once
+    # this option is only used when [app.database] is enabled
+    page_size = 100
 
-        # The interval (in cron format) to sync data to Google Drive
-        # this option is only used when [app.database] is enabled
-        schedule_cron = "0 0 * * * *" # every hour
+    # The interval (in cron format) to sync data to Google Drive
+    # this option is only used when [app.database] is enabled
+    schedule_cron = "0 0 * * * *" # every hour
 
 
     [app.auth]
@@ -176,3 +177,7 @@ save_file_location = ""
     # To be careful because there is no method to reset the authentication state until the authentication expires
     deny_auth = false
 
+
+    [app.window]
+    # The debounce time (in milliseconds) for window resize events
+    resize_debounce_millis = 200
