@@ -426,6 +426,19 @@ mod tests {
 
         let req_and_res_pattern_str = "@api_port@port";
         let snap_path = format!("{snap_file_path}/kcsapi");
+        let mask_patterns = vec![
+            r"req\.api_port",
+            r"res\.api_data\.api_basic\.api_comment",
+            r"res\.api_data\.api_basic\.api_comment_id",
+            r"res\.api_data\.api_basic\.api_member_id",
+            r"res\.api_data\.api_basic\.api_nickname",
+            r"res\.api_data\.api_basic\.api_nickname_id",
+            r"res\.api_data\.api_deck_port\.api_member_id",
+            r"res\.api_data\.api_deck_port\.api_name",
+            r"res\.api_data\.api_deck_port\.api_name_id",
+            r"res\.api_data\.api_material\.api_member_id",
+            r"res\.api_data\.api_ndock\.api_member_id",
+        ];
         let log_path = "./src/endpoints/api_port/port@snap_data@S.log";
         glob_match_normalize::<Req, Res>(
             target_path.clone(),
@@ -433,7 +446,7 @@ mod tests {
             snap_path.to_string(),
             FormatType::Json,
             log_path.to_string(),
-            None,
+            Some(mask_patterns.clone()),
         );
 
         let log_path = "./src/endpoints/api_port/port@snap_data@Q.log";
@@ -443,7 +456,7 @@ mod tests {
             snap_path.to_string(),
             FormatType::QueryString,
             log_path.to_string(),
-            None,
+            Some(mask_patterns),
         );
     }
 

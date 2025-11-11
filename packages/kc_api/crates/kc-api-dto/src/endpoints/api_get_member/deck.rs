@@ -93,6 +93,11 @@ mod tests {
 
         let req_and_res_pattern_str = "@api_get_member@deck";
         let snap_path = format!("{snap_file_path}/kcsapi");
+        let mask_patterns = vec![
+            r"res\.api_data\.api_member_id",
+            r"res\.api_data\.api_name",
+            r"res\.api_data\.api_name_id",
+        ];
         let log_path = "./src/endpoints/api_get_member/deck@snap_data@S.log";
         glob_match_normalize::<Req, Res>(
             target_path.clone(),
