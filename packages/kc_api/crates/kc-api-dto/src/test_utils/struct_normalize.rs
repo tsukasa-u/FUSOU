@@ -322,15 +322,15 @@ fn get_timestamp_from_file_content(file_path: PathBuf) -> String {
                 Some((_, suffix)) => suffix.to_string(),
                 None => prefix.to_string(),
             };
-            let timestamp_part = if splited_under.ends_with('S') || splited_under.ends_with('Q') {
+
+            if splited_under.ends_with('S') || splited_under.ends_with('Q') {
                 splited_under[..splited_under.len() - 1].to_string()
             } else {
                 panic!(
                     "failed to get timestamp from file name: {}",
                     file_path.display()
                 )
-            };
-            timestamp_part
+            }
         });
     timestamp
 }
@@ -564,7 +564,7 @@ pub fn glob_match_normalize_with_range<T, U>(
         snap_file_path,
         format_type,
         log_path.clone(),
-        mask_patterns.unwrap_or(vec![]),
+        mask_patterns.unwrap_or_default(),
     );
     println!(
         "\x1b[38;5;{}m completed test data normalization for target pattern: {}\x1b[m ",
@@ -630,7 +630,7 @@ pub fn glob_match_normalize<T, U>(
         snap_file_path,
         format_type,
         log_path.clone(),
-        mask_patterns.unwrap_or(vec![]),
+        mask_patterns.unwrap_or_default(),
     );
     println!(
         "\x1b[38;5;{}m completed test data normalization for target pattern: {}\x1b[m ",
