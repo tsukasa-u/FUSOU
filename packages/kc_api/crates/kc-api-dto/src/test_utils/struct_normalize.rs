@@ -33,7 +33,6 @@ fn normalize_for_mask_seacret(
 ) -> Value {
     let matched_mask = mask_patterns.iter().find_map(|mask| {
         let joined_keys = keys.join(".");
-        println!("masking key matched: {} : {}", joined_keys, mask);
         if regex::Regex::new(mask).unwrap().is_match(&joined_keys) {
             match val {
                 Value::Number(_) => Some(Value::Number(i64::MIN.into())),

@@ -173,6 +173,7 @@ mod tests {
 
         let req_and_res_pattern_str = "@api_req_map@start";
         let snap_path = format!("{snap_file_path}/kcsapi");
+        let mask_patterns = vec![r"req\.api_serial_cid"];
         let log_path = "./src/endpoints/api_req_map/start@snap_data@S.log";
         glob_match_normalize::<Req, Res>(
             target_path.clone(),
@@ -180,7 +181,7 @@ mod tests {
             snap_path.to_string(),
             FormatType::Json,
             log_path.to_string(),
-            None,
+            Some(mask_patterns.clone()),
         );
 
         let log_path = "./src/endpoints/api_req_map/start@snap_data@Q.log";
@@ -190,8 +191,7 @@ mod tests {
             snap_path.to_string(),
             FormatType::QueryString,
             log_path.to_string(),
-            None,
+            Some(mask_patterns),
         );
     }
-
 }

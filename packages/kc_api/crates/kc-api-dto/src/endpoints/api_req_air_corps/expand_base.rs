@@ -117,6 +117,7 @@ mod tests {
 
         let req_and_res_pattern_str = "@api_req_air_corps@expand_base";
         let snap_path = format!("{snap_file_path}/kcsapi");
+        let mask_patterns = vec![r"res\.api_data\.api_name"];
         let log_path = "./src/endpoints/api_req_air_corps/expand_base@snap_data@S.log";
         glob_match_normalize::<Req, Res>(
             target_path.clone(),
@@ -124,7 +125,7 @@ mod tests {
             snap_path.to_string(),
             FormatType::Json,
             log_path.to_string(),
-            None,
+            Some(mask_patterns.clone()),
         );
 
         let log_path = "./src/endpoints/api_req_air_corps/expand_base@snap_data@Q.log";
@@ -134,8 +135,7 @@ mod tests {
             snap_path.to_string(),
             FormatType::QueryString,
             log_path.to_string(),
-            None,
+            Some(mask_patterns),
         );
     }
-
 }
