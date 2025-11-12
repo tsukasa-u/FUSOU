@@ -178,6 +178,29 @@ save_file_location = ""
     deny_auth = false
 
 
-    [app.window]
+    [app.kc_window]
     # The debounce time (in milliseconds) for window resize events
+    # This option is used when you use linux platform and the system internally uses wayland instead of X11
     resize_debounce_millis = 200
+
+    # The duration (in milliseconds) to keep the KanColle window size when resized events occur
+    # This option is used when you use linux platform and the system internally uses wayland instead of X11
+    keep_window_size_duration_millis = 1000
+
+    # The maximum inner width and height of the KanColle window
+    max_inner_width = 1920
+    max_inner_height = 1080
+
+    # The default inner width and height of the KanColle window
+    # This size is used for keeping aspect ratio when resizing the window
+    default_inner_width = 1200
+    default_inner_height = 720
+
+    # The height of the window title bar
+    # This option is used when you use linux platform and the system internally uses wayland instead of X11
+    window_title_bar_height = 68
+
+
+[env]
+# Environment-specific configurations
+# Keep it empty for now

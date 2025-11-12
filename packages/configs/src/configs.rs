@@ -10,7 +10,7 @@ use once_cell::sync::OnceCell;
 
 use tracing_unwrap::ResultExt;
 
-#[derive(Debug, Serialize, Deserialize, Default, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConfigsProxyCertificates {
     use_generated_certs: Option<bool>,
     cert_file: Option<String>,
@@ -31,7 +31,7 @@ impl ConfigsProxyCertificates {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Default, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConfigsProxyPac {
     use_custom_pac: Option<bool>,
     pac_script: Option<String>,
@@ -58,7 +58,7 @@ impl ConfigsProxyPac {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Default, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConfigsProxyNetwork {
     backend_crate: Option<String>,
     enforce_http: Option<bool>,
@@ -128,7 +128,7 @@ impl ConfigsProxyNetwork {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Default, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConfigsAppConnectKcServer {
     kc_server_name: Option<String>,
 }
@@ -142,7 +142,7 @@ impl ConfigsAppConnectKcServer {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Default, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConfigsAppBrowser {
     url: Option<String>,
 }
@@ -156,7 +156,7 @@ impl ConfigsAppBrowser {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Default, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConfigsAppTheme {
     theme: Option<String>,
 }
@@ -167,7 +167,7 @@ impl ConfigsAppTheme {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Default, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConfigAppFont {
     font_family: Option<String>,
 }
@@ -180,7 +180,7 @@ impl ConfigAppFont {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Default, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConfigsAppDiscord {
     enable_discord_integration: Option<bool>,
     use_custom_message: Option<bool>,
@@ -225,7 +225,7 @@ impl ConfigsAppDiscord {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Default, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConfigsAppDatabaseGoogleDrive {
     schedule_cron: Option<String>,
     page_size: Option<i64>,
@@ -248,7 +248,7 @@ impl ConfigsAppDatabaseGoogleDrive {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Default, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConfigsAppDatabase {
     allow_data_to_cloud: Option<bool>,
     pub google_drive: ConfigsAppDatabaseGoogleDrive,
@@ -260,7 +260,7 @@ impl ConfigsAppDatabase {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Default, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConfigsAppAuth {
     pub deny_auth: Option<bool>,
 }
@@ -271,18 +271,45 @@ impl ConfigsAppAuth {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Default, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConfigsAppWindow {
-    pub resize_debounce_millis: Option<u64>,
+    resize_debounce_millis: Option<u64>,
+    keep_window_size_duration_millis: Option<u64>,
+    max_inner_width: Option<u32>,
+    max_inner_height: Option<u32>,
+    default_inner_width: Option<u32>,
+    default_inner_height: Option<u32>,
+    window_title_bar_height: Option<u32>,
 }
 
 impl ConfigsAppWindow {
+    #[cfg(target_os = "linux")]
     pub fn get_resize_debounce_millis(&self) -> u64 {
         self.resize_debounce_millis.unwrap_or(1000)
     }
+    #[cfg(target_os = "linux")]
+    pub fn get_keep_window_size_duration_millis(&self) -> u64 {
+        self.keep_window_size_duration_millis.unwrap_or(1000)
+    }
+    pub fn get_max_inner_width(&self) -> u32 {
+        self.max_inner_width.unwrap_or(1200)
+    }
+    pub fn get_max_inner_height(&self) -> u32 {
+        self.max_inner_height.unwrap_or(720)
+    }
+    pub fn get_default_inner_width(&self) -> u32 {
+        self.default_inner_width.unwrap_or(1200)
+    }
+    pub fn get_default_inner_height(&self) -> u32 {
+        self.default_inner_height.unwrap_or(720)
+    }
+    #[cfg(target_os = "linux")]
+    pub fn get_window_title_bar_height(&self) -> u32 {
+        self.window_title_bar_height.unwrap_or(68)
+    }
 }
 
-#[derive(Debug, Serialize, Deserialize, Default, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConfigsApp {
     pub connect_kc_server: ConfigsAppConnectKcServer,
     pub browser: ConfigsAppBrowser,
@@ -291,10 +318,10 @@ pub struct ConfigsApp {
     pub discord: ConfigsAppDiscord,
     pub database: ConfigsAppDatabase,
     pub auth: ConfigsAppAuth,
-    pub window: ConfigsAppWindow,
+    pub kc_window: ConfigsAppWindow,
 }
 
-#[derive(Debug, Serialize, Deserialize, Default, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConfigsProxy {
     allow_save_api_requests: Option<bool>,
     allow_save_api_responses: Option<bool>,
@@ -326,11 +353,47 @@ impl ConfigsProxy {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Default, Clone)]
+#[cfg(target_os = "linux")]
+static XDG_SESSION_TYPE: OnceCell<Option<WindowsSystem>> = OnceCell::new();
+
+#[cfg(target_os = "linux")]
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub enum WindowsSystem {
+    X11,
+    Wayland,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ConfigEnv {}
+
+impl ConfigEnv {
+    #[cfg(target_os = "linux")]
+    pub fn get_window_system_type(&self) -> Option<WindowsSystem> {
+        XDG_SESSION_TYPE
+            .get_or_init(|| match std::env::var("XDG_SESSION_TYPE") {
+                Ok(session_type) => {
+                    tracing::info!("XDG_SESSION_TYPE: {}", session_type);
+                    match session_type.as_str() {
+                        "x11" => Some(WindowsSystem::X11),
+                        "wayland" => Some(WindowsSystem::Wayland),
+                        _ => None,
+                    }
+                }
+                Err(e) => {
+                    tracing::error!("Couldn't read XDG_SESSION_TYPE: {}", e);
+                    None
+                }
+            })
+            .clone()
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Configs {
     version: Option<String>,
     pub proxy: ConfigsProxy,
     pub app: ConfigsApp,
+    pub env: ConfigEnv,
 }
 
 static USER_CONFIGS: OnceCell<Configs> = OnceCell::new();

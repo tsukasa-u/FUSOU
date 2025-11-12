@@ -1,5 +1,5 @@
 use configs;
-use tauri::PhysicalSize;
+use tauri::{PhysicalSize};
 use std::sync::{Arc, LazyLock, Mutex};
 use tokio::{
     sync::mpsc,
@@ -73,7 +73,7 @@ impl Debouncer {
 static RESIZE_DEBOUNCER: LazyLock<Debouncer> = LazyLock::new(|| {
     let duration = Duration::from_millis(
         configs::get_user_configs_for_app()
-            .window
+            .kc_window
             .get_resize_debounce_millis(),
     );
     let debouncer = Debouncer::new(duration);
@@ -144,20 +144,39 @@ fn handle_external_resize() {
         }
     }
 
+    let app_configs = configs::get_user_configs_for_app();
+    let kc_window = &app_configs.kc_window;
+    let inner_winow_size_width = app_configs
+        .kc_window.get_default_inner_width() as f64;
+    let inner_winow_size_height = kc_window
+        .get_default_inner_height() as f64;
+    #[cfg(target_os = "linux")]
+    let window_title_bar_height = kc_window
+        .get_window_title_bar_height() as f64;
+    
+    #[cfg(target_os = "linux")]
+    let window_system_type = configs::get_user_env().get_window_system_type();
+    #[cfg(target_os = "linux")]
+    let linux_window_title_bar_height = if let Some(configs::WindowsSystem::Wayland) = window_system_type {
+        window_title_bar_height
+    } else {
+        0.0
+    };
+
     let target_size = {
         let mut size_before = EXTERNAL_WINDOW_SIZE_BEFORE.lock().unwrap();
         if size.width != size_before.width {
             size_before.width = size.width;
             if cfg!(target_os = "linux") {
-                size_before.height = (size.width as f64 * 720.0 / 1200.0 + 68.0).round() as u32;
+                size_before.height = (size.width as f64 * inner_winow_size_height / inner_winow_size_width + linux_window_title_bar_height).round() as u32;
             } else {
-                size_before.height = (size.width as f64 * 720.0 / 1200.0).round() as u32;
+                size_before.height = (size.width as f64 * inner_winow_size_height / inner_winow_size_width).round() as u32;
             }
         } else {
             if cfg!(target_os = "linux") {
-                size_before.width = ((size.height - 68) as f64 * 1200.0 / 720.0).round() as u32;
+                size_before.width = ((size.height as f64 - linux_window_title_bar_height) * inner_winow_size_width / inner_winow_size_height).round() as u32;
             } else {
-                size_before.width = (size.height as f64 * 1200.0 / 720.0).round() as u32;
+                size_before.width = (size.height as f64 * inner_winow_size_width / inner_winow_size_height).round() as u32;
             }
             size_before.height = size.height;
         }
@@ -170,8 +189,10 @@ fn handle_external_resize() {
     }
     let _ = window.set_size(target_size);
     if cfg!(target_os = "linux") {
+        let keep_window_size_duration_millis = kc_window
+            .get_keep_window_size_duration_millis();
         tokio::spawn(async move {
-            let _ = tokio::time::sleep(Duration::from_millis(1000)).await;
+            let _ = tokio::time::sleep(Duration::from_millis(keep_window_size_duration_millis)).await;
             let _ = window.set_max_size::<PhysicalSize<u32>>(None);
             let _ = window.set_min_size::<PhysicalSize<u32>>(None);
         });
