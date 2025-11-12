@@ -1,4 +1,5 @@
 use configs;
+use tauri::PhysicalSize;
 use std::sync::{Arc, LazyLock, Mutex};
 use tokio::{
     sync::mpsc,
@@ -147,13 +148,32 @@ fn handle_external_resize() {
         let mut size_before = EXTERNAL_WINDOW_SIZE_BEFORE.lock().unwrap();
         if size.width != size_before.width {
             size_before.width = size.width;
-            size_before.height = size.width * 720 / 1200;
+            if cfg!(target_os = "linux") {
+                size_before.height = (size.width as f64 * 720.0 / 1200.0 + 68.0).round() as u32;
+            } else {
+                size_before.height = (size.width as f64 * 720.0 / 1200.0).round() as u32;
+            }
         } else {
-            size_before.width = size.height * 1200 / 720;
+            if cfg!(target_os = "linux") {
+                size_before.width = ((size.height - 68) as f64 * 1200.0 / 720.0).round() as u32;
+            } else {
+                size_before.width = (size.height as f64 * 1200.0 / 720.0).round() as u32;
+            }
             size_before.height = size.height;
         }
         *size_before
     };
 
+    if cfg!(target_os = "linux") {
+        let _ = window.set_max_size(Some(target_size));
+        let _ = window.set_min_size(Some(target_size));
+    }
     let _ = window.set_size(target_size);
+    if cfg!(target_os = "linux") {
+        tokio::spawn(async move {
+            let _ = tokio::time::sleep(Duration::from_millis(1000)).await;
+            let _ = window.set_max_size::<PhysicalSize<u32>>(None);
+            let _ = window.set_min_size::<PhysicalSize<u32>>(None);
+        });
+    }
 }

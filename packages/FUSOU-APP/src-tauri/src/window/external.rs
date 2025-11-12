@@ -1,5 +1,5 @@
 use std::sync::{LazyLock, Mutex};
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Manager, window};
 use tracing_unwrap::ResultExt;
 use webbrowser::{open_browser, Browser};
 
@@ -71,10 +71,10 @@ pub fn create_external_window(app: &AppHandle, browser: Option<Browser>, browse_
         let external = external
             .fullscreen(false)
             .title("fusou-viewer")
-            .inner_size(1192_f64, 712_f64)
+            .inner_size(1200_f64, 720_f64)
+            .max_inner_size(1920_f64, 1080_f64)
             .visible(false)
             .initialization_script(init_script);
-
         #[cfg(dev)]
         let external = external.devtools(true);
 
