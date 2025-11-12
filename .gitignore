@@ -43,3 +43,5 @@ packages/shared-ui/src/data
 packages/shared-ui/custom-elements.json
 
 packages/.env.keys
+
+*.py
