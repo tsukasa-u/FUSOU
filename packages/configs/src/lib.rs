@@ -11,3 +11,11 @@ pub fn get_user_configs_for_proxy() -> configs::ConfigsProxy {
 pub fn get_user_configs_for_app() -> configs::ConfigsApp {
     configs::get_user_configs().app.clone()
 }
+
+#[cfg(target_os = "linux")]
+pub fn get_user_env() -> configs::ConfigEnv {
+    configs::get_user_configs().env.clone()
+}
+
+#[cfg(target_os = "linux")]
+pub use configs::WindowsSystem;

@@ -113,6 +113,7 @@ save_file_location = ""
     # kc_server_name = "w16s.kancolle-server.com" # This is example
     kc_server_name = ""
 
+
     [app.browser]
     # The URL to open first in the browser
     url = "http://www.dmm.com/netgame/social/-/gadgets/=/app_id=854854/"
@@ -159,16 +160,44 @@ save_file_location = ""
 
 
     [app.database.google_drive]
-        # The size of table user can get from Google Drive at once
-        # this option is only used when [app.database] is enabled
-        page_size = 100
+    # The size of table user can get from Google Drive at once
+    # this option is only used when [app.database] is enabled
+    page_size = 100
 
-        # The interval (in cron format) to sync data to Google Drive
-        # this option is only used when [app.database] is enabled
-        schedule_cron = "0 0 * * * *" # every hour
+    # The interval (in cron format) to sync data to Google Drive
+    # this option is only used when [app.database] is enabled
+    schedule_cron = "0 0 * * * *" # every hour
+
 
     [app.auth]
     # Whether to deny user authentication
     # To be careful because there is no method to reset the authentication state until the authentication expires
     deny_auth = true
 
+
+    [app.kc_window]
+    # The debounce time (in milliseconds) for window resize events
+    # This option is used when you use linux platform and the system internally uses wayland instead of X11
+    resize_debounce_millis = 200
+
+    # The duration (in milliseconds) to keep the KanColle window size when resized events occur
+    # This option is used when you use linux platform and the system internally uses wayland instead of X11
+    keep_window_size_duration_millis = 1000
+
+    # The maximum inner width and height of the KanColle window
+    max_inner_width = 1920
+    max_inner_height = 1080
+
+    # The default inner width and height of the KanColle window
+    # This size is used for keeping aspect ratio when resizing the window
+    default_inner_width = 1200
+    default_inner_height = 720
+
+    # The height of the window title bar
+    # This option is used when you use linux platform and the system internally uses wayland instead of X11
+    window_title_bar_height = 68
+
+
+[env]
+# Environment-specific configurations
+# Keep it empty for now
