@@ -76,10 +76,8 @@ fn normalize_for_mask_seacret(
             let normalized_map = map
                 .into_iter()
                 .map(|(k, v)| {
-                    // clone the key for use as the map key and for the recursive call
                     let key_for_map = k.clone();
                     let key_for_call = k.clone();
-                    // create a new keys vector by cloning and appending the current key
                     let mut new_keys = keys.clone();
                     new_keys.push(key_for_call.clone());
                     (
@@ -192,7 +190,6 @@ fn normalize_for_test(key: String, val: Value) -> Value {
                     Value::String("__ZERO_FLOAT__".to_string())
                 }
             } else {
-                // fallback: keep the original number if none of the checks matched
                 Value::Number(n)
             }
         }
@@ -238,90 +235,10 @@ fn normalize_for_test(key: String, val: Value) -> Value {
     }
 }
 
-fn check_value_inclusion(expected: &Value, snap: &Value) -> bool {
-    match (expected, snap) {
-        (Value::Object(expected_map), Value::Object(snap_map)) => {
-            for (key, expected_value) in expected_map {
-                match snap_map.get(key) {
-                    Some(snap_value) => {
-                        if !check_value_inclusion(expected_value, snap_value) {
-                            return false;
-                        }
-                    }
-                    None => return false,
-                }
-            }
-            true
-        }
-        (Value::Array(expected_arr), Value::Array(snap_arr)) => {
-            for expected_item in expected_arr {
-                if !snap_arr
-                    .iter()
-                    .any(|snap_item| check_value_inclusion(expected_item, snap_item))
-                {
-                    return false;
-                }
-            }
-            true
-        }
-        (Value::Null, x) if x != &Value::Null => true, 
-        _ => expected == snap,
-    }
-}
-
-fn test_match_normalize(expected: Value, snap_values: Vec<Value>) -> bool {
-    let normalized_expected = normalize_for_test("req_or_res".to_string(), expected.clone());
-    let normalized_snap = snap_values
-        .into_iter()
-        .map(|v| normalize_for_test("req_or_res".to_string(), v))
-        .collect::<Vec<_>>();
-
-    let result_eq = normalized_snap
-        .iter()
-        .any(|snap_value| check_value_inclusion(&normalized_expected, snap_value));
-
-    // let serialize_expected =
-    //     serde_json::to_string_pretty(&normalized_expected).unwrap_or_else(|_| {
-    //         panic!(
-    //             "failed to serialize normalized expected value: {:#?}",
-    //             normalized_expected
-    //         )
-    //     });
-    // let serialize_snap = normalized_snap
-    //     .iter()
-    //     .map(|v| serde_json::to_string_pretty(v).unwrap())
-    //     .collect::<Vec<_>>();
-
-    // let result_eq = serialize_snap
-    //     .iter()
-    //     .any(|serialized_snap| *serialized_snap == serialize_expected);
-
-    result_eq
-}
-
 fn test_match_stored_set(
     expected_set: &std::collections::HashSet<(String, Value)>,
     snap_set: &std::collections::HashSet<(String, Value)>,
 ) -> bool {
-    // for (expected_key, expected_value) in expected_set {
-    //     let mut matched = false;
-    //     for (snap_key, snap_value) in snap_set {
-    //         if expected_key == snap_key {
-    //             if check_value_inclusion(expected_value, snap_value) {
-    //                 matched = true;
-    //                 break;
-    //             }
-    //             // if expected_value == snap_value {
-    //             //     matched = true;
-    //             //     break;
-    //             // }
-    //         }
-    //     }
-    //     if !matched {
-    //         return false;
-    //     }
-    // }
-    // true
     expected_set.difference(snap_set).count() == 0
 }
 
@@ -414,9 +331,6 @@ fn merge_keys_and_value_set(
     target_key_value_set: &std::collections::HashSet<(String, Value)>,
     snap_key_value_set: &mut std::collections::HashSet<(String, Value)>,
 ) {
-    // for (k, v) in target_key_value_set {
-    //     snap_key_value_set.insert((k.clone(), v.clone()));
-    // }
     snap_key_value_set.extend(target_key_value_set.iter().cloned());
 }
 
@@ -528,7 +442,6 @@ pub fn custom_match_normalize<T, U>(
         };
 
         let keep_value = expected_value.clone();
-        // if !test_match_normalize(expected_value.clone(), snap_values.clone()) {
         if !test_match_stored_set(&expected_stored_set, &snap_sotred_set) {
             println!(
                 "\x1b[38;5;{}m unmatched snapshot, tray to add test data {} to snap file path {}\x1b[m ",
@@ -605,7 +518,6 @@ pub fn custom_match_normalize<T, U>(
                 format_type.clone(),
                 mask_patterns.clone(),
             );
-            // snap_values.push(expected_value.clone());
             merge_keys_and_value_set(&expected_stored_set, &mut snap_sotred_set);
         }
     }
@@ -706,7 +618,6 @@ pub fn glob_match_normalize_with_range<T, U>(
         .map(|dir_entry| dir_entry.unwrap().path())
         .filter(|file_path| {
             file_path.to_str().unwrap().ends_with(&target_pattern)
-            // && filter_range_start_end(file_path.clone(), range_start, range_end)
         })
         .collect::<Vec<_>>();
 
