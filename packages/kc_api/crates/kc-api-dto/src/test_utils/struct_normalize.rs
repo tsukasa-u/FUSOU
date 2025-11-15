@@ -475,7 +475,7 @@ pub fn custom_match_normalize<T, U>(
     T: serde::de::DeserializeOwned + serde::Serialize,
     U: serde::de::DeserializeOwned + serde::Serialize,
 {
-    let mut snap_values: Vec<Value> = snap_file_paths
+    let snap_values: Vec<Value> = snap_file_paths
         .map(|snap_file_path| {
             convert_content_to_value::<T, U>(snap_file_path.clone(), format_type.clone())
         })
