@@ -656,7 +656,7 @@ pub struct ApiMstFurniture {
 mod tests {
     use crate::test_utils::struct_normalize::{glob_match_normalize_with_range, FormatType};
     use dotenvy::dotenv;
-    use register_trait::simple_root_test;
+    use register_trait::simple_root_test_with_range;
 
     use super::*;
     #[test]
@@ -664,20 +664,29 @@ mod tests {
         dotenv().expect(".env file not found");
         let target_path = std::env::var("TEST_DATA_PATH").expect("failed to get env data");
 
+        #[cfg(feature = "from20250627")]
+        let (range_start, range_end) = (Some(1750993200), None);
+        #[cfg(not(feature = "from20250627"))]
+        let (range_start, range_end) = (None, Some(1750993200));
+
         let pattern_str = "S@api_start2@getData";
         let log_path = "./src/endpoints/api_start2/get_data@S.log";
-        simple_root_test::<Res>(
+        simple_root_test_with_range::<Res>(
             target_path.clone(),
             pattern_str.to_string(),
             log_path.to_string(),
+            range_start,
+            range_end,
         );
 
         let pattern_str = "Q@api_start2@getData";
         let log_path = "./src/endpoints/api_start2/get_data@Q.log";
-        simple_root_test::<Req>(
+        simple_root_test_with_range::<Req>(
             target_path.clone(),
             pattern_str.to_string(),
             log_path.to_string(),
+            range_start,
+            range_end,
         );
     }
 

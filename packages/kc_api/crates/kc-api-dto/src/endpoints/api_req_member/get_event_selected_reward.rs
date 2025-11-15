@@ -20,7 +20,7 @@ pub struct Req {
     #[qs(rename = "api_verno")]
     pub api_verno: i64,
     #[qs(rename = "api_selected_dict")]
-    pub api_selected_dict_221: Option<HashMap<i64, i64>>,
+    pub api_selected_dict: Option<HashMap<i64, i64>>,
 }
 
 #[derive(FieldSizeChecker, TraitForTest, TraitForRoot)]

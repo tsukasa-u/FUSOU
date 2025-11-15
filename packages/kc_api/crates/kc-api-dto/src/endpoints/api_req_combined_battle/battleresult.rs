@@ -30,16 +30,16 @@ pub struct Req {
     pub api_btime: String,
     /// Array of 6 elements
     #[qs(rename = "api_l_value")]
-    pub api_l_value_0: Vec<String>,
+    pub api_l_value: Vec<i64>,
     /// Array of 6 elements
     #[qs(rename = "api_l_value2")]
-    pub api_l_value2_0: Option<Vec<String>>,
+    pub api_l_value2: Option<Vec<i64>>,
     /// Array of 6 elements
     #[qs(rename = "api_l_value3")]
-    pub api_l_value3_0: Option<Vec<String>>,
+    pub api_l_value3: Option<Vec<i64>>,
     /// Array of 6 elements
     #[qs(rename = "api_l_value4")]
-    pub api_l_value4_0: Option<Vec<String>>,
+    pub api_l_value4: Option<Vec<i64>>,
 }
 
 #[derive(FieldSizeChecker, TraitForTest, TraitForRoot)]

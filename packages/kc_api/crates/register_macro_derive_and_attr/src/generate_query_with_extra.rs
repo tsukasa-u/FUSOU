@@ -14,10 +14,17 @@ struct FieldInfo {
     rename: String,
     is_extra: bool,
     vec_like: Option<VecLikeInfo>,
+    map_like: Option<MapLikeInfo>,
 }
 
 struct VecLikeInfo {
     inner: Type,
+    wraps_option: bool,
+}
+
+struct MapLikeInfo {
+    key: Type,
+    value: Type,
     wraps_option: bool,
 }
 
@@ -62,6 +69,7 @@ pub fn expand(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
             rename,
             is_extra,
             vec_like: extract_vec_like(&field.ty),
+            map_like: extract_map_like(&field.ty),
         };
 
         if info.is_extra {
@@ -101,6 +109,18 @@ pub fn expand(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
                 .predicates
                 .push(parse_quote!(#inner: ::core::fmt::Display));
         }
+        if let ::core::option::Option::Some(map_like) = &info.map_like {
+            let key = &map_like.key;
+            serialize_where
+                .predicates
+                .push(parse_quote!(#key: ::core::fmt::Display));
+            serialize_where
+                .predicates
+                .push(parse_quote!(#key: ::core::str::FromStr));
+            serialize_where
+                .predicates
+                .push(parse_quote!(<#key as ::core::str::FromStr>::Err: ::core::fmt::Display));
+        }
     }
     let extra_ty = &extra.ty;
     serialize_where
@@ -125,10 +145,92 @@ pub fn expand(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
         quote! { let mut #var: ::core::option::Option<#ty> = ::core::option::Option::None; }
     });
 
-    let match_arms = infos.iter().zip(&field_vars).map(|(info, var)| {
+    let field_handlers = infos.iter().zip(&field_vars).map(|(info, var)| {
         let key = &info.rename;
         let ty = &info.ty;
-        let string_fallback = if let ::core::option::Option::Some(vec_like) = &info.vec_like {
+        let string_fallback = if let ::core::option::Option::Some(map_like) = &info.map_like {
+            let key_ty = &map_like.key;
+            let value_ty = &map_like.value;
+            let wrap_result = if map_like.wraps_option {
+                quote! {
+                    if parsed_map.is_empty() {
+                        ::core::default::Default::default()
+                    } else {
+                        ::core::option::Option::Some(parsed_map)
+                    }
+                }
+            } else {
+                quote! { parsed_map }
+            };
+            quote! {
+                if s.trim().is_empty() {
+                    ::core::default::Default::default()
+                } else {
+                    let mut parsed_map: ::std::collections::HashMap<#key_ty, #value_ty> = ::std::collections::HashMap::new();
+                    for pair in s.split('&') {
+                        if pair.is_empty() {
+                            continue;
+                        }
+                        let mut kv = pair.splitn(2, '=');
+                        let entry_key_raw = kv.next().unwrap_or("");
+                        let entry_value_raw = kv.next().unwrap_or("");
+
+                        let key_fragment_opt = if let ::core::option::Option::Some(stripped) = entry_key_raw.strip_prefix(concat!(#key, "[")) {
+                            stripped.strip_suffix(']')
+                        } else if let ::core::option::Option::Some(stripped) = entry_key_raw.strip_prefix(concat!(#key, "%5B")) {
+                            stripped.strip_suffix("%5D")
+                        } else if let ::core::option::Option::Some(stripped) = entry_key_raw.strip_prefix(concat!(#key, "%5b")) {
+                            stripped.strip_suffix("%5d")
+                        } else if let ::core::option::Option::Some(stripped) = entry_key_raw.strip_prefix('[') {
+                            stripped.strip_suffix(']')
+                        } else {
+                            None
+                        };
+
+                        let Some(inner_key) = key_fragment_opt else {
+                            continue;
+                        };
+
+                        if inner_key.is_empty() {
+                            return ::core::result::Result::Err(::serde::de::Error::custom(
+                                format!("failed to decode map key `{}`: empty key", #key)
+                            ));
+                        }
+
+                        let parsed_key: #key_ty = inner_key.parse().map_err(|err| {
+                            ::serde::de::Error::custom(format!(
+                                "failed to decode map key `{}`: {}",
+                                #key, err
+                            ))
+                        })?;
+
+                        let parsed_value: #value_ty = if entry_value_raw.is_empty() {
+                            ::core::default::Default::default()
+                        } else {
+                            match ::serde_json::from_str::<#value_ty>(entry_value_raw) {
+                                ::core::result::Result::Ok(val) => val,
+                                ::core::result::Result::Err(_) => {
+                                    let escaped = entry_value_raw
+                                        .replace('\\', "\\\\")
+                                        .replace('"', "\\\"");
+                                    let json_literal = ::std::format!("\"{}\"", escaped);
+                                    ::serde_json::from_str::<#value_ty>(&json_literal).map_err(|err| {
+                                        ::serde::de::Error::custom(format!(
+                                            "failed to decode map value `{}`: {}",
+                                            #key, err
+                                        ))
+                                    })?
+                                }
+                            }
+                        };
+
+                        parsed_map.insert(parsed_key, parsed_value);
+                    }
+
+                    #wrap_result
+                }
+            }
+        } else if let ::core::option::Option::Some(vec_like) = &info.vec_like {
             let inner = &vec_like.inner;
             let wrap_vec = if vec_like.wraps_option {
                 quote! { ::core::option::Option::Some(parsed_vec) }
@@ -172,8 +274,246 @@ pub fn expand(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
                 }
             }
         };
+        let map_like_branch = if let ::core::option::Option::Some(map_like) = &info.map_like {
+            let key_ty = &map_like.key;
+            let value_ty = &map_like.value;
+            let map_insert = if map_like.wraps_option {
+                quote! {
+                    let container = #var.get_or_insert_with(::core::default::Default::default);
+                    let entry = container.get_or_insert_with(::core::default::Default::default);
+                    entry.insert(parsed_key, parsed_value);
+                }
+            } else {
+                quote! {
+                    let entry = #var.get_or_insert_with(::core::default::Default::default);
+                    entry.insert(parsed_key, parsed_value);
+                }
+            };
+            quote! {
+                let is_plain_bracket = key.starts_with(concat!(#key, "[")) && key.ends_with(']');
+                let is_encoded_upper = key.starts_with(concat!(#key, "%5B")) && key.ends_with("%5D");
+                let is_encoded_lower = key.starts_with(concat!(#key, "%5b")) && key.ends_with("%5d");
+                if is_plain_bracket || is_encoded_upper || is_encoded_lower {
+                    let inner_key_slice = if is_plain_bracket {
+                        &key[#key.len() + 1 .. key.len() - 1]
+                    } else {
+                        &key[#key.len() + 3 .. key.len() - 3]
+                    };
+                    if inner_key_slice.is_empty() {
+                        return ::core::result::Result::Err(::serde::de::Error::custom(
+                            format!("failed to decode map key for `{}`: empty key", #key)
+                        ));
+                    }
+                    let parsed_key: #key_ty = inner_key_slice.parse().map_err(|err| {
+                        ::serde::de::Error::custom(format!(
+                            "failed to decode map key for `{}`: {}",
+                            #key, err
+                        ))
+                    })?;
+                    let raw: ::serde_json::Value = map.next_value()?;
+                    let parsed_value: #value_ty = match ::serde_json::from_value::<#value_ty>(raw.clone()) {
+                        ::core::result::Result::Ok(v) => v,
+                        ::core::result::Result::Err(_) => {
+                            if let ::serde_json::Value::String(ref s) = raw {
+                                ::serde_json::from_str::<#value_ty>(s).map_err(|err| {
+                                    ::serde::de::Error::custom(format!(
+                                        "failed to decode map value for `{}`: {}",
+                                        #key, err
+                                    ))
+                                })?
+                            } else {
+                                return ::core::result::Result::Err(::serde::de::Error::custom(
+                                    format!("failed to decode map value for `{}`: {:?}", #key, raw)
+                                ));
+                            }
+                        }
+                    };
+                    #map_insert
+                    continue;
+                }
+            }
+        } else {
+            quote! {}
+        };
+        let array_fallback = if let ::core::option::Option::Some(map_like) = &info.map_like {
+            let key_ty = &map_like.key;
+            let value_ty = &map_like.value;
+            let wrap_result = if map_like.wraps_option {
+                quote! { ::core::option::Option::Some(parsed_map) }
+            } else {
+                quote! { parsed_map }
+            };
+            quote! {
+                let mut parsed_map: ::std::collections::HashMap<#key_ty, #value_ty> = ::std::collections::HashMap::new();
+                for item in arr {
+                    match item {
+                        ::serde_json::Value::Object(obj) => {
+                            for (entry_key, entry_value) in obj {
+                                let parsed_key: #key_ty = entry_key.parse().map_err(|err| {
+                                    ::serde::de::Error::custom(format!(
+                                        "failed to decode map key `{}`: {}",
+                                        #key, err
+                                    ))
+                                })?;
+                                let parsed_value: #value_ty = match ::serde_json::from_value::<#value_ty>(entry_value.clone()) {
+                                    ::core::result::Result::Ok(val) => val,
+                                    ::core::result::Result::Err(_) => {
+                                        if let ::serde_json::Value::String(ref s) = entry_value {
+                                            ::serde_json::from_str::<#value_ty>(s).map_err(|err| {
+                                                ::serde::de::Error::custom(format!(
+                                                    "failed to decode map value `{}`: {}",
+                                                    #key, err
+                                                ))
+                                            })?
+                                        } else {
+                                            return ::core::result::Result::Err(::serde::de::Error::custom(
+                                                format!("failed to decode map value `{}`: {:?}", #key, entry_value)
+                                            ));
+                                        }
+                                    }
+                                };
+                                parsed_map.insert(parsed_key, parsed_value);
+                            }
+                        }
+                        ::serde_json::Value::Array(inner) => {
+                            if inner.len() != 2 {
+                                return ::core::result::Result::Err(::serde::de::Error::custom(
+                                    format!("failed to decode field `{}`: expected key/value pair array", #key)
+                                ));
+                            }
+                            let key_fragment = match &inner[0] {
+                                ::serde_json::Value::String(s) => s.clone(),
+                                other => ::serde_json::to_string(other).map_err(|err| {
+                                    ::serde::de::Error::custom(format!(
+                                        "failed to decode map key `{}`: {}",
+                                        #key, err
+                                    ))
+                                })?,
+                            };
+                            let parsed_key: #key_ty = key_fragment.parse().map_err(|err| {
+                                ::serde::de::Error::custom(format!(
+                                    "failed to decode map key `{}`: {}",
+                                    #key, err
+                                ))
+                            })?;
+                            let parsed_value: #value_ty = match ::serde_json::from_value::<#value_ty>(inner[1].clone()) {
+                                ::core::result::Result::Ok(val) => val,
+                                ::core::result::Result::Err(_) => {
+                                    if let ::serde_json::Value::String(ref s) = inner[1] {
+                                        ::serde_json::from_str::<#value_ty>(s).map_err(|err| {
+                                            ::serde::de::Error::custom(format!(
+                                                "failed to decode map value `{}`: {}",
+                                                #key, err
+                                            ))
+                                        })?
+                                    } else {
+                                        return ::core::result::Result::Err(::serde::de::Error::custom(
+                                            format!("failed to decode map value `{}`: {:?}", #key, inner[1])
+                                        ));
+                                    }
+                                }
+                            };
+                            parsed_map.insert(parsed_key, parsed_value);
+                        }
+                        ::serde_json::Value::String(item_str) => {
+                            for pair in item_str.split('&') {
+                                if pair.is_empty() {
+                                    continue;
+                                }
+                                let mut kv = pair.splitn(2, '=');
+                                let entry_key_raw = kv.next().unwrap_or("");
+                                let entry_value_raw = kv.next().unwrap_or("");
+
+                                let key_fragment_opt = if let ::core::option::Option::Some(stripped) = entry_key_raw.strip_prefix(concat!(#key, "[")) {
+                                    stripped.strip_suffix(']')
+                                } else if let ::core::option::Option::Some(stripped) = entry_key_raw.strip_prefix(concat!(#key, "%5B")) {
+                                    stripped.strip_suffix("%5D")
+                                } else if let ::core::option::Option::Some(stripped) = entry_key_raw.strip_prefix(concat!(#key, "%5b")) {
+                                    stripped.strip_suffix("%5d")
+                                } else if let ::core::option::Option::Some(stripped) = entry_key_raw.strip_prefix('[') {
+                                    stripped.strip_suffix(']')
+                                } else {
+                                    None
+                                };
+
+                                let Some(inner_key) = key_fragment_opt else {
+                                    continue;
+                                };
+
+                                if inner_key.is_empty() {
+                                    return ::core::result::Result::Err(::serde::de::Error::custom(
+                                        format!("failed to decode map key `{}`: empty key", #key)
+                                    ));
+                                }
+
+                                let parsed_key: #key_ty = inner_key.parse().map_err(|err| {
+                                    ::serde::de::Error::custom(format!(
+                                        "failed to decode map key `{}`: {}",
+                                        #key, err
+                                    ))
+                                })?;
+
+                                let parsed_value: #value_ty = if entry_value_raw.is_empty() {
+                                    ::core::default::Default::default()
+                                } else {
+                                    match ::serde_json::from_str::<#value_ty>(entry_value_raw) {
+                                        ::core::result::Result::Ok(val) => val,
+                                        ::core::result::Result::Err(_) => {
+                                            let escaped = entry_value_raw
+                                                .replace('\\', "\\\\")
+                                                .replace('"', "\\\"");
+                                            let json_literal = ::std::format!("\"{}\"", escaped);
+                                            ::serde_json::from_str::<#value_ty>(&json_literal).map_err(|err| {
+                                                ::serde::de::Error::custom(format!(
+                                                    "failed to decode map value `{}`: {}",
+                                                    #key, err
+                                                ))
+                                            })?
+                                        }
+                                    }
+                                };
+
+                                parsed_map.insert(parsed_key, parsed_value);
+                            }
+                        }
+                        other => {
+                            return ::core::result::Result::Err(::serde::de::Error::custom(
+                                format!("failed to decode field `{}`: {:?}", #key, other)
+                            ));
+                        }
+                    }
+                }
+                #wrap_result
+            }
+        } else if info.vec_like.is_some() {
+            quote! {
+                let normalized = arr
+                    .iter()
+                    .map(|item| match item {
+                        ::serde_json::Value::String(inner) => {
+                            ::serde_json::from_str::<::serde_json::Value>(inner)
+                                .unwrap_or_else(|_| ::serde_json::Value::String(inner.clone()))
+                        }
+                        other => other.clone(),
+                    })
+                    .collect::<::std::vec::Vec<_>>();
+
+                ::serde_json::from_value::<#ty>(::serde_json::Value::Array(normalized)).map_err(|err| {
+                    ::serde::de::Error::custom(format!(
+                        "failed to decode field `{}`: {}",
+                        #key, err
+                    ))
+                })?
+            }
+        } else {
+            quote! {
+                return ::core::result::Result::Err(::serde::de::Error::custom(
+                    format!("failed to decode field `{}`: {:?}", #key, arr)
+                ));
+            }
+        };
         quote! {
-            #key => {
+            if key == #key {
                 if (#var).is_some() {
                     return ::core::result::Result::Err(::serde::de::Error::duplicate_field(#key));
                 }
@@ -184,23 +524,7 @@ pub fn expand(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
                         if let ::serde_json::Value::String(ref s) = raw {
                             #string_fallback
                         } else if let ::serde_json::Value::Array(ref arr) = raw {
-                            let normalized = arr
-                                .iter()
-                                .map(|item| match item {
-                                    ::serde_json::Value::String(inner) => {
-                                        ::serde_json::from_str::<::serde_json::Value>(inner)
-                                            .unwrap_or_else(|_| ::serde_json::Value::String(inner.clone()))
-                                    }
-                                    other => other.clone(),
-                                })
-                                .collect::<::std::vec::Vec<_>>();
-
-                            ::serde_json::from_value::<#ty>(::serde_json::Value::Array(normalized)).map_err(|err| {
-                                ::serde::de::Error::custom(format!(
-                                    "failed to decode field `{}`: {}",
-                                    #key, err
-                                ))
-                            })?
+                            #array_fallback
                         } else {
                             return ::core::result::Result::Err(::serde::de::Error::custom(
                                 format!("failed to decode field `{}`: {:?}", #key, raw)
@@ -209,7 +533,9 @@ pub fn expand(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
                     }
                 };
                 #var = ::core::option::Option::Some(value);
+                continue;
             }
+            #map_like_branch
         }
     });
 
@@ -224,7 +550,25 @@ pub fn expand(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
     let serialize_known_fields = infos.iter().map(|info| {
         let key = &info.rename;
         let ident = &info.ident;
-        if let ::core::option::Option::Some(vec_like) = &info.vec_like {
+        if let ::core::option::Option::Some(map_like) = &info.map_like {
+            if map_like.wraps_option {
+                quote! {
+                    if let ::core::option::Option::Some(entries) = &self.#ident {
+                        for (entry_key, entry_value) in entries {
+                            let serialized_key = ::std::format!("{}[{}]", #key, ::std::format!("{}", entry_key));
+                            map.serialize_entry(&serialized_key, entry_value)?;
+                        }
+                    }
+                }
+            } else {
+                quote! {
+                    for (entry_key, entry_value) in &self.#ident {
+                        let serialized_key = ::std::format!("{}[{}]", #key, ::std::format!("{}", entry_key));
+                        map.serialize_entry(&serialized_key, entry_value)?;
+                    }
+                }
+            }
+        } else if let ::core::option::Option::Some(vec_like) = &info.vec_like {
             if vec_like.wraps_option {
                 quote! {
                     if let ::core::option::Option::Some(vec) = &self.#ident {
@@ -279,13 +623,9 @@ pub fn expand(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
                         let mut #extra_ident: #extra_ty = ::core::default::Default::default();
 
                         while let ::core::option::Option::Some(key) = map.next_key::<::std::string::String>()? {
-                            match key.as_str() {
-                                #(#match_arms,)*
-                                other => {
-                                    let value: ::serde_json::Value = map.next_value()?;
-                                    #extra_ident.insert(other.to_string(), value);
-                                }
-                            }
+                            #(#field_handlers)*
+                            let value: ::serde_json::Value = map.next_value()?;
+                            #extra_ident.insert(key, value);
                         }
 
                         ::core::result::Result::Ok(Self::Value {
@@ -413,4 +753,64 @@ fn extract_vec_like(ty: &Type) -> Option<VecLikeInfo> {
         inner,
         wraps_option: true,
     })
+}
+
+fn extract_map_like(ty: &Type) -> Option<MapLikeInfo> {
+    if let ::core::option::Option::Some((key, value)) = extract_map_key_value(ty) {
+        return ::core::option::Option::Some(MapLikeInfo {
+            key,
+            value,
+            wraps_option: false,
+        });
+    }
+
+    let Type::Path(TypePath { qself: None, path }) = ty else {
+        return None;
+    };
+
+    let segment = path.segments.last()?;
+    if segment.ident != "Option" {
+        return None;
+    }
+
+    let PathArguments::AngleBracketed(args) = &segment.arguments else {
+        return None;
+    };
+
+    let Some(GenericArgument::Type(inner_ty)) = args.args.first() else {
+        return None;
+    };
+
+    extract_map_key_value(inner_ty).map(|(key, value)| MapLikeInfo {
+        key,
+        value,
+        wraps_option: true,
+    })
+}
+
+fn extract_map_key_value(ty: &Type) -> Option<(Type, Type)> {
+    let Type::Path(TypePath { qself: None, path }) = ty else {
+        return None;
+    };
+
+    let segment = path.segments.last()?;
+    if segment.ident != "HashMap" {
+        return None;
+    }
+
+    let PathArguments::AngleBracketed(args) = &segment.arguments else {
+        return None;
+    };
+
+    let mut iter = args.args.iter();
+    let key_ty = match iter.next()? {
+        GenericArgument::Type(ty) => ty.clone(),
+        _ => return None,
+    };
+    let value_ty = match iter.next()? {
+        GenericArgument::Type(ty) => ty.clone(),
+        _ => return None,
+    };
+
+    Some((key_ty, value_ty))
 }

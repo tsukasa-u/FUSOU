@@ -107,6 +107,28 @@ pub struct ApiData {
     pub api_happening: Option<ApiHappening>,
     #[serde(rename = "api_itemget_eo_comment")]
     pub api_itemget_eo_comment: Option<ApiItemgetEoComment>,
+    #[serde(rename = "api_itemget_eo_result")]
+    pub api_itemget_eo_result: Option<ApiItemgetEoResult>,
+    #[serde(rename = "api_get_eo_rate")]
+    pub api_get_eo_rate: Option<i64>,
+}
+
+#[derive(FieldSizeChecker, TraitForTest)]
+#[struct_test_case(field_extra, type_value, integration)]
+#[add_field(extra_with_flatten)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApiItemgetEoResult {
+    #[serde(rename = "api_usemst")]
+    pub api_usemst: i64,
+    #[serde(rename = "api_id")]
+    pub api_id: i64,
+    #[serde(rename = "api_getcount")]
+    pub api_getcount: i64,
+    // #[serde(rename = "api_name")]
+    // pub api_name: String,
+    // #[serde(rename = "api_icon_id")]
+    // pub api_icon_id: i64,
 }
 
 #[derive(FieldSizeChecker, TraitForTest)]
@@ -115,12 +137,14 @@ pub struct ApiData {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiItemgetEoComment {
-    #[serde(rename = "api_usemst")]
-    pub api_usemst: i64,
-    #[serde(rename = "api_id")]
-    pub api_id: i64,
     #[serde(rename = "api_getcount")]
     pub api_getcount: i64,
+    #[serde(rename = "api_id")]
+    pub api_id: i64,
+    #[serde(rename = "api_usemst")]
+    pub api_usemst: i64,
+    #[serde(rename = "api_get_eo_rate")]
+    pub api_get_eo_rate: Option<i64>,
 }
 
 #[derive(FieldSizeChecker, TraitForTest)]

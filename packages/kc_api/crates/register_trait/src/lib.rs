@@ -23,6 +23,7 @@ pub mod util;
 // pub use check::simple_root_check_field_size;
 pub use test::custom_root_test;
 pub use test::simple_root_test;
+pub use test::simple_root_test_with_range;
 
 pub const REGISTER_STRUCT: &str = "tests-register_struct_name_env";
 

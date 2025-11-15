@@ -30,8 +30,8 @@ pub struct Req {
     pub api_verno: i64,
     #[qs(rename = "api_formation")]
     pub api_formation: i64,
-    #[qs(rename = "api_recovei64ry_type")]
-    pub api_recovery_type: String,
+    #[qs(rename = "api_recovery_type")]
+    pub api_recovery_type: i64,
     #[qs(rename = "api_start")]
     pub api_start: Option<i64>,
 }

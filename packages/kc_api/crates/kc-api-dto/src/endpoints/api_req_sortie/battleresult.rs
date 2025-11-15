@@ -33,7 +33,7 @@ pub struct Req {
     pub api_l_value: Option<Vec<i64>>,
     /// Values: 0-5
     #[qs(rename = "api_l_value3")]
-    pub api_l_value3_0: Option<Vec<i64>>,
+    pub api_l_value3: Option<Vec<i64>>,
 }
 
 #[derive(FieldSizeChecker, TraitForTest, TraitForRoot)]

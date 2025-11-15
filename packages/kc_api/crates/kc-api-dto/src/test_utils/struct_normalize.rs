@@ -238,30 +238,91 @@ fn normalize_for_test(key: String, val: Value) -> Value {
     }
 }
 
-pub fn test_match_normalize(expected: Value, snap_values: Vec<Value>) -> bool {
+fn check_value_inclusion(expected: &Value, snap: &Value) -> bool {
+    match (expected, snap) {
+        (Value::Object(expected_map), Value::Object(snap_map)) => {
+            for (key, expected_value) in expected_map {
+                match snap_map.get(key) {
+                    Some(snap_value) => {
+                        if !check_value_inclusion(expected_value, snap_value) {
+                            return false;
+                        }
+                    }
+                    None => return false,
+                }
+            }
+            true
+        }
+        (Value::Array(expected_arr), Value::Array(snap_arr)) => {
+            for expected_item in expected_arr {
+                if !snap_arr
+                    .iter()
+                    .any(|snap_item| check_value_inclusion(expected_item, snap_item))
+                {
+                    return false;
+                }
+            }
+            true
+        }
+        (Value::Null, x) if x != &Value::Null => true, 
+        _ => expected == snap,
+    }
+}
+
+fn test_match_normalize(expected: Value, snap_values: Vec<Value>) -> bool {
     let normalized_expected = normalize_for_test("req_or_res".to_string(), expected.clone());
     let normalized_snap = snap_values
         .into_iter()
         .map(|v| normalize_for_test("req_or_res".to_string(), v))
         .collect::<Vec<_>>();
 
-    let serialize_expected =
-        serde_json::to_string_pretty(&normalized_expected).unwrap_or_else(|_| {
-            panic!(
-                "failed to serialize normalized expected value: {:#?}",
-                normalized_expected
-            )
-        });
-    let serialize_snap = normalized_snap
+    let result_eq = normalized_snap
         .iter()
-        .map(|v| serde_json::to_string_pretty(v).unwrap())
-        .collect::<Vec<_>>();
+        .any(|snap_value| check_value_inclusion(&normalized_expected, snap_value));
 
-    let result_eq = serialize_snap
-        .iter()
-        .any(|serialized_snap| *serialized_snap == serialize_expected);
+    // let serialize_expected =
+    //     serde_json::to_string_pretty(&normalized_expected).unwrap_or_else(|_| {
+    //         panic!(
+    //             "failed to serialize normalized expected value: {:#?}",
+    //             normalized_expected
+    //         )
+    //     });
+    // let serialize_snap = normalized_snap
+    //     .iter()
+    //     .map(|v| serde_json::to_string_pretty(v).unwrap())
+    //     .collect::<Vec<_>>();
+
+    // let result_eq = serialize_snap
+    //     .iter()
+    //     .any(|serialized_snap| *serialized_snap == serialize_expected);
 
     result_eq
+}
+
+fn test_match_stored_set(
+    expected_set: &std::collections::HashSet<(String, Value)>,
+    snap_set: &std::collections::HashSet<(String, Value)>,
+) -> bool {
+    // for (expected_key, expected_value) in expected_set {
+    //     let mut matched = false;
+    //     for (snap_key, snap_value) in snap_set {
+    //         if expected_key == snap_key {
+    //             if check_value_inclusion(expected_value, snap_value) {
+    //                 matched = true;
+    //                 break;
+    //             }
+    //             // if expected_value == snap_value {
+    //             //     matched = true;
+    //             //     break;
+    //             // }
+    //         }
+    //     }
+    //     if !matched {
+    //         return false;
+    //     }
+    // }
+    // true
+    expected_set.difference(snap_set).count() == 0
 }
 
 fn convert_test_data_to_value<T, U>(
@@ -290,7 +351,8 @@ where
             })
         }
         FormatType::QueryString => {
-            let parsed: T = serde_qs::from_str(&data_removed_metadata).unwrap_or_else(|_| {
+            let data_replaced = data_removed_metadata.replace("%5B", "[").replace("%5D", "]").replace("%2C", ",").replace("%3A", ":");
+            let parsed: T = serde_qs::from_str(&data_replaced).unwrap_or_else(|_| {
                 panic!(
                     "failed to parse test data file as query string: {}",
                     file_path.display()
@@ -348,6 +410,48 @@ fn get_timestamp_from_file_content(file_path: PathBuf) -> String {
     timestamp
 }
 
+fn merge_keys_and_value_set(
+    target_key_value_set: &std::collections::HashSet<(String, Value)>,
+    snap_key_value_set: &mut std::collections::HashSet<(String, Value)>,
+) {
+    // for (k, v) in target_key_value_set {
+    //     snap_key_value_set.insert((k.clone(), v.clone()));
+    // }
+    snap_key_value_set.extend(target_key_value_set.iter().cloned());
+}
+
+fn store_key_and_value_set(
+    key: String,
+    val: &Value,
+    keys: &mut Vec<String>,
+    key_value_set: &mut std::collections::HashSet<(String, Value)>,
+) {
+    match val {
+        Value::Object(map) => {
+            for (k, v) in map {
+                let key_for_call = k.clone();
+                keys.push(key_for_call.clone());
+                store_key_and_value_set(
+                    key_for_call,
+                    v,
+                    keys,
+                    key_value_set,
+                );
+                keys.pop();
+            }
+        }
+        Value::Array(arr) => {
+            for v in arr {
+                store_key_and_value_set(key.clone(), v, keys, key_value_set);
+            }
+        }
+        _ => {
+            let joined_keys = keys.join(".");
+            key_value_set.insert((joined_keys, val.clone()));
+        }
+    }
+}
+
 fn convert_content_to_value<T, U>(file_path: PathBuf, format_type: FormatType) -> Value
 where
     T: serde::de::DeserializeOwned + serde::Serialize,
@@ -376,6 +480,23 @@ pub fn custom_match_normalize<T, U>(
             convert_content_to_value::<T, U>(snap_file_path.clone(), format_type.clone())
         })
         .collect();
+    let snap_values_normalized: Vec<Value> = snap_values
+        .iter()
+        .map(|v| normalize_for_test(
+            "req_or_res".to_string(),
+            v.clone(),
+        ))
+        .collect();
+    let mut snap_sotred_set: std::collections::HashSet<(String, Value)> =
+        std::collections::HashSet::new();
+    for snap_value in &snap_values_normalized {
+        store_key_and_value_set(
+            "req_or_res".to_string(),
+            snap_value,
+            &mut vec!["req_or_res".to_string()],
+            &mut snap_sotred_set,
+        );
+    }
 
     let another_timestamp_map: std::collections::HashMap<i64, PathBuf> = another_test_data_paths
         .map(|path| {
@@ -389,8 +510,26 @@ pub fn custom_match_normalize<T, U>(
         let expected_value: Value =
             convert_content_to_value::<T, U>(test_data_path.clone(), format_type.clone());
 
+        let expected_value_normalized = normalize_for_test(
+            "req_or_res".to_string(),
+            expected_value.clone(),
+        );
+
+        let expected_stored_set: std::collections::HashSet<(String, Value)> = {
+            let mut set: std::collections::HashSet<(String, Value)> =
+                std::collections::HashSet::new();
+            store_key_and_value_set(
+                "req_or_res".to_string(),
+                &expected_value_normalized,
+                &mut vec!["req_or_res".to_string()],
+                &mut set,
+            );
+            set
+        };
+
         let keep_value = expected_value.clone();
-        if !test_match_normalize(expected_value.clone(), snap_values.clone()) {
+        // if !test_match_normalize(expected_value.clone(), snap_values.clone()) {
+        if !test_match_stored_set(&expected_stored_set, &snap_sotred_set) {
             println!(
                 "\x1b[38;5;{}m unmatched snapshot, tray to add test data {} to snap file path {}\x1b[m ",
                 13,
@@ -466,7 +605,8 @@ pub fn custom_match_normalize<T, U>(
                 format_type.clone(),
                 mask_patterns.clone(),
             );
-            snap_values.push(expected_value.clone());
+            // snap_values.push(expected_value.clone());
+            merge_keys_and_value_set(&expected_stored_set, &mut snap_sotred_set);
         }
     }
 
