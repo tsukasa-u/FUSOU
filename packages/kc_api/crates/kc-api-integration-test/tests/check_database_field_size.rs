@@ -20,7 +20,7 @@ enum ReturnType {
 fn emit_data(emit_data: EmitData) -> Option<ReturnType> {
     match emit_data {
         EmitData::Add(data) => match data {
-            Add::Materials(data) => {}
+            Add::Materials(_) => {}
             Add::Ships(data) => {
                 data.add_or();
             }
@@ -36,15 +36,15 @@ fn emit_data(emit_data: EmitData) -> Option<ReturnType> {
             Set::DeckPorts(data) => {
                 data.restore();
             }
-            Set::Materials(data) => {}
+            Set::Materials(_) => {}
             Set::Ships(data) => {
                 data.restore();
             }
             Set::SlotItems(data) => {
                 data.restore();
             }
-            Set::NDocks(data) => {}
-            Set::Logs(data) => {}
+            Set::NDocks(_) => {}
+            Set::Logs(_) => {}
             Set::AirBases(data) => {
                 data.restore();
             }

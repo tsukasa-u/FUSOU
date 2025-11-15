@@ -4,13 +4,10 @@
 #![doc = register_trait::insert_svg!(path="../../tests/struct_dependency_svg/api_req_map@start.svg", id="kc-dependency-svg-embed", style="border: 1px solid black; height:80vh; width:100%", role="img", aria_label="KC_API_dependency(api_req_map/start)")]
 #![doc = include_str!("../../../../../js/svg_pan_zoom.html")]
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use register_trait::{add_field, register_struct};
-
-use register_trait::{FieldSizeChecker, TraitForRoot, TraitForTest};
-
-
+use register_trait::{FieldSizeChecker, QueryWithExtra, TraitForRoot, TraitForTest};
 
 use crate::common::common_map::ApiAirsearch;
 use crate::common::common_map::ApiCellFlavor;
@@ -20,31 +17,30 @@ use crate::common::common_map::ApiHappening;
 use crate::common::common_map::ApiSelectRoute;
 
 #[derive(FieldSizeChecker, TraitForTest, TraitForRoot)]
-
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[add_field(extra_for_qs)]
+#[derive(Debug, Clone, QueryWithExtra)]
 pub struct Req {
-    #[serde(rename = "api_token")]
+    #[qs(rename = "api_token")]
     pub api_token: String,
-    #[serde(rename = "api_verno")]
-    pub api_verno: String,
-    #[serde(rename = "api_mapinfo_no")]
-    pub api_mapinfo_no: String,
-    #[serde(rename = "api_deck_id")]
-    pub api_deck_id: String,
-    #[serde(rename = "api_serial_cid")]
+    #[qs(rename = "api_verno")]
+    pub api_verno: i64,
+    #[qs(rename = "api_mapinfo_no")]
+    pub api_mapinfo_no: i64,
+    #[qs(rename = "api_deck_id")]
+    pub api_deck_id: i64,
+    /// 21 digits number string
+    #[qs(rename = "api_serial_cid")]
     pub api_serial_cid: String,
-    #[serde(rename = "api_maparea_id")]
-    pub api_maparea_id: String,
+    #[qs(rename = "api_maparea_id")]
+    pub api_maparea_id: i64,
 }
 
 #[derive(FieldSizeChecker, TraitForTest, TraitForRoot)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
+#[add_field(extra_with_flatten)]
 #[register_struct(name = "api_req_map/start")]
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Res {
     #[serde(rename = "api_result")]
@@ -57,8 +53,8 @@ pub struct Res {
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Debug, Clone, Deserialize)]
+#[add_field(extra_with_flatten)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiData {
     #[serde(rename = "api_cell_data")]
@@ -107,8 +103,8 @@ pub struct ApiData {
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Debug, Clone, Deserialize)]
+#[add_field(extra_with_flatten)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiItemget {
     #[serde(rename = "api_usemst")]
@@ -125,8 +121,8 @@ pub struct ApiItemget {
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Debug, Clone, Deserialize)]
+#[add_field(extra_with_flatten)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiCellData {
     #[serde(rename = "api_id")]
@@ -143,6 +139,7 @@ pub struct ApiCellData {
 
 #[cfg(test)]
 mod tests {
+    use crate::test_utils::struct_normalize::{glob_match_normalize, FormatType};
     use dotenvy::dotenv;
     use register_trait::simple_root_test;
 
@@ -166,6 +163,35 @@ mod tests {
             target_path.clone(),
             pattern_str.to_string(),
             log_path.to_string(),
+        );
+    }
+    #[test]
+    fn test_organize_test_data() {
+        dotenv().expect(".env file not found");
+        let target_path = std::env::var("TEST_DATA_PATH").expect("failed to get env data");
+        let snap_file_path = std::env::var("TEST_DATA_REPO_PATH").expect("failed to get env data");
+
+        let req_and_res_pattern_str = "@api_req_map@start";
+        let snap_path = format!("{snap_file_path}/kcsapi");
+        let mask_patterns = vec![r"req\.api_serial_cid"];
+        let log_path = "./src/endpoints/api_req_map/start@snap_data@S.log";
+        glob_match_normalize::<Req, Res>(
+            target_path.clone(),
+            req_and_res_pattern_str.to_string(),
+            snap_path.to_string(),
+            FormatType::Json,
+            log_path.to_string(),
+            Some(mask_patterns.clone()),
+        );
+
+        let log_path = "./src/endpoints/api_req_map/start@snap_data@Q.log";
+        glob_match_normalize::<Req, Res>(
+            target_path.clone(),
+            req_and_res_pattern_str.to_string(),
+            snap_path.to_string(),
+            FormatType::QueryString,
+            log_path.to_string(),
+            Some(mask_patterns),
         );
     }
 }

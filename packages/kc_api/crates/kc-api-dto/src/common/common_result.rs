@@ -1,16 +1,13 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::common::custom_type::DuoType;
 
-use register_trait::add_field;
-
-use register_trait::FieldSizeChecker;
-use register_trait::TraitForTest;
+use register_trait::{add_field, FieldSizeChecker, TraitForTest};
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Debug, Clone, Deserialize)]
+#[add_field(extra_with_flatten)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiGetShip {
     #[serde(rename = "api_ship_id")]
@@ -25,8 +22,8 @@ pub struct ApiGetShip {
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Debug, Clone, Deserialize)]
+#[add_field(extra_with_flatten)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiEnemyInfo {
     #[serde(rename = "api_level")]
@@ -39,8 +36,8 @@ pub struct ApiEnemyInfo {
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Debug, Clone, Deserialize)]
+#[add_field(extra_with_flatten)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiGetEventitem {
     #[serde(rename = "api_type")]
@@ -55,8 +52,8 @@ pub struct ApiGetEventitem {
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Debug, Clone, Deserialize)]
+#[add_field(extra_with_flatten)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiLandingHp {
     #[serde(rename = "api_now_hp")]

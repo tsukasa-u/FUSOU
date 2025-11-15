@@ -8,3 +8,4 @@ chrono = { workspace = true }
 register_macro_derive_and_attr = { workspace = true }
 serde_json = { workspace = true }
 uuid = { workspace = true }
+regex = { workspace = true }

@@ -51,6 +51,93 @@ fn write_log_test(log_path: String, log_map: &LogMapType) -> usize {
     log_map.len()
 }
 
+fn get_timestamp_from_file_content(file_path: PathBuf) -> String {
+    let regex_timestamp = regex::Regex::new(r#"Timestamp: ([0-9]+)"#).unwrap();
+    let file_content = std::fs::read_to_string(file_path.clone())
+        .unwrap_or_else(|_| panic!("failed to read test data file: {}", file_path.display()));
+    let timestamp = file_content
+        .lines()
+        .find_map(|line| {
+            regex_timestamp
+                .captures(line)
+                .and_then(|caps| caps.get(1).map(|m| m.as_str().to_string()))
+        })
+        .unwrap_or({
+            let (prefix, _) = file_path
+                .file_name()
+                .unwrap_or_else(|| panic!("failed to get file name: {}", file_path.display()))
+                .to_str()
+                .unwrap_or_else(|| {
+                    panic!(
+                        "failed to convert file name to str: {}",
+                        file_path.display()
+                    )
+                })
+                .split_once("@")
+                .unwrap_or_else(|| panic!("failed to split file name: {}", file_path.display()));
+            let splited_under = match prefix.split_once("_") {
+                Some((_, suffix)) => suffix.to_string(),
+                None => prefix.to_string(),
+            };
+
+            if splited_under.ends_with('S') || splited_under.ends_with('Q') {
+                splited_under[..splited_under.len() - 1].to_string()
+            } else {
+                panic!(
+                    "failed to get timestamp from file name: {}",
+                    file_path.display()
+                )
+            }
+        });
+    timestamp
+}
+
+fn filter_range_start_end(
+    file_path: PathBuf,
+    range_start: Option<i64>,
+    range_end: Option<i64>,
+) -> bool {
+    let ts_int = get_timestamp_from_file_content(file_path.clone())
+        .parse::<i64>()
+        .unwrap_or(0);
+    if ts_int == 0 {
+        return false;
+    }
+    match (range_start, range_end) {
+        (Some(start), Some(end)) => ts_int >= start && ts_int < end,
+        (Some(start), None) => ts_int >= start,
+        (None, Some(end)) => ts_int < end,
+        (None, None) => panic!("either range_start or range_end must be Some value"),
+    }
+}
+
+pub fn simple_root_test_with_range<T>(
+    target_path: String,
+    pattren_str: String,
+    log_path: String,
+    range_start: Option<i64>,
+    range_end: Option<i64>,
+) where
+    T: TraitForRoot,
+{
+    if range_end.is_none() && range_start.is_none() {
+        panic!("either range_start or range_end must be Some value");
+    }
+    // let target_path = "./src/kc2api/test_data";
+    let target = path::PathBuf::from(target_path);
+    let files = target
+        .read_dir()
+        .unwrap_or_else(|_| panic!("\x1b[38;5;{}m read_dir call failed\x1b[m ", 8));
+    let file_list = files
+        .map(|dir_entry| {
+            // file_path.exists();
+            dir_entry.unwrap().path()
+        })
+        .filter(|file_path| file_path.to_str().unwrap().ends_with(pattren_str.as_str()) && filter_range_start_end(file_path.clone(), range_start, range_end));
+
+    custom_root_test::<T>(file_list, log_path);
+}
+
 pub fn simple_root_test<T>(target_path: String, pattren_str: String, log_path: String)
 where
     T: TraitForRoot,
