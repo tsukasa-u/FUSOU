@@ -223,7 +223,7 @@ impl EnemyDeck {
                 .enumerate()
                 .map(|(ship_id_index, ship_id)| {
                     let props: EnemyShipProps = (
-                        None, // data.e_lv.clone().map(|lv| lv[i]),
+                        data.e_lv.clone().map(|lv| lv[ship_id_index]),
                         data.e_hp_max.clone().map(|hp| hp[ship_id_index]),
                         data.e_hp_max.clone().map(|hp| hp[ship_id_index]),
                         data.e_slot.clone().map(|slot| slot[ship_id_index].clone()),
