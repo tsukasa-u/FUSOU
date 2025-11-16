@@ -8,10 +8,10 @@ impl From<Vec<kcapi_main::api_start2::get_data::ApiMstEquipShip>>
     for InterfaceWrapper<MstEquipShips>
 {
     fn from(equip_ships: Vec<kcapi_main::api_start2::get_data::ApiMstEquipShip>) -> Self {
-        let mut equip_ship_map = HashMap::<i64, MstEquipShip>::with_capacity(equip_ships.len());
+        let mut equip_ship_map = HashMap::<i32, MstEquipShip>::with_capacity(equip_ships.len());
         for equip_ship in equip_ships {
             equip_ship_map.insert(
-                equip_ship.api_ship_id,
+                equip_ship.api_ship_id as i32,
                 InterfaceWrapper::<MstEquipShip>::from(equip_ship).unwrap(),
             );
         }
@@ -26,10 +26,10 @@ impl From<HashMap<i64, kcapi_main::api_start2::get_data::ApiMstEquipShip>>
     for InterfaceWrapper<MstEquipShips>
 {
     fn from(equip_ships: HashMap<i64, kcapi_main::api_start2::get_data::ApiMstEquipShip>) -> Self {
-        let mut equip_ship_map = HashMap::<i64, MstEquipShip>::with_capacity(equip_ships.len());
+        let mut equip_ship_map = HashMap::<i32, MstEquipShip>::with_capacity(equip_ships.len());
         for (ship_id, equip_ship) in equip_ships {
             equip_ship_map.insert(
-                ship_id,
+                ship_id as i32,
                 InterfaceWrapper::<MstEquipShip>::from(equip_ship).unwrap(),
             );
         }
@@ -43,8 +43,12 @@ impl From<HashMap<i64, kcapi_main::api_start2::get_data::ApiMstEquipShip>>
 impl From<kcapi_main::api_start2::get_data::ApiMstEquipShip> for InterfaceWrapper<MstEquipShip> {
     fn from(equip_ship: kcapi_main::api_start2::get_data::ApiMstEquipShip) -> Self {
         Self(MstEquipShip {
-            ship_id: equip_ship.api_ship_id,
-            equip_type: equip_ship.api_equip_type,
+            ship_id: equip_ship.api_ship_id as i32,
+            equip_type: equip_ship
+                .api_equip_type
+                .into_iter()
+                .map(|value| value as i32)
+                .collect(),
         })
     }
 }
@@ -56,8 +60,13 @@ impl From<kcapi_main::api_start2::get_data::ApiMstEquipShip> for InterfaceWrappe
             equip_type: equip_ship
                 .api_equip_type
                 .into_iter()
-                .map(|(k, v)| (k.to_string(), v))
-                .collect::<HashMap<String, Option<Vec<i64>>>>(),
+                .map(|(k, v)| {
+                    (
+                        k.to_string(),
+                        v.map(|values| values.into_iter().map(|value| value as i32).collect()),
+                    )
+                })
+                .collect::<HashMap<String, Option<Vec<i32>>>>(),
         })
     }
 }

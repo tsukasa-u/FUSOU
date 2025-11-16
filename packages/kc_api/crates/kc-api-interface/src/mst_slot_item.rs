@@ -18,7 +18,7 @@ pub(crate) static KCS_MST_SLOT_ITEMS: Lazy<Mutex<MstSlotItems>> = Lazy::new(|| {
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export, export_to = "get_data.ts")]
 pub struct MstSlotItems {
-    pub mst_slot_items: HashMap<i64, MstSlotItem>,
+    pub mst_slot_items: HashMap<i32, MstSlotItem>,
 }
 
 #[derive(
@@ -26,36 +26,36 @@ pub struct MstSlotItems {
 )]
 #[ts(export, export_to = "get_data.ts")]
 pub struct MstSlotItem {
-    pub id: i64,
-    pub sortno: i64,
+    pub id: i32,
+    pub sortno: i32,
     pub name: String,
-    pub r#type: Vec<i64>,
-    pub taik: i64,
-    pub souk: i64,
-    pub houg: i64,
-    pub raig: i64,
-    pub soku: i64,
-    pub baku: i64,
-    pub tyku: i64,
-    pub tais: i64,
-    pub atap: i64,
-    pub houm: i64,
-    pub raim: i64,
-    pub houk: i64,
-    pub raik: i64,
-    pub bakk: i64,
-    pub saku: i64,
-    pub sakb: i64,
-    pub luck: i64,
-    pub leng: i64,
-    pub rare: i64,
-    pub taibaku: i64,
-    pub geigeki: i64,
-    pub broken: Vec<i64>,
+    pub r#type: Vec<i32>,
+    pub taik: i32,
+    pub souk: i32,
+    pub houg: i32,
+    pub raig: i32,
+    pub soku: i32,
+    pub baku: i32,
+    pub tyku: i32,
+    pub tais: i32,
+    pub atap: i32,
+    pub houm: i32,
+    pub raim: i32,
+    pub houk: i32,
+    pub raik: i32,
+    pub bakk: i32,
+    pub saku: i32,
+    pub sakb: i32,
+    pub luck: i32,
+    pub leng: i32,
+    pub rare: i32,
+    pub taibaku: i32,
+    pub geigeki: i32,
+    pub broken: Vec<i32>,
     pub usebull: String,
-    pub version: Option<i64>,
-    pub cost: Option<i64>,
-    pub distance: Option<i64>,
+    pub version: Option<i32>,
+    pub cost: Option<i32>,
+    pub distance: Option<i32>,
 }
 
 impl MstSlotItems {

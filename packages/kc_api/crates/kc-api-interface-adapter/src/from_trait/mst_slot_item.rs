@@ -7,10 +7,10 @@ impl From<Vec<kcapi_main::api_start2::get_data::ApiMstSlotitem>>
     for InterfaceWrapper<MstSlotItems>
 {
     fn from(slot_items: Vec<kcapi_main::api_start2::get_data::ApiMstSlotitem>) -> Self {
-        let mut slot_item_map = HashMap::<i64, MstSlotItem>::with_capacity(slot_items.len());
+        let mut slot_item_map = HashMap::<i32, MstSlotItem>::with_capacity(slot_items.len());
         for slot_item in slot_items {
             slot_item_map.insert(
-                slot_item.api_id,
+                slot_item.api_id as i32,
                 InterfaceWrapper::<MstSlotItem>::from(slot_item).unwrap(),
             );
         }
@@ -33,36 +33,44 @@ impl From<kcapi_main::api_start2::get_data::ApiMstSlotitem> for InterfaceWrapper
             meityu = 0;
         }
         Self(MstSlotItem {
-            id: slot_item.api_id,
-            sortno: slot_item.api_sortno,
+            id: slot_item.api_id as i32,
+            sortno: slot_item.api_sortno as i32,
             name: slot_item.api_name,
-            r#type: slot_item.api_type,
-            taik: slot_item.api_taik,
-            souk: slot_item.api_souk,
-            houg: slot_item.api_houg,
-            raig: slot_item.api_raig,
-            soku: slot_item.api_soku,
-            baku: slot_item.api_baku,
-            tyku: slot_item.api_tyku,
-            tais: slot_item.api_tais,
-            atap: slot_item.api_atap,
-            houm: meityu,
-            raim: slot_item.api_raim,
-            houk: kaihi,
-            raik: slot_item.api_raik,
-            bakk: slot_item.api_bakk,
-            saku: slot_item.api_saku,
-            sakb: slot_item.api_sakb,
-            luck: slot_item.api_luck,
-            leng: slot_item.api_leng,
-            rare: slot_item.api_rare,
-            taibaku,
-            geigeki,
-            broken: slot_item.api_broken,
+            r#type: slot_item
+                .api_type
+                .into_iter()
+                .map(|value| value as i32)
+                .collect(),
+            taik: slot_item.api_taik as i32,
+            souk: slot_item.api_souk as i32,
+            houg: slot_item.api_houg as i32,
+            raig: slot_item.api_raig as i32,
+            soku: slot_item.api_soku as i32,
+            baku: slot_item.api_baku as i32,
+            tyku: slot_item.api_tyku as i32,
+            tais: slot_item.api_tais as i32,
+            atap: slot_item.api_atap as i32,
+            houm: meityu as i32,
+            raim: slot_item.api_raim as i32,
+            houk: kaihi as i32,
+            raik: slot_item.api_raik as i32,
+            bakk: slot_item.api_bakk as i32,
+            saku: slot_item.api_saku as i32,
+            sakb: slot_item.api_sakb as i32,
+            luck: slot_item.api_luck as i32,
+            leng: slot_item.api_leng as i32,
+            rare: slot_item.api_rare as i32,
+            taibaku: taibaku as i32,
+            geigeki: geigeki as i32,
+            broken: slot_item
+                .api_broken
+                .into_iter()
+                .map(|value| value as i32)
+                .collect(),
             usebull: slot_item.api_usebull,
-            version: slot_item.api_version,
-            cost: slot_item.api_cost,
-            distance: slot_item.api_distance,
+            version: slot_item.api_version.map(|value| value as i32),
+            cost: slot_item.api_cost.map(|value| value as i32),
+            distance: slot_item.api_distance.map(|value| value as i32),
         })
     }
 }

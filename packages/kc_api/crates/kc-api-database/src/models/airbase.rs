@@ -27,8 +27,8 @@ pub type PlaneInfoId = Uuid;
 pub struct AirBase {
     pub env_uuid: EnvInfoId,
     pub uuid: AirBaseId,
-    pub action_kind: i64,
-    pub distance: i64,
+    pub action_kind: i32,
+    pub distance: i32,
     pub plane_info: Option<PlaneInfoId>,
 }
 
@@ -64,8 +64,8 @@ impl AirBase {
         let new_air_base = AirBase {
             env_uuid,
             uuid,
-            action_kind: data.action_kind,
-            distance: data.distance,
+            action_kind: data.action_kind as i32,
+            distance: data.distance as i32,
             plane_info: new_plane_info_wrap,
         };
 
@@ -88,11 +88,11 @@ impl AirBase {
 pub struct PlaneInfo {
     pub env_uuid: EnvInfoId,
     pub uuid: PlaneInfoId,
-    pub index: i64,
-    pub cond: Option<i64>,
-    pub state: i64,
-    pub max_count: Option<i64>,
-    pub count: Option<i64>,
+    pub index: i32,
+    pub cond: Option<i32>,
+    pub state: i32,
+    pub max_count: Option<i32>,
+    pub count: Option<i32>,
     pub slotid: Option<OwnSlotItemId>,
 }
 
@@ -121,12 +121,12 @@ impl PlaneInfo {
 
         let new_plane_info: PlaneInfo = PlaneInfo {
             uuid,
-            index: index as i64,
+            index: index as i32,
             env_uuid,
-            cond: data.cond,
-            state: data.state,
-            max_count: data.max_count,
-            count: data.count,
+            cond: data.cond.map(|value| value as i32),
+            state: data.state as i32,
+            max_count: data.max_count.map(|value| value as i32),
+            count: data.count.map(|value| value as i32),
             slotid: new_slot_item_wrap,
         };
 

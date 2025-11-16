@@ -17,7 +17,7 @@ pub(crate) static KCS_MST_EQUIP_LIMIT_EXSLOT: Lazy<Mutex<MstEquipLimitExslots>> 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export, export_to = "get_data.ts")]
 pub struct MstEquipLimitExslots {
-    pub mst_equip_limit_exslots: HashMap<i64, MstEquipLimitExslot>,
+    pub mst_equip_limit_exslots: HashMap<i32, MstEquipLimitExslot>,
 }
 
 #[derive(
@@ -25,7 +25,7 @@ pub struct MstEquipLimitExslots {
 )]
 #[ts(export, export_to = "get_data.ts")]
 pub struct MstEquipLimitExslot {
-    pub equip: Vec<i64>,
+    pub equip: Vec<i32>,
 }
 
 impl MstEquipLimitExslots {

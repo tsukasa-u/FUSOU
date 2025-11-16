@@ -17,7 +17,7 @@ pub(crate) static KCS_MST_MAP_AREA: Lazy<Mutex<MstMapAreas>> = Lazy::new(|| {
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export, export_to = "get_data.ts")]
 pub struct MstMapAreas {
-    pub mst_map_areas: HashMap<i64, MstMapArea>,
+    pub mst_map_areas: HashMap<i32, MstMapArea>,
 }
 
 #[derive(
@@ -25,9 +25,9 @@ pub struct MstMapAreas {
 )]
 #[ts(export, export_to = "get_data.ts")]
 pub struct MstMapArea {
-    pub api_id: i64,
+    pub api_id: i32,
     pub api_name: String,
-    pub api_type: i64,
+    pub api_type: i32,
 }
 
 impl MstMapAreas {

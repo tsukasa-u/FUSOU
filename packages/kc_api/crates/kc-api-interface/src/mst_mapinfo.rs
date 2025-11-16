@@ -17,7 +17,7 @@ pub(crate) static KCS_MST_MAP_INFO: Lazy<Mutex<MstMapInfos>> = Lazy::new(|| {
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export, export_to = "get_data.ts")]
 pub struct MstMapInfos {
-    pub mst_map_infos: HashMap<i64, MstMapInfo>,
+    pub mst_map_infos: HashMap<i32, MstMapInfo>,
 }
 
 #[derive(
@@ -25,17 +25,17 @@ pub struct MstMapInfos {
 )]
 #[ts(export, export_to = "get_data.ts")]
 pub struct MstMapInfo {
-    pub id: i64,
-    pub maparea_id: i64,
-    pub no: i64,
+    pub id: i32,
+    pub maparea_id: i32,
+    pub no: i32,
     pub name: String,
-    pub level: i64,
+    pub level: i32,
     pub opetext: String,
     pub infotext: String,
-    pub item: Vec<i64>,
-    pub max_maphp: Option<i64>,
-    pub required_defeat_count: Option<i64>,
-    pub sally_flag: Vec<i64>,
+    pub item: Vec<i32>,
+    pub max_maphp: Option<i32>,
+    pub required_defeat_count: Option<i32>,
+    pub sally_flag: Vec<i32>,
 }
 
 impl MstMapInfos {
