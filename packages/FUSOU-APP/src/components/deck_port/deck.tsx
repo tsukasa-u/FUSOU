@@ -489,7 +489,7 @@ export function DeckComponent(props: DeckPortProps) {
                           </div>
                           <div class="divider divider-horizontal mr-0 ml-0" />
                           <div
-                            class={`content-center ${(ship_list()[ship_index()].slot_ex ?? 0) > 0 ? "" : "back_slash_color bg-[size:16px_16px] bg-top-left bg-[image:repeating-linear-gradient(45deg,currentColor_0,currentColor_0.5px,transparent_0,transparent_50%)]"}`}
+                            class={`content-center ${ship_list()[ship_index()].slot_ex ? "" : "back_slash_color bg-[size:16px_16px] bg-top-left bg-[image:repeating-linear-gradient(45deg,currentColor_0,currentColor_0.5px,transparent_0,transparent_50%)]"}`}
                           >
                             <div class="text-base flex justify-center w-8">
                               <Show
