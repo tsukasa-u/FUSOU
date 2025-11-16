@@ -17,7 +17,7 @@ pub(crate) static KCS_MST_SHIP_GRAPH: Lazy<Mutex<MstShipGraphs>> = Lazy::new(|| 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export, export_to = "get_data.ts")]
 pub struct MstShipGraphs {
-    pub mst_ship_graphs: HashMap<i64, MstShipGraph>,
+    pub mst_ship_graphs: HashMap<i32, MstShipGraph>,
 }
 
 #[derive(
@@ -25,30 +25,30 @@ pub struct MstShipGraphs {
 )]
 #[ts(export, export_to = "get_data.ts")]
 pub struct MstShipGraph {
-    pub api_id: i64,
+    pub api_id: i32,
     pub api_filename: String,
     pub api_version: Vec<String>,
-    pub api_battle_n: Option<Vec<i64>>,
-    pub api_battle_d: Option<Vec<i64>>,
-    pub api_sortno: Option<i64>,
-    pub api_boko_n: Option<Vec<i64>>,
-    pub api_boko_d: Option<Vec<i64>>,
-    pub api_kaisyu_n: Option<Vec<i64>>,
-    pub api_kaisyu_d: Option<Vec<i64>>,
-    pub api_kaizo_n: Option<Vec<i64>>,
-    pub api_kaizo_d: Option<Vec<i64>>,
-    pub api_map_n: Option<Vec<i64>>,
-    pub api_map_d: Option<Vec<i64>>,
-    pub api_ensyuf_n: Option<Vec<i64>>,
-    pub api_ensyuf_d: Option<Vec<i64>>,
-    pub api_ensyue_n: Option<Vec<i64>>,
-    pub api_weda: Option<Vec<i64>>,
-    pub api_wedb: Option<Vec<i64>>,
-    pub api_pa: Option<Vec<i64>>,
-    pub api_pab: Option<Vec<i64>>,
-    pub api_sp_flag: Option<i64>,
-    pub api_wedc: Option<Vec<i64>>,
-    pub api_wedd: Option<Vec<i64>>,
+    pub api_battle_n: Option<Vec<i32>>,
+    pub api_battle_d: Option<Vec<i32>>,
+    pub api_sortno: Option<i32>,
+    pub api_boko_n: Option<Vec<i32>>,
+    pub api_boko_d: Option<Vec<i32>>,
+    pub api_kaisyu_n: Option<Vec<i32>>,
+    pub api_kaisyu_d: Option<Vec<i32>>,
+    pub api_kaizo_n: Option<Vec<i32>>,
+    pub api_kaizo_d: Option<Vec<i32>>,
+    pub api_map_n: Option<Vec<i32>>,
+    pub api_map_d: Option<Vec<i32>>,
+    pub api_ensyuf_n: Option<Vec<i32>>,
+    pub api_ensyuf_d: Option<Vec<i32>>,
+    pub api_ensyue_n: Option<Vec<i32>>,
+    pub api_weda: Option<Vec<i32>>,
+    pub api_wedb: Option<Vec<i32>>,
+    pub api_pa: Option<Vec<i32>>,
+    pub api_pab: Option<Vec<i32>>,
+    pub api_sp_flag: Option<i32>,
+    pub api_wedc: Option<Vec<i32>>,
+    pub api_wedd: Option<Vec<i32>>,
 }
 
 impl MstShipGraphs {

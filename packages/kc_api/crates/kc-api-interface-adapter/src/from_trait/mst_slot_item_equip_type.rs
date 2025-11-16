@@ -8,10 +8,10 @@ impl From<Vec<kcapi_main::api_start2::get_data::ApiMstSlotitemEquiptype>>
 {
     fn from(equip_types: Vec<kcapi_main::api_start2::get_data::ApiMstSlotitemEquiptype>) -> Self {
         let mut equip_type_map =
-            HashMap::<i64, MstSlotItemEquipType>::with_capacity(equip_types.len());
+            HashMap::<i32, MstSlotItemEquipType>::with_capacity(equip_types.len());
         for equip_type in equip_types {
             equip_type_map.insert(
-                equip_type.api_id,
+                equip_type.api_id as i32,
                 InterfaceWrapper::<MstSlotItemEquipType>::from(equip_type).unwrap(),
             );
         }
@@ -26,7 +26,7 @@ impl From<kcapi_main::api_start2::get_data::ApiMstSlotitemEquiptype>
 {
     fn from(equip_type: kcapi_main::api_start2::get_data::ApiMstSlotitemEquiptype) -> Self {
         Self(MstSlotItemEquipType {
-            id: equip_type.api_id,
+            id: equip_type.api_id as i32,
             name: equip_type.api_name,
         })
     }

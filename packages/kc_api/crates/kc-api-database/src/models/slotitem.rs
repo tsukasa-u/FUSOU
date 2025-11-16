@@ -24,10 +24,10 @@ pub type FriendSlotItemId = Uuid;
 pub struct OwnSlotItem {
     pub env_uuid: EnvInfoId,
     pub uuid: OwnSlotItemId,
-    pub index: i64,
-    pub mst_slotitem_id: i64,
-    pub level: i64,
-    pub alv: Option<i64>,
+    pub index: i32,
+    pub mst_slotitem_id: i32,
+    pub level: i32,
+    pub alv: Option<i32>,
 }
 
 impl OwnSlotItem {
@@ -42,10 +42,10 @@ impl OwnSlotItem {
         let new_data: OwnSlotItem = OwnSlotItem {
             env_uuid,
             uuid,
-            index: index as i64,
-            mst_slotitem_id: data.slotitem_id,
-            level: data.level,
-            alv: data.alv,
+            index: index as i32,
+            mst_slotitem_id: data.slotitem_id as i32,
+            level: data.level as i32,
+            alv: data.alv.map(|value| value as i32),
         };
 
         table.own_slotitem.push(new_data);
@@ -67,15 +67,15 @@ impl OwnSlotItem {
 pub struct EnemySlotItem {
     pub env_uuid: EnvInfoId,
     pub uuid: EnemySlotItemId,
-    pub index: i64,
-    pub mst_slotitem_id: i64,
+    pub index: i32,
+    pub mst_slotitem_id: i32,
 }
 
 impl EnemySlotItem {
     pub fn new_ret_option(
         _ts: uuid::Timestamp,
         uuid: Uuid,
-        data: i64,
+        data: i32,
         table: &mut PortTable,
         env_uuid: EnvInfoId,
         index: usize,
@@ -84,7 +84,7 @@ impl EnemySlotItem {
             env_uuid,
             uuid,
             mst_slotitem_id: data,
-            index: index as i64,
+            index: index as i32,
         };
 
         table.enemy_slotitem.push(new_data);
@@ -106,15 +106,15 @@ impl EnemySlotItem {
 pub struct FriendSlotItem {
     pub env_uuid: EnvInfoId,
     pub uuid: FriendSlotItemId,
-    pub index: i64,
-    pub mst_slotitem_id: i64,
+    pub index: i32,
+    pub mst_slotitem_id: i32,
 }
 
 impl FriendSlotItem {
     pub fn new_ret_option(
         _ts: uuid::Timestamp,
         uuid: Uuid,
-        data: i64,
+        data: i32,
         table: &mut PortTable,
         env_uuid: EnvInfoId,
         index: usize,
@@ -123,7 +123,7 @@ impl FriendSlotItem {
             env_uuid,
             uuid,
             mst_slotitem_id: data,
-            index: index as i64,
+            index: index as i32,
         };
 
         table.friend_slotitem.push(new_data);

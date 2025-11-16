@@ -18,7 +18,7 @@ pub(crate) static KCS_MST_SLOT_ITEM_EQUIP_TYPES: Lazy<Mutex<MstSlotItemEquipType
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export, export_to = "get_data.ts")]
 pub struct MstSlotItemEquipTypes {
-    pub mst_slotitem_equip_types: HashMap<i64, MstSlotItemEquipType>,
+    pub mst_slotitem_equip_types: HashMap<i32, MstSlotItemEquipType>,
 }
 
 #[derive(
@@ -26,7 +26,7 @@ pub struct MstSlotItemEquipTypes {
 )]
 #[ts(export, export_to = "get_data.ts")]
 pub struct MstSlotItemEquipType {
-    pub id: i64,
+    pub id: i32,
     pub name: String,
 }
 

@@ -33,29 +33,29 @@ pub type FriendShipId = Uuid;
 pub struct OwnShip {
     pub env_uuid: EnvInfoId,
     pub uuid: OwnShipId,
-    pub index: i64,
-    pub ship_id: Option<i64>,
-    pub lv: Option<i64>,                // レベル
-    pub nowhp: Option<i64>,             // 現在HP
-    pub maxhp: Option<i64>,             // 最大HP
-    pub soku: Option<i64>,              // 速力
-    pub leng: Option<i64>,              // 射程
+    pub index: i32,
+    pub ship_id: Option<i32>,
+    pub lv: Option<i32>,                // レベル
+    pub nowhp: Option<i32>,             // 現在HP
+    pub maxhp: Option<i32>,             // 最大HP
+    pub soku: Option<i32>,              // 速力
+    pub leng: Option<i32>,              // 射程
     pub slot: Option<OwnSlotItemId>,    // 装備
-    pub onsolot: Option<Vec<i64>>,      // 艦載機搭載数
+    pub onsolot: Option<Vec<i32>>,      // 艦載機搭載数
     pub slot_ex: Option<OwnSlotItemId>, // 補強増設
-    pub fuel: Option<i64>,              // 燃料
-    pub bull: Option<i64>,              // 弾薬
-    pub cond: Option<i64>,              // 疲労度
-    pub karyoku: Option<Vec<i64>>,      // 火力
-    pub raisou: Option<Vec<i64>>,       // 雷装
-    pub taiku: Option<Vec<i64>>,        // 対空
-    pub soukou: Option<Vec<i64>>,       // 装甲
-    pub kaihi: Option<Vec<i64>>,        // 回避
-    pub taisen: Option<Vec<i64>>,       // 対潜
-    pub sakuteki: Option<Vec<i64>>,     // 索敵
-    pub lucky: Option<Vec<i64>>,        // 運
-    pub sally_area: Option<i64>,
-    pub sp_effect_items: Option<Vec<i64>>,
+    pub fuel: Option<i32>,              // 燃料
+    pub bull: Option<i32>,              // 弾薬
+    pub cond: Option<i32>,              // 疲労度
+    pub karyoku: Option<Vec<i32>>,      // 火力
+    pub raisou: Option<Vec<i32>>,       // 雷装
+    pub taiku: Option<Vec<i32>>,        // 対空
+    pub soukou: Option<Vec<i32>>,       // 装甲
+    pub kaihi: Option<Vec<i32>>,        // 回避
+    pub taisen: Option<Vec<i32>>,       // 対潜
+    pub sakuteki: Option<Vec<i32>>,     // 索敵
+    pub lucky: Option<Vec<i32>>,        // 運
+    pub sally_area: Option<i32>,
+    pub sp_effect_items: Option<Vec<i32>>,
 }
 
 impl OwnShip {
@@ -124,32 +124,59 @@ impl OwnShip {
         let new_data: OwnShip = OwnShip {
             env_uuid,
             uuid,
-            index: index as i64,
-            ship_id: ship.ship_id,
-            lv: ship.lv,
-            nowhp: ship.nowhp,
-            maxhp: ship.maxhp,
-            soku: ship.soku,
-            leng: ship.leng,
+            index: index as i32,
+            ship_id: ship.ship_id.map(|value| value as i32),
+            lv: ship.lv.map(|value| value as i32),
+            nowhp: ship.nowhp.map(|value| value as i32),
+            maxhp: ship.maxhp.map(|value| value as i32),
+            soku: ship.soku.map(|value| value as i32),
+            leng: ship.leng.map(|value| value as i32),
             slot: new_slot_wrap,
-            onsolot: ship.onslot.clone(),
+            onsolot: ship
+                .onslot
+                .clone()
+                .map(|values| values.into_iter().map(|value| value as i32).collect()),
             slot_ex: new_ex_slot_wrap,
-            fuel: ship.fuel,
-            bull: ship.bull,
-            cond: ship.cond,
-            karyoku: ship.karyoku.clone(),
-            raisou: ship.raisou.clone(),
-            taiku: ship.taiku.clone(),
-            soukou: ship.soukou.clone(),
-            kaihi: ship.kaihi.clone(),
-            taisen: ship.taisen.clone(),
-            sakuteki: ship.sakuteki.clone(),
-            lucky: ship.lucky.clone(),
-            sally_area: ship.sally_area,
+            fuel: ship.fuel.map(|value| value as i32),
+            bull: ship.bull.map(|value| value as i32),
+            cond: ship.cond.map(|value| value as i32),
+            karyoku: ship
+                .karyoku
+                .clone()
+                .map(|values| values.into_iter().map(|value| value as i32).collect()),
+            raisou: ship
+                .raisou
+                .clone()
+                .map(|values| values.into_iter().map(|value| value as i32).collect()),
+            taiku: ship
+                .taiku
+                .clone()
+                .map(|values| values.into_iter().map(|value| value as i32).collect()),
+            soukou: ship
+                .soukou
+                .clone()
+                .map(|values| values.into_iter().map(|value| value as i32).collect()),
+            kaihi: ship
+                .kaihi
+                .clone()
+                .map(|values| values.into_iter().map(|value| value as i32).collect()),
+            taisen: ship
+                .taisen
+                .clone()
+                .map(|values| values.into_iter().map(|value| value as i32).collect()),
+            sakuteki: ship
+                .sakuteki
+                .clone()
+                .map(|values| values.into_iter().map(|value| value as i32).collect()),
+            lucky: ship
+                .lucky
+                .clone()
+                .map(|values| values.into_iter().map(|value| value as i32).collect()),
+            sally_area: ship.sally_area.map(|value| value as i32),
             sp_effect_items: ship
                 .sp_effect_items
                 .clone()
-                .map(|item| item.items.keys().copied().collect()),
+                .map(|item| item.items.keys().map(|&key| key as i32).collect()),
         };
         table.own_ship.push(new_data);
 
@@ -170,25 +197,25 @@ impl OwnShip {
 pub struct EnemyShip {
     pub env_uuid: EnvInfoId,
     pub uuid: EnemyShipId,
-    pub index: i64,
-    pub mst_ship_id: i64,
-    pub lv: Option<i64>,               // レベル
-    pub nowhp: Option<i64>,            // 現在HP
-    pub maxhp: Option<i64>,            // 最大HP
+    pub index: i32,
+    pub mst_ship_id: i32,
+    pub lv: Option<i32>,               // レベル
+    pub nowhp: Option<i32>,            // 現在HP
+    pub maxhp: Option<i32>,            // 最大HP
     pub slot: Option<EnemySlotItemId>, // 装備
-    pub karyoku: Option<i64>,          // 火力
-    pub raisou: Option<i64>,           // 雷装
-    pub taiku: Option<i64>,            // 対空
-    pub soukou: Option<i64>,           // 装甲
+    pub karyoku: Option<i32>,          // 火力
+    pub raisou: Option<i32>,           // 雷装
+    pub taiku: Option<i32>,            // 対空
+    pub soukou: Option<i32>,           // 装甲
 }
 
 pub type EnemyShipProps = (
-    Option<i64>,      // レベル
-    Option<i64>,      // 現在HP
-    Option<i64>,      // 最大HP
-    Option<Vec<i64>>, // 装備
-    Option<Vec<i64>>, // 火力 雷装 対空 装甲
-    i64,              // mst_id
+    Option<i32>,      // レベル
+    Option<i32>,      // 現在HP
+    Option<i32>,      // 最大HP
+    Option<Vec<i32>>, // 装備
+    Option<Vec<i32>>, // 火力 雷装 対空 装甲
+    i32,              // mst_id
 );
 impl EnemyShip {
     pub fn new_ret_option(
@@ -199,8 +226,10 @@ impl EnemyShip {
         env_uuid: EnvInfoId,
         index: usize,
     ) -> Option<()> {
+        let (lv, nowhp, maxhp, slot_values, param_values, mst_ship_id) = data;
+
         let new_slot: Uuid = Uuid::new_v7(ts);
-        let result = data.3.clone().map(|slot| {
+        let result = slot_values.clone().map(|slot| {
             slot.iter()
                 .enumerate()
                 .map(|(slot_id_index, slot_id)| {
@@ -223,16 +252,16 @@ impl EnemyShip {
         let new_data: EnemyShip = EnemyShip {
             env_uuid,
             uuid,
-            index: index as i64,
-            lv: data.0,
-            nowhp: data.1,
-            maxhp: data.2,
+            index: index as i32,
+            lv,
+            nowhp,
+            maxhp,
             slot: new_slot_wrap,
-            karyoku: data.4.clone().map(|x| x[0]),
-            raisou: data.4.clone().map(|x| x[1]),
-            taiku: data.4.clone().map(|x| x[2]),
-            soukou: data.4.clone().map(|x| x[3]),
-            mst_ship_id: data.5,
+            karyoku: param_values.clone().map(|x| x[0]),
+            raisou: param_values.clone().map(|x| x[1]),
+            taiku: param_values.clone().map(|x| x[2]),
+            soukou: param_values.clone().map(|x| x[3]),
+            mst_ship_id,
         };
         table.enemy_ship.push(new_data);
 
@@ -241,13 +270,13 @@ impl EnemyShip {
 }
 
 pub type FriendShipProps = (
-    Option<i64>,      // レベル
-    Option<i64>,      // 現在HP
-    Option<i64>,      // 最大HP
-    Option<Vec<i64>>, // 装備
-    Option<i64>,      // 補強増設
-    Option<Vec<i64>>, // 火力 雷装 対空 装甲
-    i64,              // mst_id
+    Option<i32>,      // レベル
+    Option<i32>,      // 現在HP
+    Option<i32>,      // 最大HP
+    Option<Vec<i32>>, // 装備
+    Option<i32>,      // 補強増設
+    Option<Vec<i32>>, // 火力 雷装 対空 装甲
+    i32,              // mst_id
 );
 #[derive(
     Debug,
@@ -262,17 +291,17 @@ pub type FriendShipProps = (
 pub struct FriendShip {
     pub env_uuid: EnvInfoId,
     pub uuid: FriendShipId,
-    pub index: i64,
-    pub mst_ship_id: i64,
-    pub lv: Option<i64>,                // レベル
-    pub nowhp: Option<i64>,             // 現在HP
-    pub maxhp: Option<i64>,             // 最大HP
+    pub index: i32,
+    pub mst_ship_id: i32,
+    pub lv: Option<i32>,                // レベル
+    pub nowhp: Option<i32>,             // 現在HP
+    pub maxhp: Option<i32>,             // 最大HP
     pub slot: Option<FriendSlotItemId>, // 装備
-    pub slotnum: Option<i64>,           // 装備スロット数
-    pub karyoku: Option<i64>,           // 火力
-    pub raisou: Option<i64>,            // 雷装
-    pub taiku: Option<i64>,             // 対空
-    pub soukou: Option<i64>,            // 装甲
+    pub slotnum: Option<i32>,           // 装備スロット数
+    pub karyoku: Option<i32>,           // 火力
+    pub raisou: Option<i32>,            // 雷装
+    pub taiku: Option<i32>,             // 対空
+    pub soukou: Option<i32>,            // 装甲
 }
 
 impl FriendShip {
@@ -285,7 +314,9 @@ impl FriendShip {
         index: usize,
     ) -> Option<()> {
         let new_slot = Uuid::new_v7(ts);
-        let result = data.3.clone().map(|slot| {
+        let (lv, nowhp, maxhp, slot_values, slotnum, param_values, mst_ship_id) = data;
+
+        let result = slot_values.clone().map(|slot| {
             slot.iter()
                 .enumerate()
                 .map(|(slot_id_index, slot_id)| {
@@ -308,17 +339,17 @@ impl FriendShip {
         let new_data: FriendShip = FriendShip {
             env_uuid,
             uuid,
-            index: index as i64,
-            lv: data.0,
-            nowhp: data.1,
-            maxhp: data.2,
+            index: index as i32,
+            lv,
+            nowhp,
+            maxhp,
             slot: new_slot_wrap,
-            slotnum: data.4,
-            karyoku: data.5.clone().map(|x| x[0]),
-            raisou: data.5.clone().map(|x| x[1]),
-            taiku: data.5.clone().map(|x| x[2]),
-            soukou: data.5.clone().map(|x| x[3]),
-            mst_ship_id: data.6,
+            slotnum,
+            karyoku: param_values.clone().map(|x| x[0]),
+            raisou: param_values.clone().map(|x| x[1]),
+            taiku: param_values.clone().map(|x| x[2]),
+            soukou: param_values.clone().map(|x| x[3]),
+            mst_ship_id,
         };
         table.friend_ship.push(new_data);
 

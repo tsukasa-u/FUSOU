@@ -12,11 +12,11 @@ impl From<kcapi_main::api_start2::get_data::ApiData> for InterfaceWrapper<MstEqu
             .enumerate()
             .map(|(idx, equip)| {
                 (
-                    idx as i64,
+                    idx as i32,
                     InterfaceWrapper::<MstEquipExslot>::from(equip).unwrap(),
                 )
             })
-            .collect::<HashMap<i64, MstEquipExslot>>();
+            .collect::<HashMap<i32, MstEquipExslot>>();
 
         Self(MstEquipExslots {
             mst_equip_exslots: equip_exslot_map,
@@ -26,6 +26,6 @@ impl From<kcapi_main::api_start2::get_data::ApiData> for InterfaceWrapper<MstEqu
 
 impl From<i64> for InterfaceWrapper<MstEquipExslot> {
     fn from(equip: i64) -> Self {
-        Self(MstEquipExslot { equip })
+        Self(MstEquipExslot { equip: equip as i32 })
     }
 }

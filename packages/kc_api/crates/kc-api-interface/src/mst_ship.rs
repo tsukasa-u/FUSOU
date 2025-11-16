@@ -18,7 +18,7 @@ pub(crate) static KCS_MST_SHIPS: Lazy<Mutex<MstShips>> = Lazy::new(|| {
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export, export_to = "get_data.ts")]
 pub struct MstShips {
-    pub mst_ships: HashMap<i64, MstShip>,
+    pub mst_ships: HashMap<i32, MstShip>,
 }
 
 #[derive(
@@ -26,36 +26,36 @@ pub struct MstShips {
 )]
 #[ts(export, export_to = "get_data.ts")]
 pub struct MstShip {
-    pub id: i64,
-    pub sortno: Option<i64>,
-    pub sort_id: i64,
+    pub id: i32,
+    pub sortno: Option<i32>,
+    pub sort_id: i32,
     pub name: String,
     pub yomi: String,
-    pub stype: i64,
-    pub ctype: i64,
-    pub afterlv: Option<i64>,
+    pub stype: i32,
+    pub ctype: i32,
+    pub afterlv: Option<i32>,
     pub aftershipid: Option<String>,
-    pub taik: Option<Vec<i64>>,
-    pub souk: Option<Vec<i64>>,
-    pub houg: Option<Vec<i64>>,
-    pub raig: Option<Vec<i64>>,
-    pub tyku: Option<Vec<i64>>,
-    pub luck: Option<Vec<i64>>,
-    pub soku: i64,
-    pub leng: Option<i64>,
-    pub slot_num: i64,
-    pub maxeq: Option<Vec<i64>>,
-    pub buildtime: Option<i64>,
-    pub broken: Option<Vec<i64>>,
-    pub powup: Option<Vec<i64>>,
-    pub backs: Option<i64>,
+    pub taik: Option<Vec<i32>>,
+    pub souk: Option<Vec<i32>>,
+    pub houg: Option<Vec<i32>>,
+    pub raig: Option<Vec<i32>>,
+    pub tyku: Option<Vec<i32>>,
+    pub luck: Option<Vec<i32>>,
+    pub soku: i32,
+    pub leng: Option<i32>,
+    pub slot_num: i32,
+    pub maxeq: Option<Vec<i32>>,
+    pub buildtime: Option<i32>,
+    pub broken: Option<Vec<i32>>,
+    pub powup: Option<Vec<i32>>,
+    pub backs: Option<i32>,
     pub getmes: Option<String>,
-    pub afterfuel: Option<i64>,
-    pub afterbull: Option<i64>,
-    pub fuel_max: Option<i64>,
-    pub bull_max: Option<i64>,
-    pub voicef: Option<i64>,
-    pub tais: Option<Vec<i64>>,
+    pub afterfuel: Option<i32>,
+    pub afterbull: Option<i32>,
+    pub fuel_max: Option<i32>,
+    pub bull_max: Option<i32>,
+    pub voicef: Option<i32>,
+    pub tais: Option<Vec<i32>>,
 }
 
 impl MstShips {

@@ -17,7 +17,7 @@ pub(crate) static KCS_MST_EQUIP_EXSLOT: Lazy<Mutex<MstEquipExslots>> = Lazy::new
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export, export_to = "get_data.ts")]
 pub struct MstEquipExslots {
-    pub mst_equip_exslots: HashMap<i64, MstEquipExslot>,
+    pub mst_equip_exslots: HashMap<i32, MstEquipExslot>,
 }
 
 #[derive(
@@ -25,7 +25,7 @@ pub struct MstEquipExslots {
 )]
 #[ts(export, export_to = "get_data.ts")]
 pub struct MstEquipExslot {
-    pub equip: i64,
+    pub equip: i32,
 }
 
 impl MstEquipExslots {

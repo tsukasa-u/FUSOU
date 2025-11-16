@@ -17,7 +17,7 @@ pub(crate) static KCS_MST_EQUIP_SHIP: Lazy<Mutex<MstEquipShips>> = Lazy::new(|| 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export, export_to = "get_data.ts")]
 pub struct MstEquipShips {
-    pub mst_equip_ships: HashMap<i64, MstEquipShip>,
+    pub mst_equip_ships: HashMap<i32, MstEquipShip>,
 }
 
 #[cfg(not(feature = "20250627"))]
@@ -26,8 +26,8 @@ pub struct MstEquipShips {
 )]
 #[ts(export, export_to = "get_data.ts")]
 pub struct MstEquipShip {
-    pub ship_id: i64,
-    pub equip_type: Vec<i64>,
+    pub ship_id: i32,
+    pub equip_type: Vec<i32>,
 }
 
 #[cfg(feature = "20250627")]
@@ -36,7 +36,7 @@ pub struct MstEquipShip {
 )]
 #[ts(export, export_to = "get_data.ts")]
 pub struct MstEquipShip {
-    pub equip_type: HashMap<String, Option<Vec<i64>>>,
+    pub equip_type: HashMap<String, Option<Vec<i32>>>,
 }
 
 impl MstEquipShips {

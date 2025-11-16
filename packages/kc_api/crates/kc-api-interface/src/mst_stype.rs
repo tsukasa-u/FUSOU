@@ -17,7 +17,7 @@ pub(crate) static KCS_MST_STYPES: Lazy<Mutex<MstStypes>> = Lazy::new(|| {
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export, export_to = "get_data.ts")]
 pub struct MstStypes {
-    pub mst_stypes: HashMap<i64, MstStype>,
+    pub mst_stypes: HashMap<i32, MstStype>,
 }
 
 #[derive(
@@ -25,10 +25,10 @@ pub struct MstStypes {
 )]
 #[ts(export, export_to = "get_data.ts")]
 pub struct MstStype {
-    pub id: i64,
-    pub sortno: i64,
+    pub id: i32,
+    pub sortno: i32,
     pub name: String,
-    pub equip_type: HashMap<String, i64>,
+    pub equip_type: HashMap<String, i32>,
 }
 
 impl MstStypes {
