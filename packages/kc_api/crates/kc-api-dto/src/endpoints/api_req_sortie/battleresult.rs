@@ -4,71 +4,43 @@
 #![doc = register_trait::insert_svg!(path="../../tests/struct_dependency_svg/api_req_sortie@battleresult.svg", id="kc-dependency-svg-embed", style="border: 1px solid black; height:80vh; width:100%", role="img", aria_label="KC_API_dependency(api_req_sortie/battleresult)")]
 #![doc = include_str!("../../../../../js/svg_pan_zoom.html")]
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use crate::common::custom_type::DuoType;
 
-use register_trait::add_field;
-use register_trait::register_struct;
-
-use register_trait::FieldSizeChecker;
-
-use register_trait::TraitForRoot;
-use register_trait::TraitForTest;
+use register_trait::{add_field, register_struct};
+use register_trait::{FieldSizeChecker, QueryWithExtra, TraitForRoot, TraitForTest};
 
 use crate::common::common_result::ApiEnemyInfo;
 use crate::common::common_result::ApiGetEventitem;
 use crate::common::common_result::ApiGetShip;
 use crate::common::common_result::ApiLandingHp;
 
-
-
 #[derive(FieldSizeChecker, TraitForTest, TraitForRoot)]
-
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[add_field(extra_for_qs)]
+#[derive(Debug, Clone, QueryWithExtra)]
 pub struct Req {
-    #[serde(rename = "api_token")]
+    #[qs(rename = "api_token")]
     pub api_token: String,
-    #[serde(rename = "api_verno")]
-    pub api_verno: String,
-    #[serde(rename = "api_btime")]
-    pub api_btime: String,
-    #[serde(rename = "api_l_value[0]")]
-    pub api_l_value_0: Option<String>,
-    #[serde(rename = "api_l_value[1]")]
-    pub api_l_value_1: Option<String>,
-    #[serde(rename = "api_l_value[2]")]
-    pub api_l_value_2: Option<String>,
-    #[serde(rename = "api_l_value[3]")]
-    pub api_l_value_3: Option<String>,
-    #[serde(rename = "api_l_value[4]")]
-    pub api_l_value_4: Option<String>,
-    #[serde(rename = "api_l_value[5]")]
-    pub api_l_value_5: Option<String>,
-    #[serde(rename = "api_l_value3[0]")]
-    pub api_l_value3_0: Option<String>,
-    #[serde(rename = "api_l_value3[1]")]
-    pub api_l_value3_1: Option<String>,
-    #[serde(rename = "api_l_value3[2]")]
-    pub api_l_value3_2: Option<String>,
-    #[serde(rename = "api_l_value3[3]")]
-    pub api_l_value3_3: Option<String>,
-    #[serde(rename = "api_l_value3[4]")]
-    pub api_l_value3_4: Option<String>,
-    #[serde(rename = "api_l_value3[5]")]
-    pub api_l_value3_5: Option<String>,
+    #[qs(rename = "api_verno")]
+    pub api_verno: i64,
+    #[qs(rename = "api_btime")]
+    pub api_btime: i64,
+    /// Values: 0-5
+    #[qs(rename = "api_l_value")]
+    pub api_l_value: Option<Vec<i64>>,
+    /// Values: 0-5
+    #[qs(rename = "api_l_value3")]
+    pub api_l_value3: Option<Vec<i64>>,
 }
 
 #[derive(FieldSizeChecker, TraitForTest, TraitForRoot)]
-
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
+#[add_field(extra_with_flatten)]
 #[register_struct(name = "api_req_sortie/battleresult")]
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Res {
     #[serde(rename = "api_result")]
@@ -81,8 +53,8 @@ pub struct Res {
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Debug, Clone, Deserialize)]
+#[add_field(extra_with_flatten)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiData {
     #[serde(rename = "api_ship_id")]
@@ -149,8 +121,8 @@ pub struct ApiData {
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Debug, Clone, Deserialize)]
+#[add_field(extra_with_flatten)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiGetUseitem {
     #[serde(rename = "api_useitem_id")]
@@ -161,8 +133,8 @@ pub struct ApiGetUseitem {
 
 // #[derive(FieldSizeChecker, TraitForTest)]
 // #[struct_test_case(field_extra, type_value, integration)]
-// #[add_field(extra)]
-// #[derive(Debug, Clone, Deserialize)]
+// #[add_field(extra_with_flatten)]
+// #[derive(Debug, Clone, Deserialize, Serialize)]
 // #[serde(rename_all = "camelCase")]
 // pub struct ApiGetEventitem {
 //     #[serde(rename = "api_type")]
@@ -175,8 +147,8 @@ pub struct ApiGetUseitem {
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Debug, Clone, Deserialize)]
+#[add_field(extra_with_flatten)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiSelectRewardDict {
     #[serde(rename = "api_item_no")]
@@ -191,8 +163,8 @@ pub struct ApiSelectRewardDict {
 
 // #[derive(FieldSizeChecker, TraitForTest)]
 // #[struct_test_case(field_extra, type_value, integration)]
-// #[add_field(extra)]
-// #[derive(Debug, Clone, Deserialize)]
+// #[add_field(extra_with_flatten)]
+// #[derive(Debug, Clone, Deserialize, Serialize)]
 // #[serde(rename_all = "camelCase")]
 // pub struct ApiLandingHp {
 //     #[serde(rename = "api_max_hp")]
@@ -205,8 +177,8 @@ pub struct ApiSelectRewardDict {
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Debug, Clone, Deserialize)]
+#[add_field(extra_with_flatten)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiEscapeFlag {
     #[serde(rename = "api_escape_idx")]
@@ -217,8 +189,8 @@ pub struct ApiEscapeFlag {
 
 // #[derive(FieldSizeChecker, TraitForTest)]
 // #[struct_test_case(field_extra, type_value, integration)]
-// #[add_field(extra)]
-// #[derive(Debug, Clone, Deserialize)]
+// #[add_field(extra_with_flatten)]
+// #[derive(Debug, Clone, Deserialize, Serialize)]
 // #[serde(rename_all = "camelCase")]
 // pub struct ApiGetShip {
 //     #[serde(rename = "api_ship_id")]
@@ -233,8 +205,8 @@ pub struct ApiEscapeFlag {
 
 // #[derive(FieldSizeChecker, TraitForTest)]
 // #[struct_test_case(field_extra, type_value, integration)]
-// #[add_field(extra)]
-// #[derive(Debug, Clone, Deserialize)]
+// #[add_field(extra_with_flatten)]
+// #[derive(Debug, Clone, Deserialize, Serialize)]
 // #[serde(rename_all = "camelCase")]
 // pub struct ApiEnemyInfo {
 //     #[serde(rename = "api_level")]
@@ -247,6 +219,7 @@ pub struct ApiEscapeFlag {
 
 #[cfg(test)]
 mod tests {
+    use crate::test_utils::struct_normalize::{glob_match_normalize, FormatType};
     use dotenvy::dotenv;
     use register_trait::simple_root_test;
 
@@ -270,6 +243,34 @@ mod tests {
             target_path.clone(),
             pattern_str.to_string(),
             log_path.to_string(),
+        );
+    }
+    #[test]
+    fn test_organize_test_data() {
+        dotenv().expect(".env file not found");
+        let target_path = std::env::var("TEST_DATA_PATH").expect("failed to get env data");
+        let snap_file_path = std::env::var("TEST_DATA_REPO_PATH").expect("failed to get env data");
+
+        let req_and_res_pattern_str = "@api_req_sortie@battleresult";
+        let snap_path = format!("{snap_file_path}/kcsapi");
+        let log_path = "./src/endpoints/api_req_sortie/battleresult@snap_data@S.log";
+        glob_match_normalize::<Req, Res>(
+            target_path.clone(),
+            req_and_res_pattern_str.to_string(),
+            snap_path.to_string(),
+            FormatType::Json,
+            log_path.to_string(),
+            None,
+        );
+
+        let log_path = "./src/endpoints/api_req_sortie/battleresult@snap_data@Q.log";
+        glob_match_normalize::<Req, Res>(
+            target_path.clone(),
+            req_and_res_pattern_str.to_string(),
+            snap_path.to_string(),
+            FormatType::QueryString,
+            log_path.to_string(),
+            None,
         );
     }
 }

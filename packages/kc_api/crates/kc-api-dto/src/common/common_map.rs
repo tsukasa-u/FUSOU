@@ -1,14 +1,11 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
-use register_trait::add_field;
-
-use register_trait::FieldSizeChecker;
-use register_trait::TraitForTest;
+use register_trait::{add_field, FieldSizeChecker, TraitForTest};
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Debug, Clone, Deserialize)]
+#[add_field(extra_with_flatten)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiSelectRoute {
     #[serde(rename = "api_select_cells")]
@@ -17,8 +14,8 @@ pub struct ApiSelectRoute {
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Debug, Clone, Deserialize)]
+#[add_field(extra_with_flatten)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiCellFlavor {
     #[serde(rename = "api_type")]
@@ -29,8 +26,8 @@ pub struct ApiCellFlavor {
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Debug, Clone, Deserialize)]
+#[add_field(extra_with_flatten)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiEventmap {
     #[serde(rename = "api_max_maphp")]
@@ -43,8 +40,8 @@ pub struct ApiEventmap {
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Debug, Clone, Deserialize)]
+#[add_field(extra_with_flatten)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiAirsearch {
     #[serde(rename = "api_plane_type")]
@@ -55,8 +52,8 @@ pub struct ApiAirsearch {
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Debug, Clone, Deserialize)]
+#[add_field(extra_with_flatten)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiEDeckInfo {
     #[serde(rename = "api_kind")]
@@ -67,8 +64,8 @@ pub struct ApiEDeckInfo {
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Debug, Clone, Deserialize)]
+#[add_field(extra_with_flatten)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiHappening {
     #[serde(rename = "api_type")]
