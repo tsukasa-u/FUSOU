@@ -2,19 +2,19 @@
 
 use std::str::FromStr;
 
-use crate::airbase::{AirBase, PlaneInfo};
-use crate::battle::{
+use crate::encode::encode;
+use crate::models::airbase::{AirBase, PlaneInfo};
+use crate::models::battle::{
     AirBaseAirAttack, AirBaseAirAttackList, AirBaseAssult, Battle, CarrierBaseAssault,
     ClosingRaigeki, FriendlySupportHourai, FriendlySupportHouraiList, Hougeki, HougekiList,
     MidnightHougeki, MidnightHougekiList, OpeningAirAttack, OpeningAirAttackList, OpeningRaigeki,
     OpeningTaisen, OpeningTaisenList, SupportAirattack, SupportHourai,
 };
-use crate::cell::Cells;
-use crate::deck::{EnemyDeck, FriendDeck, OwnDeck, SupportDeck};
-use crate::encode::encode;
-use crate::env_info::{EnvInfo, UserEnv};
-use crate::ship::{EnemyShip, FriendShip, OwnShip};
-use crate::slotitem::{EnemySlotItem, FriendSlotItem, OwnSlotItem};
+use crate::models::cell::Cells;
+use crate::models::deck::{EnemyDeck, FriendDeck, OwnDeck, SupportDeck};
+use crate::models::env_info::{EnvInfo, UserEnv};
+use crate::models::ship::{EnemyShip, FriendShip, OwnShip};
+use crate::models::slotitem::{EnemySlotItem, FriendSlotItem, OwnSlotItem};
 
 use kc_api_interface::mst_equip_exslot::{MstEquipExslot, MstEquipExslots};
 use kc_api_interface::mst_equip_exslot_ship::{MstEquipExslotShip, MstEquipExslotShips};
@@ -658,7 +658,6 @@ impl GetDataTable {
             .cloned()
             .collect();
 
-        
         GetDataTable {
             mst_ship,
             mst_slot_item,

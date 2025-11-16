@@ -5,10 +5,10 @@ use std::collections::HashMap;
 
 impl From<Vec<kcapi_main::api_start2::get_data::ApiMstStype>> for InterfaceWrapper<MstStypes> {
     fn from(stypes: Vec<kcapi_main::api_start2::get_data::ApiMstStype>) -> Self {
-        let mut stype_map = HashMap::<i64, MstStype>::with_capacity(stypes.len());
+        let mut stype_map = HashMap::<i32, MstStype>::with_capacity(stypes.len());
         for stype in stypes {
             stype_map.insert(
-                stype.api_id,
+                stype.api_id as i32,
                 InterfaceWrapper::<MstStype>::from(stype).unwrap(),
             );
         }
@@ -21,10 +21,14 @@ impl From<Vec<kcapi_main::api_start2::get_data::ApiMstStype>> for InterfaceWrapp
 impl From<kcapi_main::api_start2::get_data::ApiMstStype> for InterfaceWrapper<MstStype> {
     fn from(stype: kcapi_main::api_start2::get_data::ApiMstStype) -> Self {
         Self(MstStype {
-            id: stype.api_id,
-            sortno: stype.api_sortno,
+            id: stype.api_id as i32,
+            sortno: stype.api_sortno as i32,
             name: stype.api_name,
-            equip_type: stype.api_equip_type,
+            equip_type: stype
+                .api_equip_type
+                .into_iter()
+                .map(|(key, value)| (key, value as i32))
+                .collect(),
         })
     }
 }

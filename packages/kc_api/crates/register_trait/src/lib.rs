@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 pub use register_macro_derive_and_attr::FieldSizeChecker;
+pub use register_macro_derive_and_attr::QueryWithExtra;
 pub use register_macro_derive_and_attr::TraitForDecode;
 pub use register_macro_derive_and_attr::TraitForEmitData;
 pub use register_macro_derive_and_attr::TraitForEncode;
@@ -22,6 +23,7 @@ pub mod util;
 // pub use check::simple_root_check_field_size;
 pub use test::custom_root_test;
 pub use test::simple_root_test;
+pub use test::simple_root_test_with_range;
 
 pub const REGISTER_STRUCT: &str = "tests-register_struct_name_env";
 
@@ -91,3 +93,5 @@ pub trait FieldSizeChecker {
 
 pub trait TraitForEncode {}
 pub trait TraitForDecode {}
+
+pub trait QueryWithExtra {}

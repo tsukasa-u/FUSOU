@@ -242,7 +242,7 @@ export const cells_3_5: Cells = {
       },
       friendly_force_attack: null,
       midnight_flare_pos: [-1, -1],
-      midngiht_touchplane: [-1, -1],
+      midnight_touchplane: [-1, -1],
       midnight_hougeki: {
         at_list: [0],
         df_list: [[1, 1]],
@@ -257,8 +257,8 @@ export const cells_3_5: Cells = {
       },
       f_nowhps: [47, 44, 27, 38, 36, 33],
       e_nowhps: [57, 76, 50, 50, 37, 37],
-      midngiht_f_nowhps: [42, 44, 27, 2, 35, 33],
-      midngiht_e_nowhps: [0, 13, 0, 0, 0, 0],
+      midnight_f_nowhps: [42, 44, 27, 2, 35, 33],
+      midnight_e_nowhps: [0, 13, 0, 0, 0, 0],
     },
     "7": {
       battle_order: [
@@ -426,12 +426,12 @@ export const cells_3_5: Cells = {
       },
       friendly_force_attack: null,
       midnight_flare_pos: null,
-      midngiht_touchplane: null,
+      midnight_touchplane: null,
       midnight_hougeki: null,
       f_nowhps: [42, 44, 27, 2, 35, 33],
       e_nowhps: [84, 76, 60, 38, 35, 35],
-      midngiht_f_nowhps: null,
-      midngiht_e_nowhps: null,
+      midnight_f_nowhps: null,
+      midnight_e_nowhps: null,
     },
     "11": {
       battle_order: [
@@ -656,8 +656,8 @@ export const cells_3_5: Cells = {
         e_now_hps: [38, 76, 113, 23, -44, -66, 0],
       },
       friendly_force_attack: null,
-      midnight_flare_pos: [-1, -1],
-      midngiht_touchplane: [-1, -1],
+      midnight_flare_pos: [1, -1],
+      midnight_touchplane: [152, -1],
       midnight_hougeki: {
         at_list: [0, 1, 2],
         df_list: [
@@ -700,8 +700,8 @@ export const cells_3_5: Cells = {
       },
       f_nowhps: [42, 39, 27, 2, 30, 33],
       e_nowhps: [48, 130, 130, 90, 40, 40],
-      midngiht_f_nowhps: [13, 15, 27, 2, 17, 10],
-      midngiht_e_nowhps: [0, 76, 55, 23, 0, 0],
+      midnight_f_nowhps: [13, 15, 27, 2, 17, 10],
+      midnight_e_nowhps: [0, 76, 55, 23, 0, 0],
     },
   },
   event_map: null,

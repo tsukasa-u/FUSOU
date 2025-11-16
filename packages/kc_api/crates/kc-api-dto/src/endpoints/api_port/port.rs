@@ -4,40 +4,36 @@
 #![doc = register_trait::insert_svg!(path="../../tests/struct_dependency_svg/api_port@port.svg", id="kc-dependency-svg-embed", style="border: 1px solid black; height:80vh; width:100%", role="img", aria_label="KC_API_dependency(api_port/port)")]
 #![doc = include_str!("../../../../../js/svg_pan_zoom.html")]
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 
 use register_trait::{add_field, register_struct};
-
-use register_trait::{FieldSizeChecker, TraitForRoot, TraitForTest};
-
-
+use register_trait::{FieldSizeChecker, QueryWithExtra, TraitForRoot, TraitForTest};
 
 #[derive(FieldSizeChecker, TraitForTest, TraitForRoot)]
-
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[add_field(extra_for_qs)]
+#[derive(Debug, Clone, QueryWithExtra)]
 pub struct Req {
-    #[serde(rename = "api_token")]
+    #[qs(rename = "api_token")]
     pub api_token: String,
-    #[serde(rename = "api_verno")]
-    pub api_verno: String,
-    #[serde(rename = "api_port")]
+    #[qs(rename = "api_verno")]
+    pub api_verno: i64,
+    #[qs(rename = "api_port")]
+    /// 30 digits number string
     pub api_port: String,
-    #[serde(rename = "api_sort_key")]
-    pub api_sort_key: String,
-    #[serde(rename = "spi_sort_order")]
-    pub api_sort_order: String,
+    #[qs(rename = "api_sort_key")]
+    pub api_sort_key: i64,
+    #[qs(rename = "spi_sort_order")]
+    pub api_sort_order: i64,
 }
 
 #[derive(FieldSizeChecker, TraitForTest, TraitForRoot)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
+#[add_field(extra_with_flatten)]
 #[register_struct(name = "api_port/port")]
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Res {
     #[serde(rename = "api_result")]
@@ -50,8 +46,8 @@ pub struct Res {
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Debug, Clone, Deserialize)]
+#[add_field(extra_with_flatten)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiData {
     #[serde(rename = "api_event_object")]
@@ -88,8 +84,8 @@ pub struct ApiData {
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Debug, Clone, Deserialize)]
+#[add_field(extra_with_flatten)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiPlaneInfo {
     #[serde(rename = "api_base_convert_slot")]
@@ -100,8 +96,8 @@ pub struct ApiPlaneInfo {
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Debug, Clone, Deserialize)]
+#[add_field(extra_with_flatten)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiUnsetSlot {
     #[serde(rename = "api_type3No")]
@@ -112,8 +108,8 @@ pub struct ApiUnsetSlot {
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Debug, Clone, Deserialize)]
+#[add_field(extra_with_flatten)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiFriendlySetting {
     #[serde(rename = "api_request_flag")]
@@ -124,8 +120,8 @@ pub struct ApiFriendlySetting {
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Debug, Clone, Deserialize)]
+#[add_field(extra_with_flatten)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiEventObject {
     #[serde(rename = "api_c_num")]
@@ -138,8 +134,8 @@ pub struct ApiEventObject {
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Debug, Clone, Deserialize)]
+#[add_field(extra_with_flatten)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiMaterial {
     #[serde(rename = "api_member_id")]
@@ -152,8 +148,8 @@ pub struct ApiMaterial {
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Debug, Clone, Deserialize)]
+#[add_field(extra_with_flatten)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiDeckPort {
     #[serde(rename = "api_member_id")]
@@ -174,8 +170,8 @@ pub struct ApiDeckPort {
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Debug, Clone, Deserialize)]
+#[add_field(extra_with_flatten)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiNdock {
     #[serde(rename = "api_member_id")]
@@ -202,8 +198,8 @@ pub struct ApiNdock {
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Debug, Clone, Deserialize)]
+#[add_field(extra_with_flatten)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiShip {
     #[serde(rename = "api_id")]
@@ -276,8 +272,8 @@ pub struct ApiShip {
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Debug, Clone, Deserialize)]
+#[add_field(extra_with_flatten)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiSpEffectItem {
     #[serde(rename = "api_kind")]
@@ -294,8 +290,8 @@ pub struct ApiSpEffectItem {
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Debug, Clone, Deserialize)]
+#[add_field(extra_with_flatten)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiBasic {
     #[serde(rename = "api_member_id")]
@@ -370,8 +366,8 @@ pub struct ApiBasic {
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Debug, Clone, Deserialize)]
+#[add_field(extra_with_flatten)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiLog {
     #[serde(rename = "api_no")]
@@ -386,8 +382,8 @@ pub struct ApiLog {
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Debug, Clone, Deserialize)]
+#[add_field(extra_with_flatten)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiFurnitureAffectItems {
     #[serde(rename = "api_payitem_dict")]
@@ -396,6 +392,7 @@ pub struct ApiFurnitureAffectItems {
 
 #[cfg(test)]
 mod tests {
+    use crate::test_utils::struct_normalize::{glob_match_normalize, FormatType};
     use dotenvy::dotenv;
     use register_trait::simple_root_test;
 
@@ -421,4 +418,46 @@ mod tests {
             log_path.to_string(),
         );
     }
+    #[test]
+    fn test_organize_test_data() {
+        dotenv().expect(".env file not found");
+        let target_path = std::env::var("TEST_DATA_PATH").expect("failed to get env data");
+        let snap_file_path = std::env::var("TEST_DATA_REPO_PATH").expect("failed to get env data");
+
+        let req_and_res_pattern_str = "@api_port@port";
+        let snap_path = format!("{snap_file_path}/kcsapi");
+        let mask_patterns = vec![
+            r"req\.api_port",
+            r"res\.api_data\.api_basic\.api_comment",
+            r"res\.api_data\.api_basic\.api_comment_id",
+            r"res\.api_data\.api_basic\.api_member_id",
+            r"res\.api_data\.api_basic\.api_nickname",
+            r"res\.api_data\.api_basic\.api_nickname_id",
+            r"res\.api_data\.api_deck_port\.api_member_id",
+            r"res\.api_data\.api_deck_port\.api_name",
+            r"res\.api_data\.api_deck_port\.api_name_id",
+            r"res\.api_data\.api_material\.api_member_id",
+            r"res\.api_data\.api_ndock\.api_member_id",
+        ];
+        let log_path = "./src/endpoints/api_port/port@snap_data@S.log";
+        glob_match_normalize::<Req, Res>(
+            target_path.clone(),
+            req_and_res_pattern_str.to_string(),
+            snap_path.to_string(),
+            FormatType::Json,
+            log_path.to_string(),
+            Some(mask_patterns.clone()),
+        );
+
+        let log_path = "./src/endpoints/api_port/port@snap_data@Q.log";
+        glob_match_normalize::<Req, Res>(
+            target_path.clone(),
+            req_and_res_pattern_str.to_string(),
+            snap_path.to_string(),
+            FormatType::QueryString,
+            log_path.to_string(),
+            Some(mask_patterns),
+        );
+    }
+
 }

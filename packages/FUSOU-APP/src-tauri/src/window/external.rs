@@ -68,13 +68,25 @@ pub fn create_external_window(app: &AppHandle, browser: Option<Browser>, browse_
             tauri::WebviewUrl::External(get_game_url().parse().unwrap()),
         );
 
+        let app_configs = configs::get_user_configs_for_app();
+        let kc_window = &app_configs.kc_window;
+        let inner_winow_size_width = app_configs
+            .kc_window.get_default_inner_width() as f64;
+        let inner_winow_size_height = kc_window
+            .get_default_inner_height() as f64;
+        let max_window_size_width = kc_window
+            .get_max_inner_width() as f64;
+        let max_window_size_height = kc_window
+            .get_max_inner_height() as f64;
+
+
         let external = external
             .fullscreen(false)
             .title("fusou-viewer")
-            .inner_size(1192_f64, 712_f64)
+            .inner_size(inner_winow_size_width, inner_winow_size_height)
+            .max_inner_size(max_window_size_width, max_window_size_height)
             .visible(false)
             .initialization_script(init_script);
-
         #[cfg(dev)]
         let external = external.devtools(true);
 

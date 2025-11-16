@@ -5,10 +5,10 @@ use std::collections::HashMap;
 
 impl From<Vec<kcapi_main::api_start2::get_data::ApiMstMaparea>> for InterfaceWrapper<MstMapAreas> {
     fn from(map_areas: Vec<kcapi_main::api_start2::get_data::ApiMstMaparea>) -> Self {
-        let mut map_area_map = HashMap::<i64, MstMapArea>::with_capacity(map_areas.len());
+        let mut map_area_map = HashMap::<i32, MstMapArea>::with_capacity(map_areas.len());
         for map_area in map_areas {
             map_area_map.insert(
-                map_area.api_id,
+                map_area.api_id as i32,
                 InterfaceWrapper::<MstMapArea>::from(map_area).unwrap(),
             );
         }
@@ -21,9 +21,9 @@ impl From<Vec<kcapi_main::api_start2::get_data::ApiMstMaparea>> for InterfaceWra
 impl From<kcapi_main::api_start2::get_data::ApiMstMaparea> for InterfaceWrapper<MstMapArea> {
     fn from(map_info: kcapi_main::api_start2::get_data::ApiMstMaparea) -> Self {
         Self(MstMapArea {
-            api_id: map_info.api_id,
+            api_id: map_info.api_id as i32,
             api_name: map_info.api_name,
-            api_type: map_info.api_type,
+            api_type: map_info.api_type as i32,
         })
     }
 }

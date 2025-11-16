@@ -2,15 +2,15 @@ use apache_avro::AvroSchema;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::env_info::EnvInfoId;
-use crate::ship::EnemyShip;
-use crate::ship::EnemyShipId;
-use crate::ship::EnemyShipProps;
-use crate::ship::FriendShip;
-use crate::ship::FriendShipId;
-use crate::ship::FriendShipProps;
-use crate::ship::OwnShip;
-use crate::ship::OwnShipId;
+use crate::models::env_info::EnvInfoId;
+use crate::models::ship::EnemyShip;
+use crate::models::ship::EnemyShipId;
+use crate::models::ship::EnemyShipProps;
+use crate::models::ship::FriendShip;
+use crate::models::ship::FriendShipId;
+use crate::models::ship::FriendShipProps;
+use crate::models::ship::OwnShip;
+use crate::models::ship::OwnShipId;
 use crate::table::PortTable;
 use kc_api_interface::deck_port::DeckPorts;
 use kc_api_interface::ship::Ships;
@@ -36,7 +36,7 @@ pub struct OwnDeck {
     pub env_uuid: EnvInfoId,
     pub uuid: OwnDeckId,
     pub ship_ids: Option<OwnShipId>,
-    pub combined_flag: Option<i64>,
+    pub combined_flag: Option<i32>,
 }
 
 impl OwnDeck {
@@ -98,7 +98,7 @@ impl OwnDeck {
             env_uuid,
             uuid,
             ship_ids: new_ship_ids_wrap,
-            combined_flag: decks.combined_flag,
+            combined_flag: decks.combined_flag.map(|flag| flag as i32),
         };
 
         table.own_deck.push(new_data);
@@ -223,14 +223,32 @@ impl EnemyDeck {
                 .enumerate()
                 .map(|(ship_id_index, ship_id)| {
                     let props: EnemyShipProps = (
-                        None, // data.e_lv.clone().map(|lv| lv[i]),
-                        data.e_hp_max.clone().map(|hp| hp[ship_id_index]),
-                        data.e_hp_max.clone().map(|hp| hp[ship_id_index]),
-                        data.e_slot.clone().map(|slot| slot[ship_id_index].clone()),
+                        data.e_lv
+                            .clone()
+                            .map(|lv| lv[ship_id_index] as i32),
+                        data.e_hp_max
+                            .clone()
+                            .map(|hp| hp[ship_id_index] as i32),
+                        data.e_hp_max
+                            .clone()
+                            .map(|hp| hp[ship_id_index] as i32),
+                        data.e_slot.clone().map(|slot| {
+                            slot[ship_id_index]
+                                .clone()
+                                .into_iter()
+                                .map(|value| value as i32)
+                                .collect()
+                        }),
                         data.e_params
                             .clone()
-                            .map(|param| param[ship_id_index].clone()),
-                        *ship_id,
+                            .map(|param| {
+                                param[ship_id_index]
+                                    .clone()
+                                    .into_iter()
+                                    .map(|value| value as i32)
+                                    .collect()
+                            }),
+                        *ship_id as i32,
                     );
                     EnemyShip::new_ret_option(
                         ts,
@@ -290,13 +308,25 @@ impl FriendDeck {
             .enumerate()
             .map(|(ship_id_index, ship_id)| {
                 let friend_props: FriendShipProps = (
-                    Some(data.ship_lv[ship_id_index]),
-                    Some(data.now_hps[ship_id_index]),
-                    Some(data.max_hps[ship_id_index]),
-                    Some(data.slot[ship_id_index].clone()),
-                    Some(data.slot_ex[ship_id_index]),
-                    Some(data.params[ship_id_index].clone()),
-                    *ship_id,
+                    Some(data.ship_lv[ship_id_index] as i32),
+                    Some(data.now_hps[ship_id_index] as i32),
+                    Some(data.max_hps[ship_id_index] as i32),
+                    Some(
+                        data.slot[ship_id_index]
+                            .clone()
+                            .into_iter()
+                            .map(|value| value as i32)
+                            .collect(),
+                    ),
+                    Some(data.slot_ex[ship_id_index] as i32),
+                    Some(
+                        data.params[ship_id_index]
+                            .clone()
+                            .into_iter()
+                            .map(|value| value as i32)
+                            .collect(),
+                    ),
+                    *ship_id as i32,
                 );
                 FriendShip::new_ret_option(
                     ts,

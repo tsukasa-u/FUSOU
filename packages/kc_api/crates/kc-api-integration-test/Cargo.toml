@@ -14,3 +14,8 @@ uuid = { workspace = true }
 dotenvy = { workspace = true }
 regex = { workspace = true }
 
+[features]
+default = [ "from20250627" ]
+
+from20250627 = ["20250627"]
+20250627 = []

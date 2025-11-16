@@ -28,10 +28,22 @@ impl From<kcapi_main::api_start2::get_data::ApiMstEquipExslotShip>
 {
     fn from(equip_ship: kcapi_main::api_start2::get_data::ApiMstEquipExslotShip) -> Self {
         Self(MstEquipExslotShip {
-            ship_ids: equip_ship.api_ship_ids,
-            stypes: equip_ship.api_stypes,
-            ctypes: equip_ship.api_ctypes,
-            req_level: equip_ship.api_req_level,
+            ship_ids: equip_ship.api_ship_ids.map(|map| {
+                map.into_iter()
+                    .map(|(key, value)| (key, value as i32))
+                    .collect()
+            }),
+            stypes: equip_ship.api_stypes.map(|map| {
+                map.into_iter()
+                    .map(|(key, value)| (key, value as i32))
+                    .collect()
+            }),
+            ctypes: equip_ship.api_ctypes.map(|map| {
+                map.into_iter()
+                    .map(|(key, value)| (key, value as i32))
+                    .collect()
+            }),
+            req_level: equip_ship.api_req_level as i32,
         })
     }
 }

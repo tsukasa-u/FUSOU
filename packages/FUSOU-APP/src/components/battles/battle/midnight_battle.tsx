@@ -10,10 +10,12 @@ import type {
 } from "../../../utility/get_data_set";
 import {
   WrapCIMstEquipComponent,
+  WrapEnemyShipComponent,
   WrapEnemyShipHPComponent,
   WrapNumberedEnemyShipComponent,
   WrapNumberedErrorShipComponent,
   WrapNumberedOwnShipComponent,
+  WrapOwnShipComponent,
   WrapOwnShipHPComponent,
 } from "../wrap_web_component";
 import { DamageCommonComponent } from "../dmg";
@@ -93,17 +95,24 @@ export function MidnightShellingComponent(props: MidnightShellingProps) {
             </div>
           }
         >
-          <div class="flex flex-nowrap">
-            <div class="w-24 flex justify-center">
+          <div class="flex flex-nowrap place-items-center">
+            <div class="w-24 flex justify-start">
               <Show
                 when={f_midnight_flare_pos != -1}
                 fallback={<div class="text-center">___</div>}
               >
-                <WrapNumberedOwnShipComponent
+                {/* <WrapNumberedOwnShipComponent
                   ship_idx={f_midnight_flare_pos}
                   deck_ship_id={props.deck_ship_id}
                   battle_selected={props.battle_selected}
                   store_data_set_deck_ship={props.store_data_set_deck_ship}
+                /> */}
+                <WrapOwnShipComponent
+                  ship_idx={f_midnight_flare_pos}
+                  deck_ship_id={props.deck_ship_id}
+                  battle_selected={props.battle_selected}
+                  store_data_set_deck_ship={props.store_data_set_deck_ship}
+                  name_flag={true}
                 />
               </Show>
             </div>
@@ -113,10 +122,15 @@ export function MidnightShellingComponent(props: MidnightShellingProps) {
                 when={e_midnight_flare_pos != -1}
                 fallback={<div class="text-center">___</div>}
               >
-                <WrapNumberedEnemyShipComponent
+                {/* <WrapNumberedEnemyShipComponent
                   ship_idx={e_midnight_flare_pos}
                   battle_selected={props.battle_selected}
                   store_data_set_param_ship={props.store_data_set_param_ship}
+                /> */}
+                <WrapEnemyShipComponent
+                  ship_idx={e_midnight_flare_pos}
+                  store_data_set_param_ship={props.store_data_set_param_ship}
+                  name_flag={true}
                 />
               </Show>
             </div>

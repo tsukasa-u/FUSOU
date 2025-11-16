@@ -2,9 +2,9 @@ use apache_avro::AvroSchema;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::battle::Battle;
-use crate::battle::BattleId;
-use crate::env_info::EnvInfoId;
+use crate::models::battle::Battle;
+use crate::models::battle::BattleId;
+use crate::models::env_info::EnvInfoId;
 use crate::table::PortTable;
 
 use register_trait::{FieldSizeChecker, TraitForDecode, TraitForEncode};
@@ -24,10 +24,10 @@ pub type CellsId = Uuid;
 pub struct Cells {
     pub env_uuid: EnvInfoId,
     pub uuid: CellsId,
-    pub maparea_id: i64,
-    pub mapinfo_no: i64,
-    pub cell_index: Vec<i64>,
-    pub battle_index: Vec<i64>,
+    pub maparea_id: i32,
+    pub mapinfo_no: i32,
+    pub cell_index: Vec<i32>,
+    pub battle_index: Vec<i32>,
     pub battles: BattleId,
 }
 
@@ -57,10 +57,18 @@ impl Cells {
         let new_data = Cells {
             env_uuid,
             uuid,
-            maparea_id: data.maparea_id,
-            mapinfo_no: data.mapinfo_no,
-            cell_index: data.cell_index,
-            battle_index: data.battles.keys().cloned().collect(),
+            maparea_id: data.maparea_id as i32,
+            mapinfo_no: data.mapinfo_no as i32,
+            cell_index: data
+                .cell_index
+                .iter()
+                .map(|&index| index as i32)
+                .collect(),
+            battle_index: data
+                .battles
+                .keys()
+                .map(|&battle_idx| battle_idx as i32)
+                .collect(),
             battles: new_battle,
         };
 

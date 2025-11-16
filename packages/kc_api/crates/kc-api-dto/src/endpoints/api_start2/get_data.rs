@@ -4,33 +4,28 @@
 #![doc = register_trait::insert_svg!(path="../../tests/struct_dependency_svg/api_start2@get_data.svg", id="kc-dependency-svg-embed", style="border: 1px solid black; height:80vh; width:100%", role="img", aria_label="KC_API_dependency(api_start2/get_data)")]
 #![doc = include_str!("../../../../../js/svg_pan_zoom.html")]
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use register_trait::{add_field, register_struct};
-
-use register_trait::{FieldSizeChecker, TraitForRoot, TraitForTest};
-
-
+use register_trait::{FieldSizeChecker, QueryWithExtra, TraitForRoot, TraitForTest};
 
 #[derive(FieldSizeChecker, TraitForTest, TraitForRoot)]
-
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[add_field(extra_for_qs)]
+#[derive(Debug, Clone, QueryWithExtra)]
 pub struct Req {
-    #[serde(rename = "api_token")]
+    #[qs(rename = "api_token")]
     pub api_token: String,
-    #[serde(rename = "api_verno")]
-    pub api_verno: String,
+    #[qs(rename = "api_verno")]
+    pub api_verno: i64,
 }
 
 #[derive(FieldSizeChecker, TraitForTest, TraitForRoot)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
+#[add_field(extra_with_flatten)]
 #[register_struct(name = "api_start2/getData")]
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Res {
     #[serde(rename = "api_result")]
@@ -43,8 +38,8 @@ pub struct Res {
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Debug, Clone, Deserialize)]
+#[add_field(extra_with_flatten)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiData {
     #[serde(rename = "api_mst_ship")]
@@ -98,8 +93,8 @@ pub struct ApiData {
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Debug, Clone, Deserialize)]
+#[add_field(extra_with_flatten)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiMstStype {
     #[serde(rename = "api_id")]
@@ -118,8 +113,8 @@ pub struct ApiMstStype {
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Debug, Clone, Deserialize)]
+#[add_field(extra_with_flatten)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiMstShip {
     #[serde(rename = "api_id")]
@@ -186,8 +181,8 @@ pub struct ApiMstShip {
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Debug, Clone, Deserialize)]
+#[add_field(extra_with_flatten)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiMstShipgraph {
     #[serde(rename = "api_id")]
@@ -242,8 +237,8 @@ pub struct ApiMstShipgraph {
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Debug, Clone, Deserialize)]
+#[add_field(extra_with_flatten)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiMstSlotitemEquiptype {
     #[serde(rename = "api_id")]
@@ -256,8 +251,8 @@ pub struct ApiMstSlotitemEquiptype {
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Debug, Clone, Deserialize)]
+#[add_field(extra_with_flatten)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiMstEquipExslotShip {
     #[serde(rename = "api_ship_ids")]
@@ -272,8 +267,8 @@ pub struct ApiMstEquipExslotShip {
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Debug, Clone, Deserialize)]
+#[add_field(extra_with_flatten)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiMstSlotitem {
     #[serde(rename = "api_id")]
@@ -336,8 +331,8 @@ pub struct ApiMstSlotitem {
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Debug, Clone, Deserialize)]
+#[add_field(extra_with_flatten)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiMstFurnituregraph {
     #[serde(rename = "api_id")]
@@ -354,8 +349,8 @@ pub struct ApiMstFurnituregraph {
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Debug, Clone, Deserialize)]
+#[add_field(extra_with_flatten)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiMstUseitem {
     #[serde(rename = "api_id")]
@@ -374,8 +369,8 @@ pub struct ApiMstUseitem {
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Debug, Clone, Deserialize)]
+#[add_field(extra_with_flatten)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiMstPayitem {
     #[serde(rename = "api_id")]
@@ -396,8 +391,8 @@ pub struct ApiMstPayitem {
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Debug, Clone, Deserialize)]
+#[add_field(extra_with_flatten)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiMstItemShop {
     #[serde(rename = "api_cabinet_1")]
@@ -408,8 +403,8 @@ pub struct ApiMstItemShop {
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Debug, Clone, Deserialize)]
+#[add_field(extra_with_flatten)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiMstMaparea {
     #[serde(rename = "api_id")]
@@ -422,8 +417,8 @@ pub struct ApiMstMaparea {
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Debug, Clone, Deserialize)]
+#[add_field(extra_with_flatten)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiMstMapinfo {
     #[serde(rename = "api_id")]
@@ -452,8 +447,8 @@ pub struct ApiMstMapinfo {
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Debug, Clone, Deserialize)]
+#[add_field(extra_with_flatten)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiMstMapbgm {
     #[serde(rename = "api_id")]
@@ -472,8 +467,8 @@ pub struct ApiMstMapbgm {
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Debug, Clone, Deserialize)]
+#[add_field(extra_with_flatten)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiMstMission {
     #[serde(rename = "api_id")]
@@ -514,8 +509,8 @@ pub struct ApiMstMission {
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Debug, Clone, Deserialize)]
+#[add_field(extra_with_flatten)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiMstConst {
     #[serde(rename = "api_parallel_quest_max")]
@@ -528,8 +523,8 @@ pub struct ApiMstConst {
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Debug, Clone, Deserialize)]
+#[add_field(extra_with_flatten)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiParallelQuestMax {
     #[serde(rename = "api_string_value")]
@@ -540,8 +535,8 @@ pub struct ApiParallelQuestMax {
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Debug, Clone, Deserialize)]
+#[add_field(extra_with_flatten)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiBokoMaxShips {
     #[serde(rename = "api_string_value")]
@@ -552,8 +547,8 @@ pub struct ApiBokoMaxShips {
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Debug, Clone, Deserialize)]
+#[add_field(extra_with_flatten)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiDpflagQuest {
     #[serde(rename = "api_string_value")]
@@ -564,8 +559,8 @@ pub struct ApiDpflagQuest {
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Debug, Clone, Deserialize)]
+#[add_field(extra_with_flatten)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiMstShipupgrade {
     #[serde(rename = "api_id")]
@@ -598,8 +593,8 @@ pub struct ApiMstShipupgrade {
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Debug, Clone, Deserialize)]
+#[add_field(extra_with_flatten)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiMstBgm {
     #[serde(rename = "api_id")]
@@ -610,8 +605,8 @@ pub struct ApiMstBgm {
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Debug, Clone, Deserialize)]
+#[add_field(extra_with_flatten)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiMstEquipShip {
     #[cfg(not(feature = "20250627"))]
@@ -627,8 +622,8 @@ pub struct ApiMstEquipShip {
 
 #[derive(FieldSizeChecker, TraitForTest)]
 #[struct_test_case(field_extra, type_value, integration)]
-#[add_field(extra)]
-#[derive(Debug, Clone, Deserialize)]
+#[add_field(extra_with_flatten)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiMstFurniture {
     #[serde(rename = "api_id")]
@@ -659,8 +654,9 @@ pub struct ApiMstFurniture {
 
 #[cfg(test)]
 mod tests {
+    use crate::test_utils::struct_normalize::{glob_match_normalize_with_range, FormatType};
     use dotenvy::dotenv;
-    use register_trait::simple_root_test;
+    use register_trait::simple_root_test_with_range;
 
     use super::*;
     #[test]
@@ -668,20 +664,67 @@ mod tests {
         dotenv().expect(".env file not found");
         let target_path = std::env::var("TEST_DATA_PATH").expect("failed to get env data");
 
+        #[cfg(feature = "from20250627")]
+        let (range_start, range_end) = (Some(1750993200), None);
+        #[cfg(not(feature = "from20250627"))]
+        let (range_start, range_end) = (None, Some(1750993200));
+
         let pattern_str = "S@api_start2@getData";
         let log_path = "./src/endpoints/api_start2/get_data@S.log";
-        simple_root_test::<Res>(
+        simple_root_test_with_range::<Res>(
             target_path.clone(),
             pattern_str.to_string(),
             log_path.to_string(),
+            range_start,
+            range_end,
         );
 
         let pattern_str = "Q@api_start2@getData";
         let log_path = "./src/endpoints/api_start2/get_data@Q.log";
-        simple_root_test::<Req>(
+        simple_root_test_with_range::<Req>(
             target_path.clone(),
             pattern_str.to_string(),
             log_path.to_string(),
+            range_start,
+            range_end,
+        );
+    }
+
+    #[test]
+    fn test_organize_test_data() {
+        dotenv().expect(".env file not found");
+        let target_path = std::env::var("TEST_DATA_PATH").expect("failed to get env data");
+        let snap_file_path = std::env::var("TEST_DATA_REPO_PATH").expect("failed to get env data");
+
+        #[cfg(feature = "from20250627")]
+        let (range_start, range_end) = (Some(1750993200), None);
+        #[cfg(not(feature = "from20250627"))]
+        let (range_start, range_end) = (None, Some(1750993200));
+
+        let req_and_res_pattern_str = "@api_start2@getData";
+        let snap_path = format!("{snap_file_path}/kcsapi");
+        let log_path = "./src/endpoints/api_start2/get_data@snap_data@S.log";
+        glob_match_normalize_with_range::<Req, Res>(
+            target_path.clone(),
+            req_and_res_pattern_str.to_string(),
+            snap_path.to_string(),
+            FormatType::Json,
+            log_path.to_string(),
+            range_start,
+            range_end,
+            None,
+        );
+
+        let log_path = "./src/endpoints/api_start2/get_data@snap_data@Q.log";
+        glob_match_normalize_with_range::<Req, Res>(
+            target_path.clone(),
+            req_and_res_pattern_str.to_string(),
+            snap_path.to_string(),
+            FormatType::QueryString,
+            log_path.to_string(),
+            range_start,
+            range_end,
+            None,
         );
     }
 }
