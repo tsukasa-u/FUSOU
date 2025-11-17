@@ -9,6 +9,11 @@ use kc_api::database::table::{
 use tokio::fs;
 use uuid::Uuid;
 
+use super::constants::{
+    LOCAL_STORAGE_PROVIDER_NAME, MASTER_DATA_FOLDER_NAME, PERIOD_ROOT_FOLDER_NAME,
+    PORT_TABLE_FILE_NAME_SEPARATOR, STORAGE_ROOT_DIR_NAME, STORAGE_SUB_DIR_NAME,
+    TRANSACTION_DATA_FOLDER_NAME,
+};
 use super::service::{StorageError, StorageFuture, StorageProvider};
 
 #[derive(Debug, Clone)]
@@ -25,7 +30,7 @@ impl LocalFileSystemProvider {
     }
 
     fn period_directory(&self, period_tag: &str) -> PathBuf {
-        self.root.join("fusou").join(period_tag)
+        self.root.join(PERIOD_ROOT_FOLDER_NAME).join(period_tag)
     }
 
     async fn ensure_dir(path: &Path) -> Result<(), StorageError> {
@@ -102,17 +107,21 @@ impl LocalFileSystemProvider {
 
 fn default_root_directory() -> PathBuf {
     if let Some(doc_dir) = dirs::document_dir() {
-        doc_dir.join("FUSOU").join("storage")
+        doc_dir
+            .join(STORAGE_ROOT_DIR_NAME)
+            .join(STORAGE_SUB_DIR_NAME)
     } else if let Ok(current_dir) = std::env::current_dir() {
-        current_dir.join("FUSOU").join("storage")
+        current_dir
+            .join(STORAGE_ROOT_DIR_NAME)
+            .join(STORAGE_SUB_DIR_NAME)
     } else {
-        PathBuf::from("FUSOU").join("storage")
+        PathBuf::from(STORAGE_ROOT_DIR_NAME).join(STORAGE_SUB_DIR_NAME)
     }
 }
 
 impl StorageProvider for LocalFileSystemProvider {
     fn name(&self) -> &'static str {
-        "local"
+        LOCAL_STORAGE_PROVIDER_NAME
     }
 
     fn write_get_data_table<'a>(
@@ -122,7 +131,7 @@ impl StorageProvider for LocalFileSystemProvider {
     ) -> StorageFuture<'a, Result<(), StorageError>> {
         Box::pin(async move {
             let period_dir = self.period_directory(period_tag);
-            let master_dir = period_dir.join("master_data");
+            let master_dir = period_dir.join(MASTER_DATA_FOLDER_NAME);
             Self::ensure_dir(&master_dir).await?;
 
             for table_name in GET_DATA_TABLE_NAMES.iter() {
@@ -143,12 +152,17 @@ impl StorageProvider for LocalFileSystemProvider {
     ) -> StorageFuture<'a, Result<(), StorageError>> {
         Box::pin(async move {
             let period_dir = self.period_directory(period_tag);
-            let transaction_dir = period_dir.join("transaction_data");
+            let transaction_dir = period_dir.join(TRANSACTION_DATA_FOLDER_NAME);
             Self::ensure_dir(&transaction_dir).await?;
 
             let utc = Utc::now().naive_utc();
             let jst = Tokyo.from_utc_datetime(&utc);
-            let file_name = format!("{}_{}", jst.timestamp(), Uuid::new_v4());
+            let file_name = format!(
+                "{}{}{}",
+                jst.timestamp(),
+                PORT_TABLE_FILE_NAME_SEPARATOR,
+                Uuid::new_v4()
+            );
 
             for table_name in PORT_TABLE_NAMES.iter() {
                 if let Some(bytes) = Self::resolve_port_table_bytes(table, table_name) {

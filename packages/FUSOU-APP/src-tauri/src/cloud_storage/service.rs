@@ -1,11 +1,8 @@
-use std::{future::Future, pin::Pin, sync::Arc};
 use kc_api::database::table::{GetDataTableEncode, PortTableEncode};
+use std::{future::Future, pin::Pin, sync::Arc};
 use tokio::sync::{Mutex, OnceCell};
 
-use crate::cloud_storage::{
-    google_drive::GoogleDriveProvider,
-    local_fs::LocalFileSystemProvider,
-};
+use crate::cloud_storage::{google_drive::GoogleDriveProvider, local_fs::LocalFileSystemProvider};
 
 pub type StorageFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
@@ -99,11 +96,7 @@ impl StorageService {
         }
     }
 
-    pub async fn write_get_data_table(
-        &self,
-        period_tag: &str,
-        table: GetDataTableEncode,
-    ) {
+    pub async fn write_get_data_table(&self, period_tag: &str, table: GetDataTableEncode) {
         for provider in self.providers.iter() {
             if let Err(err) = provider.write_get_data_table(period_tag, &table).await {
                 tracing::warn!(
@@ -115,11 +108,7 @@ impl StorageService {
         }
     }
 
-    pub async fn write_port_table(
-        &self,
-        period_tag: &str,
-        table: PortTableEncode,
-    ) {
+    pub async fn write_port_table(&self, period_tag: &str, table: PortTableEncode) {
         for provider in self.providers.iter() {
             if let Err(err) = provider.write_port_table(period_tag, &table).await {
                 tracing::warn!(
@@ -131,11 +120,7 @@ impl StorageService {
         }
     }
 
-    pub async fn integrate_port_table(
-        &self,
-        period_tag: &str,
-        page_size: i32,
-    ) {
+    pub async fn integrate_port_table(&self, period_tag: &str, page_size: i32) {
         for provider in self.providers.iter() {
             if let Err(err) = provider.integrate_port_table(period_tag, page_size).await {
                 tracing::warn!(

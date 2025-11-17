@@ -1,0 +1,12 @@
+pub(crate) const STORAGE_ROOT_DIR_NAME: &str = "FUSOU";
+pub(crate) const STORAGE_SUB_DIR_NAME: &str = "storage";
+pub(crate) const PERIOD_ROOT_FOLDER_NAME: &str = "fusou";
+pub(crate) const MASTER_DATA_FOLDER_NAME: &str = "master_data";
+pub(crate) const TRANSACTION_DATA_FOLDER_NAME: &str = "transaction_data";
+pub(crate) const PORT_TABLE_FILE_NAME_SEPARATOR: &str = "_";
+pub(crate) const LOCAL_STORAGE_PROVIDER_NAME: &str = "local";
+pub(crate) const GOOGLE_DRIVE_PROVIDER_NAME: &str = "google_drive";
+pub(crate) const GOOGLE_DRIVE_ROOT_FOLDER_ID: &str = "root";
+pub(crate) const GOOGLE_DRIVE_FOLDER_MIME_TYPE: &str = "application/vnd.google-apps.folder";
+pub(crate) const GOOGLE_DRIVE_AVRO_MIME_TYPE: &str = "application/avro";
+pub(crate) const GOOGLE_DRIVE_TRASHED_FILTER: &str = "trashed = false";

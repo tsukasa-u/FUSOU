@@ -26,14 +26,18 @@ use kc_api::database::table::{
 };
 use kc_api::database::{integrate::integrate, models::env_info::EnvInfo};
 
-use crate::auth::auth_server;
+use super::constants::{
+    GOOGLE_DRIVE_AVRO_MIME_TYPE, GOOGLE_DRIVE_FOLDER_MIME_TYPE, GOOGLE_DRIVE_PROVIDER_NAME,
+    GOOGLE_DRIVE_ROOT_FOLDER_ID, GOOGLE_DRIVE_TRASHED_FILTER, MASTER_DATA_FOLDER_NAME,
+    PERIOD_ROOT_FOLDER_NAME, PORT_TABLE_FILE_NAME_SEPARATOR, TRANSACTION_DATA_FOLDER_NAME,
+};
 use super::service::{StorageError, StorageFuture, StorageProvider};
+use crate::auth::auth_server;
 
 pub static GOOGLE_FOLDER_IDS: OnceCell<HashMap<String, String>> = OnceCell::const_new();
 
-type DriveClient = DriveHub<
-    hyper_rustls::HttpsConnector<hyper_util::client::legacy::connect::HttpConnector>,
->;
+type DriveClient =
+    DriveHub<hyper_rustls::HttpsConnector<hyper_util::client::legacy::connect::HttpConnector>>;
 
 #[derive(Debug, Default, Clone)]
 pub struct GoogleDriveProvider;
@@ -54,16 +58,20 @@ impl GoogleDriveProvider {
         hub: &mut DriveClient,
         period_tag: &str,
     ) -> Result<String, StorageError> {
-        let folder_name = vec!["fusou".to_string(), period_tag.to_string()];
-        check_or_create_folder_hierarchical(hub, folder_name, Some("root".to_string()))
-            .await
-            .ok_or_else(|| StorageError::Operation("failed to prepare google drive folder".into()))
+        let folder_name = vec![PERIOD_ROOT_FOLDER_NAME.to_string(), period_tag.to_string()];
+        check_or_create_folder_hierarchical(
+            hub,
+            folder_name,
+            Some(GOOGLE_DRIVE_ROOT_FOLDER_ID.to_string()),
+        )
+        .await
+        .ok_or_else(|| StorageError::Operation("failed to prepare google drive folder".into()))
     }
 }
 
 impl StorageProvider for GoogleDriveProvider {
     fn name(&self) -> &'static str {
-        "google_drive"
+        GOOGLE_DRIVE_PROVIDER_NAME
     }
 
     fn write_get_data_table<'a>(
@@ -294,9 +302,13 @@ pub async fn get_file_list_in_folder(
 ) -> Option<Vec<String>> {
     let query = match parent_folder_id {
         Some(parent_folder_id) => format!(
-            "mimeType='{mime_type}' and trashed = false and '{parent_folder_id}' in parents"
+            "mimeType='{mime_type}' and {trash_filter} and '{parent_folder_id}' in parents",
+            trash_filter = GOOGLE_DRIVE_TRASHED_FILTER
         ),
-        None => format!("mimeType='{mime_type}' and trashed = false",),
+        None => format!(
+            "mimeType='{mime_type}' and {trash_filter}",
+            trash_filter = GOOGLE_DRIVE_TRASHED_FILTER
+        ),
     };
     let result = hub
         .files()
@@ -328,10 +340,14 @@ pub async fn check_folder(
 ) -> Option<String> {
     let query  = match parent_folder_id {
         Some(parent_folder_id) => format!(
-            "mimeType='application/vnd.google-apps.folder' and name='{folder_name}' and trashed = false and '{parent_folder_id}' in parents"
+            "mimeType='{folder_mime}' and name='{folder_name}' and {trash_filter} and '{parent_folder_id}' in parents",
+            folder_mime = GOOGLE_DRIVE_FOLDER_MIME_TYPE,
+            trash_filter = GOOGLE_DRIVE_TRASHED_FILTER
         ),
         None => format!(
-            "mimeType='application/vnd.google-apps.folder' and name='{folder_name}' and trashed = false"
+            "mimeType='{folder_mime}' and name='{folder_name}' and {trash_filter}",
+            folder_mime = GOOGLE_DRIVE_FOLDER_MIME_TYPE,
+            trash_filter = GOOGLE_DRIVE_TRASHED_FILTER
         ),
     };
     let result = hub.files().list().q(&query).doit().await;
@@ -354,7 +370,7 @@ pub async fn check_or_create_folder(
     folder_name: String,
     parent_folder_id: Option<String>,
 ) -> Option<String> {
-    let mime_type = "application/vnd.google-apps.folder".to_string();
+    let mime_type = GOOGLE_DRIVE_FOLDER_MIME_TYPE.to_string();
 
     let result = check_folder(hub, folder_name.clone(), parent_folder_id.clone()).await;
     if result.is_some() {
@@ -411,10 +427,12 @@ pub async fn check_file(
 ) -> Option<String> {
     let query = match parent_folder_id {
         Some(parent_folder_id) => format!(
-            "mimeType='{mime_type}' and name='{file_name}' and trashed = false and '{parent_folder_id}' in parents"
+            "mimeType='{mime_type}' and name='{file_name}' and {trash_filter} and '{parent_folder_id}' in parents",
+            trash_filter = GOOGLE_DRIVE_TRASHED_FILTER
         ),
         None => format!(
-            "mimeType='{mime_type}' and name='{file_name}' and trashed = false"
+            "mimeType='{mime_type}' and name='{file_name}' and {trash_filter}",
+            trash_filter = GOOGLE_DRIVE_TRASHED_FILTER
         ),
     };
     let result = hub.files().list().q(&query).doit().await;
@@ -523,8 +541,8 @@ pub async fn write_get_data_table(
     folder_id: Option<String>,
     table: crate::database::table::GetDataTableEncode,
 ) -> Option<String> {
-    let mime_type = "application/avro".to_string();
-    let folder_name = "master_data".to_string();
+    let mime_type = GOOGLE_DRIVE_AVRO_MIME_TYPE.to_string();
+    let folder_name = MASTER_DATA_FOLDER_NAME.to_string();
     let check_folder_result = check_folder(hub, folder_name.clone(), folder_id.clone()).await;
     if check_folder_result.is_some() {
         return None;
@@ -570,13 +588,18 @@ pub async fn write_port_table(
     folder_id: Option<String>,
     table: crate::database::table::PortTableEncode,
 ) -> Option<String> {
-    let mime_type = "application/avro".to_string();
-    let folder_name = "transaction_data".to_string();
+    let mime_type = GOOGLE_DRIVE_AVRO_MIME_TYPE.to_string();
+    let folder_name = TRANSACTION_DATA_FOLDER_NAME.to_string();
     let transaction_folder_id = check_or_create_folder(hub, folder_name, folder_id.clone()).await?;
 
     let utc = Utc::now().naive_utc();
     let jst = Tokyo.from_utc_datetime(&utc);
-    let file_name = format!("{}_{}", jst.timestamp(), Uuid::new_v4());
+    let file_name = format!(
+        "{}{}{}",
+        jst.timestamp(),
+        PORT_TABLE_FILE_NAME_SEPARATOR,
+        Uuid::new_v4()
+    );
 
     let folder_id_list = GOOGLE_FOLDER_IDS
         .get_or_init(|| async {
@@ -664,13 +687,18 @@ pub async fn integrate_port_table(
     folder_id: Option<String>,
     page_size: i32,
 ) -> Option<String> {
-    let mime_type = "application/avro".to_string();
-    let folder_name = "transaction_data".to_string();
+    let mime_type = GOOGLE_DRIVE_AVRO_MIME_TYPE.to_string();
+    let folder_name = TRANSACTION_DATA_FOLDER_NAME.to_string();
     let integrated_folder_id = check_or_create_folder(hub, folder_name, folder_id.clone()).await?;
 
     let utc = Utc::now().naive_utc();
     let jst = Tokyo.from_utc_datetime(&utc);
-    let file_name = format!("{}_{}", jst.timestamp(), Uuid::new_v4());
+    let file_name = format!(
+        "{}{}{}",
+        jst.timestamp(),
+        PORT_TABLE_FILE_NAME_SEPARATOR,
+        Uuid::new_v4()
+    );
     let folder_id_list = GOOGLE_FOLDER_IDS
         .get_or_init(|| async {
             let folder_name_vec = PORT_TABLE_NAMES
