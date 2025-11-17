@@ -1,6 +1,6 @@
 #[cfg(dev)]
 use std::path::PathBuf;
-use std::{fs, sync::Mutex, time};
+use std::{env, fs, sync::Mutex, time};
 
 use tauri::{
     menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder},
@@ -456,6 +456,41 @@ pub fn setup_configs() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+fn configure_channel_transport() {
+    let proxy_configs = configs::get_user_configs_for_proxy();
+    let transport = proxy_configs.get_channel_transport();
+
+    #[cfg(feature = "grpc-channel")]
+    {
+        if !matches!(transport, configs::ChannelTransportKind::Grpc) {
+            tracing::warn!(
+                "proxy.channel.transport is set to `mpsc`, but this binary was built with the `grpc-channel` feature. gRPC transport will be used."
+            );
+        }
+
+        if let Some(endpoint) = proxy_configs.get_channel_endpoint() {
+            env::set_var("FUSOU_CHANNEL_ENDPOINT", endpoint.clone());
+            tracing::info!("Configured gRPC channel endpoint: {}", endpoint);
+        } else {
+            tracing::info!("Configured gRPC channel endpoint: default (127.0.0.1:50061)");
+        }
+
+        if let Some(buffer) = proxy_configs.get_channel_buffer_size() {
+            env::set_var("FUSOU_CHANNEL_BUFFER", buffer.to_string());
+            tracing::info!("Configured gRPC channel buffer size override: {}", buffer);
+        }
+    }
+
+    #[cfg(not(feature = "grpc-channel"))]
+    {
+        if matches!(transport, configs::ChannelTransportKind::Grpc) {
+            tracing::warn!(
+                "proxy.channel.transport is set to `grpc`, but this binary was built without the `grpc-channel` feature. Falling back to the in-process channel."
+            );
+        }
+    }
+}
+
 pub fn setup_init(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let (shutdown_tx, mut shutdown_rx) = mpsc::channel::<()>(1);
 
@@ -465,6 +500,7 @@ pub fn setup_init(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>
     setup_updater(app)?;
     setup_deep_link(app)?;
     setup_configs()?;
+    configure_channel_transport();
     setup_tray(app, shutdown_tx)?;
     setup_discord()?;
     scheduler::integrate_file::start_scheduler();

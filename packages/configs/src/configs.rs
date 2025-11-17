@@ -58,6 +58,48 @@ impl ConfigsProxyPac {
     }
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ChannelTransportKind {
+    Mpsc,
+    Grpc,
+}
+
+impl Default for ChannelTransportKind {
+    fn default() -> Self {
+        ChannelTransportKind::Mpsc
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct ConfigsProxyChannel {
+    #[serde(default)]
+    pub transport: ChannelTransportKind,
+    #[serde(default)]
+    endpoint: Option<String>,
+    #[serde(default)]
+    buffer_size: Option<i64>,
+}
+
+impl ConfigsProxyChannel {
+    pub fn get_endpoint(&self) -> Option<String> {
+        match self.endpoint {
+            Some(ref value) if !value.is_empty() => Some(value.clone()),
+            _ => None,
+        }
+    }
+
+    pub fn get_buffer_size(&self) -> Option<usize> {
+        self.buffer_size.and_then(|value| {
+            if value <= 0 {
+                None
+            } else {
+                Some(value as usize)
+            }
+        })
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConfigsProxyNetwork {
     backend_crate: Option<String>,
@@ -330,6 +372,8 @@ pub struct ConfigsProxy {
     pub network: ConfigsProxyNetwork,
     pub certificates: ConfigsProxyCertificates,
     pub pac: ConfigsProxyPac,
+    #[serde(default)]
+    pub channel: ConfigsProxyChannel,
 }
 
 impl ConfigsProxy {
@@ -350,6 +394,18 @@ impl ConfigsProxy {
             Some(ref v) if !v.is_empty() => Some(v.clone()),
             _ => None,
         }
+    }
+
+    pub fn get_channel_transport(&self) -> ChannelTransportKind {
+        self.channel.transport
+    }
+
+    pub fn get_channel_endpoint(&self) -> Option<String> {
+        self.channel.get_endpoint()
+    }
+
+    pub fn get_channel_buffer_size(&self) -> Option<usize> {
+        self.channel.get_buffer_size()
     }
 }
 

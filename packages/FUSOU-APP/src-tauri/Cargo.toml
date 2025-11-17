@@ -60,6 +60,7 @@ custom-protocol = [ "tauri/custom-protocol" ]
 
 default = []
 auth-local-server = []
+grpc-channel = ["proxy-https/grpc"]
 
 [lib]
 name = "app_lib"
