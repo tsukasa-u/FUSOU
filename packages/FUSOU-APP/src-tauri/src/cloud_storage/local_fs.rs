@@ -10,9 +10,9 @@ use tokio::fs;
 use uuid::Uuid;
 
 use super::constants::{
-    LOCAL_STORAGE_PROVIDER_NAME, MASTER_DATA_FOLDER_NAME, PERIOD_ROOT_FOLDER_NAME,
-    PORT_TABLE_FILE_NAME_SEPARATOR, STORAGE_ROOT_DIR_NAME, STORAGE_SUB_DIR_NAME,
-    TRANSACTION_DATA_FOLDER_NAME,
+    AVRO_FILE_EXTENSION, LOCAL_STORAGE_PROVIDER_NAME, MASTER_DATA_FOLDER_NAME,
+    PERIOD_ROOT_FOLDER_NAME, PORT_TABLE_FILE_NAME_SEPARATOR, STORAGE_ROOT_DIR_NAME,
+    STORAGE_SUB_DIR_NAME, TRANSACTION_DATA_FOLDER_NAME,
 };
 use super::service::{StorageError, StorageFuture, StorageProvider};
 
@@ -136,7 +136,7 @@ impl StorageProvider for LocalFileSystemProvider {
 
             for table_name in GET_DATA_TABLE_NAMES.iter() {
                 if let Some(bytes) = Self::resolve_get_data_bytes(table, table_name) {
-                    let file_path = master_dir.join(table_name);
+                    let file_path = master_dir.join(format!("{table_name}{AVRO_FILE_EXTENSION}"));
                     fs::write(file_path, bytes).await?;
                 }
             }
@@ -158,10 +158,11 @@ impl StorageProvider for LocalFileSystemProvider {
             let utc = Utc::now().naive_utc();
             let jst = Tokyo.from_utc_datetime(&utc);
             let file_name = format!(
-                "{}{}{}",
+                "{}{}{}{}",
                 jst.timestamp(),
                 PORT_TABLE_FILE_NAME_SEPARATOR,
-                Uuid::new_v4()
+                Uuid::new_v4(),
+                AVRO_FILE_EXTENSION
             );
 
             for table_name in PORT_TABLE_NAMES.iter() {

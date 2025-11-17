@@ -4,6 +4,7 @@ pub(crate) const PERIOD_ROOT_FOLDER_NAME: &str = "fusou";
 pub(crate) const MASTER_DATA_FOLDER_NAME: &str = "master_data";
 pub(crate) const TRANSACTION_DATA_FOLDER_NAME: &str = "transaction_data";
 pub(crate) const PORT_TABLE_FILE_NAME_SEPARATOR: &str = "_";
+pub(crate) const AVRO_FILE_EXTENSION: &str = ".avro";
 pub(crate) const LOCAL_STORAGE_PROVIDER_NAME: &str = "local";
 pub(crate) const GOOGLE_DRIVE_PROVIDER_NAME: &str = "google_drive";
 pub(crate) const GOOGLE_DRIVE_ROOT_FOLDER_ID: &str = "root";

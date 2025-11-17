@@ -27,14 +27,13 @@ use kc_api::database::table::{
 use kc_api::database::{integrate::integrate, models::env_info::EnvInfo};
 
 use super::constants::{
-    GOOGLE_DRIVE_AVRO_MIME_TYPE, GOOGLE_DRIVE_FOLDER_MIME_TYPE, GOOGLE_DRIVE_PROVIDER_NAME,
-    GOOGLE_DRIVE_ROOT_FOLDER_ID, GOOGLE_DRIVE_TRASHED_FILTER, MASTER_DATA_FOLDER_NAME,
-    PERIOD_ROOT_FOLDER_NAME, PORT_TABLE_FILE_NAME_SEPARATOR, TRANSACTION_DATA_FOLDER_NAME,
+    AVRO_FILE_EXTENSION, GOOGLE_DRIVE_AVRO_MIME_TYPE, GOOGLE_DRIVE_FOLDER_MIME_TYPE,
+    GOOGLE_DRIVE_PROVIDER_NAME, GOOGLE_DRIVE_ROOT_FOLDER_ID, GOOGLE_DRIVE_TRASHED_FILTER,
+    MASTER_DATA_FOLDER_NAME, PERIOD_ROOT_FOLDER_NAME, PORT_TABLE_FILE_NAME_SEPARATOR,
+    TRANSACTION_DATA_FOLDER_NAME,
 };
 use super::service::{StorageError, StorageFuture, StorageProvider};
 use crate::auth::auth_server;
-
-pub static GOOGLE_FOLDER_IDS: OnceCell<HashMap<String, String>> = OnceCell::const_new();
 
 type DriveClient =
     DriveHub<hyper_rustls::HttpsConnector<hyper_util::client::legacy::connect::HttpConnector>>;
@@ -118,6 +117,22 @@ impl StorageProvider for GoogleDriveProvider {
             Ok(())
         })
     }
+}
+
+async fn ensure_child_folders(
+    hub: &mut DriveClient,
+    parent_folder_id: &str,
+    folder_names: &[String],
+) -> Result<HashMap<String, String>, StorageError> {
+    let names: Vec<String> = folder_names.to_vec();
+    let folder_ids =
+        check_or_create_folders(hub, names.clone(), Some(parent_folder_id.to_string()))
+            .await
+            .ok_or_else(|| {
+                StorageError::Operation("failed to prepare google drive folders".into())
+            })?;
+
+    Ok(names.into_iter().zip(folder_ids.into_iter()).collect())
 }
 
 #[derive(Debug, Clone)]
@@ -498,7 +513,7 @@ pub async fn create_file(
     return create_result.1.id;
 }
 
-pub async fn check_or_create_file(
+pub async fn create_or_replace_file(
     hub: &mut DriveHub<
         hyper_rustls::HttpsConnector<hyper_util::client::legacy::connect::HttpConnector>,
     >,
@@ -507,31 +522,30 @@ pub async fn check_or_create_file(
     content: &[u8],
     folder_id: Option<String>,
 ) -> Option<String> {
-    let result = check_file(hub, file_name.clone(), mime_type.clone(), folder_id.clone()).await;
-    if result.is_some() {
-        return result;
+    if let Some(existing_id) =
+        check_file(hub, file_name.clone(), mime_type.clone(), folder_id.clone()).await
+    {
+        let req = google_drive3::api::File {
+            name: Some(file_name.clone()),
+            mime_type: Some(mime_type.clone()),
+            parents: folder_id.clone().map(|id| vec![id]),
+            ..Default::default()
+        };
+        let update_result = hub
+            .files()
+            .update(req, &existing_id)
+            .upload(std::io::Cursor::new(content), mime_type.parse().unwrap())
+            .await;
+        match update_result {
+            Ok(_) => return Some(existing_id),
+            Err(err) => {
+                tracing::error!("failed to update existing google drive file: {err:?}");
+                return None;
+            }
+        }
     }
 
-    let parent_folder_ids = folder_id.map(|id| vec![id]);
-
-    let req = google_drive3::api::File {
-        name: Some(file_name),
-        mime_type: Some(mime_type.clone()),
-        parents: parent_folder_ids,
-        ..Default::default()
-    };
-
-    let create_result = hub
-        .files()
-        .create(req)
-        .upload(std::io::Cursor::new(content), mime_type.parse().unwrap())
-        .await;
-    if let Err(e) = create_result {
-        tracing::error!("Error: {e:?}");
-        return None;
-    }
-    let create_result = create_result.unwrap();
-    return create_result.1.id;
+    create_file(hub, file_name, mime_type, content, folder_id).await
 }
 
 pub async fn write_get_data_table(
@@ -543,10 +557,6 @@ pub async fn write_get_data_table(
 ) -> Option<String> {
     let mime_type = GOOGLE_DRIVE_AVRO_MIME_TYPE.to_string();
     let folder_name = MASTER_DATA_FOLDER_NAME.to_string();
-    let check_folder_result = check_folder(hub, folder_name.clone(), folder_id.clone()).await;
-    if check_folder_result.is_some() {
-        return None;
-    }
     let master_folder_id = check_or_create_folder(hub, folder_name, folder_id.clone()).await?;
 
     for table_names in GET_DATA_TABLE_NAMES.clone() {
@@ -567,9 +577,10 @@ pub async fn write_get_data_table(
                 GetDataTableEnum::MstShipGraph => table.mst_ship_graph.clone(),
                 GetDataTableEnum::MstShipUpgrade => table.mst_ship_upgrade.clone(),
             };
-            check_or_create_file(
+            let file_name = format!("{table_names}{AVRO_FILE_EXTENSION}");
+            create_or_replace_file(
                 hub,
-                table_names.clone(),
+                file_name,
                 mime_type.clone(),
                 content.as_slice(),
                 Some(master_folder_id.clone()),
@@ -595,39 +606,23 @@ pub async fn write_port_table(
     let utc = Utc::now().naive_utc();
     let jst = Tokyo.from_utc_datetime(&utc);
     let file_name = format!(
-        "{}{}{}",
+        "{}{}{}{}",
         jst.timestamp(),
         PORT_TABLE_FILE_NAME_SEPARATOR,
-        Uuid::new_v4()
+        Uuid::new_v4(),
+        AVRO_FILE_EXTENSION
     );
+    let folder_names = PORT_TABLE_NAMES.clone();
+    let folder_map = match ensure_child_folders(hub, &transaction_folder_id, &folder_names).await {
+        Ok(map) => map,
+        Err(err) => {
+            tracing::error!("failed to prepare port table folders: {err}");
+            return None;
+        }
+    };
 
-    let folder_id_list = GOOGLE_FOLDER_IDS
-        .get_or_init(|| async {
-            let folder_name_vec = PORT_TABLE_NAMES.clone();
-            let folder_id_vec = check_or_create_folders(
-                hub,
-                folder_name_vec.clone(),
-                Some(transaction_folder_id.clone()),
-            )
-            .await
-            .unwrap();
-
-            let folder_map: HashMap<String, String> = folder_name_vec
-                .iter()
-                .zip(folder_id_vec.iter())
-                .map(|(name, id)| {
-                    let name = name.clone();
-                    let id = id.clone();
-                    (name, id)
-                })
-                .collect();
-            return folder_map;
-        })
-        .await
-        .clone();
-
-    for (folder_id_name, folder_id) in folder_id_list {
-        let table_name = folder_id_name.clone().parse::<PortTableEnum>();
+    for table_name_str in folder_names {
+        let table_name = table_name_str.parse::<PortTableEnum>();
         if let Ok(table_name) = table_name {
             let content: Vec<u8> = match table_name {
                 PortTableEnum::EnvInfo => table.env_info.clone(),
@@ -666,6 +661,9 @@ pub async fn write_port_table(
                 PortTableEnum::SupportHourai => table.support_hourai.clone(),
                 PortTableEnum::Battle => table.battle.clone(),
             };
+            let Some(folder_id) = folder_map.get(&table_name_str) else {
+                continue;
+            };
             create_file(
                 hub,
                 file_name.clone(),
@@ -694,39 +692,25 @@ pub async fn integrate_port_table(
     let utc = Utc::now().naive_utc();
     let jst = Tokyo.from_utc_datetime(&utc);
     let file_name = format!(
-        "{}{}{}",
+        "{}{}{}{}",
         jst.timestamp(),
         PORT_TABLE_FILE_NAME_SEPARATOR,
-        Uuid::new_v4()
+        Uuid::new_v4(),
+        AVRO_FILE_EXTENSION
     );
-    let folder_id_list = GOOGLE_FOLDER_IDS
-        .get_or_init(|| async {
-            let folder_name_vec = PORT_TABLE_NAMES
-                .iter()
-                .map(|s| s.to_string())
-                .collect::<Vec<String>>();
-            let folder_id_vec = check_or_create_folders(
-                hub,
-                folder_name_vec.clone(),
-                Some(integrated_folder_id.clone()),
-            )
-            .await
-            .unwrap();
+    let folder_names = PORT_TABLE_NAMES.clone();
+    let folder_map = match ensure_child_folders(hub, &integrated_folder_id, &folder_names).await {
+        Ok(map) => map,
+        Err(err) => {
+            tracing::error!("failed to prepare integration folders: {err}");
+            return None;
+        }
+    };
 
-            let folder_map: HashMap<String, String> = folder_name_vec
-                .iter()
-                .zip(folder_id_vec.iter())
-                .map(|(name, id)| {
-                    let name = name.clone();
-                    let id = id.clone();
-                    (name, id)
-                })
-                .collect();
-            return folder_map;
-        })
-        .await
-        .clone();
-    for (folder_name, folder_id) in folder_id_list.iter() {
+    for table_name in folder_names {
+        let Some(folder_id) = folder_map.get(&table_name) else {
+            continue;
+        };
         let file_id_list =
             get_file_list_in_folder(hub, Some(folder_id.clone()), page_size, mime_type.clone())
                 .await;
@@ -750,7 +734,7 @@ pub async fn integrate_port_table(
                 continue;
             }
             let integrated_content = if let Ok(table_name) =
-                folder_name.clone().parse::<PortTableEnum>()
+                table_name.clone().parse::<PortTableEnum>()
             {
                 match table_name {
                     PortTableEnum::EnvInfo => integrate::<EnvInfo>(file_content_list),
