@@ -27,18 +27,89 @@ use kc_api::database::table::{
 use kc_api::database::{integrate::integrate, models::env_info::EnvInfo};
 
 use crate::auth::auth_server;
+use super::service::{StorageError, StorageFuture, StorageProvider};
 
 pub static GOOGLE_FOLDER_IDS: OnceCell<HashMap<String, String>> = OnceCell::const_new();
 
-static PORT_TABLE_ACCESS_GUARD: tokio::sync::OnceCell<tokio::sync::Mutex<()>> =
-    tokio::sync::OnceCell::const_new();
+type DriveClient = DriveHub<
+    hyper_rustls::HttpsConnector<hyper_util::client::legacy::connect::HttpConnector>,
+>;
 
-pub async fn get_port_table_access_guard() -> tokio::sync::MutexGuard<'static, ()> {
-    PORT_TABLE_ACCESS_GUARD
-        .get_or_init(|| async { tokio::sync::Mutex::new(()) })
-        .await
-        .lock()
-        .await
+#[derive(Debug, Default, Clone)]
+pub struct GoogleDriveProvider;
+
+impl GoogleDriveProvider {
+    async fn build_client(&self) -> Result<DriveClient, StorageError> {
+        match create_client().await {
+            Some(hub) => Ok(hub),
+            None => {
+                let _ = auth_server::open_auth_page();
+                Err(StorageError::ClientUnavailable)
+            }
+        }
+    }
+
+    async fn ensure_period_folder(
+        &self,
+        hub: &mut DriveClient,
+        period_tag: &str,
+    ) -> Result<String, StorageError> {
+        let folder_name = vec!["fusou".to_string(), period_tag.to_string()];
+        check_or_create_folder_hierarchical(hub, folder_name, Some("root".to_string()))
+            .await
+            .ok_or_else(|| StorageError::Operation("failed to prepare google drive folder".into()))
+    }
+}
+
+impl StorageProvider for GoogleDriveProvider {
+    fn name(&self) -> &'static str {
+        "google_drive"
+    }
+
+    fn write_get_data_table<'a>(
+        &'a self,
+        period_tag: &'a str,
+        table: &'a crate::database::table::GetDataTableEncode,
+    ) -> StorageFuture<'a, Result<(), StorageError>> {
+        Box::pin(async move {
+            let mut hub = self.build_client().await?;
+            let folder_id = self.ensure_period_folder(&mut hub, period_tag).await?;
+            write_get_data_table(&mut hub, Some(folder_id), table.clone())
+                .await
+                .ok_or_else(|| StorageError::Operation("failed to write get data table".into()))?;
+            Ok(())
+        })
+    }
+
+    fn write_port_table<'a>(
+        &'a self,
+        period_tag: &'a str,
+        table: &'a crate::database::table::PortTableEncode,
+    ) -> StorageFuture<'a, Result<(), StorageError>> {
+        Box::pin(async move {
+            let mut hub = self.build_client().await?;
+            let folder_id = self.ensure_period_folder(&mut hub, period_tag).await?;
+            write_port_table(&mut hub, Some(folder_id), table.clone())
+                .await
+                .ok_or_else(|| StorageError::Operation("failed to write port table".into()))?;
+            Ok(())
+        })
+    }
+
+    fn integrate_port_table<'a>(
+        &'a self,
+        period_tag: &'a str,
+        page_size: i32,
+    ) -> StorageFuture<'a, Result<(), StorageError>> {
+        Box::pin(async move {
+            let mut hub = self.build_client().await?;
+            let folder_id = self.ensure_period_folder(&mut hub, period_tag).await?;
+            integrate_port_table(&mut hub, Some(folder_id), page_size)
+                .await
+                .ok_or_else(|| StorageError::Operation("failed to integrate port table".into()))?;
+            Ok(())
+        })
+    }
 }
 
 #[derive(Debug, Clone)]

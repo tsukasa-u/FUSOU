@@ -248,15 +248,36 @@ impl ConfigsAppDatabaseGoogleDrive {
     }
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct ConfigsAppDatabaseLocal {
+    output_directory: Option<String>,
+}
+
+impl ConfigsAppDatabaseLocal {
+    pub fn get_output_directory(&self) -> Option<String> {
+        match self.output_directory {
+            Some(ref v) if !v.is_empty() => Some(v.clone()),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConfigsAppDatabase {
     allow_data_to_cloud: Option<bool>,
+    allow_data_to_local: Option<bool>,
+    #[serde(default)]
+    pub local: ConfigsAppDatabaseLocal,
     pub google_drive: ConfigsAppDatabaseGoogleDrive,
 }
 
 impl ConfigsAppDatabase {
     pub fn get_allow_data_to_cloud(&self) -> bool {
         self.allow_data_to_cloud.unwrap_or(false)
+    }
+
+    pub fn get_allow_data_to_local(&self) -> bool {
+        self.allow_data_to_local.unwrap_or(false)
     }
 }
 

@@ -10,7 +10,7 @@ use crate::{
     },
     json_parser, util, wrap_proxy,
 };
-use tracing_unwrap::{OptionExt, ResultExt};
+use tracing_unwrap::OptionExt;
 
 pub async fn launch_with_options(
     window: tauri::Window,
