@@ -106,16 +106,28 @@ impl LocalFileSystemProvider {
 }
 
 fn default_root_directory() -> PathBuf {
-    if let Some(doc_dir) = dirs::document_dir() {
-        doc_dir
+    #[cfg(dev)]
+    {
+        // In dev, place DB at the same hierarchy as packages/FUSOU-PROXY-DATA
+        // From src-tauri, two levels up is packages/
+        return PathBuf::from("./../../")
             .join(STORAGE_ROOT_DIR_NAME)
-            .join(STORAGE_SUB_DIR_NAME)
-    } else if let Ok(current_dir) = std::env::current_dir() {
-        current_dir
-            .join(STORAGE_ROOT_DIR_NAME)
-            .join(STORAGE_SUB_DIR_NAME)
-    } else {
-        PathBuf::from(STORAGE_ROOT_DIR_NAME).join(STORAGE_SUB_DIR_NAME)
+            .join(STORAGE_SUB_DIR_NAME);
+    }
+
+    #[cfg(any(not(dev), check_release))]
+    {
+        if let Some(doc_dir) = dirs::document_dir() {
+            doc_dir
+                .join(STORAGE_ROOT_DIR_NAME)
+                .join(STORAGE_SUB_DIR_NAME)
+        } else if let Ok(current_dir) = std::env::current_dir() {
+            current_dir
+                .join(STORAGE_ROOT_DIR_NAME)
+                .join(STORAGE_SUB_DIR_NAME)
+        } else {
+            PathBuf::from(STORAGE_ROOT_DIR_NAME).join(STORAGE_SUB_DIR_NAME)
+        }
     }
 }
 

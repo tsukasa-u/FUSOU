@@ -68,6 +68,7 @@ pub async fn launch_with_options(
                             .path()
                             .document_dir()
                             .expect_or_log("failed to get doc dirs")
+                            .join("FUSOU")
                             .join("FUSOU-PROXY-DATA")
                             .as_path()
                             .to_str()

@@ -160,6 +160,8 @@ save_file_location = ""
     # this feature can be enabled with user authentication
     # check [app.auth]
     allow_data_to_cloud = true
+    # Whether to save KanColle data to the local filesystem
+    allow_data_to_local = true
 
 
     [app.database.google_drive]
@@ -170,6 +172,12 @@ save_file_location = ""
     # The interval (in cron format) to sync data to Google Drive
     # this option is only used when [app.database] is enabled
     schedule_cron = "0 0 * * * *" # every hour
+
+
+    [app.database.local]
+    # Base directory used when writing KanColle data locally
+    # leave it empty to use the Documents directory/FUSOU/storage path
+    output_directory = ""
 
 
     [app.auth]

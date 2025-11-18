@@ -235,7 +235,8 @@ pub async fn create_client() -> Option<
             match create_auth().await {
                 Some(auth) => auth,
                 None => {
-                    tracing::error!("failed to create auth");
+                    tracing::error!("failed to create auth. retrying...");
+                    let _ = auth_server::open_auth_page();
                     panic!("failed to create auth");
                 }
             }
