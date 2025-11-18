@@ -111,7 +111,7 @@ fn default_root_directory() -> PathBuf {
         // In dev, place DB at the same hierarchy as packages/FUSOU-PROXY-DATA
         // From src-tauri, two levels up is packages/
         return PathBuf::from("./../../")
-            .join(STORAGE_ROOT_DIR_NAME)
+            // .join(STORAGE_ROOT_DIR_NAME)
             .join(STORAGE_SUB_DIR_NAME);
     }
 

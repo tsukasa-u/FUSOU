@@ -35,7 +35,7 @@ pub fn submit_port_table() {
         return;
     };
 
-    if Cells::reset_flag() {
+    if !Cells::reset_flag() {
         let cells = Cells::load();
         tokio::task::spawn(async move {
             let _guard = acquire_port_table_guard().await;

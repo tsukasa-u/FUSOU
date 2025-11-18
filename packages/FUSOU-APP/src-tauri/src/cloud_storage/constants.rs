@@ -1,5 +1,5 @@
 pub(crate) const STORAGE_ROOT_DIR_NAME: &str = "FUSOU";
-pub(crate) const STORAGE_SUB_DIR_NAME: &str = "storage";
+pub(crate) const STORAGE_SUB_DIR_NAME: &str = "FUSOU-DATABASE";
 pub(crate) const PERIOD_ROOT_FOLDER_NAME: &str = "fusou";
 pub(crate) const MASTER_DATA_FOLDER_NAME: &str = "master_data";
 pub(crate) const TRANSACTION_DATA_FOLDER_NAME: &str = "transaction_data";
