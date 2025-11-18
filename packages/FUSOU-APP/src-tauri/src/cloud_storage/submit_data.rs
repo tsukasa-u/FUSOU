@@ -37,6 +37,8 @@ pub fn submit_port_table() {
 
     if !Cells::reset_flag() {
         let cells = Cells::load();
+        let maparea_id = cells.maparea_id;
+        let mapinfo_no = cells.mapinfo_no;
         tokio::task::spawn(async move {
             let _guard = acquire_port_table_guard().await;
 
@@ -48,7 +50,7 @@ pub fn submit_port_table() {
                 Ok(port_table_encode) => {
                     let pariod_tag = supabase::get_period_tag().await;
                     storage_service
-                        .write_port_table(&pariod_tag, port_table_encode)
+                        .write_port_table(&pariod_tag, port_table_encode, maparea_id, mapinfo_no)
                         .await;
                 }
                 Err(e) => {

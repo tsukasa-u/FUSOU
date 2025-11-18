@@ -92,11 +92,13 @@ impl StorageProvider for GoogleDriveProvider {
         &'a self,
         period_tag: &'a str,
         table: &'a crate::database::table::PortTableEncode,
+        maparea_id: i64,
+        mapinfo_no: i64,
     ) -> StorageFuture<'a, Result<(), StorageError>> {
         Box::pin(async move {
             let mut hub = self.build_client().await?;
             let folder_id = self.ensure_period_folder(&mut hub, period_tag).await?;
-            write_port_table(&mut hub, Some(folder_id), table.clone())
+            write_port_table(&mut hub, Some(folder_id), table.clone(), maparea_id, mapinfo_no)
                 .await
                 .ok_or_else(|| StorageError::Operation("failed to write port table".into()))?;
             Ok(())
@@ -599,10 +601,16 @@ pub async fn write_port_table(
     >,
     folder_id: Option<String>,
     table: crate::database::table::PortTableEncode,
+    maparea_id: i64,
+    mapinfo_no: i64,
 ) -> Option<String> {
     let mime_type = GOOGLE_DRIVE_AVRO_MIME_TYPE.to_string();
     let folder_name = TRANSACTION_DATA_FOLDER_NAME.to_string();
     let transaction_folder_id = check_or_create_folder(hub, folder_name, folder_id.clone()).await?;
+    
+    // Create map-specific folder (e.g., "1-5" for maparea_id=1, mapinfo_no=5)
+    let map_folder_name = format!("{}-{}", maparea_id, mapinfo_no);
+    let map_folder_id = check_or_create_folder(hub, map_folder_name, Some(transaction_folder_id.clone())).await?;
 
     let utc = Utc::now().naive_utc();
     let jst = Tokyo.from_utc_datetime(&utc);
@@ -614,7 +622,7 @@ pub async fn write_port_table(
         AVRO_FILE_EXTENSION
     );
     let folder_names = PORT_TABLE_NAMES.clone();
-    let folder_map = match ensure_child_folders(hub, &transaction_folder_id, &folder_names).await {
+    let folder_map = match ensure_child_folders(hub, &map_folder_id, &folder_names).await {
         Ok(map) => map,
         Err(err) => {
             tracing::error!("failed to prepare port table folders: {err}");

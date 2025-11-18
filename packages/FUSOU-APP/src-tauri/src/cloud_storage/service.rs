@@ -44,6 +44,8 @@ pub trait StorageProvider: Send + Sync {
         &'a self,
         period_tag: &'a str,
         table: &'a PortTableEncode,
+        maparea_id: i64,
+        mapinfo_no: i64,
     ) -> StorageFuture<'a, Result<(), StorageError>>;
 
     fn integrate_port_table<'a>(
@@ -108,9 +110,9 @@ impl StorageService {
         }
     }
 
-    pub async fn write_port_table(&self, period_tag: &str, table: PortTableEncode) {
+    pub async fn write_port_table(&self, period_tag: &str, table: PortTableEncode, maparea_id: i64, mapinfo_no: i64) {
         for provider in self.providers.iter() {
-            if let Err(err) = provider.write_port_table(period_tag, &table).await {
+            if let Err(err) = provider.write_port_table(period_tag, &table, maparea_id, mapinfo_no).await {
                 tracing::warn!(
                     "{} storage failed to write port_table: {}",
                     provider.name(),

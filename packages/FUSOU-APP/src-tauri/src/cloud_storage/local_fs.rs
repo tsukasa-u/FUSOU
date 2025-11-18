@@ -161,11 +161,14 @@ impl StorageProvider for LocalFileSystemProvider {
         &'a self,
         period_tag: &'a str,
         table: &'a PortTableEncode,
+        maparea_id: i64,
+        mapinfo_no: i64,
     ) -> StorageFuture<'a, Result<(), StorageError>> {
         Box::pin(async move {
             let period_dir = self.period_directory(period_tag);
             let transaction_dir = period_dir.join(TRANSACTION_DATA_FOLDER_NAME);
-            Self::ensure_dir(&transaction_dir).await?;
+            let map_dir = transaction_dir.join(format!("{}-{}", maparea_id, mapinfo_no));
+            Self::ensure_dir(&map_dir).await?;
 
             let utc = Utc::now().naive_utc();
             let jst = Tokyo.from_utc_datetime(&utc);
@@ -179,7 +182,7 @@ impl StorageProvider for LocalFileSystemProvider {
 
             for table_name in PORT_TABLE_NAMES.iter() {
                 if let Some(bytes) = Self::resolve_port_table_bytes(table, table_name) {
-                    let table_dir = transaction_dir.join(table_name);
+                    let table_dir = map_dir.join(table_name);
                     Self::ensure_dir(&table_dir).await?;
                     let file_path = table_dir.join(&file_name);
                     fs::write(file_path, bytes).await?;
