@@ -136,15 +136,18 @@ save_file_location = ""
     # Whether to enable Discord integration (Discord Rich Presence)
     enable_discord_integration = false
 
-    # Whether to use a custom to use for Discord Rich Presence
+    # Whether to use a custom message for Discord Rich Presence
+    # this option is only used when `enable_discord_integration` is true
     use_custom_message = false
 
     # The custom message to use for Discord Rich Presence
     # This option is only used when `use_custom_message` is true
+    # this options won't work when you left these options empty string
     custom_message = ""
     custom_details = ""
 
     # Whether to use a custom image for Discord Rich Presence
+    # this option is only used when `use_custom_message` is true
     use_custom_image = false
 
     # The custom image url to use for Discord Rich Presence
@@ -175,6 +178,7 @@ save_file_location = ""
     # Base directory used when writing KanColle data locally
     # leave it empty to use the Documents directory/FUSOU/storage path
     output_directory = ""
+
 
     [app.auth]
     # Whether to deny user authentication

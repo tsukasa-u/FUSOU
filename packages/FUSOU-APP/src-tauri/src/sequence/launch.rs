@@ -12,6 +12,9 @@ use crate::{
 };
 use tracing_unwrap::OptionExt;
 
+#[cfg(any(not(dev), check_release))]
+use tracing_unwrap::ResultExt;
+
 pub async fn launch_with_options(
     window: tauri::Window,
     options: HashMap<String, i32>,
