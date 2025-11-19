@@ -9,6 +9,10 @@ export function mergeObjects<T>(source: T, target: T): void {
   }
 
   Object.keys(source).forEach((key) => {
+    // Prevent prototype pollution
+    if (key === "__proto__" || key === "constructor" || key === "prototype") {
+      return;
+    }
     const sourceValue = (source as any)[key];
     const targetValue = (target as any)[key];
 
