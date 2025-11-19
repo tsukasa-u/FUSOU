@@ -42,6 +42,9 @@ export const POST: APIRoute = async ({ request, cookies, redirect }) => {
         );
     } catch (error) {
         console.error('Error refreshing Google access token:', error);
-        return new Response(JSON.stringify(error), { status: 500 });
+        return new Response(
+            JSON.stringify({ error: "Failed to refresh access token" }),
+            { status: 500 }
+        );
     }
 }
