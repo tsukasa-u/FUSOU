@@ -865,7 +865,7 @@ pub async fn write_port_table(
             let Some(folder_id) = folder_map.get(&table_name_str) else {
                 continue;
             };
-            create_file(
+            let file_id = create_file(
                 hub,
                 file_name.clone(),
                 mime_type.clone(),
@@ -873,6 +873,12 @@ pub async fn write_port_table(
                 Some(folder_id.clone()),
             )
             .await?;
+            tracing::info!(
+                "Saved {} table to Google Drive: file_id={} ({} bytes)",
+                table_name_str,
+                file_id,
+                content.len()
+            );
         }
     }
 

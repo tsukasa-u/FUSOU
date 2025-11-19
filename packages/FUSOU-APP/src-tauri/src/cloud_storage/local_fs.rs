@@ -209,7 +209,13 @@ impl StorageProvider for LocalFileSystemProvider {
                     let table_dir = map_dir.join(table_name);
                     Self::ensure_dir(&table_dir).await?;
                     let file_path = table_dir.join(&file_name);
-                    fs::write(file_path, bytes).await?;
+                    fs::write(&file_path, bytes).await?;
+                    tracing::info!(
+                        "Saved {} table to local FS: {} ({} bytes)",
+                        table_name,
+                        file_path.display(),
+                        bytes.len()
+                    );
                 }
             }
 
