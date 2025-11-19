@@ -2,6 +2,19 @@ use std::path::{Path, PathBuf};
 
 use chrono::{TimeZone, Utc};
 use chrono_tz::Asia::Tokyo;
+use kc_api::database::integrate::integrate;
+use kc_api::database::models::airbase::{AirBase, PlaneInfo};
+use kc_api::database::models::battle::{
+    AirBaseAirAttack, AirBaseAirAttackList, AirBaseAssult, Battle, CarrierBaseAssault,
+    ClosingRaigeki, FriendlySupportHourai, FriendlySupportHouraiList, Hougeki, HougekiList,
+    MidnightHougeki, MidnightHougekiList, OpeningAirAttack, OpeningAirAttackList, OpeningRaigeki,
+    OpeningTaisen, OpeningTaisenList, SupportAirattack, SupportHourai,
+};
+use kc_api::database::models::cell::Cells;
+use kc_api::database::models::deck::{EnemyDeck, FriendDeck, OwnDeck, SupportDeck};
+use kc_api::database::models::env_info::EnvInfo;
+use kc_api::database::models::ship::{EnemyShip, FriendShip, OwnShip};
+use kc_api::database::models::slotitem::{EnemySlotItem, FriendSlotItem, OwnSlotItem};
 use kc_api::database::table::{
     GetDataTableEncode, GetDataTableEnum, PortTableEncode, PortTableEnum, GET_DATA_TABLE_NAMES,
     PORT_TABLE_NAMES,
@@ -11,9 +24,11 @@ use uuid::Uuid;
 
 use super::constants::{
     AVRO_FILE_EXTENSION, LOCAL_STORAGE_PROVIDER_NAME, MASTER_DATA_FOLDER_NAME,
-    PERIOD_ROOT_FOLDER_NAME, PORT_TABLE_FILE_NAME_SEPARATOR, STORAGE_ROOT_DIR_NAME,
+    PERIOD_ROOT_FOLDER_NAME, PORT_TABLE_FILE_NAME_SEPARATOR,
     STORAGE_SUB_DIR_NAME, TRANSACTION_DATA_FOLDER_NAME,
 };
+#[cfg(any(not(dev), check_release))]
+use super::constants::STORAGE_ROOT_DIR_NAME;
 use super::service::{StorageError, StorageFuture, StorageProvider};
 
 #[derive(Debug, Clone)]
@@ -182,6 +197,15 @@ impl StorageProvider for LocalFileSystemProvider {
 
             for table_name in PORT_TABLE_NAMES.iter() {
                 if let Some(bytes) = Self::resolve_port_table_bytes(table, table_name) {
+                    if bytes.is_empty() {
+                        tracing::warn!(
+                            "Skipping write of empty {} table for map {}-{}",
+                            table_name,
+                            maparea_id,
+                            mapinfo_no
+                        );
+                        continue;
+                    }
                     let table_dir = map_dir.join(table_name);
                     Self::ensure_dir(&table_dir).await?;
                     let file_path = table_dir.join(&file_name);
@@ -195,9 +219,135 @@ impl StorageProvider for LocalFileSystemProvider {
 
     fn integrate_port_table<'a>(
         &'a self,
-        _period_tag: &'a str,
+        period_tag: &'a str,
         _page_size: i32,
     ) -> StorageFuture<'a, Result<(), StorageError>> {
-        Box::pin(async { Ok(()) })
+        Box::pin(async move {
+            let period_dir = self.period_directory(period_tag);
+            let transaction_dir = period_dir.join(TRANSACTION_DATA_FOLDER_NAME);
+            
+            // Check if transaction_dir exists
+            if !transaction_dir.exists() {
+                return Ok(());
+            }
+
+            // Get all map directories (e.g., "1-5", "2-3")
+            let mut map_dirs = Vec::new();
+            let mut entries = fs::read_dir(&transaction_dir).await?;
+            while let Some(entry) = entries.next_entry().await? {
+                let path = entry.path();
+                if path.is_dir() {
+                    map_dirs.push(path);
+                }
+            }
+
+            // Process each map directory
+            for map_dir in map_dirs {
+                let utc = Utc::now().naive_utc();
+                let jst = Tokyo.from_utc_datetime(&utc);
+                let file_name = format!(
+                    "{}{}{}{}",
+                    jst.timestamp(),
+                    PORT_TABLE_FILE_NAME_SEPARATOR,
+                    Uuid::new_v4(),
+                    AVRO_FILE_EXTENSION
+                );
+
+                // Process each table type
+                for table_name in PORT_TABLE_NAMES.iter() {
+                    let table_dir = map_dir.join(table_name);
+                    if !table_dir.exists() {
+                        continue;
+                    }
+
+                    // Collect all files in this table directory
+                    let mut file_paths = Vec::new();
+                    let mut table_entries = fs::read_dir(&table_dir).await?;
+                    while let Some(entry) = table_entries.next_entry().await? {
+                        let path = entry.path();
+                        if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("avro") {
+                            file_paths.push(path);
+                        }
+                    }
+
+                    // Need at least 2 files to integrate
+                    if file_paths.len() < 2 {
+                        continue;
+                    }
+
+                    // Read all file contents
+                    let mut file_contents = Vec::new();
+                    for file_path in &file_paths {
+                        let content = fs::read(file_path).await?;
+                        file_contents.push(content);
+                    }
+
+                    // Integrate based on table type
+                    let table_enum = match table_name.parse::<PortTableEnum>() {
+                        Ok(e) => e,
+                        Err(_) => continue,
+                    };
+
+                    let integrated_content = match table_enum {
+                        PortTableEnum::EnvInfo => integrate::<EnvInfo>(file_contents),
+                        PortTableEnum::Cells => integrate::<Cells>(file_contents),
+                        PortTableEnum::AirBase => integrate::<AirBase>(file_contents),
+                        PortTableEnum::PlaneInfo => integrate::<PlaneInfo>(file_contents),
+                        PortTableEnum::OwnSlotItem => integrate::<OwnSlotItem>(file_contents),
+                        PortTableEnum::EnemySlotItem => integrate::<EnemySlotItem>(file_contents),
+                        PortTableEnum::FriendSlotItem => integrate::<FriendSlotItem>(file_contents),
+                        PortTableEnum::OwnShip => integrate::<OwnShip>(file_contents),
+                        PortTableEnum::EnemyShip => integrate::<EnemyShip>(file_contents),
+                        PortTableEnum::FriendShip => integrate::<FriendShip>(file_contents),
+                        PortTableEnum::OwnDeck => integrate::<OwnDeck>(file_contents),
+                        PortTableEnum::SupportDeck => integrate::<SupportDeck>(file_contents),
+                        PortTableEnum::EnemyDeck => integrate::<EnemyDeck>(file_contents),
+                        PortTableEnum::FriendDeck => integrate::<FriendDeck>(file_contents),
+                        PortTableEnum::AirBaseAirAttack => integrate::<AirBaseAirAttack>(file_contents),
+                        PortTableEnum::AirBaseAirAttackList => integrate::<AirBaseAirAttackList>(file_contents),
+                        PortTableEnum::AirBaseAssult => integrate::<AirBaseAssult>(file_contents),
+                        PortTableEnum::CarrierBaseAssault => integrate::<CarrierBaseAssault>(file_contents),
+                        PortTableEnum::ClosingRaigeki => integrate::<ClosingRaigeki>(file_contents),
+                        PortTableEnum::FriendlySupportHourai => integrate::<FriendlySupportHourai>(file_contents),
+                        PortTableEnum::FriendlySupportHouraiList => integrate::<FriendlySupportHouraiList>(file_contents),
+                        PortTableEnum::Hougeki => integrate::<Hougeki>(file_contents),
+                        PortTableEnum::HougekiList => integrate::<HougekiList>(file_contents),
+                        PortTableEnum::MidnightHougeki => integrate::<MidnightHougeki>(file_contents),
+                        PortTableEnum::MidnightHougekiList => integrate::<MidnightHougekiList>(file_contents),
+                        PortTableEnum::OpeningAirAttack => integrate::<OpeningAirAttack>(file_contents),
+                        PortTableEnum::OpeningAirAttackList => integrate::<OpeningAirAttackList>(file_contents),
+                        PortTableEnum::OpeningRaigeki => integrate::<OpeningRaigeki>(file_contents),
+                        PortTableEnum::OpeningTaisen => integrate::<OpeningTaisen>(file_contents),
+                        PortTableEnum::OpeningTaisenList => integrate::<OpeningTaisenList>(file_contents),
+                        PortTableEnum::SupportAirattack => integrate::<SupportAirattack>(file_contents),
+                        PortTableEnum::SupportHourai => integrate::<SupportHourai>(file_contents),
+                        PortTableEnum::Battle => integrate::<Battle>(file_contents),
+                    };
+
+                    match integrated_content {
+                        Ok(content) if !content.is_empty() => {
+                            // Write integrated file
+                            let integrated_path = table_dir.join(&file_name);
+                            fs::write(&integrated_path, content).await?;
+
+                            // Delete original files
+                            for file_path in &file_paths {
+                                if let Err(e) = fs::remove_file(file_path).await {
+                                    tracing::warn!("Failed to delete file {:?}: {}", file_path, e);
+                                }
+                            }
+                        }
+                        Ok(_) => {
+                            // Empty content, skip
+                        }
+                        Err(e) => {
+                            tracing::error!("Failed to integrate table {}: {:?}", table_name, e);
+                        }
+                    }
+                }
+            }
+
+            Ok(())
+        })
     }
 }

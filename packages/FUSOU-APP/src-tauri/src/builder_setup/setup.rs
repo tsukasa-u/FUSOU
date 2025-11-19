@@ -12,7 +12,6 @@ use tauri_plugin_opener::OpenerExt;
 use tokio::sync::mpsc;
 
 use crate::{
-    auth::auth_server,
     builder_setup::{
         bidirectional_channel::{
             get_pac_bidirectional_channel, get_proxy_bidirectional_channel,
@@ -21,7 +20,7 @@ use crate::{
         },
         logger,
     },
-    cloud_storage::{google_drive, integrate},
+    cloud_storage::integrate,
     cmd::{native_cmd, tauri_cmd},
     integration::discord,
     scheduler,

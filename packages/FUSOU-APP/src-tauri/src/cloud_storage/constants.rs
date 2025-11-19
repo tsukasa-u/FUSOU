@@ -1,3 +1,4 @@
+#[allow(dead_code)]
 pub(crate) const STORAGE_ROOT_DIR_NAME: &str = "FUSOU";
 pub(crate) const STORAGE_SUB_DIR_NAME: &str = "FUSOU-DATABASE";
 pub(crate) const PERIOD_ROOT_FOLDER_NAME: &str = "fusou";
