@@ -746,6 +746,11 @@ pub fn get_configs(config_path: &str) -> Configs {
         }
     };
 
+    // Update config file to include any new fields from default template
+    if let Err(e) = update_config_file(config_path) {
+        tracing::warn!("Failed to update config file with new fields: {}", e);
+    }
+
     user_configs
 }
 
@@ -754,4 +759,78 @@ pub fn get_user_configs() -> Configs {
     USER_CONFIGS
         .get_or_init(|| get_configs(CONFIGS_PATH))
         .clone()
+}
+
+/// Merge and update user config file with default template, preserving comments
+pub fn update_config_file(config_path: &str) -> Result<(), Box<dyn std::error::Error>> {
+    use toml_edit::DocumentMut;
+    
+    const DEFAULT_TOML_FILE: &str = include_str!("../configs.toml");
+    
+    // Parse default TOML with comments preserved
+    let mut default_doc = DEFAULT_TOML_FILE.parse::<DocumentMut>()?;
+    
+    // Read existing user config if it exists
+    let user_toml_content = fs::read_to_string(config_path).unwrap_or_default();
+    
+    if user_toml_content.is_empty() {
+        // No existing file, just write default
+        fs::write(config_path, DEFAULT_TOML_FILE)?;
+        tracing::info!("Created new config file with defaults at: {}", config_path);
+        return Ok(());
+    }
+    
+    // Parse existing user config
+    let user_doc = user_toml_content.parse::<DocumentMut>()?;
+    
+    // Merge: copy user values into default doc structure
+    merge_toml_values(&mut default_doc, &user_doc);
+    
+    // Write merged config back
+    fs::write(config_path, default_doc.to_string())?;
+    tracing::info!("Updated config file at: {}", config_path);
+    
+    Ok(())
+}
+
+/// Recursively merge user values into default document
+fn merge_toml_values(default_doc: &mut toml_edit::DocumentMut, user_doc: &toml_edit::DocumentMut) {
+    use toml_edit::Item;
+    
+    for (key, user_item) in user_doc.iter() {
+        if let Some(default_item) = default_doc.get_mut(key) {
+            match (default_item, user_item) {
+                (Item::Table(default_table), Item::Table(user_table)) => {
+                    // Recursively merge tables
+                    merge_table_values(default_table, user_table);
+                }
+                (Item::Value(default_value), Item::Value(user_value)) => {
+                    // Copy user value to default
+                    *default_value = user_value.clone();
+                }
+                _ => {
+                    // Type mismatch, keep default
+                }
+            }
+        }
+    }
+}
+
+/// Merge table values recursively
+fn merge_table_values(default_table: &mut toml_edit::Table, user_table: &toml_edit::Table) {
+    use toml_edit::Item;
+    
+    for (key, user_item) in user_table.iter() {
+        if let Some(default_item) = default_table.get_mut(key) {
+            match (default_item, user_item) {
+                (Item::Table(nested_default), Item::Table(nested_user)) => {
+                    merge_table_values(nested_default, nested_user);
+                }
+                (Item::Value(default_value), Item::Value(user_value)) => {
+                    *default_value = user_value.clone();
+                }
+                _ => {}
+            }
+        }
+    }
 }
