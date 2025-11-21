@@ -509,5 +509,23 @@ pub fn setup_init(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>
         app_handle.cleanup_before_exit();
         app_handle.exit(0_i32);
     });
+
+    // // Check Google Drive client availability on startup
+    // tauri::async_runtime::spawn(async move {
+    //     if !configs::get_user_configs_for_app()
+    //         .database
+    //         .get_allow_data_to_cloud()
+    //     {
+    //         return;
+    //     }
+
+    //     if google_drive::create_client().await.is_none() {
+    //         tracing::info!("Google Drive client creation failed, opening auth page");
+    //         if let Err(e) = auth_server::open_auth_page() {
+    //             tracing::error!("Failed to open auth page: {}", e);
+    //         }
+    //     }
+    // });
+
     return Ok(());
 }

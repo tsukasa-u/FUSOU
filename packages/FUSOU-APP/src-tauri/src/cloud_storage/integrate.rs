@@ -1,47 +1,27 @@
 use crate::{
-    auth::{auth_server, supabase},
-    cloud_storage::google_drive,
+    auth::supabase,
+    cloud_storage::service::{acquire_port_table_guard, StorageService},
 };
 use tokio;
 
 pub fn integrate_port_table() {
-    if !configs::get_user_configs_for_app()
-        .database
-        .get_allow_data_to_cloud()
-    {
+    let Some(storage_service) = StorageService::resolve() else {
         return;
-    }
+    };
 
     tokio::task::spawn(async move {
-        let _guard: tokio::sync::MutexGuard<'static, ()> =
-            google_drive::get_port_table_access_guard().await;
+        let _guard = acquire_port_table_guard().await;
 
         tracing::info!("Start to integrate port table in cloud storage");
 
         let pariod_tag = supabase::get_period_tag().await;
-        let hub = google_drive::create_client().await;
-        match hub {
-            Some(mut hub) => {
-                let folder_name = vec!["fusou".to_string(), pariod_tag.clone()];
-                let folder_id = google_drive::check_or_create_folder_hierarchical(
-                    &mut hub,
-                    folder_name,
-                    Some("root".to_string()),
-                )
-                .await;
-
-                // to figure out how many pages is best
-                let result = google_drive::integrate_port_table(&mut hub, folder_id, 32).await;
-                if result.is_none() {
-                    tracing::error!("Failed to integrate port table");
-                } else {
-                    tracing::info!("Successfully integrate port table in cloud storage");
-                }
-            }
-            None => {
-                tracing::error!("Failed to create google drive client");
-                let _ = auth_server::open_auth_page();
-            }
-        };
+        let page_size = configs::get_user_configs_for_app()
+            .database
+            .google_drive
+            .get_page_size() as i32;
+        storage_service
+            .integrate_port_table(&pariod_tag, page_size)
+            .await;
+        tracing::info!("Finished integrate port table tasks");
     });
 }

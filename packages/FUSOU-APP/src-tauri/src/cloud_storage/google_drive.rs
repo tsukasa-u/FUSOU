@@ -8,6 +8,7 @@ use once_cell::sync::Lazy;
 use proxy_https::proxy_server_https::setup_default_crypto_provider;
 use std::{collections::HashMap, sync::Mutex};
 use tokio::sync::OnceCell;
+use tokio::time::{sleep, Duration};
 use uuid::Uuid;
 
 use kc_api::database::models::airbase::{AirBase, PlaneInfo};
@@ -26,19 +27,127 @@ use kc_api::database::table::{
 };
 use kc_api::database::{integrate::integrate, models::env_info::EnvInfo};
 
+use super::constants::{
+    AVRO_FILE_EXTENSION, GOOGLE_DRIVE_AVRO_MIME_TYPE, GOOGLE_DRIVE_FOLDER_MIME_TYPE,
+    GOOGLE_DRIVE_PROVIDER_NAME, GOOGLE_DRIVE_ROOT_FOLDER_ID, GOOGLE_DRIVE_TRASHED_FILTER,
+    MASTER_DATA_FOLDER_NAME, PERIOD_ROOT_FOLDER_NAME, PORT_TABLE_FILE_NAME_SEPARATOR,
+    TRANSACTION_DATA_FOLDER_NAME,
+};
+use super::service::{StorageError, StorageFuture, StorageProvider};
 use crate::auth::auth_server;
 
-pub static GOOGLE_FOLDER_IDS: OnceCell<HashMap<String, String>> = OnceCell::const_new();
+type DriveClient =
+    DriveHub<hyper_rustls::HttpsConnector<hyper_util::client::legacy::connect::HttpConnector>>;
 
-static PORT_TABLE_ACCESS_GUARD: tokio::sync::OnceCell<tokio::sync::Mutex<()>> =
-    tokio::sync::OnceCell::const_new();
+#[derive(Debug, Default, Clone)]
+pub struct GoogleDriveProvider;
 
-pub async fn get_port_table_access_guard() -> tokio::sync::MutexGuard<'static, ()> {
-    PORT_TABLE_ACCESS_GUARD
-        .get_or_init(|| async { tokio::sync::Mutex::new(()) })
+impl GoogleDriveProvider {
+    async fn build_client(&self) -> Result<DriveClient, StorageError> {
+        match create_client().await {
+            Some(hub) => Ok(hub),
+            None => {
+                let _ = auth_server::open_auth_page();
+                Err(StorageError::ClientUnavailable)
+            }
+        }
+    }
+
+    async fn ensure_period_folder(
+        &self,
+        hub: &mut DriveClient,
+        period_tag: &str,
+    ) -> Result<String, StorageError> {
+        let folder_name = vec![PERIOD_ROOT_FOLDER_NAME.to_string(), period_tag.to_string()];
+        check_or_create_folder_hierarchical(
+            hub,
+            folder_name,
+            Some(GOOGLE_DRIVE_ROOT_FOLDER_ID.to_string()),
+        )
         .await
-        .lock()
-        .await
+        .ok_or_else(|| StorageError::Operation("failed to prepare google drive folder".into()))
+    }
+}
+
+fn backoff_delay(attempt: u32) -> Duration {
+    // 200ms, 500ms, 1s, 2s, 4s (cap)
+    let millis = match attempt {
+        0 => 200,
+        1 => 500,
+        2 => 1000,
+        3 => 2000,
+        _ => 4000,
+    };
+    Duration::from_millis(millis)
+}
+
+impl StorageProvider for GoogleDriveProvider {
+    fn name(&self) -> &'static str {
+        GOOGLE_DRIVE_PROVIDER_NAME
+    }
+
+    fn write_get_data_table<'a>(
+        &'a self,
+        period_tag: &'a str,
+        table: &'a crate::database::table::GetDataTableEncode,
+    ) -> StorageFuture<'a, Result<(), StorageError>> {
+        Box::pin(async move {
+            let mut hub = self.build_client().await?;
+            let folder_id = self.ensure_period_folder(&mut hub, period_tag).await?;
+            write_get_data_table(&mut hub, Some(folder_id), table.clone())
+                .await
+                .ok_or_else(|| StorageError::Operation("failed to write get data table".into()))?;
+            Ok(())
+        })
+    }
+
+    fn write_port_table<'a>(
+        &'a self,
+        period_tag: &'a str,
+        table: &'a crate::database::table::PortTableEncode,
+        maparea_id: i64,
+        mapinfo_no: i64,
+    ) -> StorageFuture<'a, Result<(), StorageError>> {
+        Box::pin(async move {
+            let mut hub = self.build_client().await?;
+            let folder_id = self.ensure_period_folder(&mut hub, period_tag).await?;
+            write_port_table(&mut hub, Some(folder_id), table.clone(), maparea_id, mapinfo_no)
+                .await
+                .ok_or_else(|| StorageError::Operation("failed to write port table".into()))?;
+            Ok(())
+        })
+    }
+
+    fn integrate_port_table<'a>(
+        &'a self,
+        period_tag: &'a str,
+        page_size: i32,
+    ) -> StorageFuture<'a, Result<(), StorageError>> {
+        Box::pin(async move {
+            let mut hub = self.build_client().await?;
+            let folder_id = self.ensure_period_folder(&mut hub, period_tag).await?;
+            integrate_port_table(&mut hub, Some(folder_id), page_size)
+                .await
+                .ok_or_else(|| StorageError::Operation("failed to integrate port table".into()))?;
+            Ok(())
+        })
+    }
+}
+
+async fn ensure_child_folders(
+    hub: &mut DriveClient,
+    parent_folder_id: &str,
+    folder_names: &[String],
+) -> Result<HashMap<String, String>, StorageError> {
+    let names: Vec<String> = folder_names.to_vec();
+    let folder_ids =
+        check_or_create_folders(hub, names.clone(), Some(parent_folder_id.to_string()))
+            .await
+            .ok_or_else(|| {
+                StorageError::Operation("failed to prepare google drive folders".into())
+            })?;
+
+    Ok(names.into_iter().zip(folder_ids.into_iter()).collect())
 }
 
 #[derive(Debug, Clone)]
@@ -141,7 +250,8 @@ pub async fn create_client() -> Option<
             match create_auth().await {
                 Some(auth) => auth,
                 None => {
-                    tracing::error!("failed to create auth");
+                    tracing::error!("failed to create auth. retrying...");
+                    let _ = auth_server::open_auth_page();
                     panic!("failed to create auth");
                 }
             }
@@ -197,20 +307,47 @@ pub async fn get_file_content(
     >,
     file_id: String,
 ) -> Option<Vec<u8>> {
-    let result = hub.files().get(&file_id).param("alt", "media").doit().await;
-    if let Err(e) = result {
-        tracing::error!("Error: {e:?}");
-        return None;
-    }
-    let result = result.unwrap();
-    let content: Option<Vec<u8>> = match result.0.into_body().collect().await {
-        Ok(bytes) => Some(bytes.to_bytes().into()),
-        Err(e) => {
-            tracing::error!("Error: {e:?}");
-            None
+    let mut last_err: Option<String> = None;
+    for attempt in 0..5u32 {
+        let result = hub
+            .files()
+            .get(&file_id)
+            .param("alt", "media")
+            .doit()
+            .await;
+        match result {
+            Ok(result) => {
+                let bytes = result
+                    .0
+                    .into_body()
+                    .collect()
+                    .await
+                    .ok()?
+                    .to_bytes();
+                return Some(bytes.to_vec());
+            }
+            Err(e) => {
+                let msg = format!("{e:?}");
+                last_err = Some(msg.clone());
+                tracing::warn!(
+                    "google drive get_file_content failed (attempt {}): {}",
+                    attempt + 1,
+                    msg
+                );
+                if attempt < 4 {
+                    sleep(backoff_delay(attempt)).await;
+                    continue;
+                } else {
+                    break;
+                }
+            }
         }
-    };
-    return content;
+    }
+    tracing::error!(
+        "get_file_content giving up after retries: {}",
+        last_err.unwrap_or_else(|| "unknown error".to_string())
+    );
+    None
 }
 
 pub async fn get_file_list_in_folder(
@@ -223,29 +360,55 @@ pub async fn get_file_list_in_folder(
 ) -> Option<Vec<String>> {
     let query = match parent_folder_id {
         Some(parent_folder_id) => format!(
-            "mimeType='{mime_type}' and trashed = false and '{parent_folder_id}' in parents"
+            "mimeType='{mime_type}' and {trash_filter} and '{parent_folder_id}' in parents",
+            trash_filter = GOOGLE_DRIVE_TRASHED_FILTER
         ),
-        None => format!("mimeType='{mime_type}' and trashed = false",),
+        None => format!(
+            "mimeType='{mime_type}' and {trash_filter}",
+            trash_filter = GOOGLE_DRIVE_TRASHED_FILTER
+        ),
     };
-    let result = hub
-        .files()
-        .list()
-        .q(&query)
-        .page_size(page_size)
-        .doit()
-        .await;
-    if let Err(e) = result {
-        tracing::error!("Error: {e:?}");
-        return None;
+    let mut last_err: Option<String> = None;
+    for attempt in 0..5u32 {
+        let result = hub
+            .files()
+            .list()
+            .q(&query)
+            .param("fields", "files(id),nextPageToken")
+            .page_size(page_size.min(100))
+            .doit()
+            .await;
+        match result {
+            Ok(result) => {
+                let files = result.1.files?;
+                let mut file_list = Vec::<String>::new();
+                for file in files {
+                    file_list.push(file.id.unwrap_or_default());
+                }
+                return Some(file_list);
+            }
+            Err(e) => {
+                let msg = format!("{e:?}");
+                last_err = Some(msg.clone());
+                tracing::warn!(
+                    "google drive list failed (attempt {}): {}",
+                    attempt + 1,
+                    msg
+                );
+                if attempt < 4 {
+                    sleep(backoff_delay(attempt)).await;
+                    continue;
+                } else {
+                    break;
+                }
+            }
+        }
     }
-    let result = result.unwrap();
-    let files = result.1.files?;
-    let mut file_list = Vec::<String>::new();
-
-    for file in files {
-        file_list.push(file.id.unwrap_or_default());
-    }
-    return Some(file_list);
+    tracing::error!(
+        "get_file_list_in_folder giving up after retries: {}",
+        last_err.unwrap_or_else(|| "unknown error".to_string())
+    );
+    None
 }
 
 pub async fn check_folder(
@@ -257,23 +420,56 @@ pub async fn check_folder(
 ) -> Option<String> {
     let query  = match parent_folder_id {
         Some(parent_folder_id) => format!(
-            "mimeType='application/vnd.google-apps.folder' and name='{folder_name}' and trashed = false and '{parent_folder_id}' in parents"
+            "mimeType='{folder_mime}' and name='{folder_name}' and {trash_filter} and '{parent_folder_id}' in parents",
+            folder_mime = GOOGLE_DRIVE_FOLDER_MIME_TYPE,
+            trash_filter = GOOGLE_DRIVE_TRASHED_FILTER
         ),
         None => format!(
-            "mimeType='application/vnd.google-apps.folder' and name='{folder_name}' and trashed = false"
+            "mimeType='{folder_mime}' and name='{folder_name}' and {trash_filter}",
+            folder_mime = GOOGLE_DRIVE_FOLDER_MIME_TYPE,
+            trash_filter = GOOGLE_DRIVE_TRASHED_FILTER
         ),
     };
-    let result = hub.files().list().q(&query).doit().await;
-    if let Err(e) = result {
-        tracing::error!("Error: {e:?}");
-        return None;
+    let mut last_err: Option<String> = None;
+    for attempt in 0..5u32 {
+        let result = hub
+            .files()
+            .list()
+            .q(&query)
+            .param("fields", "files(id)")
+            .page_size(10)
+            .doit()
+            .await;
+        match result {
+            Ok(result) => {
+                let files = result.1.files?;
+                if files.is_empty() {
+                    return None;
+                }
+                return Some(files[0].id.clone().unwrap());
+            }
+            Err(e) => {
+                let msg = format!("{e:?}");
+                last_err = Some(msg.clone());
+                tracing::warn!(
+                    "google drive check_folder failed (attempt {}): {}",
+                    attempt + 1,
+                    msg
+                );
+                if attempt < 4 {
+                    sleep(backoff_delay(attempt)).await;
+                    continue;
+                } else {
+                    break;
+                }
+            }
+        }
     }
-    let result = result.unwrap();
-    let files = result.1.files?;
-    if files.is_empty() {
-        return None;
-    }
-    return Some(files[0].id.clone().unwrap());
+    tracing::error!(
+        "check_folder giving up after retries: {}",
+        last_err.unwrap_or_else(|| "unknown error".to_string())
+    );
+    None
 }
 
 pub async fn check_or_create_folder(
@@ -283,7 +479,7 @@ pub async fn check_or_create_folder(
     folder_name: String,
     parent_folder_id: Option<String>,
 ) -> Option<String> {
-    let mime_type = "application/vnd.google-apps.folder".to_string();
+    let mime_type = GOOGLE_DRIVE_FOLDER_MIME_TYPE.to_string();
 
     let result = check_folder(hub, folder_name.clone(), parent_folder_id.clone()).await;
     if result.is_some() {
@@ -340,23 +536,54 @@ pub async fn check_file(
 ) -> Option<String> {
     let query = match parent_folder_id {
         Some(parent_folder_id) => format!(
-            "mimeType='{mime_type}' and name='{file_name}' and trashed = false and '{parent_folder_id}' in parents"
+            "mimeType='{mime_type}' and name='{file_name}' and {trash_filter} and '{parent_folder_id}' in parents",
+            trash_filter = GOOGLE_DRIVE_TRASHED_FILTER
         ),
         None => format!(
-            "mimeType='{mime_type}' and name='{file_name}' and trashed = false"
+            "mimeType='{mime_type}' and name='{file_name}' and {trash_filter}",
+            trash_filter = GOOGLE_DRIVE_TRASHED_FILTER
         ),
     };
-    let result = hub.files().list().q(&query).doit().await;
-    if let Err(e) = result {
-        tracing::error!("Error: {e:?}");
-        return None;
+    let mut last_err: Option<String> = None;
+    for attempt in 0..5u32 {
+        let result = hub
+            .files()
+            .list()
+            .q(&query)
+            .param("fields", "files(id)")
+            .page_size(10)
+            .doit()
+            .await;
+        match result {
+            Ok(result) => {
+                let files = result.1.files?;
+                if files.is_empty() {
+                    return None;
+                }
+                return Some(files[0].id.clone().unwrap());
+            }
+            Err(e) => {
+                let msg = format!("{e:?}");
+                last_err = Some(msg.clone());
+                tracing::warn!(
+                    "google drive check_file failed (attempt {}): {}",
+                    attempt + 1,
+                    msg
+                );
+                if attempt < 4 {
+                    sleep(backoff_delay(attempt)).await;
+                    continue;
+                } else {
+                    break;
+                }
+            }
+        }
     }
-    let result = result.unwrap();
-    let files = result.1.files?;
-    if files.is_empty() {
-        return None;
-    }
-    return Some(files[0].id.clone().unwrap());
+    tracing::error!(
+        "check_file giving up after retries: {}",
+        last_err.unwrap_or_else(|| "unknown error".to_string())
+    );
+    None
 }
 
 pub async fn delete_file(
@@ -365,12 +592,33 @@ pub async fn delete_file(
     >,
     file_id: String,
 ) -> bool {
-    let result = hub.files().delete(&file_id).doit().await;
-    if let Err(e) = result {
-        tracing::error!("Error: {e:?}");
-        return false;
+    let mut last_err: Option<String> = None;
+    for attempt in 0..5u32 {
+        let result = hub.files().delete(&file_id).doit().await;
+        match result {
+            Ok(_) => return true,
+            Err(e) => {
+                let msg = format!("{e:?}");
+                last_err = Some(msg.clone());
+                tracing::warn!(
+                    "google drive delete_file failed (attempt {}): {}",
+                    attempt + 1,
+                    msg
+                );
+                if attempt < 4 {
+                    sleep(backoff_delay(attempt)).await;
+                    continue;
+                } else {
+                    break;
+                }
+            }
+        }
     }
-    return true;
+    tracing::error!(
+        "delete_file giving up after retries: {}",
+        last_err.unwrap_or_else(|| "unknown error".to_string())
+    );
+    false
 }
 
 pub async fn create_file(
@@ -396,20 +644,40 @@ pub async fn create_file(
         ..Default::default()
     };
 
-    let create_result = hub
-        .files()
-        .create(req)
-        .upload(std::io::Cursor::new(content), mime_type.parse().unwrap())
-        .await;
-    if let Err(e) = create_result {
-        tracing::error!("Error: {e:?}");
-        return None;
+    let mut last_err: Option<String> = None;
+    for attempt in 0..5u32 {
+        let create_result = hub
+            .files()
+            .create(req.clone())
+            .upload(std::io::Cursor::new(content), mime_type.parse().unwrap())
+            .await;
+        match create_result {
+            Ok(result) => return result.1.id,
+            Err(e) => {
+                let msg = format!("{e:?}");
+                last_err = Some(msg.clone());
+                tracing::warn!(
+                    "google drive create upload failed (attempt {}): {}",
+                    attempt + 1,
+                    msg
+                );
+                if attempt < 4 {
+                    sleep(backoff_delay(attempt)).await;
+                    continue;
+                } else {
+                    break;
+                }
+            }
+        }
     }
-    let create_result = create_result.unwrap();
-    return create_result.1.id;
+    tracing::error!(
+        "create_file giving up after retries: {}",
+        last_err.unwrap_or_else(|| "unknown error".to_string())
+    );
+    None
 }
 
-pub async fn check_or_create_file(
+pub async fn create_or_replace_file(
     hub: &mut DriveHub<
         hyper_rustls::HttpsConnector<hyper_util::client::legacy::connect::HttpConnector>,
     >,
@@ -418,31 +686,52 @@ pub async fn check_or_create_file(
     content: &[u8],
     folder_id: Option<String>,
 ) -> Option<String> {
-    let result = check_file(hub, file_name.clone(), mime_type.clone(), folder_id.clone()).await;
-    if result.is_some() {
-        return result;
-    }
-
-    let parent_folder_ids = folder_id.map(|id| vec![id]);
-
-    let req = google_drive3::api::File {
-        name: Some(file_name),
-        mime_type: Some(mime_type.clone()),
-        parents: parent_folder_ids,
-        ..Default::default()
-    };
-
-    let create_result = hub
-        .files()
-        .create(req)
-        .upload(std::io::Cursor::new(content), mime_type.parse().unwrap())
-        .await;
-    if let Err(e) = create_result {
-        tracing::error!("Error: {e:?}");
+    if let Some(existing_id) =
+        check_file(hub, file_name.clone(), mime_type.clone(), folder_id.clone()).await
+    {
+        // Do not set `parents` in update requests. Drive API forbids writing
+        // parents via update; use addParents/removeParents params instead if moving.
+        // Here we only update content in-place, so omit parents.
+        let req = google_drive3::api::File {
+            name: Some(file_name.clone()),
+            mime_type: Some(mime_type.clone()),
+            parents: None,
+            ..Default::default()
+        };
+        let mut last_err: Option<String> = None;
+        for attempt in 0..5u32 {
+            let update_result = hub
+                .files()
+                .update(req.clone(), &existing_id)
+                .upload(std::io::Cursor::new(content), mime_type.parse().unwrap())
+                .await;
+            match update_result {
+                Ok(_) => return Some(existing_id),
+                Err(err) => {
+                    let msg = format!("{err:?}");
+                    last_err = Some(msg.clone());
+                    tracing::warn!(
+                        "google drive update upload failed (attempt {}): {}",
+                        attempt + 1,
+                        msg
+                    );
+                    if attempt < 4 {
+                        sleep(backoff_delay(attempt)).await;
+                        continue;
+                    } else {
+                        break;
+                    }
+                }
+            }
+        }
+        tracing::error!(
+            "create_or_replace_file (update path) giving up after retries: {}",
+            last_err.unwrap_or_else(|| "unknown error".to_string())
+        );
         return None;
     }
-    let create_result = create_result.unwrap();
-    return create_result.1.id;
+
+    create_file(hub, file_name, mime_type, content, folder_id).await
 }
 
 pub async fn write_get_data_table(
@@ -452,12 +741,8 @@ pub async fn write_get_data_table(
     folder_id: Option<String>,
     table: crate::database::table::GetDataTableEncode,
 ) -> Option<String> {
-    let mime_type = "application/avro".to_string();
-    let folder_name = "master_data".to_string();
-    let check_folder_result = check_folder(hub, folder_name.clone(), folder_id.clone()).await;
-    if check_folder_result.is_some() {
-        return None;
-    }
+    let mime_type = GOOGLE_DRIVE_AVRO_MIME_TYPE.to_string();
+    let folder_name = MASTER_DATA_FOLDER_NAME.to_string();
     let master_folder_id = check_or_create_folder(hub, folder_name, folder_id.clone()).await?;
 
     for table_names in GET_DATA_TABLE_NAMES.clone() {
@@ -478,9 +763,10 @@ pub async fn write_get_data_table(
                 GetDataTableEnum::MstShipGraph => table.mst_ship_graph.clone(),
                 GetDataTableEnum::MstShipUpgrade => table.mst_ship_upgrade.clone(),
             };
-            check_or_create_file(
+            let file_name = format!("{table_names}{AVRO_FILE_EXTENSION}");
+            create_or_replace_file(
                 hub,
-                table_names.clone(),
+                file_name,
                 mime_type.clone(),
                 content.as_slice(),
                 Some(master_folder_id.clone()),
@@ -498,42 +784,37 @@ pub async fn write_port_table(
     >,
     folder_id: Option<String>,
     table: crate::database::table::PortTableEncode,
+    maparea_id: i64,
+    mapinfo_no: i64,
 ) -> Option<String> {
-    let mime_type = "application/avro".to_string();
-    let folder_name = "transaction_data".to_string();
+    let mime_type = GOOGLE_DRIVE_AVRO_MIME_TYPE.to_string();
+    let folder_name = TRANSACTION_DATA_FOLDER_NAME.to_string();
     let transaction_folder_id = check_or_create_folder(hub, folder_name, folder_id.clone()).await?;
+    
+    // Create map-specific folder (e.g., "1-5" for maparea_id=1, mapinfo_no=5)
+    let map_folder_name = format!("{}-{}", maparea_id, mapinfo_no);
+    let map_folder_id = check_or_create_folder(hub, map_folder_name, Some(transaction_folder_id.clone())).await?;
 
     let utc = Utc::now().naive_utc();
     let jst = Tokyo.from_utc_datetime(&utc);
-    let file_name = format!("{}_{}", jst.timestamp(), Uuid::new_v4());
+    let file_name = format!(
+        "{}{}{}{}",
+        jst.timestamp(),
+        PORT_TABLE_FILE_NAME_SEPARATOR,
+        Uuid::new_v4(),
+        AVRO_FILE_EXTENSION
+    );
+    let folder_names = PORT_TABLE_NAMES.clone();
+    let folder_map = match ensure_child_folders(hub, &map_folder_id, &folder_names).await {
+        Ok(map) => map,
+        Err(err) => {
+            tracing::error!("failed to prepare port table folders: {err}");
+            return None;
+        }
+    };
 
-    let folder_id_list = GOOGLE_FOLDER_IDS
-        .get_or_init(|| async {
-            let folder_name_vec = PORT_TABLE_NAMES.clone();
-            let folder_id_vec = check_or_create_folders(
-                hub,
-                folder_name_vec.clone(),
-                Some(transaction_folder_id.clone()),
-            )
-            .await
-            .unwrap();
-
-            let folder_map: HashMap<String, String> = folder_name_vec
-                .iter()
-                .zip(folder_id_vec.iter())
-                .map(|(name, id)| {
-                    let name = name.clone();
-                    let id = id.clone();
-                    (name, id)
-                })
-                .collect();
-            return folder_map;
-        })
-        .await
-        .clone();
-
-    for (folder_id_name, folder_id) in folder_id_list {
-        let table_name = folder_id_name.clone().parse::<PortTableEnum>();
+    for table_name_str in folder_names {
+        let table_name = table_name_str.parse::<PortTableEnum>();
         if let Ok(table_name) = table_name {
             let content: Vec<u8> = match table_name {
                 PortTableEnum::EnvInfo => table.env_info.clone(),
@@ -572,7 +853,19 @@ pub async fn write_port_table(
                 PortTableEnum::SupportHourai => table.support_hourai.clone(),
                 PortTableEnum::Battle => table.battle.clone(),
             };
-            create_file(
+            if content.is_empty() {
+                tracing::warn!(
+                    "Skipping write of empty {} table for map {}-{}",
+                    table_name_str,
+                    maparea_id,
+                    mapinfo_no
+                );
+                continue;
+            }
+            let Some(folder_id) = folder_map.get(&table_name_str) else {
+                continue;
+            };
+            let file_id = create_file(
                 hub,
                 file_name.clone(),
                 mime_type.clone(),
@@ -580,6 +873,12 @@ pub async fn write_port_table(
                 Some(folder_id.clone()),
             )
             .await?;
+            tracing::info!(
+                "Saved {} table to Google Drive: file_id={} ({} bytes)",
+                table_name_str,
+                file_id,
+                content.len()
+            );
         }
     }
 
@@ -593,44 +892,41 @@ pub async fn integrate_port_table(
     folder_id: Option<String>,
     page_size: i32,
 ) -> Option<String> {
-    let mime_type = "application/avro".to_string();
-    let folder_name = "transaction_data".to_string();
-    let integrated_folder_id = check_or_create_folder(hub, folder_name, folder_id.clone()).await?;
+    let mime_type = GOOGLE_DRIVE_AVRO_MIME_TYPE.to_string();
+    let folder_mime_type = GOOGLE_DRIVE_FOLDER_MIME_TYPE.to_string();
+    let folder_name = TRANSACTION_DATA_FOLDER_NAME.to_string();
+    let transaction_folder_id = check_or_create_folder(hub, folder_name, folder_id.clone()).await?;
 
-    let utc = Utc::now().naive_utc();
-    let jst = Tokyo.from_utc_datetime(&utc);
-    let file_name = format!("{}_{}", jst.timestamp(), Uuid::new_v4());
-    let folder_id_list = GOOGLE_FOLDER_IDS
-        .get_or_init(|| async {
-            let folder_name_vec = PORT_TABLE_NAMES
-                .iter()
-                .map(|s| s.to_string())
-                .collect::<Vec<String>>();
-            let folder_id_vec = check_or_create_folders(
-                hub,
-                folder_name_vec.clone(),
-                Some(integrated_folder_id.clone()),
-            )
-            .await
-            .unwrap();
+    // Get all map folders (e.g., "1-5", "2-3") in transaction_data
+    let map_folder_ids = get_file_list_in_folder(hub, Some(transaction_folder_id.clone()), page_size, folder_mime_type.clone()).await?;
+    
+    // Process each map folder
+    for map_folder_id in map_folder_ids {
+        let utc = Utc::now().naive_utc();
+        let jst = Tokyo.from_utc_datetime(&utc);
+        let file_name = format!(
+            "{}{}{}{}",
+            jst.timestamp(),
+            PORT_TABLE_FILE_NAME_SEPARATOR,
+            Uuid::new_v4(),
+            AVRO_FILE_EXTENSION
+        );
+        let folder_names = PORT_TABLE_NAMES.clone();
+        let folder_map = match ensure_child_folders(hub, &map_folder_id, &folder_names).await {
+            Ok(map) => map,
+            Err(err) => {
+                tracing::error!("failed to prepare integration folders for map folder: {err}");
+                continue;
+            }
+        };
 
-            let folder_map: HashMap<String, String> = folder_name_vec
-                .iter()
-                .zip(folder_id_vec.iter())
-                .map(|(name, id)| {
-                    let name = name.clone();
-                    let id = id.clone();
-                    (name, id)
-                })
-                .collect();
-            return folder_map;
-        })
-        .await
-        .clone();
-    for (folder_name, folder_id) in folder_id_list.iter() {
-        let file_id_list =
-            get_file_list_in_folder(hub, Some(folder_id.clone()), page_size, mime_type.clone())
-                .await;
+        for table_name in folder_names {
+            let Some(folder_id) = folder_map.get(&table_name) else {
+                continue;
+            };
+            let file_id_list =
+                get_file_list_in_folder(hub, Some(folder_id.clone()), page_size, mime_type.clone())
+                    .await;
         let file_content_list = if let Some(file_id_list) = file_id_list.clone() {
             if file_id_list.is_empty() || file_id_list.len() == 1 {
                 continue;
@@ -651,7 +947,7 @@ pub async fn integrate_port_table(
                 continue;
             }
             let integrated_content = if let Ok(table_name) =
-                folder_name.clone().parse::<PortTableEnum>()
+                table_name.clone().parse::<PortTableEnum>()
             {
                 match table_name {
                     PortTableEnum::EnvInfo => integrate::<EnvInfo>(file_content_list),
@@ -734,6 +1030,7 @@ pub async fn integrate_port_table(
         } else {
             continue;
         }
+        }
     }
-    return Some(integrated_folder_id);
+    return Some(transaction_folder_id);
 }
