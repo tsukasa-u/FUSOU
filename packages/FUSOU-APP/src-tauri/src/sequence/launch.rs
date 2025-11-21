@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use tauri::Manager;
 
+use crate::auth::supabase;
 use crate::util::get_ROAMING_DIR;
 use crate::window::external::create_external_window;
 use crate::window::external::SHARED_BROWSER;
@@ -63,8 +64,10 @@ pub async fn launch_with_options(
                             .expect_or_log("failed to convert str")
                             .to_string();
 
+                        let period_tag = supabase::get_period_tag().await;
+
                         #[cfg(dev)]
-                        let save_path = "./../../FUSOU-PROXY-DATA".to_string();
+                        let save_path = format!("./../../FUSOU-PROXY-DATA/{}", period_tag);
                         #[cfg(any(not(dev), check_release))]
                         let save_path = window
                             .app_handle()
@@ -73,6 +76,7 @@ pub async fn launch_with_options(
                             .expect_or_log("failed to get doc dirs")
                             .join("FUSOU")
                             .join("FUSOU-PROXY-DATA")
+                            .join(&period_tag)
                             .as_path()
                             .to_str()
                             .expect_or_log("failed to convert str")
