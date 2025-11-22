@@ -3,11 +3,13 @@ use std::path::PathBuf;
 use std::{fs, sync::Mutex, time};
 
 use tauri::{
-    menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder},
+    menu::{CheckMenuItemBuilder, MenuBuilder, MenuItemBuilder, SubmenuBuilder},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     Manager,
 };
 use tauri_plugin_deep_link::DeepLinkExt;
+use tauri_plugin_autostart::ManagerExt;
+use tauri_plugin_notification::NotificationExt;
 use tauri_plugin_opener::OpenerExt;
 use tokio::sync::mpsc;
 
@@ -34,6 +36,12 @@ use crate::builder_setup::updater::setup_updater;
 
 use crate::RESOURCES_DIR;
 use crate::ROAMING_DIR;
+
+#[derive(Clone, Copy, Debug)]
+enum ShutdownSignal {
+    Exit,
+    Restart,
+}
 
 fn setup_deep_link(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(any(target_os = "linux", all(debug_assertions, windows)))]
@@ -86,7 +94,7 @@ fn set_paths(
 
 fn setup_tray(
     app: &mut tauri::App,
-    shutdown_tx: mpsc::Sender<()>,
+    shutdown_tx: mpsc::Sender<ShutdownSignal>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let danger_ope_sub_menu_title =
         MenuItemBuilder::with_id("danger-title".to_string(), "Danger Zone")
@@ -111,8 +119,7 @@ fn setup_tray(
         MenuItemBuilder::with_id("open-auth-window".to_string(), "Open Auth Window").build(app)?;
 
     let quit = MenuItemBuilder::with_id("quit".to_string(), "Quit").build(app)?;
-    // let restart = MenuItemBuilder::with_id("restart".to_string(), "Restart")
-    //     .build(app)?;
+    let restart = MenuItemBuilder::with_id("restart".to_string(), "Restart").build(app)?;
     let title = MenuItemBuilder::with_id("title".to_string(), "FUSOU")
         .enabled(false)
         .build(app)?;
@@ -130,6 +137,14 @@ fn setup_tray(
 
     let open_log_file =
         MenuItemBuilder::with_id("open-log-file".to_string(), "Open log file").build(app)?;
+
+    let autostart_enabled = app.autolaunch().is_enabled().unwrap_or(false);
+    let launch_at_startup = CheckMenuItemBuilder::with_id(
+        "toggle-autostart".to_string(),
+        "Launch at Startup",
+    )
+    .checked(autostart_enabled)
+    .build(app)?;
 
     let intergrate_file =
         MenuItemBuilder::with_id("intergrate_file".to_string(), "Intergrate Cloud File")
@@ -158,6 +173,7 @@ fn setup_tray(
 
     let advanced_sub_menu = SubmenuBuilder::new(app, "Adavanced")
         // .item(&adavanced_title)
+        .item(&launch_at_startup)
         .item(&open_configs)
         .item(&open_log_file)
         .item(&intergrate_file)
@@ -176,8 +192,8 @@ fn setup_tray(
         .separator()
         .item(&advanced_sub_menu)
         .separator()
+        .item(&restart)
         .item(&quit)
-        // .item(&restart)
         .build()?;
 
     app.manage(Mutex::new(main_open_close));
@@ -264,7 +280,42 @@ fn setup_tray(
                         }
                     },
                     "proxy-serve-shutdown" => {}
-                    // "restart" => {}
+                    "restart" => {
+                        if let Some(window) = tray.get_webview_window("main") {
+                            if let Ok(visible) = window.is_visible() {
+                                if visible {
+                                    if let Err(e) = window.hide() {
+                                        tracing::error!("Failed to hide main window: {}", e);
+                                    }
+                                }
+                            }
+                        }
+
+                        if let Some(window) = tray.get_webview_window("external") {
+                            if let Ok(visible) = window.is_visible() {
+                                if visible {
+                                    if let Err(e) = window.hide() {
+                                        tracing::error!(
+                                            "Failed to hide external window: {}",
+                                            e
+                                        );
+                                    }
+                                }
+                            }
+                        }
+
+                        let _ = restart.set_enabled(false);
+                        let _ = quit.set_enabled(false);
+                        let _ = adavanced_title.set_enabled(false);
+
+                        native_cmd::remove_pac(tray.app_handle());
+                        discord::close();
+
+                        let shutdown_tx_clone = shutdown_tx.clone();
+                        tauri::async_runtime::spawn(async move {
+                            let _ = shutdown_tx_clone.send(ShutdownSignal::Restart).await;
+                        });
+                    }
                     "quit" => {
                         if let Some(window) = tray.get_webview_window("main") {
                             if let Ok(visible) = window.is_visible() {
@@ -296,8 +347,42 @@ fn setup_tray(
 
                         let shutdown_tx_clone = shutdown_tx.clone();
                         tauri::async_runtime::spawn(async move {
-                            let _ = shutdown_tx_clone.send(()).await;
+                            let _ = shutdown_tx_clone.send(ShutdownSignal::Exit).await;
                         });
+                    }
+                    "toggle-autostart" => {
+                        match launch_at_startup.is_checked() {
+                            Ok(true) => {
+                                if let Err(e) = tray.app_handle().autolaunch().disable() {
+                                    tracing::error!(
+                                        "Failed to disable autostart entry: {}",
+                                        e
+                                    );
+                                } else if let Err(e) = launch_at_startup.set_checked(false) {
+                                    tracing::error!(
+                                        "Failed to update autostart menu item: {}",
+                                        e
+                                    );
+                                }
+                            }
+                            Ok(false) => {
+                                if let Err(e) = tray.app_handle().autolaunch().enable() {
+                                    tracing::error!(
+                                        "Failed to enable autostart entry: {}",
+                                        e
+                                    );
+                                } else if let Err(e) = launch_at_startup.set_checked(true) {
+                                    tracing::error!(
+                                        "Failed to update autostart menu item: {}",
+                                        e
+                                    );
+                                }
+                            }
+                            Err(e) => tracing::error!(
+                                "Unable to read autostart menu state: {}",
+                                e
+                            ),
+                        }
                     }
                     // "visit-website" => {
                     //     let browser = SHARED_BROWSER.lock().unwrap().get_browser();
@@ -428,6 +513,35 @@ fn setup_tray(
     Ok(())
 }
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+fn ensure_autostart_initialized(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+    let flags_dir = get_ROAMING_DIR().join("flags");
+    let marker = flags_dir.join("autostart-initialized");
+
+    if marker.exists() {
+        return Ok(());
+    }
+
+    app.autolaunch().enable()?;
+    if !flags_dir.exists() {
+        fs::create_dir_all(&flags_dir)?;
+    }
+    fs::write(marker, b"1")?;
+    Ok(())
+}
+
+fn notify_startup(app: &tauri::App) {
+    if let Err(e) = app
+        .notification()
+        .builder()
+        .title("FUSOU")
+        .body("FUSOU is running in the background. Use the tray for controls.")
+        .show()
+    {
+        tracing::warn!("Failed to show startup notification: {}", e);
+    }
+}
+
 pub fn setup_discord() -> Result<(), Box<dyn std::error::Error>> {
     discord::connect();
     // discord::set_activity("experimental implementation", "playing KanColle with FUSOU");
@@ -457,7 +571,7 @@ pub fn setup_configs() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 pub fn setup_init(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
-    let (shutdown_tx, mut shutdown_rx) = mpsc::channel::<()>(1);
+    let (shutdown_tx, mut shutdown_rx) = mpsc::channel::<ShutdownSignal>(1);
 
     set_paths(app)?;
     logger::setup(app);
@@ -465,8 +579,13 @@ pub fn setup_init(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>
     setup_updater(app)?;
     setup_deep_link(app)?;
     setup_configs()?;
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    if let Err(e) = ensure_autostart_initialized(app) {
+        tracing::warn!("Failed to initialize autostart entry: {}", e);
+    }
     setup_tray(app, shutdown_tx)?;
     setup_discord()?;
+    notify_startup(app);
     scheduler::integrate_file::start_scheduler();
 
     let proxy_bidirectional_channel_master_clone = get_proxy_bidirectional_channel().clone_master();
@@ -480,12 +599,19 @@ pub fn setup_init(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>
 
     let app_handle = app.handle().clone();
     tauri::async_runtime::spawn(async move {
+        let mut intent = ShutdownSignal::Exit;
         tokio::select! {
             _ = tokio::signal::ctrl_c() => {
                 tracing::info!("Received Ctrl+C, shutting down.");
             }
-            _ = shutdown_rx.recv() => {
-                tracing::info!("Received shutdown signal, shutting down.");
+            signal = shutdown_rx.recv() => {
+                match signal {
+                    Some(sig) => {
+                        tracing::info!("Received shutdown signal: {:?}", sig);
+                        intent = sig;
+                    }
+                    None => tracing::info!("Shutdown channel closed, exiting."),
+                }
             }
         }
         // is it needed to add select! for timeout?
@@ -507,7 +633,10 @@ pub fn setup_init(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>
 
         tokio::time::sleep(time::Duration::from_millis(2000)).await;
         app_handle.cleanup_before_exit();
-        app_handle.exit(0_i32);
+        match intent {
+            ShutdownSignal::Restart => app_handle.request_restart(),
+            ShutdownSignal::Exit => app_handle.exit(0_i32),
+        }
     });
 
     // // Check Google Drive client availability on startup
