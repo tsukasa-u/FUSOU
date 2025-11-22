@@ -22,7 +22,15 @@
     "windows": {
       "certificateThumbprint": null,
       "digestAlgorithm": "sha256",
-      "timestampUrl": ""
+      "timestampUrl": "",
+      "nsis": {
+        "include": "./src-tauri/installer/nsis/app-paths.nsh"
+      },
+      "wix": {
+        "fragmentPaths": [
+          "./src-tauri/installer/wix/app-paths.wxs"
+        ]
+      }
     },
     "longDescription": "",
     "macOS": {
