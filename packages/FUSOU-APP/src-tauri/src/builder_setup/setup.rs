@@ -95,6 +95,7 @@ fn set_paths(
 fn setup_tray(
     app: &mut tauri::App,
     shutdown_tx: mpsc::Sender<ShutdownSignal>,
+    autostart_allowed: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let danger_ope_sub_menu_title =
         MenuItemBuilder::with_id("danger-title".to_string(), "Danger Zone")
@@ -138,13 +139,19 @@ fn setup_tray(
     let open_log_file =
         MenuItemBuilder::with_id("open-log-file".to_string(), "Open log file").build(app)?;
 
-    let autostart_enabled = app.autolaunch().is_enabled().unwrap_or(false);
-    let launch_at_startup = CheckMenuItemBuilder::with_id(
-        "toggle-autostart".to_string(),
-        "Launch at Startup",
-    )
-    .checked(autostart_enabled)
-    .build(app)?;
+    let launch_at_startup = if autostart_allowed {
+        let autostart_enabled = app.autolaunch().is_enabled().unwrap_or(false);
+        Some(
+            CheckMenuItemBuilder::with_id(
+                "toggle-autostart".to_string(),
+                "Launch at Startup",
+            )
+            .checked(autostart_enabled)
+            .build(app)?,
+        )
+    } else {
+        None
+    };
 
     let intergrate_file =
         MenuItemBuilder::with_id("intergrate_file".to_string(), "Intergrate Cloud File")
@@ -171,9 +178,13 @@ fn setup_tray(
         .enabled(false)
         .build(app)?;
 
-    let advanced_sub_menu = SubmenuBuilder::new(app, "Adavanced")
-        // .item(&adavanced_title)
-        .item(&launch_at_startup)
+    let mut advanced_sub_menu = SubmenuBuilder::new(app, "Adavanced");
+
+    if let Some(ref launch_at_startup) = launch_at_startup {
+        advanced_sub_menu = advanced_sub_menu.item(launch_at_startup);
+    }
+
+    let advanced_sub_menu = advanced_sub_menu
         .item(&open_configs)
         .item(&open_log_file)
         .item(&intergrate_file)
@@ -351,37 +362,43 @@ fn setup_tray(
                         });
                     }
                     "toggle-autostart" => {
-                        match launch_at_startup.is_checked() {
-                            Ok(true) => {
-                                if let Err(e) = tray.app_handle().autolaunch().disable() {
-                                    tracing::error!(
-                                        "Failed to disable autostart entry: {}",
-                                        e
-                                    );
-                                } else if let Err(e) = launch_at_startup.set_checked(false) {
-                                    tracing::error!(
-                                        "Failed to update autostart menu item: {}",
-                                        e
-                                    );
+                        if let Some(launch_at_startup) = &launch_at_startup {
+                            match launch_at_startup.is_checked() {
+                                Ok(true) => {
+                                    if let Err(e) = tray.app_handle().autolaunch().disable() {
+                                        tracing::error!(
+                                            "Failed to disable autostart entry: {}",
+                                            e
+                                        );
+                                    } else if let Err(e) = launch_at_startup.set_checked(false) {
+                                        tracing::error!(
+                                            "Failed to update autostart menu item: {}",
+                                            e
+                                        );
+                                    }
                                 }
-                            }
-                            Ok(false) => {
-                                if let Err(e) = tray.app_handle().autolaunch().enable() {
-                                    tracing::error!(
-                                        "Failed to enable autostart entry: {}",
-                                        e
-                                    );
-                                } else if let Err(e) = launch_at_startup.set_checked(true) {
-                                    tracing::error!(
-                                        "Failed to update autostart menu item: {}",
-                                        e
-                                    );
+                                Ok(false) => {
+                                    if let Err(e) = tray.app_handle().autolaunch().enable() {
+                                        tracing::error!(
+                                            "Failed to enable autostart entry: {}",
+                                            e
+                                        );
+                                    } else if let Err(e) = launch_at_startup.set_checked(true) {
+                                        tracing::error!(
+                                            "Failed to update autostart menu item: {}",
+                                            e
+                                        );
+                                    }
                                 }
+                                Err(e) => tracing::error!(
+                                    "Unable to read autostart menu state: {}",
+                                    e
+                                ),
                             }
-                            Err(e) => tracing::error!(
-                                "Unable to read autostart menu state: {}",
-                                e
-                            ),
+                        } else {
+                            tracing::debug!(
+                                "Autostart menu event fired while feature is disabled"
+                            );
                         }
                     }
                     // "visit-website" => {
@@ -579,11 +596,24 @@ pub fn setup_init(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>
     setup_updater(app)?;
     setup_deep_link(app)?;
     setup_configs()?;
+    let autostart_allowed = configs::get_user_configs()
+        .app
+        .autostart
+        .get_enable_autostart();
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
-    if let Err(e) = ensure_autostart_initialized(app) {
-        tracing::warn!("Failed to initialize autostart entry: {}", e);
+    {
+        if autostart_allowed {
+            if let Err(e) = ensure_autostart_initialized(app) {
+                tracing::warn!("Failed to initialize autostart entry: {}", e);
+            }
+        } else {
+            tracing::info!("Autostart disabled via config; skipping initialization");
+            if let Err(e) = app.autolaunch().disable() {
+                tracing::debug!("Failed to disable autostart entry: {}", e);
+            }
+        }
     }
-    setup_tray(app, shutdown_tx)?;
+    setup_tray(app, shutdown_tx, autostart_allowed)?;
     setup_discord()?;
     notify_startup(app);
     scheduler::integrate_file::start_scheduler();
