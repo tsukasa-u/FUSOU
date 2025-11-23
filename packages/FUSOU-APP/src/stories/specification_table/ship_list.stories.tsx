@@ -9,11 +9,11 @@ import {
   MstStypesContext,
 } from "../../utility/provider.tsx";
 
-import { ships } from "../data/ships.ts";
-import { mst_ships } from "../data/mst_ships.ts";
-import { slot_items } from "../data/slot_items.ts";
-import { mst_slot_itmes } from "../data/mst_slot_items.ts";
-import { mst_stypes } from "../data/mst_stypes.ts";
+import { ships } from "@fusou-testdata-ipc/ships.ts";
+import { mst_ships } from "@fusou-testdata-ipc/mst_ships.ts";
+import { slot_items } from "@fusou-testdata-ipc/slot_items.ts";
+import { mst_slot_itmes } from "@fusou-testdata-ipc/mst_slot_items.ts";
+import { mst_stypes } from "@fusou-testdata-ipc/mst_stypes.ts";
 
 export default {
   title: "components/specification table/ship_list",
