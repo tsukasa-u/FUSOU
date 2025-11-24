@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/web-components-vite";
 
-import type { IconKiraProps } from "./kira";
-import "./kira";
+import type { IconKiraProps } from "../../icons/kira";
+import "../../icons/kira";
 
 import { html } from "lit";
 import { ifDefined } from "lit/directives/if-defined.js";
@@ -55,7 +55,7 @@ export const basic: Story = {
       table: {
         defaultValue: { summary: "xs" },
         type: {
-          summary: size_list.join("\|"),
+          summary: size_list.join("|"),
         },
       },
     },

@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/web-components-vite";
 
-import type { IconPlaneProficiencyProps } from "./plane-proficiency";
-import "./plane-proficiency";
+import type { IconPlaneProficiencyProps } from "../../icons/plane-proficiency";
+import "../../icons/plane-proficiency";
 
 import { ifDefined } from "lit/directives/if-defined.js";
 import { html } from "lit";
@@ -26,7 +26,7 @@ const IconPlaneProficiencyCatalog = () => {
             level=${level}
             size=${"sm"}
           ></icon-plane-proficiency>
-        </div>`,
+        </div>`
     )}
   </div>`;
 };
@@ -54,7 +54,7 @@ export const basic: Story = {
       table: {
         defaultValue: { summary: "xs" },
         type: {
-          summary: size_list.join("\|"),
+          summary: size_list.join("|"),
         },
       },
     },

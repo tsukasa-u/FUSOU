@@ -1,55 +1,56 @@
 import type { Meta, StoryObj } from "@storybook/web-components-vite";
 
-import type { ComponentEquipmentMstTableProps } from "./equipment-mst-table";
-import "./equipment-mst-table";
+import type { ComponentEquipmentTableProps } from "../../../components/equipment/equipment-table";
+import "../../../components/equipment/equipment-table";
+import { default_slotitem } from "@ipc-bindings/default_state/require_info";
 import { default_mst_slot_item } from "@ipc-bindings/default_state/get_data";
 import { html } from "lit";
 import { ifDefined } from "lit/directives/if-defined.js";
 
 const size_list = ["xs", "sm", "md", "lg", "xl"];
 
-const ComponentEquipmentMstTableBasic = (
-  args: ComponentEquipmentMstTableProps,
-) => {
-  return html`<component-equipment-mst-table
+const ComponentEquipmentTableBasic = (args: ComponentEquipmentTableProps) => {
+  return html`<component-equipment-table
+    .slot_item=${args.slot_item}
     .mst_slot_item=${args.mst_slot_item}
-    ?show_param=${args.show_param}
-    ?show_name=${args.show_name}
     size=${ifDefined(args.size)}
-  ></component-equipment-mst-table>`;
+  ></component-equipment-table>`;
 };
 
 const meta = {
-  title: "FUSOU/components/equipment-mst/component-equipment-mst-table",
+  title: "FUSOU/components/equipment/component-equipment-table",
   tags: ["autodocs"],
-} satisfies Meta<ComponentEquipmentMstTableProps>;
+} satisfies Meta<ComponentEquipmentTableProps>;
 
 export default meta;
-type Story = StoryObj<ComponentEquipmentMstTableProps>;
+type Story = StoryObj<ComponentEquipmentTableProps>;
 
 export const basic: Story = {
-  render: (args: ComponentEquipmentMstTableProps) =>
-    ComponentEquipmentMstTableBasic(args),
+  render: (args: ComponentEquipmentTableProps) =>
+    ComponentEquipmentTableBasic(args),
   name: "Basic",
   argTypes: {
-    show_param: { type: "boolean" },
-    show_name: { type: "boolean" },
     size: {
       control: { type: "select" },
       options: size_list,
       table: {
         defaultValue: { summary: "sm" },
         type: {
-          summary: size_list.join("\|"),
+          summary: size_list.join("|"),
         },
       },
     },
+    slot_item: { control: "select", options: [undefined] },
     mst_slot_item: { control: "select", options: [undefined] },
   },
   args: {
     size: "sm",
-    show_param: false,
-    show_name: false,
+    slot_item: {
+      ...default_slotitem,
+      slotitem_id: 267,
+      locked: 0,
+      level: 6,
+    },
     mst_slot_item: {
       ...default_mst_slot_item,
       id: 267,

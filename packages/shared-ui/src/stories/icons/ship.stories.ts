@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/web-components-vite";
 
-import type { IconShipProps } from "./ship";
-import "./ship";
+import type { IconShipProps } from "../../icons/ship";
+import "../../icons/ship";
 
 import { ifDefined } from "lit/directives/if-defined.js";
 import { html } from "lit";

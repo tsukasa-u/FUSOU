@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/web-components-vite";
 
-import type { ComponentColorBarLabelProps } from "./color-bar-label";
-import "./color-bar-label";
+import type { ComponentColorBarLabelProps } from "../../../components/bar/color-bar-label";
+import "../../../components/bar/color-bar-label";
 
 import { html } from "lit";
 import { ifDefined } from "lit/directives/if-defined.js";

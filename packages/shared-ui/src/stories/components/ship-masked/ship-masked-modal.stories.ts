@@ -1,35 +1,37 @@
 import type { Meta, StoryObj } from "@storybook/web-components-vite";
 
-import type { ComponentShipModalProps } from "./ship-modal";
-import "./ship-modal";
+import type { ComponentShipMaskedModalProps } from "../../../components/ship-masked/ship-masked-modal";
+import "../../../components/ship-masked/ship-masked-modal";
 import { html } from "lit";
 import { ifDefined } from "lit/directives/if-defined.js";
 
 const size_list = ["xs", "sm", "md", "lg", "xl"];
 
-const ComponentShipModalBasic = (args: ComponentShipModalProps) => {
-  return html`<component-ship-modal
-    .slot_items=${args.slot_items}
+const ComponentShipMaskedModalBasic = (args: ComponentShipMaskedModalProps) => {
+  return html`<component-ship-masked-modal
     .mst_slot_items=${args.mst_slot_items}
-    .ship=${args.ship}
     .mst_ship=${args.mst_ship}
     size=${args.size}
     color=${ifDefined(args.color)}
     ?empty_flag=${args.empty_flag}
     ?name_flag=${args.name_flag}
-  ></component-ship-modal>`;
+    ship_max_hp=${args.ship_max_hp}
+    .ship_param=${args.ship_param}
+    .ship_slot=${args.ship_slot}
+  ></component-ship-masked-modal>`;
 };
 
 const meta = {
-  title: "FUSOU/components/ship/component-ship-modal",
+  title: "FUSOU/components/ship-masked/component-ship-masked-modal",
   tags: ["autodocs"],
-} satisfies Meta<ComponentShipModalProps>;
+} satisfies Meta<ComponentShipMaskedModalProps>;
 
 export default meta;
-type Story = StoryObj<ComponentShipModalProps>;
+type Story = StoryObj<ComponentShipMaskedModalProps>;
 
 export const basic: Story = {
-  render: (args: ComponentShipModalProps) => ComponentShipModalBasic(args),
+  render: (args: ComponentShipMaskedModalProps) =>
+    ComponentShipMaskedModalBasic(args),
   name: "Basic",
   argTypes: {
     color: {
@@ -48,57 +50,21 @@ export const basic: Story = {
       table: {
         defaultValue: { summary: "xs" },
         type: {
-          summary: size_list.join("\|"),
+          summary: size_list.join("|"),
         },
       },
     },
     mst_ship: { control: "select", options: [undefined] },
     mst_slot_items: { control: "select", options: [undefined] },
-    ship: { control: "select", options: [undefined] },
-    slot_items: { control: "select", options: [undefined] },
   },
   args: {
     color: undefined,
     empty_flag: false,
     name_flag: false,
     size: "sm",
-    ship: {
-      id: 4299,
-      ship_id: 668,
-      lv: 132,
-      exp: [1999074, 25926, 69],
-      nowhp: 55,
-      maxhp: 60,
-      soku: 10,
-      leng: 2,
-      slot: [7355, 7571, 8735, 3006, -1],
-      onslot: [1, 1, 2, 2, 0],
-      slot_ex: 6865,
-      fuel: 10,
-      bull: 15,
-      slotnum: 4,
-      cond: 49,
-      karyoku: [95, 81],
-      raisou: [102, 88],
-      taiku: [107, 88],
-      soukou: [76, 74],
-      kaihi: [112, 86],
-      taisen: [96, 80],
-      sakuteki: [84, 60],
-      lucky: [22, 89],
-      sp_effect_items: {
-        items: {
-          2: {
-            kind: 2,
-            houg: 2,
-            kaih: 2,
-            raig: null,
-            souk: null,
-          },
-        },
-      },
-      sally_area: 0,
-    },
+    ship_max_hp: 100,
+    ship_param: [95, 102, 76, 107],
+    ship_slot: [303, 303, 41, 106],
     mst_ship: {
       id: 668,
       sortno: 468,
@@ -130,45 +96,6 @@ export const basic: Story = {
       bull_max: 50,
       voicef: 7,
       tais: [],
-    },
-    slot_items: {
-      slot_items: {
-        7355: {
-          id: 7355,
-          slotitem_id: 303,
-          locked: 1,
-          level: 6,
-          alv: null,
-        },
-        7571: {
-          id: 7571,
-          slotitem_id: 303,
-          locked: 1,
-          level: 6,
-          alv: null,
-        },
-        8735: {
-          id: 8735,
-          slotitem_id: 41,
-          locked: 0,
-          level: 0,
-          alv: null,
-        },
-        3006: {
-          id: 3006,
-          slotitem_id: 106,
-          locked: 1,
-          level: 0,
-          alv: null,
-        },
-        6865: {
-          id: 6865,
-          slotitem_id: 129,
-          locked: 1,
-          level: 0,
-          alv: null,
-        },
-      },
     },
     mst_slot_items: {
       mst_slot_items: {

@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/web-components-vite";
 
-import type { IconFleetNumberProps } from "./fleet-number";
-import "./fleet-number";
+import type { IconFleetNumberProps } from "../../icons/fleet-number";
+import "../../icons/fleet-number";
 
 import { html } from "lit";
 import { ifDefined } from "lit/directives/if-defined.js";
@@ -30,7 +30,7 @@ const IconFleetNumberCatalog = () => {
             fleet_number=${1}
             size="xs"
           ></icon-fleet-number>
-        `,
+        `
       )}
       ${[7, 8, 9, 10, 11, 12].map((_) => html`<div class=${"h-6"}></div>`)}
     </div> `}
@@ -44,7 +44,7 @@ const IconFleetNumberCatalog = () => {
             fleet_number=${1}
             size="xs"
           ></icon-fleet-number>
-        `,
+        `
       )}
       ${[7, 8, 9, 10, 11, 12].map((_) => html`<div class=${"h-6"}></div>`)}
     </div> `}
@@ -58,7 +58,7 @@ const IconFleetNumberCatalog = () => {
             fleet_number=${1}
             size="xs"
           ></icon-fleet-number>
-        `,
+        `
       )}
     </div> `}
     ${html`<div class="grid gap-4">
@@ -71,7 +71,7 @@ const IconFleetNumberCatalog = () => {
             fleet_number=${1}
             size="xs"
           ></icon-fleet-number>
-        `,
+        `
       )}
     </div> `}
     ${html`<div class="grid gap-4">
@@ -84,7 +84,7 @@ const IconFleetNumberCatalog = () => {
             fleet_number=${1}
             size="xs"
           ></icon-fleet-number>
-        `,
+        `
       )}
       ${[8, 9, 10, 11, 12].map((_) => html`<div class=${"h-6"}></div>`)}
     </div> `}
@@ -121,7 +121,7 @@ export const basic: Story = {
       table: {
         defaultValue: { summary: "xs" },
         type: {
-          summary: size_list.join("\|"),
+          summary: size_list.join("|"),
         },
       },
     },

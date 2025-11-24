@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/web-components-vite";
 
-import type { ComponentEquipmentProps } from "./equipment";
-import "./equipment";
+import type { ComponentEquipmentModalProps } from "../../../components/equipment/equipment-modal";
+import "../../../components/equipment/equipment-modal";
 import { default_slotitem } from "@ipc-bindings/default_state/require_info";
 import { default_mst_slot_item } from "@ipc-bindings/default_state/get_data";
 import { html } from "lit";
@@ -9,33 +9,33 @@ import { ifDefined } from "lit/directives/if-defined.js";
 
 const size_list = ["xs", "sm", "md", "lg", "xl"];
 
-const ComponentEquipmentBasic = (args: ComponentEquipmentProps) => {
-  return html`<component-equipment
+const ComponentEquipmentModalBasic = (args: ComponentEquipmentModalProps) => {
+  return html`<component-equipment-modal
     .slot_item=${args.slot_item}
     .mst_slot_item=${args.mst_slot_item}
-    ?compact=${args.compact}
+    ?ex_flag=${args.ex_flag}
     ?name_flag=${args.name_flag}
-    attr_onslot=${ifDefined(args.attr_onslot)}
+    attr:onslot=${ifDefined(args["attr:onslot"])}
     size=${args.size}
     ?empty_flag=${args.empty_flag}
-    ?ex_flag=${args.empty_flag}
-  ></component-equipment>`;
+  ></component-equipment-modal>`;
 };
 
 const meta = {
-  title: "FUSOU/components/equipment/component-equipment",
+  title: "FUSOU/components/equipment/component-equipment-modal",
   tags: ["autodocs"],
-} satisfies Meta<ComponentEquipmentProps>;
+} satisfies Meta<ComponentEquipmentModalProps>;
 
 export default meta;
-type Story = StoryObj<ComponentEquipmentProps>;
+type Story = StoryObj<ComponentEquipmentModalProps>;
 
 export const basic: Story = {
-  render: (args: ComponentEquipmentProps) => ComponentEquipmentBasic(args),
+  render: (args: ComponentEquipmentModalProps) =>
+    ComponentEquipmentModalBasic(args),
   name: "Basic",
   argTypes: {
     name_flag: { control: "boolean" },
-    compact: { control: "boolean" },
+    ex_flag: { control: "boolean" },
     "attr:onslot": { control: { type: "range", min: 0, max: 30, step: 1 } },
     size: {
       control: { type: "select" },
@@ -43,22 +43,20 @@ export const basic: Story = {
       table: {
         defaultValue: { summary: "xs" },
         type: {
-          summary: size_list.join("\|"),
+          summary: size_list.join("|"),
         },
       },
     },
     empty_flag: { control: "boolean" },
-    ex_flag: { control: "boolean" },
     slot_item: { control: "select", options: [undefined] },
     mst_slot_item: { control: "select", options: [undefined] },
   },
   args: {
     name_flag: false,
-    compact: false,
+    ex_flag: false,
     "attr:onslot": 0,
     size: "xs",
     empty_flag: false,
-    ex_flag: false,
     slot_item: {
       ...default_slotitem,
       slotitem_id: 267,

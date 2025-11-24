@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/web-components-vite";
 
-import type { IconCautionFillProps } from "./caution-fill";
-import "./caution-fill";
+import type { IconCautionFillProps } from "../../icons/caution-fill";
+import "../../icons/caution-fill";
 
 import { ifDefined } from "lit/directives/if-defined.js";
 import { html } from "lit";
@@ -51,7 +51,7 @@ export const basic: Story = {
       table: {
         defaultValue: { summary: "low" },
         type: {
-          summary: caution_level.join("\|"),
+          summary: caution_level.join("|"),
         },
       },
     },
@@ -61,7 +61,7 @@ export const basic: Story = {
       table: {
         defaultValue: { summary: "xs" },
         type: {
-          summary: size_list.join("\|"),
+          summary: size_list.join("|"),
         },
       },
     },

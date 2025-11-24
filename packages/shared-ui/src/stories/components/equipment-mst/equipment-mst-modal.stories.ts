@@ -1,37 +1,42 @@
 import type { Meta, StoryObj } from "@storybook/web-components-vite";
 
-import type { ComponentEquipmentMstProps } from "./equipment-mst";
-import "./equipment-mst";
+import type { ComponentEquipmentMstModalProps } from "../../../components/equipment-mst/equipment-mst-modal";
+import "../../../components/equipment-mst/equipment-mst-modal";
 import { default_mst_slot_item } from "@ipc-bindings/default_state/get_data";
 import { html } from "lit";
 
 const size_list = ["xs", "sm", "md", "lg", "xl"];
 
-const ComponentEquipmentMstBasic = (args: ComponentEquipmentMstProps) => {
-  return html`<component-equipment-mst
+const ComponentEquipmentMstModalBasic = (
+  args: ComponentEquipmentMstModalProps
+) => {
+  return html`<component-equipment-mst-modal
     .mst_slot_item=${args.mst_slot_item}
     ?name_flag=${args.name_flag}
     ?show_name=${args.show_name}
+    ?show_param=${args.show_param}
+    ?comapct=${args.compact}
     size=${args.size}
     ?empty_flag=${args.empty_flag}
-    ?compact=${args.compact}
-  ></component-equipment-mst>`;
+  ></component-equipment-mst-modal>`;
 };
+
 const meta = {
-  title: "FUSOU/components/equipment-mst/component-equipment-mst",
+  title: "FUSOU/components/equipment-mst/component-equipment-mst-modal",
   tags: ["autodocs"],
-} satisfies Meta<ComponentEquipmentMstProps>;
+} satisfies Meta<ComponentEquipmentMstModalProps>;
 
 export default meta;
-type Story = StoryObj<ComponentEquipmentMstProps>;
+type Story = StoryObj<ComponentEquipmentMstModalProps>;
 
 export const basic: Story = {
-  render: (args: ComponentEquipmentMstProps) =>
-    ComponentEquipmentMstBasic(args),
+  render: (args: ComponentEquipmentMstModalProps) =>
+    ComponentEquipmentMstModalBasic(args),
   name: "Basic",
   argTypes: {
     name_flag: { control: "boolean" },
     show_name: { control: "boolean" },
+    show_param: { control: "boolean" },
     compact: { control: "boolean" },
     size: {
       control: { type: "select" },
@@ -39,7 +44,7 @@ export const basic: Story = {
       table: {
         defaultValue: { summary: "xs" },
         type: {
-          summary: size_list.join("\|"),
+          summary: size_list.join("|"),
         },
       },
     },
@@ -48,10 +53,11 @@ export const basic: Story = {
   },
   args: {
     name_flag: false,
-    show_name: true,
+    show_name: false,
+    show_param: false,
+    compact: false,
     size: "xs",
     empty_flag: false,
-    compact: false,
     mst_slot_item: {
       ...default_mst_slot_item,
       id: 156,

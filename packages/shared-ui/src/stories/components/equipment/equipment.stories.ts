@@ -1,63 +1,71 @@
 import type { Meta, StoryObj } from "@storybook/web-components-vite";
 
-import type { ComponentEquipmentMstModalProps } from "./equipment-mst-modal";
-import "./equipment-mst-modal";
+import type { ComponentEquipmentProps } from "../../../components/equipment/equipment";
+import "../../../components/equipment/equipment";
+import { default_slotitem } from "@ipc-bindings/default_state/require_info";
 import { default_mst_slot_item } from "@ipc-bindings/default_state/get_data";
 import { html } from "lit";
+import { ifDefined } from "lit/directives/if-defined.js";
 
 const size_list = ["xs", "sm", "md", "lg", "xl"];
 
-const ComponentEquipmentMstModalBasic = (
-  args: ComponentEquipmentMstModalProps,
-) => {
-  return html`<component-equipment-mst-modal
+const ComponentEquipmentBasic = (args: ComponentEquipmentProps) => {
+  return html`<component-equipment
+    .slot_item=${args.slot_item}
     .mst_slot_item=${args.mst_slot_item}
+    ?compact=${args.compact}
     ?name_flag=${args.name_flag}
-    ?show_name=${args.show_name}
-    ?show_param=${args.show_param}
-    ?comapct=${args.compact}
+    attr_onslot=${ifDefined(args.attr_onslot)}
     size=${args.size}
     ?empty_flag=${args.empty_flag}
-  ></component-equipment-mst-modal>`;
+    ?ex_flag=${args.empty_flag}
+  ></component-equipment>`;
 };
 
 const meta = {
-  title: "FUSOU/components/equipment-mst/component-equipment-mst-modal",
+  title: "FUSOU/components/equipment/component-equipment",
   tags: ["autodocs"],
-} satisfies Meta<ComponentEquipmentMstModalProps>;
+} satisfies Meta<ComponentEquipmentProps>;
 
 export default meta;
-type Story = StoryObj<ComponentEquipmentMstModalProps>;
+type Story = StoryObj<ComponentEquipmentProps>;
 
 export const basic: Story = {
-  render: (args: ComponentEquipmentMstModalProps) =>
-    ComponentEquipmentMstModalBasic(args),
+  render: (args: ComponentEquipmentProps) => ComponentEquipmentBasic(args),
   name: "Basic",
   argTypes: {
     name_flag: { control: "boolean" },
-    show_name: { control: "boolean" },
-    show_param: { control: "boolean" },
     compact: { control: "boolean" },
+    "attr:onslot": { control: { type: "range", min: 0, max: 30, step: 1 } },
     size: {
       control: { type: "select" },
       options: size_list,
       table: {
         defaultValue: { summary: "xs" },
         type: {
-          summary: size_list.join("\|"),
+          summary: size_list.join("|"),
         },
       },
     },
     empty_flag: { control: "boolean" },
+    ex_flag: { control: "boolean" },
+    slot_item: { control: "select", options: [undefined] },
     mst_slot_item: { control: "select", options: [undefined] },
   },
   args: {
     name_flag: false,
-    show_name: false,
-    show_param: false,
     compact: false,
+    "attr:onslot": 0,
     size: "xs",
     empty_flag: false,
+    ex_flag: false,
+    slot_item: {
+      ...default_slotitem,
+      slotitem_id: 267,
+      locked: 0,
+      level: 6,
+      alv: 6,
+    },
     mst_slot_item: {
       ...default_mst_slot_item,
       id: 156,

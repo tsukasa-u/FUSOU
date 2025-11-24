@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/web-components-vite";
 
-import type { IconErrorProps } from "./error";
-import "./error";
+import type { IconErrorProps } from "../../icons/error";
+import "../../icons/error";
 
 import { html } from "lit";
 import { ifDefined } from "lit-html/directives/if-defined.js";
@@ -37,7 +37,7 @@ export const basic: Story = {
       table: {
         defaultValue: { summary: "xs" },
         type: {
-          summary: size_list.join("\|"),
+          summary: size_list.join("|"),
         },
       },
     },
