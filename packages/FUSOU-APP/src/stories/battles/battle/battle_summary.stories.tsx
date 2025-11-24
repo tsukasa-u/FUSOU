@@ -9,13 +9,13 @@ import {
   AirBasesBattlesContext,
 } from "../../../utility/provider.tsx";
 
-import { air_bases } from "../../data/air_bases.ts";
-import { ships } from "../../data/ships.ts";
-import { mst_ships } from "../../data/mst_ships.ts";
-import { slot_items } from "../../data/slot_items.ts";
-import { mst_slot_itmes } from "../../data/mst_slot_items.ts";
-import { ports_3_5 } from "../../data/3-5/ports.ts";
-import { cells_3_5 } from "../../data/3-5/cells.ts";
+import { air_bases } from "@fusou-testdata-ipc/air_bases.ts";
+import { ships } from "@fusou-testdata-ipc/ships.ts";
+import { mst_ships } from "@fusou-testdata-ipc/mst_ships.ts";
+import { slot_items } from "@fusou-testdata-ipc/slot_items.ts";
+import { mst_slot_itmes } from "@fusou-testdata-ipc/mst_slot_items.ts";
+import { ports_3_5 } from "@fusou-testdata-ipc/3-5/ports.ts";
+import { cells_3_5 } from "@fusou-testdata-ipc/3-5/cells.ts";
 import {
   get_deck_ship_id,
   get_battle_selected,
