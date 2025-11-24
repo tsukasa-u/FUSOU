@@ -117,7 +117,7 @@ save_file_location = ""
     [app.browser]
     # The URL to open first in the browser
     url = "http://www.dmm.com/netgame/social/-/gadgets/=/app_id=854854/"
-    
+
 
     [app.theme]
     # The theme to use for the application
@@ -136,18 +136,15 @@ save_file_location = ""
     # Whether to enable Discord integration (Discord Rich Presence)
     enable_discord_integration = true
 
-    # Whether to use a custom message for Discord Rich Presence
-    # this option is only used when `enable_discord_integration` is true
+    # Whether to use a custom to use for Discord Rich Presence
     use_custom_message = true
 
     # The custom message to use for Discord Rich Presence
     # This option is only used when `use_custom_message` is true
-    # this options won't work when you left these options empty string
     custom_message = "This is experimental implementation"
     custom_details = "Playing KanColle with FUSOU"
 
     # Whether to use a custom image for Discord Rich Presence
-    # this option is only used when `use_custom_message` is true
     use_custom_image = true
 
     # The custom image url to use for Discord Rich Presence
@@ -178,6 +175,24 @@ save_file_location = ""
     # Base directory used when writing KanColle data locally
     # leave it empty to use the Documents directory/FUSOU/storage path
     output_directory = ""
+
+
+    [app.asset_sync]
+    # Whether to upload non-kcsapi proxy resources to Cloudflare R2
+    # default is false
+    enable = true
+
+    # Whether Supabase authentication is required before uploading
+    require_supabase_auth = true
+
+    # The polling interval (in seconds) for scanning the cache directory
+    scan_interval_seconds = 30
+
+    # HTTPS endpoint provided by FUSOU-WEB that mediates Cloudflare R2 uploads
+    api_endpoint = "https://dev.fusou.pages.dev/api/asset-sync/upload"
+
+    # Optional prefix prepended to stored object keys
+    key_prefix = "assets"
 
 
     [app.auth]

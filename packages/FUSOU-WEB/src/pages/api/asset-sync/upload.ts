@@ -119,20 +119,25 @@ export const POST: APIRoute = async ({ request, locals }) => {
     return errorResponse("Asset already exists", 409);
   }
 
-  await bucket.put(key, file.stream(), {
-    httpMetadata: {
-      contentType: file.type || "application/octet-stream",
-      cacheControl: CACHE_CONTROL,
+  await bucket.put(
+    key,
+    // cast to the expected ReadableStream<any> to avoid cross-lib ReadableStream type mismatch
+    file.stream() as unknown as ReadableStream<any>,
+    {
+      httpMetadata: {
+        contentType: file.type || "application/octet-stream",
+        cacheControl: CACHE_CONTROL,
+      },
+      customMetadata: {
+        relative_path: relativePath,
+        finder_tag: finderTag,
+        uploaded_by: supabaseUser.id,
+        declared_size: declaredSize?.toString() ?? file.size.toString(),
+        file_name: file.name,
+        uploader_email: supabaseUser.email,
+      },
     },
-    customMetadata: {
-      relative_path: relativePath,
-      finder_tag: finderTag,
-      uploaded_by: supabaseUser.id,
-      declared_size: declaredSize?.toString() ?? file.size.toString(),
-      file_name: file.name,
-      uploader_email: supabaseUser.email,
-    },
-  });
+  );
 
   return jsonResponse({ key, size: file.size });
 };
