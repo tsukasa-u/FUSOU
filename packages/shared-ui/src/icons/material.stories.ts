@@ -6,10 +6,10 @@ import "./material";
 import { ifDefined } from "lit/directives/if-defined.js";
 import { html } from "lit";
 
-import get_data from "../data/S@api_start2@getData.json";
-// import require_info from "../data/S@api_get_member@require_info.json";
-import common_itemicons from "../data/common_itemicons.json";
-import common_itemicons_png from "../data/common_itemicons.png";
+import get_data from "@fusou-testdata-shared-ui/data/S@api_start2@getData.json";
+// import require_info from "@fusou-testdata-shared-ui/data/S@api_get_member@require_info.json";
+import common_itemicons from "@fusou-testdata-shared-ui/data/common_itemicons.json";
+import common_itemicons_png from "@fusou-testdata-shared-ui/data/common_itemicons.png";
 
 const size_list = ["full", "none", "xs", "sm", "md", "lg", "xl"];
 
@@ -27,7 +27,7 @@ const IconMaterialCatalog = () => {
         html`<icon-material
           item_number=${Number(item_number)}
           size=${"xs"}
-        ></icon-material>`,
+        ></icon-material>`
     )}
   </div>`;
 };

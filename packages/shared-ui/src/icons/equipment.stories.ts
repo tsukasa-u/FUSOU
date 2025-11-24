@@ -6,12 +6,12 @@ import "./equipment";
 import { html } from "lit";
 import { ifDefined } from "lit/directives/if-defined.js";
 
-import get_data from "../data/S@api_start2@getData.json";
-// import require_info from "../data/S@api_get_member@require_info.json";
-import common_icon_weapon from "../data/common_icon_weapon.json";
-import common_icon_weapon_png from "../data/common_icon_weapon.png";
-import album_slot2 from "../data/album_slot2.json";
-import album_slot2_png from "../data/album_slot2.png";
+import get_data from "@fusou-testdata-shared-ui/data/S@api_start2@getData.json";
+// import require_info from "@fusou-testdata-shared-ui/data/S@api_get_member@require_info.json";
+import common_icon_weapon from "@fusou-testdata-shared-ui/data/common_icon_weapon.json";
+import common_icon_weapon_png from "@fusou-testdata-shared-ui/data/common_icon_weapon.png";
+import album_slot2 from "@fusou-testdata-shared-ui/data/album_slot2.json";
+import album_slot2_png from "@fusou-testdata-shared-ui/data/album_slot2.png";
 
 const size_list = ["full", "none", "xs", "sm", "md", "lg", "xl"];
 
@@ -28,8 +28,8 @@ const IconEquipmentCatalog = () => {
   const category_icon_number = [
     ...new Set(
       get_data.api_data.api_mst_slotitem.map((x) =>
-        String([x.api_type[1], x.api_type[3]]),
-      ),
+        String([x.api_type[1], x.api_type[3]])
+      )
     ),
   ].map((s) => s.split(",").map((x) => Number(x)));
 
@@ -40,7 +40,7 @@ const IconEquipmentCatalog = () => {
           icon_number=${icon_number}
           category_number=${category_number}
           size=${"xs"}
-        ></icon-equipment>`,
+        ></icon-equipment>`
     )}
   </div>`;
 };
@@ -49,8 +49,8 @@ const IconEquipmentCatalogDetail = () => {
   const category_icon_number = [
     ...new Set(
       get_data.api_data.api_mst_slotitem.map((x) =>
-        String([x.api_type[1], x.api_type[2], x.api_type[3]]),
-      ),
+        String([x.api_type[1], x.api_type[2], x.api_type[3]])
+      )
     ),
   ].map((s) => s.split(",").map((x) => Number(x)));
 
@@ -99,7 +99,7 @@ const IconEquipmentCatalogDetail = () => {
               ${get_data.api_data.api_mst_slotitem.find(
                 (element) =>
                   element.api_type[2] == category_number &&
-                  element.api_type[3] == icon_number,
+                  element.api_type[3] == icon_number
               )!.api_name ?? "Unknown"}
             </div>
             <div class="w-60 h-full" style="transform: translateY(-36px);">
@@ -137,12 +137,12 @@ const IconEquipmentCatalogDetail = () => {
               ${get_data.api_data.api_mst_slotitem.find(
                 (element) =>
                   element.api_type[2] == category_number &&
-                  element.api_type[3] == icon_number,
+                  element.api_type[3] == icon_number
               )!.api_name ?? "Unknown"}
             </div>
           </div>`;
         }
-      },
+      }
     )}
   </div>`;
 };

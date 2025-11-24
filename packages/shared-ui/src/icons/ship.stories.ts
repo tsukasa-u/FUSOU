@@ -6,7 +6,7 @@ import "./ship";
 import { ifDefined } from "lit/directives/if-defined.js";
 import { html } from "lit";
 
-import get_data from "../data/S@api_start2@getData.json";
+import get_data from "@fusou-testdata-shared-ui/data/S@api_start2@getData.json";
 
 const size_list = ["full", "none", "xs", "sm", "md", "lg", "xl"];
 
@@ -24,8 +24,8 @@ const IconShipCatalog = () => {
   const category_type_number = [
     ...new Set(
       get_data.api_data.api_mst_ship.map((x) =>
-        String([x.api_stype, x.apt_ctype]),
-      ),
+        String([x.api_stype, x.apt_ctype])
+      )
     ),
   ].map((s) => s.split(",").map((x) => Number(x)));
 
@@ -44,7 +44,7 @@ const IconShipCatalog = () => {
             color=${"flagship"}
             size=${"xs"}
           ></icon-ship>
-        </div>`,
+        </div>`
     )}
   </div>`;
 };
@@ -78,7 +78,7 @@ export const basic: Story = {
       table: {
         defaultValue: { summary: "xs" },
         type: {
-          summary: size_list.join("\|"),
+          summary: size_list.join("|"),
         },
       },
     },
