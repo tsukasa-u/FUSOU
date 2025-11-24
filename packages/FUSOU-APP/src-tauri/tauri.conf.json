@@ -24,12 +24,10 @@
       "digestAlgorithm": "sha256",
       "timestampUrl": "",
       "nsis": {
-        "include": "./src-tauri/installer/nsis/app-paths.nsh"
+        "template": "installer/nsis/app-paths.nsh"
       },
       "wix": {
-        "fragmentPaths": [
-          "./src-tauri/installer/wix/app-paths.wxs"
-        ]
+        "template": "installer/wix/app-paths.wxs"
       }
     },
     "longDescription": "",
