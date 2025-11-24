@@ -35,7 +35,7 @@ export const basic: Story = {
       table: {
         defaultValue: { summary: "sm" },
         type: {
-          summary: size_list.join("\|"),
+          summary: size_list.join("|"),
         },
       },
     },

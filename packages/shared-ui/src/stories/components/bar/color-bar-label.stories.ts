@@ -43,7 +43,7 @@ const ComponentColorBarLabelCatalog = () => {
               quantize=${5}
             ></component-color-bar-label>
           </div>
-        </div>`,
+        </div>`
     )}
   </div>`;
 };
@@ -72,7 +72,7 @@ export const basic: Story = {
       table: {
         defaultValue: { summary: "undefined" },
         type: {
-          summary: ["undefined", "number"].join("\|"),
+          summary: ["undefined", "number"].join("|"),
         },
       },
     },
@@ -82,7 +82,7 @@ export const basic: Story = {
       table: {
         defaultValue: { summary: "xs" },
         type: {
-          summary: size_list.join("\|"),
+          summary: size_list.join("|"),
         },
       },
     },
