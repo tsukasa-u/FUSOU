@@ -3,16 +3,13 @@
 <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
   <!-- Adds HKCU App Paths entries so "fusou" can be started from the Run dialog or terminals. -->
   <Fragment>
-    <DirectoryRef Id="INSTALLFOLDER">
+    <DirectoryRef Id="INSTALLDIR">
       <Component Id="Registry_AppPath" Guid="$(var.GUID_Registry_AppPath)">
         <RegistryKey Root="HKCU" Key="Software\Microsoft\Windows\CurrentVersion\App Paths\fusou.exe">
-          <RegistryValue Type="string" Value="[INSTALLFOLDER]fusou.exe" KeyPath="yes" />
-          <RegistryValue Type="string" Name="Path" Value="[INSTALLFOLDER]" />
+          <RegistryValue Type="string" Value="[INSTALLDIR]fusou.exe" KeyPath="yes" />
+          <RegistryValue Type="string" Name="Path" Value="[INSTALLDIR]" />
         </RegistryKey>
       </Component>
     </DirectoryRef>
-  </Fragment>
-  <Fragment>
-    <ComponentRef Id="Registry_AppPath" />
   </Fragment>
 </Wix>

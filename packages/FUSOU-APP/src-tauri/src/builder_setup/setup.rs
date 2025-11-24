@@ -596,8 +596,7 @@ pub fn setup_init(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>
     setup_updater(app)?;
     setup_deep_link(app)?;
     setup_configs()?;
-    let autostart_allowed = configs::get_user_configs()
-        .app
+    let autostart_allowed = configs::get_user_configs_for_app()
         .autostart
         .get_enable_autostart();
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
