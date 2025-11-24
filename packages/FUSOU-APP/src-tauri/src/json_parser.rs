@@ -163,7 +163,9 @@ pub fn struct_selector_resquest(
         let re_metadata = Regex::new(r"---\r?\n.*\r?\n.*\r?\n.*\r?\n.*\s*---\r?\n").unwrap();
         let data_removed_metadata: String =
             re_metadata.replace(&data_removed_svdata, "").to_string();
-        let repalced_data = data_removed_metadata.replace("%5B", "[").replace("%5D", "]");
+        let repalced_data = data_removed_metadata
+            .replace("%5B", "[")
+            .replace("%5D", "]");
         return request_parser(name, repalced_data);
     }
 

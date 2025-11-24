@@ -164,6 +164,7 @@ impl ConfigsProxyNetwork {
             Some(v) if v <= 0 => None,
             Some(v) => Some(std::time::Duration::from_secs(v as u64)),
             None => None,
+
         }
     }
 
@@ -441,6 +442,84 @@ impl ConfigsAppDatabase {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ConfigsAppAssetSync {
+    #[serde(default = "default_asset_sync_enable")]
+    enable: Option<bool>,
+    #[serde(default = "default_asset_sync_require_supabase_auth")]
+    require_supabase_auth: Option<bool>,
+    #[serde(default = "default_asset_sync_scan_interval_seconds")]
+    scan_interval_seconds: Option<u64>,
+    #[serde(default = "default_asset_sync_api_endpoint")]
+    api_endpoint: Option<String>,
+    #[serde(default = "default_asset_sync_key_prefix")]
+    key_prefix: Option<String>,
+}
+
+fn default_asset_sync_enable() -> Option<bool> {
+    Some(false)
+}
+
+fn default_asset_sync_require_supabase_auth() -> Option<bool> {
+    Some(true)
+}
+
+fn default_asset_sync_scan_interval_seconds() -> Option<u64> {
+    Some(30)
+}
+
+fn default_asset_sync_api_endpoint() -> Option<String> {
+    Some("".to_string())
+}
+
+fn default_asset_sync_key_prefix() -> Option<String> {
+    Some("assets".to_string())
+}
+
+impl Default for ConfigsAppAssetSync {
+    fn default() -> Self {
+        Self {
+            enable: Some(false),
+            require_supabase_auth: Some(true),
+            scan_interval_seconds: Some(30),
+            api_endpoint: Some("".to_string()),
+            key_prefix: Some("assets".to_string()),
+        }
+    }
+}
+
+impl ConfigsAppAssetSync {
+    pub fn get_enable(&self) -> bool {
+        self.enable.unwrap_or(false)
+    }
+
+    pub fn get_require_supabase_auth(&self) -> bool {
+        self.require_supabase_auth.unwrap_or(true)
+    }
+
+    pub fn get_scan_interval_seconds(&self) -> u64 {
+        match self.scan_interval_seconds {
+            Some(v) if v == 0 => 30,
+            Some(v) => v,
+            None => 30,
+        }
+    }
+
+    pub fn get_api_endpoint(&self) -> Option<String> {
+        match self.api_endpoint {
+            Some(ref v) if !v.trim().is_empty() => Some(v.trim().to_string()),
+            _ => None,
+        }
+    }
+
+    pub fn get_key_prefix(&self) -> Option<String> {
+        match self.key_prefix {
+            Some(ref v) if !v.trim().is_empty() => Some(v.trim().to_string()),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConfigsAppAuth {
     #[serde(default = "default_deny_auth")]
     pub deny_auth: Option<bool>,
@@ -566,6 +645,8 @@ pub struct ConfigsApp {
     #[serde(default)]
     pub database: ConfigsAppDatabase,
     #[serde(default)]
+    pub asset_sync: ConfigsAppAssetSync,
+    #[serde(default)]
     pub auth: ConfigsAppAuth,
     #[serde(default)]
     pub kc_window: ConfigsAppWindow,
@@ -580,6 +661,7 @@ impl Default for ConfigsApp {
             font: ConfigAppFont::default(),
             discord: ConfigsAppDiscord::default(),
             database: ConfigsAppDatabase::default(),
+            asset_sync: ConfigsAppAssetSync::default(),
             auth: ConfigsAppAuth::default(),
             kc_window: ConfigsAppWindow::default(),
         }
@@ -683,6 +765,8 @@ pub struct Configs {
     #[serde(default)]
     pub app: ConfigsApp,
     #[serde(default)]
+    pub asset_sync: ConfigsAppAssetSync,
+    #[serde(default)]
     pub env: ConfigEnv,
 }
 
@@ -692,6 +776,7 @@ impl Default for Configs {
             version: None,
             proxy: ConfigsProxy::default(),
             app: ConfigsApp::default(),
+            asset_sync: ConfigsAppAssetSync::default(),
             env: ConfigEnv::default(),
         }
     }

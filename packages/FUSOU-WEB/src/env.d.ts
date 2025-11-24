@@ -9,5 +9,17 @@ interface ImportMeta {
   readonly env: ImportMetaEnv;
 }
 
+declare global {
+  namespace App {
+    interface Locals {
+      runtime?: {
+        env?: Record<string, unknown>;
+      };
+    }
+  }
+}
+
+export {};
+
 // Astro types, not necessary if you already have a `tsconfig.json`
 /// <reference path="../.astro/types.d.ts" />

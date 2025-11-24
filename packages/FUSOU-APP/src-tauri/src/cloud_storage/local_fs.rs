@@ -22,13 +22,13 @@ use kc_api::database::table::{
 use tokio::fs;
 use uuid::Uuid;
 
-use super::constants::{
-    AVRO_FILE_EXTENSION, LOCAL_STORAGE_PROVIDER_NAME, MASTER_DATA_FOLDER_NAME,
-    PERIOD_ROOT_FOLDER_NAME, PORT_TABLE_FILE_NAME_SEPARATOR,
-    STORAGE_SUB_DIR_NAME, TRANSACTION_DATA_FOLDER_NAME,
-};
 #[cfg(any(not(dev), check_release))]
 use super::constants::STORAGE_ROOT_DIR_NAME;
+use super::constants::{
+    AVRO_FILE_EXTENSION, LOCAL_STORAGE_PROVIDER_NAME, MASTER_DATA_FOLDER_NAME,
+    PERIOD_ROOT_FOLDER_NAME, PORT_TABLE_FILE_NAME_SEPARATOR, STORAGE_SUB_DIR_NAME,
+    TRANSACTION_DATA_FOLDER_NAME,
+};
 use super::service::{StorageError, StorageFuture, StorageProvider};
 
 #[derive(Debug, Clone)]
@@ -231,7 +231,7 @@ impl StorageProvider for LocalFileSystemProvider {
         Box::pin(async move {
             let period_dir = self.period_directory(period_tag);
             let transaction_dir = period_dir.join(TRANSACTION_DATA_FOLDER_NAME);
-            
+
             // Check if transaction_dir exists
             if !transaction_dir.exists() {
                 return Ok(());
@@ -271,7 +271,9 @@ impl StorageProvider for LocalFileSystemProvider {
                     let mut table_entries = fs::read_dir(&table_dir).await?;
                     while let Some(entry) = table_entries.next_entry().await? {
                         let path = entry.path();
-                        if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("avro") {
+                        if path.is_file()
+                            && path.extension().and_then(|s| s.to_str()) == Some("avro")
+                        {
                             file_paths.push(path);
                         }
                     }
@@ -309,23 +311,45 @@ impl StorageProvider for LocalFileSystemProvider {
                         PortTableEnum::SupportDeck => integrate::<SupportDeck>(file_contents),
                         PortTableEnum::EnemyDeck => integrate::<EnemyDeck>(file_contents),
                         PortTableEnum::FriendDeck => integrate::<FriendDeck>(file_contents),
-                        PortTableEnum::AirBaseAirAttack => integrate::<AirBaseAirAttack>(file_contents),
-                        PortTableEnum::AirBaseAirAttackList => integrate::<AirBaseAirAttackList>(file_contents),
+                        PortTableEnum::AirBaseAirAttack => {
+                            integrate::<AirBaseAirAttack>(file_contents)
+                        }
+                        PortTableEnum::AirBaseAirAttackList => {
+                            integrate::<AirBaseAirAttackList>(file_contents)
+                        }
                         PortTableEnum::AirBaseAssult => integrate::<AirBaseAssult>(file_contents),
-                        PortTableEnum::CarrierBaseAssault => integrate::<CarrierBaseAssault>(file_contents),
+                        PortTableEnum::CarrierBaseAssault => {
+                            integrate::<CarrierBaseAssault>(file_contents)
+                        }
                         PortTableEnum::ClosingRaigeki => integrate::<ClosingRaigeki>(file_contents),
-                        PortTableEnum::FriendlySupportHourai => integrate::<FriendlySupportHourai>(file_contents),
-                        PortTableEnum::FriendlySupportHouraiList => integrate::<FriendlySupportHouraiList>(file_contents),
+                        PortTableEnum::FriendlySupportHourai => {
+                            integrate::<FriendlySupportHourai>(file_contents)
+                        }
+                        PortTableEnum::FriendlySupportHouraiList => {
+                            integrate::<FriendlySupportHouraiList>(file_contents)
+                        }
                         PortTableEnum::Hougeki => integrate::<Hougeki>(file_contents),
                         PortTableEnum::HougekiList => integrate::<HougekiList>(file_contents),
-                        PortTableEnum::MidnightHougeki => integrate::<MidnightHougeki>(file_contents),
-                        PortTableEnum::MidnightHougekiList => integrate::<MidnightHougekiList>(file_contents),
-                        PortTableEnum::OpeningAirAttack => integrate::<OpeningAirAttack>(file_contents),
-                        PortTableEnum::OpeningAirAttackList => integrate::<OpeningAirAttackList>(file_contents),
+                        PortTableEnum::MidnightHougeki => {
+                            integrate::<MidnightHougeki>(file_contents)
+                        }
+                        PortTableEnum::MidnightHougekiList => {
+                            integrate::<MidnightHougekiList>(file_contents)
+                        }
+                        PortTableEnum::OpeningAirAttack => {
+                            integrate::<OpeningAirAttack>(file_contents)
+                        }
+                        PortTableEnum::OpeningAirAttackList => {
+                            integrate::<OpeningAirAttackList>(file_contents)
+                        }
                         PortTableEnum::OpeningRaigeki => integrate::<OpeningRaigeki>(file_contents),
                         PortTableEnum::OpeningTaisen => integrate::<OpeningTaisen>(file_contents),
-                        PortTableEnum::OpeningTaisenList => integrate::<OpeningTaisenList>(file_contents),
-                        PortTableEnum::SupportAirattack => integrate::<SupportAirattack>(file_contents),
+                        PortTableEnum::OpeningTaisenList => {
+                            integrate::<OpeningTaisenList>(file_contents)
+                        }
+                        PortTableEnum::SupportAirattack => {
+                            integrate::<SupportAirattack>(file_contents)
+                        }
                         PortTableEnum::SupportHourai => integrate::<SupportHourai>(file_contents),
                         PortTableEnum::Battle => integrate::<Battle>(file_contents),
                     };
