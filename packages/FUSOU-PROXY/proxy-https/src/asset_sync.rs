@@ -9,7 +9,7 @@ use std::{
 
 use dashmap::DashSet;
 use once_cell::sync::Lazy;
-use reqwest::{multipart, Client, StatusCode};
+use reqwest::{multipart, Client, StatusCode, Url};
 use tokio::{
     fs,
     sync::mpsc::{self, UnboundedReceiver, UnboundedSender},
@@ -35,6 +35,7 @@ const MIN_SCAN_INTERVAL_SECS: u64 = 10;
 pub struct AssetSyncInit {
     pub save_root: PathBuf,
     pub api_endpoint: String,
+    pub api_origin: String,
     pub key_prefix: Option<String>,
     pub scan_interval: Duration,
     pub require_supabase_auth: bool,
@@ -52,6 +53,7 @@ impl AssetSyncInit {
         }
         let api_endpoint = normalize_string(config.get_api_endpoint())
             .ok_or_else(|| "asset_sync.api_endpoint is empty".to_string())?;
+        let api_origin = derive_origin(&api_endpoint)?;
         let key_prefix = normalize_string(config.get_key_prefix());
 
         let scan_interval_seconds = config
@@ -62,6 +64,7 @@ impl AssetSyncInit {
         Ok(Self {
             save_root: PathBuf::from(save_root),
             api_endpoint,
+            api_origin,
             key_prefix,
             scan_interval,
             require_supabase_auth: config.get_require_supabase_auth(),
@@ -311,6 +314,20 @@ fn build_client() -> Result<Client, reqwest::Error> {
     reqwest::Client::builder().build()
 }
 
+fn derive_origin(endpoint: &str) -> Result<String, String> {
+    let url =
+        Url::parse(endpoint).map_err(|err| format!("invalid asset_sync.api_endpoint: {err}"))?;
+    let scheme = url.scheme();
+    let host = url
+        .host_str()
+        .ok_or_else(|| "asset_sync.api_endpoint missing host".to_string())?;
+    let origin = match url.port() {
+        Some(port) => format!("{}://{}:{}", scheme, host, port),
+        None => format!("{}://{}", scheme, host),
+    };
+    Ok(origin)
+}
+
 fn get_supabase_access_token() -> Option<String> {
     match SUPABASE_ACCESS_TOKEN.read() {
         Ok(guard) => guard.clone(),
@@ -354,7 +371,10 @@ async fn upload_via_api(
 
     form = form.part("file", file_part);
 
-    let mut request = client.post(&settings.api_endpoint).multipart(form);
+    let mut request = client
+        .post(&settings.api_endpoint)
+        .multipart(form)
+        .header("Origin", &settings.api_origin);
 
     if settings.require_supabase_auth {
         let token = get_supabase_access_token()
