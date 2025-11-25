@@ -455,6 +455,8 @@ pub struct ConfigsAppAssetSync {
     key_prefix: Option<String>,
     #[serde(default = "default_asset_sync_period_endpoint")]
     period_endpoint: Option<String>,
+    #[serde(default = "default_asset_sync_skip_extensions")]
+    skip_extensions: Option<Vec<String>>,
 }
 
 fn default_asset_sync_enable() -> Option<bool> {
@@ -481,6 +483,10 @@ fn default_asset_sync_period_endpoint() -> Option<String> {
     Some("".to_string())
 }
 
+fn default_asset_sync_skip_extensions() -> Option<Vec<String>> {
+    Some(vec!["mp3".to_string()])
+}
+
 impl Default for ConfigsAppAssetSync {
     fn default() -> Self {
         Self {
@@ -490,6 +496,7 @@ impl Default for ConfigsAppAssetSync {
             api_endpoint: Some("".to_string()),
             key_prefix: Some("assets".to_string()),
             period_endpoint: Some("".to_string()),
+            skip_extensions: default_asset_sync_skip_extensions(),
         }
     }
 }
@@ -530,6 +537,24 @@ impl ConfigsAppAssetSync {
             Some(ref v) if !v.trim().is_empty() => Some(v.trim().to_string()),
             _ => None,
         }
+    }
+
+    pub fn get_skip_extensions(&self) -> Vec<String> {
+        self.skip_extensions
+            .as_ref()
+            .map(|vec| {
+                vec.iter()
+                    .filter_map(|value| {
+                        let trimmed = value.trim().trim_start_matches('.');
+                        if trimmed.is_empty() {
+                            None
+                        } else {
+                            Some(trimmed.to_ascii_lowercase())
+                        }
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 }
 

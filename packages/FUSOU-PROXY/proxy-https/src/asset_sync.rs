@@ -56,6 +56,7 @@ pub struct AssetSyncInit {
     pub require_supabase_auth: bool,
     pub finder_tag: Option<String>,
     pub period_endpoint: Option<String>,
+    pub blocked_extensions: Vec<String>,
 }
 
 impl AssetSyncInit {
@@ -72,6 +73,7 @@ impl AssetSyncInit {
         let api_origin = derive_origin(&api_endpoint)?;
         let key_prefix = normalize_string(config.get_key_prefix());
         let period_endpoint = config.get_period_endpoint();
+        let blocked_extensions = config.get_skip_extensions();
 
         let scan_interval_seconds = config
             .get_scan_interval_seconds()
@@ -87,6 +89,7 @@ impl AssetSyncInit {
             require_supabase_auth: config.get_require_supabase_auth(),
             finder_tag,
             period_endpoint,
+            blocked_extensions,
         })
     }
 }
@@ -300,6 +303,14 @@ async fn process_path(
         return Ok(());
     }
 
+    if has_blocked_extension(relative, &settings.blocked_extensions) {
+        tracing::debug!(
+            file = %relative.display(),
+            "asset sync skipped disallowed file extension"
+        );
+        return Ok(());
+    }
+
     let key = match build_remote_key(relative, &settings.key_prefix) {
         Some(key) => key,
         None => return Err("unable to derive remote key".into()),
@@ -336,6 +347,19 @@ fn build_remote_key(relative: &Path, prefix: &Option<String>) -> Option<String> 
     match prefix {
         Some(pref) if !pref.is_empty() => Some(format!("{}/{}", pref.trim_end_matches('/'), rel)),
         _ => Some(rel),
+    }
+}
+
+fn has_blocked_extension(path: &Path, blocked: &[String]) -> bool {
+    if blocked.is_empty() {
+        return false;
+    }
+    match path.extension().and_then(|ext| ext.to_str()) {
+        Some(ext) => {
+            let lower = ext.trim_start_matches('.').to_ascii_lowercase();
+            blocked.iter().any(|blocked_ext| blocked_ext == &lower)
+        }
+        None => false,
     }
 }
 fn build_client() -> Result<Client, reqwest::Error> {

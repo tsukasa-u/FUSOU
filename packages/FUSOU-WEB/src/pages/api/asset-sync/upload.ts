@@ -1,4 +1,8 @@
 import type { APIRoute } from "astro";
+import {
+  hasBlockedExtension,
+  resolveBlockedExtensions,
+} from "./blocked-extensions";
 
 const MAX_UPLOAD_BYTES = 200 * 1024 * 1024; // 200 MiB hard ceiling until we add chunked uploads
 const CACHE_CONTROL = "public, max-age=31536000, immutable";
@@ -39,6 +43,7 @@ type BucketPutOptions = {
 interface CloudflareEnv {
   ASSET_SYNC_BUCKET?: BucketBinding;
   SUPABASE_SERVICE_ROLE_KEY?: string;
+  ASSET_SYNC_SKIP_EXTENSIONS?: string;
 }
 
 type SupabaseUser = {
@@ -55,6 +60,10 @@ export const OPTIONS: APIRoute = async () =>
 export const POST: APIRoute = async ({ request, locals }) => {
   const env = extractEnv(locals.runtime?.env);
   const bucket = env?.ASSET_SYNC_BUCKET;
+  const blockedExtensions = resolveBlockedExtensions(
+    env?.ASSET_SYNC_SKIP_EXTENSIONS,
+    import.meta.env.ASSET_SYNC_SKIP_EXTENSIONS,
+  );
 
   if (!bucket) {
     return errorResponse(
@@ -98,6 +107,10 @@ export const POST: APIRoute = async ({ request, locals }) => {
   const relativePath = sanitizeKey(rawRelativePath);
   if (!relativePath) {
     return errorResponse("Invalid relative_path", 400);
+  }
+
+  if (hasBlockedExtension([file.name, key, relativePath], blockedExtensions)) {
+    return errorResponse("This file type is not allowed for upload", 415);
   }
 
   const declaredSize = parseSize(fileSizeField);
