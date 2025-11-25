@@ -20,7 +20,7 @@ use crate::{
             get_response_parse_bidirectional_channel,
             get_scheduler_integrate_bidirectional_channel,
         },
-        logger,
+        cli, logger,
     },
     cloud_storage::integrate,
     cmd::{native_cmd, tauri_cmd},
@@ -589,6 +589,10 @@ pub fn setup_configs() -> Result<(), Box<dyn std::error::Error>> {
 
 pub fn setup_init(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let (shutdown_tx, mut shutdown_rx) = mpsc::channel::<ShutdownSignal>(1);
+
+    let cli_invocation = cli::parse_invocation();
+    cli::prepare_terminal_logs(&cli_invocation);
+    cli::handle_metadata_commands(app, &cli_invocation)?;
 
     set_paths(app)?;
     logger::setup(app);
