@@ -1,14 +1,15 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <?define GUID_Registry_AppPath = "d86708d9-dbb6-4d7b-bff8-395c24a301fa" ?>
 <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
-  <!-- Adds HKCU App Paths entries so "fusou" can be started from the Run dialog or terminals. -->
+  <!-- Adds HKLM App Paths entries and extends PATH so "fusou" can be started globally. -->
   <Fragment>
     <DirectoryRef Id="INSTALLDIR">
       <Component Id="Registry_AppPath" Guid="$(var.GUID_Registry_AppPath)">
-        <RegistryKey Root="HKCU" Key="Software\Microsoft\Windows\CurrentVersion\App Paths\fusou.exe">
+        <RegistryKey Root="HKLM" Key="Software\Microsoft\Windows\CurrentVersion\App Paths\fusou.exe">
           <RegistryValue Type="string" Value="[INSTALLDIR]fusou.exe" KeyPath="yes" />
           <RegistryValue Type="string" Name="Path" Value="[INSTALLDIR]" />
         </RegistryKey>
+        <Environment Id="Env_Path_Fusou" Name="PATH" Action="set" Part="last" System="yes" Permanent="no" Value="[INSTALLDIR]" Separator=";" />
       </Component>
     </DirectoryRef>
   </Fragment>
