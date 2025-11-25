@@ -12,6 +12,8 @@ pub fn get_user_configs_for_app() -> configs::ConfigsApp {
     configs::get_user_configs().app.clone()
 }
 
+pub use configs::ConfigsAppAssetSync;
+
 #[cfg(target_os = "linux")]
 pub fn get_user_env() -> configs::ConfigEnv {
     configs::get_user_configs().env.clone()

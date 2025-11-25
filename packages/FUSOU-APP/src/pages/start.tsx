@@ -7,6 +7,7 @@ import {
   createSignal,
   For,
   Match,
+  onCleanup,
   Show,
   Switch,
 } from "solid-js";
@@ -114,6 +115,29 @@ function Start() {
 
   // const navigate = useNavigate();
 
+  createEffect(() => {
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event, session) => {
+      if (session?.access_token && session?.refresh_token) {
+        invoke("set_supabase_session", {
+          access_token: session.access_token,
+          refresh_token: session.refresh_token,
+        }).catch((error) => {
+          console.error("Failed to propagate Supabase session", error);
+        });
+      } else if (event === "SIGNED_OUT") {
+        invoke("clear_supabase_session").catch((error) => {
+          console.error("Failed to clear Supabase session", error);
+        });
+      }
+    });
+
+    onCleanup(() => {
+      subscription.unsubscribe();
+    });
+  });
+
   function check_server_status() {
     setPacServerHealth(-1);
     setProxyServerHealth(-1);
@@ -165,6 +189,14 @@ function Start() {
           if (data.session.user == null) {
             open_auth_page();
           } else {
+            if (data.session.access_token && data.session.refresh_token) {
+              invoke("set_supabase_session", {
+                access_token: data.session.access_token,
+                refresh_token: data.session.refresh_token,
+              }).catch((error) => {
+                console.error("Failed to propagate initial Supabase session", error);
+              });
+            }
             getRefreshToken(data.session.user.id)
               .then((refreshToken) => {
                 if (refreshToken !== null) {

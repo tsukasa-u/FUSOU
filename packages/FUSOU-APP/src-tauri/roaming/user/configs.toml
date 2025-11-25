@@ -183,6 +183,27 @@ save_file_location = ""
     output_directory = ""
 
 
+    [app.asset_sync]
+    # Whether to upload non-kcsapi proxy resources to Cloudflare R2
+    # default is false
+    enable = true
+
+    # Whether Supabase authentication is required before uploading
+    require_supabase_auth = true
+
+    # The polling interval (in seconds) for scanning the cache directory
+    scan_interval_seconds = 30
+
+    # HTTPS endpoint provided by FUSOU-WEB that mediates Cloudflare R2 uploads
+    api_endpoint = "https://save-data-on-r2.fusou.pages.dev/api/asset-sync/upload"
+
+    # Endpoint returning the latest kc_period_tag timestamp to decide when uploads can restart
+    period_endpoint = "https://save-data-on-r2.fusou.pages.dev/api/kc-period/latest"
+
+    # Optional prefix prepended to stored object keys
+    key_prefix = "assets"
+
+
     [app.auth]
     # Whether to deny user authentication
     # To be careful because there is no method to reset the authentication state until the authentication expires

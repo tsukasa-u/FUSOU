@@ -1,4 +1,5 @@
 use crate::cloud_storage::google_drive;
+use proxy_https::asset_sync;
 use tauri::{Emitter, Manager, Url};
 
 pub fn single_instance_init(app: &tauri::AppHandle, argv: Vec<String>) {
@@ -25,6 +26,10 @@ pub fn single_instance_init(app: &tauri::AppHandle, argv: Vec<String>) {
             let _ = google_drive::set_refresh_token(providrer_refresh_token, token_type.to_owned());
         }
         if !supabase_refresh_token.is_empty() && !supabase_access_token.is_empty() {
+            asset_sync::update_supabase_session(
+                supabase_access_token.clone(),
+                Some(supabase_refresh_token.clone()),
+            );
             app.emit_to(
                 "main",
                 "set-supabase-tokens",

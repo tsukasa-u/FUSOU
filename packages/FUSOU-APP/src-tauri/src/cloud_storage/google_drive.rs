@@ -111,9 +111,15 @@ impl StorageProvider for GoogleDriveProvider {
         Box::pin(async move {
             let mut hub = self.build_client().await?;
             let folder_id = self.ensure_period_folder(&mut hub, period_tag).await?;
-            write_port_table(&mut hub, Some(folder_id), table.clone(), maparea_id, mapinfo_no)
-                .await
-                .ok_or_else(|| StorageError::Operation("failed to write port table".into()))?;
+            write_port_table(
+                &mut hub,
+                Some(folder_id),
+                table.clone(),
+                maparea_id,
+                mapinfo_no,
+            )
+            .await
+            .ok_or_else(|| StorageError::Operation("failed to write port table".into()))?;
             Ok(())
         })
     }
@@ -309,21 +315,10 @@ pub async fn get_file_content(
 ) -> Option<Vec<u8>> {
     let mut last_err: Option<String> = None;
     for attempt in 0..5u32 {
-        let result = hub
-            .files()
-            .get(&file_id)
-            .param("alt", "media")
-            .doit()
-            .await;
+        let result = hub.files().get(&file_id).param("alt", "media").doit().await;
         match result {
             Ok(result) => {
-                let bytes = result
-                    .0
-                    .into_body()
-                    .collect()
-                    .await
-                    .ok()?
-                    .to_bytes();
+                let bytes = result.0.into_body().collect().await.ok()?.to_bytes();
                 return Some(bytes.to_vec());
             }
             Err(e) => {
@@ -790,10 +785,11 @@ pub async fn write_port_table(
     let mime_type = GOOGLE_DRIVE_AVRO_MIME_TYPE.to_string();
     let folder_name = TRANSACTION_DATA_FOLDER_NAME.to_string();
     let transaction_folder_id = check_or_create_folder(hub, folder_name, folder_id.clone()).await?;
-    
+
     // Create map-specific folder (e.g., "1-5" for maparea_id=1, mapinfo_no=5)
     let map_folder_name = format!("{}-{}", maparea_id, mapinfo_no);
-    let map_folder_id = check_or_create_folder(hub, map_folder_name, Some(transaction_folder_id.clone())).await?;
+    let map_folder_id =
+        check_or_create_folder(hub, map_folder_name, Some(transaction_folder_id.clone())).await?;
 
     let utc = Utc::now().naive_utc();
     let jst = Tokyo.from_utc_datetime(&utc);
@@ -898,8 +894,14 @@ pub async fn integrate_port_table(
     let transaction_folder_id = check_or_create_folder(hub, folder_name, folder_id.clone()).await?;
 
     // Get all map folders (e.g., "1-5", "2-3") in transaction_data
-    let map_folder_ids = get_file_list_in_folder(hub, Some(transaction_folder_id.clone()), page_size, folder_mime_type.clone()).await?;
-    
+    let map_folder_ids = get_file_list_in_folder(
+        hub,
+        Some(transaction_folder_id.clone()),
+        page_size,
+        folder_mime_type.clone(),
+    )
+    .await?;
+
     // Process each map folder
     for map_folder_id in map_folder_ids {
         let utc = Utc::now().naive_utc();
@@ -927,109 +929,123 @@ pub async fn integrate_port_table(
             let file_id_list =
                 get_file_list_in_folder(hub, Some(folder_id.clone()), page_size, mime_type.clone())
                     .await;
-        let file_content_list = if let Some(file_id_list) = file_id_list.clone() {
-            if file_id_list.is_empty() || file_id_list.len() == 1 {
-                continue;
-            }
-            let mut file_content_list = Vec::new();
-            for file_id in file_id_list.iter() {
-                // Await each call sequentially to avoid multiple mutable borrows
-                if let Some(content) = get_file_content(hub, file_id.clone()).await {
-                    file_content_list.push(content);
-                }
-            }
-            Some(file_content_list)
-        } else {
-            continue;
-        };
-        if let Some(file_content_list) = file_content_list {
-            if file_content_list.is_empty() {
-                continue;
-            }
-            let integrated_content = if let Ok(table_name) =
-                table_name.clone().parse::<PortTableEnum>()
-            {
-                match table_name {
-                    PortTableEnum::EnvInfo => integrate::<EnvInfo>(file_content_list),
-                    PortTableEnum::Cells => integrate::<Cells>(file_content_list),
-                    PortTableEnum::AirBase => integrate::<AirBase>(file_content_list),
-                    PortTableEnum::PlaneInfo => integrate::<PlaneInfo>(file_content_list),
-                    PortTableEnum::OwnSlotItem => integrate::<OwnSlotItem>(file_content_list),
-                    PortTableEnum::EnemySlotItem => integrate::<EnemySlotItem>(file_content_list),
-                    PortTableEnum::FriendSlotItem => integrate::<FriendSlotItem>(file_content_list),
-                    PortTableEnum::OwnShip => integrate::<OwnShip>(file_content_list),
-                    PortTableEnum::EnemyShip => integrate::<EnemyShip>(file_content_list),
-                    PortTableEnum::FriendShip => integrate::<FriendShip>(file_content_list),
-                    PortTableEnum::OwnDeck => integrate::<OwnDeck>(file_content_list),
-                    PortTableEnum::SupportDeck => integrate::<SupportDeck>(file_content_list),
-                    PortTableEnum::EnemyDeck => integrate::<EnemyDeck>(file_content_list),
-                    PortTableEnum::FriendDeck => integrate::<FriendDeck>(file_content_list),
-                    PortTableEnum::AirBaseAirAttack => {
-                        integrate::<AirBaseAirAttack>(file_content_list)
-                    }
-                    PortTableEnum::AirBaseAirAttackList => {
-                        integrate::<AirBaseAirAttackList>(file_content_list)
-                    }
-                    PortTableEnum::AirBaseAssult => integrate::<AirBaseAssult>(file_content_list),
-                    PortTableEnum::CarrierBaseAssault => {
-                        integrate::<CarrierBaseAssault>(file_content_list)
-                    }
-                    PortTableEnum::ClosingRaigeki => integrate::<ClosingRaigeki>(file_content_list),
-                    PortTableEnum::FriendlySupportHourai => {
-                        integrate::<FriendlySupportHourai>(file_content_list)
-                    }
-                    PortTableEnum::FriendlySupportHouraiList => {
-                        integrate::<FriendlySupportHouraiList>(file_content_list)
-                    }
-                    PortTableEnum::Hougeki => integrate::<Hougeki>(file_content_list),
-                    PortTableEnum::HougekiList => integrate::<HougekiList>(file_content_list),
-                    PortTableEnum::MidnightHougeki => {
-                        integrate::<MidnightHougeki>(file_content_list)
-                    }
-                    PortTableEnum::MidnightHougekiList => {
-                        integrate::<MidnightHougekiList>(file_content_list)
-                    }
-                    PortTableEnum::OpeningAirAttack => {
-                        integrate::<OpeningAirAttack>(file_content_list)
-                    }
-                    PortTableEnum::OpeningAirAttackList => {
-                        integrate::<OpeningAirAttackList>(file_content_list)
-                    }
-                    PortTableEnum::OpeningRaigeki => integrate::<OpeningRaigeki>(file_content_list),
-                    PortTableEnum::OpeningTaisen => integrate::<OpeningTaisen>(file_content_list),
-                    PortTableEnum::OpeningTaisenList => {
-                        integrate::<OpeningTaisenList>(file_content_list)
-                    }
-                    PortTableEnum::SupportAirattack => {
-                        integrate::<SupportAirattack>(file_content_list)
-                    }
-                    PortTableEnum::SupportHourai => integrate::<SupportHourai>(file_content_list),
-                    PortTableEnum::Battle => integrate::<Battle>(file_content_list),
-                }
-            } else {
-                Ok(Vec::new())
-            };
-            if let Ok(integrated_content) = integrated_content {
-                if integrated_content.is_empty() {
+            let file_content_list = if let Some(file_id_list) = file_id_list.clone() {
+                if file_id_list.is_empty() || file_id_list.len() == 1 {
                     continue;
                 }
-                create_file(
-                    hub,
-                    file_name.clone(),
-                    mime_type.clone(),
-                    integrated_content.as_slice(),
-                    Some(folder_id.clone()),
-                )
-                .await?;
-                for file_id in file_id_list.unwrap().iter() {
-                    delete_file(hub, file_id.clone()).await;
+                let mut file_content_list = Vec::new();
+                for file_id in file_id_list.iter() {
+                    // Await each call sequentially to avoid multiple mutable borrows
+                    if let Some(content) = get_file_content(hub, file_id.clone()).await {
+                        file_content_list.push(content);
+                    }
+                }
+                Some(file_content_list)
+            } else {
+                continue;
+            };
+            if let Some(file_content_list) = file_content_list {
+                if file_content_list.is_empty() {
+                    continue;
+                }
+                let integrated_content = if let Ok(table_name) =
+                    table_name.clone().parse::<PortTableEnum>()
+                {
+                    match table_name {
+                        PortTableEnum::EnvInfo => integrate::<EnvInfo>(file_content_list),
+                        PortTableEnum::Cells => integrate::<Cells>(file_content_list),
+                        PortTableEnum::AirBase => integrate::<AirBase>(file_content_list),
+                        PortTableEnum::PlaneInfo => integrate::<PlaneInfo>(file_content_list),
+                        PortTableEnum::OwnSlotItem => integrate::<OwnSlotItem>(file_content_list),
+                        PortTableEnum::EnemySlotItem => {
+                            integrate::<EnemySlotItem>(file_content_list)
+                        }
+                        PortTableEnum::FriendSlotItem => {
+                            integrate::<FriendSlotItem>(file_content_list)
+                        }
+                        PortTableEnum::OwnShip => integrate::<OwnShip>(file_content_list),
+                        PortTableEnum::EnemyShip => integrate::<EnemyShip>(file_content_list),
+                        PortTableEnum::FriendShip => integrate::<FriendShip>(file_content_list),
+                        PortTableEnum::OwnDeck => integrate::<OwnDeck>(file_content_list),
+                        PortTableEnum::SupportDeck => integrate::<SupportDeck>(file_content_list),
+                        PortTableEnum::EnemyDeck => integrate::<EnemyDeck>(file_content_list),
+                        PortTableEnum::FriendDeck => integrate::<FriendDeck>(file_content_list),
+                        PortTableEnum::AirBaseAirAttack => {
+                            integrate::<AirBaseAirAttack>(file_content_list)
+                        }
+                        PortTableEnum::AirBaseAirAttackList => {
+                            integrate::<AirBaseAirAttackList>(file_content_list)
+                        }
+                        PortTableEnum::AirBaseAssult => {
+                            integrate::<AirBaseAssult>(file_content_list)
+                        }
+                        PortTableEnum::CarrierBaseAssault => {
+                            integrate::<CarrierBaseAssault>(file_content_list)
+                        }
+                        PortTableEnum::ClosingRaigeki => {
+                            integrate::<ClosingRaigeki>(file_content_list)
+                        }
+                        PortTableEnum::FriendlySupportHourai => {
+                            integrate::<FriendlySupportHourai>(file_content_list)
+                        }
+                        PortTableEnum::FriendlySupportHouraiList => {
+                            integrate::<FriendlySupportHouraiList>(file_content_list)
+                        }
+                        PortTableEnum::Hougeki => integrate::<Hougeki>(file_content_list),
+                        PortTableEnum::HougekiList => integrate::<HougekiList>(file_content_list),
+                        PortTableEnum::MidnightHougeki => {
+                            integrate::<MidnightHougeki>(file_content_list)
+                        }
+                        PortTableEnum::MidnightHougekiList => {
+                            integrate::<MidnightHougekiList>(file_content_list)
+                        }
+                        PortTableEnum::OpeningAirAttack => {
+                            integrate::<OpeningAirAttack>(file_content_list)
+                        }
+                        PortTableEnum::OpeningAirAttackList => {
+                            integrate::<OpeningAirAttackList>(file_content_list)
+                        }
+                        PortTableEnum::OpeningRaigeki => {
+                            integrate::<OpeningRaigeki>(file_content_list)
+                        }
+                        PortTableEnum::OpeningTaisen => {
+                            integrate::<OpeningTaisen>(file_content_list)
+                        }
+                        PortTableEnum::OpeningTaisenList => {
+                            integrate::<OpeningTaisenList>(file_content_list)
+                        }
+                        PortTableEnum::SupportAirattack => {
+                            integrate::<SupportAirattack>(file_content_list)
+                        }
+                        PortTableEnum::SupportHourai => {
+                            integrate::<SupportHourai>(file_content_list)
+                        }
+                        PortTableEnum::Battle => integrate::<Battle>(file_content_list),
+                    }
+                } else {
+                    Ok(Vec::new())
+                };
+                if let Ok(integrated_content) = integrated_content {
+                    if integrated_content.is_empty() {
+                        continue;
+                    }
+                    create_file(
+                        hub,
+                        file_name.clone(),
+                        mime_type.clone(),
+                        integrated_content.as_slice(),
+                        Some(folder_id.clone()),
+                    )
+                    .await?;
+                    for file_id in file_id_list.unwrap().iter() {
+                        delete_file(hub, file_id.clone()).await;
+                    }
+                } else {
+                    continue;
                 }
             } else {
                 continue;
             }
-        } else {
-            continue;
-        }
         }
     }
     return Some(transaction_folder_id);

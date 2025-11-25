@@ -1,11 +1,8 @@
-use std::{future::Future, pin::Pin, sync::Arc};
 use kc_api::database::table::{GetDataTableEncode, PortTableEncode};
+use std::{future::Future, pin::Pin, sync::Arc};
 use tokio::sync::{Mutex, OnceCell};
 
-use crate::cloud_storage::{
-    google_drive::GoogleDriveProvider,
-    local_fs::LocalFileSystemProvider,
-};
+use crate::cloud_storage::{google_drive::GoogleDriveProvider, local_fs::LocalFileSystemProvider};
 
 pub type StorageFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
@@ -101,18 +98,17 @@ impl StorageService {
         }
     }
 
-    pub async fn write_get_data_table(
-        &self,
-        period_tag: &str,
-        table: GetDataTableEncode,
-    ) {
+    pub async fn write_get_data_table(&self, period_tag: &str, table: GetDataTableEncode) {
         let mut handles = Vec::new();
         for provider in self.providers.iter().cloned() {
             let table_clone = table.clone();
             let period_clone = period_tag.to_string();
             let provider_name = provider.name().to_string();
             let handle = tokio::spawn(async move {
-                if let Err(err) = provider.write_get_data_table(&period_clone, &table_clone).await {
+                if let Err(err) = provider
+                    .write_get_data_table(&period_clone, &table_clone)
+                    .await
+                {
                     tracing::warn!(
                         "{} storage failed to write get_data_table: {}",
                         provider_name,
@@ -130,7 +126,9 @@ impl StorageService {
     pub async fn write_port_table(
         &self,
         period_tag: &str,
-        table: PortTableEncode, maparea_id: i64, mapinfo_no: i64
+        table: PortTableEncode,
+        maparea_id: i64,
+        mapinfo_no: i64,
     ) {
         let mut handles = Vec::new();
         for provider in self.providers.iter().cloned() {
@@ -138,7 +136,10 @@ impl StorageService {
             let period_clone = period_tag.to_string();
             let provider_name = provider.name().to_string();
             let handle = tokio::spawn(async move {
-                if let Err(err) = provider.write_port_table(&period_clone, &table_clone, maparea_id, mapinfo_no).await {
+                if let Err(err) = provider
+                    .write_port_table(&period_clone, &table_clone, maparea_id, mapinfo_no)
+                    .await
+                {
                     tracing::warn!(
                         "{} storage failed to write port_table: {}",
                         provider_name,
@@ -153,23 +154,22 @@ impl StorageService {
         }
     }
 
-    pub async fn integrate_port_table(
-        &self,
-        period_tag: &str,
-        page_size: i32,
-    ) {
+    pub async fn integrate_port_table(&self, period_tag: &str, page_size: i32) {
         let mut handles = Vec::new();
         for provider in self.providers.iter().cloned() {
             let period_clone = period_tag.to_string();
             let provider_name = provider.name().to_string();
             let handle = tokio::spawn(async move {
-            if let Err(err) = provider.integrate_port_table(&period_clone, page_size).await {
-                tracing::warn!(
-                    "{} storage failed to integrate port_table: {}",
-                    provider_name,
-                    err
-                );
-            }
+                if let Err(err) = provider
+                    .integrate_port_table(&period_clone, page_size)
+                    .await
+                {
+                    tracing::warn!(
+                        "{} storage failed to integrate port_table: {}",
+                        provider_name,
+                        err
+                    );
+                }
             });
             handles.push(handle);
         }
