@@ -453,6 +453,8 @@ pub struct ConfigsAppAssetSync {
     api_endpoint: Option<String>,
     #[serde(default = "default_asset_sync_key_prefix")]
     key_prefix: Option<String>,
+    #[serde(default = "default_asset_sync_period_endpoint")]
+    period_endpoint: Option<String>,
 }
 
 fn default_asset_sync_enable() -> Option<bool> {
@@ -475,6 +477,10 @@ fn default_asset_sync_key_prefix() -> Option<String> {
     Some("assets".to_string())
 }
 
+fn default_asset_sync_period_endpoint() -> Option<String> {
+    Some("".to_string())
+}
+
 impl Default for ConfigsAppAssetSync {
     fn default() -> Self {
         Self {
@@ -483,6 +489,7 @@ impl Default for ConfigsAppAssetSync {
             scan_interval_seconds: Some(30),
             api_endpoint: Some("".to_string()),
             key_prefix: Some("assets".to_string()),
+            period_endpoint: Some("".to_string()),
         }
     }
 }
@@ -513,6 +520,13 @@ impl ConfigsAppAssetSync {
 
     pub fn get_key_prefix(&self) -> Option<String> {
         match self.key_prefix {
+            Some(ref v) if !v.trim().is_empty() => Some(v.trim().to_string()),
+            _ => None,
+        }
+    }
+
+    pub fn get_period_endpoint(&self) -> Option<String> {
+        match self.period_endpoint {
             Some(ref v) if !v.trim().is_empty() => Some(v.trim().to_string()),
             _ => None,
         }

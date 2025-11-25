@@ -4,12 +4,13 @@ use std::{
         atomic::{AtomicBool, Ordering},
         Arc, OnceLock, RwLock,
     },
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use dashmap::DashSet;
 use once_cell::sync::Lazy;
 use reqwest::{multipart, Client, StatusCode, Url};
+use serde::Deserialize;
 use tokio::{
     fs,
     sync::mpsc::{self, UnboundedReceiver, UnboundedSender},
@@ -20,6 +21,7 @@ use tracing;
 use walkdir::WalkDir;
 
 use configs::ConfigsAppAssetSync;
+use chrono::{DateTime, Utc};
 
 static ASSET_SYNC_HANDLE: OnceLock<JoinHandle<()>> = OnceLock::new();
 static ASSET_SYNC_QUEUE: OnceLock<UnboundedSender<PathBuf>> = OnceLock::new();
@@ -28,8 +30,21 @@ static SUPABASE_AUTH_READY: AtomicBool = AtomicBool::new(false);
 static SUPABASE_WAITING_LOGGED: AtomicBool = AtomicBool::new(false);
 static SUPABASE_ACCESS_TOKEN: Lazy<RwLock<Option<String>>> = Lazy::new(|| RwLock::new(None));
 static SUPABASE_REFRESH_TOKEN: Lazy<RwLock<Option<String>>> = Lazy::new(|| RwLock::new(None));
+static PERIOD_CACHE: Lazy<RwLock<Option<PeriodCache>>> = Lazy::new(|| RwLock::new(None));
+static LAST_PERIOD_TAG: Lazy<RwLock<Option<String>>> = Lazy::new(|| RwLock::new(None));
 
 const MIN_SCAN_INTERVAL_SECS: u64 = 10;
+const PERIOD_CACHE_FALLBACK_SECS: u64 = 24 * 60 * 60;
+
+struct PeriodCache {
+    expires_at: Instant,
+}
+
+#[derive(Deserialize)]
+struct PeriodApiResponse {
+    tag: Option<String>,
+    cache_expires_at: Option<String>,
+}
 
 #[derive(Debug, Clone)]
 pub struct AssetSyncInit {
@@ -40,6 +55,7 @@ pub struct AssetSyncInit {
     pub scan_interval: Duration,
     pub require_supabase_auth: bool,
     pub finder_tag: Option<String>,
+    pub period_endpoint: Option<String>,
 }
 
 impl AssetSyncInit {
@@ -55,6 +71,7 @@ impl AssetSyncInit {
             .ok_or_else(|| "asset_sync.api_endpoint is empty".to_string())?;
         let api_origin = derive_origin(&api_endpoint)?;
         let key_prefix = normalize_string(config.get_key_prefix());
+        let period_endpoint = config.get_period_endpoint();
 
         let scan_interval_seconds = config
             .get_scan_interval_seconds()
@@ -69,6 +86,7 @@ impl AssetSyncInit {
             scan_interval,
             require_supabase_auth: config.get_require_supabase_auth(),
             finder_tag,
+            period_endpoint,
         })
     }
 }
@@ -196,11 +214,18 @@ async fn run_worker(
     let client = build_client()
         .map_err(|err| format!("failed to initialize asset sync http client: {err}"))?;
 
+    if let Err(err) = maybe_refresh_period(&client, &settings).await {
+        tracing::warn!(error = %err, "failed to refresh asset sync period");
+    }
+
     let mut interval = time::interval(settings.scan_interval);
     loop {
         tokio::select! {
             _ = interval.tick() => {
                 if check_auth_ready(&settings) {
+                    if let Err(err) = maybe_refresh_period(&client, &settings).await {
+                        tracing::warn!(error = %err, "failed to refresh asset sync period");
+                    }
                     if let Err(err) = run_full_scan(&client, &settings).await {
                         tracing::warn!(error = %err, "asset sync scan failed");
                     }
@@ -208,6 +233,9 @@ async fn run_worker(
             }
             Some(path) = rx.recv() => {
                 if check_auth_ready(&settings) {
+                    if let Err(err) = maybe_refresh_period(&client, &settings).await {
+                        tracing::warn!(error = %err, "failed to refresh asset sync period");
+                    }
                     if let Err(err) = process_path(&client, &settings, &path).await {
                         tracing::warn!(error = %err, file = %path.display(), "asset upload failed");
                     }
@@ -403,4 +431,114 @@ async fn upload_via_api(
 
     tracing::info!(key, endpoint = %settings.api_endpoint, "uploaded asset via API");
     Ok(())
+}
+
+async fn maybe_refresh_period(
+    client: &Client,
+    settings: &AssetSyncInit,
+) -> Result<(), String> {
+    let endpoint = match settings.period_endpoint.as_deref() {
+        Some(value) => value,
+        None => return Ok(()),
+    };
+
+    if !should_refresh_period_cache() {
+        return Ok(());
+    }
+
+    let response = client
+        .get(endpoint)
+        .header("Accept", "application/json")
+        .send()
+        .await
+        .map_err(|err| format!("failed to query period endpoint: {err}"))?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        return Err(format!(
+            "period endpoint returned {}: {}",
+            status,
+            body.trim()
+        ));
+    }
+
+    let payload: PeriodApiResponse = response
+        .json()
+        .await
+        .map_err(|err| format!("failed to decode period endpoint payload: {err}"))?;
+
+    cache_period_value(payload);
+    Ok(())
+}
+
+fn should_refresh_period_cache() -> bool {
+    match PERIOD_CACHE
+        .read()
+        .expect("period cache lock poisoned")
+        .as_ref()
+    {
+        Some(cache) => cache.expires_at <= Instant::now(),
+        None => true,
+    }
+}
+
+fn cache_period_value(payload: PeriodApiResponse) {
+    let ttl = parse_cache_ttl(&payload);
+    let expires_at = Instant::now() + ttl;
+    let tag = payload.tag.clone();
+
+    {
+        let mut guard = PERIOD_CACHE
+            .write()
+            .expect("period cache lock poisoned");
+        *guard = Some(PeriodCache { expires_at });
+    }
+
+    apply_period_transition(tag);
+}
+
+fn parse_cache_ttl(payload: &PeriodApiResponse) -> Duration {
+    if let Some(ref iso) = payload.cache_expires_at {
+        if let Some(duration) = duration_until(iso) {
+            if duration.is_zero() {
+                return Duration::from_secs(1);
+            }
+            return duration;
+        }
+    }
+    Duration::from_secs(PERIOD_CACHE_FALLBACK_SECS)
+}
+
+fn duration_until(iso: &str) -> Option<Duration> {
+    let expiry = DateTime::parse_from_rfc3339(iso)
+        .ok()?
+        .with_timezone(&Utc);
+    let diff = expiry.signed_duration_since(Utc::now());
+    diff.to_std().ok()
+}
+
+fn apply_period_transition(new_tag: Option<String>) {
+    let mut guard = LAST_PERIOD_TAG
+        .write()
+        .expect("period tag lock poisoned");
+
+    let changed = match (&*guard, &new_tag) {
+        (Some(prev), Some(curr)) => prev != curr,
+        (None, Some(_)) => true,
+        (Some(_), None) => true,
+        (None, None) => false,
+    };
+
+    if changed {
+        PROCESSED_KEYS.clear();
+        let label = new_tag
+            .as_deref()
+            .unwrap_or("<none>");
+        tracing::info!(
+            period_tag = label,
+            "asset sync period advanced; cleared processed asset cache"
+        );
+        *guard = new_tag;
+    }
 }
