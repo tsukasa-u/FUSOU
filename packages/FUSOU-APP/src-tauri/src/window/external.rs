@@ -70,15 +70,10 @@ pub fn create_external_window(app: &AppHandle, browser: Option<Browser>, browse_
 
         let app_configs = configs::get_user_configs_for_app();
         let kc_window = &app_configs.kc_window;
-        let inner_winow_size_width = app_configs
-            .kc_window.get_default_inner_width() as f64;
-        let inner_winow_size_height = kc_window
-            .get_default_inner_height() as f64;
-        let max_window_size_width = kc_window
-            .get_max_inner_width() as f64;
-        let max_window_size_height = kc_window
-            .get_max_inner_height() as f64;
-
+        let inner_winow_size_width = app_configs.kc_window.get_default_inner_width() as f64;
+        let inner_winow_size_height = kc_window.get_default_inner_height() as f64;
+        let max_window_size_width = kc_window.get_max_inner_width() as f64;
+        let max_window_size_height = kc_window.get_max_inner_height() as f64;
 
         let external = external
             .fullscreen(false)

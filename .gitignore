@@ -32,6 +32,7 @@ packages/kc_api/crates/kc-api-dto/.env
 packages/kc_api/crates/kc-api-integration-test/.env
 
 packages/FUSOU-PROXY-DATA*/
+packages/FUSOU-DATABASE/
 
 packages/FUSOU-APP/src/pages/vanilla/env.js
 packages/FUSOU-APP/src-tauri/gen/

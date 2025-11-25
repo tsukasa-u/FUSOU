@@ -17,7 +17,7 @@ use chrono_tz::Asia::Tokyo;
 #[cfg(target_os = "windows")]
 use std::os::windows::fs::MetadataExt;
 
-use crate::bidirectional_channel;
+use crate::{asset_sync, bidirectional_channel};
 
 use configs;
 
@@ -163,6 +163,7 @@ fn log_response(
                     }
 
                     let file_log_path = path_log.join(Path::new(path_removed.as_str()));
+                    let file_log_path_for_sync = file_log_path.clone();
 
                     if content_type.eq("application/json") {
                         // this code is for the response not decoded in hudsucker!!
@@ -174,11 +175,13 @@ fn log_response(
                                 buffer = body.clone();
                             }
                         }
-                        fs::write(file_log_path, buffer).expect_or_log("Failed to write file");
+                        fs::write(&file_log_path, buffer).expect_or_log("Failed to write file");
                     } else {
-                        fs::write(file_log_path, body.clone())
+                        fs::write(&file_log_path, body.clone())
                             .expect_or_log("Failed to write file");
                     }
+
+                    asset_sync::notify_new_asset(file_log_path_for_sync);
 
                     // if !file_log_path.exists() {
                     //     fs::write(file_log_path, body.clone().clone())
@@ -475,6 +478,7 @@ pub fn serve_proxy(
     setup_default_crypto_provider();
 
     let configs = configs::get_user_configs_for_proxy();
+    let app_configs = configs::get_user_configs_for_app();
     let allow_save_api_requests = configs.get_allow_save_api_requests();
     let allow_save_api_responses = configs.get_allow_save_api_responses();
     let allow_save_resources = configs.get_allow_save_resources();
@@ -562,6 +566,28 @@ pub fn serve_proxy(
     } else {
         log_save_path.clone()
     };
+
+    if app_configs.asset_sync.get_enable() {
+        match asset_sync::AssetSyncInit::from_configs(
+            &app_configs.asset_sync,
+            save_path.clone(),
+            if file_prefix.trim().is_empty() {
+                None
+            } else {
+                Some(file_prefix.clone())
+            },
+        ) {
+            Ok(init) => {
+                if let Err(err) = asset_sync::start(init) {
+                    tracing::warn!("failed to start asset sync: {}", err);
+                }
+            }
+            Err(err) => {
+                tracing::warn!("asset sync disabled due to invalid configuration: {}", err);
+            }
+        }
+    }
+
     let server_proxy = Proxy::builder()
         .with_addr(addr)
         .with_ca(ca)

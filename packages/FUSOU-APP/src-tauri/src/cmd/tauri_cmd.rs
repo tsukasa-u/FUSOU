@@ -3,7 +3,7 @@ use std::collections::HashMap;
 #[cfg(dev)]
 use std::fs;
 
-use proxy_https::bidirectional_channel;
+use proxy_https::{asset_sync, bidirectional_channel};
 use tauri::{AppHandle, Emitter, Manager};
 
 use crate::auth::auth_server;
@@ -133,6 +133,36 @@ pub async fn set_refresh_token(_window: tauri::Window, token: String) -> Result<
     let refresh_token = refresh_token.unwrap();
     let token_type = token_type.unwrap();
     return google_drive::set_refresh_token(refresh_token.to_string(), token_type.to_string());
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub async fn set_supabase_session(
+    window: tauri::Window,
+    access_token: String,
+    refresh_token: String,
+) -> Result<(), String> {
+    if access_token.trim().is_empty() || refresh_token.trim().is_empty() {
+        asset_sync::clear_supabase_session();
+        return Err("invalid Supabase session payload".to_string());
+    }
+
+    asset_sync::update_supabase_session(access_token.clone(), Some(refresh_token.clone()));
+
+    window
+        .app_handle()
+        .emit_to("main", "set-supabase-tokens", vec![access_token, refresh_token])
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub async fn clear_supabase_session(window: tauri::Window) -> Result<(), ()> {
+    asset_sync::clear_supabase_session();
+    let _ = window.app_handle().emit_to(
+        "main",
+        "set-supabase-tokens",
+        vec![String::new(), String::new()],
+    );
+    Ok(())
 }
 
 #[cfg(dev)]
