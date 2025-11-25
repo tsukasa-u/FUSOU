@@ -117,7 +117,13 @@ save_file_location = ""
     [app.browser]
     # The URL to open first in the browser
     url = "http://www.dmm.com/netgame/social/-/gadgets/=/app_id=854854/"
-    
+
+
+    [app.autostart]
+    # Whether to enable the Tauri autostart integration
+    # default is false
+    enable = false
+
 
     [app.theme]
     # The theme to use for the application
@@ -136,18 +142,15 @@ save_file_location = ""
     # Whether to enable Discord integration (Discord Rich Presence)
     enable_discord_integration = true
 
-    # Whether to use a custom message for Discord Rich Presence
-    # this option is only used when `enable_discord_integration` is true
+    # Whether to use a custom to use for Discord Rich Presence
     use_custom_message = true
 
     # The custom message to use for Discord Rich Presence
     # This option is only used when `use_custom_message` is true
-    # this options won't work when you left these options empty string
     custom_message = "This is experimental implementation"
     custom_details = "Playing KanColle with FUSOU"
 
     # Whether to use a custom image for Discord Rich Presence
-    # this option is only used when `use_custom_message` is true
     use_custom_image = true
 
     # The custom image url to use for Discord Rich Presence

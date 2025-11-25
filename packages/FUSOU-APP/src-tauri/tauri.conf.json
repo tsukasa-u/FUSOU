@@ -22,7 +22,14 @@
     "windows": {
       "certificateThumbprint": null,
       "digestAlgorithm": "sha256",
-      "timestampUrl": ""
+      "timestampUrl": "",
+      "nsis": {
+        "installerHooks": "installer/nsis/app-paths.nsh"
+      },
+      "wix": {
+        "fragmentPaths": ["installer/wix/app-paths.wxs"],
+        "componentRefs": ["Registry_AppPath"]
+      }
     },
     "longDescription": "",
     "macOS": {
