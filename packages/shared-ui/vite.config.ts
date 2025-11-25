@@ -30,6 +30,10 @@ export default defineConfig({
   resolve: {
     alias: {
       "@ipc-bindings": resolve(__dirname, "../kc_api/bindings"),
+      "@fusou-testdata-shared-ui": resolve(
+        __dirname,
+        "../../../FUSOU-TESTDATA/storybook/shared-ui"
+      ),
     },
   },
 });

@@ -1,5 +1,4 @@
-// Prevents additional console window on Windows in release, DO NOT REMOVE!!
-#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // Prevents additional console window on Windows in release
 // #![recursion_limit = "256"]
 
 use once_cell::sync::OnceCell;
@@ -19,6 +18,8 @@ mod sequence;
 mod util;
 mod window;
 mod wrap_proxy;
+
+use tauri_plugin_autostart::MacosLauncher;
 
 #[cfg(feature = "auth-local-server")]
 use crate::builder_setup::bidirectional_channel::get_manage_auth_channel;
@@ -40,6 +41,8 @@ pub async fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, None))
+        .plugin(tauri_plugin_notification::init())
         .plugin(
             tauri_plugin_log::Builder::new()
                 .targets([

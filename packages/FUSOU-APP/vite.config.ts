@@ -72,6 +72,10 @@ export default defineConfig(async () => ({
   resolve: {
     alias: {
       "@ipc-bindings": resolve(__dirname, "../kc_api/bindings"),
+      "@fusou-testdata-ipc": resolve(
+        __dirname,
+        "../../../FUSOU-TESTDATA/storybook/ipc"
+      ),
     },
   },
 }));

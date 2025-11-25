@@ -119,6 +119,12 @@ save_file_location = ""
     url = "http://www.dmm.com/netgame/social/-/gadgets/=/app_id=854854/"
 
 
+    [app.autostart]
+    # Whether to enable the Tauri autostart integration
+    # default is false
+    enable = false
+
+
     [app.theme]
     # The theme to use for the application
     # you can choose between "light" and "dark"

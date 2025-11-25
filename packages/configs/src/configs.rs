@@ -238,6 +238,26 @@ impl ConfigsAppBrowser {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ConfigsAppAutostart {
+    #[serde(default)]
+    enable: Option<bool>,
+}
+
+impl Default for ConfigsAppAutostart {
+    fn default() -> Self {
+        Self {
+            enable: Some(false),
+        }
+    }
+}
+
+impl ConfigsAppAutostart {
+    pub fn get_enable_autostart(&self) -> bool {
+        self.enable.unwrap_or(false)
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConfigsAppTheme {
     #[serde(default = "default_theme")]
     theme: Option<String>,
@@ -676,6 +696,8 @@ pub struct ConfigsApp {
     #[serde(default)]
     pub browser: ConfigsAppBrowser,
     #[serde(default)]
+    pub autostart: ConfigsAppAutostart,
+    #[serde(default)]
     pub theme: ConfigsAppTheme,
     #[serde(default)]
     pub font: ConfigAppFont,
@@ -696,6 +718,7 @@ impl Default for ConfigsApp {
         Self {
             connect_kc_server: ConfigsAppConnectKcServer::default(),
             browser: ConfigsAppBrowser::default(),
+            autostart: ConfigsAppAutostart::default(),
             theme: ConfigsAppTheme::default(),
             font: ConfigAppFont::default(),
             discord: ConfigsAppDiscord::default(),
