@@ -1,3 +1,12 @@
+---
+title: FUSOU CLI Flags
+description: Reference for the fusou command-line flags and typical usage patterns.
+contributors: ["github-copilot"]
+date: 2025-11-25
+slug: guide/cli_flags
+tags: [guide, cli]
+---
+
 # fusou CLI flags
 
 The Windows installer registers the `fusou` executable in the `%PATH%`, so you can launch the app or query metadata directly from a terminal. The following flags mirror the CLI behavior implemented in `src-tauri`.
