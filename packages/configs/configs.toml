@@ -189,7 +189,7 @@ save_file_location = ""
     scan_interval_seconds = 30
 
     # HTTPS endpoint provided by FUSOU-WEB that mediates Cloudflare R2 uploads
-    api_endpoint = "https://fusou.pages.dev/api/asset-sync/upload"
+    api_endpoint = "https://save-data-on-r2.fusou.pages.dev/api/asset-sync/upload"
 
     # Optional prefix prepended to stored object keys
     key_prefix = "assets"
