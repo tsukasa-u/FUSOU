@@ -1,12 +1,12 @@
 use chrono::Utc;
+use configs::get_user_configs_for_app;
 use reqwest::Client;
 use serde::Deserialize;
 use std::sync::OnceLock;
 use tokio::sync::OnceCell;
-use tracing_unwrap::OptionExt;
 
 static KC_PERIOD_TAG: OnceCell<String> = OnceCell::const_new();
-static KC_PERIOD_ENDPOINT: OnceLock<&str> = OnceLock::new();
+static KC_PERIOD_ENDPOINT: OnceLock<String> = OnceLock::new();
 static PERIOD_HTTP_CLIENT: OnceLock<Client> = OnceLock::new();
 
 pub async fn get_period_tag() -> String {
@@ -25,10 +25,19 @@ pub async fn get_period_tag() -> String {
 }
 
 fn get_period_endpoint() -> &'static str {
-    KC_PERIOD_ENDPOINT.get_or_init(|| {
-        std::option_env!("KC_PERIOD_ENDPOINT")
-            .expect_or_log("failed to get kc period endpoint")
-    })
+    KC_PERIOD_ENDPOINT
+        .get_or_init(|| {
+            get_user_configs_for_app()
+                .asset_sync
+                .get_period_endpoint()
+                .unwrap_or_else(|| {
+                    tracing::warn!(
+                        "app.asset_sync.period_endpoint is not configured; kc-period fetch disabled"
+                    );
+                    String::new()
+                })
+        })
+        .as_str()
 }
 
 fn get_period_http_client() -> &'static Client {
@@ -47,6 +56,9 @@ struct PeriodApiResponse {
 
 async fn fetch_period_tag_via_api() -> Result<String, String> {
     let endpoint = get_period_endpoint();
+    if endpoint.is_empty() {
+        return Err("kc-period endpoint is not configured".to_string());
+    }
     let client = get_period_http_client();
 
     let response = client
