@@ -1,6 +1,6 @@
 ---
 title: gRPC チャネル設定とマイクロサービス運用
-authors: ["tsukasa-u", "GitHub Copilot"]
+authors: ["tsukasa-u", "github-copilot"]
 description: >-
   FUSOU の BidirectionalChannel を gRPC トランスポートへ切り替え、channel_service マイクロサービスを運用するための設定手順とワークフロー
 date: 2025-11-18
@@ -70,10 +70,10 @@ cargo run --features grpc --bin channel_service
 
 利用可能な環境変数:
 
-| 変数 | 既定値 | 役割 |
-| --- | --- | --- |
-| `FUSOU_CHANNEL_BIND` | `0.0.0.0:50061` | gRPC サーバーの待ち受けアドレス |
-| `FUSOU_CHANNEL_BUFFER` | `128` | `broadcast::channel` のバッファサイズ |
+| 変数                     | 既定値                   | 役割                                   |
+| ------------------------ | ------------------------ | -------------------------------------- |
+| `FUSOU_CHANNEL_BIND`     | `0.0.0.0:50061`          | gRPC サーバーの待ち受けアドレス        |
+| `FUSOU_CHANNEL_BUFFER`   | `128`                    | `broadcast::channel` のバッファサイズ  |
 | `FUSOU_CHANNEL_ENDPOINT` | `http://127.0.0.1:50061` | クライアント側 (アプリ) が接続する URI |
 
 `endpoint` と `buffer_size` は前述の `configs.toml` から自動で注入されるため、基本的には `channel_service` を起動するだけで構いません。複数ノードで動かす場合は `FUSOU_CHANNEL_ENDPOINT` を直接上書きすることで、ユーザー設定よりも優先させることも可能です。
@@ -87,12 +87,12 @@ cargo run --features grpc --bin channel_service
 
 ## 5. トラブルシューティング
 
-| 症状 | 原因 | 対処 |
-| --- | --- | --- |
-| `failed to connect gRPC channel` | `channel_service` が未起動、または `endpoint` が不正 | サービスの生存確認 (`netstat -tulpn` など) と設定値の再確認 |
-| `Health stream closed` | サーバーバッファが枯渇、通信断 | `FUSOU_CHANNEL_BUFFER` を増やす、ネットワーク経路を確認 |
-| `transport mismatch` 警告 | ビルドフィーチャーと `configs.toml` が不一致 | アプリビルドを `--features grpc-channel` に揃えるか、`transport = "mpsc"` へ戻す |
-| ポート競合 | 既に 50061 が使用中 | `FUSOU_CHANNEL_BIND` / `endpoint` を別ポートに変更 |
+| 症状                             | 原因                                                 | 対処                                                                             |
+| -------------------------------- | ---------------------------------------------------- | -------------------------------------------------------------------------------- |
+| `failed to connect gRPC channel` | `channel_service` が未起動、または `endpoint` が不正 | サービスの生存確認 (`netstat -tulpn` など) と設定値の再確認                      |
+| `Health stream closed`           | サーバーバッファが枯渇、通信断                       | `FUSOU_CHANNEL_BUFFER` を増やす、ネットワーク経路を確認                          |
+| `transport mismatch` 警告        | ビルドフィーチャーと `configs.toml` が不一致         | アプリビルドを `--features grpc-channel` に揃えるか、`transport = "mpsc"` へ戻す |
+| ポート競合                       | 既に 50061 が使用中                                  | `FUSOU_CHANNEL_BIND` / `endpoint` を別ポートに変更                               |
 
 ## 6. 運用上のヒント
 
@@ -100,6 +100,32 @@ cargo run --features grpc --bin channel_service
 - 証明書: gRPC 通信はローカルネットワーク内を前提にしており、現状は plaintext HTTP/2 です。ネットワーク越しに公開する場合はリバースプロキシ (Caddy, Nginx 等) で TLS を終端する構成を推奨します。
 - スケールアウト: `channel_service` はステートレスな `broadcast::channel` を利用しています。高頻度トラフィックで追いつかない場合は `buffer_size` を上げるか、チャネルを用途別に分割することを検討してください。
 
----
+## 7. 蔵人(クラウド)サービス向けデプロイプラン
 
-_このドキュメントは AI による草案です。_
+プロキシ機能をマイクロサービスとしてクラウド (蔵人) サービスへ横展開するための実行プランを以下にまとめます。インフラ要件は任意ですが、Kubernetes/ECS 等のマネージドコンテナ環境を前提にすると運用が容易です。
+
+### 7.1 アーキテクチャ概要
+
+| レイヤー             | 役割                                                                         | 推奨構成                                                 |
+| -------------------- | ---------------------------------------------------------------------------- | -------------------------------------------------------- |
+| コントロールプレーン | `channel_service` のライフサイクル管理、設定の配布                           | Kubernetes Deployment + ConfigMap / Secret               |
+| データプレーン       | PAC / Proxy / 解析マイクロサービス群                                         | 既存 `proxy-https` プロセスまたは WASM 化した解析 Worker |
+| クライアント         | `FUSOU-APP` を含むデスクトップクライアント、および蔵人サービス内の呼び出し元 | gRPC over HTTP/2 (mTLS 推奨)                             |
+
+### 7.2 導入ステップ
+
+1. **コンテナ化**: `packages/FUSOU-PROXY/proxy-https` で `channel_service` を `cargo install --path . --features grpc --bin channel_service` 後、Alpine/Rust ベースのコンテナイメージを作成します。`entrypoint.sh` で環境変数読み込みとヘルスチェックエンドポイント (例: `/healthz`) を実装してください。
+2. **設定テンプレート**: ConfigMap/SecureStore で `FUSOU_CHANNEL_BIND=0.0.0.0:50061`、`FUSOU_CHANNEL_ENDPOINT=https://channel-service.${NAMESPACE}.svc.cluster.local:443`、`FUSOU_CHANNEL_BUFFER=256〜1024` を管理し、環境毎に注入します。
+3. **ネットワークリレー**: 蔵人サービスからの到達性確保のため、Service Mesh (Istio / Linkerd) もしくは API Gateway で gRPC 通信を L7 ルーティングします。Zero Trust 環境では mTLS 証明書を Secret として配布し、`channel_service` 側で TLS Termination を有効化してください。
+4. **クライアント設定**: 蔵人サービス (クラウド側) で動作する Pod からも `FUSOU_CHANNEL_ENDPOINT` を環境変数で注入し、マネージドエージェントが gRPC チャネルへアクセスできるようにします。デスクトップクライアントは既存の `configs.toml` 編集フローで同一エンドポイントを参照させます。
+5. **ロールアウト**: Canary リリースを想定し、`channel_service` Deployment を 2 系統 (Stable/Canary) に分離。`transport = "grpc"` に設定済みのクライアントから順次トラフィックスイッチし、`Health stream closed` エラーなどを監視します。
+
+### 7.3 運用チェックリスト
+
+- [ ] Deployment/Service/Ingress のマニフェストが IaC (Helm / Terraform) で管理されている
+- [ ] `channel_service` Pod の `readinessProbe` / `livenessProbe` が定義済み
+- [ ] 環境変数と `configs.toml` の `endpoint` が一致している
+- [ ] 監視基盤に `grpc_channel_active_clients` と `grpc_channel_broadcast_lag` (任意のメトリクス) を可視化
+- [ ] 緊急停止手順として `kubectl scale deploy/channel-service --replicas=0` 等が Runbook に記載済み
+
+これらを満たすことで、プロキシ・解析機能をクラウド側で再利用しつつ、デスクトップクライアントや他サービスからも統一的にアクセスできる状態が整います。
