@@ -3,6 +3,7 @@ import {
   hasBlockedExtension,
   resolveBlockedExtensions,
 } from "./blocked-extensions";
+import { invalidateAssetKeyCache } from "./cache-store";
 
 const MAX_UPLOAD_BYTES = 200 * 1024 * 1024; // 200 MiB hard ceiling until we add chunked uploads
 const CACHE_CONTROL = "public, max-age=31536000, immutable";
@@ -151,6 +152,8 @@ export const POST: APIRoute = async ({ request, locals }) => {
       },
     },
   );
+
+  invalidateAssetKeyCache();
 
   return jsonResponse({ key, size: file.size });
 };

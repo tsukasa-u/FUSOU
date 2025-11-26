@@ -477,6 +477,8 @@ pub struct ConfigsAppAssetSync {
     period_endpoint: Option<String>,
     #[serde(default = "default_asset_sync_skip_extensions")]
     skip_extensions: Option<Vec<String>>,
+    #[serde(default = "default_asset_sync_existing_keys_endpoint")]
+    existing_keys_endpoint: Option<String>,
 }
 
 fn default_asset_sync_enable() -> Option<bool> {
@@ -507,6 +509,10 @@ fn default_asset_sync_skip_extensions() -> Option<Vec<String>> {
     Some(vec!["mp3".to_string()])
 }
 
+fn default_asset_sync_existing_keys_endpoint() -> Option<String> {
+    Some("".to_string())
+}
+
 impl Default for ConfigsAppAssetSync {
     fn default() -> Self {
         Self {
@@ -517,6 +523,7 @@ impl Default for ConfigsAppAssetSync {
             key_prefix: Some("assets".to_string()),
             period_endpoint: Some("".to_string()),
             skip_extensions: default_asset_sync_skip_extensions(),
+            existing_keys_endpoint: Some("".to_string()),
         }
     }
 }
@@ -575,6 +582,13 @@ impl ConfigsAppAssetSync {
                     .collect()
             })
             .unwrap_or_default()
+    }
+
+    pub fn get_existing_keys_endpoint(&self) -> Option<String> {
+        match self.existing_keys_endpoint {
+            Some(ref v) if !v.trim().is_empty() => Some(v.trim().to_string()),
+            _ => None,
+        }
     }
 }
 

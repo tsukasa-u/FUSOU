@@ -200,6 +200,9 @@ save_file_location = ""
     # Endpoint returning the latest kc_period_tag timestamp to decide when uploads can restart
     period_endpoint = "https://save-data-on-r2.fusou.pages.dev/api/kc-period/latest"
 
+    # Endpoint returning a cached list of existing R2 asset keys (1 hour TTL)
+    existing_keys_endpoint = "https://save-data-on-r2.fusou.pages.dev/api/asset-sync/keys"
+
     # Extensions (without dot) that must never be uploaded to Cloudflare R2
     skip_extensions = ["mp3", "woff2", "js"]
 

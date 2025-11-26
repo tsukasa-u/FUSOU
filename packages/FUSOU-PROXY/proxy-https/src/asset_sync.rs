@@ -1,4 +1,5 @@
 use std::{
+    collections::HashSet,
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -9,6 +10,7 @@ use std::{
 
 use dashmap::DashSet;
 use once_cell::sync::Lazy;
+use rand::{thread_rng, Rng};
 use reqwest::{multipart, Client, StatusCode, Url};
 use serde::Deserialize;
 use tokio::{
@@ -20,8 +22,8 @@ use tokio::{
 use tracing;
 use walkdir::WalkDir;
 
-use configs::ConfigsAppAssetSync;
 use chrono::{DateTime, Utc};
+use configs::ConfigsAppAssetSync;
 
 static ASSET_SYNC_HANDLE: OnceLock<JoinHandle<()>> = OnceLock::new();
 static ASSET_SYNC_QUEUE: OnceLock<UnboundedSender<PathBuf>> = OnceLock::new();
@@ -32,9 +34,12 @@ static SUPABASE_ACCESS_TOKEN: Lazy<RwLock<Option<String>>> = Lazy::new(|| RwLock
 static SUPABASE_REFRESH_TOKEN: Lazy<RwLock<Option<String>>> = Lazy::new(|| RwLock::new(None));
 static PERIOD_CACHE: Lazy<RwLock<Option<PeriodCache>>> = Lazy::new(|| RwLock::new(None));
 static LAST_PERIOD_TAG: Lazy<RwLock<Option<String>>> = Lazy::new(|| RwLock::new(None));
+static EXISTING_KEYS_CACHE: Lazy<RwLock<Option<RemoteKeyCache>>> = Lazy::new(|| RwLock::new(None));
 
 const MIN_SCAN_INTERVAL_SECS: u64 = 10;
 const PERIOD_CACHE_FALLBACK_SECS: u64 = 24 * 60 * 60;
+const REMOTE_KEYS_CACHE_FALLBACK_SECS: u64 = 60 * 60;
+const REMOTE_KEYS_REFRESH_MAX_JITTER_MS: u64 = 5_000;
 
 struct PeriodCache {
     expires_at: Instant,
@@ -43,6 +48,17 @@ struct PeriodCache {
 #[derive(Deserialize)]
 struct PeriodApiResponse {
     tag: Option<String>,
+    cache_expires_at: Option<String>,
+}
+
+struct RemoteKeyCache {
+    keys: HashSet<String>,
+    expires_at: Instant,
+}
+
+#[derive(Deserialize)]
+struct ExistingKeysResponse {
+    keys: Vec<String>,
     cache_expires_at: Option<String>,
 }
 
@@ -57,6 +73,7 @@ pub struct AssetSyncInit {
     pub finder_tag: Option<String>,
     pub period_endpoint: Option<String>,
     pub blocked_extensions: Vec<String>,
+    pub existing_keys_endpoint: Option<String>,
 }
 
 impl AssetSyncInit {
@@ -74,6 +91,7 @@ impl AssetSyncInit {
         let key_prefix = normalize_string(config.get_key_prefix());
         let period_endpoint = config.get_period_endpoint();
         let blocked_extensions = config.get_skip_extensions();
+        let existing_keys_endpoint = config.get_existing_keys_endpoint();
 
         let scan_interval_seconds = config
             .get_scan_interval_seconds()
@@ -90,6 +108,7 @@ impl AssetSyncInit {
             finder_tag,
             period_endpoint,
             blocked_extensions,
+            existing_keys_endpoint,
         })
     }
 }
@@ -221,6 +240,10 @@ async fn run_worker(
         tracing::warn!(error = %err, "failed to refresh asset sync period");
     }
 
+    if let Err(err) = maybe_refresh_existing_keys(&client, &settings).await {
+        tracing::warn!(error = %err, "failed to refresh existing asset keys cache");
+    }
+
     let mut interval = time::interval(settings.scan_interval);
     loop {
         tokio::select! {
@@ -228,6 +251,9 @@ async fn run_worker(
                 if check_auth_ready(&settings) {
                     if let Err(err) = maybe_refresh_period(&client, &settings).await {
                         tracing::warn!(error = %err, "failed to refresh asset sync period");
+                    }
+                    if let Err(err) = maybe_refresh_existing_keys(&client, &settings).await {
+                        tracing::warn!(error = %err, "failed to refresh existing asset keys cache");
                     }
                     if let Err(err) = run_full_scan(&client, &settings).await {
                         tracing::warn!(error = %err, "asset sync scan failed");
@@ -238,6 +264,9 @@ async fn run_worker(
                 if check_auth_ready(&settings) {
                     if let Err(err) = maybe_refresh_period(&client, &settings).await {
                         tracing::warn!(error = %err, "failed to refresh asset sync period");
+                    }
+                    if let Err(err) = maybe_refresh_existing_keys(&client, &settings).await {
+                        tracing::warn!(error = %err, "failed to refresh existing asset keys cache");
                     }
                     if let Err(err) = process_path(&client, &settings, &path).await {
                         tracing::warn!(error = %err, file = %path.display(), "asset upload failed");
@@ -317,6 +346,12 @@ async fn process_path(
     };
 
     if PROCESSED_KEYS.contains(&key) {
+        return Ok(());
+    }
+
+    if remote_key_exists(&key) {
+        PROCESSED_KEYS.insert(key.clone());
+        tracing::debug!(key, "asset already exists upstream; skipping upload");
         return Ok(());
     }
 
@@ -454,13 +489,11 @@ async fn upload_via_api(
     }
 
     tracing::info!(key, endpoint = %settings.api_endpoint, "uploaded asset via API");
+    register_remote_key(key);
     Ok(())
 }
 
-async fn maybe_refresh_period(
-    client: &Client,
-    settings: &AssetSyncInit,
-) -> Result<(), String> {
+async fn maybe_refresh_period(client: &Client, settings: &AssetSyncInit) -> Result<(), String> {
     let endpoint = match settings.period_endpoint.as_deref() {
         Some(value) => value,
         None => return Ok(()),
@@ -513,9 +546,7 @@ fn cache_period_value(payload: PeriodApiResponse) {
     let tag = payload.tag.clone();
 
     {
-        let mut guard = PERIOD_CACHE
-            .write()
-            .expect("period cache lock poisoned");
+        let mut guard = PERIOD_CACHE.write().expect("period cache lock poisoned");
         *guard = Some(PeriodCache { expires_at });
     }
 
@@ -535,17 +566,13 @@ fn parse_cache_ttl(payload: &PeriodApiResponse) -> Duration {
 }
 
 fn duration_until(iso: &str) -> Option<Duration> {
-    let expiry = DateTime::parse_from_rfc3339(iso)
-        .ok()?
-        .with_timezone(&Utc);
+    let expiry = DateTime::parse_from_rfc3339(iso).ok()?.with_timezone(&Utc);
     let diff = expiry.signed_duration_since(Utc::now());
     diff.to_std().ok()
 }
 
 fn apply_period_transition(new_tag: Option<String>) {
-    let mut guard = LAST_PERIOD_TAG
-        .write()
-        .expect("period tag lock poisoned");
+    let mut guard = LAST_PERIOD_TAG.write().expect("period tag lock poisoned");
 
     let changed = match (&*guard, &new_tag) {
         (Some(prev), Some(curr)) => prev != curr,
@@ -556,13 +583,131 @@ fn apply_period_transition(new_tag: Option<String>) {
 
     if changed {
         PROCESSED_KEYS.clear();
-        let label = new_tag
-            .as_deref()
-            .unwrap_or("<none>");
+        let label = new_tag.as_deref().unwrap_or("<none>");
         tracing::info!(
             period_tag = label,
             "asset sync period advanced; cleared processed asset cache"
         );
         *guard = new_tag;
+    }
+}
+
+async fn maybe_refresh_existing_keys(
+    client: &Client,
+    settings: &AssetSyncInit,
+) -> Result<(), String> {
+    let endpoint = match settings.existing_keys_endpoint.as_deref() {
+        Some(value) => value,
+        None => return Ok(()),
+    };
+
+    if remote_cache_is_fresh() {
+        return Ok(());
+    }
+
+    wait_for_remote_cache_jitter().await;
+
+    let response = client
+        .get(endpoint)
+        .header("Accept", "application/json")
+        .send()
+        .await
+        .map_err(|err| format!("failed to query existing keys endpoint: {err}"))?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        return Err(format!(
+            "existing keys endpoint returned {}: {}",
+            status,
+            body.trim()
+        ));
+    }
+
+    let payload: ExistingKeysResponse = response
+        .json()
+        .await
+        .map_err(|err| format!("failed to decode existing keys payload: {err}"))?;
+
+    cache_remote_keys(payload);
+    Ok(())
+}
+
+async fn wait_for_remote_cache_jitter() {
+    if REMOTE_KEYS_REFRESH_MAX_JITTER_MS == 0 {
+        return;
+    }
+    let delay_ms = thread_rng().gen_range(0..=REMOTE_KEYS_REFRESH_MAX_JITTER_MS);
+    if delay_ms == 0 {
+        return;
+    }
+    time::sleep(Duration::from_millis(delay_ms)).await;
+}
+
+fn remote_cache_is_fresh() -> bool {
+    match EXISTING_KEYS_CACHE
+        .read()
+        .expect("existing keys cache lock poisoned")
+        .as_ref()
+    {
+        Some(cache) => cache.expires_at > Instant::now(),
+        None => false,
+    }
+}
+
+fn cache_remote_keys(payload: ExistingKeysResponse) {
+    let ttl = payload
+        .cache_expires_at
+        .as_deref()
+        .and_then(duration_until)
+        .filter(|duration| !duration.is_zero())
+        .unwrap_or_else(|| Duration::from_secs(REMOTE_KEYS_CACHE_FALLBACK_SECS));
+
+    let expires_at = Instant::now() + ttl;
+    let keys: HashSet<String> = payload.keys.into_iter().collect();
+    let count = keys.len();
+
+    {
+        let mut guard = EXISTING_KEYS_CACHE
+            .write()
+            .expect("existing keys cache lock poisoned");
+        *guard = Some(RemoteKeyCache { keys, expires_at });
+    }
+
+    tracing::debug!(count = count, "existing remote asset key cache refreshed");
+}
+
+fn remote_key_exists(key: &str) -> bool {
+    match EXISTING_KEYS_CACHE
+        .read()
+        .expect("existing keys cache lock poisoned")
+        .as_ref()
+    {
+        Some(cache) => cache.keys.contains(key),
+        None => false,
+    }
+}
+
+fn register_remote_key(key: &str) {
+    let mut guard = EXISTING_KEYS_CACHE
+        .write()
+        .expect("existing keys cache lock poisoned");
+
+    match guard.as_mut() {
+        Some(cache) => {
+            cache.keys.insert(key.to_string());
+            if cache.expires_at <= Instant::now() {
+                cache.expires_at =
+                    Instant::now() + Duration::from_secs(REMOTE_KEYS_CACHE_FALLBACK_SECS);
+            }
+        }
+        None => {
+            let mut keys = HashSet::new();
+            keys.insert(key.to_string());
+            *guard = Some(RemoteKeyCache {
+                keys,
+                expires_at: Instant::now() + Duration::from_secs(REMOTE_KEYS_CACHE_FALLBACK_SECS),
+            });
+        }
     }
 }
