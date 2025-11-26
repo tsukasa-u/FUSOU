@@ -80,6 +80,18 @@ save_file_location = ""
     pac_server_port = 0
 
 
+    [proxy.channel]
+    # The transport implementation for BidirectionalChannel.
+    # Supported values: "mpsc" (default, in-process queues) or "grpc" (connect to the channel microservice).
+    transport = "mpsc"
+
+    # The gRPC endpoint used when transport = "grpc". Leave empty to use the built-in default.
+    endpoint = "http://127.0.0.1:50061"
+
+    # Optional buffer size hint for the gRPC channel service. Set 0 to use the server default.
+    buffer_size = 0
+
+
 [app]
     [app.connect_kc_server]
     # The hostname of the KanColle server you want to connect to

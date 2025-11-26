@@ -1,0 +1,55 @@
+syntax = "proto3";
+
+package fusou.channel;
+
+import "google/protobuf/empty.proto";
+
+enum Direction {
+  MASTER_TO_SLAVE = 0;
+  SLAVE_TO_MASTER = 1;
+}
+
+message StatusInfo {
+  oneof kind {
+    Health health = 1;
+    Shutdown shutdown = 2;
+    Response response = 3;
+    Request request = 4;
+  }
+}
+
+message Health {
+  string status = 1;
+  string message = 2;
+}
+
+message Shutdown {
+  string status = 1;
+  string message = 2;
+}
+
+message Response {
+  string path = 1;
+  string content_type = 2;
+  string content = 3;
+}
+
+message Request {
+  string path = 1;
+  string content_type = 2;
+  string content = 3;
+}
+
+message StatusMessage {
+  Direction direction = 1;
+  StatusInfo payload = 2;
+}
+
+message SubscribeRequest {
+  Direction direction = 1;
+}
+
+service Channel {
+  rpc SendStatus (StatusMessage) returns (google.protobuf.Empty);
+  rpc StreamStatus (SubscribeRequest) returns (stream StatusMessage);
+}
