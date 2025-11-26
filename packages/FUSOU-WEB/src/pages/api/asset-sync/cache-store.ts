@@ -1,7 +1,8 @@
-type AssetKeyCache = {
+export type AssetKeyCache = {
   keys: string[];
   refreshedAt: number;
   expiresAt: number;
+  etag: string;
 };
 
 let assetKeyCache: AssetKeyCache | null = null;

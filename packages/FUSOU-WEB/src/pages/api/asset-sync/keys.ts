@@ -1,7 +1,12 @@
 import type { APIRoute } from "astro";
-import { getAssetKeyCache, setAssetKeyCache } from "./cache-store";
+import {
+  getAssetKeyCache,
+  setAssetKeyCache,
+  type AssetKeyCache,
+} from "./cache-store";
 
-const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
+const CACHE_TTL_SECONDS = 6 * 60 * 60; // 6 hours
+const CACHE_TTL_MS = CACHE_TTL_SECONDS * 1000;
 const CORS_HEADERS: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET,OPTIONS",
@@ -40,7 +45,7 @@ export const prerender = false;
 export const OPTIONS: APIRoute = async () =>
   new Response(null, { status: 204, headers: CORS_HEADERS });
 
-export const GET: APIRoute = async ({ locals }) => {
+export const GET: APIRoute = async ({ locals, request }) => {
   const env = extractEnv(locals.runtime?.env);
   const bucket = env?.ASSET_SYNC_BUCKET;
   if (!bucket) {
@@ -52,18 +57,22 @@ export const GET: APIRoute = async ({ locals }) => {
 
   const now = Date.now();
   const cached = getAssetKeyCache();
+  const ifNoneMatch = request.headers.get("if-none-match");
   if (cached && cached.expiresAt > now) {
-    return jsonResponse(buildPayload(cached, true));
+    if (ifNoneMatch && cached.etag === ifNoneMatch) {
+      return notModifiedResponse(cached.etag);
+    }
+    return jsonResponse(buildPayload(cached, true), cached.etag);
   }
 
   const keys = await fetchAllKeys(bucket);
   const refreshedAt = now;
   const expiresAt = now + CACHE_TTL_MS;
-  setAssetKeyCache({ keys, refreshedAt, expiresAt });
+  const etag = buildEtag(refreshedAt);
+  const cache: AssetKeyCache = { keys, refreshedAt, expiresAt, etag };
+  setAssetKeyCache(cache);
 
-  return jsonResponse(
-    buildPayload({ keys, refreshedAt, expiresAt }, false),
-  );
+  return jsonResponse(buildPayload(cache, false), etag);
 };
 
 async function fetchAllKeys(bucket: R2BucketBinding): Promise<string[]> {
@@ -83,10 +92,7 @@ async function fetchAllKeys(bucket: R2BucketBinding): Promise<string[]> {
   return keys;
 }
 
-function buildPayload(
-  cache: { keys: string[]; refreshedAt: number; expiresAt: number },
-  cached: boolean,
-): KeyPayload {
+function buildPayload(cache: AssetKeyCache, cached: boolean): KeyPayload {
   return {
     keys: cache.keys,
     total: cache.keys.length,
@@ -103,12 +109,24 @@ function extractEnv(value: unknown): CloudflareEnv | undefined {
   return value as CloudflareEnv;
 }
 
-function jsonResponse(payload: KeyPayload, status = 200): Response {
+function jsonResponse(payload: KeyPayload, etag: string, status = 200): Response {
   return new Response(JSON.stringify(payload), {
     status,
     headers: {
       "content-type": "application/json",
-      "cache-control": `public, max-age=${CACHE_TTL_MS / 1000}`,
+      "cache-control": `public, max-age=${CACHE_TTL_SECONDS}`,
+      ETag: etag,
+      ...CORS_HEADERS,
+    },
+  });
+}
+
+function notModifiedResponse(etag: string): Response {
+  return new Response(null, {
+    status: 304,
+    headers: {
+      "cache-control": `public, max-age=${CACHE_TTL_SECONDS}`,
+      ETag: etag,
       ...CORS_HEADERS,
     },
   });
@@ -122,4 +140,8 @@ function errorResponse(message: string, status: number): Response {
       ...CORS_HEADERS,
     },
   });
+}
+
+function buildEtag(refreshedAt: number): string {
+  return `W/"${refreshedAt}"`;
 }

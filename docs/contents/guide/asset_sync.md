@@ -26,9 +26,9 @@ FUSOU v0.4 では、艦これの非 kcsapi アセットを Cloudflare R2 に保�
 
 ### 既存キーキャッシュ / `/api/asset-sync/keys`
 
-- `src/pages/api/asset-sync/keys.ts` は R2 バケット内のオブジェクトキーを全件列挙し、1 時間キャッシュした JSON を返します。
-- キャッシュは同ディレクトリの `cache-store.ts` でインメモリ保持しており、レスポンスにも `cache-control: public, max-age=3600` を付与してブラウザ/CDN 側で再利用できます。
-- `/api/asset-sync/upload` が新規オブジェクトを保存すると `invalidateAssetKeyCache()` を呼び出し、次回の GET リクエストで必ず再スキャンが走るようになっています。
+- `src/pages/api/asset-sync/keys.ts` は R2 バケット内のオブジェクトキーを全件列挙し、6 時間キャッシュした JSON を返します。
+- キャッシュは同ディレクトリの `cache-store.ts` でインメモリ保持しており、レスポンスにも `cache-control: public, max-age=21600` と `ETag` を付与してブラウザ/CDN 側で再利用できます。クライアントは `If-None-Match` を付与することで変更がない場合は 304 を受け取り、レスポンスボディを省略できます。
+- `/api/asset-sync/upload` が新規オブジェクトを保存すると `invalidateAssetKeyCache()` を呼び出し、次回の GET リクエストで必ず再スキャンが走るようになっています (アップロード完了イベントのみで失効)。
 - レスポンスフォーマットは次の通りです。
 
 | フィールド | 説明 |
@@ -39,8 +39,7 @@ FUSOU v0.4 では、艦これの非 kcsapi アセットを Cloudflare R2 に保�
 | `cacheExpiresAt` | キャッシュ有効期限 (ISO8601)。クライアントはこれを TTL として利用します |
 | `cached` | 今回のレスポンスがキャッシュヒットかどうか |
 
-クライアントは `cacheExpiresAt` までローカルにキャッシュし、期限切れやアップロードイベントでのみ再フェッチする方針です。これにより Cloudflare Pages / R2 へのアクセス回数を大幅に削減できます。
-さらに、FUSOU-PROXY はキャッシュが切れた直後に最大 5 秒間のジッターを入れてから `/keys` を呼び出すため、複数クライアントが同時にキャッシュ無効化を検知しても一斉アクセスを避けられます。
+クライアントは `cacheExpiresAt` までローカルにキャッシュし、期限切れでなおかつ「今からアップロード/スキャンが必要」というタイミングに限って再フェッチします。これにより Cloudflare Pages / R2 へのアクセス回数を大幅に削減できます。さらに、FUSOU-PROXY はキャッシュが切れた直後に最大 5 秒間のジッターを入れてから `/keys` を呼び出すため、複数クライアントが同時にキャッシュ無効化を検知しても一斉アクセスを避けられます。
 
 ### リクエスト仕様
 
@@ -82,7 +81,7 @@ key_prefix = "assets"
 - Supabase 認証画面 (ブラウザ or ローカル auth) で取得した access/refresh token を Tauri コマンド `set_supabase_session` に送信し、`asset_sync` ワーカーへ共有します。
 - サインアウト時は `clear_supabase_session` が呼ばれ、ワーカーがアップロードを一時停止します。
 - `proxy_server_https` が `asset_sync` を起動すると、ローカル保存ディレクトリをスキャンし新規ファイルのアップロードを順次試みます。409 を受け取ったファイルは `DashSet` で記録され、重複送信を抑止します。
-- 追加で `existing_keys_endpoint` が設定されている場合、ワーカーは 1 時間キャッシュのリモートキー一覧を事前取得し、既存キーに一致したファイルはアップロード自体をスキップします。成功したアップロードはローカルキャッシュへ即反映されるため、Cloudflare への再問い合わせは TTL 経過時と手動 invalidation 時のみです。
+- 追加で `existing_keys_endpoint` が設定されている場合、ワーカーは起動直後に 1 回だけリモートキーを取得し、その後は「アップロード対象ファイルを処理する直前」に限って TTL を確認し再取得します。成功したアップロードはローカルキャッシュへ即反映されるため、他クライアントへ同期要求を送らずに単方向で最新状態を維持できます。
 - キャッシュが失効または `invalidateAssetKeyCache()` により無効化された直後の再フェッチでは、クライアントごとに 0〜5 秒のランダム遅延を挟んで `existing_keys_endpoint` を呼ぶようにしており、同時多発的なリクエスト集中を避けています。
 - `period_endpoint` が設定されている場合、ワーカーはアップロード前に最新の `kc_period_tag` を取得し、値が変わったタイミングで `DashSet` をクリアして「再アップロードウィンドウ」を開きます。API 応答がキャッシュ済みの間は追加アクセスを行わないため、Supabase へのクエリは最大で 1 日に 1 回です。
 - `skip_extensions` に含まれる拡張子 (`mp3` など音声ファイル) はクライアント側で検知するとアップロード対象から除外されます。Cloudflare Pages 側の `ASSET_SYNC_SKIP_EXTENSIONS` も設定しておくと、同じリストでサーバーが二重に検証します。

@@ -816,6 +816,7 @@ impl Default for ConfigsProxy {
             network: ConfigsProxyNetwork::default(),
             certificates: ConfigsProxyCertificates::default(),
             pac: ConfigsProxyPac::default(),
+            channel: ConfigsProxyChannel::default(),
         }
     }
 }

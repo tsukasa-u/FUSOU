@@ -252,9 +252,6 @@ async fn run_worker(
                     if let Err(err) = maybe_refresh_period(&client, &settings).await {
                         tracing::warn!(error = %err, "failed to refresh asset sync period");
                     }
-                    if let Err(err) = maybe_refresh_existing_keys(&client, &settings).await {
-                        tracing::warn!(error = %err, "failed to refresh existing asset keys cache");
-                    }
                     if let Err(err) = run_full_scan(&client, &settings).await {
                         tracing::warn!(error = %err, "asset sync scan failed");
                     }
@@ -264,9 +261,6 @@ async fn run_worker(
                 if check_auth_ready(&settings) {
                     if let Err(err) = maybe_refresh_period(&client, &settings).await {
                         tracing::warn!(error = %err, "failed to refresh asset sync period");
-                    }
-                    if let Err(err) = maybe_refresh_existing_keys(&client, &settings).await {
-                        tracing::warn!(error = %err, "failed to refresh existing asset keys cache");
                     }
                     if let Err(err) = process_path(&client, &settings, &path).await {
                         tracing::warn!(error = %err, file = %path.display(), "asset upload failed");
@@ -348,6 +342,8 @@ async fn process_path(
     if PROCESSED_KEYS.contains(&key) {
         return Ok(());
     }
+
+    maybe_refresh_existing_keys(client, settings).await?;
 
     if remote_key_exists(&key) {
         PROCESSED_KEYS.insert(key.clone());
