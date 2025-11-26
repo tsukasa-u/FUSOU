@@ -567,3 +567,17 @@ curl -I "https://your-site/s/<token>" -H 'If-None-Match: W/"v123-<hash>"'
 ---
 
 このドキュメントをベースに、私が `GET /s/:token` Worker の実装（コード + deploy 手順 + test script）を追加できます。続けて実装する場合は「はい、`GET` を実装して」とお伝えください。もし他に細かい要望（例: retention の具体ポリシー、ダッシュボード推奨）あれば教えてください。
+
+### Private snapshot testing
+
+To test access to a private snapshot (where `is_public = false`), include a valid Supabase JWT in the `Authorization` header. The Worker will validate the JWT against Supabase and ensure the token owner matches the `owner_id` on the `fleets` row.
+
+Example:
+
+```bash
+SITE_URL=https://your-site.pages.dev TOKEN=<share_token> AUTH_TOKEN=<jwt>
+curl -v -H "Authorization: Bearer ${AUTH_TOKEN}" "${SITE_URL%/}/s/${TOKEN}"
+```
+
+If the JWT belongs to the snapshot owner this returns the payload; otherwise the Worker returns `401` (invalid token) or `403` (not owner).
+

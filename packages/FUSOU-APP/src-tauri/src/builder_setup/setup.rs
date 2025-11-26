@@ -653,7 +653,6 @@ pub fn setup_init(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>
     }
     setup_tray(app, shutdown_tx, autostart_allowed)?;
     configure_channel_transport();
-    setup_tray(app, shutdown_tx)?;
     setup_discord()?;
     notify_startup(app);
     scheduler::integrate_file::start_scheduler();
