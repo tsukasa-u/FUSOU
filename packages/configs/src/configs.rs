@@ -12,9 +12,24 @@ use tracing_unwrap::ResultExt;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConfigsProxyCertificates {
+    #[serde(default = "default_use_generated_certs")]
     use_generated_certs: Option<bool>,
     cert_file: Option<String>,
     key_file: Option<String>,
+}
+
+fn default_use_generated_certs() -> Option<bool> {
+    Some(true)
+}
+
+impl Default for ConfigsProxyCertificates {
+    fn default() -> Self {
+        Self {
+            use_generated_certs: Some(true),
+            cert_file: Some("path/to/cert/file".to_string()),
+            key_file: Some("path/to/key/file".to_string()),
+        }
+    }
 }
 
 impl ConfigsProxyCertificates {
@@ -33,9 +48,25 @@ impl ConfigsProxyCertificates {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConfigsProxyPac {
+    #[serde(default = "default_use_custom_pac")]
     use_custom_pac: Option<bool>,
     pac_script: Option<String>,
+    #[serde(default)]
     pac_server_port: Option<i64>,
+}
+
+fn default_use_custom_pac() -> Option<bool> {
+    Some(false)
+}
+
+impl Default for ConfigsProxyPac {
+    fn default() -> Self {
+        Self {
+            use_custom_pac: Some(false),
+            pac_script: Some("path/to/pac/script.pac".to_string()),
+            pac_server_port: Some(0),
+        }
+    }
 }
 
 impl ConfigsProxyPac {
@@ -102,14 +133,49 @@ impl ConfigsProxyChannel {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConfigsProxyNetwork {
+    #[serde(default = "default_backend_crate")]
     backend_crate: Option<String>,
+    #[serde(default)]
     enforce_http: Option<bool>,
+    #[serde(default)]
     set_nodelay: Option<bool>,
+    #[serde(default)]
     connect_timeout: Option<i64>,
+    #[serde(default)]
     keepalive_interval: Option<i64>,
+    #[serde(default = "default_recv_buffer_size")]
     recv_buffer_size: Option<i64>,
+    #[serde(default = "default_send_buffer_size")]
     send_buffer_size: Option<i64>,
+    #[serde(default)]
     proxy_server_port: Option<i64>,
+}
+
+fn default_backend_crate() -> Option<String> {
+    Some("hudsucker".to_string())
+}
+
+fn default_recv_buffer_size() -> Option<i64> {
+    Some(8_000_000)
+}
+
+fn default_send_buffer_size() -> Option<i64> {
+    Some(8_000_000)
+}
+
+impl Default for ConfigsProxyNetwork {
+    fn default() -> Self {
+        Self {
+            backend_crate: Some("hudsucker".to_string()),
+            enforce_http: Some(false),
+            set_nodelay: Some(false),
+            connect_timeout: Some(0),
+            keepalive_interval: Some(0),
+            recv_buffer_size: Some(8_000_000),
+            send_buffer_size: Some(8_000_000),
+            proxy_server_port: Some(0),
+        }
+    }
 }
 
 impl ConfigsProxyNetwork {
@@ -140,6 +206,7 @@ impl ConfigsProxyNetwork {
             Some(v) if v <= 0 => None,
             Some(v) => Some(std::time::Duration::from_secs(v as u64)),
             None => None,
+
         }
     }
 
@@ -170,8 +237,9 @@ impl ConfigsProxyNetwork {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct ConfigsAppConnectKcServer {
+    #[serde(default)]
     kc_server_name: Option<String>,
 }
 
@@ -186,7 +254,20 @@ impl ConfigsAppConnectKcServer {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConfigsAppBrowser {
+    #[serde(default = "default_browser_url")]
     url: Option<String>,
+}
+
+fn default_browser_url() -> Option<String> {
+    Some("http://www.dmm.com/netgame/social/-/gadgets/=/app_id=854854/".to_string())
+}
+
+impl Default for ConfigsAppBrowser {
+    fn default() -> Self {
+        Self {
+            url: Some("http://www.dmm.com/netgame/social/-/gadgets/=/app_id=854854/".to_string()),
+        }
+    }
 }
 
 impl ConfigsAppBrowser {
@@ -199,8 +280,41 @@ impl ConfigsAppBrowser {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ConfigsAppAutostart {
+    #[serde(default)]
+    enable: Option<bool>,
+}
+
+impl Default for ConfigsAppAutostart {
+    fn default() -> Self {
+        Self {
+            enable: Some(false),
+        }
+    }
+}
+
+impl ConfigsAppAutostart {
+    pub fn get_enable_autostart(&self) -> bool {
+        self.enable.unwrap_or(false)
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConfigsAppTheme {
+    #[serde(default = "default_theme")]
     theme: Option<String>,
+}
+
+fn default_theme() -> Option<String> {
+    Some("light".to_string())
+}
+
+impl Default for ConfigsAppTheme {
+    fn default() -> Self {
+        Self {
+            theme: Some("light".to_string()),
+        }
+    }
 }
 
 impl ConfigsAppTheme {
@@ -211,7 +325,20 @@ impl ConfigsAppTheme {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConfigAppFont {
+    #[serde(default = "default_font_family")]
     font_family: Option<String>,
+}
+
+fn default_font_family() -> Option<String> {
+    Some("Noto Sans JP".to_string())
+}
+
+impl Default for ConfigAppFont {
+    fn default() -> Self {
+        Self {
+            font_family: Some("Noto Sans JP".to_string()),
+        }
+    }
 }
 
 impl ConfigAppFont {
@@ -224,12 +351,31 @@ impl ConfigAppFont {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConfigsAppDiscord {
+    #[serde(default)]
     enable_discord_integration: Option<bool>,
+    #[serde(default)]
     use_custom_message: Option<bool>,
+    #[serde(default)]
     custom_message: Option<String>,
+    #[serde(default)]
     custom_details: Option<String>,
+    #[serde(default)]
     use_custom_image: Option<bool>,
+    #[serde(default)]
     custom_image_url: Option<String>,
+}
+
+impl Default for ConfigsAppDiscord {
+    fn default() -> Self {
+        Self {
+            enable_discord_integration: Some(false),
+            use_custom_message: Some(false),
+            custom_message: Some("".to_string()),
+            custom_details: Some("".to_string()),
+            use_custom_image: Some(false),
+            custom_image_url: Some("".to_string()),
+        }
+    }
 }
 
 impl ConfigsAppDiscord {
@@ -269,8 +415,27 @@ impl ConfigsAppDiscord {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConfigsAppDatabaseGoogleDrive {
+    #[serde(default = "default_schedule_cron")]
     schedule_cron: Option<String>,
+    #[serde(default = "default_page_size")]
     page_size: Option<i64>,
+}
+
+fn default_schedule_cron() -> Option<String> {
+    Some("0 0 * * * *".to_string())
+}
+
+fn default_page_size() -> Option<i64> {
+    Some(100)
+}
+
+impl Default for ConfigsAppDatabaseGoogleDrive {
+    fn default() -> Self {
+        Self {
+            schedule_cron: Some("0 0 * * * *".to_string()),
+            page_size: Some(100),
+        }
+    }
 }
 
 impl ConfigsAppDatabaseGoogleDrive {
@@ -290,21 +455,201 @@ impl ConfigsAppDatabaseGoogleDrive {
     }
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct ConfigsAppDatabaseLocal {
+    #[serde(default)]
+    output_directory: Option<String>,
+}
+
+impl ConfigsAppDatabaseLocal {
+    pub fn get_output_directory(&self) -> Option<String> {
+        match self.output_directory {
+            Some(ref v) if !v.is_empty() => Some(v.clone()),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConfigsAppDatabase {
+    #[serde(default)]
     allow_data_to_cloud: Option<bool>,
+    #[serde(default)]
+    allow_data_to_local: Option<bool>,
+    #[serde(default)]
+    pub local: ConfigsAppDatabaseLocal,
+    #[serde(default)]
     pub google_drive: ConfigsAppDatabaseGoogleDrive,
+}
+
+impl Default for ConfigsAppDatabase {
+    fn default() -> Self {
+        Self {
+            allow_data_to_cloud: Some(false),
+            allow_data_to_local: Some(false),
+            local: ConfigsAppDatabaseLocal::default(),
+            google_drive: ConfigsAppDatabaseGoogleDrive::default(),
+        }
+    }
 }
 
 impl ConfigsAppDatabase {
     pub fn get_allow_data_to_cloud(&self) -> bool {
         self.allow_data_to_cloud.unwrap_or(false)
     }
+
+    pub fn get_allow_data_to_local(&self) -> bool {
+        self.allow_data_to_local.unwrap_or(false)
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ConfigsAppAssetSync {
+    #[serde(default = "default_asset_sync_enable")]
+    enable: Option<bool>,
+    #[serde(default = "default_asset_sync_require_supabase_auth")]
+    require_supabase_auth: Option<bool>,
+    #[serde(default = "default_asset_sync_scan_interval_seconds")]
+    scan_interval_seconds: Option<u64>,
+    #[serde(default = "default_asset_sync_api_endpoint")]
+    api_endpoint: Option<String>,
+    #[serde(default = "default_asset_sync_key_prefix")]
+    key_prefix: Option<String>,
+    #[serde(default = "default_asset_sync_period_endpoint")]
+    period_endpoint: Option<String>,
+    #[serde(default = "default_asset_sync_skip_extensions")]
+    skip_extensions: Option<Vec<String>>,
+    #[serde(default = "default_asset_sync_existing_keys_endpoint")]
+    existing_keys_endpoint: Option<String>,
+}
+
+fn default_asset_sync_enable() -> Option<bool> {
+    Some(false)
+}
+
+fn default_asset_sync_require_supabase_auth() -> Option<bool> {
+    Some(true)
+}
+
+fn default_asset_sync_scan_interval_seconds() -> Option<u64> {
+    Some(30)
+}
+
+fn default_asset_sync_api_endpoint() -> Option<String> {
+    Some("".to_string())
+}
+
+fn default_asset_sync_key_prefix() -> Option<String> {
+    Some("assets".to_string())
+}
+
+fn default_asset_sync_period_endpoint() -> Option<String> {
+    Some("".to_string())
+}
+
+fn default_asset_sync_skip_extensions() -> Option<Vec<String>> {
+    Some(vec!["mp3".to_string()])
+}
+
+fn default_asset_sync_existing_keys_endpoint() -> Option<String> {
+    Some("".to_string())
+}
+
+impl Default for ConfigsAppAssetSync {
+    fn default() -> Self {
+        Self {
+            enable: Some(false),
+            require_supabase_auth: Some(true),
+            scan_interval_seconds: Some(30),
+            api_endpoint: Some("".to_string()),
+            key_prefix: Some("assets".to_string()),
+            period_endpoint: Some("".to_string()),
+            skip_extensions: default_asset_sync_skip_extensions(),
+            existing_keys_endpoint: Some("".to_string()),
+        }
+    }
+}
+
+impl ConfigsAppAssetSync {
+    pub fn get_enable(&self) -> bool {
+        self.enable.unwrap_or(false)
+    }
+
+    pub fn get_require_supabase_auth(&self) -> bool {
+        self.require_supabase_auth.unwrap_or(true)
+    }
+
+    pub fn get_scan_interval_seconds(&self) -> u64 {
+        match self.scan_interval_seconds {
+            Some(v) if v == 0 => 30,
+            Some(v) => v,
+            None => 30,
+        }
+    }
+
+    pub fn get_api_endpoint(&self) -> Option<String> {
+        match self.api_endpoint {
+            Some(ref v) if !v.trim().is_empty() => Some(v.trim().to_string()),
+            _ => None,
+        }
+    }
+
+    pub fn get_key_prefix(&self) -> Option<String> {
+        match self.key_prefix {
+            Some(ref v) if !v.trim().is_empty() => Some(v.trim().to_string()),
+            _ => None,
+        }
+    }
+
+    pub fn get_period_endpoint(&self) -> Option<String> {
+        match self.period_endpoint {
+            Some(ref v) if !v.trim().is_empty() => Some(v.trim().to_string()),
+            _ => None,
+        }
+    }
+
+    pub fn get_skip_extensions(&self) -> Vec<String> {
+        self.skip_extensions
+            .as_ref()
+            .map(|vec| {
+                vec.iter()
+                    .filter_map(|value| {
+                        let trimmed = value.trim().trim_start_matches('.');
+                        if trimmed.is_empty() {
+                            None
+                        } else {
+                            Some(trimmed.to_ascii_lowercase())
+                        }
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    pub fn get_existing_keys_endpoint(&self) -> Option<String> {
+        match self.existing_keys_endpoint {
+            Some(ref v) if !v.trim().is_empty() => Some(v.trim().to_string()),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConfigsAppAuth {
+    #[serde(default = "default_deny_auth")]
     pub deny_auth: Option<bool>,
+}
+
+fn default_deny_auth() -> Option<bool> {
+    Some(true)
+}
+
+impl Default for ConfigsAppAuth {
+    fn default() -> Self {
+        Self {
+            deny_auth: Some(true),
+        }
+    }
 }
 
 impl ConfigsAppAuth {
@@ -315,13 +660,62 @@ impl ConfigsAppAuth {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConfigsAppWindow {
+    #[serde(default = "default_resize_debounce_millis")]
     resize_debounce_millis: Option<u64>,
+    #[serde(default = "default_keep_window_size_duration_millis")]
     keep_window_size_duration_millis: Option<u64>,
+    #[serde(default = "default_max_inner_width")]
     max_inner_width: Option<u32>,
+    #[serde(default = "default_max_inner_height")]
     max_inner_height: Option<u32>,
+    #[serde(default = "default_default_inner_width")]
     default_inner_width: Option<u32>,
+    #[serde(default = "default_default_inner_height")]
     default_inner_height: Option<u32>,
+    #[serde(default = "default_window_title_bar_height")]
     window_title_bar_height: Option<u32>,
+}
+
+fn default_resize_debounce_millis() -> Option<u64> {
+    Some(200)
+}
+
+fn default_keep_window_size_duration_millis() -> Option<u64> {
+    Some(1000)
+}
+
+fn default_max_inner_width() -> Option<u32> {
+    Some(1920)
+}
+
+fn default_max_inner_height() -> Option<u32> {
+    Some(1080)
+}
+
+fn default_default_inner_width() -> Option<u32> {
+    Some(1200)
+}
+
+fn default_default_inner_height() -> Option<u32> {
+    Some(720)
+}
+
+fn default_window_title_bar_height() -> Option<u32> {
+    Some(68)
+}
+
+impl Default for ConfigsAppWindow {
+    fn default() -> Self {
+        Self {
+            resize_debounce_millis: Some(200),
+            keep_window_size_duration_millis: Some(1000),
+            max_inner_width: Some(1920),
+            max_inner_height: Some(1080),
+            default_inner_width: Some(1200),
+            default_inner_height: Some(720),
+            window_title_bar_height: Some(68),
+        }
+    }
 }
 
 impl ConfigsAppWindow {
@@ -353,27 +747,77 @@ impl ConfigsAppWindow {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConfigsApp {
+    #[serde(default)]
     pub connect_kc_server: ConfigsAppConnectKcServer,
+    #[serde(default)]
     pub browser: ConfigsAppBrowser,
+    #[serde(default)]
+    pub autostart: ConfigsAppAutostart,
+    #[serde(default)]
     pub theme: ConfigsAppTheme,
+    #[serde(default)]
     pub font: ConfigAppFont,
+    #[serde(default)]
     pub discord: ConfigsAppDiscord,
+    #[serde(default)]
     pub database: ConfigsAppDatabase,
+    #[serde(default)]
+    pub asset_sync: ConfigsAppAssetSync,
+    #[serde(default)]
     pub auth: ConfigsAppAuth,
+    #[serde(default)]
     pub kc_window: ConfigsAppWindow,
+}
+
+impl Default for ConfigsApp {
+    fn default() -> Self {
+        Self {
+            connect_kc_server: ConfigsAppConnectKcServer::default(),
+            browser: ConfigsAppBrowser::default(),
+            autostart: ConfigsAppAutostart::default(),
+            theme: ConfigsAppTheme::default(),
+            font: ConfigAppFont::default(),
+            discord: ConfigsAppDiscord::default(),
+            database: ConfigsAppDatabase::default(),
+            asset_sync: ConfigsAppAssetSync::default(),
+            auth: ConfigsAppAuth::default(),
+            kc_window: ConfigsAppWindow::default(),
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConfigsProxy {
+    #[serde(default)]
     allow_save_api_requests: Option<bool>,
+    #[serde(default)]
     allow_save_api_responses: Option<bool>,
+    #[serde(default)]
     allow_save_resources: Option<bool>,
+    #[serde(default)]
     save_file_location: Option<String>,
+    #[serde(default)]
     pub network: ConfigsProxyNetwork,
+    #[serde(default)]
     pub certificates: ConfigsProxyCertificates,
+    #[serde(default)]
     pub pac: ConfigsProxyPac,
     #[serde(default)]
     pub channel: ConfigsProxyChannel,
+}
+
+impl Default for ConfigsProxy {
+    fn default() -> Self {
+        Self {
+            allow_save_api_requests: Some(false),
+            allow_save_api_responses: Some(false),
+            allow_save_resources: Some(false),
+            save_file_location: Some("".to_string()),
+            network: ConfigsProxyNetwork::default(),
+            certificates: ConfigsProxyCertificates::default(),
+            pac: ConfigsProxyPac::default(),
+        }
+    }
 }
 
 impl ConfigsProxy {
@@ -419,7 +863,7 @@ pub enum WindowsSystem {
     Wayland,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct ConfigEnv {}
 
 impl ConfigEnv {
@@ -446,10 +890,28 @@ impl ConfigEnv {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Configs {
+    #[serde(default)]
     version: Option<String>,
+    #[serde(default)]
     pub proxy: ConfigsProxy,
+    #[serde(default)]
     pub app: ConfigsApp,
+    #[serde(default)]
+    pub asset_sync: ConfigsAppAssetSync,
+    #[serde(default)]
     pub env: ConfigEnv,
+}
+
+impl Default for Configs {
+    fn default() -> Self {
+        Self {
+            version: None,
+            proxy: ConfigsProxy::default(),
+            app: ConfigsApp::default(),
+            asset_sync: ConfigsAppAssetSync::default(),
+            env: ConfigEnv::default(),
+        }
+    }
 }
 
 static USER_CONFIGS: OnceCell<Configs> = OnceCell::new();
@@ -501,6 +963,11 @@ pub fn get_configs(config_path: &str) -> Configs {
         }
     };
 
+    // Update config file to include any new fields from default template
+    if let Err(e) = update_config_file(config_path) {
+        tracing::warn!("Failed to update config file with new fields: {}", e);
+    }
+
     user_configs
 }
 
@@ -509,4 +976,78 @@ pub fn get_user_configs() -> Configs {
     USER_CONFIGS
         .get_or_init(|| get_configs(CONFIGS_PATH))
         .clone()
+}
+
+/// Merge and update user config file with default template, preserving comments
+pub fn update_config_file(config_path: &str) -> Result<(), Box<dyn std::error::Error>> {
+    use toml_edit::DocumentMut;
+    
+    const DEFAULT_TOML_FILE: &str = include_str!("../configs.toml");
+    
+    // Parse default TOML with comments preserved
+    let mut default_doc = DEFAULT_TOML_FILE.parse::<DocumentMut>()?;
+    
+    // Read existing user config if it exists
+    let user_toml_content = fs::read_to_string(config_path).unwrap_or_default();
+    
+    if user_toml_content.is_empty() {
+        // No existing file, just write default
+        fs::write(config_path, DEFAULT_TOML_FILE)?;
+        tracing::info!("Created new config file with defaults at: {}", config_path);
+        return Ok(());
+    }
+    
+    // Parse existing user config
+    let user_doc = user_toml_content.parse::<DocumentMut>()?;
+    
+    // Merge: copy user values into default doc structure
+    merge_toml_values(&mut default_doc, &user_doc);
+    
+    // Write merged config back
+    fs::write(config_path, default_doc.to_string())?;
+    tracing::info!("Updated config file at: {}", config_path);
+    
+    Ok(())
+}
+
+/// Recursively merge user values into default document
+fn merge_toml_values(default_doc: &mut toml_edit::DocumentMut, user_doc: &toml_edit::DocumentMut) {
+    use toml_edit::Item;
+    
+    for (key, user_item) in user_doc.iter() {
+        if let Some(default_item) = default_doc.get_mut(key) {
+            match (default_item, user_item) {
+                (Item::Table(default_table), Item::Table(user_table)) => {
+                    // Recursively merge tables
+                    merge_table_values(default_table, user_table);
+                }
+                (Item::Value(default_value), Item::Value(user_value)) => {
+                    // Copy user value to default
+                    *default_value = user_value.clone();
+                }
+                _ => {
+                    // Type mismatch, keep default
+                }
+            }
+        }
+    }
+}
+
+/// Merge table values recursively
+fn merge_table_values(default_table: &mut toml_edit::Table, user_table: &toml_edit::Table) {
+    use toml_edit::Item;
+    
+    for (key, user_item) in user_table.iter() {
+        if let Some(default_item) = default_table.get_mut(key) {
+            match (default_item, user_item) {
+                (Item::Table(nested_default), Item::Table(nested_user)) => {
+                    merge_table_values(nested_default, nested_user);
+                }
+                (Item::Value(default_value), Item::Value(user_value)) => {
+                    *default_value = user_value.clone();
+                }
+                _ => {}
+            }
+        }
+    }
 }

@@ -71,7 +71,11 @@ impl OwnShip {
         let ship = match ships.ships.get(&data) {
             Some(ship) => ship,
             None => {
-                tracing::warn!("OwnShip::new: ship not found for id {}", data);
+                if data == -1 {
+                    tracing::debug!("OwnShip::new: empty slot for id {}", data);
+                } else {
+                    tracing::warn!("OwnShip::new: ship not found for id {}", data);
+                }
                 return None;
             }
         };
@@ -85,7 +89,11 @@ impl OwnShip {
                     let slot_item = match slot_item.slot_items.get(slot_id) {
                         Some(item) => item,
                         None => {
-                            tracing::warn!("OwnShip::new: slot_item not found for id {}", slot_id);
+                            if *slot_id <= 0 {
+                                tracing::debug!("OwnShip::new: empty slot_item for id {}", slot_id);
+                            } else {
+                                tracing::warn!("OwnShip::new: slot_item not found for id {}", slot_id);
+                            }
                             return None;
                         }
                     };
@@ -110,7 +118,11 @@ impl OwnShip {
             let slot_item = match slot_item.slot_items.get(&slot_ex_id) {
                 Some(item) => item,
                 None => {
-                    tracing::warn!("OwnShip::new: slot_item not found for ex id {}", slot_ex_id);
+                    if slot_ex_id <= 0 {
+                        tracing::debug!("OwnShip::new: empty slot_item for ex id {}", slot_ex_id);
+                    } else {
+                        tracing::warn!("OwnShip::new: slot_item not found for ex id {}", slot_ex_id);
+                    }
                     return None;
                 }
             };

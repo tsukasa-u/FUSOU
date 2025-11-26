@@ -139,13 +139,12 @@ pub fn struct_selector_response(
     let data_removed_svdata: String = data_removed_bom.replace("svdata=", "");
 
     #[cfg(dev)]
-    let re_metadata = Regex::new(r"---\r?\n.*\r?\n.*\r?\n.*\r?\n.*\s*---\r?\n").unwrap();
-
-    #[cfg(dev)]
-    let data_removed_metadata: String = re_metadata.replace(&data_removed_svdata, "").to_string();
-
-    #[cfg(dev)]
-    return response_parser(name, data_removed_metadata);
+    {
+        let re_metadata = Regex::new(r"---\r?\n.*\r?\n.*\r?\n.*\r?\n.*\s*---\r?\n").unwrap();
+        let data_removed_metadata: String =
+            re_metadata.replace(&data_removed_svdata, "").to_string();
+        return response_parser(name, data_removed_metadata);
+    }
 
     #[cfg(any(not(dev), check_release))]
     return response_parser(name, data_removed_svdata);
@@ -158,13 +157,17 @@ pub fn struct_selector_resquest(
     let data_removed_bom: String = data.replace("\u{feff}", "");
 
     #[cfg(dev)]
-    let re_metadata = Regex::new(r"---\r?\n.*\r?\n.*\r?\n.*\r?\n.*\s*---\r?\n").unwrap();
-
-    #[cfg(dev)]
-    let data_removed_metadata: String = re_metadata.replace(&data_removed_bom, "").to_string();
-
-    #[cfg(dev)]
-    return request_parser(name, data_removed_metadata);
+    {
+        let re_svdata = Regex::new(r"svdata=").unwrap();
+        let data_removed_svdata: String = re_svdata.replace(&data_removed_bom, "").to_string();
+        let re_metadata = Regex::new(r"---\r?\n.*\r?\n.*\r?\n.*\r?\n.*\s*---\r?\n").unwrap();
+        let data_removed_metadata: String =
+            re_metadata.replace(&data_removed_svdata, "").to_string();
+        let repalced_data = data_removed_metadata
+            .replace("%5B", "[")
+            .replace("%5D", "]");
+        return request_parser(name, repalced_data);
+    }
 
     #[cfg(any(not(dev), check_release))]
     return request_parser(name, data_removed_bom);

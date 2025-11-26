@@ -416,8 +416,15 @@ impl PortTable {
         let env_uuid = EnvInfo::new_ret_uuid(ts, (user_env, timestamp), &mut table);
         {
             let uuid = Uuid::new_v7(ts);
-            Cells::new_ret_option(ts, uuid, interface_cells, &mut table, env_uuid)
+            Cells::new_ret_option(ts, uuid, interface_cells.clone(), &mut table, env_uuid)
         };
+        tracing::debug!(
+            "PortTable::new created with {} cells, maparea_id={}, mapinfo_no={}, battles={}",
+            table.cells.len(),
+            interface_cells.maparea_id,
+            interface_cells.mapinfo_no,
+            interface_cells.battles.len()
+        );
         table
     }
 
@@ -455,6 +462,11 @@ impl PortTable {
         let battle = encode(self.battle.clone())?;
 
         let cells = encode(self.cells.clone())?;
+        tracing::debug!(
+            "PortTable::encode - cells: {} records, {} bytes",
+            self.cells.len(),
+            cells.len()
+        );
         let env_info = encode(self.env_info.clone())?;
 
         let table_encode = PortTableEncode {

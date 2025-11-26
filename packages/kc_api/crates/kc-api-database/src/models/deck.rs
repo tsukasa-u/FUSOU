@@ -67,17 +67,22 @@ impl OwnDeck {
                     let ship = match ships.ships.get(ship_id) {
                         Some(ship) => ship,
                         None => {
-                            tracing::warn!("OwnDeck::new: ship not found for id {}", ship_id);
+                            if *ship_id == -1 {
+                                tracing::debug!("OwnDeck::new: empty slot for id {}", ship_id);
+                            } else {
+                                tracing::warn!("OwnDeck::new: ship not found for id {}", ship_id);
+                            }
                             return None;
                         }
                     };
-                    let ship_id = match ship.ship_id {
-                        Some(id) => id,
-                        None => {
-                            tracing::warn!("OwnDeck::new: ship_id is None for ship id {}", ship_id);
-                            return None;
-                        }
-                    };
+                    // let ship_id = match ship.ship_id {
+                    //     Some(id) => id,
+                    //     None => {
+                    //         tracing::warn!("OwnDeck::new: ship_id is None for ship id {}", ship_id);
+                    //         return None;
+                    //     }
+                    // };
+                    let ship_id = ship.id;
                     OwnShip::new_ret_option(
                         ts,
                         new_ship_ids,
@@ -150,20 +155,25 @@ impl SupportDeck {
                     let ship = match ships.ships.get(ship_id) {
                         Some(ship) => ship,
                         None => {
-                            tracing::warn!("SupportDeck::new: ship not found for id {}", ship_id);
+                            if *ship_id == -1 {
+                                tracing::debug!("SupportDeck::new: empty slot for id {}", ship_id);
+                            } else {
+                                tracing::warn!("SupportDeck::new: ship not found for id {}", ship_id);
+                            }
                             return None;
                         }
                     };
-                    let ship_id = match ship.ship_id {
-                        Some(id) => id,
-                        None => {
-                            tracing::warn!(
-                                "SupportDeck::new: ship_id is None for ship id {}",
-                                ship_id
-                            );
-                            return None;
-                        }
-                    };
+                    // let ship_id = match ship.ship_id {
+                    //     Some(id) => id,
+                    //     None => {
+                    //         tracing::warn!(
+                    //             "SupportDeck::new: ship_id is None for ship id {}",
+                    //             ship_id
+                    //         );
+                    //         return None;
+                    //     }
+                    // };
+                    let ship_id = ship.id;
                     OwnShip::new_ret_option(
                         ts,
                         new_ship_ids,

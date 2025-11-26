@@ -9,27 +9,27 @@ import {
   AirBasesBattlesContext,
 } from "../../utility/provider.tsx";
 
-import { ships } from "../data/ships.ts";
-import { mst_ships } from "../data/mst_ships.ts";
-import { slot_items } from "../data/slot_items.ts";
-import { mst_slot_itmes } from "../data/mst_slot_items.ts";
-import { air_bases } from "../data/air_bases.ts";
+import { ships } from "@fusou-testdata-ipc/ships.ts";
+import { mst_ships } from "@fusou-testdata-ipc/mst_ships.ts";
+import { slot_items } from "@fusou-testdata-ipc/slot_items.ts";
+import { mst_slot_itmes } from "@fusou-testdata-ipc/mst_slot_items.ts";
+import { air_bases } from "@fusou-testdata-ipc/air_bases.ts";
 
-import { ports_1_5 } from "../data/1-5/ports.ts";
-import { cells_1_5 } from "../data/1-5/cells.ts";
-import { cells_1_6 } from "../data/1-6/cells.ts";
-import { ports_1_6 } from "../data/1-6/ports.ts";
-import { cells_2_5 } from "../data/2-5/cells.ts";
-import { ports_2_5 } from "../data/2-5/ports.ts";
-import { cells_3_5 } from "../data/3-5/cells.ts";
-import { ports_3_5 } from "../data/3-5/ports.ts";
-import { cells_4_5 } from "../data/4-5/cells.ts";
-import { ports_4_5 } from "../data/4-5/ports.ts";
-import { cells_5_5 } from "../data/5-5/cells.ts";
-import { ports_5_5 } from "../data/5-5/ports.ts";
-import { ports_6_5 } from "../data/6-5/ports.ts";
-import { cells_6_5 } from "../data/6-5/cells.ts";
-import { airbases_6_5 } from "../data/6-5/airbases.ts";
+import { ports_1_5 } from "@fusou-testdata-ipc/1-5/ports.ts";
+import { cells_1_5 } from "@fusou-testdata-ipc/1-5/cells.ts";
+import { cells_1_6 } from "@fusou-testdata-ipc/1-6/cells.ts";
+import { ports_1_6 } from "@fusou-testdata-ipc/1-6/ports.ts";
+import { cells_2_5 } from "@fusou-testdata-ipc/2-5/cells.ts";
+import { ports_2_5 } from "@fusou-testdata-ipc/2-5/ports.ts";
+import { cells_3_5 } from "@fusou-testdata-ipc/3-5/cells.ts";
+import { ports_3_5 } from "@fusou-testdata-ipc/3-5/ports.ts";
+import { cells_4_5 } from "@fusou-testdata-ipc/4-5/cells.ts";
+import { ports_4_5 } from "@fusou-testdata-ipc/4-5/ports.ts";
+import { cells_5_5 } from "@fusou-testdata-ipc/5-5/cells.ts";
+import { ports_5_5 } from "@fusou-testdata-ipc/5-5/ports.ts";
+import { ports_6_5 } from "@fusou-testdata-ipc/6-5/ports.ts";
+import { cells_6_5 } from "@fusou-testdata-ipc/6-5/cells.ts";
+import { airbases_6_5 } from "@fusou-testdata-ipc/6-5/airbases.ts";
 
 import { Switch, Match } from "solid-js";
 

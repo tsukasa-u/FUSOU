@@ -12,6 +12,7 @@ pub fn get_user_configs_for_app() -> configs::ConfigsApp {
     configs::get_user_configs().app.clone()
 }
 
+pub use configs::ConfigsAppAssetSync;
 pub use configs::ChannelTransportKind;
 
 #[cfg(target_os = "linux")]
