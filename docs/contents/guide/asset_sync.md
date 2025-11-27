@@ -12,7 +12,7 @@ FUSOU v0.4 では、艦これの非 kcsapi アセットを Cloudflare R2 に保�
 ## 全体像
 
 1. FUSOU-APP が Supabase 認証を完了すると、Tauri プロセスがアクセストークンを `proxy-https` クレートへ渡します。
-2. プロキシは `asset_sync` ワーカーを通じて保存ディレクトリを監視し、新規ファイルを検知すると `api_endpoint` へ multipart/form-data リクエストを発行します。
+2. プロキシは `asset_sync` ワーカーを通じて保存ディレクトリを監視し、新規ファイルを検知すると `asset_sync_api_endpoint` へ multipart/form-data リクエストを発行します。
 3. FUSOU-WEB の `/api/asset-sync/upload` ルートは Supabase トークンを検証し、Cloudflare R2 バケット (`ASSET_SYNC_BUCKET`) にオブジェクトを保存します。すでに存在するキーには 409 を返し、クライアント側で重複アップロードを防ぎます。
 
 ## サーバー側の準備 (FUSOU-WEB)
@@ -63,14 +63,14 @@ FUSOU v0.4 では、艦これの非 kcsapi アセットを Cloudflare R2 に保�
 enable = true
 require_supabase_auth = true
 scan_interval_seconds = 30
-api_endpoint = "https://save-data-on-r2.fusou.pages.dev/api/asset-sync/upload"
-period_endpoint = "https://save-data-on-r2.fusou.pages.dev/api/kc-period/latest"
-existing_keys_endpoint = "https://save-data-on-r2.fusou.pages.dev/api/asset-sync/keys"
+asset_sync_api_endpoint = "https://save-data-on-r2.fusou.pages.dev/api/asset-sync/upload"
+asset_sync_period_endpoint = "https://save-data-on-r2.fusou.pages.dev/api/kc-period/latest"
+asset_sync_existing_keys_endpoint = "https://save-data-on-r2.fusou.pages.dev/api/asset-sync/keys"
 skip_extensions = ["mp3"]
 key_prefix = "assets"
 ```
 
-`api_endpoint` は FUSOU-WEB 側でホストするアップロード URL を指します。Tauri アプリは Supabase セッションを獲得しない限りアップロードを開始しません。
+`asset_sync_api_endpoint` は FUSOU-WEB 側でホストするアップロード URL を指します。Tauri アプリは Supabase セッションを獲得しない限りアップロードを開始しません。
 
 `existing_keys_endpoint` は前述の `/api/asset-sync/keys` を指します。値が空の場合、プロキシは従来通り 409 レスポンスに頼って重複検知を行いますが、指定すると起動直後に既存キーのセットを取得し、R2 にアクセスする前にクライアント側で「既に存在するか」を判定できます。
 

@@ -85,8 +85,8 @@ impl AssetSyncInit {
         if save_root.trim().is_empty() {
             return Err("asset sync save path is empty".to_string());
         }
-        let api_endpoint = normalize_string(config.get_api_endpoint())
-            .ok_or_else(|| "asset_sync.api_endpoint is empty".to_string())?;
+        let api_endpoint = normalize_string(config.get_asset_sync_api_endpoint())
+            .ok_or_else(|| "asset_sync.asset_sync_api_endpoint is empty".to_string())?;
         let api_origin = derive_origin(&api_endpoint)?;
         let key_prefix = normalize_string(config.get_key_prefix());
         let period_endpoint = config.get_period_endpoint();
@@ -104,7 +104,7 @@ impl AssetSyncInit {
             api_origin,
             key_prefix,
             scan_interval,
-            require_supabase_auth: config.get_require_supabase_auth(),
+            require_supabase_auth: true,
             finder_tag,
             period_endpoint,
             blocked_extensions,
@@ -399,11 +399,11 @@ fn build_client() -> Result<Client, reqwest::Error> {
 
 fn derive_origin(endpoint: &str) -> Result<String, String> {
     let url =
-        Url::parse(endpoint).map_err(|err| format!("invalid asset_sync.api_endpoint: {err}"))?;
+        Url::parse(endpoint).map_err(|err| format!("invalid asset_sync.asset_sync_api_endpoint: {err}"))?;
     let scheme = url.scheme();
     let host = url
         .host_str()
-        .ok_or_else(|| "asset_sync.api_endpoint missing host".to_string())?;
+        .ok_or_else(|| "asset_sync.asset_sync_api_endpoint missing host".to_string())?;
     let origin = match url.port() {
         Some(port) => format!("{}://{}:{}", scheme, host, port),
         None => format!("{}://{}", scheme, host),
