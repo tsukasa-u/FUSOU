@@ -138,20 +138,22 @@ const MyChart = () => {
           });
         })
         .then((s) => {
-          let header = s[0];
-          let body = s.slice(2).map((s_list) => s_list.map((s) => parseInt(s)));
-          return [header, body];
+          const header = s[0];
+          const body = s.slice(2).map((s_list) => s_list.map((s) => parseInt(s)));
+          return [header, body] as [string[], number[][]];
         })
         .then((data) => {
+          const header = data[0] as string[];
+          const body = data[1] as number[][];
           const chartData = {
-            labels: data[0],
+            labels: header,
             datasets: [
               {
                 label: "Dimensions",
-                data: data[1].map((row) => ({
-                  x: row[12] as Number,
-                  y: row[7] as Number,
-                  r: Math.log(Number(row[1])),
+                data: body.map((row) => ({
+                  x: (row[12] ?? 0) as number,
+                  y: (row[7] ?? 0) as number,
+                  r: Math.log(Number(row[1] ?? 1)),
                 })),
               },
             ],

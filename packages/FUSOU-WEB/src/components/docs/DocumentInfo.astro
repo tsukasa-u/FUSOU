@@ -14,7 +14,7 @@ const { lastUpdated, contributors } = Astro.props;
   <div class="my-4 flex">
     <h3 class="text-md text-gray-600 content-center">Contributors: &nbsp;&nbsp;</h3>
     <ul class="list-none p-0 m-0">
-      {contributors.map((contributor) => (
+      {contributors.map((contributor: { data: { github_avatar?: string; github_username: string; github_url?: string } }) => (
         <li class="flex items-center">
           {contributor.data.github_avatar ? (
             <img                            

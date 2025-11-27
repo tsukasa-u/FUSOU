@@ -46,9 +46,9 @@ function base64urlToUint8Array(base64url: string) {
   return bytes;
 }
 
-async function importJwkAsKey(jwk: any) {
+async function importJwkAsKey(jwk: any): Promise<CryptoKey> {
   // Use RSASSA-PKCS1-v1_5 for RS256
-  const alg = { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' } as any;
+  const alg: RsaHashedImportParams = { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' };
   const usage: KeyUsage[] = ['verify'];
   return crypto.subtle.importKey('jwk', jwk, alg, false, usage);
 }
@@ -56,7 +56,7 @@ async function importJwkAsKey(jwk: any) {
 async function getCryptoKeyForKid(kid: string, supabaseUrl: string) {
   if (KEY_CACHE[kid]) return KEY_CACHE[kid];
   const keys = await fetchJwks(supabaseUrl);
-  const jwk = keys.find((k: any) => k.kid === kid);
+  const jwk = (keys || []).find((k: any) => k.kid === kid);
   if (!jwk) throw new Error('No matching JWK for kid');
   const key = await importJwkAsKey(jwk);
   KEY_CACHE[kid] = key;
@@ -91,6 +91,7 @@ type CloudflareEnv = {
   ASSET_PAYLOAD_BUCKET?: R2BucketBinding;
   PUBLIC_SUPABASE_URL?: string;
   SUPABASE_SERVICE_ROLE_KEY?: string; // use secret in production
+  MAX_SNAPSHOT_BYTES?: string | number;
 };
 
 type R2BucketBinding = {
