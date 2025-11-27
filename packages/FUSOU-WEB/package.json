@@ -31,6 +31,7 @@
     "astro-icon": "^1.1.5",
     "chart.js": "^4.4.9",
     "daisyui": "^5.0.43",
+    "jose": "^6.1.2",
     "nanostores": "^1.0.1",
     "npm": "^11.4.1",
     "react": "^19.1.0",
@@ -43,6 +44,5 @@
     "tailwindcss": "^4.1.8",
     "typescript": "^5.9.3",
     "wrangler": "^4.43.0"
-  },
-  "devDependencies": {}
+  }
 }
