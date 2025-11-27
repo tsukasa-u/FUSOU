@@ -1,4 +1,6 @@
 import { createSignal, createEffect, onCleanup } from 'solid-js';
+import { registerSnapshotCollector } from '../utility/snapshot';
+import SyncButton from './SyncButton';
 
 type Props = {
   token: string;
@@ -17,13 +19,23 @@ export default function SnapshotViewer(props: Props) {
     aborted = true;
   });
 
+  // Register a snapshot collector that returns the currently-loaded snapshot.
+  const unregister = registerSnapshotCollector(async () => {
+    // Return current data (could be null/undefined)
+    return data();
+  });
+
+  onCleanup(() => {
+    try { unregister(); } catch {};
+  });
+
   createEffect(() => {
     const token = props.token;
     (async () => {
       setLoading(true);
       setError(null);
       try {
-        const url = `/s/${encodeURIComponent(token)}`;
+        const url = `https://sync-fleet-info.fusou.pages.dev/s/${encodeURIComponent(token)}`;
         const headers: Record<string, string> = { Accept: 'application/json' };
         const currentEtag = etag();
         if (currentEtag) headers['If-None-Match'] = currentEtag;
@@ -58,6 +70,10 @@ export default function SnapshotViewer(props: Props) {
 
   return (
     <div>
+      {/* Sync button: uploads the currently-loaded snapshot (for manual testing) */}
+      <div style={{ margin: '8px 0' }}>
+        <SyncButton getPayload={() => Promise.resolve(data())} getAuthToken={props.getAuthToken} label="Sync snapshot" />
+      </div>
       {loading() && <div>Loading snapshot…</div>}
       {error() && <div style={{ color: 'red' }}>{error()}</div>}
       {!loading() && !error() && !data() && <div>No snapshot loaded.</div>}
@@ -65,7 +81,7 @@ export default function SnapshotViewer(props: Props) {
         <div>
           <h3>Snapshot</h3>
           <div>ETag: {etag()}</div>
-          <pre style={{ whiteSpace: 'pre-wrap', fontSize: 12 }}>{JSON.stringify(data(), null, 2)}</pre>
+          <pre style="white-space: pre-wrap; font-size: 12px;">{JSON.stringify(data(), null, 2)}</pre>
         </div>
       )}
     </div>

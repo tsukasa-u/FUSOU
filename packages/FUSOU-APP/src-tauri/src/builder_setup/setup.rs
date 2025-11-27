@@ -3,9 +3,7 @@ use std::path::PathBuf;
 use std::{env, fs, sync::Mutex, time};
 
 use tauri::{
-    menu::{CheckMenuItemBuilder, MenuBuilder, MenuItemBuilder, SubmenuBuilder},
-    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    Manager,
+    Emitter, Manager, menu::{CheckMenuItemBuilder, MenuBuilder, MenuItemBuilder, SubmenuBuilder}, tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent}
 };
 use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_autostart::ManagerExt;
@@ -139,6 +137,9 @@ fn setup_tray(
     let open_log_file =
         MenuItemBuilder::with_id("open-log-file".to_string(), "Open log file").build(app)?;
 
+    let sync_snapshot =
+        MenuItemBuilder::with_id("sync-snapshot".to_string(), "Sync snapshot").build(app)?;
+
     let launch_at_startup = if autostart_allowed {
         let autostart_enabled = app.autolaunch().is_enabled().unwrap_or(false);
         Some(
@@ -187,6 +188,7 @@ fn setup_tray(
     let advanced_sub_menu = advanced_sub_menu
         .item(&open_configs)
         .item(&open_log_file)
+        .item(&sync_snapshot)
         .item(&intergrate_file)
         .item(&check_update)
         .separator()
@@ -432,6 +434,23 @@ fn setup_tray(
                             .join(logger::get_log_file_name());
                         let path_str = log_path.to_string_lossy();
                         let _ = tray.app_handle().opener().open_path(path_str, None::<&str>);
+                    }
+                    "sync-snapshot" => {
+                        tracing::info!("Tray menu action: sync-snapshot selected");
+                        // Emit an event to the main webview so renderer can perform the sync
+                        match tray.get_webview_window("main") {
+                            Some(window) => {
+                                match window.emit("tray-sync-snapshot", ()) {
+                                    Ok(_) => tracing::info!("Emitted 'tray-sync-snapshot' to main webview"),
+                                    Err(e) => tracing::error!("Failed to emit 'tray-sync-snapshot' to main webview: {}", e),
+                                }
+                            }
+                            None => {
+                                // If main window is not available, open it so user can trigger
+                                tracing::info!("Main window not present; opening main window to allow manual sync");
+                                app::open_main_window(tray.app_handle())
+                            }
+                        }
                     }
                     "intergrate_file" => {
                         integrate::integrate_port_table();

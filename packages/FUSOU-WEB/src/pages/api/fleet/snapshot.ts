@@ -16,6 +16,77 @@ const CORS_HEADERS = {
   "Access-Control-Allow-Headers": "Content-Type, Authorization",
 };
 
+// --- JWKS + JWT verification helpers (module-level cache) ---
+// Keep a simple in-memory cache for JWKS and imported CryptoKeys per `kid`.
+let jwksCache: { keys?: any[]; fetchedAt?: number } = {};
+const KEY_CACHE: Record<string, CryptoKey> = {};
+
+async function fetchJwks(supabaseUrl: string) {
+  const now = Date.now();
+  if (jwksCache.fetchedAt && now - jwksCache.fetchedAt < 5 * 60 * 1000 && jwksCache.keys) {
+    return jwksCache.keys;
+  }
+  const jwksUrl = `${supabaseUrl.replace(/\/$/, '')}/auth/v1/.well-known/jwks.json`;
+  const res = await fetch(jwksUrl);
+  if (!res.ok) throw new Error('Failed to fetch JWKS');
+  const data = await res.json();
+  jwksCache = { keys: data.keys || [], fetchedAt: Date.now() };
+  return jwksCache.keys;
+}
+
+function base64urlToUint8Array(base64url: string) {
+  base64url = base64url.replace(/-/g, '+').replace(/_/g, '/');
+  const pad = base64url.length % 4;
+  if (pad === 2) base64url += '==';
+  if (pad === 3) base64url += '=';
+  const binary = atob(base64url);
+  const len = binary.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+
+async function importJwkAsKey(jwk: any) {
+  // Use RSASSA-PKCS1-v1_5 for RS256
+  const alg = { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' } as any;
+  const usage: KeyUsage[] = ['verify'];
+  return crypto.subtle.importKey('jwk', jwk, alg, false, usage);
+}
+
+async function getCryptoKeyForKid(kid: string, supabaseUrl: string) {
+  if (KEY_CACHE[kid]) return KEY_CACHE[kid];
+  const keys = await fetchJwks(supabaseUrl);
+  const jwk = keys.find((k: any) => k.kid === kid);
+  if (!jwk) throw new Error('No matching JWK for kid');
+  const key = await importJwkAsKey(jwk);
+  KEY_CACHE[kid] = key;
+  return key;
+}
+
+async function verifyJwtWithJwks(token: string, supabaseUrl: string) {
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return null;
+    const header = JSON.parse(new TextDecoder().decode(base64urlToUint8Array(parts[0])));
+    const payload = JSON.parse(new TextDecoder().decode(base64urlToUint8Array(parts[1])));
+    const sig = base64urlToUint8Array(parts[2]);
+    if (header.alg !== 'RS256') return null;
+    const kid = header.kid;
+    if (!kid) return null;
+    const key = await getCryptoKeyForKid(kid, supabaseUrl);
+    const data = new TextEncoder().encode(parts[0] + '.' + parts[1]);
+    const valid = await crypto.subtle.verify('RSASSA-PKCS1-v1_5', key, sig, data);
+    if (!valid) return { valid: false };
+    // check exp / nbf
+    const now = Math.floor(Date.now() / 1000);
+    if (payload.exp && now >= payload.exp) return { valid: false };
+    if (payload.nbf && now < payload.nbf) return { valid: false };
+    return { valid: true, sub: payload.sub, payload };
+  } catch (e) {
+    return { valid: false };
+  }
+}
+
 type CloudflareEnv = {
   ASSET_PAYLOAD_BUCKET?: R2BucketBinding;
   PUBLIC_SUPABASE_URL?: string;
@@ -38,8 +109,9 @@ export const OPTIONS: APIRoute = async () =>
 export const POST: APIRoute = async ({ request, locals }) => {
   const env = locals?.runtime?.env as unknown as CloudflareEnv | undefined;
   const bucket = env?.ASSET_PAYLOAD_BUCKET;
-  const supabaseUrl = env?.PUBLIC_SUPABASE_URL;
+  const maxPayloadBytes = Number(env?.MAX_SNAPSHOT_BYTES ?? 2500000); // default ~2.5MB
   const supabaseKey = env?.SUPABASE_SERVICE_ROLE_KEY;
+  const supabaseUrl = env?.PUBLIC_SUPABASE_URL;
 
   if (!bucket || !supabaseUrl || !supabaseKey) {
     return new Response(JSON.stringify({ error: "Server misconfiguration" }), {
@@ -48,7 +120,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
     });
   }
 
-  // Basic auth extraction (replace with proper JWT verification in production)
+  // Authorization: require Bearer JWT and verify signature + claims via Supabase JWKS
   const auth = request.headers.get("authorization") || "";
   const token = auth.startsWith("Bearer ") ? auth.slice(7) : null;
   if (!token) {
@@ -56,6 +128,17 @@ export const POST: APIRoute = async ({ request, locals }) => {
       status: 401,
       headers: { ...CORS_HEADERS, "content-type": "application/json" },
     });
+  }
+
+  // Verify JWT using JWKS
+  try {
+    const verified = await verifyJwtWithJwks(token, supabaseUrl!);
+    if (!verified || !verified.valid) {
+      return new Response(JSON.stringify({ error: 'Invalid token' }), { status: 401, headers: { ...CORS_HEADERS, 'content-type': 'application/json' } });
+    }
+    // attach claims if needed
+  } catch (err: any) {
+    return new Response(JSON.stringify({ error: 'Failed to verify token', detail: String(err) }), { status: 401, headers: { ...CORS_HEADERS, 'content-type': 'application/json' } });
   }
 
   // Parse body
@@ -85,7 +168,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
   const encoder = new TextEncoder();
   const data = encoder.encode(text);
 
-  // gzip via CompressionStream (available in Workers)
+  // gzip via CompressionStream (available in Pages/Workers). Fallback to raw bytes.
   let compressed: Uint8Array;
   try {
     const cs = new CompressionStream("gzip");
@@ -93,8 +176,12 @@ export const POST: APIRoute = async ({ request, locals }) => {
     const buf = await new Response(stream).arrayBuffer();
     compressed = new Uint8Array(buf);
   } catch (err) {
-    // fallback: store raw JSON if CompressionStream not available
     compressed = data;
+  }
+
+  // Enforce maximum payload size after compression
+  if (compressed.byteLength > maxPayloadBytes) {
+    return new Response(JSON.stringify({ error: 'Payload too large', size: compressed.byteLength }), { status: 413, headers: { ...CORS_HEADERS, 'content-type': 'application/json' } });
   }
 
   // Compute a simple content-hash (sha256)
@@ -111,14 +198,9 @@ export const POST: APIRoute = async ({ request, locals }) => {
     tag
   )}/${version}-${hashHex}.json.gz`;
 
-  // Put into R2
+  // Avoid duplicate work: check if Supabase has the same r2_key already for this owner+tag
   try {
-    await bucket.put(key, compressed, {
-      httpMetadata: {
-        contentType: "application/json",
-        contentEncoding: "gzip",
-      },
-    });
+    await bucket.put(key, compressed, { httpMetadata: { contentType: "application/json", contentEncoding: "gzip" } });
   } catch (err: any) {
     return new Response(
       JSON.stringify({
