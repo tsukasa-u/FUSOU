@@ -70,10 +70,10 @@ cargo run --features grpc --bin channel_service
 
 利用可能な環境変数:
 
-| 変数 | 既定値 | 役割 |
-| --- | --- | --- |
-| `FUSOU_CHANNEL_BIND` | `0.0.0.0:50061` | gRPC サーバーの待ち受けアドレス |
-| `FUSOU_CHANNEL_BUFFER` | `128` | `broadcast::channel` のバッファサイズ |
+| 変数                     | 既定値                   | 役割                                   |
+| ------------------------ | ------------------------ | -------------------------------------- |
+| `FUSOU_CHANNEL_BIND`     | `0.0.0.0:50061`          | gRPC サーバーの待ち受けアドレス        |
+| `FUSOU_CHANNEL_BUFFER`   | `128`                    | `broadcast::channel` のバッファサイズ  |
 | `FUSOU_CHANNEL_ENDPOINT` | `http://127.0.0.1:50061` | クライアント側 (アプリ) が接続する URI |
 
 `endpoint` と `buffer_size` は前述の `configs.toml` から自動で注入されるため、基本的には `channel_service` を起動するだけで構いません。複数ノードで動かす場合は `FUSOU_CHANNEL_ENDPOINT` を直接上書きすることで、ユーザー設定よりも優先させることも可能です。
@@ -87,12 +87,12 @@ cargo run --features grpc --bin channel_service
 
 ## 5. トラブルシューティング
 
-| 症状 | 原因 | 対処 |
-| --- | --- | --- |
-| `failed to connect gRPC channel` | `channel_service` が未起動、または `endpoint` が不正 | サービスの生存確認 (`netstat -tulpn` など) と設定値の再確認 |
-| `Health stream closed` | サーバーバッファが枯渇、通信断 | `FUSOU_CHANNEL_BUFFER` を増やす、ネットワーク経路を確認 |
-| `transport mismatch` 警告 | ビルドフィーチャーと `configs.toml` が不一致 | アプリビルドを `--features grpc-channel` に揃えるか、`transport = "mpsc"` へ戻す |
-| ポート競合 | 既に 50061 が使用中 | `FUSOU_CHANNEL_BIND` / `endpoint` を別ポートに変更 |
+| 症状                             | 原因                                                 | 対処                                                                             |
+| -------------------------------- | ---------------------------------------------------- | -------------------------------------------------------------------------------- |
+| `failed to connect gRPC channel` | `channel_service` が未起動、または `endpoint` が不正 | サービスの生存確認 (`netstat -tulpn` など) と設定値の再確認                      |
+| `Health stream closed`           | サーバーバッファが枯渇、通信断                       | `FUSOU_CHANNEL_BUFFER` を増やす、ネットワーク経路を確認                          |
+| `transport mismatch` 警告        | ビルドフィーチャーと `configs.toml` が不一致         | アプリビルドを `--features grpc-channel` に揃えるか、`transport = "mpsc"` へ戻す |
+| ポート競合                       | 既に 50061 が使用中                                  | `FUSOU_CHANNEL_BIND` / `endpoint` を別ポートに変更                               |
 
 ## 6. 運用上のヒント
 

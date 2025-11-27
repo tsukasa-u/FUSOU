@@ -18,12 +18,16 @@ const CORS_HEADERS = {
 
 type CloudflareEnv = {
   ASSET_PAYLOAD_BUCKET?: R2BucketBinding;
-  SUPABASE_URL?: string;
-  SUPABASE_SERVICE_KEY?: string; // use secret in production
+  PUBLIC_SUPABASE_URL?: string;
+  SUPABASE_SERVICE_ROLE_KEY?: string; // use secret in production
 };
 
 type R2BucketBinding = {
-  put(key: string, value: BodyInit, options?: { httpMetadata?: Record<string, string> }): Promise<any>;
+  put(
+    key: string,
+    value: ArrayBuffer | ArrayBufferView | ReadableStream | Blob | string,
+    options?: { httpMetadata?: Record<string, string> }
+  ): Promise<any>;
 };
 
 export const prerender = false;
@@ -34,8 +38,8 @@ export const OPTIONS: APIRoute = async () =>
 export const POST: APIRoute = async ({ request, locals }) => {
   const env = locals?.runtime?.env as unknown as CloudflareEnv | undefined;
   const bucket = env?.ASSET_PAYLOAD_BUCKET;
-  const supabaseUrl = env?.SUPABASE_URL;
-  const supabaseKey = env?.SUPABASE_SERVICE_KEY;
+  const supabaseUrl = env?.PUBLIC_SUPABASE_URL;
+  const supabaseKey = env?.SUPABASE_SERVICE_ROLE_KEY;
 
   if (!bucket || !supabaseUrl || !supabaseKey) {
     return new Response(JSON.stringify({ error: "Server misconfiguration" }), {
@@ -67,10 +71,13 @@ export const POST: APIRoute = async ({ request, locals }) => {
 
   const { owner_id, tag, payload, version: clientVersion, is_public } = body;
   if (!owner_id || !tag || !payload) {
-    return new Response(JSON.stringify({ error: "owner_id, tag and payload are required" }), {
-      status: 400,
-      headers: { ...CORS_HEADERS, "content-type": "application/json" },
-    });
+    return new Response(
+      JSON.stringify({ error: "owner_id, tag and payload are required" }),
+      {
+        status: 400,
+        headers: { ...CORS_HEADERS, "content-type": "application/json" },
+      }
+    );
   }
 
   // Prepare object: stringify + gzip
@@ -91,22 +98,38 @@ export const POST: APIRoute = async ({ request, locals }) => {
   }
 
   // Compute a simple content-hash (sha256)
-  const hashBuf = await crypto.subtle.digest("SHA-256", compressed.buffer);
+  const hashSource = compressed.buffer as ArrayBuffer;
+  const hashBuf = await crypto.subtle.digest("SHA-256", hashSource);
   const hashArray = Array.from(new Uint8Array(hashBuf));
-  const hashHex = hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
+  const hashHex = hashArray
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
 
   // Decide version and key
   const version = clientVersion ? Number(clientVersion) : Date.now();
-  const key = `fleets/${owner_id}/${encodeURIComponent(tag)}/${version}-${hashHex}.json.gz`;
+  const key = `fleets/${owner_id}/${encodeURIComponent(
+    tag
+  )}/${version}-${hashHex}.json.gz`;
 
   // Put into R2
   try {
-    await bucket.put(key, compressed, { httpMetadata: { contentType: "application/json", contentEncoding: "gzip" } });
-  } catch (err: any) {
-    return new Response(JSON.stringify({ error: "Failed to store payload in R2", detail: String(err) }), {
-      status: 502,
-      headers: { ...CORS_HEADERS, "content-type": "application/json" },
+    await bucket.put(key, compressed, {
+      httpMetadata: {
+        contentType: "application/json",
+        contentEncoding: "gzip",
+      },
     });
+  } catch (err: any) {
+    return new Response(
+      JSON.stringify({
+        error: "Failed to store payload in R2",
+        detail: String(err),
+      }),
+      {
+        status: 502,
+        headers: { ...CORS_HEADERS, "content-type": "application/json" },
+      }
+    );
   }
 
   // Upsert metadata to Supabase via REST
@@ -134,23 +157,32 @@ export const POST: APIRoute = async ({ request, locals }) => {
 
     if (!resp.ok) {
       const text = await resp.text();
-      return new Response(JSON.stringify({ error: "Failed to upsert metadata", detail: text }), {
-        status: 502,
-        headers: { ...CORS_HEADERS, "content-type": "application/json" },
-      });
+      return new Response(
+        JSON.stringify({ error: "Failed to upsert metadata", detail: text }),
+        {
+          status: 502,
+          headers: { ...CORS_HEADERS, "content-type": "application/json" },
+        }
+      );
     }
   } catch (err: any) {
-    return new Response(JSON.stringify({ error: "Supabase upsert failed", detail: String(err) }), {
-      status: 502,
-      headers: { ...CORS_HEADERS, "content-type": "application/json" },
-    });
+    return new Response(
+      JSON.stringify({ error: "Supabase upsert failed", detail: String(err) }),
+      {
+        status: 502,
+        headers: { ...CORS_HEADERS, "content-type": "application/json" },
+      }
+    );
   }
 
   // Optionally: enqueue a cache-replication job here (not implemented)
 
   // Return success with metadata
-  return new Response(JSON.stringify({ ok: true, owner_id, tag, version, r2_key: key }), {
-    status: 200,
-    headers: { ...CORS_HEADERS, "content-type": "application/json" },
-  });
+  return new Response(
+    JSON.stringify({ ok: true, owner_id, tag, version, r2_key: key }),
+    {
+      status: 200,
+      headers: { ...CORS_HEADERS, "content-type": "application/json" },
+    }
+  );
 };
