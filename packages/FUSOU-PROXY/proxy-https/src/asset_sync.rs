@@ -411,7 +411,7 @@ fn derive_origin(endpoint: &str) -> Result<String, String> {
     Ok(origin)
 }
 
-fn get_supabase_access_token() -> Option<String> {
+pub fn get_supabase_access_token() -> Option<String> {
     match SUPABASE_ACCESS_TOKEN.read() {
         Ok(guard) => guard.clone(),
         Err(poisoned) => poisoned.into_inner().clone(),

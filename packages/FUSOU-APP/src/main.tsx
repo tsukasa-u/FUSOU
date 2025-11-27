@@ -10,7 +10,6 @@ import Debug from "./pages/debug.tsx";
 import Login from "./pages/login.tsx";
 import Close from "./pages/close.tsx";
 import Updater from "./pages/update.tsx";
-import ViewerPage from "./pages/viewer.tsx";
 
 import "./global.css";
 import { AuthProvider } from "./utility/provider.tsx";
@@ -18,11 +17,7 @@ import { ErrorBoundary, onMount } from "solid-js";
 
 import { fetch_font } from "./utility/google_font.ts";
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
-import { performSnapshotSync } from "./utility/sync";
-import { getAuthToken } from "./utility/auth";
 import { ErrorFallback } from "./utility/ErrorFallback.tsx";
-import { collectSnapshot } from "./utility/snapshot";
 
 onMount(async () => {
   invoke<string>("get_app_theme", {})
@@ -50,37 +45,6 @@ onMount(async () => {
     });
 });
 
-onMount(async () => {
-  // Listen for tray menu request to trigger a sync from the renderer side.
-  try {
-    const unlisten = await listen('tray-sync-snapshot', async () => {
-      try {
-        // Use the module-local snapshot registry (no globals).
-        const payload: any = await collectSnapshot(5000);
-
-        if (!payload) {
-          console.error('tray-sync-snapshot handler error - no snapshot payload available (no registered collectors)');
-          return;
-        }
-
-        const result = await performSnapshotSync(payload, getAuthToken);
-        if (!result.ok) {
-          console.error('tray-sync-snapshot: upload failed', result.status, result.text);
-        } else {
-          console.info('tray-sync-snapshot: upload succeeded');
-        }
-      } catch (e) {
-        console.error('tray-sync-snapshot handler error', e);
-      }
-    });
-
-    // we don't unlisten for the lifetime of the app; if desired keep reference.
-    void unlisten;
-  } catch (e) {
-    console.error('Failed to listen for tray-sync-snapshot', e);
-  }
-});
-
 render(
   () => (
     <AuthProvider>
@@ -90,8 +54,6 @@ render(
         )}
       >
         <Router>
-          <Route path="/viewer/:token" component={ViewerPage} />
-          <Route path="/viewer" component={ViewerPage} />
           <Route path="/app" component={App} />
           <Route path="/" component={Start} />
           <Route path="*" component={NotFound} />

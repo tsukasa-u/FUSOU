@@ -209,6 +209,10 @@ save_file_location = ""
     # HTTPS endpoint provided by FUSOU-WEB that mediates Cloudflare R2 uploads
     api_endpoint = "https://sync-fleet-info.fusou.pages.dev/api/asset-sync/upload"
 
+    # Optional explicit snapshot upload endpoint (if empty, origin derived from api_endpoint)
+    # Example: "https://save-data-on-r2.fusou.pages.dev/api/fleet/snapshot"
+    snapshot_endpoint = ""
+
     # Endpoint returning the latest kc_period_tag timestamp to decide when uploads can restart
     period_endpoint = "https://sync-fleet-info.fusou.pages.dev/api/kc-period/latest"
 

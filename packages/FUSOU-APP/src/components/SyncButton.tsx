@@ -1,5 +1,5 @@
 import { createSignal } from 'solid-js';
-import { performSnapshotSync } from '../utility/sync';
+import { invoke } from '@tauri-apps/api/core';
 
 type Props = {
   /** function that returns the snapshot payload to upload */
@@ -13,21 +13,26 @@ type Props = {
 export default function SyncButton(props: Props) {
   const [status, setStatus] = createSignal<'idle' | 'uploading' | 'success' | 'error'>('idle');
   const [message, setMessage] = createSignal<string | null>(null);
-  const [lastSync, setLastSync] = createSignal<string | null>(() => {
+  const initialLastSync = (() => {
     try {
       return localStorage.getItem('fusou.lastSync');
     } catch {
       return null;
     }
-  });
+  })();
+
+  const [lastSync, setLastSync] = createSignal<string | null>(initialLastSync);
 
   async function doSync() {
     setMessage(null);
     setStatus('uploading');
     try {
-      const payload = props.getPayload ? await props.getPayload() : undefined;
-      const r = await performSnapshotSync(payload, props.getAuthToken);
-      if (!r.ok) throw new Error(`Upload failed: ${r.status} ${r.text ?? ''}`);
+      // Signal the backend (Tauri) to perform the snapshot collection/upload.
+      const res = await invoke<any>('perform_snapshot_sync');
+      // `perform_snapshot_sync` returns an object with { status, body, sha256 }
+      if (!res || (res.status && Number(res.status) >= 400)) {
+        throw new Error(`Upload failed: ${res?.status} ${res?.body ?? ''}`);
+      }
       const now = new Date().toISOString();
       try {
         localStorage.setItem('fusou.lastSync', now);

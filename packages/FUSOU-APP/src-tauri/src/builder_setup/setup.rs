@@ -437,20 +437,15 @@ fn setup_tray(
                     }
                     "sync-snapshot" => {
                         tracing::info!("Tray menu action: sync-snapshot selected");
-                        // Emit an event to the main webview so renderer can perform the sync
-                        match tray.get_webview_window("main") {
-                            Some(window) => {
-                                match window.emit("tray-sync-snapshot", ()) {
-                                    Ok(_) => tracing::info!("Emitted 'tray-sync-snapshot' to main webview"),
-                                    Err(e) => tracing::error!("Failed to emit 'tray-sync-snapshot' to main webview: {}", e),
-                                }
+                        
+                        let app_handle = tray.app_handle();
+                        let app_handle_clone = app_handle.clone();
+                        tauri::async_runtime::spawn(async move {
+                            match crate::cloud_storage::snapshot::perform_snapshot_sync_app(&app_handle_clone).await {
+                                Ok(_) => tracing::info!("Snapshot sync completed (tray-trigger)"),
+                                Err(e) => tracing::error!("Snapshot sync failed (tray-trigger): {}", e),
                             }
-                            None => {
-                                // If main window is not available, open it so user can trigger
-                                tracing::info!("Main window not present; opening main window to allow manual sync");
-                                app::open_main_window(tray.app_handle())
-                            }
-                        }
+                        });
                     }
                     "intergrate_file" => {
                         integrate::integrate_port_table();

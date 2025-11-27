@@ -513,6 +513,8 @@ pub struct ConfigsAppAssetSync {
     scan_interval_seconds: Option<u64>,
     #[serde(default = "default_asset_sync_api_endpoint")]
     api_endpoint: Option<String>,
+    #[serde(default = "default_asset_sync_snapshot_endpoint")]
+    snapshot_endpoint: Option<String>,
     #[serde(default = "default_asset_sync_key_prefix")]
     key_prefix: Option<String>,
     #[serde(default = "default_asset_sync_period_endpoint")]
@@ -555,6 +557,10 @@ fn default_asset_sync_existing_keys_endpoint() -> Option<String> {
     Some("".to_string())
 }
 
+fn default_asset_sync_snapshot_endpoint() -> Option<String> {
+    Some("".to_string())
+}
+
 impl Default for ConfigsAppAssetSync {
     fn default() -> Self {
         Self {
@@ -562,6 +568,7 @@ impl Default for ConfigsAppAssetSync {
             require_supabase_auth: Some(true),
             scan_interval_seconds: Some(30),
             api_endpoint: Some("".to_string()),
+            snapshot_endpoint: Some("".to_string()),
             key_prefix: Some("assets".to_string()),
             period_endpoint: Some("".to_string()),
             skip_extensions: default_asset_sync_skip_extensions(),
@@ -589,6 +596,13 @@ impl ConfigsAppAssetSync {
 
     pub fn get_api_endpoint(&self) -> Option<String> {
         match self.api_endpoint {
+            Some(ref v) if !v.trim().is_empty() => Some(v.trim().to_string()),
+            _ => None,
+        }
+    }
+
+    pub fn get_snapshot_endpoint(&self) -> Option<String> {
+        match self.snapshot_endpoint {
             Some(ref v) if !v.trim().is_empty() => Some(v.trim().to_string()),
             _ => None,
         }
