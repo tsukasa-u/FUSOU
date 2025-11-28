@@ -1,5 +1,14 @@
 import type { APIRoute } from "astro";
 import { jwtVerify, createRemoteJWKSet } from "jose"; // 修正3: 標準ライブラリを使用
+import {
+  createSignedToken,
+  verifySignedToken,
+} from "../_utils/signature";
+import {
+  readJsonBody,
+  handleJsonReadError,
+  CORS_HEADERS,
+} from "../_utils/http";
 
 // 環境変数の型定義
 type CloudflareEnv = {
@@ -7,6 +16,7 @@ type CloudflareEnv = {
   PUBLIC_SUPABASE_URL?: string;
   SUPABASE_SERVICE_ROLE_KEY?: string;
   MAX_SNAPSHOT_BYTES?: string | number;
+  FLEET_SNAPSHOT_SIGNING_SECRET?: string;
 };
 
 // R2の型定義（簡易版）
@@ -26,10 +36,14 @@ let JWKS: ReturnType<typeof createRemoteJWKSet> | null = null;
 
 // 定数
 const MAX_BODY_SIZE = 2 * 1024 * 1024; // 修正2: 入力JSONの上限 (2MB)
-const CORS_HEADERS = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "POST,OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization",
+const SNAPSHOT_TOKEN_TTL_SECONDS = 300;
+
+type SnapshotDescriptor = {
+  owner_id: string;
+  tag: string;
+  title?: string | null;
+  version?: number | null;
+  is_public?: boolean;
 };
 
 export const OPTIONS: APIRoute = async () =>
@@ -37,12 +51,13 @@ export const OPTIONS: APIRoute = async () =>
 
 export const POST: APIRoute = async ({ request, locals }) => {
   const env = locals?.runtime?.env as unknown as CloudflareEnv | undefined;
-  
-  // 必須変数のチェック
+
   const bucket = env?.ASSET_PAYLOAD_BUCKET;
   const supabaseUrl = env?.PUBLIC_SUPABASE_URL;
   const supabaseKey = env?.SUPABASE_SERVICE_ROLE_KEY;
-  const maxStoredBytes = Number(env?.MAX_SNAPSHOT_BYTES ?? 2500000); // 保存用上限 (2.5MB)
+  const signingSecret =
+    env?.FLEET_SNAPSHOT_SIGNING_SECRET ||
+    import.meta.env.FLEET_SNAPSHOT_SIGNING_SECRET;
 
   if (!bucket || !supabaseUrl || !supabaseKey) {
     console.error("Missing environment variables");
@@ -52,82 +67,169 @@ export const POST: APIRoute = async ({ request, locals }) => {
     });
   }
 
-  // --- 修正3: joseライブラリを使用した堅牢なJWT検証 ---
-  const authHeader = request.headers.get("Authorization");
-  const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
-
-  if (!token) {
-    return new Response(JSON.stringify({ error: "Missing Authorization" }), {
-      status: 401,
+  if (!signingSecret) {
+    console.error("Snapshot signing secret is not configured");
+    return new Response(JSON.stringify({ error: "Server misconfiguration" }), {
+      status: 500,
       headers: { ...CORS_HEADERS, "content-type": "application/json" },
     });
   }
 
-  let userId: string; // 認証済みユーザーID
-
-  try {
-    // JWKSを初期化 (初回のみ)
-    if (!JWKS) {
-      JWKS = createRemoteJWKSet(
-        new URL(`${supabaseUrl}/auth/v1/.well-known/jwks.json`)
-      );
-    }
-
-    // 検証実行 (期限切れ、署名不正などを全てチェック)
-    const { payload } = await jwtVerify(token, JWKS, {
-      algorithms: ["RS256"], // アルゴリズム固定で脆弱性回避
-    });
-
-    if (!payload.sub) throw new Error("No subject in token");
-    userId = payload.sub; // これが信頼できるユーザーID
-  } catch (err) {
-    return new Response(JSON.stringify({ error: "Invalid token" }), {
-      status: 401,
-      headers: { ...CORS_HEADERS, "content-type": "application/json" },
-    });
-  }
-
-  // --- 修正2: DoS対策 (入力サイズ制限) ---
-  const contentLength = Number(request.headers.get("content-length") || 0);
-  if (contentLength > MAX_BODY_SIZE) {
-    return new Response(
-      JSON.stringify({ error: "Request payload too large" }),
-      {
-        status: 413,
-        headers: { ...CORS_HEADERS, "content-type": "application/json" },
-      }
+  const url = new URL(request.url);
+  if (!url.searchParams.has("token")) {
+    return handleSnapshotPreparation(
+      request,
+      url,
+      supabaseUrl,
+      signingSecret,
     );
   }
 
-  // JSONパース
+  return handleSnapshotUpload(
+    request,
+    env,
+    url,
+    bucket,
+    supabaseUrl,
+    supabaseKey,
+    signingSecret,
+  );
+};
+
+async function handleSnapshotPreparation(
+  request: Request,
+  url: URL,
+  supabaseUrl: string,
+  signingSecret: string,
+): Promise<Response> {
+  const auth = await resolveSupabaseUser(request, supabaseUrl);
+  if (!auth) {
+    return new Response(JSON.stringify({ error: "Unauthorized" }), {
+      status: 401,
+      headers: { ...CORS_HEADERS, "content-type": "application/json" },
+    });
+  }
+
+  const contentLength = Number(request.headers.get("content-length") || 0);
+  if (contentLength > MAX_BODY_SIZE) {
+    return new Response(JSON.stringify({ error: "Request payload too large" }), {
+      status: 413,
+      headers: { ...CORS_HEADERS, "content-type": "application/json" },
+    });
+  }
+
   let body: any;
   try {
-    body = await request.json();
+    body = await readJsonBody(request, MAX_BODY_SIZE);
   } catch (err) {
-    return new Response(JSON.stringify({ error: "Invalid JSON body" }), {
+    return handleJsonReadError(err);
+  }
+
+  const tag = typeof body?.tag === "string" ? body.tag.trim() : "";
+  if (!tag) {
+    return new Response(JSON.stringify({ error: "tag is required" }), {
       status: 400,
       headers: { ...CORS_HEADERS, "content-type": "application/json" },
     });
   }
 
-  // --- 修正1: 認可 (IDOR対策) ---
-  // ボディに含まれるowner_idが悪意ある値でも、強制的にトークンのuserIdで上書きする
-  // これにより「他人のID」への書き込みを物理的に不可能にする
-  const owner_id = userId; 
+  const title =
+    typeof body?.title === "string" && body.title.trim().length > 0
+      ? body.title.trim().slice(0, 128)
+      : null;
+  const requestedVersion = Number(body?.version);
+  const descriptor: SnapshotDescriptor = {
+    owner_id: auth.userId,
+    tag,
+    title,
+    version: Number.isFinite(requestedVersion) ? requestedVersion : null,
+    is_public: Boolean(body?.is_public),
+  };
 
-  const { tag, payload, version: clientVersion, is_public } = body;
+  const signedToken = await createSignedToken(
+    descriptor,
+    signingSecret,
+    SNAPSHOT_TOKEN_TTL_SECONDS,
+  );
 
-  if (!tag || !payload) {
-    return new Response(
-      JSON.stringify({ error: "tag and payload are required" }),
-      {
-        status: 400,
-        headers: { ...CORS_HEADERS, "content-type": "application/json" },
-      }
-    );
+  const signedUrl = new URL(url.toString());
+  signedUrl.searchParams.set("token", signedToken.token);
+  signedUrl.searchParams.set("expires", String(signedToken.expires));
+  signedUrl.searchParams.set("signature", signedToken.signature);
+
+  return new Response(
+    JSON.stringify({
+      uploadUrl: signedUrl.toString(),
+      expiresAt: new Date(signedToken.expires * 1000).toISOString(),
+      maxBodyBytes: MAX_BODY_SIZE,
+      fields: {
+        tag,
+        title,
+        version: descriptor.version,
+        is_public: descriptor.is_public,
+      },
+    }),
+    {
+      status: 200,
+      headers: { ...CORS_HEADERS, "content-type": "application/json" },
+    },
+  );
+}
+
+async function handleSnapshotUpload(
+  request: Request,
+  env: CloudflareEnv | undefined,
+  url: URL,
+  bucket: R2BucketBinding,
+  supabaseUrl: string,
+  supabaseKey: string,
+  signingSecret: string,
+): Promise<Response> {
+  const descriptor = await verifySignedToken<SnapshotDescriptor>(
+    url.searchParams.get("token"),
+    url.searchParams.get("expires"),
+    url.searchParams.get("signature"),
+    signingSecret,
+  );
+
+  if (!descriptor?.owner_id || !descriptor.tag) {
+    return new Response(JSON.stringify({ error: "Invalid or expired token" }), {
+      status: 401,
+      headers: { ...CORS_HEADERS, "content-type": "application/json" },
+    });
   }
 
-  // データの圧縮とハッシュ化処理
+  const auth = await resolveSupabaseUser(request, supabaseUrl);
+  if (!auth || auth.userId !== descriptor.owner_id) {
+    return new Response(JSON.stringify({ error: "Unauthorized" }), {
+      status: 401,
+      headers: { ...CORS_HEADERS, "content-type": "application/json" },
+    });
+  }
+
+  const contentLength = Number(request.headers.get("content-length") || 0);
+  if (contentLength > MAX_BODY_SIZE) {
+    return new Response(JSON.stringify({ error: "Request payload too large" }), {
+      status: 413,
+      headers: { ...CORS_HEADERS, "content-type": "application/json" },
+    });
+  }
+
+  let body: any;
+  try {
+    body = await readJsonBody(request, MAX_BODY_SIZE);
+  } catch (err) {
+    return handleJsonReadError(err);
+  }
+
+  const payload = body?.payload;
+  if (!payload) {
+    return new Response(JSON.stringify({ error: "payload is required" }), {
+      status: 400,
+      headers: { ...CORS_HEADERS, "content-type": "application/json" },
+    });
+  }
+
   const text = JSON.stringify(payload);
   const encoder = new TextEncoder();
   const data = encoder.encode(text);
@@ -138,15 +240,14 @@ export const POST: APIRoute = async ({ request, locals }) => {
     const stream = new Response(data).body!.pipeThrough(cs);
     const buf = await new Response(stream).arrayBuffer();
     compressed = new Uint8Array(buf);
-  } catch (err) {
-    // 圧縮失敗時は生データを使うか、エラーにするか。ここでは安全側に倒してエラー推奨
+  } catch {
     return new Response(JSON.stringify({ error: "Compression failed" }), {
       status: 500,
       headers: { ...CORS_HEADERS, "content-type": "application/json" },
     });
   }
 
-  // 圧縮後のサイズチェック
+  const maxStoredBytes = Number(env?.MAX_SNAPSHOT_BYTES ?? 2_500_000);
   if (compressed.byteLength > maxStoredBytes) {
     return new Response(
       JSON.stringify({
@@ -156,25 +257,34 @@ export const POST: APIRoute = async ({ request, locals }) => {
       {
         status: 413,
         headers: { ...CORS_HEADERS, "content-type": "application/json" },
-      }
+      },
     );
   }
 
-  // ハッシュ計算 (SHA-256)
   const hashBuf = await crypto.subtle.digest(
     "SHA-256",
-    new Uint8Array(compressed).buffer
+    new Uint8Array(compressed).buffer,
   );
   const hashHex = Array.from(new Uint8Array(hashBuf))
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
 
-  const version = clientVersion ? Number(clientVersion) : Date.now();
-  
-  // Path Traversal防止のため、tagもencodeURIComponentを通す(元コード通りでOK)
-  const key = `fleets/${owner_id}/${encodeURIComponent(tag)}/${version}-${hashHex}.json.gz`;
+  const version =
+    descriptor.version ??
+    (Number.isFinite(Number(body?.version))
+      ? Number(body.version)
+      : Date.now());
+  const title =
+    descriptor.title ??
+    (typeof body?.title === "string" ? body.title.slice(0, 128) : null);
+  const isPublic =
+    typeof descriptor.is_public === "boolean"
+      ? descriptor.is_public
+      : Boolean(body?.is_public);
 
-  // R2へ保存
+  const ownerId = descriptor.owner_id;
+  const key = `fleets/${ownerId}/${encodeURIComponent(descriptor.tag)}/${version}-${hashHex}.json.gz`;
+
   try {
     await bucket.put(key, compressed, {
       httpMetadata: {
@@ -191,19 +301,18 @@ export const POST: APIRoute = async ({ request, locals }) => {
       {
         status: 502,
         headers: { ...CORS_HEADERS, "content-type": "application/json" },
-      }
+      },
     );
   }
 
-  // Supabaseへメタデータ保存
   const meta = {
-    owner_id, // ここは強制的にuserIdが入っている
-    tag,
-    title: body.title || null,
+    owner_id: ownerId,
+    tag: descriptor.tag,
+    title: title || null,
     r2_key: key,
     size_bytes: compressed.byteLength,
     version,
-    is_public: !!is_public,
+    is_public: !!isPublic,
     updated_at: new Date().toISOString(),
   };
 
@@ -211,7 +320,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
     const resp = await fetch(`${supabaseUrl}/rest/v1/fleets`, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${supabaseKey}`, // Service Role Keyを使用
+        Authorization: `Bearer ${supabaseKey}`,
         "Content-Type": "application/json",
         Prefer: "resolution=merge-duplicates",
       },
@@ -225,7 +334,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
         {
           status: 502,
           headers: { ...CORS_HEADERS, "content-type": "application/json" },
-        }
+        },
       );
     }
   } catch (err: any) {
@@ -234,15 +343,52 @@ export const POST: APIRoute = async ({ request, locals }) => {
       {
         status: 502,
         headers: { ...CORS_HEADERS, "content-type": "application/json" },
-      }
+      },
     );
   }
 
   return new Response(
-    JSON.stringify({ ok: true, owner_id, tag, version, r2_key: key }),
+    JSON.stringify({
+      ok: true,
+      owner_id: ownerId,
+      tag: descriptor.tag,
+      version,
+      r2_key: key,
+    }),
     {
       status: 200,
       headers: { ...CORS_HEADERS, "content-type": "application/json" },
-    }
+    },
   );
-};
+}
+
+async function resolveSupabaseUser(
+  request: Request,
+  supabaseUrl: string,
+): Promise<{ token: string; userId: string } | null> {
+  const authHeader = request.headers.get("Authorization");
+  const token = authHeader?.startsWith("Bearer ")
+    ? authHeader.slice(7).trim()
+    : null;
+
+  if (!token) {
+    return null;
+  }
+
+  try {
+    if (!JWKS) {
+      JWKS = createRemoteJWKSet(
+        new URL(`${supabaseUrl}/auth/v1/.well-known/jwks.json`),
+      );
+    }
+    const { payload } = await jwtVerify(token, JWKS, {
+      algorithms: ["RS256"],
+    });
+    if (!payload.sub) {
+      return null;
+    }
+    return { token, userId: payload.sub };
+  } catch {
+    return null;
+  }
+}

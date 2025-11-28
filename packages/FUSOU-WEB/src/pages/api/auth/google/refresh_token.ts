@@ -1,10 +1,19 @@
 import type { APIRoute } from "astro";
+import { readJsonBody, handleJsonReadError } from "../../_utils/http";
+
+const MAX_BODY_SIZE = 16 * 1024; // 16KB
 
 export const POST: APIRoute = async ({ request, cookies, redirect }) => {
     const tokenEndpoint = 'https://oauth2.googleapis.com/token';
 
     // Googleから取得したリフレッシュトークン、クライアントID、クライアントシークレットを設定
-    const googleRefreshToken = (await request.json()).refreshToken;
+    let body: any;
+    try {
+        body = await readJsonBody(request, MAX_BODY_SIZE);
+    } catch (err) {
+        return handleJsonReadError(err);
+    }
+    const googleRefreshToken = body.refreshToken;
     const googleClientId = import.meta.env.GOOGLE_CLIENT_ID;
     const googleClientSecret = import.meta.env.GOOGLE_CLIENT_SECRET;
 
@@ -29,9 +38,9 @@ export const POST: APIRoute = async ({ request, cookies, redirect }) => {
         }
 
         const data = await response.json();
-        console.log('New Google access token:', data.access_token);
-        console.log('Expires in:', data.expires_in);
-        console.log('New Google refresh token (if provided):', data.refresh_token);
+        // console.log('New Google access token:', data.access_token);
+        // console.log('Expires in:', data.expires_in);
+        // console.log('New Google refresh token (if provided):', data.refresh_token);
 
         return new Response(
             JSON.stringify({

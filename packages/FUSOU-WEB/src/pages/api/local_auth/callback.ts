@@ -23,15 +23,27 @@ export const GET: APIRoute = async ({ url, cookies, redirect }) => {
 
   cookies.set("sb-access-token", access_token, {
     path: "/",
+    httpOnly: true,
+    secure: import.meta.env.PROD,
+    sameSite: "lax",
   });
   cookies.set("sb-refresh-token", refresh_token, {
     path: "/",
+    httpOnly: true,
+    secure: import.meta.env.PROD,
+    sameSite: "lax",
   });
   cookies.set("sb-provider-token", provider_token!, {
     path: "/",
+    httpOnly: true,
+    secure: import.meta.env.PROD,
+    sameSite: "lax",
   });
   cookies.set("sb-provider-refresh-token", provider_refresh_token!, {
     path: "/",
+    httpOnly: true,
+    secure: import.meta.env.PROD,
+    sameSite: "lax",
   });
 
   return redirect("/returnLocalApp");

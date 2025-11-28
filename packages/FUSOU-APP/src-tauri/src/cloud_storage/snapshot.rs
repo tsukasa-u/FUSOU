@@ -27,6 +27,7 @@ pub async fn perform_snapshot_sync_app(app: &AppHandle) -> Result<serde_json::Va
     let snapshot_url = if let Some(explicit) = app_configs.asset_sync.get_snapshot_endpoint() {
         explicit
     } else {
+        tracing::error!("Snapshot endpoint not configured");
         return Err("Snapshot endpoint not configured".to_string());
     };
 
@@ -37,6 +38,7 @@ pub async fn perform_snapshot_sync_app(app: &AppHandle) -> Result<serde_json::Va
             let msg = "Snapshot sync requires auth but no token available";
             tracing::error!("{}", msg);
             let _ = app.notification().builder().title("Sync Failed").body(msg).show();
+            tracing::error!("{}", msg);
             return Err(msg.to_string());
         }
     };
