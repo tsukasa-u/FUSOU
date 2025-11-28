@@ -1,5 +1,4 @@
 import type { APIRoute } from "astro";
-import { jwtVerify, createRemoteJWKSet } from "jose"; // 修正3: 標準ライブラリを使用
 import {
   createSignedToken,
   verifySignedToken,
@@ -17,6 +16,7 @@ type CloudflareEnv = {
   SUPABASE_SERVICE_ROLE_KEY?: string;
   MAX_SNAPSHOT_BYTES?: string | number;
   FLEET_SNAPSHOT_SIGNING_SECRET?: string;
+  PUBLIC_SUPABASE_ANON_KEY?: string;
 };
 
 // R2の型定義（簡易版）
@@ -29,10 +29,6 @@ type R2BucketBinding = {
 };
 
 export const prerender = false;
-
-// JWKSセットのキャッシュ用変数
-// createRemoteJWKSetは内部でキャッシュとローテーションを管理します
-let JWKS: ReturnType<typeof createRemoteJWKSet> | null = null;
 
 // 定数
 const MAX_BODY_SIZE = 2 * 1024 * 1024; // 修正2: 入力JSONの上限 (2MB)
@@ -82,6 +78,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
       url,
       supabaseUrl,
       signingSecret,
+      locals,
     );
   }
 
@@ -93,6 +90,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
     supabaseUrl,
     supabaseKey,
     signingSecret,
+    locals,
   );
 };
 
@@ -101,8 +99,9 @@ async function handleSnapshotPreparation(
   url: URL,
   supabaseUrl: string,
   signingSecret: string,
+  locals: any,
 ): Promise<Response> {
-  const auth = await resolveSupabaseUser(request, supabaseUrl);
+  const auth = await resolveSupabaseUser(request, supabaseUrl, locals);
   if (!auth) {
     return new Response(JSON.stringify({ error: "Unauthorized" }), {
       status: 401,
@@ -184,6 +183,7 @@ async function handleSnapshotUpload(
   supabaseUrl: string,
   supabaseKey: string,
   signingSecret: string,
+  locals: any,
 ): Promise<Response> {
   const descriptor = await verifySignedToken<SnapshotDescriptor>(
     url.searchParams.get("token"),
@@ -199,7 +199,7 @@ async function handleSnapshotUpload(
     });
   }
 
-  const auth = await resolveSupabaseUser(request, supabaseUrl);
+  const auth = await resolveSupabaseUser(request, supabaseUrl, locals);
   if (!auth || auth.userId !== descriptor.owner_id) {
     return new Response(JSON.stringify({ error: "Unauthorized" }), {
       status: 401,
@@ -365,6 +365,7 @@ async function handleSnapshotUpload(
 async function resolveSupabaseUser(
   request: Request,
   supabaseUrl: string,
+  locals: any,
 ): Promise<{ token: string; userId: string } | null> {
   const authHeader = request.headers.get("Authorization");
   const token = authHeader?.startsWith("Bearer ")
@@ -375,20 +376,28 @@ async function resolveSupabaseUser(
     return null;
   }
 
-  try {
-    if (!JWKS) {
-      JWKS = createRemoteJWKSet(
-        new URL(`${supabaseUrl}/auth/v1/.well-known/jwks.json`),
-      );
-    }
-    const { payload } = await jwtVerify(token, JWKS, {
-      algorithms: ["RS256"],
-    });
-    if (!payload.sub) {
-      return null;
-    }
-    return { token, userId: payload.sub };
-  } catch {
+  const anonKey = (locals.runtime?.env as any)?.PUBLIC_SUPABASE_ANON_KEY || import.meta.env.PUBLIC_SUPABASE_ANON_KEY;
+  if (!anonKey) {
+    console.error("PUBLIC_SUPABASE_ANON_KEY is not configured");
     return null;
   }
+
+  const response = await fetch(`${supabaseUrl}/auth/v1/user`, {
+    headers: {
+      apikey: anonKey,
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  if (!response.ok) {
+    console.warn(`Supabase validation failed with status ${response.status}`);
+    return null;
+  }
+
+  const user = await response.json();
+  if (!user?.id) {
+    return null;
+  }
+
+  return { token, userId: user.id };
 }
