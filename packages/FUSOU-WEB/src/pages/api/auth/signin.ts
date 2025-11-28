@@ -1,7 +1,6 @@
 import type { APIRoute } from "astro";
 import { supabase } from "@/utility/supabase";
 import type { Provider } from "@supabase/supabase-js";
-import { serialize } from "cookie";
 
 export const POST: APIRoute = async ({ request, cookies, redirect }) => {
   const formData = await request.formData();
@@ -14,13 +13,6 @@ export const POST: APIRoute = async ({ request, cookies, redirect }) => {
 
   if (provider && validProviders.includes(provider)) {
     const state = crypto.randomUUID();
-    const cookie = serialize("oauth_state", state, {
-      path: "/",
-      httpOnly: true,
-      secure: import.meta.env.PROD,
-      maxAge: 60 * 60, // 1 hour
-      sameSite: "lax",
-    });
     cookies.set("oauth_state", state, {
       path: "/",
       httpOnly: true,
