@@ -1,18 +1,34 @@
 import type { APIRoute } from "astro";
 import { supabase } from "@/utility/supabase";
 import type { Provider } from "@supabase/supabase-js";
+import { serialize } from "cookie";
 
 export const POST: APIRoute = async ({ request, cookies, redirect }) => {
   const formData = await request.formData();
 
   const url_origin = import.meta.env.PUBLIC_SITE_URL;
-  // const url_origin = process.env.PUBLIC_SITE_URL;
 
   const provider = formData.get("provider")?.toString();
 
   const validProviders = ["google"];
 
   if (provider && validProviders.includes(provider)) {
+    const state = crypto.randomUUID();
+    const cookie = serialize("oauth_state", state, {
+      path: "/",
+      httpOnly: true,
+      secure: import.meta.env.PROD,
+      maxAge: 60 * 60, // 1 hour
+      sameSite: "lax",
+    });
+    cookies.set("oauth_state", state, {
+      path: "/",
+      httpOnly: true,
+      secure: import.meta.env.PROD,
+      maxAge: 60 * 60,
+      sameSite: "lax",
+    });
+
     if (provider == "google") {
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: "google",
@@ -22,6 +38,7 @@ export const POST: APIRoute = async ({ request, cookies, redirect }) => {
           queryParams: {
             prompt: "consent",
             access_type: "offline",
+            state: state,
           },
         },
       });
@@ -36,6 +53,9 @@ export const POST: APIRoute = async ({ request, cookies, redirect }) => {
         provider: provider as Provider,
         options: {
           redirectTo: `${url_origin}/api/auth/callback`,
+          queryParams: {
+            state: state,
+          },
         },
       });
 
