@@ -54,16 +54,14 @@ export const GET: APIRoute = async ({ locals, request }) => {
 
   try {
     const url = new URL(request.url);
-    const stmt = db.prepare(
-      "SELECT key FROM files ORDER BY uploaded_at DESC"
-    );
+    const stmt = db.prepare("SELECT key FROM files ORDER BY uploaded_at DESC");
     const res: D1AllResult | undefined = await stmt.all?.();
     const keys = (res?.results || [])
       .map((r) => (typeof r.key === "string" ? r.key : undefined))
       .filter(Boolean) as string[];
 
-    const refreshedAt = now;
-    const expiresAt = now + CACHE_TTL_SECONDS * 1000;
+    const refreshedAt = Date.now();
+    const expiresAt = refreshedAt + CACHE_TTL_SECONDS * 1000;
     const etag = buildEtag(refreshedAt);
     const cache = { keys, refreshedAt, expiresAt, etag };
     return jsonResponse(buildPayload(cache, false), etag);
