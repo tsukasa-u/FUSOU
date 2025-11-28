@@ -43,7 +43,6 @@ export const OPTIONS: APIRoute = async () =>
 export const GET: APIRoute = async ({ locals, request }) => {
   const env = extractEnv(locals.runtime?.env);
 
-  // D1-only listing (development mode: no backward compatibility with R2 cache/markers)
   const db = env?.ASSET_INDEX_DB;
   if (!db) {
     return errorResponse(
