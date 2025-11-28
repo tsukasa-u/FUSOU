@@ -320,6 +320,7 @@ async function handleSnapshotUpload(
     const resp = await fetch(`${supabaseUrl}/rest/v1/fleets`, {
       method: "POST",
       headers: {
+        apikey: supabaseKey,
         Authorization: `Bearer ${supabaseKey}`,
         "Content-Type": "application/json",
         Prefer: "resolution=merge-duplicates",

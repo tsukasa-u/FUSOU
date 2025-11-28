@@ -1,5 +1,3 @@
-use std::f32::consts::E;
-
 use reqwest::Client;
 use serde::Serialize;
 use serde_json::json;
@@ -7,6 +5,14 @@ use tauri::AppHandle;
 use tauri_plugin_notification::NotificationExt;
 use proxy_https::asset_sync;
 use uuid::Uuid;
+use serde::Deserialize;
+
+#[derive(Deserialize)]
+struct PrepareResponse {
+    #[serde(rename = "uploadUrl")]
+    upload_url: String,
+}
+
 
 // ペイロード送信用構造体
 #[derive(Serialize)]
@@ -38,46 +44,72 @@ pub async fn perform_snapshot_sync_app(app: &AppHandle) -> Result<serde_json::Va
             let msg = "Snapshot sync requires auth but no token available";
             tracing::error!("{}", msg);
             let _ = app.notification().builder().title("Sync Failed").body(msg).show();
-            tracing::error!("{}", msg);
             return Err(msg.to_string());
         }
     };
 
-    // 4. ペイロードの準備 (JSON構造体を作成)
-    // ここではテスト用に固定値を入れていますが、実際は引数で受け取る想定
+    // 4. ペイロードの準備
     let request_body = SnapshotRequest {
-        tag: "latest".to_string(), // ★必須: タグを指定
-        payload: json!({ "foo": "bar", "message": "TESTCODE" }), // ★JSONオブジェクトとして送信
+        tag: "latest".to_string(),
+        payload: json!({ "foo": "bar", "message": "TESTCODE" }),
         title: Some("Auto Snapshot".to_string()),
-        version: None, // サーバー側でtimestampを使うならNoneでOK
+        version: None,
     };
 
     let client = Client::new();
-    let idempotency = Uuid::new_v4().to_string();
+    let idempotency_key = Uuid::new_v4().to_string();
 
-    tracing::info!(endpoint = %snapshot_url, "uploading snapshot");
-
-    // 5. リクエスト送信 (JSONとして送信)
-    let mut req = client
+    // Stage 1: Preparation
+    tracing::info!(endpoint = %snapshot_url, "Preparing snapshot upload");
+    let prepare_req = client
         .post(&snapshot_url)
-        .json(&request_body) // ★自動でContent-Type: application/jsonになり、bodyもシリアライズされる
-        .header("Idempotency-Key", idempotency);
+        .json(&request_body)
+        .header("Idempotency-Key", &idempotency_key)
+        .bearer_auth(token.clone());
 
-    if !token.is_empty() {
-        req = req.bearer_auth(token);
-    }
-
-    let resp = req.send().await.map_err(|e| {
-        tracing::error!("Request failed: {}", e);
-        let _ = app.notification().builder().title("Sync Failed").body("Network error").show();
+    let prepare_resp = prepare_req.send().await.map_err(|e| {
+        tracing::error!("Snapshot preparation failed: {}", e);
+        let _ = app.notification().builder().title("Sync Failed").body("Network error during preparation").show();
         e.to_string()
     })?;
 
-    let status = resp.status();
-    let text = resp.text().await.unwrap_or_default();
+    let prepare_status = prepare_resp.status();
+    let prepare_text = prepare_resp.text().await.unwrap_or_default();
 
-    if status.is_success() {
-        tracing::info!(status = status.as_u16(), "snapshot upload successful");
+    if !prepare_status.is_success() {
+        tracing::error!(status = prepare_status.as_u16(), body = %prepare_text, "Snapshot preparation failed");
+        let _ = app.notification().builder().title("Sync Failed").body(&format!("Server error during preparation: {}", prepare_status)).show();
+        return Err(format!("Status: {}, Body: {}", prepare_status, prepare_text));
+    }
+
+    let prepare_json: PrepareResponse = match serde_json::from_str(&prepare_text) {
+        Ok(json) => json,
+        Err(e) => {
+            tracing::error!("Failed to parse preparation response: {}", e);
+            return Err("Invalid response from server".to_string());
+        }
+    };
+
+    // Stage 2: Upload
+    let upload_url = prepare_json.upload_url;
+    tracing::info!(endpoint = %upload_url, "Uploading snapshot data");
+    
+    let upload_req = client
+        .post(&upload_url)
+        .json(&request_body)
+        .bearer_auth(token);
+
+    let upload_resp = upload_req.send().await.map_err(|e| {
+        tracing::error!("Snapshot upload failed: {}", e);
+        let _ = app.notification().builder().title("Sync Failed").body("Network error during upload").show();
+        e.to_string()
+    })?;
+
+    let upload_status = upload_resp.status();
+    let upload_text = upload_resp.text().await.unwrap_or_default();
+
+    if upload_status.is_success() {
+        tracing::info!(status = upload_status.as_u16(), "Snapshot upload successful");
         let _ = app
             .notification()
             .builder()
@@ -85,19 +117,17 @@ pub async fn perform_snapshot_sync_app(app: &AppHandle) -> Result<serde_json::Va
             .body("Snapshot sync completed")
             .show();
         
-        // 成功レスポンスのパース
-        let json_resp: serde_json::Value = serde_json::from_str(&text).unwrap_or(json!({}));
+        let json_resp: serde_json::Value = serde_json::from_str(&upload_text).unwrap_or(json!({}));
         Ok(json_resp)
     } else {
-        tracing::error!(status = status.as_u16(), body = %text, "snapshot upload failed");
+        tracing::error!(status = upload_status.as_u16(), body = %upload_text, "Snapshot upload failed");
         let _ = app
             .notification()
             .builder()
             .title("Snapshot sync failed")
-            .body(&format!("Server error: {}", status.as_u16()))
+            .body(&format!("Server error during upload: {}", upload_status))
             .show();
         
-        // 失敗詳細を返す
-        Err(format!("Status: {}, Body: {}", status, text))
+        Err(format!("Status: {}, Body: {}", upload_status, upload_text))
     }
 }
