@@ -437,15 +437,25 @@ fn setup_tray(
                     }
                     "sync-snapshot" => {
                         tracing::info!("Tray menu action: sync-snapshot selected");
-                        
                         let app_handle = tray.app_handle();
-                        let app_handle_clone = app_handle.clone();
-                        tauri::async_runtime::spawn(async move {
-                            match crate::cloud_storage::snapshot::perform_snapshot_sync_app(&app_handle_clone).await {
-                                Ok(_) => tracing::info!("Snapshot sync completed (tray-trigger)"),
-                                Err(e) => tracing::error!("Snapshot sync failed (tray-trigger): {}", e),
-                            }
-                        });
+
+                        if proxy_https::asset_sync::get_supabase_access_token().is_none() {
+                            tracing::warn!("Snapshot sync requires authentication, but no token is available.");
+                            let _ = app_handle
+                                .notification()
+                                .builder()
+                                .title("Authentication Required")
+                                .body("Please sign in to sync your snapshot.")
+                                .show();
+                        } else {
+                            let app_handle_clone = app_handle.clone();
+                            tauri::async_runtime::spawn(async move {
+                                match crate::cloud_storage::snapshot::perform_snapshot_sync_app(&app_handle_clone).await {
+                                    Ok(_) => tracing::info!("Snapshot sync completed (tray-trigger)"),
+                                    Err(e) => tracing::error!("Snapshot sync failed (tray-trigger): {}", e),
+                                }
+                            });
+                        }
                     }
                     "intergrate_file" => {
                         integrate::integrate_port_table();

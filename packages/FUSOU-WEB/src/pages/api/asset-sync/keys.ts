@@ -51,12 +51,12 @@ export const GET: APIRoute = async ({ locals, request }) => {
   if (!bucket) {
     return errorResponse(
       "Asset sync bucket is not configured. Bind ASSET_SYNC_BUCKET in Cloudflare.",
-      503,
+      503
     );
   }
 
   const now = Date.now();
-  const cached = getAssetKeyCache();
+  const cached = await getAssetKeyCache(bucket as any);
   const ifNoneMatch = request.headers.get("if-none-match");
   if (cached && cached.expiresAt > now) {
     if (ifNoneMatch && cached.etag === ifNoneMatch) {
@@ -70,7 +70,7 @@ export const GET: APIRoute = async ({ locals, request }) => {
   const expiresAt = now + CACHE_TTL_MS;
   const etag = buildEtag(refreshedAt);
   const cache: AssetKeyCache = { keys, refreshedAt, expiresAt, etag };
-  setAssetKeyCache(cache);
+  await setAssetKeyCache(bucket as any, cache);
 
   return jsonResponse(buildPayload(cache, false), etag);
 };
@@ -83,7 +83,9 @@ async function fetchAllKeys(bucket: R2BucketBinding): Promise<string[]> {
     const response = await bucket.list({ cursor, limit: 1000 });
     if (response.objects?.length) {
       for (const obj of response.objects) {
-        keys.push(obj.key);
+        if (!obj.key.startsWith("_system/")) {
+          keys.push(obj.key);
+        }
       }
     }
     cursor = response.truncated ? response.cursor : undefined;
@@ -109,7 +111,11 @@ function extractEnv(value: unknown): CloudflareEnv | undefined {
   return value as CloudflareEnv;
 }
 
-function jsonResponse(payload: KeyPayload, etag: string, status = 200): Response {
+function jsonResponse(
+  payload: KeyPayload,
+  etag: string,
+  status = 200
+): Response {
   return new Response(JSON.stringify(payload), {
     status,
     headers: {

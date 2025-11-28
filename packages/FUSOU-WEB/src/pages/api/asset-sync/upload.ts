@@ -4,11 +4,8 @@ import {
   violatesAllowList,
   extractExtension,
 } from "./blocked-extensions";
-import { invalidateAssetKeyCache } from "./cache-store";
-import {
-  createSignedToken,
-  verifySignedToken,
-} from "../_utils/signature";
+import { addKeyToAssetKeyCache } from "./cache-store";
+import { createSignedToken, verifySignedToken } from "../_utils/signature";
 
 const MAX_UPLOAD_BYTES = 200 * 1024 * 1024; // 200 MiB hard ceiling until we add chunked uploads
 const CACHE_CONTROL = "public, max-age=31536000, immutable";
@@ -30,7 +27,7 @@ type BucketBinding = {
       | string
       | Blob
       | null,
-    options?: BucketPutOptions,
+    options?: BucketPutOptions
   ): Promise<R2ObjectLike | null>;
 };
 
@@ -87,7 +84,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
   if (!bucket) {
     return errorResponse(
       "Asset sync bucket is not configured. Bind ASSET_SYNC_BUCKET in Cloudflare.",
-      503,
+      503
     );
   }
   if (!signingSecret) {
@@ -96,7 +93,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
 
   const allowedExtensions = resolveAllowedExtensions(
     env?.ASSET_SYNC_ALLOWED_EXTENSIONS,
-    import.meta.env.ASSET_SYNC_ALLOWED_EXTENSIONS,
+    import.meta.env.ASSET_SYNC_ALLOWED_EXTENSIONS
   );
 
   const url = new URL(request.url);
@@ -107,7 +104,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
       env,
       allowedExtensions,
       signingSecret,
-      url,
+      url
     );
   }
   return handleSignedUploadExecution(
@@ -116,7 +113,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
     env,
     allowedExtensions,
     signingSecret,
-    url,
+    url
   );
 };
 
@@ -126,7 +123,7 @@ async function handleSignedUploadRequest(
   env: CloudflareEnv | undefined,
   allowedExtensions: Set<string>,
   signingSecret: string,
-  url: URL,
+  url: URL
 ): Promise<Response> {
   const contentType = request.headers.get("content-type") ?? "";
   if (!contentType.toLowerCase().includes("application/json")) {
@@ -156,14 +153,17 @@ async function handleSignedUploadRequest(
   }
 
   const relativePath = sanitizeKey(
-    typeof body.relative_path === "string" ? body.relative_path : null,
+    typeof body.relative_path === "string" ? body.relative_path : null
   );
   if (!relativePath) {
     return errorResponse("Invalid relative_path", 400);
   }
 
-  const finderTag = typeof body.finder_tag === "string" ? body.finder_tag : undefined;
-  const declaredSize = parseSize(typeof body.file_size === "string" ? body.file_size : undefined);
+  const finderTag =
+    typeof body.finder_tag === "string" ? body.finder_tag : undefined;
+  const declaredSize = parseSize(
+    typeof body.file_size === "string" ? body.file_size : undefined
+  );
   if (!declaredSize || declaredSize <= 0) {
     return errorResponse("file_size must be greater than zero", 400);
   }
@@ -172,13 +172,11 @@ async function handleSignedUploadRequest(
   }
 
   const fileName = sanitizeFileName(
-    typeof body.file_name === "string" ? body.file_name : null,
+    typeof body.file_name === "string" ? body.file_name : null
   );
 
   const candidateNames = [fileName, key, relativePath];
-  if (
-    violatesAllowList(candidateNames, allowedExtensions) 
-  ) {
+  if (violatesAllowList(candidateNames, allowedExtensions)) {
     return errorResponse("This file type is not allowed for upload", 415);
   }
 
@@ -192,7 +190,8 @@ async function handleSignedUploadRequest(
     finder_tag: finderTag ?? null,
     declared_size: declaredSize,
     content_type:
-      typeof body.content_type === "string" && body.content_type.trim().length > 0
+      typeof body.content_type === "string" &&
+      body.content_type.trim().length > 0
         ? body.content_type
         : "application/octet-stream",
     user_id: supabaseUser.id,
@@ -203,7 +202,7 @@ async function handleSignedUploadRequest(
   const token = await createSignedToken(
     descriptor,
     signingSecret,
-    SIGNED_URL_TTL_SECONDS,
+    SIGNED_URL_TTL_SECONDS
   );
   const signedUrl = new URL(url.toString());
   signedUrl.searchParams.set("token", token.token);
@@ -229,13 +228,13 @@ async function handleSignedUploadExecution(
   env: CloudflareEnv | undefined,
   allowedExtensions: Set<string>,
   signingSecret: string,
-  url: URL,
+  url: URL
 ): Promise<Response> {
   const descriptor = await verifySignedToken<SignedAssetDescriptor>(
     url.searchParams.get("token"),
     url.searchParams.get("expires"),
     url.searchParams.get("signature"),
-    signingSecret,
+    signingSecret
   );
   if (!descriptor) {
     return errorResponse("Invalid or expired upload token", 403);
@@ -267,10 +266,12 @@ async function handleSignedUploadExecution(
     }
   }
 
-  const candidateNames = [descriptor.file_name, descriptor.key, descriptor.relative_path];
-  if (
-    violatesAllowList(candidateNames, allowedExtensions)
-  ) {
+  const candidateNames = [
+    descriptor.file_name,
+    descriptor.key,
+    descriptor.relative_path,
+  ];
+  if (violatesAllowList(candidateNames, allowedExtensions)) {
     return errorResponse("This file type is not allowed for upload", 415);
   }
 
@@ -296,24 +297,20 @@ async function handleSignedUploadExecution(
 
   let storedSize = 0;
   try {
-    const result = await bucket.put(
-      descriptor.key,
-      bodyBuffer,
-      {
-        httpMetadata: {
-          contentType: deriveContentType(descriptor),
-          cacheControl: CACHE_CONTROL,
-        },
-        customMetadata: {
-          relative_path: descriptor.relative_path,
-          finder_tag: descriptor.finder_tag ?? undefined,
-          uploaded_by: descriptor.user_id,
-          declared_size: descriptor.declared_size.toString(),
-          file_name: descriptor.file_name ?? undefined,
-          uploader_email: descriptor.uploader_email ?? undefined,
-        },
+    const result = await bucket.put(descriptor.key, bodyBuffer, {
+      httpMetadata: {
+        contentType: deriveContentType(descriptor),
+        cacheControl: CACHE_CONTROL,
       },
-    );
+      customMetadata: {
+        relative_path: descriptor.relative_path,
+        finder_tag: descriptor.finder_tag ?? undefined,
+        uploaded_by: descriptor.user_id,
+        declared_size: descriptor.declared_size.toString(),
+        file_name: descriptor.file_name ?? undefined,
+        uploader_email: descriptor.uploader_email ?? undefined,
+      },
+    });
     storedSize = result?.size ?? bodyBuffer.byteLength;
   } catch (error) {
     console.error("Failed to store asset payload", error);
@@ -325,11 +322,11 @@ async function handleSignedUploadExecution(
     Math.abs(descriptor.declared_size - storedSize) > 1024
   ) {
     console.warn(
-      `Asset sync size mismatch for ${descriptor.key}: declared ${descriptor.declared_size} but received ${storedSize}`,
+      `Asset sync size mismatch for ${descriptor.key}: declared ${descriptor.declared_size} but received ${storedSize}`
     );
   }
 
-  invalidateAssetKeyCache();
+  await addKeyToAssetKeyCache(bucket as any, descriptor.key);
 
   return jsonResponse({ key: descriptor.key, size: storedSize });
 }
@@ -370,9 +367,12 @@ function parseSize(value: string | undefined): number | null {
 
 async function validateSupabase(
   token: string,
-  env: CloudflareEnv | undefined,
+  env: CloudflareEnv | undefined
 ): Promise<SupabaseUser | null> {
-  const supabaseUrl = (import.meta.env.PUBLIC_SUPABASE_URL || "").replace(/\/$/, "");
+  const supabaseUrl = (import.meta.env.PUBLIC_SUPABASE_URL || "").replace(
+    /\/$/,
+    ""
+  );
   if (!supabaseUrl) {
     console.error("PUBLIC_SUPABASE_URL is not configured");
     return null;
@@ -482,5 +482,3 @@ function isSafeContentType(value?: string): value is string {
     normalized === "application/gzip"
   );
 }
-
-
