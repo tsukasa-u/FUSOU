@@ -37,47 +37,52 @@ FUSOU v0.4 では、艦これの非 kcsapi アセットを Cloudflare R2 に保�
 
 この 2 フェーズ構成により、デスクトップアプリは Cloudflare シークレットを保持せずにアップロードでき、リクエスト改ざん (key の書き換え、他ユーザー ID への上書きなど) を HMAC で防止できます。
 
-### 既存キーキャッシュ / `/api/asset-sync/keys`
+### 既存キー一覧 / `/api/asset-sync/keys`
 
-- `src/pages/api/asset-sync/keys.ts` は R2 バケット内のオブジェクトキーを全件列挙し、6 時間キャッシュした JSON を返します。
-- キャッシュは同ディレクトリの `cache-store.ts` でインメモリ保持しており、レスポンスにも `cache-control: public, max-age=21600` と `ETag` を付与してブラウザ/CDN 側で再利用できます。クライアントは `If-None-Match` を付与することで変更がない場合は 304 を受け取り、レスポンスボディを省略できます。
-- `/api/asset-sync/upload` が新規オブジェクトを保存すると `invalidateAssetKeyCache()` を呼び出し、次回の GET リクエストで必ず再スキャンが走るようになっています (アップロード完了イベントのみで失効)。
-- レスポンスフォーマットは次の通りです。
+現在の実装では R2 の直接列挙や R2 上のキャッシュを用いず、Cloudflare D1 上のメタデータテーブル (`files`) を一次ソースとして一覧を返します。D1 に移行したため、一覧取得は高速で一貫性のある SQL クエリによって行われます。
 
-| フィールド | 説明 |
-| --- | --- |
-| `keys` | 取得した R2 オブジェクトキー配列 |
-| `total` | キー数 (keys.length) |
-| `refreshedAt` | Cloudflare Pages 上で一覧を取得した時刻 (ISO8601) |
-| `cacheExpiresAt` | キャッシュ有効期限 (ISO8601)。クライアントはこれを TTL として利用します |
-| `cached` | 今回のレスポンスがキャッシュヒットかどうか |
+- エンドポイント: `src/pages/api/asset-sync/keys.ts`
+- 動作: `ASSET_INDEX_DB` (D1) に対して `SELECT key FROM files ORDER BY uploaded_at DESC LIMIT ? OFFSET ?` を実行してキー一覧を返します。
+- ページネーション: `limit` と `offset` クエリパラメータで制御します（最大 `limit=1000`）。
+- キャッシュ: エンドポイントはレスポンスに `cache-control` と `ETag` を付与しますが、サーバー側の R2 キャッシュやマーカーは使用していません。
+- 動作依存: `ASSET_INDEX_DB` がバインドされていない環境では 503 を返す設計です（D1 必須）。
 
-クライアントは `cacheExpiresAt` までローカルにキャッシュし、期限切れでなおかつ「今からアップロード/スキャンが必要」というタイミングに限って再フェッチします。これにより Cloudflare Pages / R2 へのアクセス回数を大幅に削減できます。さらに、FUSOU-PROXY はキャッシュが切れた直後に最大 5 秒間のジッターを入れてから `/keys` を呼び出すため、複数クライアントが同時にキャッシュ無効化を検知しても一斉アクセスを避けられます。
+レスポンスペイロードは簡易な形式で、以下のフィールドを含みます。
+
+| フィールド       | 説明                                                       |
+| ---------------- | ---------------------------------------------------------- |
+| `keys`           | 取得したオブジェクトキー配列                               |
+| `total`          | 返されたキー数                                             |
+| `refreshedAt`    | サーバー側で一覧を取得した時刻 (ISO8601)                   |
+| `cacheExpiresAt` | 推奨クライアントキャッシュ失効時刻 (ISO8601)               |
+| `cached`         | 今回のレスポンスがサーバー側の短期キャッシュヒットかどうか |
+
+クライアントは `cacheExpiresAt` を TTL として短期間キャッシュできます。バックエンドは D1 を一次ソースとするため、従来の R2 マーカー／キャッシュより運用負荷が低く、より確実な一覧取得が可能です。
 
 ### リクエスト仕様
 
 #### フェーズ 1: サイン済みアップロード要求 (JSON)
 
-| フィールド | 説明 |
-| --- | --- |
-| `Authorization` ヘッダー | `Bearer <Supabase access token>` を必須化。 |
-| `key` | R2 に保存するオブジェクトキー。`asset_key_prefix` を付けた値を送信。 |
-| `relative_path` | ローカル保存時の相対パス。R2 メタデータとして保存。 |
-| `file_size` | クライアント推定のファイルサイズ。200MiB を超える値は拒否。 |
-| `finder_tag` | (任意) 収集元タグ。レスポンス `fields.finder_tag` に反映。 |
-| `content_type` | (任意) MIME タイプ。省略時は `application/octet-stream`。 |
+| フィールド               | 説明                                                                 |
+| ------------------------ | -------------------------------------------------------------------- |
+| `Authorization` ヘッダー | `Bearer <Supabase access token>` を必須化。                          |
+| `key`                    | R2 に保存するオブジェクトキー。`asset_key_prefix` を付けた値を送信。 |
+| `relative_path`          | ローカル保存時の相対パス。R2 メタデータとして保存。                  |
+| `file_size`              | クライアント推定のファイルサイズ。200MiB を超える値は拒否。          |
+| `finder_tag`             | (任意) 収集元タグ。レスポンス `fields.finder_tag` に反映。           |
+| `content_type`           | (任意) MIME タイプ。省略時は `application/octet-stream`。            |
 
 レスポンスは `{ uploadUrl, expiresAt, fields }`。`uploadUrl` に `token`, `expires`, `signature` が含まれ、2 分で失効します。
 
 #### フェーズ 2: 実データアップロード (バイトストリーム)
 
-| フィールド | 説明 |
-| --- | --- |
-| `Authorization` ヘッダー | サイン済み要求と同じ Supabase アクセストークンを再送。 |
-| クエリ `token/expires/signature` | フェーズ 1 のレスポンスをそのまま利用。改ざん・失効時は 403。 |
-| `Content-Type` | `application/octet-stream` など単一ファイルの MIME タイプ。`multipart/form-data` は拒否されます。 |
-| `Content-Length` | 可能な限り送信してください (200MiB 超の値は 413)。 |
-| リクエストボディ | ファイル本体をそのままストリーミング。追加フィールドは不要。 |
+| フィールド                       | 説明                                                                                              |
+| -------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `Authorization` ヘッダー         | サイン済み要求と同じ Supabase アクセストークンを再送。                                            |
+| クエリ `token/expires/signature` | フェーズ 1 のレスポンスをそのまま利用。改ざん・失効時は 403。                                     |
+| `Content-Type`                   | `application/octet-stream` など単一ファイルの MIME タイプ。`multipart/form-data` は拒否されます。 |
+| `Content-Length`                 | 可能な限り送信してください (200MiB 超の値は 413)。                                                |
+| リクエストボディ                 | ファイル本体をそのままストリーミング。追加フィールドは不要。                                      |
 
 レスポンスは `{ key, size }`。既存キーには 409、Supabase トークン不一致には 403、拡張子制約違反は 415、サイズ超過は 413 を返します。
 
@@ -124,10 +129,10 @@ asset_key_prefix = "assets"
 
 ## トラブルシューティング
 
-| 症状 | 確認ポイント |
-| --- | --- |
-| 401 Unauthorized | Supabase アクセストークンが期限切れ。FUSOU-APP が Supabase セッションを更新しているかを確認 |
+| 症状                        | 確認ポイント                                                                                 |
+| --------------------------- | -------------------------------------------------------------------------------------------- |
+| 401 Unauthorized            | Supabase アクセストークンが期限切れ。FUSOU-APP が Supabase セッションを更新しているかを確認  |
 | 503 Storage binding missing | Cloudflare Pages 側で `ASSET_SYNC_BUCKET` が未バインド。ダッシュボードでバケットを関連付ける |
-| 413 Payload Too Large | `file_size` が 200MiB を超えている。今後分割アップロードを実装予定 |
+| 413 Payload Too Large       | `file_size` が 200MiB を超えている。今後分割アップロードを実装予定                           |
 
 この構成により、ユーザー環境に Cloudflare API キーを配置することなく、安全にアセット同期を行えます。

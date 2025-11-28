@@ -4,8 +4,8 @@ import {
   violatesAllowList,
   extractExtension,
 } from "./blocked-extensions";
-import { addKeyToAssetKeyCache } from "./cache-store";
 import { createSignedToken, verifySignedToken } from "../_utils/signature";
+import { SAFE_MIME_BY_EXTENSION, isSafeContentType } from "./mime";
 
 const MAX_UPLOAD_BYTES = 200 * 1024 * 1024; // 200 MiB hard ceiling until we add chunked uploads
 const CACHE_CONTROL = "public, max-age=31536000, immutable";
@@ -46,6 +46,7 @@ type BucketPutOptions = {
 
 interface CloudflareEnv {
   ASSET_SYNC_BUCKET?: BucketBinding;
+  ASSET_INDEX_DB?: any;
   SUPABASE_SERVICE_ROLE_KEY?: string;
   PUBLIC_SUPABASE_ANON_KEY?: string;
   ASSET_SYNC_SKIP_EXTENSIONS?: string;
@@ -84,6 +85,13 @@ export const POST: APIRoute = async ({ request, locals }) => {
   if (!bucket) {
     return errorResponse(
       "Asset sync bucket is not configured. Bind ASSET_SYNC_BUCKET in Cloudflare.",
+      503
+    );
+  }
+  const db = env?.ASSET_INDEX_DB;
+  if (!db) {
+    return errorResponse(
+      "ASSET_INDEX_DB is required for D1-only mode. Bind ASSET_INDEX_DB.",
       503
     );
   }
@@ -230,6 +238,13 @@ async function handleSignedUploadExecution(
   signingSecret: string,
   url: URL
 ): Promise<Response> {
+  const db = env?.ASSET_INDEX_DB;
+  if (!db) {
+    return errorResponse(
+      "ASSET_INDEX_DB is required for D1-only mode. Bind ASSET_INDEX_DB.",
+      503
+    );
+  }
   const descriptor = await verifySignedToken<SignedAssetDescriptor>(
     url.searchParams.get("token"),
     url.searchParams.get("expires"),
@@ -326,7 +341,40 @@ async function handleSignedUploadExecution(
     );
   }
 
-  await addKeyToAssetKeyCache(bucket as any, descriptor.key);
+  // Insert metadata into D1 (required in D1-only mode). If insert fails, roll back the R2 object.
+  try {
+    const uploadedAt = Date.now();
+    const size = storedSize;
+    const stmt = db.prepare(
+      `INSERT OR REPLACE INTO files (key, size, uploaded_at, content_type, uploader_id, finder_tag, metadata) VALUES (?, ?, ?, ?, ?, ?, ?);`
+    );
+    await stmt
+      .bind(
+        descriptor.key,
+        size,
+        uploadedAt,
+        deriveContentType(descriptor),
+        descriptor.user_id,
+        descriptor.finder_tag ?? null,
+        JSON.stringify({
+          file_name: descriptor.file_name ?? null,
+          declared_size: descriptor.declared_size,
+        })
+      )
+      .run();
+  } catch (e) {
+    console.error("D1 insert failed for", descriptor.key, e);
+    // Attempt to delete the uploaded R2 object to avoid orphaned blobs
+    try {
+      await (bucket as any).delete(descriptor.key);
+    } catch (delErr) {
+      console.error(
+        "Failed to delete R2 object after D1 insert failure",
+        delErr
+      );
+    }
+    return errorResponse("Failed to write asset metadata to D1", 500);
+  }
 
   return jsonResponse({ key: descriptor.key, size: storedSize });
 }
@@ -425,37 +473,6 @@ function sanitizeFileName(input: string | null): string | null {
   return candidate.replace(/[\0-\x1F]/g, "");
 }
 
-const SAFE_MIME_BY_EXTENSION: Record<string, string> = {
-  png: "image/png",
-  jpg: "image/jpeg",
-  jpeg: "image/jpeg",
-  gif: "image/gif",
-  webp: "image/webp",
-  bmp: "image/bmp",
-  ico: "image/x-icon",
-  json: "application/json",
-  txt: "text/plain; charset=utf-8",
-  csv: "text/csv; charset=utf-8",
-  zip: "application/zip",
-  tar: "application/x-tar",
-  gz: "application/gzip",
-  bz2: "application/x-bzip2",
-  xz: "application/x-xz",
-  bin: "application/octet-stream",
-  mp4: "video/mp4",
-  webm: "video/webm",
-  m4v: "video/x-m4v",
-  m4a: "audio/mp4",
-  aac: "audio/aac",
-  wav: "audio/wav",
-  flac: "audio/flac",
-  ogg: "audio/ogg",
-  ogv: "video/ogg",
-  oga: "audio/ogg",
-  pak: "application/octet-stream",
-  dat: "application/octet-stream",
-};
-
 function deriveContentType(descriptor: SignedAssetDescriptor): string {
   const ext =
     extractExtension(descriptor.file_name ?? undefined) ??
@@ -467,18 +484,4 @@ function deriveContentType(descriptor: SignedAssetDescriptor): string {
     return descriptor.content_type;
   }
   return "application/octet-stream";
-}
-
-function isSafeContentType(value?: string): value is string {
-  if (!value) return false;
-  const normalized = value.trim().toLowerCase();
-  return (
-    normalized.startsWith("image/") ||
-    normalized === "application/json" ||
-    normalized === "text/plain" ||
-    normalized === "text/plain; charset=utf-8" ||
-    normalized === "application/octet-stream" ||
-    normalized === "application/zip" ||
-    normalized === "application/gzip"
-  );
 }

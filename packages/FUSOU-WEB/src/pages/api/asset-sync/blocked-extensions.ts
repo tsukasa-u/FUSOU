@@ -7,7 +7,7 @@ const DEFAULT_ALLOWED_EXTENSIONS = [
   "webp",
   "bmp",
   "json",
-  ".mp3"
+  "mp3",
 ];
 
 type ExtensionSource = string | undefined;
@@ -26,7 +26,7 @@ export function resolveAllowedExtensions(
 
 export function violatesAllowList(
   candidates: Array<string | null | undefined>,
-  allowList: Set<string>,
+  allowList: Set<string>
 ): boolean {
   if (allowList.size === 0) {
     return true;
