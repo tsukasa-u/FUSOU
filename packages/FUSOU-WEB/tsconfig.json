@@ -5,6 +5,8 @@
   "exclude": ["dist"],
   "compilerOptions": {
     "lib": ["ES2022", "DOM"],
+    "module": "es2020",
+    "moduleResolution": "bundler",
     "strictNullChecks": true,
     "paths": {
       "@/*": ["./src/*"]

@@ -6,6 +6,7 @@ import {
 } from "./blocked-extensions";
 import { createSignedToken, verifySignedToken } from "../_utils/signature";
 import { SAFE_MIME_BY_EXTENSION, isSafeContentType } from "./mime";
+import type { D1Database } from "./types";
 
 const MAX_UPLOAD_BYTES = 200 * 1024 * 1024; // 200 MiB hard ceiling until we add chunked uploads
 const CACHE_CONTROL = "public, max-age=31536000, immutable";
@@ -29,6 +30,7 @@ type BucketBinding = {
       | null,
     options?: BucketPutOptions
   ): Promise<R2ObjectLike | null>;
+  delete?(key: string): Promise<void>;
 };
 
 type R2ObjectLike = {
@@ -46,7 +48,7 @@ type BucketPutOptions = {
 
 interface CloudflareEnv {
   ASSET_SYNC_BUCKET?: BucketBinding;
-  ASSET_INDEX_DB?: any;
+  ASSET_INDEX_DB?: D1Database;
   SUPABASE_SERVICE_ROLE_KEY?: string;
   PUBLIC_SUPABASE_ANON_KEY?: string;
   ASSET_SYNC_SKIP_EXTENSIONS?: string;
@@ -148,29 +150,31 @@ async function handleSignedUploadRequest(
     return errorResponse("Invalid Supabase session", 401);
   }
 
-  let body: any;
+  let body: unknown;
   try {
     body = await request.json();
   } catch {
     return errorResponse("Invalid JSON body", 400);
   }
 
-  const key = sanitizeKey(typeof body.key === "string" ? body.key : null);
+  const bodyObj = body as Record<string, unknown>;
+
+  const key = sanitizeKey(typeof bodyObj.key === "string" ? bodyObj.key : null);
   if (!key) {
     return errorResponse("Invalid or empty key", 400);
   }
 
   const relativePath = sanitizeKey(
-    typeof body.relative_path === "string" ? body.relative_path : null
+    typeof bodyObj.relative_path === "string" ? bodyObj.relative_path : null
   );
   if (!relativePath) {
     return errorResponse("Invalid relative_path", 400);
   }
 
   const finderTag =
-    typeof body.finder_tag === "string" ? body.finder_tag : undefined;
+    typeof bodyObj.finder_tag === "string" ? bodyObj.finder_tag : undefined;
   const declaredSize = parseSize(
-    typeof body.file_size === "string" ? body.file_size : undefined
+    typeof bodyObj.file_size === "string" ? bodyObj.file_size : undefined
   );
   if (!declaredSize || declaredSize <= 0) {
     return errorResponse("file_size must be greater than zero", 400);
@@ -180,7 +184,7 @@ async function handleSignedUploadRequest(
   }
 
   const fileName = sanitizeFileName(
-    typeof body.file_name === "string" ? body.file_name : null
+    typeof bodyObj.file_name === "string" ? bodyObj.file_name : null
   );
 
   const candidateNames = [fileName, key, relativePath];
@@ -198,9 +202,9 @@ async function handleSignedUploadRequest(
     finder_tag: finderTag ?? null,
     declared_size: declaredSize,
     content_type:
-      typeof body.content_type === "string" &&
-      body.content_type.trim().length > 0
-        ? body.content_type
+      typeof bodyObj.content_type === "string" &&
+      bodyObj.content_type.trim().length > 0
+        ? (bodyObj.content_type as string)
         : "application/octet-stream",
     user_id: supabaseUser.id,
     uploader_email: supabaseUser.email ?? null,
@@ -366,7 +370,14 @@ async function handleSignedUploadExecution(
     console.error("D1 insert failed for", descriptor.key, e);
     // Attempt to delete the uploaded R2 object to avoid orphaned blobs
     try {
-      await (bucket as any).delete(descriptor.key);
+      if (typeof bucket.delete === "function") {
+        await bucket.delete(descriptor.key);
+      } else {
+        console.warn(
+          "Bucket delete not available to roll back",
+          descriptor.key
+        );
+      }
     } catch (delErr) {
       console.error(
         "Failed to delete R2 object after D1 insert failure",

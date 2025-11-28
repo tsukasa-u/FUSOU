@@ -1,4 +1,5 @@
 import type { APIRoute } from "astro";
+import type { AssetKeyCache, D1Database, D1AllResult } from "./types";
 const CACHE_TTL_SECONDS = 6 * 60 * 60; // 6 hours
 const CORS_HEADERS: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
@@ -8,7 +9,7 @@ const CORS_HEADERS: Record<string, string> = {
 
 interface CloudflareEnv {
   ASSET_SYNC_BUCKET?: R2BucketBinding;
-  ASSET_INDEX_DB?: any;
+  ASSET_INDEX_DB?: D1Database;
 }
 
 type R2BucketBinding = {
@@ -60,8 +61,10 @@ export const GET: APIRoute = async ({ locals, request }) => {
     const stmt = db.prepare(
       "SELECT key FROM files ORDER BY uploaded_at DESC LIMIT ? OFFSET ?"
     );
-    const res = await stmt.bind(limit, offset).all();
-    const keys = (res.results || []).map((r: any) => r.key).filter(Boolean);
+    const res: D1AllResult | undefined = await stmt.bind(limit, offset).all?.();
+    const keys = (res?.results || [])
+      .map((r) => (typeof r.key === "string" ? r.key : undefined))
+      .filter(Boolean) as string[];
 
     const refreshedAt = now;
     const expiresAt = now + CACHE_TTL_SECONDS * 1000;
@@ -74,7 +77,7 @@ export const GET: APIRoute = async ({ locals, request }) => {
   }
 };
 
-function buildPayload(cache: any, cached: boolean): KeyPayload {
+function buildPayload(cache: AssetKeyCache, cached: boolean): KeyPayload {
   return {
     keys: cache.keys,
     total: cache.keys.length,
