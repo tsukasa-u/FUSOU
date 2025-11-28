@@ -261,27 +261,12 @@ async fn run_worker(
         tracing::warn!(error = %err, "failed to refresh existing asset keys cache");
     }
 
-    let mut interval = time::interval(settings.scan_interval);
     loop {
-        tokio::select! {
-            _ = interval.tick() => {
-                if check_auth_ready(&settings) {
-                    if let Err(err) = maybe_refresh_period(&client, &settings).await {
-                        tracing::warn!(error = %err, "failed to refresh asset sync period");
-                    }
-                    if let Err(err) = run_full_scan(&client, &settings).await {
-                        tracing::warn!(error = %err, "asset sync scan failed");
-                    }
-                }
-            }
-            Some(path) = rx.recv() => {
-                if check_auth_ready(&settings) {
-                    if let Err(err) = maybe_refresh_period(&client, &settings).await {
-                        tracing::warn!(error = %err, "failed to refresh asset sync period");
-                    }
-                    if let Err(err) = process_path(&client, &settings, &path).await {
-                        tracing::warn!(error = %err, file = %path.display(), "asset upload failed");
-                    }
+        if let Some(path) = rx.recv().await {
+            if check_auth_ready(&settings) {
+                tracing::info!(file = %path.display(), "received new asset notification, processing...");
+                if let Err(err) = process_path(&client, &settings, &path).await {
+                    tracing::warn!(error = %err, file = %path.display(), "asset upload failed");
                 }
             }
         }
@@ -315,6 +300,7 @@ fn check_auth_ready(settings: &AssetSyncInit) -> bool {
 }
 
 async fn run_full_scan(client: &Client, settings: &AssetSyncInit) -> Result<(), String> {
+    tracing::info!("starting full asset scan");
     for entry in WalkDir::new(&settings.save_root)
         .into_iter()
         .filter_map(|e| e.ok())
@@ -334,19 +320,21 @@ async fn process_path(
     settings: &AssetSyncInit,
     path: &Path,
 ) -> Result<(), String> {
+    tracing::info!(file = %path.display(), "processing path");
     let relative = match path.strip_prefix(&settings.save_root) {
         Ok(rel) => rel,
         Err(_) => return Err("file is outside of configured save root".into()),
     };
 
     if is_kcsapi(relative) {
+        tracing::info!(file = %relative.display(), "skipping kcsapi file");
         return Ok(());
     }
 
     if has_blocked_extension(relative, &settings.blocked_extensions) {
-        tracing::debug!(
+        tracing::info!(
             file = %relative.display(),
-            "asset sync skipped disallowed file extension"
+            "skipping because of blocked extension"
         );
         return Ok(());
     }
@@ -356,7 +344,10 @@ async fn process_path(
         None => return Err("unable to derive remote key".into()),
     };
 
+    tracing::info!(check_key = key, "checking if remote key exists");
+
     if PROCESSED_KEYS.contains(&key) {
+        tracing::info!(key, "skipping because already processed in this session");
         return Ok(());
     }
 
@@ -364,12 +355,13 @@ async fn process_path(
 
     if remote_key_exists(&key) {
         PROCESSED_KEYS.insert(key.clone());
-        tracing::debug!(key, "asset already exists upstream; skipping upload");
+        tracing::info!(key, "skipping because remote key already exists");
         return Ok(());
     }
 
     let metadata = fs::metadata(path).await.map_err(|err| err.to_string())?;
     if metadata.len() == 0 {
+        tracing::info!(file = %path.display(), "skipping zero-length file");
         return Err("skip zero-length file".into());
     }
 
@@ -443,6 +435,8 @@ async fn upload_via_api(
     key: &str,
     file_size: u64,
 ) -> Result<(), String> {
+    tracing::info!(key, file = %path.display(), size = file_size, "starting upload process");
+
     let bytes = fs::read(path)
         .await
         .map_err(|err| format!("failed to read file for upload: {err}"))?;
@@ -498,6 +492,8 @@ async fn upload_via_api(
         .await
         .map_err(|err| format!("failed to decode handshake response: {err}"))?;
 
+    tracing::info!(key, "upload handshake successful");
+
     // Step 2: Execution
     let mut upload_request = client
         .post(&handshake_res.upload_url)
@@ -530,7 +526,7 @@ async fn upload_via_api(
         ));
     }
 
-    tracing::info!(key, endpoint = %settings.api_endpoint, "uploaded asset via API");
+    tracing::info!(key, endpoint = %settings.api_endpoint, "asset upload successful");
     register_remote_key(key);
     Ok(())
 }
@@ -640,12 +636,18 @@ async fn maybe_refresh_existing_keys(
 ) -> Result<(), String> {
     let endpoint = match settings.existing_keys_endpoint.as_deref() {
         Some(value) => value,
-        None => return Ok(()),
+        None => {
+            tracing::warn!("existing_keys_endpoint is not configured; remote key cache is disabled");
+            return Ok(());
+        }
     };
 
     if remote_cache_is_fresh() {
+        tracing::info!("remote key cache is still fresh; skipping refresh");
         return Ok(());
     }
+
+    tracing::info!("remote key cache is stale or missing; refreshing from API: {}", endpoint);
 
     wait_for_remote_cache_jitter().await;
 
@@ -708,6 +710,13 @@ fn cache_remote_keys(payload: ExistingKeysResponse) {
     let expires_at = Instant::now() + ttl;
     let keys: HashSet<String> = payload.keys.into_iter().collect();
     let count = keys.len();
+
+    tracing::info!(
+        count = count,
+        expires_in_secs = ttl.as_secs(),
+        "caching remote keys. sample: {:?}",
+        keys.iter().take(5).collect::<Vec<_>>()
+    );
 
     {
         let mut guard = EXISTING_KEYS_CACHE

@@ -54,14 +54,10 @@ export const GET: APIRoute = async ({ locals, request }) => {
 
   try {
     const url = new URL(request.url);
-    const limit = Math.min(1000, Number(url.searchParams.get("limit") || 1000));
-    const offset = Number(url.searchParams.get("offset") || 0);
-    const now = Date.now();
-
     const stmt = db.prepare(
-      "SELECT key FROM files ORDER BY uploaded_at DESC LIMIT ? OFFSET ?"
+      "SELECT key FROM files ORDER BY uploaded_at DESC"
     );
-    const res: D1AllResult | undefined = await stmt.bind(limit, offset).all?.();
+    const res: D1AllResult | undefined = await stmt.all?.();
     const keys = (res?.results || [])
       .map((r) => (typeof r.key === "string" ? r.key : undefined))
       .filter(Boolean) as string[];
