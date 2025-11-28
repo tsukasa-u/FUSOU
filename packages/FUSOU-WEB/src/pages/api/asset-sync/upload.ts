@@ -283,13 +283,22 @@ async function handleSignedUploadExecution(
     return errorResponse("Upload payload is missing", 400);
   }
 
-  const limiter = createLengthLimitedStream(bodyStream, MAX_UPLOAD_BYTES);
+  let bodyBuffer: ArrayBuffer;
+  try {
+    bodyBuffer = await request.arrayBuffer();
+  } catch {
+    return errorResponse("Failed to read upload body", 400);
+  }
+
+  if (bodyBuffer.byteLength > MAX_UPLOAD_BYTES) {
+    return errorResponse("Uploaded file exceeds allowed size", 413);
+  }
 
   let storedSize = 0;
   try {
     const result = await bucket.put(
       descriptor.key,
-      limiter.stream,
+      bodyBuffer,
       {
         httpMetadata: {
           contentType: deriveContentType(descriptor),
@@ -305,11 +314,8 @@ async function handleSignedUploadExecution(
         },
       },
     );
-    storedSize = result?.size ?? limiter.getBytes();
+    storedSize = result?.size ?? bodyBuffer.byteLength;
   } catch (error) {
-    if (error instanceof SizeLimitExceededError) {
-      return errorResponse("Uploaded file exceeds allowed size", 413);
-    }
     console.error("Failed to store asset payload", error);
     return errorResponse("Failed to store payload in R2", 502);
   }
@@ -477,44 +483,4 @@ function isSafeContentType(value?: string): value is string {
   );
 }
 
-class SizeLimitExceededError extends Error {
-  constructor(message = "Upload exceeded configured limit") {
-    super(message);
-    this.name = "SizeLimitExceededError";
-  }
-}
 
-function createLengthLimitedStream(
-  source: ReadableStream<Uint8Array>,
-  maxBytes: number,
-): { stream: ReadableStream<Uint8Array>; getBytes: () => number } {
-  let total = 0;
-  const transformer = new TransformStream<Uint8Array>({
-    transform(chunk, controller) {
-      const normalized = toUint8Array(chunk);
-      total += normalized.byteLength;
-      if (total > maxBytes) {
-        throw new SizeLimitExceededError();
-      }
-      controller.enqueue(normalized);
-    },
-  });
-
-  return {
-    stream: source.pipeThrough(transformer),
-    getBytes: () => total,
-  };
-}
-
-function toUint8Array(chunk: Uint8Array | ArrayBuffer | ArrayBufferView): Uint8Array {
-  if (chunk instanceof Uint8Array) {
-    return chunk;
-  }
-  if (chunk instanceof ArrayBuffer) {
-    return new Uint8Array(chunk);
-  }
-  if (ArrayBuffer.isView(chunk)) {
-    return new Uint8Array(chunk.buffer, chunk.byteOffset, chunk.byteLength);
-  }
-  return new Uint8Array();
-}

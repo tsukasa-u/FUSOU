@@ -11,8 +11,8 @@ use std::{
 use dashmap::DashSet;
 use once_cell::sync::Lazy;
 use rand::{thread_rng, Rng};
-use reqwest::{multipart, Client, StatusCode, Url};
-use serde::Deserialize;
+use reqwest::{Client, StatusCode, Url};
+use serde::{Deserialize, Serialize};
 use tokio::{
     fs,
     sync::mpsc::{self, UnboundedReceiver, UnboundedSender},
@@ -43,6 +43,23 @@ const REMOTE_KEYS_REFRESH_MAX_JITTER_MS: u64 = 5_000;
 
 struct PeriodCache {
     expires_at: Instant,
+}
+
+#[derive(Serialize)]
+struct UploadHandshakeRequest {
+    key: String,
+    relative_path: String,
+    file_size: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    finder_tag: Option<String>,
+    file_name: String,
+    content_type: String,
+}
+
+#[derive(Deserialize)]
+struct UploadHandshakeResponse {
+    #[serde(rename = "uploadUrl")]
+    upload_url: String,
 }
 
 #[derive(Deserialize)]
@@ -436,27 +453,19 @@ async fn upload_via_api(
         .or_else(|| path.file_name().map(|n| n.to_string_lossy().to_string()))
         .unwrap_or_else(|| "asset.bin".to_string());
 
-    let mut form = multipart::Form::new()
-        .text("key", key.to_string())
-        .text("relative_path", relative.to_string_lossy().to_string())
-        .text("file_size", file_size.to_string());
-
-    if let Some(tag) = &settings.finder_tag {
-        if !tag.is_empty() {
-            form = form.text("finder_tag", tag.clone());
-        }
-    }
-
-    let file_part = multipart::Part::bytes(bytes)
-        .file_name(filename)
-        .mime_str("application/octet-stream")
-        .map_err(|err| format!("failed to build multipart payload: {err}"))?;
-
-    form = form.part("file", file_part);
+    // Step 1: Handshake
+    let handshake_req = UploadHandshakeRequest {
+        key: key.to_string(),
+        relative_path: relative.to_string_lossy().to_string(),
+        file_size: file_size.to_string(),
+        finder_tag: settings.finder_tag.clone().filter(|t| !t.is_empty()),
+        file_name: filename.clone(),
+        content_type: "application/octet-stream".to_string(),
+    };
 
     let mut request = client
         .post(&settings.api_endpoint)
-        .multipart(form)
+        .json(&handshake_req)
         .header("Origin", &settings.api_origin);
 
     if settings.require_supabase_auth {
@@ -468,7 +477,7 @@ async fn upload_via_api(
     let response = request
         .send()
         .await
-        .map_err(|err| format!("asset sync request failed: {err}"))?;
+        .map_err(|err| format!("asset sync handshake failed: {err}"))?;
 
     let status = response.status();
     if status == StatusCode::CONFLICT {
@@ -478,8 +487,45 @@ async fn upload_via_api(
     if !status.is_success() {
         let body = response.text().await.unwrap_or_default();
         return Err(format!(
-            "asset sync API returned {}: {}",
+            "asset sync handshake returned {}: {}",
             status,
+            body.trim()
+        ));
+    }
+
+    let handshake_res: UploadHandshakeResponse = response
+        .json()
+        .await
+        .map_err(|err| format!("failed to decode handshake response: {err}"))?;
+
+    // Step 2: Execution
+    let mut upload_request = client
+        .post(&handshake_res.upload_url)
+        .body(bytes)
+        .header("Content-Type", "application/octet-stream")
+        .header("Origin", &settings.api_origin);
+
+    if settings.require_supabase_auth {
+        let token = get_supabase_access_token()
+            .ok_or_else(|| "Supabase access token not available for upload".to_string())?;
+        upload_request = upload_request.bearer_auth(token);
+    }
+
+    let upload_response = upload_request
+        .send()
+        .await
+        .map_err(|err| format!("asset sync upload failed: {err}"))?;
+
+    let upload_status = upload_response.status();
+    if upload_status == StatusCode::CONFLICT {
+        tracing::info!(key, "asset already existed upstream (409) during upload");
+        return Ok(());
+    }
+    if !upload_status.is_success() {
+        let body = upload_response.text().await.unwrap_or_default();
+        return Err(format!(
+            "asset sync upload returned {}: {}",
+            upload_status,
             body.trim()
         ));
     }
