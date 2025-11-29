@@ -17,6 +17,8 @@ type CloudflareEnv = {
   MAX_SNAPSHOT_BYTES?: string | number;
   FLEET_SNAPSHOT_SIGNING_SECRET?: string;
   PUBLIC_SUPABASE_ANON_KEY?: string;
+  // Optional: disable retention behavior by setting to 'false'
+  SNAPSHOT_RETENTION_ENABLED?: string | boolean;
 };
 
 // R2の型定義（簡易版）
@@ -41,6 +43,12 @@ type SnapshotDescriptor = {
   version?: number | null;
   is_public?: boolean;
 };
+
+// 保持ポリシー
+// By default, when a new snapshot is uploaded the system will attempt to keep
+// only the newest snapshot for each tag (owner_id + tag) by removing older
+// objects in R2. This behavior can be disabled by setting
+// `SNAPSHOT_RETENTION_ENABLED=false` in your Pages/Cloudflare env.
 
 export const OPTIONS: APIRoute = async () =>
   new Response(null, { status: 204, headers: CORS_HEADERS });
@@ -173,6 +181,61 @@ async function handleSnapshotPreparation(
       headers: { ...CORS_HEADERS, "content-type": "application/json" },
     },
   );
+}
+
+// Keep only the single latest snapshot per owner/tag in R2.
+// Uses the key format `fleets/{owner}/{encodedTag}/{version}-{hash}.json.gz`.
+async function cleanupLatestOnly(
+  bucket: any,
+  ownerId: string,
+  tag: string,
+  currentKey: string,
+) {
+  if (!bucket || typeof bucket.list !== "function") return;
+
+  const prefix = `fleets/${ownerId}/${encodeURIComponent(tag)}/`;
+  const objs: Array<{ key: string; size?: number; uploaded?: string }> = [];
+  let cursor: string | undefined = undefined;
+  do {
+    const res = await bucket.list({ prefix, cursor, limit: 1000 });
+    if (res?.objects?.length) {
+      objs.push(...res.objects.map((o: any) => ({ key: o.key, size: o.size, uploaded: o.uploaded })));
+    }
+    cursor = res?.truncated ? res?.cursor : undefined;
+  } while (cursor);
+
+  if (!objs.length) return;
+
+  // Parse versions from key's last segment. If none parse, skip.
+  const parsed = objs
+    .map((o) => {
+      const parts = o.key.split("/");
+      const last = parts[parts.length - 1] || "";
+      const m = last.match(/^(\d+)-([0-9a-f]+)\.json\.gz$/i);
+      const version = m ? Number(m[1]) : null;
+      const uploadedTs = o.uploaded ? new Date(o.uploaded).getTime() : 0;
+      return { key: o.key, version, uploadedTs };
+    })
+    .filter((p) => p.version !== null);
+
+  if (!parsed.length) return;
+
+  // Sort descending by version (newest first), then by uploaded timestamp as tiebreaker.
+  parsed.sort((a: any, b: any) => b.version - a.version || b.uploadedTs - a.uploadedTs);
+
+  const toKeep = parsed[0]?.key;
+  if (!toKeep) return;
+
+  // If the latest is not the one we just uploaded, it may mean another upload happened concurrently.
+  // We prefer to keep the absolute newest as determined by version.
+  const toDelete = parsed.filter((p) => p.key !== toKeep).map((p) => p.key);
+  for (const k of toDelete) {
+    try {
+      if (typeof bucket.delete === "function") await bucket.delete(k);
+    } catch (e) {
+      console.warn("Failed to delete old snapshot key", k, e);
+    }
+  }
 }
 
 async function handleSnapshotUpload(
@@ -337,6 +400,19 @@ async function handleSnapshotUpload(
           headers: { ...CORS_HEADERS, "content-type": "application/json" },
         },
       );
+    }
+    // Best-effort: keep only the newest snapshot per owner/tag on R2
+    // Controlled by SNAPSHOT_RETENTION_ENABLED environment variable (default enabled)
+    const retentionEnabled = String(env?.SNAPSHOT_RETENTION_ENABLED ?? "true") !== "false";
+    if (retentionEnabled) {
+      // Do not block upload: run in background and ignore errors
+      void (async () => {
+        try {
+          await cleanupLatestOnly(bucket as any, ownerId, descriptor.tag, key);
+        } catch (e) {
+          console.warn("cleanupLatestOnly failed", e);
+        }
+      })();
     }
   } catch (err: any) {
     return new Response(
