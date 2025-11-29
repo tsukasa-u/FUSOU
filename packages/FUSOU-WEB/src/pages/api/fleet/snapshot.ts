@@ -17,8 +17,6 @@ type CloudflareEnv = {
   MAX_SNAPSHOT_BYTES?: string | number;
   FLEET_SNAPSHOT_SIGNING_SECRET?: string;
   PUBLIC_SUPABASE_ANON_KEY?: string;
-  // Optional: disable retention behavior by setting to 'false'
-  SNAPSHOT_RETENTION_ENABLED?: string | boolean;
 };
 
 // R2の型定義（簡易版）
@@ -102,112 +100,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
   );
 }
 
-// Keep only the single latest snapshot per owner/tag in R2.
-// Uses the key format `fleets/{owner}/{encodedTag}/{version}-{hash}.json.gz`.
-async function cleanupLatestOnly(
-  bucket: any,
-  ownerId: string,
-  tag: string,
-  currentKey: string,
-  dryRun = false,
-): Promise<{ found: number; keep?: string | null; toDelete: string[]; deleted?: string[] } | null> {
-  if (!bucket || typeof bucket.list !== "function") return null;
-
-  const prefix = `fleets/${ownerId}/${encodeURIComponent(tag)}/`;
-  console.info(`cleanupLatestOnly: invoked for owner=${ownerId}, tag=${tag}, prefix=${prefix}`);
   
-  try {
-    console.debug(`cleanupLatestOnly: bucket.list type=${typeof bucket.list}, bucket.delete type=${typeof bucket.delete}`);
-  } catch (e) {
-    console.warn("cleanupLatestOnly: cannot inspect bucket methods", e);
-  }
-  const objs: Array<{ key: string; size?: number; uploaded?: string }> = [];
-  let cursor: string | undefined = undefined;
-  do {
-    const res = await bucket.list({ prefix, cursor, limit: 1000 });
-    if (res?.objects?.length) {
-      objs.push(...res.objects.map((o: any) => {
-        // R2 bindings sometimes name the field `key` or `name` depending on runtime
-        const key = o.key ?? o.name ?? o.Key ?? o.Name ?? o['Key'] ?? o['key'];
-        return { key, size: o.size, uploaded: o.uploaded };
-      }));
-    }
-    cursor = res?.truncated ? res?.cursor : undefined;
-  } while (cursor);
-  console.info(`cleanupLatestOnly: found ${objs.length} object(s) under ${prefix}`);
-  if (objs.length > 0) {
-    console.debug(`cleanupLatestOnly: sample keys: ${objs.slice(0, 10).map(o => o.key).join(', ')}`);
-  }
-
-  if (!objs.length) return { found: 0, toDelete: [], deleted: [] };
-
-  // Parse versions from key's last segment. If none parse, skip.
-  const parsed = objs
-    .map((o) => {
-      const parts = o.key.split("/");
-      const last = parts[parts.length - 1] || "";
-      const m = last.match(/^(\d+)-([0-9a-f]+)\.json\.gz$/i);
-      const version = m ? Number(m[1]) : null;
-      const uploadedTs = o.uploaded ? new Date(o.uploaded).getTime() : 0;
-      return { key: o.key, version, uploadedTs };
-    })
-    .filter((p) => p.version !== null);
-
-  if (!parsed.length) {
-    console.info(`cleanupLatestOnly: found ${objs.length} object(s) but could not parse versions under prefix ${prefix}; falling back to uploaded timestamp`);
-    // fallback: sort by uploaded timestamp when version parsing failed
-    const fallback = objs
-      .map((o) => ({ key: o.key, uploadedTs: o.uploaded ? new Date(o.uploaded).getTime() : 0 }))
-      .sort((a, b) => b.uploadedTs - a.uploadedTs);
-    const toKeepFb = fallback[0]?.key;
-    if (!toKeepFb) return { found: objs.length, toDelete: [], deleted: [] };
-    const toDeleteFb = fallback.slice(1).map((p) => p.key);
-    console.info(`cleanupLatestOnly-fallback: keep=${toKeepFb}, delete_count=${toDeleteFb.length}`);
-    for (const k of toDeleteFb) {
-      try {
-        if (typeof bucket.delete === "function") {
-          console.debug(`cleanupLatestOnly-fallback: deleting key=${k}`);
-          await bucket.delete(k);
-          console.info(`cleanupLatestOnly-fallback: deleted key=${k}`);
-        } else {
-          console.warn("cleanupLatestOnly: bucket.delete is not a function; cannot delete.");
-        }
-      } catch (e) {
-        console.warn("Failed to delete old snapshot key (fallback)", k, e);
-      }
-    }
-    return { found: objs.length, keep: toKeepFb, toDelete: toDeleteFb, deleted: [] };
-  }
-
-  // Sort descending by version (newest first), then by uploaded timestamp as tiebreaker.
-  parsed.sort((a: any, b: any) => b.version - a.version || b.uploadedTs - a.uploadedTs);
-
-  const toKeep = parsed[0]?.key;
-  if (!toKeep) return { found: parsed.length, toDelete: [], deleted: [] };
-
-  // If the latest is not the one we just uploaded, it may mean another upload happened concurrently.
-  // We prefer to keep the absolute newest as determined by version.
-  const toDelete = parsed.filter((p) => p.key !== toKeep).map((p) => p.key);
-  console.info(`cleanupLatestOnly: prefix=${prefix}, keep=${toKeep}, delete_count=${toDelete.length}`);
-  const deleted: string[] = [];
-  for (const k of toDelete) {
-    try {
-      if (dryRun) {
-        console.info(`cleanupLatestOnly (dryRun): would delete key=${k}`);
-      } else if (typeof bucket.delete === "function") {
-        console.debug(`cleanupLatestOnly: deleting key=${k}`);
-        await bucket.delete(k);
-        console.info(`cleanupLatestOnly: deleted key=${k}`);
-        deleted.push(k);
-      } else {
-        console.warn("cleanupLatestOnly: bucket.delete is not a function; cannot delete.");
-      }
-    } catch (e) {
-      console.warn("Failed to delete old snapshot key", k, e);
-    }
-  }
-  return { found: objs.length, keep: toKeep, toDelete, deleted };
-}
 
 async function handleSnapshotUpload(
   request: Request,
@@ -226,7 +119,7 @@ async function handleSnapshotUpload(
     signingSecret,
   );
 
-  let cleanupQueued = false;
+  
 
   if (!descriptor?.owner_id || !descriptor.tag) {
     return new Response(JSON.stringify({ error: "Invalid or expired token" }), {
@@ -328,7 +221,7 @@ async function handleSnapshotUpload(
         contentEncoding: "gzip",
       },
     });
-    console.info(`handleSnapshotUpload: R2 put complete for key=${key} size=${compressed.byteLength}`);
+    
   } catch (err: any) {
     return new Response(
       JSON.stringify({
@@ -399,36 +292,7 @@ async function handleSnapshotUpload(
     }
     // Best-effort: keep only the newest snapshot per owner/tag on R2
     // Controlled by SNAPSHOT_RETENTION_ENABLED environment variable (default enabled)
-    const retentionEnabled = String(env?.SNAPSHOT_RETENTION_ENABLED ?? "true") !== "false";
-    console.info(`handleSnapshotUpload: retentionEnabled=${retentionEnabled}, owner=${ownerId}, tag=${descriptor.tag}, key=${key}`);
-    if (retentionEnabled) {
-      // Do not block upload: run in background and ignore errors
-      cleanupQueued = true;
-      // If the client asked for debug info via header x-debug: do a dry-run and return diagnostic info
-      const xDebug = String(request.headers.get("x-debug") || "false").toLowerCase() === "true";
-      if (xDebug) {
-        try {
-          const diagnostic = await cleanupLatestOnly(bucket as any, ownerId, descriptor.tag, key, true);
-          // return diagnostics in response body for easier debugging (allowed only for owner)
-          return new Response(
-            JSON.stringify({ ok: true, owner_id: ownerId, tag: descriptor.tag, version, r2_key: key, retentionDiagnostic: diagnostic }),
-            {
-              status: 200,
-              headers: { ...CORS_HEADERS, "content-type": "application/json", "X-Retention-Cleanup-Queued": "1" },
-            },
-          );
-        } catch (e) {
-          console.warn("cleanupLatestOnly dry-run failed", e);
-        }
-      }
-      void (async () => {
-        try {
-          await cleanupLatestOnly(bucket as any, ownerId, descriptor.tag, key, false);
-        } catch (e) {
-          console.warn("cleanupLatestOnly failed", e);
-        }
-      })();
-    }
+    
   } catch (err: any) {
     return new Response(
       JSON.stringify({ error: "Supabase upsert failed", detail: String(err) }),
@@ -439,7 +303,6 @@ async function handleSnapshotUpload(
     );
   }
 
-  const responseHeaders: Record<string, string> = { ...CORS_HEADERS, "content-type": "application/json", "X-Retention-Cleanup-Queued": cleanupQueued ? "1" : "0" };
   return new Response(
     JSON.stringify({
       ok: true,
@@ -450,7 +313,7 @@ async function handleSnapshotUpload(
     }),
     {
       status: 200,
-      headers: responseHeaders,
+      headers: { ...CORS_HEADERS, "content-type": "application/json" },
     },
   );
 }
