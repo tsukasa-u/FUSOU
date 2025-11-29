@@ -1,4 +1,3 @@
-use kc_api_interface::interface;
 use kc_api_interface::ship::Ship as InterfaceShip;
 use kc_api_interface::ship::SpEffectItem as InterfaceSpEffectItem;
 // use kc_api_interface::material::Materials as InterfaceMaterial;
@@ -13,6 +12,16 @@ pub struct FleetSnapshot{
     // pub materials: Option<Vec<Material>>,
     #[serde(rename(serialize = "s8s"))]
     pub slot_items: Option<Vec<SlotItem>>,
+}
+
+impl FleetSnapshot {
+    pub fn new(ships: Vec<InterfaceShip>, slot_items: Vec<InterfaceSlotItem>) -> Self {
+        FleetSnapshot {
+            ships: Some(ships.into_iter().map(Ship::from).collect()),
+            // materials: Some(materials.into_iter().map(Material::from).collect()),
+            slot_items: Some(slot_items.into_iter().map(SlotItem::from).collect()),
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -76,7 +85,7 @@ impl From<InterfaceShip> for Ship {
             // sortno: ship.sortno,
             ship_id: ship.ship_id.unwrap_or(0),
             lv: ship.lv.unwrap_or(0),
-            exp: *ship.exp.clone().and_then(|x| x.get(0)).unwrap_or(&0),
+            exp: ship.exp.as_ref().and_then(|x| x.get(0)).copied().unwrap_or(0),
             soku: ship.soku.unwrap_or(0),
             leng: ship.leng.unwrap_or(0),
             slot: ship.slot.unwrap_or_default(),
@@ -85,14 +94,14 @@ impl From<InterfaceShip> for Ship {
             // kyouka: ship.kyouka.unwrap_or(0),
             slotnum: ship.slotnum.unwrap_or(0),
             cond: ship.cond.unwrap_or(0),
-            karyoku: *ship.karyoku.and_then(|x| x.get(0)).unwrap_or(&0),
-            raisou: *ship.raisou.and_then(|x| x.get(0)).unwrap_or(&0),
-            taiku: *ship.taiku.and_then(|x| x.get(0)).unwrap_or(&0),
-            soukou: *ship.soukou.and_then(|x| x.get(0)).unwrap_or(&0),
-            kaihi: *ship.kaihi.and_then(|x| x.get(0)).unwrap_or(&0),
-            taisen: *ship.taisen.and_then(|x| x.get(0)).unwrap_or(&0),
-            sakuteki: *ship.sakuteki.and_then(|x| x.get(0)).unwrap_or(&0),
-            lucky: *ship.lucky.and_then(|x| x.get(0)).unwrap_or(&0),
+            karyoku: ship.karyoku.as_ref().and_then(|x| x.get(0)).copied().unwrap_or(0),
+            raisou: ship.raisou.as_ref().and_then(|x| x.get(0)).copied().unwrap_or(0),
+            taiku: ship.taiku.as_ref().and_then(|x| x.get(0)).copied().unwrap_or(0),
+            soukou: ship.soukou.as_ref().and_then(|x| x.get(0)).copied().unwrap_or(0),
+            kaihi: ship.kaihi.as_ref().and_then(|x| x.get(0)).copied().unwrap_or(0),
+            taisen: ship.taisen.as_ref().and_then(|x| x.get(0)).copied().unwrap_or(0),
+            sakuteki: ship.sakuteki.as_ref().and_then(|x| x.get(0)).copied().unwrap_or(0),
+            lucky: ship.lucky.as_ref().and_then(|x| x.get(0)).copied().unwrap_or(0),
             // locked: ship.locked,
             // locked_equip: ship.locked_equip,
             sally_area: ship.sally_area,
@@ -159,10 +168,22 @@ pub struct SlotItem {
     pub id: i64,
     #[serde(rename(serialize = "s9d"))]
     pub slotitem_id: i64,
-    #[serde(rename(serialize = "l4d"))]
-    pub locked: i64,
+    // #[serde(rename(serialize = "l4d"))]
+    // pub locked: i64,
     #[serde(rename(serialize = "l3l"))]
     pub level: i64,
     #[serde(rename(serialize = "a1v"))]
     pub alv: Option<i64>,
+}
+
+impl From<InterfaceSlotItem> for SlotItem {
+    fn from(slot_item: InterfaceSlotItem) -> Self {
+        SlotItem {
+            id: slot_item.id,
+            slotitem_id: slot_item.slotitem_id,
+            // locked: slot_item.locked,
+            level: slot_item.level,
+            alv: slot_item.alv,
+        }
+    }
 }
