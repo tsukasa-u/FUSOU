@@ -1,58 +1,168 @@
+use kc_api_interface::interface;
+use kc_api_interface::ship::Ship as InterfaceShip;
+use kc_api_interface::ship::SpEffectItem as InterfaceSpEffectItem;
+// use kc_api_interface::material::Materials as InterfaceMaterial;
+use kc_api_interface::slot_item::SlotItem as InterfaceSlotItem;
+use serde::{Deserialize, Serialize};
+
+#[derive(Serialize, Deserialize)]
 pub struct FleetSnapshot{
+    #[serde(rename(serialize = "s3s"))]
     pub ships: Option<Vec<Ship>>,
-    pub materials: Option<Vec<Material>>,
+    // #[serde(rename(serialize = "m7s"))]
+    // pub materials: Option<Vec<Material>>,
+    #[serde(rename(serialize = "s8s"))]
     pub slot_items: Option<Vec<SlotItem>>,
-    pub plane_base_info: Option<Vec<PlaneBaseInfo>>,
-};
+}
 
-
-
+#[derive(Serialize, Deserialize)]
 pub struct Ship {
+    #[serde(rename(serialize = "i0d"))]
     pub id: i64,
-    pub sortno: i64,
+    // #[serde(rename(serialize = "s4o"))]
+    // pub sortno: i64,
+    #[serde(rename(serialize = "s5d"))]
     pub ship_id: i64,
+    #[serde(rename(serialize = "l0v"))]
     pub lv: i64,
+    #[serde(rename(serialize = "e1p"))]
     pub exp: i64,
+    #[serde(rename(serialize = "s2u"))]
     pub soku: i64,
+    #[serde(rename(serialize = "l2g"))]
     pub leng: i64,
+    #[serde(rename(serialize = "s2t"))]
     pub slot: Vec<i64>,
+    #[serde(rename(serialize = "o4t"))]
     pub onslot: Vec<i64>,
+    #[serde(rename(serialize = "s5x"))]
     pub slot_ex: i64,
-    pub kyouka: i64,
+    // #[serde(rename(serialize = "k4a"))]
+    // pub kyouka: i64,
+    #[serde(rename(serialize = "s5m"))]
     pub slotnum: i64,
+    #[serde(rename(serialize = "c2d"))]
     pub cond: i64,
+    #[serde(rename(serialize = "k5u"))]
     pub karyoku: i64,
+    #[serde(rename(serialize = "r4u"))]
     pub raisou: i64,
+    #[serde(rename(serialize = "t3u"))]
     pub taiku: i64,
+    #[serde(rename(serialize = "s4u"))]
     pub soukou: i64,
+    #[serde(rename(serialize = "k3i"))]
     pub kaihi: i64,
+    #[serde(rename(serialize = "t4n"))]
     pub taisen: i64,
+    #[serde(rename(serialize = "s6i"))]
     pub sakuteki: i64,
+    #[serde(rename(serialize = "l3y"))]
     pub lucky: i64,
-    pub locked: i64,
-    pub locked_equip: i64,
+    // #[serde(rename(serialize = "l4d"))]
+    // pub locked: i64,
+    // #[serde(rename(serialize = "l10p"))]
+    // pub locked_equip: i64,
+    #[serde(rename(serialize = "s8a"))]
     pub sally_area: Option<i64>,
+    #[serde(rename(serialize = "s13s"))]
     pub sp_effect_items: Option<Vec<SpEffectItem>>,
 }
 
+impl From<InterfaceShip> for Ship {
+    fn from(ship: InterfaceShip) -> Self {
+        Ship {
+            id: ship.id,
+            // sortno: ship.sortno,
+            ship_id: ship.ship_id.unwrap_or(0),
+            lv: ship.lv.unwrap_or(0),
+            exp: *ship.exp.clone().and_then(|x| x.get(0)).unwrap_or(&0),
+            soku: ship.soku.unwrap_or(0),
+            leng: ship.leng.unwrap_or(0),
+            slot: ship.slot.unwrap_or_default(),
+            onslot: ship.onslot.unwrap_or_default(),
+            slot_ex: ship.slot_ex.unwrap_or(0),
+            // kyouka: ship.kyouka.unwrap_or(0),
+            slotnum: ship.slotnum.unwrap_or(0),
+            cond: ship.cond.unwrap_or(0),
+            karyoku: *ship.karyoku.and_then(|x| x.get(0)).unwrap_or(&0),
+            raisou: *ship.raisou.and_then(|x| x.get(0)).unwrap_or(&0),
+            taiku: *ship.taiku.and_then(|x| x.get(0)).unwrap_or(&0),
+            soukou: *ship.soukou.and_then(|x| x.get(0)).unwrap_or(&0),
+            kaihi: *ship.kaihi.and_then(|x| x.get(0)).unwrap_or(&0),
+            taisen: *ship.taisen.and_then(|x| x.get(0)).unwrap_or(&0),
+            sakuteki: *ship.sakuteki.and_then(|x| x.get(0)).unwrap_or(&0),
+            lucky: *ship.lucky.and_then(|x| x.get(0)).unwrap_or(&0),
+            // locked: ship.locked,
+            // locked_equip: ship.locked_equip,
+            sally_area: ship.sally_area,
+            sp_effect_items: ship.sp_effect_items.map(|items| {
+                items
+                    .items
+                    .into_iter()
+                    .map(|(_, item)| SpEffectItem::from(item))
+                    .collect()
+            }),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize)]
 pub struct SpEffectItem {
+    #[serde(rename(serialize = "k2d"))]
     pub kind: i64,
+    #[serde(rename(serialize = "r2g"))]
     pub raig: Option<i64>,
+    #[serde(rename(serialize = "s2k"))]
     pub souk: Option<i64>,
+    #[serde(rename(serialize = "h2g"))]
     pub houg: Option<i64>,
+    #[serde(rename(serialize = "k2h"))]
     pub kaih: Option<i64>,
 }
 
-pub struct Material {
-    pub member_id: i64,
-    pub id: i64,
-    pub value: i64,
+impl From<InterfaceSpEffectItem> for SpEffectItem {
+    fn from(item: InterfaceSpEffectItem) -> Self {
+        SpEffectItem {
+            kind: item.kind,
+            raig: item.raig,
+            souk: item.souk,
+            houg: item.houg,
+            kaih: item.kaih,
+        }
+    }
 }
 
+// #[derive(Serialize, Deserialize)]
+// pub struct Material {
+//     #[serde(rename(serialize = "m7d"))]
+//     pub member_id: i64,
+//     #[serde(rename(serialize = "i0d"))]
+//     pub id: i64,
+//     #[serde(rename(serialize = "v3e"))]
+//     pub value: i64,
+// }
+
+// impl From<InterfaceMaterial> for Material {
+//     fn from(material: InterfaceMaterial) -> Self {
+//         Material {
+//             member_id: material.member_id,
+//             id: material.id,
+//             value: material.value,
+//         }
+//     }
+// }
+
+#[derive(Serialize, Deserialize)]
 pub struct SlotItem {
-
-}
-
-pub struct PlaneBaseInfo {
-
+    #[serde(rename(serialize = "i0d"))]
+    pub id: i64,
+    #[serde(rename(serialize = "s9d"))]
+    pub slotitem_id: i64,
+    #[serde(rename(serialize = "l4d"))]
+    pub locked: i64,
+    #[serde(rename(serialize = "l3l"))]
+    pub level: i64,
+    #[serde(rename(serialize = "a1v"))]
+    pub alv: Option<i64>,
 }
