@@ -113,15 +113,29 @@ async function cleanupLatestOnly(
   if (!bucket || typeof bucket.list !== "function") return;
 
   const prefix = `fleets/${ownerId}/${encodeURIComponent(tag)}/`;
+  console.info(`cleanupLatestOnly: invoked for owner=${ownerId}, tag=${tag}, prefix=${prefix}`);
+  try {
+    console.debug(`cleanupLatestOnly: bucket.list type=${typeof bucket.list}, bucket.delete type=${typeof bucket.delete}`);
+  } catch (e) {
+    console.warn("cleanupLatestOnly: cannot inspect bucket methods", e);
+  }
   const objs: Array<{ key: string; size?: number; uploaded?: string }> = [];
   let cursor: string | undefined = undefined;
   do {
     const res = await bucket.list({ prefix, cursor, limit: 1000 });
     if (res?.objects?.length) {
-      objs.push(...res.objects.map((o: any) => ({ key: o.key, size: o.size, uploaded: o.uploaded })));
+      objs.push(...res.objects.map((o: any) => {
+        // R2 bindings sometimes name the field `key` or `name` depending on runtime
+        const key = o.key ?? o.name ?? o.Key ?? o.Name ?? o['Key'] ?? o['key'];
+        return { key, size: o.size, uploaded: o.uploaded };
+      }));
     }
     cursor = res?.truncated ? res?.cursor : undefined;
   } while (cursor);
+  console.info(`cleanupLatestOnly: found ${objs.length} object(s) under ${prefix}`);
+  if (objs.length > 0) {
+    console.debug(`cleanupLatestOnly: sample keys: ${objs.slice(0, 10).map(o => o.key).join(', ')}`);
+  }
 
   if (!objs.length) return;
 
@@ -137,7 +151,31 @@ async function cleanupLatestOnly(
     })
     .filter((p) => p.version !== null);
 
-  if (!parsed.length) return;
+  if (!parsed.length) {
+    console.info(`cleanupLatestOnly: found ${objs.length} object(s) but could not parse versions under prefix ${prefix}; falling back to uploaded timestamp`);
+    // fallback: sort by uploaded timestamp when version parsing failed
+    const fallback = objs
+      .map((o) => ({ key: o.key, uploadedTs: o.uploaded ? new Date(o.uploaded).getTime() : 0 }))
+      .sort((a, b) => b.uploadedTs - a.uploadedTs);
+    const toKeepFb = fallback[0]?.key;
+    if (!toKeepFb) return;
+    const toDeleteFb = fallback.slice(1).map((p) => p.key);
+    console.info(`cleanupLatestOnly-fallback: keep=${toKeepFb}, delete_count=${toDeleteFb.length}`);
+    for (const k of toDeleteFb) {
+      try {
+        if (typeof bucket.delete === "function") {
+          console.debug(`cleanupLatestOnly-fallback: deleting key=${k}`);
+          await bucket.delete(k);
+          console.info(`cleanupLatestOnly-fallback: deleted key=${k}`);
+        } else {
+          console.warn("cleanupLatestOnly: bucket.delete is not a function; cannot delete.");
+        }
+      } catch (e) {
+        console.warn("Failed to delete old snapshot key (fallback)", k, e);
+      }
+    }
+    return;
+  }
 
   // Sort descending by version (newest first), then by uploaded timestamp as tiebreaker.
   parsed.sort((a: any, b: any) => b.version - a.version || b.uploadedTs - a.uploadedTs);
@@ -148,9 +186,16 @@ async function cleanupLatestOnly(
   // If the latest is not the one we just uploaded, it may mean another upload happened concurrently.
   // We prefer to keep the absolute newest as determined by version.
   const toDelete = parsed.filter((p) => p.key !== toKeep).map((p) => p.key);
+  console.info(`cleanupLatestOnly: prefix=${prefix}, keep=${toKeep}, delete_count=${toDelete.length}`);
   for (const k of toDelete) {
     try {
-      if (typeof bucket.delete === "function") await bucket.delete(k);
+      if (typeof bucket.delete === "function") {
+        console.debug(`cleanupLatestOnly: deleting key=${k}`);
+        await bucket.delete(k);
+        console.info(`cleanupLatestOnly: deleted key=${k}`);
+      } else {
+        console.warn("cleanupLatestOnly: bucket.delete is not a function; cannot delete.");
+      }
     } catch (e) {
       console.warn("Failed to delete old snapshot key", k, e);
     }
