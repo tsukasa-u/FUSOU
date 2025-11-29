@@ -292,6 +292,14 @@ async function handleSnapshotUpload(
     }
     // Best-effort: keep only the newest snapshot per owner/tag on R2
     // Controlled by SNAPSHOT_RETENTION_ENABLED environment variable (default enabled)
+    try {
+      // Always attempt cleanup: keep newest per owner/tag. Failures are best-effort.
+      cleanupOldSnapshots(bucket as any, ownerId, descriptor.tag, key).catch((e) =>
+        console.error("Snapshot retention cleanup failed", String(e)),
+      );
+    } catch (e) {
+      console.error("Snapshot retention invocation failed", String(e));
+    }
     
   } catch (err: any) {
     return new Response(
@@ -437,4 +445,58 @@ async function resolveSupabaseUser(
   }
 
   return { token, userId: user.id };
+}
+
+// Cleanup helper: list objects under `fleets/{owner}/{encodedTag}/` and delete
+// everything except the provided `keepKey` (best-effort). This function is
+// defensive about the R2 list API shape and runs deletes in small batches.
+async function cleanupOldSnapshots(
+  bucket: any,
+  ownerId: string,
+  tag: string,
+  keepKey: string,
+) {
+  if (!bucket || !ownerId || !tag) return;
+
+  const prefix = `fleets/${ownerId}/${encodeURIComponent(tag)}/`;
+  let cursor: string | undefined = undefined;
+  const toDelete: string[] = [];
+
+  while (true) {
+    const res = await bucket.list({ prefix, cursor, limit: 100 }).catch((e: any) => {
+      console.error("R2 list failed", String(e));
+      return null;
+    });
+    if (!res) break;
+
+    const items = (res as any).objects ?? (res as any);
+    if (!items || !Array.isArray(items)) break;
+
+    for (const item of items) {
+      const k = item?.key || item?.name;
+      if (!k) continue;
+      if (k === keepKey) continue;
+      toDelete.push(k);
+    }
+
+    // stop if listing is complete
+    const truncated = Boolean((res as any).truncated);
+    if (!truncated) break;
+    cursor = (res as any).cursor;
+    if (!cursor) break;
+  }
+
+  if (toDelete.length === 0) return;
+
+  const concurrency = 5;
+  for (let i = 0; i < toDelete.length; i += concurrency) {
+    const batch = toDelete.slice(i, i + concurrency);
+    await Promise.all(
+      batch.map((k) =>
+        bucket.delete(k).catch((e: any) =>
+          console.error(`Failed to delete R2 object ${k}`, String(e)),
+        ),
+      ),
+    );
+  }
 }
