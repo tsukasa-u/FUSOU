@@ -1,0 +1,10 @@
+[package]
+name = "kc-fleet-snapshot"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+uuid = { workspace = true }
+tracing = { workspace = true }
+kc-api-interface = { workspace = true }

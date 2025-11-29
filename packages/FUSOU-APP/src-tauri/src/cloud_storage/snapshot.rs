@@ -13,12 +13,10 @@ struct PrepareResponse {
     upload_url: String,
 }
 
-
-// ペイロード送信用構造体
 #[derive(Serialize)]
 struct SnapshotRequest {
     tag: String,
-    payload: serde_json::Value, // 任意のJSONペイロード
+    payload: serde_json::Value,
     title: Option<String>,
     version: Option<u64>,
 }
@@ -26,10 +24,8 @@ struct SnapshotRequest {
 pub async fn perform_snapshot_sync_app(app: &AppHandle) -> Result<serde_json::Value, String> {
     tracing::info!("Starting snapshot sync");
 
-    // 1. 設定の取得
     let app_configs = configs::get_user_configs_for_app();
     
-    // 2. エンドポイントの決定
     let snapshot_url = if let Some(explicit) = app_configs.asset_sync.get_snapshot_endpoint() {
         explicit
     } else {
@@ -37,7 +33,6 @@ pub async fn perform_snapshot_sync_app(app: &AppHandle) -> Result<serde_json::Va
         return Err("Snapshot endpoint not configured".to_string());
     };
 
-    // 3. 認証トークンの取得 (必須とする)
     let token = match asset_sync::get_supabase_access_token() {
         Some(t) if !t.is_empty() => t,
         _ => {
@@ -48,7 +43,6 @@ pub async fn perform_snapshot_sync_app(app: &AppHandle) -> Result<serde_json::Va
         }
     };
 
-    // 4. ペイロードの準備
     let request_body = SnapshotRequest {
         tag: "latest".to_string(),
         payload: json!({ "foo": "bar", "message": "TESTCODE" }),
@@ -59,7 +53,6 @@ pub async fn perform_snapshot_sync_app(app: &AppHandle) -> Result<serde_json::Va
     let client = Client::new();
     let idempotency_key = Uuid::new_v4().to_string();
 
-    // Stage 1: Preparation
     tracing::info!(endpoint = %snapshot_url, "Preparing snapshot upload");
     let prepare_req = client
         .post(&snapshot_url)
@@ -90,7 +83,6 @@ pub async fn perform_snapshot_sync_app(app: &AppHandle) -> Result<serde_json::Va
         }
     };
 
-    // Stage 2: Upload
     let upload_url = prepare_json.upload_url;
     tracing::info!(endpoint = %upload_url, "Uploading snapshot data");
     
