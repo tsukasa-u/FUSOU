@@ -176,7 +176,13 @@ pub fn set_refresh_token(refresh_token: String, token_type: String) -> Result<()
     }
 
     tracing::info!("set refresh token: {refresh_token}");
-    let mut local_access_token = USER_ACCESS_TOKEN.lock().unwrap();
+    let mut local_access_token = match USER_ACCESS_TOKEN.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => {
+            tracing::warn!("USER_ACCESS_TOKEN mutex poisoned, recovering");
+            poisoned.into_inner()
+        }
+    };
     let info = UserAccessTokenInfo {
         refresh_token: refresh_token.to_owned(),
         token_type: if token_type == "bearer" {
@@ -200,11 +206,20 @@ pub async fn create_auth() -> Option<
     Authenticator<hyper_rustls::HttpsConnector<hyper_util::client::legacy::connect::HttpConnector>>,
 > {
     setup_default_crypto_provider();
-    let token = match USER_ACCESS_TOKEN.lock().unwrap().clone() {
-        Some(token) => token,
-        None => {
-            tracing::error!("USER_ACCESS_TOKEN is not set");
-            return None;
+    let token = {
+        let token_guard = match USER_ACCESS_TOKEN.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                tracing::warn!("USER_ACCESS_TOKEN mutex poisoned, recovering");
+                poisoned.into_inner()
+            }
+        };
+        match token_guard.clone() {
+            Some(token) => token,
+            None => {
+                tracing::error!("USER_ACCESS_TOKEN is not set");
+                return None;
+            }
         }
     };
     let provider_refresh_token = token.refresh_token;
