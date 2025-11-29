@@ -94,92 +94,11 @@ export const POST: APIRoute = async ({ request, locals }) => {
     request,
     env,
     url,
-    bucket,
-    supabaseUrl,
-    supabaseKey,
-    signingSecret,
+    bucket as R2BucketBinding,
+    supabaseUrl as string,
+    supabaseKey as string,
+    signingSecret as string,
     locals,
-  );
-};
-
-async function handleSnapshotPreparation(
-  request: Request,
-  url: URL,
-  supabaseUrl: string,
-  signingSecret: string,
-  locals: any,
-): Promise<Response> {
-  const auth = await resolveSupabaseUser(request, supabaseUrl, locals);
-  if (!auth) {
-    return new Response(JSON.stringify({ error: "Unauthorized" }), {
-      status: 401,
-      headers: { ...CORS_HEADERS, "content-type": "application/json" },
-    });
-  }
-
-  const contentLength = Number(request.headers.get("content-length") || 0);
-  if (contentLength > MAX_BODY_SIZE) {
-    return new Response(JSON.stringify({ error: "Request payload too large" }), {
-      status: 413,
-      headers: { ...CORS_HEADERS, "content-type": "application/json" },
-    });
-  }
-
-  let body: any;
-  try {
-    body = await readJsonBody(request, MAX_BODY_SIZE);
-  } catch (err) {
-    return handleJsonReadError(err);
-  }
-
-  const tag = typeof body?.tag === "string" ? body.tag.trim() : "";
-  if (!tag) {
-    return new Response(JSON.stringify({ error: "tag is required" }), {
-      status: 400,
-      headers: { ...CORS_HEADERS, "content-type": "application/json" },
-    });
-  }
-
-  const title =
-    typeof body?.title === "string" && body.title.trim().length > 0
-      ? body.title.trim().slice(0, 128)
-      : null;
-  const requestedVersion = Number(body?.version);
-  const descriptor: SnapshotDescriptor = {
-    owner_id: auth.userId,
-    tag,
-    title,
-    version: Number.isFinite(requestedVersion) ? requestedVersion : null,
-    is_public: Boolean(body?.is_public),
-  };
-
-  const signedToken = await createSignedToken(
-    descriptor,
-    signingSecret,
-    SNAPSHOT_TOKEN_TTL_SECONDS,
-  );
-
-  const signedUrl = new URL(url.toString());
-  signedUrl.searchParams.set("token", signedToken.token);
-  signedUrl.searchParams.set("expires", String(signedToken.expires));
-  signedUrl.searchParams.set("signature", signedToken.signature);
-
-  return new Response(
-    JSON.stringify({
-      uploadUrl: signedUrl.toString(),
-      expiresAt: new Date(signedToken.expires * 1000).toISOString(),
-      maxBodyBytes: MAX_BODY_SIZE,
-      fields: {
-        tag,
-        title,
-        version: descriptor.version,
-        is_public: descriptor.is_public,
-      },
-    }),
-    {
-      status: 200,
-      headers: { ...CORS_HEADERS, "content-type": "application/json" },
-    },
   );
 }
 
@@ -380,7 +299,7 @@ async function handleSnapshotUpload(
   };
 
   try {
-    const resp = await fetch(`${supabaseUrl}/rest/v1/fleets`, {
+    let resp = await fetch(`${supabaseUrl}/rest/v1/fleets`, {
       method: "POST",
       headers: {
         apikey: supabaseKey,
@@ -392,14 +311,36 @@ async function handleSnapshotUpload(
     });
 
     if (!resp.ok) {
-      const text = await resp.text();
-      return new Response(
-        JSON.stringify({ error: "Failed to upsert metadata", detail: text }),
-        {
-          status: 502,
-          headers: { ...CORS_HEADERS, "content-type": "application/json" },
-        },
-      );
+      const text = (await resp.text()) || "";
+      // if column 'size_bytes' is missing in DB schema cache, retry without it
+      if (text.includes("Could not find the 'size_bytes' column")) {
+        const sanitizedMeta: any = { ...meta };
+        delete sanitizedMeta.size_bytes;
+        try {
+          resp = await fetch(`${supabaseUrl}/rest/v1/fleets`, {
+            method: "POST",
+            headers: {
+              apikey: supabaseKey,
+              Authorization: `Bearer ${supabaseKey}`,
+              "Content-Type": "application/json",
+              Prefer: "resolution=merge-duplicates",
+            },
+            body: JSON.stringify(sanitizedMeta),
+          });
+        } catch (e) {
+          // ignore and let the subsequent error check handle it
+        }
+      }
+      if (!resp.ok) {
+        const text2 = (await resp.text()) || "";
+        return new Response(
+          JSON.stringify({ error: "Failed to upsert metadata", detail: text2 }),
+          {
+            status: 502,
+            headers: { ...CORS_HEADERS, "content-type": "application/json" },
+          },
+        );
+      }
     }
     // Best-effort: keep only the newest snapshot per owner/tag on R2
     // Controlled by SNAPSHOT_RETENTION_ENABLED environment variable (default enabled)
@@ -431,6 +372,87 @@ async function handleSnapshotUpload(
       tag: descriptor.tag,
       version,
       r2_key: key,
+    }),
+    {
+      status: 200,
+      headers: { ...CORS_HEADERS, "content-type": "application/json" },
+    },
+  );
+}
+
+async function handleSnapshotPreparation(
+  request: Request,
+  url: URL,
+  supabaseUrl: string,
+  signingSecret: string,
+  locals: any,
+): Promise<Response> {
+  const auth = await resolveSupabaseUser(request, supabaseUrl, locals);
+  if (!auth) {
+    return new Response(JSON.stringify({ error: "Unauthorized" }), {
+      status: 401,
+      headers: { ...CORS_HEADERS, "content-type": "application/json" },
+    });
+  }
+
+  const contentLength = Number(request.headers.get("content-length") || 0);
+  if (contentLength > MAX_BODY_SIZE) {
+    return new Response(JSON.stringify({ error: "Request payload too large" }), {
+      status: 413,
+      headers: { ...CORS_HEADERS, "content-type": "application/json" },
+    });
+  }
+
+  let body: any;
+  try {
+    body = await readJsonBody(request, MAX_BODY_SIZE);
+  } catch (err) {
+    return handleJsonReadError(err);
+  }
+
+  const tag = typeof body?.tag === "string" ? body.tag.trim() : "";
+  if (!tag) {
+    return new Response(JSON.stringify({ error: "tag is required" }), {
+      status: 400,
+      headers: { ...CORS_HEADERS, "content-type": "application/json" },
+    });
+  }
+
+  const title =
+    typeof body?.title === "string" && body.title.trim().length > 0
+      ? body.title.trim().slice(0, 128)
+      : null;
+  const requestedVersion = Number(body?.version);
+  const descriptor: SnapshotDescriptor = {
+    owner_id: auth.userId,
+    tag,
+    title,
+    version: Number.isFinite(requestedVersion) ? requestedVersion : null,
+    is_public: Boolean(body?.is_public),
+  };
+
+  const signedToken = await createSignedToken(
+    descriptor,
+    signingSecret,
+    SNAPSHOT_TOKEN_TTL_SECONDS,
+  );
+
+  const signedUrl = new URL(url.toString());
+  signedUrl.searchParams.set("token", signedToken.token);
+  signedUrl.searchParams.set("expires", String(signedToken.expires));
+  signedUrl.searchParams.set("signature", signedToken.signature);
+
+  return new Response(
+    JSON.stringify({
+      uploadUrl: signedUrl.toString(),
+      expiresAt: new Date(signedToken.expires * 1000).toISOString(),
+      maxBodyBytes: MAX_BODY_SIZE,
+      fields: {
+        tag,
+        title,
+        version: descriptor.version,
+        is_public: descriptor.is_public,
+      },
     }),
     {
       status: 200,
