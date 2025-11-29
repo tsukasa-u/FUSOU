@@ -71,7 +71,7 @@ export const GET: APIRoute = async ({ locals, request }) => {
     const cacheData = { keys, refreshedAt, expiresAt, etag };
     const response = jsonResponse(buildPayload(cacheData, false), etag);
 
-    locals.runtime?.waitUntil(cache.put(request, response.clone()));
+    await cache.put(request, response.clone());
 
     return response;
   } catch (e) {
