@@ -9,6 +9,7 @@ kc-api-interface-adapter = { workspace = true }
 kc-api-database = { workspace = true }
 kc-api-dto = { workspace = true }
 kc-api-parser = { workspace = true }
+kc-fleet-snapshot = { workspace = true }
 
 [features]
 default = ["graphviz", "from20250627"]

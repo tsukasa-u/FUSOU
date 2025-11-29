@@ -11,8 +11,8 @@ use std::{
 use dashmap::DashSet;
 use once_cell::sync::Lazy;
 use rand::{thread_rng, Rng};
-use reqwest::{multipart, Client, StatusCode, Url};
-use serde::Deserialize;
+use reqwest::{Client, StatusCode, Url};
+use serde::{Deserialize, Serialize};
 use tokio::{
     fs,
     sync::mpsc::{self, UnboundedReceiver, UnboundedSender},
@@ -43,6 +43,23 @@ const REMOTE_KEYS_REFRESH_MAX_JITTER_MS: u64 = 5_000;
 
 struct PeriodCache {
     expires_at: Instant,
+}
+
+#[derive(Serialize)]
+struct UploadHandshakeRequest {
+    key: String,
+    relative_path: String,
+    file_size: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    finder_tag: Option<String>,
+    file_name: String,
+    content_type: String,
+}
+
+#[derive(Deserialize)]
+struct UploadHandshakeResponse {
+    #[serde(rename = "uploadUrl")]
+    upload_url: String,
 }
 
 #[derive(Deserialize)]
@@ -85,8 +102,8 @@ impl AssetSyncInit {
         if save_root.trim().is_empty() {
             return Err("asset sync save path is empty".to_string());
         }
-        let api_endpoint = normalize_string(config.get_api_endpoint())
-            .ok_or_else(|| "asset_sync.api_endpoint is empty".to_string())?;
+        let api_endpoint = normalize_string(config.get_asset_sync_api_endpoint())
+            .ok_or_else(|| "asset_sync.asset_sync_api_endpoint is empty".to_string())?;
         let api_origin = derive_origin(&api_endpoint)?;
         let key_prefix = normalize_string(config.get_key_prefix());
         let period_endpoint = config.get_period_endpoint();
@@ -104,7 +121,7 @@ impl AssetSyncInit {
             api_origin,
             key_prefix,
             scan_interval,
-            require_supabase_auth: config.get_require_supabase_auth(),
+            require_supabase_auth: true,
             finder_tag,
             period_endpoint,
             blocked_extensions,
@@ -244,27 +261,12 @@ async fn run_worker(
         tracing::warn!(error = %err, "failed to refresh existing asset keys cache");
     }
 
-    let mut interval = time::interval(settings.scan_interval);
     loop {
-        tokio::select! {
-            _ = interval.tick() => {
-                if check_auth_ready(&settings) {
-                    if let Err(err) = maybe_refresh_period(&client, &settings).await {
-                        tracing::warn!(error = %err, "failed to refresh asset sync period");
-                    }
-                    if let Err(err) = run_full_scan(&client, &settings).await {
-                        tracing::warn!(error = %err, "asset sync scan failed");
-                    }
-                }
-            }
-            Some(path) = rx.recv() => {
-                if check_auth_ready(&settings) {
-                    if let Err(err) = maybe_refresh_period(&client, &settings).await {
-                        tracing::warn!(error = %err, "failed to refresh asset sync period");
-                    }
-                    if let Err(err) = process_path(&client, &settings, &path).await {
-                        tracing::warn!(error = %err, file = %path.display(), "asset upload failed");
-                    }
+        if let Some(path) = rx.recv().await {
+            if check_auth_ready(&settings) {
+                tracing::info!(file = %path.display(), "received new asset notification, processing...");
+                if let Err(err) = process_path(&client, &settings, &path).await {
+                    tracing::warn!(error = %err, file = %path.display(), "asset upload failed");
                 }
             }
         }
@@ -298,6 +300,7 @@ fn check_auth_ready(settings: &AssetSyncInit) -> bool {
 }
 
 async fn run_full_scan(client: &Client, settings: &AssetSyncInit) -> Result<(), String> {
+    tracing::info!("starting full asset scan");
     for entry in WalkDir::new(&settings.save_root)
         .into_iter()
         .filter_map(|e| e.ok())
@@ -317,19 +320,21 @@ async fn process_path(
     settings: &AssetSyncInit,
     path: &Path,
 ) -> Result<(), String> {
+    tracing::info!(file = %path.display(), "processing path");
     let relative = match path.strip_prefix(&settings.save_root) {
         Ok(rel) => rel,
         Err(_) => return Err("file is outside of configured save root".into()),
     };
 
     if is_kcsapi(relative) {
+        tracing::info!(file = %relative.display(), "skipping kcsapi file");
         return Ok(());
     }
 
     if has_blocked_extension(relative, &settings.blocked_extensions) {
-        tracing::debug!(
+        tracing::info!(
             file = %relative.display(),
-            "asset sync skipped disallowed file extension"
+            "skipping because of blocked extension"
         );
         return Ok(());
     }
@@ -339,7 +344,10 @@ async fn process_path(
         None => return Err("unable to derive remote key".into()),
     };
 
+    tracing::info!(check_key = key, "checking if remote key exists");
+
     if PROCESSED_KEYS.contains(&key) {
+        tracing::info!(key, "skipping because already processed in this session");
         return Ok(());
     }
 
@@ -347,12 +355,13 @@ async fn process_path(
 
     if remote_key_exists(&key) {
         PROCESSED_KEYS.insert(key.clone());
-        tracing::debug!(key, "asset already exists upstream; skipping upload");
+        tracing::info!(key, "skipping because remote key already exists");
         return Ok(());
     }
 
     let metadata = fs::metadata(path).await.map_err(|err| err.to_string())?;
     if metadata.len() == 0 {
+        tracing::info!(file = %path.display(), "skipping zero-length file");
         return Err("skip zero-length file".into());
     }
 
@@ -399,11 +408,11 @@ fn build_client() -> Result<Client, reqwest::Error> {
 
 fn derive_origin(endpoint: &str) -> Result<String, String> {
     let url =
-        Url::parse(endpoint).map_err(|err| format!("invalid asset_sync.api_endpoint: {err}"))?;
+        Url::parse(endpoint).map_err(|err| format!("invalid asset_sync.asset_sync_api_endpoint: {err}"))?;
     let scheme = url.scheme();
     let host = url
         .host_str()
-        .ok_or_else(|| "asset_sync.api_endpoint missing host".to_string())?;
+        .ok_or_else(|| "asset_sync.asset_sync_api_endpoint missing host".to_string())?;
     let origin = match url.port() {
         Some(port) => format!("{}://{}:{}", scheme, host, port),
         None => format!("{}://{}", scheme, host),
@@ -411,7 +420,7 @@ fn derive_origin(endpoint: &str) -> Result<String, String> {
     Ok(origin)
 }
 
-fn get_supabase_access_token() -> Option<String> {
+pub fn get_supabase_access_token() -> Option<String> {
     match SUPABASE_ACCESS_TOKEN.read() {
         Ok(guard) => guard.clone(),
         Err(poisoned) => poisoned.into_inner().clone(),
@@ -426,6 +435,8 @@ async fn upload_via_api(
     key: &str,
     file_size: u64,
 ) -> Result<(), String> {
+    tracing::info!(key, file = %path.display(), size = file_size, "starting upload process");
+
     let bytes = fs::read(path)
         .await
         .map_err(|err| format!("failed to read file for upload: {err}"))?;
@@ -436,27 +447,19 @@ async fn upload_via_api(
         .or_else(|| path.file_name().map(|n| n.to_string_lossy().to_string()))
         .unwrap_or_else(|| "asset.bin".to_string());
 
-    let mut form = multipart::Form::new()
-        .text("key", key.to_string())
-        .text("relative_path", relative.to_string_lossy().to_string())
-        .text("file_size", file_size.to_string());
-
-    if let Some(tag) = &settings.finder_tag {
-        if !tag.is_empty() {
-            form = form.text("finder_tag", tag.clone());
-        }
-    }
-
-    let file_part = multipart::Part::bytes(bytes)
-        .file_name(filename)
-        .mime_str("application/octet-stream")
-        .map_err(|err| format!("failed to build multipart payload: {err}"))?;
-
-    form = form.part("file", file_part);
+    // Step 1: Handshake
+    let handshake_req = UploadHandshakeRequest {
+        key: key.to_string(),
+        relative_path: relative.to_string_lossy().to_string(),
+        file_size: file_size.to_string(),
+        finder_tag: settings.finder_tag.clone().filter(|t| !t.is_empty()),
+        file_name: filename.clone(),
+        content_type: "application/octet-stream".to_string(),
+    };
 
     let mut request = client
         .post(&settings.api_endpoint)
-        .multipart(form)
+        .json(&handshake_req)
         .header("Origin", &settings.api_origin);
 
     if settings.require_supabase_auth {
@@ -468,7 +471,7 @@ async fn upload_via_api(
     let response = request
         .send()
         .await
-        .map_err(|err| format!("asset sync request failed: {err}"))?;
+        .map_err(|err| format!("asset sync handshake failed: {err}"))?;
 
     let status = response.status();
     if status == StatusCode::CONFLICT {
@@ -478,13 +481,52 @@ async fn upload_via_api(
     if !status.is_success() {
         let body = response.text().await.unwrap_or_default();
         return Err(format!(
-            "asset sync API returned {}: {}",
+            "asset sync handshake returned {}: {}",
             status,
             body.trim()
         ));
     }
 
-    tracing::info!(key, endpoint = %settings.api_endpoint, "uploaded asset via API");
+    let handshake_res: UploadHandshakeResponse = response
+        .json()
+        .await
+        .map_err(|err| format!("failed to decode handshake response: {err}"))?;
+
+    tracing::info!(key, "upload handshake successful");
+
+    // Step 2: Execution
+    let mut upload_request = client
+        .post(&handshake_res.upload_url)
+        .body(bytes)
+        .header("Content-Type", "application/octet-stream")
+        .header("Origin", &settings.api_origin);
+
+    if settings.require_supabase_auth {
+        let token = get_supabase_access_token()
+            .ok_or_else(|| "Supabase access token not available for upload".to_string())?;
+        upload_request = upload_request.bearer_auth(token);
+    }
+
+    let upload_response = upload_request
+        .send()
+        .await
+        .map_err(|err| format!("asset sync upload failed: {err}"))?;
+
+    let upload_status = upload_response.status();
+    if upload_status == StatusCode::CONFLICT {
+        tracing::info!(key, "asset already existed upstream (409) during upload");
+        return Ok(());
+    }
+    if !upload_status.is_success() {
+        let body = upload_response.text().await.unwrap_or_default();
+        return Err(format!(
+            "asset sync upload returned {}: {}",
+            upload_status,
+            body.trim()
+        ));
+    }
+
+    tracing::info!(key, endpoint = %settings.api_endpoint, "asset upload successful");
     register_remote_key(key);
     Ok(())
 }
@@ -594,12 +636,18 @@ async fn maybe_refresh_existing_keys(
 ) -> Result<(), String> {
     let endpoint = match settings.existing_keys_endpoint.as_deref() {
         Some(value) => value,
-        None => return Ok(()),
+        None => {
+            tracing::warn!("existing_keys_endpoint is not configured; remote key cache is disabled");
+            return Ok(());
+        }
     };
 
     if remote_cache_is_fresh() {
+        tracing::info!("remote key cache is still fresh; skipping refresh");
         return Ok(());
     }
+
+    tracing::info!("remote key cache is stale or missing; refreshing from API: {}", endpoint);
 
     wait_for_remote_cache_jitter().await;
 
@@ -662,6 +710,13 @@ fn cache_remote_keys(payload: ExistingKeysResponse) {
     let expires_at = Instant::now() + ttl;
     let keys: HashSet<String> = payload.keys.into_iter().collect();
     let count = keys.len();
+
+    tracing::info!(
+        count = count,
+        expires_in_secs = ttl.as_secs(),
+        "caching remote keys. sample: {:?}",
+        keys.iter().take(5).collect::<Vec<_>>()
+    );
 
     {
         let mut guard = EXISTING_KEYS_CACHE

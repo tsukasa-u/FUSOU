@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <title>&#x76ee;&#x7684;</title>
+            <style>
+/* From extension vscode.github */
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
+.vscode-dark img[src$=\#gh-light-mode-only],
+.vscode-light img[src$=\#gh-dark-mode-only],
+.vscode-high-contrast:not(.vscode-high-contrast-light) img[src$=\#gh-light-mode-only],
+.vscode-high-contrast-light img[src$=\#gh-dark-mode-only] {
+	display: none;
+}
+
+</style>
+    <script type="module">
+      import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+      mermaid.initialize({ startOnLoad: true });
+    </script>
+            
+        <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/Microsoft/vscode/extensions/markdown-language-features/media/markdown.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/Microsoft/vscode/extensions/markdown-language-features/media/highlight.css">
+<style>
+            body {
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe WPC', 'Segoe UI', system-ui, 'Ubuntu', 'Droid Sans', sans-serif;
+                font-size: 14px;
+                line-height: 1.6;
+            }
+        </style>
+        <style>
+.task-list-item {
+    list-style-type: none;
+}
+
+.task-list-item-checkbox {
+    margin-left: -20px;
+    vertical-align: middle;
+    pointer-events: none;
+}
+</style>
+<style>
+:root {
+  --color-note: #0969da;
+  --color-tip: #1a7f37;
+  --color-warning: #9a6700;
+  --color-severe: #bc4c00;
+  --color-caution: #d1242f;
+  --color-important: #8250df;
+}
+
+</style>
+<style>
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-note: #2f81f7;
+    --color-tip: #3fb950;
+    --color-warning: #d29922;
+    --color-severe: #db6d28;
+    --color-caution: #f85149;
+    --color-important: #a371f7;
+  }
+}
+
+</style>
+<style>
+.markdown-alert {
+  padding: 0.5rem 1rem;
+  margin-bottom: 16px;
+  color: inherit;
+  border-left: .25em solid #888;
+}
+
+.markdown-alert>:first-child {
+  margin-top: 0
+}
+
+.markdown-alert>:last-child {
+  margin-bottom: 0
+}
+
+.markdown-alert .markdown-alert-title {
+  display: flex;
+  font-weight: 500;
+  align-items: center;
+  line-height: 1
+}
+
+.markdown-alert .markdown-alert-title .octicon {
+  margin-right: 0.5rem;
+  display: inline-block;
+  overflow: visible !important;
+  vertical-align: text-bottom;
+  fill: currentColor;
+}
+
+.markdown-alert.markdown-alert-note {
+  border-left-color: var(--color-note);
+}
+
+.markdown-alert.markdown-alert-note .markdown-alert-title {
+  color: var(--color-note);
+}
+
+.markdown-alert.markdown-alert-important {
+  border-left-color: var(--color-important);
+}
+
+.markdown-alert.markdown-alert-important .markdown-alert-title {
+  color: var(--color-important);
+}
+
+.markdown-alert.markdown-alert-warning {
+  border-left-color: var(--color-warning);
+}
+
+.markdown-alert.markdown-alert-warning .markdown-alert-title {
+  color: var(--color-warning);
+}
+
+.markdown-alert.markdown-alert-tip {
+  border-left-color: var(--color-tip);
+}
+
+.markdown-alert.markdown-alert-tip .markdown-alert-title {
+  color: var(--color-tip);
+}
+
+.markdown-alert.markdown-alert-caution {
+  border-left-color: var(--color-caution);
+}
+
+.markdown-alert.markdown-alert-caution .markdown-alert-title {
+  color: var(--color-caution);
+}
+
+</style>
+        
+        </head>
+        <body class="vscode-body vscode-light">
+            <hr>
+<h2 id="title-艦隊情報の同期設計手動同期ユーザータグ前提description-fusou-の艦隊情報をユーザーごとタグごとに保存共有するための設計手動同期を基本にストレージ選定api-フロー短縮-url-と権限管理をまとめるcontributors-github-copilotdate-2025-11-27slug-guiderealtime_fleet_synctags-guide-sync-storage">title: 艦隊情報の同期設計（手動同期：ユーザー×タグ前提）
+description: FUSOU の艦隊情報をユーザーごと・タグごとに保存・共有するための設計。手動同期を基本に、ストレージ選定・API フロー・短縮 URL と権限管理をまとめる。
+contributors: [&quot;github-copilot&quot;]
+date: 2025-11-27
+slug: guide/realtime_fleet_sync
+tags: [guide, sync, storage]</h2>
+<h2 id="目的">目的</h2>
+<ul>
+<li>ユーザーごと・タグごとに保存された艦隊スナップショットを、手動同期（Sync ボタン）または低頻度の定期同期で管理する。</li>
+<li>閲覧者は短縮 URL または共有リスト経由で該当スナップショットを取得する。多くの閲覧者がいても API 負荷とコストを抑える構成を目指す。</li>
+</ul>
+<h2 id="要件まとめ">要件まとめ</h2>
+<ul>
+<li>保存単位は <code>owner_id + tag</code> で一意に識別されること。</li>
+<li>各スナップショット本体は約 1MB（JSON）で、手動 or 定期（例: 日次、またはユーザー指定）で更新される。</li>
+<li>閲覧は基本的に Pull モデル（短縮 URL または一覧 → リクエスト）で行い、プッシュは行わない。</li>
+<li>認証・アクセス制御（公開／トークンベースの共有）を実装すること。</li>
+<li>多数の閲覧者を想定し、読み取りはエッジでキャッシュして負荷を下げる。</li>
+</ul>
+<hr>
+<p>（このドキュメントではリアルタイム P2P は扱わず、手動同期モデルに最適化した設計を提示します。）</p>
+<hr>
+<h2 id="本ドキュメントの前提と推奨アーキテクチャ">本ドキュメントの前提と推奨アーキテクチャ</h2>
+<p>前提に沿って現実的でコスト効率の良い構成を推奨します。</p>
+<ul>
+<li>書き込み（Sync）: Supabase（Postgres + jsonb）を canonical source とする。</li>
+<li>本体（約1MB の JSON）: 圧縮して Cloudflare R2 に保存。R2 は大きなバイナリ向けで安価。</li>
+<li>読み取り（大量の閲覧者）: Cloudflare Worker と CDN キャッシュ（Cache API）でエッジ配信。必要なら D1 を読み取りキャッシュとして併用。</li>
+</ul>
+<p>この構成は無料枠を最大限活かしつつ、読み取りコストを抑えることができます。</p>
+<hr>
+<h2 id="具体設計-スキーマapi保存フロー">具体設計: スキーマ・API・保存フロー</h2>
+<p>以下は実装しやすいスキーマと API の例です（手動同期・短縮 URL 想定）。</p>
+<h3 id="スキーマsupabase-metadata">スキーマ（Supabase: metadata）</h3>
+<pre><code class="language-sql"><span class="hljs-keyword">CREATE</span> <span class="hljs-keyword">TABLE</span> fleets (
+  id uuid <span class="hljs-keyword">PRIMARY</span> KEY <span class="hljs-keyword">DEFAULT</span> gen_random_uuid(),
+  owner_id uuid <span class="hljs-keyword">NOT</span> <span class="hljs-keyword">NULL</span>,
+  tag text <span class="hljs-keyword">NOT</span> <span class="hljs-keyword">NULL</span>,
+  title text,
+  r2_key text,
+  size_bytes <span class="hljs-type">int</span>,
+  version <span class="hljs-type">bigint</span> <span class="hljs-keyword">NOT</span> <span class="hljs-keyword">NULL</span> <span class="hljs-keyword">DEFAULT</span> <span class="hljs-number">1</span>,
+  updated_at timestamptz <span class="hljs-keyword">NOT</span> <span class="hljs-keyword">NULL</span> <span class="hljs-keyword">DEFAULT</span> now(),
+  is_public <span class="hljs-type">boolean</span> <span class="hljs-keyword">NOT</span> <span class="hljs-keyword">NULL</span> <span class="hljs-keyword">DEFAULT</span> <span class="hljs-literal">false</span>,
+  share_token text,
+  retention_policy text,
+  <span class="hljs-keyword">UNIQUE</span> (owner_id, tag)
+);
+<span class="hljs-keyword">CREATE</span> INDEX idx_fleets_owner_tag <span class="hljs-keyword">ON</span> fleets (owner_id, tag);
+<span class="hljs-keyword">CREATE</span> INDEX idx_fleets_share_token <span class="hljs-keyword">ON</span> fleets (share_token);
+</code></pre>
+<h3 id="r2-オブジェクト命名">R2 オブジェクト命名</h3>
+<ul>
+<li><code>fleets/{owner_id}/{tag}/{version}.json.gz</code> を慣例にする。圧縮して保存し、<code>r2_key</code> に格納する。</li>
+</ul>
+<h3 id="post-apifleetsnapshot簡潔フロー">POST /api/fleet/snapshot（簡潔フロー）</h3>
+<ol>
+<li>認証（JWT）を検証し <code>owner_id</code> を取得</li>
+<li>受け取った payload を gzip 圧縮、ハッシュとサイズを計算</li>
+<li>R2 に PUT（key = <code>fleets/{owner}/{tag}/{version}.json.gz</code>）</li>
+<li>Supabase に UPSERT して metadata を更新（<code>r2_key</code>, <code>version</code>, <code>size_bytes</code>, <code>updated_at</code>）</li>
+<li>レスポンスに <code>share_url</code>（必要なら <code>share_token</code>）と <code>version</code>, <code>updated_at</code> を返す</li>
+<li>非同期で Edge キャッシュ（Cloudflare Cache API / D1）にレプリケート（推奨: queue を使う）</li>
+</ol>
+<h3 id="get-stoken短縮-url">GET /s/:token（短縮 URL）</h3>
+<ol>
+<li>Worker が <code>share_token</code> を受け取り Supabase から metadata を取得</li>
+<li><code>is_public</code> またはトークンの妥当性を確認</li>
+<li>R2 からオブジェクトを取得（Worker Cache を利用すると高速）</li>
+<li><code>ETag</code>（例: <code>W/&quot;version-hash&quot;</code>）と <code>Cache-Control</code> を付けて返す</li>
+</ol>
+<hr>
+<h2 id="キャッシュ戦略とコスト削減の実務ポイント">キャッシュ戦略とコスト削減の実務ポイント</h2>
+<ul>
+<li>データは原則「最新のみ」を保持（history を必要とする場合は retention_policy により制御）。これが無料枠で運用するための最大のコツ。</li>
+<li>JSON は gzip 圧縮して R2 に保存（多くの場合 1MB → 数百 KB に圧縮）。</li>
+<li>可能なら内容の重複排除（content-hash ベース）を導入し、同一ペイロードは同じオブジェクトを参照する。</li>
+<li>閲覧者向けは Cloudflare の CDN キャッシュ（Cache-Control）を活用。Worker で <code>ETag</code> を付与して 304 を使わせる。</li>
+</ul>
+<hr>
+<h2 id="api-呼び出し数を抑える具体策手動同期モデル向け">API 呼び出し数を抑える具体策（手動同期モデル向け）</h2>
+<ol>
+<li>書き込みは原則ユーザーの手動 Sync または低頻度の定期（例: 日次）。高頻度（10分）を常時有効にしない。</li>
+<li>閲覧者は短縮 URL／一覧からの参照時のみ取得し、<code>ETag</code>/<code>If-None-Match</code> で 304 を活用。</li>
+<li>Cloudflare キャッシュで多数の読み取りをエッジで吸収する（<code>Cache-Control</code> の適切な設定）。</li>
+<li>データは圧縮・重複排除・最新のみ保持でストレージ料を削減。</li>
+</ol>
+<hr>
+<h2 id="実装ロードマップ手順">実装ロードマップ（手順）</h2>
+<p>短期（MVP）</p>
+<ul>
+<li>Supabase に <code>fleets</code> テーブルを作成し RLS を設定する</li>
+<li><code>POST /api/fleet/snapshot</code> を実装（Cloudflare Worker または Supabase Function） — payload を gzip → R2 PUT → Supabase UPSERT</li>
+<li>短縮 URL (<code>/s/:token</code>) を Cloudflare Worker で実装し、R2 から取得して返却（Cache-Control と ETag を付与）</li>
+</ul>
+<p>中期</p>
+<ul>
+<li>Edge キャッシュ（Cloudflare Cache API）や D1 を導入して読み取りレイテンシを削減</li>
+<li>非同期レプリケーション／キューで R2 ← Supabase の整合を担保</li>
+<li>retention / quota / pruning ジョブを実装</li>
+</ul>
+<p>長期</p>
+<ul>
+<li>必要な場合は閲覧者向けの追加 UX（Web Push 通知、差分表示、履歴）を導入</li>
+</ul>
+<hr>
+<h2 id="次にやることあなたが忘れないための短い-todo">次にやること（あなたが忘れないための短い ToDo）</h2>
+<p>このドキュメントの内容をすぐ実装に移すために、今私が提案している作業 A〜E をここに残します。どれを優先するか教えてください。</p>
+<p>A: Supabase 用 SQL（<code>fleets</code> テーブル + RLS ポリシー）を生成して <code>docs/</code> に追加する。
+B: Cloudflare Worker の短縮 URL <code>GET /s/:token</code> と <code>POST /worker/cache/upsert</code> の TypeScript サンプルを作成する。
+C: <code>POST /api/fleet/snapshot</code>（Cloudflare Worker）サンプル実装を作る（R2 PUT + Supabase UPSERT）。
+D: 圧縮と重複排除ロジック（content-hash ベース）と保存戦略をコード化する。
+E: ドキュメントをこの変更に合わせて追加更新（完了：このファイルが対象）。</p>
+<p>推奨開始順: <code>A</code> → <code>C</code> → <code>B</code> → <code>D</code>（順次、E はドキュメント作業なので随時行います）。</p>
+<hr>
+<p>このファイルをベースに、私が <code>A</code>（SQL + RLS）と <code>C</code>（snapshot endpoint）を作成してリポジトリに追加できます。どれを進めますか？（複数選択可、例: <code>A,C</code>）</p>
+<hr>
+<h2 id="セキュリティと共有モデルの提案">セキュリティと共有モデルの提案</h2>
+<ul>
+<li>認証: Supabase Auth を使い、JWT を Signaling と Persistence API で検証する</li>
+<li>共有リンク: <code>share_token</code> レコードを DB に作成し、有効期限・権限を持たせる</li>
+<li>RLS: <code>fleets</code> テーブルに RLS を設定して owner／token 保持者のみ SELECT を許可</li>
+</ul>
+<hr>
+<h2 id="次のアクション私の提案">次のアクション（私の提案）</h2>
+<ol>
+<li>あなたが望む初期プロトタイプを教えてください：
+<ul>
+<li>A: まずは <strong>MVP（中央集約）</strong> — fastest path to production（推奨）</li>
+<li>B: 直接 <strong>WebRTC ハイブリッド MVP</strong> を先に作る（Signaling + DataChannel + Persistence）</li>
+</ul>
+</li>
+<li>選んだら、私は即座に以下を作業します:
+<ul>
+<li>DB スキーマ SQL（<code>fleets</code>, RLS ポリシー）</li>
+<li>Edge Persistence API サンプル（Cloudflare Worker または Supabase Function）</li>
+<li>簡易 Signaling サーバー（WebSocket）サンプル（B を選んだ場合）</li>
+<li>FUSOU-APP 側と Web 側の最小サンプルコード（DataChannel send/receive + snapshot save）</li>
+</ul>
+</li>
+</ol>
+<hr>
+<p>必要ならこのドキュメントをベースに実装コード・SQL・サンプルを追加します。どちらのプロトタイプ（A または B）を先に作りましょうか？</p>
+
+            
+            
+        </body>
+        </html>

@@ -43,6 +43,10 @@ pub fn emit_data(handle: &tauri::AppHandle, emit_data: EmitData) {
             Set::Materials(data) => {
                 let _ = handle.emit_to("main", "set-kcs-materials", data);
             }
+            Set::UseItems(data) => {
+                data.restore();
+                // let _ = handle.emit_to("main", "set-kcs-use-items", data);
+            }
             Set::Ships(data) => {
                 data.restore();
                 let _ = handle.emit_to("main", "set-kcs-ships", data);

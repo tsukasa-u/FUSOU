@@ -1,0 +1,524 @@
+import type { APIRoute } from "astro";
+import {
+  createSignedToken,
+  verifySignedToken,
+} from "../_utils/signature";
+import {
+  readJsonBody,
+  handleJsonReadError,
+  CORS_HEADERS,
+} from "../_utils/http";
+
+// 環境変数の型定義
+type CloudflareEnv = {
+  ASSET_PAYLOAD_BUCKET?: R2BucketBinding;
+  PUBLIC_SUPABASE_URL?: string;
+  SUPABASE_SERVICE_ROLE_KEY?: string;
+  MAX_SNAPSHOT_BYTES?: string | number;
+  FLEET_SNAPSHOT_SIGNING_SECRET?: string;
+  PUBLIC_SUPABASE_ANON_KEY?: string;
+};
+
+// R2の型定義（簡易版）
+type R2BucketBinding = {
+  put(
+    key: string,
+    value: ArrayBuffer | ArrayBufferView | ReadableStream | Blob | string,
+    options?: { httpMetadata?: Record<string, string> }
+  ): Promise<any>;
+};
+
+export const prerender = false;
+
+// 定数
+const MAX_BODY_SIZE = 2 * 1024 * 1024; // 修正2: 入力JSONの上限 (2MB)
+const SNAPSHOT_TOKEN_TTL_SECONDS = 300;
+
+type SnapshotDescriptor = {
+  owner_id: string;
+  tag: string;
+  title?: string | null;
+  version?: number | null;
+  is_public?: boolean;
+};
+
+// 保持ポリシー
+// By default, when a new snapshot is uploaded the system will attempt to keep
+// only the newest snapshot for each tag (owner_id + tag) by removing older
+// objects in R2. This behavior can be disabled by setting
+// `SNAPSHOT_RETENTION_ENABLED=false` in your Pages/Cloudflare env.
+
+export const OPTIONS: APIRoute = async () =>
+  new Response(null, { status: 204, headers: CORS_HEADERS });
+
+export const POST: APIRoute = async ({ request, locals }) => {
+  const env = locals?.runtime?.env as unknown as CloudflareEnv | undefined;
+
+  const bucket = env?.ASSET_PAYLOAD_BUCKET;
+  const supabaseUrl = env?.PUBLIC_SUPABASE_URL;
+  const supabaseKey = env?.SUPABASE_SERVICE_ROLE_KEY;
+  const signingSecret =
+    env?.FLEET_SNAPSHOT_SIGNING_SECRET ||
+    import.meta.env.FLEET_SNAPSHOT_SIGNING_SECRET;
+
+  if (!bucket || !supabaseUrl || !supabaseKey) {
+    console.error("Missing environment variables");
+    return new Response(JSON.stringify({ error: "Server misconfiguration" }), {
+      status: 500,
+      headers: { ...CORS_HEADERS, "content-type": "application/json" },
+    });
+  }
+
+  if (!signingSecret) {
+    console.error("Snapshot signing secret is not configured");
+    return new Response(JSON.stringify({ error: "Server misconfiguration" }), {
+      status: 500,
+      headers: { ...CORS_HEADERS, "content-type": "application/json" },
+    });
+  }
+
+  const url = new URL(request.url);
+  if (!url.searchParams.has("token")) {
+    return handleSnapshotPreparation(
+      request,
+      url,
+      supabaseUrl,
+      signingSecret,
+      locals,
+    );
+  }
+
+  return handleSnapshotUpload(
+    request,
+    env,
+    url,
+    bucket as R2BucketBinding,
+    supabaseUrl as string,
+    supabaseKey as string,
+    signingSecret as string,
+    locals,
+  );
+}
+
+  
+
+async function handleSnapshotUpload(
+  request: Request,
+  env: CloudflareEnv | undefined,
+  url: URL,
+  bucket: R2BucketBinding,
+  supabaseUrl: string,
+  supabaseKey: string,
+  signingSecret: string,
+  locals: any,
+): Promise<Response> {
+  const descriptor = await verifySignedToken<SnapshotDescriptor>(
+    url.searchParams.get("token"),
+    url.searchParams.get("expires"),
+    url.searchParams.get("signature"),
+    signingSecret,
+  );
+
+  
+
+  if (!descriptor?.owner_id || !descriptor.tag) {
+    return new Response(JSON.stringify({ error: "Invalid or expired token" }), {
+      status: 401,
+      headers: { ...CORS_HEADERS, "content-type": "application/json" },
+    });
+  }
+
+  const auth = await resolveSupabaseUser(request, supabaseUrl, locals);
+  if (!auth || auth.userId !== descriptor.owner_id) {
+    return new Response(JSON.stringify({ error: "Unauthorized" }), {
+      status: 401,
+      headers: { ...CORS_HEADERS, "content-type": "application/json" },
+    });
+  }
+
+  const contentLength = Number(request.headers.get("content-length") || 0);
+  if (contentLength > MAX_BODY_SIZE) {
+    return new Response(JSON.stringify({ error: "Request payload too large" }), {
+      status: 413,
+      headers: { ...CORS_HEADERS, "content-type": "application/json" },
+    });
+  }
+
+  let body: any;
+  try {
+    body = await readJsonBody(request, MAX_BODY_SIZE);
+  } catch (err) {
+    return handleJsonReadError(err);
+  }
+
+  const payload = body?.payload;
+  if (!payload) {
+    return new Response(JSON.stringify({ error: "payload is required" }), {
+      status: 400,
+      headers: { ...CORS_HEADERS, "content-type": "application/json" },
+    });
+  }
+
+  // Reject truly empty payloads (empty object or empty array).
+  // Some small payloads (e.g. intentionally small snapshots) are allowed.
+  const isEmptyObject =
+    typeof payload === "object" && payload !== null && !Array.isArray(payload) && Object.keys(payload).length === 0;
+  const isEmptyArray = Array.isArray(payload) && payload.length === 0;
+  if (isEmptyObject || isEmptyArray) {
+    return new Response(
+      JSON.stringify({ error: "Empty payload is not allowed" }),
+      {
+        status: 400,
+        headers: { ...CORS_HEADERS, "content-type": "application/json" },
+      },
+    );
+  }
+
+  const text = JSON.stringify(payload);
+  const encoder = new TextEncoder();
+  const data = encoder.encode(text);
+
+  let compressed: Uint8Array;
+  try {
+    const cs = new CompressionStream("gzip");
+    const stream = new Response(data).body!.pipeThrough(cs);
+    const buf = await new Response(stream).arrayBuffer();
+    compressed = new Uint8Array(buf);
+  } catch {
+    return new Response(JSON.stringify({ error: "Compression failed" }), {
+      status: 500,
+      headers: { ...CORS_HEADERS, "content-type": "application/json" },
+    });
+  }
+
+  const maxStoredBytes = Number(env?.MAX_SNAPSHOT_BYTES ?? 2_500_000);
+  if (compressed.byteLength > maxStoredBytes) {
+    return new Response(
+      JSON.stringify({
+        error: "Compressed payload too large",
+        size: compressed.byteLength,
+      }),
+      {
+        status: 413,
+        headers: { ...CORS_HEADERS, "content-type": "application/json" },
+      },
+    );
+  }
+
+  const hashBuf = await crypto.subtle.digest(
+    "SHA-256",
+    new Uint8Array(compressed).buffer,
+  );
+  const hashHex = Array.from(new Uint8Array(hashBuf))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+
+  const version =
+    descriptor.version ??
+    (Number.isFinite(Number(body?.version))
+      ? Number(body.version)
+      : Date.now());
+  const title =
+    descriptor.title ??
+    (typeof body?.title === "string" ? body.title.slice(0, 128) : null);
+  const isPublic =
+    typeof descriptor.is_public === "boolean"
+      ? descriptor.is_public
+      : Boolean(body?.is_public);
+
+  const ownerId = descriptor.owner_id;
+  const key = `fleets/${ownerId}/${encodeURIComponent(descriptor.tag)}/${version}-${hashHex}.json.gz`;
+
+  try {
+    await bucket.put(key, compressed, {
+      httpMetadata: {
+        contentType: "application/json",
+        contentEncoding: "gzip",
+      },
+    });
+    
+  } catch (err: any) {
+    return new Response(
+      JSON.stringify({
+        error: "Failed to store payload in R2",
+        detail: String(err),
+      }),
+      {
+        status: 502,
+        headers: { ...CORS_HEADERS, "content-type": "application/json" },
+      },
+    );
+  }
+
+  const meta = {
+    owner_id: ownerId,
+    tag: descriptor.tag,
+    title: title || null,
+    r2_key: key,
+    size_bytes: compressed.byteLength,
+    version,
+    is_public: !!isPublic,
+    updated_at: new Date().toISOString(),
+  };
+
+  let retentionDiagnostic: any = null;
+  try {
+    let resp = await fetch(`${supabaseUrl}/rest/v1/fleets`, {
+      method: "POST",
+      headers: {
+        apikey: supabaseKey,
+        Authorization: `Bearer ${supabaseKey}`,
+        "Content-Type": "application/json",
+        Prefer: "resolution=merge-duplicates",
+      },
+      body: JSON.stringify(meta),
+    });
+
+    if (!resp.ok) {
+      const text = (await resp.text()) || "";
+      // if column 'size_bytes' is missing in DB schema cache, retry without it
+      if (text.includes("Could not find the 'size_bytes' column")) {
+        const sanitizedMeta: any = { ...meta };
+        delete sanitizedMeta.size_bytes;
+        try {
+          resp = await fetch(`${supabaseUrl}/rest/v1/fleets`, {
+            method: "POST",
+            headers: {
+              apikey: supabaseKey,
+              Authorization: `Bearer ${supabaseKey}`,
+              "Content-Type": "application/json",
+              Prefer: "resolution=merge-duplicates",
+            },
+            body: JSON.stringify(sanitizedMeta),
+          });
+        } catch (e) {
+          // ignore and let the subsequent error check handle it
+        }
+      }
+      if (!resp.ok) {
+        const text2 = (await resp.text()) || "";
+        return new Response(
+          JSON.stringify({ error: "Failed to upsert metadata", detail: text2 }),
+          {
+            status: 502,
+            headers: { ...CORS_HEADERS, "content-type": "application/json" },
+          },
+        );
+      }
+    }
+    // Perform cleanup synchronously (await). Errors are logged server-side.
+    try {
+      await cleanupOldSnapshots(bucket as any, ownerId, descriptor.tag, key);
+    } catch (e) {
+      console.error("Snapshot retention invocation failed", String(e));
+    }
+    
+  } catch (err: any) {
+    return new Response(
+      JSON.stringify({ error: "Supabase upsert failed", detail: String(err) }),
+      {
+        status: 502,
+        headers: { ...CORS_HEADERS, "content-type": "application/json" },
+      },
+    );
+  }
+
+  return new Response(
+    JSON.stringify({
+      ok: true,
+      owner_id: ownerId,
+      tag: descriptor.tag,
+      version,
+      r2_key: key,
+    }),
+    {
+      status: 200,
+      headers: { ...CORS_HEADERS, "content-type": "application/json" },
+    },
+  );
+}
+
+async function handleSnapshotPreparation(
+  request: Request,
+  url: URL,
+  supabaseUrl: string,
+  signingSecret: string,
+  locals: any,
+): Promise<Response> {
+  const auth = await resolveSupabaseUser(request, supabaseUrl, locals);
+  if (!auth) {
+    return new Response(JSON.stringify({ error: "Unauthorized" }), {
+      status: 401,
+      headers: { ...CORS_HEADERS, "content-type": "application/json" },
+    });
+  }
+
+  const contentLength = Number(request.headers.get("content-length") || 0);
+  if (contentLength > MAX_BODY_SIZE) {
+    return new Response(JSON.stringify({ error: "Request payload too large" }), {
+      status: 413,
+      headers: { ...CORS_HEADERS, "content-type": "application/json" },
+    });
+  }
+
+  let body: any;
+  try {
+    body = await readJsonBody(request, MAX_BODY_SIZE);
+  } catch (err) {
+    return handleJsonReadError(err);
+  }
+
+  const tag = typeof body?.tag === "string" ? body.tag.trim() : "";
+  if (!tag) {
+    return new Response(JSON.stringify({ error: "tag is required" }), {
+      status: 400,
+      headers: { ...CORS_HEADERS, "content-type": "application/json" },
+    });
+  }
+
+  const title =
+    typeof body?.title === "string" && body.title.trim().length > 0
+      ? body.title.trim().slice(0, 128)
+      : null;
+  const requestedVersion = Number(body?.version);
+  const descriptor: SnapshotDescriptor = {
+    owner_id: auth.userId,
+    tag,
+    title,
+    version: Number.isFinite(requestedVersion) ? requestedVersion : null,
+    is_public: Boolean(body?.is_public),
+  };
+
+  const signedToken = await createSignedToken(
+    descriptor,
+    signingSecret,
+    SNAPSHOT_TOKEN_TTL_SECONDS,
+  );
+
+  const signedUrl = new URL(url.toString());
+  signedUrl.searchParams.set("token", signedToken.token);
+  signedUrl.searchParams.set("expires", String(signedToken.expires));
+  signedUrl.searchParams.set("signature", signedToken.signature);
+
+  return new Response(
+    JSON.stringify({
+      uploadUrl: signedUrl.toString(),
+      expiresAt: new Date(signedToken.expires * 1000).toISOString(),
+      maxBodyBytes: MAX_BODY_SIZE,
+      fields: {
+        tag,
+        title,
+        version: descriptor.version,
+        is_public: descriptor.is_public,
+      },
+    }),
+    {
+      status: 200,
+      headers: { ...CORS_HEADERS, "content-type": "application/json" },
+    },
+  );
+}
+
+async function resolveSupabaseUser(
+  request: Request,
+  supabaseUrl: string,
+  locals: any,
+): Promise<{ token: string; userId: string } | null> {
+  const authHeader = request.headers.get("Authorization");
+  const token = authHeader?.startsWith("Bearer ")
+    ? authHeader.slice(7).trim()
+    : null;
+
+  if (!token) {
+    return null;
+  }
+
+  const anonKey = (locals.runtime?.env as any)?.PUBLIC_SUPABASE_ANON_KEY || import.meta.env.PUBLIC_SUPABASE_ANON_KEY;
+  if (!anonKey) {
+    console.error("PUBLIC_SUPABASE_ANON_KEY is not configured");
+    return null;
+  }
+
+  const response = await fetch(`${supabaseUrl}/auth/v1/user`, {
+    headers: {
+      apikey: anonKey,
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  if (!response.ok) {
+    console.warn(`Supabase validation failed with status ${response.status}`);
+    return null;
+  }
+
+  const user = await response.json();
+  if (!user?.id) {
+    return null;
+  }
+
+  return { token, userId: user.id };
+}
+
+// Cleanup helper: list objects under `fleets/{owner}/{encodedTag}/` and delete
+// everything except the provided `keepKey` (best-effort). This function is
+// defensive about the R2 list API shape and runs deletes in small batches.
+async function cleanupOldSnapshots(
+  bucket: any,
+  ownerId: string,
+  tag: string,
+  keepKey: string,
+): Promise<{ candidates: string[]; deleted: string[]; errors: Array<{ key: string; error: string }> }> {
+  const result = { candidates: [] as string[], deleted: [] as string[], errors: [] as Array<{ key: string; error: string }> };
+  if (!bucket || !ownerId || !tag) return result;
+
+  const prefix = `fleets/${ownerId}/${encodeURIComponent(tag)}/`;
+  let cursor: string | undefined = undefined;
+  const toDelete: string[] = [];
+
+  while (true) {
+    const res = await bucket.list({ prefix, cursor, limit: 100 }).catch((e: any) => {
+      const msg = String(e);
+      console.error("R2 list failed", msg);
+      result.errors.push({ key: prefix, error: msg });
+      return null;
+    });
+    if (!res) break;
+
+    const items = (res as any).objects ?? (res as any);
+    if (!items || !Array.isArray(items)) break;
+
+    for (const item of items) {
+      const k = item?.key || item?.name;
+      if (!k) continue;
+      if (k === keepKey) continue;
+      toDelete.push(k);
+    }
+
+    const truncated = Boolean((res as any).truncated);
+    if (!truncated) break;
+    cursor = (res as any).cursor;
+    if (!cursor) break;
+  }
+
+  result.candidates = toDelete.slice();
+  if (toDelete.length === 0) return result;
+
+  const concurrency = 5;
+  for (let i = 0; i < toDelete.length; i += concurrency) {
+    const batch = toDelete.slice(i, i + concurrency);
+    await Promise.all(
+      batch.map(async (k) => {
+        try {
+          await bucket.delete(k);
+          result.deleted.push(k);
+        } catch (e: any) {
+          const msg = String(e);
+          console.error(`Failed to delete R2 object ${k}`, msg);
+          result.errors.push({ key: k, error: msg });
+        }
+      }),
+    );
+  }
+
+  return result;
+}

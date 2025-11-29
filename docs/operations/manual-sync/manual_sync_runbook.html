@@ -1,0 +1,869 @@
+<!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <title>&#x6982;&#x8981;&#x3068;&#x76ee;&#x7684;</title>
+            <style>
+/* From extension vscode.github */
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
+.vscode-dark img[src$=\#gh-light-mode-only],
+.vscode-light img[src$=\#gh-dark-mode-only],
+.vscode-high-contrast:not(.vscode-high-contrast-light) img[src$=\#gh-light-mode-only],
+.vscode-high-contrast-light img[src$=\#gh-dark-mode-only] {
+	display: none;
+}
+
+</style>
+    <script type="module">
+      import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+      mermaid.initialize({ startOnLoad: true });
+    </script>
+            <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex/dist/katex.min.css">
+<link href="https://cdn.jsdelivr.net/npm/katex-copytex@latest/dist/katex-copytex.min.css" rel="stylesheet" type="text/css">
+        <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/Microsoft/vscode/extensions/markdown-language-features/media/markdown.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/Microsoft/vscode/extensions/markdown-language-features/media/highlight.css">
+<style>
+            body {
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe WPC', 'Segoe UI', system-ui, 'Ubuntu', 'Droid Sans', sans-serif;
+                font-size: 14px;
+                line-height: 1.6;
+            }
+        </style>
+        <style>
+.task-list-item {
+    list-style-type: none;
+}
+
+.task-list-item-checkbox {
+    margin-left: -20px;
+    vertical-align: middle;
+    pointer-events: none;
+}
+</style>
+<style>
+:root {
+  --color-note: #0969da;
+  --color-tip: #1a7f37;
+  --color-warning: #9a6700;
+  --color-severe: #bc4c00;
+  --color-caution: #d1242f;
+  --color-important: #8250df;
+}
+
+</style>
+<style>
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-note: #2f81f7;
+    --color-tip: #3fb950;
+    --color-warning: #d29922;
+    --color-severe: #db6d28;
+    --color-caution: #f85149;
+    --color-important: #a371f7;
+  }
+}
+
+</style>
+<style>
+.markdown-alert {
+  padding: 0.5rem 1rem;
+  margin-bottom: 16px;
+  color: inherit;
+  border-left: .25em solid #888;
+}
+
+.markdown-alert>:first-child {
+  margin-top: 0
+}
+
+.markdown-alert>:last-child {
+  margin-bottom: 0
+}
+
+.markdown-alert .markdown-alert-title {
+  display: flex;
+  font-weight: 500;
+  align-items: center;
+  line-height: 1
+}
+
+.markdown-alert .markdown-alert-title .octicon {
+  margin-right: 0.5rem;
+  display: inline-block;
+  overflow: visible !important;
+  vertical-align: text-bottom;
+  fill: currentColor;
+}
+
+.markdown-alert.markdown-alert-note {
+  border-left-color: var(--color-note);
+}
+
+.markdown-alert.markdown-alert-note .markdown-alert-title {
+  color: var(--color-note);
+}
+
+.markdown-alert.markdown-alert-important {
+  border-left-color: var(--color-important);
+}
+
+.markdown-alert.markdown-alert-important .markdown-alert-title {
+  color: var(--color-important);
+}
+
+.markdown-alert.markdown-alert-warning {
+  border-left-color: var(--color-warning);
+}
+
+.markdown-alert.markdown-alert-warning .markdown-alert-title {
+  color: var(--color-warning);
+}
+
+.markdown-alert.markdown-alert-tip {
+  border-left-color: var(--color-tip);
+}
+
+.markdown-alert.markdown-alert-tip .markdown-alert-title {
+  color: var(--color-tip);
+}
+
+.markdown-alert.markdown-alert-caution {
+  border-left-color: var(--color-caution);
+}
+
+.markdown-alert.markdown-alert-caution .markdown-alert-title {
+  color: var(--color-caution);
+}
+
+</style>
+        
+        </head>
+        <body class="vscode-body vscode-light">
+            <hr>
+<p>title: 手動同期 (Sync) 実装ランブック
+このドキュメントは、FUSOU の「ユーザー×タグ」単位で艦隊スナップショットを手動同期（Sync ボタン）する実装を、安全かつ運用しやすく導入するための実務ランブックです。
+contributors: [&quot;github-copilot&quot;]
+date: 2025-11-27
+目次</p>
+<ul>
+<li>
+<p>概要と目的</p>
+</li>
+<li>
+<p>前提（ツール・アカウント）</p>
+</li>
+<li>
+<p>高レベル設計（Supabase + R2 + Worker）</p>
+</li>
+<li>
+<p>実装ステップ（詳細、コマンド付き）</p>
+</li>
+<li>
+<p>セキュリティと危険箇所</p>
+</li>
+<li>
+<p>テスト計画（E2E）</p>
+</li>
+<li>
+<p>運用（Retention / Monitoring / Cost）</p>
+</li>
+<li>
+<p>受け入れ基準 (Acceptance Criteria)</p>
+</li>
+<li>
+<p>付録: 便利コマンドとサンプル</p>
+</li>
+<li>
+<p>概要と目的</p>
+</li>
+<li>
+<p>前提（ツール・アカウント）</p>
+</li>
+<li>
+<p>高レベル設計（Supabase + R2 + Worker）</p>
+</li>
+<li>
+<p>実装ステップ（詳細、コマンド付き）</p>
+</li>
+<li>
+<p>セキュリティと危険箇所</p>
+</li>
+<li>
+<p>テスト計画（E2E）</p>
+</li>
+<li>
+<p>運用（Retention / Monitoring / Cost）</p>
+</li>
+<li>
+<p>受け入れ基準 (Acceptance Criteria)</p>
+</li>
+<li>
+<p>付録: 便利コマンドとサンプル</p>
+</li>
+<li>
+<p>概要と目的</p>
+</li>
+<li>
+<p>前提（ツール・アカウント）
+ユーザーが自身の艦隊情報スナップショット（約1MB）を手動でサーバに保存できるようにする。</p>
+</li>
+<li>
+<p>保存は <code>owner_id + tag</code> をキーとし、メタデータは Supabase（Postgres）、ペイロード本体は Cloudflare R2 に保存する。</p>
+</li>
+<li>
+<p>閲覧者は短縮 URL（/s/:token）や共有リスト経由でデータを取得する。大量閲覧は Cloudflare の CDN/Cache が吸収する。</p>
+</li>
+<li>
+<p>実装ステップ（詳細、コマンド付き）</p>
+</li>
+<li>
+<p>セキュリティと危険箇所</p>
+</li>
+<li>
+<p>テスト計画（E2E）</p>
+</li>
+<li>
+<p>運用（Retention / Monitoring / Cost）
+ローカルツール: <code>psql</code>, <code>curl</code>, <code>jq</code>, <code>wrangler</code> (Cloudflare CLI), <code>supabase</code> CLI (任意)</p>
+</li>
+<li>
+<p>アカウント: Supabase プロジェクト、Cloudflare アカウント（Pages/Workers + R2）</p>
+</li>
+<li>
+<p>リポジトリ: このリポジトリの <code>docs/</code> に既に次が存在します:</p>
+<ul>
+<li>
+<p><code>docs/sql/supabase_fleets_schema.sql</code> (スキーマ)</p>
+</li>
+<li>
+<p><code>packages/FUSOU-WEB/src/pages/api/fleet/snapshot.ts</code> (snapshot POST サンプル)</p>
+</li>
+<li>
+<p><code>docs/scripts/apply_supabase_schema.sh</code>, <code>docs/scripts/test_snapshot.sh</code> など</p>
+</li>
+</ul>
+</li>
+<li>
+<p>付録: 便利コマンドとサンプル</p>
+</li>
+</ul>
+<hr>
+<h2 id="概要と目的">概要と目的</h2>
+<ul>
+<li>
+<p>ユーザーが自身の艦隊情報スナップショット（約1MB）を手動でサーバに保存できるようにする。</p>
+</li>
+<li>
+<p>保存は <code>owner_id + tag</code> をキーとし、メタデータは Supabase（Postgres）、ペイロード本体は Cloudflare R2 に保存する。</p>
+</li>
+<li>
+<p>閲覧者は短縮 URL（/s/:token）や共有リスト経由でデータを取得する。大量閲覧は Cloudflare の CDN/Cache が吸収する。</p>
+</li>
+</ul>
+<p>理由（短く）: Supabase は認証・RLS・UPSERT 等の管理機能があり、R2 は大きなオブジェクト保存が安価かつ CDN に親和性が高い。D1 は小さなキャッシュに向くが本体置き場には向かない。</p>
+<ul>
+<li>ユーザーが自身の艦隊情報スナップショット（約1MB）を手動でサーバに保存できるようにする。</li>
+<li>保存は <code>owner_id + tag</code> をキーとし、メタデータは Supabase（Postgres）、ペイロード本体は Cloudflare R2 に保存する。</li>
+<li>閲覧者は短縮 URL（/s/:token）や共有リスト経由でデータを取得する。大量閲覧は Cloudflare の CDN/Cache が吸収する。</li>
+</ul>
+<p>理由（短く）: Supabase は認証・RLS・UPSERT 等の管理機能があり、R2 は大きなオブジェクト保存が安価かつ CDN に親和性が高い。D1 は小さなキャッシュに向くが本体置き場には向かない。</p>
+<hr>
+<h2 id="前提ツールアカウント">前提（ツール・アカウント）</h2>
+<ul>
+<li>
+<p>ローカルツール: <code>psql</code>, <code>curl</code>, <code>jq</code>, <code>wrangler</code> (Cloudflare CLI), <code>supabase</code> CLI (任意)</p>
+</li>
+<li>
+<p>アカウント: Supabase プロジェクト、Cloudflare アカウント（Pages/Workers + R2）</p>
+</li>
+<li>
+<p>リポジトリ: このリポジトリの <code>docs/</code> に既に次が存在します:</p>
+<ul>
+<li>
+<p><code>docs/sql/supabase_fleets_schema.sql</code> (スキーマ)</p>
+</li>
+<li>
+<p><code>packages/FUSOU-WEB/src/pages/api/fleet/snapshot.ts</code> (snapshot POST サンプル)</p>
+</li>
+<li>
+<p><code>docs/scripts/apply_supabase_schema.sh</code>, <code>docs/scripts/test_snapshot.sh</code> など</p>
+</li>
+</ul>
+</li>
+</ul>
+<p>前提が満たされない場合は、先に準備してください。CLI の導入やアカウント作成方法は Cloudflare / Supabase の公式チュートリアルを参照してください。</p>
+<ul>
+<li>ローカルツール: <code>psql</code>, <code>curl</code>, <code>jq</code>, <code>wrangler</code> (Cloudflare CLI), <code>supabase</code> CLI (任意)</li>
+<li>アカウント: Supabase プロジェクト、Cloudflare アカウント（Pages/Workers + R2）</li>
+<li>リポジトリ: このリポジトリの <code>docs/</code> に既に次が存在します:
+<ul>
+<li><code>docs/sql/supabase_fleets_schema.sql</code> (スキーマ)</li>
+<li><code>packages/FUSOU-WEB/src/pages/api/fleet/snapshot.ts</code> (snapshot POST サンプル)</li>
+<li><code>docs/scripts/apply_supabase_schema.sh</code>, <code>docs/scripts/test_snapshot.sh</code> など</li>
+</ul>
+</li>
+</ul>
+<p>前提が満たされない場合は、先に準備してください。CLI の導入やアカウント作成方法は Cloudflare / Supabase の公式チュートリアルを参照してください。</p>
+<hr>
+<h2 id="高レベル設計図と説明">高レベル設計（図と説明）</h2>
+<ul>
+<li>
+<p>FUSOU-APP (client) —ユーザーが Sync を押す→ POST <code>/api/fleet/snapshot</code> (Worker)</p>
+</li>
+<li>
+<p>Worker:</p>
+<ul>
+<li>
+<p>JWT を検証 → owner_id を決定</p>
+</li>
+<li>
+<p>payload を gzip 圧縮 → R2 に PUT（key: <code>fleets/{owner}/{tag}/{version}-{hash}.json.gz</code>）</p>
+</li>
+<li>
+<p>Supabase に metadata を UPSERT（owner_id, tag, r2_key, version, size, updated_at, share_token）</p>
+</li>
+<li>
+<p>非同期でエッジキャッシュ更新ジョブを登録（optional）</p>
+</li>
+</ul>
+</li>
+<li>
+<p>Viewer: <code>/s/:token</code> Worker が metadata を確認し R2 から取得、ETag/Cache-Control を付けて返す（Cache miss 時に Supabase フallback）</p>
+</li>
+</ul>
+<p>合理性: 書き込みは canonical（Supabase）に集約し、読み取りは CDN/edge で最小コストで提供する。R2 はバイナリに最適、Supabase は権限制御とクエリに最適。</p>
+<ol>
+<li>FUSOU-APP (client) —ユーザーが Sync を押す→ POST <code>/api/fleet/snapshot</code> (Worker)
+<ul>
+<li>payload を gzip 圧縮 → R2 に PUT（key: <code>fleets/{owner}/{tag}/{version}-{hash}.json.gz</code>）</li>
+<li>Supabase に metadata を UPSERT（owner_id, tag, r2_key, version, size, updated_at, share_token）</li>
+<li>非同期でエッジキャッシュ更新ジョブを登録（optional）</li>
+</ul>
+</li>
+<li>Viewer: <code>/s/:token</code> Worker が metadata を確認し R2 から取得、ETag/Cache-Control を付けて返す（Cache miss 時に Supabase フallback）</li>
+</ol>
+<p>合理性: 書き込みは canonical（Supabase）に集約し、読み取りは CDN/edge で最小コストで提供する。R2 はバイナリに最適、Supabase は権限制御とクエリに最適。</p>
+<hr>
+<h2 id="実装ステップ詳細">実装ステップ（詳細）</h2>
+<p>以下は順序通りに進める具体手順とコマンド、ファイル参照、注意点です。</p>
+<h3 id="ステップ-1-スキーマを-supabase-に適用する">ステップ 1: スキーマを Supabase に適用する</h3>
+<p>目的: <code>fleets</code> テーブルを作成し、RLS ポリシーを有効にする。</p>
+<p>コマンド:</p>
+<pre><code class="language-bash"><span class="hljs-built_in">export</span> SUPABASE_DB_URL=<span class="hljs-string">&quot;postgres://&lt;user&gt;:&lt;pass&gt;@&lt;host&gt;:5432/&lt;db&gt;&quot;</span>
+./docs/scripts/apply_supabase_schema.sh
+</code></pre>
+<p>注意:</p>
+<ul>
+<li>
+<p>本番 DB に直接適用しない。まず staging で動作検証する。</p>
+</li>
+<li>
+<p><code>auth.uid()</code> が Supabase の JWT による <code>sub</code> と一致するか確認すること。</p>
+</li>
+</ul>
+<p>合格条件:</p>
+<ul>
+<li>
+<p><code>fleets</code> テーブルが作成されていること。</p>
+</li>
+<li>
+<p>RLS が有効化され、owner のみが自分の行を SELECT/UPDATE できることを確認。</p>
+</li>
+</ul>
+<p>以下は順序通りに進める具体手順とコマンド、ファイル参照、注意点です。</p>
+<h3 id="ステップ-1-スキーマを-supabase-に適用する-1">ステップ 1: スキーマを Supabase に適用する</h3>
+<p>目的: <code>fleets</code> テーブルを作成し、RLS ポリシーを有効にする。</p>
+<p>コマンド:</p>
+<pre><code class="language-bash"><span class="hljs-built_in">export</span> SUPABASE_DB_URL=<span class="hljs-string">&quot;postgres://&lt;user&gt;:&lt;pass&gt;@&lt;host&gt;:5432/&lt;db&gt;&quot;</span>
+./docs/scripts/apply_supabase_schema.sh
+</code></pre>
+<p>注意:</p>
+<ul>
+<li>本番 DB に直接適用しない。まず staging で動作検証する。</li>
+<li><code>auth.uid()</code> が Supabase の JWT による <code>sub</code> と一致するか確認すること。</li>
+</ul>
+<p>合格条件:</p>
+<ul>
+<li><code>fleets</code> テーブルが作成されていること。</li>
+<li>RLS が有効化され、owner のみが自分の行を SELECT/UPDATE できることを確認。</li>
+</ul>
+<h3 id="ステップ-2-cloudflare-r2-バケットと-pagesworker-バインディングを作る">ステップ 2: Cloudflare R2 バケットと Pages/Worker バインディングを作る</h3>
+<p>目的: Payload を保存する R2 バケットを準備する。</p>
+<p>手順: Cloudflare Dashboard → R2 → Create bucket. 名前は <code>asset_payloads</code> など。</p>
+<p>Pages/Worker の設定:</p>
+<ul>
+<li>
+<p>Pages: Settings → Environment variables &amp; secrets → add R2 binding (ASSET_PAYLOAD_BUCKET)</p>
+</li>
+<li>
+<p>Workers (wrangler): <code>wrangler.toml</code> に <code>r2_buckets</code> 設定を追加</p>
+</li>
+</ul>
+<p>注意:</p>
+<ul>
+<li>Binding 名とコード中の <code>ASSET_PAYLOAD_BUCKET</code> が一致すること。</li>
+</ul>
+<p>合格条件:</p>
+<ul>
+<li>Worker の環境から R2 に PUT/GET できる（テストで確認）。</li>
+</ul>
+<p>目的: Payload を保存する R2 バケットを準備する。</p>
+<p>手順: Cloudflare Dashboard → R2 → Create bucket. 名前は <code>asset_payloads</code> など。</p>
+<p>Pages/Worker の設定:</p>
+<ul>
+<li>Pages: Settings → Environment variables &amp; secrets → add R2 binding (ASSET_PAYLOAD_BUCKET)</li>
+<li>Workers (wrangler): <code>wrangler.toml</code> に <code>r2_buckets</code> 設定を追加</li>
+</ul>
+<p>注意:</p>
+<ul>
+<li>Binding 名とコード中の <code>ASSET_PAYLOAD_BUCKET</code> が一致すること。</li>
+</ul>
+<p>合格条件:</p>
+<ul>
+<li>Worker の環境から R2 に PUT/GET できる（テストで確認）。</li>
+</ul>
+<h3 id="ステップ-3-secrets-を設定する">ステップ 3: Secrets を設定する</h3>
+<p>目的: <code>SUPABASE_SERVICE_KEY</code> と必要な env を Worker に安全に設定する。</p>
+<p>手順 (wrangler):</p>
+<pre><code class="language-bash">wrangler login
+wrangler secret put SUPABASE_SERVICE_KEY
+</code></pre>
+<p>あるいは Pages dashboard の Environment variables に設定。</p>
+<p>注意:</p>
+<ul>
+<li>service role key は非常に強力。ブラウザへ絶対露出しないこと。</li>
+</ul>
+<p>合格条件: Worker から <code>SUPABASE_SERVICE_KEY</code> を参照でき、Supabase REST にアクセスできること。</p>
+<p>目的: <code>SUPABASE_SERVICE_KEY</code> と必要な env を Worker に安全に設定する。</p>
+<p>手順 (wrangler):</p>
+<pre><code class="language-bash">wrangler login
+wrangler secret put SUPABASE_SERVICE_KEY
+</code></pre>
+<p>あるいは Pages dashboard の Environment variables に設定。</p>
+<p>注意:</p>
+<ul>
+<li>service role key は非常に強力。ブラウザへ絶対露出しないこと。</li>
+</ul>
+<p>合格条件: Worker から <code>SUPABASE_SERVICE_KEY</code> を参照でき、Supabase REST にアクセスできること。</p>
+<h3 id="ステップ-4-snapshot-post-エンドポイントの強化">ステップ 4: Snapshot POST エンドポイントの強化</h3>
+<p>目的: 既存サンプルを本番向けに改善する（JWT 検証、サイズ制限、idempotency、ログ）。</p>
+<p>具体実装項目:</p>
+<ol>
+<li>
+<p>JWT 検証:</p>
+<ul>
+<li>
+<p>署名検証: Supabase の JWKS を使って署名を検証するか、Supabase の <code>/auth/v1/user</code> を叩く（Worker から）</p>
+</li>
+<li>
+<p>検証後に <code>sub</code> を <code>owner_id</code> と一致させる。</p>
+</li>
+</ul>
+</li>
+<li>
+<p>Size limit: <code>content-length</code> or streaming limit (max 2MB).</p>
+</li>
+<li>
+<p>Idempotency: クライアントから <code>idempotency-key</code> ヘッダ or <code>version</code> を受け取り二重書き込みを防ぐ。</p>
+</li>
+<li>
+<p>Error handling: 502/5xx を返す前に詳細ログを残す。</p>
+</li>
+<li>
+<p>Rate limiting: Worker-level token-bucket or Cloudflare rate limiting rules。</p>
+</li>
+</ol>
+<p>注意:</p>
+<ul>
+<li>JWT 検証は外部呼び出しを含む場合がありレイテンシ要因となる。キャッシュを工夫する。</li>
+</ul>
+<p>合格条件:</p>
+<ul>
+<li>正常 JWT の場合にのみアップロード成功。無効 JWT は 401 を返す。</li>
+</ul>
+<p>目的: 既存サンプルを本番向けに改善する（JWT 検証、サイズ制限、idempotency、ログ）。</p>
+<p>具体実装項目:</p>
+<ol>
+<li>JWT 検証:
+<ul>
+<li>署名検証: Supabase の JWKS を使って署名を検証するか、Supabase の <code>/auth/v1/user</code> を叩く（Worker から）</li>
+<li>検証後に <code>sub</code> を <code>owner_id</code> と一致させる。</li>
+</ul>
+</li>
+<li>Size limit: <code>content-length</code> or streaming limit (max 2MB).</li>
+<li>Idempotency: クライアントから <code>idempotency-key</code> ヘッダ or <code>version</code> を受け取り二重書き込みを防ぐ。</li>
+<li>Error handling: 502/5xx を返す前に詳細ログを残す。</li>
+<li>Rate limiting: Worker-level token-bucket or Cloudflare rate limiting rules.</li>
+</ol>
+<p>注意:</p>
+<ul>
+<li>JWT 検証は外部呼び出しを含む場合がありレイテンシ要因となる。キャッシュを工夫する。</li>
+</ul>
+<p>合格条件:</p>
+<ul>
+<li>正常 JWT の場合にのみアップロード成功。無効 JWT は 401 を返す。</li>
+</ul>
+<h3 id="ステップ-5-get-stoken-worker-を実装する">ステップ 5: GET <code>/s/:token</code> Worker を実装する</h3>
+<p>目的: 短縮 URL 経由で payload を返却し、ETag と Cache-Control をつけて 304 をサポートする。</p>
+<p>実装フロー:</p>
+<ol>
+<li>
+<p>Worker receives <code>token</code> from path.</p>
+</li>
+<li>
+<p>Query Supabase: <code>SELECT r2_key, version, is_public FROM fleets WHERE share_token = $1</code> using service key.</p>
+</li>
+<li>
+<p>If not found: 404.</p>
+</li>
+<li>
+<p>If <code>is_public</code> is false: require additional verification (token match is the auth).</p>
+</li>
+<li>
+<p>Try to serve from Cache API. If miss: fetch object from R2 (<code>R2.get(r2_key)</code>), cache response.</p>
+</li>
+<li>
+<p>Compute <code>ETag</code> from <code>version</code> and <code>hash</code> (or stored hash). If <code>If-None-Match</code> matches → return 304.</p>
+</li>
+</ol>
+<p>注意:</p>
+<ul>
+<li>Cache API keys must be constructed to prevent cache poisoning; include token or r2_key as cache key.</li>
+</ul>
+<p>合格条件:</p>
+<ul>
+<li>Viewer が <code>/s/&lt;token&gt;</code> で 200 (or 304) を受け取り、レスポンスに <code>ETag</code> と <code>Cache-Control</code> が含まれる。</li>
+</ul>
+<p>目的: 短縮 URL 経由で payload を返却し、ETag と Cache-Control をつけて 304 をサポートする。</p>
+<p>実装フロー:</p>
+<ol>
+<li>Worker receives <code>token</code> from path.</li>
+<li>Query Supabase: <code>SELECT r2_key, version, is_public FROM fleets WHERE share_token = $1</code> using service key.</li>
+<li>If not found: 404.</li>
+<li>If <code>is_public</code> is false: require additional verification (token match is the auth).</li>
+<li>Try to serve from Cache API. If miss: fetch object from R2 (<code>R2.get(r2_key)</code>), cache response.</li>
+<li>Compute <code>ETag</code> from <code>version</code> and <code>hash</code> (or stored hash). If <code>If-None-Match</code> matches → return 304.</li>
+</ol>
+<p>注意:</p>
+<ul>
+<li>Cache API keys must be constructed to prevent cache poisoning; include token or r2_key as cache key.</li>
+</ul>
+<p>合格条件:</p>
+<ul>
+<li>Viewer が <code>/s/&lt;token&gt;</code> で 200 (or 304) を受け取り、レスポンスに <code>ETag</code> と <code>Cache-Control</code> が含まれる。</li>
+</ul>
+<h3 id="ステップ-6-client-fusou-app-の-sync-ボタン実装">ステップ 6: Client (FUSOU-APP) の Sync ボタン実装</h3>
+<p>目的: ユーザーが明示的に同期を行う UI を提供する。</p>
+<p>実装要点:</p>
+<ul>
+<li>
+<p>ボタン: <code>Sync</code> — 押下で payload を取得して <code>POST /api/fleet/snapshot</code> を呼ぶ。</p>
+</li>
+<li>
+<p>UI: 同期中インジケータ・成功/失敗ハンドリング・最終同期時刻表示</p>
+</li>
+<li>
+<p>Token: Client には Supabase Auth の JWT を使わせる（サインイン済みのユーザー）</p>
+</li>
+</ul>
+<p>注意:</p>
+<ul>
+<li>Client 側で <code>SUPABASE_SERVICE_KEY</code> を絶対に使わない。</li>
+</ul>
+<p>合格条件:</p>
+<ul>
+<li>実際に Sync して R2 にオブジェクトが作成され、Supabase metadata が更新される。</li>
+</ul>
+<p>目的: ユーザーが明示的に同期を行う UI を提供する。</p>
+<p>実装要点:</p>
+<ul>
+<li>ボタン: <code>Sync</code> — 押下で payload を取得して <code>POST /api/fleet/snapshot</code> を呼ぶ。</li>
+<li>UI: 同期中インジケータ・成功/失敗ハンドリング・最終同期時刻表示</li>
+<li>Token: Client には Supabase Auth の JWT を使わせる（サインイン済みのユーザー）</li>
+</ul>
+<p>注意:</p>
+<ul>
+<li>Client 側で <code>SUPABASE_SERVICE_KEY</code> を絶対に使わない。</li>
+</ul>
+<p>合格条件:</p>
+<ul>
+<li>実際に Sync して R2 にオブジェクトが作成され、Supabase metadata が更新される。</li>
+</ul>
+<h3 id="ステップ-7-retention--pruning--dedup">ステップ 7: Retention / Pruning / Dedup</h3>
+<p>目的: ストレージを制御してコストを抑える。</p>
+<p>実装案:</p>
+<ul>
+<li>
+<p>デフォルトは「latest only」。必要時 <code>retention_policy</code> による履歴保存。</p>
+</li>
+<li>
+<p>Nightly job (Worker cron or Supabase scheduled function) が expired objects を削除。</p>
+</li>
+<li>
+<p>Dedup: content-hash を filename に入れて同一オブジェクトは参照共有。</p>
+</li>
+</ul>
+<p>注意: 削除は不可逆。運用でログとエクスポート手順を必須にする。</p>
+<p>合格条件: 定期ジョブが意図したオブジェクトを削除し、総ストレージ使用量が見込内にあること。</p>
+<p>目的: ストレージを制御してコストを抑える。</p>
+<p>実装案:</p>
+<ul>
+<li>デフォルトは「latest only」。必要時 <code>retention_policy</code> による履歴保存。</li>
+<li>Nightly job (Worker cron or Supabase scheduled function) が expired objects を削除。</li>
+<li>Dedup: content-hash を filename に入れて同一オブジェクトは参照共有。</li>
+</ul>
+<p>注意: 削除は不可逆。運用でログとエクスポート手順を必須にする。</p>
+<p>合格条件: 定期ジョブが意図したオブジェクトを削除し、総ストレージ使用量が見込内にあること。</p>
+<hr>
+<h2 id="セキュリティと危険箇所詳細">セキュリティと危険箇所（詳細）</h2>
+<ol>
+<li><code>SUPABASE_SERVICE_KEY</code> の漏洩</li>
+</ol>
+<ul>
+<li>
+<p>リスク: DB の全操作ができる。悪意のある利用でデータ漏洩や改竄、削除が発生。</p>
+</li>
+<li>
+<p>対策: Worker の env のみ、アクセスは最小限、Git に入れない、定期ローテーション。</p>
+</li>
+</ul>
+<ol start="2">
+<li>JWT の未検証/誤検証</li>
+</ol>
+<ul>
+<li>
+<p>リスク: 他者になりすましてアップロード可能。</p>
+</li>
+<li>
+<p>対策: JWKS で署名検証、<code>aud</code> / <code>iss</code> / <code>exp</code> をチェック、<code>sub</code> を owner_id と比較。</p>
+</li>
+</ul>
+<ol start="3">
+<li>大量 PUT / Egress コスト</li>
+</ol>
+<ul>
+<li>
+<p>リスク: 大量アップロードやダウンロードでコスト増。</p>
+</li>
+<li>
+<p>対策: サイズ上限、ユーザ毎クォータ、Cloudflare Cache の活用、最新のみ保存。</p>
+</li>
+</ul>
+<ol start="4">
+<li>キャッシュの誤設定</li>
+</ol>
+<ul>
+<li>
+<p>リスク: private データがパブリックキャッシュに残る。</p>
+</li>
+<li>
+<p>対策: private は Worker で認証→cache-control: private, must-revalidate; public は explicit allow。</p>
+</li>
+</ul>
+<ol>
+<li><code>SUPABASE_SERVICE_KEY</code> の漏洩</li>
+</ol>
+<ul>
+<li>リスク: DB の全操作ができる。悪意のある利用でデータ漏洩や改竄、削除が発生。</li>
+<li>対策: Worker の env のみ、アクセスは最小限、Git に入れない、定期ローテーション。</li>
+</ul>
+<ol start="2">
+<li>JWT の未検証/誤検証</li>
+</ol>
+<ul>
+<li>リスク: 他者になりすましてアップロード可能。</li>
+<li>対策: JWKS で署名検証、<code>aud</code> / <code>iss</code> / <code>exp</code> をチェック、<code>sub</code> を owner_id と比較。</li>
+</ul>
+<ol start="3">
+<li>大量 PUT / Egress コスト</li>
+</ol>
+<ul>
+<li>リスク: 大量アップロードやダウンロードでコスト増。</li>
+<li>対策: サイズ上限、ユーザ毎クォータ、Cloudflare Cache の活用、最新のみ保存。</li>
+</ul>
+<ol start="4">
+<li>キャッシュの誤設定</li>
+</ol>
+<ul>
+<li>リスク: private データがパブリックキャッシュに残る。</li>
+<li>対策: private は Worker で認証→cache-control: private, must-revalidate; public は explicit allow。</li>
+</ul>
+<hr>
+<h2 id="テスト計画e2e">テスト計画（E2E）</h2>
+<ol>
+<li>単体テスト</li>
+</ol>
+<ul>
+<li>圧縮・hash 関数、ETag ビルダ、R2 キーの組成をユニットテストする。</li>
+</ul>
+<ol start="2">
+<li>結合テスト（Staging）</li>
+</ol>
+<ul>
+<li>
+<p>ステップ:</p>
+<ul>
+<li>
+<p>deploy Worker (staging)</p>
+</li>
+<li>
+<p>run: <code>SITE_URL=https://staging-site.pages.dev AUTH_TOKEN=&lt;jwt&gt; OWNER_ID=&lt;uuid&gt; ./docs/scripts/test_snapshot.sh</code></p>
+</li>
+<li>
+<p>verify: Supabase に metadata が存在、R2 オブジェクトが存在</p>
+</li>
+<li>
+<p>GET <code>/s/:token</code> を実行して 200 and ETag</p>
+</li>
+<li>
+<p>Conditional GET with <code>If-None-Match</code> returns 304</p>
+</li>
+</ul>
+</li>
+</ul>
+<ol start="3">
+<li>負荷テスト（オプション）</li>
+</ol>
+<ul>
+<li>小規模: 100 concurrent reads on <code>/s/:token</code> to ensure CDN / Worker scaling</li>
+</ul>
+<ol>
+<li>単体テスト</li>
+</ol>
+<ul>
+<li>圧縮・hash 関数、ETag ビルダ、R2 キーの組成をユニットテストする。</li>
+</ul>
+<ol start="2">
+<li>結合テスト（Staging）</li>
+</ol>
+<ul>
+<li>ステップ:
+<ul>
+<li>deploy Worker (staging)</li>
+<li>run: <code>SITE_URL=https://staging-site.pages.dev AUTH_TOKEN=&lt;jwt&gt; OWNER_ID=&lt;uuid&gt; ./docs/scripts/test_snapshot.sh</code></li>
+<li>verify: Supabase に metadata が存在、R2 オブジェクトが存在</li>
+<li>GET <code>/s/:token</code> を実行して 200 and ETag</li>
+<li>Conditional GET with <code>If-None-Match</code> returns 304</li>
+</ul>
+</li>
+</ul>
+<ol start="3">
+<li>負荷テスト（オプション）</li>
+</ol>
+<ul>
+<li>小規模: 100 concurrent reads on <code>/s/:token</code> to ensure CDN / Worker scaling</li>
+</ul>
+<hr>
+<h2 id="運用monitoring--alerts--backups">運用（Monitoring / Alerts / Backups）</h2>
+<ul>
+<li>
+<p>監視項目: R2 egress, R2 PUT/GET count, Worker error rate, Supabase write errors, D1 hit/miss (if used)</p>
+</li>
+<li>
+<p>アラート例: R2 egress &gt; X GB/day, Worker error rate &gt; 1% over 5m</p>
+</li>
+<li>
+<p>バックアップ: Supabase の定期バックアップを有効、重要メタはエクスポート</p>
+</li>
+<li>
+<p>監視項目: R2 egress, R2 PUT/GET count, Worker error rate, Supabase write errors, D1 hit/miss (if used)</p>
+</li>
+<li>
+<p>アラート例: R2 egress &gt; X GB/day, Worker error rate &gt; 1% over 5m</p>
+</li>
+<li>
+<p>バックアップ: Supabase の定期バックアップを有効、重要メタはエクスポート</p>
+</li>
+</ul>
+<hr>
+<h2 id="受け入れ基準-acceptance-criteria">受け入れ基準 (Acceptance Criteria)</h2>
+<p>最低基準:</p>
+<ul>
+<li>
+<p>Staging 環境で <code>POST /api/fleet/snapshot</code> により R2 と Supabase が正しく更新される。</p>
+</li>
+<li>
+<p><code>/s/:token</code> で payload を取得でき、<code>ETag</code> を使った 304 が動作する。</p>
+</li>
+<li>
+<p>JWT 未認証では 401、size limit 超過では 413 を返す。</p>
+</li>
+</ul>
+<p>運用基準:</p>
+<ul>
+<li>
+<p>Edge キャッシュにより 90% 以上の読み取りが CDN にヒットする（測定期間により異なる）。</p>
+</li>
+<li>
+<p>Retention job により不要オブジェクトが自動削除されている。</p>
+</li>
+</ul>
+<p>最低基準:</p>
+<ul>
+<li>Staging 環境で <code>POST /api/fleet/snapshot</code> により R2 と Supabase が正しく更新される。</li>
+<li><code>/s/:token</code> で payload を取得でき、<code>ETag</code> を使った 304 が動作する。</li>
+<li>JWT 未認証では 401、size limit 超過では 413 を返す。</li>
+</ul>
+<p>運用基準:</p>
+<ul>
+<li>Edge キャッシュにより 90% 以上の読み取りが CDN にヒットする（測定期間により異なる）。</li>
+<li>Retention job により不要オブジェクトが自動削除されている。</li>
+</ul>
+<hr>
+<h2 id="付録-便利コマンドと小さなサンプル">付録: 便利コマンドと小さなサンプル</h2>
+<ul>
+<li>Apply schema (already added):</li>
+</ul>
+<pre><code class="language-bash"><span class="hljs-built_in">export</span> SUPABASE_DB_URL=<span class="hljs-string">&quot;postgres://user:pass@host:5432/db&quot;</span>
+./docs/scripts/apply_supabase_schema.sh
+</code></pre>
+<ul>
+<li>Test snapshot POST (use test script):</li>
+</ul>
+<pre><code class="language-bash"><span class="hljs-built_in">export</span> SITE_URL=<span class="hljs-string">&quot;https://your-site.pages.dev&quot;</span>
+<span class="hljs-built_in">export</span> AUTH_TOKEN=<span class="hljs-string">&quot;&lt;test-jwt&gt;&quot;</span>
+<span class="hljs-built_in">export</span> OWNER_ID=<span class="hljs-string">&quot;&lt;uuid&gt;&quot;</span>
+./docs/scripts/test_snapshot.sh
+</code></pre>
+<ul>
+<li>Conditional GET check:</li>
+</ul>
+<pre><code class="language-bash">curl -I <span class="hljs-string">&quot;https://your-site/s/&lt;token&gt;&quot;</span> -H <span class="hljs-string">&#x27;If-None-Match: W/&quot;v123-&lt;hash&gt;&quot;&#x27;</span>
+</code></pre>
+<ul>
+<li>Apply schema (already added):</li>
+</ul>
+<pre><code class="language-bash"><span class="hljs-built_in">export</span> SUPABASE_DB_URL=<span class="hljs-string">&quot;postgres://user:pass@host:5432/db&quot;</span>
+./docs/scripts/apply_supabase_schema.sh
+</code></pre>
+<ul>
+<li>Test snapshot POST (use test script):</li>
+</ul>
+<pre><code class="language-bash"><span class="hljs-built_in">export</span> SITE_URL=<span class="hljs-string">&quot;https://your-site.pages.dev&quot;</span>
+<span class="hljs-built_in">export</span> AUTH_TOKEN=<span class="hljs-string">&quot;&lt;test-jwt&gt;&quot;</span>
+<span class="hljs-built_in">export</span> OWNER_ID=<span class="hljs-string">&quot;&lt;uuid&gt;&quot;</span>
+./docs/scripts/test_snapshot.sh
+</code></pre>
+<ul>
+<li>Conditional GET check:</li>
+</ul>
+<pre><code class="language-bash">curl -I <span class="hljs-string">&quot;https://your-site/s/&lt;token&gt;&quot;</span> -H <span class="hljs-string">&#x27;If-None-Match: W/&quot;v123-&lt;hash&gt;&quot;&#x27;</span>
+</code></pre>
+<hr>
+<p>このドキュメントをベースに、私が <code>GET /s/:token</code> Worker の実装（コード + deploy 手順 + test script）を追加できます。続けて実装する場合は「はい、<code>GET</code> を実装して」とお伝えください。もし他に細かい要望（例: retention の具体ポリシー、ダッシュボード推奨）あれば教えてください。</p>
+<h3 id="private-snapshot-testing">Private snapshot testing</h3>
+<p>To test access to a private snapshot (where <code>is_public = false</code>), include a valid Supabase JWT in the <code>Authorization</code> header. The Worker will validate the JWT against Supabase and ensure the token owner matches the <code>owner_id</code> on the <code>fleets</code> row.</p>
+<p>Example:</p>
+<pre><code class="language-bash">SITE_URL=https://your-site.pages.dev TOKEN=&lt;share_token&gt; AUTH_TOKEN=&lt;jwt&gt;
+curl -v -H <span class="hljs-string">&quot;Authorization: Bearer <span class="hljs-variable">${AUTH_TOKEN}</span>&quot;</span> <span class="hljs-string">&quot;<span class="hljs-variable">${SITE_URL%/}</span>/s/<span class="hljs-variable">${TOKEN}</span>&quot;</span>
+</code></pre>
+<p>If the JWT belongs to the snapshot owner this returns the payload; otherwise the Worker returns <code>401</code> (invalid token) or <code>403</code> (not owner).</p>
+
+            <script async src="https://cdn.jsdelivr.net/npm/katex-copytex@latest/dist/katex-copytex.min.js"></script>
+            
+        </body>
+        </html>

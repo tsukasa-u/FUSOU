@@ -24,6 +24,15 @@ use crate::interface::slot_item::SlotItems;
 use crate::sequence;
 use tracing_unwrap::OptionExt;
 
+use sha2::{Digest, Sha256};
+use flate2::write::GzEncoder;
+use flate2::Compression;
+use reqwest::Client;
+use hex;
+use once_cell::sync::OnceCell;
+use std::sync::Mutex;
+use tauri_plugin_notification::NotificationExt;
+
 #[tauri::command]
 pub async fn get_mst_ships(window: tauri::Window) {
     let data = MstShips::load();
@@ -370,4 +379,26 @@ pub fn set_launch_page(app: &AppHandle) {
 
 pub fn set_update_page(app: &AppHandle) {
     let _ = app.emit_to("main", "set-main-page-update", ());
+}
+
+#[tauri::command]
+pub async fn perform_snapshot_sync(_window: tauri::Window) -> Result<serde_json::Value, String> {
+    
+    crate::cloud_storage::snapshot::perform_snapshot_sync_app(&_window.app_handle()).await
+}
+
+#[tauri::command]
+pub async fn show_native_notification(_window: tauri::Window, title: String, body: String) -> Result<(), String> {
+    // Use the bundled `tauri-plugin-notification` plugin via the app handle.
+    let app = _window.app_handle();
+    match app
+        .notification()
+        .builder()
+        .title(&title)
+        .body(&body)
+        .show()
+    {
+        Ok(_) => Ok(()),
+        Err(e) => Err(format!("native notification failed: {}", e)),
+    }
 }

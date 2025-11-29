@@ -1,12 +1,6 @@
 import type { APIRoute } from "astro";
-import {
-  getAssetKeyCache,
-  setAssetKeyCache,
-  type AssetKeyCache,
-} from "./cache-store";
-
+import type { AssetKeyCache, D1Database, D1AllResult } from "./types";
 const CACHE_TTL_SECONDS = 6 * 60 * 60; // 6 hours
-const CACHE_TTL_MS = CACHE_TTL_SECONDS * 1000;
 const CORS_HEADERS: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET,OPTIONS",
@@ -15,6 +9,7 @@ const CORS_HEADERS: Record<string, string> = {
 
 interface CloudflareEnv {
   ASSET_SYNC_BUCKET?: R2BucketBinding;
+  ASSET_INDEX_DB?: D1Database;
 }
 
 type R2BucketBinding = {
@@ -46,51 +41,45 @@ export const OPTIONS: APIRoute = async () =>
   new Response(null, { status: 204, headers: CORS_HEADERS });
 
 export const GET: APIRoute = async ({ locals, request }) => {
+  const cache = await caches.open("asset-sync-cache");
+  const cachedResponse = await cache.match(request);
+  if (cachedResponse) {
+    return cachedResponse;
+  }
+
   const env = extractEnv(locals.runtime?.env);
-  const bucket = env?.ASSET_SYNC_BUCKET;
-  if (!bucket) {
+
+  const db = env?.ASSET_INDEX_DB;
+  if (!db) {
     return errorResponse(
-      "Asset sync bucket is not configured. Bind ASSET_SYNC_BUCKET in Cloudflare.",
-      503,
+      "ASSET_INDEX_DB is not configured. Bind D1 database as ASSET_INDEX_DB.",
+      503
     );
   }
 
-  const now = Date.now();
-  const cached = getAssetKeyCache();
-  const ifNoneMatch = request.headers.get("if-none-match");
-  if (cached && cached.expiresAt > now) {
-    if (ifNoneMatch && cached.etag === ifNoneMatch) {
-      return notModifiedResponse(cached.etag);
-    }
-    return jsonResponse(buildPayload(cached, true), cached.etag);
+  try {
+    const url = new URL(request.url);
+    // const stmt = db.prepare("SELECT key FROM files ORDER BY uploaded_at DESC LIMIT 1000");
+    const stmt = db.prepare("SELECT key FROM files ORDER BY uploaded_at DESC");
+    const res: D1AllResult | undefined = await stmt.all?.();
+    const keys = (res?.results || [])
+      .map((r) => (typeof r.key === "string" ? r.key : undefined))
+      .filter(Boolean) as string[];
+
+    const refreshedAt = Date.now();
+    const expiresAt = refreshedAt + CACHE_TTL_SECONDS * 1000;
+    const etag = buildEtag(refreshedAt);
+    const cacheData = { keys, refreshedAt, expiresAt, etag };
+    const response = jsonResponse(buildPayload(cacheData, false), etag);
+
+    await cache.put(request, response.clone());
+
+    return response;
+  } catch (e) {
+    console.error("D1 listing failed", e);
+    return errorResponse("Failed to list assets from D1", 502);
   }
-
-  const keys = await fetchAllKeys(bucket);
-  const refreshedAt = now;
-  const expiresAt = now + CACHE_TTL_MS;
-  const etag = buildEtag(refreshedAt);
-  const cache: AssetKeyCache = { keys, refreshedAt, expiresAt, etag };
-  setAssetKeyCache(cache);
-
-  return jsonResponse(buildPayload(cache, false), etag);
 };
-
-async function fetchAllKeys(bucket: R2BucketBinding): Promise<string[]> {
-  const keys: string[] = [];
-  let cursor: string | undefined;
-
-  do {
-    const response = await bucket.list({ cursor, limit: 1000 });
-    if (response.objects?.length) {
-      for (const obj of response.objects) {
-        keys.push(obj.key);
-      }
-    }
-    cursor = response.truncated ? response.cursor : undefined;
-  } while (cursor);
-
-  return keys;
-}
 
 function buildPayload(cache: AssetKeyCache, cached: boolean): KeyPayload {
   return {
@@ -109,7 +98,11 @@ function extractEnv(value: unknown): CloudflareEnv | undefined {
   return value as CloudflareEnv;
 }
 
-function jsonResponse(payload: KeyPayload, etag: string, status = 200): Response {
+function jsonResponse(
+  payload: KeyPayload,
+  etag: string,
+  status = 200
+): Response {
   return new Response(JSON.stringify(payload), {
     status,
     headers: {

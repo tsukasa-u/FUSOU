@@ -18,6 +18,26 @@ export function SettingsComponent() {
 
       <h1 class="mx-6 pt-6 pb-2 text-3xl font-semibold">Settings</h1>
       <div class="mx-6">
+            <div class="divider divider-horizonal py-0 mt-4 mb-8" />
+
+            <p class="py-2 text-xl font-semibold">Manual Snapshot Sync</p>
+            <p class="px-px leading-5">Trigger a manual snapshot sync to the configured server.</p>
+            <div class="mt-4 flex items-center justify-end">
+              <button
+                class="btn btn-primary border-primary-content btn-wide"
+                onClick={async () => {
+                  try {
+                    // Signal Rust to perform snapshot sync; notifications are handled in Rust.
+                    await invoke("perform_snapshot_sync");
+                  } catch (e: any) {
+                    console.error("manual snapshot sync failed:", e);
+                  }
+                }}
+              >
+                Sync snapshot
+              </button>
+            </div>
+
         <div class="divider divider-horizonal py-0 mt-4 mb-8" />
 
         <p class="py-2 text-xl font-semibold">Reload App Pages</p>

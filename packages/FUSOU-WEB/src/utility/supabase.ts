@@ -10,23 +10,23 @@ export const supabase = createClient(
   }
 );
 
-export const getRefreshToken = async (user_id: string) => {
-  const { data, error } = await supabase
-    .from("users")
-    .select("provider_refresh_token")
-    .eq("id", user_id)
-    .single()
-    .then(({ data, error }) => {
-      if (error) {
-        console.error("Error selecting refresh token:", error);
-      } else {
-        console.log("Refresh token selected successfully:", data);
-      }
-      return { data, error };
-    });
-  if (error) {
-    console.error("Error selecting refresh token:", error);
-    return null;
-  }
-  return data?.provider_refresh_token;
-};
+// export const getRefreshToken = async (user_id: string) => {
+//   const { data, error } = await supabase
+//     .from("users")
+//     .select("provider_refresh_token")
+//     .eq("id", user_id)
+//     .single()
+//     .then(({ data, error }) => {
+//       if (error) {
+//         console.error("Error selecting refresh token:", error);
+//       } else {
+//         console.log("Refresh token selected successfully:", data);
+//       }
+//       return { data, error };
+//     });
+//   if (error) {
+//     console.error("Error selecting refresh token:", error);
+//     return null;
+//   }
+//   return data?.provider_refresh_token;
+// };

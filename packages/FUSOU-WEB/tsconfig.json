@@ -4,10 +4,14 @@
   "include": [".astro/types.d.ts", "**/*"],
   "exclude": ["dist"],
   "compilerOptions": {
+    "lib": ["ES2022", "DOM"],
+    "module": "es2020",
+    "moduleResolution": "bundler",
     "strictNullChecks": true,
     "paths": {
       "@/*": ["./src/*"]
-    }
+    },
+    "types": ["@cloudflare/workers-types", "astro/client"]
   }
   // "compilerOptions": {
   //   "jsx": "preserve",

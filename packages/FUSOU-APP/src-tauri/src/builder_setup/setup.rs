@@ -3,9 +3,7 @@ use std::path::PathBuf;
 use std::{env, fs, sync::Mutex, time};
 
 use tauri::{
-    menu::{CheckMenuItemBuilder, MenuBuilder, MenuItemBuilder, SubmenuBuilder},
-    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    Manager,
+    Emitter, Manager, menu::{CheckMenuItemBuilder, MenuBuilder, MenuItemBuilder, SubmenuBuilder}, tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent}
 };
 use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_autostart::ManagerExt;
@@ -139,6 +137,9 @@ fn setup_tray(
     let open_log_file =
         MenuItemBuilder::with_id("open-log-file".to_string(), "Open log file").build(app)?;
 
+    let sync_snapshot =
+        MenuItemBuilder::with_id("sync-snapshot".to_string(), "Sync snapshot").build(app)?;
+
     let launch_at_startup = if autostart_allowed {
         let autostart_enabled = app.autolaunch().is_enabled().unwrap_or(false);
         Some(
@@ -187,6 +188,7 @@ fn setup_tray(
     let advanced_sub_menu = advanced_sub_menu
         .item(&open_configs)
         .item(&open_log_file)
+        .item(&sync_snapshot)
         .item(&intergrate_file)
         .item(&check_update)
         .separator()
@@ -433,6 +435,28 @@ fn setup_tray(
                         let path_str = log_path.to_string_lossy();
                         let _ = tray.app_handle().opener().open_path(path_str, None::<&str>);
                     }
+                    "sync-snapshot" => {
+                        tracing::info!("Tray menu action: sync-snapshot selected");
+                        let app_handle = tray.app_handle();
+
+                        if proxy_https::asset_sync::get_supabase_access_token().is_none() {
+                            tracing::warn!("Snapshot sync requires authentication, but no token is available.");
+                            let _ = app_handle
+                                .notification()
+                                .builder()
+                                .title("Authentication Required")
+                                .body("Please sign in to sync your snapshot.")
+                                .show();
+                        } else {
+                            let app_handle_clone = app_handle.clone();
+                            tauri::async_runtime::spawn(async move {
+                                match crate::cloud_storage::snapshot::perform_snapshot_sync_app(&app_handle_clone).await {
+                                    Ok(_) => tracing::info!("Snapshot sync completed (tray-trigger)"),
+                                    Err(e) => tracing::error!("Snapshot sync failed (tray-trigger): {}", e),
+                                }
+                            });
+                        }
+                    }
                     "intergrate_file" => {
                         integrate::integrate_port_table();
                     }
@@ -653,7 +677,6 @@ pub fn setup_init(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>
     }
     setup_tray(app, shutdown_tx, autostart_allowed)?;
     configure_channel_transport();
-    setup_tray(app, shutdown_tx)?;
     setup_discord()?;
     notify_startup(app);
     scheduler::integrate_file::start_scheduler();

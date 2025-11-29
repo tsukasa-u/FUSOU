@@ -3,3 +3,5 @@
 export type SlotItem = { id: number, slotitem_id: number, locked: number, level: number, alv: number | null, };
 
 export type SlotItems = { slot_items: { [key in number]?: SlotItem }, };
+
+export type UseItems = { use_items: { [key in number]?: number }, };

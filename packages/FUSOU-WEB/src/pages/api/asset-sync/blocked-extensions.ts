@@ -1,41 +1,46 @@
-const DEFAULT_BLOCKED_EXTENSIONS = ["mp3", "woff2", ".js"];
+const DEFAULT_BLOCKED_EXTENSIONS: string[] = [];
+const DEFAULT_ALLOWED_EXTENSIONS = [
+  "png",
+  "jpg",
+  "jpeg",
+  "gif",
+  "webp",
+  "bmp",
+  "json",
+  "mp3",
+];
 
-type BlocklistSource = string | undefined;
+type ExtensionSource = string | undefined;
 
-export function resolveBlockedExtensions(
-  ...sources: BlocklistSource[]
+export function resolveAllowedExtensions(
+  ...sources: ExtensionSource[]
 ): Set<string> {
   for (const source of sources) {
-    const entries = parseBlockedList(source);
+    const entries = parseList(source);
     if (entries.length > 0) {
       return new Set(entries);
     }
   }
-  return new Set(DEFAULT_BLOCKED_EXTENSIONS);
+  return new Set(DEFAULT_ALLOWED_EXTENSIONS);
 }
 
-export function hasBlockedExtension(
+export function violatesAllowList(
   candidates: Array<string | null | undefined>,
-  blocked: Set<string>,
+  allowList: Set<string>
 ): boolean {
-  if (blocked.size === 0) {
-    return false;
+  if (allowList.size === 0) {
+    return true;
   }
   return candidates.some((value) => {
     const ext = extractExtension(value);
-    return ext ? blocked.has(ext) : false;
+    if (!ext) {
+      return true;
+    }
+    return !allowList.has(ext);
   });
 }
 
-function parseBlockedList(value?: string): string[] {
-  if (!value) return [];
-  return value
-    .split(",")
-    .map((item) => item.trim().toLowerCase().replace(/^[.]+/, ""))
-    .filter((item) => item.length > 0);
-}
-
-function extractExtension(value?: string | null): string | null {
+export function extractExtension(value?: string | null): string | null {
   if (!value) return null;
   const normalized = value.trim().toLowerCase();
   const last = normalized.lastIndexOf(".");
@@ -43,4 +48,12 @@ function extractExtension(value?: string | null): string | null {
     return null;
   }
   return normalized.substring(last + 1);
+}
+
+function parseList(value?: string): string[] {
+  if (!value) return [];
+  return value
+    .split(",")
+    .map((item) => item.trim().toLowerCase().replace(/^[.]+/, ""))
+    .filter((item) => item.length > 0);
 }

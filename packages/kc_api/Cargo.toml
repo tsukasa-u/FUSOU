@@ -9,6 +9,7 @@ members = [
 	"crates/register_trait",
 	"crates/register_macro_derive_and_attr",
 	"crates/kc-api-integration-test",
+	"crates/kc-fleet-snapshot",
 ]
 resolver = "2"
 
@@ -34,6 +35,7 @@ kc-api-interface = { path = "crates/kc-api-interface" }
 kc-api-dto = { path = "crates/kc-api-dto" }
 kc-api-parser = { path = "crates/kc-api-parser" }
 kc-api-interface-adapter = { path = "crates/kc-api-interface-adapter" }
+kc-fleet-snapshot = { path = "crates/kc-fleet-snapshot" }
 regex = "1.10.6"
 sqids = "0.4.1"
 serde = { version = "1.0", features = ["derive"] }
