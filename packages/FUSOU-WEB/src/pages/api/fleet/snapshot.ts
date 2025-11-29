@@ -159,6 +159,21 @@ async function handleSnapshotUpload(
     });
   }
 
+  // Reject truly empty payloads (empty object or empty array).
+  // Some small payloads (e.g. intentionally small snapshots) are allowed.
+  const isEmptyObject =
+    typeof payload === "object" && payload !== null && !Array.isArray(payload) && Object.keys(payload).length === 0;
+  const isEmptyArray = Array.isArray(payload) && payload.length === 0;
+  if (isEmptyObject || isEmptyArray) {
+    return new Response(
+      JSON.stringify({ error: "Empty payload is not allowed" }),
+      {
+        status: 400,
+        headers: { ...CORS_HEADERS, "content-type": "application/json" },
+      },
+    );
+  }
+
   const text = JSON.stringify(payload);
   const encoder = new TextEncoder();
   const data = encoder.encode(text);
@@ -246,6 +261,7 @@ async function handleSnapshotUpload(
     updated_at: new Date().toISOString(),
   };
 
+  let retentionDiagnostic: any = null;
   try {
     let resp = await fetch(`${supabaseUrl}/rest/v1/fleets`, {
       method: "POST",
@@ -290,15 +306,12 @@ async function handleSnapshotUpload(
         );
       }
     }
-    // Best-effort: keep only the newest snapshot per owner/tag on R2
-    // Controlled by SNAPSHOT_RETENTION_ENABLED environment variable (default enabled)
+    // Perform cleanup synchronously (await) and include diagnostics in response.
     try {
-      // Always attempt cleanup: keep newest per owner/tag. Failures are best-effort.
-      cleanupOldSnapshots(bucket as any, ownerId, descriptor.tag, key).catch((e) =>
-        console.error("Snapshot retention cleanup failed", String(e)),
-      );
+      retentionDiagnostic = await cleanupOldSnapshots(bucket as any, ownerId, descriptor.tag, key);
     } catch (e) {
       console.error("Snapshot retention invocation failed", String(e));
+      retentionDiagnostic = { candidates: [], deleted: [], errors: [{ key: null, error: String(e) }] };
     }
     
   } catch (err: any) {
@@ -318,6 +331,7 @@ async function handleSnapshotUpload(
       tag: descriptor.tag,
       version,
       r2_key: key,
+      retention_diagnostic: retentionDiagnostic,
     }),
     {
       status: 200,
@@ -455,8 +469,9 @@ async function cleanupOldSnapshots(
   ownerId: string,
   tag: string,
   keepKey: string,
-) {
-  if (!bucket || !ownerId || !tag) return;
+): Promise<{ candidates: string[]; deleted: string[]; errors: Array<{ key: string; error: string }> }> {
+  const result = { candidates: [] as string[], deleted: [] as string[], errors: [] as Array<{ key: string; error: string }> };
+  if (!bucket || !ownerId || !tag) return result;
 
   const prefix = `fleets/${ownerId}/${encodeURIComponent(tag)}/`;
   let cursor: string | undefined = undefined;
@@ -464,7 +479,9 @@ async function cleanupOldSnapshots(
 
   while (true) {
     const res = await bucket.list({ prefix, cursor, limit: 100 }).catch((e: any) => {
-      console.error("R2 list failed", String(e));
+      const msg = String(e);
+      console.error("R2 list failed", msg);
+      result.errors.push({ key: prefix, error: msg });
       return null;
     });
     if (!res) break;
@@ -479,24 +496,31 @@ async function cleanupOldSnapshots(
       toDelete.push(k);
     }
 
-    // stop if listing is complete
     const truncated = Boolean((res as any).truncated);
     if (!truncated) break;
     cursor = (res as any).cursor;
     if (!cursor) break;
   }
 
-  if (toDelete.length === 0) return;
+  result.candidates = toDelete.slice();
+  if (toDelete.length === 0) return result;
 
   const concurrency = 5;
   for (let i = 0; i < toDelete.length; i += concurrency) {
     const batch = toDelete.slice(i, i + concurrency);
     await Promise.all(
-      batch.map((k) =>
-        bucket.delete(k).catch((e: any) =>
-          console.error(`Failed to delete R2 object ${k}`, String(e)),
-        ),
-      ),
+      batch.map(async (k) => {
+        try {
+          await bucket.delete(k);
+          result.deleted.push(k);
+        } catch (e: any) {
+          const msg = String(e);
+          console.error(`Failed to delete R2 object ${k}`, msg);
+          result.errors.push({ key: k, error: msg });
+        }
+      }),
     );
   }
+
+  return result;
 }
