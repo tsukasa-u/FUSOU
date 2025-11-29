@@ -41,6 +41,12 @@ export const OPTIONS: APIRoute = async () =>
   new Response(null, { status: 204, headers: CORS_HEADERS });
 
 export const GET: APIRoute = async ({ locals, request }) => {
+  const cache = await caches.open("asset-sync-cache");
+  const cachedResponse = await cache.match(request);
+  if (cachedResponse) {
+    return cachedResponse;
+  }
+
   const env = extractEnv(locals.runtime?.env);
 
   const db = env?.ASSET_INDEX_DB;
@@ -62,8 +68,12 @@ export const GET: APIRoute = async ({ locals, request }) => {
     const refreshedAt = Date.now();
     const expiresAt = refreshedAt + CACHE_TTL_SECONDS * 1000;
     const etag = buildEtag(refreshedAt);
-    const cache = { keys, refreshedAt, expiresAt, etag };
-    return jsonResponse(buildPayload(cache, false), etag);
+    const cacheData = { keys, refreshedAt, expiresAt, etag };
+    const response = jsonResponse(buildPayload(cacheData, false), etag);
+
+    locals.runtime?.waitUntil(cache.put(request, response.clone()));
+
+    return response;
   } catch (e) {
     console.error("D1 listing failed", e);
     return errorResponse("Failed to list assets from D1", 502);

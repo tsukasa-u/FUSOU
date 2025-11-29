@@ -119,6 +119,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
   }
   return handleSignedUploadExecution(
     request,
+    locals,
     bucket,
     env,
     allowedExtensions,
@@ -236,6 +237,7 @@ async function handleSignedUploadRequest(
 
 async function handleSignedUploadExecution(
   request: Request,
+  locals: App.Locals,
   bucket: BucketBinding,
   env: CloudflareEnv | undefined,
   allowedExtensions: Set<string>,
@@ -366,6 +368,17 @@ async function handleSignedUploadExecution(
         })
       )
       .run();
+
+    // Purge the cache for the keys endpoint
+    const purgeUrl = new URL(url);
+    purgeUrl.pathname = "/api/asset-sync/keys";
+    purgeUrl.search = "";
+    const purgeRequest = new Request(purgeUrl.toString(), {
+      method: "GET",
+    });
+
+    const cache = await caches.open("asset-sync-cache");
+    locals.runtime?.waitUntil(cache.delete(purgeRequest));
   } catch (e) {
     console.error("D1 insert failed for", descriptor.key, e);
     // Attempt to delete the uploaded R2 object to avoid orphaned blobs
