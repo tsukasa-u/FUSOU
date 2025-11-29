@@ -1,6 +1,6 @@
 use kc_api_interface::ship::Ship as InterfaceShip;
 use kc_api_interface::ship::SpEffectItem as InterfaceSpEffectItem;
-// use kc_api_interface::material::Materials as InterfaceMaterial;
+use kc_api_interface::use_items::UseItem as InterfaceUseItem;
 use kc_api_interface::slot_item::SlotItem as InterfaceSlotItem;
 use serde::{Deserialize, Serialize};
 
@@ -8,17 +8,17 @@ use serde::{Deserialize, Serialize};
 pub struct FleetSnapshot{
     #[serde(rename(serialize = "s3s"))]
     pub ships: Option<Vec<Ship>>,
-    // #[serde(rename(serialize = "m7s"))]
-    // pub materials: Option<Vec<Material>>,
+    #[serde(rename(serialize = "u7s"))]
+    pub use_items: Option<Vec<UseItem>>,
     #[serde(rename(serialize = "s8s"))]
     pub slot_items: Option<Vec<SlotItem>>,
 }
 
 impl FleetSnapshot {
-    pub fn new(ships: Vec<InterfaceShip>, slot_items: Vec<InterfaceSlotItem>) -> Self {
+    pub fn new(ships: Vec<InterfaceShip>, use_items: Vec<InterfaceUseItem>, slot_items: Vec<InterfaceSlotItem>) -> Self {
         FleetSnapshot {
             ships: Some(ships.into_iter().map(Ship::from).collect()),
-            // materials: Some(materials.into_iter().map(Material::from).collect()),
+            use_items: Some(use_items.into_iter().map(UseItem::from).collect()),
             slot_items: Some(slot_items.into_iter().map(SlotItem::from).collect()),
         }
     }
@@ -142,25 +142,22 @@ impl From<InterfaceSpEffectItem> for SpEffectItem {
     }
 }
 
-// #[derive(Serialize, Deserialize)]
-// pub struct Material {
-//     #[serde(rename(serialize = "m7d"))]
-//     pub member_id: i64,
-//     #[serde(rename(serialize = "i0d"))]
-//     pub id: i64,
-//     #[serde(rename(serialize = "v3e"))]
-//     pub value: i64,
-// }
+#[derive(Serialize, Deserialize)]
+pub struct UseItem {
+    #[serde(rename(serialize = "i0d"))]
+    pub id: i64,
+    #[serde(rename(serialize = "c3t"))]
+    pub count: i64,
+}
 
-// impl From<InterfaceMaterial> for Material {
-//     fn from(material: InterfaceMaterial) -> Self {
-//         Material {
-//             member_id: material.member_id,
-//             id: material.id,
-//             value: material.value,
-//         }
-//     }
-// }
+impl From<InterfaceUseItem> for UseItem {
+    fn from(use_item: InterfaceUseItem) -> Self {
+        UseItem {
+            id: use_item.id,
+            count: use_item.count,
+        }
+    }
+}
 
 #[derive(Serialize, Deserialize)]
 pub struct SlotItem {

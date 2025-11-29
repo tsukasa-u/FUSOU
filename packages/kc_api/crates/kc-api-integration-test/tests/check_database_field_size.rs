@@ -37,6 +37,9 @@ fn emit_data(emit_data: EmitData) -> Option<ReturnType> {
                 data.restore();
             }
             Set::Materials(_) => {}
+            Set::UseItems(data) => {
+                data.restore();
+            }
             Set::Ships(data) => {
                 data.restore();
             }

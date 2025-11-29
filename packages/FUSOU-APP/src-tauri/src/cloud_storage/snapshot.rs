@@ -1,9 +1,12 @@
+use kc_api::interface::{ship, slot_item, use_items};
+use kc_api::fleet_snapshot::fleet::FleetSnapshot;
 use reqwest::Client;
 use serde::Serialize;
 use serde_json::json;
 use tauri::AppHandle;
 use tauri_plugin_notification::NotificationExt;
 use proxy_https::asset_sync;
+use time::serde::timestamp;
 use uuid::Uuid;
 use serde::Deserialize;
 
@@ -18,7 +21,19 @@ struct SnapshotRequest {
     tag: String,
     payload: serde_json::Value,
     title: Option<String>,
-    version: Option<u64>,
+    version: Option<i64>,
+}
+
+fn get_payload_data() -> serde_json::Value {
+    let use_items = use_items::UseItems::load();
+    let ships = ship::Ships::load();
+    let slot_items = slot_item::SlotItems::load();
+    let payload = FleetSnapshot::new(
+        ships.ships.values().cloned().collect(),
+        use_items.use_items.values().cloned().collect(),
+        slot_items.slot_items.values().cloned().collect(),
+    );
+    json!(payload)
 }
 
 pub async fn perform_snapshot_sync_app(app: &AppHandle) -> Result<serde_json::Value, String> {
@@ -43,11 +58,13 @@ pub async fn perform_snapshot_sync_app(app: &AppHandle) -> Result<serde_json::Va
         }
     };
 
+    let payload_data = get_payload_data();
+
     let request_body = SnapshotRequest {
         tag: "latest".to_string(),
-        payload: json!({ "foo": "bar", "message": "TESTCODE" }),
+        payload: payload_data,
         title: Some("Auto Snapshot".to_string()),
-        version: None,
+        version: Some(chrono::Utc::now().timestamp()),
     };
 
     let client = Client::new();

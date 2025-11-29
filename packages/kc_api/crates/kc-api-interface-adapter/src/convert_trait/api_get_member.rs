@@ -3,6 +3,7 @@ use kc_api_interface::interface::{EmitData, Identifier, Set};
 use kc_api_interface::slot_item::SlotItems;
 
 use kc_api_dto::endpoints::api_get_member::*;
+use kc_api_interface::use_items::UseItems;
 
 use crate::{register_trait, InterfaceWrapper, TraitForConvert};
 
@@ -78,9 +79,12 @@ impl TraitForConvert for require_info::Res {
     fn convert(&self) -> Option<Vec<EmitData>> {
         let slot_item =
             InterfaceWrapper::<SlotItems>::from(self.api_data.api_slot_item.clone()).unwrap();
+        let use_item =
+            InterfaceWrapper::<UseItems>::from(self.api_data.api_useitem.clone()).unwrap();
 
         Some(vec![
             EmitData::Set(Set::SlotItems(slot_item)),
+            EmitData::Set(Set::UseItems(use_item)),
             EmitData::Identifier(Identifier::RequireInfo(())),
         ])
     }
