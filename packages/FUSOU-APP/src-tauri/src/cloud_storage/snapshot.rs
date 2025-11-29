@@ -129,25 +129,6 @@ pub async fn perform_snapshot_sync_app(app: &AppHandle) -> Result<serde_json::Va
         
         let json_resp: serde_json::Value = serde_json::from_str(&upload_text).unwrap_or(json!({}));
 
-        // Attempt to fetch diagnostic info from debug endpoint (best-effort).
-        // This calls the site's `/api/fleet/snapshot_debug` to retrieve deletion candidates and logs.
-        // We don't fail the sync if this call fails; it's only for additional visibility.
-        if let Ok(parsed_url) = reqwest::Url::parse(&snapshot_url) {
-            let scheme = parsed_url.scheme();
-            if let Some(host) = parsed_url.host_str() {
-                let base = format!("{}://{}", scheme, host);
-                let debug_url = format!("{}/api/fleet/snapshot_debug", base);
-                let debug_body = json!({ "owner_id": json_resp["owner_id"].as_str().unwrap_or(""), "tag": json_resp["tag"].as_str().unwrap_or("") });
-                let dbg = client.post(&debug_url).json(&debug_body).send().await;
-                match dbg {
-                    Ok(dresp) => {
-                        let dtext = dresp.text().await.unwrap_or_default();
-                        tracing::info!(snapshot_debug = %dtext, "Snapshot debug endpoint response");
-                    }
-                    Err(e) => tracing::warn!(error = %e, "Failed to call snapshot_debug endpoint"),
-                }
-            }
-        }
         Ok(json_resp)
     } else {
         tracing::error!(status = upload_status.as_u16(), body = %upload_text, "Snapshot upload failed");

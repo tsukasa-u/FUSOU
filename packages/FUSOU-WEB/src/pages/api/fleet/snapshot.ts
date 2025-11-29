@@ -306,12 +306,11 @@ async function handleSnapshotUpload(
         );
       }
     }
-    // Perform cleanup synchronously (await) and include diagnostics in response.
+    // Perform cleanup synchronously (await). Errors are logged server-side.
     try {
-      retentionDiagnostic = await cleanupOldSnapshots(bucket as any, ownerId, descriptor.tag, key);
+      await cleanupOldSnapshots(bucket as any, ownerId, descriptor.tag, key);
     } catch (e) {
       console.error("Snapshot retention invocation failed", String(e));
-      retentionDiagnostic = { candidates: [], deleted: [], errors: [{ key: null, error: String(e) }] };
     }
     
   } catch (err: any) {
@@ -331,7 +330,6 @@ async function handleSnapshotUpload(
       tag: descriptor.tag,
       version,
       r2_key: key,
-      retention_diagnostic: retentionDiagnostic,
     }),
     {
       status: 200,
