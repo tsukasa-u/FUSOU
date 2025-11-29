@@ -114,6 +114,7 @@ async function cleanupLatestOnly(
 
   const prefix = `fleets/${ownerId}/${encodeURIComponent(tag)}/`;
   console.info(`cleanupLatestOnly: invoked for owner=${ownerId}, tag=${tag}, prefix=${prefix}`);
+  
   try {
     console.debug(`cleanupLatestOnly: bucket.list type=${typeof bucket.list}, bucket.delete type=${typeof bucket.delete}`);
   } catch (e) {
@@ -219,6 +220,8 @@ async function handleSnapshotUpload(
     signingSecret,
   );
 
+  let cleanupQueued = false;
+
   if (!descriptor?.owner_id || !descriptor.tag) {
     return new Response(JSON.stringify({ error: "Invalid or expired token" }), {
       status: 401,
@@ -319,6 +322,7 @@ async function handleSnapshotUpload(
         contentEncoding: "gzip",
       },
     });
+    console.info(`handleSnapshotUpload: R2 put complete for key=${key} size=${compressed.byteLength}`);
   } catch (err: any) {
     return new Response(
       JSON.stringify({
@@ -390,8 +394,10 @@ async function handleSnapshotUpload(
     // Best-effort: keep only the newest snapshot per owner/tag on R2
     // Controlled by SNAPSHOT_RETENTION_ENABLED environment variable (default enabled)
     const retentionEnabled = String(env?.SNAPSHOT_RETENTION_ENABLED ?? "true") !== "false";
+    console.info(`handleSnapshotUpload: retentionEnabled=${retentionEnabled}, owner=${ownerId}, tag=${descriptor.tag}, key=${key}`);
     if (retentionEnabled) {
       // Do not block upload: run in background and ignore errors
+      cleanupQueued = true;
       void (async () => {
         try {
           await cleanupLatestOnly(bucket as any, ownerId, descriptor.tag, key);
@@ -410,6 +416,7 @@ async function handleSnapshotUpload(
     );
   }
 
+  const responseHeaders: Record<string, string> = { ...CORS_HEADERS, "content-type": "application/json", "X-Retention-Cleanup-Queued": cleanupQueued ? "1" : "0" };
   return new Response(
     JSON.stringify({
       ok: true,
@@ -420,7 +427,7 @@ async function handleSnapshotUpload(
     }),
     {
       status: 200,
-      headers: { ...CORS_HEADERS, "content-type": "application/json" },
+      headers: responseHeaders,
     },
   );
 }
