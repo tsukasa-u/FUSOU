@@ -41,11 +41,11 @@ export const OPTIONS: APIRoute = async () =>
   new Response(null, { status: 204, headers: CORS_HEADERS });
 
 export const GET: APIRoute = async ({ locals, request }) => {
-  const cache = await caches.open("asset-sync-cache");
-  const cachedResponse = await cache.match(request);
-  if (cachedResponse) {
-    return cachedResponse;
-  }
+  // const cache = await caches.open("asset-sync-cache");
+  // const cachedResponse = await cache.match(request);
+  // if (cachedResponse) {
+  //   return cachedResponse;
+  // }
 
   const env = extractEnv(locals.runtime?.env);
 
@@ -71,7 +71,7 @@ export const GET: APIRoute = async ({ locals, request }) => {
     const cacheData = { keys, refreshedAt, expiresAt, etag };
     const response = jsonResponse(buildPayload(cacheData, false), etag);
 
-    locals.runtime?.waitUntil(cache.put(request, response.clone()));
+    // locals.runtime?.waitUntil(cache.put(request, response.clone()));
 
     return response;
   } catch (e) {
