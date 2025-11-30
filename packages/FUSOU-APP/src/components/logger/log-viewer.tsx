@@ -91,6 +91,33 @@ export function LogViewerComponent() {
     });
   });
 
+  // Reference to the list container so we can auto-scroll to bottom on new logs
+  let listContainer: HTMLDivElement | undefined;
+
+  // Auto-scroll to the latest log when filteredLogs grows
+  createEffect(() => {
+    const len = filteredLogs().length;
+    // run after DOM updates
+    setTimeout(() => {
+      if (listContainer) {
+        try {
+          // Try to find rendered log entries and scroll the last one into view.
+          const items = listContainer.querySelectorAll('[data-log-entry]');
+          const last = items[items.length - 1] as HTMLElement | undefined;
+          if (last && typeof last.scrollIntoView === 'function') {
+            last.scrollIntoView({ block: 'end', behavior: 'auto' });
+            return;
+          }
+          // Fallback: scroll the container to bottom
+          listContainer.scrollTop = listContainer.scrollHeight;
+        } catch (e) {
+          // ignore
+        }
+      }
+    }, 0);
+    return len;
+  });
+
   createEffect(() => {
     let unlisten_data: UnlistenFn;
     (async () => {
@@ -145,26 +172,31 @@ export function LogViewerComponent() {
         </div>
 
         <div class="h-2" />
-        <VList
-          data={filteredLogs()}
-          style={{
-            height: "calc(100dvh - 120px)",
-          }}
+        <div
+          ref={(el) => (listContainer = el as HTMLDivElement)}
           class="rounded-box border-base-300 border"
+          style={{ height: "calc(100dvh - 120px)", overflow: "auto" }}
         >
-          {(d) => (
-            <div class="p-1 text-xs flex items-center gap-2">
-              <div class="px-2 w-40 text-nowrap">{d.datetime}</div>
-              <div class="px-2 w-14 flex-none">
-                <span class={`px-2 py-0.5 rounded-md text-[10px] ${levelBadgeClass(d.level)}`}>{d.level}</span>
+          <VList
+            data={filteredLogs()}
+            style={{
+              height: "100%",
+            }}
+          >
+            {(d) => (
+              <div data-log-entry class="p-1 text-xs flex items-center gap-2">
+                <div class="px-2 w-40 text-nowrap">{d.datetime}</div>
+                <div class="px-2 w-14 flex-none">
+                  <span class={`px-2 py-0.5 rounded-md text-[10px] ${levelBadgeClass(d.level)}`}>{d.level}</span>
+                </div>
+                <div class="px-2">
+                  <span class={`px-2 py-0.5 rounded-full text-[11px] mr-2 ${targetBadgeClass(d.target)}`}>{d.target}</span>
+                  {d.message}
+                </div>
               </div>
-              <div class="px-2">
-                <span class={`px-2 py-0.5 rounded-full text-[11px] mr-2 ${targetBadgeClass(d.target)}`}>{d.target}</span>
-                {d.message}
-              </div>
-            </div>
-          )}
-        </VList>
+            )}
+          </VList>
+        </div>
       </div>
     </>
   );
