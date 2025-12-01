@@ -12,20 +12,14 @@ use tauri_plugin_opener::OpenerExt;
 use tokio::sync::mpsc;
 
 use crate::{
-    builder_setup::{
+    auth::auth_server, builder_setup::{
         bidirectional_channel::{
             get_pac_bidirectional_channel, get_proxy_bidirectional_channel,
             get_response_parse_bidirectional_channel,
             get_scheduler_integrate_bidirectional_channel,
         },
         cli, logger,
-    },
-    cloud_storage::integrate,
-    cmd::{native_cmd, tauri_cmd},
-    integration::discord,
-    scheduler,
-    util::{get_RESOURCES_DIR, get_ROAMING_DIR},
-    window::{app, external},
+    }, cloud_storage::integrate, cmd::{native_cmd, tauri_cmd}, integration::discord, scheduler, util::{get_RESOURCES_DIR, get_ROAMING_DIR}, window::{app, external}
 };
 use proxy_https::bidirectional_channel::request_shutdown;
 
@@ -456,6 +450,9 @@ fn setup_tray(
                                     .title("Authentication Required")
                                     .body("Please sign in to sync your snapshot.")
                                     .show();
+                    
+                                
+                                    let _ = auth_server::open_auth_page();
                             } else {
                                 match crate::cloud_storage::snapshot::perform_snapshot_sync_app(&app_handle_clone, auth_manager_clone).await {
                                     Ok(_) => tracing::info!("Snapshot sync completed (tray-trigger)"),
