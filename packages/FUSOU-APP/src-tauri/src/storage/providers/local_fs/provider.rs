@@ -1,35 +1,21 @@
 use std::path::{Path, PathBuf};
 
-use chrono::{TimeZone, Utc};
-use chrono_tz::Asia::Tokyo;
-use kc_api::database::integrate::integrate;
-use kc_api::database::models::airbase::{AirBase, PlaneInfo};
-use kc_api::database::models::battle::{
-    AirBaseAirAttack, AirBaseAirAttackList, AirBaseAssult, Battle, CarrierBaseAssault,
-    ClosingRaigeki, FriendlySupportHourai, FriendlySupportHouraiList, Hougeki, HougekiList,
-    MidnightHougeki, MidnightHougekiList, OpeningAirAttack, OpeningAirAttackList, OpeningRaigeki,
-    OpeningTaisen, OpeningTaisenList, SupportAirattack, SupportHourai,
-};
-use kc_api::database::models::cell::Cells;
-use kc_api::database::models::deck::{EnemyDeck, FriendDeck, OwnDeck, SupportDeck};
-use kc_api::database::models::env_info::EnvInfo;
-use kc_api::database::models::ship::{EnemyShip, FriendShip, OwnShip};
-use kc_api::database::models::slotitem::{EnemySlotItem, FriendSlotItem, OwnSlotItem};
-use kc_api::database::table::{
-    GetDataTableEncode, GetDataTableEnum, PortTableEncode, PortTableEnum, GET_DATA_TABLE_NAMES,
-    PORT_TABLE_NAMES,
-};
+use kc_api::database::table::PORT_TABLE_NAMES;
 use tokio::fs;
-use uuid::Uuid;
 
 #[cfg(any(not(dev), check_release))]
 use crate::storage::constants::STORAGE_ROOT_DIR_NAME;
 use crate::storage::constants::{
-    AVRO_FILE_EXTENSION, LOCAL_STORAGE_PROVIDER_NAME, MASTER_DATA_FOLDER_NAME,
-    PERIOD_ROOT_FOLDER_NAME, PORT_TABLE_FILE_NAME_SEPARATOR, STORAGE_SUB_DIR_NAME,
+    LOCAL_STORAGE_PROVIDER_NAME, MASTER_DATA_FOLDER_NAME,
+    PERIOD_ROOT_FOLDER_NAME, STORAGE_SUB_DIR_NAME,
     TRANSACTION_DATA_FOLDER_NAME,
 };
 use crate::storage::service::{StorageError, StorageFuture, StorageProvider};
+use crate::storage::common::{
+    get_all_get_data_tables, get_all_port_tables,
+    generate_port_table_filename, generate_master_data_filename,
+    integrate_by_table_name,
+};
 
 #[derive(Debug, Clone)]
 pub struct LocalFileSystemProvider {
@@ -51,72 +37,6 @@ impl LocalFileSystemProvider {
     async fn ensure_dir(path: &Path) -> Result<(), StorageError> {
         fs::create_dir_all(path).await?;
         Ok(())
-    }
-
-    fn resolve_get_data_bytes<'a>(
-        table: &'a GetDataTableEncode,
-        table_name: &str,
-    ) -> Option<&'a [u8]> {
-        let variant = table_name.parse::<GetDataTableEnum>().ok()?;
-        let bytes = match variant {
-            GetDataTableEnum::MstShip => &table.mst_ship,
-            GetDataTableEnum::MstSlotItem => &table.mst_slot_item,
-            GetDataTableEnum::MstEquipExslotShip => &table.mst_equip_exslot_ship,
-            GetDataTableEnum::MstEquipExslot => &table.mst_equip_exslot,
-            GetDataTableEnum::MstEquipLimitExslot => &table.mst_equip_limit_exslot,
-            GetDataTableEnum::MstSlotItemEquipType => &table.mst_slot_item_equip_type,
-            GetDataTableEnum::MstEquipShip => &table.mst_equip_ship,
-            GetDataTableEnum::MstStype => &table.mst_stype,
-            GetDataTableEnum::MstUseItem => &table.mst_use_item,
-            GetDataTableEnum::MstMapArea => &table.mst_map_area,
-            GetDataTableEnum::MstMapInfo => &table.mst_map_info,
-            GetDataTableEnum::MstShipGraph => &table.mst_ship_graph,
-            GetDataTableEnum::MstShipUpgrade => &table.mst_ship_upgrade,
-        };
-        Some(bytes.as_slice())
-    }
-
-    fn resolve_port_table_bytes<'a>(
-        table: &'a PortTableEncode,
-        table_name: &str,
-    ) -> Option<&'a [u8]> {
-        let variant = table_name.parse::<PortTableEnum>().ok()?;
-        let bytes = match variant {
-            PortTableEnum::EnvInfo => &table.env_info,
-            PortTableEnum::Cells => &table.cells,
-            PortTableEnum::AirBase => &table.airbase,
-            PortTableEnum::PlaneInfo => &table.plane_info,
-            PortTableEnum::OwnSlotItem => &table.own_slotitem,
-            PortTableEnum::EnemySlotItem => &table.enemy_slotitem,
-            PortTableEnum::FriendSlotItem => &table.friend_slotitem,
-            PortTableEnum::OwnShip => &table.own_ship,
-            PortTableEnum::EnemyShip => &table.enemy_ship,
-            PortTableEnum::FriendShip => &table.friend_ship,
-            PortTableEnum::OwnDeck => &table.own_deck,
-            PortTableEnum::SupportDeck => &table.support_deck,
-            PortTableEnum::EnemyDeck => &table.enemy_deck,
-            PortTableEnum::FriendDeck => &table.friend_deck,
-            PortTableEnum::AirBaseAirAttack => &table.airbase_airattack,
-            PortTableEnum::AirBaseAirAttackList => &table.airbase_airattack_list,
-            PortTableEnum::AirBaseAssult => &table.airbase_assult,
-            PortTableEnum::CarrierBaseAssault => &table.carrierbase_assault,
-            PortTableEnum::ClosingRaigeki => &table.closing_raigeki,
-            PortTableEnum::FriendlySupportHourai => &table.friendly_support_hourai,
-            PortTableEnum::FriendlySupportHouraiList => &table.friendly_support_hourai_list,
-            PortTableEnum::Hougeki => &table.hougeki,
-            PortTableEnum::HougekiList => &table.hougeki_list,
-            PortTableEnum::MidnightHougeki => &table.midnight_hougeki,
-            PortTableEnum::MidnightHougekiList => &table.midnight_hougeki_list,
-            PortTableEnum::OpeningAirAttack => &table.opening_airattack,
-            PortTableEnum::OpeningAirAttackList => &table.opening_airattack_list,
-            PortTableEnum::OpeningRaigeki => &table.opening_raigeki,
-            PortTableEnum::OpeningTaisen => &table.opening_taisen,
-            PortTableEnum::OpeningTaisenList => &table.opening_taisen_list,
-            PortTableEnum::SupportAirattack => &table.support_airattack,
-            PortTableEnum::SupportHourai => &table.support_hourai,
-            PortTableEnum::Battle => &table.battle,
-        };
-        Some(bytes.as_slice())
     }
 }
 
@@ -146,6 +66,8 @@ fn default_root_directory() -> PathBuf {
     }
 }
 
+use kc_api::database::table::{GetDataTableEncode, PortTableEncode};
+
 impl StorageProvider for LocalFileSystemProvider {
     fn name(&self) -> &'static str {
         LOCAL_STORAGE_PROVIDER_NAME
@@ -161,11 +83,9 @@ impl StorageProvider for LocalFileSystemProvider {
             let master_dir = period_dir.join(MASTER_DATA_FOLDER_NAME);
             Self::ensure_dir(&master_dir).await?;
 
-            for table_name in GET_DATA_TABLE_NAMES.iter() {
-                if let Some(bytes) = Self::resolve_get_data_bytes(table, table_name) {
-                    let file_path = master_dir.join(format!("{table_name}{AVRO_FILE_EXTENSION}"));
-                    fs::write(file_path, bytes).await?;
-                }
+            for (table_name, bytes) in get_all_get_data_tables(table) {
+                let file_path = master_dir.join(generate_master_data_filename(table_name));
+                fs::write(file_path, bytes).await?;
             }
 
             Ok(())
@@ -185,38 +105,28 @@ impl StorageProvider for LocalFileSystemProvider {
             let map_dir = transaction_dir.join(format!("{}-{}", maparea_id, mapinfo_no));
             Self::ensure_dir(&map_dir).await?;
 
-            let utc = Utc::now().naive_utc();
-            let jst = Tokyo.from_utc_datetime(&utc);
-            let file_name = format!(
-                "{}{}{}{}",
-                jst.timestamp(),
-                PORT_TABLE_FILE_NAME_SEPARATOR,
-                Uuid::new_v4(),
-                AVRO_FILE_EXTENSION
-            );
+            let file_name = generate_port_table_filename();
 
-            for table_name in PORT_TABLE_NAMES.iter() {
-                if let Some(bytes) = Self::resolve_port_table_bytes(table, table_name) {
-                    if bytes.is_empty() {
-                        tracing::warn!(
-                            "Skipping write of empty {} table for map {}-{}",
-                            table_name,
-                            maparea_id,
-                            mapinfo_no
-                        );
-                        continue;
-                    }
-                    let table_dir = map_dir.join(table_name);
-                    Self::ensure_dir(&table_dir).await?;
-                    let file_path = table_dir.join(&file_name);
-                    fs::write(&file_path, bytes).await?;
-                    tracing::info!(
-                        "Saved {} table to local FS: {} ({} bytes)",
+            for (table_name, bytes) in get_all_port_tables(table) {
+                if bytes.is_empty() {
+                    tracing::warn!(
+                        "Skipping write of empty {} table for map {}-{}",
                         table_name,
-                        file_path.display(),
-                        bytes.len()
+                        maparea_id,
+                        mapinfo_no
                     );
+                    continue;
                 }
+                let table_dir = map_dir.join(table_name);
+                Self::ensure_dir(&table_dir).await?;
+                let file_path = table_dir.join(&file_name);
+                fs::write(&file_path, bytes).await?;
+                tracing::info!(
+                    "Saved {} table to local FS: {} ({} bytes)",
+                    table_name,
+                    file_path.display(),
+                    bytes.len()
+                );
             }
 
             Ok(())
@@ -249,15 +159,7 @@ impl StorageProvider for LocalFileSystemProvider {
 
             // Process each map directory
             for map_dir in map_dirs {
-                let utc = Utc::now().naive_utc();
-                let jst = Tokyo.from_utc_datetime(&utc);
-                let file_name = format!(
-                    "{}{}{}{}",
-                    jst.timestamp(),
-                    PORT_TABLE_FILE_NAME_SEPARATOR,
-                    Uuid::new_v4(),
-                    AVRO_FILE_EXTENSION
-                );
+                let file_name = generate_port_table_filename();
 
                 // Process each table type
                 for table_name in PORT_TABLE_NAMES.iter() {
@@ -290,71 +192,8 @@ impl StorageProvider for LocalFileSystemProvider {
                         file_contents.push(content);
                     }
 
-                    // Integrate based on table type
-                    let table_enum = match table_name.parse::<PortTableEnum>() {
-                        Ok(e) => e,
-                        Err(_) => continue,
-                    };
-
-                    let integrated_content = match table_enum {
-                        PortTableEnum::EnvInfo => integrate::<EnvInfo>(file_contents),
-                        PortTableEnum::Cells => integrate::<Cells>(file_contents),
-                        PortTableEnum::AirBase => integrate::<AirBase>(file_contents),
-                        PortTableEnum::PlaneInfo => integrate::<PlaneInfo>(file_contents),
-                        PortTableEnum::OwnSlotItem => integrate::<OwnSlotItem>(file_contents),
-                        PortTableEnum::EnemySlotItem => integrate::<EnemySlotItem>(file_contents),
-                        PortTableEnum::FriendSlotItem => integrate::<FriendSlotItem>(file_contents),
-                        PortTableEnum::OwnShip => integrate::<OwnShip>(file_contents),
-                        PortTableEnum::EnemyShip => integrate::<EnemyShip>(file_contents),
-                        PortTableEnum::FriendShip => integrate::<FriendShip>(file_contents),
-                        PortTableEnum::OwnDeck => integrate::<OwnDeck>(file_contents),
-                        PortTableEnum::SupportDeck => integrate::<SupportDeck>(file_contents),
-                        PortTableEnum::EnemyDeck => integrate::<EnemyDeck>(file_contents),
-                        PortTableEnum::FriendDeck => integrate::<FriendDeck>(file_contents),
-                        PortTableEnum::AirBaseAirAttack => {
-                            integrate::<AirBaseAirAttack>(file_contents)
-                        }
-                        PortTableEnum::AirBaseAirAttackList => {
-                            integrate::<AirBaseAirAttackList>(file_contents)
-                        }
-                        PortTableEnum::AirBaseAssult => integrate::<AirBaseAssult>(file_contents),
-                        PortTableEnum::CarrierBaseAssault => {
-                            integrate::<CarrierBaseAssault>(file_contents)
-                        }
-                        PortTableEnum::ClosingRaigeki => integrate::<ClosingRaigeki>(file_contents),
-                        PortTableEnum::FriendlySupportHourai => {
-                            integrate::<FriendlySupportHourai>(file_contents)
-                        }
-                        PortTableEnum::FriendlySupportHouraiList => {
-                            integrate::<FriendlySupportHouraiList>(file_contents)
-                        }
-                        PortTableEnum::Hougeki => integrate::<Hougeki>(file_contents),
-                        PortTableEnum::HougekiList => integrate::<HougekiList>(file_contents),
-                        PortTableEnum::MidnightHougeki => {
-                            integrate::<MidnightHougeki>(file_contents)
-                        }
-                        PortTableEnum::MidnightHougekiList => {
-                            integrate::<MidnightHougekiList>(file_contents)
-                        }
-                        PortTableEnum::OpeningAirAttack => {
-                            integrate::<OpeningAirAttack>(file_contents)
-                        }
-                        PortTableEnum::OpeningAirAttackList => {
-                            integrate::<OpeningAirAttackList>(file_contents)
-                        }
-                        PortTableEnum::OpeningRaigeki => integrate::<OpeningRaigeki>(file_contents),
-                        PortTableEnum::OpeningTaisen => integrate::<OpeningTaisen>(file_contents),
-                        PortTableEnum::OpeningTaisenList => {
-                            integrate::<OpeningTaisenList>(file_contents)
-                        }
-                        PortTableEnum::SupportAirattack => {
-                            integrate::<SupportAirattack>(file_contents)
-                        }
-                        PortTableEnum::SupportHourai => integrate::<SupportHourai>(file_contents),
-                        PortTableEnum::Battle => integrate::<Battle>(file_contents),
-                    };
-
-                    match integrated_content {
+                    // Integrate using common utility
+                    match integrate_by_table_name(table_name, file_contents) {
                         Ok(content) if !content.is_empty() => {
                             // Write integrated file
                             let integrated_path = table_dir.join(&file_name);
