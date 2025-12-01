@@ -19,10 +19,11 @@ use crate::{
             get_scheduler_integrate_bidirectional_channel,
         },
         cli, logger,
-    }, cloud_storage::integrate, cmd::{native_cmd, tauri_cmd}, integration::discord, scheduler, util::{get_RESOURCES_DIR, get_ROAMING_DIR}, window::{app, external}
+    }, storage::integrate, cmd::{native_cmd, tauri_cmd}, integration::discord, scheduler, util::{get_RESOURCES_DIR, get_ROAMING_DIR}, window::{app, external}
 };
 use proxy_https::bidirectional_channel::request_shutdown;
 
+use fusou_upload::{PendingStore, UploadRetryService};
 use fusou_auth::{AuthManager, FileStorage};
 use std::sync::Arc;
 
@@ -454,7 +455,7 @@ fn setup_tray(
                                 
                                     let _ = auth_server::open_auth_page();
                             } else {
-                                match crate::cloud_storage::snapshot::perform_snapshot_sync_app(&app_handle_clone, auth_manager_clone).await {
+                                match crate::storage::snapshot::perform_snapshot_sync_app(&app_handle_clone, auth_manager_clone).await {
                                     Ok(_) => tracing::info!("Snapshot sync completed (tray-trigger)"),
                                     Err(e) => tracing::error!("Snapshot sync failed (tray-trigger): {}", e),
                                 }
@@ -462,7 +463,9 @@ fn setup_tray(
                         });
                     }
                     "intergrate_file" => {
-                        integrate::integrate_port_table();
+                        let pending_store = tray.app_handle().state::<Arc<PendingStore>>().inner().clone();
+                        let retry_service = tray.app_handle().state::<Arc<UploadRetryService>>().inner().clone();
+                        integrate::integrate_port_table(pending_store, retry_service);
                     }
                     "check-update" => {
                         let window = tray.get_webview_window("main");
@@ -683,7 +686,10 @@ pub fn setup_init(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>
     configure_channel_transport();
     setup_discord()?;
     notify_startup(app);
-    scheduler::integrate_file::start_scheduler();
+    
+    let pending_store = app.state::<Arc<PendingStore>>().inner().clone();
+    let retry_service = app.state::<Arc<UploadRetryService>>().inner().clone();
+    scheduler::integrate_file::start_scheduler(pending_store, retry_service);
 
     let proxy_bidirectional_channel_master_clone = get_proxy_bidirectional_channel().clone_master();
     let pac_bidirectional_channel_master_clone = get_pac_bidirectional_channel().clone_master();

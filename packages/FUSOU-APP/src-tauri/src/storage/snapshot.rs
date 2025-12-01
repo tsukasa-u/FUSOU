@@ -9,6 +9,9 @@ use uuid::Uuid;
 use serde::Deserialize;
 use fusou_auth::{AuthManager, FileStorage};
 use std::sync::{Arc, Mutex};
+use tauri::Manager;
+use fusou_upload::PendingStore;
+use fusou_upload::UploadContext;
 
 #[derive(Deserialize)]
 struct PrepareResponse {
@@ -89,11 +92,31 @@ pub async fn perform_snapshot_sync_app(
         .header("Idempotency-Key", &idempotency_key)
         .bearer_auth(token.clone());
 
-    let prepare_resp = prepare_req.send().await.map_err(|e| {
-        tracing::error!("Snapshot preparation failed: {}", e);
-        let _ = app.notification().builder().title("Sync Failed").body("Network error during preparation").show();
-        e.to_string()
-    })?;
+    let prepare_resp = match prepare_req.send().await {
+        Ok(resp) => resp,
+        Err(e) => {
+            tracing::error!("Snapshot preparation failed: {}", e);
+            let _ = app.notification().builder().title("Sync Failed").body("Network error during preparation").show();
+            
+            // Save to pending store
+            if let Some(store) = app.try_state::<Arc<PendingStore>>() {
+                let body_json = serde_json::to_string(&request_body).unwrap_or_default();
+                let mut headers = std::collections::HashMap::new();
+                headers.insert("Idempotency-Key".to_string(), idempotency_key.clone());
+                
+                let context = UploadContext::Snapshot { is_snapshot: true };
+                let context_json = serde_json::to_string(&context).unwrap_or_default();
+                
+                if let Err(err) = store.save_pending(&snapshot_url, &headers, body_json.as_bytes(), Some(context_json)) {
+                    tracing::error!("Failed to save pending snapshot: {}", err);
+                } else {
+                    tracing::info!("Saved pending snapshot due to network error");
+                }
+            }
+            
+            return Err(e.to_string());
+        }
+    };
 
     let prepare_status = prepare_resp.status();
     let prepare_text = prepare_resp.text().await.unwrap_or_default();
@@ -101,6 +124,24 @@ pub async fn perform_snapshot_sync_app(
     if !prepare_status.is_success() {
         tracing::error!(status = prepare_status.as_u16(), body = %prepare_text, "Snapshot preparation failed");
         let _ = app.notification().builder().title("Sync Failed").body(&format!("Server error during preparation: {}", prepare_status)).show();
+        
+        if prepare_status.is_server_error() || prepare_status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+             if let Some(store) = app.try_state::<Arc<PendingStore>>() {
+                let body_json = serde_json::to_string(&request_body).unwrap_or_default();
+                let mut headers = std::collections::HashMap::new();
+                headers.insert("Idempotency-Key".to_string(), idempotency_key.clone());
+                
+                let context = UploadContext::Snapshot { is_snapshot: true };
+                let context_json = serde_json::to_string(&context).unwrap_or_default();
+                
+                if let Err(err) = store.save_pending(&snapshot_url, &headers, body_json.as_bytes(), Some(context_json)) {
+                    tracing::error!("Failed to save pending snapshot: {}", err);
+                } else {
+                    tracing::info!("Saved pending snapshot due to server error");
+                }
+            }
+        }
+        
         return Err(format!("Status: {}, Body: {}", prepare_status, prepare_text));
     }
 
@@ -120,11 +161,31 @@ pub async fn perform_snapshot_sync_app(
         .json(&request_body)
         .bearer_auth(token);
 
-    let upload_resp = upload_req.send().await.map_err(|e| {
-        tracing::error!("Snapshot upload failed: {}", e);
-        let _ = app.notification().builder().title("Sync Failed").body("Network error during upload").show();
-        e.to_string()
-    })?;
+    let upload_resp = match upload_req.send().await {
+        Ok(resp) => resp,
+        Err(e) => {
+            tracing::error!("Snapshot upload failed: {}", e);
+            let _ = app.notification().builder().title("Sync Failed").body("Network error during upload").show();
+            
+            // Save to pending store
+            if let Some(store) = app.try_state::<Arc<PendingStore>>() {
+                let body_json = serde_json::to_string(&request_body).unwrap_or_default();
+                let mut headers = std::collections::HashMap::new();
+                headers.insert("Idempotency-Key".to_string(), idempotency_key.clone());
+                
+                let context = UploadContext::Snapshot { is_snapshot: true };
+                let context_json = serde_json::to_string(&context).unwrap_or_default();
+                
+                if let Err(err) = store.save_pending(&snapshot_url, &headers, body_json.as_bytes(), Some(context_json)) {
+                    tracing::error!("Failed to save pending snapshot: {}", err);
+                } else {
+                    tracing::info!("Saved pending snapshot due to upload network error");
+                }
+            }
+            
+            return Err(e.to_string());
+        }
+    };
 
     let upload_status = upload_resp.status();
     let upload_text = upload_resp.text().await.unwrap_or_default();
@@ -152,6 +213,23 @@ pub async fn perform_snapshot_sync_app(
             .body(&format!("Server error during upload: {}", upload_status))
             .show();
         
+        if upload_status.is_server_error() || upload_status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+             if let Some(store) = app.try_state::<Arc<PendingStore>>() {
+                let body_json = serde_json::to_string(&request_body).unwrap_or_default();
+                let mut headers = std::collections::HashMap::new();
+                headers.insert("Idempotency-Key".to_string(), idempotency_key.clone());
+                
+                let context = UploadContext::Snapshot { is_snapshot: true };
+                let context_json = serde_json::to_string(&context).unwrap_or_default();
+                
+                if let Err(err) = store.save_pending(&snapshot_url, &headers, body_json.as_bytes(), Some(context_json)) {
+                    tracing::error!("Failed to save pending snapshot: {}", err);
+                } else {
+                    tracing::info!("Saved pending snapshot due to upload server error");
+                }
+            }
+        }
+
         Err(format!("Status: {}, Body: {}", upload_status, upload_text))
     }
 }

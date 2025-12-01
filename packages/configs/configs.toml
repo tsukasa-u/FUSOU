@@ -225,6 +225,18 @@ save_file_location = ""
     asset_key_prefix = "assets"
 
 
+    [app.asset_sync.retry]
+    # Maximum number of retry attempts for failed uploads
+    max_attempts = 5
+
+    # Time to live (in seconds) for pending upload files
+    # Files older than this will be deleted
+    ttl_seconds = 86400 # 24 hours
+
+    # Interval (in seconds) between retry attempts
+    interval_seconds = 300 # 5 minutes
+
+
     [app.auth]
     # Whether to deny user authentication
     # To be careful because there is no method to reset the authentication state until the authentication expires

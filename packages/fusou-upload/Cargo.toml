@@ -1,0 +1,17 @@
+[package]
+name = "fusou-upload"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tokio = { version = "1.0", features = ["full"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "multipart"] }
+tracing = "0.1"
+uuid = { version = "1.0", features = ["v4"] }
+thiserror = "1.0"
+fusou-auth = { path = "../fusou-auth" }
+configs = { path = "../configs" }
+
+[dev-dependencies]

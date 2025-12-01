@@ -31,6 +31,9 @@ fusou-auth = { path = "../../fusou-auth" }
 tonic = { version = "0.9", optional = true, features = ["transport"] }
 prost = { version = "0.11", optional = true }
 tokio-stream = { version = "0.1", optional = true, features = ["sync"] }
+uuid = { version = "1.18.1", features = ["v4"] }
+serde_json = "1.0.145"
+fusou-upload = { path = "../../fusou-upload" }
 
 [build-dependencies]
 tonic-build = "0.9"

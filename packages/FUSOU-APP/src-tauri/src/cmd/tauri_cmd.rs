@@ -11,7 +11,7 @@ use crate::auth::auth_server;
 use crate::auth_server::AuthChannel;
 use crate::builder_setup::bidirectional_channel::get_pac_bidirectional_channel;
 use crate::builder_setup::bidirectional_channel::get_proxy_bidirectional_channel;
-use crate::cloud_storage::google_drive;
+use crate::storage::providers::gdrive;
 use crate::interface::mst_equip_exslot_ship::MstEquipExslotShips;
 use crate::interface::mst_equip_ship::MstEquipShips;
 use crate::interface::mst_ship::MstShips;
@@ -135,12 +135,14 @@ pub async fn set_refresh_token(_window: tauri::Window, token: String) -> Result<
     }
     let refresh_token = refresh_token.unwrap();
     let token_type = token_type.unwrap();
-    return google_drive::set_refresh_token(refresh_token.to_string(), token_type.to_string());
+    return gdrive::set_refresh_token(refresh_token.to_string(), token_type.to_string());
 }
 
 use fusou_auth::{AuthManager, FileStorage, Session};
 use std::sync::Arc;
 // ... imports
+
+use fusou_upload::UploadRetryService;
 
 #[tauri::command(rename_all = "snake_case")]
 pub async fn set_supabase_session(
@@ -148,6 +150,7 @@ pub async fn set_supabase_session(
     access_token: String,
     refresh_token: String,
     auth_manager: tauri::State<'_, Arc<Mutex<AuthManager<FileStorage>>>>,
+    retry_service: tauri::State<'_, Arc<UploadRetryService>>,
 ) -> Result<(), String> {
     let manager = {
         let guard = auth_manager.lock().unwrap();
@@ -170,6 +173,12 @@ pub async fn set_supabase_session(
         .save_session(&session)
         .await
         .map_err(|e| e.to_string())?;
+
+    // Trigger retry
+    let retry_service = retry_service.inner().clone();
+    tokio::spawn(async move {
+        retry_service.trigger_retry().await;
+    });
 
     window
         .app_handle()
@@ -409,7 +418,7 @@ pub async fn perform_snapshot_sync(
     auth_manager: tauri::State<'_, Arc<Mutex<AuthManager<FileStorage>>>>,
 ) -> Result<serde_json::Value, String> {
     
-    crate::cloud_storage::snapshot::perform_snapshot_sync_app(
+    crate::storage::snapshot::perform_snapshot_sync_app(
         &_window.app_handle(),
         auth_manager.inner().clone(),
     ).await

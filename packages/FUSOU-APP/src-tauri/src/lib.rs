@@ -14,7 +14,7 @@ use fusou_auth::{AuthManager, FileStorage};
 
 mod auth;
 mod builder_setup;
-mod cloud_storage;
+mod storage;
 mod cmd;
 mod integration;
 mod scheduler;
@@ -22,6 +22,9 @@ mod sequence;
 mod util;
 mod window;
 mod wrap_proxy;
+
+use fusou_upload::PendingStore;
+use fusou_upload::UploadRetryService;
 
 use tauri_plugin_autostart::MacosLauncher;
 
@@ -110,8 +113,30 @@ pub async fn run() {
             let storage = FileStorage::new(session_path);
             let auth_manager = AuthManager::from_env(std::sync::Arc::new(storage))
                 .expect("failed to create auth manager");
+            let auth_manager_for_retry = Arc::new(auth_manager.clone());
             let auth_manager_state = Arc::new(Mutex::new(auth_manager));
             app.manage(auth_manager_state);
+
+            // Initialize PendingStore and UploadRetryService
+            let pending_dir = roaming_dir.join("pending_uploads");
+            let pending_store = Arc::new(PendingStore::new(pending_dir));
+            
+            let google_drive_handler = Arc::new(storage::providers::gdrive::GoogleDriveRetryHandler);
+            let retry_service = Arc::new(UploadRetryService::new(
+                pending_store.clone(), 
+                auth_manager_for_retry,
+                Some(google_drive_handler)
+            ));
+            
+            app.manage(pending_store.clone());
+            app.manage(retry_service.clone());
+
+            // Initialize storage dependencies for submit_data
+            let pending_store_clone = pending_store.clone();
+            let retry_service_clone = retry_service.clone();
+            tokio::spawn(async move {
+                storage::submit_data::initialize_storage_deps(pending_store_clone, retry_service_clone).await;
+            });
 
             builder_setup::setup::setup_init(app)?;
             Ok(())

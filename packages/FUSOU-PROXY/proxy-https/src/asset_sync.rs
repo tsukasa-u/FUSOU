@@ -11,7 +11,7 @@ use std::{
 use dashmap::DashSet;
 use once_cell::sync::Lazy;
 use rand::{thread_rng, Rng};
-use reqwest::{Client, StatusCode, Url};
+use reqwest::{Client, Url};
 use serde::{Deserialize, Serialize};
 use tokio::{
     fs,
@@ -20,11 +20,12 @@ use tokio::{
     time,
 };
 use tracing;
-use walkdir::WalkDir;
 use fusou_auth::{FileStorage, AuthManager};
 
 use chrono::{DateTime, Utc};
 use configs::ConfigsAppAssetSync;
+
+use fusou_upload::{PendingStore, Uploader, UploadRequest, UploadContext, UploadResult};
 
 static ASSET_SYNC_HANDLE: OnceLock<JoinHandle<()>> = OnceLock::new();
 static ASSET_SYNC_QUEUE: OnceLock<UnboundedSender<PathBuf>> = OnceLock::new();
@@ -34,11 +35,14 @@ static SUPABASE_WAITING_LOGGED: AtomicBool = AtomicBool::new(false);
 static PERIOD_CACHE: Lazy<RwLock<Option<PeriodCache>>> = Lazy::new(|| RwLock::new(None));
 static LAST_PERIOD_TAG: Lazy<RwLock<Option<String>>> = Lazy::new(|| RwLock::new(None));
 static EXISTING_KEYS_CACHE: Lazy<RwLock<Option<RemoteKeyCache>>> = Lazy::new(|| RwLock::new(None));
+static PENDING_STORE: OnceLock<Arc<PendingStore>> = OnceLock::new();
 
 const MIN_SCAN_INTERVAL_SECS: u64 = 10;
 const PERIOD_CACHE_FALLBACK_SECS: u64 = 24 * 60 * 60;
 const REMOTE_KEYS_CACHE_FALLBACK_SECS: u64 = 60 * 60;
 const REMOTE_KEYS_REFRESH_MAX_JITTER_MS: u64 = 5_000;
+
+// Removed AssetSyncContext struct as we use UploadContext
 
 struct PeriodCache {
     expires_at: Instant,
@@ -55,11 +59,7 @@ struct UploadHandshakeRequest {
     content_type: String,
 }
 
-#[derive(Deserialize)]
-struct UploadHandshakeResponse {
-    #[serde(rename = "uploadUrl")]
-    upload_url: String,
-}
+
 
 #[derive(Deserialize)]
 struct PeriodApiResponse {
@@ -161,13 +161,18 @@ pub fn start(
         ));
     }
 
+    // Initialize PendingStore
+    let pending_dir = init.save_root.join("pending");
+    let pending_store = Arc::new(PendingStore::new(pending_dir));
+    let _ = PENDING_STORE.set(pending_store.clone());
+
     let (tx, rx) = mpsc::unbounded_channel();
     let _ = ASSET_SYNC_QUEUE.set(tx);
 
     let settings = Arc::new(init);
     let worker_settings = settings.clone();
     let handle = tokio::spawn(async move {
-        if let Err(err) = run_worker(worker_settings, auth_manager, rx).await {
+        if let Err(err) = run_worker(worker_settings, auth_manager, rx, pending_store).await {
             tracing::error!(error = %err, "asset sync worker stopped");
         }
     });
@@ -196,6 +201,7 @@ async fn run_worker(
     settings: Arc<AssetSyncInit>,
     auth_manager: Arc<AuthManager<FileStorage>>,
     mut rx: UnboundedReceiver<PathBuf>,
+    pending_store: Arc<PendingStore>,
 ) -> Result<(), String> {
     let client = build_client()
         .map_err(|err| format!("failed to initialize asset sync http client: {err}"))?;
@@ -212,7 +218,7 @@ async fn run_worker(
         if let Some(path) = rx.recv().await {
             if check_auth_ready(&settings, &auth_manager).await {
                 tracing::info!(file = %path.display(), "received new asset notification, processing...");
-                if let Err(err) = process_path(&client, &settings, &path, &auth_manager).await {
+                if let Err(err) = process_path(&client, &settings, &path, &auth_manager, &pending_store).await {
                     tracing::warn!(error = %err, file = %path.display(), "asset upload failed");
                 }
             }
@@ -245,6 +251,7 @@ async fn process_path(
     settings: &AssetSyncInit,
     path: &Path,
     auth_manager: &AuthManager<FileStorage>,
+    pending_store: &PendingStore,
 ) -> Result<(), String> {
     tracing::info!(file = %path.display(), "processing path");
     let relative = match path.strip_prefix(&settings.save_root) {
@@ -299,11 +306,14 @@ async fn process_path(
         &key,
         metadata.len(),
         auth_manager,
+        Some(pending_store),
     )
     .await?;
     PROCESSED_KEYS.insert(key);
     Ok(())
 }
+
+
 
 fn is_kcsapi(relative: &Path) -> bool {
     match relative.components().next() {
@@ -355,7 +365,7 @@ fn derive_origin(endpoint: &str) -> Result<String, String> {
     Ok(origin)
 }
 
-async fn upload_via_api(
+pub async fn upload_via_api(
     client: &Client,
     settings: &AssetSyncInit,
     path: &Path,
@@ -363,6 +373,7 @@ async fn upload_via_api(
     key: &str,
     file_size: u64,
     auth_manager: &AuthManager<FileStorage>,
+    pending_store: Option<&PendingStore>,
 ) -> Result<(), String> {
     tracing::info!(key, file = %path.display(), size = file_size, "starting upload process");
 
@@ -386,74 +397,37 @@ async fn upload_via_api(
         content_type: "application/octet-stream".to_string(),
     };
 
-    let mut request = client
-        .post(&settings.api_endpoint)
-        .json(&handshake_req)
-        .header("Origin", &settings.api_origin);
+    let handshake_body = serde_json::to_value(&handshake_req)
+        .map_err(|e| format!("Failed to serialize handshake: {}", e))?;
 
-    if settings.require_supabase_auth {
-        let token = auth_manager
-            .get_access_token()
-            .await
-            .map_err(|err| format!("asset sync handshake failed: {err}"))?;
-        request = request.bearer_auth(token);
+    let mut headers = std::collections::HashMap::new();
+    headers.insert("Origin".to_string(), settings.api_origin.clone());
+    headers.insert("Content-Type".to_string(), "application/octet-stream".to_string());
+
+    let request = UploadRequest {
+        endpoint: &settings.api_endpoint,
+        handshake_body,
+        data: bytes,
+        headers,
+        context: UploadContext::Asset {
+            relative_path: relative.to_string_lossy().to_string(),
+            key: key.to_string(),
+            file_size,
+        },
+    };
+
+    match Uploader::upload(client, auth_manager, request, pending_store).await {
+        Ok(UploadResult::Success) => {
+            tracing::info!(key, endpoint = %settings.api_endpoint, "asset upload successful");
+            register_remote_key(key);
+            Ok(())
+        },
+        Ok(UploadResult::Skipped) => {
+            tracing::info!(key, "asset already existed upstream (409)");
+            Ok(())
+        },
+        Err(e) => Err(e),
     }
-
-    let resp = request
-        .send()
-        .await
-        .map_err(|err| format!("asset sync handshake failed: {err}"))?;
-
-    let status = resp.status();
-    if status == StatusCode::CONFLICT {
-        tracing::info!(key, "asset already existed upstream (409)");
-        return Ok(());
-    }
-    if !status.is_success() {
-        let body = resp.text().await.unwrap_or_default();
-        return Err(format!("asset sync handshake returned {}: {}", status, body.trim()));
-    }
-
-    let handshake_res: UploadHandshakeResponse = resp
-        .json()
-        .await
-        .map_err(|err| format!("failed to decode handshake response: {err}"))?;
-
-    tracing::info!(key, "upload handshake successful");
-
-    // Step 2: Execution
-    let mut upload_request = client
-        .post(&handshake_res.upload_url)
-        .body(bytes)
-        .header("Content-Type", "application/octet-stream")
-        .header("Origin", &settings.api_origin);
-
-    if settings.require_supabase_auth {
-        let token = auth_manager
-            .get_access_token()
-            .await
-            .map_err(|err| format!("asset sync upload failed: {err}"))?;
-        upload_request = upload_request.bearer_auth(token);
-    }
-
-    let upload_resp = upload_request
-        .send()
-        .await
-        .map_err(|err| format!("asset sync upload failed: {err}"))?;
-
-    let upload_status = upload_resp.status();
-    if upload_status == StatusCode::CONFLICT {
-        tracing::info!(key, "asset already existed upstream (409) during upload");
-        return Ok(());
-    }
-    if !upload_status.is_success() {
-        let body = upload_resp.text().await.unwrap_or_default();
-        return Err(format!("asset sync upload returned {}: {}", upload_status, body.trim()));
-    }
-
-    tracing::info!(key, endpoint = %settings.api_endpoint, "asset upload successful");
-    register_remote_key(key);
-    Ok(())
 }
 
 async fn maybe_refresh_period(client: &Client, settings: &AssetSyncInit) -> Result<(), String> {

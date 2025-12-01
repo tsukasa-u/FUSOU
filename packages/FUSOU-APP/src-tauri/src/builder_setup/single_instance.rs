@@ -1,4 +1,4 @@
-use crate::cloud_storage::google_drive;
+use crate::storage::providers::gdrive;
 use tauri::{Emitter, Manager, Url};
 use fusou_auth::{AuthManager, FileStorage, Session};
 use std::sync::{Arc, Mutex};
@@ -24,7 +24,7 @@ pub fn single_instance_init(app: &tauri::AppHandle, argv: Vec<String>) {
         });
         if !providrer_refresh_token.is_empty() {
             let token_type = "Bearer";
-            let _ = google_drive::set_refresh_token(providrer_refresh_token, token_type.to_owned());
+            let _ = gdrive::set_refresh_token(providrer_refresh_token, token_type.to_owned());
         }
         if !supabase_refresh_token.is_empty() && !supabase_access_token.is_empty() {
             let auth_manager = app.state::<Arc<Mutex<AuthManager<FileStorage>>>>();

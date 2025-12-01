@@ -5,7 +5,7 @@ use tauri::Emitter;
 #[cfg(dev)]
 use regex::Regex;
 
-use crate::cloud_storage::submit_data;
+use crate::storage::submit_data;
 
 use kc_api::interface::air_base::AirBases;
 use kc_api::interface::deck_port::DeckPorts;
