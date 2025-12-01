@@ -13,12 +13,16 @@ use crate::{
 };
 use tracing_unwrap::OptionExt;
 
+use fusou_auth::{AuthManager, FileStorage};
+use std::sync::{Arc, Mutex};
+
 #[cfg(any(not(dev), check_release))]
 use tracing_unwrap::ResultExt;
 
 pub async fn launch_with_options(
     window: tauri::Window,
     options: HashMap<String, i32>,
+    auth_manager: Arc<Mutex<AuthManager<FileStorage>>>,
 ) -> Result<(), ()> {
     let server_name = if let Some(name) = configs::get_user_configs_for_app()
         .connect_kc_server
@@ -103,6 +107,7 @@ pub async fn launch_with_options(
                             ca_path,
                             window.app_handle(),
                             Some(file_prefix),
+                            auth_manager.clone(),
                         );
                         match addr {
                             Ok(addr) => Some(addr),

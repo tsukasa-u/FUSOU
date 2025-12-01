@@ -21,6 +21,7 @@ use tokio::{
 };
 use tracing;
 use walkdir::WalkDir;
+use fusou_auth::{FileStorage, AuthManager};
 
 use chrono::{DateTime, Utc};
 use configs::ConfigsAppAssetSync;
@@ -30,8 +31,6 @@ static ASSET_SYNC_QUEUE: OnceLock<UnboundedSender<PathBuf>> = OnceLock::new();
 static PROCESSED_KEYS: Lazy<DashSet<String>> = Lazy::new(DashSet::new);
 static SUPABASE_AUTH_READY: AtomicBool = AtomicBool::new(false);
 static SUPABASE_WAITING_LOGGED: AtomicBool = AtomicBool::new(false);
-static SUPABASE_ACCESS_TOKEN: Lazy<RwLock<Option<String>>> = Lazy::new(|| RwLock::new(None));
-static SUPABASE_REFRESH_TOKEN: Lazy<RwLock<Option<String>>> = Lazy::new(|| RwLock::new(None));
 static PERIOD_CACHE: Lazy<RwLock<Option<PeriodCache>>> = Lazy::new(|| RwLock::new(None));
 static LAST_PERIOD_TAG: Lazy<RwLock<Option<String>>> = Lazy::new(|| RwLock::new(None));
 static EXISTING_KEYS_CACHE: Lazy<RwLock<Option<RemoteKeyCache>>> = Lazy::new(|| RwLock::new(None));
@@ -141,7 +140,10 @@ fn normalize_string(value: Option<String>) -> Option<String> {
     })
 }
 
-pub fn start(init: AssetSyncInit) -> Result<(), String> {
+pub fn start(
+    init: AssetSyncInit,
+    auth_manager: Arc<AuthManager<FileStorage>>,
+) -> Result<(), String> {
     if ASSET_SYNC_HANDLE.get().is_some() {
         tracing::debug!("asset sync worker already running");
         return Ok(());
@@ -165,7 +167,7 @@ pub fn start(init: AssetSyncInit) -> Result<(), String> {
     let settings = Arc::new(init);
     let worker_settings = settings.clone();
     let handle = tokio::spawn(async move {
-        if let Err(err) = run_worker(worker_settings, rx).await {
+        if let Err(err) = run_worker(worker_settings, auth_manager, rx).await {
             tracing::error!(error = %err, "asset sync worker stopped");
         }
     });
@@ -190,64 +192,9 @@ pub fn notify_new_asset(path: PathBuf) {
     }
 }
 
-pub fn update_supabase_session(access_token: String, refresh_token: Option<String>) {
-    if access_token.trim().is_empty() {
-        tracing::warn!("received empty Supabase access token; asset sync remains locked");
-        clear_supabase_session();
-        return;
-    }
-
-    {
-        let mut guard = SUPABASE_ACCESS_TOKEN
-            .write()
-            .expect("supabase access token lock poisoned");
-        *guard = Some(access_token);
-    }
-
-    if let Some(token) = refresh_token {
-        let mut guard = SUPABASE_REFRESH_TOKEN
-            .write()
-            .expect("supabase refresh token lock poisoned");
-        *guard = Some(token);
-    }
-
-    let was_ready = SUPABASE_AUTH_READY.swap(true, Ordering::Relaxed);
-    SUPABASE_WAITING_LOGGED.store(false, Ordering::Relaxed);
-    if !was_ready {
-        tracing::info!("Supabase authentication acknowledged; asset sync unlocked");
-    } else {
-        tracing::debug!("Supabase session refreshed for asset sync");
-    }
-}
-
-pub fn clear_supabase_session() {
-    {
-        let mut guard = SUPABASE_ACCESS_TOKEN
-            .write()
-            .expect("supabase access token lock poisoned");
-        guard.take();
-    }
-
-    {
-        let mut guard = SUPABASE_REFRESH_TOKEN
-            .write()
-            .expect("supabase refresh token lock poisoned");
-        guard.take();
-    }
-
-    let was_ready = SUPABASE_AUTH_READY.swap(false, Ordering::Relaxed);
-    SUPABASE_WAITING_LOGGED.store(false, Ordering::Relaxed);
-    if was_ready {
-        tracing::info!("Supabase session cleared; asset sync paused");
-    }
-}
-
-pub fn mark_supabase_signed_out() {
-    clear_supabase_session();
-}
-
 async fn run_worker(
     settings: Arc<AssetSyncInit>,
+    auth_manager: Arc<AuthManager<FileStorage>>,
     mut rx: UnboundedReceiver<PathBuf>,
 ) -> Result<(), String> {
     let client = build_client()
@@ -263,9 +210,9 @@ async fn run_worker(
 
     loop {
         if let Some(path) = rx.recv().await {
-            if check_auth_ready(&settings) {
+            if check_auth_ready(&settings, &auth_manager).await {
                 tracing::info!(file = %path.display(), "received new asset notification, processing...");
-                if let Err(err) = process_path(&client, &settings, &path).await {
+                if let Err(err) = process_path(&client, &settings, &path, &auth_manager).await {
                     tracing::warn!(error = %err, file = %path.display(), "asset upload failed");
                 }
             }
@@ -273,33 +220,31 @@ async fn run_worker(
     }
 }
 
-fn check_auth_ready(settings: &AssetSyncInit) -> bool {
+async fn check_auth_ready(
+    settings: &AssetSyncInit,
+    auth_manager: &AuthManager<FileStorage>,
+) -> bool {
     if !settings.require_supabase_auth {
         return true;
     }
-    let ready = SUPABASE_AUTH_READY.load(Ordering::Relaxed);
-    if ready && get_supabase_access_token().is_none() {
-        SUPABASE_AUTH_READY.store(false, Ordering::Relaxed);
+    let is_auth = auth_manager.is_authenticated().await;
+    if !is_auth {
         if !SUPABASE_WAITING_LOGGED.swap(true, Ordering::Relaxed) {
-            tracing::info!(
-                "Supabase access token missing; waiting for authentication before uploading assets"
-            );
+            tracing::info!("Waiting for Supabase authentication before uploading assets");
         }
         return false;
     }
-    if ready {
-        if SUPABASE_WAITING_LOGGED.swap(false, Ordering::Relaxed) {
-            tracing::info!("Supabase authentication detected; starting asset uploads");
-        }
-        return true;
+    if SUPABASE_WAITING_LOGGED.swap(false, Ordering::Relaxed) {
+        tracing::info!("Supabase authentication detected; starting asset uploads");
     }
-    if !SUPABASE_WAITING_LOGGED.swap(true, Ordering::Relaxed) {
-        tracing::info!("Waiting for Supabase authentication before uploading assets");
-    }
-    false
+    true
 }
 
-async fn run_full_scan(client: &Client, settings: &AssetSyncInit) -> Result<(), String> {
+async fn run_full_scan(
+    client: &Client,
+    settings: &AssetSyncInit,
+    auth_manager: &AuthManager<FileStorage>,
+) -> Result<(), String> {
     tracing::info!("starting full asset scan");
     for entry in WalkDir::new(&settings.save_root)
         .into_iter()
@@ -307,7 +252,7 @@ async fn run_full_scan(client: &Client, settings: &AssetSyncInit) -> Result<(), 
     {
         if entry.file_type().is_file() {
             let path = entry.into_path();
-            if let Err(err) = process_path(client, settings, &path).await {
+            if let Err(err) = process_path(client, settings, &path, auth_manager).await {
                 tracing::debug!(error = %err, file = %path.display(), "asset scan skip");
             }
         }
@@ -319,6 +264,7 @@ async fn process_path(
     client: &Client,
     settings: &AssetSyncInit,
     path: &Path,
+    auth_manager: &AuthManager<FileStorage>,
 ) -> Result<(), String> {
     tracing::info!(file = %path.display(), "processing path");
     let relative = match path.strip_prefix(&settings.save_root) {
@@ -365,7 +311,16 @@ async fn process_path(
         return Err("skip zero-length file".into());
     }
 
-    upload_via_api(client, settings, path, relative, &key, metadata.len()).await?;
+    upload_via_api(
+        client,
+        settings,
+        path,
+        relative,
+        &key,
+        metadata.len(),
+        auth_manager,
+    )
+    .await?;
     PROCESSED_KEYS.insert(key);
     Ok(())
 }
@@ -420,13 +375,6 @@ fn derive_origin(endpoint: &str) -> Result<String, String> {
     Ok(origin)
 }
 
-pub fn get_supabase_access_token() -> Option<String> {
-    match SUPABASE_ACCESS_TOKEN.read() {
-        Ok(guard) => guard.clone(),
-        Err(poisoned) => poisoned.into_inner().clone(),
-    }
-}
-
 async fn upload_via_api(
     client: &Client,
     settings: &AssetSyncInit,
@@ -434,6 +382,7 @@ async fn upload_via_api(
     relative: &Path,
     key: &str,
     file_size: u64,
+    auth_manager: &AuthManager<FileStorage>,
 ) -> Result<(), String> {
     tracing::info!(key, file = %path.display(), size = file_size, "starting upload process");
 
@@ -463,31 +412,29 @@ async fn upload_via_api(
         .header("Origin", &settings.api_origin);
 
     if settings.require_supabase_auth {
-        let token = get_supabase_access_token()
-            .ok_or_else(|| "Supabase access token not available".to_string())?;
+        let token = auth_manager
+            .get_access_token()
+            .await
+            .map_err(|err| format!("asset sync handshake failed: {err}"))?;
         request = request.bearer_auth(token);
     }
 
-    let response = request
+    let resp = request
         .send()
         .await
         .map_err(|err| format!("asset sync handshake failed: {err}"))?;
 
-    let status = response.status();
+    let status = resp.status();
     if status == StatusCode::CONFLICT {
         tracing::info!(key, "asset already existed upstream (409)");
         return Ok(());
     }
     if !status.is_success() {
-        let body = response.text().await.unwrap_or_default();
-        return Err(format!(
-            "asset sync handshake returned {}: {}",
-            status,
-            body.trim()
-        ));
+        let body = resp.text().await.unwrap_or_default();
+        return Err(format!("asset sync handshake returned {}: {}", status, body.trim()));
     }
 
-    let handshake_res: UploadHandshakeResponse = response
+    let handshake_res: UploadHandshakeResponse = resp
         .json()
         .await
         .map_err(|err| format!("failed to decode handshake response: {err}"))?;
@@ -502,28 +449,26 @@ async fn upload_via_api(
         .header("Origin", &settings.api_origin);
 
     if settings.require_supabase_auth {
-        let token = get_supabase_access_token()
-            .ok_or_else(|| "Supabase access token not available for upload".to_string())?;
+        let token = auth_manager
+            .get_access_token()
+            .await
+            .map_err(|err| format!("asset sync upload failed: {err}"))?;
         upload_request = upload_request.bearer_auth(token);
     }
 
-    let upload_response = upload_request
+    let upload_resp = upload_request
         .send()
         .await
         .map_err(|err| format!("asset sync upload failed: {err}"))?;
 
-    let upload_status = upload_response.status();
+    let upload_status = upload_resp.status();
     if upload_status == StatusCode::CONFLICT {
         tracing::info!(key, "asset already existed upstream (409) during upload");
         return Ok(());
     }
     if !upload_status.is_success() {
-        let body = upload_response.text().await.unwrap_or_default();
-        return Err(format!(
-            "asset sync upload returned {}: {}",
-            upload_status,
-            body.trim()
-        ));
+        let body = upload_resp.text().await.unwrap_or_default();
+        return Err(format!("asset sync upload returned {}: {}", upload_status, body.trim()));
     }
 
     tracing::info!(key, endpoint = %settings.api_endpoint, "asset upload successful");
@@ -762,3 +707,4 @@ fn register_remote_key(key: &str) {
         }
     }
 }
+

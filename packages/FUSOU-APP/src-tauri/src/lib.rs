@@ -3,10 +3,14 @@
 
 use once_cell::sync::OnceCell;
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use kc_api::{database, interface};
+use tauri::Manager;
 mod json_parser;
+
+use fusou_auth::{AuthManager, FileStorage};
+
 
 mod auth;
 mod builder_setup;
@@ -100,6 +104,15 @@ pub async fn run() {
             cmd::tauri_cmd::read_emit_file,
         ])
         .setup(move |app: &mut tauri::App| {
+            // Initialize AuthManager
+            let roaming_dir = app.path().app_data_dir().expect("failed to get roaming dir");
+            let session_path = roaming_dir.join("fusou-auth-session.json");
+            let storage = FileStorage::new(session_path);
+            let auth_manager = AuthManager::from_env(std::sync::Arc::new(storage))
+                .expect("failed to create auth manager");
+            let auth_manager_state = Arc::new(Mutex::new(auth_manager));
+            app.manage(auth_manager_state);
+
             builder_setup::setup::setup_init(app)?;
             Ok(())
         })

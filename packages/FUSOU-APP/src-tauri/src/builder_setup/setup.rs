@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use std::{env, fs, sync::Mutex, time};
 
 use tauri::{
-    Emitter, Manager, menu::{CheckMenuItemBuilder, MenuBuilder, MenuItemBuilder, SubmenuBuilder}, tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent}
+    Manager, menu::{CheckMenuItemBuilder, MenuBuilder, MenuItemBuilder, SubmenuBuilder}, tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent}
 };
 use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_autostart::ManagerExt;
@@ -28,6 +28,9 @@ use crate::{
     window::{app, external},
 };
 use proxy_https::bidirectional_channel::request_shutdown;
+
+use fusou_auth::{AuthManager, FileStorage};
+use std::sync::Arc;
 
 #[cfg(any(not(dev), check_release))]
 use crate::builder_setup::updater::setup_updater;
@@ -438,24 +441,28 @@ fn setup_tray(
                     "sync-snapshot" => {
                         tracing::info!("Tray menu action: sync-snapshot selected");
                         let app_handle = tray.app_handle();
+                        let auth_manager = app_handle.state::<Arc<Mutex<AuthManager<FileStorage>>>>();
+                        let manager = { auth_manager.lock().unwrap().clone() };
 
-                        if proxy_https::asset_sync::get_supabase_access_token().is_none() {
-                            tracing::warn!("Snapshot sync requires authentication, but no token is available.");
-                            let _ = app_handle
-                                .notification()
-                                .builder()
-                                .title("Authentication Required")
-                                .body("Please sign in to sync your snapshot.")
-                                .show();
-                        } else {
-                            let app_handle_clone = app_handle.clone();
-                            tauri::async_runtime::spawn(async move {
-                                match crate::cloud_storage::snapshot::perform_snapshot_sync_app(&app_handle_clone).await {
+                        let app_handle_clone = app_handle.clone();
+                        let auth_manager_clone = auth_manager.inner().clone();
+
+                        tauri::async_runtime::spawn(async move {
+                            if !manager.is_authenticated().await {
+                                tracing::warn!("Snapshot sync requires authentication, but no token is available.");
+                                let _ = app_handle_clone
+                                    .notification()
+                                    .builder()
+                                    .title("Authentication Required")
+                                    .body("Please sign in to sync your snapshot.")
+                                    .show();
+                            } else {
+                                match crate::cloud_storage::snapshot::perform_snapshot_sync_app(&app_handle_clone, auth_manager_clone).await {
                                     Ok(_) => tracing::info!("Snapshot sync completed (tray-trigger)"),
                                     Err(e) => tracing::error!("Snapshot sync failed (tray-trigger): {}", e),
                                 }
-                            });
-                        }
+                            }
+                        });
                     }
                     "intergrate_file" => {
                         integrate::integrate_port_table();

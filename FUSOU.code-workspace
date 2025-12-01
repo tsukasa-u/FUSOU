@@ -19,6 +19,9 @@
       "path": "packages/configs"
     },
     {
+      "path": "packages/fusou-auth"
+    },
+    {
       "path": "docs"
     },
     {

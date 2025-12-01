@@ -5,9 +5,10 @@ use serde::Serialize;
 use serde_json::json;
 use tauri::AppHandle;
 use tauri_plugin_notification::NotificationExt;
-use proxy_https::asset_sync;
 use uuid::Uuid;
 use serde::Deserialize;
+use fusou_auth::{AuthManager, FileStorage};
+use std::sync::{Arc, Mutex};
 
 #[derive(Deserialize)]
 struct PrepareResponse {
@@ -35,7 +36,10 @@ fn get_payload_data() -> serde_json::Value {
     json!(payload)
 }
 
-pub async fn perform_snapshot_sync_app(app: &AppHandle) -> Result<serde_json::Value, String> {
+pub async fn perform_snapshot_sync_app(
+    app: &AppHandle,
+    auth_manager: Arc<Mutex<AuthManager<FileStorage>>>,
+) -> Result<serde_json::Value, String> {
     tracing::info!("Starting snapshot sync");
 
     let app_configs = configs::get_user_configs_for_app();
@@ -47,13 +51,22 @@ pub async fn perform_snapshot_sync_app(app: &AppHandle) -> Result<serde_json::Va
         return Err("Snapshot endpoint not configured".to_string());
     };
 
-    let token = match asset_sync::get_supabase_access_token() {
-        Some(t) if !t.is_empty() => t,
-        _ => {
-            let msg = "Snapshot sync requires auth but no token available";
-            tracing::error!("{}", msg);
-            let _ = app.notification().builder().title("Sync Failed").body(msg).show();
-            return Err(msg.to_string());
+    let token = {
+        let manager = auth_manager.lock().unwrap().clone();
+        match manager.get_access_token().await {
+            Ok(t) => t,
+            Err(e) => {
+                let msg = format!("Snapshot sync requires auth but failed to get token: {}", e);
+                tracing::error!("{}", msg);
+                
+                // Check if session is gone (which happens if refresh failed fatally)
+                if !manager.is_authenticated().await {
+                     let _ = app.notification().builder().title("Session Expired").body("Please sign in again to sync your snapshot.").show();
+                } else {
+                     let _ = app.notification().builder().title("Sync Failed").body(&msg).show();
+                }
+                return Err(msg);
+            }
         }
     };
 

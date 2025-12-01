@@ -22,6 +22,8 @@ use crate::{asset_sync, bidirectional_channel};
 use configs;
 
 use tracing_unwrap::ResultExt;
+use fusou_auth::{AuthManager, FileStorage};
+use std::sync::Arc;
 
 pub static CA_CERT_NAME: &str = "fusou_ca_cert";
 pub static CA_CERT_NAME_PEM: &str = "fusou_ca_cert.pem";
@@ -474,6 +476,7 @@ pub fn serve_proxy(
     log_save_path: String,
     ca_save_path: String,
     file_prefix: String,
+    auth_manager: Arc<AuthManager<FileStorage>>,
 ) -> Result<SocketAddr, Box<dyn std::error::Error>> {
     setup_default_crypto_provider();
 
@@ -578,7 +581,7 @@ pub fn serve_proxy(
             },
         ) {
             Ok(init) => {
-                if let Err(err) = asset_sync::start(init) {
+                if let Err(err) = asset_sync::start(init, auth_manager) {
                     tracing::warn!("failed to start asset sync: {}", err);
                 }
             }
