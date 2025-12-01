@@ -240,26 +240,6 @@ async fn check_auth_ready(
     true
 }
 
-async fn run_full_scan(
-    client: &Client,
-    settings: &AssetSyncInit,
-    auth_manager: &AuthManager<FileStorage>,
-) -> Result<(), String> {
-    tracing::info!("starting full asset scan");
-    for entry in WalkDir::new(&settings.save_root)
-        .into_iter()
-        .filter_map(|e| e.ok())
-    {
-        if entry.file_type().is_file() {
-            let path = entry.into_path();
-            if let Err(err) = process_path(client, settings, &path, auth_manager).await {
-                tracing::debug!(error = %err, file = %path.display(), "asset scan skip");
-            }
-        }
-    }
-    Ok(())
-}
-
 async fn process_path(
     client: &Client,
     settings: &AssetSyncInit,
