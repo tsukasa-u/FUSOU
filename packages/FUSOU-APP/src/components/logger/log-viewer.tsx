@@ -40,36 +40,21 @@ export function LogViewerComponent() {
   const [search, setSearch] = createSignal("");
   const [levelFilter, setLevelFilter] = createSignal<string>("ALL");
   const [targetFilter, setTargetFilter] = createSignal<string>("ALL");
+  const [showScrollButton, setShowScrollButton] = createSignal(true);
+
+  // Scroll behavior tuning constants
+  // Small margin to tolerate minor layout shifts when judging "at bottom".
+  const SCROLL_BOTTOM_MARGIN_PX = 8;
+  // If remaining scroll distance is below this threshold, treat as near bottom
+  // and auto-scroll on new logs.
+  const NEAR_BOTTOM_THRESHOLD_PX = 200;
+  // Extra padding to ensure reaching absolute bottom with virtualized lists.
+  const EXTRA_SCROLL_PADDING_PX = 400;
+
+  const MAX_ITERATIONS = 10;
 
   // Load all logs from backend on mount
-  onMount(async () => {
-    setIsLoading(true);
-    try {
-      const allLogs = await invoke<MessageVisitor[]>("get_all_logs");
-      // Process and add all logs to the store
-      allLogs.forEach((payload) => {
-        let message = payload.message ?? "";
-        if (payload.content_type) {
-          message += ` (${payload.content_type}) ${message}`;
-        }
-        if (payload.method && payload.uri) {
-          message = `[${payload.method}] ${payload.uri} ${message}`;
-        } else if (payload.status && payload.uri) {
-          message = `[${payload.status}] ${payload.uri} ${message}`;
-        }
-        setLogStore(logStore.length, {
-          datetime: payload.datetime || "",
-          level: payload.level || "",
-          target: payload.target || "",
-          message,
-        });
-      });
-    } catch (error) {
-      console.error("Failed to load logs:", error);
-    } finally {
-      setIsLoading(false);
-    }
-  });
+  onMount(() => reloadLogs());
 
   // Derive unique targets from the store for the target filter dropdown
   const uniqueTargets = createMemo(() => {
@@ -133,28 +118,189 @@ export function LogViewerComponent() {
     });
   });
 
+  // Helper function to process message payload
+  const processMessagePayload = (payload: MessageVisitor): string => {
+    let message = payload.message ?? "";
+    if (payload.content_type) {
+      message += ` (${payload.content_type}) ${message}`;
+    }
+    if (payload.method && payload.uri) {
+      message = `[${payload.method}] ${payload.uri} ${message}`;
+    } else if (payload.status && payload.uri) {
+      message = `[${payload.status}] ${payload.uri} ${message}`;
+    }
+    return message;
+  };
+
+  // Helper function to add log entry to store
+  const addLogEntry = (payload: MessageVisitor) => {
+    const message = processMessagePayload(payload);
+    setLogStore(logStore.length, {
+      datetime: payload.datetime || "",
+      level: payload.level || "",
+      target: payload.target || "",
+      message,
+    });
+  };
+
+  // Helper function to reload all logs
+  const reloadLogs = async () => {
+    setIsLoading(true);
+    try {
+      const allLogs = await invoke<MessageVisitor[]>("get_all_logs");
+      setLogStore([]);
+      allLogs.forEach(addLogEntry);
+    } catch (error) {
+      console.error("Failed to reload logs:", error);
+    } finally {
+      setIsLoading(false);
+      setTimeout(checkScrollPosition, 200);
+    }
+  };
+
+  // Helper function to clear all filters
+  const clearFilters = () => {
+    setSearch("");
+    setLevelFilter("ALL");
+    setTargetFilter("ALL");
+  };
+
   // Reference to the list container so we can auto-scroll to bottom on new logs
   let listContainer: HTMLDivElement | undefined;
+  let vlistScrollElement: HTMLElement | undefined;
+
+  // Handle scroll to detect if user is at bottom (element-based)
+  const handleScroll = () => {
+    const scrollElement = vlistScrollElement || findScrollElement();
+    if (!scrollElement) return;
+    
+    const { scrollTop, scrollHeight, clientHeight } = scrollElement;
+    const maxScroll = scrollHeight - clientHeight;
+    const remaining = maxScroll - scrollTop;
+    
+    // If remaining scroll is within margin, we're at bottom
+    const isAtBottom = remaining <= SCROLL_BOTTOM_MARGIN_PX;
+    setShowScrollButton(!isAtBottom);
+  };
+
+  // Find the actual scrollable element
+  const findScrollElement = (): HTMLElement | null => {
+    if (!listContainer) return null;
+    
+    // VList creates a scrollable div inside - find it by checking all children
+    const walkElements = (el: Element): HTMLElement | null => {
+      if (el instanceof HTMLElement) {
+        const style = window.getComputedStyle(el);
+        const isScrollable = 
+          (style.overflow === 'auto' || style.overflow === 'scroll' ||
+           style.overflowY === 'auto' || style.overflowY === 'scroll') &&
+          el.scrollHeight > el.clientHeight;
+        
+        if (isScrollable) {
+          el.removeEventListener('scroll', handleScroll);
+          el.addEventListener('scroll', handleScroll, { passive: true });
+          return el;
+        }
+      }
+      
+      for (const child of Array.from(el.children)) {
+        const found = walkElements(child);
+        if (found) return found;
+      }
+      return null;
+    };
+    
+    const found = walkElements(listContainer);
+    if (found) {
+      vlistScrollElement = found;
+      return found;
+    }
+    
+    return listContainer;
+  };
+
+  // Check initial scroll position after mount
+  const checkScrollPosition = () => {
+    handleScroll();
+  };
+
+  // Scroll to bottom function - handles virtualized list by scrolling in stages
+  const scrollToBottom = () => {
+    if (!listContainer) return;
+    
+    const scrollElement = findScrollElement();
+    if (!scrollElement) {
+      return;
+    }
+
+    
+    // Function to scroll and check if we need to continue
+    const scrollStep = (iteration: number) => {
+      const { scrollTop, scrollHeight, clientHeight } = scrollElement;
+      const maxScroll = scrollHeight - clientHeight;
+      const remaining = maxScroll - scrollTop;
+    
+      
+      // If we're within threshold of bottom, we're done
+      if (remaining <= SCROLL_BOTTOM_MARGIN_PX) {
+        setTimeout(() => checkScrollPosition(), 100);
+        return;
+      }
+      
+      if (iteration > MAX_ITERATIONS) {
+        setTimeout(() => checkScrollPosition(), 100);
+        return;
+      }
+      
+      // Scroll to current max
+      scrollElement.scrollTo({
+        top: maxScroll + EXTRA_SCROLL_PADDING_PX,
+        behavior: iteration === 1 ? 'smooth' : 'auto', // Smooth only first time
+      });
+      
+      // Wait for layout update and continue
+      setTimeout(() => scrollStep(iteration + 1), 150);
+    };
+    
+    scrollStep(1);
+  };
+
+  // Copy all visible logs to clipboard
+  const copyLogsToClipboard = async () => {
+    const logs = filteredLogs();
+    const text = logs
+      .map((entry) => `${entry.datetime} [${entry.level}] [${entry.target}] ${entry.message}`)
+      .join('\n');
+    
+    try {
+      await navigator.clipboard.writeText(text);
+      // Optional: Show a toast or notification
+      console.log('Logs copied to clipboard');
+    } catch (error) {
+      console.error('Failed to copy logs:', error);
+    }
+  };
 
   // Auto-scroll to the latest log when filteredLogs grows
   createEffect(() => {
     const len = filteredLogs().length;
     // run after DOM updates
     setTimeout(() => {
-      if (listContainer) {
-        try {
-          // Try to find rendered log entries and scroll the last one into view.
-          const items = listContainer.querySelectorAll("[data-log-entry]");
-          const last = items[items.length - 1] as HTMLElement | undefined;
-          if (last && typeof last.scrollIntoView === "function") {
-            last.scrollIntoView({ block: "end", behavior: "auto" });
-            return;
+      try {
+        const scrollElement = vlistScrollElement || findScrollElement();
+        if (scrollElement) {
+          // Check if already at bottom before auto-scrolling
+          const { scrollTop, scrollHeight, clientHeight } = scrollElement;
+          const isNearBottom = scrollHeight - scrollTop - clientHeight < NEAR_BOTTOM_THRESHOLD_PX;
+          if (isNearBottom) {
+            // Add extra padding to ensure we reach the absolute bottom
+            scrollElement.scrollTop = scrollElement.scrollHeight + EXTRA_SCROLL_PADDING_PX;
           }
-          // Fallback: scroll the container to bottom
-          listContainer.scrollTop = listContainer.scrollHeight + 100; // extra padding
-        } catch (e) {
-          // ignore
+          // Re-evaluate button visibility shortly after content settles
+          setTimeout(checkScrollPosition, SCROLL_BOTTOM_MARGIN_PX * 25);
         }
+      } catch (e) {
+        // ignore
       }
     }, 0);
     return len;
@@ -165,18 +311,7 @@ export function LogViewerComponent() {
     (async () => {
       // eslint-disable-next-line solid/reactivity
       unlisten_data = await listen<MessageVisitor>("log-event", (event) => {
-        // if (import.meta.env.DEV) console.log("log-event");
-
-        let message = event.payload.message ?? "";
-        if (event.payload.content_type) {
-          message += ` (${event.payload.content_type}) ${message}`;
-        }
-        if (event.payload.method && event.payload.uri) {
-          message = `[${event.payload.method}] ${event.payload.uri} ${message}`;
-        } else if (event.payload.status && event.payload.uri) {
-          message = `[${event.payload.status}] ${event.payload.uri} ${message}`;
-        }
-        setLogStore(logStore.length, { ...event.payload, message });
+        addLogEntry(event.payload);
       });
     })();
 
@@ -224,44 +359,13 @@ export function LogViewerComponent() {
           </select>
           <button
             class="btn btn-ghost btn-sm shrink-0"
-            onClick={() => {
-              setSearch("");
-              setLevelFilter("ALL");
-              setTargetFilter("ALL");
-            }}
+            onClick={clearFilters}
           >
             Clear
           </button>
           <button
             class="btn btn-ghost btn-sm shrink-0"
-            onClick={async () => {
-              setIsLoading(true);
-              try {
-                const allLogs = await invoke<MessageVisitor[]>("get_all_logs");
-                setLogStore([]);
-                allLogs.forEach((payload) => {
-                  let message = payload.message ?? "";
-                  if (payload.content_type) {
-                    message += ` (${payload.content_type}) ${message}`;
-                  }
-                  if (payload.method && payload.uri) {
-                    message = `[${payload.method}] ${payload.uri} ${message}`;
-                  } else if (payload.status && payload.uri) {
-                    message = `[${payload.status}] ${payload.uri} ${message}`;
-                  }
-                  setLogStore(logStore.length, {
-                    datetime: payload.datetime || "",
-                    level: payload.level || "",
-                    target: payload.target || "",
-                    message,
-                  });
-                });
-              } catch (error) {
-                console.error("Failed to reload logs:", error);
-              } finally {
-                setIsLoading(false);
-              }
-            }}
+            onClick={reloadLogs}
             disabled={isLoading()}
           >
             {isLoading() ? "Loading..." : "Reload"}
@@ -269,17 +373,26 @@ export function LogViewerComponent() {
         </div>
 
         <div class="h-2" />
-        <div
-          ref={(el) => (listContainer = el as HTMLDivElement)}
-          class="rounded-box border-base-300 border"
-          style={{ height: "calc(100dvh - 140px)", overflow: "auto" }}
-        >
-          <VList
-            data={filteredLogs()}
-            style={{
-              height: "100%",
+        <div class="relative">
+          <div
+            ref={(el) => {
+              listContainer = el as HTMLDivElement;
+              // Attach scroll listener to the outer container and do initial check
+              setTimeout(() => {
+                listContainer?.removeEventListener('scroll', handleScroll);
+                listContainer?.addEventListener('scroll', handleScroll, { passive: true });
+                checkScrollPosition();
+              }, 100);
             }}
+            class="rounded-box border-base-300 border"
+            style={{ height: "calc(100dvh - 140px)", overflow: "auto" }}
           >
+            <VList
+              data={filteredLogs()}
+              style={{
+                height: "100%",
+              }}
+            >
             {(d) => (
               <div
                 data-log-entry
@@ -305,7 +418,32 @@ export function LogViewerComponent() {
                 </div>
               </div>
             )}
-          </VList>
+            </VList>
+          </div>
+        
+          {/* Floating buttons */}
+          <div class="absolute bottom-4 right-4 flex flex-col gap-2">
+          {showScrollButton() && (
+            <button
+              class="btn btn-circle btn-primary shadow-lg"
+              onClick={scrollToBottom}
+              title="Scroll to bottom"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 14l-7 7m0 0l-7-7m7 7V3" />
+              </svg>
+            </button>
+          )}
+          <button
+            class="btn btn-circle btn-secondary shadow-lg"
+            onClick={copyLogsToClipboard}
+            title="Copy logs to clipboard"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+            </svg>
+          </button>
+        </div>
         </div>
       </div>
     </>
