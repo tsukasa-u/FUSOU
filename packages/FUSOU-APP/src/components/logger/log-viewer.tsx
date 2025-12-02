@@ -151,7 +151,7 @@ export function LogViewerComponent() {
             return;
           }
           // Fallback: scroll the container to bottom
-          listContainer.scrollTop = listContainer.scrollHeight;
+          listContainer.scrollTop = listContainer.scrollHeight + 100; // extra padding
         } catch (e) {
           // ignore
         }
@@ -189,7 +189,7 @@ export function LogViewerComponent() {
     <>
       <div class="py-2 mx-4">
         <div class="flex flex-wrap items-center gap-2">
-          <div class="mx-2 py-1 text-sm flex-shrink-0">Log Table</div>
+          <div class="mx-2 py-1 text-sm shrink-0">Log Table</div>
           <input
             class="input input-sm flex-1 min-w-[200px] max-w-md"
             placeholder="Search messages, target, datetime..."
@@ -223,7 +223,7 @@ export function LogViewerComponent() {
             </For>
           </select>
           <button
-            class="btn btn-ghost btn-sm flex-shrink-0"
+            class="btn btn-ghost btn-sm shrink-0"
             onClick={() => {
               setSearch("");
               setLevelFilter("ALL");
@@ -233,7 +233,7 @@ export function LogViewerComponent() {
             Clear
           </button>
           <button
-            class="btn btn-ghost btn-sm flex-shrink-0"
+            class="btn btn-ghost btn-sm shrink-0"
             onClick={async () => {
               setIsLoading(true);
               try {
@@ -272,7 +272,7 @@ export function LogViewerComponent() {
         <div
           ref={(el) => (listContainer = el as HTMLDivElement)}
           class="rounded-box border-base-300 border"
-          style={{ height: "calc(100dvh - 120px)", overflow: "auto" }}
+          style={{ height: "calc(100dvh - 140px)", overflow: "auto" }}
         >
           <VList
             data={filteredLogs()}
@@ -285,17 +285,17 @@ export function LogViewerComponent() {
                 data-log-entry
                 class="p-1 text-xs flex items-start gap-2 min-w-0"
               >
-                <div class="px-2 flex-shrink-0 text-nowrap text-[11px]">
+                <div class="px-2 shrink-0 text-nowrap text-[11px]">
                   {d.datetime}
                 </div>
-                <div class="px-2 flex-shrink-0 w-16">
+                <div class="px-2 shrink-0 w-16">
                   <span
                     class={`px-2 py-0.5 rounded-md text-[10px] whitespace-nowrap inline-block text-center w-full ${levelBadgeClass(d.level)}`}
                   >
                     {d.level}
                   </span>
                 </div>
-                <div class="px-2 flex-1 min-w-0 break-words">
+                <div class="px-2 flex-1 min-w-0 wrap-break-word">
                   <span
                     class={`px-2 py-0.5 rounded-full text-[11px] mr-2 whitespace-nowrap ${targetBadgeClass(d.target)}`}
                   >
