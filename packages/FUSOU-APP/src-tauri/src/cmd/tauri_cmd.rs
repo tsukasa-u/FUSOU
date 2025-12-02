@@ -11,6 +11,7 @@ use crate::auth::auth_server;
 use crate::auth_server::AuthChannel;
 use crate::builder_setup::bidirectional_channel::get_pac_bidirectional_channel;
 use crate::builder_setup::bidirectional_channel::get_proxy_bidirectional_channel;
+use crate::builder_setup::logger::MessageVisitor;
 use crate::storage::providers::gdrive;
 use crate::interface::mst_equip_exslot_ship::MstEquipExslotShips;
 use crate::interface::mst_equip_ship::MstEquipShips;
@@ -439,3 +440,10 @@ pub async fn show_native_notification(_window: tauri::Window, title: String, bod
         Err(e) => Err(format!("native notification failed: {}", e)),
     }
 }
+
+/// Tauri command to get all stored logs
+#[tauri::command]
+pub fn get_all_logs() -> Vec<MessageVisitor> {
+    crate::builder_setup::logger::get_all_logs_internal()
+}
+

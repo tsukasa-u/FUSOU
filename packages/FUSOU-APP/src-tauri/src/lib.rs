@@ -97,6 +97,7 @@ pub async fn run() {
             cmd::tauri_cmd::set_supabase_session,
             cmd::tauri_cmd::clear_supabase_session,
             cmd::tauri_cmd::perform_snapshot_sync,
+            cmd::tauri_cmd::get_all_logs,
             #[cfg(dev)]
             cmd::tauri_cmd::open_auth_window,
             #[cfg(dev)]

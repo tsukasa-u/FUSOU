@@ -4,10 +4,12 @@ import {
   createSignal,
   createMemo,
   For,
+  onMount,
 } from "solid-js";
 import "../../css/divider.css";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { listen } from "@tauri-apps/api/event";
+import { invoke } from "@tauri-apps/api/core";
 import { VList } from "virtua/solid";
 import { createStore } from "solid-js/store";
 
@@ -32,11 +34,42 @@ export function LogViewerComponent() {
   };
 
   const [logStore, setLogStore] = createStore<LogEntry[]>([]);
+  const [isLoading, setIsLoading] = createSignal(false);
 
   // UI state for search and filters
   const [search, setSearch] = createSignal("");
   const [levelFilter, setLevelFilter] = createSignal<string>("ALL");
   const [targetFilter, setTargetFilter] = createSignal<string>("ALL");
+
+  // Load all logs from backend on mount
+  onMount(async () => {
+    setIsLoading(true);
+    try {
+      const allLogs = await invoke<MessageVisitor[]>("get_all_logs");
+      // Process and add all logs to the store
+      allLogs.forEach((payload) => {
+        let message = payload.message ?? "";
+        if (payload.content_type) {
+          message += ` (${payload.content_type}) ${message}`;
+        }
+        if (payload.method && payload.uri) {
+          message = `[${payload.method}] ${payload.uri} ${message}`;
+        } else if (payload.status && payload.uri) {
+          message = `[${payload.status}] ${payload.uri} ${message}`;
+        }
+        setLogStore(logStore.length, {
+          datetime: payload.datetime || "",
+          level: payload.level || "",
+          target: payload.target || "",
+          message,
+        });
+      });
+    } catch (error) {
+      console.error("Failed to load logs:", error);
+    } finally {
+      setIsLoading(false);
+    }
+  });
 
   // Derive unique targets from the store for the target filter dropdown
   const uniqueTargets = createMemo(() => {
@@ -199,6 +232,40 @@ export function LogViewerComponent() {
           >
             Clear
           </button>
+          <button
+            class="btn btn-ghost btn-sm flex-shrink-0"
+            onClick={async () => {
+              setIsLoading(true);
+              try {
+                const allLogs = await invoke<MessageVisitor[]>("get_all_logs");
+                setLogStore([]);
+                allLogs.forEach((payload) => {
+                  let message = payload.message ?? "";
+                  if (payload.content_type) {
+                    message += ` (${payload.content_type}) ${message}`;
+                  }
+                  if (payload.method && payload.uri) {
+                    message = `[${payload.method}] ${payload.uri} ${message}`;
+                  } else if (payload.status && payload.uri) {
+                    message = `[${payload.status}] ${payload.uri} ${message}`;
+                  }
+                  setLogStore(logStore.length, {
+                    datetime: payload.datetime || "",
+                    level: payload.level || "",
+                    target: payload.target || "",
+                    message,
+                  });
+                });
+              } catch (error) {
+                console.error("Failed to reload logs:", error);
+              } finally {
+                setIsLoading(false);
+              }
+            }}
+            disabled={isLoading()}
+          >
+            {isLoading() ? "Loading..." : "Reload"}
+          </button>
         </div>
 
         <div class="h-2" />
@@ -221,9 +288,9 @@ export function LogViewerComponent() {
                 <div class="px-2 flex-shrink-0 text-nowrap text-[11px]">
                   {d.datetime}
                 </div>
-                <div class="px-2 flex-shrink-0">
+                <div class="px-2 flex-shrink-0 w-16">
                   <span
-                    class={`px-2 py-0.5 rounded-md text-[10px] whitespace-nowrap ${levelBadgeClass(d.level)}`}
+                    class={`px-2 py-0.5 rounded-md text-[10px] whitespace-nowrap inline-block text-center w-full ${levelBadgeClass(d.level)}`}
                   >
                     {d.level}
                   </span>
