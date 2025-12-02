@@ -113,6 +113,37 @@ function Start() {
 
   const [authData, setAuthData] = useAuth();
 
+  let tokensInput: HTMLInputElement | null = null;
+
+  const parseAndApplyTokens = async (raw: string | null | undefined) => {
+    if (!raw) return;
+    try {
+      const pairs = raw.split("&").map((p) => p.split("=", 2));
+      const map: Record<string, string> = {};
+      for (const [k, v] of pairs) {
+        if (k) map[k] = v ?? "";
+      }
+
+      const access = map["supabase_access_token"];
+      const refresh = map["supabase_refresh_token"];
+      const provider = map["provider_refresh_token"];
+
+      if (!access || !refresh || !provider) {
+        console.error("Invalid token format, missing keys");
+        return;
+      }
+
+      setAuthData({ accessToken: access, refreshToken: refresh });
+
+      await invoke("set_refresh_token", {
+        token: `${provider}&bearer`,
+      });
+      console.log("Tokens applied from clipboard/input");
+    } catch (e) {
+      console.error("Failed to parse/apply tokens:", e);
+    }
+  };
+
   // const navigate = useNavigate();
 
   createEffect(() => {
@@ -530,63 +561,40 @@ function Start() {
                 Set provider (provider) (access/refresh) tokens
               </div>
               <fieldset class="fieldset">
-                <legend class="fieldset-legen">
-                  input tokens for new session
-                </legend>
-                <div class="flex flex-nowarp align-center">
+                <legend class="fieldset-legen">input tokens for new session</legend>
+                <div class="flex items-center gap-2">
                   <input
                     id="tokens"
+                    ref={(el) => (tokensInput = el as HTMLInputElement)}
                     type="text"
-                    class="w-full input input-sm focus-within:outline-0 focus:outline-0"
-                    placeholder="provider_refresh_token=***&access_token=****&refresh_token=***"
+                    class="flex-1 input input-sm focus-within:outline-0 focus:outline-0"
+                    placeholder="provider_refresh_token=...&supabase_access_token=...&supabase_refresh_token=..."
                   />
-                  <div class="w-4" />
-                  <kbd class="self-center kbd kbd-md bg-info text-info-content pt-1">
-                    ctrl
-                  </kbd>
-                  <div class="self-center text-md px-1">+</div>
-                  <kbd class="self-center kbd kbd-md bg-info text-info-content pt-1">
-                    V
-                  </kbd>
+                  <button
+                    class="btn btn-sm btn-ghost"
+                    onClick={async () => {
+                      try {
+                        const text = await navigator.clipboard.readText();
+                        if (!tokensInput) return;
+                        tokensInput.value = text;
+                      } catch (e) {
+                        console.error("Failed to read clipboard:", e);
+                      }
+                    }}
+                    title="Paste from clipboard"
+                  >
+                    Paste
+                  </button>
+                  <button
+                    class="btn btn-sm btn-secondary border-secondary-content"
+                    onClick={() => parseAndApplyTokens(tokensInput?.value)}
+                  >
+                    Apply
+                  </button>
                 </div>
               </fieldset>
 
-              <div class="mt-4 flex items-center justify-end">
-                <span class="flex-auto" />
-                <div class="form-control flex-none">
-                  <div
-                    class="btn btn-sm btn-primary border-1 border-primary-content"
-                    onClick={() => {
-                      const input_text: HTMLInputElement | null =
-                        document.getElementById("tokens") as HTMLInputElement;
-                      if (input_text == null) return;
-
-                      const tokens = input_text.value?.split("&");
-                      const supabase_access_token = tokens[2].split("=");
-                      const supabase_refresh_token = tokens[3].split("=");
-                      const provider_refresh_token = tokens[0].split("=");
-
-                      if (supabase_access_token[0] != "supabase_access_token")
-                        return;
-                      if (supabase_refresh_token[0] != "supabase_refresh_token")
-                        return;
-                      if (provider_refresh_token[0] != "provider_refresh_token")
-                        return;
-
-                      setAuthData({
-                        accessToken: supabase_access_token[1],
-                        refreshToken: supabase_refresh_token[1],
-                      });
-
-                      invoke("set_refresh_token", {
-                        token: provider_refresh_token + "&bearer",
-                      });
-                    }}
-                  >
-                    Set Token
-                  </div>
-                </div>
-              </div>
+              <div class="h-4" />
 
               <div class="font-semibold">Set Theme</div>
               <div class="h-4" />
