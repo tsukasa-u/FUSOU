@@ -50,7 +50,12 @@ type SyncResult = {
   failed: number;
   errors: Array<{ key: string; error: string }>;
   duration: number;
+  resumeCursor?: string;
+  completed: boolean;
 };
+
+// Process up to this many missing keys per invocation to avoid API limits
+const MAX_KEYS_PER_INVOCATION = 50;
 
 export const prerender = false;
 
@@ -90,6 +95,18 @@ export const POST: APIRoute = async ({ request, locals }) => {
     );
   }
 
+  // Parse request body to get resume cursor if provided
+  let resumeFromKey: string | undefined;
+  try {
+    const contentType = request.headers.get("content-type");
+    if (contentType?.includes("application/json")) {
+      const body = (await request.json()) as { resumeFromKey?: string };
+      resumeFromKey = body.resumeFromKey;
+    }
+  } catch {
+    // No body or invalid JSON, proceed without resume
+  }
+
   const result: SyncResult = {
     scanned: 0,
     existing: 0,
@@ -97,6 +114,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
     failed: 0,
     errors: [],
     duration: 0,
+    completed: false,
   };
 
   try {
@@ -138,88 +156,195 @@ export const POST: APIRoute = async ({ request, locals }) => {
 
     result.scanned = r2Keys.length;
 
-    // Step 3: Identify missing keys and insert them
-    const missingKeys = r2Keys.filter((key) => !existingKeysSet.has(key));
+    // Step 3: Identify missing keys
+    let missingKeys = r2Keys.filter((key) => !existingKeysSet.has(key));
 
-    for (const key of missingKeys) {
-      try {
-        // Fetch metadata from R2
-        const obj = await bucket.head(key);
-        if (!obj) {
-          result.failed++;
-          result.errors.push({
-            key,
-            error: "Object not found in R2 (deleted after listing?)",
-          });
-          continue;
-        }
-
-        // Check if key already exists (race condition safety)
-        const checkStmt = db.prepare("SELECT key FROM files WHERE key = ?");
-        const existing = await checkStmt.bind(key).first?.();
-        if (existing) {
-          result.existing++;
-          continue;
-        }
-
-        // Insert into D1
-        const uploadedAt = obj.uploaded ? obj.uploaded.getTime() : Date.now();
-        const contentType =
-          obj.httpMetadata?.contentType || "application/octet-stream";
-        const metadata = obj.customMetadata || {};
-
-        const insertStmt = db.prepare(
-          `INSERT INTO files (key, size, uploaded_at, content_type, uploader_id, finder_tag, metadata) 
-           VALUES (?, ?, ?, ?, ?, ?, ?)`
-        );
-
-        const insertResult = await insertStmt
-          .bind(
-            key,
-            obj.size,
-            uploadedAt,
-            contentType,
-            metadata.uploaded_by || null,
-            metadata.finder_tag || null,
-            JSON.stringify({
-              file_name: metadata.file_name || null,
-              declared_size: metadata.declared_size || null,
-              synced_from_r2: true,
-              synced_at: Date.now(),
-            })
-          )
-          .run();
-
-        if (insertResult && "success" in insertResult && insertResult.success) {
-          result.inserted++;
-        } else {
-          result.failed++;
-          const errorMsg =
-            "error" in insertResult
-              ? String(insertResult.error)
-              : "Unknown error";
-          result.errors.push({ key, error: errorMsg });
-        }
-      } catch (e) {
-        result.failed++;
-        result.errors.push({
-          key,
-          error: e instanceof Error ? e.message : String(e),
-        });
-        console.error(`Failed to sync key ${key}:`, e);
+    // If resuming, skip keys before the resume point
+    if (resumeFromKey) {
+      const resumeIndex = missingKeys.indexOf(resumeFromKey);
+      if (resumeIndex >= 0) {
+        missingKeys = missingKeys.slice(resumeIndex);
       }
     }
 
-    // Purge cache
-    try {
-      const url = new URL(request.url);
-      const keysUrl = new URL(url.origin);
-      keysUrl.pathname = "/api/asset-sync/keys";
-      const purgeRequest = new Request(keysUrl.toString(), { method: "GET" });
-      const cache = await caches.open("asset-sync-cache");
-      locals.runtime?.waitUntil(cache.delete(purgeRequest));
-    } catch (cacheErr) {
-      console.warn("Failed to purge cache:", cacheErr);
+    // Step 4: Process in batches to avoid API limits
+    const keysToProcess = missingKeys.slice(0, MAX_KEYS_PER_INVOCATION);
+    const hasMoreKeys = missingKeys.length > MAX_KEYS_PER_INVOCATION;
+
+    // Batch process: collect metadata first
+    const metadataPromises = keysToProcess.map(async (key) => {
+      try {
+        const obj = await bucket.head(key);
+        return { key, obj };
+      } catch (e) {
+        return { key, obj: null, error: e };
+      }
+    });
+
+    const metadataResults = await Promise.all(metadataPromises);
+
+    // Prepare batch insert statements
+    const insertStatements: Array<{
+      key: string;
+      size: number;
+      uploadedAt: number;
+      contentType: string;
+      uploaderId: string | null;
+      finderTag: string | null;
+      metadata: string;
+    }> = [];
+
+    for (const { key, obj, error } of metadataResults) {
+      if (error || !obj) {
+        result.failed++;
+        result.errors.push({
+          key,
+          error:
+            error instanceof Error ? error.message : "Object not found in R2",
+        });
+        continue;
+      }
+
+      // Check if key already exists (race condition safety)
+      const checkStmt = db.prepare("SELECT key FROM files WHERE key = ?");
+      const existing = await checkStmt.bind(key).first?.();
+      if (existing) {
+        result.existing++;
+        continue;
+      }
+
+      const uploadedAt = obj.uploaded ? obj.uploaded.getTime() : Date.now();
+      const contentType =
+        obj.httpMetadata?.contentType || "application/octet-stream";
+      const customMetadata = obj.customMetadata || {};
+
+      insertStatements.push({
+        key,
+        size: obj.size,
+        uploadedAt,
+        contentType,
+        uploaderId: customMetadata.uploaded_by || null,
+        finderTag: customMetadata.finder_tag || null,
+        metadata: JSON.stringify({
+          file_name: customMetadata.file_name || null,
+          declared_size: customMetadata.declared_size || null,
+          synced_from_r2: true,
+          synced_at: Date.now(),
+        }),
+      });
+    }
+
+    // Execute batch insert using D1 batch API
+    if (insertStatements.length > 0) {
+      try {
+        const batchStmts = insertStatements.map((data) => {
+          return db
+            .prepare(
+              `INSERT INTO files (key, size, uploaded_at, content_type, uploader_id, finder_tag, metadata) 
+               VALUES (?, ?, ?, ?, ?, ?, ?)`
+            )
+            .bind(
+              data.key,
+              data.size,
+              data.uploadedAt,
+              data.contentType,
+              data.uploaderId,
+              data.finderTag,
+              data.metadata
+            );
+        });
+
+        // D1 batch execution (if supported)
+        // Note: D1 batch() may not be available in all environments
+        if (typeof (db as any).batch === "function") {
+          const batchResults = await (db as any).batch(batchStmts);
+          for (let i = 0; i < batchResults.length; i++) {
+            const res = batchResults[i];
+            if (res && "success" in res && res.success) {
+              result.inserted++;
+            } else {
+              result.failed++;
+              result.errors.push({
+                key: insertStatements[i].key,
+                error:
+                  "error" in res ? String(res.error) : "Batch insert failed",
+              });
+            }
+          }
+        } else {
+          // Fallback: execute sequentially
+          for (const data of insertStatements) {
+            try {
+              const insertResult = await db
+                .prepare(
+                  `INSERT INTO files (key, size, uploaded_at, content_type, uploader_id, finder_tag, metadata) 
+                   VALUES (?, ?, ?, ?, ?, ?, ?)`
+                )
+                .bind(
+                  data.key,
+                  data.size,
+                  data.uploadedAt,
+                  data.contentType,
+                  data.uploaderId,
+                  data.finderTag,
+                  data.metadata
+                )
+                .run();
+
+              if (
+                insertResult &&
+                "success" in insertResult &&
+                insertResult.success
+              ) {
+                result.inserted++;
+              } else {
+                result.failed++;
+                result.errors.push({
+                  key: data.key,
+                  error:
+                    "error" in insertResult
+                      ? String(insertResult.error)
+                      : "Insert failed",
+                });
+              }
+            } catch (e) {
+              result.failed++;
+              result.errors.push({
+                key: data.key,
+                error: e instanceof Error ? e.message : String(e),
+              });
+            }
+          }
+        }
+      } catch (e) {
+        console.error("Batch insert failed", e);
+        return errorResponse(
+          `Batch insert failed: ${e instanceof Error ? e.message : String(e)}`,
+          500
+        );
+      }
+    }
+
+    // Set resume cursor if there are more keys to process
+    if (hasMoreKeys && keysToProcess.length > 0) {
+      result.resumeCursor = keysToProcess[keysToProcess.length - 1];
+      result.completed = false;
+    } else {
+      result.completed = true;
+    }
+
+    // Purge cache only when completed
+    if (result.completed) {
+      try {
+        const url = new URL(request.url);
+        const keysUrl = new URL(url.origin);
+        keysUrl.pathname = "/api/asset-sync/keys";
+        const purgeRequest = new Request(keysUrl.toString(), { method: "GET" });
+        const cache = await caches.open("asset-sync-cache");
+        locals.runtime?.waitUntil(cache.delete(purgeRequest));
+      } catch (cacheErr) {
+        console.warn("Failed to purge cache:", cacheErr);
+      }
     }
 
     result.duration = Date.now() - startTime;

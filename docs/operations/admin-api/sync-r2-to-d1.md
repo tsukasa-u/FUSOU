@@ -16,6 +16,20 @@
 POST /api/admin/sync-r2-to-d1
 ```
 
+## リクエストボディ（オプション）
+
+大量のファイルがある場合、単一の実行で処理しきれない場合があります。その場合は `resumeFromKey` を使用して中断した位置から再開できます。
+
+```json
+{
+  "resumeFromKey": "path/to/last/processed/file.png"
+}
+```
+
+| フィールド      | 型     | 必須 | 説明                                                         |
+| --------------- | ------ | ---- | ------------------------------------------------------------ |
+| `resumeFromKey` | string | No   | 前回の実行で返された `resumeCursor` を指定して処理を再開する |
+
 ## 認証
 
 ### 環境変数の設定
@@ -61,7 +75,22 @@ Authorization: Bearer <ADMIN_API_SECRET>
 
 ## レスポンス形式
 
-### 成功時
+### 成功時（処理継続が必要な場合）
+
+```json
+{
+  "scanned": 1523,
+  "existing": 1200,
+  "inserted": 50,
+  "failed": 0,
+  "errors": [],
+  "duration": 8231,
+  "resumeCursor": "path/to/file-050.png",
+  "completed": false
+}
+```
+
+### 成功時（すべて完了）
 
 ```json
 {
@@ -75,20 +104,23 @@ Authorization: Bearer <ADMIN_API_SECRET>
       "error": "Object not found in R2 (deleted after listing?)"
     }
   ],
-  "duration": 45231
+  "duration": 45231,
+  "completed": true
 }
 ```
 
 #### フィールド説明
 
-| フィールド | 型     | 説明                                          |
-| ---------- | ------ | --------------------------------------------- |
-| `scanned`  | number | R2 バケット内でスキャンされた総オブジェクト数 |
-| `existing` | number | 既に D1 に存在していたキーの数                |
-| `inserted` | number | 正常に D1 に挿入されたキーの数                |
-| `failed`   | number | 挿入に失敗したキーの数                        |
-| `errors`   | array  | 失敗したキーとエラーメッセージの配列          |
-| `duration` | number | 処理にかかった時間（ミリ秒）                  |
+| フィールド     | 型      | 説明                                                                  |
+| -------------- | ------- | --------------------------------------------------------------------- |
+| `scanned`      | number  | R2 バケット内でスキャンされた総オブジェクト数                         |
+| `existing`     | number  | 既に D1 に存在していたキーの数                                        |
+| `inserted`     | number  | この実行で正常に D1 に挿入されたキーの数                              |
+| `failed`       | number  | この実行で挿入に失敗したキーの数                                      |
+| `errors`       | array   | 失敗したキーとエラーメッセージの配列                                  |
+| `duration`     | number  | 処理にかかった時間（ミリ秒）                                          |
+| `resumeCursor` | string? | 処理が未完了の場合、次回実行時に指定すべきキー                        |
+| `completed`    | boolean | すべての処理が完了したかどうか（`true` = 完了、`false` = 継続が必要） |
 
 ### エラー時
 
