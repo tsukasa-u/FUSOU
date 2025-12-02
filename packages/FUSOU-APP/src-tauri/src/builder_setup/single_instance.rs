@@ -1,6 +1,7 @@
-use crate::cloud_storage::google_drive;
-use proxy_https::asset_sync;
+use crate::storage::providers::gdrive;
 use tauri::{Emitter, Manager, Url};
+use fusou_auth::{AuthManager, FileStorage, Session};
+use std::sync::{Arc, Mutex};
 
 pub fn single_instance_init(app: &tauri::AppHandle, argv: Vec<String>) {
     // Initialization code for single instance
@@ -23,13 +24,27 @@ pub fn single_instance_init(app: &tauri::AppHandle, argv: Vec<String>) {
         });
         if !providrer_refresh_token.is_empty() {
             let token_type = "Bearer";
-            let _ = google_drive::set_refresh_token(providrer_refresh_token, token_type.to_owned());
+            let _ = gdrive::set_refresh_token(providrer_refresh_token, token_type.to_owned());
         }
         if !supabase_refresh_token.is_empty() && !supabase_access_token.is_empty() {
-            asset_sync::update_supabase_session(
-                supabase_access_token.clone(),
-                Some(supabase_refresh_token.clone()),
-            );
+            let auth_manager = app.state::<Arc<Mutex<AuthManager<FileStorage>>>>();
+            let manager = { auth_manager.lock().unwrap().clone() };
+            
+            let session = Session {
+                access_token: supabase_access_token.clone(),
+                refresh_token: supabase_refresh_token.clone(),
+                expires_at: None,
+                token_type: Some("bearer".to_string()),
+            };
+            
+            // We can't await here easily because single_instance_init is synchronous?
+            // But we can spawn a task.
+            tauri::async_runtime::spawn(async move {
+                if let Err(e) = manager.save_session(&session).await {
+                    tracing::error!("Failed to save session in single instance: {}", e);
+                }
+            });
+
             app.emit_to(
                 "main",
                 "set-supabase-tokens",

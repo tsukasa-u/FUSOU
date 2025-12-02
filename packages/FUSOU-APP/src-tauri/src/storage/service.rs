@@ -2,7 +2,8 @@ use kc_api::database::table::{GetDataTableEncode, PortTableEncode};
 use std::{future::Future, pin::Pin, sync::Arc};
 use tokio::sync::{Mutex, OnceCell};
 
-use crate::cloud_storage::{google_drive::GoogleDriveProvider, local_fs::LocalFileSystemProvider};
+use crate::storage::providers::{GoogleDriveProvider, LocalFileSystemProvider};
+use fusou_upload::{PendingStore, UploadRetryService};
 
 pub type StorageFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
@@ -71,13 +72,16 @@ pub struct StorageService {
 }
 
 impl StorageService {
-    pub fn resolve() -> Option<StorageService> {
+    pub fn resolve(
+        pending_store: Arc<PendingStore>,
+        retry_service: Arc<UploadRetryService>
+    ) -> Option<StorageService> {
         let app_configs = configs::get_user_configs_for_app();
         let database_config = app_configs.database;
         let mut providers: Vec<Arc<dyn StorageProvider>> = Vec::new();
 
         if database_config.get_allow_data_to_cloud() {
-            providers.push(Arc::new(GoogleDriveProvider::default()));
+            providers.push(Arc::new(GoogleDriveProvider::new(pending_store, retry_service)));
         }
 
         if database_config.get_allow_data_to_local() {

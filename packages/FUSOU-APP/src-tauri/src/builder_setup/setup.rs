@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use std::{env, fs, sync::Mutex, time};
 
 use tauri::{
-    Emitter, Manager, menu::{CheckMenuItemBuilder, MenuBuilder, MenuItemBuilder, SubmenuBuilder}, tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent}
+    Manager, menu::{CheckMenuItemBuilder, MenuBuilder, MenuItemBuilder, SubmenuBuilder}, tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent}
 };
 use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_autostart::ManagerExt;
@@ -12,22 +12,20 @@ use tauri_plugin_opener::OpenerExt;
 use tokio::sync::mpsc;
 
 use crate::{
-    builder_setup::{
+    auth::auth_server, builder_setup::{
         bidirectional_channel::{
             get_pac_bidirectional_channel, get_proxy_bidirectional_channel,
             get_response_parse_bidirectional_channel,
             get_scheduler_integrate_bidirectional_channel,
         },
         cli, logger,
-    },
-    cloud_storage::integrate,
-    cmd::{native_cmd, tauri_cmd},
-    integration::discord,
-    scheduler,
-    util::{get_RESOURCES_DIR, get_ROAMING_DIR},
-    window::{app, external},
+    }, storage::integrate, cmd::{native_cmd, tauri_cmd}, integration::discord, scheduler, util::{get_RESOURCES_DIR, get_ROAMING_DIR}, window::{app, external}
 };
 use proxy_https::bidirectional_channel::request_shutdown;
+
+use fusou_upload::{PendingStore, UploadRetryService};
+use fusou_auth::{AuthManager, FileStorage};
+use std::sync::Arc;
 
 #[cfg(any(not(dev), check_release))]
 use crate::builder_setup::updater::setup_updater;
@@ -438,27 +436,36 @@ fn setup_tray(
                     "sync-snapshot" => {
                         tracing::info!("Tray menu action: sync-snapshot selected");
                         let app_handle = tray.app_handle();
+                        let auth_manager = app_handle.state::<Arc<Mutex<AuthManager<FileStorage>>>>();
+                        let manager = { auth_manager.lock().unwrap().clone() };
 
-                        if proxy_https::asset_sync::get_supabase_access_token().is_none() {
-                            tracing::warn!("Snapshot sync requires authentication, but no token is available.");
-                            let _ = app_handle
-                                .notification()
-                                .builder()
-                                .title("Authentication Required")
-                                .body("Please sign in to sync your snapshot.")
-                                .show();
-                        } else {
-                            let app_handle_clone = app_handle.clone();
-                            tauri::async_runtime::spawn(async move {
-                                match crate::cloud_storage::snapshot::perform_snapshot_sync_app(&app_handle_clone).await {
+                        let app_handle_clone = app_handle.clone();
+                        let auth_manager_clone = auth_manager.inner().clone();
+
+                        tauri::async_runtime::spawn(async move {
+                            if !manager.is_authenticated().await {
+                                tracing::warn!("Snapshot sync requires authentication, but no token is available.");
+                                let _ = app_handle_clone
+                                    .notification()
+                                    .builder()
+                                    .title("Authentication Required")
+                                    .body("Please sign in to sync your snapshot.")
+                                    .show();
+                    
+                                
+                                    let _ = auth_server::open_auth_page();
+                            } else {
+                                match crate::storage::snapshot::perform_snapshot_sync_app(&app_handle_clone, auth_manager_clone).await {
                                     Ok(_) => tracing::info!("Snapshot sync completed (tray-trigger)"),
                                     Err(e) => tracing::error!("Snapshot sync failed (tray-trigger): {}", e),
                                 }
-                            });
-                        }
+                            }
+                        });
                     }
                     "intergrate_file" => {
-                        integrate::integrate_port_table();
+                        let pending_store = tray.app_handle().state::<Arc<PendingStore>>().inner().clone();
+                        let retry_service = tray.app_handle().state::<Arc<UploadRetryService>>().inner().clone();
+                        integrate::integrate_port_table(pending_store, retry_service);
                     }
                     "check-update" => {
                         let window = tray.get_webview_window("main");
@@ -679,7 +686,10 @@ pub fn setup_init(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>
     configure_channel_transport();
     setup_discord()?;
     notify_startup(app);
-    scheduler::integrate_file::start_scheduler();
+    
+    let pending_store = app.state::<Arc<PendingStore>>().inner().clone();
+    let retry_service = app.state::<Arc<UploadRetryService>>().inner().clone();
+    scheduler::integrate_file::start_scheduler(pending_store, retry_service);
 
     let proxy_bidirectional_channel_master_clone = get_proxy_bidirectional_channel().clone_master();
     let pac_bidirectional_channel_master_clone = get_pac_bidirectional_channel().clone_master();

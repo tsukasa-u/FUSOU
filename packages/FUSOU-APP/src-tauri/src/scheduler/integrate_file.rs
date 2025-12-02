@@ -1,25 +1,39 @@
 use crate::builder_setup::bidirectional_channel::get_scheduler_integrate_bidirectional_channel;
-use crate::cloud_storage::integrate;
+use crate::storage::integrate;
 use proxy_https::{bidirectional_channel, proxy_server_https::setup_default_crypto_provider};
 use tokio_cron_scheduler::{JobBuilder, JobScheduler};
+use fusou_upload::{PendingStore, UploadRetryService};
+use std::sync::Arc;
 
-pub fn start_scheduler() {
+pub fn start_scheduler(
+    pending_store: Arc<PendingStore>,
+    retry_service: Arc<UploadRetryService>
+) {
     let configs = configs::get_user_configs_for_app();
     let scheduler_cron = configs.database.google_drive.get_schedule_cron();
+    
+    let pending_store_clone = pending_store.clone();
+    let retry_service_clone = retry_service.clone();
+
     tokio::spawn(async move {
+        let pending_store_for_job = pending_store_clone.clone();
+        let retry_service_for_job = retry_service_clone.clone();
+
         let job = match JobBuilder::new()
             .with_timezone(chrono_tz::Asia::Tokyo)
             .with_cron_job_type()
             .with_schedule(&scheduler_cron)
         {
             Ok(builder) => match builder
-                .with_run_async(Box::new(|uuid, mut l| {
+                .with_run_async(Box::new(move |uuid, mut l| {
+                    let pending_store = pending_store_for_job.clone();
+                    let retry_service = retry_service_for_job.clone();
                     Box::pin(async move {
                         let next_tick = l.next_tick_for_job(uuid).await;
                         match next_tick {
                             Ok(Some(ts)) => {
                                 tracing::info!("Google Drive sync job running at {:?}", ts);
-                                integrate::integrate_port_table();
+                                integrate::integrate_port_table(pending_store, retry_service);
                             }
                             _ => {
                                 tracing::warn!("Could not get next tick for Google Drive sync job")

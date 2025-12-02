@@ -521,6 +521,56 @@ pub struct ConfigsAppAssetSync {
     asset_skip_extensions: Option<Vec<String>>,
     #[serde(default = "default_asset_existing_keys_endpoint")]
     asset_existing_keys_endpoint: Option<String>,
+    #[serde(default)]
+    pub finder_tag: Option<String>,
+    #[serde(default)]
+    pub retry: ConfigsAppAssetSyncRetry,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ConfigsAppAssetSyncRetry {
+    #[serde(default = "default_retry_max_attempts")]
+    max_attempts: Option<u32>,
+    #[serde(default = "default_retry_ttl_seconds")]
+    ttl_seconds: Option<u64>,
+    #[serde(default = "default_retry_interval_seconds")]
+    interval_seconds: Option<u64>,
+}
+
+fn default_retry_max_attempts() -> Option<u32> {
+    Some(5)
+}
+
+fn default_retry_ttl_seconds() -> Option<u64> {
+    Some(86400) // 24 hours
+}
+
+fn default_retry_interval_seconds() -> Option<u64> {
+    Some(300) // 5 minutes
+}
+
+impl Default for ConfigsAppAssetSyncRetry {
+    fn default() -> Self {
+        Self {
+            max_attempts: Some(5),
+            ttl_seconds: Some(86400),
+            interval_seconds: Some(300),
+        }
+    }
+}
+
+impl ConfigsAppAssetSyncRetry {
+    pub fn get_max_attempts(&self) -> u32 {
+        self.max_attempts.unwrap_or(5)
+    }
+
+    pub fn get_ttl_seconds(&self) -> u64 {
+        self.ttl_seconds.unwrap_or(86400)
+    }
+
+    pub fn get_interval_seconds(&self) -> u64 {
+        self.interval_seconds.unwrap_or(300)
+    }
 }
 
 fn default_asset_upload_enable() -> Option<bool> {
@@ -566,6 +616,8 @@ impl Default for ConfigsAppAssetSync {
             kc_period_endpoint: Some("".to_string()),
             asset_skip_extensions: default_asset_skip_extensions(),
             asset_existing_keys_endpoint: Some("".to_string()),
+            finder_tag: None,
+            retry: ConfigsAppAssetSyncRetry::default(),
         }
     }
 }

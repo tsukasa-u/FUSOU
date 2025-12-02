@@ -35,6 +35,8 @@ tokio = { version = "1.38.0", features = ["full"] }
 webbrowser = "1.0.1"
 kc_api = { package = "kc-api", path = "./../../kc_api/crates/kc-api" }
 proxy-https = { path = "./../../FUSOU-PROXY/proxy-https" }
+fusou-auth = { path = "./../../fusou-auth" }
+fusou-upload = { path = "./../../fusou-upload" }
 configs = { path = "./../../configs" }
 chrono = "0.4.31"
 chrono-tz = "0.10.0"
