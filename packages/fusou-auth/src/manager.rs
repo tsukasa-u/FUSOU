@@ -136,26 +136,31 @@ impl<S: Storage> AuthManager<S> {
             return Err(AuthError::RefreshFailed("empty refresh token".to_string()));
         }
 
-        let url = format!("{}{}", self.config.supabase_url, self.config.refresh_path);
+        // Supabase refresh endpoint requires the grant_type in the query string.
+        // See: POST /auth/v1/token?grant_type=refresh_token
+        let url = format!(
+            "{}{}?grant_type=refresh_token",
+            self.config.supabase_url, self.config.refresh_path
+        );
 
-        // Supabase expects form data: grant_type=refresh_token&refresh_token=...
-        let params = [
-            ("grant_type", "refresh_token"),
-            ("refresh_token", current.refresh_token.as_str()),
-        ];
+        // Send refresh_token as JSON body; some GoTrue deployments expect JSON.
+        let body = serde_json::json!({
+            "refresh_token": current.refresh_token
+        });
 
         let resp = self
             .client
             .post(&url)
             .header("apikey", &self.config.api_key)
-            .form(&params)
+            .header("Authorization", format!("Bearer {}", &self.config.api_key))
+            .json(&body)
             .send()
             .await?;
 
         if !resp.status().is_success() {
             let status = resp.status();
             let text = resp.text().await.unwrap_or_default();
-            tracing::warn!(status = %status, body = %text, "supabase refresh request failed");
+            tracing::warn!(status = %status, url = %url, body = %text, "supabase refresh request failed");
 
             // If the refresh token is invalid (400 Bad Request with "invalid_grant" or similar, or 401),
             // we should clear the session so the user is forced to re-login.

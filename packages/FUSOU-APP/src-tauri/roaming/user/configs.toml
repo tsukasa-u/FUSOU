@@ -207,22 +207,34 @@ save_file_location = ""
     scan_interval_seconds = 30
 
     # HTTPS endpoint provided by FUSOU-WEB that mediates Cloudflare R2 uploads
-    asset_upload_endpoint = "https://sync-fleet-info.fusou.pages.dev/api/asset-sync/upload"
+    asset_upload_endpoint = "https://impl-retry-upload.fusou.pages.dev/api/asset-sync/upload"
 
     # Optional explicit snapshot upload endpoint (if empty, origin derived from asset_upload_endpoint)
-    fleet_snapshot_endpoint = "https://sync-fleet-info.fusou.pages.dev/api/fleet/snapshot"
+    fleet_snapshot_endpoint = "https://impl-retry-upload.fusou.pages.dev/api/fleet/snapshot"
 
     # Endpoint returning the latest kc_period_tag timestamp to decide when uploads can restart
-    kc_period_endpoint = "https://sync-fleet-info.fusou.pages.dev/api/kc-period/latest"
+    kc_period_endpoint = "https://impl-retry-upload.fusou.pages.dev/api/kc-period/latest"
 
     # Endpoint returning a cached list of existing R2 asset keys (1 hour TTL)
-    asset_existing_keys_endpoint = "https://sync-fleet-info.fusou.pages.dev/api/asset-sync/keys"
+    asset_existing_keys_endpoint = "https://impl-retry-upload.fusou.pages.dev/api/asset-sync/keys"
 
     # Extensions (without dot) that must never be uploaded to Cloudflare R2
     asset_skip_extensions = ["mp3", "woff2", "js"]
 
     # Optional prefix prepended to stored object keys
     asset_key_prefix = "assets"
+
+
+    [app.asset_sync.retry]
+    # Maximum number of retry attempts for failed uploads
+    max_attempts = 5
+
+    # Time to live (in seconds) for pending upload files
+    # Files older than this will be deleted
+    ttl_seconds = 86400 # 24 hours
+
+    # Interval (in seconds) between retry attempts
+    interval_seconds = 300 # 5 minutes
 
 
     [app.auth]

@@ -15,9 +15,19 @@ export type D1AllResult = {
   results?: D1Row[];
 };
 
+export type D1ExecResult = {
+  success: boolean;
+  error?: string;
+  meta?: {
+    duration?: number;
+    rows_read?: number;
+    rows_written?: number;
+  };
+};
+
 export interface D1Statement {
   bind(...args: unknown[]): D1Statement;
-  run(): Promise<unknown>;
+  run(): Promise<D1ExecResult>;
   all?(): Promise<D1AllResult>;
   first?(): Promise<D1Result | undefined>;
 }

@@ -354,7 +354,7 @@ async function handleSignedUploadExecution(
     const stmt = db.prepare(
       `INSERT OR REPLACE INTO files (key, size, uploaded_at, content_type, uploader_id, finder_tag, metadata) VALUES (?, ?, ?, ?, ?, ?, ?);`
     );
-    await stmt
+    const result = await stmt
       .bind(
         descriptor.key,
         size,
@@ -369,18 +369,45 @@ async function handleSignedUploadExecution(
       )
       .run();
 
-    // Purge the cache for the keys endpoint
-    const purgeUrl = new URL(url);
-    purgeUrl.pathname = "/api/asset-sync/keys";
-    purgeUrl.search = "";
-    const purgeRequest = new Request(purgeUrl.toString(), {
-      method: "GET",
-    });
+    // Check if D1 operation succeeded
+    if (
+      result &&
+      typeof result === "object" &&
+      "success" in result &&
+      !result.success
+    ) {
+      const errorMsg =
+        "error" in result ? String(result.error) : "Unknown D1 error";
+      throw new Error(`D1 INSERT failed: ${errorMsg}`);
+    }
 
-    const cache = await caches.open("asset-sync-cache");
-    locals.runtime?.waitUntil(cache.delete(purgeRequest));
+    // Purge the cache for the keys endpoint
+    try {
+      const purgeUrl = new URL(url);
+      purgeUrl.pathname = "/api/asset-sync/keys";
+      purgeUrl.search = "";
+      const purgeRequest = new Request(purgeUrl.toString(), {
+        method: "GET",
+      });
+
+      const cache = await caches.open("asset-sync-cache");
+      locals.runtime?.waitUntil(cache.delete(purgeRequest));
+    } catch (cacheErr) {
+      // Log cache purge failure but don't fail the upload
+      console.warn("Failed to purge asset-sync cache:", cacheErr);
+    }
   } catch (e) {
     console.error("D1 insert failed for", descriptor.key, e);
+    console.error(
+      "Descriptor details:",
+      JSON.stringify({
+        key: descriptor.key,
+        user_id: descriptor.user_id,
+        finder_tag: descriptor.finder_tag,
+        declared_size: descriptor.declared_size,
+        file_name: descriptor.file_name,
+      })
+    );
     // Attempt to delete the uploaded R2 object to avoid orphaned blobs
     try {
       if (typeof bucket.delete === "function") {
