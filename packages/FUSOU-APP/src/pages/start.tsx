@@ -258,8 +258,8 @@ function Start() {
       pacServerHealth() == -1 ||
       run_proxy_flag() == -1
     )
-      return "btn w-full btn-disabled btn-accent";
-    return "btn w-full btn-accent border-accent-content";
+      return "btn w-full btn-disabled btn-primary";
+    return "btn w-full btn-primary border-primary-content";
   });
 
   const auto_listen = createAsyncStore<string>(async () => {
@@ -282,7 +282,7 @@ function Start() {
             <h1 class="mx-4 pt-4 text-2xl font-semibold">Launch Options</h1>
             <span class="flex-1" />
             <button
-              class="place-self-end btn btn-sm btn-info btn-outline"
+              class="place-self-end btn btn-sm btn-secondary border-secondary-content"
               onClick={check_server_status}
             >
               check server status
@@ -313,7 +313,7 @@ function Start() {
                       </Match>
                       <Match when={proxyServerHealth() == 0}>
                         <div class="w-4 h-4">
-                          <IconCheckBoxRed class="h-6 w-6 mb-[2px] pr-1 text-base-100" />
+                          <IconCheckBoxRed class="h-6 w-6 mb-0.5 pr-1 text-base-100" />
                         </div>
                         <div class="h-6 self-center ml-4 text-nowrap mb-[2.5px] pr-1">
                           Proxy server is not running
@@ -321,7 +321,7 @@ function Start() {
                       </Match>
                       <Match when={proxyServerHealth() == 1}>
                         <div class="w-4 h-4">
-                          <IconCheckBoxGreen class="h-6 w-6 mb-[2px] pr-1 text-base-100" />
+                          <IconCheckBoxGreen class="h-6 w-6 mb-0.5 pr-1 text-base-100" />
                         </div>
                         <div class="h-6 self-center ml-4 text-nowrap mb-[2.5px] pr-1">
                           Proxy server is running
@@ -343,7 +343,7 @@ function Start() {
                           onClick={() => {
                             setRunProxyServer(!runProxyServer());
                           }}
-                          class="toggle toggle-sm toggle-primary rounded-sm [&::before]:rounded-xs"
+                        class={runProxyServer() ? "toggle toggle-sm toggle-primary rounded-sm [&::before]:rounded-xs bg-primary border-primary-content [&::before]:bg-emerald-50 [&::before]:border [&::before]:border-primary-content " : "toggle toggle-sm toggle-primary rounded-sm [&::before]:rounded-xs"}
                           checked={runProxyServer()}
                           disabled={run_proxy_flag() <= 0}
                         />
@@ -436,7 +436,7 @@ function Start() {
                         onClick={() => {
                           setOpenApp(!openApp());
                         }}
-                        class="toggle toggle-sm toggle-primary rounded-sm [&::before]:rounded-xs"
+                        class={openApp() ? "toggle toggle-sm toggle-primary rounded-sm [&::before]:rounded-xs bg-primary border-primary-content [&::before]:bg-emerald-50 [&::before]:border [&::before]:border-primary-content " : "toggle toggle-sm toggle-primary rounded-sm [&::before]:rounded-xs"}
                         checked={openApp()}
                         disabled={run_app_flag() <= 0}
                       />
@@ -462,7 +462,7 @@ function Start() {
                             Number(!openKancolle());
                           setOpenKancolle(!openKancolle());
                         }}
-                        class="toggle toggle-sm toggle-primary rounded-sm [&::before]:rounded-xs"
+                        class={openKancolle() ? "toggle toggle-sm toggle-primary rounded-sm [&::before]:rounded-xs bg-primary border-primary-content [&::before]:bg-emerald-50 [&::before]:border [&::before]:border-primary-content " : "toggle toggle-sm toggle-primary rounded-sm [&::before]:rounded-xs"}
                         checked={openKancolle()}
                       />
                     </label>
@@ -474,7 +474,7 @@ function Start() {
                       <input
                         type="radio"
                         name="radio-10"
-                        class="radio radio-secondary"
+                        class={openKancolleWithWebView() ? "radio radio-secondary border-secondary-content [&:before]:bg-lime-50 [&:before]:border [&:before]:border-secondary-content bg-secondary" : "radio radio-secondary"}
                         disabled={!openKancolle()}
                         checked={openKancolleWithWebView()}
                         onClick={() => {
@@ -490,7 +490,7 @@ function Start() {
                       <input
                         type="radio"
                         name="radio-10"
-                        class="radio radio-secondary"
+                        class={!openKancolleWithWebView() ? "radio radio-secondary border-secondary-content [&:before]:bg-lime-50 [&:before]:border [&:before]:border-secondary-content bg-secondary" : "radio radio-secondary"}
                         disabled={!openKancolle()}
                         checked={!openKancolleWithWebView()}
                         onClick={() => {

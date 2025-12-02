@@ -41,6 +41,7 @@ export function LogViewerComponent() {
   const [levelFilter, setLevelFilter] = createSignal<string>("ALL");
   const [targetFilter, setTargetFilter] = createSignal<string>("ALL");
   const [showScrollButton, setShowScrollButton] = createSignal(true);
+  const [copyStatus, setCopyStatus] = createSignal<string>("");
 
   // Scroll behavior tuning constants
   // Small margin to tolerate minor layout shifts when judging "at bottom".
@@ -267,6 +268,8 @@ export function LogViewerComponent() {
 
   // Copy all visible logs to clipboard
   const copyLogsToClipboard = async () => {
+    if (copyStatus() !== "") return;
+
     const logs = filteredLogs();
     const text = logs
       .map((entry) => `${entry.datetime} [${entry.level}] [${entry.target}] ${entry.message}`)
@@ -274,9 +277,13 @@ export function LogViewerComponent() {
     
     try {
       await navigator.clipboard.writeText(text);
-      // Optional: Show a toast or notification
+      // Show transient copied feedback
+      setCopyStatus("Copied");
+      setTimeout(() => setCopyStatus(""), 1400);
       console.log('Logs copied to clipboard');
     } catch (error) {
+      setCopyStatus("Failed");
+      setTimeout(() => setCopyStatus(""), 2000);
       console.error('Failed to copy logs:', error);
     }
   };
@@ -435,13 +442,25 @@ export function LogViewerComponent() {
             </button>
           )}
           <button
-            class="btn btn-circle btn-secondary shadow-lg"
+            class={`btn btn-circle shadow-lg btn-secondary`}
             onClick={copyLogsToClipboard}
-            title="Copy logs to clipboard"
+            title={copyStatus() === 'Copied' ? 'Copied' : copyStatus() === 'Failed' ? 'Copy failed' : 'Copy logs to clipboard'}
+            // disabled={copyStatus() === 'Copied'}
+            aria-live="polite"
           >
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-            </svg>
+            {copyStatus() === 'Copied' ? (
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+              </svg>
+            ) : copyStatus() === 'Failed' ? (
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            ) : (
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+              </svg>
+            )}
           </button>
         </div>
         </div>
