@@ -19,17 +19,17 @@ if (accessToken && refreshToken && providerToken && providerRefreshToken) {
     <div class="h-16"></div>
 
     <div class="flex justify-center h-full">
-      <div class="card w-96 h-min shadow-xl place-self-center -mt-16">
-        <div class="card-body">
+      <div class="w-full max-w-md place-self-center -mt-16">
+        <div class="bg-base-100 rounded-md p-6">
           <div class="flex justify-center">
-            <h1 class="text-3xl">Sign In with Provider</h1>
+            <h1 class="text-2xl font-semibold">Sign in with provider</h1>
           </div>
 
           <form action="/api/auth/signin" method="post" class="max-w-md">
-            <ul class="mt-6 flex flex-col gap-2 text-xs">
+            <ul class="mt-4 flex flex-col gap-3 text-sm">
               <li>
                 <button
-                  class="btn bg-white text-black border-[#e5e5e5] w-full"
+                  class="btn w-full btn-ghost border border-base-300 rounded-sm flex items-center gap-2 bg-white text-black"
                   value="google"
                   name="provider"
                   type="submit"
@@ -54,9 +54,8 @@ if (accessToken && refreshToken && providerToken && providerRefreshToken) {
                         fill="#ea4335"
                         d="m153 219c22-69 116-109 179-50l55-54c-78-75-230-72-297 55"
                       ></path></g
-                    ></svg
-                  >
-                  <div class="w-36 text-start">Login with Google</div>
+                    ></svg>
+                  <span class="text-start">Sign in with Google</span>
                 </button>
               </li>
               <!-- <li class="opacity-50">
@@ -98,17 +97,17 @@ if (accessToken && refreshToken && providerToken && providerRefreshToken) {
               <div class="divider">OR</div>
               <li class="opacity-50">
                 <button
-                  class="btn bg-white text-black border-[#e5e5e5] w-full"
+                  class="btn w-full btn-ghost border border-base-300 rounded-sm bg-white text-black"
                   id="login_button"
                 >
-                  <div class="text-center"></div>Local Strage</button
-                >
+                  <div class="text-center">Local storage</div>
+                </button>
               </li>
             </ul>
           </form>
         </div>
-        <div class="my-6 text-center">
-          Select your account to connect your storage
+        <div class="my-6 text-center text-sm text-base-content/70">
+          Select an account to connect your storage provider.
         </div>
       </div>
     </div>

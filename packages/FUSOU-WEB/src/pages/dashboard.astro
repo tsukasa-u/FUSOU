@@ -161,41 +161,28 @@ Astro.cookies.set(
     <div class="h-16"></div>
 
     <div class="flex justify-center h-full">
-      <div class="card w-96 h-min shadow-xl place-self-center -mt-16">
-        <div class="card-body">
-          <h1 class="text-3xl text-center py-2">Account is authorized</h1>
-          <ul class="list bg-base-100 rounded-box shadow-md">
-            <li class="p-4 pb-2 text-xs opacity-60 tracking-wide">
-              your accounts
-            </li>
+      <div class="w-full max-w-md place-self-center -mt-16">
+        <div class="bg-base-100 rounded-md p-6">
+          <h1 class="text-2xl text-center py-2">Account is authorized</h1>
+          <ul class="list bg-base-100 rounded-box">
+            <li class="p-4 pb-2 text-xs opacity-60 tracking-wide">Your accounts</li>
             {
               validSessionList.map((session, idx) => (
                 <li class="list-row">
                   <div>
-                    <Icon
-                      name={session?.data.session?.user.app_metadata.provider}
-                      class="size-10"
-                    />
+                    <Icon name={session?.data.session?.user.app_metadata.provider} class="size-10" />
                   </div>
                   <div>
                     <div>{session?.data.session?.user.user_metadata.name}</div>
-                    <div class="text-xs font-semibold opacity-60">
-                      {session?.data.user?.email}
-                    </div>
+                    <div class="text-xs font-semibold opacity-60">{session?.data.user?.email}</div>
                   </div>
                   <astro-data-account-info
                     data-access-token={session?.data.session?.access_token}
                     data-refresh-token={session?.data.session?.refresh_token}
                     data-provider-token={validProviderTokenList[idx]}
-                    data-provider-refresh-token={
-                      validProviderRefreshTokenList[idx]
-                    }
-                    data-provider={
-                      session?.data.session?.user.app_metadata.provider
-                    }
-                    data-username={
-                      session?.data.session?.user.user_metadata.name
-                    }
+                    data-provider-refresh-token={validProviderRefreshTokenList[idx]}
+                    data-provider={session?.data.session?.user.app_metadata.provider}
+                    data-username={session?.data.session?.user.user_metadata.name}
                     data-email={session?.data.user?.email}
                     data-date={Date.now()}
                   />
@@ -204,30 +191,20 @@ Astro.cookies.set(
             }
           </ul>
 
-          <div class="h-8"></div>
+          <div class="h-6"></div>
 
-          <div class="text-center text-xl">Add other Account</div>
+          <div class="text-center text-lg">Add another account</div>
           <div class="h-1"></div>
           <form action="/api/auth/signin" method="post">
-            <button
-              class="btn bg-white text-black border-[#e5e5e5] w-full"
-              value="google"
-              name="provider"
-              type="submit"
-            >
+            <button class="btn w-full btn-ghost border border-base-300 rounded-sm flex items-center gap-2 bg-white text-black" value="google" name="provider" type="submit">
               <Icon name="google" class="size-6" />
-              <div class="w-36 text-start">Login with Google</div>
+              <div class="w-36 text-start">Sign in with Google</div>
             </button>
           </form>
 
           <form action="/api/auth/signout">
             <div class="divider">OR</div>
-            <button
-              class="btn bg-white text-black border-[#e5e5e5] w-full"
-              type="submit"
-            >
-              Sign out
-            </button>
+            <button class="btn w-full btn-ghost border border-base-300 rounded-sm bg-white text-black" type="submit">Sign out</button>
           </form>
         </div>
       </div>

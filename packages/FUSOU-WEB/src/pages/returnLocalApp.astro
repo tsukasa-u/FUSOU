@@ -75,115 +75,96 @@ Astro.cookies.delete("sb-provider", { path: "/" });
 ---
 
 <Layout title="Auth Local App">
-  <div class="h-16"></div>
+  <div class="bg-base-200 min-h-screen flex items-center justify-center p-6">
+    <div class="w-full max-w-md -mt-8">
+      <div class="bg-base-100 rounded-md p-6">
+          <h1 class="text-2xl font-semibold text-center">Auth</h1>
+          <div class="h-3"></div>
 
-  <div class="bg-base-200 h-screen flex justify-center">
-    <div class="min-w-sm max-w-md bg-base-100 h-screen">
-      <div class="p-10">
-        <h1 class="text-3xl font-bold text-center">Auth</h1>
-        <div class="h-4"></div>
-        <div class="h-4"></div>
-
-        <hr class="border-1 border-base-300" />
-        <div class="h-4"></div>
-        <div class="h-4"></div>
-
-        <div id="set_session_error" class="hidden">
-          <div class="text-center">failed to authorize</div>
-          <div class="h-8"></div>
-          <div
-            class="text-red-500 rounded bg-base-200 border-[1.5px] border-base-300 w-full py-2 px-4 text-md"
-          >
-            failed to authorize<div class="h-2"></div><div
-              class="text-base-content rounded bg-base-100 border-[1.5px] border-base-300 w-full py-2 px-4 text-sm"
-            >
-              {error_message}
-            </div>
-          </div>
-        </div>
-
-        <div id="set_session_success">
-          <div class="text-center">Authentication successful</div>
-          <div class="h-8"></div>
-          <div id="sb_insert_error" class="hidden">
-            <div
-              class="text-red-500 rounded bg-base-200 border-[1.5px] border-base-300 w-full py-2 px-4 text-md"
-            >
-              failed to register refresh token
+          <div id="set_session_error" class="hidden">
+            <div class="text-center">Failed to authorize</div>
+            <div class="h-6"></div>
+            <div class="text-red-500 rounded bg-base-200 border border-base-300 w-full py-2 px-4 text-md">
+              Failed to authorize
               <div class="h-2"></div>
-              <div
-                class="text-base-content rounded bg-base-100 border-[1.5px] border-base-300 w-full py-2 px-4 text-sm"
-              >
+              <div class="text-base-content rounded bg-base-100 border border-base-300 w-full py-2 px-4 text-sm">
                 {error_message}
               </div>
             </div>
           </div>
-          <div id="sb_insert_success" class="hidden">
-            <div class="text-success text-center">
-              refresh token registeration successful
+
+          <div id="set_session_success">
+            <div class="flex flex-col items-center gap-2">
+              <div class="flex items-center gap-2 text-success text-2xl font-semibold">
+                <svg class="w-6 h-6" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                <span>Authentication successful</span>
+              </div>
+              <div class="text-sm text-base-content/70">You may now return to the app.</div>
             </div>
-          </div>
-          <div>
-            <div class="h-8"></div>
-            <h1 class="text-xl text-center">
-              <a href={return_href} class="btn btn-link">Click to return app</a>
-            </h1>
-            <div class="divider text-xl">OR</div>
-            <div class="text-xl text-center">Copy and past Tokens</div>
-            <fieldset class="fieldset">
-              <legend class="fieldset-legend"
-                >provider refresh token & access token & refresh token</legend
-              >
-              <label class="input">
-                <input
-                  id="tokens"
-                  type="text"
-                  style="cursor: default"
-                  class="input"
-                  value={return_params}
-                  readonly
-                  disabled
-                />
-                <button
-                  id="copy-button"
-                  class="btn btn-ghost rounded-box p-2 items-center justify-center label"
-                  ><label class="swap" id="copy-swap-id">
-                    <div class="swap-off">
-                      <svg
-                        class="w-4 h-4"
-                        aria-hidden="true"
-                        xmlns="http://www.w3.org/2000/svg"
-                        fill="currentColor"
-                        viewBox="0 0 18 20"
-                        ><path
-                          d="M16 1h-3.278A1.992 1.992 0 0 0 11 0H7a1.993 1.993 0 0 0-1.722 1H2a2 2 0 0 0-2 2v15a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V3a2 2 0 0 0-2-2Zm-3 14H5a1 1 0 0 1 0-2h8a1 1 0 0 1 0 2Zm0-4H5a1 1 0 0 1 0-2h8a1 1 0 1 1 0 2Zm0-5H5a1 1 0 0 1 0-2h2V2h4v2h2a1 1 0 1 1 0 2Z"
-                        ></path></svg
-                      >
-                    </div>
-                    <div class="swap-on">
-                      <svg
-                        class="w-4 h-4 text-success"
-                        aria-hidden="true"
-                        xmlns="http://www.w3.org/2000/svg"
-                        fill="none"
-                        viewBox="0 0 16 12"
-                        ><path
-                          stroke="currentColor"
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                          stroke-width="2"
-                          d="M1 5.917 5.724 10.5 15 1.5"></path></svg
-                      >
-                    </div>
-                  </label></button
-                >
-              </label>
-              <p class="label">past in the cell at launch page</p>
-            </fieldset>
+            <div class="h-6"></div>
+            <div id="sb_insert_error" class="hidden">
+              <div class="text-red-500 rounded bg-base-200 border border-base-300 w-full py-2 px-4 text-md">
+                Failed to register refresh token
+                <div class="h-2"></div>
+                <div class="text-base-content rounded bg-base-100 border border-base-300 w-full py-2 px-4 text-sm">
+                  {error_message}
+                </div>
+              </div>
+            </div>
+            <div id="sb_insert_success" class="hidden">
+              <div class="text-success text-center">
+                Refresh token registration successful
+              </div>
+            </div>
+            <div>
+              <div class="h-4"></div>
+              <h1 class="text-lg text-center">
+                <a href={return_href} class="link link-info">Return to app</a>
+              </h1>
+              <div class="divider">OR
+              </div>
+              <div class="text-base text-center">Copy tokens</div>
+              <fieldset class="fieldset mt-3">
+                <legend class="fieldset-legend text-sm">Provider refresh token, access token & refresh token</legend>
+                <div class="flex items-start gap-2">
+                  <div class="flex-1 rounded-md border border-base-300">
+                    <input
+                      id="tokens"
+                      type="text"
+                      style="cursor: text"
+                      class="input input-bordered font-mono w-full"
+                      value={return_params}
+                      readonly
+                      disabled
+                    />
+                  </div>
+                  <button
+                    id="copy-button"
+                    aria-label="Copy tokens"
+                    class="btn btn-ghost rounded-box p-2 items-center justify-center border border-base-300"
+                  >
+                    <label class="swap" id="copy-swap-id">
+                      <div class="swap-off">
+                        <svg class="w-4 h-4" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="currentColor" viewBox="0 0 18 20"><path d="M16 1h-3.278A1.992 1.992 0 0 0 11 0H7a1.993 1.993 0 0 0-1.722 1H2a2 2 0 0 0-2 2v15a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V3a2 2 0 0 0-2-2Zm-3 14H5a1 1 0 0 1 0-2h8a1 1 0 0 1 0 2Zm0-4H5a1 1 0 0 1 0-2h8a1 1 0 1 1 0 2Zm0-5H5a1 1 0 0 1 0-2h2V2h4v2h2a1 1 0 1 1 0 2Z"/></svg>
+                      </div>
+                      <div class="swap-on">
+                        <svg class="w-4 h-4 text-success" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 16 12"><path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M1 5.917 5.724 10.5 15 1.5"></path></svg>
+                      </div>
+                    </label>
+                  </button>
+                </div>
+                <p class="label text-sm mt-2">Paste into the tokens field on the app's launch page.</p>
+                <div class="text-center mt-2 h-8">
+                  <span id="copy-status" class="text-success text-sm sr-only" aria-live="polite"></span>
+                </div>
+              </fieldset>
+            </div>
           </div>
         </div>
       </div>
     </div>
+
+    <Navigation />
   </div>
 
   <astro-data-auth_props
@@ -192,7 +173,6 @@ Astro.cookies.delete("sb-provider", { path: "/" });
     data-sb-insert-success-flag={sb_insert_success_flag}
     data-return-href={return_href}></astro-data-auth_props>
 </Layout>
-<Navigation />
 
 <script>
   class AstroDataAuthProps extends HTMLElement {
@@ -219,9 +199,9 @@ Astro.cookies.delete("sb-provider", { path: "/" });
             ?.classList.remove("hidden");
       });
 
-      window.addEventListener("load", () => {
-        window.location.href = returnHref || "/";
-      });
+      // window.addEventListener("load", () => {
+      //   window.location.href = returnHref || "/";
+      // });
     }
   }
 
@@ -235,21 +215,39 @@ Astro.cookies.delete("sb-provider", { path: "/" });
 <script>
   const copy_token = () => {
     const swap_label = document.getElementById("copy-swap-id");
+    const copy_status = document.getElementById("copy-status");
     swap_label?.classList.add("swap-active");
-    const input_text = document.getElementById("tokens")! as HTMLInputElement;
-    console.log(input_text.value);
-    if (navigator.clipboard) {
-      navigator.clipboard.writeText(input_text.value);
-    } else {
-      input_text.select();
-      document.execCommand("copy");
+    const tokensEl = document.getElementById("tokens");
+    let text = "";
+    if (tokensEl instanceof HTMLTextAreaElement || tokensEl instanceof HTMLInputElement) {
+      // input & textarea share .value
+      // @ts-ignore runtime check
+      text = tokensEl.value || "";
+    } else if (tokensEl) {
+      text = tokensEl.textContent || "";
     }
-    new Promise<void>((resolve, reject) => {
-      setTimeout(() => resolve(), 2000);
-    }).then(() => {
-      swap_label?.classList.remove("swap-active");
-    });
+    const showStatus = (msg) => {
+      if (!copy_status) return;
+      copy_status.textContent = msg;
+      copy_status.classList.remove("sr-only");
+      setTimeout(() => {
+        copy_status.classList.add("sr-only");
+        copy_status.textContent = "";
+      }, 1500);
+    };
+
+    if (text && navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(() => showStatus("Copied"), () => showStatus("Copy failed"));
+    } else if (tokensEl instanceof HTMLTextAreaElement) {
+      tokensEl.select();
+      const ok = document.execCommand("copy");
+      showStatus(ok ? "Copied" : "Copy failed");
+    } else {
+      showStatus("No tokens to copy");
+    }
+
+    setTimeout(() => swap_label?.classList.remove("swap-active"), 1200);
   };
-  const copy_button = document.getElementById("copy-button")!;
-  copy_button.addEventListener("click", copy_token);
+  const copy_button = document.getElementById("copy-button");
+  if (copy_button) copy_button.addEventListener("click", copy_token);
 </script>

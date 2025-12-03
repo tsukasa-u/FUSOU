@@ -415,7 +415,7 @@ function Start() {
                     </Match>
                     <Match when={pacServerHealth() == 0}>
                       <div class="w-4 h-4">
-                        <IconCheckBoxRed class="h-6 w-6 mb-[2px] pr-1 text-base-100" />
+                        <IconCheckBoxRed class="h-6 w-6 mb-0.5 pr-1 text-base-100" />
                       </div>
                       <div class="h-6 self-center ml-4 text-nowrap mb-[2.5px] pr-1">
                         Pac server is not running
@@ -423,7 +423,7 @@ function Start() {
                     </Match>
                     <Match when={pacServerHealth() == 1}>
                       <div class="w-4 h-4">
-                        <IconCheckBoxGreen class="h-6 w-6 mb-[2px] pr-1 text-base-100" />
+                        <IconCheckBoxGreen class="h-6 w-6 mb-0.5 pr-1 text-base-100" />
                       </div>
                       <div class="h-6 self-center ml-4 text-nowrap mb-[2.5px] pr-1">
                         Pac server is running
