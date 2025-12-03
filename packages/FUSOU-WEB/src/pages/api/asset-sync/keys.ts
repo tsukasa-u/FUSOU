@@ -58,13 +58,27 @@ export const GET: APIRoute = async ({ locals, request }) => {
   }
 
   try {
-    const url = new URL(request.url);
-    // const stmt = db.prepare("SELECT key FROM files ORDER BY uploaded_at DESC LIMIT 1000");
-    const stmt = db.prepare("SELECT key FROM files ORDER BY uploaded_at DESC");
-    const res: D1AllResult | undefined = await stmt.all?.();
-    const keys = (res?.results || [])
-      .map((r) => (typeof r.key === "string" ? r.key : undefined))
-      .filter(Boolean) as string[];
+    const keys: string[] = [];
+    let cursor = 0;
+    const BATCH_SIZE = 1000;
+
+    // Loop to fetch all keys in batches
+    while (true) {
+      const stmt = db
+        .prepare("SELECT key FROM files ORDER BY uploaded_at DESC LIMIT ? OFFSET ?")
+        .bind(BATCH_SIZE, cursor);
+      
+      const res: D1AllResult | undefined = await stmt.all?.();
+      const batch = (res?.results || [])
+        .map((r) => (typeof r.key === "string" ? r.key : undefined))
+        .filter(Boolean) as string[];
+
+      if (batch.length === 0) break;
+      keys.push(...batch);
+      cursor += batch.length;
+
+      if (batch.length < BATCH_SIZE) break;
+    }
 
     const refreshedAt = Date.now();
     const expiresAt = refreshedAt + CACHE_TTL_SECONDS * 1000;

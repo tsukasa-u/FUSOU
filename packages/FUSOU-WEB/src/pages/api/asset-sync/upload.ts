@@ -305,20 +305,9 @@ async function handleSignedUploadExecution(
     return errorResponse("Upload payload is missing", 400);
   }
 
-  let bodyBuffer: ArrayBuffer;
-  try {
-    bodyBuffer = await request.arrayBuffer();
-  } catch {
-    return errorResponse("Failed to read upload body", 400);
-  }
-
-  if (bodyBuffer.byteLength > MAX_UPLOAD_BYTES) {
-    return errorResponse("Uploaded file exceeds allowed size", 413);
-  }
-
   let storedSize = 0;
   try {
-    const result = await bucket.put(descriptor.key, bodyBuffer, {
+    const result = await bucket.put(descriptor.key, bodyStream, {
       httpMetadata: {
         contentType: deriveContentType(descriptor),
         cacheControl: CACHE_CONTROL,
@@ -332,7 +321,18 @@ async function handleSignedUploadExecution(
         uploader_email: descriptor.uploader_email ?? undefined,
       },
     });
-    storedSize = result?.size ?? bodyBuffer.byteLength;
+    
+    // result.size is reliable when provided by R2 binding
+    // If it's missing (mock env?), fallback to declared_size or throw
+    if (result && typeof result.size === 'number') {
+        storedSize = result.size;
+    } else {
+        // Fallback for environments where put() returns null or missing size (rare but safe to handle)
+        // We can't trust body stream length after consumption without counting, 
+        // but we can trust the declared_size if we assume the upload succeeded.
+        storedSize = descriptor.declared_size;
+    }
+
   } catch (error) {
     console.error("Failed to store asset payload", error);
     return errorResponse("Failed to store payload in R2", 502);

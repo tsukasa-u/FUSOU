@@ -1,15 +1,34 @@
 import type { APIRoute } from "astro";
-import { supabase } from "@/utility/supabase";
+import { createClient } from "@supabase/supabase-js";
 
 export const POST: APIRoute = async ({ request }) => {
   const tokenEndpoint = "https://oauth2.googleapis.com/token";
 
-  const { data: user, error: userError } = await supabase.auth.getUser(
-    request.headers.get("Authorization")?.replace("Bearer ", "")
+  const authHeader = request.headers.get("Authorization");
+  const accessToken = authHeader?.replace("Bearer ", "").trim();
+
+  if (!accessToken) {
+    return new Response("Missing access token", { status: 401 });
+  }
+
+  // Create a user-scoped client to respect RLS
+  const supabase = createClient(
+    import.meta.env.PUBLIC_SUPABASE_URL,
+    import.meta.env.PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      global: {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      },
+    }
   );
 
-  if (userError) {
-    return new Response(userError.message, { status: 401 });
+  const { data: user, error: userError } = await supabase.auth.getUser();
+
+  if (userError || !user.user) {
+    console.error("Invalid user session:", userError);
+    return new Response("Unauthorized", { status: 401 });
   }
 
   const { data: tokenData, error: tokenError } = await supabase
@@ -20,6 +39,7 @@ export const POST: APIRoute = async ({ request }) => {
     .single();
 
   if (tokenError || !tokenData) {
+    console.error("Provider token lookup failed:", tokenError);
     return new Response("No refresh token found for user", { status: 404 });
   }
 
@@ -42,9 +62,9 @@ export const POST: APIRoute = async ({ request }) => {
     });
 
     if (!response.ok) {
-      let msg = await response.text();
+      const msg = await response.text();
       console.error("Google refresh token error:", response.status, msg);
-      return new Response(msg, { status: 500 });
+      return new Response("Failed to refresh token with provider", { status: 500 });
     }
 
     const data = await response.json();
@@ -71,7 +91,7 @@ export const POST: APIRoute = async ({ request }) => {
   } catch (error) {
     console.error("Error refreshing Google access token:", error);
     return new Response(
-      JSON.stringify({ error: "Failed to refresh access token" }),
+      JSON.stringify({ error: "Internal server error during token refresh" }),
       { status: 500 }
     );
   }

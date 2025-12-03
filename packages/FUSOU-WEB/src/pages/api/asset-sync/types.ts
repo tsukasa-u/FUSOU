@@ -7,6 +7,14 @@ export type AssetKeyCache = {
   etag: string;
 };
 
+export type KeyPayload = {
+  keys: string[];
+  refreshedAt: string;
+  cacheExpiresAt: string;
+  cached: boolean;
+  total: number;
+};
+
 export type D1Row = Record<string, unknown>;
 
 export type D1Result = Record<string, unknown>;

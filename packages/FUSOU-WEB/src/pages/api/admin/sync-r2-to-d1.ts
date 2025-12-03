@@ -1,5 +1,6 @@
 import type { APIRoute } from "astro";
 import type { D1Database } from "../asset-sync/types";
+import { timingSafeEqual } from "../_utils/signature";
 
 const CORS_HEADERS: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
@@ -74,7 +75,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
 
   const authHeader = request.headers.get("authorization");
   const providedSecret = extractBearer(authHeader);
-  if (!providedSecret || providedSecret !== adminSecret) {
+  if (!providedSecret || !timingSafeEqual(providedSecret, adminSecret)) {
     return errorResponse("Unauthorized: Invalid admin secret", 401);
   }
 

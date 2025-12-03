@@ -7,9 +7,12 @@ export const POST: APIRoute = async ({ request, cookies, redirect }) => {
   const formData = await request.formData();
 
   const providedOrigin = import.meta.env.PUBLIC_SITE_URL?.trim();
-  const url_origin = providedOrigin && providedOrigin.length > 0
-    ? providedOrigin
-    : new URL(request.url).origin;
+  if (!providedOrigin) {
+    return new Response("Server misconfiguration: PUBLIC_SITE_URL is not set", {
+      status: 500,
+    });
+  }
+  const url_origin = providedOrigin;
 
   const provider = formData.get("provider")?.toString();
   const fallbackState = randomUUID();
