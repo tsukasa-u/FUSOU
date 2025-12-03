@@ -1,19 +1,22 @@
 ---
 import Layout from "@/layouts/Layout.astro";
 import Navigation from "@/components/Navigation.astro";
-import { supabase } from "@/utility/supabase";
+import { createSupabaseServerClient } from "@/utility/supabaseServer";
 import { Icon } from "astro-icon/components";
 import type { AuthResponse } from "@supabase/supabase-js";
 
-const accessToken = Astro.cookies.get("sb-access-token");
-const refreshToken = Astro.cookies.get("sb-refresh-token");
-const providerToken = Astro.cookies.get("sb-provider-token");
-const providerRefreshToken = Astro.cookies.get("sb-provider-refresh-token");
+const cookies = Astro.cookies;
+const supabase = createSupabaseServerClient(cookies);
 
-let storedAccessToken = Astro.cookies.get("stored-sb-access-token");
-let storedRefreshToken = Astro.cookies.get("stored-sb-refresh-token");
-let storedProviderToken = Astro.cookies.get("stored-sb-provider-token");
-let storedProviderRefreshToken = Astro.cookies.get(
+const accessToken = cookies.get("sb-access-token");
+const refreshToken = cookies.get("sb-refresh-token");
+const providerToken = cookies.get("sb-provider-token");
+const providerRefreshToken = cookies.get("sb-provider-refresh-token");
+
+let storedAccessToken = cookies.get("stored-sb-access-token");
+let storedRefreshToken = cookies.get("stored-sb-refresh-token");
+let storedProviderToken = cookies.get("stored-sb-provider-token");
+let storedProviderRefreshToken = cookies.get(
   "stored-sb-provider-refresh-token"
 );
 
@@ -23,18 +26,18 @@ if (
   !storedProviderToken ||
   !storedProviderRefreshToken
 ) {
-  Astro.cookies.set("stored-sb-access-token", { data: [] }, { path: "/" });
-  Astro.cookies.set("stored-sb-refresh-token", { data: [] }, { path: "/" });
-  Astro.cookies.set("stored-sb-provider-token", { data: [] }, { path: "/" });
-  Astro.cookies.set(
+  cookies.set("stored-sb-access-token", { data: [] }, { path: "/" });
+  cookies.set("stored-sb-refresh-token", { data: [] }, { path: "/" });
+  cookies.set("stored-sb-provider-token", { data: [] }, { path: "/" });
+  cookies.set(
     "stored-sb-provider-refresh-token",
     { data: [] },
     { path: "/" }
   );
-  storedAccessToken = Astro.cookies.get("stored-sb-access-token");
-  storedRefreshToken = Astro.cookies.get("stored-sb-refresh-token");
-  storedProviderToken = Astro.cookies.get("stored-sb-provider-token");
-  storedProviderRefreshToken = Astro.cookies.get(
+  storedAccessToken = cookies.get("stored-sb-access-token");
+  storedRefreshToken = cookies.get("stored-sb-refresh-token");
+  storedProviderToken = cookies.get("stored-sb-provider-token");
+  storedProviderRefreshToken = cookies.get(
     "stored-sb-provider-refresh-token"
   );
 }
@@ -55,18 +58,18 @@ if (refreshToken && accessToken && providerToken && providerRefreshToken) {
       access_token: accessToken.value,
     });
     if (session.error) {
-      Astro.cookies.delete("sb-access-token", { path: "/" });
-      Astro.cookies.delete("sb-refresh-token", { path: "/" });
-      Astro.cookies.delete("sb-provider-token", { path: "/" });
-      Astro.cookies.delete("sb-provider-refresh-token", { path: "/" });
+      cookies.delete("sb-access-token", { path: "/" });
+      cookies.delete("sb-refresh-token", { path: "/" });
+      cookies.delete("sb-provider-token", { path: "/" });
+      cookies.delete("sb-provider-refresh-token", { path: "/" });
       return Astro.redirect("/signin");
     }
     currentSession = session;
   } catch (error) {
-    Astro.cookies.delete("sb-access-token", { path: "/" });
-    Astro.cookies.delete("sb-refresh-token", { path: "/" });
-    Astro.cookies.delete("sb-provider-token", { path: "/" });
-    Astro.cookies.delete("sb-provider-refresh-token", { path: "/" });
+    cookies.delete("sb-access-token", { path: "/" });
+    cookies.delete("sb-refresh-token", { path: "/" });
+    cookies.delete("sb-provider-token", { path: "/" });
+    cookies.delete("sb-provider-refresh-token", { path: "/" });
     return Astro.redirect("/signin");
   }
 }
@@ -134,22 +137,22 @@ if (
   }
 }
 
-Astro.cookies.set(
+cookies.set(
   "stored-sb-access-token",
   { data: validAccessTokenList },
   { path: "/" }
 );
-Astro.cookies.set(
+cookies.set(
   "stored-sb-refresh-token",
   { data: validRefreshTokenList },
   { path: "/" }
 );
-Astro.cookies.set(
+cookies.set(
   "stored-sb-provider-token",
   { data: validProviderTokenList },
   { path: "/" }
 );
-Astro.cookies.set(
+cookies.set(
   "stored-sb-provider-refresh-token",
   { data: validProviderRefreshTokenList },
   { path: "/" }
@@ -202,7 +205,7 @@ Astro.cookies.set(
             </button>
           </form>
 
-          <form action="/api/auth/signout">
+          <form action="/api/auth/signout" method="post">
             <div class="divider">OR</div>
             <button class="btn w-full btn-ghost border border-base-300 rounded-sm bg-white text-black" type="submit">Sign out</button>
           </form>

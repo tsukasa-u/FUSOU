@@ -1,13 +1,26 @@
 import type { APIRoute } from "astro";
-import { supabase } from "@/utility/supabase";
+import { createSupabaseServerClient } from "@/utility/supabaseServer";
 
 export const POST: APIRoute = async ({ cookies, redirect }) => {
+  const supabase = createSupabaseServerClient(cookies);
   await supabase.auth.signOut();
-  cookies.delete("sb-access-token", { path: "/" });
-  cookies.delete("sb-refresh-token", { path: "/" });
-  cookies.delete("sb-provider-token", { path: "/" });
-  cookies.delete("sb-provider-refresh-token", { path: "/" });
-  cookies.delete("sb-provider", { path: "/" });
-  cookies.delete("oauth_state", { path: "/" });
+
+  const cookieNames = [
+    "sb-access-token",
+    "sb-refresh-token",
+    "sb-provider-token",
+    "sb-provider-refresh-token",
+    "sb-provider",
+    "oauth_state",
+    "stored-sb-access-token",
+    "stored-sb-refresh-token",
+    "stored-sb-provider-token",
+    "stored-sb-provider-refresh-token",
+  ];
+
+  for (const name of cookieNames) {
+    cookies.delete(name, { path: "/" });
+  }
+
   return redirect("/signin");
 };

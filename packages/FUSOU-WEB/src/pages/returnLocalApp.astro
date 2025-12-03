@@ -1,15 +1,15 @@
 ---
 import Layout from "../layouts/Layout.astro";
 import Navigation from "../components/Navigation.astro";
-import { supabase } from "@/utility/supabase";
-import { Icon } from "astro-icon/components";
-import type { AuthResponse } from "@supabase/supabase-js";
+import { createSupabaseServerClient } from "@/utility/supabaseServer";
 
-const accessToken = Astro.cookies.get("sb-access-token");
-const refreshToken = Astro.cookies.get("sb-refresh-token");
-const providerToken = Astro.cookies.get("sb-provider-token");
-const providerRefreshToken = Astro.cookies.get("sb-provider-refresh-token");
-const provider = Astro.cookies.get("sb-provider");
+const cookies = Astro.cookies;
+const supabase = createSupabaseServerClient(cookies);
+
+const accessToken = cookies.get("sb-access-token");
+const refreshToken = cookies.get("sb-refresh-token");
+const providerRefreshToken = cookies.get("sb-provider-refresh-token");
+const provider = cookies.get("sb-provider");
 
 let error_message: string | null = null;
 let return_params: string | null = null;
@@ -17,61 +17,63 @@ let return_href: string | null = null;
 let set_session_error_flag: boolean | null = null;
 let sb_insert_error_flag: boolean | null = null;
 let sb_insert_success_flag: boolean | null = null;
-let session: AuthResponse | null = null;
 
-if (
-  refreshToken &&
-  accessToken &&
-  providerToken &&
-  providerRefreshToken &&
-  provider
-) {
+const providerValue = provider?.value ?? "google";
+
+if (refreshToken && accessToken && providerRefreshToken) {
   try {
-    session = await supabase.auth.setSession({
+    const sessionResult = await supabase.auth.setSession({
       refresh_token: refreshToken.value,
       access_token: accessToken.value,
     });
-    if (session.error) {
-      error_message = session.error.message;
+
+    if (sessionResult.error) {
+      error_message = sessionResult.error.message;
       set_session_error_flag = true;
     } else {
-      await supabase
+      const userId = sessionResult.data.session?.user.id;
+      if (!userId) {
+        throw new Error("Supabase session missing user id");
+      }
+
+      const { error } = await supabase
         .from("users")
         .upsert([
           {
-            id: session.data.session?.user.id,
-            provider: provider.value,
+            id: userId,
+            provider: providerValue,
             provider_refresh_token: providerRefreshToken.value,
           },
         ])
-        .select()
-        .then(({ data, error }) => {
-          if (error) {
-            error_message = error.message;
-            sb_insert_error_flag = true;
-          } else {
-            sb_insert_success_flag = true;
-          }
+        .select();
 
-          return_params =
-            "provider_refresh_token=" +
-            providerRefreshToken.value +
-            "&provider=google&supabase_access_token=" +
-            accessToken.value +
-            "&supabase_refresh_token=" +
-            refreshToken.value;
-          return_href = `fusou://auth?${return_params}`;
-        });
+      if (error) {
+        error_message = error.message;
+        sb_insert_error_flag = true;
+      } else {
+        sb_insert_success_flag = true;
+      }
+
+      return_params =
+        "provider_refresh_token=" +
+        providerRefreshToken.value +
+        "&provider=" +
+        providerValue +
+        "&supabase_access_token=" +
+        accessToken.value +
+        "&supabase_refresh_token=" +
+        refreshToken.value;
+      return_href = `fusou://auth?${return_params}`;
+      console.log("Return href: ", return_href);
     }
   } catch (error) {
-    error_message = error.message;
+    error_message = error instanceof Error ? error.message : String(error);
   }
 }
-Astro.cookies.delete("sb-access-token", { path: "/" });
-Astro.cookies.delete("sb-refresh-token", { path: "/" });
-Astro.cookies.delete("sb-provider-token", { path: "/" });
-Astro.cookies.delete("sb-provider-refresh-token", { path: "/" });
-Astro.cookies.delete("sb-provider", { path: "/" });
+cookies.delete("sb-access-token", { path: "/" });
+cookies.delete("sb-refresh-token", { path: "/" });
+cookies.delete("sb-provider-refresh-token", { path: "/" });
+cookies.delete("sb-provider", { path: "/" });
 ---
 
 <Layout title="Auth Local App">
@@ -112,8 +114,12 @@ Astro.cookies.delete("sb-provider", { path: "/" });
               </div>
             </div>
             <div id="sb_insert_success" class="hidden">
-              <div class="text-success text-center">
-                Refresh token registration successful
+              <div class="alert alert-info bg-base-200 border border-base-300 text-sm text-base-content/80 flex items-start gap-3">
+                <svg class="w-6 h-6 text-info" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="2 2 22 22"><path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 12c0 4.418 3.582 8 8 8s8-3.582 8-8-3.582-8-8-8-8 3.582-8 8Zm8-4v4"/><path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 16h.01"/></svg>
+                <div>
+                  <div class="font-semibold text-base-content">Tip</div>
+                  <p class="leading-snug">Refresh token registration succeeded. No further action is needed on the web side.</p>
+                </div>
               </div>
             </div>
             <div>
@@ -133,7 +139,7 @@ Astro.cookies.delete("sb-provider", { path: "/" });
                       type="text"
                       style="cursor: text"
                       class="input input-bordered font-mono w-full"
-                      value={return_params}
+                      value={return_params ?? ""}
                       readonly
                       disabled
                     />
@@ -197,11 +203,24 @@ Astro.cookies.delete("sb-provider", { path: "/" });
           document
             .getElementById("sb_insert_success")
             ?.classList.remove("hidden");
+        // If token registration succeeded and a return URL is present, redirect back to the app.
+        // Short timeout gives the user a moment to see the success message before the handoff.
+        if (sbInsertSuccessFlag == "true" && returnHref) {
+          setTimeout(() => {
+            try {
+              // Prefer the custom protocol deep link (fusou://...)
+              window.location.href = returnHref || "/";
+            } catch (e) {
+              // Fallback to navigating to root
+              window.location.href = "/";
+            }
+          }, 700);
+        }
       });
 
-      // window.addEventListener("load", () => {
-      //   window.location.href = returnHref || "/";
-      // });
+      window.addEventListener("load", () => {
+        window.location.href = returnHref || "/";
+      });
     }
   }
 
