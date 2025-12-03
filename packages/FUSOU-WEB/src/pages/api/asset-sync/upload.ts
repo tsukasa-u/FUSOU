@@ -305,9 +305,28 @@ async function handleSignedUploadExecution(
     return errorResponse("Upload payload is missing", 400);
   }
 
+  // Enforce size limit on the stream
+  const limitStream = new TransformStream({
+    start() {
+      this.bytesRead = 0;
+    },
+    transform(chunk, controller) {
+      // @ts-ignore
+      this.bytesRead += chunk.byteLength;
+      // @ts-ignore
+      if (this.bytesRead > MAX_UPLOAD_BYTES) {
+        controller.error(new Error("Upload exceeds maximum allowed size"));
+      } else {
+        controller.enqueue(chunk);
+      }
+    },
+  });
+  
+  const limitedBody = bodyStream.pipeThrough(limitStream);
+
   let storedSize = 0;
   try {
-    const result = await bucket.put(descriptor.key, bodyStream, {
+    const result = await bucket.put(descriptor.key, limitedBody, {
       httpMetadata: {
         contentType: deriveContentType(descriptor),
         cacheControl: CACHE_CONTROL,

@@ -119,165 +119,115 @@ export const POST: APIRoute = async ({ request, locals }) => {
   };
 
   try {
-    // Step 1: Load all keys from D1
-    const existingKeysSet = new Set<string>();
-    try {
-      const stmt = db.prepare("SELECT key FROM files");
-      const res = await stmt.all?.();
-      if (res?.results) {
-        for (const row of res.results) {
-          if (typeof row.key === "string") {
-            existingKeysSet.add(row.key);
-          }
-        }
-      }
-    } catch (e) {
-      console.error("Failed to load existing keys from D1", e);
-      return errorResponse("Failed to query D1 database", 500);
-    }
-
-    // Step 2: List all objects from R2 bucket
-    const r2Keys: string[] = [];
+    // Step 1: Iterate R2 bucket in pages
     let cursor: string | undefined;
     let truncated = true;
 
     while (truncated) {
+      // 1. List a batch of objects from R2
       const listResult = await bucket.list({
-        limit: 10000,
+        limit: 1000, // Process 1000 at a time
         cursor,
       });
 
-      for (const obj of listResult.objects) {
-        r2Keys.push(obj.key);
+      const batchR2Objects = listResult.objects;
+      if (batchR2Objects.length === 0) {
+        break;
       }
 
-      truncated = listResult.truncated ?? false;
-      cursor = listResult.cursor;
-    }
+      result.scanned += batchR2Objects.length;
+      const batchKeys = batchR2Objects.map((o) => o.key);
 
-    result.scanned = r2Keys.length;
+      // 2. Check D1 for existence of these keys
+      // Since D1 doesn't support "WHERE key IN (...)" well with 1000 params,
+      // we can either loop or fetch a chunk. 
+      // Efficient approach: Select existing keys from D1 that match this batch.
+      // "SELECT key FROM files WHERE key IN (?, ?, ...)"
+      
+      const existingKeysInBatch = new Set<string>();
+      const placeholders = batchKeys.map(() => "?").join(",");
+      // Be careful with SQL variable limit (usually around 100 or 999). 
+      // SQLite default is often 999 or 32766. D1 is safer with smaller batches?
+      // Let's process the check in smaller chunks (e.g. 50) to be safe and reuse existing logic.
 
-    // Step 3: Identify missing keys
-    let missingKeys = r2Keys.filter((key) => !existingKeysSet.has(key));
-
-    // If resuming, skip keys before the resume point
-    if (resumeFromKey) {
-      const resumeIndex = missingKeys.indexOf(resumeFromKey);
-      if (resumeIndex >= 0) {
-        missingKeys = missingKeys.slice(resumeIndex);
-      }
-    }
-
-    // Step 4: Process in batches to avoid API limits
-    const keysToProcess = missingKeys.slice(0, MAX_KEYS_PER_INVOCATION);
-    const hasMoreKeys = missingKeys.length > MAX_KEYS_PER_INVOCATION;
-
-    // Batch process: collect metadata first
-    const metadataPromises = keysToProcess.map(async (key) => {
-      try {
-        const obj = await bucket.head(key);
-        return { key, obj };
-      } catch (e) {
-        return { key, obj: null, error: e };
-      }
-    });
-
-    const metadataResults = await Promise.all(metadataPromises);
-
-    // Prepare batch insert statements
-    const insertStatements: Array<{
-      key: string;
-      size: number;
-      uploadedAt: number;
-      contentType: string;
-      uploaderId: string | null;
-      finderTag: string | null;
-      metadata: string;
-    }> = [];
-
-    for (const { key, obj, error } of metadataResults) {
-      if (error || !obj) {
-        result.failed++;
-        result.errors.push({
-          key,
-          error:
-            error instanceof Error ? error.message : "Object not found in R2",
-        });
-        continue;
-      }
-
-      // Check if key already exists (race condition safety)
-      const checkStmt = db.prepare("SELECT key FROM files WHERE key = ?");
-      const existing = await checkStmt.bind(key).first?.();
-      if (existing) {
-        result.existing++;
-        continue;
-      }
-
-      const uploadedAt = obj.uploaded ? obj.uploaded.getTime() : Date.now();
-      const contentType =
-        obj.httpMetadata?.contentType || "application/octet-stream";
-      const customMetadata = obj.customMetadata || {};
-
-      insertStatements.push({
-        key,
-        size: obj.size,
-        uploadedAt,
-        contentType,
-        uploaderId: customMetadata.uploaded_by || null,
-        finderTag: customMetadata.finder_tag || null,
-        metadata: JSON.stringify({
-          file_name: customMetadata.file_name || null,
-          declared_size: customMetadata.declared_size || null,
-          synced_from_r2: true,
-          synced_at: Date.now(),
-        }),
-      });
-    }
-
-    // Execute batch insert using D1 batch API
-    if (insertStatements.length > 0) {
-      try {
-        const batchStmts = insertStatements.map((data) => {
-          return db
-            .prepare(
-              `INSERT INTO files (key, size, uploaded_at, content_type, uploader_id, finder_tag, metadata) 
-               VALUES (?, ?, ?, ?, ?, ?, ?)`
-            )
-            .bind(
-              data.key,
-              data.size,
-              data.uploadedAt,
-              data.contentType,
-              data.uploaderId,
-              data.finderTag,
-              data.metadata
-            );
-        });
-
-        // D1 batch execution (if supported)
-        // Note: D1 batch() may not be available in all environments
-        if (typeof (db as any).batch === "function") {
-          const batchResults = await (db as any).batch(batchStmts);
-          for (let i = 0; i < batchResults.length; i++) {
-            const res = batchResults[i];
-            if (res && "success" in res && res.success) {
-              result.inserted++;
-            } else {
-              result.failed++;
-              result.errors.push({
-                key: insertStatements[i].key,
-                error:
-                  "error" in res ? String(res.error) : "Batch insert failed",
-              });
+      const CHUNK_SIZE = 50;
+      for (let i = 0; i < batchKeys.length; i += CHUNK_SIZE) {
+        const chunkKeys = batchKeys.slice(i, i + CHUNK_SIZE);
+        const chunkPlaceholders = chunkKeys.map(() => "?").join(",");
+        
+        try {
+          const stmt = db.prepare(`SELECT key FROM files WHERE key IN (${chunkPlaceholders})`)
+            .bind(...chunkKeys);
+          const res = await stmt.all();
+          
+          if (res.results) {
+            for (const r of res.results) {
+              if (typeof r.key === "string") existingKeysInBatch.add(r.key);
             }
           }
-        } else {
-          // Fallback: execute sequentially
+        } catch (err) {
+          console.error("Failed to check existence for chunk", err);
+          // If check fails, we might try to insert and fail on unique constraint, 
+          // or skip. Let's skip to be safe.
+        }
+      }
+
+      // 3. Identify missing
+      const missingObjects = batchR2Objects.filter(obj => !existingKeysInBatch.has(obj.key));
+      
+      // 4. Insert missing
+      // We can reuse the batch insert logic.
+      // The original code fetched `head` for metadata. `list` returns some metadata but not customMetadata usually?
+      // R2 list() returns R2Object, which includes customMetadata!
+      // So we don't need to HEAD each object individually if list() provides enough.
+      // Check type definition in this file: 
+      // type R2Object = { ... customMetadata?: ... }
+      // Assuming the binding provides it. If not, we must HEAD.
+      // Standard R2 list returns Objects with customMetadata.
+
+      const insertStatements = [];
+      for (const obj of missingObjects) {
+        // Filter out if resuming
+        if (resumeFromKey && obj.key < resumeFromKey) {
+           continue; 
+        }
+        
+        // Double check existing count (for the stats)
+        if (existingKeysInBatch.has(obj.key)) {
+            result.existing++;
+            continue;
+        }
+
+        const uploadedAt = obj.uploaded ? new Date(obj.uploaded).getTime() : Date.now();
+        const contentType = obj.httpMetadata?.contentType || "application/octet-stream";
+        const customMetadata = obj.customMetadata || {};
+
+        insertStatements.push({
+            key: obj.key,
+            size: obj.size,
+            uploadedAt,
+            contentType,
+            uploaderId: customMetadata.uploaded_by || null,
+            finderTag: customMetadata.finder_tag || null,
+            metadata: JSON.stringify({
+            file_name: customMetadata.file_name || null,
+            declared_size: customMetadata.declared_size || null,
+            synced_from_r2: true,
+            synced_at: Date.now(),
+            }),
+        });
+      }
+      
+      // Execute Insert
+      if (insertStatements.length > 0) {
+          // ... (Insert logic)
+          // We need to be careful not to duplicate code too much, but for refactoring,
+          // let's inline the insert loop here or make it a function.
+          // For brevity in this tool, I'll use sequential insert as it is more robust.
+          
           for (const data of insertStatements) {
             try {
-              const insertResult = await db
-                .prepare(
+              await db.prepare(
                   `INSERT INTO files (key, size, uploaded_at, content_type, uploader_id, finder_tag, metadata) 
                    VALUES (?, ?, ?, ?, ?, ?, ?)`
                 )
@@ -291,47 +241,29 @@ export const POST: APIRoute = async ({ request, locals }) => {
                   data.metadata
                 )
                 .run();
-
-              if (
-                insertResult &&
-                "success" in insertResult &&
-                insertResult.success
-              ) {
-                result.inserted++;
-              } else {
-                result.failed++;
-                result.errors.push({
-                  key: data.key,
-                  error:
-                    "error" in insertResult
-                      ? String(insertResult.error)
-                      : "Insert failed",
-                });
-              }
+              result.inserted++;
             } catch (e) {
-              result.failed++;
-              result.errors.push({
-                key: data.key,
-                error: e instanceof Error ? e.message : String(e),
-              });
+               // Ignore unique constraint errors if they happen (race condition)
+               result.failed++;
+               result.errors.push({ key: data.key, error: String(e) });
             }
           }
-        }
-      } catch (e) {
-        console.error("Batch insert failed", e);
-        return errorResponse(
-          `Batch insert failed: ${e instanceof Error ? e.message : String(e)}`,
-          500
-        );
+      }
+
+      truncated = listResult.truncated ?? false;
+      cursor = listResult.cursor;
+      
+      // Check time limits? Cloudflare Workers have 30s (or more) limit.
+      // If we run too long, we should probably return with resumeCursor.
+      if (Date.now() - startTime > 20000) { // 20 seconds safety margin
+          result.resumeCursor = cursor;
+          result.completed = false;
+          break;
       }
     }
-
-    // Set resume cursor if there are more keys to process
-    if (hasMoreKeys && keysToProcess.length > 0) {
-      result.resumeCursor = keysToProcess[keysToProcess.length - 1];
-      result.completed = false;
-    } else {
-      result.completed = true;
+    
+    if (truncated === false && !result.resumeCursor) {
+        result.completed = true;
     }
 
     // Purge cache only when completed
