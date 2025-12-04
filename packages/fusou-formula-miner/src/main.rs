@@ -18,6 +18,82 @@ use std::{
 
 mod mina;
 
+// --- Statistics Helper ---
+fn calculate_correlation(x: &[f64], y: &[f64]) -> f64 {
+    if x.len() != y.len() || x.is_empty() {
+        return 0.0;
+    }
+    let n = x.len() as f64;
+    let mean_x: f64 = x.iter().sum::<f64>() / n;
+    let mean_y: f64 = y.iter().sum::<f64>() / n;
+    let cov: f64 = x
+        .iter()
+        .zip(y.iter())
+        .map(|(xi, yi)| (xi - mean_x) * (yi - mean_y))
+        .sum();
+    let var_x: f64 = x.iter().map(|xi| (xi - mean_x).powi(2)).sum();
+    let var_y: f64 = y.iter().map(|yi| (yi - mean_y).powi(2)).sum();
+    if var_x < 1e-9 || var_y < 1e-9 {
+        return 0.0;
+    }
+    cov / (var_x.sqrt() * var_y.sqrt())
+}
+
+fn calculate_variance(x: &[f64]) -> f64 {
+    if x.is_empty() {
+        return 0.0;
+    }
+    let mean: f64 = x.iter().sum::<f64>() / x.len() as f64;
+    x.iter().map(|xi| (xi - mean).powi(2)).sum::<f64>() / x.len() as f64
+}
+
+// --- Preprocessing ---
+#[derive(Clone)]
+struct Dataset {
+    feature_names: Vec<String>,
+    inputs: Vec<Vec<f64>>,
+    targets: Vec<f64>,
+}
+
+impl Dataset {
+    fn filter_features(&self, correlation_threshold: f64) -> (Vec<usize>, Vec<String>) {
+        let mut selected_indices = Vec::new();
+        let mut logs = Vec::new();
+
+        for (i, name) in self.feature_names.iter().enumerate() {
+            let feature_values: Vec<f64> = self.inputs.iter().map(|row| row[i]).collect();
+            let variance = calculate_variance(&feature_values);
+            if variance < 1e-9 {
+                logs.push(format!("Excluded '{}' (zero variance)", name));
+                continue;
+            }
+            let corr = calculate_correlation(&feature_values, &self.targets);
+            if corr.abs() < correlation_threshold {
+                logs.push(format!("Excluded '{}' (correlation: {:.3})", name, corr));
+            } else {
+                logs.push(format!("Selected '{}' (correlation: {:.3})", name, corr));
+                selected_indices.push(i);
+            }
+        }
+
+        (selected_indices, logs)
+    }
+
+    fn apply_selection(&self, indices: &[usize]) -> Dataset {
+        let new_names = indices.iter().map(|&i| self.feature_names[i].clone()).collect();
+        let new_inputs = self
+            .inputs
+            .iter()
+            .map(|row| indices.iter().map(|&i| row[i]).collect())
+            .collect();
+        Dataset {
+            feature_names: new_names,
+            inputs: new_inputs,
+            targets: self.targets.clone(),
+        }
+    }
+}
+
 // --- Solver Engine ---
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Op {
@@ -90,46 +166,46 @@ impl Expr {
     }
 }
 
-fn random_expr(depth: i32, rng: &mut ThreadRng) -> Expr {
+fn random_expr(depth: i32, rng: &mut ThreadRng, num_vars: usize) -> Expr {
     if depth == 0 || rng.gen_bool(0.3) {
         if rng.gen_bool(0.5) {
             Expr::Const(rng.gen_range(1.0_f64..5.0_f64).round())
         } else {
-            Expr::Var(rng.gen_range(0..2))
+            Expr::Var(rng.gen_range(0..num_vars))
         }
     } else {
         match rng.gen_range(0..5) {
             0 => Expr::Binary(
                 Op::Add,
-                Box::new(random_expr(depth - 1, rng)),
-                Box::new(random_expr(depth - 1, rng)),
+                Box::new(random_expr(depth - 1, rng, num_vars)),
+                Box::new(random_expr(depth - 1, rng, num_vars)),
             ),
             1 => Expr::Binary(
                 Op::Sub,
-                Box::new(random_expr(depth - 1, rng)),
-                Box::new(random_expr(depth - 1, rng)),
+                Box::new(random_expr(depth - 1, rng, num_vars)),
+                Box::new(random_expr(depth - 1, rng, num_vars)),
             ),
             2 => Expr::Binary(
                 Op::Mul,
-                Box::new(random_expr(depth - 1, rng)),
-                Box::new(random_expr(depth - 1, rng)),
+                Box::new(random_expr(depth - 1, rng, num_vars)),
+                Box::new(random_expr(depth - 1, rng, num_vars)),
             ),
             3 => Expr::Binary(
                 Op::Max,
-                Box::new(random_expr(depth - 1, rng)),
-                Box::new(random_expr(depth - 1, rng)),
+                Box::new(random_expr(depth - 1, rng, num_vars)),
+                Box::new(random_expr(depth - 1, rng, num_vars)),
             ),
-            _ => random_expr(depth - 1, rng),
+            _ => random_expr(depth - 1, rng, num_vars),
         }
     }
 }
 
-fn mutate(expr: &Expr, rng: &mut ThreadRng) -> Expr {
+fn mutate(expr: &Expr, rng: &mut ThreadRng, num_vars: usize) -> Expr {
     if rng.gen_bool(0.2) {
-        return random_expr(2, rng);
+        return random_expr(2, rng, num_vars);
     }
     match expr {
-        Expr::Binary(op, l, r) => Expr::Binary(*op, Box::new(mutate(l, rng)), Box::new(mutate(r, rng))),
+        Expr::Binary(op, l, r) => Expr::Binary(*op, Box::new(mutate(l, rng, num_vars)), Box::new(mutate(r, rng, num_vars))),
         _ => expr.clone(),
     }
 }
@@ -146,6 +222,7 @@ pub struct SolverState {
     pub log_scroll_offset: usize,
     pub best_solution_scroll_offset: usize,
     pub focused_panel: FocusedPanel,
+    pub phase: Phase,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -154,9 +231,17 @@ pub enum FocusedPanel {
     Logs,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Phase {
+    Preprocessing,
+    Solving,
+    Finished,
+}
+
 enum AppEvent {
     Update(u64, f64, String),
     Log(String),
+    PhaseChange(Phase),
     Finished,
 }
 
@@ -172,24 +257,73 @@ fn main() -> Result<()> {
 
     thread::spawn(move || {
         let mut rng = rand::thread_rng();
-        // === MOCK DATA FOR DEMO ===
-        let mut data = Vec::new();
-        for _ in 0..50 {
+        
+        tx.send(AppEvent::Log("formula_miner started.".into())).unwrap();
+        tx.send(AppEvent::PhaseChange(Phase::Preprocessing)).unwrap();
+        
+        // === GENERATE MOCK DATA WITH NOISE ===
+        let mut dataset = Dataset {
+            feature_names: vec![
+                "Atk".into(),
+                "Def".into(),
+                "Luck".into(),
+                "MapID".into(),
+                "Timestamp".into(),
+            ],
+            inputs: Vec::new(),
+            targets: Vec::new(),
+        };
+
+        for i in 0..50 {
             let atk = rng.gen_range(100.0..200.0);
             let def = rng.gen_range(10.0..90.0);
+            let luck = rng.gen_range(0.0..100.0); // random noise
+            let map_id = 5.0; // constant (zero variance)
+            let timestamp = i as f64; // monotonic
             let val = ((atk - def) * 2.0_f64).max(1.0_f64);
-            data.push((vec![atk, def], val));
+            dataset.inputs.push(vec![atk, def, luck, map_id, timestamp]);
+            dataset.targets.push(val);
         }
-        // ==========================
 
-        tx.send(AppEvent::Log("formula_miner started.".into())).unwrap();
+        tx.send(AppEvent::Log("Data generation complete (50 samples, 5 features)".into())).unwrap();
+        thread::sleep(Duration::from_millis(500));
 
-        let mut best = random_expr(3, &mut rng);
+        // === PREPROCESSING: FEATURE SELECTION ===
+        tx.send(AppEvent::Log("Starting feature selection...".into())).unwrap();
+        let (selected_indices, filter_logs) = dataset.filter_features(0.1);
+        for log in filter_logs {
+            tx.send(AppEvent::Log(log)).unwrap();
+            thread::sleep(Duration::from_millis(200));
+        }
+
+        let filtered_dataset = dataset.apply_selection(&selected_indices);
+        tx.send(AppEvent::Log(format!(
+            "Feature selection complete: {} -> {} features",
+            dataset.feature_names.len(),
+            filtered_dataset.feature_names.len()
+        )).into()).unwrap();
+        thread::sleep(Duration::from_millis(500));
+
+        // === SOLVING PHASE ===
+        tx.send(AppEvent::PhaseChange(Phase::Solving)).unwrap();
+        tx.send(AppEvent::Log("Starting formula search...".into())).unwrap();
+
+        let data: Vec<(Vec<f64>, f64)> = filtered_dataset
+            .inputs
+            .iter()
+            .zip(filtered_dataset.targets.iter())
+            .map(|(inp, &targ)| (inp.clone(), targ))
+            .collect();
+
+        let var_names: Vec<&str> = filtered_dataset.feature_names.iter().map(|s| s.as_str()).collect();
+        let num_vars = var_names.len();
+
+        let mut best = random_expr(3, &mut rng, num_vars);
         let mut best_err = f64::MAX;
         let max_gen = 100000;
 
         for gen in 0..=max_gen {
-            let candidate = mutate(&best, &mut rng);
+            let candidate = mutate(&best, &mut rng, num_vars);
             let mut err = 0.0;
             for (vars, target) in &data {
                 err += (candidate.eval(vars) - target).powi(2);
@@ -198,12 +332,12 @@ fn main() -> Result<()> {
             if err < best_err {
                 best_err = err;
                 best = candidate;
-                tx.send(AppEvent::Update(gen, best_err, best.to_string(&["Atk", "Def"])))
+                tx.send(AppEvent::Update(gen, best_err, best.to_string(&var_names)))
                     .unwrap();
             }
 
             if gen % 500 == 0 {
-                tx.send(AppEvent::Update(gen, best_err, best.to_string(&["Atk", "Def"])))
+                tx.send(AppEvent::Update(gen, best_err, best.to_string(&var_names)))
                     .unwrap();
                 thread::sleep(Duration::from_micros(100));
             }
@@ -227,6 +361,7 @@ fn main() -> Result<()> {
         log_scroll_offset: 0,
         best_solution_scroll_offset: 0,
         focused_panel: FocusedPanel::Logs,
+        phase: Phase::Preprocessing,
     };
 
     loop {
@@ -260,9 +395,13 @@ fn main() -> Result<()> {
                         state.logs.remove(0);
                     }
                 }
+                AppEvent::PhaseChange(p) => {
+                    state.phase = p;
+                }
                 AppEvent::Finished => {
                     state.logs.push("Done.".into());
                     state.progress = 1.0;
+                    state.phase = Phase::Finished;
                 }
             }
         }
@@ -285,7 +424,12 @@ fn ui(f: &mut Frame, state: &SolverState) {
         ])
         .split(f.size());
 
-    let title_text = format!("{} v{}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"));
+    let title_text = format!(
+        "{} v{} - Phase: {:?}",
+        env!("CARGO_PKG_NAME"),
+        env!("CARGO_PKG_VERSION"),
+        state.phase
+    );
     let title = Paragraph::new(title_text)
         .block(Block::default().borders(Borders::ALL));
     f.render_widget(title, chunks[0]);
