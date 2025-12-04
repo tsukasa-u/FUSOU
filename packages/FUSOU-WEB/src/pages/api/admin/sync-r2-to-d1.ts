@@ -82,7 +82,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
 
   const authHeader = request.headers.get("authorization");
   const providedSecret = extractBearer(authHeader);
-  if (!providedSecret || !timingSafeEqual(providedSecret, adminSecret)) {
+  if (!providedSecret || providedSecret !== adminSecret) {
     return errorResponse("Unauthorized: Invalid admin secret", 401);
   }
 
@@ -165,7 +165,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
         try {
           const stmt = db.prepare(`SELECT key FROM files WHERE key IN (${chunkPlaceholders})`)
             .bind(...chunkKeys);
-          const res = await stmt.all();
+          const res = stmt?.all ? await stmt.all() : { results: [] };
           
           if (res.results) {
             for (const r of res.results) {
