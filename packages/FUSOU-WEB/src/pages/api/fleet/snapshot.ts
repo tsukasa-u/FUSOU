@@ -238,10 +238,11 @@ async function handleSnapshotUpload(
     });
     
   } catch (err: any) {
+    // Log the detailed error server-side for debugging
+    console.error("Failed to store payload in R2:", err);
     return new Response(
       JSON.stringify({
-        error: "Failed to store payload in R2",
-        detail: String(err),
+        error: "Failed to store payload in R2"
       }),
       {
         status: 502,
