@@ -1,11 +1,9 @@
 #[cfg(dev)]
 use std::path::PathBuf;
-use std::{fs, sync::Mutex, time};
+use std::{env, fs, sync::Mutex, time};
 
 use tauri::{
-    menu::{CheckMenuItemBuilder, MenuBuilder, MenuItemBuilder, SubmenuBuilder},
-    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    Manager,
+    Manager, menu::{CheckMenuItemBuilder, MenuBuilder, MenuItemBuilder, SubmenuBuilder}, tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent}
 };
 use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_autostart::ManagerExt;
@@ -14,22 +12,20 @@ use tauri_plugin_opener::OpenerExt;
 use tokio::sync::mpsc;
 
 use crate::{
-    builder_setup::{
+    auth::auth_server, builder_setup::{
         bidirectional_channel::{
             get_pac_bidirectional_channel, get_proxy_bidirectional_channel,
             get_response_parse_bidirectional_channel,
             get_scheduler_integrate_bidirectional_channel,
         },
         cli, logger,
-    },
-    cloud_storage::integrate,
-    cmd::{native_cmd, tauri_cmd},
-    integration::discord,
-    scheduler,
-    util::{get_RESOURCES_DIR, get_ROAMING_DIR},
-    window::{app, external},
+    }, storage::integrate, cmd::{native_cmd, tauri_cmd}, integration::discord, scheduler, util::{get_RESOURCES_DIR, get_ROAMING_DIR}, window::{app, external}
 };
 use proxy_https::bidirectional_channel::request_shutdown;
+
+use fusou_upload::{PendingStore, UploadRetryService};
+use fusou_auth::{AuthManager, FileStorage};
+use std::sync::Arc;
 
 #[cfg(any(not(dev), check_release))]
 use crate::builder_setup::updater::setup_updater;
@@ -139,6 +135,9 @@ fn setup_tray(
     let open_log_file =
         MenuItemBuilder::with_id("open-log-file".to_string(), "Open log file").build(app)?;
 
+    let sync_snapshot =
+        MenuItemBuilder::with_id("sync-snapshot".to_string(), "Sync snapshot").build(app)?;
+
     let launch_at_startup = if autostart_allowed {
         let autostart_enabled = app.autolaunch().is_enabled().unwrap_or(false);
         Some(
@@ -187,6 +186,7 @@ fn setup_tray(
     let advanced_sub_menu = advanced_sub_menu
         .item(&open_configs)
         .item(&open_log_file)
+        .item(&sync_snapshot)
         .item(&intergrate_file)
         .item(&check_update)
         .separator()
@@ -433,8 +433,39 @@ fn setup_tray(
                         let path_str = log_path.to_string_lossy();
                         let _ = tray.app_handle().opener().open_path(path_str, None::<&str>);
                     }
+                    "sync-snapshot" => {
+                        tracing::info!("Tray menu action: sync-snapshot selected");
+                        let app_handle = tray.app_handle();
+                        let auth_manager = app_handle.state::<Arc<Mutex<AuthManager<FileStorage>>>>();
+                        let manager = { auth_manager.lock().unwrap().clone() };
+
+                        let app_handle_clone = app_handle.clone();
+                        let auth_manager_clone = auth_manager.inner().clone();
+
+                        tauri::async_runtime::spawn(async move {
+                            if !manager.is_authenticated().await {
+                                tracing::warn!("Snapshot sync requires authentication, but no token is available.");
+                                let _ = app_handle_clone
+                                    .notification()
+                                    .builder()
+                                    .title("Authentication Required")
+                                    .body("Please sign in to sync your snapshot.")
+                                    .show();
+                    
+                                
+                                    let _ = auth_server::open_auth_page();
+                            } else {
+                                match crate::storage::snapshot::perform_snapshot_sync_app(&app_handle_clone, auth_manager_clone).await {
+                                    Ok(_) => tracing::info!("Snapshot sync completed (tray-trigger)"),
+                                    Err(e) => tracing::error!("Snapshot sync failed (tray-trigger): {}", e),
+                                }
+                            }
+                        });
+                    }
                     "intergrate_file" => {
-                        integrate::integrate_port_table();
+                        let pending_store = tray.app_handle().state::<Arc<PendingStore>>().inner().clone();
+                        let retry_service = tray.app_handle().state::<Arc<UploadRetryService>>().inner().clone();
+                        integrate::integrate_port_table(pending_store, retry_service);
                     }
                     "check-update" => {
                         let window = tray.get_webview_window("main");
@@ -587,6 +618,41 @@ pub fn setup_configs() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+fn configure_channel_transport() {
+    let proxy_configs = configs::get_user_configs_for_proxy();
+    let transport = proxy_configs.get_channel_transport();
+
+    #[cfg(feature = "grpc-channel")]
+    {
+        if !matches!(transport, configs::ChannelTransportKind::Grpc) {
+            tracing::warn!(
+                "proxy.channel.transport is set to `mpsc`, but this binary was built with the `grpc-channel` feature. gRPC transport will be used."
+            );
+        }
+
+        if let Some(endpoint) = proxy_configs.get_channel_endpoint() {
+            env::set_var("FUSOU_CHANNEL_ENDPOINT", endpoint.clone());
+            tracing::info!("Configured gRPC channel endpoint: {}", endpoint);
+        } else {
+            tracing::info!("Configured gRPC channel endpoint: default (127.0.0.1:50061)");
+        }
+
+        if let Some(buffer) = proxy_configs.get_channel_buffer_size() {
+            env::set_var("FUSOU_CHANNEL_BUFFER", buffer.to_string());
+            tracing::info!("Configured gRPC channel buffer size override: {}", buffer);
+        }
+    }
+
+    #[cfg(not(feature = "grpc-channel"))]
+    {
+        if matches!(transport, configs::ChannelTransportKind::Grpc) {
+            tracing::warn!(
+                "proxy.channel.transport is set to `grpc`, but this binary was built without the `grpc-channel` feature. Falling back to the in-process channel."
+            );
+        }
+    }
+}
+
 pub fn setup_init(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let (shutdown_tx, mut shutdown_rx) = mpsc::channel::<ShutdownSignal>(1);
 
@@ -617,9 +683,13 @@ pub fn setup_init(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>
         }
     }
     setup_tray(app, shutdown_tx, autostart_allowed)?;
+    configure_channel_transport();
     setup_discord()?;
     notify_startup(app);
-    scheduler::integrate_file::start_scheduler();
+    
+    let pending_store = app.state::<Arc<PendingStore>>().inner().clone();
+    let retry_service = app.state::<Arc<UploadRetryService>>().inner().clone();
+    scheduler::integrate_file::start_scheduler(pending_store, retry_service);
 
     let proxy_bidirectional_channel_master_clone = get_proxy_bidirectional_channel().clone_master();
     let pac_bidirectional_channel_master_clone = get_pac_bidirectional_channel().clone_master();

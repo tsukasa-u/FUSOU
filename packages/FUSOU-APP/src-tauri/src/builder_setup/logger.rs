@@ -1,5 +1,6 @@
 use chrono::{TimeZone, Utc};
 use chrono_tz::Asia::Tokyo;
+use std::sync::{Arc, Mutex};
 use tauri::Emitter;
 use time::macros::format_description;
 use tracing::{Event, Subscriber};
@@ -16,6 +17,12 @@ static GUARD_WORKER: once_cell::sync::OnceCell<WorkerGuard> = once_cell::sync::O
 
 static LOG_FILE_NAME: once_cell::sync::OnceCell<String> = once_cell::sync::OnceCell::new();
 
+// Global log storage
+static LOG_STORAGE: once_cell::sync::OnceCell<Arc<Mutex<Vec<MessageVisitor>>>> = 
+    once_cell::sync::OnceCell::new();
+
+const MAX_LOGS: usize = 10000; // Maximum number of logs to keep in memory
+
 pub fn get_log_file_name() -> String {
     LOG_FILE_NAME
         .get()
@@ -24,7 +31,7 @@ pub fn get_log_file_name() -> String {
 }
 
 #[derive(Default, Clone, serde::Serialize)]
-struct MessageVisitor {
+pub struct MessageVisitor {
     datetime: Option<String>,
     level: Option<String>,
     target: Option<String>,
@@ -75,11 +82,35 @@ where
         visitor.target = Some(target.to_string());
         visitor.metadata = Some(format!("{metadata:?}"));
 
+        // Store log in memory
+        if let Some(storage) = LOG_STORAGE.get() {
+            if let Ok(mut logs) = storage.lock() {
+                logs.push(visitor.clone());
+                // Keep only the last MAX_LOGS entries
+                if logs.len() > MAX_LOGS {
+                    let excess = logs.len() - MAX_LOGS;
+                    logs.drain(0..excess);
+                }
+            }
+        }
+
         self.app_handle.emit("log-event", visitor).ok();
     }
 }
 
+/// Internal function to get all stored logs (called by tauri command)
+pub fn get_all_logs_internal() -> Vec<MessageVisitor> {
+    LOG_STORAGE
+        .get()
+        .and_then(|storage| storage.lock().ok())
+        .map(|logs| logs.clone())
+        .unwrap_or_default()
+}
+
 pub fn setup(app: &mut tauri::App) {
+    // Initialize log storage
+    let _ = LOG_STORAGE.set(Arc::new(Mutex::new(Vec::with_capacity(MAX_LOGS))));
+
     let log_path = get_ROAMING_DIR().join("log");
     let log_file_name = format!("fuosu-app-v{}.log", app.package_info().version);
     LOG_FILE_NAME.set(log_file_name).ok();

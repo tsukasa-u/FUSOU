@@ -1,3 +1,5 @@
+/// <reference types="@cloudflare/workers-types" />
+
 interface ImportMetaEnv {
   readonly PUBLIC_SUPABASE_URL: string;
   readonly PUBLIC_SUPABASE_ANON_KEY: string;
@@ -9,12 +11,12 @@ interface ImportMeta {
   readonly env: ImportMetaEnv;
 }
 
+import type { Runtime } from "@astrojs/cloudflare/runtime";
+
 declare global {
   namespace App {
     interface Locals {
-      runtime?: {
-        env?: Record<string, unknown>;
-      };
+      runtime: Runtime;
     }
   }
 }

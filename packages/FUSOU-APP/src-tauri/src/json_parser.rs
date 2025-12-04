@@ -5,7 +5,7 @@ use tauri::Emitter;
 #[cfg(dev)]
 use regex::Regex;
 
-use crate::cloud_storage::submit_data;
+use crate::storage::submit_data;
 
 use kc_api::interface::air_base::AirBases;
 use kc_api::interface::deck_port::DeckPorts;
@@ -42,6 +42,10 @@ pub fn emit_data(handle: &tauri::AppHandle, emit_data: EmitData) {
             }
             Set::Materials(data) => {
                 let _ = handle.emit_to("main", "set-kcs-materials", data);
+            }
+            Set::UseItems(data) => {
+                data.restore();
+                // let _ = handle.emit_to("main", "set-kcs-use-items", data);
             }
             Set::Ships(data) => {
                 data.restore();

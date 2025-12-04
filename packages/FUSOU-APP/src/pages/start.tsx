@@ -113,6 +113,37 @@ function Start() {
 
   const [authData, setAuthData] = useAuth();
 
+  let tokensInput: HTMLInputElement | null = null;
+
+  const parseAndApplyTokens = async (raw: string | null | undefined) => {
+    if (!raw) return;
+    try {
+      const pairs = raw.split("&").map((p) => p.split("=", 2));
+      const map: Record<string, string> = {};
+      for (const [k, v] of pairs) {
+        if (k) map[k] = v ?? "";
+      }
+
+      const access = map["supabase_access_token"];
+      const refresh = map["supabase_refresh_token"];
+      const provider = map["provider_refresh_token"];
+
+      if (!access || !refresh || !provider) {
+        console.error("Invalid token format, missing keys");
+        return;
+      }
+
+      setAuthData({ accessToken: access, refreshToken: refresh });
+
+      await invoke("set_refresh_token", {
+        token: `${provider}&bearer`,
+      });
+      console.log("Tokens applied from clipboard/input");
+    } catch (e) {
+      console.error("Failed to parse/apply tokens:", e);
+    }
+  };
+
   // const navigate = useNavigate();
 
   createEffect(() => {
@@ -258,8 +289,8 @@ function Start() {
       pacServerHealth() == -1 ||
       run_proxy_flag() == -1
     )
-      return "btn w-full btn-disabled btn-accent";
-    return "btn w-full btn-accent border-accent-content";
+      return "btn w-full btn-disabled btn-primary";
+    return "btn w-full btn-primary border-primary-content";
   });
 
   const auto_listen = createAsyncStore<string>(async () => {
@@ -282,7 +313,7 @@ function Start() {
             <h1 class="mx-4 pt-4 text-2xl font-semibold">Launch Options</h1>
             <span class="flex-1" />
             <button
-              class="place-self-end btn btn-sm btn-info btn-outline"
+              class="place-self-end btn btn-sm btn-secondary border-secondary-content"
               onClick={check_server_status}
             >
               check server status
@@ -313,7 +344,7 @@ function Start() {
                       </Match>
                       <Match when={proxyServerHealth() == 0}>
                         <div class="w-4 h-4">
-                          <IconCheckBoxRed class="h-6 w-6 mb-[2px] pr-1 text-base-100" />
+                          <IconCheckBoxRed class="h-6 w-6 mb-0.5 pr-1 text-base-100" />
                         </div>
                         <div class="h-6 self-center ml-4 text-nowrap mb-[2.5px] pr-1">
                           Proxy server is not running
@@ -321,7 +352,7 @@ function Start() {
                       </Match>
                       <Match when={proxyServerHealth() == 1}>
                         <div class="w-4 h-4">
-                          <IconCheckBoxGreen class="h-6 w-6 mb-[2px] pr-1 text-base-100" />
+                          <IconCheckBoxGreen class="h-6 w-6 mb-0.5 pr-1 text-base-100" />
                         </div>
                         <div class="h-6 self-center ml-4 text-nowrap mb-[2.5px] pr-1">
                           Proxy server is running
@@ -343,7 +374,7 @@ function Start() {
                           onClick={() => {
                             setRunProxyServer(!runProxyServer());
                           }}
-                          class="toggle toggle-sm toggle-primary rounded-sm [&::before]:rounded-xs"
+                        class={runProxyServer() ? "toggle toggle-sm toggle-primary rounded-sm [&::before]:rounded-xs bg-primary border-primary-content [&::before]:bg-emerald-50 [&::before]:border [&::before]:border-primary-content " : "toggle toggle-sm toggle-primary rounded-sm [&::before]:rounded-xs"}
                           checked={runProxyServer()}
                           disabled={run_proxy_flag() <= 0}
                         />
@@ -384,7 +415,7 @@ function Start() {
                     </Match>
                     <Match when={pacServerHealth() == 0}>
                       <div class="w-4 h-4">
-                        <IconCheckBoxRed class="h-6 w-6 mb-[2px] pr-1 text-base-100" />
+                        <IconCheckBoxRed class="h-6 w-6 mb-0.5 pr-1 text-base-100" />
                       </div>
                       <div class="h-6 self-center ml-4 text-nowrap mb-[2.5px] pr-1">
                         Pac server is not running
@@ -392,7 +423,7 @@ function Start() {
                     </Match>
                     <Match when={pacServerHealth() == 1}>
                       <div class="w-4 h-4">
-                        <IconCheckBoxGreen class="h-6 w-6 mb-[2px] pr-1 text-base-100" />
+                        <IconCheckBoxGreen class="h-6 w-6 mb-0.5 pr-1 text-base-100" />
                       </div>
                       <div class="h-6 self-center ml-4 text-nowrap mb-[2.5px] pr-1">
                         Pac server is running
@@ -436,7 +467,7 @@ function Start() {
                         onClick={() => {
                           setOpenApp(!openApp());
                         }}
-                        class="toggle toggle-sm toggle-primary rounded-sm [&::before]:rounded-xs"
+                        class={openApp() ? "toggle toggle-sm toggle-primary rounded-sm [&::before]:rounded-xs bg-primary border-primary-content [&::before]:bg-emerald-50 [&::before]:border [&::before]:border-primary-content " : "toggle toggle-sm toggle-primary rounded-sm [&::before]:rounded-xs"}
                         checked={openApp()}
                         disabled={run_app_flag() <= 0}
                       />
@@ -462,7 +493,7 @@ function Start() {
                             Number(!openKancolle());
                           setOpenKancolle(!openKancolle());
                         }}
-                        class="toggle toggle-sm toggle-primary rounded-sm [&::before]:rounded-xs"
+                        class={openKancolle() ? "toggle toggle-sm toggle-primary rounded-sm [&::before]:rounded-xs bg-primary border-primary-content [&::before]:bg-emerald-50 [&::before]:border [&::before]:border-primary-content " : "toggle toggle-sm toggle-primary rounded-sm [&::before]:rounded-xs"}
                         checked={openKancolle()}
                       />
                     </label>
@@ -474,7 +505,7 @@ function Start() {
                       <input
                         type="radio"
                         name="radio-10"
-                        class="radio radio-secondary"
+                        class={openKancolleWithWebView() ? "radio radio-secondary border-secondary-content [&:before]:bg-lime-50 [&:before]:border [&:before]:border-secondary-content bg-secondary" : "radio radio-secondary"}
                         disabled={!openKancolle()}
                         checked={openKancolleWithWebView()}
                         onClick={() => {
@@ -490,7 +521,7 @@ function Start() {
                       <input
                         type="radio"
                         name="radio-10"
-                        class="radio radio-secondary"
+                        class={!openKancolleWithWebView() ? "radio radio-secondary border-secondary-content [&:before]:bg-lime-50 [&:before]:border [&:before]:border-secondary-content bg-secondary" : "radio radio-secondary"}
                         disabled={!openKancolle()}
                         checked={!openKancolleWithWebView()}
                         onClick={() => {
@@ -530,63 +561,40 @@ function Start() {
                 Set provider (provider) (access/refresh) tokens
               </div>
               <fieldset class="fieldset">
-                <legend class="fieldset-legen">
-                  input tokens for new session
-                </legend>
-                <div class="flex flex-nowarp align-center">
+                <legend class="fieldset-legen">input tokens for new session</legend>
+                <div class="flex items-center gap-2">
                   <input
                     id="tokens"
+                    ref={(el) => (tokensInput = el as HTMLInputElement)}
                     type="text"
-                    class="w-full input input-sm focus-within:outline-0 focus:outline-0"
-                    placeholder="provider_refresh_token=***&access_token=****&refresh_token=***"
+                    class="flex-1 input input-sm focus-within:outline-0 focus:outline-0"
+                    placeholder="provider_refresh_token=...&supabase_access_token=...&supabase_refresh_token=..."
                   />
-                  <div class="w-4" />
-                  <kbd class="self-center kbd kbd-md bg-info text-info-content pt-1">
-                    ctrl
-                  </kbd>
-                  <div class="self-center text-md px-1">+</div>
-                  <kbd class="self-center kbd kbd-md bg-info text-info-content pt-1">
-                    V
-                  </kbd>
+                  <button
+                    class="btn btn-sm btn-ghost"
+                    onClick={async () => {
+                      try {
+                        const text = await navigator.clipboard.readText();
+                        if (!tokensInput) return;
+                        tokensInput.value = text;
+                      } catch (e) {
+                        console.error("Failed to read clipboard:", e);
+                      }
+                    }}
+                    title="Paste from clipboard"
+                  >
+                    Paste
+                  </button>
+                  <button
+                    class="btn btn-sm btn-secondary border-secondary-content"
+                    onClick={() => parseAndApplyTokens(tokensInput?.value)}
+                  >
+                    Apply
+                  </button>
                 </div>
               </fieldset>
 
-              <div class="mt-4 flex items-center justify-end">
-                <span class="flex-auto" />
-                <div class="form-control flex-none">
-                  <div
-                    class="btn btn-sm btn-primary border-1 border-primary-content"
-                    onClick={() => {
-                      const input_text: HTMLInputElement | null =
-                        document.getElementById("tokens") as HTMLInputElement;
-                      if (input_text == null) return;
-
-                      const tokens = input_text.value?.split("&");
-                      const supabase_access_token = tokens[2].split("=");
-                      const supabase_refresh_token = tokens[3].split("=");
-                      const provider_refresh_token = tokens[0].split("=");
-
-                      if (supabase_access_token[0] != "supabase_access_token")
-                        return;
-                      if (supabase_refresh_token[0] != "supabase_refresh_token")
-                        return;
-                      if (provider_refresh_token[0] != "provider_refresh_token")
-                        return;
-
-                      setAuthData({
-                        accessToken: supabase_access_token[1],
-                        refreshToken: supabase_refresh_token[1],
-                      });
-
-                      invoke("set_refresh_token", {
-                        token: provider_refresh_token + "&bearer",
-                      });
-                    }}
-                  >
-                    Set Token
-                  </div>
-                </div>
-              </div>
+              <div class="h-4" />
 
               <div class="font-semibold">Set Theme</div>
               <div class="h-4" />

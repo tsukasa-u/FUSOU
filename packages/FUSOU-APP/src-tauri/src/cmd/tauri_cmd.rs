@@ -3,7 +3,7 @@ use std::collections::HashMap;
 #[cfg(dev)]
 use std::fs;
 
-use proxy_https::{asset_sync, bidirectional_channel};
+use proxy_https::bidirectional_channel;
 use tauri::{AppHandle, Emitter, Manager};
 
 use crate::auth::auth_server;
@@ -11,7 +11,8 @@ use crate::auth::auth_server;
 use crate::auth_server::AuthChannel;
 use crate::builder_setup::bidirectional_channel::get_pac_bidirectional_channel;
 use crate::builder_setup::bidirectional_channel::get_proxy_bidirectional_channel;
-use crate::cloud_storage::google_drive;
+use crate::builder_setup::logger::MessageVisitor;
+use crate::storage::providers::gdrive;
 use crate::interface::mst_equip_exslot_ship::MstEquipExslotShips;
 use crate::interface::mst_equip_ship::MstEquipShips;
 use crate::interface::mst_ship::MstShips;
@@ -23,6 +24,9 @@ use crate::interface::slot_item::SlotItems;
 
 use crate::sequence;
 use tracing_unwrap::OptionExt;
+
+use std::sync::Mutex;
+use tauri_plugin_notification::NotificationExt;
 
 #[tauri::command]
 pub async fn get_mst_ships(window: tauri::Window) {
@@ -132,21 +136,50 @@ pub async fn set_refresh_token(_window: tauri::Window, token: String) -> Result<
     }
     let refresh_token = refresh_token.unwrap();
     let token_type = token_type.unwrap();
-    return google_drive::set_refresh_token(refresh_token.to_string(), token_type.to_string());
+    return gdrive::set_refresh_token(refresh_token.to_string(), token_type.to_string());
 }
+
+use fusou_auth::{AuthManager, FileStorage, Session};
+use std::sync::Arc;
+// ... imports
+
+use fusou_upload::UploadRetryService;
 
 #[tauri::command(rename_all = "snake_case")]
 pub async fn set_supabase_session(
     window: tauri::Window,
     access_token: String,
     refresh_token: String,
+    auth_manager: tauri::State<'_, Arc<Mutex<AuthManager<FileStorage>>>>,
+    retry_service: tauri::State<'_, Arc<UploadRetryService>>,
 ) -> Result<(), String> {
+    let manager = {
+        let guard = auth_manager.lock().unwrap();
+        guard.clone()
+    };
+
     if access_token.trim().is_empty() || refresh_token.trim().is_empty() {
-        asset_sync::clear_supabase_session();
+        manager.clear().await.map_err(|e| e.to_string())?;
         return Err("invalid Supabase session payload".to_string());
     }
 
-    asset_sync::update_supabase_session(access_token.clone(), Some(refresh_token.clone()));
+    let session = Session {
+        access_token: access_token.clone(),
+        refresh_token: refresh_token.clone(),
+        expires_at: None, // fusou-auth will handle expiry
+        token_type: Some("bearer".to_string()),
+    };
+
+    manager
+        .save_session(&session)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    // Trigger retry
+    let retry_service = retry_service.inner().clone();
+    tokio::spawn(async move {
+        retry_service.trigger_retry().await;
+    });
 
     window
         .app_handle()
@@ -155,8 +188,15 @@ pub async fn set_supabase_session(
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub async fn clear_supabase_session(window: tauri::Window) -> Result<(), ()> {
-    asset_sync::clear_supabase_session();
+pub async fn clear_supabase_session(
+    window: tauri::Window,
+    auth_manager: tauri::State<'_, Arc<Mutex<AuthManager<FileStorage>>>>,
+) -> Result<(), ()> {
+    let manager = {
+        let guard = auth_manager.lock().unwrap();
+        guard.clone()
+    };
+    manager.clear().await.map_err(|_e| ()).unwrap();
     let _ = window.app_handle().emit_to(
         "main",
         "set-supabase-tokens",
@@ -313,8 +353,9 @@ pub async fn check_proxy_server_health(_window: tauri::Window) -> Result<String,
 pub async fn launch_with_options(
     window: tauri::Window,
     options: HashMap<String, i32>,
+    auth_manager: tauri::State<'_, Arc<Mutex<AuthManager<FileStorage>>>>,
 ) -> Result<(), ()> {
-    sequence::launch::launch_with_options(window, options).await
+    sequence::launch::launch_with_options(window, options, auth_manager.inner().clone()).await
 }
 
 #[tauri::command]
@@ -371,3 +412,38 @@ pub fn set_launch_page(app: &AppHandle) {
 pub fn set_update_page(app: &AppHandle) {
     let _ = app.emit_to("main", "set-main-page-update", ());
 }
+
+#[tauri::command]
+pub async fn perform_snapshot_sync(
+    _window: tauri::Window,
+    auth_manager: tauri::State<'_, Arc<Mutex<AuthManager<FileStorage>>>>,
+) -> Result<serde_json::Value, String> {
+    
+    crate::storage::snapshot::perform_snapshot_sync_app(
+        &_window.app_handle(),
+        auth_manager.inner().clone(),
+    ).await
+}
+
+#[tauri::command]
+pub async fn show_native_notification(_window: tauri::Window, title: String, body: String) -> Result<(), String> {
+    // Use the bundled `tauri-plugin-notification` plugin via the app handle.
+    let app = _window.app_handle();
+    match app
+        .notification()
+        .builder()
+        .title(&title)
+        .body(&body)
+        .show()
+    {
+        Ok(_) => Ok(()),
+        Err(e) => Err(format!("native notification failed: {}", e)),
+    }
+}
+
+/// Tauri command to get all stored logs
+#[tauri::command]
+pub fn get_all_logs() -> Vec<MessageVisitor> {
+    crate::builder_setup::logger::get_all_logs_internal()
+}
+

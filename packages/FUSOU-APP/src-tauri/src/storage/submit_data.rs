@@ -5,12 +5,29 @@ use kc_api::{
 
 use crate::{
     auth::supabase,
-    cloud_storage::service::{acquire_port_table_guard, StorageService},
+    storage::service::{acquire_port_table_guard, StorageService},
     util::get_user_env_id,
 };
 
+use fusou_upload::{PendingStore, UploadRetryService};
+use std::sync::Arc;
+use once_cell::sync::Lazy;
+use tokio::sync::Mutex;
+
+static STORAGE_DEPS: Lazy<Mutex<Option<(Arc<PendingStore>, Arc<UploadRetryService>)>>> = Lazy::new(|| Mutex::new(None));
+
+pub async fn initialize_storage_deps(pending_store: Arc<PendingStore>, retry_service: Arc<UploadRetryService>) {
+    let mut deps = STORAGE_DEPS.lock().await;
+    *deps = Some((pending_store, retry_service));
+}
+
 pub fn submit_get_data_table() {
-    let Some(storage_service) = StorageService::resolve() else {
+    let deps_opt = STORAGE_DEPS.try_lock().ok().and_then(|d| d.clone());
+    let Some((pending_store, retry_service)) = deps_opt else {
+        tracing::warn!("Storage dependencies not initialized for submit_get_data_table");
+        return;
+    };
+    let Some(storage_service) = StorageService::resolve(pending_store, retry_service) else {
         return;
     };
 
@@ -31,7 +48,12 @@ pub fn submit_get_data_table() {
 }
 
 pub fn submit_port_table() {
-    let Some(storage_service) = StorageService::resolve() else {
+    let deps_opt = STORAGE_DEPS.try_lock().ok().and_then(|d| d.clone());
+    let Some((pending_store, retry_service)) = deps_opt else {
+        tracing::warn!("Storage dependencies not initialized for submit_port_table");
+        return;
+    };
+    let Some(storage_service) = StorageService::resolve(pending_store, retry_service) else {
         return;
     };
 

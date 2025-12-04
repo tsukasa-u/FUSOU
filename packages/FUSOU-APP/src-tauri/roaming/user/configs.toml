@@ -80,6 +80,18 @@ save_file_location = ""
     pac_server_port = 0
 
 
+    [proxy.channel]
+    # The transport implementation for BidirectionalChannel.
+    # Supported values: "mpsc" (default, in-process queues) or "grpc" (connect to the channel microservice).
+    transport = "mpsc"
+
+    # The gRPC endpoint used when transport = "grpc". Leave empty to use the built-in default.
+    endpoint = "http://127.0.0.1:50061"
+
+    # Optional buffer size hint for the gRPC channel service. Set 0 to use the server default.
+    buffer_size = 0
+
+
 [app]
     [app.connect_kc_server]
     # The hostname of the KanColle server you want to connect to
@@ -188,23 +200,41 @@ save_file_location = ""
     # default is false
     enable = true
 
-    # Whether Supabase authentication is required before uploading
-    require_supabase_auth = true
+    # Whether asset upload worker is enabled
+    asset_upload_enable = true
 
     # The polling interval (in seconds) for scanning the cache directory
     scan_interval_seconds = 30
 
     # HTTPS endpoint provided by FUSOU-WEB that mediates Cloudflare R2 uploads
-    api_endpoint = "https://save-data-on-r2.fusou.pages.dev/api/asset-sync/upload"
+    asset_upload_endpoint = "https://dev.fusou.pages.dev/api/asset-sync/upload"
+
+    # Optional explicit snapshot upload endpoint (if empty, origin derived from asset_upload_endpoint)
+    fleet_snapshot_endpoint = "https://dev.fusou.pages.dev/api/fleet/snapshot"
 
     # Endpoint returning the latest kc_period_tag timestamp to decide when uploads can restart
-    period_endpoint = "https://save-data-on-r2.fusou.pages.dev/api/kc-period/latest"
+    kc_period_endpoint = "https://dev.fusou.pages.dev/api/kc-period/latest"
+
+    # Endpoint returning a cached list of existing R2 asset keys (1 hour TTL)
+    asset_existing_keys_endpoint = "https://dev.fusou.pages.dev/api/asset-sync/keys"
 
     # Extensions (without dot) that must never be uploaded to Cloudflare R2
-    skip_extensions = ["mp3", "woff2", "js"]
+    asset_skip_extensions = ["mp3", "woff2", "js"]
 
     # Optional prefix prepended to stored object keys
-    key_prefix = "assets"
+    asset_key_prefix = "assets"
+
+
+    [app.asset_sync.retry]
+    # Maximum number of retry attempts for failed uploads
+    max_attempts = 5
+
+    # Time to live (in seconds) for pending upload files
+    # Files older than this will be deleted
+    ttl_seconds = 86400 # 24 hours
+
+    # Interval (in seconds) between retry attempts
+    interval_seconds = 300 # 5 minutes
 
 
     [app.auth]

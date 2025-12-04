@@ -13,6 +13,9 @@ use crate::{
     cmd::native_cmd::{self, add_store},
 };
 
+use fusou_auth::{AuthManager, FileStorage};
+use std::sync::{Arc, Mutex};
+
 #[cfg(target_os = "linux")]
 use crate::cmd::native_cmd::check_ca_installed;
 
@@ -39,6 +42,7 @@ pub fn serve_proxy<R>(
     ca_path: String,
     app: &tauri::AppHandle<R>,
     file_prefix: Option<String>,
+    auth_manager: Arc<Mutex<AuthManager<FileStorage>>>,
 ) -> Result<Url, Box<dyn std::error::Error>>
 where
     R: tauri::Runtime,
@@ -64,6 +68,12 @@ where
     // start proxy server
     // let save_path = "./../../FUSOU-PROXY-DATA".to_string();
     // let proxy_addr = proxy::proxy_server_http::serve_proxy(proxy_target, 0, proxy_bidirectional_channel_slave, proxy_log_bidirectional_channel_master, save_path);
+    
+    let auth_manager_for_proxy = {
+        let guard = auth_manager.lock().unwrap();
+        Arc::new(guard.clone())
+    };
+
     let proxy_addr = proxy_https::proxy_server_https::serve_proxy(
         0,
         proxy_bidirectional_channel_slave,
@@ -71,6 +81,7 @@ where
         save_path,
         ca_path,
         file_prefix.unwrap_or("".to_string()),
+        auth_manager_for_proxy,
     );
 
     if proxy_addr.is_err() {

@@ -89,6 +89,48 @@ impl ConfigsProxyPac {
     }
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ChannelTransportKind {
+    Mpsc,
+    Grpc,
+}
+
+impl Default for ChannelTransportKind {
+    fn default() -> Self {
+        ChannelTransportKind::Mpsc
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct ConfigsProxyChannel {
+    #[serde(default)]
+    pub transport: ChannelTransportKind,
+    #[serde(default)]
+    endpoint: Option<String>,
+    #[serde(default)]
+    buffer_size: Option<i64>,
+}
+
+impl ConfigsProxyChannel {
+    pub fn get_endpoint(&self) -> Option<String> {
+        match self.endpoint {
+            Some(ref value) if !value.is_empty() => Some(value.clone()),
+            _ => None,
+        }
+    }
+
+    pub fn get_buffer_size(&self) -> Option<usize> {
+        self.buffer_size.and_then(|value| {
+            if value <= 0 {
+                None
+            } else {
+                Some(value as usize)
+            }
+        })
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConfigsProxyNetwork {
     #[serde(default = "default_backend_crate")]
@@ -463,71 +505,131 @@ impl ConfigsAppDatabase {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConfigsAppAssetSync {
-    #[serde(default = "default_asset_sync_enable")]
-    enable: Option<bool>,
-    #[serde(default = "default_asset_sync_require_supabase_auth")]
-    require_supabase_auth: Option<bool>,
+    #[serde(default = "default_asset_upload_enable")]
+    asset_upload_enable: Option<bool>,
     #[serde(default = "default_asset_sync_scan_interval_seconds")]
     scan_interval_seconds: Option<u64>,
-    #[serde(default = "default_asset_sync_api_endpoint")]
-    api_endpoint: Option<String>,
-    #[serde(default = "default_asset_sync_key_prefix")]
-    key_prefix: Option<String>,
-    #[serde(default = "default_asset_sync_period_endpoint")]
-    period_endpoint: Option<String>,
-    #[serde(default = "default_asset_sync_skip_extensions")]
-    skip_extensions: Option<Vec<String>>,
+    #[serde(default = "default_asset_upload_endpoint")]
+    asset_upload_endpoint: Option<String>,
+    #[serde(default = "default_fleet_snapshot_endpoint")]
+    fleet_snapshot_endpoint: Option<String>,
+    #[serde(default = "default_asset_key_prefix")]
+    asset_key_prefix: Option<String>,
+    #[serde(default = "default_kc_period_endpoint")]
+    kc_period_endpoint: Option<String>,
+    #[serde(default = "default_asset_skip_extensions")]
+    asset_skip_extensions: Option<Vec<String>>,
+    #[serde(default = "default_asset_existing_keys_endpoint")]
+    asset_existing_keys_endpoint: Option<String>,
+    #[serde(default)]
+    pub finder_tag: Option<String>,
+    #[serde(default)]
+    pub retry: ConfigsAppAssetSyncRetry,
 }
 
-fn default_asset_sync_enable() -> Option<bool> {
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ConfigsAppAssetSyncRetry {
+    #[serde(default = "default_retry_max_attempts")]
+    max_attempts: Option<u32>,
+    #[serde(default = "default_retry_ttl_seconds")]
+    ttl_seconds: Option<u64>,
+    #[serde(default = "default_retry_interval_seconds")]
+    interval_seconds: Option<u64>,
+}
+
+fn default_retry_max_attempts() -> Option<u32> {
+    Some(5)
+}
+
+fn default_retry_ttl_seconds() -> Option<u64> {
+    Some(86400) // 24 hours
+}
+
+fn default_retry_interval_seconds() -> Option<u64> {
+    Some(300) // 5 minutes
+}
+
+impl Default for ConfigsAppAssetSyncRetry {
+    fn default() -> Self {
+        Self {
+            max_attempts: Some(5),
+            ttl_seconds: Some(86400),
+            interval_seconds: Some(300),
+        }
+    }
+}
+
+impl ConfigsAppAssetSyncRetry {
+    pub fn get_max_attempts(&self) -> u32 {
+        self.max_attempts.unwrap_or(5)
+    }
+
+    pub fn get_ttl_seconds(&self) -> u64 {
+        self.ttl_seconds.unwrap_or(86400)
+    }
+
+    pub fn get_interval_seconds(&self) -> u64 {
+        self.interval_seconds.unwrap_or(300)
+    }
+}
+
+fn default_asset_upload_enable() -> Option<bool> {
     Some(false)
-}
-
-fn default_asset_sync_require_supabase_auth() -> Option<bool> {
-    Some(true)
 }
 
 fn default_asset_sync_scan_interval_seconds() -> Option<u64> {
     Some(30)
 }
 
-fn default_asset_sync_api_endpoint() -> Option<String> {
+fn default_asset_upload_endpoint() -> Option<String> {
     Some("".to_string())
 }
 
-fn default_asset_sync_key_prefix() -> Option<String> {
+fn default_asset_key_prefix() -> Option<String> {
     Some("assets".to_string())
 }
 
-fn default_asset_sync_period_endpoint() -> Option<String> {
+fn default_kc_period_endpoint() -> Option<String> {
     Some("".to_string())
 }
 
-fn default_asset_sync_skip_extensions() -> Option<Vec<String>> {
+fn default_asset_skip_extensions() -> Option<Vec<String>> {
     Some(vec!["mp3".to_string()])
+}
+
+fn default_asset_existing_keys_endpoint() -> Option<String> {
+    Some("".to_string())
+}
+
+fn default_fleet_snapshot_endpoint() -> Option<String> {
+    Some("".to_string())
 }
 
 impl Default for ConfigsAppAssetSync {
     fn default() -> Self {
         Self {
-            enable: Some(false),
-            require_supabase_auth: Some(true),
+            asset_upload_enable: Some(false),
             scan_interval_seconds: Some(30),
-            api_endpoint: Some("".to_string()),
-            key_prefix: Some("assets".to_string()),
-            period_endpoint: Some("".to_string()),
-            skip_extensions: default_asset_sync_skip_extensions(),
+            asset_upload_endpoint: Some("".to_string()),
+            fleet_snapshot_endpoint: Some("".to_string()),
+            asset_key_prefix: Some("assets".to_string()),
+            kc_period_endpoint: Some("".to_string()),
+            asset_skip_extensions: default_asset_skip_extensions(),
+            asset_existing_keys_endpoint: Some("".to_string()),
+            finder_tag: None,
+            retry: ConfigsAppAssetSyncRetry::default(),
         }
     }
 }
 
 impl ConfigsAppAssetSync {
     pub fn get_enable(&self) -> bool {
-        self.enable.unwrap_or(false)
+        // Backward-compatible wrapper
+        self.get_asset_upload_enable()
     }
 
-    pub fn get_require_supabase_auth(&self) -> bool {
-        self.require_supabase_auth.unwrap_or(true)
+    pub fn get_asset_upload_enable(&self) -> bool {
+        self.asset_upload_enable.unwrap_or(false)
     }
 
     pub fn get_scan_interval_seconds(&self) -> u64 {
@@ -539,28 +641,75 @@ impl ConfigsAppAssetSync {
     }
 
     pub fn get_api_endpoint(&self) -> Option<String> {
-        match self.api_endpoint {
+        // Backward-compatible wrapper for code that still calls `get_api_endpoint()`
+        self.get_asset_upload_endpoint()
+    }
+
+    pub fn get_asset_upload_endpoint(&self) -> Option<String> {
+        match self.asset_upload_endpoint {
             Some(ref v) if !v.trim().is_empty() => Some(v.trim().to_string()),
             _ => None,
         }
     }
 
+    // Backward-compatible wrappers for older getter names
+    pub fn get_asset_sync_api_endpoint(&self) -> Option<String> {
+        self.get_asset_upload_endpoint()
+    }
+
+    pub fn get_snapshot_endpoint(&self) -> Option<String> {
+        // Backward-compatible wrapper
+        self.get_fleet_snapshot_endpoint()
+    }
+
+    pub fn get_fleet_snapshot_endpoint(&self) -> Option<String> {
+        match self.fleet_snapshot_endpoint {
+            Some(ref v) if !v.trim().is_empty() => Some(v.trim().to_string()),
+            _ => None,
+        }
+    }
+
+    // Backward-compatible wrapper
+    pub fn get_asset_sync_snapshot_endpoint(&self) -> Option<String> {
+        self.get_fleet_snapshot_endpoint()
+    }
+
     pub fn get_key_prefix(&self) -> Option<String> {
-        match self.key_prefix {
+        // Backward-compatible wrapper to new `asset_key_prefix`
+        self.get_asset_key_prefix()
+    }
+
+    pub fn get_asset_key_prefix(&self) -> Option<String> {
+        match self.asset_key_prefix {
             Some(ref v) if !v.trim().is_empty() => Some(v.trim().to_string()),
             _ => None,
         }
     }
 
     pub fn get_period_endpoint(&self) -> Option<String> {
-        match self.period_endpoint {
+        // Backward-compatible wrapper
+        self.get_kc_period_endpoint()
+    }
+
+    pub fn get_kc_period_endpoint(&self) -> Option<String> {
+        match self.kc_period_endpoint {
             Some(ref v) if !v.trim().is_empty() => Some(v.trim().to_string()),
             _ => None,
         }
     }
 
+    // Backward-compatible wrapper
+    pub fn get_asset_sync_period_endpoint(&self) -> Option<String> {
+        self.get_kc_period_endpoint()
+    }
+
     pub fn get_skip_extensions(&self) -> Vec<String> {
-        self.skip_extensions
+        // Backward-compatible wrapper for `asset_skip_extensions`
+        self.get_asset_skip_extensions()
+    }
+
+    pub fn get_asset_skip_extensions(&self) -> Vec<String> {
+        self.asset_skip_extensions
             .as_ref()
             .map(|vec| {
                 vec.iter()
@@ -575,6 +724,23 @@ impl ConfigsAppAssetSync {
                     .collect()
             })
             .unwrap_or_default()
+    }
+
+    pub fn get_existing_keys_endpoint(&self) -> Option<String> {
+        // Backward-compatible wrapper
+        self.get_asset_existing_keys_endpoint()
+    }
+
+    pub fn get_asset_existing_keys_endpoint(&self) -> Option<String> {
+        match self.asset_existing_keys_endpoint {
+            Some(ref v) if !v.trim().is_empty() => Some(v.trim().to_string()),
+            _ => None,
+        }
+    }
+
+    // Backward-compatible wrapper
+    pub fn get_asset_sync_existing_keys_endpoint(&self) -> Option<String> {
+        self.get_asset_existing_keys_endpoint()
     }
 }
 
@@ -746,6 +912,8 @@ pub struct ConfigsProxy {
     pub certificates: ConfigsProxyCertificates,
     #[serde(default)]
     pub pac: ConfigsProxyPac,
+    #[serde(default)]
+    pub channel: ConfigsProxyChannel,
 }
 
 impl Default for ConfigsProxy {
@@ -758,6 +926,7 @@ impl Default for ConfigsProxy {
             network: ConfigsProxyNetwork::default(),
             certificates: ConfigsProxyCertificates::default(),
             pac: ConfigsProxyPac::default(),
+            channel: ConfigsProxyChannel::default(),
         }
     }
 }
@@ -780,6 +949,18 @@ impl ConfigsProxy {
             Some(ref v) if !v.is_empty() => Some(v.clone()),
             _ => None,
         }
+    }
+
+    pub fn get_channel_transport(&self) -> ChannelTransportKind {
+        self.channel.transport
+    }
+
+    pub fn get_channel_endpoint(&self) -> Option<String> {
+        self.channel.get_endpoint()
+    }
+
+    pub fn get_channel_buffer_size(&self) -> Option<usize> {
+        self.channel.get_buffer_size()
     }
 }
 

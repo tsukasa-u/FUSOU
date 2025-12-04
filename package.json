@@ -12,8 +12,8 @@
     "packages/*"
   ],
   "scripts": {
-    "env.encrypt": "dotenvx encrypt -fk ./packages/.env.keys -f ./packages/FUSOU-WEB/.env -f ./packages/FUSOU-APP/src-tauri/.env -f ./packages/FUSOU-APP/.env",
-    "env.decrypt": "dotenvx decrypt -fk ./packages/.env.keys -f ./packages/FUSOU-WEB/.env -f ./packages/FUSOU-APP/src-tauri/.env -f ./packages/FUSOU-APP/.env",
+    "env.encrypt": "dotenvx encrypt -fk ./packages/.env.keys -f ./packages/FUSOU-WEB/.env -f ./packages/FUSOU-APP/src-tauri/.env -f ./packages/FUSOU-APP/.env -f ./packages/fusou-auth/.env",
+    "env.decrypt": "dotenvx decrypt -fk ./packages/.env.keys -f ./packages/FUSOU-WEB/.env -f ./packages/FUSOU-APP/src-tauri/.env -f ./packages/FUSOU-APP/.env -f ./packages/fusou-auth/.env",
     "env.ls": "dotenvx ls"
   },
   "keywords": [],

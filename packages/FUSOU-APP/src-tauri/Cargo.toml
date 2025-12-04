@@ -35,6 +35,8 @@ tokio = { version = "1.38.0", features = ["full"] }
 webbrowser = "1.0.1"
 kc_api = { package = "kc-api", path = "./../../kc_api/crates/kc-api" }
 proxy-https = { path = "./../../FUSOU-PROXY/proxy-https" }
+fusou-auth = { path = "./../../fusou-auth" }
+fusou-upload = { path = "./../../fusou-upload" }
 configs = { path = "./../../configs" }
 chrono = "0.4.31"
 chrono-tz = "0.10.0"
@@ -55,6 +57,9 @@ tracing-appender = "0.2.3"
 tracing-unwrap = "1.0.1"
 reqwest = { version = "0.12.5", default-features = false, features = ["json", "rustls-tls"] }
 clap = { version = "4.5.20", features = ["derive"] }
+sha2 = "0.10"
+flate2 = "1.1.5"
+hex = "0.4"
 
 [features]
 # this feature is used for production builds or when `devPath` points to the filesystem and the built-in dev server is disabled.
@@ -64,6 +69,7 @@ custom-protocol = [ "tauri/custom-protocol" ]
 
 default = []
 auth-local-server = []
+grpc-channel = ["proxy-https/grpc"]
 
 [lib]
 name = "app_lib"

@@ -1,11 +1,16 @@
 use crate::{
     auth::supabase,
-    cloud_storage::service::{acquire_port_table_guard, StorageService},
+    storage::service::{acquire_port_table_guard, StorageService},
 };
 use tokio;
+use fusou_upload::{PendingStore, UploadRetryService};
+use std::sync::Arc;
 
-pub fn integrate_port_table() {
-    let Some(storage_service) = StorageService::resolve() else {
+pub fn integrate_port_table(
+    pending_store: Arc<PendingStore>,
+    retry_service: Arc<UploadRetryService>
+) {
+    let Some(storage_service) = StorageService::resolve(pending_store, retry_service) else {
         return;
     };
 

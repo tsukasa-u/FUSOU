@@ -39,10 +39,14 @@ const posts = rawPosts
   })
   .filter(Boolean) as Posts;
 
-const root = new Map<
-  string,
-  { segment: string; title: string; url?: string; children: Map<string, any> }
->();
+type MenuNode = {
+  segment: string;
+  title: string;
+  url?: string;
+  children: Map<string, MenuNode>;
+};
+
+const root = new Map<string, MenuNode>();
 
 for (const entry of posts) {
   let current = root;
@@ -64,7 +68,7 @@ for (const entry of posts) {
   });
 }
 
-const mapToArray = (nodeMap: Map<string, any>) =>
+const mapToArray = (nodeMap: Map<string, MenuNode>) =>
   Array.from(nodeMap.values())
     .sort(compareSegments)
     .map((node) => ({
@@ -107,7 +111,7 @@ const menuHtml = renderMenuHtml(menuTree);
   <div class="max-h-[calc(100vh-6rem)] overflow-y-auto pr-2">
     <h2 class="text-xl font-bold mb-4">Documentation</h2>
     <nav>
-      <ul class="menu bg-base-100 rounded-box" set:html={menuHtml} />
+      <ul class="menu bg-base-100 rounded-box w-full" set:html={menuHtml} />
     </nav>
   </div>
 </div>
