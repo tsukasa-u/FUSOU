@@ -315,8 +315,9 @@ async function handleSnapshotUpload(
     }
     
   } catch (err: any) {
+    console.error("Supabase upsert failed", err);
     return new Response(
-      JSON.stringify({ error: "Supabase upsert failed", detail: String(err) }),
+      JSON.stringify({ error: "Supabase upsert failed", detail: "Internal server error" }),
       {
         status: 502,
         headers: { ...CORS_HEADERS, "content-type": "application/json" },
