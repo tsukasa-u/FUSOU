@@ -1,6 +1,6 @@
 use anyhow::Result;
 use crossterm::{
-    event::{self, Event, KeyCode, KeyEventKind},
+    event::{self, Event, EnableMouseCapture, DisableMouseCapture},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -15,6 +15,8 @@ use std::{
     thread,
     time::Duration,
 };
+
+mod mina;
 
 // --- Solver Engine ---
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -133,12 +135,23 @@ fn mutate(expr: &Expr, rng: &mut ThreadRng) -> Expr {
 }
 
 // --- TUI State ---
-struct SolverState {
-    generation: u64,
-    best_error: f64,
-    best_formula: String,
-    logs: Vec<String>,
-    progress: f64,
+pub struct SolverState {
+    pub generation: u64,
+    pub best_error: f64,
+    pub best_formula: String,
+    pub logs: Vec<String>,
+    pub progress: f64,
+    pub input_buffer: String,
+    pub command_suggestions: Vec<String>,
+    pub log_scroll_offset: usize,
+    pub best_solution_scroll_offset: usize,
+    pub focused_panel: FocusedPanel,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FocusedPanel {
+    BestSolution,
+    Logs,
 }
 
 enum AppEvent {
@@ -151,7 +164,7 @@ enum AppEvent {
 fn main() -> Result<()> {
     enable_raw_mode()?;
     let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen)?;
+    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
@@ -209,16 +222,27 @@ fn main() -> Result<()> {
         best_formula: "Initializing...".into(),
         logs: vec![],
         progress: 0.0,
+        input_buffer: String::new(),
+        command_suggestions: vec![],
+        log_scroll_offset: 0,
+        best_solution_scroll_offset: 0,
+        focused_panel: FocusedPanel::Logs,
     };
 
     loop {
         terminal.draw(|f| ui(f, &state))?;
 
         if event::poll(Duration::from_millis(16))? {
-            if let Event::Key(key) = event::read()? {
-                if key.kind == KeyEventKind::Press && key.code == KeyCode::Char('q') {
-                    break;
+            match event::read()? {
+                Event::Key(key) => {
+                    if mina::handle_key_event(key, &mut state) {
+                        break;
+                    }
                 }
+                Event::Mouse(mouse) => {
+                    mina::handle_mouse_event(mouse, &mut state);
+                }
+                _ => {}
             }
         }
 
@@ -245,7 +269,7 @@ fn main() -> Result<()> {
     }
 
     disable_raw_mode()?;
-    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+    execute!(terminal.backend_mut(), LeaveAlternateScreen, DisableMouseCapture)?;
     Ok(())
 }
 
@@ -256,11 +280,13 @@ fn ui(f: &mut Frame, state: &SolverState) {
             Constraint::Length(3),
             Constraint::Length(3),
             Constraint::Min(5),
-            Constraint::Length(8),
+            Constraint::Min(10),
+            Constraint::Length(3),
         ])
         .split(f.size());
 
-    let title = Paragraph::new("formula_miner v0.1")
+    let title_text = format!("{} v{}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"));
+    let title = Paragraph::new(title_text)
         .block(Block::default().borders(Borders::ALL).style(Style::default().fg(Color::Cyan)));
     f.render_widget(title, chunks[0]);
 
@@ -274,17 +300,59 @@ fn ui(f: &mut Frame, state: &SolverState) {
         "Gen: {}\nError: {:.6}\n\nCandidate:\n>> {}",
         state.generation, state.best_error, state.best_formula
     );
-    let info = Paragraph::new(info_text)
-        .block(Block::default().borders(Borders::ALL).title("Best Solution"))
+    let info_lines: Vec<&str> = info_text.lines().collect();
+    let visible_info_lines: Vec<&str> = info_lines
+        .iter()
+        .skip(state.best_solution_scroll_offset)
+        .copied()
+        .collect();
+    let info_display = visible_info_lines.join("\n");
+    let best_title = if state.focused_panel == FocusedPanel::BestSolution {
+        format!("Best Solution [focused] [{}/{}]", state.best_solution_scroll_offset + 1, info_lines.len())
+    } else {
+        format!("Best Solution [{}/{}]", state.best_solution_scroll_offset + 1, info_lines.len())
+    };
+    let info = Paragraph::new(info_display)
+        .block(Block::default().borders(Borders::ALL).title(best_title))
         .style(Style::default().fg(Color::Yellow))
         .wrap(Wrap { trim: true });
     f.render_widget(info, chunks[2]);
 
+    let log_count = state.logs.len();
+    let visible_start = state.log_scroll_offset;
     let logs: Vec<ListItem> = state
         .logs
         .iter()
+        .skip(visible_start)
         .map(|s| ListItem::new(s.as_str()))
         .collect();
-    let log_list = List::new(logs).block(Block::default().borders(Borders::ALL).title("Logs"));
+    let scroll_info = if state.focused_panel == FocusedPanel::Logs {
+        if log_count > 0 {
+            format!("Logs [focused] [{}/{}]", visible_start + 1, log_count)
+        } else {
+            "Logs [focused]".to_string()
+        }
+    } else {
+        if log_count > 0 {
+            format!("Logs [{}/{}]", visible_start + 1, log_count)
+        } else {
+            "Logs".to_string()
+        }
+    };
+    let log_list = List::new(logs).block(Block::default().borders(Borders::ALL).title(scroll_info));
     f.render_widget(log_list, chunks[3]);
+
+    let cmd_text = if state.input_buffer.is_empty() {
+        "Type /help for commands".to_string()
+    } else {
+        let suggestions = if state.command_suggestions.is_empty() {
+            String::new()
+        } else {
+            format!(" [suggestions: {}]", state.command_suggestions.join(", "))
+        };
+        format!("Command: {}{}", state.input_buffer, suggestions)
+    };
+    let cmd_input = Paragraph::new(cmd_text)
+        .block(Block::default().borders(Borders::ALL).title("Input"));
+    f.render_widget(cmd_input, chunks[4]);
 }
