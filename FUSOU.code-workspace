@@ -25,6 +25,9 @@
       "path": "packages/fusou-upload"
     },
     {
+      "path": "packages/fusou-formula-miner"
+    },
+    {
       "path": "docs"
     },
     {
