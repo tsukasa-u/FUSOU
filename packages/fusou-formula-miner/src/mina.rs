@@ -1,4 +1,11 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, MouseEvent, MouseEventKind};
+use crate::state::SolverState;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FocusedPanel {
+    BestSolution,
+    Logs,
+}
 
 const COMMANDS: &[(&str, &str)] = &[
     ("/help", "Show available commands"),
@@ -10,7 +17,7 @@ const COMMANDS: &[(&str, &str)] = &[
 
 // Handle simple commands from the user keyboard while the TUI runs.
 // Public API: returns `true` when the caller should exit the app.
-pub fn handle_key_event(key: KeyEvent, state: &mut crate::SolverState) -> bool {
+pub fn handle_key_event(key: KeyEvent, state: &mut SolverState) -> bool {
     // Only act on Key presses (not repeats / releases)
     if key.kind != KeyEventKind::Press {
         return false;
@@ -18,10 +25,10 @@ pub fn handle_key_event(key: KeyEvent, state: &mut crate::SolverState) -> bool {
 
     match key.code {
         KeyCode::Left => {
-            state.focused_panel = crate::FocusedPanel::BestSolution;
+            state.focused_panel = FocusedPanel::BestSolution;
         }
         KeyCode::Right => {
-            state.focused_panel = crate::FocusedPanel::Logs;
+            state.focused_panel = FocusedPanel::Logs;
         }
         KeyCode::Up => {
             scroll_focused_up(state);
@@ -65,7 +72,7 @@ fn update_suggestions(state: &mut crate::SolverState) {
     }
 }
 
-fn execute_command(cmd: &str, state: &mut crate::SolverState) -> bool {
+fn execute_command(cmd: &str, state: &mut SolverState) -> bool {
     match cmd {
         "/quit" => return true,
         "/version" => {
@@ -92,7 +99,7 @@ fn execute_command(cmd: &str, state: &mut crate::SolverState) -> bool {
     false
 }
 
-fn push_log(state: &mut crate::SolverState, msg: String) {
+fn push_log(state: &mut SolverState, msg: String) {
     state.logs.push(msg);
     if state.logs.len() > 10 {
         state.logs.remove(0);
@@ -101,7 +108,7 @@ fn push_log(state: &mut crate::SolverState, msg: String) {
     state.log_scroll_offset = 0;
 }
 
-pub fn handle_mouse_event(mouse: MouseEvent, state: &mut crate::SolverState) {
+pub fn handle_mouse_event(mouse: MouseEvent, state: &mut SolverState) {
     match mouse.kind {
         MouseEventKind::ScrollUp => {
             scroll_focused_up(state);
@@ -113,14 +120,14 @@ pub fn handle_mouse_event(mouse: MouseEvent, state: &mut crate::SolverState) {
     }
 }
 
-fn scroll_focused_up(state: &mut crate::SolverState) {
+fn scroll_focused_up(state: &mut SolverState) {
     match state.focused_panel {
-        crate::FocusedPanel::Logs => {
+        FocusedPanel::Logs => {
             if state.log_scroll_offset + 1 < state.logs.len() {
                 state.log_scroll_offset += 1;
             }
         }
-        crate::FocusedPanel::BestSolution => {
+        FocusedPanel::BestSolution => {
             let line_count = count_best_solution_lines(state);
             if state.best_solution_scroll_offset + 1 < line_count {
                 state.best_solution_scroll_offset += 1;
@@ -129,14 +136,14 @@ fn scroll_focused_up(state: &mut crate::SolverState) {
     }
 }
 
-fn scroll_focused_down(state: &mut crate::SolverState) {
+fn scroll_focused_down(state: &mut SolverState) {
     match state.focused_panel {
-        crate::FocusedPanel::Logs => {
+        FocusedPanel::Logs => {
             if state.log_scroll_offset > 0 {
                 state.log_scroll_offset -= 1;
             }
         }
-        crate::FocusedPanel::BestSolution => {
+        FocusedPanel::BestSolution => {
             if state.best_solution_scroll_offset > 0 {
                 state.best_solution_scroll_offset -= 1;
             }
@@ -144,7 +151,7 @@ fn scroll_focused_down(state: &mut crate::SolverState) {
     }
 }
 
-fn count_best_solution_lines(state: &crate::SolverState) -> usize {
+fn count_best_solution_lines(state: &SolverState) -> usize {
     let text = format!(
         "Gen: {}\nError: {:.6}\n\nCandidate:\n>> {}",
         state.generation, state.best_error, state.best_formula
