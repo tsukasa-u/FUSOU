@@ -1,6 +1,5 @@
 import type { APIRoute } from "astro";
 import type { D1Database } from "../asset-sync/types";
-import { timingSafeEqual } from "../_utils/signature";
 
 const CORS_HEADERS: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
@@ -32,16 +31,24 @@ type R2ListResponse = {
 
 type R2ObjectLite = {
   key: string;
-};
-
-type R2Object = {
-  key: string;
   size: number;
   uploaded: Date;
   httpMetadata?: {
     contentType?: string;
   };
   customMetadata?: Record<string, string>;
+};
+
+type R2Object = R2ObjectLite;
+
+type InsertStatement = {
+  key: string;
+  size: number;
+  uploadedAt: number;
+  contentType: string;
+  uploaderId: string | null;
+  finderTag: string | null;
+  metadata: string;
 };
 
 type SyncResult = {
@@ -185,7 +192,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
       // Assuming the binding provides it. If not, we must HEAD.
       // Standard R2 list returns Objects with customMetadata.
 
-      const insertStatements = [];
+      const insertStatements: InsertStatement[] = [];
       for (const obj of missingObjects) {
         // Filter out if resuming
         if (resumeFromKey && obj.key < resumeFromKey) {
