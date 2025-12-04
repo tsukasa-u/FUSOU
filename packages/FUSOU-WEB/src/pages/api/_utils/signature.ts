@@ -44,7 +44,7 @@ async function hmac(secret: string, data: string): Promise<string> {
   return base64UrlEncode(new Uint8Array(signature));
 }
 
-function timingSafeEqual(a: string, b: string): boolean {
+export function timingSafeEqual(a: string, b: string): boolean {
   const aBytes = encoder.encode(a);
   const bBytes = encoder.encode(b);
   let diff = aBytes.length ^ bBytes.length;
