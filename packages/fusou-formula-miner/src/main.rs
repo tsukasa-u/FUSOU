@@ -287,7 +287,7 @@ fn ui(f: &mut Frame, state: &SolverState) {
 
     let title_text = format!("{} v{}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"));
     let title = Paragraph::new(title_text)
-        .block(Block::default().borders(Borders::ALL).style(Style::default().fg(Color::Cyan)));
+        .block(Block::default().borders(Borders::ALL));
     f.render_widget(title, chunks[0]);
 
     let gauge = Gauge::default()
@@ -312,9 +312,13 @@ fn ui(f: &mut Frame, state: &SolverState) {
     } else {
         format!("Best Solution [{}/{}]", state.best_solution_scroll_offset + 1, info_lines.len())
     };
+    let best_border_style = if state.focused_panel == FocusedPanel::BestSolution {
+        Style::default().fg(Color::Yellow)
+    } else {
+        Style::default()
+    };
     let info = Paragraph::new(info_display)
-        .block(Block::default().borders(Borders::ALL).title(best_title))
-        .style(Style::default().fg(Color::Yellow))
+        .block(Block::default().borders(Borders::ALL).title(best_title).border_style(best_border_style))
         .wrap(Wrap { trim: true });
     f.render_widget(info, chunks[2]);
 
@@ -339,7 +343,12 @@ fn ui(f: &mut Frame, state: &SolverState) {
             "Logs".to_string()
         }
     };
-    let log_list = List::new(logs).block(Block::default().borders(Borders::ALL).title(scroll_info));
+    let log_border_style = if state.focused_panel == FocusedPanel::Logs {
+        Style::default().fg(Color::Yellow)
+    } else {
+        Style::default()
+    };
+    let log_list = List::new(logs).block(Block::default().borders(Borders::ALL).title(scroll_info).border_style(log_border_style));
     f.render_widget(log_list, chunks[3]);
 
     let cmd_text = if state.input_buffer.is_empty() {
