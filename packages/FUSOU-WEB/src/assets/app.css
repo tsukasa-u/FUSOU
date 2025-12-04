@@ -269,7 +269,7 @@
 
   & > [data-callout-title] {
     & {
-      color: var(--color-accent-content);
+      color: var(--color-accent);
     }
 
     &::before {
@@ -289,7 +289,7 @@
 
   & > [data-callout-title] {
     & {
-      color: var(--color-warning-content);
+      color: var(--color-warning);
     }
 
     &::before {
@@ -310,7 +310,7 @@
 
   & > [data-callout-title] {
     & {
-      color: var(--color-error-content);
+      color: var(--color-error);
     }
 
     &::before {
@@ -331,7 +331,7 @@
 
   & > [data-callout-title] {
     & {
-      color: var(--color-success-content);
+      color: var(--color-success);
     }
 
     &::before {
