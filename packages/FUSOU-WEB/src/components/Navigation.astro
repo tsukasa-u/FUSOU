@@ -9,7 +9,7 @@ const css_filled = filled ? "bg-navbar" : "bg-base-100";
   <div class="flex w-full max-w-[1440px] mx-auto px-8">
     <div class="flex-1 content-center">
       <a class="btn btn-ghost text-xl" href="/">FUSOU</a>
-      <div class="tooltip tooltip-bottom max-sm:hidden" data-tip="GitHub">
+      <div class="tooltip tooltip-bottom" data-tip="GitHub">
         <a
           class="btn btn-ghost"
           href="https://github.com/tsukasa-u/FUSOU"
@@ -29,7 +29,7 @@ const css_filled = filled ? "bg-navbar" : "bg-base-100";
           >
         </a>
       </div>
-      <div class="tooltip tooltip-bottom max-sm:hidden" data-tip="Rust Docs">
+      <div class="tooltip tooltip-bottom " data-tip="Rust Docs">
         <a
           class="btn btn-ghost"
           href="https://tsukasa-u.github.io/FUSOU/"
@@ -54,8 +54,8 @@ const css_filled = filled ? "bg-navbar" : "bg-base-100";
     <div class="flex-none">
       <ul class="menu menu-horizontal px-1">
         <li><a href="/docs">Docs</a></li>
-        <li><a href="/dashboard">Sign In</a></li>
-        <li><a href="/download">Download</a></li>
+        <li class="max-sm:hidden"><a href="/dashboard">Sign In</a></li>
+        <li class="max-sm:hidden"><a href="/download">Download</a></li>
       </ul>
     </div>
   </div>
