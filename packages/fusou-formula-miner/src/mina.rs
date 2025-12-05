@@ -45,15 +45,26 @@ pub fn handle_key_event(key: KeyEvent, state: &mut SolverState) -> bool {
             state.input_buffer.pop();
             update_suggestions(state);
         }
+        KeyCode::Tab => {
+            // If there are suggestions, accept the first one (complete the command)
+            if !state.command_suggestions.is_empty() {
+                let completion = state.command_suggestions[0].clone();
+                state.input_buffer = completion;
+                state.command_suggestions.clear();
+                state.suggestion_selected = None;
+            }
+        }
         KeyCode::Enter => {
             let cmd = state.input_buffer.trim().to_string();
             state.input_buffer.clear();
             state.command_suggestions.clear();
+            state.suggestion_selected = None;
             return execute_command(&cmd, state);
         }
         KeyCode::Esc => {
             state.input_buffer.clear();
             state.command_suggestions.clear();
+            state.suggestion_selected = None;
         }
         _ => {}
     }
@@ -64,6 +75,7 @@ pub fn handle_key_event(key: KeyEvent, state: &mut SolverState) -> bool {
 fn update_suggestions(state: &mut SolverState) {
     state.command_suggestions.clear();
     if state.input_buffer.is_empty() || !state.input_buffer.starts_with('/') {
+        state.suggestion_selected = None;
         return;
     }
     for (cmd, _) in COMMANDS {
@@ -71,6 +83,12 @@ fn update_suggestions(state: &mut SolverState) {
             state.command_suggestions.push(cmd.to_string());
         }
     }
+    // Start selection at the first suggestion when available
+    state.suggestion_selected = if state.command_suggestions.is_empty() {
+        None
+    } else {
+        Some(0)
+    };
 }
 
 fn execute_command(cmd: &str, state: &mut SolverState) -> bool {

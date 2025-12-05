@@ -37,6 +37,8 @@ fn render_title(f: &mut Frame, state: &SolverState, area: Rect) {
         state.phase,
         job_text
     );
+    let online_text = if state.online { "Online" } else { "Offline" };
+    let title_text = format!("{} | Mode: {}", title_text, online_text);
     let title = Paragraph::new(title_text).block(Block::default().borders(Borders::ALL));
     f.render_widget(title, area);
 }
@@ -85,15 +87,25 @@ fn render_status(f: &mut Frame, state: &SolverState, area: Rect) {
         features_preview
     );
 
-    // If a synthetic job provided a ground-truth formula, show it to the user
-    let summary = if let Some(gt) = &state.target_formula {
-        format!("{}\nGround truth: {}", summary, gt)
+    // Data source: used for both title and summary
+    let data_source = if state.target_formula.is_some() {
+        "Synthetic (ground truth shown)".to_string()
+    } else if state.online {
+        "Server".to_string()
     } else {
-        summary
+        "Local/Unknown".to_string()
     };
 
+    // Compose final summary (body) and append ground-truth if present
+    let mut summary = summary;
+    if let Some(gt) = &state.target_formula {
+        summary = format!("{}\nGround truth: {}", summary, gt);
+    }
+
+    // Put data source into the block title so it's visible even when body is small
+    let title_label = format!("Job status - Data source: {}", data_source);
     let summary_block = Paragraph::new(summary)
-        .block(Block::default().borders(Borders::ALL).title("Job status"))
+        .block(Block::default().borders(Borders::ALL).title(title_label))
         .wrap(Wrap { trim: true });
     f.render_widget(summary_block, chunks[1]);
 }

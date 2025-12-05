@@ -82,6 +82,10 @@ fn main() -> Result<()> {
                         state.progress = (generation as f64 / state.max_generations as f64).min(1.0);
                     }
                 }
+                AppEvent::Online(is_online) => {
+                    state.online = is_online;
+                    let _ = tx.send(AppEvent::Log(format!("Mode: {}", if is_online { "Online" } else { "Offline" })));
+                }
                 AppEvent::Log(message) => push_log(&mut state, message),
                 AppEvent::PhaseChange(phase) => {
                     state.phase = phase;
@@ -142,9 +146,16 @@ fn run_solver(worker_id: Uuid, tx: Sender<AppEvent>, shutdown: Arc<AtomicBool>) 
             let _ = tx.send(AppEvent::Log(format!(
                 "Failed to initialise network client: {err}. Switching to offline mode."
             )));
+            // Inform UI that we're offline
+            let _ = tx.send(AppEvent::Online(false));
             None
         }
     };
+
+    // If client init succeeded, inform UI that we're online
+    if client.is_some() {
+        let _ = tx.send(AppEvent::Online(true));
+    }
 
     let mut job = {
         if let Some(ref client) = client {
@@ -174,7 +185,9 @@ fn run_solver(worker_id: Uuid, tx: Sender<AppEvent>, shutdown: Arc<AtomicBool>) 
 
     // If this is a synthetic job, provide a human-readable ground-truth expression
     let ground_truth = if job.job_id.is_nil() {
-        Some("dmg = max(atk - def, 1.0) * (1.5 if luck > 80 else 1.0)".to_string())
+        // Use `step` representation to avoid 'if' wording differences
+        // Equivalent: multiplier = 1.0 + 0.5 * step(luck - 80)
+        Some("dmg = max(atk - def, 1.0) * (1.0 + 0.5 * step(luck - 80.0))".to_string())
     } else {
         None
     };
@@ -189,6 +202,11 @@ fn run_solver(worker_id: Uuid, tx: Sender<AppEvent>, shutdown: Arc<AtomicBool>) 
         correlation_threshold: job.correlation_threshold,
         ground_truth: ground_truth.clone(),
     }));
+
+    // If we have a ground-truth for synthetic data, also emit a log so it is visible in logs
+    if let Some(gt) = ground_truth {
+        let _ = tx.send(AppEvent::Log(format!("Using synthetic dataset. Ground truth: {}", gt)));
+    }
 
     if job.dataset.is_empty() {
         let _ = tx.send(AppEvent::Error("Dataset contained no samples".into()));

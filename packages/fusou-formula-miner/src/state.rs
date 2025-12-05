@@ -30,6 +30,8 @@ pub struct SolverState {
     pub progress: f64,
     pub input_buffer: String,
     pub command_suggestions: Vec<String>,
+    // Index of the currently selected suggestion in `command_suggestions`, if any.
+    pub suggestion_selected: Option<usize>,
     pub log_scroll_offset: usize,
     pub best_solution_scroll_offset: usize,
     pub focused_panel: FocusedPanel,
@@ -44,6 +46,8 @@ pub struct SolverState {
     pub target_formula: Option<String>,
     // Shutdown flag for requesting the solver to stop early
     pub shutdown_flag: Option<Arc<AtomicBool>>,
+    // Is the worker running in online mode (connected to coordination server)?
+    pub online: bool,
     // Subprocess management
     #[allow(dead_code)]
     pub worker_process_id: Option<u32>,
@@ -66,6 +70,7 @@ impl SolverState {
             progress: 0.0,
             input_buffer: String::new(),
             command_suggestions: vec![],
+            suggestion_selected: None,
             log_scroll_offset: 0,
             best_solution_scroll_offset: 0,
             focused_panel: FocusedPanel::Logs,
@@ -78,6 +83,7 @@ impl SolverState {
             last_error: None,
             target_formula: None,
             shutdown_flag: None,
+            online: false,
             worker_process_id: None,
             worker_results_dir: None,
             worker_started_at: None,
@@ -89,6 +95,7 @@ pub enum AppEvent {
     Update(u64, f64, String),
     Log(String),
     PhaseChange(Phase),
+    Online(bool),
     JobLoaded(JobSummary),
     FeatureSelection(Vec<String>),
     Error(String),
