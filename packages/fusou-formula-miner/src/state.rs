@@ -20,6 +20,14 @@ pub enum Phase {
     WorkerFinished,
 }
 
+/// Top candidate expression with its RMSE
+#[derive(Clone, Debug)]
+pub struct CandidateFormula {
+    pub rank: usize,           // 1-5
+    pub formula: String,
+    pub rmse: f64,
+}
+
 pub struct SolverState {
     pub worker_id: Uuid,
     pub job_id: Option<Uuid>,
@@ -51,6 +59,8 @@ pub struct SolverState {
     pub online: bool,
     // Shared genetic configuration (allows UI to update GA parameters at runtime)
     pub shared_config: Option<Arc<Mutex<crate::solver::GeneticConfig>>>,
+    // Top 5 candidate formulas being explored
+    pub top_candidates: Vec<CandidateFormula>,
     // Subprocess management
     #[allow(dead_code)]
     pub worker_process_id: Option<u32>,
@@ -88,6 +98,7 @@ impl SolverState {
             shutdown_flag: None,
             online: false,
             shared_config: None,
+            top_candidates: vec![],
             worker_process_id: None,
             worker_results_dir: None,
             worker_started_at: None,
@@ -98,6 +109,7 @@ impl SolverState {
 pub enum AppEvent {
     Update(u64, f64, String),
     Log(String),
+    TopCandidates(Vec<CandidateFormula>),
     PhaseChange(Phase),
     Online(bool),
     JobLoaded(JobSummary),

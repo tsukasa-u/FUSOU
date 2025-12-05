@@ -397,11 +397,15 @@ fn random_binary_op<R: Rng + ?Sized>(rng: &mut R) -> BinaryOp {
 }
 
 fn random_unary_op<R: Rng + ?Sized>(rng: &mut R) -> UnaryOp {
-    match rng.gen_range(0..4) {
+    // Include all unary operators to allow step, log, sqrt to be discovered
+    match rng.gen_range(0..7) {
         0 => UnaryOp::Identity,
         1 => UnaryOp::Floor,
         2 => UnaryOp::Exp,
-        _ => UnaryOp::Pow,
+        3 => UnaryOp::Pow,
+        4 => UnaryOp::Step,
+        5 => UnaryOp::Log,
+        _ => UnaryOp::Sqrt,
     }
 }
 

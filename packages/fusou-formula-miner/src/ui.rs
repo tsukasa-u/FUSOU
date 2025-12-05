@@ -19,7 +19,16 @@ pub fn render_ui(f: &mut Frame, state: &SolverState) {
 
     render_title(f, state, chunks[0]);
     render_status(f, state, chunks[1]);
-    render_best_solution(f, state, chunks[2]);
+    
+    // Split chunks[2] horizontally: Best Solution on left, Config on right
+    let solution_chunks = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(70), Constraint::Percentage(30)])
+        .split(chunks[2]);
+    
+    render_best_solution(f, state, solution_chunks[0]);
+    render_config(f, state, solution_chunks[1]);
+    
     render_logs(f, state, chunks[3]);
     render_input(f, state, chunks[4]);
 }
@@ -111,14 +120,33 @@ fn render_status(f: &mut Frame, state: &SolverState, area: Rect) {
 }
 
 fn render_best_solution(f: &mut Frame, state: &SolverState, area: Rect) {
-    let info_text = format!(
-        "Generation: {} / {}\nBest RMSE: {:.6} (target {:.6})\n\nCandidate:\n>> {}",
+    // Build info text with best solution prominently displayed
+    let mut info_text = format!(
+        "Generation: {} / {}\nBest RMSE: {:.6} (target {:.6})\n\n─ BEST SOLUTION ─\n{}",
         state.generation,
         state.max_generations,
         state.best_error,
         state.target_error,
         state.best_formula
     );
+    
+    // Add top 5 candidates below best solution
+    if !state.top_candidates.is_empty() {
+        info_text.push_str("\n\n─ Top Candidates ─");
+        for cand in &state.top_candidates {
+            // Format: #1: 0.045230 | (atk - def) * (1.0 + 0.1 * step(...))
+            let formula_preview = if cand.formula.len() > 60 {
+                format!("{}...", &cand.formula[..57])
+            } else {
+                cand.formula.clone()
+            };
+            info_text.push_str(&format!(
+                "\n#{}: {:.6} | {}",
+                cand.rank, cand.rmse, formula_preview
+            ));
+        }
+    }
+    
     let info_lines: Vec<&str> = info_text.lines().collect();
     let visible_info_lines: Vec<&str> = info_lines
         .iter()
@@ -189,6 +217,49 @@ fn render_logs(f: &mut Frame, state: &SolverState, area: Rect) {
             .border_style(log_border_style),
     );
     f.render_widget(log_list, area);
+}
+
+fn render_config(f: &mut Frame, state: &SolverState, area: Rect) {
+    // Display current GA configuration
+    let config_text = if let Some(ref shared_config) = state.shared_config {
+        match shared_config.lock() {
+            Ok(cfg) => {
+                format!(
+                    "GA Configuration\n\n\
+                     Population: {}\n\
+                     Max Depth: {}\n\
+                     Mutation: {:.2}\n\
+                     Crossover: {:.2}\n\
+                     Tournament: {}\n\
+                     Elite: {}\n\
+                     Attempts: {}\n\
+                     Use NSGA2: {}\n\
+                     Tarpeian: {:.2}\n\
+                     Hoist Mut: {:.2}\n\
+                     Const Opt: {}",
+                    cfg.population_size,
+                    cfg.max_depth,
+                    cfg.mutation_rate,
+                    cfg.crossover_rate,
+                    cfg.tournament_size,
+                    cfg.elite_count,
+                    cfg.max_attempts,
+                    cfg.use_nsga2,
+                    cfg.tarpeian_probability,
+                    cfg.hoist_mutation_rate,
+                    cfg.constant_optimization_interval
+                )
+            }
+            Err(_) => "Config: (locked)".to_string(),
+        }
+    } else {
+        "No shared config".to_string()
+    };
+
+    let config = Paragraph::new(config_text)
+        .block(Block::default().borders(Borders::ALL).title("Config"))
+        .wrap(Wrap { trim: true });
+    f.render_widget(config, area);
 }
 
 fn render_input(f: &mut Frame, state: &SolverState, area: Rect) {

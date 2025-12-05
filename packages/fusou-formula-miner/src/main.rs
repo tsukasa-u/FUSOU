@@ -32,9 +32,9 @@ mod constant_opt;
 
 use dataset::synthetic_dataset;
 use network::{JobSubmission, RemoteJob, WorkerClient};
-use solver::{crossover, mutate, Expr, GeneticConfig};
+use solver::{crossover, mutate, Expr, GeneticConfig, UnaryOp};
 use smart_init::{DataStats, smart_init};
-use state::{AppEvent, JobSummary, Phase, SolverState};
+use state::{AppEvent, JobSummary, Phase, SolverState, CandidateFormula};
 use nsga2::{MultiObjectiveIndividual, nsga2_selection, nsga2_tournament_select};
 use bloat_control::{tarpeian_penalty, hoist_mutation, average_size};
 use constant_opt::optimize_constants;
@@ -100,6 +100,9 @@ fn main() -> Result<()> {
                     let _ = tx.send(AppEvent::Log(format!("Mode: {}", if is_online { "Online" } else { "Offline" })));
                 }
                 AppEvent::Log(message) => push_log(&mut state, message),
+                AppEvent::TopCandidates(candidates) => {
+                    state.top_candidates = candidates;
+                }
                 AppEvent::PhaseChange(phase) => {
                     state.phase = phase;
                 }
@@ -364,12 +367,35 @@ fn run_solver(worker_id: Uuid, tx: Sender<AppEvent>, shutdown: Arc<AtomicBool>, 
             mo_population = Vec::new(); // Not used in single-objective mode
         }
 
-        let mut best_expr = if config.use_nsga2 {
-            mo_population[0].expr.clone()
+        // Initialize best_expr and best_error from the initial population
+        let (mut best_expr, mut best_error) = if config.use_nsga2 {
+            let rank0_inds: Vec<_> = mo_population
+                .iter()
+                .filter(|ind| ind.rank == 0)
+                .collect();
+            if let Some(best_ind) = rank0_inds.iter().min_by(|a, b| {
+                a.error.partial_cmp(&b.error).unwrap_or(Ordering::Equal)
+            }) {
+                (best_ind.expr.clone(), best_ind.error)
+            } else {
+                let best = mo_population.iter().min_by(|a, b| {
+                    a.error.partial_cmp(&b.error).unwrap_or(Ordering::Equal)
+                }).unwrap();
+                (best.expr.clone(), best.error)
+            }
         } else {
-            population[0].expr.clone()
+            let best = population.iter().min_by(|a, b| {
+                let err_a = evaluate_error_only(&a.expr, &data);
+                let err_b = evaluate_error_only(&b.expr, &data);
+                err_a.partial_cmp(&err_b).unwrap_or(Ordering::Equal)
+            }).unwrap();
+            let best_err = evaluate_error_only(&best.expr, &data);
+            (best.expr.clone(), best_err)
         };
-        let mut best_error = f64::MAX;
+        let _ = tx.send(AppEvent::Log(format!(
+            "Initial best RMSE: {:.6}",
+            best_error
+        )));
         let mut best_generation = 0u64;
         let mut last_emit = Instant::now();
 
@@ -415,6 +441,24 @@ fn run_solver(worker_id: Uuid, tx: Sender<AppEvent>, shutdown: Arc<AtomicBool>, 
                             best_expr.to_string(&var_names),
                         ));
                     }
+                    
+                    // Update top 5 candidates every generation
+                    let mut top_5: Vec<(String, f64)> = mo_population
+                        .iter()
+                        .map(|ind| (ind.expr.to_string(&var_names), ind.error))
+                        .collect();
+                    top_5.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(Ordering::Equal));
+                    let candidates: Vec<CandidateFormula> = top_5
+                        .iter()
+                        .take(5)
+                        .enumerate()
+                        .map(|(rank, (formula, rmse))| CandidateFormula {
+                            rank: rank + 1,
+                            formula: formula.clone(),
+                            rmse: *rmse,
+                        })
+                        .collect();
+                    let _ = tx.send(AppEvent::TopCandidates(candidates));
                 }
 
                 if best_error <= job.target_error {
@@ -429,13 +473,10 @@ fn run_solver(worker_id: Uuid, tx: Sender<AppEvent>, shutdown: Arc<AtomicBool>, 
                     break;
                 }
 
-                // Constant optimization periodically
+                // Constant optimization periodically (minimal logging)
                 if config.constant_optimization_interval > 0 
                     && generation % (config.constant_optimization_interval as u64) == 0 
                     && generation > 0 {
-                    let _ = tx.send(AppEvent::Log(format!(
-                        "Optimizing constants at generation {}...", generation
-                    )));
                     let elite_count = config.elite_count.min(mo_population.len());
                     for i in 0..elite_count {
                         let optimized = optimize_constants(&mo_population[i].expr, &data, 20, 0.01);
@@ -654,6 +695,20 @@ fn run_solver(worker_id: Uuid, tx: Sender<AppEvent>, shutdown: Arc<AtomicBool>, 
     let _ = tx.send(AppEvent::Finished);
 }
 
+/// Count how many step operators are present in an expression
+fn count_step_ops(expr: &Expr) -> usize {
+    match expr {
+        Expr::Const(_) | Expr::Var(_) => 0,
+        Expr::Unary { op, child } => {
+            let op_count = if matches!(op, UnaryOp::Step) { 1 } else { 0 };
+            op_count + count_step_ops(child)
+        }
+        Expr::Binary { left, right, .. } => {
+            count_step_ops(left) + count_step_ops(right)
+        }
+    }
+}
+
 fn evaluate(expr: &Expr, data: &[(Vec<f64>, f64)]) -> f64 {
     let mut sum_sq: f64 = 0.0;
     for (vars, target) in data {
@@ -699,6 +754,22 @@ fn evaluate_error_only(expr: &Expr, data: &[(Vec<f64>, f64)]) -> f64 {
         }
     }
     crate::statistics::rmse(sum_sq, data.len())
+}
+
+/// Update top 5 candidates list in state
+fn update_top_candidates(
+    state: &mut SolverState,
+    candidates: Vec<(String, f64)>,
+) {
+    use state::CandidateFormula;
+    state.top_candidates.clear();
+    for (rank, (formula, rmse)) in candidates.iter().enumerate().take(5) {
+        state.top_candidates.push(CandidateFormula {
+            rank: rank + 1,
+            formula: formula.clone(),
+            rmse: *rmse,
+        });
+    }
 }
 
 fn tournament_select<'a, R: Rng + ?Sized>(
