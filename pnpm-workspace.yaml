@@ -2,3 +2,4 @@ packages:
   - "./packages/*"
 
 linkWorkspacePackages: deep
+minimumReleaseAge: 1440

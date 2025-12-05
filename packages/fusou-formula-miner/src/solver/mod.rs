@@ -1,3 +1,3 @@
-pub mod engine;
+pub mod engine_clean;
 
-pub use engine::{mutate, random_expr};
+pub use engine_clean::{crossover, mutate, random_expr, Expr, GeneticConfig};

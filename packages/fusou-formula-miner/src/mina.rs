@@ -1,5 +1,5 @@
-use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, MouseEvent, MouseEventKind};
 use crate::state::SolverState;
+use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, MouseEvent, MouseEventKind};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FocusedPanel {
@@ -60,7 +60,7 @@ pub fn handle_key_event(key: KeyEvent, state: &mut SolverState) -> bool {
     false
 }
 
-fn update_suggestions(state: &mut crate::SolverState) {
+fn update_suggestions(state: &mut SolverState) {
     state.command_suggestions.clear();
     if state.input_buffer.is_empty() || !state.input_buffer.starts_with('/') {
         return;
@@ -92,7 +92,13 @@ fn execute_command(cmd: &str, state: &mut SolverState) -> bool {
             state.logs.clear();
         }
         _ if !cmd.is_empty() => {
-            push_log(state, format!("Unknown command: {}. Type /help for available commands.", cmd));
+            push_log(
+                state,
+                format!(
+                    "Unknown command: {}. Type /help for available commands.",
+                    cmd
+                ),
+            );
         }
         _ => {}
     }
@@ -101,8 +107,8 @@ fn execute_command(cmd: &str, state: &mut SolverState) -> bool {
 
 fn push_log(state: &mut SolverState, msg: String) {
     state.logs.push(msg);
-    if state.logs.len() > 10 {
-        state.logs.remove(0);
+    if state.logs.len() > 200 {
+        state.logs.drain(0..state.logs.len() - 200);
     }
     // Auto-scroll to bottom when new log arrives
     state.log_scroll_offset = 0;

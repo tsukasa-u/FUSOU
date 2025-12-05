@@ -1,13 +1,26 @@
 use crate::mina::FocusedPanel;
+use std::path::PathBuf;
+use uuid::Uuid;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Phase {
+    Idle,
+    Connecting,
     Preprocessing,
     Solving,
+    Uploading,
     Finished,
+    Error,
+    #[allow(dead_code)]
+    WorkerRunning,
+    #[allow(dead_code)]
+    WorkerFinished,
 }
 
 pub struct SolverState {
+    pub worker_id: Uuid,
+    pub job_id: Option<Uuid>,
+    pub chunk_id: Option<Uuid>,
     pub generation: u64,
     pub best_error: f64,
     pub best_formula: String,
@@ -19,11 +32,27 @@ pub struct SolverState {
     pub best_solution_scroll_offset: usize,
     pub focused_panel: FocusedPanel,
     pub phase: Phase,
+    pub sample_count: usize,
+    pub selected_features: Vec<String>,
+    pub max_generations: u64,
+    pub target_error: f64,
+    pub correlation_threshold: f64,
+    pub last_error: Option<String>,
+    // Subprocess management
+    #[allow(dead_code)]
+    pub worker_process_id: Option<u32>,
+    #[allow(dead_code)]
+    pub worker_results_dir: Option<PathBuf>,
+    #[allow(dead_code)]
+    pub worker_started_at: Option<std::time::Instant>,
 }
 
 impl SolverState {
-    pub fn new() -> Self {
+    pub fn new(worker_id: Uuid) -> Self {
         Self {
+            worker_id,
+            job_id: None,
+            chunk_id: None,
             generation: 0,
             best_error: f64::MAX,
             best_formula: "Initializing...".into(),
@@ -34,7 +63,16 @@ impl SolverState {
             log_scroll_offset: 0,
             best_solution_scroll_offset: 0,
             focused_panel: FocusedPanel::Logs,
-            phase: Phase::Preprocessing,
+            phase: Phase::Idle,
+            sample_count: 0,
+            selected_features: vec![],
+            max_generations: 1,
+            target_error: 1e-3,
+            correlation_threshold: 0.1,
+            last_error: None,
+            worker_process_id: None,
+            worker_results_dir: None,
+            worker_started_at: None,
         }
     }
 }
@@ -43,5 +81,19 @@ pub enum AppEvent {
     Update(u64, f64, String),
     Log(String),
     PhaseChange(Phase),
+    JobLoaded(JobSummary),
+    FeatureSelection(Vec<String>),
+    Error(String),
     Finished,
+}
+
+#[derive(Clone)]
+pub struct JobSummary {
+    pub job_id: Option<Uuid>,
+    pub chunk_id: Option<Uuid>,
+    pub sample_count: usize,
+    pub feature_names: Vec<String>,
+    pub max_generations: u64,
+    pub target_error: f64,
+    pub correlation_threshold: f64,
 }

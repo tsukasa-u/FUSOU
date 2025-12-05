@@ -10,7 +10,7 @@ pub fn render_ui(f: &mut Frame, state: &SolverState) {
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(3),
-            Constraint::Length(3),
+            Constraint::Length(7),
             Constraint::Min(5),
             Constraint::Min(10),
             Constraint::Length(3),
@@ -18,35 +18,87 @@ pub fn render_ui(f: &mut Frame, state: &SolverState) {
         .split(f.size());
 
     render_title(f, state, chunks[0]);
-    render_progress(f, state, chunks[1]);
+    render_status(f, state, chunks[1]);
     render_best_solution(f, state, chunks[2]);
     render_logs(f, state, chunks[3]);
     render_input(f, state, chunks[4]);
 }
 
 fn render_title(f: &mut Frame, state: &SolverState, area: Rect) {
+    let job_text = state
+        .job_id
+        .map(|id| id.to_string())
+        .unwrap_or_else(|| "no job assigned".to_string());
     let title_text = format!(
-        "{} v{} - Phase: {:?}",
+        "{} v{} | Worker {} | Phase: {:?} | Job: {}",
         env!("CARGO_PKG_NAME"),
         env!("CARGO_PKG_VERSION"),
-        state.phase
+        state.worker_id,
+        state.phase,
+        job_text
     );
     let title = Paragraph::new(title_text).block(Block::default().borders(Borders::ALL));
     f.render_widget(title, area);
 }
 
-fn render_progress(f: &mut Frame, state: &SolverState, area: Rect) {
+fn render_status(f: &mut Frame, state: &SolverState, area: Rect) {
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(3), Constraint::Min(2)])
+        .split(area);
+
     let gauge = Gauge::default()
         .block(Block::default().borders(Borders::ALL).title("Progress"))
         .gauge_style(Style::default().fg(Color::Green))
-        .ratio(state.progress);
-    f.render_widget(gauge, area);
+        .ratio(state.progress.min(1.0));
+    f.render_widget(gauge, chunks[0]);
+
+    let feature_count = if state.selected_features.is_empty() {
+        0
+    } else {
+        state.selected_features.len()
+    };
+    let features_preview = if state.selected_features.is_empty() {
+        "(pending selection)".to_string()
+    } else {
+        let joined = state.selected_features.join(", ");
+        if joined.len() > 60 {
+            format!("{}…", &joined[..60])
+        } else {
+            joined
+        }
+    };
+
+    let max_gen = if state.max_generations == 0 {
+        "∞".to_string()
+    } else {
+        state.max_generations.to_string()
+    };
+
+    let summary = format!(
+        "Samples: {} | Features: {}\nMax generations: {} | Target RMSE ≤ {:.5}\nCorr threshold ≥ {:.3}\nSelection: {}",
+        state.sample_count,
+        feature_count,
+        max_gen,
+        state.target_error,
+        state.correlation_threshold,
+        features_preview
+    );
+
+    let summary_block = Paragraph::new(summary)
+        .block(Block::default().borders(Borders::ALL).title("Job status"))
+        .wrap(Wrap { trim: true });
+    f.render_widget(summary_block, chunks[1]);
 }
 
 fn render_best_solution(f: &mut Frame, state: &SolverState, area: Rect) {
     let info_text = format!(
-        "Gen: {}\nError: {:.6}\n\nCandidate:\n>> {}",
-        state.generation, state.best_error, state.best_formula
+        "Generation: {} / {}\nBest RMSE: {:.6} (target {:.6})\n\nCandidate:\n>> {}",
+        state.generation,
+        state.max_generations,
+        state.best_error,
+        state.target_error,
+        state.best_formula
     );
     let info_lines: Vec<&str> = info_text.lines().collect();
     let visible_info_lines: Vec<&str> = info_lines
@@ -127,13 +179,11 @@ fn render_input(f: &mut Frame, state: &SolverState, area: Rect) {
         let suggestions = if state.command_suggestions.is_empty() {
             String::new()
         } else {
-            format!(
-                " [suggestions: {}]",
-                state.command_suggestions.join(", ")
-            )
+            format!(" [suggestions: {}]", state.command_suggestions.join(", "))
         };
         format!("Command: {}{}", state.input_buffer, suggestions)
     };
-    let cmd_input = Paragraph::new(cmd_text).block(Block::default().borders(Borders::ALL).title("Input"));
+    let cmd_input =
+        Paragraph::new(cmd_text).block(Block::default().borders(Borders::ALL).title("Input"));
     f.render_widget(cmd_input, area);
 }

@@ -28,6 +28,9 @@
       "path": "packages/fusou-formula-miner"
     },
     {
+      "path": "packages/fusou-formula-server"
+    },
+    {
       "path": "docs"
     },
     {

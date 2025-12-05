@@ -27,3 +27,11 @@ pub fn calculate_variance(x: &[f64]) -> f64 {
     let mean: f64 = x.iter().sum::<f64>() / x.len() as f64;
     x.iter().map(|xi| (xi - mean).powi(2)).sum::<f64>() / x.len() as f64
 }
+
+/// Compute the root-mean-square error from a sum-of-squares accumulator.
+pub fn rmse(sum_square_error: f64, count: usize) -> f64 {
+    if count == 0 {
+        return 0.0;
+    }
+    (sum_square_error / count as f64).sqrt()
+}
