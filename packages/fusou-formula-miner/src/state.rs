@@ -1,4 +1,5 @@
 use crate::mina::FocusedPanel;
+use crate::config::MinerConfig;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
@@ -77,6 +78,8 @@ pub struct SolverState {
     pub solver_running: bool,
     // Parameter sweep configuration for parameter tuning experiments
     pub sweep_config: Option<SweepConfig>,
+    // Centralized miner configuration (replaces scattered hardcoded values)
+    pub miner_config: Arc<Mutex<MinerConfig>>,
 }
 
 impl SolverState {
@@ -115,6 +118,7 @@ impl SolverState {
             ime_mode_active: false,
             solver_running: false,
             sweep_config: None,
+            miner_config: Arc::new(Mutex::new(MinerConfig::default())),
         }
     }
 }

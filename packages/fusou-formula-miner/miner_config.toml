@@ -1,0 +1,403 @@
+# Formula Miner Configuration
+# This file centralizes all hardcoded parameters used throughout the formula miner
+# Edit values here and reload with /load-config command in the TUI
+
+# ============================================================================
+# Expression generation and mutation parameters
+# Controls how random expressions are generated and how mutations are applied
+# ============================================================================
+[expression]
+# 変異時に部分木を完全に置き換える確率（高いほど大きな変化）
+# Probability of completely replacing a subtree during mutation (higher = more drastic changes)
+mutation_replacement_prob = 0.3
+
+# 変異時に演算子の種類を変更する確率
+# Probability of changing operator type during mutation
+mutation_op_change_prob = 0.4
+
+# 単項演算子の変異時に子ノードを置き換える確率
+# Probability of replacing child node when mutating unary operator
+mutation_unary_child_prob = 0.4
+
+# 二項演算子の変異時に左右どちらを変更するかの確率（0.5=均等）
+# Probability of mutating left vs right child in binary operator (0.5 = equal)
+mutation_binary_child_prob = 0.5
+
+# 交叉時にドナー式をそのまま返す確率（多様性維持のため）
+# Probability of returning donor expression as-is during crossover (for diversity)
+crossover_donor_prob = 0.1
+
+# 部分式選択時に現在ノードを選ぶ確率（読み取り専用）
+# Probability of selecting current node during subexpression traversal (read-only)
+subexpr_select_prob = 0.5
+
+# 部分式選択時に現在ノードを選ぶ確率（変更可能）
+# Probability of selecting current node during mutable subexpression traversal
+subexpr_mut_select_prob = 0.3
+
+# 二項演算子での部分式選択時に左右どちらを選ぶかの確率
+# Probability of choosing left vs right branch in binary operator traversal
+subexpr_binary_branch_prob = 0.5
+
+# 葉ノード生成時に変数を選ぶ確率（残りは定数）
+# Probability of generating variable vs constant in leaf nodes
+leaf_var_prob = 0.6
+
+# 定数生成時のベース値の範囲（最小）
+# Minimum base value for random constant generation
+constant_base_min = -5.0
+
+# 定数生成時のベース値の範囲（最大）
+# Maximum base value for random constant generation
+constant_base_max = 5.0
+
+# 定数生成時のジッター範囲（最小）微調整用
+# Minimum jitter for constant generation (fine-tuning)
+constant_jitter_min = -0.25
+
+# 定数生成時のジッター範囲（最大）微調整用
+# Maximum jitter for constant generation (fine-tuning)
+constant_jitter_max = 0.25
+
+# 定数変異時のデルタ範囲（最小）
+# Minimum delta when mutating constant values
+constant_mutation_min = -1.0
+
+# 定数変異時のデルタ範囲（最大）
+# Maximum delta when mutating constant values
+constant_mutation_max = 1.0
+
+# 計算結果のクランプに使用する絶対値の上限
+# Maximum absolute value for clamping computed results
+max_abs_value = 1000000.0
+
+# 演算子の総数（二項 + 単項）均等選択用
+# Total number of operators (binary + unary) for uniform selection
+total_operator_count = 13
+
+# 二項演算子の数
+# Number of binary operators
+binary_operator_count = 6
+
+# ============================================================================
+# Fitness evaluation parameters
+# Controls how fitness is calculated and numerical stability
+# ============================================================================
+[fitness]
+# 複雑さペナルティ：ノード1つあたりのエラー加算値（高いほど単純な式を優先）
+# Complexity penalty: error added per node (higher = prefer simpler expressions)
+complexity_penalty_per_node = 0.02
+
+# ゼロ除算防止用イプシロン（除算で分母がこれ以下なら0を返す）
+# Epsilon for division by zero protection (return 0 if denominator below this)
+div_zero_epsilon = 0.000001
+
+# 対数計算保護用イプシロン（log(|x| + epsilon)で負数・ゼロ回避）
+# Epsilon for logarithm protection (log(|x| + epsilon) avoids negative/zero)
+log_epsilon = 0.000001
+
+# 分散計算等の分母チェック用イプシロン（これ以下なら計算スキップ）
+# Epsilon for variance/denominator checks (skip computation if below this)
+variance_epsilon = 0.0000000001
+
+# 等値比較用イプシロン（浮動小数点誤差許容範囲）
+# Epsilon for equality comparisons (floating-point tolerance)
+equality_epsilon = 0.000000001
+
+# exp()関数の入力値クランプ範囲（最小）オーバーフロー防止
+# Minimum clamp for exp() input to prevent overflow
+exp_clamp_min = -15.0
+
+# exp()関数の入力値クランプ範囲（最大）オーバーフロー防止
+# Maximum clamp for exp() input to prevent overflow
+exp_clamp_max = 15.0
+
+# ============================================================================
+# Smart initialization thresholds
+# Controls when to use smart initialization based on data patterns
+# ============================================================================
+[smart_init]
+# 線形フィッティングを採用するR²閾値（これ以上なら線形パターン検出）
+# R² threshold for considering linear fit (above this = linear pattern detected)
+linear_r_squared_threshold = 0.7
+
+# べき乗フィッティングを採用するR²閾値（これ以上ならべき乗パターン検出）
+# R² threshold for considering power fit (above this = power pattern detected)
+power_r_squared_threshold = 0.7
+
+# べき乗フィッティングで許容する最大指数の絶対値
+# Maximum exponent magnitude allowed for power fit
+power_max_exponent = 3.0
+
+# べき乗回帰に必要な最小データポイント数
+# Minimum number of data points required for power regression
+power_min_points = 3
+
+# べき乗回帰のフィルタリング閾値（x, y共にこれ以上）
+# Minimum value threshold for power regression filtering (both x and y)
+power_min_value = 0.1
+
+# 線形式の係数クランプ範囲（最小）極端な値を防ぐ
+# Minimum coefficient clamp for linear expressions (prevent extreme values)
+linear_coeff_clamp_min = -100.0
+
+# 線形式の係数クランプ範囲（最大）極端な値を防ぐ
+# Maximum coefficient clamp for linear expressions (prevent extreme values)
+linear_coeff_clamp_max = 100.0
+
+# べき乗式の係数クランプ範囲（最小）
+# Minimum coefficient clamp for power expressions
+power_coeff_clamp_min = -10.0
+
+# べき乗式の係数クランプ範囲（最大）
+# Maximum coefficient clamp for power expressions
+power_coeff_clamp_max = 10.0
+
+# ============================================================================
+# Constant optimization (Nelder-Mead)
+# Parameters for the Nelder-Mead simplex method used to optimize constants
+# ============================================================================
+[const_opt]
+# 定数最適化のデフォルト最大反復回数
+# Default maximum iterations for constant optimization
+default_max_iterations = 20
+
+# 収束判定の許容誤差（これ以下の改善で終了）
+# Tolerance for convergence (stop when improvement below this)
+default_tolerance = 0.01
+
+# シンプレックス初期化時の摂動サイズ
+# Perturbation size for simplex initialization
+simplex_perturbation = 0.1
+
+# Nelder-Mead反射係数（α）標準値1.0
+# Nelder-Mead reflection coefficient (α), standard value 1.0
+nelder_mead_alpha = 1.0
+
+# Nelder-Mead拡張係数（γ）標準値2.0
+# Nelder-Mead expansion coefficient (γ), standard value 2.0
+nelder_mead_gamma = 2.0
+
+# Nelder-Mead縮小係数（ρ）標準値0.5
+# Nelder-Mead contraction coefficient (ρ), standard value 0.5
+nelder_mead_rho = 0.5
+
+# Nelder-Mead収縮係数（σ）標準値0.5
+# Nelder-Mead shrink coefficient (σ), standard value 0.5
+nelder_mead_sigma = 0.5
+
+# ============================================================================
+# Parameter sweep defaults
+# Default ranges for parameter sweep experiments (/sweep command)
+# ============================================================================
+[sweep]
+# 変異率スイープのデフォルト範囲（最小）
+# Default minimum for mutation_rate sweep
+mutation_rate_min = 0.1
+
+# 変異率スイープのデフォルト範囲（最大）
+# Default maximum for mutation_rate sweep
+mutation_rate_max = 0.5
+
+# 変異率スイープのデフォルト刻み幅
+# Default step size for mutation_rate sweep
+mutation_rate_step = 0.1
+
+# 最大深度スイープのデフォルト範囲（最小）
+# Default minimum for max_depth sweep
+max_depth_min = 3.0
+
+# 最大深度スイープのデフォルト範囲（最大）
+# Default maximum for max_depth sweep
+max_depth_max = 8.0
+
+# 最大深度スイープのデフォルト刻み幅
+# Default step size for max_depth sweep
+max_depth_step = 1.0
+
+# 集団サイズスイープのデフォルト範囲（最小）
+# Default minimum for population_size sweep
+population_size_min = 32.0
+
+# 集団サイズスイープのデフォルト範囲（最大）
+# Default maximum for population_size sweep
+population_size_max = 256.0
+
+# 集団サイズスイープのデフォルト刻み幅
+# Default step size for population_size sweep
+population_size_step = 32.0
+
+# 交叉率スイープのデフォルト範囲（最小）
+# Default minimum for crossover_rate sweep
+crossover_rate_min = 0.6
+
+# 交叉率スイープのデフォルト範囲（最大）
+# Default maximum for crossover_rate sweep
+crossover_rate_max = 0.9
+
+# 交叉率スイープのデフォルト刻み幅
+# Default step size for crossover_rate sweep
+crossover_rate_step = 0.1
+
+# トーナメントサイズスイープのデフォルト範囲（最小）
+# Default minimum for tournament_size sweep
+tournament_size_min = 2.0
+
+# トーナメントサイズスイープのデフォルト範囲（最大）
+# Default maximum for tournament_size sweep
+tournament_size_max = 8.0
+
+# トーナメントサイズスイープのデフォルト刻み幅
+# Default step size for tournament_size sweep
+tournament_size_step = 2.0
+
+# エリート数スイープのデフォルト範囲（最小）
+# Default minimum for elite_count sweep
+elite_count_min = 1.0
+
+# エリート数スイープのデフォルト範囲（最大）
+# Default maximum for elite_count sweep
+elite_count_max = 16.0
+
+# エリート数スイープのデフォルト刻み幅
+# Default step size for elite_count sweep
+elite_count_step = 5.0
+
+# 局所的精密化時のステップ縮小係数（0.5=半分に縮小）
+# Refinement step shrink factor (0.5 = reduce step by half)
+default_refinement_factor = 0.5
+
+# 精密化の中心計算に使用する上位K件の結果数
+# Number of top-K results to use for computing refinement center
+default_refinement_top_k = 3
+
+# パラメータ設定ごとのデフォルト繰り返し回数（統計的信頼性向上）
+# Default number of repeats per parameter setting (improves statistical reliability)
+default_repeats = 1
+
+# ============================================================================
+# UI display settings
+# Controls terminal UI behavior and display limits
+# ============================================================================
+[ui]
+# ログの最大保持行数（これを超えると古い行から削除）
+# Maximum number of log lines to retain (older lines removed beyond this)
+max_log_lines = 2000
+
+# 数式表示の最大文字数（これを超えると切り詰め）
+# Maximum formula display length before truncation
+max_formula_display_len = 60
+
+# UI内の文字列結合時の最大長（パラメータ表示等）
+# Maximum string length for joined UI strings (parameter display, etc.)
+max_ui_string_len = 60
+
+# 検証結果表示時の不一致例の最大表示数
+# Maximum number of mismatches to display in verification results
+verification_max_display = 10
+
+# ============================================================================
+# Synthetic dataset generation
+# Parameters for generating synthetic test data
+# ============================================================================
+[synthetic_data]
+# 生成するサンプル数
+# Number of samples to generate
+sample_count = 500
+
+# 攻撃力パラメータの範囲（最小）
+# Minimum value for attack stat
+atk_min = 50.0
+
+# 攻撃力パラメータの範囲（最大）
+# Maximum value for attack stat
+atk_max = 250.0
+
+# 防御力パラメータの範囲（最小）
+# Minimum value for defense stat
+def_min = 5.0
+
+# 防御力パラメータの範囲（最大）
+# Maximum value for defense stat
+def_max = 120.0
+
+# 運パラメータの範囲（最小）
+# Minimum value for luck stat
+luck_min = 0.0
+
+# 運パラメータの範囲（最大）
+# Maximum value for luck stat
+luck_max = 100.0
+
+# マップID範囲の最大値（整数として生成）
+# Maximum map ID (generated as integer)
+map_id_max = 10
+
+# クリティカル発生の運閾値（これを超えるとクリティカル）
+# Luck threshold for critical hit (above this = critical)
+crit_luck_threshold = 80.0
+
+# クリティカル時のダメージ倍率
+# Damage multiplier on critical hit
+crit_multiplier = 1.5
+
+# ダメージの最小値（1未満にならない）
+# Minimum damage value (floor at this value)
+min_damage = 1.0
+
+# ============================================================================
+# Auto-tuning parameters
+# Automatic parameter adjustment based on dataset characteristics
+# ============================================================================
+[auto_tune]
+# 自動チューニング時のベース変異率
+# Base mutation rate for auto-tuning
+base_mutation_rate = 0.25
+
+# 変異率の上限
+# Maximum mutation rate cap
+max_mutation_rate = 0.5
+
+# 変数数に応じた変異率ボーナス（1.0 / num_vars が加算される）
+# Mutation rate bonus per variable (adds 1.0 / num_vars)
+mutation_per_var_bonus = 1.0
+
+# 固定交叉率（自動チューニング時）
+# Fixed crossover rate (during auto-tuning)
+fixed_crossover_rate = 0.85
+
+# 最大深度のベース値（変数数 + この値）
+# Base value for max depth (num_vars + this value)
+max_depth_base = 2
+
+# 最大深度の上限
+# Maximum depth cap
+max_depth_cap = 8
+
+# 集団サイズの変数数ごとの倍率
+# Population size multiplier per variable
+pop_per_var_multiplier = 24
+
+# 集団サイズの最小値
+# Minimum population size
+pop_min = 48
+
+# 集団サイズの最大値
+# Maximum population size
+pop_max = 256
+
+# エリート数の除数（population_size / この値）
+# Elite count divisor (population_size / this value)
+elite_divisor = 8
+
+# エリート数の最小値
+# Minimum elite count
+elite_min = 2
+
+# トーナメントサイズの最大値
+# Maximum tournament size
+tournament_max = 6
+
+# トーナメントサイズの最小値
+# Minimum tournament size
+tournament_min = 2

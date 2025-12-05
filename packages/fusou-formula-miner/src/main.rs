@@ -17,6 +17,7 @@ use std::{
 };
 use uuid::Uuid;
 
+mod config;
 mod dataset;
 mod mina;
 mod network;
@@ -29,6 +30,8 @@ mod residual_learning;
 mod nsga2;
 mod bloat_control;
 mod constant_opt;
+
+use config::MinerConfig;
 
 use dataset::synthetic_dataset;
 use network::{JobSubmission, RemoteJob, WorkerClient};

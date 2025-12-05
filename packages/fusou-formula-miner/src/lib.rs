@@ -1,3 +1,4 @@
+pub mod config;
 pub mod dataset;
 pub mod mina;
 pub mod network;

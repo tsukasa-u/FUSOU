@@ -27,6 +27,8 @@ const COMMANDS: &[(&str, &str)] = &[
     ("/import-params", "Import parameters from JSON file: /import-params <file>"),
     ("/sweep", "Configure parameter sweep: /sweep [default|all] or /sweep <param1=min:max:step> ..."),
     ("/verify-synthetic", "Verify synthetic dataset targets match ground-truth formula"),
+    ("/load-config", "Load miner configuration from file: /load-config [path] (default: miner_config.toml)"),
+    ("/save-config", "Save current miner configuration to file: /save-config [path] (default: miner_config.toml)"),
 ];
 const SET_PARAMETERS: &[&str] = &[
     "population_size",
@@ -308,6 +310,31 @@ fn execute_command(cmd: &str, state: &mut SolverState) -> bool {
                     push_log(state, "  ... (first 10 shown)".into());
                 }
             }
+        }
+        "/load-config" => {
+            let path_str = cmd.strip_prefix("/load-config").unwrap_or("").trim().to_string();
+            let config_path = if path_str.is_empty() { "miner_config.toml".to_string() } else { path_str };
+            let config = crate::config::MinerConfig::load_or_default(&config_path);
+            let msg = if let Ok(mut mc) = state.miner_config.lock() {
+                *mc = config;
+                format!("Configuration loaded from: {}", config_path)
+            } else {
+                "Error: Failed to acquire config lock".to_string()
+            };
+            push_log(state, msg);
+        }
+        "/save-config" => {
+            let path_str = cmd.strip_prefix("/save-config").unwrap_or("").trim().to_string();
+            let config_path = if path_str.is_empty() { "miner_config.toml".to_string() } else { path_str };
+            let msg = if let Ok(mc) = state.miner_config.lock() {
+                match mc.save(&config_path) {
+                    Ok(_) => format!("Configuration saved to: {}", config_path),
+                    Err(e) => format!("Error saving config: {}", e),
+                }
+            } else {
+                "Error: Failed to acquire config lock".to_string()
+            };
+            push_log(state, msg);
         }
         _ if cmd.starts_with("/help ") => {
             if let Some(help_topic) = cmd.strip_prefix("/help ") {
