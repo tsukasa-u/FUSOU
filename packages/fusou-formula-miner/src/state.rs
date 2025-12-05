@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::sync::Mutex;
+use std::sync::mpsc::Sender;
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -59,6 +60,8 @@ pub struct SolverState {
     pub online: bool,
     // Shared genetic configuration (allows UI to update GA parameters at runtime)
     pub shared_config: Option<Arc<Mutex<crate::solver::GeneticConfig>>>,
+    // Sender to send AppEvent messages back into the main event loop (used to spawn solver)
+    pub event_sender: Option<Sender<crate::state::AppEvent>>,
     // Top 5 candidate formulas being explored
     pub top_candidates: Vec<CandidateFormula>,
     // Subprocess management
@@ -68,6 +71,10 @@ pub struct SolverState {
     pub worker_results_dir: Option<PathBuf>,
     #[allow(dead_code)]
     pub worker_started_at: Option<std::time::Instant>,
+    // Track input mode: true if IME (Japanese) mode is active, false for English
+    pub ime_mode_active: bool,
+    // Track if solver is currently running
+    pub solver_running: bool,
 }
 
 impl SolverState {
@@ -98,10 +105,13 @@ impl SolverState {
             shutdown_flag: None,
             online: false,
             shared_config: None,
+            event_sender: None,
             top_candidates: vec![],
             worker_process_id: None,
             worker_results_dir: None,
             worker_started_at: None,
+            ime_mode_active: false,
+            solver_running: false,
         }
     }
 }
@@ -116,6 +126,8 @@ pub enum AppEvent {
     FeatureSelection(Vec<String>),
     Error(String),
     Finished,
+    // Request main loop to start a fresh solver run
+    StartRequested,
 }
 
 #[derive(Clone)]

@@ -1,0 +1,28 @@
+{
+  "worker_id": "12345678-1234-1234-1234-123456789012",
+  "job_id": "87654321-4321-4321-4321-210987654321",
+  "generation": 150,
+  "best_error": 0.0234,
+  "best_formula": "(x0 - x1) * 1.5",
+  "target_formula": "dmg = max(x0 - x1, 1.0) * 1.5",
+  "sample_count": 1000,
+  "selected_features": [
+    "x0",
+    "x1",
+    "x2"
+  ],
+  "max_generations": 200,
+  "target_error": 0.001,
+  "top_candidates": [
+    {
+      "rank": 1,
+      "formula": "(x0 - x1) * 1.5",
+      "rmse": 0.0234
+    },
+    {
+      "rank": 2,
+      "formula": "(x0 - x1) * 1.4",
+      "rmse": 0.0456
+    }
+  ]
+}

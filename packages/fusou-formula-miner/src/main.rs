@@ -61,12 +61,13 @@ fn main() -> Result<()> {
     let shared_config = Arc::new(Mutex::new(GeneticConfig::default()));
     // Expose shared_config to UI state so commands can update it
     state.shared_config = Some(shared_config.clone());
+    // Expose event sender so UI commands can request actions (e.g., start solver)
+    state.event_sender = Some(tx.clone());
 
-    // Spawn solver thread and pass shared config
-    let solver_tx = tx.clone();
-    let solver_shutdown = shutdown_flag.clone();
-    let solver_config = shared_config.clone();
-    thread::spawn(move || run_solver(worker_id, solver_tx, solver_shutdown, solver_config));
+    // Do NOT spawn solver thread immediately - wait for /start command
+    // This allows users to configure parameters before starting optimization
+    state.phase = Phase::Idle;
+    let _ = tx.send(AppEvent::Log("Ready. Use /start command to begin optimization.".to_string()));
 
     loop {
         terminal.draw(|f| ui::render_ui(f, &state))?;
@@ -111,12 +112,47 @@ fn main() -> Result<()> {
                     state.chunk_id = summary.chunk_id;
                     state.sample_count = summary.sample_count;
                     state.selected_features = summary.feature_names;
-                    state.max_generations = summary.max_generations;
-                    state.target_error = summary.target_error;
-                    state.correlation_threshold = summary.correlation_threshold;
+                    // Keep user-configured max_generations if it was already set (/set command)
+                    // Only use job's max_generations if not yet configured by user
+                    if state.max_generations == 1 {
+                        // Default value - use job's configuration
+                        state.max_generations = summary.max_generations;
+                    }
+                    // Keep user-configured target_error if it was already set
+                    // Only use job's target_error if still at default value
+                    if (state.target_error - 1e-3).abs() < 1e-9 {
+                        // Default value - use job's configuration
+                        state.target_error = summary.target_error;
+                    }
+                    // Keep user-configured correlation_threshold if it was already set
+                    // Only use job's correlation_threshold if still at default value
+                    if (state.correlation_threshold - 0.1).abs() < 1e-9 {
+                        // Default value - use job's configuration
+                        state.correlation_threshold = summary.correlation_threshold;
+                    }
                     state.target_formula = summary.ground_truth.clone();
                     state.generation = 0;
                     state.progress = 0.0;
+                }
+                AppEvent::StartRequested => {
+                    // Spawn a fresh solver thread in response to UI request
+                    if state.shared_config.is_none() {
+                        push_log(&mut state, "Start requested but no shared configuration available".into());
+                        state.solver_running = false;
+                    } else {
+                        let shutdown_flag = Arc::new(AtomicBool::new(false));
+                        state.shutdown_flag = Some(shutdown_flag.clone());
+                        let solver_tx = tx.clone();
+                        let solver_shutdown = shutdown_flag.clone();
+                        let solver_config = state.shared_config.clone().unwrap();
+                        let worker_id = state.worker_id;
+                        let user_max_generations = state.max_generations;
+                        let user_target_error = state.target_error;
+                        let user_correlation_threshold = state.correlation_threshold;
+                        thread::spawn(move || run_solver(worker_id, solver_tx, solver_shutdown, solver_config, user_max_generations, user_target_error, user_correlation_threshold));
+                        push_log(&mut state, "Spawned fresh solver run in response to /start".into());
+                        // solver_running flag will be set to false when solver finishes (via Finished event)
+                    }
                 }
                 AppEvent::FeatureSelection(features) => {
                     state.selected_features = features;
@@ -130,6 +166,7 @@ fn main() -> Result<()> {
                     push_log(&mut state, "Done.".into());
                     state.progress = 1.0;
                     state.phase = Phase::Finished;
+                    state.solver_running = false;
                 }
             }
         }
@@ -152,7 +189,7 @@ fn push_log(state: &mut SolverState, message: String) {
     state.log_scroll_offset = 0;
 }
 
-fn run_solver(worker_id: Uuid, tx: Sender<AppEvent>, shutdown: Arc<AtomicBool>, shared_config: Arc<Mutex<GeneticConfig>>) {
+pub fn run_solver(worker_id: Uuid, tx: Sender<AppEvent>, shutdown: Arc<AtomicBool>, shared_config: Arc<Mutex<GeneticConfig>>, max_generations: u64, target_error: f64, correlation_threshold: f64) {
     let mut rng = rand::thread_rng();
     let _ = tx.send(AppEvent::Log(format!("Worker {worker_id} started")));
 
@@ -213,9 +250,9 @@ fn run_solver(worker_id: Uuid, tx: Sender<AppEvent>, shutdown: Arc<AtomicBool>, 
         chunk_id: job.chunk_id,
         sample_count: job.sample_count,
         feature_names: job.dataset.feature_names.clone(),
-        max_generations: job.max_generations,
-        target_error: job.target_error,
-        correlation_threshold: job.correlation_threshold,
+        max_generations: max_generations,
+        target_error: target_error,
+        correlation_threshold: correlation_threshold,
         ground_truth: ground_truth.clone(),
     }));
 
@@ -232,7 +269,7 @@ fn run_solver(worker_id: Uuid, tx: Sender<AppEvent>, shutdown: Arc<AtomicBool>, 
     let _ = tx.send(AppEvent::PhaseChange(Phase::Preprocessing));
     let _ = tx.send(AppEvent::Log("Starting feature selection".into()));
 
-    let (selected_indices, filter_logs) = job.dataset.filter_features(job.correlation_threshold);
+    let (selected_indices, filter_logs) = job.dataset.filter_features(correlation_threshold);
     for entry in filter_logs {
         let _ = tx.send(AppEvent::Log(entry));
         thread::sleep(Duration::from_millis(25));
@@ -275,7 +312,7 @@ fn run_solver(worker_id: Uuid, tx: Sender<AppEvent>, shutdown: Arc<AtomicBool>, 
         let cfg = shared_config.lock().unwrap();
         let _ = tx.send(AppEvent::Log(format!(
             "Solver configuration => population: {}, max depth: {}, max generations: {}",
-            cfg.population_size, cfg.max_depth, job.max_generations
+            cfg.population_size, cfg.max_depth, max_generations
         )));
     }
 
@@ -318,7 +355,7 @@ fn run_solver(worker_id: Uuid, tx: Sender<AppEvent>, shutdown: Arc<AtomicBool>, 
         }
         let _ = tx.send(AppEvent::Log(format!(
             "Optimization attempt {}/{} (max {} generations per attempt) - Using {} mode",
-            attempt + 1, config.max_attempts, job.max_generations,
+            attempt + 1, config.max_attempts, max_generations,
             if config.use_nsga2 { "NSGA-II multi-objective" } else { "single-objective" }
         )));
 
@@ -399,7 +436,7 @@ fn run_solver(worker_id: Uuid, tx: Sender<AppEvent>, shutdown: Arc<AtomicBool>, 
         let mut best_generation = 0u64;
         let mut last_emit = Instant::now();
 
-        for generation in 0..=job.max_generations {
+        for generation in 0..=max_generations {
             // Check for shutdown each generation
             if shutdown.load(std::sync::atomic::Ordering::SeqCst) {
                 let _ = tx.send(AppEvent::Log(format!(
@@ -461,7 +498,7 @@ fn run_solver(worker_id: Uuid, tx: Sender<AppEvent>, shutdown: Arc<AtomicBool>, 
                     let _ = tx.send(AppEvent::TopCandidates(candidates));
                 }
 
-                if best_error <= job.target_error {
+                if best_error <= target_error {
                     let _ = tx.send(AppEvent::Log(format!(
                         "Target RMSE {:.6} achieved at generation {}",
                         best_error, generation
@@ -469,7 +506,7 @@ fn run_solver(worker_id: Uuid, tx: Sender<AppEvent>, shutdown: Arc<AtomicBool>, 
                     break;
                 }
 
-                if generation >= job.max_generations {
+                if generation >= max_generations {
                     break;
                 }
 
@@ -576,7 +613,7 @@ fn run_solver(worker_id: Uuid, tx: Sender<AppEvent>, shutdown: Arc<AtomicBool>, 
                     }
                 }
 
-                if best_error <= job.target_error {
+                if best_error <= target_error {
                     let _ = tx.send(AppEvent::Log(format!(
                         "Target RMSE {:.6} achieved at generation {}",
                         best_error, generation
@@ -584,7 +621,7 @@ fn run_solver(worker_id: Uuid, tx: Sender<AppEvent>, shutdown: Arc<AtomicBool>, 
                     break;
                 }
 
-                if generation >= job.max_generations {
+                if generation >= max_generations {
                     break;
                 }
 

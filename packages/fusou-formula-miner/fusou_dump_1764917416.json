@@ -1,0 +1,43 @@
+{
+  "best_error": 20.771181202322726,
+  "best_formula": "(((sqrt(floor(Atk)) + sqrt(Luck)) + ((Luck - Def) / 4.2620)) + (Atk - min(Def, Atk)))",
+  "generation": 3065,
+  "job_id": null,
+  "max_generations": 10000,
+  "sample_count": 500,
+  "selected_features": [
+    "Atk",
+    "Def",
+    "Luck"
+  ],
+  "target_error": 0.001,
+  "target_formula": "dmg = max(atk - def, 1.0) * (1.0 + 0.5 * step(luck - 80.0))",
+  "top_candidates": [
+    {
+      "formula": "((floor(Luck) + (Atk / 1.4405)) - min(Def, Def))",
+      "rank": 1,
+      "rmse": 34.257515122684836
+    },
+    {
+      "formula": "((floor(Luck) + (Atk / 1.4405)) - min(Def, Def))",
+      "rank": 2,
+      "rmse": 34.257515122684836
+    },
+    {
+      "formula": "((floor(Luck) + (Atk / 1.4405)) - min(Def, Def))",
+      "rank": 3,
+      "rmse": 34.257515122684836
+    },
+    {
+      "formula": "((floor(Luck) + (Atk / 1.4405)) - min(Def, Def))",
+      "rank": 4,
+      "rmse": 34.257515122684836
+    },
+    {
+      "formula": "((floor(Luck) + (Atk / 1.4405)) - Def)",
+      "rank": 5,
+      "rmse": 34.257515122684836
+    }
+  ],
+  "worker_id": "e55b6ff0-da54-4768-a887-e461ae928f06"
+}

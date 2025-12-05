@@ -273,7 +273,19 @@ fn render_input(f: &mut Frame, state: &SolverState, area: Rect) {
         };
         format!("Command: {}{}", state.input_buffer, suggestions)
     };
-    let cmd_input =
-        Paragraph::new(cmd_text).block(Block::default().borders(Borders::ALL).title("Input"));
+    
+    // Change border color to red if IME/Japanese mode is active
+    let input_block = if state.ime_mode_active {
+        Block::default()
+            .borders(Borders::ALL)
+            .border_style(ratatui::style::Style::default().fg(ratatui::style::Color::Red))
+            .title("Input (Japanese Mode Detected)")
+    } else {
+        Block::default()
+            .borders(Borders::ALL)
+            .title("Input")
+    };
+    
+    let cmd_input = Paragraph::new(cmd_text).block(input_block);
     f.render_widget(cmd_input, area);
 }
