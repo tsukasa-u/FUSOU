@@ -10,16 +10,21 @@ pub enum FocusedPanel {
 }
 
 const COMMANDS: &[(&str, &str)] = &[
-    ("/help", "Show available commands"),
+    ("/help", "Show available commands (type /help <command> for details)"),
     ("/version", "Show package name and version"),
     ("/best", "Show current best formula"),
     ("/clear", "Clear all logs"),
     ("/copylogs", "Write logs to file and copy to clipboard if possible"),
     ("/quit", "Exit the application"),
-    ("/stop", "Stop current solver run"),
-    ("/start", "Start a fresh solver run"),
+    ("/stop", "Stop current solver/sweep run"),
+    ("/start-formula", "Start formula optimization with current parameters"),
+    ("/start-sweep", "Start parameter sweep (must be configured with /sweep first)"),
+    ("/start", "[deprecated] Use /start-formula or /start-sweep"),
     ("/set", "Set runtime config: /set <param> <value>"),
     ("/dump", "Export solver state and results to JSON"),
+    ("/export-params", "Export current parameters to JSON file"),
+    ("/import-params", "Import parameters from JSON file: /import-params <file>"),
+    ("/sweep", "Configure parameter sweep: /sweep [default|all] or /sweep <param1=min:max:step> ..."),
 ];
 
 const SET_PARAMETERS: &[&str] = &[
@@ -30,6 +35,19 @@ const SET_PARAMETERS: &[&str] = &[
     "tournament_size",
     "elite_count",
     "use_nsga2",
+    "tarpeian_probability",
+    "hoist_mutation_rate",
+    "constant_optimization_interval",
+    "max_generations",
+];
+
+const SWEEP_PARAMETERS: &[&str] = &[
+    "population_size",
+    "max_depth",
+    "mutation_rate",
+    "crossover_rate",
+    "tournament_size",
+    "elite_count",
     "tarpeian_probability",
     "hoist_mutation_rate",
     "constant_optimization_interval",
@@ -123,6 +141,39 @@ fn update_suggestions(state: &mut SolverState) {
                 state.command_suggestions.push(format!("/set {} ", param));
             }
         }
+    } else if state.input_buffer.starts_with("/sweep ") {
+        let rest = &state.input_buffer[7..]; // Skip "/sweep "
+        let parts: Vec<&str> = rest.split_whitespace().collect();
+        
+        // Show suggestions for preset options first
+        if rest.is_empty() {
+            state.command_suggestions.push("/sweep default".to_string());
+            state.command_suggestions.push("/sweep all".to_string());
+        } else if "default".starts_with(rest) && !rest.is_empty() {
+            state.command_suggestions.push("/sweep default".to_string());
+        } else if "all".starts_with(rest) && !rest.is_empty() {
+            state.command_suggestions.push("/sweep all".to_string());
+        } else {
+            // Show parameter suggestions for custom ranges
+            let partial = if rest.contains('=') {
+                rest.split('=').next().unwrap_or(rest)
+            } else {
+                rest.split_whitespace().last().unwrap_or(rest)
+            };
+            
+            for param in SWEEP_PARAMETERS {
+                if param.starts_with(partial) && !rest.contains(&format!("{}=", param)) {
+                    let suggestion = if rest.is_empty() {
+                        format!("/sweep {}=min:max:step", param)
+                    } else if rest.ends_with(' ') {
+                        format!("{} {}=min:max:step", state.input_buffer, param)
+                    } else {
+                        format!("/sweep {}=min:max:step", param)
+                    };
+                    state.command_suggestions.push(suggestion);
+                }
+            }
+        }
     } else if state.input_buffer.starts_with('/') {
         // Handle command suggestions
         for (cmd, _) in COMMANDS {
@@ -207,67 +258,27 @@ fn execute_command(cmd: &str, state: &mut SolverState) -> bool {
             }
             return false;
         }
-        "/start" => {
-            // Start a new solver run from scratch
-            // Check if solver is already running using the solver_running flag
-            if state.solver_running {
-                push_log(state, "Solver is already running.".into());
-                return false;
-            }
-
-            // Need event sender and shared config to spawn solver
-            let sender = match &state.event_sender {
-                Some(s) => s.clone(),
-                None => {
-                    push_log(state, "Cannot start solver: no event sender available".into());
-                    return false;
-                }
-            };
-
-            let _shared_config = match &state.shared_config {
-                Some(cfg) => cfg.clone(),
-                None => {
-                    push_log(state, "Cannot start solver: no shared configuration".into());
-                    return false;
-                }
-            };
-
-            // Show current configuration before starting
-            let config_str = if let Some(cfg_arc) = &state.shared_config {
-                if let Ok(cfg) = cfg_arc.lock() {
-                    format!(
-                        "Starting optimization with config:\n  population_size: {}\n  mutation_rate: {}\n  max_depth: {}\n  max_generations: {}",
-                        cfg.population_size, cfg.mutation_rate, cfg.max_depth, state.max_generations
-                    )
-                } else {
-                    format!("Starting optimization with max_generations: {}", state.max_generations)
-                }
-            } else {
-                format!("Starting optimization with max_generations: {}", state.max_generations)
-            };
-            push_log(state, config_str);
-
-            // Mark solver as running
-            state.solver_running = true;
-
-            // Request main loop to start a fresh solver run (main will spawn thread)
-            if sender.send(crate::state::AppEvent::StartRequested).is_err() {
-                push_log(state, "Failed to request solver start (sender closed)".into());
-                state.solver_running = false;
-            } else {
-                push_log(state, "Start requested: main will spawn a fresh solver run".into());
-            }
+        "/start" | "/start-formula" => {
+            start_formula_optimization(state);
+            return false;
+        }
+        "/start-sweep" => {
+            start_parameter_sweep(state);
             return false;
         }
         "/version" => {
             let v = format!("{} v{}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"));
             push_log(state, v);
         }
-        "/help" => {
-            push_log(state, "Available commands:".into());
-            for (cmd, desc) in COMMANDS {
-                push_log(state, format!("  {} - {}", cmd, desc));
+        _ if cmd.starts_with("/help ") => {
+            if let Some(help_topic) = cmd.strip_prefix("/help ") {
+                show_detailed_help(state, help_topic);
+            } else {
+                show_general_help(state);
             }
+        }
+        "/help" => {
+            show_general_help(state);
         }
         "/best" => {
             push_log(state, format!("Best formula: {}", state.best_formula));
@@ -380,6 +391,27 @@ fn execute_command(cmd: &str, state: &mut SolverState) -> bool {
                     }
                 }
             }
+        "/export-params" => {
+            // Export current parameters to JSON file
+            export_parameters(state);
+        }
+        _ if cmd.starts_with("/import-params ") => {
+            // Import parameters from JSON file
+            if let Some(rest) = cmd.strip_prefix("/import-params ") {
+                let filepath = rest.trim();
+                import_parameters(state, filepath);
+            } else {
+                push_log(state, "Usage: /import-params <filepath>".into());
+            }
+        }
+        _ if cmd.starts_with("/sweep ") => {
+            // Start parameter sweep experiment
+            if let Some(rest) = cmd.strip_prefix("/sweep ") {
+                initiate_parameter_sweep(state, rest);
+            } else {
+                push_log(state, "Usage: /sweep <param1=min:max:step> [param2=min:max:step] ...".into());
+            }
+        }
         _ if !cmd.is_empty() => {
             push_log(
                 state,
@@ -453,3 +485,490 @@ fn count_best_solution_lines(state: &SolverState) -> usize {
     );
     text.lines().count()
 }
+
+/// Export current parameters to JSON file
+fn export_parameters(state: &mut SolverState) {
+    use crate::state::ParameterSet;
+    
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let filename = format!("parameters_{}.json", ts);
+
+    let cfg_arc_opt = state.shared_config.clone();
+    let params = if let Some(cfg_arc) = cfg_arc_opt {
+        if let Ok(cfg) = cfg_arc.lock() {
+            let p = ParameterSet {
+                population_size: cfg.population_size,
+                max_depth: cfg.max_depth,
+                mutation_rate: cfg.mutation_rate,
+                crossover_rate: cfg.crossover_rate,
+                tournament_size: cfg.tournament_size,
+                elite_count: cfg.elite_count,
+                use_nsga2: cfg.use_nsga2,
+                tarpeian_probability: cfg.tarpeian_probability,
+                hoist_mutation_rate: cfg.hoist_mutation_rate,
+                constant_optimization_interval: cfg.constant_optimization_interval,
+                max_generations: state.max_generations,
+                target_error: state.target_error,
+                correlation_threshold: state.correlation_threshold,
+                achieved_error: Some(state.best_error),
+            };
+            drop(cfg);
+            Some(p)
+        } else {
+            push_log(state, "Failed to acquire config lock".into());
+            None
+        }
+    } else {
+        push_log(state, "No shared configuration available".into());
+        None
+    };
+
+    let params = match params {
+        Some(p) => p,
+        None => return,
+    };
+
+    match std::env::current_dir() {
+        Ok(dir) => {
+            let path = dir.join(&filename);
+            match serde_json::to_string_pretty(&params) {
+                Ok(json_str) => {
+                    match std::fs::write(&path, json_str) {
+                        Ok(_) => {
+                            push_log(state, format!("Parameters exported to {}", path.display()));
+                        }
+                        Err(e) => {
+                            push_log(state, format!("Failed to write parameters file: {}", e));
+                        }
+                    }
+                }
+                Err(e) => {
+                    push_log(state, format!("Failed to serialize parameters: {}", e));
+                }
+            }
+        }
+        Err(e) => {
+            push_log(state, format!("Failed to determine current directory: {}", e));
+        }
+    }
+}
+
+/// Import parameters from JSON file
+fn import_parameters(state: &mut SolverState, filepath: &str) {
+    use crate::state::ParameterSet;
+
+    match std::fs::read_to_string(filepath) {
+        Ok(content) => {
+            match serde_json::from_str::<ParameterSet>(&content) {
+                Ok(params) => {
+                    // Update shared_config if available
+                    if let Some(cfg_arc) = state.shared_config.clone() {
+                        match cfg_arc.lock() {
+                            Ok(mut cfg) => {
+                                cfg.population_size = params.population_size;
+                                cfg.max_depth = params.max_depth;
+                                cfg.mutation_rate = params.mutation_rate;
+                                cfg.crossover_rate = params.crossover_rate;
+                                cfg.tournament_size = params.tournament_size;
+                                cfg.elite_count = params.elite_count;
+                                cfg.use_nsga2 = params.use_nsga2;
+                                cfg.tarpeian_probability = params.tarpeian_probability;
+                                cfg.hoist_mutation_rate = params.hoist_mutation_rate;
+                                cfg.constant_optimization_interval = params.constant_optimization_interval;
+                                drop(cfg);
+                            }
+                            Err(_) => {
+                                push_log(state, "Failed to acquire config lock".into());
+                                return;
+                            }
+                        }
+                    }
+
+                    // Update state parameters
+                    state.max_generations = params.max_generations;
+                    state.target_error = params.target_error;
+                    state.correlation_threshold = params.correlation_threshold;
+
+                    push_log(state, format!("Parameters imported from {}", filepath));
+                    push_log(state, format!(
+                        "Loaded: pop={}, depth={}, mut_rate={:.3}, max_gen={}",
+                        params.population_size, params.max_depth, params.mutation_rate, params.max_generations
+                    ));
+                }
+                Err(e) => {
+                    push_log(state, format!("Failed to parse parameters file: {}", e));
+                }
+            }
+        }
+        Err(e) => {
+            push_log(state, format!("Failed to read parameters file: {}", e));
+        }
+    }
+}
+
+/// Initiate parameter sweep experiment
+fn initiate_parameter_sweep(state: &mut SolverState, args: &str) {
+    use crate::state::SweepConfig;
+    use std::collections::HashMap;
+
+    let mut parts: Vec<&str> = args.split_whitespace().collect();
+    // Extract optional refinement settings: refinements=<N>, refinement_factor=<f>
+    // and repeats=<R>
+    let mut max_refinements: usize = 0;
+    let mut refinement_factor: f64 = 0.5;
+    let mut repeats: usize = 1;
+    // Remove these tokens from parts
+    parts.retain(|token| {
+        if let Some(rest) = token.strip_prefix("refinements=") {
+            if let Ok(v) = rest.parse::<usize>() {
+                max_refinements = v;
+            }
+            false
+        } else if let Some(rest) = token.strip_prefix("refinement_factor=") {
+            if let Ok(v) = rest.parse::<f64>() {
+                refinement_factor = v;
+            }
+            false
+        } else if let Some(rest) = token.strip_prefix("repeats=") {
+            if let Ok(v) = rest.parse::<usize>() {
+                repeats = v.max(1);
+            }
+            false
+        } else {
+            true
+        }
+    });
+    if parts.is_empty() {
+        push_log(state, "Usage: /sweep [default|all] or /sweep <param1=min:max:step> [param2=min:max:step] ...".into());
+        return;
+    }
+
+    let mut parameters_to_sweep = Vec::new();
+    let mut ranges = HashMap::new();
+    let mut total_iterations = 1usize;
+
+    // Handle preset options
+    if parts.len() == 1 {
+        match parts[0] {
+            "default" => {
+                // Default sweep configuration
+                parameters_to_sweep = vec![
+                    "mutation_rate".to_string(),
+                    "max_depth".to_string(),
+                    "population_size".to_string(),
+                ];
+                ranges.insert("mutation_rate".to_string(), (0.1, 0.5, 0.1));
+                ranges.insert("max_depth".to_string(), (3.0, 8.0, 1.0));
+                ranges.insert("population_size".to_string(), (32.0, 256.0, 32.0));
+                let iter1 = (((0.5 - 0.1) / 0.1) as f64).ceil() as usize + 1;
+                let iter2 = (((8.0 - 3.0) / 1.0) as f64).ceil() as usize + 1;
+                let iter3 = (((256.0 - 32.0) / 32.0) as f64).ceil() as usize + 1;
+                total_iterations = iter1 * iter2 * iter3;
+                push_log(state, "Using default sweep configuration: mutation_rate, max_depth, population_size".into());
+            }
+            "all" => {
+                // Sweep all available parameters
+                parameters_to_sweep = vec![
+                    "population_size".to_string(),
+                    "max_depth".to_string(),
+                    "mutation_rate".to_string(),
+                    "crossover_rate".to_string(),
+                    "tournament_size".to_string(),
+                    "elite_count".to_string(),
+                ];
+                ranges.insert("population_size".to_string(), (32.0, 256.0, 64.0));
+                ranges.insert("max_depth".to_string(), (3.0, 8.0, 2.0));
+                ranges.insert("mutation_rate".to_string(), (0.1, 0.5, 0.15));
+                ranges.insert("crossover_rate".to_string(), (0.6, 0.9, 0.1));
+                ranges.insert("tournament_size".to_string(), (2.0, 8.0, 2.0));
+                ranges.insert("elite_count".to_string(), (1.0, 16.0, 5.0));
+                let mut total = 1usize;
+                for (_, (min, max, step)) in &ranges {
+                    let iterations = (((max - min) / step) as f64).ceil() as usize + 1;
+                    total *= iterations;
+                }
+                total_iterations = total;
+                push_log(state, "Using full sweep configuration: all major parameters".into());
+            }
+            _ => {
+                // Custom range specifications
+                for part in parts {
+                    if let Some((param, range_str)) = part.split_once('=') {
+                        let range_parts: Vec<&str> = range_str.split(':').collect();
+                        if range_parts.len() == 3 {
+                            match (range_parts[0].parse::<f64>(), range_parts[1].parse::<f64>(), range_parts[2].parse::<f64>()) {
+                                (Ok(min), Ok(max), Ok(step)) if step > 0.0 && min <= max => {
+                                    let iterations = (((max - min) / step) as f64).ceil() as usize + 1;
+                                    total_iterations *= iterations;
+                                    parameters_to_sweep.push(param.to_string());
+                                    ranges.insert(param.to_string(), (min, max, step));
+                                }
+                                _ => {
+                                    push_log(state, format!("Invalid range for {}: must be min:max:step with step > 0", param));
+                                    return;
+                                }
+                            }
+                        } else {
+                            push_log(state, format!("Invalid format for {}: use param=min:max:step", param));
+                            return;
+                        }
+                    } else {
+                        push_log(state, "Invalid sweep argument format. Use: param1=min:max:step param2=min:max:step ...".into());
+                        return;
+                    }
+                }
+            }
+        }
+    } else {
+        // Custom range specifications
+        for part in parts {
+            if let Some((param, range_str)) = part.split_once('=') {
+                let range_parts: Vec<&str> = range_str.split(':').collect();
+                if range_parts.len() == 3 {
+                    match (range_parts[0].parse::<f64>(), range_parts[1].parse::<f64>(), range_parts[2].parse::<f64>()) {
+                        (Ok(min), Ok(max), Ok(step)) if step > 0.0 && min <= max => {
+                            let iterations = (((max - min) / step) as f64).ceil() as usize + 1;
+                            total_iterations *= iterations;
+                            parameters_to_sweep.push(param.to_string());
+                            ranges.insert(param.to_string(), (min, max, step));
+                        }
+                        _ => {
+                            push_log(state, format!("Invalid range for {}: must be min:max:step with step > 0", param));
+                            return;
+                        }
+                    }
+                } else {
+                    push_log(state, format!("Invalid format for {}: use param=min:max:step", param));
+                    return;
+                }
+            } else {
+                push_log(state, "Invalid sweep argument format. Use: param1=min:max:step param2=min:max:step ...".into());
+                return;
+            }
+        }
+    }
+
+    let sweep_config = SweepConfig {
+        parameters_to_sweep,
+        ranges,
+        current_iteration: 0,
+        total_iterations,
+        best_params: None,
+        best_error: f64::MAX,
+        results: Vec::new(),
+
+        refinement_enabled: max_refinements > 0,
+        max_refinements,
+        refinement_factor,
+        current_refinement: 0,
+        in_refinement_mode: false,
+        refinement_ranges: None,
+        refinement_total_iterations: 0,
+        refinement_current_iteration: 0,
+        refinement_parent_iteration: None,
+        repeats_per_setting: repeats,
+        current_repeat: 0,
+        accumulated_errors: Vec::new(),
+        run_durations: Vec::new(),
+        historical_run_durations: Vec::new(),
+    };
+
+    state.sweep_config = Some(sweep_config.clone());
+    push_log(state, format!("Parameter sweep initialized: {} parameters, {} total iterations", 
+        sweep_config.parameters_to_sweep.len(), sweep_config.total_iterations));
+    push_log(state, format!("Parameters to sweep: {}", sweep_config.parameters_to_sweep.join(", ")));
+    push_log(state, "Note: Run /start-sweep to begin the parameter sweep experiment".into());
+}
+
+/// Start formula optimization with current parameters
+fn start_formula_optimization(state: &mut SolverState) {
+    if state.solver_running {
+        push_log(state, "Solver is already running.".into());
+        return;
+    }
+
+    let sender = match &state.event_sender {
+        Some(s) => s.clone(),
+        None => {
+            push_log(state, "Cannot start solver: no event sender available".into());
+            return;
+        }
+    };
+
+    let _shared_config = match &state.shared_config {
+        Some(cfg) => cfg.clone(),
+        None => {
+            push_log(state, "Cannot start solver: no shared configuration".into());
+            return;
+        }
+    };
+
+    // Show current configuration before starting
+    let config_str = if let Some(cfg_arc) = &state.shared_config {
+        if let Ok(cfg) = cfg_arc.lock() {
+            format!(
+                "Starting formula optimization with config:\n  population_size: {}\n  mutation_rate: {}\n  max_depth: {}\n  max_generations: {}",
+                cfg.population_size, cfg.mutation_rate, cfg.max_depth, state.max_generations
+            )
+        } else {
+            format!("Starting formula optimization with max_generations: {}", state.max_generations)
+        }
+    } else {
+        format!("Starting formula optimization with max_generations: {}", state.max_generations)
+    };
+    push_log(state, config_str);
+
+    state.solver_running = true;
+
+    if sender.send(crate::state::AppEvent::StartRequested).is_err() {
+        push_log(state, "Failed to request solver start (sender closed)".into());
+        state.solver_running = false;
+    } else {
+        push_log(state, "Start requested: main will spawn a fresh solver run".into());
+    }
+}
+
+/// Start parameter sweep optimization
+fn start_parameter_sweep(state: &mut SolverState) {
+    if state.solver_running {
+        push_log(state, "Solver is already running.".into());
+        return;
+    }
+
+    if state.sweep_config.is_none() {
+        push_log(state, "No parameter sweep configured. Use /sweep to configure first.".into());
+        return;
+    }
+
+    let sender = match &state.event_sender {
+        Some(s) => s.clone(),
+        None => {
+            push_log(state, "Cannot start sweep: no event sender available".into());
+            return;
+        }
+    };
+
+    let _shared_config = match &state.shared_config {
+        Some(cfg) => cfg.clone(),
+        None => {
+            push_log(state, "Cannot start sweep: no shared configuration".into());
+            return;
+        }
+    };
+
+    let (total_iter, params_list) = if let Some(sweep_config) = &state.sweep_config {
+        (sweep_config.total_iterations, sweep_config.parameters_to_sweep.join(", "))
+    } else {
+        (0, String::new())
+    };
+
+    push_log(state, format!("Starting parameter sweep with {} total iterations", total_iter));
+    push_log(state, format!("Sweeping parameters: {}", params_list));
+
+    state.solver_running = true;
+
+    if sender.send(crate::state::AppEvent::StartRequested).is_err() {
+        push_log(state, "Failed to request sweep start (sender closed)".into());
+        state.solver_running = false;
+    } else {
+        push_log(state, "Sweep start requested: main will execute parameter sweep".into());
+    }
+}
+
+/// Show general help information
+fn show_general_help(state: &mut SolverState) {
+    push_log(state, "\n=== FUSOU Formula Miner - Command Help ===".into());
+    push_log(state, "\nAvailable commands (type '/help <command>' for details):".into());
+    for (cmd, desc) in COMMANDS {
+        push_log(state, format!("  {:<20} - {}", cmd, desc));
+    }
+    push_log(state, "\n=== Quick Start ===".into());
+    push_log(state, "1. Configure parameters:  /set <param> <value>".into());
+    push_log(state, "2. Start optimization:    /start-formula".into());
+    push_log(state, "3. Or setup a sweep:      /sweep <param=min:max:step>".into());
+    push_log(state, "4. Execute sweep:         /start-sweep".into());
+}
+
+/// Show detailed help for a specific command
+fn show_detailed_help(state: &mut SolverState, topic: &str) {
+    let lower = topic.to_lowercase();
+    match lower.as_str() {
+        "start-formula" => {
+            push_log(state, "\n=== /start-formula ===".into());
+            push_log(state, "Starts formula optimization with current parameters.".into());
+            push_log(state, "Usage: /start-formula".into());
+            push_log(state, "\nBefore running:".into());
+            push_log(state, "  - Configure parameters with /set (optional)".into());
+            push_log(state, "  - Default parameters are auto-derived from dataset".into());
+            push_log(state, "\nExample workflow:".into());
+            push_log(state, "  /set mutation_rate 0.3".into());
+            push_log(state, "  /set max_generations 5000".into());
+            push_log(state, "  /start-formula".into());
+        }
+        "start-sweep" => {
+            push_log(state, "\n=== /start-sweep ===".into());
+            push_log(state, "Starts parameter sweep optimization.".into());
+            push_log(state, "Usage: /start-sweep".into());
+            push_log(state, "\nBefore running:".into());
+            push_log(state, "  - Configure sweep with /sweep command (required)".into());
+            push_log(state, "\nExample workflow:".into());
+            push_log(state, "  /sweep default".into());
+            push_log(state, "  /start-sweep".into());
+        }
+        "sweep" => {
+            push_log(state, "\n=== /sweep ===".into());
+            push_log(state, "Configures parameter sweep for optimization tuning.".into());
+            push_log(state, "Usage: /sweep [default|all] or /sweep <param1=min:max:step> [param2=min:max:step] ...".into());
+            push_log(state, "Optional: add `refinements=<N>` and `refinement_factor=<f>` to enable local refine passes.".into());
+            push_log(state, "\nOptions:".into());
+            push_log(state, "  default     - Sweep default parameter set".into());
+            push_log(state, "  all         - Sweep all available parameters".into());
+            push_log(state, "  custom      - Specify custom ranges for each parameter".into());
+            push_log(state, "\nExample - Default sweep:".into());
+            push_log(state, "  /sweep default".into());
+            push_log(state, "  /start-sweep".into());
+            push_log(state, "\nExample - Custom ranges:".into());
+            push_log(state, "  /sweep mutation_rate=0.1:0.5:0.1 max_depth=3:8:1".into());
+            push_log(state, "  /start-sweep".into());
+        }
+        "set" => {
+            push_log(state, "\n=== /set ===".into());
+            push_log(state, "Sets runtime configuration parameters.".into());
+            push_log(state, "Usage: /set <param> <value>".into());
+            push_log(state, "\nAvailable parameters:".into());
+            for param in SET_PARAMETERS {
+                push_log(state, format!("  - {}", param));
+            }
+            push_log(state, "\nExample:".into());
+            push_log(state, "  /set mutation_rate 0.25".into());
+            push_log(state, "  /set max_generations 10000".into());
+        }
+        "export-params" | "import-params" => {
+            push_log(state, "\n=== Parameter Import/Export ===".into());
+            push_log(state, "/export-params  - Save current parameters to JSON file".into());
+            push_log(state, "/import-params <file>  - Load parameters from JSON file".into());
+            push_log(state, "\nExamples:".into());
+            push_log(state, "  /export-params".into());
+            push_log(state, "  /import-params parameters_1234567890.json".into());
+        }
+        "dump" => {
+            push_log(state, "\n=== /dump ===".into());
+            push_log(state, "Exports current solver state to JSON file.".into());
+            push_log(state, "Usage: /dump".into());
+            push_log(state, "\nIncludes:".into());
+            push_log(state, "  - Current best formula and error".into());
+            push_log(state, "  - Generation and progress information".into());
+            push_log(state, "  - Top 5 candidate formulas".into());
+            push_log(state, "  - Target formula (for synthetic data)".into());
+        }
+        _ => {
+            push_log(state, format!("No detailed help available for '{}'", topic));
+            push_log(state, "Available topics: start-formula, start-sweep, sweep, set, export-params, import-params, dump".into());
+        }
+    }
+}
+
+

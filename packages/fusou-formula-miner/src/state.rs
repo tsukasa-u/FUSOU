@@ -75,6 +75,8 @@ pub struct SolverState {
     pub ime_mode_active: bool,
     // Track if solver is currently running
     pub solver_running: bool,
+    // Parameter sweep configuration for parameter tuning experiments
+    pub sweep_config: Option<SweepConfig>,
 }
 
 impl SolverState {
@@ -112,6 +114,7 @@ impl SolverState {
             worker_started_at: None,
             ime_mode_active: false,
             solver_running: false,
+            sweep_config: None,
         }
     }
 }
@@ -141,3 +144,56 @@ pub struct JobSummary {
     pub correlation_threshold: f64,
     pub ground_truth: Option<String>,
 }
+
+/// Parameter set for tuning genetic algorithm performance
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct ParameterSet {
+    pub population_size: usize,
+    pub max_depth: usize,
+    pub mutation_rate: f64,
+    pub crossover_rate: f64,
+    pub tournament_size: usize,
+    pub elite_count: usize,
+    pub use_nsga2: bool,
+    pub tarpeian_probability: f64,
+    pub hoist_mutation_rate: f64,
+    pub constant_optimization_interval: usize,
+    pub max_generations: u64,
+    pub target_error: f64,
+    pub correlation_threshold: f64,
+    /// Performance metric achieved with this parameter set
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub achieved_error: Option<f64>,
+}
+
+/// Sweep configuration for parameter tuning (with optional local refinement)
+#[derive(Clone, Debug)]
+pub struct SweepConfig {
+    pub parameters_to_sweep: Vec<String>,
+    pub ranges: std::collections::HashMap<String, (f64, f64, f64)>, // (min, max, step)
+    pub current_iteration: usize,
+    pub total_iterations: usize,
+    pub best_params: Option<ParameterSet>,
+    pub best_error: f64,
+    pub results: Vec<(ParameterSet, f64)>, // (params, achieved_error)
+
+    // Refinement controls
+    pub refinement_enabled: bool,
+    pub max_refinements: usize,
+    pub refinement_factor: f64, // multiply step by this when refining (e.g. 0.5 -> half step)
+    pub current_refinement: usize,
+    // When performing a local refinement, we generate a temporary ranges map
+    pub in_refinement_mode: bool,
+    pub refinement_ranges: Option<std::collections::HashMap<String, (f64, f64, f64)>>,
+    pub refinement_total_iterations: usize,
+    pub refinement_current_iteration: usize,
+    pub refinement_parent_iteration: Option<usize>,
+    // Repeats per parameter setting and aggregation
+    pub repeats_per_setting: usize,
+    pub current_repeat: usize,
+    pub accumulated_errors: Vec<f64>,
+    pub run_durations: Vec<f64>,
+    // Historical durations across the whole sweep (used to estimate ETA)
+    pub historical_run_durations: Vec<f64>,
+}
+

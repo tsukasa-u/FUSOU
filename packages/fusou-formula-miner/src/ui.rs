@@ -111,6 +111,44 @@ fn render_status(f: &mut Frame, state: &SolverState, area: Rect) {
         summary = format!("{}\nGround truth: {}", summary, gt);
     }
 
+    // If a sweep is running or configured, show sweep progress
+    if let Some(sweep) = &state.sweep_config {
+        let sweep_progress = format!("\nSweep: {}/{} | Best RMSE: {:.6}", sweep.current_iteration, sweep.total_iterations, sweep.best_error);
+        let refinement_info = if sweep.in_refinement_mode {
+            format!(" | Refinement {}/{} (parent {})", sweep.refinement_current_iteration, sweep.refinement_total_iterations, sweep.refinement_parent_iteration.unwrap_or(0))
+        } else if sweep.refinement_enabled {
+            format!(" | Refinements used: {}/{}", sweep.current_refinement, sweep.max_refinements)
+        } else {
+            String::new()
+        };
+
+        // Estimate ETA based on historical average run duration
+        let eta_info = if !sweep.historical_run_durations.is_empty() {
+            let sum: f64 = sweep.historical_run_durations.iter().sum();
+            let avg = sum / (sweep.historical_run_durations.len() as f64);
+            // remaining main iterations
+            let remaining_main = if sweep.total_iterations > sweep.current_iteration {
+                (sweep.total_iterations - sweep.current_iteration) as f64
+            } else { 0.0 };
+            // remaining repeats for current setting
+            let remaining_repeats = if sweep.repeats_per_setting > sweep.current_repeat {
+                (sweep.repeats_per_setting - sweep.current_repeat) as f64
+            } else { 0.0 };
+            let remaining_refinement = if sweep.in_refinement_mode {
+                (sweep.refinement_total_iterations.saturating_sub(sweep.refinement_current_iteration)) as f64
+            } else { 0.0 };
+            let total_remaining_runs = remaining_main * (sweep.repeats_per_setting as f64) + remaining_repeats + remaining_refinement;
+            let eta_seconds = avg * total_remaining_runs;
+            let mins = (eta_seconds / 60.0).floor() as u64;
+            let secs = (eta_seconds % 60.0).round() as u64;
+            format!(" | ETA ~ {}m{}s", mins, secs)
+        } else {
+            String::new()
+        };
+
+        summary = format!("{}{}{}{}", summary, sweep_progress, refinement_info, eta_info);
+    }
+
     // Put data source into the block title so it's visible even when body is small
     let title_label = format!("Job status - Data source: {}", data_source);
     let summary_block = Paragraph::new(summary)

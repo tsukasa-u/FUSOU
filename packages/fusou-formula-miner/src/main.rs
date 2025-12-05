@@ -34,7 +34,7 @@ use dataset::synthetic_dataset;
 use network::{JobSubmission, RemoteJob, WorkerClient};
 use solver::{crossover, mutate, Expr, GeneticConfig, UnaryOp};
 use smart_init::{DataStats, smart_init};
-use state::{AppEvent, JobSummary, Phase, SolverState, CandidateFormula};
+use state::{AppEvent, JobSummary, Phase, SolverState, CandidateFormula, ParameterSet, SweepConfig};
 use nsga2::{MultiObjectiveIndividual, nsga2_selection, nsga2_tournament_select};
 use bloat_control::{tarpeian_penalty, hoist_mutation, average_size};
 use constant_opt::optimize_constants;
@@ -142,6 +142,7 @@ fn main() -> Result<()> {
                     } else {
                         let shutdown_flag = Arc::new(AtomicBool::new(false));
                         state.shutdown_flag = Some(shutdown_flag.clone());
+                        state.worker_started_at = Some(std::time::Instant::now());
                         let solver_tx = tx.clone();
                         let solver_shutdown = shutdown_flag.clone();
                         let solver_config = state.shared_config.clone().unwrap();
@@ -167,6 +168,352 @@ fn main() -> Result<()> {
                     state.progress = 1.0;
                     state.phase = Phase::Finished;
                     state.solver_running = false;
+                    
+                    // If this is part of a parameter sweep, record the result
+                    if let Some(mut sweep_config) = state.sweep_config.take() {
+                        let mut current_params = ParameterSet {
+                            population_size: 0,
+                            max_depth: 0,
+                            mutation_rate: 0.0,
+                            crossover_rate: 0.0,
+                            tournament_size: 0,
+                            elite_count: 0,
+                            use_nsga2: false,
+                            tarpeian_probability: 0.0,
+                            hoist_mutation_rate: 0.0,
+                            constant_optimization_interval: 0,
+                            max_generations: state.max_generations,
+                            target_error: state.target_error,
+                            correlation_threshold: state.correlation_threshold,
+                            achieved_error: Some(state.best_error),
+                        };
+                        
+                        if let Some(cfg_arc) = &state.shared_config {
+                            if let Ok(cfg) = cfg_arc.lock() {
+                                current_params.population_size = cfg.population_size;
+                                current_params.max_depth = cfg.max_depth;
+                                current_params.mutation_rate = cfg.mutation_rate;
+                                current_params.crossover_rate = cfg.crossover_rate;
+                                current_params.tournament_size = cfg.tournament_size;
+                                current_params.elite_count = cfg.elite_count;
+                                current_params.use_nsga2 = cfg.use_nsga2;
+                                current_params.tarpeian_probability = cfg.tarpeian_probability;
+                                current_params.hoist_mutation_rate = cfg.hoist_mutation_rate;
+                                current_params.constant_optimization_interval = cfg.constant_optimization_interval;
+                            }
+                        }
+                        
+                        sweep_config.results.push((current_params.clone(), state.best_error));
+                        
+                        // record run duration if available
+                        if let Some(start) = state.worker_started_at.take() {
+                            let dur = start.elapsed().as_secs_f64();
+                            sweep_config.run_durations.push(dur);
+                            sweep_config.historical_run_durations.push(dur);
+                        }
+
+                        // accumulate error for repeats
+                        sweep_config.accumulated_errors.push(state.best_error);
+
+                        if state.best_error < sweep_config.best_error {
+                            sweep_config.best_error = state.best_error;
+                            sweep_config.best_params = Some(current_params.clone());
+                        }
+                        
+                        // If repeats are configured, manage repeats before advancing main iteration
+                        if sweep_config.repeats_per_setting > 1 {
+                            sweep_config.current_repeat += 1;
+                        }
+
+                        // If we've completed the repeats for this parameter setting, advance main iteration
+                        if sweep_config.current_repeat >= sweep_config.repeats_per_setting || sweep_config.repeats_per_setting == 1 {
+                            // compute aggregated performance (mean)
+                            let mean_error = if !sweep_config.accumulated_errors.is_empty() {
+                                let sum: f64 = sweep_config.accumulated_errors.iter().sum();
+                                sum / (sweep_config.accumulated_errors.len() as f64)
+                            } else { state.best_error };
+                            // push aggregated result (we'll attach achieved_error = mean)
+                            // use current_params with achieved_error overwritten
+                            let mut agg_params = current_params.clone();
+                            agg_params.achieved_error = Some(mean_error);
+                            sweep_config.results.push((agg_params, mean_error));
+                            // reset accumulated errors for next setting
+                            sweep_config.accumulated_errors.clear();
+                            sweep_config.run_durations.clear();
+                            sweep_config.current_repeat = 0;
+                            sweep_config.current_iteration += 1;
+                        }
+                        
+                        // Save sweep results to file after each aggregated result
+                        save_sweep_results(&sweep_config);
+                        
+                        // Decide whether to start next run automatically (main sweep or local refinement)
+                        let mut do_start_next = false;
+                        // Helper closure to apply a ParameterSet into shared_config
+                        let apply_params = |state: &mut crate::state::SolverState, params: &ParameterSet| {
+                            if let Some(cfg_arc) = &state.shared_config {
+                                if let Ok(mut cfg) = cfg_arc.lock() {
+                                    cfg.population_size = params.population_size;
+                                    cfg.max_depth = params.max_depth;
+                                    cfg.mutation_rate = params.mutation_rate;
+                                    cfg.crossover_rate = params.crossover_rate;
+                                    cfg.tournament_size = params.tournament_size;
+                                    cfg.elite_count = params.elite_count;
+                                    cfg.use_nsga2 = params.use_nsga2;
+                                    cfg.tarpeian_probability = params.tarpeian_probability;
+                                    cfg.hoist_mutation_rate = params.hoist_mutation_rate;
+                                    cfg.constant_optimization_interval = params.constant_optimization_interval;
+                                }
+                            }
+                            // state-level params
+                            state.max_generations = params.max_generations;
+                            state.target_error = params.target_error;
+                            state.correlation_threshold = params.correlation_threshold;
+                        };
+
+                        // Helper to compute a ParameterSet from ranges at a given mixed-radix index
+                        let compute_params_from_ranges = |ranges: &std::collections::HashMap<String, (f64,f64,f64)>,
+                                                           cfg_arc: &Option<std::sync::Arc<std::sync::Mutex<crate::solver::GeneticConfig>>>,
+                                                           params_order: &Vec<String>,
+                                                           index: usize|
+                            -> ParameterSet {
+                            // Compute iteration counts per parameter
+                            let mut counts: Vec<usize> = Vec::new();
+                            for p in params_order {
+                                if let Some((min,max,step)) = ranges.get(p) {
+                                    let cnt = (((max - min) / step).ceil() as usize) + 1;
+                                    counts.push(cnt);
+                                } else {
+                                    counts.push(1);
+                                }
+                            }
+                            // mixed-radix decode
+                            let mut rem = index;
+                            let mut values: std::collections::HashMap<String,f64> = std::collections::HashMap::new();
+                            for (i, p) in params_order.iter().enumerate() {
+                                let base = counts[i];
+                                let idx = if base == 0 { 0 } else { rem % base };
+                                rem = if base == 0 { rem } else { rem / base };
+                                if let Some((min,max,step)) = ranges.get(p) {
+                                    let val = min + (idx as f64) * step;
+                                    // clamp
+                                    let val = val.max(*min).min(*max);
+                                    values.insert(p.clone(), val);
+                                }
+                            }
+
+                            // Start with current shared_config as baseline
+                            let mut pset = if let Some(cfg_arc) = cfg_arc {
+                                if let Ok(cfg) = cfg_arc.lock() {
+                                    ParameterSet {
+                                        population_size: cfg.population_size,
+                                        max_depth: cfg.max_depth,
+                                        mutation_rate: cfg.mutation_rate,
+                                        crossover_rate: cfg.crossover_rate,
+                                        tournament_size: cfg.tournament_size,
+                                        elite_count: cfg.elite_count,
+                                        use_nsga2: cfg.use_nsga2,
+                                        tarpeian_probability: cfg.tarpeian_probability,
+                                        hoist_mutation_rate: cfg.hoist_mutation_rate,
+                                        constant_optimization_interval: cfg.constant_optimization_interval,
+                                        max_generations:  state.max_generations,
+                                        target_error: state.target_error,
+                                        correlation_threshold: state.correlation_threshold,
+                                        achieved_error: None,
+                                    }
+                                } else {
+                                    // fallback default (zeroed but preserve run-level params)
+                                        ParameterSet {
+                                            population_size: 0,
+                                            max_depth: 0,
+                                            mutation_rate: 0.0,
+                                            crossover_rate: 0.0,
+                                            tournament_size: 0,
+                                            elite_count: 0,
+                                            use_nsga2: false,
+                                            tarpeian_probability: 0.0,
+                                            hoist_mutation_rate: 0.0,
+                                            constant_optimization_interval: 0,
+                                            max_generations: state.max_generations,
+                                            target_error: state.target_error,
+                                            correlation_threshold: state.correlation_threshold,
+                                            achieved_error: None,
+                                        }
+                                }
+                            } else {
+                                ParameterSet {
+                                    population_size: 0,
+                                    max_depth: 0,
+                                    mutation_rate: 0.0,
+                                    crossover_rate: 0.0,
+                                    tournament_size: 0,
+                                    elite_count: 0,
+                                    use_nsga2: false,
+                                    tarpeian_probability: 0.0,
+                                    hoist_mutation_rate: 0.0,
+                                    constant_optimization_interval: 0,
+                                    max_generations: state.max_generations,
+                                    target_error: state.target_error,
+                                    correlation_threshold: state.correlation_threshold,
+                                    achieved_error: None,
+                                }
+                            };
+
+                            for (k, v) in values {
+                                match k.as_str() {
+                                    "population_size" => pset.population_size = v as usize,
+                                    "max_depth" => pset.max_depth = v as usize,
+                                    "mutation_rate" => pset.mutation_rate = v,
+                                    "crossover_rate" => pset.crossover_rate = v,
+                                    "tournament_size" => pset.tournament_size = v as usize,
+                                    "elite_count" => pset.elite_count = v as usize,
+                                    "tarpeian_probability" => pset.tarpeian_probability = v,
+                                    "hoist_mutation_rate" => pset.hoist_mutation_rate = v,
+                                    "constant_optimization_interval" => pset.constant_optimization_interval = v as usize,
+                                    "max_generations" => pset.max_generations = v as u64,
+                                    _ => {}
+                                }
+                            }
+
+                            pset
+                        };
+
+                        // If currently in refinement mode, check refinement iteration
+                        if sweep_config.in_refinement_mode {
+                            if sweep_config.refinement_current_iteration < sweep_config.refinement_total_iterations {
+                                // Start next refinement iteration
+                                let idx = sweep_config.refinement_current_iteration;
+                                if let Some(ref ranges) = sweep_config.refinement_ranges {
+                                    let pset = compute_params_from_ranges(ranges, &state.shared_config, &sweep_config.parameters_to_sweep, idx);
+                                    apply_params(&mut state, &pset);
+                                    // spawn solver: create fresh shutdown flag
+                                    let shutdown_flag = Arc::new(AtomicBool::new(false));
+                                    state.shutdown_flag = Some(shutdown_flag.clone());
+                                    let solver_tx = tx.clone();
+                                    let solver_shutdown = shutdown_flag.clone();
+                                    let solver_config = state.shared_config.clone().unwrap();
+                                    let worker_id = state.worker_id;
+                                    let user_max_generations = state.max_generations;
+                                    let user_target_error = state.target_error;
+                                    let user_correlation_threshold = state.correlation_threshold;
+                                    state.solver_running = true;
+                                    thread::spawn(move || run_solver(worker_id, solver_tx, solver_shutdown, solver_config, user_max_generations, user_target_error, user_correlation_threshold));
+                                    push_log(&mut state, format!("Started refinement run {}/{} for parent iter {}", idx+1, sweep_config.refinement_total_iterations, sweep_config.refinement_parent_iteration.unwrap_or(0)));
+                                    // increment refinement counter for next time
+                                    let mut sc = sweep_config.clone();
+                                    sc.refinement_current_iteration += 1;
+                                    state.sweep_config = Some(sc);
+                                    continue;
+                                }
+                            } else {
+                                // Finished refinement block; exit refinement mode
+                                sweep_config.in_refinement_mode = false;
+                                sweep_config.refinement_ranges = None;
+                                sweep_config.refinement_current_iteration = 0;
+                                sweep_config.refinement_total_iterations = 0;
+                                sweep_config.refinement_parent_iteration = None;
+                                sweep_config.current_refinement += 1;
+                                // After finishing refinement, if main sweep still has iterations, start next
+                                if sweep_config.current_iteration < sweep_config.total_iterations {
+                                    do_start_next = true;
+                                }
+                            }
+                        } else {
+                            // Not in refinement mode: if main sweep still has iterations, start next
+                            if sweep_config.current_iteration < sweep_config.total_iterations {
+                                do_start_next = true;
+                            } else {
+                                // main sweep exhausted — consider kicking off local refinement around this result
+                                if sweep_config.refinement_enabled && (state.best_error > state.target_error) && (sweep_config.current_refinement < sweep_config.max_refinements) {
+                                    // Build refinement ranges centered at current_params
+                                    let mut rmap: std::collections::HashMap<String,(f64,f64,f64)> = std::collections::HashMap::new();
+                                    for param in &sweep_config.parameters_to_sweep {
+                                        if let Some((orig_min, orig_max, orig_step)) = sweep_config.ranges.get(param) {
+                                            // find center value from current_params
+                                            let center = if let Some(v) = match param.as_str() {
+                                                "population_size" => Some(current_params.population_size as f64),
+                                                "max_depth" => Some(current_params.max_depth as f64),
+                                                "mutation_rate" => Some(current_params.mutation_rate),
+                                                "crossover_rate" => Some(current_params.crossover_rate),
+                                                "tournament_size" => Some(current_params.tournament_size as f64),
+                                                "elite_count" => Some(current_params.elite_count as f64),
+                                                _ => None,
+                                            } { v } else { *orig_min };
+
+                                            let half = *orig_step; // use original step as radius
+                                            let new_min = (center - half).max(*orig_min);
+                                            let new_max = (center + half).min(*orig_max);
+                                            let new_step = (*orig_step) * sweep_config.refinement_factor;
+                                            rmap.insert(param.clone(), (new_min, new_max, new_step));
+                                        }
+                                    }
+                                    // compute refinement iteration count
+                                    let mut total = 1usize;
+                                    for (_, (min,max,step)) in &rmap {
+                                        let iters = (((max - min) / step).ceil() as usize) + 1;
+                                        total *= iters.max(1);
+                                    }
+                                    sweep_config.in_refinement_mode = true;
+                                    sweep_config.refinement_ranges = Some(rmap);
+                                    sweep_config.refinement_total_iterations = total;
+                                    sweep_config.refinement_current_iteration = 0;
+                                    sweep_config.refinement_parent_iteration = Some(sweep_config.current_iteration.saturating_sub(1));
+                                    // start first refinement run immediately if any
+                                    if sweep_config.refinement_total_iterations > 0 {
+                                        if let Some(ref ranges) = &sweep_config.refinement_ranges {
+                                            let pset = compute_params_from_ranges(ranges, &state.shared_config, &sweep_config.parameters_to_sweep, 0);
+                                            apply_params(&mut state, &pset);
+                                            let shutdown_flag = Arc::new(AtomicBool::new(false));
+                                            state.shutdown_flag = Some(shutdown_flag.clone());
+                                            let solver_tx = tx.clone();
+                                            let solver_shutdown = shutdown_flag.clone();
+                                            let solver_config = state.shared_config.clone().unwrap();
+                                            let worker_id = state.worker_id;
+                                            let user_max_generations = state.max_generations;
+                                            let user_target_error = state.target_error;
+                                            let user_correlation_threshold = state.correlation_threshold;
+                                            state.solver_running = true;
+                                            thread::spawn(move || run_solver(worker_id, solver_tx, solver_shutdown, solver_config, user_max_generations, user_target_error, user_correlation_threshold));
+                                            push_log(&mut state, format!("Started refinement run 1/{} for parent iter {}", sweep_config.refinement_total_iterations, sweep_config.refinement_parent_iteration.unwrap_or(0)));
+                                            // increment refinement counter
+                                            let mut sc = sweep_config.clone();
+                                            sc.refinement_current_iteration = 1;
+                                            state.sweep_config = Some(sc);
+                                            continue;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // If requested, start next main-sweep iteration
+                        if do_start_next {
+                            // compute next parameter combination index (current_iteration is already incremented)
+                            let next_idx = sweep_config.current_iteration.saturating_sub(1);
+                            // compute ParameterSet for this iteration
+                            let pset = compute_params_from_ranges(&sweep_config.ranges, &state.shared_config, &sweep_config.parameters_to_sweep, next_idx);
+                            apply_params(&mut state, &pset);
+                            // Spawn solver for next iteration
+                            let shutdown_flag = Arc::new(AtomicBool::new(false));
+                            state.shutdown_flag = Some(shutdown_flag.clone());
+                            let solver_tx = tx.clone();
+                            let solver_shutdown = shutdown_flag.clone();
+                            let solver_config = state.shared_config.clone().unwrap();
+                            let worker_id = state.worker_id;
+                            let user_max_generations = state.max_generations;
+                            let user_target_error = state.target_error;
+                            let user_correlation_threshold = state.correlation_threshold;
+                            state.solver_running = true;
+                            thread::spawn(move || run_solver(worker_id, solver_tx, solver_shutdown, solver_config, user_max_generations, user_target_error, user_correlation_threshold));
+                            push_log(&mut state, format!("Started sweep run {}/{}", sweep_config.current_iteration, sweep_config.total_iterations));
+                            // persist updated sweep_config back into state
+                            state.sweep_config = Some(sweep_config);
+                            continue;
+                        }
+
+                        // Otherwise, simply persist the updated sweep_config
+                        state.sweep_config = Some(sweep_config);
+                    }
                 }
             }
         }
@@ -848,4 +1195,68 @@ fn synthetic_job() -> RemoteJob {
 struct Individual {
     expr: Expr,
     fitness: f64,
+}
+
+/// Save parameter sweep results to a JSON file
+fn save_sweep_results(sweep_config: &SweepConfig) {
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let filename = format!("sweep_results_{}.json", ts);
+
+    let results_json = serde_json::json!({
+        "total_iterations": sweep_config.total_iterations,
+        "current_iteration": sweep_config.current_iteration,
+        "parameters_swept": sweep_config.parameters_to_sweep,
+        "best_error": sweep_config.best_error,
+        "best_parameters": sweep_config.best_params,
+        "refinement_enabled": sweep_config.refinement_enabled,
+        "max_refinements": sweep_config.max_refinements,
+        "refinement_factor": sweep_config.refinement_factor,
+        "all_results": sweep_config.results.iter().map(|(params, error)| {
+            serde_json::json!({
+                "parameters": params,
+                "achieved_error": error
+            })
+        }).collect::<Vec<_>>()
+    });
+
+    match std::env::current_dir() {
+        Ok(dir) => {
+            let path = dir.join(&filename);
+            match std::fs::write(&path, serde_json::to_string_pretty(&results_json).unwrap_or_default()) {
+                Ok(_) => {
+                    eprintln!("Sweep results saved to {}", path.display());
+                }
+                Err(e) => {
+                    eprintln!("Failed to write sweep results file: {}", e);
+                }
+            }
+            // Also append CSV summary for easier analysis
+            let csv_name = format!("sweep_results_{}.csv", ts);
+            let csv_path = dir.join(&csv_name);
+            let mut wtr = match std::fs::OpenOptions::new().create(true).append(true).open(&csv_path) {
+                Ok(f) => csv::Writer::from_writer(f),
+                Err(_) => {
+                    // fallback: create new file
+                    match std::fs::File::create(&csv_path) {
+                        Ok(f) => csv::Writer::from_writer(f),
+                        Err(_) => return,
+                    }
+                }
+            };
+            // Write header if file is new/empty
+            let _ = wtr.write_record(&["iteration","param_json","achieved_error","run_durations"]);
+            for (i, (params, err)) in sweep_config.results.iter().enumerate() {
+                let param_json = serde_json::to_string(params).unwrap_or_default();
+                let durations = sweep_config.run_durations.iter().map(|d| d.to_string()).collect::<Vec<_>>().join(";");
+                let _ = wtr.write_record(&[i.to_string(), param_json, format!("{:.6}", err), durations]);
+            }
+            let _ = wtr.flush();
+        }
+        Err(e) => {
+            eprintln!("Failed to determine current directory: {}", e);
+        }
+    }
 }

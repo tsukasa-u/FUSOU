@@ -1,0 +1,47 @@
+{
+  "all_results": [
+    {
+      "achieved_error": 29.321816994983458,
+      "parameters": {
+        "achieved_error": 29.321816994983458,
+        "constant_optimization_interval": 10,
+        "correlation_threshold": 0.1,
+        "crossover_rate": 0.85,
+        "elite_count": 12,
+        "hoist_mutation_rate": 0.1,
+        "max_depth": 6,
+        "max_generations": 1,
+        "mutation_rate": 0.5,
+        "population_size": 96,
+        "target_error": 0.001,
+        "tarpeian_probability": 0.5,
+        "tournament_size": 6,
+        "use_nsga2": true
+      }
+    }
+  ],
+  "best_error": 29.321816994983458,
+  "best_parameters": {
+    "achieved_error": 29.321816994983458,
+    "constant_optimization_interval": 10,
+    "correlation_threshold": 0.1,
+    "crossover_rate": 0.85,
+    "elite_count": 12,
+    "hoist_mutation_rate": 0.1,
+    "max_depth": 6,
+    "max_generations": 1,
+    "mutation_rate": 0.5,
+    "population_size": 96,
+    "target_error": 0.001,
+    "tarpeian_probability": 0.5,
+    "tournament_size": 6,
+    "use_nsga2": true
+  },
+  "current_iteration": 1,
+  "parameters_swept": [
+    "mutation_rate",
+    "max_depth",
+    "population_size"
+  ],
+  "total_iterations": 240
+}
