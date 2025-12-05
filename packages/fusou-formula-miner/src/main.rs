@@ -209,7 +209,8 @@ fn run_solver(worker_id: Uuid, tx: Sender<AppEvent>) {
     config.population_size = (num_vars.max(1) * 24).clamp(48, 256);
     config.elite_count = (config.population_size / 8).max(2);
     config.tournament_size = config.population_size.min(6).max(2);
-    config.mutation_rate = (0.15 + (1.0 / num_vars as f64)).min(0.4);
+    // Increased base mutation rate from 0.15 to 0.25 to better escape local optima
+    config.mutation_rate = (0.25 + (1.0 / num_vars as f64)).min(0.5);
     config.crossover_rate = 0.85;
 
     let _ = tx.send(AppEvent::PhaseChange(Phase::Solving));
@@ -368,7 +369,13 @@ fn evaluate(expr: &Expr, data: &[(Vec<f64>, f64)]) -> f64 {
             return f64::MAX;
         }
     }
-    crate::statistics::rmse(sum_sq, data.len())
+    let rmse = crate::statistics::rmse(sum_sq, data.len());
+    
+    // Add parsimony pressure: penalize complex expressions
+    // Each node adds 0.02 to the error (increased from 0.01 for stronger pressure)
+    // This encourages the GA to prefer simpler, more interpretable solutions
+    let complexity_penalty = expr.size() as f64 * 0.02;
+    rmse + complexity_penalty
 }
 
 fn tournament_select<'a, R: Rng + ?Sized>(

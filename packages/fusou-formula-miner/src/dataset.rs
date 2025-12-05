@@ -294,7 +294,8 @@ pub fn synthetic_dataset() -> Dataset {
         "Timestamp".into(),
     ]);
 
-    for i in 0..128 {
+    // Increased sample count from 128 to 500 to reduce overfitting to noise
+    for i in 0..500 {
         let atk = rng.gen_range(50.0..250.0);
         let def = rng.gen_range(5.0..120.0);
         let luck = rng.gen_range(0.0..100.0);
