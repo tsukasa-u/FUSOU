@@ -225,16 +225,49 @@ pub fn random_expr<R: Rng + ?Sized>(rng: &mut R, max_depth: usize, num_vars: usi
         return random_leaf(rng, num_vars);
     }
 
+    // Decide whether to create an operator node or a leaf.
+    // Keep the original operator vs leaf ratio (3/5 operators, 2/5 leaves),
+    // but when an operator is chosen, pick uniformly among all operators
+    // (both binary and unary) so each operator's occurrence probability is
+    // roughly equal.
     match rng.gen_range(0..5) {
-        0 | 1 => Expr::Binary {
-            op: random_binary_op(rng),
-            left: Box::new(random_expr(rng, max_depth - 1, num_vars)),
-            right: Box::new(random_expr(rng, max_depth - 1, num_vars)),
-        },
-        2 => Expr::Unary {
-            op: random_unary_op(rng),
-            child: Box::new(random_expr(rng, max_depth - 1, num_vars)),
-        },
+        0 | 1 | 2 => {
+            // There are 6 binary ops and 7 unary ops (total 13).
+            let total_ops = 13;
+            let op_idx = rng.gen_range(0..total_ops);
+            if op_idx < 6 {
+                // binary operator
+                let op = match op_idx {
+                    0 => BinaryOp::Add,
+                    1 => BinaryOp::Sub,
+                    2 => BinaryOp::Mul,
+                    3 => BinaryOp::Div,
+                    4 => BinaryOp::Min,
+                    _ => BinaryOp::Max,
+                };
+                Expr::Binary {
+                    op,
+                    left: Box::new(random_expr(rng, max_depth - 1, num_vars)),
+                    right: Box::new(random_expr(rng, max_depth - 1, num_vars)),
+                }
+            } else {
+                // unary operator
+                let u_idx = op_idx - 6;
+                let op = match u_idx {
+                    0 => UnaryOp::Identity,
+                    1 => UnaryOp::Floor,
+                    2 => UnaryOp::Exp,
+                    3 => UnaryOp::Pow,
+                    4 => UnaryOp::Step,
+                    5 => UnaryOp::Log,
+                    _ => UnaryOp::Sqrt,
+                };
+                Expr::Unary {
+                    op,
+                    child: Box::new(random_expr(rng, max_depth - 1, num_vars)),
+                }
+            }
+        }
         _ => random_leaf(rng, num_vars),
     }
 }
