@@ -26,12 +26,18 @@ mod statistics;
 mod ui;
 mod smart_init;
 mod residual_learning;
+mod nsga2;
+mod bloat_control;
+mod constant_opt;
 
 use dataset::synthetic_dataset;
 use network::{JobSubmission, RemoteJob, WorkerClient};
 use solver::{crossover, mutate, Expr, GeneticConfig};
 use smart_init::{DataStats, smart_init};
 use state::{AppEvent, JobSummary, Phase, SolverState};
+use nsga2::{MultiObjectiveIndividual, nsga2_selection, nsga2_tournament_select};
+use bloat_control::{tarpeian_penalty, hoist_mutation, average_size};
+use constant_opt::optimize_constants;
 
 fn main() -> Result<()> {
     enable_raw_mode()?;
@@ -290,27 +296,52 @@ fn run_solver(worker_id: Uuid, tx: Sender<AppEvent>, shutdown: Arc<AtomicBool>) 
             break;
         }
         let _ = tx.send(AppEvent::Log(format!(
-            "Optimization attempt {}/{} (max {} generations per attempt)",
-            attempt + 1, config.max_attempts, job.max_generations
+            "Optimization attempt {}/{} (max {} generations per attempt) - Using {} mode",
+            attempt + 1, config.max_attempts, job.max_generations,
+            if config.use_nsga2 { "NSGA-II multi-objective" } else { "single-objective" }
         )));
 
         // Create population with smart initialization (Approach 1 & 2)
-        let mut population: Vec<Individual> = smart_init(
+        let smart_population: Vec<Expr> = smart_init(
             &job.dataset,
             &data_stats,
             config.population_size,
             config.max_depth,
             num_vars,
             &mut rng,
-        )
-        .into_iter()
-        .map(|expr| Individual {
-            expr,
-            fitness: f64::MAX,
-        })
-        .collect();
+        );
 
-        let mut best_expr = population[0].expr.clone();
+        // Initialize population based on optimization mode
+        let mut population: Vec<Individual>;
+        let mut mo_population: Vec<MultiObjectiveIndividual>;
+        
+        if config.use_nsga2 {
+            // Multi-objective mode
+            mo_population = smart_population
+                .into_iter()
+                .map(|expr| {
+                    let error = evaluate_error_only(&expr, &data);
+                    MultiObjectiveIndividual::new(expr, error)
+                })
+                .collect();
+            population = Vec::new(); // Not used in NSGA-II mode
+        } else {
+            // Single-objective mode (legacy)
+            population = smart_population
+                .into_iter()
+                .map(|expr| Individual {
+                    expr,
+                    fitness: f64::MAX,
+                })
+                .collect();
+            mo_population = Vec::new(); // Not used in single-objective mode
+        }
+
+        let mut best_expr = if config.use_nsga2 {
+            mo_population[0].expr.clone()
+        } else {
+            population[0].expr.clone()
+        };
         let mut best_error = f64::MAX;
         let mut best_generation = 0u64;
         let mut last_emit = Instant::now();
@@ -324,81 +355,205 @@ fn run_solver(worker_id: Uuid, tx: Sender<AppEvent>, shutdown: Arc<AtomicBool>) 
                 )));
                 break;
             }
-        for individual in &mut population {
-            if !individual.fitness.is_finite() || individual.fitness == f64::MAX {
-                individual.fitness = evaluate(&individual.expr, &data);
-            }
-        }
 
-        population.sort_by(|a, b| match a.fitness.partial_cmp(&b.fitness) {
-            Some(ordering) => ordering,
-            None => Ordering::Equal,
-        });
-
-        if let Some(leader) = population.first() {
-            if leader.fitness.is_finite() && leader.fitness < best_error {
-                best_error = leader.fitness;
-                best_expr = leader.expr.clone();
-                best_generation = generation;
-                last_emit = Instant::now();
-                let _ = tx.send(AppEvent::Update(
-                    generation,
-                    best_error,
-                    best_expr.to_string(&var_names),
-                ));
-            } else if last_emit.elapsed() >= Duration::from_millis(250) {
-                last_emit = Instant::now();
-                let _ = tx.send(AppEvent::Update(
-                    generation,
-                    best_error,
-                    best_expr.to_string(&var_names),
-                ));
-            }
-        }
-
-        if best_error <= job.target_error {
-            let _ = tx.send(AppEvent::Log(format!(
-                "Target RMSE {:.6} achieved at generation {}",
-                best_error, generation
-            )));
-            break;
-        }
-
-        if generation >= job.max_generations {
-            break;
-        }
-
-        let mut next_population = Vec::with_capacity(config.population_size);
-        for elite in population.iter().take(config.elite_count.min(population.len())) {
-            next_population.push(Individual {
-                expr: elite.expr.clone(),
-                fitness: f64::MAX,
-            });
-        }
-
-        while next_population.len() < config.population_size {
-            let parent_a = tournament_select(&population, config.tournament_size, &mut rng);
-            if rng.gen_bool(config.crossover_rate) {
-                let parent_b = tournament_select(&population, config.tournament_size, &mut rng);
-                let mut child_expr = crossover(&parent_a.expr, &parent_b.expr, &mut rng);
-                if rng.gen_bool(config.mutation_rate) {
-                    child_expr = mutate(&child_expr, &mut rng, num_vars, config.max_depth);
+            if config.use_nsga2 {
+                // NSGA-II multi-objective optimization
+                // Perform non-dominated sorting and calculate crowding distance
+                nsga2_selection(&mut mo_population);
+                
+                // Find best (rank 0, lowest error)
+                let rank0: Vec<&MultiObjectiveIndividual> = mo_population
+                    .iter()
+                    .filter(|ind| ind.rank == 0)
+                    .collect();
+                
+                if let Some(leader) = rank0.iter().min_by(|a, b| {
+                    a.error.partial_cmp(&b.error).unwrap_or(Ordering::Equal)
+                }) {
+                    if leader.error.is_finite() && leader.error < best_error {
+                        best_error = leader.error;
+                        best_expr = leader.expr.clone();
+                        best_generation = generation;
+                        last_emit = Instant::now();
+                        let _ = tx.send(AppEvent::Update(
+                            generation,
+                            best_error,
+                            best_expr.to_string(&var_names),
+                        ));
+                    } else if last_emit.elapsed() >= Duration::from_millis(250) {
+                        last_emit = Instant::now();
+                        let _ = tx.send(AppEvent::Update(
+                            generation,
+                            best_error,
+                            best_expr.to_string(&var_names),
+                        ));
+                    }
                 }
-                next_population.push(Individual {
-                    expr: child_expr,
-                    fitness: f64::MAX,
-                });
-            } else {
-                let mut child_expr = parent_a.expr.clone();
-                child_expr = mutate(&child_expr, &mut rng, num_vars, config.max_depth);
-                next_population.push(Individual {
-                    expr: child_expr,
-                    fitness: f64::MAX,
-                });
-            }
-        }
 
-        population = next_population;
+                if best_error <= job.target_error {
+                    let _ = tx.send(AppEvent::Log(format!(
+                        "Target RMSE {:.6} achieved at generation {}",
+                        best_error, generation
+                    )));
+                    break;
+                }
+
+                if generation >= job.max_generations {
+                    break;
+                }
+
+                // Constant optimization periodically
+                if config.constant_optimization_interval > 0 
+                    && generation % (config.constant_optimization_interval as u64) == 0 
+                    && generation > 0 {
+                    let _ = tx.send(AppEvent::Log(format!(
+                        "Optimizing constants at generation {}...", generation
+                    )));
+                    let elite_count = config.elite_count.min(mo_population.len());
+                    for i in 0..elite_count {
+                        let optimized = optimize_constants(&mo_population[i].expr, &data, 20, 0.01);
+                        let new_error = evaluate_error_only(&optimized, &data);
+                        if new_error < mo_population[i].error {
+                            mo_population[i].expr = optimized;
+                            mo_population[i].error = new_error;
+                            mo_population[i].size = mo_population[i].expr.size();
+                        }
+                    }
+                }
+
+                // Generate next generation
+                let mut next_mo_population = Vec::with_capacity(config.population_size);
+                
+                // Elitism: Keep best individuals from rank 0
+                let mut elites: Vec<MultiObjectiveIndividual> = mo_population
+                    .iter()
+                    .filter(|ind| ind.rank == 0)
+                    .take(config.elite_count.min(mo_population.len()))
+                    .cloned()
+                    .collect();
+                next_mo_population.append(&mut elites);
+
+                while next_mo_population.len() < config.population_size {
+                    let parent_a = nsga2_tournament_select(&mo_population, config.tournament_size, &mut rng);
+                    
+                    let mut child_expr = if rng.gen_bool(config.crossover_rate) {
+                        let parent_b = nsga2_tournament_select(&mo_population, config.tournament_size, &mut rng);
+                        crossover(&parent_a.expr, &parent_b.expr, &mut rng)
+                    } else {
+                        parent_a.expr.clone()
+                    };
+
+                    // Apply mutations
+                    if rng.gen_bool(config.mutation_rate) {
+                        child_expr = mutate(&child_expr, &mut rng, num_vars, config.max_depth);
+                    }
+                    
+                    // Hoist mutation for bloat control
+                    if rng.gen_bool(config.hoist_mutation_rate) {
+                        child_expr = hoist_mutation(&child_expr, &mut rng);
+                    }
+
+                    let child_error = evaluate_error_only(&child_expr, &data);
+                    next_mo_population.push(MultiObjectiveIndividual::new(child_expr, child_error));
+                }
+
+                mo_population = next_mo_population;
+                
+            } else {
+                // Single-objective optimization (legacy path with Tarpeian method)
+                // Calculate average size for Tarpeian method
+                let sizes: Vec<usize> = population.iter().map(|ind| ind.expr.size()).collect();
+                let avg_size = average_size(&sizes);
+                
+                for individual in &mut population {
+                    if !individual.fitness.is_finite() || individual.fitness == f64::MAX {
+                        let error = evaluate_error_only(&individual.expr, &data);
+                        let size = individual.expr.size();
+                        
+                        // Apply Tarpeian penalty
+                        individual.fitness = tarpeian_penalty(
+                            error,
+                            size,
+                            avg_size,
+                            config.tarpeian_probability,
+                            &mut rng,
+                        );
+                    }
+                }
+
+                population.sort_by(|a, b| match a.fitness.partial_cmp(&b.fitness) {
+                    Some(ordering) => ordering,
+                    None => Ordering::Equal,
+                });
+
+                if let Some(leader) = population.first() {
+                    let actual_error = evaluate_error_only(&leader.expr, &data);
+                    if actual_error.is_finite() && actual_error < best_error {
+                        best_error = actual_error;
+                        best_expr = leader.expr.clone();
+                        best_generation = generation;
+                        last_emit = Instant::now();
+                        let _ = tx.send(AppEvent::Update(
+                            generation,
+                            best_error,
+                            best_expr.to_string(&var_names),
+                        ));
+                    } else if last_emit.elapsed() >= Duration::from_millis(250) {
+                        last_emit = Instant::now();
+                        let _ = tx.send(AppEvent::Update(
+                            generation,
+                            best_error,
+                            best_expr.to_string(&var_names),
+                        ));
+                    }
+                }
+
+                if best_error <= job.target_error {
+                    let _ = tx.send(AppEvent::Log(format!(
+                        "Target RMSE {:.6} achieved at generation {}",
+                        best_error, generation
+                    )));
+                    break;
+                }
+
+                if generation >= job.max_generations {
+                    break;
+                }
+
+                let mut next_population = Vec::with_capacity(config.population_size);
+                for elite in population.iter().take(config.elite_count.min(population.len())) {
+                    next_population.push(Individual {
+                        expr: elite.expr.clone(),
+                        fitness: f64::MAX,
+                    });
+                }
+
+                while next_population.len() < config.population_size {
+                    let parent_a = tournament_select(&population, config.tournament_size, &mut rng);
+                    
+                    let mut child_expr = if rng.gen_bool(config.crossover_rate) {
+                        let parent_b = tournament_select(&population, config.tournament_size, &mut rng);
+                        crossover(&parent_a.expr, &parent_b.expr, &mut rng)
+                    } else {
+                        parent_a.expr.clone()
+                    };
+                    
+                    if rng.gen_bool(config.mutation_rate) {
+                        child_expr = mutate(&child_expr, &mut rng, num_vars, config.max_depth);
+                    }
+                    
+                    if rng.gen_bool(config.hoist_mutation_rate) {
+                        child_expr = hoist_mutation(&child_expr, &mut rng);
+                    }
+                    
+                    next_population.push(Individual {
+                        expr: child_expr,
+                        fitness: f64::MAX,
+                    });
+                }
+
+                population = next_population;
+            }
         } // End of generation loop for this attempt
 
         // Track best result from this attempt
@@ -496,6 +651,27 @@ fn evaluate(expr: &Expr, data: &[(Vec<f64>, f64)]) -> f64 {
     // This encourages the GA to prefer simpler, more interpretable solutions
     let complexity_penalty = expr.size() as f64 * 0.02;
     rmse + complexity_penalty
+}
+
+/// Evaluate expression without complexity penalty (for NSGA-II multi-objective)
+fn evaluate_error_only(expr: &Expr, data: &[(Vec<f64>, f64)]) -> f64 {
+    let mut sum_sq: f64 = 0.0;
+    for (vars, target) in data {
+        let prediction = expr.eval(vars);
+        if !prediction.is_finite() {
+            return f64::MAX;
+        }
+        let diff = prediction - target;
+        let contribution = diff * diff;
+        if !contribution.is_finite() {
+            return f64::MAX;
+        }
+        sum_sq += contribution;
+        if !sum_sq.is_finite() {
+            return f64::MAX;
+        }
+    }
+    crate::statistics::rmse(sum_sq, data.len())
 }
 
 fn tournament_select<'a, R: Rng + ?Sized>(

@@ -19,6 +19,8 @@ pub enum UnaryOp {
     Exp,
     Pow,  // Power: x^2, x^3, etc. (implemented as x^0.5 for square root like behavior)
     Step, // Heaviside step: step(x) -> 1.0 if x>0 else 0.0
+    Log,  // Protected logarithm: log(|x| + 1e-6)
+    Sqrt, // Protected square root: sqrt(|x|)
 }
 
 #[derive(Clone, Debug)]
@@ -128,6 +130,14 @@ impl Expr {
                     UnaryOp::Step => {
                         if value > 0.0 { 1.0 } else { 0.0 }
                     }
+                    UnaryOp::Log => {
+                        // Protected log: log(|x| + epsilon) to avoid log(0) or log(negative)
+                        clamp((value.abs() + 1e-6).ln())
+                    }
+                    UnaryOp::Sqrt => {
+                        // Protected sqrt: sqrt(|x|) to avoid sqrt(negative)
+                        clamp(value.abs().sqrt())
+                    }
                 }
             }
             Expr::Binary { op, left, right } => {
@@ -162,6 +172,8 @@ impl Expr {
                 UnaryOp::Exp => format!("exp({})", child.to_string(vars)),
                 UnaryOp::Pow => format!("sqrt({})", child.to_string(vars)),
                 UnaryOp::Step => format!("step({})", child.to_string(vars)),
+                UnaryOp::Log => format!("log({})", child.to_string(vars)),
+                UnaryOp::Sqrt => format!("sqrt({})", child.to_string(vars)),
             },
             Expr::Binary { op, left, right } => match op {
                 BinaryOp::Add => format!("({} + {})", left.to_string(vars), right.to_string(vars)),
@@ -184,6 +196,10 @@ pub struct GeneticConfig {
     pub tournament_size: usize,
     pub elite_count: usize,
     pub max_attempts: usize,  // Number of times to retry GA if target not reached
+    pub use_nsga2: bool,      // Use NSGA-II multi-objective optimization
+    pub tarpeian_probability: f64,  // Probability of applying Tarpeian penalty (0.5 recommended)
+    pub hoist_mutation_rate: f64,   // Probability of applying hoist mutation (0.1 recommended)
+    pub constant_optimization_interval: usize,  // Optimize constants every N generations (0 = disabled)
 }
 
 impl Default for GeneticConfig {
@@ -196,6 +212,10 @@ impl Default for GeneticConfig {
             tournament_size: 3,
             elite_count: 4,
             max_attempts: 5,  // Default: try up to 5 times
+            use_nsga2: true,  // Enable multi-objective optimization by default
+            tarpeian_probability: 0.5,  // 50% chance to punish oversized individuals
+            hoist_mutation_rate: 0.1,   // 10% chance of hoist mutation
+            constant_optimization_interval: 10,  // Optimize constants every 10 generations
         }
     }
 }
@@ -301,12 +321,14 @@ fn random_binary_op<R: Rng + ?Sized>(rng: &mut R) -> BinaryOp {
 }
 
 fn random_unary_op<R: Rng + ?Sized>(rng: &mut R) -> UnaryOp {
-    match rng.gen_range(0..5) {
+    match rng.gen_range(0..7) {
         0 => UnaryOp::Identity,
         1 => UnaryOp::Floor,
         2 => UnaryOp::Exp,
         3 => UnaryOp::Pow,
-        _ => UnaryOp::Step,
+        4 => UnaryOp::Step,
+        5 => UnaryOp::Log,
+        _ => UnaryOp::Sqrt,
     }
 }
 

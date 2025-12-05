@@ -6,3 +6,7 @@ pub mod state;
 pub mod statistics;
 pub mod ui;
 pub mod worker_mgmt;
+pub mod nsga2;
+pub mod bloat_control;
+pub mod constant_opt;
+pub mod semantic_ops;
