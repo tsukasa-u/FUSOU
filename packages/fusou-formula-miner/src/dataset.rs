@@ -6,7 +6,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use uuid::Uuid;
 
 /// In-memory dataset representation shared by the preprocessing and solver stages.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Dataset {
     pub feature_names: Vec<String>,
     pub inputs: Vec<Vec<f64>>,

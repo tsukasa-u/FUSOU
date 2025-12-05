@@ -1,5 +1,7 @@
 use crate::mina::FocusedPanel;
 use std::path::PathBuf;
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -38,6 +40,10 @@ pub struct SolverState {
     pub target_error: f64,
     pub correlation_threshold: f64,
     pub last_error: Option<String>,
+    // Optional human-readable ground-truth expression (when synthetic dataset used)
+    pub target_formula: Option<String>,
+    // Shutdown flag for requesting the solver to stop early
+    pub shutdown_flag: Option<Arc<AtomicBool>>,
     // Subprocess management
     #[allow(dead_code)]
     pub worker_process_id: Option<u32>,
@@ -70,6 +76,8 @@ impl SolverState {
             target_error: 1e-3,
             correlation_threshold: 0.1,
             last_error: None,
+            target_formula: None,
+            shutdown_flag: None,
             worker_process_id: None,
             worker_results_dir: None,
             worker_started_at: None,
@@ -96,4 +104,5 @@ pub struct JobSummary {
     pub max_generations: u64,
     pub target_error: f64,
     pub correlation_threshold: f64,
+    pub ground_truth: Option<String>,
 }

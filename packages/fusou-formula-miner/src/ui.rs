@@ -85,6 +85,13 @@ fn render_status(f: &mut Frame, state: &SolverState, area: Rect) {
         features_preview
     );
 
+    // If a synthetic job provided a ground-truth formula, show it to the user
+    let summary = if let Some(gt) = &state.target_formula {
+        format!("{}\nGround truth: {}", summary, gt)
+    } else {
+        summary
+    };
+
     let summary_block = Paragraph::new(summary)
         .block(Block::default().borders(Borders::ALL).title("Job status"))
         .wrap(Wrap { trim: true });

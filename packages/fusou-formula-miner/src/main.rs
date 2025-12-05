@@ -10,6 +10,8 @@ use std::{
     cmp::Ordering,
     io,
     sync::mpsc::{self, Receiver, Sender},
+    sync::Arc,
+    sync::atomic::AtomicBool,
     thread,
     time::{Duration, Instant},
 };
@@ -22,10 +24,13 @@ mod solver;
 mod state;
 mod statistics;
 mod ui;
+mod smart_init;
+mod residual_learning;
 
 use dataset::synthetic_dataset;
 use network::{JobSubmission, RemoteJob, WorkerClient};
-use solver::{crossover, mutate, random_expr, Expr, GeneticConfig};
+use solver::{crossover, mutate, Expr, GeneticConfig};
+use smart_init::{DataStats, smart_init};
 use state::{AppEvent, JobSummary, Phase, SolverState};
 
 fn main() -> Result<()> {
@@ -38,11 +43,17 @@ fn main() -> Result<()> {
     let (tx, rx): (Sender<AppEvent>, Receiver<AppEvent>) = mpsc::channel();
     let worker_id = Uuid::new_v4();
 
+    // Prepare a shutdown flag shared between UI and solver thread
+    let shutdown_flag = Arc::new(AtomicBool::new(false));
+
+    // Create UI state and attach shutdown flag so /stop can signal solver
+    let mut state = SolverState::new(worker_id);
+    state.shutdown_flag = Some(shutdown_flag.clone());
+
     // Spawn solver thread
     let solver_tx = tx.clone();
-    thread::spawn(move || run_solver(worker_id, solver_tx));
-
-    let mut state = SolverState::new(worker_id);
+    let solver_shutdown = shutdown_flag.clone();
+    thread::spawn(move || run_solver(worker_id, solver_tx, solver_shutdown));
 
     loop {
         terminal.draw(|f| ui::render_ui(f, &state))?;
@@ -83,6 +94,7 @@ fn main() -> Result<()> {
                     state.max_generations = summary.max_generations;
                     state.target_error = summary.target_error;
                     state.correlation_threshold = summary.correlation_threshold;
+                    state.target_formula = summary.ground_truth.clone();
                     state.generation = 0;
                     state.progress = 0.0;
                 }
@@ -120,7 +132,7 @@ fn push_log(state: &mut SolverState, message: String) {
     state.log_scroll_offset = 0;
 }
 
-fn run_solver(worker_id: Uuid, tx: Sender<AppEvent>) {
+fn run_solver(worker_id: Uuid, tx: Sender<AppEvent>, shutdown: Arc<AtomicBool>) {
     let mut rng = rand::thread_rng();
     let _ = tx.send(AppEvent::Log(format!("Worker {worker_id} started")));
 
@@ -160,6 +172,13 @@ fn run_solver(worker_id: Uuid, tx: Sender<AppEvent>) {
         }
     };
 
+    // If this is a synthetic job, provide a human-readable ground-truth expression
+    let ground_truth = if job.job_id.is_nil() {
+        Some("dmg = max(atk - def, 1.0) * (1.5 if luck > 80 else 1.0)".to_string())
+    } else {
+        None
+    };
+
     let _ = tx.send(AppEvent::JobLoaded(JobSummary {
         job_id: if job.job_id.is_nil() { None } else { Some(job.job_id) },
         chunk_id: job.chunk_id,
@@ -168,6 +187,7 @@ fn run_solver(worker_id: Uuid, tx: Sender<AppEvent>) {
         max_generations: job.max_generations,
         target_error: job.target_error,
         correlation_threshold: job.correlation_threshold,
+        ground_truth: ground_truth.clone(),
     }));
 
     if job.dataset.is_empty() {
@@ -219,20 +239,73 @@ fn run_solver(worker_id: Uuid, tx: Sender<AppEvent>) {
         config.population_size, config.max_depth, job.max_generations
     )));
 
+    // Apply smart initialization (Approach 1: Linear/Power law analysis)
+    let _ = tx.send(AppEvent::Log("Analyzing dataset for smart initialization...".into()));
+    let data_stats = DataStats::analyze(&job.dataset);
+    
+    if data_stats.linear_r_squared > 0.7 {
+        let _ = tx.send(AppEvent::Log(format!(
+            "Linear pattern detected (R²: {:.3})",
+            data_stats.linear_r_squared
+        )));
+    }
+    if data_stats.power_r_squared > 0.7 {
+        let _ = tx.send(AppEvent::Log(format!(
+            "Power law pattern detected (R²: {:.3})",
+            data_stats.power_r_squared
+        )));
+    }
+
     let start_time = Instant::now();
-    let mut population: Vec<Individual> = (0..config.population_size)
-        .map(|_| Individual {
-            expr: random_expr(&mut rng, config.max_depth, num_vars),
+    
+    // Track best result across all attempts
+    let mut global_best_expr = Expr::Const(0.0);
+    let mut global_best_error = f64::MAX;
+    let mut global_best_attempt = 0;
+    let mut global_best_generation = 0u64;
+    
+    // Multi-attempt optimization loop
+    for attempt in 0..config.max_attempts {
+        // Respect external shutdown requests (e.g., from /stop)
+        if shutdown.load(std::sync::atomic::Ordering::SeqCst) {
+            let _ = tx.send(AppEvent::Log("Shutdown requested before attempt start - aborting.".into()));
+            break;
+        }
+        let _ = tx.send(AppEvent::Log(format!(
+            "Optimization attempt {}/{} (max {} generations per attempt)",
+            attempt + 1, config.max_attempts, job.max_generations
+        )));
+
+        // Create population with smart initialization (Approach 1 & 2)
+        let mut population: Vec<Individual> = smart_init(
+            &job.dataset,
+            &data_stats,
+            config.population_size,
+            config.max_depth,
+            num_vars,
+            &mut rng,
+        )
+        .into_iter()
+        .map(|expr| Individual {
+            expr,
             fitness: f64::MAX,
         })
         .collect();
 
-    let mut best_expr = population[0].expr.clone();
-    let mut best_error = f64::MAX;
-    let mut best_generation = 0u64;
-    let mut last_emit = Instant::now();
+        let mut best_expr = population[0].expr.clone();
+        let mut best_error = f64::MAX;
+        let mut best_generation = 0u64;
+        let mut last_emit = Instant::now();
 
-    for generation in 0..=job.max_generations {
+        for generation in 0..=job.max_generations {
+            // Check for shutdown each generation
+            if shutdown.load(std::sync::atomic::Ordering::SeqCst) {
+                let _ = tx.send(AppEvent::Log(format!(
+                    "Shutdown requested at generation {} - stopping attempt {}.",
+                    generation, attempt + 1
+                )));
+                break;
+            }
         for individual in &mut population {
             if !individual.fitness.is_finite() || individual.fitness == f64::MAX {
                 individual.fitness = evaluate(&individual.expr, &data);
@@ -308,14 +381,43 @@ fn run_solver(worker_id: Uuid, tx: Sender<AppEvent>) {
         }
 
         population = next_population;
-    }
+        } // End of generation loop for this attempt
+
+        // Track best result from this attempt
+        if best_error < global_best_error {
+            global_best_error = best_error;
+            global_best_expr = best_expr.clone();
+            global_best_attempt = attempt + 1;
+            global_best_generation = best_generation;
+            let _ = tx.send(AppEvent::Log(format!(
+                "New best found (Attempt {}): RMSE {:.6} at generation {}",
+                attempt + 1, best_error, best_generation
+            )));
+        }
+
+        // If target is reached, stop attempting
+        if best_error <= job.target_error {
+            let _ = tx.send(AppEvent::Log(format!(
+                "Target RMSE {:.6} achieved in attempt {} at generation {}",
+                best_error, attempt + 1, best_generation
+            )));
+            break;
+        }
+    } // End of attempt loop
 
     let duration_ms = start_time.elapsed().as_millis();
-    let expression_text = best_expr.to_string(&var_names);
+    let expression_text = global_best_expr.to_string(&var_names);
     let _ = tx.send(AppEvent::Log(format!(
-        "Best RMSE {:.6} at generation {} in {} ms",
-        best_error, best_generation, duration_ms
+        "Final result (Attempt {}): RMSE {:.6} at generation {} in {} ms",
+        global_best_attempt, global_best_error, global_best_generation, duration_ms
     )));
+    
+    // Update UI with final best result
+    let _ = tx.send(AppEvent::Update(
+        global_best_generation,
+        global_best_error,
+        expression_text.clone(),
+    ));
 
     if let Some(ref client) = client {
         if !job.job_id.is_nil() {
@@ -325,8 +427,8 @@ fn run_solver(worker_id: Uuid, tx: Sender<AppEvent>) {
                 worker_id,
                 chunk_id: job.chunk_id,
                 expression: expression_text.clone(),
-                error: best_error,
-                generation: best_generation,
+                error: global_best_error,
+                generation: global_best_generation,
                 features: job.dataset.feature_names.clone(),
                 duration_ms,
             };

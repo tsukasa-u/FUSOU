@@ -13,6 +13,7 @@ const COMMANDS: &[(&str, &str)] = &[
     ("/best", "Show current best formula"),
     ("/clear", "Clear all logs"),
     ("/quit", "Exit the application"),
+    ("/stop", "Stop current solver run"),
 ];
 
 // Handle simple commands from the user keyboard while the TUI runs.
@@ -75,6 +76,15 @@ fn update_suggestions(state: &mut SolverState) {
 fn execute_command(cmd: &str, state: &mut SolverState) -> bool {
     match cmd {
         "/quit" => return true,
+        "/stop" => {
+            if let Some(flag) = &state.shutdown_flag {
+                flag.store(true, std::sync::atomic::Ordering::SeqCst);
+                push_log(state, "Stop requested: signalling solver to stop...".into());
+            } else {
+                push_log(state, "No running solver to stop.".into());
+            }
+            return false;
+        }
         "/version" => {
             let v = format!("{} v{}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"));
             push_log(state, v);

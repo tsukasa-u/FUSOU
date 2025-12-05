@@ -17,6 +17,8 @@ pub enum UnaryOp {
     Identity,
     Floor,
     Exp,
+    Pow,  // Power: x^2, x^3, etc. (implemented as x^0.5 for square root like behavior)
+    Step, // Heaviside step: step(x) -> 1.0 if x>0 else 0.0
 }
 
 #[derive(Clone, Debug)]
@@ -93,9 +95,19 @@ impl Expr {
             }
             Expr::Unary { op, child } => {
                 let sc = child.simplify();
-                Expr::Unary {
-                    op: *op,
-                    child: Box::new(sc),
+                // Constant-fold step when possible
+                match (op, &sc) {
+                    (UnaryOp::Step, Expr::Const(c)) => {
+                        if *c > 0.0 {
+                            Expr::Const(1.0)
+                        } else {
+                            Expr::Const(0.0)
+                        }
+                    }
+                    _ => Expr::Unary {
+                        op: *op,
+                        child: Box::new(sc),
+                    },
                 }
             }
             _ => self.clone(),
@@ -112,6 +124,10 @@ impl Expr {
                     UnaryOp::Identity => clamp(value),
                     UnaryOp::Floor => clamp(value.floor()),
                     UnaryOp::Exp => clamp(value.clamp(-15.0, 15.0).exp()),
+                    UnaryOp::Pow => clamp(value.abs().powf(0.5)), // Square root behavior
+                    UnaryOp::Step => {
+                        if value > 0.0 { 1.0 } else { 0.0 }
+                    }
                 }
             }
             Expr::Binary { op, left, right } => {
@@ -144,6 +160,8 @@ impl Expr {
                 UnaryOp::Identity => child.to_string(vars),
                 UnaryOp::Floor => format!("floor({})", child.to_string(vars)),
                 UnaryOp::Exp => format!("exp({})", child.to_string(vars)),
+                UnaryOp::Pow => format!("sqrt({})", child.to_string(vars)),
+                UnaryOp::Step => format!("step({})", child.to_string(vars)),
             },
             Expr::Binary { op, left, right } => match op {
                 BinaryOp::Add => format!("({} + {})", left.to_string(vars), right.to_string(vars)),
@@ -165,6 +183,7 @@ pub struct GeneticConfig {
     pub crossover_rate: f64,
     pub tournament_size: usize,
     pub elite_count: usize,
+    pub max_attempts: usize,  // Number of times to retry GA if target not reached
 }
 
 impl Default for GeneticConfig {
@@ -176,6 +195,7 @@ impl Default for GeneticConfig {
             crossover_rate: 0.8,
             tournament_size: 3,
             elite_count: 4,
+            max_attempts: 5,  // Default: try up to 5 times
         }
     }
 }
@@ -281,10 +301,12 @@ fn random_binary_op<R: Rng + ?Sized>(rng: &mut R) -> BinaryOp {
 }
 
 fn random_unary_op<R: Rng + ?Sized>(rng: &mut R) -> UnaryOp {
-    match rng.gen_range(0..3) {
+    match rng.gen_range(0..5) {
         0 => UnaryOp::Identity,
         1 => UnaryOp::Floor,
-        _ => UnaryOp::Exp,
+        2 => UnaryOp::Exp,
+        3 => UnaryOp::Pow,
+        _ => UnaryOp::Step,
     }
 }
 
