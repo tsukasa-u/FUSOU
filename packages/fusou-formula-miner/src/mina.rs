@@ -12,6 +12,7 @@ const COMMANDS: &[(&str, &str)] = &[
     ("/version", "Show package name and version"),
     ("/best", "Show current best formula"),
     ("/clear", "Clear all logs"),
+    ("/copylogs", "Write logs to file and copy to clipboard if possible"),
     ("/quit", "Exit the application"),
     ("/stop", "Stop current solver run"),
 ];
@@ -92,6 +93,48 @@ fn update_suggestions(state: &mut SolverState) {
 }
 
 fn execute_command(cmd: &str, state: &mut SolverState) -> bool {
+    // Support runtime configuration via: /set <param> <value>
+    if let Some(rest) = cmd.strip_prefix("/set ") {
+        let mut parts = rest.split_whitespace();
+        if let (Some(key), Some(val)) = (parts.next(), parts.next()) {
+            let cfg_arc_opt = state.shared_config.clone();
+            if let Some(cfg_arc) = cfg_arc_opt {
+                match cfg_arc.lock() {
+                    Ok(mut cfg) => {
+                        let lower = key.to_lowercase();
+                        let res = match lower.as_str() {
+                            "population_size" => { cfg.population_size = val.parse().unwrap_or(cfg.population_size); true }
+                            "max_depth" => { cfg.max_depth = val.parse().unwrap_or(cfg.max_depth); true }
+                            "mutation_rate" => { cfg.mutation_rate = val.parse().unwrap_or(cfg.mutation_rate); true }
+                            "crossover_rate" => { cfg.crossover_rate = val.parse().unwrap_or(cfg.crossover_rate); true }
+                            "tournament_size" => { cfg.tournament_size = val.parse().unwrap_or(cfg.tournament_size); true }
+                            "elite_count" => { cfg.elite_count = val.parse().unwrap_or(cfg.elite_count); true }
+                            "use_nsga2" => { cfg.use_nsga2 = val.parse().unwrap_or(cfg.use_nsga2); true }
+                            "tarpeian_probability" => { cfg.tarpeian_probability = val.parse().unwrap_or(cfg.tarpeian_probability); true }
+                            "hoist_mutation_rate" => { cfg.hoist_mutation_rate = val.parse().unwrap_or(cfg.hoist_mutation_rate); true }
+                            "constant_optimization_interval" => { cfg.constant_optimization_interval = val.parse().unwrap_or(cfg.constant_optimization_interval); true }
+                            _ => false,
+                        };
+                        drop(cfg); // release lock before mutating state
+                        if res {
+                            push_log(state, format!("Config updated: {} = {}", key, val));
+                        } else {
+                            push_log(state, format!("Unknown config key: {}", key));
+                        }
+                    }
+                    Err(_) => {
+                        push_log(state, "Failed to acquire config lock".into());
+                    }
+                }
+            } else {
+                push_log(state, "No shared configuration available".into());
+            }
+        } else {
+            push_log(state, "Usage: /set <param> <value>".into());
+        }
+        return false;
+    }
+
     match cmd {
         "/quit" => return true,
         "/stop" => {
@@ -118,6 +161,65 @@ fn execute_command(cmd: &str, state: &mut SolverState) -> bool {
         }
         "/clear" => {
             state.logs.clear();
+        }
+        "/copylogs" => {
+            // Write logs to a timestamped file and try to copy to clipboard
+            let logs_text = state.logs.join("\n");
+            let ts = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+            let filename = format!("fusou_logs_{}.log", ts);
+            match std::env::current_dir() {
+                Ok(dir) => {
+                    let path = dir.join(&filename);
+                    match std::fs::write(&path, &logs_text) {
+                        Ok(_) => {
+                            push_log(state, format!("Logs written to {}", path.display()));
+
+                            // Try clipboard utilities in order
+                            let mut copied = false;
+                            let clipboard_cmds: &[(&str, &[&str])] = &[
+                                ("wl-copy", &[]),
+                                ("xclip", &["-selection", "clipboard"]),
+                                ("xsel", &["--clipboard", "--input"]),
+                            ];
+
+                            for (cmd, args) in clipboard_cmds {
+                                if which::which(cmd).is_ok() {
+                                    if let Ok(mut child) = std::process::Command::new(cmd)
+                                        .args(*args)
+                                        .stdin(std::process::Stdio::piped())
+                                        .spawn()
+                                    {
+                                        if let Some(mut stdin) = child.stdin.take() {
+                                            use std::io::Write;
+                                            let _ = stdin.write_all(logs_text.as_bytes());
+                                        }
+                                        if let Ok(status) = child.wait() {
+                                            if status.success() {
+                                                push_log(state, format!("Logs copied to clipboard via {}", cmd));
+                                                copied = true;
+                                                break;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            if !copied {
+                                push_log(state, "No clipboard utility found or copy failed; logs saved to file.".into());
+                            }
+                        }
+                        Err(e) => {
+                            push_log(state, format!("Failed to write logs to file: {}", e));
+                        }
+                    }
+                }
+                Err(e) => {
+                    push_log(state, format!("Failed to determine current directory: {}", e));
+                }
+            }
         }
         _ if !cmd.is_empty() => {
             push_log(

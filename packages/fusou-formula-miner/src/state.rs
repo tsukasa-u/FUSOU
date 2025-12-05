@@ -2,6 +2,7 @@ use crate::mina::FocusedPanel;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
+use std::sync::Mutex;
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -48,6 +49,8 @@ pub struct SolverState {
     pub shutdown_flag: Option<Arc<AtomicBool>>,
     // Is the worker running in online mode (connected to coordination server)?
     pub online: bool,
+    // Shared genetic configuration (allows UI to update GA parameters at runtime)
+    pub shared_config: Option<Arc<Mutex<crate::solver::GeneticConfig>>>,
     // Subprocess management
     #[allow(dead_code)]
     pub worker_process_id: Option<u32>,
@@ -84,6 +87,7 @@ impl SolverState {
             target_formula: None,
             shutdown_flag: None,
             online: false,
+            shared_config: None,
             worker_process_id: None,
             worker_results_dir: None,
             worker_started_at: None,

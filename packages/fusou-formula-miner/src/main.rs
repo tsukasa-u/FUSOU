@@ -10,7 +10,7 @@ use std::{
     cmp::Ordering,
     io,
     sync::mpsc::{self, Receiver, Sender},
-    sync::Arc,
+    sync::{Arc, Mutex},
     sync::atomic::AtomicBool,
     thread,
     time::{Duration, Instant},
@@ -56,10 +56,17 @@ fn main() -> Result<()> {
     let mut state = SolverState::new(worker_id);
     state.shutdown_flag = Some(shutdown_flag.clone());
 
-    // Spawn solver thread
+    // Prepare shared genetic configuration so UI can modify parameters at runtime
+    use std::sync::Mutex;
+    let shared_config = Arc::new(Mutex::new(GeneticConfig::default()));
+    // Expose shared_config to UI state so commands can update it
+    state.shared_config = Some(shared_config.clone());
+
+    // Spawn solver thread and pass shared config
     let solver_tx = tx.clone();
     let solver_shutdown = shutdown_flag.clone();
-    thread::spawn(move || run_solver(worker_id, solver_tx, solver_shutdown));
+    let solver_config = shared_config.clone();
+    thread::spawn(move || run_solver(worker_id, solver_tx, solver_shutdown, solver_config));
 
     loop {
         terminal.draw(|f| ui::render_ui(f, &state))?;
@@ -142,7 +149,7 @@ fn push_log(state: &mut SolverState, message: String) {
     state.log_scroll_offset = 0;
 }
 
-fn run_solver(worker_id: Uuid, tx: Sender<AppEvent>, shutdown: Arc<AtomicBool>) {
+fn run_solver(worker_id: Uuid, tx: Sender<AppEvent>, shutdown: Arc<AtomicBool>, shared_config: Arc<Mutex<GeneticConfig>>) {
     let mut rng = rand::thread_rng();
     let _ = tx.send(AppEvent::Log(format!("Worker {worker_id} started")));
 
@@ -248,20 +255,26 @@ fn run_solver(worker_id: Uuid, tx: Sender<AppEvent>, shutdown: Arc<AtomicBool>) 
         return;
     }
 
-    let mut config = GeneticConfig::default();
-    config.max_depth = (num_vars + 2).min(8);
-    config.population_size = (num_vars.max(1) * 24).clamp(48, 256);
-    config.elite_count = (config.population_size / 8).max(2);
-    config.tournament_size = config.population_size.min(6).max(2);
-    // Increased base mutation rate from 0.15 to 0.25 to better escape local optima
-    config.mutation_rate = (0.25 + (1.0 / num_vars as f64)).min(0.5);
-    config.crossover_rate = 0.85;
+    // Initialize shared config with sensible defaults derived from data
+    {
+        let mut cfg = shared_config.lock().unwrap();
+        cfg.max_depth = (num_vars + 2).min(8);
+        cfg.population_size = (num_vars.max(1) * 24).clamp(48, 256);
+        cfg.elite_count = (cfg.population_size / 8).max(2);
+        cfg.tournament_size = cfg.population_size.min(6).max(2);
+        // Increased base mutation rate from 0.15 to 0.25 to better escape local optima
+        cfg.mutation_rate = (0.25 + (1.0 / num_vars as f64)).min(0.5);
+        cfg.crossover_rate = 0.85;
+    }
 
     let _ = tx.send(AppEvent::PhaseChange(Phase::Solving));
-    let _ = tx.send(AppEvent::Log(format!(
-        "Solver configuration => population: {}, max depth: {}, max generations: {}",
-        config.population_size, config.max_depth, job.max_generations
-    )));
+    {
+        let cfg = shared_config.lock().unwrap();
+        let _ = tx.send(AppEvent::Log(format!(
+            "Solver configuration => population: {}, max depth: {}, max generations: {}",
+            cfg.population_size, cfg.max_depth, job.max_generations
+        )));
+    }
 
     // Apply smart initialization (Approach 1: Linear/Power law analysis)
     let _ = tx.send(AppEvent::Log("Analyzing dataset for smart initialization...".into()));
@@ -288,8 +301,13 @@ fn run_solver(worker_id: Uuid, tx: Sender<AppEvent>, shutdown: Arc<AtomicBool>) 
     let mut global_best_attempt = 0;
     let mut global_best_generation = 0u64;
     
+    // Read initial config snapshot; will refresh at each attempt
+    let mut config = shared_config.lock().unwrap().clone();
+
     // Multi-attempt optimization loop
     for attempt in 0..config.max_attempts {
+        // Refresh config from shared state so runtime changes take effect between attempts
+        config = shared_config.lock().unwrap().clone();
         // Respect external shutdown requests (e.g., from /stop)
         if shutdown.load(std::sync::atomic::Ordering::SeqCst) {
             let _ = tx.send(AppEvent::Log("Shutdown requested before attempt start - aborting.".into()));
@@ -302,13 +320,22 @@ fn run_solver(worker_id: Uuid, tx: Sender<AppEvent>, shutdown: Arc<AtomicBool>) 
         )));
 
         // Create population with smart initialization (Approach 1 & 2)
+        // Call smart_init with a progress sender so the UI shows initialization steps
         let smart_population: Vec<Expr> = smart_init(
             &job.dataset,
             &data_stats,
-            config.population_size,
-            config.max_depth,
+            {
+                // read current population_size from shared config
+                let cfg = shared_config.lock().unwrap();
+                cfg.population_size
+            },
+            {
+                let cfg = shared_config.lock().unwrap();
+                cfg.max_depth
+            },
             num_vars,
             &mut rng,
+            Some(&tx),
         );
 
         // Initialize population based on optimization mode

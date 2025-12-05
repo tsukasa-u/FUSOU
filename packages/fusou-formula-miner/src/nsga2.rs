@@ -66,7 +66,8 @@ pub fn non_dominated_sort(population: &[MultiObjectiveIndividual]) -> Vec<Vec<us
 
     // Build subsequent fronts
     let mut current_front = 0;
-    while !fronts[current_front].is_empty() {
+    // Iterate while current_front is a valid index and the front is not empty
+    while current_front < fronts.len() && !fronts[current_front].is_empty() {
         let mut next_front = Vec::new();
         
         for &i in &fronts[current_front] {
@@ -155,7 +156,7 @@ pub fn calculate_crowding_distance(
 
 /// Perform NSGA-II selection: assign ranks and crowding distances
 pub fn nsga2_selection(population: &mut Vec<MultiObjectiveIndividual>) {
-    let fronts = non_dominated_sort(population);
+    let fronts = non_dominated_sort(&population[..]);
     
     // Assign ranks
     for (rank, front) in fronts.iter().enumerate() {
@@ -164,7 +165,7 @@ pub fn nsga2_selection(population: &mut Vec<MultiObjectiveIndividual>) {
         }
         
         // Calculate crowding distance for this front
-        calculate_crowding_distance(population, front);
+        calculate_crowding_distance(&mut population[..], front);
     }
 }
 

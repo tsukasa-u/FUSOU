@@ -216,18 +216,25 @@ impl DataStats {
 }
 
 /// Smart initialization: creates population with informed guesses
+use std::sync::mpsc::Sender;
+use crate::state::AppEvent;
+
 pub fn smart_init<R: Rng + ?Sized>(
-    dataset: &Dataset,
+    _dataset: &Dataset,
     stats: &DataStats,
     population_size: usize,
     max_depth: usize,
     num_vars: usize,
     rng: &mut R,
+    progress_tx: Option<&Sender<AppEvent>>,
 ) -> Vec<Expr> {
     let mut population = Vec::new();
 
     // Approach 1: Add linear regression candidates if good fit
     if stats.linear_r_squared > 0.7 {
+        if let Some(tx) = progress_tx {
+            let _ = tx.send(AppEvent::Log(format!("Smart-init: linear pattern detected (R²: {:.3})", stats.linear_r_squared)));
+        }
         let expr = create_linear_expr(0, stats.linear_coeff, stats.linear_intercept);
         population.push(expr.clone());
         population.push(crate::solver::mutate(&expr, rng, num_vars, max_depth));
@@ -243,6 +250,9 @@ pub fn smart_init<R: Rng + ?Sized>(
 
     // Add power law candidates if good fit
     if stats.power_r_squared > 0.7 && stats.power_exponent.abs() < 3.0 {
+        if let Some(tx) = progress_tx {
+            let _ = tx.send(AppEvent::Log(format!("Smart-init: power-law pattern detected (R²: {:.3})", stats.power_r_squared)));
+        }
         let expr = create_power_expr(0, stats.power_coeff, stats.power_exponent);
         population.push(expr.clone());
         if population.len() < population_size {
@@ -251,9 +261,18 @@ pub fn smart_init<R: Rng + ?Sized>(
     }
 
     // Fill remaining with weighted random expressions (Approach 2)
+    // Fill remaining with weighted random expressions (Approach 2)
+    let mut generated = 0usize;
     while population.len() < population_size {
         let expr = random_expr_weighted(rng, max_depth, num_vars, &stats.feature_correlations);
         population.push(expr);
+        generated += 1;
+        if let Some(tx) = progress_tx {
+            // Send periodic progress every 10 generated or on completion
+            if generated % 10 == 0 || population.len() == population_size {
+                let _ = tx.send(AppEvent::Log(format!("Smart-init: generated {}/{} initial individuals", population.len(), population_size)));
+            }
+        }
     }
 
     population
@@ -274,13 +293,16 @@ fn create_linear_expr(var_idx: usize, coeff: f64, intercept: f64) -> Expr {
 
 /// Create power expression: a * Var(idx)^b
 fn create_power_expr(var_idx: usize, coeff: f64, exponent: f64) -> Expr {
+    // exponent currently not directly encoded as a numeric power node; use Pow unary op as placeholder
+    let base = Expr::Var(var_idx);
+    let pow_expr = Expr::Unary {
+        op: UnaryOp::Pow,
+        child: Box::new(base),
+    };
     Expr::Binary {
         op: BinaryOp::Mul,
         left: Box::new(Expr::Const(coeff.clamp(-10.0, 10.0))),
-        right: Box::new(Expr::Unary {
-            op: UnaryOp::Pow,
-            child: Box::new(Expr::Var(var_idx)),
-        }),
+        right: Box::new(pow_expr),
     }
 }
 
