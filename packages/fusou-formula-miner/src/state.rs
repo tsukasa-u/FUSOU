@@ -195,5 +195,13 @@ pub struct SweepConfig {
     pub run_durations: Vec<f64>,
     // Historical durations across the whole sweep (used to estimate ETA)
     pub historical_run_durations: Vec<f64>,
+    // Per-run generation history for the currently executing run
+    pub current_run_history: Vec<(u64, f64)>,
+    // Accumulated per-repeat histories for current parameter setting
+    pub accumulated_histories: Vec<Vec<(u64, f64)>>,
+    // Detailed JSON results (includes median/stddev and histories)
+    pub detailed_results: Vec<serde_json::Value>,
+    // When refining, consider top K previous results to compute refinement center
+    pub refinement_top_k: usize,
 }
 

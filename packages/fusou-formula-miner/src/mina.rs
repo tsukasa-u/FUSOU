@@ -1,4 +1,5 @@
 use crate::state::SolverState;
+use crate::dataset::synthetic_dataset;
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, MouseEvent, MouseEventKind};
 use std::sync::{Arc, atomic::Ordering};
 use std::thread;
@@ -25,8 +26,8 @@ const COMMANDS: &[(&str, &str)] = &[
     ("/export-params", "Export current parameters to JSON file"),
     ("/import-params", "Import parameters from JSON file: /import-params <file>"),
     ("/sweep", "Configure parameter sweep: /sweep [default|all] or /sweep <param1=min:max:step> ..."),
+    ("/verify-synthetic", "Verify synthetic dataset targets match ground-truth formula"),
 ];
-
 const SET_PARAMETERS: &[&str] = &[
     "population_size",
     "max_depth",
@@ -270,6 +271,44 @@ fn execute_command(cmd: &str, state: &mut SolverState) -> bool {
             let v = format!("{} v{}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"));
             push_log(state, v);
         }
+        "/verify-synthetic" => {
+            // Regenerate synthetic dataset and verify targets against formula implementation
+            let ds = synthetic_dataset();
+            let mut mismatches: Vec<(usize, f64, f64)> = Vec::new();
+            let mut acc_sq_err = 0.0f64;
+            let mut acc_count = 0usize;
+            for (i, pair) in ds.to_pairs().iter().enumerate() {
+                let features = &pair.0;
+                let target = pair.1;
+                let atk = features[0];
+                let def = features[1];
+                let luck = features[2];
+                let diff = atk - def;
+                let base = if diff > 1.0_f64 { diff } else { 1.0_f64 };
+                let crit = if luck > 80.0 { base * 1.5 } else { base };
+                let expected = if crit > 1.0_f64 { crit } else { 1.0_f64 };
+                let err = expected - target;
+                acc_sq_err += err * err;
+                acc_count += 1;
+                if err.abs() > 1e-9 {
+                    mismatches.push((i, expected, target));
+                }
+            }
+            // compute RMSE
+            let rmse = if acc_count > 0 { (acc_sq_err / (acc_count as f64)).sqrt() } else { 0.0 };
+            push_log(state, format!("Synthetic dataset verification: RMSE = {:.6}", rmse));
+            if mismatches.is_empty() {
+                push_log(state, "All targets exactly match the expected formula (within 1e-9)".into());
+            } else {
+                push_log(state, format!("{} mismatches found (showing up to 10 examples):", mismatches.len()));
+                for (i, exp, act) in mismatches.iter().take(10) {
+                    push_log(state, format!("  idx={} expected={:.6} actual={:.6}", i, exp, act));
+                }
+                if mismatches.len() > 10 {
+                    push_log(state, "  ... (first 10 shown)".into());
+                }
+            }
+        }
         _ if cmd.starts_with("/help ") => {
             if let Some(help_topic) = cmd.strip_prefix("/help ") {
                 show_detailed_help(state, help_topic);
@@ -296,10 +335,13 @@ fn execute_command(cmd: &str, state: &mut SolverState) -> bool {
             let filename = format!("fusou_logs_{}.log", ts);
             match std::env::current_dir() {
                 Ok(dir) => {
-                    let path = dir.join(&filename);
+                    // write logs into ./output/logs_<ts>/ to keep workspace clean
+                    let out_dir = dir.join("output").join(format!("logs_{}", ts));
+                    let _ = std::fs::create_dir_all(&out_dir);
+                    let path = out_dir.join(&filename);
                     match std::fs::write(&path, &logs_text) {
-                        Ok(_) => {
-                            push_log(state, format!("Logs written to {}", path.display()));
+                                Ok(_) => {
+                                    push_log(state, format!("Logs written to {}", path.display()));
 
                             // Try clipboard utilities in order
                             let mut copied = false;
@@ -376,7 +418,13 @@ fn execute_command(cmd: &str, state: &mut SolverState) -> bool {
             
                 match std::env::current_dir() {
                     Ok(dir) => {
-                        let path = dir.join(&filename);
+                        // Save dump into ./output/dump_<ts>/
+                        let out_dir = dir.join("output").join(format!("dump_{}", ts));
+                        if let Err(e) = std::fs::create_dir_all(&out_dir) {
+                            push_log(state, format!("Failed to create output directory: {}", e));
+                            return false;
+                        }
+                        let path = out_dir.join(&filename);
                         match std::fs::write(&path, serde_json::to_string_pretty(&json_obj).unwrap_or_default()) {
                             Ok(_) => {
                                 push_log(state, format!("State exported to {}", path.display()));
@@ -427,12 +475,22 @@ fn execute_command(cmd: &str, state: &mut SolverState) -> bool {
 }
 
 fn push_log(state: &mut SolverState, msg: String) {
-    state.logs.push(msg);
-    if state.logs.len() > 200 {
-        state.logs.drain(0..state.logs.len() - 200);
+    // Filter out very noisy smart-init generation logs
+    if msg.contains("Smart-init: generated") {
+        return;
     }
-    // Auto-scroll to bottom when new log arrives
-    state.log_scroll_offset = 0;
+
+    // Preserve user's scroll position unless they were viewing the bottom
+    let was_at_bottom = state.log_scroll_offset == 0;
+    state.logs.push(msg);
+    // Increase retained log lines so users can scroll further back
+    if state.logs.len() > 2000 {
+        state.logs.drain(0..state.logs.len() - 2000);
+    }
+    if was_at_bottom {
+        // keep autoscroll to bottom
+        state.log_scroll_offset = 0;
+    }
 }
 
 pub fn handle_mouse_event(mouse: MouseEvent, state: &mut SolverState) {
@@ -533,7 +591,13 @@ fn export_parameters(state: &mut SolverState) {
 
     match std::env::current_dir() {
         Ok(dir) => {
-            let path = dir.join(&filename);
+            // Save parameters under ./output/params_<ts>/
+            let out_dir = dir.join("output").join(format!("params_{}", ts));
+            if let Err(e) = std::fs::create_dir_all(&out_dir) {
+                push_log(state, format!("Failed to create output directory: {}", e));
+                return;
+            }
+            let path = out_dir.join(&filename);
             match serde_json::to_string_pretty(&params) {
                 Ok(json_str) => {
                     match std::fs::write(&path, json_str) {
@@ -774,6 +838,10 @@ fn initiate_parameter_sweep(state: &mut SolverState, args: &str) {
         accumulated_errors: Vec::new(),
         run_durations: Vec::new(),
         historical_run_durations: Vec::new(),
+        current_run_history: Vec::new(),
+        accumulated_histories: Vec::new(),
+        detailed_results: Vec::new(),
+        refinement_top_k: 3,
     };
 
     state.sweep_config = Some(sweep_config.clone());

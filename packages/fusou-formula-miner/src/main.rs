@@ -95,6 +95,12 @@ fn main() -> Result<()> {
                     if state.max_generations > 0 {
                         state.progress = (generation as f64 / state.max_generations as f64).min(1.0);
                     }
+                    // record per-generation history for current run (for learning curves)
+                    if let Some(sweep_cfg) = state.sweep_config.as_mut() {
+                        if (sweep_cfg.current_run_history.len() as u64) <= state.max_generations {
+                            sweep_cfg.current_run_history.push((generation, error));
+                        }
+                    }
                 }
                 AppEvent::Online(is_online) => {
                     state.online = is_online;
@@ -214,6 +220,10 @@ fn main() -> Result<()> {
 
                         // accumulate error for repeats
                         sweep_config.accumulated_errors.push(state.best_error);
+                        // accumulate current run history
+                        sweep_config.accumulated_histories.push(sweep_config.current_run_history.clone());
+                        // clear current run history for next repeat
+                        sweep_config.current_run_history.clear();
 
                         if state.best_error < sweep_config.best_error {
                             sweep_config.best_error = state.best_error;
@@ -236,16 +246,53 @@ fn main() -> Result<()> {
                             // use current_params with achieved_error overwritten
                             let mut agg_params = current_params.clone();
                             agg_params.achieved_error = Some(mean_error);
-                            sweep_config.results.push((agg_params, mean_error));
-                            // reset accumulated errors for next setting
+                            sweep_config.results.push((agg_params.clone(), mean_error));
+
+                            // compute median and stddev
+                            let mut errs = sweep_config.accumulated_errors.clone();
+                            errs.sort_by(|a,b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+                            let median = if errs.is_empty() { mean_error } else {
+                                let n = errs.len();
+                                if n % 2 == 1 { errs[n/2] } else { (errs[n/2 - 1] + errs[n/2]) / 2.0 }
+                            };
+                            let mean = mean_error;
+                            let var = errs.iter().map(|v| (v - mean).powi(2)).sum::<f64>() / (errs.len().max(1) as f64);
+                            let stddev = var.sqrt();
+
+                            // collect durations and histories for JSON
+                            let durations = sweep_config.run_durations.clone();
+                            let histories = sweep_config.accumulated_histories.clone();
+
+                            // build detailed JSON entry
+                            let detailed = serde_json::json!({
+                                "parameters": serde_json::to_value(&agg_params).unwrap_or(serde_json::json!({})),
+                                "mean_error": mean,
+                                "median_error": median,
+                                "stddev_error": stddev,
+                                "run_durations": durations,
+                                "histories": histories.iter().map(|h| {
+                                    h.iter().map(|(g,e)| serde_json::json!({"generation": g, "best_error": e})).collect::<Vec<_>>()
+                                }).collect::<Vec<_>>()
+                            });
+                            sweep_config.detailed_results.push(detailed);
+
+                            // reset accumulated errors/histories/durations for next setting
                             sweep_config.accumulated_errors.clear();
+                            sweep_config.accumulated_histories.clear();
                             sweep_config.run_durations.clear();
                             sweep_config.current_repeat = 0;
                             sweep_config.current_iteration += 1;
                         }
                         
                         // Save sweep results to file after each aggregated result
-                        save_sweep_results(&sweep_config);
+                        // Prefer to notify via in-app logs rather than stderr output
+                        let (json_path, csv_path) = save_sweep_results(&sweep_config);
+                        if let Some(p) = json_path {
+                            push_log(&mut state, format!("Sweep results saved to {}", p));
+                        }
+                        if let Some(p) = csv_path {
+                            push_log(&mut state, format!("CSV summary saved to {}", p));
+                        }
                         
                         // Decide whether to start next run automatically (main sweep or local refinement)
                         let mut do_start_next = false;
@@ -380,10 +427,19 @@ fn main() -> Result<()> {
 
                         // If currently in refinement mode, check refinement iteration
                         if sweep_config.in_refinement_mode {
-                            if sweep_config.refinement_current_iteration < sweep_config.refinement_total_iterations {
+                                if sweep_config.refinement_current_iteration < sweep_config.refinement_total_iterations {
                                 // Start next refinement iteration
                                 let idx = sweep_config.refinement_current_iteration;
                                 if let Some(ref ranges) = sweep_config.refinement_ranges {
+                                        // Respect user stop request: if shutdown flag is set, abort remaining sweep/refinement
+                                        if let Some(flag) = &state.shutdown_flag {
+                                            if flag.load(std::sync::atomic::Ordering::SeqCst) {
+                                                push_log(&mut state, "Sweep/refinement aborted by user (stop requested).".into());
+                                                // Clear sweep state to stop further automatic starts
+                                                state.sweep_config = None;
+                                                continue;
+                                            }
+                                        }
                                     let pset = compute_params_from_ranges(ranges, &state.shared_config, &sweep_config.parameters_to_sweep, idx);
                                     apply_params(&mut state, &pset);
                                     // spawn solver: create fresh shutdown flag
@@ -430,15 +486,43 @@ fn main() -> Result<()> {
                                     for param in &sweep_config.parameters_to_sweep {
                                         if let Some((orig_min, orig_max, orig_step)) = sweep_config.ranges.get(param) {
                                             // find center value from current_params
-                                            let center = if let Some(v) = match param.as_str() {
-                                                "population_size" => Some(current_params.population_size as f64),
-                                                "max_depth" => Some(current_params.max_depth as f64),
-                                                "mutation_rate" => Some(current_params.mutation_rate),
-                                                "crossover_rate" => Some(current_params.crossover_rate),
-                                                "tournament_size" => Some(current_params.tournament_size as f64),
-                                                "elite_count" => Some(current_params.elite_count as f64),
-                                                _ => None,
-                                            } { v } else { *orig_min };
+                                            let mut center = if let Some(v) = match param.as_str() {
+                                                        "population_size" => Some(current_params.population_size as f64),
+                                                        "max_depth" => Some(current_params.max_depth as f64),
+                                                        "mutation_rate" => Some(current_params.mutation_rate),
+                                                        "crossover_rate" => Some(current_params.crossover_rate),
+                                                        "tournament_size" => Some(current_params.tournament_size as f64),
+                                                        "elite_count" => Some(current_params.elite_count as f64),
+                                                        _ => None,
+                                                    } { v } else { *orig_min };
+
+                                                    // If detailed results exist, compute center as mean of top-K results for robustness
+                                                    if !sweep_config.detailed_results.is_empty() {
+                                                        let k = sweep_config.refinement_top_k.min(sweep_config.detailed_results.len());
+                                                        let mut sum = 0.0f64;
+                                                        let mut cnt = 0usize;
+                                                        // sort copy by mean_error ascending
+                                                        let mut entries = sweep_config.detailed_results.clone();
+                                                        entries.sort_by(|a,b| {
+                                                            let aa = a.get("mean_error").and_then(|v| v.as_f64()).unwrap_or(f64::INFINITY);
+                                                            let bb = b.get("mean_error").and_then(|v| v.as_f64()).unwrap_or(f64::INFINITY);
+                                                            aa.partial_cmp(&bb).unwrap_or(std::cmp::Ordering::Equal)
+                                                        });
+                                                        for e in entries.iter().take(k) {
+                                                            if let Some(p) = e.get("parameters").and_then(|p| p.get(param)) {
+                                                                if let Some(val) = p.as_f64() {
+                                                                    sum += val;
+                                                                    cnt += 1;
+                                                                } else if let Some(i) = p.as_i64() {
+                                                                    sum += i as f64;
+                                                                    cnt += 1;
+                                                                }
+                                                            }
+                                                        }
+                                                        if cnt > 0 {
+                                                            center = sum / (cnt as f64);
+                                                        }
+                                                    }
 
                                             let half = *orig_step; // use original step as radius
                                             let new_min = (center - half).max(*orig_min);
@@ -488,6 +572,14 @@ fn main() -> Result<()> {
 
                         // If requested, start next main-sweep iteration
                         if do_start_next {
+                            // Respect user stop request: if shutdown flag is set, abort remaining sweep
+                            if let Some(flag) = &state.shutdown_flag {
+                                if flag.load(std::sync::atomic::Ordering::SeqCst) {
+                                    push_log(&mut state, "Sweep aborted by user (stop requested).".into());
+                                    state.sweep_config = None;
+                                    continue;
+                                }
+                            }
                             // compute next parameter combination index (current_iteration is already incremented)
                             let next_idx = sweep_config.current_iteration.saturating_sub(1);
                             // compute ParameterSet for this iteration
@@ -529,11 +621,20 @@ fn main() -> Result<()> {
 }
 
 fn push_log(state: &mut SolverState, message: String) {
-    state.logs.push(message);
-    if state.logs.len() > 200 {
-        state.logs.drain(0..state.logs.len() - 200);
+    // Filter out very noisy smart-init generation logs
+    if message.contains("Smart-init: generated") {
+        return;
     }
-    state.log_scroll_offset = 0;
+
+    // Preserve user's scroll position unless they were viewing the bottom
+    let was_at_bottom = state.log_scroll_offset == 0;
+    state.logs.push(message);
+    if state.logs.len() > 2000 {
+        state.logs.drain(0..state.logs.len() - 2000);
+    }
+    if was_at_bottom {
+        state.log_scroll_offset = 0;
+    }
 }
 
 pub fn run_solver(worker_id: Uuid, tx: Sender<AppEvent>, shutdown: Arc<AtomicBool>, shared_config: Arc<Mutex<GeneticConfig>>, max_generations: u64, target_error: f64, correlation_threshold: f64) {
@@ -1197,8 +1298,9 @@ struct Individual {
     fitness: f64,
 }
 
-/// Save parameter sweep results to a JSON file
-fn save_sweep_results(sweep_config: &SweepConfig) {
+/// Save parameter sweep results to a JSON file and CSV summary.
+/// Returns (Option<json_path>, Option<csv_path>) as strings for logging.
+fn save_sweep_results(sweep_config: &SweepConfig) -> (Option<String>, Option<String>) {
     let ts = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
@@ -1214,49 +1316,58 @@ fn save_sweep_results(sweep_config: &SweepConfig) {
         "refinement_enabled": sweep_config.refinement_enabled,
         "max_refinements": sweep_config.max_refinements,
         "refinement_factor": sweep_config.refinement_factor,
-        "all_results": sweep_config.results.iter().map(|(params, error)| {
-            serde_json::json!({
-                "parameters": params,
-                "achieved_error": error
-            })
-        }).collect::<Vec<_>>()
+        "refinement_top_k": sweep_config.refinement_top_k,
+        "all_results": sweep_config.detailed_results.clone()
     });
+
+    let mut json_path_str: Option<String> = None;
+    let mut csv_path_str: Option<String> = None;
 
     match std::env::current_dir() {
         Ok(dir) => {
-            let path = dir.join(&filename);
+            // Create an organized output directory: ./output/sweep_<ts>/
+            let out_dir = dir.join("output").join(format!("sweep_{}", ts));
+            let _ = std::fs::create_dir_all(&out_dir);
+            let path = out_dir.join(&filename);
             match std::fs::write(&path, serde_json::to_string_pretty(&results_json).unwrap_or_default()) {
                 Ok(_) => {
-                    eprintln!("Sweep results saved to {}", path.display());
+                    json_path_str = Some(path.display().to_string());
                 }
-                Err(e) => {
-                    eprintln!("Failed to write sweep results file: {}", e);
+                Err(_) => {
+                    // ignore here; caller will not get path
                 }
             }
-            // Also append CSV summary for easier analysis
+            // Also write CSV summary into same output directory for easier analysis
             let csv_name = format!("sweep_results_{}.csv", ts);
-            let csv_path = dir.join(&csv_name);
+            let csv_path = out_dir.join(&csv_name);
+            csv_path_str = Some(csv_path.display().to_string());
             let mut wtr = match std::fs::OpenOptions::new().create(true).append(true).open(&csv_path) {
                 Ok(f) => csv::Writer::from_writer(f),
                 Err(_) => {
                     // fallback: create new file
                     match std::fs::File::create(&csv_path) {
                         Ok(f) => csv::Writer::from_writer(f),
-                        Err(_) => return,
+                        Err(_) => return (json_path_str, None),
                     }
                 }
             };
-            // Write header if file is new/empty
-            let _ = wtr.write_record(&["iteration","param_json","achieved_error","run_durations"]);
-            for (i, (params, err)) in sweep_config.results.iter().enumerate() {
-                let param_json = serde_json::to_string(params).unwrap_or_default();
-                let durations = sweep_config.run_durations.iter().map(|d| d.to_string()).collect::<Vec<_>>().join(";");
-                let _ = wtr.write_record(&[i.to_string(), param_json, format!("{:.6}", err), durations]);
+            // Write header
+            let _ = wtr.write_record(&["iteration","parameters","mean_error","median_error","stddev_error","run_durations","histories_json"]);
+            for (i, entry) in sweep_config.detailed_results.iter().enumerate() {
+                let mean = entry.get("mean_error").and_then(|v| v.as_f64()).unwrap_or(f64::NAN);
+                let median = entry.get("median_error").and_then(|v| v.as_f64()).unwrap_or(f64::NAN);
+                let stddev = entry.get("stddev_error").and_then(|v| v.as_f64()).unwrap_or(f64::NAN);
+                let params_json = entry.get("parameters").map(|v| v.to_string()).unwrap_or_default();
+                let durations_json = entry.get("run_durations").map(|v| v.to_string()).unwrap_or_default();
+                let histories_json = entry.get("histories").map(|v| v.to_string()).unwrap_or_default();
+                let _ = wtr.write_record(&[i.to_string(), params_json, format!("{:.6}", mean), format!("{:.6}", median), format!("{:.6}", stddev), durations_json, histories_json]);
             }
             let _ = wtr.flush();
         }
-        Err(e) => {
-            eprintln!("Failed to determine current directory: {}", e);
+        Err(_) => {
+            // ignore
         }
     }
+
+    (json_path_str, csv_path_str)
 }

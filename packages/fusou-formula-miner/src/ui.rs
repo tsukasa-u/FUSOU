@@ -149,6 +149,17 @@ fn render_status(f: &mut Frame, state: &SolverState, area: Rect) {
         summary = format!("{}{}{}{}", summary, sweep_progress, refinement_info, eta_info);
     }
 
+    // If solver is running, show active parameter snapshot
+    if state.solver_running {
+        if let Some(cfg_arc) = &state.shared_config {
+            if let Ok(cfg) = cfg_arc.lock() {
+                let params = format!("\nActive params: pop={} depth={} mut={:.3} cross={:.3} tour={} elite={} max_gen={}",
+                    cfg.population_size, cfg.max_depth, cfg.mutation_rate, cfg.crossover_rate, cfg.tournament_size, cfg.elite_count, state.max_generations);
+                summary = format!("{}{}", summary, params);
+            }
+        }
+    }
+
     // Put data source into the block title so it's visible even when body is small
     let title_label = format!("Job status - Data source: {}", data_source);
     let summary_block = Paragraph::new(summary)
