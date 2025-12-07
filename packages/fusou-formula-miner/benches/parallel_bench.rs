@@ -42,7 +42,7 @@ fn bench_sequential_evaluation() {
 
     let start = Instant::now();
     for expr in &expressions {
-        let _ = formula_miner::solver_helpers::evaluate_error_only(expr, &data);
+        let _ = formula_miner::engine::solver_helpers::evaluate_error_only(expr, &data);
     }
     let elapsed = start.elapsed();
 
@@ -91,7 +91,7 @@ fn bench_parallel_evaluation() {
     use rayon::prelude::*;
     let _results: Vec<f64> = expressions
         .par_iter()
-        .map(|expr| formula_miner::solver_helpers::evaluate_error_only(expr, &data))
+        .map(|expr| formula_miner::engine::solver_helpers::evaluate_error_only(expr, &data))
         .collect();
     let elapsed = start.elapsed();
 
@@ -141,7 +141,7 @@ fn compare_sequential_vs_parallel() {
         // Sequential
         let start = Instant::now();
         for expr in &expressions {
-            let _ = formula_miner::solver_helpers::evaluate_error_only(expr, &data);
+            let _ = formula_miner::engine::solver_helpers::evaluate_error_only(expr, &data);
         }
         let sequential_ms = start.elapsed().as_secs_f64() * 1000.0;
 
@@ -150,7 +150,7 @@ fn compare_sequential_vs_parallel() {
         use rayon::prelude::*;
         let _results: Vec<f64> = expressions
             .par_iter()
-            .map(|expr| formula_miner::solver_helpers::evaluate_error_only(expr, &data))
+            .map(|expr| formula_miner::engine::solver_helpers::evaluate_error_only(expr, &data))
             .collect();
         let parallel_ms = start.elapsed().as_secs_f64() * 1000.0;
 

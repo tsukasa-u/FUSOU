@@ -2,9 +2,10 @@
 /// Runs independent NSGA-II on each cluster in parallel using rayon
 #[cfg(feature = "clustering")]
 use crate::clustering::ClusterAssignment;
-use crate::nsga2::MultiObjectiveIndividual;
+use crate::solver::nsga2::MultiObjectiveIndividual;
 use crate::solver::Expr;
 use crate::state::AppEvent;
+use crate::engine::solver_helpers::count_ops_in_expr;
 use rand::Rng;
 use std::sync::mpsc::Sender;
 use rayon::prelude::*;
@@ -23,7 +24,8 @@ pub fn run_per_cluster_ga(
     job_target_error: f64,
     start_time: std::time::Instant,
     tx: &Sender<AppEvent>,
-    duplicate_tracker: &Arc<Mutex<crate::duplicate_detection::DuplicateTracker>>,
+    duplicate_tracker: &Arc<Mutex<crate::engine::duplicate_detection::DuplicateTracker>>,
+    shutdown: &Arc<std::sync::atomic::AtomicBool>,
 ) -> (Expr, f64) {
     let _ = tx.send(AppEvent::Log(
         "=== Starting Per-Cluster GA Mode (Parallel NSGA-II) ===".into(),
@@ -33,10 +35,17 @@ pub fn run_per_cluster_ga(
         cluster_assignment.num_clusters
     )));
 
+    // Calculate total work for progress tracking
+    let num_clusters = cluster_assignment.num_clusters;
+    let total_work = (num_clusters as u64) * max_generations;
+
     // Shared state for tracking progress across parallel clusters
     let total_generations_completed = Arc::new(AtomicU64::new(0));
     let global_best_error_atomic = Arc::new(Mutex::new(f64::MAX));
     let global_best_expr_atomic = Arc::new(Mutex::new(Expr::Const(0.0)));
+    
+    // Cumulative operator counts across all clusters
+    let cumulative_operator_counts: Arc<Mutex<HashMap<&'static str, usize>>> = Arc::new(Mutex::new(HashMap::new()));
     
     // Run per-cluster GA in parallel
     let cluster_results: Vec<Option<(usize, String, Expr, f64, u64)>> =
@@ -63,9 +72,17 @@ pub fn run_per_cluster_ga(
                     .cloned()
                     .unwrap_or_else(|| format!("Cluster {}", cluster_id));
 
+                // Announce current cluster start so UI shows which cluster is being processed
+                let _ = tx.send(AppEvent::CurrentClusterInfo(format!(
+                    "Starting Cluster {} ('{}')",
+                    cluster_id, cluster_label
+                )));
+
                 // Run NSGA-II on this cluster independently (removed .min(50) limit!)
                 let (best_expr, best_error, best_generation) =
                     run_nsga2_on_cluster(
+                        cluster_id,
+                        &cluster_label,
                         &cluster_data,
                         num_vars,
                         max_generations,
@@ -77,6 +94,9 @@ pub fn run_per_cluster_ga(
                         &global_best_expr_atomic,
                         var_names,
                         duplicate_tracker,
+                        shutdown,
+                        total_work,
+                        &cumulative_operator_counts,
                     );
 
                 Some((cluster_id, cluster_label, best_expr, best_error, best_generation))
@@ -99,6 +119,10 @@ pub fn run_per_cluster_ga(
             cluster_id, cluster_label, best_error
         )));
 
+        // Also publish final per-cluster best so UI can display it independently
+        let cluster_label_short = format!("C{}", cluster_id);
+        let _ = tx.send(AppEvent::PerClusterBest(cluster_label_short.clone(), *best_error, best_expr.to_string(var_names), *best_generation));
+
         if *best_error < global_best_error {
             global_best_error = *best_error;
             global_best_expr = best_expr.clone();
@@ -119,14 +143,21 @@ pub fn run_per_cluster_ga(
     let _ = tx.send(AppEvent::Log("=== Per-Cluster GA Finished ===".into()));
     let _ = tx.send(AppEvent::PhaseChange(crate::state::Phase::Finished));
 
-    // Update UI with final result - use max_generation seen from any cluster
-    let _ = tx.send(AppEvent::Update(max_generation_seen, global_best_error, expression_text));
+    // Update UI with final result - use total work completed
+    let completed_total = total_generations_completed.load(Ordering::Relaxed).min(total_work);
+    let _ = tx.send(AppEvent::Update(completed_total, total_work, global_best_error, expression_text));
+
+    // Clear current cluster info and signal finished to event loop
+    let _ = tx.send(AppEvent::CurrentClusterInfo("Idle".into()));
+    let _ = tx.send(AppEvent::Finished);
 
     (global_best_expr, global_best_error)
 }
 
 /// Run NSGA-II on a single cluster
 fn run_nsga2_on_cluster(
+    cluster_id: usize,
+    cluster_label: &str,
     cluster_data: &[(Vec<f64>, f64)],
     num_vars: usize,
     max_generations: u64,
@@ -137,10 +168,13 @@ fn run_nsga2_on_cluster(
     global_best_error: &Arc<Mutex<f64>>,
     global_best_expr: &Arc<Mutex<Expr>>,
     var_names: &[&str],
-    duplicate_tracker: &Arc<Mutex<crate::duplicate_detection::DuplicateTracker>>,
+    duplicate_tracker: &Arc<Mutex<crate::engine::duplicate_detection::DuplicateTracker>>,
+    shutdown: &Arc<std::sync::atomic::AtomicBool>,
+    total_work: u64,
+    cumulative_operator_counts: &Arc<Mutex<HashMap<&'static str, usize>>>,
 ) -> (Expr, f64, u64) {
     use crate::solver::random_expr;
-    use crate::nsga2::nsga2_selection;
+    use crate::solver::nsga2::nsga2_selection;
     use std::time::{Duration, Instant};
 
     let mut best_expr = Expr::Const(0.0);
@@ -156,7 +190,7 @@ fn run_nsga2_on_cluster(
         .map(|_| {
             let expr = random_expr(&mut rng, config.max_depth, num_vars, &mut cumulative_counts);
             // Apply duplicate penalty during evaluation
-            let error = super::solver_helpers::evaluate_error_only_with_penalty(
+            let error = crate::engine::solver_helpers::evaluate_error_only_with_penalty(
                 &expr, 
                 cluster_data, 
                 duplicate_tracker, 
@@ -168,6 +202,11 @@ fn run_nsga2_on_cluster(
 
     // Run NSGA-II generations
     for generation in 0..max_generations {
+        // Check shutdown flag
+        if shutdown.load(std::sync::atomic::Ordering::Relaxed) {
+            break;
+        }
+        
         // Perform NSGA-II selection and sorting
         nsga2_selection(&mut mo_population);
 
@@ -195,8 +234,9 @@ fn run_nsga2_on_cluster(
             }
         }
         
-        // Update total generations counter
-        let total_gen = total_generations.fetch_add(1, Ordering::Relaxed) + 1;
+        // Track overall generation count across all parallel clusters
+        let completed = total_generations.fetch_add(1, Ordering::Relaxed) + 1;
+        // Calculate UI progress based on total work (num_clusters × max_generations)
         
         // Send periodic UI updates (every 250ms)
         if last_ui_update.elapsed() >= Duration::from_millis(250) {
@@ -207,16 +247,22 @@ fn run_nsga2_on_cluster(
                 .map(|e| e.to_string(var_names))
                 .unwrap_or_else(|| best_expr.to_string(var_names));
             
-            let _ = tx.send(AppEvent::Update(total_gen, current_best_error, current_best_expr.clone()));
+            let _ = tx.send(AppEvent::CurrentClusterInfo(format!(
+                "Cluster {} ('{}'): generation {}",
+                cluster_id,
+                cluster_label,
+                generation + 1
+            )));
+            let _ = tx.send(AppEvent::Update(completed, total_work, current_best_error, current_best_expr.clone()));
             
             // Send top candidates (without filtering duplicates - show actual population state)
-            let mut top_5: Vec<_> = mo_population.iter()
+            let mut top_n: Vec<_> = mo_population.iter()
                 .map(|ind| (ind.expr.clone(), ind.error))
                 .collect();
-            top_5.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+            top_n.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
             
             use crate::state::CandidateFormula;
-            let candidates: Vec<CandidateFormula> = top_5.iter().take(5).enumerate()
+            let candidates: Vec<CandidateFormula> = top_n.iter().take(20).enumerate()
                 .map(|(rank, (expr, error))| CandidateFormula {
                     rank: rank + 1,
                     formula: expr.to_string(var_names),
@@ -224,6 +270,34 @@ fn run_nsga2_on_cluster(
                 })
                 .collect();
             let _ = tx.send(AppEvent::TopCandidates(candidates));
+            
+            // Compute and accumulate operator counts
+            let mut local_counts: HashMap<&'static str, usize> = HashMap::new();
+            // Count operators from top 5 candidates
+            for (expr, _) in top_n.iter().take(20) {
+                count_ops_in_expr(expr, &mut local_counts);
+            }
+            
+            // Accumulate into cumulative map
+            if let Ok(mut cumulative) = cumulative_operator_counts.lock() {
+                for (op, count) in local_counts.iter() {
+                    *cumulative.entry(op).or_insert(0) += *count;
+                }
+                
+                // Send cumulative operator stats
+                let ordered = vec!["+", "-", "*", "/", "min", "max", "step", "log", "sqrt", "exp", "floor", "identity", "pow"];
+                let mut counts_vec: Vec<(String, usize)> = Vec::new();
+                for op in ordered {
+                    let c = *cumulative.get(op).unwrap_or(&0);
+                    counts_vec.push((op.to_string(), c));
+                }
+                let _ = tx.send(AppEvent::OperatorStats(counts_vec));
+            }
+
+            // Publish per-cluster best so UI can maintain cluster-specific best formulas
+            let cluster_best_text = best_expr.to_string(var_names);
+            let cluster_label_short = format!("C{}", cluster_id);
+            let _ = tx.send(AppEvent::PerClusterBest(cluster_label_short.clone(), best_error, cluster_best_text, generation));
         }
 
         if best_error <= job_target_error || generation >= max_generations - 1 {
@@ -271,7 +345,7 @@ fn run_nsga2_on_cluster(
             }
 
             // Apply duplicate penalty during offspring evaluation
-            let error = super::solver_helpers::evaluate_error_only_with_penalty(
+            let error = crate::engine::solver_helpers::evaluate_error_only_with_penalty(
                 &child_expr,
                 cluster_data,
                 duplicate_tracker,
@@ -310,8 +384,9 @@ fn select_nsga2_tournament<'a, R: Rng + ?Sized>(
 
 #[cfg(test)]
 mod tests {
-    use crate::nsga2::MultiObjectiveIndividual;
+    use crate::solver::nsga2::MultiObjectiveIndividual;
     use crate::solver::Expr;
+    use std::collections::HashMap;
 
     #[test]
     #[cfg(feature = "clustering")]
@@ -340,10 +415,13 @@ mod tests {
         let global_error = Arc::new(Mutex::new(f64::MAX));
         let global_expr = Arc::new(Mutex::new(crate::solver::Expr::Const(0.0)));
         let var_names = vec!["x", "y"];
-        let dup_tracker = Arc::new(Mutex::new(crate::duplicate_detection::DuplicateTracker::default()));
+        let dup_tracker = Arc::new(Mutex::new(crate::engine::duplicate_detection::DuplicateTracker::default()));
+        let shutdown = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let total_work = 2 * 5; // 2 clusters × 5 generations
+        let cumulative_counts = Arc::new(Mutex::new(HashMap::new()));
 
         let (_, best_error, best_generation) =
-            super::run_nsga2_on_cluster(&cluster_data, 2, 5, &config, 0.1, &tx, &total_gen, &global_error, &global_expr, &var_names, &dup_tracker);
+            super::run_nsga2_on_cluster(0, "Cluster 0", &cluster_data, 2, 5, &config, 0.1, &tx, &total_gen, &global_error, &global_expr, &var_names, &dup_tracker, &shutdown, total_work, &cumulative_counts);
 
         // Verify that we got valid results
         assert!(best_error.is_finite());

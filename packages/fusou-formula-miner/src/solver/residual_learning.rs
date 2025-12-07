@@ -6,7 +6,7 @@
 /// 3. Try to fit a model to these residuals
 /// 4. Combine: final_prediction = model1(x) + model2(x)
 
-use crate::dataset::Dataset;
+use crate::engine::dataset::Dataset;
 use crate::solver::Expr;
 
 #[derive(Clone, Debug)]

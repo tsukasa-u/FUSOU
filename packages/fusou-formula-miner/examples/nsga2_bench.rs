@@ -1,6 +1,6 @@
 /// Benchmarks for NSGA-II operations (sorting and ranking)
 use formula_miner::solver::Expr;
-use formula_miner::nsga2::{MultiObjectiveIndividual, non_dominated_sort};
+use formula_miner::solver::nsga2::{MultiObjectiveIndividual, non_dominated_sort};
 
 fn main() {
     println!("=== NSGA-II Operations Benchmarks ===\n");

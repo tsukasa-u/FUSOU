@@ -4,6 +4,7 @@ use ratatui::{
     prelude::*,
     widgets::{Block, Borders, Gauge, List, ListItem, Paragraph, Wrap},
 };
+// no direct Instant use here (timestamps handled in state)
 
 pub fn render_ui(f: &mut Frame, state: &SolverState) {
     let chunks = Layout::default()
@@ -216,96 +217,82 @@ fn render_best_solution(f: &mut Frame, state: &SolverState, area: Rect) {
         .constraints([Constraint::Percentage(65), Constraint::Percentage(35)])
         .split(area);
 
-    // Build info text with best solution prominently displayed
-    let mut info_text = format!(
-        "Generation: {} / {}\nBest RMSE: {:.6} (target {:.6})\n\n─ BEST SOLUTION ─\n{}",
+    // Left column split: header (generation & global best), per-cluster best list, top candidates
+    let left_chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(3),
+            Constraint::Min(6),
+            Constraint::Min(6),
+        ])
+        .split(cols[0]);
+
+    // Header: show generation (sum or proportion) and global best
+    let denom = if state.total_work > 0 { state.total_work.to_string() } else { state.max_generations.to_string() };
+    let header_text = format!(
+        "Generation: {} / {}\nBest RMSE: {:.6} (target {:.6})",
         state.generation,
-        state.max_generations,
+        denom,
         state.best_error,
-        state.target_error,
-        state.best_formula
+        state.target_error
     );
+    let header = Paragraph::new(header_text)
+        .block(Block::default().borders(Borders::ALL).title("Best Solution"))
+        .wrap(Wrap { trim: true });
+    f.render_widget(header, left_chunks[0]);
 
-    // Add current cluster info if available
-    if let Some(cluster_info) = &state.current_cluster_info {
-        info_text.push_str(&format!("\n\nCurrently optimizing: {}", cluster_info));
+    // Per-cluster bests as a List so we can highlight the active cluster row
+    let mut cluster_items: Vec<ListItem> = Vec::new();
+    let mut labels: Vec<_> = state.per_cluster_best.keys().cloned().collect();
+    labels.sort();
+    for label in labels.iter() {
+        if let Some((err, formula)) = state.per_cluster_best.get(label) {
+            let gen = state.per_cluster_generation.get(label).cloned().unwrap_or(0);
+            let line = format!("{} - gen {} | RMSE {:.6}", label, gen, err);
+            cluster_items.push(ListItem::new(line));
+            // Also push formula as an indented line
+            cluster_items.push(ListItem::new(format!("  {}", formula)));
+        }
     }
-
-    // Add clustering context if available
-    if let Some(cluster_data) = &state.cluster_assignments {
-        if let serde_json::Value::Object(cluster_info) = cluster_data {
-            let method = cluster_info.get("method")
-                .and_then(|v| v.as_str())
-                .unwrap_or("unknown");
-            let rules = cluster_info.get("rules")
-                .and_then(|v| v.as_array())
-                .map(|arr| {
-                    arr.iter()
-                        .filter_map(|v| v.as_str())
-                        .collect::<Vec<_>>()
-                })
-                .unwrap_or_default();
-            
-            if !rules.is_empty() {
-                info_text.push_str(&format!("\n\n─ Clustering ({}) ─", method));
-                for rule in rules {
-                    info_text.push_str(&format!("\n  • {}", rule));
-                }
+    let mut cluster_list_state = ratatui::widgets::ListState::default();
+    // Find selected index for current_cluster_label (selects the first line of the cluster entry)
+    if let Some(active_label) = &state.current_cluster_label {
+        // Each cluster contributes 2 items (label line + formula), so find its index
+        let mut idx = 0usize;
+        for lbl in labels.iter() {
+            if lbl == active_label {
+                cluster_list_state.select(Some(idx));
+                break;
             }
+            idx += 2;
         }
     }
-
-    // Add top 5 candidates below best solution
-    if !state.top_candidates.is_empty() {
-        info_text.push_str("\n\n─ Top Candidates ─");
-        for cand in &state.top_candidates {
-            // Format: #1: 0.045230 | (atk - def) * (1.0 + 0.1 * step(...))
-            let formula_preview = if cand.formula.len() > 60 {
-                format!("{}...", &cand.formula[..57])
-            } else {
-                cand.formula.clone()
-            };
-            info_text.push_str(&format!(
-                "\n#{}: {:.6} | {}",
-                cand.rank, cand.rmse, formula_preview
-            ));
-        }
-    }
-
-    let info_lines: Vec<&str> = info_text.lines().collect();
-    let visible_info_lines: Vec<&str> = info_lines
-        .iter()
-        .skip(state.best_solution_scroll_offset)
-        .copied()
-        .collect();
-    let info_display = visible_info_lines.join("\n");
-    let best_title = if state.focused_panel == FocusedPanel::BestSolution {
-        format!(
-            "Best Solution [focused] [{}/{}]",
-            state.best_solution_scroll_offset + 1,
-            info_lines.len()
-        )
-    } else {
-        format!(
-            "Best Solution [{}/{}]",
-            state.best_solution_scroll_offset + 1,
-            info_lines.len()
-        )
-    };
-    let best_border_style = if state.focused_panel == FocusedPanel::BestSolution {
+    let cluster_block_style = if state.focused_panel == FocusedPanel::BestSolution {
         Style::default().fg(Color::Yellow)
     } else {
         Style::default()
     };
-    let info = Paragraph::new(info_display)
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(best_title)
-                .border_style(best_border_style),
-        )
-        .wrap(Wrap { trim: true });
-    f.render_widget(info, cols[0]);
+    let cluster_list = List::new(cluster_items)
+        .block(Block::default().borders(Borders::ALL).title("Per-Cluster Bests").border_style(cluster_block_style))
+        .highlight_style(Style::default().fg(Color::LightCyan));
+    f.render_stateful_widget(cluster_list, left_chunks[1], &mut cluster_list_state);
+
+    // Top candidates list (respect state.top_candidates_limit)
+    let limit = state.top_candidates_limit.min(state.top_candidates.len()).max(0);
+    let mut cand_items: Vec<ListItem> = Vec::new();
+    for cand in state.top_candidates.iter().take(limit) {
+        let formula_preview = if cand.formula.len() > 80 {
+            format!("{}...", &cand.formula[..77])
+        } else {
+            cand.formula.clone()
+        };
+        cand_items.push(ListItem::new(format!("#{}: {:.6} | {}", cand.rank, cand.rmse, formula_preview)));
+    }
+    let cand_block_style = if state.focused_panel == FocusedPanel::BestSolution { Style::default().fg(Color::Yellow) } else { Style::default() };
+    let cand_list = List::new(cand_items)
+        .block(Block::default().borders(Borders::ALL).title(format!("Top Candidates (showing {})", state.top_candidates_limit)).border_style(cand_block_style));
+    let mut cand_state = ratatui::widgets::ListState::default();
+    f.render_stateful_widget(cand_list, left_chunks[2], &mut cand_state);
 
     // Compute operator probabilities from cumulative counts in state
     let stats = compute_operator_prob_stats(state);
@@ -644,6 +631,17 @@ fn render_clustering_panel(f: &mut Frame, state: &SolverState, area: Rect) {
                     
                     if !conditions_str.is_empty() {
                         text.push_str(&format!("\n\nConditions:\n{}", conditions_str));
+                    }
+
+                    // Show feature mapping f0,f1,... -> feature names (if available from state)
+                    if !state.selected_features.is_empty() {
+                        let mut fmap = String::from("\n\nFeature mapping:\n");
+                        for (i, fname) in state.selected_features.iter().enumerate() {
+                            fmap.push_str(&format!("  f{} -> {}\n", i, fname));
+                        }
+                        // Show s label mapping note (s -> f0,f1,...)
+                        fmap.push_str("\nNote: sample label 's' corresponds to feature indices f0,f1,... in order.\n");
+                        text.push_str(&fmap);
                     }
                     
                     text

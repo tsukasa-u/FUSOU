@@ -1,6 +1,7 @@
 use crate::mina::FocusedPanel;
 use crate::config::MinerConfig;
 use std::path::PathBuf;
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::sync::Mutex;
@@ -81,7 +82,7 @@ pub struct SolverState {
     // Centralized miner configuration (replaces scattered hardcoded values)
     pub miner_config: Arc<Mutex<MinerConfig>>,
     // Track duplicate/similar solutions to encourage exploration diversity (shared with solver thread)
-    pub duplicate_tracker: Arc<Mutex<crate::duplicate_detection::DuplicateTracker>>,
+    pub duplicate_tracker: Arc<Mutex<crate::engine::duplicate_detection::DuplicateTracker>>,
     // Latest operator counts aggregated from solver (label, count)
     pub operator_counts: Vec<(String, usize)>,
     // Selected operator index when OperatorStats panel is focused
@@ -95,6 +96,18 @@ pub struct SolverState {
     pub focus_cluster_panel: bool,
     // Current cluster being processed (for per-cluster optimization)
     pub current_cluster_info: Option<String>,
+    // Timestamp when the current cluster processing started (for elapsed display)
+    pub current_cluster_started_at: Option<std::time::Instant>,
+    // Per-cluster best solutions: label -> (best_error, best_formula)
+    pub per_cluster_best: HashMap<String, (f64, String)>,
+    // Per-cluster generation counters: label -> generation
+    pub per_cluster_generation: HashMap<String, u64>,
+    // Currently active cluster short label (e.g., "C0")
+    pub current_cluster_label: Option<String>,
+    // Total work (used for progress denominator when in clustered mode)
+    pub total_work: u64,
+    // How many top candidates to display in UI
+    pub top_candidates_limit: usize,
 }
 
 impl SolverState {
@@ -134,19 +147,26 @@ impl SolverState {
             solver_running: false,
             sweep_config: None,
             miner_config: Arc::new(Mutex::new(MinerConfig::default())),
-            duplicate_tracker: Arc::new(Mutex::new(crate::duplicate_detection::DuplicateTracker::default())),
+            duplicate_tracker: Arc::new(Mutex::new(crate::engine::duplicate_detection::DuplicateTracker::default())),
             operator_counts: Vec::new(),
             operator_selected_index: 0,
             cluster_assignments: None,
             selected_cluster_id: None,
             focus_cluster_panel: false,
             current_cluster_info: None,
+            current_cluster_started_at: None,
+            per_cluster_best: HashMap::new(),
+            per_cluster_generation: HashMap::new(),
+            current_cluster_label: None,
+            total_work: 0,
+            top_candidates_limit: 20,
         }
     }
 }
 
 pub enum AppEvent {
-    Update(u64, f64, String),
+    // Update: (completed_work, total_work, best_error, best_formula)
+    Update(u64, u64, f64, String),
     Log(String),
     TopCandidates(Vec<CandidateFormula>),
     OperatorStats(Vec<(String, usize)>),
@@ -162,6 +182,8 @@ pub enum AppEvent {
     ClusteringResults(Option<serde_json::Value>),
     // Current cluster being processed during optimization
     CurrentClusterInfo(String),
+    // Per-cluster best solution update: (cluster_label, best_error, best_formula, generation)
+    PerClusterBest(String, f64, String, u64),
 }
 
 #[derive(Clone)]

@@ -1,7 +1,7 @@
 /// Unified constant optimization interface
 /// Supports multiple optimization methods: coordinate descent, Newton's method, Nelder-Mead
 use crate::solver::Expr;
-use crate::constant_opt;
+use crate::solver::constant_opt;
 use crate::config::ConstOptConfig;
 
 /// Optimize constants in an expression using the configured method
@@ -82,7 +82,9 @@ mod tests {
         config.const_opt.method = "newton_method".to_string();
 
         let result = optimize_constants_adaptive(&expr, &data, &config.const_opt);
-        // Should return some expression without error
-        assert_eq!(result.to_string(&[]), "1.5");
+        match result {
+            Expr::Const(c) => assert!((c - 1.5).abs() < 1e-9),
+            other => panic!("Expected constant, got {}", other.to_string(&[])),
+        }
     }
 }

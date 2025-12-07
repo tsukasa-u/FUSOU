@@ -1,4 +1,4 @@
-use crate::dataset::{Dataset, RemoteJobPayload};
+use crate::engine::dataset::{Dataset, RemoteJobPayload};
 use anyhow::{bail, Context, Result};
 use reqwest::blocking::Client;
 use reqwest::StatusCode;

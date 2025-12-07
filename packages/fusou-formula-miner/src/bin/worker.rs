@@ -12,10 +12,10 @@ use std::{
 use uuid::Uuid;
 
 use formula_miner::{
-    dataset::synthetic_dataset,
+    engine::dataset::synthetic_dataset,
     network::{RemoteJob, WorkerClient},
     solver::{crossover, mutate, random_expr, Expr, GeneticConfig},
-    statistics,
+    engine::statistics,
 };
 
 #[derive(Serialize, Deserialize, Clone, Debug)]

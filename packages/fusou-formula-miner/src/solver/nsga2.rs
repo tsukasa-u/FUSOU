@@ -224,15 +224,23 @@ mod tests {
 
     #[test]
     fn test_non_dominated_sort() {
+        // Create conflicting objectives: one has better error, the other is smaller size.
         let individuals = vec![
-            MultiObjectiveIndividual::new(Expr::Const(1.0), 0.5),  // Best error, smallest
-            MultiObjectiveIndividual::new(Expr::Const(2.0), 0.3),  // Better error, same size
-            MultiObjectiveIndividual::new(Expr::Const(3.0), 0.9),  // Worse on both
+            MultiObjectiveIndividual::new(Expr::Const(1.0), 0.5),  // Smaller size, worse error
+            MultiObjectiveIndividual::new(
+                Expr::Binary {
+                    op: crate::solver::BinaryOp::Add,
+                    left: Box::new(Expr::Const(1.0)),
+                    right: Box::new(Expr::Const(2.0)),
+                },
+                0.3,  // Better error, larger size
+            ),
+            MultiObjectiveIndividual::new(Expr::Const(3.0), 0.9),  // Dominated by the first
         ];
-        
+
         let fronts = non_dominated_sort(&individuals);
-        assert_eq!(fronts.len(), 2);  // Two fronts
-        assert_eq!(fronts[0].len(), 2);  // Two non-dominated solutions
+        assert_eq!(fronts.len(), 2);  // Two fronts expected
+        assert_eq!(fronts[0].len(), 2);  // Two non-dominated solutions (trade-off)
         assert_eq!(fronts[1].len(), 1);  // One dominated solution
     }
 }

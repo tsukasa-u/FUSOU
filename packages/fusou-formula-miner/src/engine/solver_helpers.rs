@@ -1,6 +1,6 @@
 /// Helper functions for genetic algorithm evaluation, selection, and utilities.
 use crate::solver::Expr;
-use crate::duplicate_detection::DuplicateTracker;
+use crate::engine::duplicate_detection::DuplicateTracker;
 use std::sync::Mutex;
 use std::sync::Arc;
 
@@ -43,7 +43,7 @@ pub fn evaluate_error_only(expr: &Expr, data: &[(Vec<f64>, f64)]) -> f64 {
         }
     }
     
-    crate::statistics::rmse(sum_sq, data.len())
+    crate::engine::statistics::rmse(sum_sq, data.len())
 }
 
 /// Count occurrences of operators in an expression tree

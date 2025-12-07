@@ -197,14 +197,12 @@ impl Expr {
                     (BinaryOp::Sub, Expr::Const(a), Expr::Const(b)) => Expr::Const(a - b),
                     (BinaryOp::Mul, Expr::Const(a), Expr::Const(b)) => Expr::Const(a * b),
                     (BinaryOp::Div, Expr::Const(a), Expr::Const(b)) => {
+                        // 定数割りで0割り防止
                         if b.abs() > 1e-6 {
                             Expr::Const(a / b)
                         } else {
-                            Expr::Binary {
-                                op: *op,
-                                left: Box::new(sl),
-                                right: Box::new(sr),
-                            }
+                            // 0割りの場合は0を返す
+                            Expr::Const(0.0)
                         }
                     }
                     
@@ -297,7 +295,14 @@ impl Expr {
                     UnaryOp::Exp => clamp(value.clamp(-15.0, 15.0).exp()),
                     UnaryOp::Pow => clamp(value.abs().powf(0.5)), // Square root behavior
                     UnaryOp::Step => {
-                        if value > 0.0 { 1.0 } else { 0.0 }
+                        // step関数のchildが0の場合は0を返す
+                        if value == 0.0 {
+                            0.0
+                        } else if value > 0.0 {
+                            1.0
+                        } else {
+                            0.0
+                        }
                     }
                     UnaryOp::Log => {
                         // Protected log: log(|x| + epsilon) to avoid log(0) or log(negative)
@@ -317,6 +322,7 @@ impl Expr {
                     BinaryOp::Sub => lv - rv,
                     BinaryOp::Mul => lv * rv,
                     BinaryOp::Div => {
+                        // 右辺が0の場合は0を返す（0割り防止）
                         if rv.abs() < 1e-6 {
                             0.0
                         } else {
@@ -358,7 +364,7 @@ impl Expr {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use crate::solver::engine_clean::*;
 
     fn v(i: usize) -> Expr { Expr::Var(i) }
     fn c(x: f64) -> Expr { Expr::Const(x) }

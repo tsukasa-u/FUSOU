@@ -1,5 +1,5 @@
 use crate::state::SolverState;
-use crate::dataset::synthetic_dataset;
+use crate::engine::dataset::synthetic_dataset;
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, MouseEvent, MouseEventKind};
 use std::sync::{Arc, atomic::Ordering};
 use std::thread;
@@ -269,8 +269,13 @@ fn execute_command(cmd: &str, state: &mut SolverState) -> bool {
             if let Some(flag) = &state.shutdown_flag {
                 flag.store(true, std::sync::atomic::Ordering::SeqCst);
                 push_log(state, "Stop requested: signalling solver to stop...".into());
+                state.solver_running = false;
+                state.shutdown_flag = None;
             } else {
-                push_log(state, "No running solver to stop.".into());
+                // Solver not yet spawned or already cleaned up; still mark as stopped to ignore late updates
+                state.solver_running = false;
+                state.shutdown_flag = None;
+                push_log(state, "Stop requested, but no active solver handle. Marked stopped.".into());
             }
             return false;
         }
@@ -289,10 +294,10 @@ fn execute_command(cmd: &str, state: &mut SolverState) -> bool {
         "/verify-synthetic" => {
             // Regenerate synthetic dataset and verify targets against formula implementation
             let ds = if let Ok(mc) = state.miner_config.lock() {
-                crate::dataset::synthetic_dataset_for(&mc.synthetic_data.dataset_type, &mc.synthetic_data)
+                crate::engine::dataset::synthetic_dataset_for(&mc.synthetic_data.dataset_type, &mc.synthetic_data)
             } else {
                 // fallback
-                crate::dataset::synthetic_dataset()
+                crate::engine::dataset::synthetic_dataset()
             };
             let mut mismatches: Vec<(usize, f64, f64)> = Vec::new();
             let mut acc_sq_err = 0.0f64;

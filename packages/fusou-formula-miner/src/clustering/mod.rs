@@ -8,9 +8,13 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 pub mod classifiers;
+pub mod per_cluster_ga;
+pub mod cluster_optimizer;
 
 #[cfg(feature = "clustering")]
 pub use classifiers::DecisionTreeClassifier;
+pub use per_cluster_ga::*;
+pub use cluster_optimizer::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClusteringConfig {

@@ -1,16 +1,16 @@
+// Core modules
 pub mod config;
-pub mod dataset;
 pub mod mina;
 pub mod network;
-pub mod solver;
 pub mod state;
-pub mod statistics;
 pub mod ui;
 pub mod worker_mgmt;
-pub mod nsga2;
-pub mod bloat_control;
-pub mod constant_opt;
-pub mod const_opt_adaptive;
-pub mod semantic_ops;
-pub mod duplicate_detection;
-pub mod solver_helpers;
+
+// Organized module structure
+pub mod app;
+pub mod engine;
+pub mod evaluation;
+pub mod solver;
+
+#[cfg(feature = "clustering")]
+pub mod clustering;

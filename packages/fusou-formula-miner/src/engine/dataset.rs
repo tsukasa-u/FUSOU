@@ -1,4 +1,4 @@
-use crate::statistics::{calculate_correlation, calculate_variance};
+use crate::engine::statistics::{calculate_correlation, calculate_variance};
 use anyhow::{bail, Context, Result};
 use serde::Deserialize;
 use serde_json::Value;

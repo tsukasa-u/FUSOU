@@ -1,6 +1,6 @@
 /// Benchmarks for evaluation functions in solver_helpers
 use formula_miner::solver::Expr;
-use formula_miner::solver_helpers;
+use formula_miner::engine::solver_helpers;
 
 fn main() {
     println!("=== Evaluation Function Benchmarks ===\n");

@@ -1,7 +1,7 @@
 /// Smart initialization module for genetic algorithm
 /// Implements intelligent seeding based on data analysis
 
-use crate::dataset::Dataset;
+use crate::engine::dataset::Dataset;
 use crate::solver::{Expr, BinaryOp, UnaryOp};
 use rand::prelude::*;
 
