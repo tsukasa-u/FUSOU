@@ -13,3 +13,4 @@ pub mod constant_opt;
 pub mod const_opt_adaptive;
 pub mod semantic_ops;
 pub mod duplicate_detection;
+pub mod solver_helpers;

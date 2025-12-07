@@ -35,49 +35,23 @@ mod const_opt_adaptive;
 mod duplicate_detection;
 mod semantic_ops;
 mod cluster_optimizer;
+mod solver_helpers;
+mod per_cluster_ga;
 #[cfg(feature = "clustering")]
 mod clustering;
 
 use config::MinerConfig;
 
 use network::{JobSubmission, RemoteJob, WorkerClient};
-use solver::{crossover, mutate, random_expr, Expr, GeneticConfig, UnaryOp, BinaryOp};
+use solver::{crossover, mutate, Expr, GeneticConfig, UnaryOp};
 use smart_init::{DataStats, smart_init};
 use state::{AppEvent, JobSummary, Phase, SolverState, CandidateFormula, ParameterSet, SweepConfig};
-use nsga2::{MultiObjectiveIndividual, nsga2_selection, nsga2_tournament_select, non_dominated_sort};
+use nsga2::{MultiObjectiveIndividual, nsga2_selection, nsga2_tournament_select};
 use bloat_control::{tarpeian_penalty, hoist_mutation, average_size};
 use const_opt_adaptive::optimize_constants_adaptive;
-
-// Walk an Expr AST and count occurrences of operators into `counts`.
-fn count_ops_in_expr(expr: &Expr, counts: &mut std::collections::HashMap<&'static str, usize>) {
-    match expr {
-        Expr::Const(_) | Expr::Var(_) => {}
-        Expr::Unary { op, child } => {
-            match op {
-                UnaryOp::Floor => *counts.entry("floor").or_insert(0) += 1,
-                UnaryOp::Exp => *counts.entry("exp").or_insert(0) += 1,
-                UnaryOp::Pow => *counts.entry("pow").or_insert(0) += 1,
-                UnaryOp::Step => *counts.entry("step").or_insert(0) += 1,
-                UnaryOp::Log => *counts.entry("log").or_insert(0) += 1,
-                UnaryOp::Sqrt => *counts.entry("sqrt").or_insert(0) += 1,
-                _ => {}
-            }
-            count_ops_in_expr(child, counts);
-        }
-        Expr::Binary { op, left, right } => {
-            match op {
-                BinaryOp::Add => *counts.entry("+").or_insert(0) += 1,
-                BinaryOp::Sub => *counts.entry("-").or_insert(0) += 1,
-                BinaryOp::Mul => *counts.entry("*").or_insert(0) += 1,
-                BinaryOp::Div => *counts.entry("/").or_insert(0) += 1,
-                BinaryOp::Min => *counts.entry("min").or_insert(0) += 1,
-                BinaryOp::Max => *counts.entry("max").or_insert(0) += 1,
-            }
-            count_ops_in_expr(left, counts);
-            count_ops_in_expr(right, counts);
-        }
-    }
-}
+use solver_helpers::{
+    evaluate_error_only, evaluate_error_only_with_penalty, count_ops_in_expr,
+};
 
 fn main() -> Result<()> {
     enable_raw_mode()?;
@@ -168,10 +142,9 @@ fn main() -> Result<()> {
                     state.chunk_id = summary.chunk_id;
                     state.sample_count = summary.sample_count;
                     state.selected_features = summary.feature_names;
-                    // Keep user-configured max_generations if it was already set (/set command)
-                    // Only use job's max_generations if not yet configured by user
-                    if state.max_generations == 1 {
-                        // Default value - use job's configuration
+                    // If max_generations hasn't been explicitly set by user (still at initial value),
+                    // use job's configuration
+                    if state.max_generations == 100 {  // Our new default initial value
                         state.max_generations = summary.max_generations;
                     }
                     // Keep user-configured target_error if it was already set
@@ -902,145 +875,19 @@ pub fn run_solver(worker_id: Uuid, tx: Sender<AppEvent>, shutdown: Arc<AtomicBoo
     #[cfg(feature = "clustering")]
     if use_per_cluster_ga {
         if let Some(ref cluster_assignment) = cached_cluster_assignment {
-            let _ = tx.send(AppEvent::Log("=== Starting Per-Cluster GA Mode (Parallel NSGA-II) ===".into()));
-            let _ = tx.send(AppEvent::Log(format!(
-                "Running NSGA-II independently on {} clusters using rayon parallelization",
-                cluster_assignment.num_clusters
-            )));
-            
-            // Prepare shared config for parallel use
             let config = shared_config.lock().unwrap().clone();
-            
-            // Run per-cluster GA in parallel
-            let cluster_results: Vec<Option<(usize, String, Expr, f64, u64)>> = (0..cluster_assignment.num_clusters)
-                .into_par_iter()
-                .map(|cluster_id| {
-                    // Extract data for this cluster
-                    let cluster_data: Vec<(Vec<f64>, f64)> = data
-                        .iter()
-                        .zip(cluster_assignment.assignments.iter())
-                        .filter(|(_, &assignment)| assignment == cluster_id)
-                        .map(|((features, target), _)| (features.clone(), *target))
-                        .collect();
-                    
-                    if cluster_data.is_empty() {
-                        return None;
-                    }
-                    
-                    // Get cluster label from metadata
-                    let cluster_label = cluster_assignment
-                        .metadata
-                        .cluster_conditions
-                        .get(cluster_id)
-                        .cloned()
-                        .unwrap_or_else(|| format!("Cluster {}", cluster_id));
-                    
-                    // Run NSGA-II on this cluster independently with local RNG
-                    let mut best_expr = Expr::Const(0.0);
-                    let mut best_error = f64::MAX;
-                    let mut best_generation = 0u64;
-                    
-                    let mut rng = rand::thread_rng();
-                    let mut cumulative_counts = std::collections::HashMap::new();
-                    
-                    // Create initial population for this cluster using random expressions
-                    let mut mo_population: Vec<MultiObjectiveIndividual> = (0..config.population_size)
-                        .map(|_| {
-                            let expr = random_expr(&mut rng, config.max_depth, num_vars, &mut cumulative_counts);
-                            let error = evaluate_error_only(&expr, &cluster_data);
-                            MultiObjectiveIndividual::new(expr, error)
-                        })
-                        .collect();
-                    
-                    // Run NSGA-II generations on cluster
-                    for generation in 0..max_generations.min(50) {
-                        // Perform NSGA-II selection and sorting
-                        nsga2_selection(&mut mo_population);
-                        
-                        // Track best rank-0 individual
-                        for ind in mo_population.iter().filter(|ind| ind.rank == 0) {
-                            if ind.error < best_error {
-                                best_error = ind.error;
-                                best_expr = ind.expr.clone();
-                                best_generation = generation;
-                            }
-                        }
-                        
-                        if best_error <= job.target_error || generation >= max_generations as u64 - 1 {
-                            break;
-                        }
-                        
-                        // Selection and crossover
-                        let mut next_population = Vec::new();
-                        
-                        // Elitism: keep rank 0 individuals
-                        for ind in mo_population.iter().filter(|ind| ind.rank == 0).take(config.elite_count) {
-                            next_population.push(ind.clone());
-                        }
-                        
-                        // Generate offspring via crossover and mutation
-                        let mut cumulative_counts = std::collections::HashMap::new();
-                        while next_population.len() < config.population_size {
-                            let parent_a = nsga2_tournament_select(&mo_population, config.tournament_size, &mut rng);
-                            let parent_b = nsga2_tournament_select(&mo_population, config.tournament_size, &mut rng);
-                            
-                            let mut child_expr = if rng.gen_bool(config.crossover_rate) {
-                                crossover(&parent_a.expr, &parent_b.expr, &mut rng, &mut cumulative_counts)
-                            } else {
-                                parent_a.expr.clone()
-                            };
-                            
-                            if rng.gen_bool(config.mutation_rate) {
-                                child_expr = mutate(&child_expr, &mut rng, num_vars, config.max_depth, &mut cumulative_counts);
-                            }
-                            
-                            let error = evaluate_error_only(&child_expr, &cluster_data);
-                            next_population.push(MultiObjectiveIndividual::new(child_expr, error));
-                        }
-                        
-                        mo_population = next_population.into_iter().take(config.population_size).collect();
-                    }
-                    
-                    Some((cluster_id, cluster_label, best_expr, best_error, best_generation))
-                })
-                .collect();
-            
-            // Process results and find global best
-            let mut global_best_expr = Expr::Const(0.0);
-            let mut global_best_error = f64::MAX;
-            
-            for result in cluster_results.iter().flatten() {
-                let (cluster_id, cluster_label, best_expr, best_error, best_generation) = result;
-                let _ = tx.send(AppEvent::Log(format!(
-                    "Cluster {} ('{}'): RMSE {:.6} at generation {}",
-                    cluster_id, cluster_label, best_error, best_generation
-                )));
-                let _ = tx.send(AppEvent::CurrentClusterInfo(format!(
-                    "Cluster {} ('{}'): RMSE {:.6}",
-                    cluster_id, cluster_label, best_error
-                )));
-                
-                if *best_error < global_best_error {
-                    global_best_error = *best_error;
-                    global_best_expr = best_expr.clone();
-                }
-            }
-            
-            let duration_ms = start_time.elapsed().as_millis();
-            let expression_text = global_best_expr.to_string(&var_names);
-            let _ = tx.send(AppEvent::Log(format!(
-                "Per-Cluster GA Complete: Best RMSE {:.6} in {} ms",
-                global_best_error, duration_ms
-            )));
-            
-            // Update UI with final result
-            let _ = tx.send(AppEvent::Update(
-                0,
-                global_best_error,
-                expression_text,
-            ));
-            
-            // Return early from per_cluster_ga mode
+            let _ = per_cluster_ga::run_per_cluster_ga(
+                cluster_assignment,
+                &data,
+                &var_names,
+                num_vars,
+                max_generations,
+                &config,
+                job.target_error,
+                start_time,
+                &tx,
+                &duplicate_tracker,
+            );
             return;
         }
     }
@@ -1192,6 +1039,12 @@ pub fn run_solver(worker_id: Uuid, tx: Sender<AppEvent>, shutdown: Arc<AtomicBoo
             "Initial best RMSE: {:.6}",
             best_error
         )));
+        // Send initial Update event so UI can display progress
+        let _ = tx.send(AppEvent::Update(
+            0,
+            best_error,
+            best_expr.to_string(&var_names),
+        ));
         let mut best_generation = 0u64;
         let mut last_emit = Instant::now();
         // Cumulative operator counts over the run (used to compute percentages)
@@ -1662,87 +1515,6 @@ fn evaluate(expr: &Expr, data: &[(Vec<f64>, f64)]) -> f64 {
     rmse + complexity_penalty
 }
 
-/// Evaluate expression without complexity penalty (for NSGA-II multi-objective)
-fn evaluate_error_only(expr: &Expr, data: &[(Vec<f64>, f64)]) -> f64 {
-    // Simplify expression to remove redundant patterns like exp(log(x)) = x
-    let simplified = expr.simplify();
-    
-    let mut sum_sq: f64 = 0.0;
-    for (vars, target) in data {
-        let prediction = simplified.eval(vars);
-        if !prediction.is_finite() {
-            return f64::MAX;
-        }
-        let diff = prediction - target;
-        let contribution = diff * diff;
-        if !contribution.is_finite() {
-            return f64::MAX;
-        }
-        sum_sq += contribution;
-        if !sum_sq.is_finite() {
-            return f64::MAX;
-        }
-    }
-    crate::statistics::rmse(sum_sq, data.len())
-}
-
-/// Evaluate expression and apply a duplicate penalty when the shared tracker
-/// considers this expression a duplicate. Penalty is relative (e.g. 0.2 => +20%).
-fn evaluate_error_only_with_penalty(
-    expr: &Expr,
-    data: &[(Vec<f64>, f64)],
-    duplicate_tracker: &std::sync::Arc<std::sync::Mutex<crate::duplicate_detection::DuplicateTracker>>,
-    penalty: f64,
-) -> f64 {
-    let base = evaluate_error_only(expr, data);
-    if penalty <= 0.0 {
-        return base;
-    }
-    if let Ok(tracker) = duplicate_tracker.lock() {
-        if tracker.is_duplicate(expr) {
-            return base * (1.0 + penalty);
-        }
-    }
-    base
-}
-
-/// Update top 5 candidates list in state
-fn update_top_candidates(
-    state: &mut SolverState,
-    candidates: Vec<(String, f64)>,
-) {
-    use state::CandidateFormula;
-    state.top_candidates.clear();
-    for (rank, (formula, rmse)) in candidates.iter().enumerate().take(5) {
-        state.top_candidates.push(CandidateFormula {
-            rank: rank + 1,
-            formula: formula.clone(),
-            rmse: *rmse,
-        });
-    }
-}
-
-fn tournament_select<'a, R: Rng + ?Sized>(
-    population: &'a [Individual],
-    tournament_size: usize,
-    rng: &mut R,
-) -> &'a Individual {
-    let size = population.len().max(1);
-    let mut best_index = rng.gen_range(0..size);
-    let mut best_fitness = population[best_index].fitness;
-
-    for _ in 1..tournament_size {
-        let candidate_index = rng.gen_range(0..size);
-        let candidate_fitness = population[candidate_index].fitness;
-        if candidate_fitness < best_fitness {
-            best_index = candidate_index;
-            best_fitness = candidate_fitness;
-        }
-    }
-
-    &population[best_index]
-}
-
 fn synthetic_job_with_config(cfg: &crate::config::MinerConfig) -> RemoteJob {
     let dataset = crate::dataset::synthetic_dataset_for(&cfg.synthetic_data.dataset_type, &cfg.synthetic_data);
     let samples = dataset.len();
@@ -1767,6 +1539,27 @@ fn synthetic_job() -> RemoteJob {
 struct Individual {
     expr: Expr,
     fitness: f64,
+}
+
+fn tournament_select<'a, R: rand::Rng + ?Sized>(
+    population: &'a [Individual],
+    tournament_size: usize,
+    rng: &mut R,
+) -> &'a Individual {
+    let size = population.len().max(1);
+    let mut best_index = rng.gen_range(0..size);
+    let mut best_fitness = population[best_index].fitness;
+
+    for _ in 1..tournament_size {
+        let candidate_index = rng.gen_range(0..size);
+        let candidate_fitness = population[candidate_index].fitness;
+        if candidate_fitness < best_fitness {
+            best_index = candidate_index;
+            best_fitness = candidate_fitness;
+        }
+    }
+
+    &population[best_index]
 }
 
 /// Save parameter sweep results to a JSON file and CSV summary.

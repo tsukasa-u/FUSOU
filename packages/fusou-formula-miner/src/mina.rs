@@ -971,6 +971,9 @@ fn start_formula_optimization(state: &mut SolverState) {
     };
     push_log(state, config_str);
 
+    // Reset progress to 0 when starting
+    state.progress = 0.0;
+    state.generation = 0;
     state.solver_running = true;
 
     if sender.send(crate::state::AppEvent::StartRequested).is_err() {

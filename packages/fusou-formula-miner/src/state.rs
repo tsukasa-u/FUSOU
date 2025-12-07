@@ -117,7 +117,7 @@ impl SolverState {
             phase: Phase::Idle,
             sample_count: 0,
             selected_features: vec![],
-            max_generations: 1,
+            max_generations: 100,
             target_error: 1e-3,
             correlation_threshold: 0.1,
             last_error: None,

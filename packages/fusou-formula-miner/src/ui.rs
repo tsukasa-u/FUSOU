@@ -66,10 +66,27 @@ fn render_status(f: &mut Frame, state: &SolverState, area: Rect) {
         .constraints([Constraint::Length(3), Constraint::Min(2)])
         .split(area);
 
+    let progress_ratio = if state.max_generations > 0 {
+        state.progress.min(1.0).max(0.0)
+    } else {
+        0.0
+    };
+
+    let progress_label = if state.max_generations > 0 {
+        format!("{:.1}% ({}/{})", 
+            progress_ratio * 100.0,
+            state.generation,
+            state.max_generations
+        )
+    } else {
+        format!("0% (0/{})", state.max_generations)
+    };
+
     let gauge = Gauge::default()
         .block(Block::default().borders(Borders::ALL).title("Progress"))
         .gauge_style(Style::default().fg(Color::Green))
-        .ratio(state.progress.min(1.0));
+        .label(progress_label)
+        .ratio(progress_ratio);
     f.render_widget(gauge, chunks[0]);
 
     let feature_count = if state.selected_features.is_empty() {
