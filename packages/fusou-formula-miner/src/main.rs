@@ -15,6 +15,7 @@ use std::{
     thread,
     time::{Duration, Instant},
 };
+use rayon::prelude::*;
 use uuid::Uuid;
 
 mod config;
@@ -40,10 +41,10 @@ mod clustering;
 use config::MinerConfig;
 
 use network::{JobSubmission, RemoteJob, WorkerClient};
-use solver::{crossover, mutate, Expr, GeneticConfig, UnaryOp, BinaryOp};
+use solver::{crossover, mutate, random_expr, Expr, GeneticConfig, UnaryOp, BinaryOp};
 use smart_init::{DataStats, smart_init};
 use state::{AppEvent, JobSummary, Phase, SolverState, CandidateFormula, ParameterSet, SweepConfig};
-use nsga2::{MultiObjectiveIndividual, nsga2_selection, nsga2_tournament_select};
+use nsga2::{MultiObjectiveIndividual, nsga2_selection, nsga2_tournament_select, non_dominated_sort};
 use bloat_control::{tarpeian_penalty, hoist_mutation, average_size};
 use const_opt_adaptive::optimize_constants_adaptive;
 
@@ -102,6 +103,13 @@ fn main() -> Result<()> {
     state.shared_config = Some(shared_config.clone());
     // Expose event sender so UI commands can request actions (e.g., start solver)
     state.event_sender = Some(tx.clone());
+
+    // Auto-load miner_config.toml on startup so clustering settings take effect
+    if let Ok(mut cfg_guard) = state.miner_config.lock() {
+        let loaded = config::MinerConfig::load_or_default("miner_config.toml");
+        *cfg_guard = loaded;
+        let _ = tx.send(AppEvent::Log("✓ miner_config.toml auto-loaded (clustering & cluster_mode ready)".to_string()));
+    }
 
     // Do NOT spawn solver thread immediately - wait for /start command
     // This allows users to configure parameters before starting optimization
@@ -869,6 +877,174 @@ pub fn run_solver(worker_id: Uuid, tx: Sender<AppEvent>, shutdown: Arc<AtomicBoo
     #[cfg(not(feature = "clustering"))]
     let cached_cluster_assignment: Option<clustering::ClusterAssignment> = None;
 
+    let start_time = Instant::now();
+
+    // Check cluster_mode to decide if we should run per_cluster_ga
+    #[cfg(feature = "clustering")]
+    let use_per_cluster_ga = if let Some(ref cluster_assignment) = cached_cluster_assignment {
+        if let Ok(miner_cfg) = miner_config.lock() {
+            if let Ok(cluster_cfg) = miner_cfg.get_clustering_config() {
+                cluster_cfg.cluster_mode == "per_cluster_ga"
+            } else {
+                false
+            }
+        } else {
+            false
+        }
+    } else {
+        false
+    };
+    
+    #[cfg(not(feature = "clustering"))]
+    let use_per_cluster_ga = false;
+
+    // If per_cluster_ga mode is enabled, run per-cluster GA in parallel
+    #[cfg(feature = "clustering")]
+    if use_per_cluster_ga {
+        if let Some(ref cluster_assignment) = cached_cluster_assignment {
+            let _ = tx.send(AppEvent::Log("=== Starting Per-Cluster GA Mode (Parallel NSGA-II) ===".into()));
+            let _ = tx.send(AppEvent::Log(format!(
+                "Running NSGA-II independently on {} clusters using rayon parallelization",
+                cluster_assignment.num_clusters
+            )));
+            
+            // Prepare shared config for parallel use
+            let config = shared_config.lock().unwrap().clone();
+            
+            // Run per-cluster GA in parallel
+            let cluster_results: Vec<Option<(usize, String, Expr, f64, u64)>> = (0..cluster_assignment.num_clusters)
+                .into_par_iter()
+                .map(|cluster_id| {
+                    // Extract data for this cluster
+                    let cluster_data: Vec<(Vec<f64>, f64)> = data
+                        .iter()
+                        .zip(cluster_assignment.assignments.iter())
+                        .filter(|(_, &assignment)| assignment == cluster_id)
+                        .map(|((features, target), _)| (features.clone(), *target))
+                        .collect();
+                    
+                    if cluster_data.is_empty() {
+                        return None;
+                    }
+                    
+                    // Get cluster label from metadata
+                    let cluster_label = cluster_assignment
+                        .metadata
+                        .cluster_conditions
+                        .get(cluster_id)
+                        .cloned()
+                        .unwrap_or_else(|| format!("Cluster {}", cluster_id));
+                    
+                    // Run NSGA-II on this cluster independently with local RNG
+                    let mut best_expr = Expr::Const(0.0);
+                    let mut best_error = f64::MAX;
+                    let mut best_generation = 0u64;
+                    
+                    let mut rng = rand::thread_rng();
+                    let mut cumulative_counts = std::collections::HashMap::new();
+                    
+                    // Create initial population for this cluster using random expressions
+                    let mut mo_population: Vec<MultiObjectiveIndividual> = (0..config.population_size)
+                        .map(|_| {
+                            let expr = random_expr(&mut rng, config.max_depth, num_vars, &mut cumulative_counts);
+                            let error = evaluate_error_only(&expr, &cluster_data);
+                            MultiObjectiveIndividual::new(expr, error)
+                        })
+                        .collect();
+                    
+                    // Run NSGA-II generations on cluster
+                    for generation in 0..max_generations.min(50) {
+                        // Perform NSGA-II selection and sorting
+                        nsga2_selection(&mut mo_population);
+                        
+                        // Track best rank-0 individual
+                        for ind in mo_population.iter().filter(|ind| ind.rank == 0) {
+                            if ind.error < best_error {
+                                best_error = ind.error;
+                                best_expr = ind.expr.clone();
+                                best_generation = generation;
+                            }
+                        }
+                        
+                        if best_error <= job.target_error || generation >= max_generations as u64 - 1 {
+                            break;
+                        }
+                        
+                        // Selection and crossover
+                        let mut next_population = Vec::new();
+                        
+                        // Elitism: keep rank 0 individuals
+                        for ind in mo_population.iter().filter(|ind| ind.rank == 0).take(config.elite_count) {
+                            next_population.push(ind.clone());
+                        }
+                        
+                        // Generate offspring via crossover and mutation
+                        let mut cumulative_counts = std::collections::HashMap::new();
+                        while next_population.len() < config.population_size {
+                            let parent_a = nsga2_tournament_select(&mo_population, config.tournament_size, &mut rng);
+                            let parent_b = nsga2_tournament_select(&mo_population, config.tournament_size, &mut rng);
+                            
+                            let mut child_expr = if rng.gen_bool(config.crossover_rate) {
+                                crossover(&parent_a.expr, &parent_b.expr, &mut rng, &mut cumulative_counts)
+                            } else {
+                                parent_a.expr.clone()
+                            };
+                            
+                            if rng.gen_bool(config.mutation_rate) {
+                                child_expr = mutate(&child_expr, &mut rng, num_vars, config.max_depth, &mut cumulative_counts);
+                            }
+                            
+                            let error = evaluate_error_only(&child_expr, &cluster_data);
+                            next_population.push(MultiObjectiveIndividual::new(child_expr, error));
+                        }
+                        
+                        mo_population = next_population.into_iter().take(config.population_size).collect();
+                    }
+                    
+                    Some((cluster_id, cluster_label, best_expr, best_error, best_generation))
+                })
+                .collect();
+            
+            // Process results and find global best
+            let mut global_best_expr = Expr::Const(0.0);
+            let mut global_best_error = f64::MAX;
+            
+            for result in cluster_results.iter().flatten() {
+                let (cluster_id, cluster_label, best_expr, best_error, best_generation) = result;
+                let _ = tx.send(AppEvent::Log(format!(
+                    "Cluster {} ('{}'): RMSE {:.6} at generation {}",
+                    cluster_id, cluster_label, best_error, best_generation
+                )));
+                let _ = tx.send(AppEvent::CurrentClusterInfo(format!(
+                    "Cluster {} ('{}'): RMSE {:.6}",
+                    cluster_id, cluster_label, best_error
+                )));
+                
+                if *best_error < global_best_error {
+                    global_best_error = *best_error;
+                    global_best_expr = best_expr.clone();
+                }
+            }
+            
+            let duration_ms = start_time.elapsed().as_millis();
+            let expression_text = global_best_expr.to_string(&var_names);
+            let _ = tx.send(AppEvent::Log(format!(
+                "Per-Cluster GA Complete: Best RMSE {:.6} in {} ms",
+                global_best_error, duration_ms
+            )));
+            
+            // Update UI with final result
+            let _ = tx.send(AppEvent::Update(
+                0,
+                global_best_error,
+                expression_text,
+            ));
+            
+            // Return early from per_cluster_ga mode
+            return;
+        }
+    }
+
     // Initialize shared config with sensible defaults derived from data
     {
         let mut cfg = shared_config.lock().unwrap();
@@ -1344,30 +1520,51 @@ pub fn run_solver(worker_id: Uuid, tx: Sender<AppEvent>, shutdown: Arc<AtomicBoo
     #[cfg(feature = "clustering")]
     if let Some(cluster_assignment) = &cached_cluster_assignment {
         let _ = tx.send(AppEvent::Log("=== Per-Cluster Evaluation ===".into()));
+        let _ = tx.send(AppEvent::Log(format!(
+            "Parallel eval across {} clusters using rayon (multi-threaded)",
+            cluster_assignment.num_clusters
+        )));
         
-        // Evaluate the best expression on each cluster separately
-        for cluster_id in 0..cluster_assignment.num_clusters {
-            // Extract data for this cluster
-            let cluster_data: Vec<(Vec<f64>, f64)> = data
-                .iter()
-                .zip(cluster_assignment.assignments.iter())
-                .filter(|(_, &assignment)| assignment == cluster_id)
-                .map(|((features, target), _)| (features.clone(), *target))
-                .collect();
-            
-            if cluster_data.is_empty() {
-                continue;
-            }
-            
-            // Evaluate best expression on this cluster
-            let cluster_error = evaluate_error_only(&global_best_expr, &cluster_data);
-            let cluster_size = cluster_data.len();
-            
-            let log_msg = format!(
-                "  Cluster {}: {} samples, RMSE: {:.6}",
-                cluster_id, cluster_size, cluster_error
+        // Parallel per-cluster evaluation using rayon
+        let cluster_results: Vec<Option<(usize, String, usize, f64)>> = (0..cluster_assignment.num_clusters)
+            .into_par_iter()
+            .map(|cluster_id| {
+                // Extract data for this cluster
+                let cluster_data: Vec<(Vec<f64>, f64)> = data
+                    .iter()
+                    .zip(cluster_assignment.assignments.iter())
+                    .filter(|(_, &assignment)| assignment == cluster_id)
+                    .map(|((features, target), _)| (features.clone(), *target))
+                    .collect();
+                
+                if cluster_data.is_empty() {
+                    return None;
+                }
+                
+                // Evaluate best expression on this cluster
+                let cluster_error = evaluate_error_only(&global_best_expr, &cluster_data);
+                let cluster_size = cluster_data.len();
+                
+                let cluster_label = cluster_assignment
+                    .metadata
+                    .cluster_conditions
+                    .get(cluster_id)
+                    .cloned()
+                    .unwrap_or_else(|| format!("Cluster {}", cluster_id));
+                
+                Some((cluster_id, cluster_label, cluster_size, cluster_error))
+            })
+            .collect();
+        
+        // Process results and send to UI
+        for result in cluster_results.iter().flatten() {
+            let (cluster_id, cluster_label, cluster_size, cluster_error) = result;
+            let log_msg_with_label = format!(
+                "  Cluster {} ('{}'): {} samples, RMSE: {:.6}",
+                cluster_id, cluster_label, cluster_size, cluster_error
             );
-            let _ = tx.send(AppEvent::CurrentClusterInfo(log_msg));
+            let _ = tx.send(AppEvent::CurrentClusterInfo(log_msg_with_label.clone()));
+            let _ = tx.send(AppEvent::Log(log_msg_with_label));
         }
         
         let _ = tx.send(AppEvent::Log("=== End Per-Cluster Evaluation ===".into()));

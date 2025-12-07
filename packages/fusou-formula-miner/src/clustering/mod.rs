@@ -59,6 +59,10 @@ pub struct ClusterMetadata {
     pub rules: Vec<String>,
     /// Cluster quality metric (0.0 - 1.0)
     pub quality_score: f64,
+    /// Mean feature vectors for each cluster
+    pub centroids: Vec<Vec<f64>>,
+    /// Human-readable conditions like "x > 0.5 AND y < 2.0"
+    pub cluster_conditions: Vec<String>,
 }
 
 impl ClusterAssignment {

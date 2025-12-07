@@ -50,10 +50,147 @@ impl Expr {
 
     // Simplify the expression by constant folding and removing identity operations
     pub fn simplify(&self) -> Expr {
+        // Structural equality for cancellation checks (exact match with small const tolerance)
+        fn expr_equal(a: &Expr, b: &Expr) -> bool {
+            match (a, b) {
+                (Expr::Const(x), Expr::Const(y)) => (x - y).abs() < 1e-12,
+                (Expr::Var(i), Expr::Var(j)) => i == j,
+                (
+                    Expr::Unary { op: op_a, child: ca },
+                    Expr::Unary { op: op_b, child: cb },
+                ) => op_a == op_b && expr_equal(ca, cb),
+                (
+                    Expr::Binary { op: op_a, left: la, right: ra },
+                    Expr::Binary { op: op_b, left: lb, right: rb },
+                ) => op_a == op_b && expr_equal(la, lb) && expr_equal(ra, rb),
+                _ => false,
+            }
+        }
+
+        // Collect additive terms with sign; Add/Sub are flattened
+        fn collect_add_terms(expr: &Expr, sign: f64, out: &mut Vec<(Expr, f64)>) {
+            match expr {
+                Expr::Binary { op: BinaryOp::Add, left, right } => {
+                    collect_add_terms(left, sign, out);
+                    collect_add_terms(right, sign, out);
+                }
+                Expr::Binary { op: BinaryOp::Sub, left, right } => {
+                    collect_add_terms(left, sign, out);
+                    collect_add_terms(right, -sign, out);
+                }
+                other => out.push((other.clone(), sign)),
+            }
+        }
+
+        fn rebuild_from_terms(mut terms: Vec<(Expr, f64)>) -> Expr {
+            const EPS: f64 = 1e-10;
+            let mut combined: Vec<(Expr, f64)> = Vec::new();
+            let mut const_sum = 0.0;
+
+            for (expr, coeff) in terms.drain(..) {
+                if coeff.abs() < EPS {
+                    continue;
+                }
+                if let Expr::Const(c) = expr {
+                    const_sum += coeff * c;
+                    continue;
+                }
+                if let Some(idx) = combined.iter().position(|(e, _)| expr_equal(e, &expr)) {
+                    combined[idx].1 += coeff;
+                } else {
+                    combined.push((expr, coeff));
+                }
+            }
+
+            combined.retain(|(_, c)| c.abs() > EPS);
+            if const_sum.abs() > EPS {
+                combined.push((Expr::Const(const_sum), 1.0));
+            }
+
+            if combined.is_empty() {
+                return Expr::Const(0.0);
+            }
+
+            if combined.len() == 1 {
+                let (expr, coeff) = combined.pop().unwrap();
+                return if (coeff - 1.0).abs() < EPS {
+                    expr
+                } else if (coeff + 1.0).abs() < EPS {
+                    Expr::Binary {
+                        op: BinaryOp::Sub,
+                        left: Box::new(Expr::Const(0.0)),
+                        right: Box::new(expr),
+                    }
+                } else {
+                    Expr::Binary {
+                        op: BinaryOp::Mul,
+                        left: Box::new(Expr::Const(coeff)),
+                        right: Box::new(expr),
+                    }
+                };
+            }
+
+            let mut iter = combined.into_iter();
+            let (first_expr, first_coeff) = iter.next().unwrap();
+            let mut acc = if (first_coeff - 1.0).abs() < EPS {
+                first_expr
+            } else if (first_coeff + 1.0).abs() < EPS {
+                Expr::Binary {
+                    op: BinaryOp::Sub,
+                    left: Box::new(Expr::Const(0.0)),
+                    right: Box::new(first_expr),
+                }
+            } else {
+                Expr::Binary {
+                    op: BinaryOp::Mul,
+                    left: Box::new(Expr::Const(first_coeff)),
+                    right: Box::new(first_expr),
+                }
+            };
+
+            for (expr, coeff) in iter {
+                if (coeff - 1.0).abs() < EPS {
+                    acc = Expr::Binary {
+                        op: BinaryOp::Add,
+                        left: Box::new(acc),
+                        right: Box::new(expr),
+                    };
+                } else if (coeff + 1.0).abs() < EPS {
+                    acc = Expr::Binary {
+                        op: BinaryOp::Sub,
+                        left: Box::new(acc),
+                        right: Box::new(expr),
+                    };
+                } else {
+                    let term = Expr::Binary {
+                        op: BinaryOp::Mul,
+                        left: Box::new(Expr::Const(coeff)),
+                        right: Box::new(expr),
+                    };
+                    acc = Expr::Binary {
+                        op: BinaryOp::Add,
+                        left: Box::new(acc),
+                        right: Box::new(term),
+                    };
+                }
+            }
+
+            acc
+        }
+
         match self {
             Expr::Binary { op, left, right } => {
                 let sl = left.simplify();
                 let sr = right.simplify();
+
+                // Flatten Add/Sub to cancel identical terms
+                if matches!(op, BinaryOp::Add | BinaryOp::Sub) {
+                    let mut terms: Vec<(Expr, f64)> = Vec::new();
+                    collect_add_terms(&sl, 1.0, &mut terms);
+                    let sign = if *op == BinaryOp::Add { 1.0 } else { -1.0 };
+                    collect_add_terms(&sr, sign, &mut terms);
+                    return rebuild_from_terms(terms);
+                }
                 match (op, &sl, &sr) {
                     // Constant Folding
                     (BinaryOp::Add, Expr::Const(a), Expr::Const(b)) => Expr::Const(a + b),
@@ -216,6 +353,77 @@ impl Expr {
                 BinaryOp::Max => format!("max({}, {})", left.to_string(vars), right.to_string(vars)),
             },
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn v(i: usize) -> Expr { Expr::Var(i) }
+    fn c(x: f64) -> Expr { Expr::Const(x) }
+
+    #[test]
+    fn simplify_var_minus_same_var_to_zero() {
+        let expr = Expr::Binary {
+            op: BinaryOp::Sub,
+            left: Box::new(v(0)),
+            right: Box::new(v(0)),
+        };
+        let s = expr.simplify();
+        assert!(matches!(s, Expr::Const(z) if z.abs() < 1e-12));
+    }
+
+    #[test]
+    fn simplify_add_nested_sub_cancel() {
+        // a + (b - a) => b
+        let expr = Expr::Binary {
+            op: BinaryOp::Add,
+            left: Box::new(v(0)),
+            right: Box::new(Expr::Binary {
+                op: BinaryOp::Sub,
+                left: Box::new(v(1)),
+                right: Box::new(v(0)),
+            }),
+        };
+        let s = expr.simplify();
+        assert!(matches!(s, Expr::Var(1)));
+    }
+
+    #[test]
+    fn simplify_group_difference_to_zero() {
+        // (x + y) - (x + y) => 0
+        let expr = Expr::Binary {
+            op: BinaryOp::Sub,
+            left: Box::new(Expr::Binary {
+                op: BinaryOp::Add,
+                left: Box::new(v(0)),
+                right: Box::new(v(1)),
+            }),
+            right: Box::new(Expr::Binary {
+                op: BinaryOp::Add,
+                left: Box::new(v(0)),
+                right: Box::new(v(1)),
+            }),
+        };
+        let s = expr.simplify();
+        assert!(matches!(s, Expr::Const(z) if z.abs() < 1e-12));
+    }
+
+    #[test]
+    fn simplify_add_negated_term() {
+        // x + (-x) => 0
+        let expr = Expr::Binary {
+            op: BinaryOp::Add,
+            left: Box::new(v(0)),
+            right: Box::new(Expr::Binary {
+                op: BinaryOp::Sub,
+                left: Box::new(c(0.0)),
+                right: Box::new(v(0)),
+            }),
+        };
+        let s = expr.simplify();
+        assert!(matches!(s, Expr::Const(z) if z.abs() < 1e-12));
     }
 }
 

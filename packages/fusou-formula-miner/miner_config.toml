@@ -447,3 +447,7 @@ num_clusters = 3
 # Number of trees in random forest
 n_trees = 10
 
+# クラスタ後の最適化モード: "const_opt_eval"(デフォルト: クラスタごと定数再最適化+評価) / "per_cluster_ga"(クラスタごとにGAを回す)
+# Post-clustering optimization mode: "const_opt_eval" (default: per-cluster constant re-opt + eval) / "per_cluster_ga" (run GA per cluster)
+cluster_mode = "per_cluster_ga"
+

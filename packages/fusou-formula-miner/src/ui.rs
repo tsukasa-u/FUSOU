@@ -209,6 +209,11 @@ fn render_best_solution(f: &mut Frame, state: &SolverState, area: Rect) {
         state.best_formula
     );
 
+    // Add current cluster info if available
+    if let Some(cluster_info) = &state.current_cluster_info {
+        info_text.push_str(&format!("\n\nCurrently optimizing: {}", cluster_info));
+    }
+
     // Add clustering context if available
     if let Some(cluster_data) = &state.cluster_assignments {
         if let serde_json::Value::Object(cluster_info) = cluster_data {
@@ -567,6 +572,43 @@ fn render_clustering_panel(f: &mut Frame, state: &SolverState, area: Rect) {
                         })
                         .unwrap_or_else(|| "".to_string());
                     
+                    // Extract centroids
+                    let centroids_str = data.get("centroids")
+                        .and_then(|v| v.as_array())
+                        .map(|arr| {
+                            arr.iter()
+                                .enumerate()
+                                .map(|(c_id, centroid)| {
+                                    if let Some(vals) = centroid.as_array() {
+                                        let formatted = vals.iter()
+                                            .filter_map(|v| v.as_f64())
+                                            .map(|f| format!("{:.2}", f))
+                                            .collect::<Vec<_>>()
+                                            .join(", ");
+                                        format!("  C{}: [{}]", c_id, formatted)
+                                    } else {
+                                        format!("  C{}: N/A", c_id)
+                                    }
+                                })
+                                .collect::<Vec<_>>()
+                                .join("\n")
+                        })
+                        .unwrap_or_else(|| "".to_string());
+                    
+                    // Extract cluster conditions
+                    let conditions_str = data.get("cluster_conditions")
+                        .and_then(|v| v.as_array())
+                        .map(|arr| {
+                            arr.iter()
+                                .enumerate()
+                                .filter_map(|(c_id, cond)| {
+                                    cond.as_str().map(|s| format!("  C{}: {}", c_id, s))
+                                })
+                                .collect::<Vec<_>>()
+                                .join("\n")
+                        })
+                        .unwrap_or_else(|| "".to_string());
+                    
                     let mut text = format!(
                         "Clusters: {}\n{}\nMethod: {}\nQuality: {:.2}",
                         num_clusters,
@@ -577,6 +619,14 @@ fn render_clustering_panel(f: &mut Frame, state: &SolverState, area: Rect) {
                     
                     if !rules.is_empty() {
                         text.push_str(&format!("\n\nRules:\n{}", rules));
+                    }
+                    
+                    if !centroids_str.is_empty() {
+                        text.push_str(&format!("\n\nCentroids:\n{}", centroids_str));
+                    }
+                    
+                    if !conditions_str.is_empty() {
+                        text.push_str(&format!("\n\nConditions:\n{}", conditions_str));
                     }
                     
                     text

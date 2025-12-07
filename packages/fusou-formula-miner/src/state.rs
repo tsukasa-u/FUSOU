@@ -93,6 +93,8 @@ pub struct SolverState {
     pub selected_cluster_id: Option<usize>,
     // UI state: which panel is currently focused
     pub focus_cluster_panel: bool,
+    // Current cluster being processed (for per-cluster optimization)
+    pub current_cluster_info: Option<String>,
 }
 
 impl SolverState {
@@ -138,6 +140,7 @@ impl SolverState {
             cluster_assignments: None,
             selected_cluster_id: None,
             focus_cluster_panel: false,
+            current_cluster_info: None,
         }
     }
 }
@@ -157,6 +160,8 @@ pub enum AppEvent {
     StartRequested,
     // Clustering results
     ClusteringResults(Option<serde_json::Value>),
+    // Current cluster being processed during optimization
+    CurrentClusterInfo(String),
 }
 
 #[derive(Clone)]

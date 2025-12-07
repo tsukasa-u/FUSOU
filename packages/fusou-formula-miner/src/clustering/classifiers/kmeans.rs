@@ -96,6 +96,16 @@ pub mod kmeans_impl {
             *cluster_sizes.entry(cluster_id).or_insert(0) += 1;
         }
 
+        // Generate cluster conditions based on centroid positions (feature ranges per cluster)
+        let mut cluster_conditions = Vec::new();
+        for c in 0..k {
+            let mut condition_parts = Vec::new();
+            for j in 0..num_features {
+                condition_parts.push(format!("f{} ≈ {:.2}", j, centroids[c][j]));
+            }
+            cluster_conditions.push(condition_parts.join(" AND "));
+        }
+
         Ok(ClusterAssignment {
             assignments,
             num_clusters: k,
@@ -104,6 +114,8 @@ pub mod kmeans_impl {
                 method: "kmeans".to_string(),
                 rules: vec![format!("K-means clustering with k={}", k)],
                 quality_score: 0.75,
+                centroids: centroids.clone(),
+                cluster_conditions,
             },
         })
     }

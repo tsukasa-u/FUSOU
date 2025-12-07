@@ -368,6 +368,8 @@ pub struct ClusteringConfigToml {
     pub min_samples_leaf: usize,
     pub num_clusters: usize,
     pub n_trees: usize,
+    /// cluster_mode: "const_opt_eval" (default) or "per_cluster_ga"
+    pub cluster_mode: String,
 }
 
 impl Default for ClusteringConfigToml {
@@ -379,6 +381,7 @@ impl Default for ClusteringConfigToml {
             min_samples_leaf: 1,
             num_clusters: 3,
             n_trees: 10,
+            cluster_mode: "const_opt_eval".to_string(),
         }
     }
 }

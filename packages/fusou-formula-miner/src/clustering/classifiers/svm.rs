@@ -32,11 +32,29 @@ pub mod svm_impl {
 
         let mut assignments = vec![0; num_samples];
         let mut cluster_sizes = HashMap::new();
+        let num_features = features[0].len();
+        let mut cluster_feature_sums = vec![vec![0.0; num_features]; 2];
 
         for (i, &t) in targets.iter().enumerate() {
             let cluster = if t < median { 0 } else { 1 };
             assignments[i] = cluster;
             *cluster_sizes.entry(cluster).or_insert(0) += 1;
+            
+            for j in 0..num_features {
+                cluster_feature_sums[cluster][j] += features[i][j];
+            }
+        }
+
+        // Compute centroids
+        let mut centroids = vec![vec![0.0; num_features]; 2];
+        for c in 0..2 {
+            if let Some(&count) = cluster_sizes.get(&c) {
+                if count > 0 {
+                    for j in 0..num_features {
+                        centroids[c][j] = cluster_feature_sums[c][j] / count as f64;
+                    }
+                }
+            }
         }
 
         let num_clusters = 2;
@@ -49,6 +67,11 @@ pub mod svm_impl {
                 method: "svm".to_string(),
                 rules: vec![format!("SVM-inspired binary split at target median: {}", median)],
                 quality_score: 0.7,
+                centroids,
+                cluster_conditions: vec![
+                    format!("target < {:.4}", median),
+                    format!("target >= {:.4}", median),
+                ],
             },
         })
     }
