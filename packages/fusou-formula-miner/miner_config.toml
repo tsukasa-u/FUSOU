@@ -441,7 +441,7 @@ min_samples_leaf = 50
 
 # K-means のクラスタ数
 # Number of clusters for K-means
-num_clusters = 3
+num_clusters = 0
 
 # ランダムフォレストの決定木数
 # Number of trees in random forest

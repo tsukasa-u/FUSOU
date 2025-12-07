@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Formula Server Dashboard</title>
+  <script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mathjs@11.8.0/lib/browser/math.js"></script>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --panel: #111827;
+      --text: #e5e7eb;
+      --muted: #9ca3af;
+      --accent: #38bdf8;
+      --border: #1f2937;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+      background: radial-gradient(circle at 20% 20%, #0b1222, #0f172a 50%);
+      color: var(--text);
+    }
+    header {
+      padding: 16px 24px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: rgba(15, 23, 42, 0.9);
+      backdrop-filter: blur(8px);
+      position: sticky;
+      top: 0;
+      z-index: 2;
+    }
+    h1 { margin: 0; font-size: 20px; letter-spacing: 0.3px; }
+    main { padding: 16px 24px 32px; display: grid; grid-template-columns: 2fr 1fr; gap: 16px; }
+    section { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 16px; box-shadow: 0 10px 30px rgba(0,0,0,0.35); }
+    #plot { width: 100%; height: 520px; }
+    .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px,1fr)); gap: 8px; margin-top: 12px; }
+    .card { padding: 10px 12px; background: #0b1222; border: 1px solid var(--border); border-radius: 10px; }
+    .card .label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
+    .card .value { font-size: 18px; margin-top: 4px; }
+    form { display: grid; gap: 10px; }
+    input, button, textarea {
+      background: #0b1222;
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 12px;
+      font-size: 14px;
+      width: 100%;
+    }
+    button { cursor: pointer; background: linear-gradient(135deg, #06b6d4, #3b82f6); border: none; font-weight: 600; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .row { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; }
+    .muted { color: var(--muted); font-size: 13px; }
+    @media (max-width: 960px) { main { grid-template-columns: 1fr; } #plot { height: 420px; } }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Formula Server Dashboard</h1>
+    <span class="muted" id="meta"></span>
+  </header>
+  <main>
+    <section>
+      <div id="plot"></div>
+      <div class="muted" id="legend">Loading snapshot…</div>
+    </section>
+    <section>
+      <h2 style="margin-top:0;font-size:16px;">Formula Overlay</h2>
+      <form id="formula-form">
+        <label class="muted">Current formula</label>
+        <textarea id="formula-input" rows="4" spellcheck="false"></textarea>
+        <div class="row">
+          <button type="submit">Update Formula</button>
+          <button type="button" id="refresh">Refresh Snapshot</button>
+        </div>
+      </form>
+      <div class="stats" id="stats"></div>
+    </section>
+  </main>
+
+  <script>
+    const palette = ["#38bdf8", "#f472b6", "#c084fc", "#fb923c", "#22d3ee", "#a3e635", "#f59e0b", "#8b5cf6"];
+    const plotEl = document.getElementById("plot");
+    const legendEl = document.getElementById("legend");
+    const statsEl = document.getElementById("stats");
+    const metaEl = document.getElementById("meta");
+    const formulaInput = document.getElementById("formula-input");
+
+    async function fetchSnapshot() {
+      const res = await fetch("/api/dashboard/snapshot");
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    }
+
+    function renderStats(stats) {
+      statsEl.innerHTML = Object.entries(stats)
+        .map(([k, v]) => `<div class="card"><div class="label">${k}</div><div class="value">${v}</div></div>`)
+        .join("");
+    }
+
+    function renderPlot(snapshot) {
+      const { points, clusters, centroids, columns, formula } = snapshot;
+      if (!points.length) {
+        legendEl.textContent = "No points available";
+        Plotly.purge(plotEl);
+        return;
+      }
+
+      const xs = points.map(p => p[0]);
+      const ys = points.map(p => p[1]);
+      const zs = points.map(p => p[2]);
+      const colors = clusters.map(c => palette[c % palette.length]);
+
+      // Attempt to evaluate overlay formula using first two features
+      let overlayZ = [];
+      try {
+        const expr = math.compile(formula);
+        overlayZ = points.map(p => {
+          const scope = { [columns[0]]: p[0], [columns[1] || columns[0]]: p[1] };
+          const val = expr.evaluate(scope);
+          return Number.isFinite(val) ? val : null;
+        });
+      } catch (e) {
+        overlayZ = [];
+      }
+
+      const traces = [
+        {
+          x: xs,
+          y: ys,
+          z: zs,
+          mode: "markers",
+          type: "scatter3d",
+          marker: { size: 4, color: colors, opacity: 0.8 },
+          name: "Original"
+        },
+        {
+          x: centroids.map(c => c[0]),
+          y: centroids.map(c => c[1]),
+          z: centroids.map(c => c[2]),
+          mode: "markers",
+          type: "scatter3d",
+          marker: { size: 8, color: "#facc15", symbol: "diamond" },
+          name: "Centroids"
+        }
+      ];
+
+      if (overlayZ.filter(v => v !== null).length) {
+        traces.push({
+          x: xs,
+          y: ys,
+          z: overlayZ,
+          mode: "markers",
+          type: "scatter3d",
+          marker: { size: 3, color: "#22d3ee", opacity: 0.5 },
+          name: "Overlay"
+        });
+      }
+
+      Plotly.newPlot(plotEl, traces, {
+        scene: {
+          xaxis: { title: columns[0] || "x" },
+          yaxis: { title: columns[1] || "y" },
+          zaxis: { title: "target" },
+          bgcolor: "#0f172a"
+        },
+        paper_bgcolor: "rgba(0,0,0,0)",
+        plot_bgcolor: "rgba(0,0,0,0)",
+        margin: { l: 0, r: 0, t: 0, b: 0 },
+        legend: { font: { color: "#e5e7eb" } }
+      });
+
+      legendEl.textContent = `Points: ${points.length}, Features: ${columns.join(", ")}`;
+      formulaInput.value = formula;
+    }
+
+    async function load() {
+      legendEl.textContent = "Loading snapshot…";
+      try {
+        const snapshot = await fetchSnapshot();
+        renderPlot(snapshot);
+        renderStats(snapshot.stats);
+        metaEl.textContent = `Formula: ${snapshot.formula}`;
+      } catch (err) {
+        legendEl.textContent = `Failed to load: ${err.message}`;
+      }
+    }
+
+    document.getElementById("formula-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const formula = formulaInput.value.trim();
+      if (!formula) return;
+      try {
+        await fetch("/api/dashboard/formula", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ formula })
+        });
+        metaEl.textContent = `Formula: ${formula}`;
+        load();
+      } catch (err) {
+        legendEl.textContent = `Update failed: ${err.message}`;
+      }
+    });
+
+    document.getElementById("refresh").addEventListener("click", () => load());
+
+    load();
+  </script>
+</body>
+</html>

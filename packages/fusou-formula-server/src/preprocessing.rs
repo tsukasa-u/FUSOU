@@ -1,9 +1,10 @@
 use anyhow::{Context, Result};
 use polars::prelude::*;
+use rand::{seq::SliceRandom, thread_rng};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use smartcore::linalg::basic::matrix::DenseMatrix;
 use smartcore::tree::decision_tree_regressor::{DecisionTreeRegressor, DecisionTreeRegressorParameters};
-use std::collections::HashMap;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CleanJobData {
@@ -400,7 +401,6 @@ fn compute_stats(values: &[f64]) -> TargetStats {
             max: 0.0,
         };
     }
-
     let mean = values.iter().sum::<f64>() / values.len() as f64;
     let variance = values
         .iter()
@@ -420,4 +420,176 @@ fn compute_stats(values: &[f64]) -> TargetStats {
         .unwrap_or(0.0);
 
     TargetStats { mean, std, min, max }
+}
+
+/// Minimal cleaning for dashboard sampling
+pub fn clean_dataset(json_str: &str) -> Result<DataFrame, Box<dyn std::error::Error>> {
+    let mut df = JsonReader::new(std::io::Cursor::new(json_str.as_bytes()))
+        .finish()
+        .context("Failed to parse JSON")?;
+
+    df = unnest_struct_columns(df)?;
+
+    // keep numeric columns only
+    let numeric_cols: Vec<String> = df
+        .get_columns()
+        .iter()
+        .filter(|col| {
+            matches!(
+                col.dtype(),
+                DataType::Int8
+                    | DataType::Int16
+                    | DataType::Int32
+                    | DataType::Int64
+                    | DataType::UInt8
+                    | DataType::UInt16
+                    | DataType::UInt32
+                    | DataType::UInt64
+                    | DataType::Float32
+                    | DataType::Float64
+            )
+        })
+        .map(|col| col.name().to_string())
+        .collect();
+
+    df = df.select(&numeric_cols)?;
+
+    let filled: Vec<_> = df
+        .get_column_names()
+        .iter()
+        .map(|name| {
+            col(name)
+                .cast(DataType::Float64)
+                .fill_null(lit(0.0))
+                .alias(name)
+        })
+        .collect();
+
+    df = df.lazy().select(filled).collect()?;
+
+    Ok(df)
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct DashboardSnapshot {
+    pub columns: Vec<String>,
+    pub points: Vec<[f64; 3]>, // x,y,target
+    pub clusters: Vec<usize>,
+    pub centroids: Vec<[f64; 3]>,
+    pub formula: String,
+    pub stats: HashMap<String, f64>,
+}
+
+pub fn build_dashboard_snapshot(
+    mock_data: &str,
+    target_column: &str,
+    _test_ratio: f32,
+    _max_depth: u16,
+    _min_samples_leaf: usize,
+    k: usize,
+    formula: String,
+) -> Result<DashboardSnapshot, Box<dyn std::error::Error>> {
+    let df = clean_dataset(mock_data)?;
+    let columns: Vec<String> = df.get_columns().iter().map(|s| s.name().to_string()).collect();
+
+    // sample rows for dashboard to keep payload light (deterministic head to avoid extra deps)
+    let take_n = df.height().min(1000) as usize;
+    let sampled = df.head(Some(take_n));
+
+    let target = sampled.column(target_column)?.f64()?.to_vec();
+    let feature_cols: Vec<_> = columns
+        .iter()
+        .filter(|c| c.as_str() != target_column)
+        .cloned()
+        .collect();
+
+    if feature_cols.is_empty() {
+        return Err("Not enough feature columns".into());
+    }
+
+    let mut points = Vec::with_capacity(sampled.height());
+    for i in 0..sampled.height() {
+        let x = sampled.column(&feature_cols[0])?.f64()?.get(i).unwrap_or(0.0);
+        let y = sampled
+            .column(feature_cols.get(1).unwrap_or(&feature_cols[0]))?
+            .f64()?
+            .get(i)
+            .unwrap_or(0.0);
+        let t = target[i].unwrap_or(0.0);
+        points.push([x, y, t]);
+    }
+
+    // basic clustering with kmeans on first two features
+    let xy: Vec<[f64; 2]> = (0..sampled.height())
+        .map(|i| {
+            let x = sampled.column(&feature_cols[0]).unwrap().f64().unwrap().get(i).unwrap_or(0.0);
+            let y = sampled
+                .column(feature_cols.get(1).unwrap_or(&feature_cols[0]))
+                .unwrap()
+                .f64()
+                .unwrap()
+                .get(i)
+                .unwrap_or(0.0);
+            [x, y]
+        })
+        .collect();
+
+    let mut rng = thread_rng();
+    let mut centroids: Vec<[f64; 2]> = xy.choose_multiple(&mut rng, k.max(1)).cloned().collect();
+    if centroids.is_empty() {
+        centroids.push([0.0, 0.0]);
+    }
+
+    let mut assignments = vec![0usize; xy.len()];
+    for _ in 0..10 {
+        for (i, p) in xy.iter().enumerate() {
+            let mut best = 0;
+            let mut best_dist = f64::MAX;
+            for (c_idx, c) in centroids.iter().enumerate() {
+                let dx = p[0] - c[0];
+                let dy = p[1] - c[1];
+                let d = dx * dx + dy * dy;
+                if d < best_dist {
+                    best_dist = d;
+                    best = c_idx;
+                }
+            }
+            assignments[i] = best;
+        }
+
+        let mut sum = vec![[0.0, 0.0]; centroids.len()];
+        let mut cnt = vec![0usize; centroids.len()];
+        for (i, &a) in assignments.iter().enumerate() {
+            sum[a][0] += xy[i][0];
+            sum[a][1] += xy[i][1];
+            cnt[a] += 1;
+        }
+        for c in 0..centroids.len() {
+            if cnt[c] > 0 {
+                centroids[c][0] = sum[c][0] / cnt[c] as f64;
+                centroids[c][1] = sum[c][1] / cnt[c] as f64;
+            }
+        }
+    }
+
+    let centroid_3d: Vec<[f64; 3]> = centroids
+        .iter()
+        .map(|c| [c[0], c[1], 0.0])
+        .collect();
+
+    // simple stats for frontend
+    let stats = HashMap::from([
+        ("rows".to_string(), df.height() as f64),
+        ("cols".to_string(), df.get_columns().len() as f64),
+        ("sampled".to_string(), sampled.height() as f64),
+    ]);
+
+    Ok(DashboardSnapshot {
+        columns: feature_cols,
+        points,
+        clusters: assignments,
+        centroids: centroid_3d,
+        formula,
+        stats,
+    })
 }

@@ -6,10 +6,11 @@ use crate::solver::nsga2::MultiObjectiveIndividual;
 use crate::solver::Expr;
 use crate::state::AppEvent;
 use crate::engine::solver_helpers::count_ops_in_expr;
+use crate::engine::duplicate_detection::expr_to_canonical_string;
 use rand::Rng;
 use std::sync::mpsc::Sender;
 use rayon::prelude::*;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -185,20 +186,25 @@ fn run_nsga2_on_cluster(
     let mut rng = rand::thread_rng();
     let mut cumulative_counts = HashMap::new();
 
-    // Create initial population
-    let mut mo_population: Vec<MultiObjectiveIndividual> = (0..config.population_size)
-        .map(|_| {
-            let expr = random_expr(&mut rng, config.max_depth, num_vars, &mut cumulative_counts);
-            // Apply duplicate penalty during evaluation
-            let error = crate::engine::solver_helpers::evaluate_error_only_with_penalty(
-                &expr, 
-                cluster_data, 
-                duplicate_tracker, 
-                config.duplicate_penalty
-            );
-            MultiObjectiveIndividual::new(expr, error)
-        })
-        .collect();
+    // Create initial population with structural deduplication
+    let mut mo_population: Vec<MultiObjectiveIndividual> = Vec::with_capacity(config.population_size);
+    let mut seen_structures: HashSet<String> = HashSet::new();
+    while mo_population.len() < config.population_size {
+        let expr = random_expr(&mut rng, config.max_depth, num_vars, &mut cumulative_counts);
+        let canonical = expr_to_canonical_string(&expr);
+        if seen_structures.contains(&canonical) || duplicate_tracker.lock().unwrap().is_duplicate(&expr) {
+            continue;
+        }
+        seen_structures.insert(canonical);
+        duplicate_tracker.lock().unwrap().register(&expr);
+        let error = crate::engine::solver_helpers::evaluate_error_only_with_penalty(
+            &expr,
+            cluster_data,
+            duplicate_tracker,
+            config.duplicate_penalty,
+        );
+        mo_population.push(MultiObjectiveIndividual::new(expr, error));
+    }
 
     // Run NSGA-II generations
     for generation in 0..max_generations {
@@ -256,24 +262,36 @@ fn run_nsga2_on_cluster(
             let _ = tx.send(AppEvent::Update(completed, total_work, current_best_error, current_best_expr.clone()));
             
             // Send top candidates (without filtering duplicates - show actual population state)
-            let mut top_n: Vec<_> = mo_population.iter()
+            let mut top_n: Vec<_> = mo_population
+                .iter()
                 .map(|ind| (ind.expr.clone(), ind.error))
                 .collect();
             top_n.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
-            
+
+            // Deduplicate structurally so UI doesn't show the same shape repeatedly
             use crate::state::CandidateFormula;
-            let candidates: Vec<CandidateFormula> = top_n.iter().take(20).enumerate()
-                .map(|(rank, (expr, error))| CandidateFormula {
-                    rank: rank + 1,
+            let mut seen = HashSet::new();
+            let mut candidates: Vec<CandidateFormula> = Vec::new();
+            for (expr, error) in top_n.iter() {
+                let canonical = expr_to_canonical_string(expr);
+                if !seen.insert(canonical) {
+                    continue;
+                }
+                let rank = candidates.len() + 1;
+                candidates.push(CandidateFormula {
+                    rank,
                     formula: expr.to_string(var_names),
                     rmse: *error,
-                })
-                .collect();
+                });
+                if candidates.len() >= 20 {
+                    break;
+                }
+            }
             let _ = tx.send(AppEvent::TopCandidates(candidates));
             
             // Compute and accumulate operator counts
             let mut local_counts: HashMap<&'static str, usize> = HashMap::new();
-            // Count operators from top 5 candidates
+            // Count operators from unique top structures (up to 20)
             for (expr, _) in top_n.iter().take(20) {
                 count_ops_in_expr(expr, &mut local_counts);
             }
@@ -344,13 +362,31 @@ fn run_nsga2_on_cluster(
                 );
             }
 
+            // Duplicate checking with limited retries to avoid structural repeats
+            let mut dup_attempts = 0usize;
+            while duplicate_tracker.lock().unwrap().is_duplicate(&child_expr) && dup_attempts < 3 {
+                child_expr = mutate(
+                    &child_expr,
+                    &mut rng,
+                    num_vars,
+                    config.max_depth,
+                    &mut cumulative_counts_local,
+                );
+                dup_attempts += 1;
+            }
+
+            if duplicate_tracker.lock().unwrap().is_duplicate(&child_expr) {
+                continue;
+            }
+
             // Apply duplicate penalty during offspring evaluation
             let error = crate::engine::solver_helpers::evaluate_error_only_with_penalty(
                 &child_expr,
                 cluster_data,
                 duplicate_tracker,
-                config.duplicate_penalty
+                config.duplicate_penalty,
             );
+            duplicate_tracker.lock().unwrap().register(&child_expr);
             next_population.push(MultiObjectiveIndividual::new(child_expr, error));
         }
 

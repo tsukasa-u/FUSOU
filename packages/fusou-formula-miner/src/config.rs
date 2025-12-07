@@ -367,6 +367,8 @@ pub struct ClusteringConfigToml {
     pub max_depth: u16,
     pub min_samples_leaf: usize,
     pub num_clusters: usize,
+    pub max_k: usize,
+    pub silhouette_threshold: f64,
     pub n_trees: usize,
     /// cluster_mode: "const_opt_eval" (default) or "per_cluster_ga"
     pub cluster_mode: String,
@@ -380,6 +382,8 @@ impl Default for ClusteringConfigToml {
             max_depth: 5,
             min_samples_leaf: 1,
             num_clusters: 3,
+            max_k: 6,
+            silhouette_threshold: 0.15,
             n_trees: 10,
             cluster_mode: "const_opt_eval".to_string(),
         }

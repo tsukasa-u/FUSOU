@@ -8,6 +8,7 @@ use rand::prelude::*;
 use rayon::prelude::*;
 use std::{
     cmp::Ordering,
+    collections::HashSet,
     sync::mpsc::Sender,
     sync::{Arc, Mutex},
     sync::atomic::AtomicBool,
@@ -174,7 +175,10 @@ pub fn run_solver(
                     method: config_toml.method.clone(),
                     max_depth: config_toml.max_depth,
                     min_samples_leaf: config_toml.min_samples_leaf,
+                    // Use provided num_clusters (0 means auto);
                     num_clusters: config_toml.num_clusters,
+                    max_k: config_toml.max_k,
+                    silhouette_threshold: config_toml.silhouette_threshold,
                     n_trees: config_toml.n_trees,
                 };
                 
@@ -226,7 +230,7 @@ pub fn run_solver(
 
     // Check cluster_mode to decide if we should run per_cluster_ga
     #[cfg(feature = "clustering")]
-    let use_per_cluster_ga = if let Some(ref cluster_assignment) = cached_cluster_assignment {
+    let use_per_cluster_ga = if cached_cluster_assignment.is_some() {
         if let Ok(miner_cfg) = miner_config.lock() {
             if let Ok(cluster_cfg) = miner_cfg.get_clustering_config() {
                 cluster_cfg.cluster_mode == "per_cluster_ga"
@@ -479,28 +483,29 @@ pub fn run_solver(
                         .collect();
                     top_n.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(Ordering::Equal));
 
-                    // Apply constant optimization to top N candidates before displaying
-                    let candidates: Vec<CandidateFormula> = top_n
-                        .iter()
-                        .take(20)
-                        .enumerate()
-                        .map(|(rank, (expr, _))| {
-                            // Optimize constants for this candidate
-                            let optimized_expr = {
-                                let miner_cfg = miner_config.lock().unwrap();
-                                optimize_constants_adaptive(expr, &data, &miner_cfg.const_opt)
-                            };
-                            
-                            // Recalculate error with optimized constants
-                            let optimized_error = evaluate(&optimized_expr, &data);
-                            
-                            CandidateFormula {
-                                rank: rank + 1,
-                                formula: optimized_expr.to_string(&var_names),
-                                rmse: optimized_error,
-                            }
-                        })
-                        .collect();
+                    // Apply constant optimization and deduplicate structurally before displaying
+                    let mut seen = HashSet::new();
+                    let mut candidates: Vec<CandidateFormula> = Vec::new();
+                    for (expr, _) in top_n.iter() {
+                        let optimized_expr = {
+                            let miner_cfg = miner_config.lock().unwrap();
+                            optimize_constants_adaptive(expr, &data, &miner_cfg.const_opt)
+                        };
+                        let canonical = crate::engine::duplicate_detection::expr_to_canonical_string(&optimized_expr);
+                        if !seen.insert(canonical) {
+                            continue;
+                        }
+                        let optimized_error = evaluate(&optimized_expr, &data);
+                        let rank = candidates.len() + 1;
+                        candidates.push(CandidateFormula {
+                            rank,
+                            formula: optimized_expr.to_string(&var_names),
+                            rmse: optimized_error,
+                        });
+                        if candidates.len() >= 20 {
+                            break;
+                        }
+                    }
                     let _ = tx.send(AppEvent::TopCandidates(candidates));
 
                     // Compute operator counts from the top individuals (AST-based, accurate)

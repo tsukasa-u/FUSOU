@@ -26,6 +26,10 @@ pub struct ClusteringConfig {
     pub min_samples_leaf: usize,
     /// Number of clusters for k-means
     pub num_clusters: usize,
+    /// Maximum candidate k to try when `num_clusters == 0` (auto-estimate)
+    pub max_k: usize,
+    /// Silhouette score threshold below which we consider data as single cluster
+    pub silhouette_threshold: f64,
     /// Number of trees for random forest
     pub n_trees: usize,
 }
@@ -36,7 +40,10 @@ impl Default for ClusteringConfig {
             method: "decision_tree".to_string(),
             max_depth: 3,
             min_samples_leaf: 50,
-            num_clusters: 3,
+            // 0 means: auto-estimate cluster count (use silhouette-based heuristic)
+            num_clusters: 0,
+            max_k: 6,
+            silhouette_threshold: 0.15,
             n_trees: 10,
         }
     }
@@ -107,7 +114,7 @@ pub fn auto_cluster(
         "kmeans" => classifiers::kmeans::cluster_by_kmeans(
             features,
             targets,
-            config.num_clusters,
+            config,
         ),
         "svm" => classifiers::svm::cluster_by_svm(features, targets),
         _ => anyhow::bail!("Unknown clustering method: {}", config.method),
