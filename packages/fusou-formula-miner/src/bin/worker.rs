@@ -118,9 +118,12 @@ fn run_solver(worker_id: Uuid, results_dir: &PathBuf, shutdown: &Arc<AtomicBool>
 
     let start_time = Instant::now();
     let mut population: Vec<Individual> = (0..config.population_size)
-        .map(|_| Individual {
-            expr: random_expr(&mut rng, config.max_depth, num_vars),
-            fitness: f64::MAX,
+        .map(|_| {
+            let mut counts = std::collections::HashMap::new();
+            Individual {
+                expr: random_expr(&mut rng, config.max_depth, num_vars, &mut counts),
+                fitness: f64::MAX,
+            }
         })
         .collect();
 
@@ -198,11 +201,12 @@ fn run_solver(worker_id: Uuid, results_dir: &PathBuf, shutdown: &Arc<AtomicBool>
 
         while next_population.len() < config.population_size {
             let parent_a = tournament_select(&population, config.tournament_size, &mut rng);
+            let mut counts = std::collections::HashMap::new();
             if rng.gen_bool(config.crossover_rate) {
                 let parent_b = tournament_select(&population, config.tournament_size, &mut rng);
-                let mut child_expr = crossover(&parent_a.expr, &parent_b.expr, &mut rng);
+                let mut child_expr = crossover(&parent_a.expr, &parent_b.expr, &mut rng, &mut counts);
                 if rng.gen_bool(config.mutation_rate) {
-                    child_expr = mutate(&child_expr, &mut rng, num_vars, config.max_depth);
+                    child_expr = mutate(&child_expr, &mut rng, num_vars, config.max_depth, &mut counts);
                 }
                 next_population.push(Individual {
                     expr: child_expr,
@@ -210,7 +214,7 @@ fn run_solver(worker_id: Uuid, results_dir: &PathBuf, shutdown: &Arc<AtomicBool>
                 });
             } else {
                 let mut child_expr = parent_a.expr.clone();
-                child_expr = mutate(&child_expr, &mut rng, num_vars, config.max_depth);
+                child_expr = mutate(&child_expr, &mut rng, num_vars, config.max_depth, &mut counts);
                 next_population.push(Individual {
                     expr: child_expr,
                     fitness: f64::MAX,

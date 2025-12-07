@@ -86,6 +86,13 @@ pub struct SolverState {
     pub operator_counts: Vec<(String, usize)>,
     // Selected operator index when OperatorStats panel is focused
     pub operator_selected_index: usize,
+    // Clustering results: cluster ID for each sample (if clustering enabled)
+    // Uses serde_json::Value as placeholder to avoid feature-gate complications
+    pub cluster_assignments: Option<serde_json::Value>,
+    // Currently selected cluster to view (when clustering enabled)
+    pub selected_cluster_id: Option<usize>,
+    // UI state: which panel is currently focused
+    pub focus_cluster_panel: bool,
 }
 
 impl SolverState {
@@ -128,6 +135,9 @@ impl SolverState {
             duplicate_tracker: Arc::new(Mutex::new(crate::duplicate_detection::DuplicateTracker::default())),
             operator_counts: Vec::new(),
             operator_selected_index: 0,
+            cluster_assignments: None,
+            selected_cluster_id: None,
+            focus_cluster_panel: false,
         }
     }
 }
@@ -145,6 +155,8 @@ pub enum AppEvent {
     Finished,
     // Request main loop to start a fresh solver run
     StartRequested,
+    // Clustering results
+    ClusteringResults(Option<serde_json::Value>),
 }
 
 #[derive(Clone)]

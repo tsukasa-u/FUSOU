@@ -97,8 +97,39 @@ impl Expr {
             }
             Expr::Unary { op, child } => {
                 let sc = child.simplify();
-                // Constant-fold step when possible
                 match (op, &sc) {
+                    // identity(x) = x - remove identity operator
+                    (UnaryOp::Identity, x) => x.clone(),
+                    
+                    // exp(log(x)) = x
+                    (UnaryOp::Exp, Expr::Unary { op: UnaryOp::Log, child: inner }) => inner.simplify(),
+                    
+                    // log(exp(x)) = x
+                    (UnaryOp::Log, Expr::Unary { op: UnaryOp::Exp, child: inner }) => inner.simplify(),
+                    
+                    // Constant folding for unary operators
+                    (UnaryOp::Floor, Expr::Const(c)) => Expr::Const(c.floor()),
+                    (UnaryOp::Exp, Expr::Const(c)) => {
+                        let result = c.clamp(-15.0, 15.0).exp();
+                        Expr::Const(result)
+                    }
+                    (UnaryOp::Log, Expr::Const(c)) => {
+                        // Protected log: log(|x| + epsilon)
+                        let result = (c.abs() + 1e-6).ln();
+                        Expr::Const(result)
+                    }
+                    (UnaryOp::Sqrt, Expr::Const(c)) => {
+                        // Protected sqrt: sqrt(|x|)
+                        let result = c.abs().sqrt();
+                        Expr::Const(result)
+                    }
+                    (UnaryOp::Pow, Expr::Const(c)) => {
+                        // Pow as square root in this implementation
+                        let result = c.abs().powf(0.5);
+                        Expr::Const(result)
+                    }
+                    
+                    // Step constant folding
                     (UnaryOp::Step, Expr::Const(c)) => {
                         if *c > 0.0 {
                             Expr::Const(1.0)
@@ -106,6 +137,7 @@ impl Expr {
                             Expr::Const(0.0)
                         }
                     }
+                    
                     _ => Expr::Unary {
                         op: *op,
                         child: Box::new(sc),
@@ -234,8 +266,8 @@ pub fn random_expr<R: Rng + ?Sized>(rng: &mut R, max_depth: usize, num_vars: usi
     // roughly equal.
     match rng.gen_range(0..5) {
         0 | 1 | 2 => {
-            // There are 6 binary ops and 7 unary ops (total 13).
-            let total_ops = 13;
+            // There are 6 binary ops and 6 unary ops (identity removed, total 12).
+            let total_ops = 12;
             let op_idx = rng.gen_range(0..total_ops);
             if op_idx < 6 {
                 // binary operator
@@ -261,25 +293,24 @@ pub fn random_expr<R: Rng + ?Sized>(rng: &mut R, max_depth: usize, num_vars: usi
                         right: Box::new(random_expr(rng, max_depth - 1, num_vars, counts)),
                 }
             } else {
-                // unary operator
+                // unary operator (identity excluded)
                 let u_idx = op_idx - 6;
                 let op = match u_idx {
-                    0 => UnaryOp::Identity,
-                    1 => UnaryOp::Floor,
-                    2 => UnaryOp::Exp,
-                    3 => UnaryOp::Pow,
-                    4 => UnaryOp::Step,
-                    5 => UnaryOp::Log,
+                    0 => UnaryOp::Floor,
+                    1 => UnaryOp::Exp,
+                    2 => UnaryOp::Pow,
+                    3 => UnaryOp::Step,
+                    4 => UnaryOp::Log,
                     _ => UnaryOp::Sqrt,
                 };
                 match op {
-                    UnaryOp::Identity => *counts.entry("identity").or_insert(0) += 1,
                     UnaryOp::Floor => *counts.entry("floor").or_insert(0) += 1,
                     UnaryOp::Exp => *counts.entry("exp").or_insert(0) += 1,
                     UnaryOp::Pow => *counts.entry("pow").or_insert(0) += 1,
                     UnaryOp::Step => *counts.entry("step").or_insert(0) += 1,
                     UnaryOp::Log => *counts.entry("log").or_insert(0) += 1,
                     UnaryOp::Sqrt => *counts.entry("sqrt").or_insert(0) += 1,
+                    _ => {}
                 }
                 Expr::Unary {
                     op,
@@ -315,13 +346,13 @@ pub fn mutate<R: Rng + ?Sized>(expr: &Expr, rng: &mut R, num_vars: usize, max_de
             if rng.gen_bool(0.4) {
                 *op = random_unary_op(rng);
                 match op {
-                    UnaryOp::Identity => *counts.entry("identity").or_insert(0) += 1,
                     UnaryOp::Floor => *counts.entry("floor").or_insert(0) += 1,
                     UnaryOp::Exp => *counts.entry("exp").or_insert(0) += 1,
                     UnaryOp::Pow => *counts.entry("pow").or_insert(0) += 1,
                     UnaryOp::Step => *counts.entry("step").or_insert(0) += 1,
                     UnaryOp::Log => *counts.entry("log").or_insert(0) += 1,
                     UnaryOp::Sqrt => *counts.entry("sqrt").or_insert(0) += 1,
+                    _ => {}
                 }
             } else {
                 **child = random_expr(rng, (max_depth / 2).max(1), num_vars, counts);
@@ -371,13 +402,13 @@ fn incr_counts_from_expr(expr: &Expr, counts: &mut std::collections::HashMap<&'s
         Expr::Const(_) | Expr::Var(_) => {}
         Expr::Unary { op, child } => {
             match op {
-                UnaryOp::Identity => *counts.entry("identity").or_insert(0) += 1,
                 UnaryOp::Floor => *counts.entry("floor").or_insert(0) += 1,
                 UnaryOp::Exp => *counts.entry("exp").or_insert(0) += 1,
                 UnaryOp::Pow => *counts.entry("pow").or_insert(0) += 1,
                 UnaryOp::Step => *counts.entry("step").or_insert(0) += 1,
                 UnaryOp::Log => *counts.entry("log").or_insert(0) += 1,
                 UnaryOp::Sqrt => *counts.entry("sqrt").or_insert(0) += 1,
+                _ => {}
             }
             incr_counts_from_expr(child, counts);
         }
@@ -422,13 +453,12 @@ fn random_binary_op<R: Rng + ?Sized>(rng: &mut R) -> BinaryOp {
 }
 
 fn random_unary_op<R: Rng + ?Sized>(rng: &mut R) -> UnaryOp {
-    match rng.gen_range(0..7) {
-        0 => UnaryOp::Identity,
-        1 => UnaryOp::Floor,
-        2 => UnaryOp::Exp,
-        3 => UnaryOp::Pow,
-        4 => UnaryOp::Step,
-        5 => UnaryOp::Log,
+    match rng.gen_range(0..6) {
+        0 => UnaryOp::Floor,
+        1 => UnaryOp::Exp,
+        2 => UnaryOp::Pow,
+        3 => UnaryOp::Step,
+        4 => UnaryOp::Log,
         _ => UnaryOp::Sqrt,
     }
 }

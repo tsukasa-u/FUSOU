@@ -31,6 +31,7 @@ const COMMANDS: &[(&str, &str)] = &[
     ("/load-config", "Load miner configuration from file: /load-config [path] (default: miner_config.toml)"),
     ("/save-config", "Save current miner configuration to file: /save-config [path] (default: miner_config.toml)"),
     ("/set-dataset", "Select synthetic dataset type: /set-dataset A|B|C (default A)"),
+    ("/help clustering", "Show help for clustering feature (type /help clustering)"),
 ];
 const SET_PARAMETERS: &[&str] = &[
     "population_size",
@@ -620,12 +621,9 @@ fn scroll_focused_down(state: &mut SolverState) {
     }
 }
 
-fn count_best_solution_lines(state: &SolverState) -> usize {
-    let text = format!(
-        "Gen: {}\nError: {:.6}\n\nCandidate:\n>> {}",
-        state.generation, state.best_error, state.best_formula
-    );
-    text.lines().count()
+fn count_best_solution_lines(_state: &SolverState) -> usize {
+    // Return 100 to support scrolling through long formulas and clustering conditions
+    100
 }
 
 /// Export current parameters to JSON file
@@ -1116,9 +1114,27 @@ fn show_detailed_help(state: &mut SolverState, topic: &str) {
             push_log(state, "  - Top 5 candidate formulas".into());
             push_log(state, "  - Target formula (for synthetic data)".into());
         }
+        "clustering" => {
+            push_log(state, "\n=== Clustering (Preview) ===".into());
+            push_log(state, "Automatic data clustering during preprocessing.".into());
+            push_log(state, "\nFeature: Enabled with 'clustering' build feature".into());
+            push_log(state, "\nClustering is automatically performed when /start-formula is executed".into());
+            push_log(state, "and clustering is configured in miner_config.toml".into());
+            push_log(state, "\nConfiguration (in miner_config.toml):".into());
+            push_log(state, "  [clustering]".into());
+            push_log(state, "  method = \"kmeans\"              # Decision tree, K-means, SVM".into());
+            push_log(state, "  max_depth = 5                    # For tree-based methods".into());
+            push_log(state, "  min_samples_leaf = 1             # Minimum samples per leaf".into());
+            push_log(state, "  num_clusters = 3                 # Target number of clusters".into());
+            push_log(state, "  n_trees = 10                     # For ensemble methods".into());
+            push_log(state, "\nOutput:".into());
+            push_log(state, "  - Clustering panel shows cluster distribution".into());
+            push_log(state, "  - Best Solution panel displays clustering rules applied".into());
+            push_log(state, "  - Each cluster is optimized independently during GA".into());
+        }
         _ => {
             push_log(state, format!("No detailed help available for '{}'", topic));
-            push_log(state, "Available topics: start-formula, start-sweep, sweep, set, export-params, import-params, dump".into());
+            push_log(state, "Available topics: start-formula, start-sweep, sweep, set, export-params, import-params, dump, clustering".into());
         }
     }
 }

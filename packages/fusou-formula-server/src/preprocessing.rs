@@ -1,12 +1,15 @@
 use anyhow::{Context, Result};
 use polars::prelude::*;
 use serde::{Deserialize, Serialize};
+use smartcore::linalg::basic::matrix::DenseMatrix;
+use smartcore::tree::decision_tree_regressor::{DecisionTreeRegressor, DecisionTreeRegressorParameters};
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CleanJobData {
     pub feature_names: Vec<String>,
     pub correlations: HashMap<String, f64>,
+    pub targets: Vec<f64>,
     pub data: Vec<Vec<f64>>,
     pub target_stats: TargetStats,
 }
@@ -19,6 +22,16 @@ pub struct TargetStats {
     pub max: f64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TreeSplitJob {
+    /// 量子化した予測値を使ったグループキー（leaf相当）
+    pub leaf_key: String,
+    /// 決定木が返した予測値（leafの代表値）
+    pub predicted_value: f64,
+    /// グループ化後のクリーン済みデータ
+    pub job: CleanJobData,
+}
+
 /// JSONを読み込み、前処理とフィーチャー選択を実行
 pub fn clean_and_select_features(
     json_str: &str,
@@ -26,6 +39,98 @@ pub fn clean_and_select_features(
     correlation_threshold: f64,
     min_features: usize,
 ) -> Result<CleanJobData> {
+    let (feature_names, data, targets, correlations, target_stats) =
+        prepare_clean_data(json_str, target_column, correlation_threshold, min_features)?;
+
+    Ok(CleanJobData {
+        feature_names,
+        correlations,
+        targets,
+        data,
+        target_stats,
+    })
+}
+
+/// 決定木（回帰木）でデータを自動分割し、leaf（予測値）ごとにジョブ化する
+pub fn auto_split_by_tree(
+    json_str: &str,
+    target_column: &str,
+    correlation_threshold: f64,
+    min_features: usize,
+    max_depth: u16,
+    min_samples_leaf: usize,
+) -> Result<Vec<TreeSplitJob>> {
+    let (feature_names, data, targets, correlations, _target_stats) =
+        prepare_clean_data(json_str, target_column, correlation_threshold, min_features)?;
+
+    // smartcore用に行列を構築
+    let x = DenseMatrix::from_2d_vec(&data);
+    let params = DecisionTreeRegressorParameters::default()
+        .with_max_depth(max_depth)
+        .with_min_samples_leaf(min_samples_leaf);
+
+    let tree = DecisionTreeRegressor::fit(&x, &targets, params)
+        .context("Failed to fit decision tree regressor")?;
+
+    let preds = tree
+        .predict(&x)
+        .context("Failed to run tree prediction for grouping")?;
+
+    // 予測値を量子化して葉ごとにクラスタリング
+    let mut buckets: HashMap<i64, (f64, Vec<usize>)> = HashMap::new();
+    for (idx, pred) in preds.iter().enumerate() {
+        if !pred.is_finite() {
+            continue;
+        }
+        let key = quantize_prediction(*pred);
+        let entry = buckets.entry(key).or_insert((*pred, Vec::new()));
+        entry.1.push(idx);
+    }
+
+    let mut jobs = Vec::new();
+    for (key, (pred_value, indices)) in buckets.into_iter() {
+        let mut subset_data = Vec::with_capacity(indices.len());
+        let mut subset_targets = Vec::with_capacity(indices.len());
+        for idx in indices.iter().copied() {
+            if let Some(row) = data.get(idx) {
+                subset_data.push(row.clone());
+            }
+            if let Some(t) = targets.get(idx) {
+                subset_targets.push(*t);
+            }
+        }
+
+        // Leafごとのターゲット統計を計算
+        let stats = compute_stats(&subset_targets);
+
+        let clean = CleanJobData {
+            feature_names: feature_names.clone(),
+            correlations: correlations.clone(),
+            targets: subset_targets.clone(),
+            data: subset_data,
+            target_stats: stats,
+        };
+
+        jobs.push(TreeSplitJob {
+            leaf_key: format!("leaf_{}", key),
+            predicted_value: pred_value,
+            job: clean,
+        });
+    }
+
+    // 予測値で安定ソート（再現性向上）
+    jobs.sort_by(|a, b| a.predicted_value.partial_cmp(&b.predicted_value).unwrap_or(std::cmp::Ordering::Equal));
+
+    Ok(jobs)
+}
+
+/// 前処理＋フィーチャー選択を実行し、学習と分割の両方で使える形式に整形
+fn prepare_clean_data(
+    json_str: &str,
+    target_column: &str,
+    correlation_threshold: f64,
+    min_features: usize,
+) -> Result<(Vec<String>, Vec<Vec<f64>>, Vec<f64>, HashMap<String, f64>, TargetStats)> {
     // 1. JSON読み込み
     let mut df = JsonReader::new(std::io::Cursor::new(json_str.as_bytes()))
         .finish()
@@ -44,48 +149,12 @@ pub fn clean_and_select_features(
         anyhow::bail!("Target column '{}' not found", target_column);
     }
 
-    // ターゲット列を取得
+    // ターゲット列を取得（Float64化）
     let target_series = df
         .column(target_column)
         .context("Failed to get target column")?
         .cast(&DataType::Float64)
         .context("Failed to cast target to Float64")?;
-
-    // ターゲット統計
-    let target_vec: Vec<f64> = target_series
-        .f64()
-        .context("Failed to convert target to f64")?
-        .into_iter()
-        .filter_map(|v| v)
-        .collect();
-
-    let target_mean = target_vec.iter().sum::<f64>() / target_vec.len() as f64;
-    let target_variance = target_vec.iter().map(|v| (v - target_mean).powi(2)).sum::<f64>()
-        / target_vec.len() as f64;
-    let target_std = target_variance.sqrt();
-
-    let target_stats = TargetStats {
-        mean: target_mean,
-        std: target_std,
-        min: target_vec
-            .iter()
-            .copied()
-            .min_by(|a, b| a.partial_cmp(b).unwrap())
-            .unwrap_or(0.0),
-        max: target_vec
-            .iter()
-            .copied()
-            .max_by(|a, b| a.partial_cmp(b).unwrap())
-            .unwrap_or(0.0),
-    };
-
-    tracing::info!(
-        "Target stats: mean={:.2}, std={:.2}, min={:.2}, max={:.2}",
-        target_stats.mean,
-        target_stats.std,
-        target_stats.min,
-        target_stats.max
-    );
 
     // 3. 数値型以外の列を削除 (ターゲット列は保持)
     let numeric_cols: Vec<String> = df
@@ -214,7 +283,7 @@ pub fn clean_and_select_features(
     final_cols.push(target_column.to_string());
     df = df.select(&final_cols)?;
 
-    // 8. データを Vec<Vec<f64>> に変換 (ターゲット列は除外)
+    // 8. データとターゲットを抽出
     let data: Vec<Vec<f64>> = (0..df.height())
         .map(|row_idx| {
             selected_features
@@ -236,17 +305,19 @@ pub fn clean_and_select_features(
         })
         .collect();
 
+    let targets: Vec<f64> = df
+        .column(target_column)?
+        .cast(&DataType::Float64)?
+        .f64()?
+        .into_iter()
+        .filter_map(|v| v)
+        .collect();
+
     tracing::info!("Final data shape: {} rows x {} features", data.len(), selected_features.len());
 
-    Ok(CleanJobData {
-        feature_names: selected_features,
-        correlations: correlations
-            .into_iter()
-            .filter(|(name, _)| final_cols.contains(name))
-            .collect(),
-        data,
-        target_stats,
-    })
+    let target_stats = compute_stats(&targets);
+
+    Ok((selected_features, data, targets, correlations, target_stats))
 }
 
 /// Struct型のカラムを展開 (1階層のみ)
@@ -312,4 +383,41 @@ fn calculate_spearman_correlation(feature: &Series, target: &Series) -> Result<f
     }
 
     Ok(numerator / (f_var.sqrt() * t_var.sqrt()))
+}
+
+/// 予測値を量子化して leaf を識別しやすくする
+fn quantize_prediction(pred: f64) -> i64 {
+    (pred * 1_000_000.0).round() as i64
+}
+
+/// 簡易統計を計算
+fn compute_stats(values: &[f64]) -> TargetStats {
+    if values.is_empty() {
+        return TargetStats {
+            mean: 0.0,
+            std: 0.0,
+            min: 0.0,
+            max: 0.0,
+        };
+    }
+
+    let mean = values.iter().sum::<f64>() / values.len() as f64;
+    let variance = values
+        .iter()
+        .map(|v| (v - mean).powi(2))
+        .sum::<f64>()
+        / values.len() as f64;
+    let std = variance.sqrt();
+    let min = values
+        .iter()
+        .copied()
+        .min_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+        .unwrap_or(0.0);
+    let max = values
+        .iter()
+        .copied()
+        .max_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+        .unwrap_or(0.0);
+
+    TargetStats { mean, std, min, max }
 }

@@ -358,6 +358,31 @@ impl Default for AutoTuneConfig {
     }
 }
 
+/// Clustering configuration (only used with "clustering" feature)
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ClusteringConfigToml {
+    pub enabled: String,
+    pub method: String,
+    pub max_depth: u16,
+    pub min_samples_leaf: usize,
+    pub num_clusters: usize,
+    pub n_trees: usize,
+}
+
+impl Default for ClusteringConfigToml {
+    fn default() -> Self {
+        Self {
+            enabled: "enabled".to_string(),
+            method: "kmeans".to_string(),
+            max_depth: 5,
+            min_samples_leaf: 1,
+            num_clusters: 3,
+            n_trees: 10,
+        }
+    }
+}
+
 /// Master configuration aggregating all sub-configs
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MinerConfig {
@@ -369,6 +394,8 @@ pub struct MinerConfig {
     pub ui: UIConfig,
     pub synthetic_data: SyntheticDataConfig,
     pub auto_tune: AutoTuneConfig,
+    #[serde(default)]
+    pub clustering: Option<ClusteringConfigToml>,
 }
 
 impl Default for MinerConfig {
@@ -382,6 +409,7 @@ impl Default for MinerConfig {
             ui: UIConfig::default(),
             synthetic_data: SyntheticDataConfig::default(),
             auto_tune: AutoTuneConfig::default(),
+            clustering: Some(ClusteringConfigToml::default()),
         }
     }
 }
@@ -400,5 +428,13 @@ impl MinerConfig {
         let toml_str = toml::to_string_pretty(self)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
         std::fs::write(path, toml_str)
+    }
+
+    /// Get clustering configuration if clustering feature is enabled
+    pub fn get_clustering_config(&self) -> anyhow::Result<ClusteringConfigToml> {
+        let cluster_cfg = self.clustering.as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Clustering section not found in config"))?;
+        
+        Ok(cluster_cfg.clone())
     }
 }

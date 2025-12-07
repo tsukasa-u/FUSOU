@@ -7,14 +7,17 @@ use axum::{
     routing::get,
     Router,
 };
-use preprocessing::{clean_and_select_features, CleanJobData};
-use std::sync::Arc;
+use preprocessing::{auto_split_by_tree, TreeSplitJob};
+use std::collections::VecDeque;
+use std::sync::{Arc, Mutex};
 use tower_http::cors::CorsLayer;
 use tracing::info;
 
 #[derive(Clone)]
 struct AppState {
     mock_data: String,
+    target_column: String,
+    jobs: Arc<Mutex<VecDeque<TreeSplitJob>>>,
 }
 
 #[tokio::main]
@@ -41,7 +44,11 @@ async fn main() {
         {"attacker": {"atk": 210, "luck": 9}, "defender": {"def": 70}, "map_id": 2, "damage": 360}
     ]"#.to_string();
 
-    let state = Arc::new(AppState { mock_data });
+    let state = Arc::new(AppState {
+        mock_data,
+        target_column: "damage".to_string(),
+        jobs: Arc::new(Mutex::new(VecDeque::new())),
+    });
 
     // ルーター構築
     let app = Router::new()
@@ -61,39 +68,55 @@ async fn health_check() -> &'static str {
     "Formula Server is running"
 }
 
-async fn get_job(State(state): State<Arc<AppState>>) -> Result<Json<CleanJobData>, AppError> {
+async fn get_job(State(state): State<Arc<AppState>>) -> Result<Json<TreeSplitJob>, AppError> {
     info!("Received job request");
 
-    // 前処理を実行
-    let result = clean_and_select_features(
+    // 既存ジョブがあればポップして返す
+    if let Some(job) = state.jobs.lock().unwrap().pop_front() {
+        info!("Dispatching cached job: {} rows", job.job.data.len());
+        return Ok(Json(job));
+    }
+
+    // なければ決定木で自動分割を実行し、キューに積む
+    let new_jobs = auto_split_by_tree(
         &state.mock_data,
-        "damage",          // ターゲット列
-        0.1,               // 相関閾値
-        3,                 // 最小フィーチャー数
+        &state.target_column,
+        0.1, // 相関閾値
+        3,   // 最低フィーチャー数
+        3,   // max_depth (過学習防止のため浅く)
+        50,  // min_samples_leaf (過学習防止)
     )
     .map_err(|e| {
         tracing::error!("Preprocessing failed: {}", e);
         AppError::PreprocessingError(e.to_string())
     })?;
 
-    info!(
-        "Job processed successfully: {} features, {} rows",
-        result.feature_names.len(),
-        result.data.len()
-    );
+    {
+        let mut q = state.jobs.lock().unwrap();
+        for job in new_jobs {
+            q.push_back(job);
+        }
+    }
 
-    Ok(Json(result))
+    if let Some(job) = state.jobs.lock().unwrap().pop_front() {
+        info!("Dispatching freshly generated job: {} rows", job.job.data.len());
+        Ok(Json(job))
+    } else {
+        Err(AppError::NoJobAvailable)
+    }
 }
 
 // エラーハンドリング
 enum AppError {
     PreprocessingError(String),
+    NoJobAvailable,
 }
 
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
         let (status, message) = match self {
             AppError::PreprocessingError(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg),
+            AppError::NoJobAvailable => (StatusCode::NOT_FOUND, "no job available".to_string()),
         };
 
         (status, Json(serde_json::json!({ "error": message }))).into_response()

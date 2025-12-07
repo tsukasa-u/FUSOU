@@ -417,3 +417,33 @@ tournament_max = 6
 # トーナメントサイズの最小値
 # Minimum tournament size
 tournament_min = 2
+
+# ============================================================================
+# Clustering/Classification for automatic data partitioning
+# Parameters for enabling and configuring automatic data splitting
+# ============================================================================
+[clustering]
+# クラスタリング機能を有効にするか ("enabled" = 有効, "disabled" = 無効)
+# Enable clustering feature ("enabled" or "disabled")
+enabled = "enabled"
+
+# 使用する分類器の種類: "decision_tree", "random_forest", "kmeans", "svm"
+# Clustering method: "decision_tree", "random_forest", "kmeans", "svm"
+method = "kmeans"
+
+# 決定木の最大深さ（過学習防止）
+# Maximum tree depth (prevent overfitting)
+max_depth = 3
+
+# 決定木の葉の最小サンプル数（小さすぎない）
+# Minimum samples per leaf (avoid tiny leaves)
+min_samples_leaf = 50
+
+# K-means のクラスタ数
+# Number of clusters for K-means
+num_clusters = 3
+
+# ランダムフォレストの決定木数
+# Number of trees in random forest
+n_trees = 10
+

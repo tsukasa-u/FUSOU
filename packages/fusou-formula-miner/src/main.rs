@@ -33,17 +33,19 @@ mod constant_opt;
 mod const_opt_adaptive;
 mod duplicate_detection;
 mod semantic_ops;
+mod cluster_optimizer;
+#[cfg(feature = "clustering")]
+mod clustering;
 
 use config::MinerConfig;
 
-use dataset::synthetic_dataset;
 use network::{JobSubmission, RemoteJob, WorkerClient};
 use solver::{crossover, mutate, Expr, GeneticConfig, UnaryOp, BinaryOp};
 use smart_init::{DataStats, smart_init};
 use state::{AppEvent, JobSummary, Phase, SolverState, CandidateFormula, ParameterSet, SweepConfig};
 use nsga2::{MultiObjectiveIndividual, nsga2_selection, nsga2_tournament_select};
 use bloat_control::{tarpeian_penalty, hoist_mutation, average_size};
-use const_opt_adaptive::{optimize_constants_adaptive, optimize_constants_quick};
+use const_opt_adaptive::optimize_constants_adaptive;
 
 // Walk an Expr AST and count occurrences of operators into `counts`.
 fn count_ops_in_expr(expr: &Expr, counts: &mut std::collections::HashMap<&'static str, usize>) {
@@ -51,13 +53,13 @@ fn count_ops_in_expr(expr: &Expr, counts: &mut std::collections::HashMap<&'stati
         Expr::Const(_) | Expr::Var(_) => {}
         Expr::Unary { op, child } => {
             match op {
-                UnaryOp::Identity => *counts.entry("identity").or_insert(0) += 1,
                 UnaryOp::Floor => *counts.entry("floor").or_insert(0) += 1,
                 UnaryOp::Exp => *counts.entry("exp").or_insert(0) += 1,
                 UnaryOp::Pow => *counts.entry("pow").or_insert(0) += 1,
                 UnaryOp::Step => *counts.entry("step").or_insert(0) += 1,
                 UnaryOp::Log => *counts.entry("log").or_insert(0) += 1,
                 UnaryOp::Sqrt => *counts.entry("sqrt").or_insert(0) += 1,
+                _ => {}
             }
             count_ops_in_expr(child, counts);
         }
@@ -655,6 +657,12 @@ fn main() -> Result<()> {
                         state.sweep_config = Some(sweep_config);
                     }
                 }
+                AppEvent::ClusteringResults(cluster_data) => {
+                    state.cluster_assignments = cluster_data;
+                }
+                AppEvent::CurrentClusterInfo(info) => {
+                    push_log(&mut state, format!("Cluster: {}", info));
+                }
             }
         }
     }
@@ -801,6 +809,65 @@ pub fn run_solver(worker_id: Uuid, tx: Sender<AppEvent>, shutdown: Arc<AtomicBoo
         ));
         return;
     }
+
+    // Run clustering ONCE before multi-attempt loop
+    // Cache the result so it's available for all optimization attempts
+    #[cfg(feature = "clustering")]
+    let cached_cluster_assignment: Option<clustering::ClusterAssignment> = {
+        let miner_cfg = miner_config.lock().unwrap();
+        if let Ok(config_toml) = miner_cfg.get_clustering_config() {
+            if config_toml.enabled.to_lowercase() == "enabled" {
+                let clustering_config = clustering::ClusteringConfig {
+                    method: config_toml.method.clone(),
+                    max_depth: config_toml.max_depth,
+                    min_samples_leaf: config_toml.min_samples_leaf,
+                    num_clusters: config_toml.num_clusters,
+                    n_trees: config_toml.n_trees,
+                };
+                
+                let _ = tx.send(AppEvent::Log(format!("Running clustering with method: {}...", clustering_config.method)));
+                
+                // Prepare features for clustering
+                let features: Vec<Vec<f64>> = data.iter().map(|(x, _)| x.clone()).collect();
+                let targets: Vec<f64> = data.iter().map(|(_, y)| *y).collect();
+                
+                match clustering::auto_cluster(&features, &targets, &clustering_config) {
+                    Ok(cluster_assignment) => {
+                        let num_clusters = cluster_assignment.num_clusters;
+                        let _ = tx.send(AppEvent::Log(format!(
+                            "Clustering complete: {} clusters, method: {}, quality: {:.3}",
+                            num_clusters,
+                            cluster_assignment.metadata.method,
+                            cluster_assignment.metadata.quality_score
+                        )));
+                        
+                        // Send cluster info to UI
+                        let cluster_json = serde_json::to_value(&serde_json::json!({
+                            "num_clusters": num_clusters,
+                            "cluster_sizes": cluster_assignment.cluster_sizes.clone(),
+                            "method": cluster_assignment.metadata.method.clone(),
+                            "rules": cluster_assignment.metadata.rules.clone(),
+                            "quality_score": cluster_assignment.metadata.quality_score,
+                        })).unwrap_or(serde_json::json!({}));
+                        
+                        let _ = tx.send(AppEvent::ClusteringResults(Some(cluster_json)));
+                        Some(cluster_assignment)
+                    }
+                    Err(err) => {
+                        let _ = tx.send(AppEvent::Log(format!("Clustering failed: {}", err)));
+                        None
+                    }
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    };
+    
+    #[cfg(not(feature = "clustering"))]
+    let cached_cluster_assignment: Option<clustering::ClusterAssignment> = None;
 
     // Initialize shared config with sensible defaults derived from data
     {
@@ -1000,20 +1067,33 @@ pub fn run_solver(worker_id: Uuid, tx: Sender<AppEvent>, shutdown: Arc<AtomicBoo
                         ));
                     }
                     
-                    // Update top 5 candidates every generation
-                    let mut top_5: Vec<(String, f64)> = mo_population
+                    // Update top 5 candidates every generation (with constant optimization)
+                    let mut top_5: Vec<(Expr, f64)> = mo_population
                         .iter()
-                        .map(|ind| (ind.expr.to_string(&var_names), ind.error))
+                        .map(|ind| (ind.expr.clone(), ind.error))
                         .collect();
                     top_5.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(Ordering::Equal));
+                    
+                    // Apply constant optimization to top 5 candidates before displaying
                     let candidates: Vec<CandidateFormula> = top_5
                         .iter()
                         .take(5)
                         .enumerate()
-                        .map(|(rank, (formula, rmse))| CandidateFormula {
-                            rank: rank + 1,
-                            formula: formula.clone(),
-                            rmse: *rmse,
+                        .map(|(rank, (expr, _))| {
+                            // Optimize constants for this candidate
+                            let optimized_expr = {
+                                let miner_cfg = miner_config.lock().unwrap();
+                                optimize_constants_adaptive(expr, &data, &miner_cfg.const_opt)
+                            };
+                            
+                            // Recalculate error with optimized constants
+                            let optimized_error = evaluate(&optimized_expr, &data);
+                            
+                            CandidateFormula {
+                                rank: rank + 1,
+                                formula: optimized_expr.to_string(&var_names),
+                                rmse: optimized_error,
+                            }
                         })
                         .collect();
                     let _ = tx.send(AppEvent::TopCandidates(candidates));
@@ -1260,6 +1340,39 @@ pub fn run_solver(worker_id: Uuid, tx: Sender<AppEvent>, shutdown: Arc<AtomicBoo
         }
     } // End of attempt loop
 
+    // Per-cluster evaluation: if clustering is available and enabled, evaluate final expression on each cluster
+    #[cfg(feature = "clustering")]
+    if let Some(cluster_assignment) = &cached_cluster_assignment {
+        let _ = tx.send(AppEvent::Log("=== Per-Cluster Evaluation ===".into()));
+        
+        // Evaluate the best expression on each cluster separately
+        for cluster_id in 0..cluster_assignment.num_clusters {
+            // Extract data for this cluster
+            let cluster_data: Vec<(Vec<f64>, f64)> = data
+                .iter()
+                .zip(cluster_assignment.assignments.iter())
+                .filter(|(_, &assignment)| assignment == cluster_id)
+                .map(|((features, target), _)| (features.clone(), *target))
+                .collect();
+            
+            if cluster_data.is_empty() {
+                continue;
+            }
+            
+            // Evaluate best expression on this cluster
+            let cluster_error = evaluate_error_only(&global_best_expr, &cluster_data);
+            let cluster_size = cluster_data.len();
+            
+            let log_msg = format!(
+                "  Cluster {}: {} samples, RMSE: {:.6}",
+                cluster_id, cluster_size, cluster_error
+            );
+            let _ = tx.send(AppEvent::CurrentClusterInfo(log_msg));
+        }
+        
+        let _ = tx.send(AppEvent::Log("=== End Per-Cluster Evaluation ===".into()));
+    }
+
     let duration_ms = start_time.elapsed().as_millis();
     let expression_text = global_best_expr.to_string(&var_names);
     let _ = tx.send(AppEvent::Log(format!(
@@ -1324,9 +1437,12 @@ fn count_step_ops(expr: &Expr) -> usize {
 }
 
 fn evaluate(expr: &Expr, data: &[(Vec<f64>, f64)]) -> f64 {
+    // Simplify expression to remove redundant patterns like exp(log(x)) = x
+    let simplified = expr.simplify();
+    
     let mut sum_sq: f64 = 0.0;
     for (vars, target) in data {
-        let prediction = expr.eval(vars);
+        let prediction = simplified.eval(vars);
         if !prediction.is_finite() {
             return f64::MAX;
         }
@@ -1345,15 +1461,18 @@ fn evaluate(expr: &Expr, data: &[(Vec<f64>, f64)]) -> f64 {
     // Add parsimony pressure: penalize complex expressions
     // Each node adds 0.02 to the error (increased from 0.01 for stronger pressure)
     // This encourages the GA to prefer simpler, more interpretable solutions
-    let complexity_penalty = expr.size() as f64 * 0.02;
+    let complexity_penalty = simplified.size() as f64 * 0.02;
     rmse + complexity_penalty
 }
 
 /// Evaluate expression without complexity penalty (for NSGA-II multi-objective)
 fn evaluate_error_only(expr: &Expr, data: &[(Vec<f64>, f64)]) -> f64 {
+    // Simplify expression to remove redundant patterns like exp(log(x)) = x
+    let simplified = expr.simplify();
+    
     let mut sum_sq: f64 = 0.0;
     for (vars, target) in data {
-        let prediction = expr.eval(vars);
+        let prediction = simplified.eval(vars);
         if !prediction.is_finite() {
             return f64::MAX;
         }

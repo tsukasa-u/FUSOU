@@ -30,7 +30,14 @@ pub fn render_ui(f: &mut Frame, state: &SolverState) {
     render_best_solution(f, state, solution_chunks[0]);
     render_config(f, state, solution_chunks[1]);
     
-    render_logs(f, state, chunks[3]);
+    // Split chunks[3] horizontally: Logs on left, Clustering on right (always show clustering panel)
+    let logs_chunks = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(70), Constraint::Percentage(30)])
+        .split(chunks[3]);
+    render_logs(f, state, logs_chunks[0]);
+    render_clustering_panel(f, state, logs_chunks[1]);
+    
     render_input(f, state, chunks[4]);
 }
 
@@ -202,6 +209,30 @@ fn render_best_solution(f: &mut Frame, state: &SolverState, area: Rect) {
         state.best_formula
     );
 
+    // Add clustering context if available
+    if let Some(cluster_data) = &state.cluster_assignments {
+        if let serde_json::Value::Object(cluster_info) = cluster_data {
+            let method = cluster_info.get("method")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown");
+            let rules = cluster_info.get("rules")
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| v.as_str())
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            
+            if !rules.is_empty() {
+                info_text.push_str(&format!("\n\n─ Clustering ({}) ─", method));
+                for rule in rules {
+                    info_text.push_str(&format!("\n  • {}", rule));
+                }
+            }
+        }
+    }
+
     // Add top 5 candidates below best solution
     if !state.top_candidates.is_empty() {
         info_text.push_str("\n\n─ Top Candidates ─");
@@ -297,7 +328,18 @@ fn render_best_solution(f: &mut Frame, state: &SolverState, area: Rect) {
         list_state.select(Some(0));
     }
 
-    let ops_list = List::new(items).block(Block::default().borders(Borders::ALL).title(format!("Operator Stats (total: {})", total)))
+    let ops_border_style = if state.focused_panel == FocusedPanel::OperatorStats {
+        Style::default().fg(Color::Yellow)
+    } else {
+        Style::default()
+    };
+    let ops_list = List::new(items)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(format!("Operator Stats (total: {})", total))
+                .border_style(ops_border_style)
+        )
         .highlight_style(Style::default().fg(Color::Yellow))
         .highlight_symbol("> ");
     f.render_stateful_widget(ops_list, cols[1], &mut list_state);
@@ -308,7 +350,7 @@ fn render_best_solution(f: &mut Frame, state: &SolverState, area: Rect) {
 // to be passed through state). Returns formatted lines ready for display.
 fn compute_operator_prob_stats(state: &SolverState) -> Vec<(String, f64, usize)> {
     // If the solver provided AST-based operator counts, prefer them (most accurate)
-    let ordered_labels = vec!["+","-","*","/","min","max","step","log","sqrt","exp","floor","identity","pow"];
+    let ordered_labels = vec!["+","-","*","/","min","max","step","log","sqrt","exp","floor","pow"];
     if !state.operator_counts.is_empty() {
         let map: std::collections::HashMap<String, usize> = state
             .operator_counts
@@ -466,6 +508,7 @@ fn render_input(f: &mut Frame, state: &SolverState, area: Rect) {
         format!("Command: {}{}", state.input_buffer, suggestions)
     };
     
+    
     // Change border color to red if IME/Japanese mode is active
     let input_block = if state.ime_mode_active {
         Block::default()
@@ -481,3 +524,84 @@ fn render_input(f: &mut Frame, state: &SolverState, area: Rect) {
     let cmd_input = Paragraph::new(cmd_text).block(input_block);
     f.render_widget(cmd_input, area);
 }
+
+fn render_clustering_panel(f: &mut Frame, state: &SolverState, area: Rect) {
+    let cluster_text = match &state.cluster_assignments {
+        Some(assignments) => {
+            // Parse JSON-serialized cluster assignments
+            match serde_json::from_value::<std::collections::HashMap<String, serde_json::Value>>(
+                assignments.clone()
+            ) {
+                Ok(data) => {
+                    let num_clusters = data.get("num_clusters")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(0);
+                    
+                    let cluster_sizes = data.get("cluster_sizes")
+                        .and_then(|v| v.as_object())
+                        .map(|obj| {
+                            obj.iter()
+                                .map(|(k, v)| format!("C{}: {}", k, v.as_u64().unwrap_or(0)))
+                                .collect::<Vec<_>>()
+                                .join(" | ")
+                        })
+                        .unwrap_or_else(|| "N/A".to_string());
+                    
+                    let method = data.get("method")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("unknown");
+                    
+                    let quality = data.get("quality_score")
+                        .and_then(|v| v.as_f64())
+                        .unwrap_or(0.0);
+                    
+                    let rules = data.get("rules")
+                        .and_then(|v| v.as_array())
+                        .map(|arr| {
+                            arr.iter()
+                                .filter_map(|v| v.as_str())
+                                .take(3)  // Show only first 3 rules
+                                .map(|r| format!("• {}", r))
+                                .collect::<Vec<_>>()
+                                .join("\n")
+                        })
+                        .unwrap_or_else(|| "".to_string());
+                    
+                    let mut text = format!(
+                        "Clusters: {}\n{}\nMethod: {}\nQuality: {:.2}",
+                        num_clusters,
+                        cluster_sizes,
+                        method,
+                        quality
+                    );
+                    
+                    if !rules.is_empty() {
+                        text.push_str(&format!("\n\nRules:\n{}", rules));
+                    }
+                    
+                    text
+                }
+                Err(_) => "Clustering data corrupted".to_string(),
+            }
+        }
+        None => "No clustering performed\n\nClustering disabled in config".to_string(),
+    };
+    
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title("Clustering")
+        .border_style(
+            if state.focused_panel == FocusedPanel::Logs {
+                Style::default().fg(Color::Yellow)
+            } else {
+                Style::default()
+            }
+        );
+    
+    let paragraph = Paragraph::new(cluster_text)
+        .block(block)
+        .wrap(Wrap { trim: true });
+    
+    f.render_widget(paragraph, area);
+}
+
