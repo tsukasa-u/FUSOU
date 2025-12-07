@@ -80,6 +80,12 @@ pub struct SolverState {
     pub sweep_config: Option<SweepConfig>,
     // Centralized miner configuration (replaces scattered hardcoded values)
     pub miner_config: Arc<Mutex<MinerConfig>>,
+    // Track duplicate/similar solutions to encourage exploration diversity (shared with solver thread)
+    pub duplicate_tracker: Arc<Mutex<crate::duplicate_detection::DuplicateTracker>>,
+    // Latest operator counts aggregated from solver (label, count)
+    pub operator_counts: Vec<(String, usize)>,
+    // Selected operator index when OperatorStats panel is focused
+    pub operator_selected_index: usize,
 }
 
 impl SolverState {
@@ -119,6 +125,9 @@ impl SolverState {
             solver_running: false,
             sweep_config: None,
             miner_config: Arc::new(Mutex::new(MinerConfig::default())),
+            duplicate_tracker: Arc::new(Mutex::new(crate::duplicate_detection::DuplicateTracker::default())),
+            operator_counts: Vec::new(),
+            operator_selected_index: 0,
         }
     }
 }
@@ -127,6 +136,7 @@ pub enum AppEvent {
     Update(u64, f64, String),
     Log(String),
     TopCandidates(Vec<CandidateFormula>),
+    OperatorStats(Vec<(String, usize)>),
     PhaseChange(Phase),
     Online(bool),
     JobLoaded(JobSummary),

@@ -130,6 +130,147 @@ fn evaluate_rmse(expr: &Expr, data: &[(Vec<f64>, f64)]) -> f64 {
     (sum_sq / count as f64).sqrt()
 }
 
+/// Newton's method for constant optimization (gradient-based)
+/// 
+/// Uses numerical differentiation to compute gradients and optimize constants.
+/// More efficient than Nelder-Mead for smooth objective functions.
+/// 
+/// # Arguments
+/// * `expr` - Expression with constants to optimize
+/// * `data` - Training data (features, target) pairs
+/// * `learning_rate` - Step size for Newton step (typically 0.01-0.1)
+/// * `max_iterations` - Maximum iterations
+/// * `epsilon` - Small value for numerical differentiation
+/// 
+/// # Returns
+/// Expression with Newton-optimized constants
+pub fn newton_method_optimize(
+    expr: &Expr,
+    data: &[(Vec<f64>, f64)],
+    learning_rate: f64,
+    max_iterations: usize,
+    epsilon: f64,
+) -> Expr {
+    let mut constants = extract_constants(expr);
+    
+    if constants.is_empty() || data.is_empty() {
+        return expr.clone();
+    }
+    
+    let n_constants = constants.len();
+    let epsilon_sq = epsilon * epsilon;
+    
+    for iteration in 0..max_iterations {
+        // Evaluate current error (objective function)
+        let mut idx = 0;
+        let current_expr = replace_constants(expr, &constants, &mut idx);
+        let current_error = evaluate_rmse(&current_expr, data);
+        
+        // Compute gradient (first derivative) using numerical differentiation
+        let mut gradient = vec![0.0; n_constants];
+        
+        for i in 0..n_constants {
+            let original = constants[i];
+            
+            // Forward difference: f(x + h)
+            constants[i] = original + epsilon;
+            let mut idx = 0;
+            let expr_plus = replace_constants(expr, &constants, &mut idx);
+            let error_plus = evaluate_rmse(&expr_plus, data);
+            
+            // Backward difference: f(x - h)
+            constants[i] = original - epsilon;
+            let mut idx = 0;
+            let expr_minus = replace_constants(expr, &constants, &mut idx);
+            let error_minus = evaluate_rmse(&expr_minus, data);
+            
+            // Central difference: f'(x) ≈ (f(x+h) - f(x-h)) / (2h)
+            gradient[i] = (error_plus - error_minus) / (2.0 * epsilon);
+            
+            // Restore original value
+            constants[i] = original;
+        }
+        
+        // Compute Hessian (second derivative matrix) using numerical differentiation
+        // For efficiency, we use diagonal approximation: H_ii ≈ (f(x+h) - 2*f(x) + f(x-h)) / h²
+        let mut hessian_diag = vec![1e-8; n_constants]; // Add small regularization to avoid singular matrix
+        
+        for i in 0..n_constants {
+            let original = constants[i];
+            
+            // f(x + h)
+            constants[i] = original + epsilon;
+            let mut idx = 0;
+            let expr_plus = replace_constants(expr, &constants, &mut idx);
+            let f_plus = evaluate_rmse(&expr_plus, data);
+            
+            // f(x - h)
+            constants[i] = original - epsilon;
+            let mut idx = 0;
+            let expr_minus = replace_constants(expr, &constants, &mut idx);
+            let f_minus = evaluate_rmse(&expr_minus, data);
+            
+            // f(x)
+            let mut idx = 0;
+            let expr_current = replace_constants(expr, &constants, &mut idx);
+            let f_current = evaluate_rmse(&expr_current, data);
+            
+            // Diagonal Hessian: H_ii = (f(x+h) - 2*f(x) + f(x-h)) / h²
+            let second_deriv = (f_plus - 2.0 * f_current + f_minus) / epsilon_sq;
+            hessian_diag[i] = second_deriv.abs().max(1e-8); // Use absolute value, ensure positive
+            
+            // Restore original value
+            constants[i] = original;
+        }
+        
+        // Newton step: Δx = -H⁻¹ * g (using diagonal approximation)
+        // Since we use diagonal Hessian: Δx_i = -g_i / H_ii
+        let mut step = vec![0.0; n_constants];
+        let mut step_magnitude = 0.0;
+        
+        for i in 0..n_constants {
+            step[i] = -learning_rate * gradient[i] / hessian_diag[i];
+            step_magnitude += step[i] * step[i];
+        }
+        step_magnitude = step_magnitude.sqrt();
+        
+        // Adaptive step size limiting to prevent overshooting
+        let max_step = 1.0;
+        if step_magnitude > max_step {
+            for step_val in &mut step {
+                *step_val *= max_step / step_magnitude;
+            }
+        }
+        
+        // Update constants: x_{k+1} = x_k + Δx
+        for i in 0..n_constants {
+            constants[i] += step[i];
+            // Clamp constants to reasonable range to avoid numerical issues
+            constants[i] = constants[i].max(-1_000_000.0).min(1_000_000.0);
+        }
+        
+        // Check for convergence
+        if step_magnitude < 1e-8 {
+            break;
+        }
+        
+        // Periodically log progress (less frequently to reduce spam)
+        if iteration % 10 == 0 && iteration > 0 {
+            let mut idx = 0;
+            let new_expr = replace_constants(expr, &constants, &mut idx);
+            let new_error = evaluate_rmse(&new_expr, data);
+            
+            // If error is not improving, can optionally break early
+            if (new_error - current_error).abs() < 1e-10 {
+                break;
+            }
+        }
+    }
+    
+    let mut idx = 0;
+    replace_constants(expr, &constants, &mut idx)
+}
+
 /// Simplified Nelder-Mead optimization for constants
 /// More robust than coordinate descent but slower
 pub fn nelder_mead_optimize(

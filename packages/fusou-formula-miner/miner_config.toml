@@ -158,16 +158,28 @@ power_coeff_clamp_max = 10.0
 # Parameters for the Nelder-Mead simplex method used to optimize constants
 # ============================================================================
 [const_opt]
+# 定数最適化の方法："newton_method"（推奨/高速）, "coordinate_descent"（レガシー）, "nelder_mead"（堅牢）
+# Constant optimization method: "newton_method" (recommended/fast), "coordinate_descent" (legacy), "nelder_mead" (robust)
+method = "newton_method"
+
 # 定数最適化のデフォルト最大反復回数
 # Default maximum iterations for constant optimization
-default_max_iterations = 20
+default_max_iterations = 50
+
+# ニュートン法の学習率（小さいほど保守的、大きいほど急進的）
+# Learning rate for Newton's method and coordinate descent (smaller = more conservative)
+learning_rate = 0.02
+
+# ニュートン法の数値微分用イプシロン（有限差分法の刻み幅）
+# Epsilon for numerical differentiation in Newton's method (step size for finite differences)
+newton_epsilon = 0.000001
 
 # 収束判定の許容誤差（これ以下の改善で終了）
 # Tolerance for convergence (stop when improvement below this)
 default_tolerance = 0.01
 
-# シンプレックス初期化時の摂動サイズ
-# Perturbation size for simplex initialization
+# シンプレックス初期化時の摂動サイズ（Nelder-Mead用）
+# Perturbation size for simplex initialization (Nelder-Mead only)
 simplex_perturbation = 0.1
 
 # Nelder-Mead反射係数（α）標準値1.0
@@ -304,6 +316,10 @@ verification_max_display = 10
 # 生成するサンプル数
 # Number of samples to generate
 sample_count = 500
+
+# 合成データセットの種類: "A"（簡単）, "B"（中程度）, "C"（複雑）
+# Synthetic dataset type: "A" (simple), "B" (moderate), "C" (complex)
+dataset_type = "A"
 
 # 攻撃力パラメータの範囲（最小）
 # Minimum value for attack stat

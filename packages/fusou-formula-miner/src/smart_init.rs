@@ -237,13 +237,19 @@ pub fn smart_init<R: Rng + ?Sized>(
         }
         let expr = create_linear_expr(0, stats.linear_coeff, stats.linear_intercept);
         population.push(expr.clone());
-        population.push(crate::solver::mutate(&expr, rng, num_vars, max_depth));
+        {
+            let mut _tmp_counts = std::collections::HashMap::new();
+            population.push(crate::solver::mutate(&expr, rng, num_vars, max_depth, &mut _tmp_counts));
+        }
 
         if population.len() < population_size {
             let expr2 = create_linear_expr(1, stats.linear_coeff * 0.5, stats.linear_intercept);
             population.push(expr2.clone());
             if population.len() < population_size {
-                population.push(crate::solver::mutate(&expr2, rng, num_vars, max_depth));
+                {
+                    let mut _tmp_counts = std::collections::HashMap::new();
+                    population.push(crate::solver::mutate(&expr2, rng, num_vars, max_depth, &mut _tmp_counts));
+                }
             }
         }
     }
@@ -256,7 +262,10 @@ pub fn smart_init<R: Rng + ?Sized>(
         let expr = create_power_expr(0, stats.power_coeff, stats.power_exponent);
         population.push(expr.clone());
         if population.len() < population_size {
-            population.push(crate::solver::mutate(&expr, rng, num_vars, max_depth));
+                {
+                    let mut _tmp_counts = std::collections::HashMap::new();
+                    population.push(crate::solver::mutate(&expr, rng, num_vars, max_depth, &mut _tmp_counts));
+                }
         }
     }
 

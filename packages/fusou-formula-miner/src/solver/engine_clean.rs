@@ -200,6 +200,7 @@ pub struct GeneticConfig {
     pub tarpeian_probability: f64,  // Probability of applying Tarpeian penalty (0.5 recommended)
     pub hoist_mutation_rate: f64,   // Probability of applying hoist mutation (0.1 recommended)
     pub constant_optimization_interval: usize,  // Optimize constants every N generations (0 = disabled)
+    pub duplicate_penalty: f64, // Relative penalty applied to RMSE for duplicate expressions (e.g., 0.2 => +20%)
 }
 
 impl Default for GeneticConfig {
@@ -216,11 +217,12 @@ impl Default for GeneticConfig {
             tarpeian_probability: 0.5,  // 50% chance to punish oversized individuals
             hoist_mutation_rate: 0.1,   // 10% chance of hoist mutation
             constant_optimization_interval: 10,  // Optimize constants every 10 generations
+            duplicate_penalty: 0.2, // default 20% penalty for duplicates
         }
     }
 }
 
-pub fn random_expr<R: Rng + ?Sized>(rng: &mut R, max_depth: usize, num_vars: usize) -> Expr {
+pub fn random_expr<R: Rng + ?Sized>(rng: &mut R, max_depth: usize, num_vars: usize, counts: &mut std::collections::HashMap<&'static str, usize>) -> Expr {
     if max_depth == 0 {
         return random_leaf(rng, num_vars);
     }
@@ -245,10 +247,18 @@ pub fn random_expr<R: Rng + ?Sized>(rng: &mut R, max_depth: usize, num_vars: usi
                     4 => BinaryOp::Min,
                     _ => BinaryOp::Max,
                 };
+                match op {
+                    BinaryOp::Add => *counts.entry("+").or_insert(0) += 1,
+                    BinaryOp::Sub => *counts.entry("-").or_insert(0) += 1,
+                    BinaryOp::Mul => *counts.entry("*").or_insert(0) += 1,
+                    BinaryOp::Div => *counts.entry("/").or_insert(0) += 1,
+                    BinaryOp::Min => *counts.entry("min").or_insert(0) += 1,
+                    BinaryOp::Max => *counts.entry("max").or_insert(0) += 1,
+                }
                 Expr::Binary {
                     op,
-                    left: Box::new(random_expr(rng, max_depth - 1, num_vars)),
-                    right: Box::new(random_expr(rng, max_depth - 1, num_vars)),
+                    left: Box::new(random_expr(rng, max_depth - 1, num_vars, counts)),
+                        right: Box::new(random_expr(rng, max_depth - 1, num_vars, counts)),
                 }
             } else {
                 // unary operator
@@ -262,9 +272,18 @@ pub fn random_expr<R: Rng + ?Sized>(rng: &mut R, max_depth: usize, num_vars: usi
                     5 => UnaryOp::Log,
                     _ => UnaryOp::Sqrt,
                 };
+                match op {
+                    UnaryOp::Identity => *counts.entry("identity").or_insert(0) += 1,
+                    UnaryOp::Floor => *counts.entry("floor").or_insert(0) += 1,
+                    UnaryOp::Exp => *counts.entry("exp").or_insert(0) += 1,
+                    UnaryOp::Pow => *counts.entry("pow").or_insert(0) += 1,
+                    UnaryOp::Step => *counts.entry("step").or_insert(0) += 1,
+                    UnaryOp::Log => *counts.entry("log").or_insert(0) += 1,
+                    UnaryOp::Sqrt => *counts.entry("sqrt").or_insert(0) += 1,
+                }
                 Expr::Unary {
                     op,
-                    child: Box::new(random_expr(rng, max_depth - 1, num_vars)),
+                    child: Box::new(random_expr(rng, max_depth - 1, num_vars, counts)),
                 }
             }
         }
@@ -272,17 +291,17 @@ pub fn random_expr<R: Rng + ?Sized>(rng: &mut R, max_depth: usize, num_vars: usi
     }
 }
 
-pub fn mutate<R: Rng + ?Sized>(expr: &Expr, rng: &mut R, num_vars: usize, max_depth: usize) -> Expr {
+pub fn mutate<R: Rng + ?Sized>(expr: &Expr, rng: &mut R, num_vars: usize, max_depth: usize, counts: &mut std::collections::HashMap<&'static str, usize>) -> Expr {
     // Increased mutation rate from 0.15 to 0.3 to better escape local optima and reduce overfitting
     if rng.gen_bool(0.3) {
-        return random_expr(rng, max_depth.saturating_sub(1), num_vars).simplify();
+        return random_expr(rng, max_depth.saturating_sub(1), num_vars, counts).simplify();
     }
 
     let mut out = expr.clone();
     let target = random_subexpr_mut(&mut out, rng);
 
     match target {
-        Expr::Const(ref mut v) => {
+            Expr::Const(ref mut v) => {
             *v = clamp(*v + rng.gen_range(-1.0..1.0));
         }
         Expr::Var(ref mut idx) => {
@@ -292,21 +311,38 @@ pub fn mutate<R: Rng + ?Sized>(expr: &Expr, rng: &mut R, num_vars: usize, max_de
                 *target = Expr::Const(random_constant(rng));
             }
         }
-        Expr::Unary { op, child } => {
+            Expr::Unary { op, child } => {
             if rng.gen_bool(0.4) {
                 *op = random_unary_op(rng);
+                match op {
+                    UnaryOp::Identity => *counts.entry("identity").or_insert(0) += 1,
+                    UnaryOp::Floor => *counts.entry("floor").or_insert(0) += 1,
+                    UnaryOp::Exp => *counts.entry("exp").or_insert(0) += 1,
+                    UnaryOp::Pow => *counts.entry("pow").or_insert(0) += 1,
+                    UnaryOp::Step => *counts.entry("step").or_insert(0) += 1,
+                    UnaryOp::Log => *counts.entry("log").or_insert(0) += 1,
+                    UnaryOp::Sqrt => *counts.entry("sqrt").or_insert(0) += 1,
+                }
             } else {
-                **child = random_expr(rng, (max_depth / 2).max(1), num_vars);
+                **child = random_expr(rng, (max_depth / 2).max(1), num_vars, counts);
             }
         }
         Expr::Binary { op, left, right } => {
             if rng.gen_bool(0.3) {
                 *op = random_binary_op(rng);
+                match op {
+                    BinaryOp::Add => *counts.entry("+").or_insert(0) += 1,
+                    BinaryOp::Sub => *counts.entry("-").or_insert(0) += 1,
+                    BinaryOp::Mul => *counts.entry("*").or_insert(0) += 1,
+                    BinaryOp::Div => *counts.entry("/").or_insert(0) += 1,
+                    BinaryOp::Min => *counts.entry("min").or_insert(0) += 1,
+                    BinaryOp::Max => *counts.entry("max").or_insert(0) += 1,
+                }
             }
             if rng.gen_bool(0.5) {
-                **left = random_expr(rng, (max_depth / 2).max(1), num_vars);
+                **left = random_expr(rng, (max_depth / 2).max(1), num_vars, counts);
             } else {
-                **right = random_expr(rng, (max_depth / 2).max(1), num_vars);
+                **right = random_expr(rng, (max_depth / 2).max(1), num_vars, counts);
             }
         }
     }
@@ -315,17 +351,49 @@ pub fn mutate<R: Rng + ?Sized>(expr: &Expr, rng: &mut R, num_vars: usize, max_de
     out.simplify()
 }
 
-pub fn crossover<R: Rng + ?Sized>(lhs: &Expr, rhs: &Expr, rng: &mut R) -> Expr {
+pub fn crossover<R: Rng + ?Sized>(lhs: &Expr, rhs: &Expr, rng: &mut R, counts: &mut std::collections::HashMap<&'static str, usize>) -> Expr {
     if rng.gen_bool(0.1) {
         return rhs.simplify();
     }
 
     let donor = random_subexpr(rhs, rng).clone();
+    // Count operators present in donor subtree as crossover events
+    incr_counts_from_expr(&donor, counts);
     let mut child = lhs.clone();
     let target = random_subexpr_mut(&mut child, rng);
     *target = donor;
     // Simplify the child to reduce bloat from crossover
     child.simplify()
+}
+
+fn incr_counts_from_expr(expr: &Expr, counts: &mut std::collections::HashMap<&'static str, usize>) {
+    match expr {
+        Expr::Const(_) | Expr::Var(_) => {}
+        Expr::Unary { op, child } => {
+            match op {
+                UnaryOp::Identity => *counts.entry("identity").or_insert(0) += 1,
+                UnaryOp::Floor => *counts.entry("floor").or_insert(0) += 1,
+                UnaryOp::Exp => *counts.entry("exp").or_insert(0) += 1,
+                UnaryOp::Pow => *counts.entry("pow").or_insert(0) += 1,
+                UnaryOp::Step => *counts.entry("step").or_insert(0) += 1,
+                UnaryOp::Log => *counts.entry("log").or_insert(0) += 1,
+                UnaryOp::Sqrt => *counts.entry("sqrt").or_insert(0) += 1,
+            }
+            incr_counts_from_expr(child, counts);
+        }
+        Expr::Binary { op, left, right } => {
+            match op {
+                BinaryOp::Add => *counts.entry("+").or_insert(0) += 1,
+                BinaryOp::Sub => *counts.entry("-").or_insert(0) += 1,
+                BinaryOp::Mul => *counts.entry("*").or_insert(0) += 1,
+                BinaryOp::Div => *counts.entry("/").or_insert(0) += 1,
+                BinaryOp::Min => *counts.entry("min").or_insert(0) += 1,
+                BinaryOp::Max => *counts.entry("max").or_insert(0) += 1,
+            }
+            incr_counts_from_expr(left, counts);
+            incr_counts_from_expr(right, counts);
+        }
+    }
 }
 
 fn random_leaf<R: Rng + ?Sized>(rng: &mut R, num_vars: usize) -> Expr {

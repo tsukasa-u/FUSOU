@@ -7,6 +7,7 @@ use std::thread;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FocusedPanel {
     BestSolution,
+    OperatorStats,
     Logs,
 }
 
@@ -29,6 +30,7 @@ const COMMANDS: &[(&str, &str)] = &[
     ("/verify-synthetic", "Verify synthetic dataset targets match ground-truth formula"),
     ("/load-config", "Load miner configuration from file: /load-config [path] (default: miner_config.toml)"),
     ("/save-config", "Save current miner configuration to file: /save-config [path] (default: miner_config.toml)"),
+    ("/set-dataset", "Select synthetic dataset type: /set-dataset A|B|C (default A)"),
 ];
 const SET_PARAMETERS: &[&str] = &[
     "population_size",
@@ -67,10 +69,20 @@ pub fn handle_key_event(key: KeyEvent, state: &mut SolverState) -> bool {
 
     match key.code {
         KeyCode::Left => {
-            state.focused_panel = FocusedPanel::BestSolution;
+            // Move focus left: Logs -> OperatorStats -> BestSolution
+            state.focused_panel = match state.focused_panel {
+                FocusedPanel::Logs => FocusedPanel::OperatorStats,
+                FocusedPanel::OperatorStats => FocusedPanel::BestSolution,
+                _ => FocusedPanel::BestSolution,
+            };
         }
         KeyCode::Right => {
-            state.focused_panel = FocusedPanel::Logs;
+            // Move focus right: BestSolution -> OperatorStats -> Logs
+            state.focused_panel = match state.focused_panel {
+                FocusedPanel::BestSolution => FocusedPanel::OperatorStats,
+                FocusedPanel::OperatorStats => FocusedPanel::Logs,
+                _ => FocusedPanel::Logs,
+            };
         }
         KeyCode::Up => {
             scroll_focused_up(state);
@@ -275,7 +287,12 @@ fn execute_command(cmd: &str, state: &mut SolverState) -> bool {
         }
         "/verify-synthetic" => {
             // Regenerate synthetic dataset and verify targets against formula implementation
-            let ds = synthetic_dataset();
+            let ds = if let Ok(mc) = state.miner_config.lock() {
+                crate::dataset::synthetic_dataset_for(&mc.synthetic_data.dataset_type, &mc.synthetic_data)
+            } else {
+                // fallback
+                crate::dataset::synthetic_dataset()
+            };
             let mut mismatches: Vec<(usize, f64, f64)> = Vec::new();
             let mut acc_sq_err = 0.0f64;
             let mut acc_count = 0usize;
@@ -322,6 +339,34 @@ fn execute_command(cmd: &str, state: &mut SolverState) -> bool {
                 "Error: Failed to acquire config lock".to_string()
             };
             push_log(state, msg);
+        }
+        _ if cmd.starts_with("/set-dataset") => {
+            // Usage: /set-dataset A
+            let rest = cmd.strip_prefix("/set-dataset").unwrap_or("").trim();
+            let choice = if rest.is_empty() { None } else { Some(rest.to_string()) };
+            if let Some(val) = choice {
+                let up = val.to_uppercase();
+                if up == "A" || up == "B" || up == "C" {
+                    let msg = if let Ok(mut mc) = state.miner_config.lock() {
+                        mc.synthetic_data.dataset_type = up.clone();
+                        format!("Synthetic dataset type set to {}", up)
+                    } else {
+                        "Error: Failed to acquire config lock".to_string()
+                    };
+                    push_log(state, msg);
+                } else {
+                    push_log(state, "Invalid dataset type. Use A, B, or C.".into());
+                }
+            } else {
+                // show current selection
+                let msg = if let Ok(mc) = state.miner_config.lock() {
+                    format!("Current synthetic dataset type: {}", mc.synthetic_data.dataset_type)
+                } else {
+                    "Error: Failed to acquire config lock".to_string()
+                };
+                push_log(state, msg);
+            }
+            return false;
         }
         "/save-config" => {
             let path_str = cmd.strip_prefix("/save-config").unwrap_or("").trim().to_string();
@@ -545,6 +590,13 @@ fn scroll_focused_up(state: &mut SolverState) {
                 state.best_solution_scroll_offset += 1;
             }
         }
+        FocusedPanel::OperatorStats => {
+            // Move selection down the list (up in UI corresponds to increasing index)
+            let len = state.operator_counts.len().max(1);
+            if state.operator_selected_index + 1 < len {
+                state.operator_selected_index += 1;
+            }
+        }
     }
 }
 
@@ -558,6 +610,11 @@ fn scroll_focused_down(state: &mut SolverState) {
         FocusedPanel::BestSolution => {
             if state.best_solution_scroll_offset > 0 {
                 state.best_solution_scroll_offset -= 1;
+            }
+        }
+        FocusedPanel::OperatorStats => {
+            if state.operator_selected_index > 0 {
+                state.operator_selected_index -= 1;
             }
         }
     }

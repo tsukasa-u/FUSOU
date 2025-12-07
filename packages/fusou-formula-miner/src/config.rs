@@ -136,26 +136,35 @@ impl Default for SmartInitConfig {
 /// Constant optimization parameters (Nelder-Mead)
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ConstOptConfig {
+    /// Constant optimization method: "coordinate_descent", "newton_method", or "nelder_mead"
+    pub method: String,
     /// Default max iterations for constant optimization
     pub default_max_iterations: usize,
+    /// Default learning rate (for Newton's method and coordinate descent)
+    pub learning_rate: f64,
+    /// Epsilon for numerical differentiation (Newton's method)
+    pub newton_epsilon: f64,
     /// Default tolerance for convergence
     pub default_tolerance: f64,
-    /// Simplex perturbation size
+    /// Simplex perturbation size (Nelder-Mead)
     pub simplex_perturbation: f64,
-    /// Reflection coefficient
+    /// Reflection coefficient (Nelder-Mead)
     pub nelder_mead_alpha: f64,
-    /// Expansion coefficient
+    /// Expansion coefficient (Nelder-Mead)
     pub nelder_mead_gamma: f64,
-    /// Contraction coefficient
+    /// Contraction coefficient (Nelder-Mead)
     pub nelder_mead_rho: f64,
-    /// Shrink coefficient
+    /// Shrink coefficient (Nelder-Mead)
     pub nelder_mead_sigma: f64,
 }
 
 impl Default for ConstOptConfig {
     fn default() -> Self {
         Self {
-            default_max_iterations: 20,
+            method: "newton_method".to_string(),  // Use Newton's method by default (more efficient)
+            default_max_iterations: 50,  // Increased from 20 for Newton's method
+            learning_rate: 0.05,  // Learning rate for Newton's method
+            newton_epsilon: 1e-6,  // Epsilon for numerical differentiation
             default_tolerance: 0.01,
             simplex_perturbation: 0.1,
             nelder_mead_alpha: 1.0,
@@ -275,6 +284,8 @@ pub struct SyntheticDataConfig {
     pub crit_multiplier: f64,
     /// Minimum damage floor
     pub min_damage: f64,
+    /// Synthetic dataset type: "A" (simple), "B" (moderate), "C" (complex)
+    pub dataset_type: String,
 }
 
 impl Default for SyntheticDataConfig {
@@ -291,6 +302,7 @@ impl Default for SyntheticDataConfig {
             crit_luck_threshold: 80.0,
             crit_multiplier: 1.5,
             min_damage: 1.0,
+            dataset_type: "A".to_string(),
         }
     }
 }

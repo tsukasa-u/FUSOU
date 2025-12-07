@@ -30,17 +30,51 @@ mod residual_learning;
 mod nsga2;
 mod bloat_control;
 mod constant_opt;
+mod const_opt_adaptive;
+mod duplicate_detection;
+mod semantic_ops;
 
 use config::MinerConfig;
 
 use dataset::synthetic_dataset;
 use network::{JobSubmission, RemoteJob, WorkerClient};
-use solver::{crossover, mutate, Expr, GeneticConfig, UnaryOp};
+use solver::{crossover, mutate, Expr, GeneticConfig, UnaryOp, BinaryOp};
 use smart_init::{DataStats, smart_init};
 use state::{AppEvent, JobSummary, Phase, SolverState, CandidateFormula, ParameterSet, SweepConfig};
 use nsga2::{MultiObjectiveIndividual, nsga2_selection, nsga2_tournament_select};
 use bloat_control::{tarpeian_penalty, hoist_mutation, average_size};
-use constant_opt::optimize_constants;
+use const_opt_adaptive::{optimize_constants_adaptive, optimize_constants_quick};
+
+// Walk an Expr AST and count occurrences of operators into `counts`.
+fn count_ops_in_expr(expr: &Expr, counts: &mut std::collections::HashMap<&'static str, usize>) {
+    match expr {
+        Expr::Const(_) | Expr::Var(_) => {}
+        Expr::Unary { op, child } => {
+            match op {
+                UnaryOp::Identity => *counts.entry("identity").or_insert(0) += 1,
+                UnaryOp::Floor => *counts.entry("floor").or_insert(0) += 1,
+                UnaryOp::Exp => *counts.entry("exp").or_insert(0) += 1,
+                UnaryOp::Pow => *counts.entry("pow").or_insert(0) += 1,
+                UnaryOp::Step => *counts.entry("step").or_insert(0) += 1,
+                UnaryOp::Log => *counts.entry("log").or_insert(0) += 1,
+                UnaryOp::Sqrt => *counts.entry("sqrt").or_insert(0) += 1,
+            }
+            count_ops_in_expr(child, counts);
+        }
+        Expr::Binary { op, left, right } => {
+            match op {
+                BinaryOp::Add => *counts.entry("+").or_insert(0) += 1,
+                BinaryOp::Sub => *counts.entry("-").or_insert(0) += 1,
+                BinaryOp::Mul => *counts.entry("*").or_insert(0) += 1,
+                BinaryOp::Div => *counts.entry("/").or_insert(0) += 1,
+                BinaryOp::Min => *counts.entry("min").or_insert(0) += 1,
+                BinaryOp::Max => *counts.entry("max").or_insert(0) += 1,
+            }
+            count_ops_in_expr(left, counts);
+            count_ops_in_expr(right, counts);
+        }
+    }
+}
 
 fn main() -> Result<()> {
     enable_raw_mode()?;
@@ -113,6 +147,9 @@ fn main() -> Result<()> {
                 AppEvent::TopCandidates(candidates) => {
                     state.top_candidates = candidates;
                 }
+                AppEvent::OperatorStats(counts) => {
+                    state.operator_counts = counts;
+                }
                 AppEvent::PhaseChange(phase) => {
                     state.phase = phase;
                 }
@@ -159,7 +196,9 @@ fn main() -> Result<()> {
                         let user_max_generations = state.max_generations;
                         let user_target_error = state.target_error;
                         let user_correlation_threshold = state.correlation_threshold;
-                        thread::spawn(move || run_solver(worker_id, solver_tx, solver_shutdown, solver_config, user_max_generations, user_target_error, user_correlation_threshold));
+                        let solver_miner_config = state.miner_config.clone();
+                        let solver_dup_tracker = state.duplicate_tracker.clone();
+                        thread::spawn(move || run_solver(worker_id, solver_tx, solver_shutdown, solver_config, solver_miner_config, solver_dup_tracker, user_max_generations, user_target_error, user_correlation_threshold));
                         push_log(&mut state, "Spawned fresh solver run in response to /start".into());
                         // solver_running flag will be set to false when solver finishes (via Finished event)
                     }
@@ -451,12 +490,14 @@ fn main() -> Result<()> {
                                     let solver_tx = tx.clone();
                                     let solver_shutdown = shutdown_flag.clone();
                                     let solver_config = state.shared_config.clone().unwrap();
+                                    let solver_miner_config = state.miner_config.clone();
+                                    let solver_dup_tracker = state.duplicate_tracker.clone();
                                     let worker_id = state.worker_id;
                                     let user_max_generations = state.max_generations;
                                     let user_target_error = state.target_error;
                                     let user_correlation_threshold = state.correlation_threshold;
                                     state.solver_running = true;
-                                    thread::spawn(move || run_solver(worker_id, solver_tx, solver_shutdown, solver_config, user_max_generations, user_target_error, user_correlation_threshold));
+                                    thread::spawn(move || run_solver(worker_id, solver_tx, solver_shutdown, solver_config, solver_miner_config, solver_dup_tracker, user_max_generations, user_target_error, user_correlation_threshold));
                                     push_log(&mut state, format!("Started refinement run {}/{} for parent iter {}", idx+1, sweep_config.refinement_total_iterations, sweep_config.refinement_parent_iteration.unwrap_or(0)));
                                     // increment refinement counter for next time
                                     let mut sc = sweep_config.clone();
@@ -555,12 +596,14 @@ fn main() -> Result<()> {
                                             let solver_tx = tx.clone();
                                             let solver_shutdown = shutdown_flag.clone();
                                             let solver_config = state.shared_config.clone().unwrap();
+                                            let solver_miner_config = state.miner_config.clone();
+                                            let solver_dup_tracker = state.duplicate_tracker.clone();
                                             let worker_id = state.worker_id;
                                             let user_max_generations = state.max_generations;
                                             let user_target_error = state.target_error;
                                             let user_correlation_threshold = state.correlation_threshold;
                                             state.solver_running = true;
-                                            thread::spawn(move || run_solver(worker_id, solver_tx, solver_shutdown, solver_config, user_max_generations, user_target_error, user_correlation_threshold));
+                                            thread::spawn(move || run_solver(worker_id, solver_tx, solver_shutdown, solver_config, solver_miner_config, solver_dup_tracker, user_max_generations, user_target_error, user_correlation_threshold));
                                             push_log(&mut state, format!("Started refinement run 1/{} for parent iter {}", sweep_config.refinement_total_iterations, sweep_config.refinement_parent_iteration.unwrap_or(0)));
                                             // increment refinement counter
                                             let mut sc = sweep_config.clone();
@@ -594,12 +637,14 @@ fn main() -> Result<()> {
                             let solver_tx = tx.clone();
                             let solver_shutdown = shutdown_flag.clone();
                             let solver_config = state.shared_config.clone().unwrap();
+                            let solver_miner_config = state.miner_config.clone();
+                            let solver_dup_tracker = state.duplicate_tracker.clone();
                             let worker_id = state.worker_id;
                             let user_max_generations = state.max_generations;
                             let user_target_error = state.target_error;
                             let user_correlation_threshold = state.correlation_threshold;
                             state.solver_running = true;
-                            thread::spawn(move || run_solver(worker_id, solver_tx, solver_shutdown, solver_config, user_max_generations, user_target_error, user_correlation_threshold));
+                            thread::spawn(move || run_solver(worker_id, solver_tx, solver_shutdown, solver_config, solver_miner_config, solver_dup_tracker, user_max_generations, user_target_error, user_correlation_threshold));
                             push_log(&mut state, format!("Started sweep run {}/{}", sweep_config.current_iteration, sweep_config.total_iterations));
                             // persist updated sweep_config back into state
                             state.sweep_config = Some(sweep_config);
@@ -640,7 +685,7 @@ fn push_log(state: &mut SolverState, message: String) {
     }
 }
 
-pub fn run_solver(worker_id: Uuid, tx: Sender<AppEvent>, shutdown: Arc<AtomicBool>, shared_config: Arc<Mutex<GeneticConfig>>, max_generations: u64, target_error: f64, correlation_threshold: f64) {
+pub fn run_solver(worker_id: Uuid, tx: Sender<AppEvent>, shutdown: Arc<AtomicBool>, shared_config: Arc<Mutex<GeneticConfig>>, miner_config: Arc<Mutex<MinerConfig>>, duplicate_tracker: Arc<Mutex<crate::duplicate_detection::DuplicateTracker>>, max_generations: u64, target_error: f64, correlation_threshold: f64) {
     let mut rng = rand::thread_rng();
     let _ = tx.send(AppEvent::Log(format!("Worker {worker_id} started")));
 
@@ -661,6 +706,9 @@ pub fn run_solver(worker_id: Uuid, tx: Sender<AppEvent>, shutdown: Arc<AtomicBoo
         let _ = tx.send(AppEvent::Online(true));
     }
 
+    // Snapshot miner config so we can use the selected synthetic dataset type if needed
+    let miner_cfg_snapshot = miner_config.lock().unwrap().clone();
+
     let mut job = {
         if let Some(ref client) = client {
             let _ = tx.send(AppEvent::PhaseChange(Phase::Connecting));
@@ -673,25 +721,33 @@ pub fn run_solver(worker_id: Uuid, tx: Sender<AppEvent>, shutdown: Arc<AtomicBoo
                     let _ = tx.send(AppEvent::Log(
                         "No job available from server; using synthetic dataset.".into(),
                     ));
-                    synthetic_job()
+                    synthetic_job_with_config(&miner_cfg_snapshot)
                 }
                 Err(err) => {
                     let _ = tx.send(AppEvent::Log(format!(
                         "Unable to fetch job: {err}. Using synthetic dataset instead."
                     )));
-                    synthetic_job()
+                    synthetic_job_with_config(&miner_cfg_snapshot)
                 }
             }
         } else {
-            synthetic_job()
+            synthetic_job_with_config(&miner_cfg_snapshot)
         }
     };
 
     // If this is a synthetic job, provide a human-readable ground-truth expression
     let ground_truth = if job.job_id.is_nil() {
-        // Use `step` representation to avoid 'if' wording differences
-        // Equivalent: multiplier = 1.0 + 0.5 * step(luck - 80)
-        Some("dmg = max(atk - def, 1.0) * (1.0 + 0.5 * step(luck - 80.0))".to_string())
+        // Produce a dataset-type-specific human-readable target expression so the UI
+        // reflects the selected synthetic dataset type (A/B/C).
+        match miner_cfg_snapshot.synthetic_data.dataset_type.as_str() {
+            "A" | "a" => Some("dmg = max(atk - def, 1.0) + noise".to_string()),
+            "B" | "b" => Some(
+                "dmg = (max(atk - def, 0.0) * (if luck > crit_luck_threshold then crit_multiplier else 1.0)) * map_effect + noise".to_string(),
+            ),
+            _ => Some(
+                "dmg = max(atk - def, 0.0) * (1.0 + (luck/100)^1.5) * (1.0 + (timestamp/samples)^0.5 * 0.2) + map_bias + heteroscedastic_noise".to_string(),
+            ),
+        }
     } else {
         None
     };
@@ -838,10 +894,15 @@ pub fn run_solver(worker_id: Uuid, tx: Sender<AppEvent>, shutdown: Arc<AtomicBoo
             mo_population = smart_population
                 .into_iter()
                 .map(|expr| {
-                    let error = evaluate_error_only(&expr, &data);
+                    let penalty = config.duplicate_penalty;
+                    let error = evaluate_error_only_with_penalty(&expr, &data, &duplicate_tracker, penalty);
                     MultiObjectiveIndividual::new(expr, error)
                 })
                 .collect();
+            // Register initial population in duplicate tracker so we avoid re-exploring them
+            for ind in &mo_population {
+                duplicate_tracker.lock().unwrap().register(&ind.expr);
+            }
             population = Vec::new(); // Not used in NSGA-II mode
         } else {
             // Single-objective mode (legacy)
@@ -852,6 +913,10 @@ pub fn run_solver(worker_id: Uuid, tx: Sender<AppEvent>, shutdown: Arc<AtomicBoo
                     fitness: f64::MAX,
                 })
                 .collect();
+            // Register initial single-objective population in duplicate tracker
+            for ind in &population {
+                duplicate_tracker.lock().unwrap().register(&ind.expr);
+            }
             mo_population = Vec::new(); // Not used in single-objective mode
         }
 
@@ -873,11 +938,11 @@ pub fn run_solver(worker_id: Uuid, tx: Sender<AppEvent>, shutdown: Arc<AtomicBoo
             }
         } else {
             let best = population.iter().min_by(|a, b| {
-                let err_a = evaluate_error_only(&a.expr, &data);
-                let err_b = evaluate_error_only(&b.expr, &data);
+                let err_a = evaluate_error_only_with_penalty(&a.expr, &data, &duplicate_tracker, config.duplicate_penalty);
+                let err_b = evaluate_error_only_with_penalty(&b.expr, &data, &duplicate_tracker, config.duplicate_penalty);
                 err_a.partial_cmp(&err_b).unwrap_or(Ordering::Equal)
             }).unwrap();
-            let best_err = evaluate_error_only(&best.expr, &data);
+            let best_err = evaluate_error_only_with_penalty(&best.expr, &data, &duplicate_tracker, config.duplicate_penalty);
             (best.expr.clone(), best_err)
         };
         let _ = tx.send(AppEvent::Log(format!(
@@ -886,6 +951,11 @@ pub fn run_solver(worker_id: Uuid, tx: Sender<AppEvent>, shutdown: Arc<AtomicBoo
         )));
         let mut best_generation = 0u64;
         let mut last_emit = Instant::now();
+        // Cumulative operator counts over the run (used to compute percentages)
+        let mut cumulative_counts_map: std::collections::HashMap<&'static str, usize> = std::collections::HashMap::new();
+
+        // Use shared duplicate tracker (passed into run_solver) to track seen expressions
+        // local per-run tracker removed in favor of shared `duplicate_tracker`
 
         for generation in 0..=max_generations {
             // Check for shutdown each generation
@@ -947,6 +1017,31 @@ pub fn run_solver(worker_id: Uuid, tx: Sender<AppEvent>, shutdown: Arc<AtomicBoo
                         })
                         .collect();
                     let _ = tx.send(AppEvent::TopCandidates(candidates));
+
+                    // Compute operator counts from the top individuals (AST-based, accurate)
+                    let mut counts_map: std::collections::HashMap<&'static str, usize> = std::collections::HashMap::new();
+                    // Include leader (best) and top 5 individuals
+                    if let Some(leader) = rank0.iter().min_by(|a, b| {
+                        a.error.partial_cmp(&b.error).unwrap_or(Ordering::Equal)
+                    }) {
+                        count_ops_in_expr(&leader.expr, &mut counts_map);
+                    }
+                    for ind in mo_population.iter().take(5) {
+                        count_ops_in_expr(&ind.expr, &mut counts_map);
+                    }
+
+                    // Accumulate into cumulative map (so percentages reflect all selections seen so far)
+                    for (k, v) in counts_map.iter() {
+                        *cumulative_counts_map.entry(k).or_insert(0) += *v;
+                    }
+                    // Convert cumulative map into stable-order Vec<(String, usize)>
+                    let ordered = vec!["+","-","*","/","min","max","step","log","sqrt","exp","floor","identity","pow"];
+                    let mut counts_vec: Vec<(String, usize)> = Vec::new();
+                    for op in ordered {
+                        let c = *cumulative_counts_map.get(op).unwrap_or(&0);
+                        counts_vec.push((op.to_string(), c));
+                    }
+                    let _ = tx.send(AppEvent::OperatorStats(counts_vec));
                 }
 
                 if best_error <= target_error {
@@ -967,12 +1062,15 @@ pub fn run_solver(worker_id: Uuid, tx: Sender<AppEvent>, shutdown: Arc<AtomicBoo
                     && generation > 0 {
                     let elite_count = config.elite_count.min(mo_population.len());
                     for i in 0..elite_count {
-                        let optimized = optimize_constants(&mo_population[i].expr, &data, 20, 0.01);
-                        let new_error = evaluate_error_only(&optimized, &data);
-                        if new_error < mo_population[i].error {
-                            mo_population[i].expr = optimized;
-                            mo_population[i].error = new_error;
-                            mo_population[i].size = mo_population[i].expr.size();
+                        // Use adaptive constant optimizer configured via miner_config
+                        if let Ok(miner_cfg) = miner_config.lock() {
+                            let optimized = optimize_constants_adaptive(&mo_population[i].expr, &data, &miner_cfg.const_opt);
+                            let new_error = evaluate_error_only_with_penalty(&optimized, &data, &duplicate_tracker, config.duplicate_penalty);
+                            if new_error < mo_population[i].error {
+                                mo_population[i].expr = optimized;
+                                mo_population[i].error = new_error;
+                                mo_population[i].size = mo_population[i].expr.size();
+                            }
                         }
                     }
                 }
@@ -994,14 +1092,14 @@ pub fn run_solver(worker_id: Uuid, tx: Sender<AppEvent>, shutdown: Arc<AtomicBoo
                     
                     let mut child_expr = if rng.gen_bool(config.crossover_rate) {
                         let parent_b = nsga2_tournament_select(&mo_population, config.tournament_size, &mut rng);
-                        crossover(&parent_a.expr, &parent_b.expr, &mut rng)
+                        crossover(&parent_a.expr, &parent_b.expr, &mut rng, &mut cumulative_counts_map)
                     } else {
                         parent_a.expr.clone()
                     };
 
                     // Apply mutations
                     if rng.gen_bool(config.mutation_rate) {
-                        child_expr = mutate(&child_expr, &mut rng, num_vars, config.max_depth);
+                        child_expr = mutate(&child_expr, &mut rng, num_vars, config.max_depth, &mut cumulative_counts_map);
                     }
                     
                     // Hoist mutation for bloat control
@@ -1009,7 +1107,21 @@ pub fn run_solver(worker_id: Uuid, tx: Sender<AppEvent>, shutdown: Arc<AtomicBoo
                         child_expr = hoist_mutation(&child_expr, &mut rng);
                     }
 
-                    let child_error = evaluate_error_only(&child_expr, &data);
+                    // Duplicate checking with limited retries to escape exact duplicates
+                    let mut dup_attempts = 0usize;
+                    while duplicate_tracker.lock().unwrap().is_duplicate(&child_expr) && dup_attempts < 3 {
+                        child_expr = mutate(&child_expr, &mut rng, num_vars, config.max_depth, &mut cumulative_counts_map);
+                        dup_attempts += 1;
+                    }
+
+                    if duplicate_tracker.lock().unwrap().is_duplicate(&child_expr) {
+                        // Still duplicate after retries: skip adding this child
+                        continue;
+                    }
+
+                    let child_error = evaluate_error_only_with_penalty(&child_expr, &data, &duplicate_tracker, config.duplicate_penalty);
+                    // Register seen expression so we avoid returning it again
+                    duplicate_tracker.lock().unwrap().register(&child_expr);
                     next_mo_population.push(MultiObjectiveIndividual::new(child_expr, child_error));
                 }
 
@@ -1023,7 +1135,7 @@ pub fn run_solver(worker_id: Uuid, tx: Sender<AppEvent>, shutdown: Arc<AtomicBoo
                 
                 for individual in &mut population {
                     if !individual.fitness.is_finite() || individual.fitness == f64::MAX {
-                        let error = evaluate_error_only(&individual.expr, &data);
+                        let error = evaluate_error_only_with_penalty(&individual.expr, &data, &duplicate_tracker, config.duplicate_penalty);
                         let size = individual.expr.size();
                         
                         // Apply Tarpeian penalty
@@ -1043,7 +1155,7 @@ pub fn run_solver(worker_id: Uuid, tx: Sender<AppEvent>, shutdown: Arc<AtomicBoo
                 });
 
                 if let Some(leader) = population.first() {
-                    let actual_error = evaluate_error_only(&leader.expr, &data);
+                    let actual_error = evaluate_error_only_with_penalty(&leader.expr, &data, &duplicate_tracker, config.duplicate_penalty);
                     if actual_error.is_finite() && actual_error < best_error {
                         best_error = actual_error;
                         best_expr = leader.expr.clone();
@@ -1089,19 +1201,33 @@ pub fn run_solver(worker_id: Uuid, tx: Sender<AppEvent>, shutdown: Arc<AtomicBoo
                     
                     let mut child_expr = if rng.gen_bool(config.crossover_rate) {
                         let parent_b = tournament_select(&population, config.tournament_size, &mut rng);
-                        crossover(&parent_a.expr, &parent_b.expr, &mut rng)
+                        crossover(&parent_a.expr, &parent_b.expr, &mut rng, &mut cumulative_counts_map)
                     } else {
                         parent_a.expr.clone()
                     };
                     
                     if rng.gen_bool(config.mutation_rate) {
-                        child_expr = mutate(&child_expr, &mut rng, num_vars, config.max_depth);
+                        child_expr = mutate(&child_expr, &mut rng, num_vars, config.max_depth, &mut cumulative_counts_map);
                     }
                     
                     if rng.gen_bool(config.hoist_mutation_rate) {
                         child_expr = hoist_mutation(&child_expr, &mut rng);
                     }
                     
+                    // Duplicate checking: try a few times to mutate away from exact duplicates
+                    let mut dup_attempts = 0usize;
+                    while duplicate_tracker.lock().unwrap().is_duplicate(&child_expr) && dup_attempts < 3 {
+                        child_expr = mutate(&child_expr, &mut rng, num_vars, config.max_depth, &mut cumulative_counts_map);
+                        dup_attempts += 1;
+                    }
+
+                    if duplicate_tracker.lock().unwrap().is_duplicate(&child_expr) {
+                        // Skip this child and continue generating
+                        continue;
+                    }
+
+                    // Register and push
+                    duplicate_tracker.lock().unwrap().register(&child_expr);
                     next_population.push(Individual {
                         expr: child_expr,
                         fitness: f64::MAX,
@@ -1244,6 +1370,26 @@ fn evaluate_error_only(expr: &Expr, data: &[(Vec<f64>, f64)]) -> f64 {
     crate::statistics::rmse(sum_sq, data.len())
 }
 
+/// Evaluate expression and apply a duplicate penalty when the shared tracker
+/// considers this expression a duplicate. Penalty is relative (e.g. 0.2 => +20%).
+fn evaluate_error_only_with_penalty(
+    expr: &Expr,
+    data: &[(Vec<f64>, f64)],
+    duplicate_tracker: &std::sync::Arc<std::sync::Mutex<crate::duplicate_detection::DuplicateTracker>>,
+    penalty: f64,
+) -> f64 {
+    let base = evaluate_error_only(expr, data);
+    if penalty <= 0.0 {
+        return base;
+    }
+    if let Ok(tracker) = duplicate_tracker.lock() {
+        if tracker.is_duplicate(expr) {
+            return base * (1.0 + penalty);
+        }
+    }
+    base
+}
+
 /// Update top 5 candidates list in state
 fn update_top_candidates(
     state: &mut SolverState,
@@ -1281,8 +1427,8 @@ fn tournament_select<'a, R: Rng + ?Sized>(
     &population[best_index]
 }
 
-fn synthetic_job() -> RemoteJob {
-    let dataset = synthetic_dataset();
+fn synthetic_job_with_config(cfg: &crate::config::MinerConfig) -> RemoteJob {
+    let dataset = crate::dataset::synthetic_dataset_for(&cfg.synthetic_data.dataset_type, &cfg.synthetic_data);
     let samples = dataset.len();
     RemoteJob {
         job_id: Uuid::nil(),
@@ -1293,6 +1439,12 @@ fn synthetic_job() -> RemoteJob {
         correlation_threshold: 0.1,
         sample_count: samples,
     }
+}
+
+fn synthetic_job() -> RemoteJob {
+    // Backwards-compatible fallback using default config
+    let cfg = crate::config::MinerConfig::default();
+    synthetic_job_with_config(&cfg)
 }
 
 #[derive(Clone)]

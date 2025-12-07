@@ -282,7 +282,9 @@ fn flatten_value(prefix: Option<&str>, value: &Value, out: &mut BTreeMap<String,
 }
 
 /// Convenience helper used by tests and the synthetic fallback dataset.
-pub fn synthetic_dataset() -> Dataset {
+/// Generate a synthetic dataset for the requested dataset `kind`.
+/// Supported kinds: "A" (simple linear), "B" (moderate nonlinear/step), "C" (more complex interactions + noise)
+pub fn synthetic_dataset_for(kind: &str, cfg: &crate::config::SyntheticDataConfig) -> Dataset {
     use rand::Rng;
 
     let mut rng = rand::thread_rng();
@@ -294,19 +296,52 @@ pub fn synthetic_dataset() -> Dataset {
         "Timestamp".into(),
     ]);
 
-    // Increased sample count from 128 to 500 to reduce overfitting to noise
-    for i in 0..500 {
-        let atk = rng.gen_range(50.0..250.0);
-        let def = rng.gen_range(5.0..120.0);
-        let luck = rng.gen_range(0.0..100.0);
-        let map_id = rng.gen_range(0..10) as f64;
+    let samples = cfg.sample_count;
+    for i in 0..samples {
+        let atk = rng.gen_range(cfg.atk_min..cfg.atk_max);
+        let def = rng.gen_range(cfg.def_min..cfg.def_max);
+        let luck = rng.gen_range(cfg.luck_min..cfg.luck_max);
+        let map_id_i = rng.gen_range(0..cfg.map_id_max);
+        let map_id = map_id_i as f64;
         let timestamp = i as f64;
-        let diff = atk - def;
-        let base = if diff > 1.0_f64 { diff } else { 1.0_f64 };
-        let crit = if luck > 80.0 { base * 1.5 } else { base };
-        let dmg = if crit > 1.0_f64 { crit } else { 1.0_f64 };
-        dataset.add_sample(vec![atk, def, luck, map_id, timestamp], dmg);
+
+        let target = match kind {
+            "A" | "a" => {
+                // Type A: very simple linear relation with small noise
+                let base = (atk - def).max(cfg.min_damage);
+                let noise = rng.gen_range(-0.5..0.5);
+                (base + noise).max(cfg.min_damage)
+            }
+            "B" | "b" => {
+                // Type B: moderate nonlinearity with step-based crit and a small map effect
+                let diff = (atk - def).max(0.0);
+                let crit = if luck > cfg.crit_luck_threshold { diff * cfg.crit_multiplier } else { diff };
+                let map_effect = 1.0 + (map_id_i % 3) as f64 * 0.05; // small multiplier per map
+                let noise = rng.gen_range(-1.0..1.0);
+                ((crit.max(cfg.min_damage)) * map_effect + noise).max(cfg.min_damage)
+            }
+            _ => {
+                // Type C: more complex interactions, multiplicative terms, timestamp trend and heteroscedastic noise
+                let diff = (atk - def).max(0.0);
+                // non-linear interaction between atk and luck
+                let luck_factor = 1.0 + (luck / 100.0).powf(1.5);
+                let time_trend = 1.0 + (timestamp / (samples as f64)).powf(0.5) * 0.2;
+                let map_bias = ((map_id_i % 5) as f64 - 2.0) * 0.1; // positive/negative offsets
+                let base = (diff * luck_factor * time_trend).max(cfg.min_damage) + map_bias;
+                // Heteroscedastic noise proportional to base magnitude
+                let noise = rng.gen_range(-0.05..0.05) * base.abs();
+                (base + noise).max(cfg.min_damage)
+            }
+        };
+
+        dataset.add_sample(vec![atk, def, luck, map_id, timestamp], target);
     }
 
     dataset
+}
+
+// Backwards-compatible simple synthetic_dataset that uses default config A
+pub fn synthetic_dataset() -> Dataset {
+    let cfg = crate::config::MinerConfig::default().synthetic_data;
+    synthetic_dataset_for(&cfg.dataset_type, &cfg)
 }

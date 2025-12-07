@@ -23,7 +23,8 @@ pub fn semantic_crossover<R: Rng + ?Sized>(
     
     // Generate a random expression TR that produces values in [0, 1]
     // We use sigmoid-like transformation: 1 / (1 + exp(-x))
-    let random_tree = crate::solver::random_expr(rng, max_depth.min(2), num_vars);
+    let mut _tmp_counts = std::collections::HashMap::new();
+    let random_tree = crate::solver::random_expr(rng, max_depth.min(2), num_vars, &mut _tmp_counts);
     let tr = Expr::Binary {
         op: BinaryOp::Div,
         left: Box::new(Expr::Const(1.0)),
@@ -78,8 +79,10 @@ pub fn semantic_mutation<R: Rng + ?Sized>(
     use crate::solver::BinaryOp;
     
     // Generate two random trees
-    let random_tree1 = crate::solver::random_expr(rng, max_depth.min(2), num_vars);
-    let random_tree2 = crate::solver::random_expr(rng, max_depth.min(2), num_vars);
+    let mut _tmp_counts1 = std::collections::HashMap::new();
+    let mut _tmp_counts2 = std::collections::HashMap::new();
+    let random_tree1 = crate::solver::random_expr(rng, max_depth.min(2), num_vars, &mut _tmp_counts1);
+    let random_tree2 = crate::solver::random_expr(rng, max_depth.min(2), num_vars, &mut _tmp_counts2);
     
     // Compute: expr + mutation_step * (random_tree1 - random_tree2)
     let diff = Expr::Binary {
@@ -169,7 +172,8 @@ pub fn approximate_point_crossover<R: Rng + ?Sized>(
     }
     
     // Fallback to standard crossover if no good match found
-    crate::solver::crossover(parent1, parent2, rng)
+    let mut _tmp_counts = std::collections::HashMap::new();
+    crate::solver::crossover(parent1, parent2, rng, &mut _tmp_counts)
 }
 
 /// Collect all subtrees from an expression

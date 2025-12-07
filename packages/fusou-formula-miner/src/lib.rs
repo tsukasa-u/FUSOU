@@ -10,4 +10,6 @@ pub mod worker_mgmt;
 pub mod nsga2;
 pub mod bloat_control;
 pub mod constant_opt;
+pub mod const_opt_adaptive;
 pub mod semantic_ops;
+pub mod duplicate_detection;

@@ -21,9 +21,10 @@ pub fn render_ui(f: &mut Frame, state: &SolverState) {
     render_status(f, state, chunks[1]);
     
     // Split chunks[2] horizontally: Best Solution on left, Config on right
+    // Make Config narrower so we can allocate more room to operator stats.
     let solution_chunks = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(70), Constraint::Percentage(30)])
+        .constraints([Constraint::Percentage(80), Constraint::Percentage(20)])
         .split(chunks[2]);
     
     render_best_solution(f, state, solution_chunks[0]);
@@ -162,13 +163,35 @@ fn render_status(f: &mut Frame, state: &SolverState, area: Rect) {
 
     // Put data source into the block title so it's visible even when body is small
     let title_label = format!("Job status - Data source: {}", data_source);
-    let summary_block = Paragraph::new(summary)
+    // Append duplicate tracker stats if available
+    let dup_info = match state.duplicate_tracker.lock() {
+        Ok(tracker) => format!("\nDuplicate history: {} unique formulas tracked", tracker.tracked_count()),
+        Err(_) => String::new(),
+    };
+
+    // Append selected synthetic dataset type (if config available)
+    let dataset_info = match state.miner_config.lock() {
+        Ok(mc) => format!("\nSynthetic dataset type: {}", mc.synthetic_data.dataset_type),
+        Err(_) => String::new(),
+    };
+
+    let summary_with_dup = format!("{}{}{}", summary, dup_info, dataset_info);
+
+    let summary_block = Paragraph::new(summary_with_dup)
         .block(Block::default().borders(Borders::ALL).title(title_label))
         .wrap(Wrap { trim: true });
     f.render_widget(summary_block, chunks[1]);
 }
 
 fn render_best_solution(f: &mut Frame, state: &SolverState, area: Rect) {
+    // Split area: main best-solution text (left) and operator stats (right)
+    // Split the Best Solution area: left = main solution, right = operator stats
+    // Give operator stats more space (35% of the BestSolution area)
+    let cols = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(65), Constraint::Percentage(35)])
+        .split(area);
+
     // Build info text with best solution prominently displayed
     let mut info_text = format!(
         "Generation: {} / {}\nBest RMSE: {:.6} (target {:.6})\n\n─ BEST SOLUTION ─\n{}",
@@ -178,7 +201,7 @@ fn render_best_solution(f: &mut Frame, state: &SolverState, area: Rect) {
         state.target_error,
         state.best_formula
     );
-    
+
     // Add top 5 candidates below best solution
     if !state.top_candidates.is_empty() {
         info_text.push_str("\n\n─ Top Candidates ─");
@@ -195,7 +218,7 @@ fn render_best_solution(f: &mut Frame, state: &SolverState, area: Rect) {
             ));
         }
     }
-    
+
     let info_lines: Vec<&str> = info_text.lines().collect();
     let visible_info_lines: Vec<&str> = info_lines
         .iter()
@@ -229,7 +252,127 @@ fn render_best_solution(f: &mut Frame, state: &SolverState, area: Rect) {
                 .border_style(best_border_style),
         )
         .wrap(Wrap { trim: true });
-    f.render_widget(info, area);
+    f.render_widget(info, cols[0]);
+
+    // Compute operator probabilities from cumulative counts in state
+    let stats = compute_operator_prob_stats(state);
+    // Determine available width for the operator column and compute a compact bar width.
+    let col_width = cols[1].width as usize;
+    // Reserve space for label, separators and percent/count fields.
+    let label_w = 6usize; // e.g. 'identity' will be truncated
+    let percent_w = 6usize; // e.g. '100.0%'
+    let separators = 6usize; // spaces and pipes
+    let mut bar_width = if col_width > (label_w + percent_w + separators) {
+        col_width - (label_w + percent_w + separators)
+    } else {
+        8usize
+    };
+    if bar_width > 40 { bar_width = 40 }
+    // Compute total cumulative operator selections and show it in the block title
+    let total: usize = stats.iter().map(|(_, _, c)| *c).sum();
+
+    let items: Vec<ListItem> = stats
+        .into_iter()
+        .map(|(label, prob, _count)| {
+            // Truncate label if too long
+            let mut label_display = label.clone();
+            if label_display.len() > label_w {
+                label_display.truncate(label_w);
+            }
+            // Build bar proportional to probability
+            let filled = ((prob / 100.0) * (bar_width as f64)).round() as usize;
+            let filled = filled.min(bar_width);
+            let empty = bar_width - filled;
+            let bar = format!("{}{}", "█".repeat(filled), "░".repeat(empty));
+            // Compact one-line format (no per-operator count): label |bar| XX.X%
+            let line = format!("{:<label_w$} |{}| {:>5.1}%", label_display, bar, prob, label_w=label_w);
+            ListItem::new(line)
+        })
+        .collect();
+
+    let mut list_state = ratatui::widgets::ListState::default();
+    if state.operator_selected_index < items.len() {
+        list_state.select(Some(state.operator_selected_index));
+    } else if !items.is_empty() {
+        list_state.select(Some(0));
+    }
+
+    let ops_list = List::new(items).block(Block::default().borders(Borders::ALL).title(format!("Operator Stats (total: {})", total)))
+        .highlight_style(Style::default().fg(Color::Yellow))
+        .highlight_symbol("> ");
+    f.render_stateful_widget(ops_list, cols[1], &mut list_state);
+}
+
+// Scan best solution and top candidates (formula strings) and compute operator occurrence
+// probabilities. This is a lightweight, string-based heuristic (avoids requiring Expr objects
+// to be passed through state). Returns formatted lines ready for display.
+fn compute_operator_prob_stats(state: &SolverState) -> Vec<(String, f64, usize)> {
+    // If the solver provided AST-based operator counts, prefer them (most accurate)
+    let ordered_labels = vec!["+","-","*","/","min","max","step","log","sqrt","exp","floor","identity","pow"];
+    if !state.operator_counts.is_empty() {
+        let map: std::collections::HashMap<String, usize> = state
+            .operator_counts
+            .iter()
+            .cloned()
+            .collect();
+        let total: usize = map.values().sum();
+        let mut stats = Vec::new();
+        for label in ordered_labels {
+            let cnt = *map.get(label).unwrap_or(&0);
+            let prob = if total == 0 { 0.0 } else { (cnt as f64) / (total as f64) * 100.0 };
+            stats.push((label.to_string(), prob, cnt));
+        }
+        return stats;
+    }
+
+    // Fallback: lightweight string-scan heuristic (used when operator_counts not available)
+    let ops = vec![
+        ("+", " + "),
+        ("-", " - "),
+        ("*", " * "),
+        ("/", " / "),
+        ("min", "min("),
+        ("max", "max("),
+        ("step", "step("),
+        ("log", "log("),
+        ("sqrt", "sqrt("),
+        ("exp", "exp("),
+        ("floor", "floor("),
+    ];
+
+    let mut counts: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+    let mut total = 0usize;
+
+    // Helper to scan a formula string
+    let scan = |s: &str, counts: &mut std::collections::HashMap<&str, usize>, total: &mut usize| {
+        for (label, pat) in &ops {
+            if pat.is_empty() {
+                continue;
+            }
+            let mut start = 0usize;
+            while let Some(pos) = s[start..].find(pat) {
+                *counts.entry(label).or_insert(0) += 1;
+                *total += 1;
+                start += pos + pat.len();
+            }
+        }
+    };
+
+    if !state.best_formula.is_empty() {
+        scan(&state.best_formula, &mut counts, &mut total);
+    }
+    for cand in &state.top_candidates {
+        scan(&cand.formula, &mut counts, &mut total);
+    }
+
+    // Always return all ops; if total==0 then probabilities are zero
+    let mut stats = Vec::new();
+    for (label, _pat) in ops {
+        let cnt = *counts.get(label).unwrap_or(&0);
+        let prob = if total == 0 { 0.0 } else { (cnt as f64) / (total as f64) * 100.0 };
+        stats.push((label.to_string(), prob, cnt));
+    }
+    stats
 }
 
 fn render_logs(f: &mut Frame, state: &SolverState, area: Rect) {
