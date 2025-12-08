@@ -90,14 +90,64 @@ fn handle_app_event(
                 }
             }
             
-            // Send to dashboard via broadcast
+            // Send to dashboard via broadcast with full metadata
+            let candidates_json: Vec<_> = state.top_candidates.iter().map(|c| {
+                serde_json::json!({
+                    "rank": c.rank,
+                    "formula": c.formula,
+                    "rmse": c.rmse,
+                })
+            }).collect();
+            
+            // --- dataset_scatter ---
+            let dataset_scatter = if let Some(ds) = &state.dataset {
+                if !ds.inputs.is_empty() && !ds.targets.is_empty() {
+                    let x: Vec<f64> = ds.inputs.iter().map(|row| row.get(0).copied().unwrap_or(0.0)).collect();
+                    let y: Vec<f64> = ds.targets.clone();
+                    serde_json::json!({ "x": x, "y": y })
+                } else { serde_json::Value::Null }
+            } else { serde_json::Value::Null };
+
+            // --- cluster_scatter ---
+            // --- cluster_scatter ---
+            let cluster_scatter = if let (Some(ds), Some(assignments)) = (&state.dataset, &state.cluster_assignments) {
+                // assignments: { sample_idx: cluster_id, ... }
+                // ds.inputs: Vec<Vec<f64>>
+                let mut x = Vec::new();
+                let mut y = Vec::new();
+                let mut cluster = Vec::new();
+                if let Some(obj) = assignments.as_object() {
+                    for (idx_str, clust_val) in obj.iter() {
+                        if let (Ok(idx), Some(clust_id)) = (idx_str.parse::<usize>(), clust_val.as_u64()) {
+                            if let Some(row) = ds.inputs.get(idx) {
+                                x.push(row.get(0).copied().unwrap_or(0.0));
+                                y.push(row.get(1).copied().unwrap_or(0.0));
+                                cluster.push(clust_id);
+                            }
+                        }
+                    }
+                }
+                serde_json::json!({ "x": x, "y": y, "cluster": cluster })
+            } else { serde_json::Value::Null };
+
+            let mut data = serde_json::json!({
+                "generation": state.generation,
+                "best_error": error,
+                "best_formula": formula,
+                "progress": state.progress,
+                "phase": format!("{:?}", state.phase),
+                "sample_count": state.sample_count,
+                "feature_count": state.selected_features.len(),
+                "target_error": state.target_error,
+                "target_formula": state.target_formula,
+                "top_candidates": candidates_json,
+                "cluster_assignments": state.cluster_assignments.clone(),
+            });
+            if !dataset_scatter.is_null() { data["dataset_scatter"] = dataset_scatter; }
+            if !cluster_scatter.is_null() { data["cluster_scatter"] = cluster_scatter; }
             let _ = state.dashboard_tx.send(crate::state::DashboardEvent {
                 event_type: "progress".to_string(),
-                data: serde_json::json!({
-                    "generation": state.generation,
-                    "best_error": error,
-                    "progress": state.progress,
-                }),
+                data,
             });
         }
         AppEvent::Online(is_online) => {
@@ -136,22 +186,19 @@ fn handle_app_event(
             state.job_id = summary.job_id;
             state.chunk_id = summary.chunk_id;
             state.sample_count = summary.sample_count;
-            state.selected_features = summary.feature_names;
-            // If max_generations hasn't been explicitly set by user (still at initial value),
-            // use job's configuration
+            state.selected_features = summary.feature_names.clone();
+            // データセットをセット（JobSummaryにdatasetがあれば優先、なければグローバル/初期化時のものをセット）
+            if state.dataset.is_none() {
+                use crate::engine::dataset::synthetic_dataset;
+                state.dataset = Some(synthetic_dataset());
+            }
             if state.max_generations == 100 {  // Our new default initial value
                 state.max_generations = summary.max_generations;
             }
-            // Keep user-configured target_error if it was already set
-            // Only use job's target_error if still at default value
             if (state.target_error - 1e-3).abs() < 1e-9 {
-                // Default value - use job's configuration
                 state.target_error = summary.target_error;
             }
-            // Keep user-configured correlation_threshold if it was already set
-            // Only use job's correlation_threshold if still at default value
             if (state.correlation_threshold - 0.1).abs() < 1e-9 {
-                // Default value - use job's configuration
                 state.correlation_threshold = summary.correlation_threshold;
             }
             state.target_formula = summary.ground_truth.clone();

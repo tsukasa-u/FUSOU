@@ -33,6 +33,8 @@ pub struct CandidateFormula {
 }
 
 pub struct SolverState {
+        // 現在のデータセット（可視化用）
+        pub dataset: Option<crate::engine::dataset::Dataset>,
     pub worker_id: Uuid,
     pub job_id: Option<Uuid>,
     pub chunk_id: Option<Uuid>,
@@ -170,6 +172,7 @@ impl SolverState {
             total_work: 0,
             top_candidates_limit: 20,
             dashboard_tx: broadcast::channel(256).0,
+            dataset: None,
         }
     }
 }
