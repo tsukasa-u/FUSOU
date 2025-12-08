@@ -1,14 +1,21 @@
-<!DOCTYPE html>
-<html lang="en">
+use crate::state::DashboardEvent;
+use tokio::net::{TcpListener, TcpStream};
+use tokio::sync::broadcast;
+use tokio_tungstenite::accept_async;
+use futures::{SinkExt, StreamExt};
+use serde_json::json;
+
+const DASHBOARD_HTML: &str = include_str!("../static/dashboard.html");
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>FUSOU Formula Mining Dashboard</title>
+  <!-- Plotly.js for advanced graph visualizations -->
   <script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { 
-      font-family: system-ui, -apple-system, sans-serif; 
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', monospace; 
       background: #0f172a; 
       color: #e5e7eb;
       overflow: hidden;
@@ -23,12 +30,14 @@
       align-items: center;
     }
     
+    .title { font-size: 18px; font-weight: bold; }
     .status-badge {
       display: inline-block;
-      width: 10px;
-      height: 10px;
-      background: #ef4444;
+      width: 12px;
+      height: 12px;
       border-radius: 50%;
+      background: #dc2626;
+      margin-right: 8px;
       animation: pulse 2s infinite;
     }
     .status-badge.connected { background: #10b981; }
@@ -41,47 +50,108 @@
     
     .section { 
       border-bottom: 1px solid #1e40af; 
-      padding: 12px;
+      padding: 12px 16px;
+      flex-shrink: 0;
     }
     
     .section-title { 
       font-size: 12px; 
-      font-weight: 600; 
-      color: #38bdf8; 
-      margin-bottom: 8px;
+      font-weight: bold; 
+      color: #60a5fa; 
       text-transform: uppercase;
+      margin-bottom: 8px;
     }
     
-    .stat { background: #1e293b; padding: 8px; border-radius: 4px; }
     .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .stat { background: #1e293b; padding: 8px; border-radius: 4px; }
+    .stat-label { font-size: 10px; color: #9ca3af; }
+    .stat-value { font-size: 16px; font-weight: bold; color: #38bdf8; margin-top: 4px; }
     
     .formula-box {
-      background: #111827;
+      background: #0f172a;
       border: 1px solid #1e40af;
       border-radius: 4px;
-      padding: 10px;
-      font-family: monospace;
+      padding: 8px;
+      font-family: 'Courier New', monospace;
+      font-size: 12px;
       word-break: break-all;
-      min-height: 40px;
+      max-height: 60px;
+      overflow-y: auto;
     }
     
-    .candidate-item {
-      background: #1e293b;
+    .candidates-list {
+      max-height: 200px;
+      min-height: 80px;
+      overflow-y: auto;
+      font-size: 11px;
       border: 1px solid #334155;
       border-radius: 4px;
+      background: #111827;
+      padding-right: 4px;
+    }
+        .input-section {
+          margin: 12px 0;
+        }
+        .input-label {
+          font-size: 12px;
+          color: #60a5fa;
+          margin-bottom: 4px;
+          display: block;
+        }
+        .input-area {
+          width: 100%;
+          min-height: 48px;
+          max-height: 120px;
+          resize: vertical;
+          font-size: 13px;
+          font-family: monospace;
+          border: 1px solid #334155;
+          border-radius: 4px;
+          padding: 6px;
+          background: #1e293b;
+          color: #e5e7eb;
+          margin-bottom: 4px;
+          overflow-y: auto;
+          box-sizing: border-box;
+        }
+    
+    .candidate-item {
+      padding: 6px 8px;
+      border-left: 3px solid #38bdf8;
+      background: #1e293b;
+      margin-bottom: 4px;
+      border-radius: 2px;
+    }
+    
+    .candidate-rank { color: #60a5fa; font-weight: bold; }
+    .candidate-formula { font-family: monospace; font-size: 10px; color: #d1d5db; margin: 2px 0; }
+    .candidate-rmse { color: #10b981; font-weight: bold; }
+    
+    .clustering-info {
+      background: #1e293b;
       padding: 8px;
-      margin-bottom: 6px;
+      border-radius: 4px;
+      font-size: 11px;
+      max-height: 100px;
+      overflow-y: auto;
+    }
+    
+    .cluster-item {
+      padding: 4px;
+      border-bottom: 1px solid #334155;
+      display: flex;
+      justify-content: space-between;
     }
     
     .logs-panel {
       flex: 1;
       overflow-y: auto;
-      background: #0b1222;
+      background: #0f172a;
       border: 1px solid #1e40af;
       border-radius: 4px;
       padding: 8px;
-      font-family: monospace;
       font-size: 11px;
+      font-family: 'Courier New', monospace;
     }
     
     .log-entry {
@@ -89,6 +159,7 @@
       padding: 2px 4px;
       border-radius: 2px;
     }
+    
     .log-entry.info { color: #60a5fa; }
     .log-entry.success { color: #10b981; }
     .log-entry.error { color: #ef4444; }
@@ -99,51 +170,53 @@
 </head>
 <body>
   <div class="header">
-    <h1 style="font-size:18px;">FUSOU Formula Mining Dashboard</h1>
     <div>
       <span class="status-badge" id="status-badge"></span>
-      <span id="status-text" style="font-size:13px;">Connecting...</span>
+      <span class="title">⚗️ FUSOU Formula Miner Dashboard</span>
     </div>
+    <div id="status-text" style="color: #60a5fa;">Connecting...</div>
   </div>
-
+  
   <div class="container">
     <div class="main-panel">
-      <!-- RMSE Progress -->
+      <!-- RMSE推移グラフ -->
       <div class="section">
         <div class="section-title">RMSE Progress</div>
         <div id="rmse-plot" style="height:160px;width:100%;background:#111827;border-radius:4px;"></div>
       </div>
+      <!-- Solver Metrics -->
+      <div class="input-section">
+        <label class="input-label" for="dashboard-input">Input</label>
+        <textarea id="dashboard-input" class="input-area" rows="3" placeholder="Enter your input here..."></textarea>
+      </div>
+      <div class="section">
+        <div class="section-title">Solver Metrics</div>
+        <div class="grid-2">
+          <div class="stat">
+            <div class="stat-label">Phase</div>
+            <div class="stat-value" id="phase">-</div>
+          </div>
+          <div class="stat">
+            <div class="stat-label">Generation</div>
+            <div class="stat-value" id="generation">0</div>
+          </div>
+          <div class="stat">
+            <div class="stat-label">Best RMSE</div>
+            <div class="stat-value" id="rmse">∞</div>
+          </div>
+          <div class="stat">
+            <div class="stat-label">Progress</div>
+            <div class="stat-value" id="progress">0%</div>
+          </div>
+        </div>
+      </div>
       
-      <!-- Dataset Visualization (All Dimensions) -->
+      <!-- Dataset Scatter (Multi-dimensional) -->
       <div class="section">
         <div class="section-title">Dataset Visualization (All Dimensions)</div>
         <div id="dataset-plot" style="height:280px;width:100%;background:#111827;border-radius:4px;"></div>
         <div id="dataset-info" style="font-size:10px;color:#9ca3af;margin-top:4px;">Loading...</div>
       </div>
-
-      <!-- Solver Metrics -->
-      <div class="section">
-        <div class="section-title">Solver Metrics</div>
-        <div class="grid-2" style="gap:6px;font-size:11px;">
-          <div class="stat">
-            <div style="color:#9ca3af;">Phase</div>
-            <div style="color:#38bdf8;font-weight:bold;" id="phase">Idle</div>
-          </div>
-          <div class="stat">
-            <div style="color:#9ca3af;">Generation</div>
-            <div style="color:#38bdf8;font-weight:bold;" id="generation">0</div>
-          </div>
-          <div class="stat">
-            <div style="color:#9ca3af;">RMSE</div>
-            <div style="color:#10b981;font-weight:bold;" id="rmse">∞</div>
-          </div>
-          <div class="stat">
-            <div style="color:#9ca3af;">Progress</div>
-            <div style="color:#f59e0b;font-weight:bold;" id="progress">0%</div>
-          </div>
-        </div>
-      </div>
-      
       <!-- Dataset Info -->
       <div class="section">
         <div class="section-title">Dataset</div>
@@ -181,7 +254,7 @@
     
     <!-- Right Panel -->
     <div class="sub-panel">
-      <!-- Clustering -->
+      <!-- クラスタ分布グラフ -->
       <div class="section" id="clustering-section">
         <div class="section-title">Clustering</div>
         <div id="clustering-plot" style="height:160px;width:100%;background:#111827;border-radius:4px;"></div>
@@ -235,48 +308,47 @@
     const targetFormulaEl = document.getElementById('target-formula');
     const bestFormulaEl = document.getElementById('best-formula');
     const candidatesEl = document.getElementById('candidates');
+    const eventLogEl = document.getElementById('event-log');
+    const clusteringSection = document.getElementById('clustering-section');
+    const clusteringInfoEl = document.getElementById('clustering-info');
     const bestErrorFinalEl = document.getElementById('best-error-final');
     const totalGenerationsEl = document.getElementById('total-generations');
     const targetErrorEl = document.getElementById('target-error');
     const sampleCountEl = document.getElementById('sample-count');
-    const eventLogEl = document.getElementById('event-log');
-    const clusteringSection = document.getElementById('clustering-section');
-    const clusteringInfoEl = document.getElementById('clustering-info');
 
     function addLog(msg, type = 'info') {
       const entry = document.createElement('div');
       entry.className = 'log-entry ' + type;
-      entry.textContent = msg;
+      entry.textContent = '[' + new Date().toLocaleTimeString() + '] ' + msg;
       eventLogEl.appendChild(entry);
       while (eventLogEl.children.length > 200) eventLogEl.removeChild(eventLogEl.firstChild);
       eventLogEl.scrollTop = eventLogEl.scrollHeight;
     }
 
-    let ws = null;
     function connect() {
-      ws = new WebSocket(wsUrl);
+      const ws = new WebSocket(wsUrl);
       
       ws.onopen = () => {
         statusBadge.classList.add('connected');
         statusText.textContent = '✓ Connected';
         addLog('WebSocket connected', 'success');
       };
-
-      ws.onmessage = (event) => {
+      
+      ws.onmessage = (e) => {
         try {
-          const msg = JSON.parse(event.data);
+          const msg = JSON.parse(e.data);
           handleMessage(msg);
         } catch (err) {
           addLog('Parse error: ' + err.message, 'error');
         }
       };
-
-      ws.onerror = (err) => {
+      
+      ws.onerror = () => {
         statusBadge.classList.remove('connected');
         statusText.textContent = '✗ Error';
         addLog('WebSocket error', 'error');
       };
-
+      
       ws.onclose = () => {
         statusBadge.classList.remove('connected');
         statusText.textContent = '✗ Reconnecting...';
@@ -385,17 +457,15 @@
       }
     }
 
+    // --- Plotly.jsグラフ描画関数 ---
     function drawRmsePlot() {
-      if (rmseHistory.length === 0) return;
-      const x = rmseHistory.map(p => p.x);
-      const y = rmseHistory.map(p => p.y);
       const trace = {
-        x: x,
-        y: y,
+        x: rmseHistory.map(p => p.x),
+        y: rmseHistory.map(p => p.y),
         mode: 'lines+markers',
         type: 'scatter',
-        marker: { color: '#10b981', size: 4 },
-        line: { color: '#10b981', width: 2 },
+        line: { color: '#38bdf8' },
+        marker: { size: 5 },
         name: 'RMSE'
       };
       Plotly.newPlot('rmse-plot', [trace], {
@@ -521,4 +591,134 @@
     connect();
   </script>
 </body>
-</html>
+</html>"#;
+
+/// Start HTTP and WebSocket servers on the same port
+pub async fn run_ws_server(
+    host: &str,
+    port: u16,
+    dashboard_tx: broadcast::Sender<DashboardEvent>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // Spawn HTTP server on port+1 (e.g., 8766 if WebSocket is 8765)
+    let http_port = port + 1;
+    let http_host = host.to_string();
+    tokio::spawn(async move {
+        if let Err(e) = run_http_server(&http_host, http_port).await {
+            eprintln!("HTTP server error: {}", e);
+        }
+    });
+    
+    // Run WebSocket server on the specified port
+    let addr = format!("{}:{}", host, port);
+    let listener = TcpListener::bind(&addr).await?;
+    
+    println!("🌐 Dashboard: http://localhost:{}", http_port);
+    eprintln!("📡 WebSocket server listening on ws://{}", addr);
+    
+    loop {
+        let (stream, peer_addr) = listener.accept().await?;
+        let tx_clone = dashboard_tx.clone();
+        
+        tokio::spawn(async move {
+            if let Err(e) = handle_client(stream, peer_addr, tx_clone).await {
+                eprintln!("WebSocket client error: {}", e);
+            }
+        });
+    }
+}
+
+async fn run_http_server(
+    host: &str,
+    port: u16,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let addr = format!("{}:{}", host, port);
+    let listener = TcpListener::bind(&addr).await?;
+    
+    eprintln!("📡 HTTP server listening on http://{}", addr);
+    
+    loop {
+        let (mut stream, _) = listener.accept().await?;
+        
+        tokio::spawn(async move {
+            use tokio::io::AsyncWriteExt;
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nAccess-Control-Allow-Origin: *\r\n\r\n{}",
+                DASHBOARD_HTML.len(),
+                DASHBOARD_HTML
+            );
+            let _ = stream.write_all(response.as_bytes()).await;
+        });
+    }
+}
+
+async fn handle_client(
+    stream: TcpStream,
+    _peer_addr: std::net::SocketAddr,
+    dashboard_tx: broadcast::Sender<DashboardEvent>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let ws_stream = accept_async(stream).await?;
+    // eprintln!("✓ Dashboard connected from {}", peer_addr); // TUIレイアウト崩れ防止のため出力抑制
+    let (mut sender, mut receiver) = ws_stream.split();
+    let mut rx = dashboard_tx.subscribe();
+    
+    // Send initial handshake
+    let init_msg = json!({
+        "type": "init",
+        "data": {
+            "phase": "idle",
+            "generation": 0,
+            "best_error": f64::INFINITY,
+            "best_formula": "Searching...",
+            "progress": 0.0,
+            "sample_count": 0,
+            "feature_count": 0,
+            "target_error": 0.001,
+            "top_candidates": [],
+            "cluster_assignments": null,
+        }
+    });
+    let _ = sender.send(tokio_tungstenite::tungstenite::Message::Text(init_msg.to_string())).await;
+    
+    // Forward events from broadcast channel to WebSocket
+    loop {
+        tokio::select! {
+            msg_result = receiver.next() => {
+                match msg_result {
+                    Some(Ok(msg)) => {
+                        // Handle incoming messages (if any)
+                        match msg {
+                            tokio_tungstenite::tungstenite::Message::Close(_) => {
+                                // eprintln!("Dashboard disconnected: {}", peer_addr); // TUIレイアウト崩れ防止のため出力抑制
+                                break;
+                            }
+                            _ => {}
+                        }
+                    }
+                    Some(Err(e)) => {
+                        eprintln!("WebSocket error: {}", e);
+                        break;
+                    }
+                    None => {
+                        break;
+                    }
+                }
+            }
+            event_result = rx.recv() => {
+                match event_result {
+                    Ok(event) => {
+                        let msg = json!(event);
+                        if sender.send(tokio_tungstenite::tungstenite::Message::Text(msg.to_string())).await.is_err() {
+                            break;
+                        }
+                    }
+                    Err(_) => {
+                        // Broadcast channel closed
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    
+    Ok(())
+}

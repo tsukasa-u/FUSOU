@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FUSOU Formula Mining Dashboard</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --panel: #111827;
+      --text: #e5e7eb;
+      --muted: #9ca3af;
+      --accent: #38bdf8;
+      --border: #1f2937;
+      --success: #10b981;
+      --warning: #f59e0b;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+      background: radial-gradient(circle at 20% 20%, #0b1222, #0f172a 50%);
+      color: var(--text);
+    }
+    header {
+      padding: 16px 24px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: rgba(15, 23, 42, 0.9);
+      backdrop-filter: blur(8px);
+      position: sticky;
+      top: 0;
+      z-index: 2;
+    }
+    h1 { margin: 0; font-size: 20px; letter-spacing: 0.3px; }
+    .status-indicator {
+      display: inline-block;
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: #ef4444;
+      margin-right: 8px;
+      animation: pulse 2s infinite;
+    }
+    .status-indicator.connected {
+      background: var(--success);
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+    main { padding: 16px 24px 32px; display: grid; grid-template-columns: 2fr 1fr; gap: 16px; }
+    section { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 16px; box-shadow: 0 10px 30px rgba(0,0,0,0.35); }
+    .info-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 16px; }
+    .info-card { padding: 12px; background: #0b1222; border: 1px solid var(--border); border-radius: 8px; }
+    .info-label { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
+    .info-value { font-size: 18px; font-weight: 600; margin-top: 4px; }
+    form { display: grid; gap: 10px; }
+    input, textarea, button {
+      background: #0b1222;
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 12px;
+      font-size: 14px;
+      width: 100%;
+    }
+    textarea { font-family: "Courier New", monospace; }
+    button { cursor: pointer; background: linear-gradient(135deg, #06b6d4, #3b82f6); border: none; font-weight: 600; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .log-container { height: 200px; overflow-y: auto; background: #0b1222; border: 1px solid var(--border); border-radius: 8px; padding: 10px; font-family: "Courier New", monospace; font-size: 12px; }
+    .log-entry { margin: 4px 0; }
+    .log-entry.info { color: #38bdf8; }
+    .log-entry.warning { color: #f59e0b; }
+    .log-entry.error { color: #ef4444; }
+    .muted { color: var(--muted); font-size: 13px; }
+    @media (max-width: 960px) { main { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <header>
+    <h1><span class="status-indicator"></span>FUSOU Dashboard</h1>
+    <span class="muted" id="ws-status">Connecting...</span>
+  </header>
+  <main>
+    <section>
+      <h2 style="margin-top:0;font-size:16px;">Solver Status</h2>
+      <div class="info-grid">
+        <div class="info-card">
+          <div class="info-label">Phase</div>
+          <div class="info-value" id="phase">Idle</div>
+        </div>
+        <div class="info-card">
+          <div class="info-label">Generation</div>
+          <div class="info-value" id="generation">0</div>
+        </div>
+        <div class="info-card">
+          <div class="info-label">Best RMSE</div>
+          <div class="info-value" id="best-error">∞</div>
+        </div>
+        <div class="info-card">
+          <div class="info-label">Progress</div>
+          <div class="info-value" id="progress">0%</div>
+        </div>
+      </div>
+      <div style="margin-top:16px;">
+        <h3 style="font-size:14px;margin:0 0 8px;">Best Formula</h3>
+        <div style="background:#0b1222;border:1px solid var(--border);border-radius:8px;padding:10px;font-family:monospace;word-break:break-all;font-size:12px;" id="best-formula">Searching...</div>
+      </div>
+      <div style="margin-top:16px;">
+        <h3 style="font-size:14px;margin:0 0 8px;">Recent Events</h3>
+        <div class="log-container" id="event-log"></div>
+      </div>
+    </section>
+    <section>
+      <h2 style="margin-top:0;font-size:16px;">Configuration</h2>
+      <form id="config-form">
+        <label class="muted">Solver Info</label>
+        <textarea id="solver-info" rows="8" readonly style="background:#0b1222;resize:none;"></textarea>
+        <button type="button" id="connect-btn">Reconnect</button>
+      </form>
+    </section>
+  </main>
+
+  <script>
+    const statusIndicator = document.querySelector(".status-indicator");
+    const wsStatusEl = document.getElementById("ws-status");
+    const phaseEl = document.getElementById("phase");
+    const generationEl = document.getElementById("generation");
+    const bestErrorEl = document.getElementById("best-error");
+    const progressEl = document.getElementById("progress");
+    const bestFormulaEl = document.getElementById("best-formula");
+    const eventLogEl = document.getElementById("event-log");
+    const solverInfoEl = document.getElementById("solver-info");
+    const connectBtn = document.getElementById("connect-btn");
+
+    let ws = null;
+    let eventLog = [];
+    const maxLogs = 50;
+
+    function addLog(msg, type = "info") {
+      const entry = document.createElement("div");
+      entry.className = `log-entry ${type}`;
+      entry.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+      eventLogEl.appendChild(entry);
+      eventLog.push({ msg, type, time: new Date() });
+      
+      // Keep only last N entries
+      while (eventLog.length > maxLogs) {
+        eventLog.shift();
+        eventLogEl.removeChild(eventLogEl.firstChild);
+      }
+      eventLogEl.scrollTop = eventLogEl.scrollHeight;
+    }
+
+    function connectWebSocket() {
+      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+      const wsUrl = `${protocol}//${window.location.hostname}:8765`;
+      
+      addLog(`Connecting to ${wsUrl}...`);
+      
+      ws = new WebSocket(wsUrl);
+
+      ws.onopen = () => {
+        statusIndicator.classList.add("connected");
+        wsStatusEl.textContent = "Connected ✓";
+        addLog("WebSocket connected to TUI", "info");
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+          handleMessage(msg);
+        } catch (err) {
+          addLog(`Parse error: ${err.message}`, "error");
+        }
+      };
+
+      ws.onerror = (err) => {
+        addLog(`WebSocket error`, "error");
+        wsStatusEl.textContent = "Error ✗";
+        statusIndicator.classList.remove("connected");
+      };
+
+      ws.onclose = () => {
+        wsStatusEl.textContent = "Disconnected";
+        statusIndicator.classList.remove("connected");
+        addLog("WebSocket closed. Auto-reconnecting in 3s...", "warning");
+        setTimeout(connectWebSocket, 3000);
+      };
+    }
+
+    function handleMessage(msg) {
+      console.log("Dashboard received:", msg);
+
+      if (msg.type === "init") {
+        const data = msg.data;
+        phaseEl.textContent = data.phase;
+        generationEl.textContent = data.generation;
+        bestErrorEl.textContent = data.best_error === Infinity ? "∞" : data.best_error.toFixed(6);
+        progressEl.textContent = (data.progress * 100).toFixed(1) + "%";
+        bestFormulaEl.textContent = data.best_formula;
+        addLog("Initial state received", "info");
+      } else if (msg.event_type === "progress") {
+        const data = msg.data;
+        generationEl.textContent = data.generation || "?";
+        bestErrorEl.textContent = data.best_error ? data.best_error.toFixed(6) : "∞";
+        progressEl.textContent = (data.progress * 100).toFixed(1) + "%";
+        addLog(`Gen ${data.generation}: RMSE ${data.best_error?.toFixed(6) || "N/A"}`, "info");
+      } else if (msg.event_type === "best_formula") {
+        const data = msg.data;
+        bestFormulaEl.textContent = data.formula;
+        addLog(`🎯 Best: ${data.formula} (${data.rmse?.toFixed(6) || "N/A"})`, "success");
+      } else if (msg.event_type === "candidate") {
+        const data = msg.data;
+        addLog(`📊 Candidate: ${data.formula} (${data.rmse?.toFixed(6) || "N/A"})`, "info");
+      } else if (msg.event_type === "completed") {
+        addLog(`✅ Worker completed! Final RMSE: ${msg.data.final_rmse?.toFixed(6) || "N/A"}`, "success");
+        phaseEl.textContent = "Finished";
+      } else if (msg.event_type === "phase_change") {
+        phaseEl.textContent = msg.data.phase;
+        addLog(`Phase: ${msg.data.phase}`, "info");
+      } else {
+        addLog(`Event: ${msg.event_type}`, "info");
+      }
+    }
+
+    connectBtn.addEventListener("click", () => {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.close();
+      }
+      setTimeout(connectWebSocket, 500);
+    });
+
+    // Initialize
+    addLog("Dashboard started. Connect to TUI WebSocket.", "info");
+    connectWebSocket();
+  </script>
+</body>
+</html>

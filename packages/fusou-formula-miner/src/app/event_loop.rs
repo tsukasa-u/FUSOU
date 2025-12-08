@@ -102,33 +102,51 @@ fn handle_app_event(
             // --- dataset_scatter ---
             let dataset_scatter = if let Some(ds) = &state.dataset {
                 if !ds.inputs.is_empty() && !ds.targets.is_empty() {
-                    let x: Vec<f64> = ds.inputs.iter().map(|row| row.get(0).copied().unwrap_or(0.0)).collect();
-                    let y: Vec<f64> = ds.targets.clone();
-                    serde_json::json!({ "x": x, "y": y })
+                    // 全特徴量を送信（5次元すべて）
+                    let features: Vec<Vec<f64>> = ds.inputs.clone();
+                    let targets: Vec<f64> = ds.targets.clone();
+                    let feature_names: Vec<String> = ds.feature_names.clone();
+                    serde_json::json!({ 
+                        "features": features, 
+                        "targets": targets,
+                        "feature_names": feature_names,
+                        "sample_count": ds.inputs.len(),
+                        "feature_count": ds.feature_names.len()
+                    })
                 } else { serde_json::Value::Null }
             } else { serde_json::Value::Null };
 
             // --- cluster_scatter ---
-            // --- cluster_scatter ---
             let cluster_scatter = if let (Some(ds), Some(assignments)) = (&state.dataset, &state.cluster_assignments) {
                 // assignments: { sample_idx: cluster_id, ... }
-                // ds.inputs: Vec<Vec<f64>>
-                let mut x = Vec::new();
-                let mut y = Vec::new();
-                let mut cluster = Vec::new();
                 if let Some(obj) = assignments.as_object() {
-                    for (idx_str, clust_val) in obj.iter() {
-                        if let (Ok(idx), Some(clust_id)) = (idx_str.parse::<usize>(), clust_val.as_u64()) {
-                            if let Some(row) = ds.inputs.get(idx) {
-                                x.push(row.get(0).copied().unwrap_or(0.0));
-                                y.push(row.get(1).copied().unwrap_or(0.0));
-                                cluster.push(clust_id);
+                    if obj.is_empty() {
+                        serde_json::Value::Null
+                    } else {
+                        let mut features_by_cluster: Vec<(Vec<f64>, u64)> = Vec::new();
+                        for (idx_str, clust_val) in obj.iter() {
+                            if let (Ok(idx), Some(clust_id)) = (idx_str.parse::<usize>(), clust_val.as_u64()) {
+                                if let Some(row) = ds.inputs.get(idx) {
+                                    features_by_cluster.push((row.clone(), clust_id));
+                                }
                             }
                         }
+                        if features_by_cluster.is_empty() {
+                            serde_json::Value::Null
+                        } else {
+                            serde_json::json!({
+                                "features": features_by_cluster.iter().map(|(f, _)| f.clone()).collect::<Vec<_>>(),
+                                "clusters": features_by_cluster.iter().map(|(_, c)| c).collect::<Vec<_>>(),
+                                "feature_names": ds.feature_names.clone()
+                            })
+                        }
                     }
+                } else {
+                    serde_json::Value::Null
                 }
-                serde_json::json!({ "x": x, "y": y, "cluster": cluster })
-            } else { serde_json::Value::Null };
+            } else { 
+                serde_json::Value::Null 
+            };
 
             let mut data = serde_json::json!({
                 "generation": state.generation,
