@@ -36,6 +36,17 @@ pub fn run_per_cluster_ga(
         cluster_assignment.num_clusters
     )));
 
+    // Log cluster details for debugging
+    for (cluster_id, size) in cluster_assignment.cluster_sizes.iter() {
+        let condition = cluster_assignment.metadata.cluster_conditions.get(*cluster_id)
+            .cloned()
+            .unwrap_or_else(|| format!("Cluster {}", cluster_id));
+        let _ = tx.send(AppEvent::Log(format!(
+            "  Cluster {}: {} samples - {}",
+            cluster_id, size, condition
+        )));
+    }
+
     // Calculate total work for progress tracking
     let num_clusters = cluster_assignment.num_clusters;
     let total_work = (num_clusters as u64) * max_generations;

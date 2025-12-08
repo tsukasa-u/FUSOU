@@ -379,13 +379,13 @@ impl Default for ClusteringConfigToml {
         Self {
             enabled: "enabled".to_string(),
             method: "kmeans".to_string(),
-            max_depth: 5,
-            min_samples_leaf: 1,
-            num_clusters: 3,
+            max_depth: 3,
+            min_samples_leaf: 50,
+            num_clusters: 0,  // Auto-select number of clusters
             max_k: 6,
-            silhouette_threshold: 0.15,
+            silhouette_threshold: -0.2,  // Allow clustering when beneficial
             n_trees: 10,
-            cluster_mode: "const_opt_eval".to_string(),
+            cluster_mode: "per_cluster_ga".to_string(),  // Use per-cluster GA optimization
         }
     }
 }

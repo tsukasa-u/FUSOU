@@ -198,16 +198,16 @@ pub fn run_solver(
                             cluster_assignment.metadata.quality_score
                         )));
                         
-                        // Send cluster info to UI
-                        let cluster_json = serde_json::to_value(&serde_json::json!({
-                            "num_clusters": num_clusters,
-                            "cluster_sizes": cluster_assignment.cluster_sizes.clone(),
-                            "method": cluster_assignment.metadata.method.clone(),
-                            "rules": cluster_assignment.metadata.rules.clone(),
-                            "quality_score": cluster_assignment.metadata.quality_score,
-                        })).unwrap_or(serde_json::json!({}));
+                        // Convert assignments to JSON object (sample_index -> cluster_id)
+                        let mut assignments_map = serde_json::Map::new();
+                        for (sample_idx, cluster_id) in cluster_assignment.assignments.iter().enumerate() {
+                            assignments_map.insert(sample_idx.to_string(), serde_json::json!(cluster_id));
+                        }
+                        let assignments_json = serde_json::Value::Object(assignments_map);
+                        eprintln!("[DEBUG] Sending ClusteringResults event. Assignments: {} entries", cluster_assignment.assignments.len());
                         
-                        let _ = tx.send(AppEvent::ClusteringResults(Some(cluster_json)));
+                        // Send cluster assignments (not metadata) to UI
+                        let _ = tx.send(AppEvent::ClusteringResults(Some(assignments_json)));
                         Some(cluster_assignment)
                     }
                     Err(err) => {

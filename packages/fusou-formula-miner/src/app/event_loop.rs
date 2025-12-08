@@ -124,21 +124,32 @@ fn handle_app_event(
                         serde_json::Value::Null
                     } else {
                         let mut features_by_cluster: Vec<(Vec<f64>, u64)> = Vec::new();
+                        let mut unique_clusters: std::collections::HashSet<u64> = std::collections::HashSet::new();
                         for (idx_str, clust_val) in obj.iter() {
                             if let (Ok(idx), Some(clust_id)) = (idx_str.parse::<usize>(), clust_val.as_u64()) {
                                 if let Some(row) = ds.inputs.get(idx) {
                                     features_by_cluster.push((row.clone(), clust_id));
+                                    unique_clusters.insert(clust_id);
                                 }
                             }
                         }
                         if features_by_cluster.is_empty() {
                             serde_json::Value::Null
-                        } else {
+                        } else if !features_by_cluster.is_empty() {
+                            let meta = serde_json::json!({
+                                "points": features_by_cluster.len(),
+                                "clusters": unique_clusters.len(),
+                                "features_per_sample": ds.feature_names.len(),
+                                "assignments": obj.len(),
+                            });
                             serde_json::json!({
                                 "features": features_by_cluster.iter().map(|(f, _)| f.clone()).collect::<Vec<_>>(),
                                 "clusters": features_by_cluster.iter().map(|(_, c)| c).collect::<Vec<_>>(),
-                                "feature_names": ds.feature_names.clone()
+                                "feature_names": ds.feature_names.clone(),
+                                "meta": meta,
                             })
+                        } else {
+                            serde_json::Value::Null
                         }
                     }
                 } else {
@@ -147,6 +158,21 @@ fn handle_app_event(
             } else { 
                 serde_json::Value::Null 
             };
+
+            // Snapshot per-cluster metrics for dashboard (label, rmse, formula, generation)
+            let per_cluster: Vec<serde_json::Value> = state
+                .per_cluster_best
+                .iter()
+                .map(|(label, (err, formula))| {
+                    let gen = state.per_cluster_generation.get(label).copied().unwrap_or(0);
+                    serde_json::json!({
+                        "label": label,
+                        "rmse": err,
+                        "formula": formula,
+                        "generation": gen,
+                    })
+                })
+                .collect();
 
             let mut data = serde_json::json!({
                 "generation": state.generation,
@@ -160,6 +186,7 @@ fn handle_app_event(
                 "target_formula": state.target_formula,
                 "top_candidates": candidates_json,
                 "cluster_assignments": state.cluster_assignments.clone(),
+                "per_cluster": per_cluster,
             });
             if !dataset_scatter.is_null() { data["dataset_scatter"] = dataset_scatter; }
             if !cluster_scatter.is_null() { data["cluster_scatter"] = cluster_scatter; }
@@ -247,7 +274,42 @@ fn handle_app_event(
         }
         #[cfg(feature = "clustering")]
         AppEvent::ClusteringResults(assignments) => {
-            state.cluster_assignments = assignments;
+            state.cluster_assignments = assignments.clone();
+            // Immediately push clustering scatter if data available
+            if let (Some(ds), Some(assignments)) = (&state.dataset, &state.cluster_assignments) {
+                if let Some(obj) = assignments.as_object() {
+                    if !obj.is_empty() {
+                        let mut features_by_cluster: Vec<(Vec<f64>, u64)> = Vec::new();
+                        let mut unique_clusters: std::collections::HashSet<u64> = std::collections::HashSet::new();
+                        for (idx_str, clust_val) in obj.iter() {
+                            if let (Ok(idx), Some(clust_id)) = (idx_str.parse::<usize>(), clust_val.as_u64()) {
+                                if let Some(row) = ds.inputs.get(idx) {
+                                    features_by_cluster.push((row.clone(), clust_id));
+                                    unique_clusters.insert(clust_id);
+                                }
+                            }
+                        }
+                        if !features_by_cluster.is_empty() {
+                            let meta = serde_json::json!({
+                                "points": features_by_cluster.len(),
+                                "clusters": unique_clusters.len(),
+                                "features_per_sample": ds.feature_names.len(),
+                                "assignments": obj.len(),
+                            });
+                            let cluster_scatter = serde_json::json!({
+                                "features": features_by_cluster.iter().map(|(f, _)| f.clone()).collect::<Vec<_>>(),
+                                "clusters": features_by_cluster.iter().map(|(_, c)| c).collect::<Vec<_>>(),
+                                "feature_names": ds.feature_names.clone(),
+                                "meta": meta,
+                            });
+                            let _ = state.dashboard_tx.send(crate::state::DashboardEvent {
+                                event_type: "clustering".to_string(),
+                                data: serde_json::json!({ "cluster_scatter": cluster_scatter }),
+                            });
+                        }
+                    }
+                }
+            }
         }
         AppEvent::CurrentClusterInfo(info) => {
             // Update current cluster info and set/start timestamp when cluster changes
@@ -262,15 +324,27 @@ fn handle_app_event(
             state.per_cluster_best.insert(label.clone(), (err, formula.clone()));
             state.per_cluster_generation.insert(label.clone(), gen);
             // mark active cluster label to allow UI to highlight the row
-            state.current_cluster_label = Some(label);
+            let label_clone = label.clone();
+            state.current_cluster_label = Some(label_clone);
             
-            // Send best formula update to dashboard
+            // Send per-cluster best snapshot to dashboard (with meta for debugging)
+            let snapshot: Vec<serde_json::Value> = state
+                .per_cluster_best
+                .iter()
+                .map(|(l, (e, f))| {
+                    let g = state.per_cluster_generation.get(l).copied().unwrap_or(0);
+                    serde_json::json!({ "label": l, "rmse": e, "formula": f, "generation": g })
+                })
+                .collect();
+
             let _ = state.dashboard_tx.send(crate::state::DashboardEvent {
-                event_type: "best_formula".to_string(),
+                event_type: "per_cluster_best".to_string(),
                 data: serde_json::json!({
+                    "label": label,
                     "formula": formula,
                     "rmse": err,
                     "generation": gen,
+                    "per_cluster": snapshot,
                 }),
             });
         }

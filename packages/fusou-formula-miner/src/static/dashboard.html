@@ -11,7 +11,8 @@
       font-family: system-ui, -apple-system, sans-serif; 
       background: #0f172a; 
       color: #e5e7eb;
-      overflow: hidden;
+      overflow-y: auto;
+      min-height: 100vh;
     }
     
     .header {
@@ -34,10 +35,10 @@
     .status-badge.connected { background: #10b981; }
     @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
     
-    .container { display: flex; height: calc(100vh - 60px); }
-    
-    .main-panel { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
-    .sub-panel { width: 300px; border-left: 1px solid #1e40af; overflow-y: auto; }
+    .container { display: flex; min-height: calc(100vh - 60px); gap: 12px; }
+
+    .main-panel { flex: 1; display: flex; flex-direction: column; overflow-y: auto; gap: 12px; padding-bottom: 12px; }
+    .sub-panel { width: 320px; border-left: 1px solid #1e40af; overflow-y: auto; }
     
     .section { 
       border-bottom: 1px solid #1e40af; 
@@ -111,15 +112,32 @@
       <!-- RMSE Progress -->
       <div class="section">
         <div class="section-title">RMSE Progress</div>
-        <div id="rmse-plot" style="height:160px;width:100%;background:#111827;border-radius:4px;"></div>
+        <div id="rmse-plot" style="height:200px;width:100%;background:#111827;border-radius:4px;"></div>
       </div>
       
       <!-- Dataset Visualization (All Dimensions) -->
       <div class="section">
         <div class="section-title">Dataset Visualization (All Dimensions)</div>
-        <div id="dataset-plot" style="height:280px;width:100%;background:#111827;border-radius:4px;"></div>
+        <div id="dataset-plot" style="height:420px;width:100%;background:#111827;border-radius:4px;overflow: visible;"></div>
         <div id="dataset-info" style="font-size:10px;color:#9ca3af;margin-top:4px;">Loading...</div>
       </div>
+      <!-- Clustering (moved to full width) -->
+      <div class="section">
+        <div class="section-title">Clustering (PCA Projection)</div>
+        <div id="clustering-plot" style="height:420px;width:100%;background:#111827;border-radius:4px;"></div>
+        <div id="clustering-info" style="font-size:10px;color:#9ca3af;margin-top:4px;">No clustering data</div>
+        <div id="clustering-meta" style="font-size:10px;color:#9ca3af;margin-top:4px;"></div>
+      </div>
+
+      <!-- Cluster Feature Distributions (All Dimensions) -->
+      <div class="section">
+        <div class="section-title">Cluster Feature Distributions (All Dimensions)</div>
+        <div id="cluster-features-plot" style="height:420px;width:100%;background:#111827;border-radius:4px;"></div>
+      </div>        <!-- Per-Cluster Metrics (full width) -->
+        <div class="section">
+          <div class="section-title">Per-Cluster Metrics</div>
+          <div id="per-cluster-list" style="max-height:320px; overflow-y:auto; font-size:11px; display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:8px;"></div>
+        </div>
 
       <!-- Solver Metrics -->
       <div class="section">
@@ -181,12 +199,7 @@
     
     <!-- Right Panel -->
     <div class="sub-panel">
-      <!-- Clustering -->
-      <div class="section" id="clustering-section">
-        <div class="section-title">Clustering</div>
-        <div id="clustering-plot" style="height:160px;width:100%;background:#111827;border-radius:4px;"></div>
-        <div class="clustering-info" id="clustering-info" style="font-size:10px;color:#9ca3af;margin-top:4px;">No clustering data</div>
-      </div>
+      <!-- Per-Cluster Metrics -->
       
       <!-- Optimization Results -->
       <div class="section">
@@ -240,8 +253,9 @@
     const targetErrorEl = document.getElementById('target-error');
     const sampleCountEl = document.getElementById('sample-count');
     const eventLogEl = document.getElementById('event-log');
-    const clusteringSection = document.getElementById('clustering-section');
     const clusteringInfoEl = document.getElementById('clustering-info');
+    const clusteringMetaEl = document.getElementById('clustering-meta');
+    const perClusterListEl = document.getElementById('per-cluster-list');
 
     function addLog(msg, type = 'info') {
       const entry = document.createElement('div');
@@ -289,6 +303,7 @@
     let rmseHistory = [];
     let datasetData = null;
     let clusterData = null;
+    let perClusterData = [];
 
     function handleMessage(msg) {
       const data = msg.data || msg;
@@ -348,6 +363,13 @@
       if (data.cluster_scatter) {
         clusterData = data.cluster_scatter;
         drawClusteringPlot();
+        drawClusterFeatures();
+        emitClusterDebug(clusterData);
+      }
+
+      if (Array.isArray(data.per_cluster)) {
+        perClusterData = data.per_cluster;
+        renderPerCluster(perClusterData);
       }
 
       // Update clustering info
@@ -374,6 +396,19 @@
       // Log events
       if (type === 'best_formula') {
         addLog('🎯 New best: ' + (data.formula || data.best_formula) + ' (RMSE: ' + (data.rmse?.toFixed(6) || 'N/A') + ')', 'success');
+      } else if (type === 'per_cluster_best') {
+        if (Array.isArray(data.per_cluster)) {
+          perClusterData = data.per_cluster;
+          renderPerCluster(perClusterData);
+        }
+        addLog('🏷️ Cluster ' + (data.label ?? '?') + ' best updated (RMSE: ' + (data.rmse?.toFixed(6) || 'N/A') + ')', 'info');
+      } else if (type === 'clustering') {
+        if (data.cluster_scatter) {
+          clusterData = data.cluster_scatter;
+          drawClusteringPlot();
+          drawClusterFeatures();
+          emitClusterDebug(clusterData);
+        }
       } else if (type === 'progress') {
         // Don't log every progress update
       } else if (type === 'completed') {
@@ -417,10 +452,12 @@
       
       if (features.length === 0) return;
       const numFeatures = features[0].length;
-      
-      // 全次元を表示: 各特徴量 vs ターゲットのサブプロット
+      const cols = Math.min(numFeatures, 3);
+      const rows = Math.ceil(numFeatures / cols);
+
+      // 全次元を表示: 各特徴量 vs ターゲットのサブプロット（自動グリッド）
       const traces = [];
-      for (let i = 0; i < Math.min(numFeatures, 5); i++) {
+      for (let i = 0; i < numFeatures; i++) {
         const x = features.map(f => f[i]);
         traces.push({
           x: x,
@@ -434,18 +471,16 @@
         });
       }
       
-      // レイアウト: 水平に並べる
       const layout = {
-        grid: { rows: 1, columns: Math.min(numFeatures, 5), pattern: 'independent' },
+        grid: { rows, columns: cols, pattern: 'independent' },
         margin: { t: 30, l: 40, r: 10, b: 40 },
         paper_bgcolor: '#111827',
         plot_bgcolor: '#111827',
         font: { color: '#e5e7eb', size: 9 },
-        showlegend: false
+        showlegend: false,
       };
       
-      // 各サブプロットの軸設定
-      for (let i = 0; i < Math.min(numFeatures, 5); i++) {
+      for (let i = 0; i < numFeatures; i++) {
         layout['xaxis' + (i + 1)] = { 
           title: featureNames[i] || ('F' + i), 
           color: '#9ca3af', 
@@ -453,25 +488,25 @@
           titlefont: { size: 9 }
         };
         layout['yaxis' + (i + 1)] = { 
-          title: i === 0 ? 'Target' : '', 
+          title: i % cols === 0 ? 'Target' : '', 
           color: '#9ca3af', 
           gridcolor: '#1e293b',
           titlefont: { size: 9 }
         };
       }
-      
+
+      // 高さを次元数に応じて自動調整（1行あたり ~240px）
+      const container = document.getElementById('dataset-plot');
+      container.style.height = Math.max(320, rows * 240) + 'px';
       Plotly.newPlot('dataset-plot', traces, layout, {displayModeBar: false});
       infoEl.textContent = numFeatures + 'D dataset: all features vs target (' + features.length + ' samples)';
     }
 
     function drawClusteringPlot() {
-      console.log('drawClusteringPlot called', clusterData);
       if (!clusterData) {
-        console.log('No clusterData');
         return;
       }
       if (!clusterData.features || !clusterData.clusters) {
-        console.log('Missing features or clusters', clusterData);
         return;
       }
       
@@ -479,7 +514,6 @@
       const clusters = clusterData.clusters;
       const featureNames = clusterData.feature_names || [];
       
-      console.log('Features:', features.length, 'Clusters:', clusters.length);
       if (features.length === 0) {
         addLog('Clustering: no features', 'warning');
         return;
@@ -487,14 +521,70 @@
       
       const numFeatures = features[0].length;
       
-      // 最初の2特徴量でクラスタリングを可視化
+      // 動的主成分分析: 最初の2軸でクラスタを可視化
+      // Calculate means
+      let means = new Array(numFeatures).fill(0);
+      for (let f of features) {
+        for (let i = 0; i < numFeatures; i++) {
+          means[i] += f[i];
+        }
+      }
+      for (let i = 0; i < numFeatures; i++) {
+        means[i] /= features.length;
+      }
+      
+      // Centered features
+      const centered = features.map(f => f.map((v, i) => v - means[i]));
+      
+      // Covariance matrix (simplified: principal components via SVD approximation)
+      // Use first 2 principal directions directly
+      let pc1 = new Array(numFeatures).fill(0);
+      let pc2 = new Array(numFeatures).fill(0);
+      
+      // Simple approach: compute variance along each axis as initial PC direction
+      for (let i = 0; i < numFeatures; i++) {
+        let variance = 0;
+        for (let f of centered) {
+          variance += f[i] * f[i];
+        }
+        pc1[i] = Math.sqrt(variance / features.length);
+      }
+      
+      // Normalize
+      let norm1 = Math.sqrt(pc1.reduce((a, b) => a + b * b, 0));
+      if (norm1 > 0) {
+        for (let i = 0; i < numFeatures; i++) {
+          pc1[i] /= norm1;
+        }
+      }
+      
+      // PC2: orthogonal to PC1
+      for (let i = 0; i < numFeatures; i++) {
+        pc2[i] = (i === 1) ? 1 : 0;  // Simple orthogonal default
+      }
+      let dot = pc1.reduce((sum, v, i) => sum + v * pc2[i], 0);
+      for (let i = 0; i < numFeatures; i++) {
+        pc2[i] -= dot * pc1[i];
+      }
+      let norm2 = Math.sqrt(pc2.reduce((a, b) => a + b * b, 0));
+      if (norm2 > 0) {
+        for (let i = 0; i < numFeatures; i++) {
+          pc2[i] /= norm2;
+        }
+      }
+      
+      // Project onto PC1, PC2
+      const projected = centered.map(f => [
+        f.reduce((sum, v, i) => sum + v * pc1[i], 0),
+        f.reduce((sum, v, i) => sum + v * pc2[i], 0)
+      ]);
+      
       const uniqueClusters = [...new Set(clusters)];
-      console.log('Unique clusters:', uniqueClusters);
       
       const traces = uniqueClusters.map(cl => {
         const idx = clusters.map((c, i) => c === cl ? i : -1).filter(i => i !== -1);
-        const x = idx.map(i => features[i][0]);
-        const y = idx.map(i => numFeatures > 1 ? features[i][1] : features[i][0]);
+        const x = idx.map(i => projected[i][0]);
+        const y = idx.map(i => projected[i][1]);
         return {
           x: x,
           y: y,
@@ -505,16 +595,87 @@
         };
       });
       
-      console.log('Drawing', traces.length, 'traces');
       Plotly.newPlot('clustering-plot', traces, {
         margin: { t: 20, l: 40, r: 10, b: 40 },
-        xaxis: { title: featureNames[0] || 'Feature 0', color: '#9ca3af', gridcolor: '#1e293b' },
-        yaxis: { title: numFeatures > 1 ? (featureNames[1] || 'Feature 1') : (featureNames[0] || 'Feature 0'), color: '#9ca3af', gridcolor: '#1e293b' },
+        xaxis: { title: 'PC1', color: '#9ca3af', gridcolor: '#1e293b' },
+        yaxis: { title: 'PC2', color: '#9ca3af', gridcolor: '#1e293b' },
         paper_bgcolor: '#111827',
         plot_bgcolor: '#111827',
         font: { color: '#e5e7eb' },
       }, {displayModeBar: false});
-      addLog('Clustering plot updated: ' + uniqueClusters.length + ' clusters', 'info');
+      addLog('Clustering plot updated: ' + uniqueClusters.length + ' clusters (PCA projection)', 'info');
+    }
+
+    function emitClusterDebug(clusterScatter) {
+      if (!clusterScatter || !clusterScatter.meta) return;
+      const m = clusterScatter.meta;
+      const text = `points=${m.points ?? '?'} / clusters=${m.clusters ?? '?'} / features_per_sample=${m.features_per_sample ?? '?'} / assignments=${m.assignments ?? '?'}`;
+      clusteringMetaEl.textContent = text;
+      addLog('Cluster debug: ' + text, 'info');
+      console.debug('Cluster debug meta', m);
+    }
+
+    function drawClusterFeatures() {
+      // Draw box plots or bar charts showing feature distributions per cluster
+      if (!clusterData || !clusterData.features || !clusterData.clusters) {
+        return;
+      }
+      
+      const features = clusterData.features;
+      const clusters = clusterData.clusters;
+      const featureNames = clusterData.feature_names || [];
+      const numFeatures = features[0].length;
+      
+      const uniqueClusters = [...new Set(clusters)];
+      
+      // For each feature, create a box plot showing distribution across clusters
+      const traces = [];
+      for (let f = 0; f < numFeatures; f++) {
+        for (let cl of uniqueClusters) {
+          const idx = clusters.map((c, i) => c === cl ? i : -1).filter(i => i !== -1);
+          const values = idx.map(i => features[i][f]);
+          traces.push({
+            y: values,
+            name: 'Cluster ' + cl + ' - ' + (featureNames[f] || 'F' + f),
+            type: 'box',
+            boxmean: 'sd'
+          });
+        }
+      }
+      
+      Plotly.newPlot('cluster-features-plot', traces, {
+        margin: { t: 20, l: 40, r: 10, b: 40 },
+        yaxis: { title: 'Feature Value', color: '#9ca3af', gridcolor: '#1e293b' },
+        paper_bgcolor: '#111827',
+        plot_bgcolor: '#111827',
+        font: { color: '#e5e7eb', size: 10 },
+        showlegend: true
+      }, {displayModeBar: false});
+    }
+
+    function renderPerCluster(perCluster) {
+      if (!perClusterListEl) return;
+      perClusterListEl.innerHTML = '';
+      if (!perCluster || perCluster.length === 0) {
+        perClusterListEl.textContent = 'No per-cluster metrics';
+        return;
+      }
+      const sorted = [...perCluster].sort((a, b) => String(a.label).localeCompare(String(b.label)));
+      sorted.forEach(item => {
+        const row = document.createElement('div');
+        row.style.border = '1px solid #1e293b';
+        row.style.borderRadius = '4px';
+        row.style.padding = '6px';
+        row.innerHTML = `
+          <div style="display:flex; justify-content:space-between;">
+            <span style="color:#38bdf8; font-weight:600;">${item.label ?? 'N/A'}</span>
+            <span style="color:#9ca3af;">Gen ${item.generation ?? 0}</span>
+          </div>
+          <div style="color:#10b981; font-weight:bold;">RMSE: ${item.rmse?.toFixed ? item.rmse.toFixed(6) : item.rmse}</div>
+          <div style="color:#e5e7eb; font-family:monospace; margin-top:4px; word-break:break-all;">${item.formula ?? ''}</div>
+        `;
+        perClusterListEl.appendChild(row);
+      });
     }
 
     addLog('Starting dashboard...', 'info');

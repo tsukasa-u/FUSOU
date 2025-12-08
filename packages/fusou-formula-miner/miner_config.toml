@@ -443,6 +443,15 @@ min_samples_leaf = 50
 # Number of clusters for K-means
 num_clusters = 0
 
+# Silhouette スコアの下限閾値（これより低い場合はクラスタなし）
+# Silhouette score threshold (below this, fallback to 1 cluster)
+# Range: -1.0 to 1.0, recommended: -0.2 for data separation, 0.3 for strong clustering
+silhouette_threshold = -0.2
+
+# 自動k選択時の最大k値
+# Maximum k value to try during auto k-selection
+max_k = 6
+
 # ランダムフォレストの決定木数
 # Number of trees in random forest
 n_trees = 10

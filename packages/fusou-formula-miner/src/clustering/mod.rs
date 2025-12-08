@@ -37,13 +37,13 @@ pub struct ClusteringConfig {
 impl Default for ClusteringConfig {
     fn default() -> Self {
         Self {
-            method: "decision_tree".to_string(),
+            method: "kmeans".to_string(), // Changed to kmeans for better default
             max_depth: 3,
             min_samples_leaf: 50,
             // 0 means: auto-estimate cluster count (use silhouette-based heuristic)
             num_clusters: 0,
             max_k: 6,
-            silhouette_threshold: 0.15,
+            silhouette_threshold: -0.2, // Much lower threshold to allow clustering when beneficial
             n_trees: 10,
         }
     }
