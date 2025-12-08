@@ -5,7 +5,7 @@ use crossterm::event::{self, Event};
 use ratatui::{backend::CrosstermBackend, Terminal};
 use std::io;
 use std::sync::mpsc::{Receiver, Sender};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -60,7 +60,7 @@ fn handle_app_event(
             }
             let capped_completed = if total > 0 { completed.min(total) } else { completed };
             state.best_error = error;
-            state.best_formula = formula;
+            state.best_formula = formula.clone();
             // Progress is fraction of completed work over total work
             state.progress = if total > 0 {
                 (capped_completed as f64 / total as f64).min(1.0)
@@ -89,6 +89,16 @@ fn handle_app_event(
                     sweep_cfg.current_run_history.push((state.generation, error));
                 }
             }
+            
+            // Send to dashboard via broadcast
+            let _ = state.dashboard_tx.send(crate::state::DashboardEvent {
+                event_type: "progress".to_string(),
+                data: serde_json::json!({
+                    "generation": state.generation,
+                    "best_error": error,
+                    "progress": state.progress,
+                }),
+            });
         }
         AppEvent::Online(is_online) => {
             state.online = is_online;
@@ -96,13 +106,31 @@ fn handle_app_event(
         }
         AppEvent::Log(message) => push_log(state, message),
         AppEvent::TopCandidates(candidates) => {
-            state.top_candidates = candidates;
+            state.top_candidates = candidates.clone();
+            // Send top candidates to dashboard
+            for candidate in &candidates {
+                let _ = state.dashboard_tx.send(crate::state::DashboardEvent {
+                    event_type: "candidate".to_string(),
+                    data: serde_json::json!({
+                        "formula": candidate.formula,
+                        "rmse": candidate.rmse,
+                        "rank": candidate.rank,
+                    }),
+                });
+            }
         }
         AppEvent::OperatorStats(counts) => {
             state.operator_counts = counts;
         }
         AppEvent::PhaseChange(phase) => {
-            state.phase = phase;
+            state.phase = phase.clone();
+            // Send phase change to dashboard
+            let _ = state.dashboard_tx.send(crate::state::DashboardEvent {
+                event_type: "phase_change".to_string(),
+                data: serde_json::json!({
+                    "phase": format!("{:?}", phase),
+                }),
+            });
         }
         AppEvent::JobLoaded(summary) => {
             state.job_id = summary.job_id;
@@ -143,6 +171,14 @@ fn handle_app_event(
         }
         AppEvent::Finished => {
             handle_finished_event(state)?;
+            // Send completion event to dashboard
+            let _ = state.dashboard_tx.send(crate::state::DashboardEvent {
+                event_type: "completed".to_string(),
+                data: serde_json::json!({
+                    "final_rmse": state.best_error,
+                    "final_generation": state.generation,
+                }),
+            });
         }
         #[cfg(feature = "clustering")]
         AppEvent::ClusteringResults(assignments) => {
@@ -158,10 +194,20 @@ fn handle_app_event(
         }
         AppEvent::PerClusterBest(label, err, formula, gen) => {
             // Update per-cluster best mapping and generation
-            state.per_cluster_best.insert(label.clone(), (err, formula));
+            state.per_cluster_best.insert(label.clone(), (err, formula.clone()));
             state.per_cluster_generation.insert(label.clone(), gen);
             // mark active cluster label to allow UI to highlight the row
             state.current_cluster_label = Some(label);
+            
+            // Send best formula update to dashboard
+            let _ = state.dashboard_tx.send(crate::state::DashboardEvent {
+                event_type: "best_formula".to_string(),
+                data: serde_json::json!({
+                    "formula": formula,
+                    "rmse": err,
+                    "generation": gen,
+                }),
+            });
         }
     }
     Ok(())

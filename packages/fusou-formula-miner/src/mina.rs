@@ -17,6 +17,7 @@ const COMMANDS: &[(&str, &str)] = &[
     ("/best", "Show current best formula"),
     ("/clear", "Clear all logs"),
     ("/copylogs", "Write logs to file and copy to clipboard if possible"),
+    ("/dashboard", "Open dashboard in default browser (WebSocket connection)"),
     ("/quit", "Exit the application"),
     ("/stop", "Stop current solver/sweep run"),
     ("/start-formula", "Start formula optimization with current parameters"),
@@ -1146,5 +1147,8 @@ fn show_detailed_help(state: &mut SolverState, topic: &str) {
         }
     }
 }
+
+// Dashboard URL display removed - handled via /dashboard command with push_log
+
 
 

@@ -11,11 +11,11 @@ use std::io;
 use std::sync::mpsc::{self, Sender, Receiver};
 use std::sync::{Arc, Mutex};
 use std::sync::atomic::AtomicBool;
+use tokio::sync::broadcast;
 use uuid::Uuid;
 
 use crate::state::{AppEvent, SolverState, Phase};
 use crate::solver::GeneticConfig;
-use crate::config::MinerConfig;
 
 /// Initialize terminal for TUI rendering
 pub fn initialize_terminal() -> Result<Terminal<CrosstermBackend<io::Stdout>>> {
@@ -51,11 +51,15 @@ pub fn setup_application() -> (
     let worker_id = Uuid::new_v4();
     let shutdown_flag = Arc::new(AtomicBool::new(false));
     let shared_config = Arc::new(Mutex::new(GeneticConfig::default()));
+    
+    // Create broadcast channel for dashboard updates (buffer 100 events)
+    let (dashboard_tx, _) = broadcast::channel(100);
 
     let mut state = SolverState::new(worker_id);
     state.shutdown_flag = Some(shutdown_flag.clone());
     state.shared_config = Some(shared_config.clone());
     state.event_sender = Some(tx.clone());
+    state.dashboard_tx = dashboard_tx;
     state.phase = Phase::Idle;
 
     (state, tx, rx, worker_id, shutdown_flag, shared_config)

@@ -1,35 +1,27 @@
 use anyhow::Result;
-use crossterm::{
-    event::{self, DisableMouseCapture, EnableMouseCapture, Event},
-    execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
-};
-use rand::prelude::*;
-use ratatui::{backend::CrosstermBackend, Terminal};
 use std::{
-    cmp::Ordering,
-    io,
-    sync::mpsc::{self, Receiver, Sender},
-    sync::{Arc, Mutex},
+    sync::mpsc,
     sync::atomic::AtomicBool,
     thread,
-    time::{Duration, Instant},
 };
-use rayon::prelude::*;
-use uuid::Uuid;
+use std::sync::Arc;
 
 // Use modules from lib.rs
 use formula_miner::*;
 use formula_miner::config::MinerConfig;
 use formula_miner::solver::GeneticConfig;
 use formula_miner::state::{AppEvent, Phase, SolverState, ParameterSet};
-use formula_miner::app::{push_log, save_sweep_results};
+use formula_miner::app::{push_log, save_sweep_results, run_ws_server};
 use engine::run_solver;
 
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
     // Initialize terminal and application state
     let mut terminal = app::initialize_terminal()?;
     let (mut state, tx, rx, worker_id, shutdown_flag, shared_config) = app::setup_application();
+    
+    // Clone dashboard_tx for WebSocket server
+    let dashboard_tx = state.dashboard_tx.clone();
     
     // Auto-load configuration
     if let Ok(mut cfg_guard) = state.miner_config.lock() {
@@ -41,6 +33,20 @@ fn main() -> Result<()> {
     // Set initial phase and log ready message
     state.phase = Phase::Idle;
     let _ = tx.send(AppEvent::Log("Ready. Use /start command to begin optimization.".to_string()));
+    let _ = tx.send(AppEvent::Log("📊 Dashboard: Click to open → http://localhost:8766".to_string()));
+    
+    // Spawn WebSocket server on background thread
+    let ws_handle = {
+        let shutdown = shutdown_flag.clone();
+        thread::spawn(move || {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            rt.block_on(async {
+                if let Err(e) = run_ws_server("127.0.0.1", 8765, dashboard_tx).await {
+                    eprintln!("WebSocket server error: {}", e);
+                }
+            });
+        })
+    };
     
     // Run main event loop
     app::run_event_loop(&mut terminal, &mut state, &tx, &rx)?;

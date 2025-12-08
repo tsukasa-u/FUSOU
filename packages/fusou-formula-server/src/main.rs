@@ -4,22 +4,20 @@ use axum::{
     extract::State,
     http::StatusCode,
     response::{IntoResponse, Json, Response},
-    routing::{get, get_service, post},
+    routing::get,
     Router,
 };
-use preprocessing::{auto_split_by_tree, build_dashboard_snapshot, DashboardSnapshot, TreeSplitJob};
+use preprocessing::{auto_split_by_tree, TreeSplitJob};
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
-use tower_http::{cors::CorsLayer, services::{ServeDir, ServeFile}};
+use tower_http::cors::CorsLayer;
 use tracing::info;
-use serde::Deserialize;
 
 #[derive(Clone)]
 struct AppState {
     mock_data: String,
     target_column: String,
     jobs: Arc<Mutex<VecDeque<TreeSplitJob>>>,
-    current_formula: Arc<Mutex<String>>, // dashboard overlay
 }
 
 #[tokio::main]
@@ -50,27 +48,12 @@ async fn main() {
         mock_data,
         target_column: "damage".to_string(),
         jobs: Arc::new(Mutex::new(VecDeque::new())),
-        current_formula: Arc::new(Mutex::new("max(attacker_atk - defender_def, 0)".to_string())),
     });
-
-    // Static assets for dashboard
-    let dashboard_file = get_service(ServeFile::new("static/dashboard.html"))
-        .handle_error(|err| async move {
-            (StatusCode::INTERNAL_SERVER_ERROR, format!("Static file error: {}", err))
-        });
-    let static_dir = get_service(ServeDir::new("static"))
-        .handle_error(|err| async move {
-            (StatusCode::INTERNAL_SERVER_ERROR, format!("Static dir error: {}", err))
-        });
 
     // ルーター構築
     let app = Router::new()
         .route("/", get(health_check))
         .route("/job", get(get_job))
-        .route("/api/dashboard/snapshot", get(dashboard_snapshot))
-        .route("/api/dashboard/formula", post(set_formula))
-        .route_service("/dashboard", dashboard_file)
-        .nest_service("/static", static_dir)
         .layer(CorsLayer::permissive())
         .with_state(state);
 
@@ -121,39 +104,6 @@ async fn get_job(State(state): State<Arc<AppState>>) -> Result<Json<TreeSplitJob
     } else {
         Err(AppError::NoJobAvailable)
     }
-}
-
-#[derive(Deserialize)]
-struct FormulaPayload {
-    formula: String,
-}
-
-// Snapshot for dashboard visualization
-async fn dashboard_snapshot(State(state): State<Arc<AppState>>) -> Result<Json<DashboardSnapshot>, AppError> {
-    let formula = state.current_formula.lock().unwrap().clone();
-    build_dashboard_snapshot(
-        &state.mock_data,
-        &state.target_column,
-        0.1,
-        3,
-        3,
-        50,
-        formula,
-    )
-    .map(Json)
-    .map_err(|e| {
-        tracing::error!("Dashboard snapshot failed: {}", e);
-        AppError::PreprocessingError(e.to_string())
-    })
-}
-
-// Update current overlay formula for fitting visualization
-async fn set_formula(State(state): State<Arc<AppState>>, Json(payload): Json<FormulaPayload>) -> Result<Json<serde_json::Value>, AppError> {
-    {
-        let mut f = state.current_formula.lock().unwrap();
-        *f = payload.formula.clone();
-    }
-    Ok(Json(serde_json::json!({"status": "ok"})))
 }
 
 // エラーハンドリング

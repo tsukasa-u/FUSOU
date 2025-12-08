@@ -57,6 +57,8 @@ fn render_title(f: &mut Frame, state: &SolverState, area: Rect) {
     );
     let online_text = if state.online { "Online" } else { "Offline" };
     let title_text = format!("{} | Mode: {}", title_text, online_text);
+    let dashboard_text = "📊 Dashboard: http://localhost:3030/dashboard";
+    let title_text = format!("{} | {}", title_text, dashboard_text);
     let title = Paragraph::new(title_text).block(Block::default().borders(Borders::ALL));
     f.render_widget(title, area);
 }

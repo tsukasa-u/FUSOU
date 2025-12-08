@@ -16,3 +16,7 @@ tower = "0.4"
 tower-http = { version = "0.5", features = ["cors", "fs"] }
 smartcore = "0.3"
 rand = "0.8"
+tokio-tungstenite = "0.21"
+futures = "0.3"
+uuid = { version = "1.0", features = ["v4", "serde"] }
+axum-tungstenite = "0.1"

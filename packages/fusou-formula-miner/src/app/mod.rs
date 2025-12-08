@@ -7,8 +7,10 @@ pub mod initialization;
 pub mod event_loop;
 pub mod helpers;
 pub mod sweep_manager;
+pub mod websocket_server;
 
 pub use initialization::{initialize_terminal, cleanup_terminal, setup_application};
 pub use event_loop::run_event_loop;
 pub use helpers::push_log;
 pub use sweep_manager::save_sweep_results;
+pub use websocket_server::run_ws_server;

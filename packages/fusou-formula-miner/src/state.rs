@@ -7,6 +7,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::Mutex;
 use std::sync::mpsc::Sender;
 use uuid::Uuid;
+use tokio::sync::broadcast;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Phase {
@@ -108,6 +109,14 @@ pub struct SolverState {
     pub total_work: u64,
     // How many top candidates to display in UI
     pub top_candidates_limit: usize,
+    // Broadcast sender for dashboard WebSocket streaming
+    pub dashboard_tx: broadcast::Sender<DashboardEvent>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct DashboardEvent {
+    pub event_type: String, // "progress", "best_formula", "candidate", "completed"
+    pub data: serde_json::Value,
 }
 
 impl SolverState {
@@ -160,6 +169,7 @@ impl SolverState {
             current_cluster_label: None,
             total_work: 0,
             top_candidates_limit: 20,
+            dashboard_tx: broadcast::channel(256).0,
         }
     }
 }
