@@ -3,23 +3,17 @@ import { createSupabaseServerClient } from "@/utility/supabaseServer";
 
 export const GET: APIRoute = async ({ url, cookies, redirect }) => {
   const authCode = url.searchParams.get("code");
-  const state = url.searchParams.get("state");
-  const localState = url.searchParams.get("local_state");
-  const storedState = cookies.get("oauth_state")?.value;
   const provider = cookies.get("sb-provider")?.value;
-  const incomingState = state ?? localState;
 
   if (!authCode) {
+    console.error("No authorization code provided");
     return new Response("No code provided", { status: 400 });
   }
 
-  if (!incomingState || incomingState !== storedState) {
-    return new Response("Invalid state", { status: 400 });
-  }
-
-  cookies.delete("oauth_state", { path: "/" });
+  // Clean up provider cookie
   cookies.delete("sb-provider", { path: "/" });
 
+  // Supabase PKCE flow handles state validation internally
   const supabase = createSupabaseServerClient(cookies);
   const { data, error } = await supabase.auth.exchangeCodeForSession(authCode);
 

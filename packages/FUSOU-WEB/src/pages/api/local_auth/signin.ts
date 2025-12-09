@@ -15,25 +15,14 @@ export const POST: APIRoute = async ({ request, cookies, redirect }) => {
   const url_origin = providedOrigin;
 
   const provider = formData.get("provider")?.toString();
-  const fallbackState = generateUUID();
 
   const validProviders = ["google"];
 
   if (provider && validProviders.includes(provider)) {
     const supabase = createSupabaseServerClient(cookies);
 
-    const setStateCookie = (stateValue: string) => {
-      cookies.set("oauth_state", stateValue, {
-        path: "/",
-        httpOnly: true,
-        secure: import.meta.env.PROD,
-        maxAge: 60 * 60, // 1 hour
-        sameSite: "lax",
-      });
-    };
-
+    // Construct callback URL without custom state - Supabase will add its own state
     const callbackUrl = new URL(`${url_origin}/api/local_auth/callback`);
-    callbackUrl.searchParams.set("local_state", fallbackState);
 
     if (provider == "google") {
       const { data, error } = await supabase.auth.signInWithOAuth({
@@ -49,8 +38,11 @@ export const POST: APIRoute = async ({ request, cookies, redirect }) => {
       });
 
       if (error) {
+        console.error("Supabase OAuth error:", error);
         return new Response(error.message, { status: 500 });
       }
+      
+      // Store provider for callback reference
       cookies.set("sb-provider", provider, {
         path: "/",
         httpOnly: true,
@@ -58,14 +50,8 @@ export const POST: APIRoute = async ({ request, cookies, redirect }) => {
         sameSite: "lax",
       });
 
-      const stateFromSupabase = data?.url
-        ? new URL(data.url).searchParams.get("state")
-        : null;
-      const stateToPersist = stateFromSupabase ?? fallbackState;
-      if (!stateFromSupabase) {
-        console.warn("Supabase OAuth url missing state; using local fallback");
-      }
-      setStateCookie(stateToPersist);
+      // Supabase handles state internally with PKCE flow
+      // No need to manually manage state cookies
       return redirect(data.url);
     } else {
       const { data, error } = await supabase.auth.signInWithOAuth({
@@ -79,14 +65,13 @@ export const POST: APIRoute = async ({ request, cookies, redirect }) => {
         return new Response(error.message, { status: 500 });
       }
 
-      const stateFromSupabase = data?.url
-        ? new URL(data.url).searchParams.get("state")
-        : null;
-      const stateToPersist = stateFromSupabase ?? fallbackState;
-      if (!stateFromSupabase) {
-        console.warn("Supabase OAuth url missing state; using local fallback");
-      }
-      setStateCookie(stateToPersist);
+      // Store provider for callback reference
+      cookies.set("sb-provider", provider, {
+        path: "/",
+        httpOnly: true,
+        secure: import.meta.env.PROD,
+        sameSite: "lax",
+      });
 
       return redirect(data.url);
     }
