@@ -1,41 +1,46 @@
 import type { APIRoute } from "astro";
 import { createSupabaseServerClient } from "@/utility/supabaseServer";
-import { randomUUID } from "node:crypto";
 import type { Provider } from "@supabase/supabase-js";
+import { validateOrigin, validateRedirectUrl, sanitizeErrorMessage } from "@/utility/security";
 
 export const POST: APIRoute = async ({ request, cookies, redirect }) => {
-  const formData = await request.formData();
-
   const providedOrigin = import.meta.env.PUBLIC_SITE_URL?.trim();
   if (!providedOrigin) {
     return new Response("Server misconfiguration: PUBLIC_SITE_URL is not set", {
       status: 500,
     });
   }
+
+  // CSRF protection: Validate Origin/Referer header
+  if (!validateOrigin(request, providedOrigin)) {
+    return new Response("Invalid request origin", { status: 403 });
+  }
+
+  const formData = await request.formData();
   const url_origin = providedOrigin;
 
   const provider = formData.get("provider")?.toString();
-  const fallbackState = randomUUID();
 
   const validProviders = ["google"];
 
-  if (provider && validProviders.includes(provider)) {
-    const supabase = createSupabaseServerClient(cookies);
+  if (!provider) {
+    return new Response("Authentication request invalid", { status: 400 });
+  }
 
-    const setStateCookie = (stateValue: string) => {
-      cookies.set("oauth_state", stateValue, {
-        path: "/",
-        httpOnly: true,
-        secure: import.meta.env.PROD,
-        maxAge: 60 * 60,
-        sameSite: "lax",
-      });
-    };
+  if (!validProviders.includes(provider)) {
+    return new Response("Authentication request invalid", { status: 400 });
+  }
 
-    const callbackUrl = new URL(`${url_origin}/api/auth/callback`);
-    callbackUrl.searchParams.set("local_state", fallbackState);
+  const supabase = createSupabaseServerClient(cookies);
 
-    if (provider == "google") {
+  const callbackUrl = new URL(`${url_origin}/api/auth/callback`);
+  
+  // Open Redirect protection: Validate callback URL
+  if (!validateRedirectUrl(callbackUrl.toString(), providedOrigin)) {
+    return new Response("Invalid callback URL", { status: 400 });
+  }
+
+  if (provider == "google") {
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: {
@@ -49,17 +54,8 @@ export const POST: APIRoute = async ({ request, cookies, redirect }) => {
       });
 
       if (error) {
-        return new Response(error.message, { status: 500 });
+        return new Response(sanitizeErrorMessage(error), { status: 500 });
       }
-
-      const stateFromSupabase = data?.url
-        ? new URL(data.url).searchParams.get("state")
-        : null;
-      const stateToPersist = stateFromSupabase ?? fallbackState;
-      if (!stateFromSupabase) {
-        console.warn("Supabase OAuth url missing state; using local fallback");
-      }
-      setStateCookie(stateToPersist);
 
       return redirect(data.url);
     } else {
@@ -71,21 +67,9 @@ export const POST: APIRoute = async ({ request, cookies, redirect }) => {
       });
 
       if (error) {
-        return new Response(error.message, { status: 500 });
+        return new Response(sanitizeErrorMessage(error), { status: 500 });
       }
-
-      const stateFromSupabase = data?.url
-        ? new URL(data.url).searchParams.get("state")
-        : null;
-      const stateToPersist = stateFromSupabase ?? fallbackState;
-      if (!stateFromSupabase) {
-        console.warn("Supabase OAuth url missing state; using local fallback");
-      }
-      setStateCookie(stateToPersist);
 
       return redirect(data.url);
     }
-  }
-
-  return redirect("/dashboard");
 };

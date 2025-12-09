@@ -1,30 +1,11 @@
 declare type IHAlign = "left" | "center" | "right";
 declare type IVAlign = "top" | "center" | "bottom";
 
-interface NodeRequireFunction {
-  (id: string): any;
-}
+// Removed NodeRequireFunction and NodeModule type definitions
+// Cloudflare Workers (Edge environment) does not support Node.js require() syntax
+// Using these types caused 'ReferenceError: require is not defined' at runtime
 
-interface NodeModule {
-  exports: any;
-  require: NodeRequireFunction;
-  id: string;
-  filename: string;
-  loaded: boolean;
-  /** @deprecated since 12.19.0 Please use `require.main` and `module.children` instead. */
-  parent: NodeModule | null | undefined;
-  children: NodeModule[];
-  /**
-   * @since 11.14.0
-   *
-   * The directory name of the module. This is usually the same as the path.dirname() of the module.id.
-   */
-  path: string;
-  paths: string[];
-}
-
-declare var module: NodeModule;
-declare var define: any;
+// module and define removed (Node.js specific)
 declare var cytoscape: typeof cytoscape;
 interface CytoscapeNodeHtmlParams {
     query?: string;

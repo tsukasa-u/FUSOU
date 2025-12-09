@@ -1,6 +1,7 @@
 import type { APIRoute } from "astro";
 import { createClient } from "@supabase/supabase-js";
 import { createSupabaseServerClient } from "@/utility/supabaseServer";
+import { sanitizeErrorMessage } from "@/utility/security";
 
 const createUserScopedClient = (accessToken: string) =>
   createClient(
@@ -19,28 +20,28 @@ const createUserScopedClient = (accessToken: string) =>
     }
   );
 
+// Use consistent cookie options with supabaseServer.ts
+const COOKIE_OPTIONS = {
+  path: "/",
+  sameSite: "lax" as const,
+  httpOnly: true,
+  secure: import.meta.env.PROD,
+  maxAge: 60 * 60 * 24 * 7, // 7 days
+};
+
 export const GET: APIRoute = async ({ url, cookies, redirect }) => {
   const authCode = url.searchParams.get("code");
-  const state = url.searchParams.get("state");
-  const localState = url.searchParams.get("local_state");
-  const storedState = cookies.get("oauth_state")?.value;
-  const incomingState = state ?? localState;
 
   if (!authCode) {
     return new Response("No code provided", { status: 400 });
   }
 
-  if (!incomingState || incomingState !== storedState) {
-    return new Response("Invalid state", { status: 400 });
-  }
-
-  cookies.delete("oauth_state", { path: "/" });
-
+  // Supabase PKCE flow handles state validation internally
   const supabase = createSupabaseServerClient(cookies);
   const { data, error } = await supabase.auth.exchangeCodeForSession(authCode);
 
   if (error) {
-    return new Response(error.message, { status: 500 });
+    return new Response(sanitizeErrorMessage(error), { status: 500 });
   }
 
   const {
@@ -63,51 +64,35 @@ export const GET: APIRoute = async ({ url, cookies, redirect }) => {
       expires_at: expires_at ? new Date(expires_at * 1000).toISOString() : null,
     };
 
-    const { error: storeTokenError } = await supabase
+    // Use user-scoped client with access token (RLS-compliant)
+    const userClient = createUserScopedClient(access_token);
+    const { error: storeTokenError } = await userClient
       .from("provider_tokens")
       .upsert(upsertPayload);
 
-    if (storeTokenError?.code === "42501" && access_token) {
-      const userClient = createUserScopedClient(access_token);
-      const { error: userScopedError } = await userClient
-        .from("provider_tokens")
-        .upsert(upsertPayload);
-
-      if (userScopedError) {
-        console.error("Failed to store provider token (user scoped)", userScopedError);
-      }
-    } else if (storeTokenError) {
-      console.error("Failed to store provider token", storeTokenError);
+    if (storeTokenError) {
+      // Log the error for debugging but don't block authentication
+      // The user is authenticated even if provider token storage fails
+      console.warn("⚠️ Provider token storage failed (RLS policy):", {
+        code: storeTokenError.code,
+        message: storeTokenError.message,
+        details: storeTokenError.details,
+      });
+      console.warn("⚠️ User authentication succeeded, but provider tokens won't be persisted to database");
+      console.warn("⚠️ Tokens are still available in cookies for this session");
+    } else {
+      console.log("✓ Provider tokens stored successfully");
     }
 
-    cookies.set("sb-provider-token", provider_token, {
-      path: "/",
-      httpOnly: true,
-      secure: import.meta.env.PROD,
-      sameSite: "lax",
-    });
-    cookies.set("sb-provider-refresh-token", provider_refresh_token, {
-      path: "/",
-      httpOnly: true,
-      secure: import.meta.env.PROD,
-      sameSite: "lax",
-    });
+    cookies.set("sb-provider-token", provider_token, COOKIE_OPTIONS);
+    cookies.set("sb-provider-refresh-token", provider_refresh_token, COOKIE_OPTIONS);
   } else {
     console.warn("Provider tokens missing in session; skipping persistence");
   }
 
-  cookies.set("sb-access-token", access_token, {
-    path: "/",
-    httpOnly: true,
-    secure: import.meta.env.PROD,
-    sameSite: "lax",
-  });
-  cookies.set("sb-refresh-token", refresh_token, {
-    path: "/",
-    httpOnly: true,
-    secure: import.meta.env.PROD,
-    sameSite: "lax",
-  });
+  cookies.set("sb-access-token", access_token, COOKIE_OPTIONS);
+  cookies.set("sb-refresh-token", refresh_token, COOKIE_OPTIONS);
 
+  console.log("✓ Auth tokens set. Redirecting to /dashboard");
   return redirect("/dashboard");
 };

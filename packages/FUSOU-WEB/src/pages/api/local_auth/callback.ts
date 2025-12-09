@@ -1,30 +1,34 @@
 import type { APIRoute } from "astro";
 import { createSupabaseServerClient } from "@/utility/supabaseServer";
+import { sanitizeErrorMessage } from "@/utility/security";
+
+// Use consistent cookie options with supabaseServer.ts
+const COOKIE_OPTIONS = {
+  path: "/",
+  sameSite: "lax" as const,
+  httpOnly: true,
+  secure: import.meta.env.PROD,
+  maxAge: 60 * 60 * 24 * 7, // 7 days
+};
 
 export const GET: APIRoute = async ({ url, cookies, redirect }) => {
   const authCode = url.searchParams.get("code");
-  const state = url.searchParams.get("state");
-  const localState = url.searchParams.get("local_state");
-  const storedState = cookies.get("oauth_state")?.value;
   const provider = cookies.get("sb-provider")?.value;
-  const incomingState = state ?? localState;
 
   if (!authCode) {
+    console.error("No authorization code provided");
     return new Response("No code provided", { status: 400 });
   }
 
-  if (!incomingState || incomingState !== storedState) {
-    return new Response("Invalid state", { status: 400 });
-  }
-
-  cookies.delete("oauth_state", { path: "/" });
-  cookies.delete("sb-provider", { path: "/" });
-
+  // Supabase PKCE flow handles state validation internally
   const supabase = createSupabaseServerClient(cookies);
   const { data, error } = await supabase.auth.exchangeCodeForSession(authCode);
 
   if (error) {
-    return new Response(error.message, { status: 500 });
+    console.error("Session exchange error:", error);
+    // Clean up provider cookie on error
+    cookies.delete("sb-provider", { path: "/" });
+    return new Response(sanitizeErrorMessage(error), { status: 500 });
   }
 
   const {
@@ -34,35 +38,32 @@ export const GET: APIRoute = async ({ url, cookies, redirect }) => {
     provider_refresh_token,
   } = data.session;
 
+  // For local app flow: store tokens in cookies for returnLocalApp page to use
+  // Do NOT overwrite global auth tokens - those are for web app
+  // Instead, store in temporary cookies that returnLocalApp will read
+  cookies.set("sb-local-access-token", access_token, COOKIE_OPTIONS);
+  cookies.set("sb-local-refresh-token", refresh_token, COOKIE_OPTIONS);
+  
+  console.log("✓ Set sb-local-access-token (for local app)");
+  console.log("✓ Set sb-local-refresh-token (for local app)");
+
   if (provider_token && provider_refresh_token) {
-    cookies.set("sb-provider-token", provider_token, {
-      path: "/",
-      httpOnly: true,
-      secure: import.meta.env.PROD,
-      sameSite: "lax",
-    });
-    cookies.set("sb-provider-refresh-token", provider_refresh_token, {
-      path: "/",
-      httpOnly: true,
-      secure: import.meta.env.PROD,
-      sameSite: "lax",
-    });
+    cookies.set("sb-local-provider-token", provider_token, COOKIE_OPTIONS);
+    cookies.set("sb-local-provider-refresh-token", provider_refresh_token, COOKIE_OPTIONS);
+    console.log("✓ Set local provider tokens");
   } else {
     console.warn("Provider tokens missing in session; skipping persistence");
   }
+  
+  // Keep sb-provider cookie for returnLocalApp to use
+  if (!provider) {
+    cookies.set("sb-provider", "google", COOKIE_OPTIONS);
+    console.log("✓ Set sb-provider (default)");
+  } else {
+    cookies.set("sb-provider", provider, COOKIE_OPTIONS);
+    console.log("✓ Set sb-provider:", provider);
+  }
 
-  cookies.set("sb-access-token", access_token, {
-    path: "/",
-    httpOnly: true,
-    secure: import.meta.env.PROD,
-    sameSite: "lax",
-  });
-  cookies.set("sb-refresh-token", refresh_token, {
-    path: "/",
-    httpOnly: true,
-    secure: import.meta.env.PROD,
-    sameSite: "lax",
-  });
-
+  console.log("Redirecting to /returnLocalApp");
   return redirect("/returnLocalApp");
 };

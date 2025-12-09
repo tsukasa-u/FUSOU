@@ -43,6 +43,7 @@
     "solid-js": "^1.9.10",
     "tailwindcss": "^4.1.17",
     "typescript": "^5.9.3",
+    "uuid": "^9.0.0",
     "wrangler": "^4.51.0"
   }
 }
