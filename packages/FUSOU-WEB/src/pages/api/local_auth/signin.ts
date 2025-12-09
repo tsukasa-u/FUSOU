@@ -23,59 +23,63 @@ export const POST: APIRoute = async ({ request, cookies, redirect }) => {
 
   const validProviders = ["google"];
 
-  if (provider && validProviders.includes(provider)) {
-    const supabase = createSupabaseServerClient(cookies);
-
-    // Construct callback URL without custom state - Supabase will add its own state
-    const callbackUrl = new URL(`${url_origin}/api/local_auth/callback`);
-    
-    // Open Redirect protection: Validate callback URL
-    if (!validateRedirectUrl(callbackUrl.toString(), providedOrigin)) {
-      return new Response("Invalid callback URL", { status: 400 });
-    }
-
-    if (provider == "google") {
-      const { data, error } = await supabase.auth.signInWithOAuth({
-        provider: "google",
-        options: {
-          scopes: "https://www.googleapis.com/auth/drive.file",
-          redirectTo: callbackUrl.toString(),
-          queryParams: {
-            prompt: "consent",
-            access_type: "offline",
-          },
-        },
-      });
-
-      if (error) {
-        console.error("Supabase OAuth error:", error);
-        return new Response(sanitizeErrorMessage(error), { status: 500 });
-      }
-      
-      // Store provider for callback reference
-      cookies.set("sb-provider", provider, TEMPORARY_COOKIE_OPTIONS);
-
-      // Supabase handles state internally with PKCE flow
-      // No need to manually manage state cookies
-      return redirect(data.url);
-    } else {
-      const { data, error } = await supabase.auth.signInWithOAuth({
-        provider: provider as Provider,
-        options: {
-          redirectTo: callbackUrl.toString(),
-        },
-      });
-
-      if (error) {
-        return new Response(sanitizeErrorMessage(error), { status: 500 });
-      }
-
-      // Store provider for callback reference
-      cookies.set("sb-provider", provider, TEMPORARY_COOKIE_OPTIONS);
-
-      return redirect(data.url);
-    }
+  if (!provider) {
+    return new Response("Missing provider parameter", { status: 400 });
   }
 
-  return redirect("/returnLocalApp");
+  if (!validProviders.includes(provider)) {
+    return new Response("Invalid provider", { status: 400 });
+  }
+
+  const supabase = createSupabaseServerClient(cookies);
+
+  // Construct callback URL without custom state - Supabase will add its own state
+  const callbackUrl = new URL(`${url_origin}/api/local_auth/callback`);
+  
+  // Open Redirect protection: Validate callback URL
+  if (!validateRedirectUrl(callbackUrl.toString(), providedOrigin)) {
+    return new Response("Invalid callback URL", { status: 400 });
+  }
+
+  if (provider == "google") {
+    const { data, error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: {
+        scopes: "https://www.googleapis.com/auth/drive.file",
+        redirectTo: callbackUrl.toString(),
+        queryParams: {
+          prompt: "consent",
+          access_type: "offline",
+        },
+      },
+    });
+
+    if (error) {
+      console.error("Supabase OAuth error:", error);
+      return new Response(sanitizeErrorMessage(error), { status: 500 });
+    }
+    
+    // Store provider for callback reference
+    cookies.set("sb-provider", provider, TEMPORARY_COOKIE_OPTIONS);
+
+    // Supabase handles state internally with PKCE flow
+    // No need to manually manage state cookies
+    return redirect(data.url);
+  } else {
+    const { data, error } = await supabase.auth.signInWithOAuth({
+      provider: provider as Provider,
+      options: {
+        redirectTo: callbackUrl.toString(),
+      },
+    });
+
+    if (error) {
+      return new Response(sanitizeErrorMessage(error), { status: 500 });
+    }
+
+    // Store provider for callback reference
+    cookies.set("sb-provider", provider, TEMPORARY_COOKIE_OPTIONS);
+
+    return redirect(data.url);
+  }
 };

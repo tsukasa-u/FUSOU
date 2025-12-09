@@ -95,6 +95,16 @@ if (refreshToken?.value && accessToken?.value && providerRefreshToken?.value) {
   console.warn("Missing required cookies. Cannot proceed with authentication.");
   return_href = "/"; // Default fallback
 }
+
+// Clean up local app tokens after they've been used
+// Prevents tokens from lingering in browser cookies
+cookies.delete("sb-local-access-token", { path: "/" });
+cookies.delete("sb-local-refresh-token", { path: "/" });
+cookies.delete("sb-local-provider-token", { path: "/" });
+cookies.delete("sb-local-provider-refresh-token", { path: "/" });
+cookies.delete("sb-provider", { path: "/" });
+
+// Also clean up any web app tokens that may have been set
 cookies.delete("sb-access-token", { path: "/" });
 cookies.delete("sb-refresh-token", { path: "/" });
 cookies.delete("sb-provider-refresh-token", { path: "/" });
