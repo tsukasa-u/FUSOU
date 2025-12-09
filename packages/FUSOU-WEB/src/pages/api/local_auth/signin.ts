@@ -24,11 +24,11 @@ export const POST: APIRoute = async ({ request, cookies, redirect }) => {
   const validProviders = ["google"];
 
   if (!provider) {
-    return new Response("Missing provider parameter", { status: 400 });
+    return new Response("Authentication request invalid", { status: 400 });
   }
 
   if (!validProviders.includes(provider)) {
-    return new Response("Invalid provider", { status: 400 });
+    return new Response("Authentication request invalid", { status: 400 });
   }
 
   const supabase = createSupabaseServerClient(cookies);

@@ -23,17 +23,24 @@ export const POST: APIRoute = async ({ request, cookies, redirect }) => {
 
   const validProviders = ["google"];
 
-  if (provider && validProviders.includes(provider)) {
-    const supabase = createSupabaseServerClient(cookies);
+  if (!provider) {
+    return new Response("Authentication request invalid", { status: 400 });
+  }
 
-    const callbackUrl = new URL(`${url_origin}/api/auth/callback`);
-    
-    // Open Redirect protection: Validate callback URL
-    if (!validateRedirectUrl(callbackUrl.toString(), providedOrigin)) {
-      return new Response("Invalid callback URL", { status: 400 });
-    }
+  if (!validProviders.includes(provider)) {
+    return new Response("Authentication request invalid", { status: 400 });
+  }
 
-    if (provider == "google") {
+  const supabase = createSupabaseServerClient(cookies);
+
+  const callbackUrl = new URL(`${url_origin}/api/auth/callback`);
+  
+  // Open Redirect protection: Validate callback URL
+  if (!validateRedirectUrl(callbackUrl.toString(), providedOrigin)) {
+    return new Response("Invalid callback URL", { status: 400 });
+  }
+
+  if (provider == "google") {
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: {
@@ -65,7 +72,4 @@ export const POST: APIRoute = async ({ request, cookies, redirect }) => {
 
       return redirect(data.url);
     }
-  }
-
-  return redirect("/dashboard");
 };
