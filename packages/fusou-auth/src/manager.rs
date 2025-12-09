@@ -152,7 +152,6 @@ impl<S: Storage> AuthManager<S> {
             .client
             .post(&url)
             .header("apikey", &self.config.api_key)
-            .header("Authorization", format!("Bearer {}", &self.config.api_key))
             .json(&body)
             .send()
             .await?;
