@@ -1,5 +1,6 @@
 import type { APIRoute } from "astro";
 import { createSupabaseServerClient } from "@/utility/supabaseServer";
+import { sanitizeErrorMessage, SECURE_COOKIE_OPTIONS } from "@/utility/security";
 
 export const GET: APIRoute = async ({ url, cookies, redirect }) => {
   const authCode = url.searchParams.get("code");
@@ -18,7 +19,7 @@ export const GET: APIRoute = async ({ url, cookies, redirect }) => {
   const { data, error } = await supabase.auth.exchangeCodeForSession(authCode);
 
   if (error) {
-    return new Response(error.message, { status: 500 });
+    return new Response(sanitizeErrorMessage(error), { status: 500 });
   }
 
   const {
@@ -29,34 +30,14 @@ export const GET: APIRoute = async ({ url, cookies, redirect }) => {
   } = data.session;
 
   if (provider_token && provider_refresh_token) {
-    cookies.set("sb-provider-token", provider_token, {
-      path: "/",
-      httpOnly: true,
-      secure: import.meta.env.PROD,
-      sameSite: "lax",
-    });
-    cookies.set("sb-provider-refresh-token", provider_refresh_token, {
-      path: "/",
-      httpOnly: true,
-      secure: import.meta.env.PROD,
-      sameSite: "lax",
-    });
+    cookies.set("sb-provider-token", provider_token, SECURE_COOKIE_OPTIONS);
+    cookies.set("sb-provider-refresh-token", provider_refresh_token, SECURE_COOKIE_OPTIONS);
   } else {
     console.warn("Provider tokens missing in session; skipping persistence");
   }
 
-  cookies.set("sb-access-token", access_token, {
-    path: "/",
-    httpOnly: true,
-    secure: import.meta.env.PROD,
-    sameSite: "lax",
-  });
-  cookies.set("sb-refresh-token", refresh_token, {
-    path: "/",
-    httpOnly: true,
-    secure: import.meta.env.PROD,
-    sameSite: "lax",
-  });
+  cookies.set("sb-access-token", access_token, SECURE_COOKIE_OPTIONS);
+  cookies.set("sb-refresh-token", refresh_token, SECURE_COOKIE_OPTIONS);
 
   return redirect("/returnLocalApp");
 };

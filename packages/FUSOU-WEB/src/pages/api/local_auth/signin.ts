@@ -1,17 +1,22 @@
 import type { APIRoute } from "astro";
 import { createSupabaseServerClient } from "@/utility/supabaseServer";
-import { generateUUID } from "@/utility/crypto";
 import type { Provider } from "@supabase/supabase-js";
+import { validateOrigin, validateRedirectUrl, sanitizeErrorMessage, TEMPORARY_COOKIE_OPTIONS } from "@/utility/security";
 
 export const POST: APIRoute = async ({ request, cookies, redirect }) => {
-  const formData = await request.formData();
-
   const providedOrigin = import.meta.env.PUBLIC_SITE_URL?.trim();
   if (!providedOrigin) {
     return new Response("Server misconfiguration: PUBLIC_SITE_URL is not set", {
       status: 500,
     });
   }
+
+  // CSRF protection: Validate Origin/Referer header
+  if (!validateOrigin(request, providedOrigin)) {
+    return new Response("Invalid request origin", { status: 403 });
+  }
+
+  const formData = await request.formData();
   const url_origin = providedOrigin;
 
   const provider = formData.get("provider")?.toString();
@@ -23,6 +28,11 @@ export const POST: APIRoute = async ({ request, cookies, redirect }) => {
 
     // Construct callback URL without custom state - Supabase will add its own state
     const callbackUrl = new URL(`${url_origin}/api/local_auth/callback`);
+    
+    // Open Redirect protection: Validate callback URL
+    if (!validateRedirectUrl(callbackUrl.toString(), providedOrigin)) {
+      return new Response("Invalid callback URL", { status: 400 });
+    }
 
     if (provider == "google") {
       const { data, error } = await supabase.auth.signInWithOAuth({
@@ -39,16 +49,11 @@ export const POST: APIRoute = async ({ request, cookies, redirect }) => {
 
       if (error) {
         console.error("Supabase OAuth error:", error);
-        return new Response(error.message, { status: 500 });
+        return new Response(sanitizeErrorMessage(error), { status: 500 });
       }
       
       // Store provider for callback reference
-      cookies.set("sb-provider", provider, {
-        path: "/",
-        httpOnly: true,
-        secure: import.meta.env.PROD,
-        sameSite: "lax",
-      });
+      cookies.set("sb-provider", provider, TEMPORARY_COOKIE_OPTIONS);
 
       // Supabase handles state internally with PKCE flow
       // No need to manually manage state cookies
@@ -62,16 +67,11 @@ export const POST: APIRoute = async ({ request, cookies, redirect }) => {
       });
 
       if (error) {
-        return new Response(error.message, { status: 500 });
+        return new Response(sanitizeErrorMessage(error), { status: 500 });
       }
 
       // Store provider for callback reference
-      cookies.set("sb-provider", provider, {
-        path: "/",
-        httpOnly: true,
-        secure: import.meta.env.PROD,
-        sameSite: "lax",
-      });
+      cookies.set("sb-provider", provider, TEMPORARY_COOKIE_OPTIONS);
 
       return redirect(data.url);
     }

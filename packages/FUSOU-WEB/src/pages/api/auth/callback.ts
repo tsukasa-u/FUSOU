@@ -1,6 +1,7 @@
 import type { APIRoute } from "astro";
 import { createClient } from "@supabase/supabase-js";
 import { createSupabaseServerClient } from "@/utility/supabaseServer";
+import { sanitizeErrorMessage, SECURE_COOKIE_OPTIONS } from "@/utility/security";
 
 const createUserScopedClient = (accessToken: string) =>
   createClient(
@@ -31,7 +32,7 @@ export const GET: APIRoute = async ({ url, cookies, redirect }) => {
   const { data, error } = await supabase.auth.exchangeCodeForSession(authCode);
 
   if (error) {
-    return new Response(error.message, { status: 500 });
+    return new Response(sanitizeErrorMessage(error), { status: 500 });
   }
 
   const {
@@ -54,51 +55,24 @@ export const GET: APIRoute = async ({ url, cookies, redirect }) => {
       expires_at: expires_at ? new Date(expires_at * 1000).toISOString() : null,
     };
 
-    const { error: storeTokenError } = await supabase
+    // Use user-scoped client with access token (RLS-compliant)
+    const userClient = createUserScopedClient(access_token);
+    const { error: storeTokenError } = await userClient
       .from("provider_tokens")
       .upsert(upsertPayload);
 
-    if (storeTokenError?.code === "42501" && access_token) {
-      const userClient = createUserScopedClient(access_token);
-      const { error: userScopedError } = await userClient
-        .from("provider_tokens")
-        .upsert(upsertPayload);
-
-      if (userScopedError) {
-        console.error("Failed to store provider token (user scoped)", userScopedError);
-      }
-    } else if (storeTokenError) {
+    if (storeTokenError) {
       console.error("Failed to store provider token", storeTokenError);
     }
 
-    cookies.set("sb-provider-token", provider_token, {
-      path: "/",
-      httpOnly: true,
-      secure: import.meta.env.PROD,
-      sameSite: "lax",
-    });
-    cookies.set("sb-provider-refresh-token", provider_refresh_token, {
-      path: "/",
-      httpOnly: true,
-      secure: import.meta.env.PROD,
-      sameSite: "lax",
-    });
+    cookies.set("sb-provider-token", provider_token, SECURE_COOKIE_OPTIONS);
+    cookies.set("sb-provider-refresh-token", provider_refresh_token, SECURE_COOKIE_OPTIONS);
   } else {
     console.warn("Provider tokens missing in session; skipping persistence");
   }
 
-  cookies.set("sb-access-token", access_token, {
-    path: "/",
-    httpOnly: true,
-    secure: import.meta.env.PROD,
-    sameSite: "lax",
-  });
-  cookies.set("sb-refresh-token", refresh_token, {
-    path: "/",
-    httpOnly: true,
-    secure: import.meta.env.PROD,
-    sameSite: "lax",
-  });
+  cookies.set("sb-access-token", access_token, SECURE_COOKIE_OPTIONS);
+  cookies.set("sb-refresh-token", refresh_token, SECURE_COOKIE_OPTIONS);
 
   return redirect("/dashboard");
 };

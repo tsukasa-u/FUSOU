@@ -1,16 +1,22 @@
 import type { APIRoute } from "astro";
 import { createSupabaseServerClient } from "@/utility/supabaseServer";
 import type { Provider } from "@supabase/supabase-js";
+import { validateOrigin, validateRedirectUrl, sanitizeErrorMessage } from "@/utility/security";
 
 export const POST: APIRoute = async ({ request, cookies, redirect }) => {
-  const formData = await request.formData();
-
   const providedOrigin = import.meta.env.PUBLIC_SITE_URL?.trim();
   if (!providedOrigin) {
     return new Response("Server misconfiguration: PUBLIC_SITE_URL is not set", {
       status: 500,
     });
   }
+
+  // CSRF protection: Validate Origin/Referer header
+  if (!validateOrigin(request, providedOrigin)) {
+    return new Response("Invalid request origin", { status: 403 });
+  }
+
+  const formData = await request.formData();
   const url_origin = providedOrigin;
 
   const provider = formData.get("provider")?.toString();
@@ -21,6 +27,11 @@ export const POST: APIRoute = async ({ request, cookies, redirect }) => {
     const supabase = createSupabaseServerClient(cookies);
 
     const callbackUrl = new URL(`${url_origin}/api/auth/callback`);
+    
+    // Open Redirect protection: Validate callback URL
+    if (!validateRedirectUrl(callbackUrl.toString(), providedOrigin)) {
+      return new Response("Invalid callback URL", { status: 400 });
+    }
 
     if (provider == "google") {
       const { data, error } = await supabase.auth.signInWithOAuth({
@@ -36,7 +47,7 @@ export const POST: APIRoute = async ({ request, cookies, redirect }) => {
       });
 
       if (error) {
-        return new Response(error.message, { status: 500 });
+        return new Response(sanitizeErrorMessage(error), { status: 500 });
       }
 
       return redirect(data.url);
@@ -49,7 +60,7 @@ export const POST: APIRoute = async ({ request, cookies, redirect }) => {
       });
 
       if (error) {
-        return new Response(error.message, { status: 500 });
+        return new Response(sanitizeErrorMessage(error), { status: 500 });
       }
 
       return redirect(data.url);
