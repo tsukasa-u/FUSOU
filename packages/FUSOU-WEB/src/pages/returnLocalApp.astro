@@ -2,6 +2,7 @@
 import Layout from "../layouts/Layout.astro";
 import Navigation from "../components/Navigation.astro";
 import { createSupabaseServerClient } from "@/utility/supabaseServer";
+import { validateRedirectUrl } from "@/utility/security";
 
 const cookies = Astro.cookies;
 const supabase = createSupabaseServerClient(cookies);
@@ -10,6 +11,8 @@ const accessToken = cookies.get("sb-access-token");
 const refreshToken = cookies.get("sb-refresh-token");
 const providerRefreshToken = cookies.get("sb-provider-refresh-token");
 const provider = cookies.get("sb-provider");
+
+const allowedOrigin = import.meta.env.PUBLIC_SITE_URL?.trim() || "";
 
 let error_message: string | null = null;
 let return_params: string | null = null;
@@ -63,8 +66,18 @@ if (refreshToken && accessToken && providerRefreshToken) {
         accessToken.value +
         "&supabase_refresh_token=" +
         refreshToken.value;
-      return_href = `fusou://auth?${return_params}`;
-      console.log("Return href: ", return_href);
+      
+      const candidateHref = `fusou://auth?${return_params}`;
+      
+      // Validate the Tauri custom protocol URL
+      if (validateRedirectUrl(candidateHref, allowedOrigin)) {
+        return_href = candidateHref;
+        console.log("Return href: ", return_href);
+      } else {
+        console.error("Invalid return href rejected: ", candidateHref);
+        error_message = "Invalid redirect URL";
+        sb_insert_error_flag = true;
+      }
     }
   } catch (error) {
     error_message = error instanceof Error ? error.message : String(error);

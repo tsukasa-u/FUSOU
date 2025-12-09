@@ -4,13 +4,27 @@
 
 /**
  * Validates if a redirect URL is safe to use
- * Only allows redirects to the configured site URL
+ * Allows:
+ * 1. OAuth callbacks to the configured site URL (/api/*)
+ * 2. Tauri custom protocol (fusou://)
+ * 3. localhost URLs for local development
  */
 export function validateRedirectUrl(redirectUrl: string, allowedOrigin: string): boolean {
   try {
     const url = new URL(redirectUrl);
     const allowed = new URL(allowedOrigin);
     
+    // Allow Tauri custom protocol for local app
+    if (url.protocol === 'fusou:') {
+      return true;
+    }
+    
+    // Allow localhost for local development/testing
+    if (url.hostname === 'localhost' || url.hostname === '127.0.0.1') {
+      return true;
+    }
+    
+    // For web app callbacks, validate against allowed origin
     // Check protocol (must be https in production)
     if (import.meta.env.PROD && url.protocol !== 'https:') {
       return false;
