@@ -22,7 +22,7 @@
     "@nanostores/persistent": "^1.2.0",
     "@nanostores/solid": "^1.1.1",
     "@r4ai/remark-callout": "^0.6.2",
-    "@supabase/supabase-js": "2.50.0",
+    "@supabase/supabase-js": "2.86.0",
     "@tailwindcss/vite": "^4.1.17",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
