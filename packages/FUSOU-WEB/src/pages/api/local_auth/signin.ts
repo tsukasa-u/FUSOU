@@ -1,6 +1,6 @@
 import type { APIRoute } from "astro";
 import { createSupabaseServerClient } from "@/utility/supabaseServer";
-import { randomUUID } from "node:crypto";
+import { generateUUID } from "@/utility/crypto";
 import type { Provider } from "@supabase/supabase-js";
 
 export const POST: APIRoute = async ({ request, cookies, redirect }) => {
@@ -15,7 +15,7 @@ export const POST: APIRoute = async ({ request, cookies, redirect }) => {
   const url_origin = providedOrigin;
 
   const provider = formData.get("provider")?.toString();
-  const fallbackState = randomUUID();
+  const fallbackState = generateUUID();
 
   const validProviders = ["google"];
 
