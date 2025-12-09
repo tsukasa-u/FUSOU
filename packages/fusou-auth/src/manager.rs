@@ -126,6 +126,11 @@ impl<S: Storage> AuthManager<S> {
         self.storage.save_session(session).await
     }
 
+    /// Load the stored session without mutating it (for health checks/diagnostics).
+    pub async fn peek_session(&self) -> Result<Option<Session>, AuthError> {
+        self.storage.load_session().await
+    }
+
     pub async fn clear(&self) -> Result<(), AuthError> {
         self.storage.clear().await
     }
@@ -152,6 +157,7 @@ impl<S: Storage> AuthManager<S> {
             .client
             .post(&url)
             .header("apikey", &self.config.api_key)
+            .header("Authorization", format!("Bearer {}", &self.config.api_key))
             .json(&body)
             .send()
             .await?;

@@ -2,8 +2,56 @@ import { invoke } from "@tauri-apps/api/core";
 import { FadeToast, showFadeToast } from "./fade_toast";
 import "../../css/divider.css";
 import { ThemeControllerComponent } from "./theme";
+import { createSignal, Show } from "solid-js";
+
+type SessionHealth = {
+  has_session: boolean;
+  access_token_len: number;
+  refresh_token_len: number;
+  seems_valid: boolean;
+  reason?: string | null;
+};
 
 export function SettingsComponent() {
+  const [sessionHealth, setSessionHealth] = createSignal<SessionHealth | null>(
+    null
+  );
+  const [checkingHealth, setCheckingHealth] = createSignal<boolean>(false);
+  const [signingOut, setSigningOut] = createSignal<boolean>(false);
+
+  const handleCheckSessionHealth = async () => {
+    try {
+      setCheckingHealth(true);
+      const health = await invoke<SessionHealth>(
+        "check_supabase_session_health"
+      );
+      setSessionHealth(health);
+      showFadeToast("setting_toast", "Session health checked");
+    } catch (e: any) {
+      console.error("Failed to check session health:", e);
+      showFadeToast("setting_toast", "Failed to check session health");
+    } finally {
+      setCheckingHealth(false);
+    }
+  };
+
+  const handleForceLocalSignOut = async () => {
+    try {
+      setSigningOut(true);
+      await invoke("force_local_sign_out");
+      setSessionHealth(null);
+      showFadeToast(
+        "setting_toast",
+        "Local session cleared. Please sign in again."
+      );
+    } catch (e: any) {
+      console.error("Failed to force local sign out:", e);
+      showFadeToast("setting_toast", "Failed to clear local session");
+    } finally {
+      setSigningOut(false);
+    }
+  };
+
   return (
     <>
       {/* <div class="breadcrumbs text-sm bg-base-300 fixed border-b-1 border-t-1 w-full rounded" style={{"z-index":"100"}}>
@@ -18,25 +66,115 @@ export function SettingsComponent() {
 
       <h1 class="mx-6 pt-6 pb-2 text-3xl font-semibold">Settings</h1>
       <div class="mx-6">
-            <div class="divider divider-horizonal py-0 mt-4 mb-8" />
+        <div class="divider divider-horizonal py-0 mt-4 mb-8" />
 
-            <p class="py-2 text-xl font-semibold">Manual Snapshot Sync</p>
-            <p class="px-px leading-5">Trigger a manual snapshot sync to the configured server.</p>
-            <div class="mt-4 flex items-center justify-end">
-              <button
-                class="btn btn-primary border-primary-content btn-wide"
-                onClick={async () => {
-                  try {
-                    // Signal Rust to perform snapshot sync; notifications are handled in Rust.
-                    await invoke("perform_snapshot_sync");
-                  } catch (e: any) {
-                    console.error("manual snapshot sync failed:", e);
-                  }
-                }}
-              >
-                Sync snapshot
-              </button>
+        <p class="py-2 text-xl font-semibold">Manual Snapshot Sync</p>
+        <p class="px-px leading-5">
+          Trigger a manual snapshot sync to the configured server.
+        </p>
+        <div class="mt-4 flex items-center justify-end">
+          <button
+            class="btn btn-primary border-primary-content btn-wide"
+            onClick={async () => {
+              try {
+                // Signal Rust to perform snapshot sync; notifications are handled in Rust.
+                await invoke("perform_snapshot_sync");
+              } catch (e: any) {
+                console.error("manual snapshot sync failed:", e);
+              }
+            }}
+          >
+            Sync snapshot
+          </button>
+        </div>
+
+        <div class="divider divider-horizonal py-0 mt-4 mb-8" />
+
+        <p class="py-2 text-xl font-semibold">Supabase Session</p>
+        <p class="px-px leading-5">
+          Check the status of your Supabase authentication session.
+        </p>
+        <div class="mt-4 flex items-center justify-end">
+          <button
+            class="btn btn-primary border-primary-content btn-wide"
+            onClick={handleCheckSessionHealth}
+            disabled={checkingHealth()}
+          >
+            {checkingHealth() ? "Checking..." : "Check Session Health"}
+          </button>
+        </div>
+        <Show when={sessionHealth()}>
+          {(h) => (
+            <div class="mt-4 p-4 bg-base-200 rounded-box text-sm space-y-2">
+              <div>
+                Session exists:{" "}
+                <span class={h().has_session ? "text-success" : "text-warning"}>
+                  {h().has_session ? "Yes" : "No"}
+                </span>
+              </div>
+              <div>
+                Access token length: <span>{h().access_token_len}</span>
+              </div>
+              <div>
+                Refresh token length: <span>{h().refresh_token_len}</span>
+              </div>
+              <div>
+                Status:{" "}
+                <span class={h().seems_valid ? "text-success" : "text-error"}>
+                  {h().seems_valid ? "Looks OK" : "Invalid/Corrupted"}
+                </span>
+              </div>
+              <Show when={h().reason}>
+                {(r) => <div class="text-warning">{r()}</div>}
+              </Show>
             </div>
+          )}
+        </Show>
+
+        <div class="divider divider-horizonal py-0 mt-4 mb-8" />
+
+        <p class="py-2 text-xl font-semibold">Clear Supabase Session</p>
+        <p class="px-px leading-5">
+          Clear the stored Supabase session and sign out locally.
+        </p>
+        <div class="mt-4 flex items-center justify-end">
+          <button
+            class="btn btn-secondary border-secondary-content btn-wide"
+            onClick={handleForceLocalSignOut}
+            disabled={signingOut()}
+          >
+            {signingOut() ? "Signing out..." : "Force Local Sign Out"}
+          </button>
+        </div>
+
+        <div class="divider divider-horizonal py-0 mt-4 mb-8" />
+
+        <p class="py-2 text-xl font-semibold">Sign In to Supabase</p>
+        <p class="px-px leading-5">
+          Open the authentication page to sign in or create a new account.
+        </p>
+        <div class="mt-4 flex items-center justify-end">
+          <button
+            class="btn btn-primary border-primary-content btn-wide"
+            onClick={async () => {
+              try {
+                await invoke("open_auth_page");
+                showFadeToast(
+                  "setting_toast",
+                  "Opening authentication page..."
+                );
+              } catch (e: any) {
+                console.error("Failed to open auth page:", e);
+                showFadeToast(
+                  "setting_toast",
+                  "Failed to open authentication page"
+                );
+              }
+            }}
+          >
+            Open Auth Page
+          </button>
+        </div>
 
         <div class="divider divider-horizonal py-0 mt-4 mb-8" />
 

@@ -22,6 +22,14 @@ import { useAuth } from "../utility/provider";
 import { ThemeControllerComponent } from "../components/settings/theme";
 import { createAsyncStore } from "@solidjs/router";
 
+type SessionHealth = {
+  has_session: boolean;
+  access_token_len: number;
+  refresh_token_len: number;
+  seems_valid: boolean;
+  reason?: string | null;
+};
+
 const launch_options: { [key: string]: number } = {
   run_proxy_server: 1,
   open_app: 1,
@@ -90,10 +98,43 @@ function Start() {
   const [pacServerHealth, setPacServerHealth] = createSignal<number>(-1);
   const [proxyServerHealth, setProxyServerHealth] = createSignal<number>(-1);
 
+  const [sessionHealth, setSessionHealth] = createSignal<SessionHealth | null>(
+    null
+  );
+  const [sessionHealthLoading, setSessionHealthLoading] =
+    createSignal<boolean>(false);
+
   const [advancesSettingsCollapse, setAdavncedSettingsCollpse] =
     createSignal<boolean>(false);
 
   const [authData, setAuthData] = useAuth();
+
+  const checkSessionHealth = async () => {
+    try {
+      setSessionHealthLoading(true);
+      const health = await invoke<SessionHealth>(
+        "check_supabase_session_health"
+      );
+      setSessionHealth(health);
+      return health;
+    } catch (e) {
+      console.error("Failed to check session health", e);
+      return null;
+    } finally {
+      setSessionHealthLoading(false);
+    }
+  };
+
+  const forceLocalSignOut = async () => {
+    try {
+      await invoke("force_local_sign_out");
+      await supabase.auth.signOut();
+      setAuthData({ accessToken: null, refreshToken: null });
+      setSessionHealth(null);
+    } catch (e) {
+      console.error("Failed to force local sign out", e);
+    }
+  };
 
   let tokensInput: HTMLInputElement | null = null;
 
@@ -600,6 +641,44 @@ function Start() {
                   </button>
                 </div>
               </fieldset>
+
+              <div class="h-4" />
+
+              <div class="font-semibold">Supabase Session</div>
+              <div class="h-2" />
+              <div class="flex flex-wrap gap-2">
+                <button
+                  class="btn btn-sm btn-outline"
+                  onClick={checkSessionHealth}
+                  disabled={sessionHealthLoading()}
+                >
+                  {sessionHealthLoading() ? "Checking..." : "Check health"}
+                </button>
+                <button
+                  class="btn btn-sm btn-error"
+                  onClick={forceLocalSignOut}
+                >
+                  Force local sign out
+                </button>
+              </div>
+              <Show when={sessionHealth()}>
+                {(h) => (
+                  <div class="mt-2 text-xs space-y-1">
+                    <div>
+                      session: {h().has_session ? "exists" : "missing"},
+                      access_len=
+                      {h().access_token_len}, refresh_len=
+                      {h().refresh_token_len}
+                    </div>
+                    <div>
+                      status: {h().seems_valid ? "looks ok" : "invalid"}
+                    </div>
+                    <Show when={h().reason}>
+                      {(r) => <div class="text-warning">{r()}</div>}
+                    </Show>
+                  </div>
+                )}
+              </Show>
 
               <div class="h-4" />
 

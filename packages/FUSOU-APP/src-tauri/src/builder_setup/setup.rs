@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use std::{env, fs, sync::Mutex, time};
 
 use tauri::{
-    Manager, menu::{CheckMenuItemBuilder, MenuBuilder, MenuItemBuilder, SubmenuBuilder}, tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent}
+    Manager, menu::{CheckMenuItemBuilder, MenuBuilder, MenuItemBuilder, SubmenuBuilder}, tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent}, Emitter
 };
 use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_autostart::ManagerExt;
@@ -159,6 +159,18 @@ fn setup_tray(
     let check_update =
         MenuItemBuilder::with_id("check-update".to_string(), "Check Update").build(app)?;
 
+    let check_session_health =
+        MenuItemBuilder::with_id("check-session-health".to_string(), "Check Session Health")
+            .build(app)?;
+
+    let force_local_sign_out =
+        MenuItemBuilder::with_id("force-local-sign-out".to_string(), "Force Local Sign Out")
+            .build(app)?;
+
+    let open_auth_page_menu =
+        MenuItemBuilder::with_id("open-auth-page".to_string(), "Open Auth Page")
+            .build(app)?;
+
     let danger_ope_sub_menu = SubmenuBuilder::new(app, "Danger Zone")
         .item(&danger_ope_sub_menu_title)
         .item(&proxy_serve_shutdown)
@@ -189,6 +201,9 @@ fn setup_tray(
         .item(&sync_snapshot)
         .item(&intergrate_file)
         .item(&check_update)
+        .item(&check_session_health)
+        .item(&force_local_sign_out)
+        .item(&open_auth_page_menu)
         .separator()
         .item(&danger_ope_sub_menu)
         .build()?;
@@ -481,6 +496,97 @@ fn setup_tray(
                             None => {
                                 app::open_main_window(tray.app_handle());
                                 tauri_cmd::set_update_page(tray.app_handle());
+                            }
+                        }
+                    }
+                    "check-session-health" => {
+                        let app_handle = tray.app_handle().clone();
+                        let auth_manager = app_handle.state::<Arc<Mutex<AuthManager<FileStorage>>>>();
+                        let manager = { auth_manager.lock().unwrap().clone() };
+
+                        tauri::async_runtime::spawn(async move {
+                            match manager.peek_session().await {
+                                Ok(Some(session)) => {
+                                    let access_len = session.access_token.len();
+                                    let refresh_len = session.refresh_token.len();
+                                    let status = if refresh_len < 30 || access_len < 30 {
+                                        "Session tokens may be corrupted (too short). Consider signing out and re-authenticating."
+                                    } else {
+                                        "Session tokens look OK."
+                                    };
+                                    let _ = app_handle
+                                        .notification()
+                                        .builder()
+                                        .title("Session Health Check")
+                                        .body(format!("access_len={}, refresh_len={}, {}", access_len, refresh_len, status))
+                                        .show();
+                                }
+                                Ok(None) => {
+                                    let _ = app_handle
+                                        .notification()
+                                        .builder()
+                                        .title("Session Health Check")
+                                        .body("No session stored. You need to sign in.")
+                                        .show();
+                                }
+                                Err(e) => {
+                                    let _ = app_handle
+                                        .notification()
+                                        .builder()
+                                        .title("Session Health Check Error")
+                                        .body(format!("Failed to check session: {}", e))
+                                        .show();
+                                }
+                            }
+                        });
+                    }
+                    "force-local-sign-out" => {
+                        let app_handle = tray.app_handle().clone();
+                        let auth_manager = app_handle.state::<Arc<Mutex<AuthManager<FileStorage>>>>();
+                        let manager = { auth_manager.lock().unwrap().clone() };
+
+                        tauri::async_runtime::spawn(async move {
+                            match manager.clear().await {
+                                Ok(_) => {
+                                    let _ = app_handle
+                                        .notification()
+                                        .builder()
+                                        .title("Local Sign Out")
+                                        .body("Local session cleared. Please sign in again.")
+                                        .show();
+                                    let main_window = app_handle.get_webview_window("main");
+                                    if let Some(window) = main_window {
+                                        let _ = window.emit_to("main", "set-supabase-tokens", vec![String::new(), String::new()]);
+                                    }
+                                }
+                                Err(e) => {
+                                    let _ = app_handle
+                                        .notification()
+                                        .builder()
+                                        .title("Sign Out Error")
+                                        .body(format!("Failed to clear session: {}", e))
+                                        .show();
+                                }
+                            }
+                        });
+                    }
+                    "open-auth-page" => {
+                        match auth_server::open_auth_page() {
+                            Ok(_) => {
+                                let _ = tray.app_handle()
+                                    .notification()
+                                    .builder()
+                                    .title("Auth Page")
+                                    .body("Opening authentication page in your browser...")
+                                    .show();
+                            }
+                            Err(e) => {
+                                let _ = tray.app_handle()
+                                    .notification()
+                                    .builder()
+                                    .title("Auth Page Error")
+                                    .body(format!("Failed to open auth page: {}", e))
+                                    .show();
                             }
                         }
                     }
