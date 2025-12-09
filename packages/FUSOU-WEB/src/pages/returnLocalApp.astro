@@ -7,23 +7,25 @@ import { validateRedirectUrl } from "@/utility/security";
 const cookies = Astro.cookies;
 const supabase = createSupabaseServerClient(cookies);
 
-const accessToken = cookies.get("sb-access-token");
-const refreshToken = cookies.get("sb-refresh-token");
-const providerRefreshToken = cookies.get("sb-provider-refresh-token");
+// For local app flow: read from local auth tokens (sb-local-*)
+// These are set by /api/local_auth/callback and won't overwrite web app tokens
+const accessToken = cookies.get("sb-local-access-token");
+const refreshToken = cookies.get("sb-local-refresh-token");
+const providerRefreshToken = cookies.get("sb-local-provider-refresh-token");
 const provider = cookies.get("sb-provider");
 
 const allowedOrigin = import.meta.env.PUBLIC_SITE_URL?.trim() || "";
 
 let error_message: string | null = null;
 let return_params: string | null = null;
-let return_href: string | null = null;
-let set_session_error_flag: boolean | null = null;
-let sb_insert_error_flag: boolean | null = null;
-let sb_insert_success_flag: boolean | null = null;
+let return_href: string = "/"; // Always initialize with valid fallback
+let set_session_error_flag: boolean = false;
+let sb_insert_error_flag: boolean = false;
+let sb_insert_success_flag: boolean = false;
 
 const providerValue = provider?.value ?? "google";
 
-if (refreshToken && accessToken && providerRefreshToken) {
+if (refreshToken?.value && accessToken?.value && providerRefreshToken?.value) {
   try {
     const sessionResult = await supabase.auth.setSession({
       refresh_token: refreshToken.value,
@@ -33,12 +35,38 @@ if (refreshToken && accessToken && providerRefreshToken) {
     if (sessionResult.error) {
       error_message = sessionResult.error.message;
       set_session_error_flag = true;
+      return_href = "/"; // Error case fallback
     } else {
       const userId = sessionResult.data.session?.user.id;
       if (!userId) {
         throw new Error("Supabase session missing user id");
       }
 
+      // Generate return parameters regardless of DB insert success
+      // This allows users to manually copy tokens even if DB fails
+      return_params =
+        "provider_refresh_token=" +
+        providerRefreshToken.value +
+        "&provider=" +
+        providerValue +
+        "&supabase_access_token=" +
+        accessToken.value +
+        "&supabase_refresh_token=" +
+        refreshToken.value;
+      
+      const candidateHref = `fusou://auth?${return_params}`;
+      
+      // Validate the Tauri custom protocol URL
+      if (validateRedirectUrl(candidateHref, allowedOrigin)) {
+        return_href = candidateHref;
+        console.log("Return href set to:", return_href);
+      } else {
+        console.error("Invalid return href rejected: ", candidateHref);
+        error_message = "Invalid redirect URL";
+        return_href = "/"; // Validation failure fallback
+      }
+
+      // Store tokens in database (non-blocking for user flow)
       const { error } = await supabase
         .from("users")
         .upsert([
@@ -56,32 +84,16 @@ if (refreshToken && accessToken && providerRefreshToken) {
       } else {
         sb_insert_success_flag = true;
       }
-
-      return_params =
-        "provider_refresh_token=" +
-        providerRefreshToken.value +
-        "&provider=" +
-        providerValue +
-        "&supabase_access_token=" +
-        accessToken.value +
-        "&supabase_refresh_token=" +
-        refreshToken.value;
-      
-      const candidateHref = `fusou://auth?${return_params}`;
-      
-      // Validate the Tauri custom protocol URL
-      if (validateRedirectUrl(candidateHref, allowedOrigin)) {
-        return_href = candidateHref;
-        console.log("Return href: ", return_href);
-      } else {
-        console.error("Invalid return href rejected: ", candidateHref);
-        error_message = "Invalid redirect URL";
-        sb_insert_error_flag = true;
-      }
     }
   } catch (error) {
     error_message = error instanceof Error ? error.message : String(error);
+    set_session_error_flag = true;
+    return_href = "/"; // Exception fallback
   }
+} else {
+  // No tokens present - redirect to home
+  console.warn("Missing required cookies. Cannot proceed with authentication.");
+  return_href = "/"; // Default fallback
 }
 cookies.delete("sb-access-token", { path: "/" });
 cookies.delete("sb-refresh-token", { path: "/" });
@@ -187,9 +199,9 @@ cookies.delete("sb-provider", { path: "/" });
   </div>
 
   <astro-data-auth_props
-    data-set-session-error-flag={set_session_error_flag}
-    data-sb-insert-error-flag={sb_insert_error_flag}
-    data-sb-insert-success-flag={sb_insert_success_flag}
+    data-set-session-error-flag={String(set_session_error_flag)}
+    data-sb-insert-error-flag={String(sb_insert_error_flag)}
+    data-sb-insert-success-flag={String(sb_insert_success_flag)}
     data-return-href={return_href}></astro-data-auth_props>
 </Layout>
 
@@ -232,6 +244,7 @@ cookies.delete("sb-provider", { path: "/" });
       });
 
       window.addEventListener("load", () => {
+        console.log("Return href from AstroDataAuthProps:", this.dataset.returnHref);
         window.location.href = returnHref || "/";
       });
     }

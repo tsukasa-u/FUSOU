@@ -1,7 +1,7 @@
 import type { APIRoute } from "astro";
 import { createClient } from "@supabase/supabase-js";
 import { createSupabaseServerClient } from "@/utility/supabaseServer";
-import { sanitizeErrorMessage, SECURE_COOKIE_OPTIONS } from "@/utility/security";
+import { sanitizeErrorMessage } from "@/utility/security";
 
 const createUserScopedClient = (accessToken: string) =>
   createClient(
@@ -19,6 +19,15 @@ const createUserScopedClient = (accessToken: string) =>
       },
     }
   );
+
+// Use consistent cookie options with supabaseServer.ts
+const COOKIE_OPTIONS = {
+  path: "/",
+  sameSite: "lax" as const,
+  httpOnly: true,
+  secure: import.meta.env.PROD,
+  maxAge: 60 * 60 * 24 * 7, // 7 days
+};
 
 export const GET: APIRoute = async ({ url, cookies, redirect }) => {
   const authCode = url.searchParams.get("code");
@@ -62,17 +71,28 @@ export const GET: APIRoute = async ({ url, cookies, redirect }) => {
       .upsert(upsertPayload);
 
     if (storeTokenError) {
-      console.error("Failed to store provider token", storeTokenError);
+      // Log the error for debugging but don't block authentication
+      // The user is authenticated even if provider token storage fails
+      console.warn("⚠️ Provider token storage failed (RLS policy):", {
+        code: storeTokenError.code,
+        message: storeTokenError.message,
+        details: storeTokenError.details,
+      });
+      console.warn("⚠️ User authentication succeeded, but provider tokens won't be persisted to database");
+      console.warn("⚠️ Tokens are still available in cookies for this session");
+    } else {
+      console.log("✓ Provider tokens stored successfully");
     }
 
-    cookies.set("sb-provider-token", provider_token, SECURE_COOKIE_OPTIONS);
-    cookies.set("sb-provider-refresh-token", provider_refresh_token, SECURE_COOKIE_OPTIONS);
+    cookies.set("sb-provider-token", provider_token, COOKIE_OPTIONS);
+    cookies.set("sb-provider-refresh-token", provider_refresh_token, COOKIE_OPTIONS);
   } else {
     console.warn("Provider tokens missing in session; skipping persistence");
   }
 
-  cookies.set("sb-access-token", access_token, SECURE_COOKIE_OPTIONS);
-  cookies.set("sb-refresh-token", refresh_token, SECURE_COOKIE_OPTIONS);
+  cookies.set("sb-access-token", access_token, COOKIE_OPTIONS);
+  cookies.set("sb-refresh-token", refresh_token, COOKIE_OPTIONS);
 
+  console.log("✓ Auth tokens set. Redirecting to /dashboard");
   return redirect("/dashboard");
 };
