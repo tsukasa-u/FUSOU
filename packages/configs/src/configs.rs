@@ -241,6 +241,8 @@ impl ConfigsProxyNetwork {
 pub struct ConfigsAppConnectKcServer {
     #[serde(default)]
     kc_server_name: Option<String>,
+    #[serde(default)]
+    server_list: Option<std::collections::HashMap<i32, String>>,
 }
 
 impl ConfigsAppConnectKcServer {
@@ -249,6 +251,59 @@ impl ConfigsAppConnectKcServer {
             Some(ref v) if !v.is_empty() => Some(v.clone()),
             _ => None,
         }
+    }
+
+    pub fn get_server_address(&self, server_index: i32) -> Option<String> {
+        if let Some(map) = &self.server_list {
+            map.get(&server_index).cloned()
+        } else {
+            // Return default server list if not configured
+            self.get_default_server_address(server_index)
+        }
+    }
+
+    fn get_default_server_address(&self, server_index: i32) -> Option<String> {
+        match server_index {
+            1 => Some("w01y.kancolle-server.com".to_string()),
+            2 => Some("w02k.kancolle-server.com".to_string()),
+            3 => Some("w03s.kancolle-server.com".to_string()),
+            4 => Some("w04m.kancolle-server.com".to_string()),
+            5 => Some("w05o.kancolle-server.com".to_string()),
+            6 => Some("w06k.kancolle-server.com".to_string()),
+            7 => Some("w07l.kancolle-server.com".to_string()),
+            8 => Some("w08r.kancolle-server.com".to_string()),
+            9 => Some("w09s.kancolle-server.com".to_string()),
+            10 => Some("w10b.kancolle-server.com".to_string()),
+            11 => Some("w11t.kancolle-server.com".to_string()),
+            12 => Some("w12p.kancolle-server.com".to_string()),
+            13 => Some("w13b.kancolle-server.com".to_string()),
+            14 => Some("w14h.kancolle-server.com".to_string()),
+            15 => Some("w15p.kancolle-server.com".to_string()),
+            16 => Some("w16s.kancolle-server.com".to_string()),
+            17 => Some("w17k.kancolle-server.com".to_string()),
+            18 => Some("w18i.kancolle-server.com".to_string()),
+            19 => Some("w19s.kancolle-server.com".to_string()),
+            20 => Some("w20h.kancolle-server.com".to_string()),
+            _ => None,
+        }
+    }
+
+    pub fn get_all_servers(&self) -> std::collections::HashMap<i32, String> {
+        if let Some(map) = &self.server_list {
+            map.clone()
+        } else {
+            self.get_default_servers()
+        }
+    }
+
+    fn get_default_servers(&self) -> std::collections::HashMap<i32, String> {
+        let mut map = std::collections::HashMap::new();
+        for i in 1..=20 {
+            if let Some(addr) = self.get_default_server_address(i) {
+                map.insert(i, addr);
+            }
+        }
+        map
     }
 }
 
@@ -748,16 +803,23 @@ impl ConfigsAppAssetSync {
 pub struct ConfigsAppAuth {
     #[serde(default = "default_deny_auth")]
     pub deny_auth: Option<bool>,
+    #[serde(default = "default_auth_page_url")]
+    pub auth_page_url: Option<String>,
 }
 
 fn default_deny_auth() -> Option<bool> {
     Some(true)
 }
 
+fn default_auth_page_url() -> Option<String> {
+    Some("https://fusou.pages.dev/signinLocalApp".to_string())
+}
+
 impl Default for ConfigsAppAuth {
     fn default() -> Self {
         Self {
             deny_auth: Some(true),
+            auth_page_url: Some("https://fusou.pages.dev/signinLocalApp".to_string()),
         }
     }
 }
@@ -765,6 +827,13 @@ impl Default for ConfigsAppAuth {
 impl ConfigsAppAuth {
     pub fn get_deny_auth(&self) -> bool {
         self.deny_auth.unwrap_or(true)
+    }
+
+    pub fn get_auth_page_url(&self) -> String {
+        match &self.auth_page_url {
+            Some(v) if !v.is_empty() => v.clone(),
+            _ => "https://fusou.pages.dev/signinLocalApp".to_string(),
+        }
     }
 }
 
