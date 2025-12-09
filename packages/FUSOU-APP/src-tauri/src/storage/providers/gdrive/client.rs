@@ -113,7 +113,9 @@ pub async fn create_auth() -> Option<
     };
 
     if let Err(e) = auth.token(SCOPES).await {
-        tracing::error!("error: {e:?}")
+        tracing::error!("initial Google token fetch failed: {e:?}");
+        let _ = auth_server::open_auth_page();
+        return None;
     }
 
     return Some(auth);
@@ -135,7 +137,8 @@ pub async fn create_client() -> Option<DriveClient> {
         .clone();
 
     if let Err(e) = auth.force_refreshed_token(SCOPES).await {
-        tracing::error!("error: {e:?}");
+        tracing::error!("Google refresh_token invalid/expired: {e:?}; opening auth page");
+        let _ = auth_server::open_auth_page();
         return None;
     }
 

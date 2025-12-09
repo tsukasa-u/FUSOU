@@ -9,6 +9,8 @@ use tokio::sync::Mutex;
 
 const SUPABASE_URL_EMBED: Option<&str> = option_env!("SUPABASE_URL");
 const SUPABASE_ANON_KEY_EMBED: Option<&str> = option_env!("SUPABASE_ANON_KEY");
+// Fallback TTL when Supabase response omits expires_in (seconds)
+const DEFAULT_ACCESS_TOKEN_TTL_SECS: i64 = 55 * 60; // 55 minutes to refresh before typical 60m expiry
 
 #[derive(Clone)]
 pub struct AuthConfig {
@@ -167,11 +169,11 @@ impl<S: Storage> AuthManager<S> {
             let text = resp.text().await.unwrap_or_default();
             tracing::warn!(status = %status, url = %url, body = %text, "supabase refresh request failed");
 
-            // If the refresh token is invalid (400 Bad Request with "invalid_grant" or similar, or 401),
-            // we should clear the session so the user is forced to re-login.
+            // If the refresh token is invalid/expired/already used, clear and signal re-auth.
             if status == reqwest::StatusCode::BAD_REQUEST || status == reqwest::StatusCode::UNAUTHORIZED {
-                tracing::warn!("refresh token invalid or expired; clearing session");
+                tracing::warn!("refresh token invalid/expired; clearing session and requesting re-login");
                 let _ = self.storage.clear().await;
+                return Err(AuthError::RequireReauth("refresh token invalid or already used; please sign in again".to_string()));
             }
 
             return Err(AuthError::RefreshFailed(format!("status {}: {}", status, text)));
@@ -181,10 +183,19 @@ impl<S: Storage> AuthManager<S> {
 
         // extract tokens and expiry
         let access_token = body["access_token"].as_str().unwrap_or_default().to_string();
-        let refresh_token = body["refresh_token"].as_str().unwrap_or(&current.refresh_token).to_string();
-        let expires_in = body["expires_in"].as_i64();
+        let refresh_token = body
+            .get("refresh_token")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| current.refresh_token.clone());
 
-        let expires_at: Option<DateTime<Utc>> = expires_in.map(|s| Utc::now() + Duration::seconds(s));
+        let expires_in = body.get("expires_in").and_then(|v| v.as_i64());
+
+        // If expires_in is missing, fall back to a conservative default to avoid hammering refresh.
+        let expires_at: Option<DateTime<Utc>> = Some(Utc::now()
+            + Duration::seconds(
+                expires_in.unwrap_or(DEFAULT_ACCESS_TOKEN_TTL_SECS).max(60), // at least 60s
+            ));
 
         let session = Session {
             access_token: access_token.clone(),

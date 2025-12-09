@@ -8,10 +8,12 @@ use tauri_plugin_notification::NotificationExt;
 use uuid::Uuid;
 use serde::Deserialize;
 use fusou_auth::{AuthManager, FileStorage};
+use fusou_auth::error::AuthError;
 use std::sync::{Arc, Mutex};
 use tauri::Manager;
 use fusou_upload::PendingStore;
 use fusou_upload::UploadContext;
+use crate::auth::auth_server;
 
 #[derive(Deserialize)]
 struct PrepareResponse {
@@ -58,16 +60,36 @@ pub async fn perform_snapshot_sync_app(
         let manager = auth_manager.lock().unwrap().clone();
         match manager.get_access_token().await {
             Ok(t) => t,
+            Err(AuthError::RequireReauth(msg)) => {
+                let _ = app
+                    .notification()
+                    .builder()
+                    .title("Sign-in Required")
+                    .body("Session expired. Please sign in again.")
+                    .show();
+                let _ = auth_server::open_auth_page();
+                return Err(msg);
+            }
+            Err(AuthError::NoSession) => {
+                let msg = "No session found; please sign in.".to_string();
+                let _ = app
+                    .notification()
+                    .builder()
+                    .title("Sign-in Required")
+                    .body("Session expired. Please sign in again.")
+                    .show();
+                let _ = auth_server::open_auth_page();
+                return Err(msg);
+            }
             Err(e) => {
                 let msg = format!("Snapshot sync requires auth but failed to get token: {}", e);
                 tracing::error!("{}", msg);
-                
-                // Check if session is gone (which happens if refresh failed fatally)
-                if !manager.is_authenticated().await {
-                     let _ = app.notification().builder().title("Session Expired").body("Please sign in again to sync your snapshot.").show();
-                } else {
-                     let _ = app.notification().builder().title("Sync Failed").body(&msg).show();
-                }
+                let _ = app
+                    .notification()
+                    .builder()
+                    .title("Sync Failed")
+                    .body(&msg)
+                    .show();
                 return Err(msg);
             }
         }

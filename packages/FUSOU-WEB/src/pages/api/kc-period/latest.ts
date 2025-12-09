@@ -41,7 +41,9 @@ export const GET: APIRoute = async ({ locals }) => {
     return jsonResponse(cachedPeriod.payload, true);
   }
 
-  const supabaseUrl = normalizeSupabaseUrl(import.meta.env.PUBLIC_SUPABASE_URL || "");
+  const supabaseUrl = normalizeSupabaseUrl(
+    import.meta.env.PUBLIC_SUPABASE_URL || ""
+  );
   if (!supabaseUrl) {
     return errorResponse("PUBLIC_SUPABASE_URL is not configured", 500);
   }
@@ -52,8 +54,9 @@ export const GET: APIRoute = async ({ locals }) => {
     return errorResponse("Supabase API key is not available", 503);
   }
 
-  const queryUrl =
-    `${supabaseUrl}/rest/v1/kc_period_tag?select=tag&order=tag.desc.nullslast&limit=1`;
+  // Query for the latest period tag that is not in the future
+  const nowIso = new Date().toISOString();
+  const queryUrl = `${supabaseUrl}/rest/v1/kc_period_tag?select=tag&tag=lte.${nowIso}&order=tag.desc.nullslast&limit=1`;
 
   const response = await fetch(queryUrl, {
     headers: {
@@ -66,7 +69,7 @@ export const GET: APIRoute = async ({ locals }) => {
   if (!response.ok) {
     const message = (await response.text()).trim();
     console.error(
-      `Failed to fetch kc_period_tag from Supabase: ${response.status} ${message}`,
+      `Failed to fetch kc_period_tag from Supabase: ${response.status} ${message}`
     );
     return errorResponse("Unable to fetch kc_period_tag", 502);
   }
@@ -79,7 +82,8 @@ export const GET: APIRoute = async ({ locals }) => {
     return errorResponse("Supabase response was not valid JSON", 502);
   }
 
-  const latestTag = Array.isArray(rows) && rows.length > 0 ? rows[0].tag ?? null : null;
+  const latestTag =
+    Array.isArray(rows) && rows.length > 0 ? rows[0].tag ?? null : null;
   const payload = buildPayload(latestTag, now);
   cachedPeriod = {
     payload,
@@ -111,17 +115,14 @@ function normalizeSupabaseUrl(value: string): string | null {
 }
 
 function jsonResponse(payload: PeriodPayload, cached: boolean): Response {
-  return new Response(
-    JSON.stringify({ ...payload, cached }),
-    {
-      status: 200,
-      headers: {
-        "content-type": "application/json",
-        "cache-control": `public, max-age=${CACHE_TTL_MS / 1000}`,
-        ...CORS_HEADERS,
-      },
+  return new Response(JSON.stringify({ ...payload, cached }), {
+    status: 200,
+    headers: {
+      "content-type": "application/json",
+      "cache-control": `public, max-age=${CACHE_TTL_MS / 1000}`,
+      ...CORS_HEADERS,
     },
-  );
+  });
 }
 
 function errorResponse(message: string, status: number): Response {
