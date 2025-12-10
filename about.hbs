@@ -1,0 +1,25 @@
+# Rust Dependencies This software uses the following Rust packages:
+
+{{#each packages}}
+  ##
+  {{name}}
+  {{version}}
+
+  * **License:**
+  {{license}}
+  * **Repository:**
+  {{#if repository}}[{{repository}}]({{repository}}){{else}}N/A{{/if}}
+  {{#if homepage}}* **Homepage:** [{{homepage}}]({{homepage}}){{/if}}
+
+  <details>
+    <summary>Show License Text</summary>
+
+    ```
+    {{text}}
+    ```
+
+  </details>
+
+  ---
+
+{{/each}}

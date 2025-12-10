@@ -2,6 +2,7 @@
 name = "configs"
 version = "0.1.1"
 edition = "2024"
+license = "MIT OR Apache-2.0"
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }

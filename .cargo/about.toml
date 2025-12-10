@@ -1,0 +1,33 @@
+# Configuration for cargo-about
+# See: https://github.com/EmbarkStudios/cargo-about
+
+accepted = [
+    "MIT",
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "MPL-2.0",
+    "CDLA-Permissive-2.0",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "Unlicense",
+    "Apache-2.0 WITH LLVM-exception",
+    "Zlib",
+    "CC0-1.0",
+    "OpenSSL",
+    "LGPL-2.1-or-later",
+    "GPL-2.0-only",
+    "GPL-2.0-or-later",
+]
+
+no-clearly-defined = true
+filter-noassertion = true
+
+# Workaround for GPL-2.0 deprecated identifier error
+# Some dependencies have LICENSE files containing deprecated GPL-2.0 identifier
+# instead of GPL-2.0-only or GPL-2.0-or-later. Since cargo-about cannot parse deprecated
+# identifiers in LICENSE files (only in Cargo.toml), we skip scanning and manually
+# clarify licenses for crates that would trigger this error.
+ignore-build-dependencies = false
+ignore-dev-dependencies = false

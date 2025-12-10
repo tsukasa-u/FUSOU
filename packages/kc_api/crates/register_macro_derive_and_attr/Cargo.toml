@@ -2,6 +2,7 @@
 name = "register_macro_derive_and_attr"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
 
 [dependencies]
 proc-macro2 = { workspace = true }
