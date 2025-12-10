@@ -10,6 +10,57 @@ struct HandshakeResponse {
     upload_url: String,
 }
 
+/// Structured error type for upload failures
+#[derive(Debug, Clone)]
+pub enum UploadError {
+    /// Authentication-related failures (401 Unauthorized, 403 Forbidden)
+    AuthenticationError { status_code: u16, message: String },
+    /// Client-side errors (4xx excluding auth errors)
+    ClientError { status_code: u16, message: String },
+    /// Server-side errors (5xx)
+    ServerError { status_code: u16, message: String },
+    /// Network or serialization errors
+    TransportError(String),
+    /// 409 Conflict - resource already exists
+    Conflict,
+}
+
+impl UploadError {
+    /// Check if this is an authentication failure
+    pub fn is_auth_error(&self) -> bool {
+        matches!(self, UploadError::AuthenticationError { .. })
+    }
+
+    /// Convert to error string for logging/storage
+    pub fn to_string(&self) -> String {
+        match self {
+            UploadError::AuthenticationError { status_code, message } => {
+                format!("Authentication error ({}): {}", status_code, message)
+            }
+            UploadError::ClientError { status_code, message } => {
+                format!("Client error ({}): {}", status_code, message)
+            }
+            UploadError::ServerError { status_code, message } => {
+                format!("Server error ({}): {}", status_code, message)
+            }
+            UploadError::TransportError(msg) => msg.clone(),
+            UploadError::Conflict => "Resource already exists (409)".to_string(),
+        }
+    }
+}
+
+impl std::fmt::Display for UploadError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.to_string())
+    }
+}
+
+impl From<UploadError> for String {
+    fn from(err: UploadError) -> Self {
+        err.to_string()
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum UploadContext {
     Asset {
@@ -48,6 +99,9 @@ impl Uploader {
         let result = Self::perform_upload(client, auth_manager, &request).await;
 
         if let Err(err) = &result {
+            // Convert to string for compatibility with existing code
+            let err_str = String::from(err.clone());
+            
             if let Some(store) = pending_store {
                 let context_json = serde_json::to_string(&request.context).unwrap_or_default();
                 if let Err(e) = store.save_pending(
@@ -58,19 +112,19 @@ impl Uploader {
                 ) {
                     tracing::error!("Failed to save pending upload: {}", e);
                 } else {
-                    tracing::info!("Saved pending upload due to error: {}", err);
+                    tracing::info!("Saved pending upload due to error: {}", err_str);
                 }
             }
         }
 
-        result
+        result.map_err(|e| e.into())
     }
 
     async fn perform_upload(
         client: &Client,
         auth_manager: &AuthManager<FileStorage>,
         request: &UploadRequest<'_>,
-    ) -> Result<UploadResult, String> {
+    ) -> Result<UploadResult, UploadError> {
         // 1. Handshake
         let mut handshake_req = client
             .post(request.endpoint)
@@ -83,23 +137,40 @@ impl Uploader {
         if let Ok(token) = auth_manager.get_access_token().await {
             handshake_req = handshake_req.bearer_auth(token);
         } else {
-            return Err("Auth failed".to_string());
+            return Err(UploadError::AuthenticationError {
+                status_code: 401,
+                message: "Failed to obtain access token".to_string(),
+            });
         }
 
-        let resp = handshake_req.send().await.map_err(|e| format!("Handshake network error: {}", e))?;
+        let resp = handshake_req.send().await
+            .map_err(|e| UploadError::TransportError(format!("Handshake network error: {}", e)))?;
         
         if resp.status() == StatusCode::CONFLICT {
             return Ok(UploadResult::Skipped);
         }
 
         if !resp.status().is_success() {
-            let status = resp.status();
+            let status_code = resp.status().as_u16();
             let body = resp.text().await.unwrap_or_default();
-            return Err(format!("Handshake failed {}: {}", status, body));
+            return Err(match status_code {
+                401 | 403 => UploadError::AuthenticationError {
+                    status_code,
+                    message: body,
+                },
+                400..=499 => UploadError::ClientError {
+                    status_code,
+                    message: body,
+                },
+                _ => UploadError::ServerError {
+                    status_code,
+                    message: body,
+                },
+            });
         }
 
         let handshake_res: HandshakeResponse = resp.json().await
-            .map_err(|e| format!("Invalid handshake response: {}", e))?;
+            .map_err(|e| UploadError::TransportError(format!("Invalid handshake response: {}", e)))?;
 
         // 2. Upload
         let mut upload_req = client
@@ -114,16 +185,30 @@ impl Uploader {
             upload_req = upload_req.bearer_auth(token);
         }
 
-        let upload_resp = upload_req.send().await.map_err(|e| format!("Upload network error: {}", e))?;
+        let upload_resp = upload_req.send().await
+            .map_err(|e| UploadError::TransportError(format!("Upload network error: {}", e)))?;
 
         if upload_resp.status() == StatusCode::CONFLICT {
             return Ok(UploadResult::Skipped);
         }
 
         if !upload_resp.status().is_success() {
-            let status = upload_resp.status();
+            let status_code = upload_resp.status().as_u16();
             let body = upload_resp.text().await.unwrap_or_default();
-            return Err(format!("Upload failed {}: {}", status, body));
+            return Err(match status_code {
+                401 | 403 => UploadError::AuthenticationError {
+                    status_code,
+                    message: body,
+                },
+                400..=499 => UploadError::ClientError {
+                    status_code,
+                    message: body,
+                },
+                _ => UploadError::ServerError {
+                    status_code,
+                    message: body,
+                },
+            });
         }
 
         Ok(UploadResult::Success)

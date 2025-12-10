@@ -22,6 +22,14 @@ import { useAuth } from "../utility/provider";
 import { ThemeControllerComponent } from "../components/settings/theme";
 import { createAsyncStore } from "@solidjs/router";
 
+type SessionHealth = {
+  has_session: boolean;
+  access_token_len: number;
+  refresh_token_len: number;
+  seems_valid: boolean;
+  reason?: string | null;
+};
+
 const launch_options: { [key: string]: number } = {
   run_proxy_server: 1,
   open_app: 1,
@@ -30,47 +38,29 @@ const launch_options: { [key: string]: number } = {
   server: -1,
 };
 
-const server_list: { [key: string]: string } = {
-  横須賀鎮守府: "w01y.kancolle-server.com", // 横須賀鎮守府
-  新呉鎮守府: "w02k.kancolle-server.com", // 新呉鎮守府
-  佐世保鎮守府: "w03s.kancolle-server.com", // 佐世保鎮守府
-  舞鶴鎮守府: "w04m.kancolle-server.com", // 舞鶴鎮守府
-  大湊警備府: "w05o.kancolle-server.com", // 大湊警備府
-  トラック泊地: "w06k.kancolle-server.com", // トラック泊地
-  リンガ泊地: "w07l.kancolle-server.com", // リンガ泊地
-  ラバウル基地: "w08r.kancolle-server.com", // ラバウル基地
-  ショートランド泊地: "w09s.kancolle-server.com", // ショートランド泊地
-  ブイン基地: "w10b.kancolle-server.com", // ブイン基地
-  タウイタウイ泊地: "w11t.kancolle-server.com", // タウイタウイ泊地
-  パラオ泊地: "w12p.kancolle-server.com", // パラオ泊地
-  ブルネイ泊地: "w13b.kancolle-server.com", // ブルネイ泊地
-  単冠湾泊地: "w14h.kancolle-server.com", // 単冠湾泊地
-  幌筵泊地: "w15p.kancolle-server.com", // 幌筵泊地
-  宿毛湾泊地: "w16s.kancolle-server.com", // 宿毛湾泊地
-  鹿屋基地: "w17k.kancolle-server.com", // 鹿屋基地
-  岩川基地: "w18i.kancolle-server.com", // 岩川基地
-  佐伯湾泊地: "w19s.kancolle-server.com", // 佐伯湾泊地
-  柱島泊地: "w20h.kancolle-server.com", // 柱島泊地
-  //     // "横須賀鎮守府":	"203.104.209.71",
-  //     // "新呉鎮守府":	"203.104.209.87",
-  //     // "佐世保鎮守府":	"125.6.184.215",
-  //     // "舞鶴鎮守府":	"203.104.209.183",
-  //     // "大湊警備府":	"203.104.209.150",
-  //     // "トラック泊地":	"203.104.209.134",
-  //     // "リンガ泊地":	"203.104.209.167",
-  //     // "ラバウル基地":	"203.104.209.199",
-  //     // "ショートランド泊地":	"125.6.189.7",
-  //     // "ブイン基地":	"125.6.189.39",
-  //     // "タウイタウイ泊地":	"125.6.189.71",
-  //     // "パラオ泊地":	"125.6.189.103",
-  //     // "ブルネイ泊地":	"125.6.189.135",
-  //     // "単冠湾泊地":	"125.6.189.167",
-  //     // "宿毛湾泊地":	"125.6.189.247",
-  //     // "幌筵泊地":	"125.6.189.215",
-  //     // "鹿屋基地":	"203.104.209.23",
-  //     // "岩川基地":	"203.104.209.39",
-  //     // "佐伯湾泊地":	"203.104.209.55",
-  //     // "柱島泊地":	"203.104.209.102",
+// Server list will be loaded dynamically from config
+// Hardcoded as fallback defaults
+const DEFAULT_SERVER_LIST: { [key: string]: string } = {
+  横須賀鎮守府: "w01y.kancolle-server.com",
+  新呉鎮守府: "w02k.kancolle-server.com",
+  佐世保鎮守府: "w03s.kancolle-server.com",
+  舞鶴鎮守府: "w04m.kancolle-server.com",
+  大湊警備府: "w05o.kancolle-server.com",
+  トラック泊地: "w06k.kancolle-server.com",
+  リンガ泊地: "w07l.kancolle-server.com",
+  ラバウル基地: "w08r.kancolle-server.com",
+  ショートランド泊地: "w09s.kancolle-server.com",
+  ブイン基地: "w10b.kancolle-server.com",
+  タウイタウイ泊地: "w11t.kancolle-server.com",
+  パラオ泊地: "w12p.kancolle-server.com",
+  ブルネイ泊地: "w13b.kancolle-server.com",
+  単冠湾泊地: "w14h.kancolle-server.com",
+  幌筵泊地: "w15p.kancolle-server.com",
+  宿毛湾泊地: "w16s.kancolle-server.com",
+  鹿屋基地: "w17k.kancolle-server.com",
+  岩川基地: "w18i.kancolle-server.com",
+  佐伯湾泊地: "w19s.kancolle-server.com",
+  柱島泊地: "w20h.kancolle-server.com",
 };
 
 function open_auth_page() {
@@ -108,10 +98,43 @@ function Start() {
   const [pacServerHealth, setPacServerHealth] = createSignal<number>(-1);
   const [proxyServerHealth, setProxyServerHealth] = createSignal<number>(-1);
 
+  const [sessionHealth, setSessionHealth] = createSignal<SessionHealth | null>(
+    null
+  );
+  const [sessionHealthLoading, setSessionHealthLoading] =
+    createSignal<boolean>(false);
+
   const [advancesSettingsCollapse, setAdavncedSettingsCollpse] =
     createSignal<boolean>(false);
 
   const [authData, setAuthData] = useAuth();
+
+  const checkSessionHealth = async () => {
+    try {
+      setSessionHealthLoading(true);
+      const health = await invoke<SessionHealth>(
+        "check_supabase_session_health"
+      );
+      setSessionHealth(health);
+      return health;
+    } catch (e) {
+      console.error("Failed to check session health", e);
+      return null;
+    } finally {
+      setSessionHealthLoading(false);
+    }
+  };
+
+  const forceLocalSignOut = async () => {
+    try {
+      await invoke("force_local_sign_out");
+      await supabase.auth.signOut();
+      setAuthData({ accessToken: null, refreshToken: null });
+      setSessionHealth(null);
+    } catch (e) {
+      console.error("Failed to force local sign out", e);
+    }
+  };
 
   let tokensInput: HTMLInputElement | null = null;
 
@@ -225,7 +248,10 @@ function Start() {
                 access_token: data.session.access_token,
                 refresh_token: data.session.refresh_token,
               }).catch((error) => {
-                console.error("Failed to propagate initial Supabase session", error);
+                console.error(
+                  "Failed to propagate initial Supabase session",
+                  error
+                );
               });
             }
             getRefreshToken(data.session.user.id)
@@ -374,7 +400,11 @@ function Start() {
                           onClick={() => {
                             setRunProxyServer(!runProxyServer());
                           }}
-                        class={runProxyServer() ? "toggle toggle-sm toggle-primary rounded-sm [&::before]:rounded-xs bg-primary border-primary-content [&::before]:bg-emerald-50 [&::before]:border [&::before]:border-primary-content " : "toggle toggle-sm toggle-primary rounded-sm [&::before]:rounded-xs"}
+                          class={
+                            runProxyServer()
+                              ? "toggle toggle-sm toggle-primary rounded-sm [&::before]:rounded-xs bg-primary border-primary-content [&::before]:bg-emerald-50 [&::before]:border [&::before]:border-primary-content "
+                              : "toggle toggle-sm toggle-primary rounded-sm [&::before]:rounded-xs"
+                          }
                           checked={runProxyServer()}
                           disabled={run_proxy_flag() <= 0}
                         />
@@ -395,7 +425,7 @@ function Start() {
                     }}
                   >
                     <option selected>{auto_listen() ?? "Auto Listen"}</option>
-                    <For each={Object.keys(server_list)}>
+                    <For each={Object.keys(DEFAULT_SERVER_LIST)}>
                       {(name, idx) => (
                         <option selected={server() == idx() + 1}>{name}</option>
                       )}
@@ -467,7 +497,11 @@ function Start() {
                         onClick={() => {
                           setOpenApp(!openApp());
                         }}
-                        class={openApp() ? "toggle toggle-sm toggle-primary rounded-sm [&::before]:rounded-xs bg-primary border-primary-content [&::before]:bg-emerald-50 [&::before]:border [&::before]:border-primary-content " : "toggle toggle-sm toggle-primary rounded-sm [&::before]:rounded-xs"}
+                        class={
+                          openApp()
+                            ? "toggle toggle-sm toggle-primary rounded-sm [&::before]:rounded-xs bg-primary border-primary-content [&::before]:bg-emerald-50 [&::before]:border [&::before]:border-primary-content "
+                            : "toggle toggle-sm toggle-primary rounded-sm [&::before]:rounded-xs"
+                        }
                         checked={openApp()}
                         disabled={run_app_flag() <= 0}
                       />
@@ -493,7 +527,11 @@ function Start() {
                             Number(!openKancolle());
                           setOpenKancolle(!openKancolle());
                         }}
-                        class={openKancolle() ? "toggle toggle-sm toggle-primary rounded-sm [&::before]:rounded-xs bg-primary border-primary-content [&::before]:bg-emerald-50 [&::before]:border [&::before]:border-primary-content " : "toggle toggle-sm toggle-primary rounded-sm [&::before]:rounded-xs"}
+                        class={
+                          openKancolle()
+                            ? "toggle toggle-sm toggle-primary rounded-sm [&::before]:rounded-xs bg-primary border-primary-content [&::before]:bg-emerald-50 [&::before]:border [&::before]:border-primary-content "
+                            : "toggle toggle-sm toggle-primary rounded-sm [&::before]:rounded-xs"
+                        }
                         checked={openKancolle()}
                       />
                     </label>
@@ -505,7 +543,11 @@ function Start() {
                       <input
                         type="radio"
                         name="radio-10"
-                        class={openKancolleWithWebView() ? "radio radio-secondary border-secondary-content [&:before]:bg-lime-50 [&:before]:border [&:before]:border-secondary-content bg-secondary" : "radio radio-secondary"}
+                        class={
+                          openKancolleWithWebView()
+                            ? "radio radio-secondary border-secondary-content [&:before]:bg-lime-50 [&:before]:border [&:before]:border-secondary-content bg-secondary"
+                            : "radio radio-secondary"
+                        }
                         disabled={!openKancolle()}
                         checked={openKancolleWithWebView()}
                         onClick={() => {
@@ -521,7 +563,11 @@ function Start() {
                       <input
                         type="radio"
                         name="radio-10"
-                        class={!openKancolleWithWebView() ? "radio radio-secondary border-secondary-content [&:before]:bg-lime-50 [&:before]:border [&:before]:border-secondary-content bg-secondary" : "radio radio-secondary"}
+                        class={
+                          !openKancolleWithWebView()
+                            ? "radio radio-secondary border-secondary-content [&:before]:bg-lime-50 [&:before]:border [&:before]:border-secondary-content bg-secondary"
+                            : "radio radio-secondary"
+                        }
                         disabled={!openKancolle()}
                         checked={!openKancolleWithWebView()}
                         onClick={() => {
@@ -561,7 +607,9 @@ function Start() {
                 Set provider (provider) (access/refresh) tokens
               </div>
               <fieldset class="fieldset">
-                <legend class="fieldset-legen">input tokens for new session</legend>
+                <legend class="fieldset-legen">
+                  input tokens for new session
+                </legend>
                 <div class="flex items-center gap-2">
                   <input
                     id="tokens"
@@ -593,6 +641,44 @@ function Start() {
                   </button>
                 </div>
               </fieldset>
+
+              <div class="h-4" />
+
+              <div class="font-semibold">Supabase Session</div>
+              <div class="h-2" />
+              <div class="flex flex-wrap gap-2">
+                <button
+                  class="btn btn-sm btn-outline"
+                  onClick={checkSessionHealth}
+                  disabled={sessionHealthLoading()}
+                >
+                  {sessionHealthLoading() ? "Checking..." : "Check health"}
+                </button>
+                <button
+                  class="btn btn-sm btn-error"
+                  onClick={forceLocalSignOut}
+                >
+                  Force local sign out
+                </button>
+              </div>
+              <Show when={sessionHealth()}>
+                {(h) => (
+                  <div class="mt-2 text-xs space-y-1">
+                    <div>
+                      session: {h().has_session ? "exists" : "missing"},
+                      access_len=
+                      {h().access_token_len}, refresh_len=
+                      {h().refresh_token_len}
+                    </div>
+                    <div>
+                      status: {h().seems_valid ? "looks ok" : "invalid"}
+                    </div>
+                    <Show when={h().reason}>
+                      {(r) => <div class="text-warning">{r()}</div>}
+                    </Show>
+                  </div>
+                )}
+              </Show>
 
               <div class="h-4" />
 

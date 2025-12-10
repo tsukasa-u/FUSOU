@@ -7,7 +7,8 @@
     "build": "dotenvx run -fk ../.env.keys -f .env --verbose --overload -- astro check && astro build",
     "build.no.keys": "dotenvx run -f .env --verbose --overload -- astro check && astro build",
     "preview": "dotenvx run -fk ../.env.keys -f .env --verbose --overload -- astro preview",
-    "astro": "astro"
+    "astro": "astro",
+    "gen:licenses": "node ../../scripts/generate-licenses.js"
   },
   "dependencies": {
     "@astrojs/check": "^0.9.6",

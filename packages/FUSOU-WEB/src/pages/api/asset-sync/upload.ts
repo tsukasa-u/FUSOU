@@ -305,28 +305,52 @@ async function handleSignedUploadExecution(
     return errorResponse("Upload payload is missing", 400);
   }
 
-  // Enforce size limit on the stream
-  const limitStream = new TransformStream({
-    start() {
-      this.bytesRead = 0;
-    },
-    transform(chunk, controller) {
-      // @ts-ignore
-      this.bytesRead += chunk.byteLength;
-      // @ts-ignore
-      if (this.bytesRead > MAX_UPLOAD_BYTES) {
-        controller.error(new Error("Upload exceeds maximum allowed size"));
-      } else {
-        controller.enqueue(chunk);
+  // Extract content-length for R2 (required for FixedLengthStream compatibility)
+  // const contentLength = contentLengthHeader
+  //   ? Number(contentLengthHeader)
+  //   : descriptor.declared_size;
+
+  // R2 requires known-length streams; use FixedLengthStream if available
+  // For Cloudflare Workers, request.body already has length info from content-length
+  let uploadBody: ReadableStream | Uint8Array = bodyStream;
+
+  // If no content-length and we have declared_size as fallback,
+  // buffer the entire body to get actual length
+  if (!contentLengthHeader && descriptor.declared_size) {
+    try {
+      const chunks: Uint8Array[] = [];
+      const reader = bodyStream.getReader();
+      let totalBytes = 0;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (value) {
+          chunks.push(value);
+          totalBytes += value.byteLength;
+          if (totalBytes > MAX_UPLOAD_BYTES) {
+            return errorResponse("Upload exceeds maximum allowed size", 413);
+          }
+        }
       }
-    },
-  });
-  
-  const limitedBody = bodyStream.pipeThrough(limitStream);
+
+      // Concatenate all chunks into single buffer
+      const buffer = new Uint8Array(totalBytes);
+      let offset = 0;
+      for (const chunk of chunks) {
+        buffer.set(chunk, offset);
+        offset += chunk.byteLength;
+      }
+      uploadBody = buffer;
+    } catch (err) {
+      console.error("Failed to buffer upload body", err);
+      return errorResponse("Failed to process upload stream", 400);
+    }
+  }
 
   let storedSize = 0;
   try {
-    const result = await bucket.put(descriptor.key, limitedBody, {
+    const result = await bucket.put(descriptor.key, uploadBody, {
       httpMetadata: {
         contentType: deriveContentType(descriptor),
         cacheControl: CACHE_CONTROL,
@@ -340,18 +364,17 @@ async function handleSignedUploadExecution(
         uploader_email: descriptor.uploader_email ?? undefined,
       },
     });
-    
+
     // result.size is reliable when provided by R2 binding
     // If it's missing (mock env?), fallback to declared_size or throw
-    if (result && typeof result.size === 'number') {
-        storedSize = result.size;
+    if (result && typeof result.size === "number") {
+      storedSize = result.size;
     } else {
-        // Fallback for environments where put() returns null or missing size (rare but safe to handle)
-        // We can't trust body stream length after consumption without counting, 
-        // but we can trust the declared_size if we assume the upload succeeded.
-        storedSize = descriptor.declared_size;
+      // Fallback for environments where put() returns null or missing size (rare but safe to handle)
+      // We can't trust body stream length after consumption without counting,
+      // but we can trust the declared_size if we assume the upload succeeded.
+      storedSize = descriptor.declared_size;
     }
-
   } catch (error) {
     console.error("Failed to store asset payload", error);
     return errorResponse("Failed to store payload in R2", 502);

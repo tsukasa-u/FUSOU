@@ -1,10 +1,16 @@
 import { createClient } from "@supabase/supabase-js";
-// import 'dotenv/config'
 
-export const supabase = createClient(
-  import.meta.env.VITE_SUPABASE_URL,
-  import.meta.env.VITE_SUPABASE_ANON_KEY!,
-);
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+
+// Fail fast with a clear message if env vars are missing so requests don't go out without apikey
+if (!supabaseUrl || !supabaseAnonKey) {
+  throw new Error(
+    "Missing Supabase env vars: set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in FUSOU-APP/.env"
+  );
+}
+
+export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 export const getRefreshToken = async (user_id: string) => {
   const { data, error } = await supabase

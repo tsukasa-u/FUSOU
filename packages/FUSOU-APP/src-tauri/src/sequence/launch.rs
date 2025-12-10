@@ -36,29 +36,18 @@ pub async fn launch_with_options(
         if let Some(&flag) = options.get("run_proxy_server") {
             if flag != 0 {
                 if let Some(&server_index) = options.get("server") {
-                    let server_address = match server_index {
-                        -1 => Some(server_name.as_str()),
-                        1 => Some("w01y.kancolle-server.com"), // 横須賀鎮守府
-                        2 => Some("w02k.kancolle-server.com"), // 新呉鎮守府
-                        3 => Some("w03s.kancolle-server.com"), // 佐世保鎮守府
-                        4 => Some("w04m.kancolle-server.com"), // 舞鶴鎮守府
-                        5 => Some("w05o.kancolle-server.com"), // 大湊警備府
-                        6 => Some("w06k.kancolle-server.com"), // トラック泊地
-                        7 => Some("w07l.kancolle-server.com"), // リンガ泊地
-                        8 => Some("w08r.kancolle-server.com"), // ラバウル基地
-                        9 => Some("w09s.kancolle-server.com"), // ショートランド泊地
-                        10 => Some("w10b.kancolle-server.com"), // ブイン基地
-                        11 => Some("w11t.kancolle-server.com"), // タウイタウイ泊地
-                        12 => Some("w12p.kancolle-server.com"), // パラオ泊地
-                        13 => Some("w13b.kancolle-server.com"), // ブルネイ泊地
-                        14 => Some("w14h.kancolle-server.com"), // 単冠湾泊地
-                        15 => Some("w15p.kancolle-server.com"), // 幌筵泊地
-                        16 => Some("w16s.kancolle-server.com"), // 宿毛湾泊地
-                        17 => Some("w17k.kancolle-server.com"), // 鹿屋基地
-                        18 => Some("w18i.kancolle-server.com"), // 岩川基地
-                        19 => Some("w19s.kancolle-server.com"), // 佐伯湾泊地
-                        20 => Some("w20h.kancolle-server.com"), // 柱島泊地
-                        _ => None,
+                    let server_address_from_config = if server_index == -1 {
+                        None
+                    } else {
+                        configs::get_user_configs_for_app()
+                            .connect_kc_server
+                            .get_server_address(server_index)
+                    };
+                    
+                    let server_address = if server_index == -1 {
+                        Some(server_name.as_str())
+                    } else {
+                        server_address_from_config.as_deref()
                     };
                     if let Some(server_address) = server_address {
                         let pac_path = get_ROAMING_DIR()

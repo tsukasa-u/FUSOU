@@ -32,6 +32,7 @@ static ASSET_SYNC_QUEUE: OnceLock<UnboundedSender<PathBuf>> = OnceLock::new();
 static PROCESSED_KEYS: Lazy<DashSet<String>> = Lazy::new(DashSet::new);
 static SUPABASE_AUTH_READY: AtomicBool = AtomicBool::new(false);
 static SUPABASE_WAITING_LOGGED: AtomicBool = AtomicBool::new(false);
+static SUPABASE_AUTH_FAILED: AtomicBool = AtomicBool::new(false);
 static PERIOD_CACHE: Lazy<RwLock<Option<PeriodCache>>> = Lazy::new(|| RwLock::new(None));
 static LAST_PERIOD_TAG: Lazy<RwLock<Option<String>>> = Lazy::new(|| RwLock::new(None));
 static EXISTING_KEYS_CACHE: Lazy<RwLock<Option<RemoteKeyCache>>> = Lazy::new(|| RwLock::new(None));
@@ -152,6 +153,7 @@ pub fn start(
     if !init.require_supabase_auth {
         SUPABASE_AUTH_READY.store(true, Ordering::Relaxed);
         SUPABASE_WAITING_LOGGED.store(false, Ordering::Relaxed);
+        SUPABASE_AUTH_FAILED.store(false, Ordering::Relaxed);
     }
 
     if let Err(err) = std::fs::create_dir_all(&init.save_root) {
@@ -233,6 +235,18 @@ async fn check_auth_ready(
     if !settings.require_supabase_auth {
         return true;
     }
+
+    // Return cached result if authentication failed recently (await reset on 401)
+    if SUPABASE_AUTH_FAILED.load(Ordering::Relaxed) {
+        return false;
+    }
+
+    // Return cached result if already authenticated
+    if SUPABASE_AUTH_READY.load(Ordering::Relaxed) {
+        return true;
+    }
+
+    // Check authentication (only when not cached)
     let is_auth = auth_manager.is_authenticated().await;
     if !is_auth {
         if !SUPABASE_WAITING_LOGGED.swap(true, Ordering::Relaxed) {
@@ -240,6 +254,9 @@ async fn check_auth_ready(
         }
         return false;
     }
+
+    // Cache successful authentication
+    SUPABASE_AUTH_READY.store(true, Ordering::Relaxed);
     if SUPABASE_WAITING_LOGGED.swap(false, Ordering::Relaxed) {
         tracing::info!("Supabase authentication detected; starting asset uploads");
     }
@@ -392,7 +409,13 @@ pub async fn upload_via_api(
         key: key.to_string(),
         relative_path: relative.to_string_lossy().to_string(),
         file_size: file_size.to_string(),
-        finder_tag: settings.finder_tag.clone().filter(|t| !t.is_empty()),
+        finder_tag: settings.finder_tag.clone().and_then(|tag| {
+            if tag.trim().is_empty() {
+                None
+            } else {
+                Some(tag)
+            }
+        }),
         file_name: filename.clone(),
         content_type: "application/octet-stream".to_string(),
     };
@@ -420,13 +443,26 @@ pub async fn upload_via_api(
         Ok(UploadResult::Success) => {
             tracing::info!(key, endpoint = %settings.api_endpoint, "asset upload successful");
             register_remote_key(key);
+            // Reset auth failure flag on successful upload
+            SUPABASE_AUTH_FAILED.store(false, Ordering::Relaxed);
             Ok(())
         },
         Ok(UploadResult::Skipped) => {
             tracing::info!(key, "asset already existed upstream (409)");
             Ok(())
         },
-        Err(e) => Err(e),
+        Err(e) => {
+            // Improved error detection: Check if error contains "Authentication error" prefix
+            // This is safer than pattern matching against fixed strings like "401" or "RequireReauth"
+            // because it's explicitly set by UploadError::AuthenticationError variant
+            if e.contains("Authentication error") {
+                tracing::warn!(key, error = %e, "authentication failure detected; resetting auth cache");
+                SUPABASE_AUTH_READY.store(false, Ordering::Relaxed);
+                SUPABASE_AUTH_FAILED.store(true, Ordering::Relaxed);
+                SUPABASE_WAITING_LOGGED.store(false, Ordering::Relaxed);
+            }
+            Err(e)
+        },
     }
 }
 

@@ -93,34 +93,35 @@ save_file_location = ""
 
 
 [app]
+    [app.connect_kc_server.server_list]
+    # Server hostname mappings (automatically used by the application)
+    #
+    #  No. = server hostname            # server name
+       1   = "w01y.kancolle-server.com" # 横須賀鎮守府
+       2   = "w02k.kancolle-server.com" # 新呉鎮守府
+       3   = "w03s.kancolle-server.com" # 佐世保鎮守府
+       4   = "w04m.kancolle-server.com" # 舞鶴鎮守府
+       5   = "w05o.kancolle-server.com" # 大湊警備府
+       6   = "w06k.kancolle-server.com" # トラック泊地
+       7   = "w07l.kancolle-server.com" # リンガ泊地
+       8   = "w08r.kancolle-server.com" # ラバウル基地
+       9   = "w09s.kancolle-server.com" # ショートランド泊地
+      10   = "w10b.kancolle-server.com" # ブイン基地
+      11   = "w11t.kancolle-server.com" # タウイタウイ泊地
+      12   = "w12p.kancolle-server.com" # パラオ泊地
+      13   = "w13b.kancolle-server.com" # ブルネイ泊地
+      14   = "w14h.kancolle-server.com" # 単冠湾泊地
+      15   = "w15p.kancolle-server.com" # 幌筵泊地
+      16   = "w16s.kancolle-server.com" # 宿毛湾泊地
+      17   = "w17k.kancolle-server.com" # 鹿屋基地
+      18   = "w18i.kancolle-server.com" # 岩川基地
+      19   = "w19s.kancolle-server.com" # 佐伯湾泊地
+      20   = "w20h.kancolle-server.com" # 柱島泊地
+
     [app.connect_kc_server]
     # The hostname of the KanColle server you want to connect to
     # This is the hostname or IP address of the server, like w16s.kancolle-server.com
-    # The correspondence table of server hostname and server name is as follows
-    #
-    #  No. | server hostname          | server name
-    # ---------------------------------------------------
-    #   1  | w01y.kancolle-server.com | 横須賀鎮守府
-    #   2  | w02k.kancolle-server.com | 新呉鎮守府
-    #   3  | w03s.kancolle-server.com | 佐世保鎮守府
-    #   4  | w04m.kancolle-server.com | 舞鶴鎮守府
-    #   5  | w05o.kancolle-server.com | 大湊警備府
-    #   6  | w06k.kancolle-server.com | トラック泊地
-    #   7  | w07l.kancolle-server.com | リンガ泊地
-    #   8  | w08r.kancolle-server.com | ラバウル基地
-    #   9  | w09s.kancolle-server.com | ショートランド泊地
-    #  10  | w10b.kancolle-server.com | ブイン基地
-    #  11  | w11t.kancolle-server.com | タウイタウイ泊地
-    #  12  | w12p.kancolle-server.com | パラオ泊地
-    #  13  | w13b.kancolle-server.com | ブルネイ泊地
-    #  14  | w14h.kancolle-server.com | 単冠湾泊地
-    #  15  | w15p.kancolle-server.com | 幌筵泊地
-    #  16  | w16s.kancolle-server.com | 宿毛湾泊地
-    #  17  | w17k.kancolle-server.com | 鹿屋基地
-    #  18  | w18i.kancolle-server.com | 岩川基地
-    #  19  | w19s.kancolle-server.com | 佐伯湾泊地
-    #  20  | w20h.kancolle-server.com | 柱島泊地
-    #
+    # The correspondence table of server hostname and server name is in [app.connect_kc_server.server_list]
     # Set KanColle server hostname or empty if you want to choose KanColle server automatically
     # kc_server_name = "w16s.kancolle-server.com" # This is example
     kc_server_name = "w16s.kancolle-server.com"
@@ -241,6 +242,10 @@ save_file_location = ""
     # Whether to deny user authentication
     # To be careful because there is no method to reset the authentication state until the authentication expires
     deny_auth = false
+
+    # Authentication page URL
+    # The URL to open when authentication is required
+    auth_page_url = "https://fusou.dev/signinLocalApp"
 
 
     [app.kc_window]

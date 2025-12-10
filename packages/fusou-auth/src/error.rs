@@ -14,6 +14,9 @@ pub enum AuthError {
     #[error("refresh failed: {0}")]
     RefreshFailed(String),
 
+    #[error("re-authentication required: {0}")]
+    RequireReauth(String),
+
     #[error("other: {0}")]
     Other(String),
 }

@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::fs;
 
 use proxy_https::bidirectional_channel;
+use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
 
 use crate::auth::auth_server;
@@ -185,6 +186,79 @@ pub async fn set_supabase_session(
         .app_handle()
         .emit_to("main", "set-supabase-tokens", vec![access_token, refresh_token])
         .map_err(|err| err.to_string())
+}
+
+#[derive(Debug, Serialize)]
+pub struct SessionHealth {
+    pub has_session: bool,
+    pub access_token_len: usize,
+    pub refresh_token_len: usize,
+    pub seems_valid: bool,
+    pub reason: Option<String>,
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub async fn check_supabase_session_health(
+    auth_manager: tauri::State<'_, Arc<Mutex<AuthManager<FileStorage>>>>,
+) -> Result<SessionHealth, String> {
+    let manager = {
+        let guard = auth_manager.lock().unwrap();
+        guard.clone()
+    };
+
+    let session_opt = manager.peek_session().await.map_err(|e| e.to_string())?;
+    if let Some(session) = session_opt {
+        let access_len = session.access_token.len();
+        let refresh_len = session.refresh_token.len();
+
+        // Heuristic: Supabase tokens are typically long; very short ones are likely broken.
+        let mut seems_valid = true;
+        let mut reason: Option<String> = None;
+
+        if refresh_len < 30 {
+            seems_valid = false;
+            reason = Some("refresh_token too short; likely corrupted".to_string());
+        } else if access_len < 30 {
+            seems_valid = false;
+            reason = Some("access_token too short; likely corrupted".to_string());
+        }
+
+        Ok(SessionHealth {
+            has_session: true,
+            access_token_len: access_len,
+            refresh_token_len: refresh_len,
+            seems_valid,
+            reason,
+        })
+    } else {
+        Ok(SessionHealth {
+            has_session: false,
+            access_token_len: 0,
+            refresh_token_len: 0,
+            seems_valid: false,
+            reason: Some("no session stored".to_string()),
+        })
+    }
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub async fn force_local_sign_out(
+    window: tauri::Window,
+    auth_manager: tauri::State<'_, Arc<Mutex<AuthManager<FileStorage>>>>,
+) -> Result<(), String> {
+    let manager = {
+        let guard = auth_manager.lock().unwrap();
+        guard.clone()
+    };
+
+    manager.clear().await.map_err(|e| e.to_string())?;
+
+    // Tell frontend to drop tokens immediately.
+    let _ = window
+        .app_handle()
+        .emit_to("main", "set-supabase-tokens", vec![String::new(), String::new()]);
+
+    Ok(())
 }
 
 #[tauri::command(rename_all = "snake_case")]
