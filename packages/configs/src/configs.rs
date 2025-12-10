@@ -12,29 +12,16 @@ use tracing_unwrap::ResultExt;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConfigsProxyCertificates {
-    #[serde(default = "default_use_generated_certs")]
     use_generated_certs: Option<bool>,
     cert_file: Option<String>,
     key_file: Option<String>,
 }
 
-fn default_use_generated_certs() -> Option<bool> {
-    Some(true)
-}
-
-impl Default for ConfigsProxyCertificates {
-    fn default() -> Self {
-        Self {
-            use_generated_certs: Some(true),
-            cert_file: Some("path/to/cert/file".to_string()),
-            key_file: Some("path/to/key/file".to_string()),
-        }
-    }
-}
-
 impl ConfigsProxyCertificates {
     pub fn get_use_generated_certs(&self) -> bool {
-        self.use_generated_certs.unwrap_or(false)
+        self.use_generated_certs.unwrap_or_else(|| {
+            get_default_configs().proxy.certificates.use_generated_certs.unwrap()
+        })
     }
 
     pub fn get_cert_file(&self) -> Option<PathBuf> {
@@ -48,30 +35,16 @@ impl ConfigsProxyCertificates {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConfigsProxyPac {
-    #[serde(default = "default_use_custom_pac")]
     use_custom_pac: Option<bool>,
     pac_script: Option<String>,
-    #[serde(default)]
     pac_server_port: Option<i64>,
-}
-
-fn default_use_custom_pac() -> Option<bool> {
-    Some(false)
-}
-
-impl Default for ConfigsProxyPac {
-    fn default() -> Self {
-        Self {
-            use_custom_pac: Some(false),
-            pac_script: Some("path/to/pac/script.pac".to_string()),
-            pac_server_port: Some(0),
-        }
-    }
 }
 
 impl ConfigsProxyPac {
     pub fn get_use_custom_pac(&self) -> bool {
-        self.use_custom_pac.unwrap_or(true)
+        self.use_custom_pac.unwrap_or_else(|| {
+            get_default_configs().proxy.pac.use_custom_pac.unwrap()
+        })
     }
 
     pub fn get_pac_script(&self) -> Option<String> {
@@ -85,7 +58,7 @@ impl ConfigsProxyPac {
                 port if port > 65535 => 65535,
                 _ => v,
             })
-            .unwrap_or(0) as u16
+            .unwrap_or_else(|| get_default_configs().proxy.pac.pac_server_port.unwrap()) as u16
     }
 }
 
@@ -102,13 +75,10 @@ impl Default for ChannelTransportKind {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConfigsProxyChannel {
-    #[serde(default)]
     pub transport: ChannelTransportKind,
-    #[serde(default)]
     endpoint: Option<String>,
-    #[serde(default)]
     buffer_size: Option<i64>,
 }
 
@@ -133,64 +103,29 @@ impl ConfigsProxyChannel {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConfigsProxyNetwork {
-    #[serde(default = "default_backend_crate")]
     backend_crate: Option<String>,
-    #[serde(default)]
     enforce_http: Option<bool>,
-    #[serde(default)]
     set_nodelay: Option<bool>,
-    #[serde(default)]
     connect_timeout: Option<i64>,
-    #[serde(default)]
     keepalive_interval: Option<i64>,
-    #[serde(default = "default_recv_buffer_size")]
     recv_buffer_size: Option<i64>,
-    #[serde(default = "default_send_buffer_size")]
     send_buffer_size: Option<i64>,
-    #[serde(default)]
     proxy_server_port: Option<i64>,
-}
-
-fn default_backend_crate() -> Option<String> {
-    Some("hudsucker".to_string())
-}
-
-fn default_recv_buffer_size() -> Option<i64> {
-    Some(8_000_000)
-}
-
-fn default_send_buffer_size() -> Option<i64> {
-    Some(8_000_000)
-}
-
-impl Default for ConfigsProxyNetwork {
-    fn default() -> Self {
-        Self {
-            backend_crate: Some("hudsucker".to_string()),
-            enforce_http: Some(false),
-            set_nodelay: Some(false),
-            connect_timeout: Some(0),
-            keepalive_interval: Some(0),
-            recv_buffer_size: Some(8_000_000),
-            send_buffer_size: Some(8_000_000),
-            proxy_server_port: Some(0),
-        }
-    }
 }
 
 impl ConfigsProxyNetwork {
     pub fn get_backend_crate(&self) -> String {
         self.backend_crate
             .clone()
-            .unwrap_or("hudsucker".to_string())
+            .unwrap_or_else(|| get_default_configs().proxy.network.backend_crate.clone().unwrap())
     }
 
     pub fn get_enforce_http(&self) -> bool {
-        self.enforce_http.unwrap_or(false)
+        self.enforce_http.unwrap_or_else(|| get_default_configs().proxy.network.enforce_http.unwrap())
     }
 
     pub fn get_set_nodelay(&self) -> bool {
-        self.set_nodelay.unwrap_or(false)
+        self.set_nodelay.unwrap_or_else(|| get_default_configs().proxy.network.set_nodelay.unwrap())
     }
 
     pub fn get_connect_timeout(&self) -> Option<std::time::Duration> {
@@ -233,15 +168,13 @@ impl ConfigsProxyNetwork {
                 port if port > 65535 => 65535,
                 _ => v,
             })
-            .unwrap_or(0) as u16
+            .unwrap_or_else(|| get_default_configs().proxy.network.proxy_server_port.unwrap()) as u16
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConfigsAppConnectKcServer {
-    #[serde(default)]
     kc_server_name: Option<String>,
-    #[serde(default)]
     server_list: Option<std::collections::HashMap<i32, String>>,
 }
 
@@ -263,29 +196,12 @@ impl ConfigsAppConnectKcServer {
     }
 
     fn get_default_server_address(&self, server_index: i32) -> Option<String> {
-        match server_index {
-            1 => Some("w01y.kancolle-server.com".to_string()),
-            2 => Some("w02k.kancolle-server.com".to_string()),
-            3 => Some("w03s.kancolle-server.com".to_string()),
-            4 => Some("w04m.kancolle-server.com".to_string()),
-            5 => Some("w05o.kancolle-server.com".to_string()),
-            6 => Some("w06k.kancolle-server.com".to_string()),
-            7 => Some("w07l.kancolle-server.com".to_string()),
-            8 => Some("w08r.kancolle-server.com".to_string()),
-            9 => Some("w09s.kancolle-server.com".to_string()),
-            10 => Some("w10b.kancolle-server.com".to_string()),
-            11 => Some("w11t.kancolle-server.com".to_string()),
-            12 => Some("w12p.kancolle-server.com".to_string()),
-            13 => Some("w13b.kancolle-server.com".to_string()),
-            14 => Some("w14h.kancolle-server.com".to_string()),
-            15 => Some("w15p.kancolle-server.com".to_string()),
-            16 => Some("w16s.kancolle-server.com".to_string()),
-            17 => Some("w17k.kancolle-server.com".to_string()),
-            18 => Some("w18i.kancolle-server.com".to_string()),
-            19 => Some("w19s.kancolle-server.com".to_string()),
-            20 => Some("w20h.kancolle-server.com".to_string()),
-            _ => None,
-        }
+        get_default_configs()
+            .app
+            .connect_kc_server
+            .server_list
+            .as_ref()
+            .and_then(|map| map.get(&server_index).cloned())
     }
 
     pub fn get_all_servers(&self) -> std::collections::HashMap<i32, String> {
@@ -297,32 +213,18 @@ impl ConfigsAppConnectKcServer {
     }
 
     fn get_default_servers(&self) -> std::collections::HashMap<i32, String> {
-        let mut map = std::collections::HashMap::new();
-        for i in 1..=20 {
-            if let Some(addr) = self.get_default_server_address(i) {
-                map.insert(i, addr);
-            }
-        }
-        map
+        get_default_configs()
+            .app
+            .connect_kc_server
+            .server_list
+            .clone()
+            .unwrap_or_default()
     }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConfigsAppBrowser {
-    #[serde(default = "default_browser_url")]
     url: Option<String>,
-}
-
-fn default_browser_url() -> Option<String> {
-    Some("http://www.dmm.com/netgame/social/-/gadgets/=/app_id=854854/".to_string())
-}
-
-impl Default for ConfigsAppBrowser {
-    fn default() -> Self {
-        Self {
-            url: Some("http://www.dmm.com/netgame/social/-/gadgets/=/app_id=854854/".to_string()),
-        }
-    }
 }
 
 impl ConfigsAppBrowser {
@@ -336,110 +238,56 @@ impl ConfigsAppBrowser {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConfigsAppAutostart {
-    #[serde(default)]
     enable: Option<bool>,
-}
-
-impl Default for ConfigsAppAutostart {
-    fn default() -> Self {
-        Self {
-            enable: Some(false),
-        }
-    }
 }
 
 impl ConfigsAppAutostart {
     pub fn get_enable_autostart(&self) -> bool {
-        self.enable.unwrap_or(false)
+        self.enable.unwrap_or_else(|| get_default_configs().app.autostart.enable.unwrap())
     }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConfigsAppTheme {
-    #[serde(default = "default_theme")]
     theme: Option<String>,
-}
-
-fn default_theme() -> Option<String> {
-    Some("light".to_string())
-}
-
-impl Default for ConfigsAppTheme {
-    fn default() -> Self {
-        Self {
-            theme: Some("light".to_string()),
-        }
-    }
 }
 
 impl ConfigsAppTheme {
     pub fn get_theme(&self) -> String {
-        self.theme.clone().unwrap_or("light".to_string())
+        self.theme.clone().unwrap_or_else(|| get_default_configs().app.theme.theme.clone().unwrap())
     }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConfigAppFont {
-    #[serde(default = "default_font_family")]
     font_family: Option<String>,
-}
-
-fn default_font_family() -> Option<String> {
-    Some("Noto Sans JP".to_string())
-}
-
-impl Default for ConfigAppFont {
-    fn default() -> Self {
-        Self {
-            font_family: Some("Noto Sans JP".to_string()),
-        }
-    }
 }
 
 impl ConfigAppFont {
     pub fn get_font_family(&self) -> String {
         self.font_family
             .clone()
-            .unwrap_or("Noto Sans JP, sans-serif".to_string())
+            .unwrap_or_else(|| get_default_configs().app.font.font_family.clone().unwrap())
     }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConfigsAppDiscord {
-    #[serde(default)]
     enable_discord_integration: Option<bool>,
-    #[serde(default)]
     use_custom_message: Option<bool>,
-    #[serde(default)]
     custom_message: Option<String>,
-    #[serde(default)]
     custom_details: Option<String>,
-    #[serde(default)]
     use_custom_image: Option<bool>,
-    #[serde(default)]
     custom_image_url: Option<String>,
-}
-
-impl Default for ConfigsAppDiscord {
-    fn default() -> Self {
-        Self {
-            enable_discord_integration: Some(false),
-            use_custom_message: Some(false),
-            custom_message: Some("".to_string()),
-            custom_details: Some("".to_string()),
-            use_custom_image: Some(false),
-            custom_image_url: Some("".to_string()),
-        }
-    }
 }
 
 impl ConfigsAppDiscord {
     pub fn get_enable_discord_integration(&self) -> bool {
-        self.enable_discord_integration.unwrap_or(false)
+        self.enable_discord_integration.unwrap_or_else(|| get_default_configs().app.discord.enable_discord_integration.unwrap())
     }
 
     pub fn get_use_custom_message(&self) -> bool {
-        self.use_custom_message.unwrap_or(false)
+        self.use_custom_message.unwrap_or_else(|| get_default_configs().app.discord.use_custom_message.unwrap())
     }
 
     pub fn get_custom_message(&self) -> String {
@@ -457,7 +305,7 @@ impl ConfigsAppDiscord {
     }
 
     pub fn get_use_custom_image(&self) -> bool {
-        self.use_custom_image.unwrap_or(false)
+        self.use_custom_image.unwrap_or_else(|| get_default_configs().app.discord.use_custom_image.unwrap())
     }
 
     pub fn get_custom_image_url(&self) -> String {
@@ -470,34 +318,15 @@ impl ConfigsAppDiscord {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConfigsAppDatabaseGoogleDrive {
-    #[serde(default = "default_schedule_cron")]
     schedule_cron: Option<String>,
-    #[serde(default = "default_page_size")]
     page_size: Option<i64>,
-}
-
-fn default_schedule_cron() -> Option<String> {
-    Some("0 0 * * * *".to_string())
-}
-
-fn default_page_size() -> Option<i64> {
-    Some(100)
-}
-
-impl Default for ConfigsAppDatabaseGoogleDrive {
-    fn default() -> Self {
-        Self {
-            schedule_cron: Some("0 0 * * * *".to_string()),
-            page_size: Some(100),
-        }
-    }
 }
 
 impl ConfigsAppDatabaseGoogleDrive {
     pub fn get_schedule_cron(&self) -> String {
         self.schedule_cron
             .clone()
-            .unwrap_or("0 0 * * * *".to_string()) // every hour
+            .unwrap_or_else(|| get_default_configs().app.database.google_drive.schedule_cron.clone().unwrap())
     }
 
     pub fn get_page_size(&self) -> i64 {
@@ -505,14 +334,13 @@ impl ConfigsAppDatabaseGoogleDrive {
             Some(v) if v <= 0 => 100,
             Some(v) if v > 100 => 100,
             Some(v) => v,
-            None => 100,
+            None => get_default_configs().app.database.google_drive.page_size.unwrap(),
         }
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConfigsAppDatabaseLocal {
-    #[serde(default)]
     output_directory: Option<String>,
 }
 
@@ -527,153 +355,54 @@ impl ConfigsAppDatabaseLocal {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConfigsAppDatabase {
-    #[serde(default)]
     allow_data_to_cloud: Option<bool>,
-    #[serde(default)]
     allow_data_to_local: Option<bool>,
-    #[serde(default)]
     pub local: ConfigsAppDatabaseLocal,
-    #[serde(default)]
     pub google_drive: ConfigsAppDatabaseGoogleDrive,
-}
-
-impl Default for ConfigsAppDatabase {
-    fn default() -> Self {
-        Self {
-            allow_data_to_cloud: Some(false),
-            allow_data_to_local: Some(false),
-            local: ConfigsAppDatabaseLocal::default(),
-            google_drive: ConfigsAppDatabaseGoogleDrive::default(),
-        }
-    }
 }
 
 impl ConfigsAppDatabase {
     pub fn get_allow_data_to_cloud(&self) -> bool {
-        self.allow_data_to_cloud.unwrap_or(false)
+        self.allow_data_to_cloud.unwrap_or_else(|| get_default_configs().app.database.allow_data_to_cloud.unwrap())
     }
 
     pub fn get_allow_data_to_local(&self) -> bool {
-        self.allow_data_to_local.unwrap_or(false)
+        self.allow_data_to_local.unwrap_or_else(|| get_default_configs().app.database.allow_data_to_local.unwrap())
     }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConfigsAppAssetSync {
-    #[serde(default = "default_asset_upload_enable")]
     asset_upload_enable: Option<bool>,
-    #[serde(default = "default_asset_sync_scan_interval_seconds")]
     scan_interval_seconds: Option<u64>,
-    #[serde(default = "default_asset_upload_endpoint")]
     asset_upload_endpoint: Option<String>,
-    #[serde(default = "default_fleet_snapshot_endpoint")]
     fleet_snapshot_endpoint: Option<String>,
-    #[serde(default = "default_asset_key_prefix")]
     asset_key_prefix: Option<String>,
-    #[serde(default = "default_kc_period_endpoint")]
     kc_period_endpoint: Option<String>,
-    #[serde(default = "default_asset_skip_extensions")]
     asset_skip_extensions: Option<Vec<String>>,
-    #[serde(default = "default_asset_existing_keys_endpoint")]
     asset_existing_keys_endpoint: Option<String>,
-    #[serde(default)]
-    pub finder_tag: Option<String>,
-    #[serde(default)]
+    finder_tag: Option<String>,
     pub retry: ConfigsAppAssetSyncRetry,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConfigsAppAssetSyncRetry {
-    #[serde(default = "default_retry_max_attempts")]
     max_attempts: Option<u32>,
-    #[serde(default = "default_retry_ttl_seconds")]
     ttl_seconds: Option<u64>,
-    #[serde(default = "default_retry_interval_seconds")]
     interval_seconds: Option<u64>,
-}
-
-fn default_retry_max_attempts() -> Option<u32> {
-    Some(5)
-}
-
-fn default_retry_ttl_seconds() -> Option<u64> {
-    Some(86400) // 24 hours
-}
-
-fn default_retry_interval_seconds() -> Option<u64> {
-    Some(300) // 5 minutes
-}
-
-impl Default for ConfigsAppAssetSyncRetry {
-    fn default() -> Self {
-        Self {
-            max_attempts: Some(5),
-            ttl_seconds: Some(86400),
-            interval_seconds: Some(300),
-        }
-    }
 }
 
 impl ConfigsAppAssetSyncRetry {
     pub fn get_max_attempts(&self) -> u32 {
-        self.max_attempts.unwrap_or(5)
+        self.max_attempts.unwrap_or_else(|| get_default_configs().app.asset_sync.retry.max_attempts.unwrap())
     }
 
     pub fn get_ttl_seconds(&self) -> u64 {
-        self.ttl_seconds.unwrap_or(86400)
+        self.ttl_seconds.unwrap_or_else(|| get_default_configs().app.asset_sync.retry.ttl_seconds.unwrap())
     }
 
     pub fn get_interval_seconds(&self) -> u64 {
-        self.interval_seconds.unwrap_or(300)
-    }
-}
-
-fn default_asset_upload_enable() -> Option<bool> {
-    Some(false)
-}
-
-fn default_asset_sync_scan_interval_seconds() -> Option<u64> {
-    Some(30)
-}
-
-fn default_asset_upload_endpoint() -> Option<String> {
-    Some("".to_string())
-}
-
-fn default_asset_key_prefix() -> Option<String> {
-    Some("assets".to_string())
-}
-
-fn default_kc_period_endpoint() -> Option<String> {
-    Some("".to_string())
-}
-
-fn default_asset_skip_extensions() -> Option<Vec<String>> {
-    Some(vec!["mp3".to_string()])
-}
-
-fn default_asset_existing_keys_endpoint() -> Option<String> {
-    Some("".to_string())
-}
-
-fn default_fleet_snapshot_endpoint() -> Option<String> {
-    Some("".to_string())
-}
-
-impl Default for ConfigsAppAssetSync {
-    fn default() -> Self {
-        Self {
-            asset_upload_enable: Some(false),
-            scan_interval_seconds: Some(30),
-            asset_upload_endpoint: Some("".to_string()),
-            fleet_snapshot_endpoint: Some("".to_string()),
-            asset_key_prefix: Some("assets".to_string()),
-            kc_period_endpoint: Some("".to_string()),
-            asset_skip_extensions: default_asset_skip_extensions(),
-            asset_existing_keys_endpoint: Some("".to_string()),
-            finder_tag: None,
-            retry: ConfigsAppAssetSyncRetry::default(),
-        }
+        self.interval_seconds.unwrap_or_else(|| get_default_configs().app.asset_sync.retry.interval_seconds.unwrap())
     }
 }
 
@@ -684,14 +413,14 @@ impl ConfigsAppAssetSync {
     }
 
     pub fn get_asset_upload_enable(&self) -> bool {
-        self.asset_upload_enable.unwrap_or(false)
+        self.asset_upload_enable.unwrap_or_else(|| get_default_configs().app.asset_sync.asset_upload_enable.unwrap())
     }
 
     pub fn get_scan_interval_seconds(&self) -> u64 {
         match self.scan_interval_seconds {
-            Some(v) if v == 0 => 30,
+            Some(v) if v == 0 => get_default_configs().app.asset_sync.scan_interval_seconds.unwrap(),
             Some(v) => v,
-            None => 30,
+            None => get_default_configs().app.asset_sync.scan_interval_seconds.unwrap(),
         }
     }
 
@@ -778,7 +507,24 @@ impl ConfigsAppAssetSync {
                     })
                     .collect()
             })
-            .unwrap_or_default()
+            .unwrap_or_else(|| {
+                get_default_configs()
+                    .app.asset_sync
+                    .asset_skip_extensions.as_ref()
+                    .map(|vec| {
+                        vec.iter()
+                            .filter_map(|value| {
+                                let trimmed = value.trim().trim_start_matches('.');
+                                if trimmed.is_empty() {
+                                    None
+                                } else {
+                                    Some(trimmed.to_ascii_lowercase())
+                                }
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default()
+            })
     }
 
     pub fn get_existing_keys_endpoint(&self) -> Option<String> {
@@ -797,220 +543,106 @@ impl ConfigsAppAssetSync {
     pub fn get_asset_sync_existing_keys_endpoint(&self) -> Option<String> {
         self.get_asset_existing_keys_endpoint()
     }
+
+    pub fn get_finder_tag(&self) -> Option<String> {
+        self.finder_tag.clone()
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConfigsAppAuth {
-    #[serde(default = "default_deny_auth")]
-    pub deny_auth: Option<bool>,
-    #[serde(default = "default_auth_page_url")]
-    pub auth_page_url: Option<String>,
-}
-
-fn default_deny_auth() -> Option<bool> {
-    Some(true)
-}
-
-fn default_auth_page_url() -> Option<String> {
-    Some("https://fusou.pages.dev/signinLocalApp".to_string())
-}
-
-impl Default for ConfigsAppAuth {
-    fn default() -> Self {
-        Self {
-            deny_auth: Some(true),
-            auth_page_url: Some("https://fusou.pages.dev/signinLocalApp".to_string()),
-        }
-    }
+    deny_auth: Option<bool>,
+    auth_page_url: Option<String>,
 }
 
 impl ConfigsAppAuth {
     pub fn get_deny_auth(&self) -> bool {
-        self.deny_auth.unwrap_or(true)
+        self.deny_auth.unwrap_or_else(|| get_default_configs().app.auth.deny_auth.unwrap())
     }
 
     pub fn get_auth_page_url(&self) -> String {
         match &self.auth_page_url {
             Some(v) if !v.is_empty() => v.clone(),
-            _ => "https://fusou.pages.dev/signinLocalApp".to_string(),
+            _ => get_default_configs().app.auth.auth_page_url.clone().unwrap(),
         }
     }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConfigsAppWindow {
-    #[serde(default = "default_resize_debounce_millis")]
     resize_debounce_millis: Option<u64>,
-    #[serde(default = "default_keep_window_size_duration_millis")]
     keep_window_size_duration_millis: Option<u64>,
-    #[serde(default = "default_max_inner_width")]
     max_inner_width: Option<u32>,
-    #[serde(default = "default_max_inner_height")]
     max_inner_height: Option<u32>,
-    #[serde(default = "default_default_inner_width")]
     default_inner_width: Option<u32>,
-    #[serde(default = "default_default_inner_height")]
     default_inner_height: Option<u32>,
-    #[serde(default = "default_window_title_bar_height")]
     window_title_bar_height: Option<u32>,
-}
-
-fn default_resize_debounce_millis() -> Option<u64> {
-    Some(200)
-}
-
-fn default_keep_window_size_duration_millis() -> Option<u64> {
-    Some(1000)
-}
-
-fn default_max_inner_width() -> Option<u32> {
-    Some(1920)
-}
-
-fn default_max_inner_height() -> Option<u32> {
-    Some(1080)
-}
-
-fn default_default_inner_width() -> Option<u32> {
-    Some(1200)
-}
-
-fn default_default_inner_height() -> Option<u32> {
-    Some(720)
-}
-
-fn default_window_title_bar_height() -> Option<u32> {
-    Some(68)
-}
-
-impl Default for ConfigsAppWindow {
-    fn default() -> Self {
-        Self {
-            resize_debounce_millis: Some(200),
-            keep_window_size_duration_millis: Some(1000),
-            max_inner_width: Some(1920),
-            max_inner_height: Some(1080),
-            default_inner_width: Some(1200),
-            default_inner_height: Some(720),
-            window_title_bar_height: Some(68),
-        }
-    }
 }
 
 impl ConfigsAppWindow {
     #[cfg(target_os = "linux")]
     pub fn get_resize_debounce_millis(&self) -> u64 {
-        self.resize_debounce_millis.unwrap_or(1000)
+        self.resize_debounce_millis.unwrap_or_else(|| get_default_configs().app.kc_window.resize_debounce_millis.unwrap())
     }
     #[cfg(target_os = "linux")]
     pub fn get_keep_window_size_duration_millis(&self) -> u64 {
-        self.keep_window_size_duration_millis.unwrap_or(1000)
+        self.keep_window_size_duration_millis.unwrap_or_else(|| get_default_configs().app.kc_window.keep_window_size_duration_millis.unwrap())
     }
     pub fn get_max_inner_width(&self) -> u32 {
-        self.max_inner_width.unwrap_or(1200)
+        self.max_inner_width.unwrap_or_else(|| get_default_configs().app.kc_window.max_inner_width.unwrap())
     }
     pub fn get_max_inner_height(&self) -> u32 {
-        self.max_inner_height.unwrap_or(720)
+        self.max_inner_height.unwrap_or_else(|| get_default_configs().app.kc_window.max_inner_height.unwrap())
     }
     pub fn get_default_inner_width(&self) -> u32 {
-        self.default_inner_width.unwrap_or(1200)
+        self.default_inner_width.unwrap_or_else(|| get_default_configs().app.kc_window.default_inner_width.unwrap())
     }
     pub fn get_default_inner_height(&self) -> u32 {
-        self.default_inner_height.unwrap_or(720)
+        self.default_inner_height.unwrap_or_else(|| get_default_configs().app.kc_window.default_inner_height.unwrap())
     }
     #[cfg(target_os = "linux")]
     pub fn get_window_title_bar_height(&self) -> u32 {
-        self.window_title_bar_height.unwrap_or(68)
+        self.window_title_bar_height.unwrap_or_else(|| get_default_configs().app.kc_window.window_title_bar_height.unwrap())
     }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConfigsApp {
-    #[serde(default)]
     pub connect_kc_server: ConfigsAppConnectKcServer,
-    #[serde(default)]
     pub browser: ConfigsAppBrowser,
-    #[serde(default)]
     pub autostart: ConfigsAppAutostart,
-    #[serde(default)]
     pub theme: ConfigsAppTheme,
-    #[serde(default)]
     pub font: ConfigAppFont,
-    #[serde(default)]
     pub discord: ConfigsAppDiscord,
-    #[serde(default)]
     pub database: ConfigsAppDatabase,
-    #[serde(default)]
     pub asset_sync: ConfigsAppAssetSync,
-    #[serde(default)]
     pub auth: ConfigsAppAuth,
-    #[serde(default)]
     pub kc_window: ConfigsAppWindow,
-}
-
-impl Default for ConfigsApp {
-    fn default() -> Self {
-        Self {
-            connect_kc_server: ConfigsAppConnectKcServer::default(),
-            browser: ConfigsAppBrowser::default(),
-            autostart: ConfigsAppAutostart::default(),
-            theme: ConfigsAppTheme::default(),
-            font: ConfigAppFont::default(),
-            discord: ConfigsAppDiscord::default(),
-            database: ConfigsAppDatabase::default(),
-            asset_sync: ConfigsAppAssetSync::default(),
-            auth: ConfigsAppAuth::default(),
-            kc_window: ConfigsAppWindow::default(),
-        }
-    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConfigsProxy {
-    #[serde(default)]
     allow_save_api_requests: Option<bool>,
-    #[serde(default)]
     allow_save_api_responses: Option<bool>,
-    #[serde(default)]
     allow_save_resources: Option<bool>,
-    #[serde(default)]
     save_file_location: Option<String>,
-    #[serde(default)]
     pub network: ConfigsProxyNetwork,
-    #[serde(default)]
     pub certificates: ConfigsProxyCertificates,
-    #[serde(default)]
     pub pac: ConfigsProxyPac,
-    #[serde(default)]
     pub channel: ConfigsProxyChannel,
-}
-
-impl Default for ConfigsProxy {
-    fn default() -> Self {
-        Self {
-            allow_save_api_requests: Some(false),
-            allow_save_api_responses: Some(false),
-            allow_save_resources: Some(false),
-            save_file_location: Some("".to_string()),
-            network: ConfigsProxyNetwork::default(),
-            certificates: ConfigsProxyCertificates::default(),
-            pac: ConfigsProxyPac::default(),
-            channel: ConfigsProxyChannel::default(),
-        }
-    }
 }
 
 impl ConfigsProxy {
     pub fn get_allow_save_api_requests(&self) -> bool {
-        self.allow_save_api_requests.unwrap_or(false)
+        self.allow_save_api_requests.unwrap_or_else(|| get_default_configs().proxy.allow_save_api_requests.unwrap())
     }
 
     pub fn get_allow_save_api_responses(&self) -> bool {
-        self.allow_save_api_responses.unwrap_or(false)
+        self.allow_save_api_responses.unwrap_or_else(|| get_default_configs().proxy.allow_save_api_responses.unwrap())
     }
 
     pub fn get_allow_save_resources(&self) -> bool {
-        self.allow_save_resources.unwrap_or(false)
+        self.allow_save_resources.unwrap_or_else(|| get_default_configs().proxy.allow_save_resources.unwrap())
     }
 
     pub fn get_save_file_location(&self) -> Option<String> {
@@ -1021,15 +653,17 @@ impl ConfigsProxy {
     }
 
     pub fn get_channel_transport(&self) -> ChannelTransportKind {
-        self.channel.transport
+        self.channel.transport.clone()
     }
 
     pub fn get_channel_endpoint(&self) -> Option<String> {
         self.channel.get_endpoint()
+            .or_else(|| get_default_configs().proxy.channel.get_endpoint())
     }
 
     pub fn get_channel_buffer_size(&self) -> Option<usize> {
         self.channel.get_buffer_size()
+            .or_else(|| get_default_configs().proxy.channel.get_buffer_size())
     }
 }
 
@@ -1043,7 +677,7 @@ pub enum WindowsSystem {
     Wayland,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConfigEnv {}
 
 impl ConfigEnv {
@@ -1070,32 +704,22 @@ impl ConfigEnv {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Configs {
-    #[serde(default)]
     version: Option<String>,
-    #[serde(default)]
     pub proxy: ConfigsProxy,
-    #[serde(default)]
     pub app: ConfigsApp,
-    #[serde(default)]
-    pub asset_sync: ConfigsAppAssetSync,
-    #[serde(default)]
     pub env: ConfigEnv,
-}
-
-impl Default for Configs {
-    fn default() -> Self {
-        Self {
-            version: None,
-            proxy: ConfigsProxy::default(),
-            app: ConfigsApp::default(),
-            asset_sync: ConfigsAppAssetSync::default(),
-            env: ConfigEnv::default(),
-        }
-    }
 }
 
 static USER_CONFIGS: OnceCell<Configs> = OnceCell::new();
 static DEFAULT_USER_CONFIGS: OnceCell<Configs> = OnceCell::new();
+
+/// Get the default configs parsed from embedded configs.toml
+fn get_default_configs() -> &'static Configs {
+    DEFAULT_USER_CONFIGS.get_or_init(|| {
+        let toml_str = include_str!("../configs.toml");
+        toml::from_str(toml_str).expect("Failed to parse embedded configs.toml")
+    })
+}
 
 pub fn set_user_config(path: &str) -> Result<(), Box<dyn std::error::Error>> {
     let config = get_configs(path);
@@ -1229,5 +853,360 @@ fn merge_table_values(default_table: &mut toml_edit::Table, user_table: &toml_ed
                 _ => {}
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use toml;
+
+    #[test]
+    fn test_config_toml_is_valid() {
+        // Test that config.toml can be successfully parsed into Configs structure
+        // This ensures that the TOML structure matches the Rust struct definitions
+        let config_content = include_str!("../configs.toml");
+        
+        let parsed_result: Result<Configs, toml::de::Error> = toml::from_str(config_content);
+        
+        match parsed_result {
+            Ok(_) => {
+                // Success - config.toml is valid and can be deserialized
+            }
+            Err(e) => {
+                panic!("config.toml failed to deserialize into Configs struct: {}", e);
+            }
+        }
+    }
+
+    #[test]
+    fn test_all_default_values_match_config_toml() {
+        // Initialize default configs from configs.toml
+        let default_configs = get_default_configs();
+        
+        // Test Proxy Network defaults
+        let empty_network = ConfigsProxyNetwork {
+            backend_crate: None,
+            enforce_http: None,
+            set_nodelay: None,
+            connect_timeout: None,
+            keepalive_interval: None,
+            recv_buffer_size: None,
+            send_buffer_size: None,
+            proxy_server_port: None,
+        };
+        
+        assert_eq!(
+            empty_network.get_backend_crate(),
+            default_configs.proxy.network.get_backend_crate(),
+            "backend_crate getter should return configs.toml default"
+        );
+        assert_eq!(
+            empty_network.get_enforce_http(),
+            default_configs.proxy.network.get_enforce_http(),
+            "enforce_http getter should return configs.toml default"
+        );
+        assert_eq!(
+            empty_network.get_set_nodelay(),
+            default_configs.proxy.network.get_set_nodelay(),
+            "set_nodelay getter should return configs.toml default"
+        );
+        assert_eq!(
+            empty_network.get_proxy_server_port(),
+            default_configs.proxy.network.get_proxy_server_port(),
+            "proxy_server_port getter should return configs.toml default"
+        );
+        
+        // Test Proxy Certificates defaults
+        let empty_certs = ConfigsProxyCertificates {
+            use_generated_certs: None,
+            cert_file: None,
+            key_file: None,
+        };
+        
+        assert_eq!(
+            empty_certs.get_use_generated_certs(),
+            default_configs.proxy.certificates.get_use_generated_certs(),
+            "use_generated_certs getter should return configs.toml default"
+        );
+        
+        // Test Proxy PAC defaults
+        let empty_pac = ConfigsProxyPac {
+            use_custom_pac: None,
+            pac_script: None,
+            pac_server_port: None,
+        };
+        
+        assert_eq!(
+            empty_pac.get_use_custom_pac(),
+            default_configs.proxy.pac.get_use_custom_pac(),
+            "use_custom_pac getter should return configs.toml default"
+        );
+        assert_eq!(
+            empty_pac.get_pac_server_port(),
+            default_configs.proxy.pac.get_pac_server_port(),
+            "pac_server_port getter should return configs.toml default"
+        );
+        
+        // Test Proxy defaults
+        let empty_proxy_fields = ConfigsProxy {
+            allow_save_api_requests: None,
+            allow_save_api_responses: None,
+            allow_save_resources: None,
+            save_file_location: None,
+            network: default_configs.proxy.network.clone(),
+            certificates: default_configs.proxy.certificates.clone(),
+            pac: default_configs.proxy.pac.clone(),
+            channel: default_configs.proxy.channel.clone(),
+        };
+        
+        assert_eq!(
+            empty_proxy_fields.get_allow_save_api_requests(),
+            default_configs.proxy.get_allow_save_api_requests(),
+            "allow_save_api_requests getter should return configs.toml default"
+        );
+        assert_eq!(
+            empty_proxy_fields.get_allow_save_api_responses(),
+            default_configs.proxy.get_allow_save_api_responses(),
+            "allow_save_api_responses getter should return configs.toml default"
+        );
+        assert_eq!(
+            empty_proxy_fields.get_allow_save_resources(),
+            default_configs.proxy.get_allow_save_resources(),
+            "allow_save_resources getter should return configs.toml default"
+        );
+        
+        // Test App Autostart defaults
+        let empty_autostart = ConfigsAppAutostart {
+            enable: None,
+        };
+        
+        assert_eq!(
+            empty_autostart.get_enable_autostart(),
+            default_configs.app.autostart.get_enable_autostart(),
+            "autostart enable getter should return configs.toml default"
+        );
+        
+        // Test App Theme defaults
+        let empty_theme = ConfigsAppTheme {
+            theme: None,
+        };
+        
+        assert_eq!(
+            empty_theme.get_theme(),
+            default_configs.app.theme.get_theme(),
+            "theme getter should return configs.toml default"
+        );
+        
+        // Test App Font defaults
+        let empty_font = ConfigAppFont {
+            font_family: None,
+        };
+        
+        assert_eq!(
+            empty_font.get_font_family(),
+            default_configs.app.font.get_font_family(),
+            "font_family getter should return configs.toml default"
+        );
+        
+        // Test App Discord defaults
+        let empty_discord = ConfigsAppDiscord {
+            enable_discord_integration: None,
+            use_custom_message: None,
+            custom_message: None,
+            custom_details: None,
+            use_custom_image: None,
+            custom_image_url: None,
+        };
+        
+        assert_eq!(
+            empty_discord.get_enable_discord_integration(),
+            default_configs.app.discord.get_enable_discord_integration(),
+            "discord enable_discord_integration getter should return configs.toml default"
+        );
+        assert_eq!(
+            empty_discord.get_use_custom_message(),
+            default_configs.app.discord.get_use_custom_message(),
+            "discord use_custom_message getter should return configs.toml default"
+        );
+        assert_eq!(
+            empty_discord.get_use_custom_image(),
+            default_configs.app.discord.get_use_custom_image(),
+            "discord use_custom_image getter should return configs.toml default"
+        );
+        
+        // Test App Database defaults
+        let empty_database_fields = ConfigsAppDatabase {
+            allow_data_to_cloud: None,
+            allow_data_to_local: None,
+            local: default_configs.app.database.local.clone(),
+            google_drive: default_configs.app.database.google_drive.clone(),
+        };
+        
+        assert_eq!(
+            empty_database_fields.get_allow_data_to_cloud(),
+            default_configs.app.database.get_allow_data_to_cloud(),
+            "database allow_data_to_cloud getter should return configs.toml default"
+        );
+        assert_eq!(
+            empty_database_fields.get_allow_data_to_local(),
+            default_configs.app.database.get_allow_data_to_local(),
+            "database allow_data_to_local getter should return configs.toml default"
+        );
+        
+        // Test App Database Google Drive defaults
+        let empty_google_drive = ConfigsAppDatabaseGoogleDrive {
+            schedule_cron: None,
+            page_size: None,
+        };
+        
+        assert_eq!(
+            empty_google_drive.get_schedule_cron(),
+            default_configs.app.database.google_drive.get_schedule_cron(),
+            "google_drive schedule_cron getter should return configs.toml default"
+        );
+        assert_eq!(
+            empty_google_drive.get_page_size(),
+            default_configs.app.database.google_drive.get_page_size(),
+            "google_drive page_size getter should return configs.toml default"
+        );
+        
+        // Test App Asset Sync defaults
+        let empty_asset_sync = ConfigsAppAssetSync {
+            asset_upload_enable: None,
+            scan_interval_seconds: None,
+            asset_upload_endpoint: None,
+            fleet_snapshot_endpoint: None,
+            asset_key_prefix: None,
+            kc_period_endpoint: None,
+            asset_skip_extensions: None,
+            asset_existing_keys_endpoint: None,
+            finder_tag: None,
+            retry: default_configs.app.asset_sync.retry.clone(),
+        };
+        
+        assert_eq!(
+            empty_asset_sync.get_asset_upload_enable(),
+            default_configs.app.asset_sync.get_asset_upload_enable(),
+            "asset_sync asset_upload_enable getter should return configs.toml default"
+        );
+        assert_eq!(
+            empty_asset_sync.get_scan_interval_seconds(),
+            default_configs.app.asset_sync.get_scan_interval_seconds(),
+            "asset_sync scan_interval_seconds getter should return configs.toml default"
+        );
+        assert_eq!(
+            empty_asset_sync.get_asset_skip_extensions(),
+            default_configs.app.asset_sync.get_asset_skip_extensions(),
+            "asset_sync asset_skip_extensions getter should return configs.toml default"
+        );
+        
+        // Test App Asset Sync Retry defaults
+        let empty_retry = ConfigsAppAssetSyncRetry {
+            max_attempts: None,
+            ttl_seconds: None,
+            interval_seconds: None,
+        };
+        
+        assert_eq!(
+            empty_retry.get_max_attempts(),
+            default_configs.app.asset_sync.retry.get_max_attempts(),
+            "retry max_attempts getter should return configs.toml default"
+        );
+        assert_eq!(
+            empty_retry.get_ttl_seconds(),
+            default_configs.app.asset_sync.retry.get_ttl_seconds(),
+            "retry ttl_seconds getter should return configs.toml default"
+        );
+        assert_eq!(
+            empty_retry.get_interval_seconds(),
+            default_configs.app.asset_sync.retry.get_interval_seconds(),
+            "retry interval_seconds getter should return configs.toml default"
+        );
+        
+        // Test App Auth defaults
+        let empty_auth = ConfigsAppAuth {
+            deny_auth: None,
+            auth_page_url: None,
+        };
+        
+        assert_eq!(
+            empty_auth.get_deny_auth(),
+            default_configs.app.auth.get_deny_auth(),
+            "auth deny_auth getter should return configs.toml default"
+        );
+        assert_eq!(
+            empty_auth.get_auth_page_url(),
+            default_configs.app.auth.get_auth_page_url(),
+            "auth auth_page_url getter should return configs.toml default"
+        );
+        
+        // Test App Window defaults
+        let empty_window = ConfigsAppWindow {
+            resize_debounce_millis: None,
+            keep_window_size_duration_millis: None,
+            max_inner_width: None,
+            max_inner_height: None,
+            default_inner_width: None,
+            default_inner_height: None,
+            window_title_bar_height: None,
+        };
+        
+        assert_eq!(
+            empty_window.get_max_inner_width(),
+            default_configs.app.kc_window.get_max_inner_width(),
+            "window max_inner_width getter should return configs.toml default"
+        );
+        assert_eq!(
+            empty_window.get_max_inner_height(),
+            default_configs.app.kc_window.get_max_inner_height(),
+            "window max_inner_height getter should return configs.toml default"
+        );
+        assert_eq!(
+            empty_window.get_default_inner_width(),
+            default_configs.app.kc_window.get_default_inner_width(),
+            "window default_inner_width getter should return configs.toml default"
+        );
+        assert_eq!(
+            empty_window.get_default_inner_height(),
+            default_configs.app.kc_window.get_default_inner_height(),
+            "window default_inner_height getter should return configs.toml default"
+        );
+    }
+
+    #[test]
+    fn test_server_list_from_config_toml() {
+        // Test that server list is loaded from configs.toml, not hardcoded
+        let default_configs = get_default_configs();
+        
+        // Create empty server config
+        let empty_server_config = ConfigsAppConnectKcServer {
+            kc_server_name: None,
+            server_list: None,
+        };
+        
+        // Verify server list comes from configs.toml via get_default_server_address
+        // Test a few server indices
+        let test_indices = vec![1, 10, 20];
+        
+        for index in test_indices {
+            let result = empty_server_config.get_server_address(index);
+            let expected = default_configs.app.connect_kc_server.get_server_address(index);
+            
+            assert_eq!(
+                result, expected,
+                "Server address for index {} should come from configs.toml",
+                index
+            );
+        }
+        
+        // Verify get_all_servers returns configs.toml data
+        let all_servers = empty_server_config.get_all_servers();
+        let expected_servers = default_configs.app.connect_kc_server.get_all_servers();
+        
+        assert_eq!(
+            all_servers, expected_servers,
+            "All servers should come from configs.toml"
+        );
     }
 }

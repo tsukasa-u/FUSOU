@@ -53,45 +53,47 @@ impl UploadRetryService {
             tracing::info!("Starting upload retry process");
             
             let configs = get_user_configs();
-            let retry_config = configs.asset_sync.retry;
+            let retry_config = &configs.app.asset_sync.retry;
             
-            // Cleanup expired first
-            store.cleanup_expired(retry_config.get_ttl_seconds());
+            {
+                // Cleanup expired first
+                store.cleanup_expired(retry_config.get_ttl_seconds());
 
-            let pending_items = store.list_pending();
-            if pending_items.is_empty() {
-                tracing::info!("No pending uploads to retry");
+                let pending_items = store.list_pending();
+                if pending_items.is_empty() {
+                    tracing::info!("No pending uploads to retry");
+                    let mut running = is_running.lock().await;
+                    *running = false;
+                    return;
+                }
+
+                tracing::info!("Found {} pending uploads", pending_items.len());
+
+                let client = reqwest::Client::new();
+
+                for mut meta in pending_items {
+                    if meta.attempt_count >= retry_config.get_max_attempts() {
+                        tracing::warn!("Max attempts reached for {}, deleting", meta.id);
+                        let _ = store.delete_pending(&meta.id);
+                        continue;
+                    }
+
+                    if let Err(e) = Self::retry_one(&store, &mut meta, &client, &auth_manager, custom_handler.as_deref()).await {
+                        tracing::error!("Failed to retry upload {}: {}", meta.id, e);
+                        meta.increment_attempt();
+                        let _ = store.update_meta(&meta);
+                    } else {
+                        tracing::info!("Successfully retried upload {}", meta.id);
+                        let _ = store.delete_pending(&meta.id);
+                    }
+                    
+                    sleep(Duration::from_secs(1)).await;
+                }
+
                 let mut running = is_running.lock().await;
                 *running = false;
-                return;
+                tracing::info!("Upload retry process finished");
             }
-
-            tracing::info!("Found {} pending uploads", pending_items.len());
-
-            let client = reqwest::Client::new();
-
-            for mut meta in pending_items {
-                if meta.attempt_count >= retry_config.get_max_attempts() {
-                    tracing::warn!("Max attempts reached for {}, deleting", meta.id);
-                    let _ = store.delete_pending(&meta.id);
-                    continue;
-                }
-
-                if let Err(e) = Self::retry_one(&store, &mut meta, &client, &auth_manager, custom_handler.as_deref()).await {
-                    tracing::error!("Failed to retry upload {}: {}", meta.id, e);
-                    meta.increment_attempt();
-                    let _ = store.update_meta(&meta);
-                } else {
-                    tracing::info!("Successfully retried upload {}", meta.id);
-                    let _ = store.delete_pending(&meta.id);
-                }
-                
-                sleep(Duration::from_secs(1)).await;
-            }
-
-            let mut running = is_running.lock().await;
-            *running = false;
-            tracing::info!("Upload retry process finished");
         });
     }
 
@@ -120,7 +122,7 @@ impl UploadRetryService {
                 // Reconstruct Asset Handshake
                 let configs = get_user_configs();
                 let app_configs = configs.app;
-                let finder_tag = app_configs.asset_sync.finder_tag;
+                let finder_tag = app_configs.asset_sync.get_finder_tag();
                 
                 let filename = Path::new(&relative_path)
                     .file_name()

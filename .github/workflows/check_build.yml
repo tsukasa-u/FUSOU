@@ -11,6 +11,18 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  check_config:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: test configs default vs toml
+        run: |
+          cd ./packages/configs
+          cargo test --lib configs::tests:: -- --nocapture
+
   build:
     defaults:
       run:

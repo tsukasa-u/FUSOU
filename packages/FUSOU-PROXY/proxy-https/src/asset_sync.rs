@@ -409,7 +409,7 @@ pub async fn upload_via_api(
         key: key.to_string(),
         relative_path: relative.to_string_lossy().to_string(),
         file_size: file_size.to_string(),
-        finder_tag: settings.finder_tag.clone().filter(|t| !t.is_empty()),
+        finder_tag: settings.finder_tag.clone(),
         file_name: filename.clone(),
         content_type: "application/octet-stream".to_string(),
     };
