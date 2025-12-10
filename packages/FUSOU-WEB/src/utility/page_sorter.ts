@@ -3,7 +3,6 @@ const segmentOrder: Record<string, number> = {
   guide: 0x20,
   policy: 0x30,
   license: 0x40,
-  reference: 0x30,
   quick_start: 0x11,
 };
 

@@ -27,7 +27,7 @@ filter-noassertion = true
 # Workaround for GPL-2.0 deprecated identifier error
 # Some dependencies have LICENSE files containing deprecated GPL-2.0 identifier
 # instead of GPL-2.0-only or GPL-2.0-or-later. Since cargo-about cannot parse deprecated
-# identifiers in LICENSE files (only in Cargo.toml), we skip scanning and manually
+# identifier in LICENSE files (only in Cargo.toml), we skip scanning and manually
 # clarify licenses for crates that would trigger this error.
 ignore-build-dependencies = false
 ignore-dev-dependencies = false

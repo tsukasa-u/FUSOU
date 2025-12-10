@@ -409,7 +409,13 @@ pub async fn upload_via_api(
         key: key.to_string(),
         relative_path: relative.to_string_lossy().to_string(),
         file_size: file_size.to_string(),
-        finder_tag: settings.finder_tag.clone(),
+        finder_tag: settings.finder_tag.clone().and_then(|tag| {
+            if tag.trim().is_empty() {
+                None
+            } else {
+                Some(tag)
+            }
+        }),
         file_name: filename.clone(),
         content_type: "application/octet-stream".to_string(),
     };
@@ -446,8 +452,10 @@ pub async fn upload_via_api(
             Ok(())
         },
         Err(e) => {
-            // Reset auth cache on 401/RequireReauth error
-            if e.contains("401") || e.contains("RequireReauth") {
+            // Improved error detection: Check if error contains "Authentication error" prefix
+            // This is safer than pattern matching against fixed strings like "401" or "RequireReauth"
+            // because it's explicitly set by UploadError::AuthenticationError variant
+            if e.contains("Authentication error") {
                 tracing::warn!(key, error = %e, "authentication failure detected; resetting auth cache");
                 SUPABASE_AUTH_READY.store(false, Ordering::Relaxed);
                 SUPABASE_AUTH_FAILED.store(true, Ordering::Relaxed);
