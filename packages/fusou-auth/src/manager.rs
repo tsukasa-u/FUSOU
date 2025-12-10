@@ -186,8 +186,20 @@ impl<S: Storage> AuthManager<S> {
         let refresh_token = body
             .get("refresh_token")
             .and_then(|v| v.as_str())
-            .map(|s| s.to_string())
-            .unwrap_or_else(|| current.refresh_token.clone());
+            .map(|s| s.to_string());
+
+        // Supabase should always return a new refresh token on refresh. If missing, stop to avoid
+        // reusing the old one (which may already be invalid) and force re-auth.
+        let refresh_token = match refresh_token {
+            Some(t) if !t.trim().is_empty() => t,
+            _ => {
+                tracing::warn!("refresh response missing refresh_token; clearing session and requiring re-login");
+                let _ = self.storage.clear().await;
+                return Err(AuthError::RequireReauth(
+                    "refresh_token missing in response; please sign in again".to_string(),
+                ));
+            }
+        };
 
         let expires_in = body.get("expires_in").and_then(|v| v.as_i64());
 
