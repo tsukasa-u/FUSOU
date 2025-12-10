@@ -24,6 +24,8 @@ node_modules/
 *storybook.log
 storybook-static
 
+.license-tmp/
+
 packages/kc_api/tests/struct_dependency_dot/**/*.dot
 packages/kc_api/tests/struct_dependency_svg/**/*.svg
 packages/kc_api/tests/database_dependency_dot/**/*.dot

@@ -306,9 +306,9 @@ async function handleSignedUploadExecution(
   }
 
   // Extract content-length for R2 (required for FixedLengthStream compatibility)
-  const contentLength = contentLengthHeader
-    ? Number(contentLengthHeader)
-    : descriptor.declared_size;
+  // const contentLength = contentLengthHeader
+  //   ? Number(contentLengthHeader)
+  //   : descriptor.declared_size;
 
   // R2 requires known-length streams; use FixedLengthStream if available
   // For Cloudflare Workers, request.body already has length info from content-length

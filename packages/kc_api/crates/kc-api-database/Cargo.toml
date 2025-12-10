@@ -2,6 +2,7 @@
 name = "kc-api-database"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
 
 [dependencies]
 apache-avro = { workspace = true }
