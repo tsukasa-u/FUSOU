@@ -55,7 +55,9 @@ export const GET: APIRoute = async ({ locals }) => {
   }
 
   // Query for the latest period tag that is not in the future
-  const nowIso = new Date().toISOString();
+  // Add a small buffer to account for possible clock skew between app and DB servers
+  const CLOCK_SKEW_BUFFER_MS = 5000; // 5 seconds
+  const nowIso = new Date(Date.now() - CLOCK_SKEW_BUFFER_MS).toISOString();
   const queryUrl = `${supabaseUrl}/rest/v1/kc_period_tag?select=tag&tag=lte.${nowIso}&order=tag.desc.nullslast&limit=1`;
 
   const response = await fetch(queryUrl, {

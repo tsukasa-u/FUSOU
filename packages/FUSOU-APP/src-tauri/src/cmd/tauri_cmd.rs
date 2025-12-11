@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
 #[cfg(dev)]
 use std::fs;
@@ -7,7 +8,6 @@ use proxy_https::bidirectional_channel;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
 
-use crate::auth::auth_server;
 #[cfg(feature = "auth-local-server")]
 use crate::auth_server::AuthChannel;
 use crate::builder_setup::bidirectional_channel::get_pac_bidirectional_channel;
@@ -26,7 +26,6 @@ use crate::interface::slot_item::SlotItems;
 use crate::sequence;
 use tracing_unwrap::OptionExt;
 
-use std::sync::Mutex;
 use tauri_plugin_notification::NotificationExt;
 
 #[tauri::command]
@@ -140,53 +139,7 @@ pub async fn set_refresh_token(_window: tauri::Window, token: String) -> Result<
     return gdrive::set_refresh_token(refresh_token.to_string(), token_type.to_string());
 }
 
-use fusou_auth::{AuthManager, FileStorage, Session};
-use std::sync::Arc;
-// ... imports
-
-use fusou_upload::UploadRetryService;
-
-#[tauri::command(rename_all = "snake_case")]
-pub async fn set_supabase_session(
-    window: tauri::Window,
-    access_token: String,
-    refresh_token: String,
-    auth_manager: tauri::State<'_, Arc<Mutex<AuthManager<FileStorage>>>>,
-    retry_service: tauri::State<'_, Arc<UploadRetryService>>,
-) -> Result<(), String> {
-    let manager = {
-        let guard = auth_manager.lock().unwrap();
-        guard.clone()
-    };
-
-    if access_token.trim().is_empty() || refresh_token.trim().is_empty() {
-        manager.clear().await.map_err(|e| e.to_string())?;
-        return Err("invalid Supabase session payload".to_string());
-    }
-
-    let session = Session {
-        access_token: access_token.clone(),
-        refresh_token: refresh_token.clone(),
-        expires_at: None, // fusou-auth will handle expiry
-        token_type: Some("bearer".to_string()),
-    };
-
-    manager
-        .save_session(&session)
-        .await
-        .map_err(|e| e.to_string())?;
-
-    // Trigger retry
-    let retry_service = retry_service.inner().clone();
-    tokio::spawn(async move {
-        retry_service.trigger_retry().await;
-    });
-
-    window
-        .app_handle()
-        .emit_to("main", "set-supabase-tokens", vec![access_token, refresh_token])
-        .map_err(|err| err.to_string())
-}
+use fusou_auth::{AuthManager, FileStorage};
 
 #[derive(Debug, Serialize)]
 pub struct SessionHealth {
@@ -199,6 +152,7 @@ pub struct SessionHealth {
 
 #[tauri::command(rename_all = "snake_case")]
 pub async fn check_supabase_session_health(
+    _window: tauri::Window,
     auth_manager: tauri::State<'_, Arc<Mutex<AuthManager<FileStorage>>>>,
 ) -> Result<SessionHealth, String> {
     let manager = {
@@ -211,24 +165,12 @@ pub async fn check_supabase_session_health(
         let access_len = session.access_token.len();
         let refresh_len = session.refresh_token.len();
 
-        // Heuristic: Supabase tokens are typically long; very short ones are likely broken.
-        let mut seems_valid = true;
-        let mut reason: Option<String> = None;
-
-        if refresh_len < 30 {
-            seems_valid = false;
-            reason = Some("refresh_token too short; likely corrupted".to_string());
-        } else if access_len < 30 {
-            seems_valid = false;
-            reason = Some("access_token too short; likely corrupted".to_string());
-        }
-
         Ok(SessionHealth {
             has_session: true,
             access_token_len: access_len,
             refresh_token_len: refresh_len,
-            seems_valid,
-            reason,
+            seems_valid: true,
+            reason: None,
         })
     } else {
         Ok(SessionHealth {
@@ -261,77 +203,23 @@ pub async fn force_local_sign_out(
     Ok(())
 }
 
+/// Get the current valid access token from Rust-managed session.
+/// This ensures only Rust handles token refresh, avoiding duplicate refresh loops.
+/// SolidJS should call this instead of maintaining its own Supabase session.
 #[tauri::command(rename_all = "snake_case")]
-pub async fn clear_supabase_session(
-    window: tauri::Window,
+pub async fn get_access_token(
     auth_manager: tauri::State<'_, Arc<Mutex<AuthManager<FileStorage>>>>,
-) -> Result<(), ()> {
+) -> Result<String, String> {
     let manager = {
         let guard = auth_manager.lock().unwrap();
         guard.clone()
     };
-    manager.clear().await.map_err(|_e| ()).unwrap();
-    let _ = window.app_handle().emit_to(
-        "main",
-        "set-supabase-tokens",
-        vec![String::new(), String::new()],
-    );
-    Ok(())
-}
 
-#[cfg(dev)]
-#[tauri::command]
-pub async fn open_auth_window(window: tauri::Window) {
-    match window.get_webview_window("auth") {
-        Some(auth_window) => {
-            auth_window.show().unwrap();
-        }
-        None => {
-            let _window = tauri::WebviewWindowBuilder::new(
-                window.app_handle(),
-                "auth",
-                tauri::WebviewUrl::App("/auth".into()),
-            )
-            .devtools(true)
-            .fullscreen(false)
-            .title("fusou-auth")
-            // .visible(false)
-            .build()
-            .unwrap();
-        }
-    }
-}
-
-#[cfg(dev)]
-#[tauri::command]
-pub async fn open_debug_window(window: tauri::Window) {
-    match window.get_webview_window("debug") {
-        Some(debug_window) => {
-            debug_window.show().unwrap();
-        }
-        None => {
-            let _window = tauri::WebviewWindowBuilder::new(
-                window.app_handle(),
-                "debug",
-                tauri::WebviewUrl::App("/debug".into()),
-            )
-            .fullscreen(false)
-            .title("fusou-debug")
-            // .visible(false)
-            .build()
-            .unwrap();
-        }
-    }
-}
-
-#[cfg(dev)]
-#[tauri::command]
-pub async fn close_debug_window(window: tauri::Window) {
-    window
-        .get_webview_window("debug")
-        .expect_or_log("no window labeled 'debug' found")
-        .close()
-        .unwrap();
+    // This automatically refreshes if token is near expiry
+    manager
+        .get_access_token()
+        .await
+        .map_err(|e| format!("Failed to get access token: {}", e))
 }
 
 #[cfg(dev)]
@@ -372,36 +260,6 @@ pub async fn read_emit_file(window: tauri::Window, path: &str) -> Result<(), Str
     }
 
     return Ok(());
-}
-
-#[cfg(feature = "auth-local-server")]
-#[tauri::command]
-pub async fn open_auth_page(
-    _window: tauri::Window,
-    auth_channel: tauri::State<'_, AuthChannel>,
-) -> Result<(), ()> {
-    let addr = auth_server::serve_auth(0, auth_channel.slave.clone());
-
-    let result = webbrowser::open(format!("http://localhost:{}/login", addr.port()).as_str())
-        .map_err(|e| e.to_string());
-
-    if let Err(e) = result {
-        tracing::error!("Error: {}", e);
-        return Err(());
-    }
-    Ok(())
-}
-
-#[cfg(not(feature = "auth-local-server"))]
-#[tauri::command]
-pub async fn open_auth_page(_window: tauri::Window) -> Result<(), ()> {
-    let result = auth_server::open_auth_page();
-
-    if let Err(e) = result {
-        tracing::error!("Error: {e}");
-        return Err(());
-    }
-    Ok(())
 }
 
 #[tauri::command]
@@ -479,10 +337,6 @@ pub async fn get_kc_server_name(_window: tauri::Window) -> Result<String, ()> {
 
 //--------------------------------------------------------------
 
-pub fn set_launch_page(app: &AppHandle) {
-    let _ = app.emit_to("main", "set-main-page-launch", ());
-}
-
 pub fn set_update_page(app: &AppHandle) {
     let _ = app.emit_to("main", "set-main-page-update", ());
 }
@@ -519,5 +373,54 @@ pub async fn show_native_notification(_window: tauri::Window, title: String, bod
 #[tauri::command]
 pub fn get_all_logs() -> Vec<MessageVisitor> {
     crate::builder_setup::logger::get_all_logs_internal()
+}
+
+/// Get user's Google Drive refresh token from Supabase (provider_tokens table).
+/// Uses RLS (Row Level Security) via Authorization header for user identification.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn get_user_tokens(
+    _user_id: String,
+    auth_manager: tauri::State<'_, Arc<Mutex<AuthManager<FileStorage>>>>,
+) -> Result<Option<String>, String> {
+    let manager = {
+        let guard = auth_manager.lock().unwrap();
+        guard.clone()
+    };
+
+    manager
+        .fetch_provider_token("google")
+        .await
+        .map_err(|e| format!("Failed to fetch provider token: {}", e))
+}
+
+#[cfg(dev)]
+#[tauri::command]
+pub async fn open_debug_window(window: tauri::Window) {
+    match window.get_webview_window("debug") {
+        Some(debug_window) => {
+            debug_window.show().unwrap();
+        }
+        None => {
+            let _window = tauri::WebviewWindowBuilder::new(
+                window.app_handle(),
+                "debug",
+                tauri::WebviewUrl::App("/debug".into()),
+            )
+            .fullscreen(false)
+            .title("fusou-debug")
+            .build()
+            .unwrap();
+        }
+    }
+}
+
+#[cfg(dev)]
+#[tauri::command]
+pub async fn close_debug_window(window: tauri::Window) {
+    window
+        .get_webview_window("debug")
+        .expect_or_log("no window labeled 'debug' found")
+        .close()
+        .unwrap();
 }
 

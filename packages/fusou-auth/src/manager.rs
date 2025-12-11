@@ -6,6 +6,7 @@ use chrono::{DateTime, Duration, Utc};
 use reqwest::Client;
 use std::sync::Arc;
 use tokio::sync::Mutex;
+use serde::Deserialize;
 
 const SUPABASE_URL_EMBED: Option<&str> = option_env!("SUPABASE_URL");
 const SUPABASE_ANON_KEY_EMBED: Option<&str> = option_env!("SUPABASE_ANON_KEY");
@@ -206,7 +207,7 @@ impl<S: Storage> AuthManager<S> {
         // If expires_in is missing, fall back to a conservative default to avoid hammering refresh.
         let expires_at: Option<DateTime<Utc>> = Some(Utc::now()
             + Duration::seconds(
-                expires_in.unwrap_or(DEFAULT_ACCESS_TOKEN_TTL_SECS).max(60), // at least 60s
+                expires_in.unwrap_or(DEFAULT_ACCESS_TOKEN_TTL_SECS),
             ));
 
         let session = Session {
@@ -256,5 +257,62 @@ impl<S: Storage> AuthManager<S> {
             return Ok(resp2);
         }
         Ok(resp)
+    }
+
+    /// Fetch a provider's refresh token from Supabase provider_tokens table.
+    /// Uses RLS (Row Level Security) via Authorization header for user identification.
+    pub async fn fetch_provider_token(
+        &self,
+        provider_name: &str,
+    ) -> Result<Option<String>, AuthError> {
+        let access_token = self.get_access_token().await?;
+
+        let url = format!("{}/rest/v1/provider_tokens", self.config.supabase_url);
+
+        #[derive(Deserialize)]
+        struct ProviderTokenRow {
+            refresh_token: Option<String>,
+        }
+
+        let response = self
+            .client
+            .get(&url)
+            .header("apikey", &self.config.api_key)
+            .header("Authorization", format!("Bearer {}", access_token))
+            .query(&[
+                // PostgREST requires the "eq." operator for filtering
+                ("provider_name", format!("eq.{}", provider_name)),
+                ("select", "refresh_token".to_string()),
+                ("limit", "1".to_string()),
+            ])
+            .send()
+            .await
+            .map_err(|e| AuthError::Other(format!("Failed to query provider tokens: {}", e)))?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            return Err(AuthError::Other(format!(
+                "Supabase query failed {}: {}",
+                status, body
+            )));
+        }
+
+        let rows: Vec<ProviderTokenRow> = response
+            .json()
+            .await
+            .map_err(|e| AuthError::Other(format!("Failed to parse provider tokens: {}", e)))?;
+
+        if let Some(row) = rows.into_iter().find_map(|r| r.refresh_token) {
+            if row.trim().is_empty() {
+                tracing::debug!("{} refresh token empty", provider_name);
+                return Ok(None);
+            }
+            tracing::debug!("Successfully fetched {} refresh token", provider_name);
+            return Ok(Some(row));
+        }
+
+        tracing::debug!("No {} tokens found for user", provider_name);
+        Ok(None)
     }
 }

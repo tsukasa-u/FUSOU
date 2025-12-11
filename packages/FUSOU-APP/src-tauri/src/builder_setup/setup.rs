@@ -111,10 +111,6 @@ fn setup_tray(
         MenuItemBuilder::with_id("open-debug-window".to_string(), "Open Debug Window")
             .build(app)?;
 
-    #[cfg(dev)]
-    let open_auth_window =
-        MenuItemBuilder::with_id("open-auth-window".to_string(), "Open Auth Window").build(app)?;
-
     let quit = MenuItemBuilder::with_id("quit".to_string(), "Quit").build(app)?;
     let restart = MenuItemBuilder::with_id("restart".to_string(), "Restart").build(app)?;
     let title = MenuItemBuilder::with_id("title".to_string(), "FUSOU")
@@ -180,8 +176,7 @@ fn setup_tray(
     #[cfg(dev)]
     let danger_ope_sub_menu = danger_ope_sub_menu
         .separator()
-        .item(&open_debug_window)
-        .item(&open_auth_window);
+        .item(&open_debug_window);
 
     let danger_ope_sub_menu = danger_ope_sub_menu.build()?;
 
@@ -281,27 +276,6 @@ fn setup_tray(
                             .build()
                             {
                                 tracing::error!("Failed to build debug window: {}", e);
-                            }
-                        }
-                    },
-                    #[cfg(dev)]
-                    "open-auth-window" => match tray.get_webview_window("auth") {
-                        Some(debug_window) => {
-                            if let Err(e) = debug_window.show() {
-                                tracing::error!("Failed to show auth window: {}", e);
-                            }
-                        }
-                        None => {
-                            if let Err(e) = tauri::WebviewWindowBuilder::new(
-                                tray.app_handle(),
-                                "auth",
-                                tauri::WebviewUrl::App("/auth".into()),
-                            )
-                            .fullscreen(false)
-                            .title("fusou-auth")
-                            .build()
-                            {
-                                tracing::error!("Failed to build auth window: {}", e);
                             }
                         }
                     },
@@ -429,7 +403,7 @@ fn setup_tray(
                                         tracing::error!("Failed to show main window: {}", e);
                                     }
                                 }
-                                tauri_cmd::set_launch_page(tray.app_handle());
+                                let _ = window.emit_to("main", "set-main-page-launch", ());
                             }
                             None => {
                                 app::open_main_window(tray.app_handle());
@@ -506,34 +480,32 @@ fn setup_tray(
 
                         tauri::async_runtime::spawn(async move {
                             match manager.peek_session().await {
-                                Ok(Some(session)) => {
-                                    let access_len = session.access_token.len();
-                                    let refresh_len = session.refresh_token.len();
-                                    let status = if refresh_len < 30 || access_len < 30 {
-                                        "Session tokens may be corrupted (too short). Consider signing out and re-authenticating."
-                                    } else {
-                                        "Session tokens look OK."
-                                    };
+                                Ok(Some(_session)) => {
                                     let _ = app_handle
                                         .notification()
                                         .builder()
-                                        .title("Session Health Check")
-                                        .body(format!("access_len={}, refresh_len={}, {}", access_len, refresh_len, status))
+                                        .title("Session Check")
+                                        .body("Session is valid")
                                         .show();
                                 }
                                 Ok(None) => {
                                     let _ = app_handle
                                         .notification()
                                         .builder()
-                                        .title("Session Health Check")
-                                        .body("No session stored. You need to sign in.")
+                                        .title("Authentication Required")
+                                        .body("Please sign in")
                                         .show();
+                                    
+                                    // Open auth page using existing auth module function
+                                    if let Err(e) = crate::auth::auth_server::open_auth_page() {
+                                        tracing::error!("Failed to open auth page: {}", e);
+                                    }
                                 }
                                 Err(e) => {
                                     let _ = app_handle
                                         .notification()
                                         .builder()
-                                        .title("Session Health Check Error")
+                                        .title("Session Check Error")
                                         .body(format!("Failed to check session: {}", e))
                                         .show();
                                 }

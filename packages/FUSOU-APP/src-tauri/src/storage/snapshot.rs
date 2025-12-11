@@ -76,7 +76,7 @@ pub async fn perform_snapshot_sync_app(
                     .notification()
                     .builder()
                     .title("Sign-in Required")
-                    .body("Session expired. Please sign in again.")
+                    .body("No session found. Please sign in.")
                     .show();
                 let _ = auth_server::open_auth_page();
                 return Err(msg);

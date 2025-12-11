@@ -1,7 +1,10 @@
 import type { APIRoute } from "astro";
 import { createClient } from "@supabase/supabase-js";
 import { createSupabaseServerClient } from "@/utility/supabaseServer";
-import { sanitizeErrorMessage } from "@/utility/security";
+import {
+  sanitizeErrorMessage,
+  SECURE_COOKIE_OPTIONS,
+} from "@/utility/security";
 
 const createUserScopedClient = (accessToken: string) =>
   createClient(
@@ -21,13 +24,14 @@ const createUserScopedClient = (accessToken: string) =>
   );
 
 // Use consistent cookie options with supabaseServer.ts
-const COOKIE_OPTIONS = {
-  path: "/",
-  sameSite: "lax" as const,
-  httpOnly: true,
-  secure: import.meta.env.PROD,
-  maxAge: 60 * 60 * 24 * 7, // 7 days
-};
+// const COOKIE_OPTIONS = {
+//   path: "/",
+//   sameSite: "lax" as const,
+//   httpOnly: true,
+//   secure: import.meta.env.PROD,
+//   maxAge: 60 * 60 * 24 * 7, // 7 days
+// };
+const COOKIE_OPTIONS = { ...SECURE_COOKIE_OPTIONS, sameSite: "lax" as const };
 
 export const GET: APIRoute = async ({ url, cookies, redirect }) => {
   const authCode = url.searchParams.get("code");
@@ -53,7 +57,9 @@ export const GET: APIRoute = async ({ url, cookies, redirect }) => {
     user,
   } = data.session;
   const providerName =
-    user?.app_metadata?.provider ?? data.user.user_metadata?.provider ?? "google";
+    user?.app_metadata?.provider ??
+    data.user.user_metadata?.provider ??
+    "google";
 
   if (provider_token && provider_refresh_token) {
     const upsertPayload = {
@@ -78,14 +84,20 @@ export const GET: APIRoute = async ({ url, cookies, redirect }) => {
         message: storeTokenError.message,
         details: storeTokenError.details,
       });
-      console.warn("⚠️ User authentication succeeded, but provider tokens won't be persisted to database");
+      console.warn(
+        "⚠️ User authentication succeeded, but provider tokens won't be persisted to database"
+      );
       console.warn("⚠️ Tokens are still available in cookies for this session");
     } else {
       console.log("✓ Provider tokens stored successfully");
     }
 
     cookies.set("sb-provider-token", provider_token, COOKIE_OPTIONS);
-    cookies.set("sb-provider-refresh-token", provider_refresh_token, COOKIE_OPTIONS);
+    cookies.set(
+      "sb-provider-refresh-token",
+      provider_refresh_token,
+      COOKIE_OPTIONS
+    );
   } else {
     console.warn("Provider tokens missing in session; skipping persistence");
   }

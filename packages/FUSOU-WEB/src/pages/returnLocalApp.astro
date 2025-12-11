@@ -53,13 +53,13 @@ if (refreshToken?.value && accessToken?.value && providerRefreshToken?.value) {
         accessToken.value +
         "&supabase_refresh_token=" +
         refreshToken.value;
-      
+
       const candidateHref = `fusou://auth?${return_params}`;
-      
+
       // Validate the Tauri custom protocol URL
       if (validateRedirectUrl(candidateHref, allowedOrigin)) {
         return_href = candidateHref;
-        console.log("Return href set to:", return_href);
+        // console.log("Return href set to:", return_href);
       } else {
         console.error("Invalid return href rejected: ", candidateHref);
         error_message = "Invalid redirect URL";
@@ -115,105 +115,178 @@ cookies.delete("sb-provider", { path: "/" });
   <div class="bg-base-200 min-h-screen flex items-center justify-center p-6">
     <div class="w-full max-w-md -mt-8">
       <div class="bg-base-100 rounded-md p-6">
-          <h1 class="text-2xl font-semibold text-center">Auth</h1>
-          <div class="h-3"></div>
+        <h1 class="text-2xl font-semibold text-center">Auth</h1>
+        <div class="h-3"></div>
 
-          <div id="set_session_error" class="hidden">
-            <div class="text-center">Failed to authorize</div>
-            <div class="h-6"></div>
-            <div class="text-red-500 rounded bg-base-200 border border-base-300 w-full py-2 px-4 text-md">
-              Failed to authorize
+        <div id="set_session_error" class="hidden">
+          <div class="text-center">Failed to authorize</div>
+          <div class="h-6"></div>
+          <div
+            class="text-red-500 rounded bg-base-200 border border-base-300 w-full py-2 px-4 text-md"
+          >
+            Failed to authorize
+            <div class="h-2"></div>
+            <div
+              class="text-base-content rounded bg-base-100 border border-base-300 w-full py-2 px-4 text-sm"
+            >
+              {error_message}
+            </div>
+          </div>
+        </div>
+
+        <div id="set_session_success">
+          <div class="flex flex-col items-center gap-2">
+            <div
+              class="flex items-center gap-2 text-success text-2xl font-semibold"
+            >
+              <svg
+                class="w-6 h-6"
+                aria-hidden="true"
+                xmlns="http://www.w3.org/2000/svg"
+                fill="none"
+                viewBox="0 0 24 24"
+                ><path
+                  stroke="currentColor"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M5 13l4 4L19 7"></path></svg
+              >
+              <span>Authentication successful</span>
+            </div>
+            <div class="text-sm text-base-content/70">
+              You may now return to the app.
+            </div>
+          </div>
+          <div class="h-6"></div>
+          <div id="sb_insert_error" class="hidden">
+            <div
+              class="text-red-500 rounded bg-base-200 border border-base-300 w-full py-2 px-4 text-md"
+            >
+              Failed to register refresh token
               <div class="h-2"></div>
-              <div class="text-base-content rounded bg-base-100 border border-base-300 w-full py-2 px-4 text-sm">
+              <div
+                class="text-base-content rounded bg-base-100 border border-base-300 w-full py-2 px-4 text-sm"
+              >
                 {error_message}
               </div>
             </div>
           </div>
-
-          <div id="set_session_success">
-            <div class="flex flex-col items-center gap-2">
-              <div class="flex items-center gap-2 text-success text-2xl font-semibold">
-                <svg class="w-6 h-6" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
-                <span>Authentication successful</span>
+          <div id="sb_insert_success" class="hidden">
+            <div
+              class="alert alert-info bg-base-200 border border-base-300 text-sm text-base-content/80 flex items-start gap-3"
+            >
+              <svg
+                class="w-6 h-6 text-info"
+                aria-hidden="true"
+                xmlns="http://www.w3.org/2000/svg"
+                fill="none"
+                viewBox="2 2 22 22"
+                ><path
+                  stroke="currentColor"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M4 12c0 4.418 3.582 8 8 8s8-3.582 8-8-3.582-8-8-8-8 3.582-8 8Zm8-4v4"
+                ></path><path
+                  stroke="currentColor"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M12 16h.01"></path></svg
+              >
+              <div>
+                <div class="font-semibold text-base-content">Tip</div>
+                <p class="leading-snug">
+                  Refresh token registration succeeded. No further action is
+                  needed on the web side.
+                </p>
               </div>
-              <div class="text-sm text-base-content/70">You may now return to the app.</div>
             </div>
-            <div class="h-6"></div>
-            <div id="sb_insert_error" class="hidden">
-              <div class="text-red-500 rounded bg-base-200 border border-base-300 w-full py-2 px-4 text-md">
-                Failed to register refresh token
-                <div class="h-2"></div>
-                <div class="text-base-content rounded bg-base-100 border border-base-300 w-full py-2 px-4 text-sm">
-                  {error_message}
+          </div>
+          <div>
+            <div class="h-4"></div>
+            <h1 class="text-lg text-center">
+              <a href={return_href} class="link link-info">Return to app</a>
+            </h1>
+            <div class="divider">OR</div>
+            <div class="text-base text-center">Copy tokens</div>
+            <fieldset class="fieldset mt-3">
+              <legend class="fieldset-legend text-sm"
+                >Provider refresh token, access token & refresh token</legend
+              >
+              <div class="flex items-start gap-2">
+                <div class="flex-1 rounded-md border border-base-300">
+                  <input
+                    id="tokens"
+                    type="text"
+                    style="cursor: text"
+                    class="input input-bordered font-mono w-full"
+                    value={return_params ?? ""}
+                    readonly
+                    disabled
+                  />
                 </div>
+                <button
+                  id="copy-button"
+                  aria-label="Copy tokens"
+                  class="btn btn-ghost rounded-box p-2 items-center justify-center border border-base-300"
+                >
+                  <label class="swap" id="copy-swap-id">
+                    <div class="swap-off">
+                      <svg
+                        class="w-4 h-4"
+                        aria-hidden="true"
+                        xmlns="http://www.w3.org/2000/svg"
+                        fill="currentColor"
+                        viewBox="0 0 18 20"
+                        ><path
+                          d="M16 1h-3.278A1.992 1.992 0 0 0 11 0H7a1.993 1.993 0 0 0-1.722 1H2a2 2 0 0 0-2 2v15a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V3a2 2 0 0 0-2-2Zm-3 14H5a1 1 0 0 1 0-2h8a1 1 0 0 1 0 2Zm0-4H5a1 1 0 0 1 0-2h8a1 1 0 1 1 0 2Zm0-5H5a1 1 0 0 1 0-2h2V2h4v2h2a1 1 0 1 1 0 2Z"
+                        ></path></svg
+                      >
+                    </div>
+                    <div class="swap-on">
+                      <svg
+                        class="w-4 h-4 text-success"
+                        aria-hidden="true"
+                        xmlns="http://www.w3.org/2000/svg"
+                        fill="none"
+                        viewBox="0 0 16 12"
+                        ><path
+                          stroke="currentColor"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          stroke-width="2"
+                          d="M1 5.917 5.724 10.5 15 1.5"></path></svg
+                      >
+                    </div>
+                  </label>
+                </button>
               </div>
-            </div>
-            <div id="sb_insert_success" class="hidden">
-              <div class="alert alert-info bg-base-200 border border-base-300 text-sm text-base-content/80 flex items-start gap-3">
-                <svg class="w-6 h-6 text-info" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="2 2 22 22"><path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 12c0 4.418 3.582 8 8 8s8-3.582 8-8-3.582-8-8-8-8 3.582-8 8Zm8-4v4"/><path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 16h.01"/></svg>
-                <div>
-                  <div class="font-semibold text-base-content">Tip</div>
-                  <p class="leading-snug">Refresh token registration succeeded. No further action is needed on the web side.</p>
-                </div>
+              <p class="label text-sm mt-2">
+                Paste into the tokens field on the app's launch page.
+              </p>
+              <div class="text-center mt-2 h-8">
+                <span
+                  id="copy-status"
+                  class="text-success text-sm sr-only"
+                  aria-live="polite"></span>
               </div>
-            </div>
-            <div>
-              <div class="h-4"></div>
-              <h1 class="text-lg text-center">
-                <a href={return_href} class="link link-info">Return to app</a>
-              </h1>
-              <div class="divider">OR
-              </div>
-              <div class="text-base text-center">Copy tokens</div>
-              <fieldset class="fieldset mt-3">
-                <legend class="fieldset-legend text-sm">Provider refresh token, access token & refresh token</legend>
-                <div class="flex items-start gap-2">
-                  <div class="flex-1 rounded-md border border-base-300">
-                    <input
-                      id="tokens"
-                      type="text"
-                      style="cursor: text"
-                      class="input input-bordered font-mono w-full"
-                      value={return_params ?? ""}
-                      readonly
-                      disabled
-                    />
-                  </div>
-                  <button
-                    id="copy-button"
-                    aria-label="Copy tokens"
-                    class="btn btn-ghost rounded-box p-2 items-center justify-center border border-base-300"
-                  >
-                    <label class="swap" id="copy-swap-id">
-                      <div class="swap-off">
-                        <svg class="w-4 h-4" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="currentColor" viewBox="0 0 18 20"><path d="M16 1h-3.278A1.992 1.992 0 0 0 11 0H7a1.993 1.993 0 0 0-1.722 1H2a2 2 0 0 0-2 2v15a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V3a2 2 0 0 0-2-2Zm-3 14H5a1 1 0 0 1 0-2h8a1 1 0 0 1 0 2Zm0-4H5a1 1 0 0 1 0-2h8a1 1 0 1 1 0 2Zm0-5H5a1 1 0 0 1 0-2h2V2h4v2h2a1 1 0 1 1 0 2Z"/></svg>
-                      </div>
-                      <div class="swap-on">
-                        <svg class="w-4 h-4 text-success" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 16 12"><path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M1 5.917 5.724 10.5 15 1.5"></path></svg>
-                      </div>
-                    </label>
-                  </button>
-                </div>
-                <p class="label text-sm mt-2">Paste into the tokens field on the app's launch page.</p>
-                <div class="text-center mt-2 h-8">
-                  <span id="copy-status" class="text-success text-sm sr-only" aria-live="polite"></span>
-                </div>
-              </fieldset>
-            </div>
+            </fieldset>
           </div>
         </div>
       </div>
     </div>
-
-    <Navigation />
   </div>
 
-  <astro-data-auth_props
-    data-set-session-error-flag={String(set_session_error_flag)}
-    data-sb-insert-error-flag={String(sb_insert_error_flag)}
-    data-sb-insert-success-flag={String(sb_insert_success_flag)}
-    data-return-href={return_href}></astro-data-auth_props>
+  <Navigation />
 </Layout>
+
+<astro-data-auth_props
+  data-set-session-error-flag={String(set_session_error_flag)}
+  data-sb-insert-error-flag={String(sb_insert_error_flag)}
+  data-sb-insert-success-flag={String(sb_insert_success_flag)}
+  data-return-href={return_href}></astro-data-auth_props>
 
 <script>
   class AstroDataAuthProps extends HTMLElement {
@@ -254,7 +327,7 @@ cookies.delete("sb-provider", { path: "/" });
       });
 
       window.addEventListener("load", () => {
-        console.log("Return href from AstroDataAuthProps:", this.dataset.returnHref);
+        // console.log("Return href from AstroDataAuthProps:", this.dataset.returnHref);
         window.location.href = returnHref || "/";
       });
     }
@@ -274,7 +347,10 @@ cookies.delete("sb-provider", { path: "/" });
     swap_label?.classList.add("swap-active");
     const tokensEl = document.getElementById("tokens");
     let text = "";
-    if (tokensEl instanceof HTMLTextAreaElement || tokensEl instanceof HTMLInputElement) {
+    if (
+      tokensEl instanceof HTMLTextAreaElement ||
+      tokensEl instanceof HTMLInputElement
+    ) {
       // input & textarea share .value
       // @ts-ignore runtime check
       text = tokensEl.value || "";
@@ -292,7 +368,10 @@ cookies.delete("sb-provider", { path: "/" });
     };
 
     if (text && navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(text).then(() => showStatus("Copied"), () => showStatus("Copy failed"));
+      navigator.clipboard.writeText(text).then(
+        () => showStatus("Copied"),
+        () => showStatus("Copy failed")
+      );
     } else if (tokensEl instanceof HTMLTextAreaElement) {
       tokensEl.select();
       const ok = document.execCommand("copy");

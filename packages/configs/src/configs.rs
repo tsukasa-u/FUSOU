@@ -723,9 +723,10 @@ fn get_default_configs() -> &'static Configs {
 
 pub fn set_user_config(path: &str) -> Result<(), Box<dyn std::error::Error>> {
     let config = get_configs(path);
-    USER_CONFIGS
-        .set(config)
-        .map_err(|_| "User configs already set")?;
+    if USER_CONFIGS.set(config).is_err() {
+        // Configs may be initialized multiple times in dev/hot-reload runs; keep the first one.
+        tracing::warn!("User configs already set; reusing existing instance");
+    }
     Ok(())
 }
 
@@ -776,10 +777,17 @@ pub fn get_configs(config_path: &str) -> Configs {
 }
 
 pub fn get_user_configs() -> Configs {
-    const CONFIGS_PATH: &str = "configs.toml";
-    USER_CONFIGS
-        .get_or_init(|| get_configs(CONFIGS_PATH))
-        .clone()
+    if let Some(configs) = USER_CONFIGS.get() {
+        return configs.clone();
+    }
+
+    // Avoid creating a configs.toml in the current working directory when the
+    // caller forgets to call set_user_config(). In that case, fall back to the
+    // embedded defaults without touching the filesystem.
+    tracing::warn!(
+        "User configs not initialized; using embedded defaults (no file written)"
+    );
+    get_default_configs().clone()
 }
 
 /// Merge and update user config file with default template, preserving comments
