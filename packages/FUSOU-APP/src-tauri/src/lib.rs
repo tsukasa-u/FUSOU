@@ -11,6 +11,7 @@ use tauri_plugin_notification::NotificationExt;
 mod json_parser;
 
 use fusou_auth::{AuthManager, FileStorage, Storage};
+use tauri::AppHandle;
 
 
 mod auth;
@@ -35,6 +36,64 @@ use crate::builder_setup::bidirectional_channel::get_manage_auth_channel;
 static RESOURCES_DIR: OnceCell<Mutex<PathBuf>> = OnceCell::new();
 
 static ROAMING_DIR: OnceCell<Mutex<PathBuf>> = OnceCell::new();
+
+async fn bootstrap_tokens_on_startup(
+    app_handle: AppHandle,
+    app_handle_for_notification: AppHandle,
+    storage: Arc<FileStorage>,
+    auth_manager: AuthManager<FileStorage>,
+) {
+    // Try to load existing session from storage
+    if let Ok(Some(session)) = storage.load_session().await {
+        tracing::info!("startup: found existing session, emitting tokens to frontend");
+        let _ = app_handle.emit_to(
+            "main",
+            "set-supabase-tokens",
+            vec![session.access_token.clone(), session.refresh_token.clone()],
+        );
+
+        // Fetch all cloud provider tokens from Supabase
+        // This supports multiple providers: google, dropbox, icloud, onedrive, etc.
+        let supported_providers = storage::CloudProviderFactory::supported_providers();
+        tracing::info!(?supported_providers, "startup: fetching provider refresh tokens");
+
+        for provider in supported_providers {
+            tracing::debug!(provider, "startup: begin fetch provider token");
+            match auth_manager.fetch_provider_token(provider).await {
+                Ok(Some(token)) => {
+                    if let Err(e) = storage::providers::gdrive::set_refresh_token(
+                        token.to_string(),
+                        provider.to_string(),
+                    ) {
+                        tracing::warn!(provider, error = ?e, "startup: failed to save provider token");
+                    } else {
+                        tracing::info!(provider, "startup: provider refresh token saved");
+                    }
+                }
+                Ok(None) => tracing::info!(provider, "startup: no provider token for user"),
+                Err(e) => tracing::warn!(provider, error = %e, "startup: failed to fetch provider token"),
+            }
+        }
+    } else {
+        tracing::info!("startup: no existing session found - authentication required");
+
+        // Open authentication page using existing auth module function
+        if let Err(e) = auth::auth_server::open_auth_page() {
+            tracing::error!("Failed to open auth page: {}", e);
+        }
+
+        // Send notification to user
+        if let Err(e) = app_handle_for_notification
+            .notification()
+            .builder()
+            .title("Authentication Required")
+            .body("Please sign in with your Supabase account to use FUSOU")
+            .show()
+        {
+            tracing::error!("Failed to send notification: {}", e);
+        }
+    }
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 #[tokio::main]
@@ -146,62 +205,16 @@ pub async fn run() {
             // Fetch tokens and emit to frontend (after logger is initialized inside setup_init)
             let app_handle = app.handle().clone();
             let app_handle_for_notification = app.handle().clone();
-            let storage_check = storage.clone();
-            let auth_manager_for_startup = auth_manager.clone();
+            let storage_for_bootstrap = storage.clone();
+            let auth_manager_for_bootstrap = auth_manager.clone();
 
             tokio::task::block_in_place(|| {
-                tokio::runtime::Handle::current().block_on(async move {
-                    // Try to load existing session from storage
-                    if let Ok(Some(session)) = storage_check.load_session().await {
-                        tracing::info!("startup: found existing session, emitting tokens to frontend");
-                        let _ = app_handle.emit_to(
-                            "main",
-                            "set-supabase-tokens",
-                            vec![session.access_token.clone(), session.refresh_token.clone()],
-                        );
-
-                        // Fetch all cloud provider tokens from Supabase
-                        // This supports multiple providers: google, dropbox, icloud, onedrive, etc.
-                        let supported_providers = storage::CloudProviderFactory::supported_providers();
-                        tracing::info!(?supported_providers, "startup: fetching provider refresh tokens");
-
-                        for provider in supported_providers {
-                            tracing::debug!(provider, "startup: begin fetch provider token");
-                            match auth_manager_for_startup.fetch_provider_token(provider).await {
-                                Ok(Some(token)) => {
-                                    if let Err(e) = storage::providers::gdrive::set_refresh_token(
-                                        token.to_string(),
-                                        provider.to_string(),
-                                    ) {
-                                        tracing::warn!(provider, error = ?e, "startup: failed to save provider token");
-                                    } else {
-                                        tracing::info!(provider, "startup: provider refresh token saved");
-                                    }
-                                }
-                                Ok(None) => tracing::info!(provider, "startup: no provider token for user"),
-                                Err(e) => tracing::warn!(provider, error = %e, "startup: failed to fetch provider token"),
-                            }
-                        }
-                    } else {
-                        tracing::info!("startup: no existing session found - authentication required");
-                        
-                        // Open authentication page using existing auth module function
-                        if let Err(e) = auth::auth_server::open_auth_page() {
-                            tracing::error!("Failed to open auth page: {}", e);
-                        }
-                        
-                        // Send notification to user
-                        if let Err(e) = app_handle_for_notification
-                            .notification()
-                            .builder()
-                            .title("Authentication Required")
-                            .body("Please sign in with your Supabase account to use FUSOU")
-                            .show()
-                        {
-                            tracing::error!("Failed to send notification: {}", e);
-                        }
-                    }
-                })
+                tokio::runtime::Handle::current().block_on(bootstrap_tokens_on_startup(
+                    app_handle,
+                    app_handle_for_notification,
+                    storage_for_bootstrap,
+                    auth_manager_for_bootstrap,
+                ))
             });
             Ok(())
         })

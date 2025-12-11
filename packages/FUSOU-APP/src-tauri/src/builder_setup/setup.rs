@@ -88,6 +88,27 @@ fn set_paths(
     Ok(())
 }
 
+fn configure_autostart(
+    app: &mut tauri::App,
+    autostart_allowed: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    {
+        if autostart_allowed {
+            if let Err(e) = ensure_autostart_initialized(app) {
+                tracing::warn!("Failed to initialize autostart entry: {}", e);
+            }
+        } else {
+            tracing::info!("Autostart disabled via config; skipping initialization");
+            if let Err(e) = app.autolaunch().disable() {
+                tracing::debug!("Failed to disable autostart entry: {}", e);
+            }
+        }
+    }
+
+    Ok(())
+}
+
 fn setup_tray(
     app: &mut tauri::App,
     shutdown_tx: mpsc::Sender<ShutdownSignal>,
@@ -747,19 +768,7 @@ pub fn setup_init(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>
     let autostart_allowed = configs::get_user_configs_for_app()
         .autostart
         .get_enable_autostart();
-    #[cfg(not(any(target_os = "android", target_os = "ios")))]
-    {
-        if autostart_allowed {
-            if let Err(e) = ensure_autostart_initialized(app) {
-                tracing::warn!("Failed to initialize autostart entry: {}", e);
-            }
-        } else {
-            tracing::info!("Autostart disabled via config; skipping initialization");
-            if let Err(e) = app.autolaunch().disable() {
-                tracing::debug!("Failed to disable autostart entry: {}", e);
-            }
-        }
-    }
+    configure_autostart(app, autostart_allowed)?;
     setup_tray(app, shutdown_tx, autostart_allowed)?;
     configure_channel_transport();
     setup_discord()?;

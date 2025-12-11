@@ -348,6 +348,14 @@ async function handleSignedUploadExecution(
     }
   }
 
+  // If neither contentLengthHeader nor descriptor.declared_size is present, fail early
+  if (!contentLengthHeader && !descriptor.declared_size) {
+    return errorResponse(
+      "Missing content length: either Content-Length header or declared_size is required for upload",
+      411
+    );
+  }
+
   let storedSize = 0;
   try {
     const result = await bucket.put(descriptor.key, uploadBody, {
