@@ -15,6 +15,10 @@ const host = process.env.TAURI_DEV_HOST;
 // https://vitejs.dev/config/
 export default defineConfig(async () => ({
   plugins: [solid()],
+  esbuild: {
+    jsx: 'automatic',
+    jsxImportSource: 'solid-js',
+  },
   test: {
     workspace: [
       {
