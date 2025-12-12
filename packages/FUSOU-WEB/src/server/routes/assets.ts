@@ -37,6 +37,12 @@ app.post("/upload", async (c) => {
     import.meta.env.ASSET_UPLOAD_SIGNING_SECRET;
 
   if (!bucket || !db || !signingSecret) {
+    console.error("[asset-sync] missing bindings", {
+      hasBucket: !!bucket,
+      hasDb: !!db,
+      hasSigningSecret: !!signingSecret,
+      envKeys: Object.keys(env || {}),
+    });
     return c.json({ error: "Asset sync bucket not configured" }, 503);
   }
 
