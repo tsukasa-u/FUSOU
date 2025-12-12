@@ -102,6 +102,6 @@ export const GET: APIRoute = async ({ url, cookies, redirect }) => {
     console.log("✓ Provider tokens stored in database");
   }
 
-  console.log("Redirecting to /returnLocalApp");
-  return redirect("/returnLocalApp");
+  console.log("Redirecting to /auth/local/callback");
+  return redirect("/auth/local/callback");
 };
