@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import type { Bindings, R2BucketBinding } from "../types";
+import { getEnvValue } from "../utils";
 import {
   CORS_HEADERS,
   MAX_BODY_SIZE,
@@ -7,6 +8,27 @@ import {
 } from "../constants";
 
 const app = new Hono<{ Bindings: Bindings }>();
+
+type SnapshotConfig = {
+  bucket: R2BucketBinding | undefined;
+  supabaseUrl: string | null;
+  signingSecret: string | null;
+};
+
+function resolveSnapshotConfig(c: any): SnapshotConfig {
+  const runtimeEnv = c.env ?? {};
+  const supabaseUrl = getEnvValue("PUBLIC_SUPABASE_URL", runtimeEnv);
+  const signingSecret = getEnvValue(
+    "FLEET_SNAPSHOT_SIGNING_SECRET",
+    runtimeEnv
+  );
+
+  return {
+    bucket: runtimeEnv.ASSET_PAYLOAD_BUCKET,
+    supabaseUrl: supabaseUrl ? supabaseUrl.replace(/\/$/, "") : null,
+    signingSecret: signingSecret ?? null,
+  };
+}
 
 // OPTIONS（CORS）
 app.options(
@@ -16,15 +38,9 @@ app.options(
 
 // POST /snapshot
 app.post("/snapshot", async (c) => {
-  const bucket = c.env.ASSET_PAYLOAD_BUCKET;
-  const supabaseUrl =
-    c.env.PUBLIC_SUPABASE_URL || import.meta.env.PUBLIC_SUPABASE_URL;
-  const supabaseKey = c.env.SUPABASE_SECRET_KEY;
-  const signingSecret =
-    c.env.FLEET_SNAPSHOT_SIGNING_SECRET ||
-    import.meta.env.FLEET_SNAPSHOT_SIGNING_SECRET;
+  const { bucket, supabaseUrl, signingSecret } = resolveSnapshotConfig(c);
 
-  if (!bucket || !supabaseUrl || !supabaseKey || !signingSecret) {
+  if (!bucket || !supabaseUrl || !signingSecret) {
     return c.json({ error: "Server misconfiguration" }, 500);
   }
 

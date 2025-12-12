@@ -26,6 +26,7 @@ use chrono::{DateTime, Utc};
 use configs::ConfigsAppAssetSync;
 
 use fusou_upload::{PendingStore, Uploader, UploadRequest, UploadContext, UploadResult};
+use reqwest::StatusCode;
 
 static ASSET_SYNC_HANDLE: OnceLock<JoinHandle<()>> = OnceLock::new();
 static ASSET_SYNC_QUEUE: OnceLock<UnboundedSender<PathBuf>> = OnceLock::new();
@@ -42,6 +43,31 @@ const MIN_SCAN_INTERVAL_SECS: u64 = 10;
 const PERIOD_CACHE_FALLBACK_SECS: u64 = 24 * 60 * 60;
 const REMOTE_KEYS_CACHE_FALLBACK_SECS: u64 = 60 * 60;
 const REMOTE_KEYS_REFRESH_MAX_JITTER_MS: u64 = 5_000;
+
+#[derive(Debug, Clone)]
+struct ExistingKeysError {
+    status: Option<StatusCode>,
+    message: String,
+}
+
+impl ExistingKeysError {
+    fn transport(msg: impl Into<String>) -> Self {
+        Self { status: None, message: msg.into() }
+    }
+
+    fn http(status: StatusCode, body: String) -> Self {
+        Self { status: Some(status), message: body }
+    }
+}
+
+impl std::fmt::Display for ExistingKeysError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.status {
+            Some(status) => write!(f, "{}: {}", status, self.message),
+            None => write!(f, "{}", self.message),
+        }
+    }
+}
 
 // Removed AssetSyncContext struct as we use UploadContext
 
@@ -305,11 +331,10 @@ async fn process_path(
     }
 
     if let Err(err) = maybe_refresh_existing_keys(client, settings, auth_manager).await {
-        // If error contains 401, it means authentication failed
-        if err.contains("401") {
+        if matches!(err.status, Some(StatusCode::UNAUTHORIZED)) {
             tracing::warn!("Authentication failed while checking existing keys; stopping upload");
         }
-        return Err(err);
+        return Err(err.to_string());
     }
 
     if remote_key_exists(&key) {
@@ -578,7 +603,7 @@ async fn maybe_refresh_existing_keys(
     client: &Client,
     settings: &AssetSyncInit,
     auth_manager: &AuthManager<FileStorage>,
-) -> Result<(), String> {
+) -> Result<(), ExistingKeysError> {
     let endpoint = match settings.existing_keys_endpoint.as_deref() {
         Some(value) => value,
         None => {
@@ -601,7 +626,9 @@ async fn maybe_refresh_existing_keys(
     let access_token = auth_manager
         .get_access_token()
         .await
-        .map_err(|err| format!("failed to get access token for existing keys API: {err}"))?;
+        .map_err(|err| ExistingKeysError::transport(format!(
+            "failed to get access token for existing keys API: {err}"
+        )))?;
     
     let token_preview = if access_token.len() > 20 {
         format!("{}...{}", &access_token[..10], &access_token[access_token.len()-10..])
@@ -616,30 +643,30 @@ async fn maybe_refresh_existing_keys(
         .header("Authorization", format!("Bearer {}", access_token))
         .send()
         .await
-        .map_err(|err| format!("failed to query existing keys endpoint: {err}"))?;
+        .map_err(|err| ExistingKeysError::transport(format!(
+            "failed to query existing keys endpoint: {err}"
+        )))?;
 
     if !response.status().is_success() {
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
         
         // Check if it's a 401 (Unauthorized) error - indicates token expiry
-        if status == 401 {
+        if status == StatusCode::UNAUTHORIZED {
             SUPABASE_AUTH_FAILED.store(true, Ordering::Relaxed);
             SUPABASE_AUTH_READY.store(false, Ordering::Relaxed);
             tracing::warn!("existing keys endpoint returned 401; marking authentication as failed");
         }
-        
-        return Err(format!(
-            "existing keys endpoint returned {}: {}",
-            status,
-            body.trim()
-        ));
+
+        return Err(ExistingKeysError::http(status, body.trim().to_string()));
     }
 
     let payload: ExistingKeysResponse = response
         .json()
         .await
-        .map_err(|err| format!("failed to decode existing keys payload: {err}"))?;
+        .map_err(|err| ExistingKeysError::transport(format!(
+            "failed to decode existing keys payload: {err}"
+        )))?;
 
     cache_remote_keys(payload);
     Ok(())

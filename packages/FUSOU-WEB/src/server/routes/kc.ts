@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import type { Bindings } from "../types";
 import { CORS_HEADERS, CACHE_TTL_MS } from "../constants";
+import { resolveSupabaseConfig } from "../utils";
 
 const app = new Hono<{ Bindings: Bindings }>();
 
@@ -20,16 +21,12 @@ app.get("/latest", async (c) => {
     return c.json({ ...cachedPeriod.payload, cached: true });
   }
 
-  const supabaseUrl = (
-    c.env.PUBLIC_SUPABASE_URL ||
-    import.meta.env.PUBLIC_SUPABASE_URL ||
-    ""
-  ).replace(/\/$/, "");
+  const { url: supabaseUrl, serviceRoleKey: apiKey } = resolveSupabaseConfig(
+    c.env
+  );
   if (!supabaseUrl) {
     return c.json({ error: "Configuration error" }, 500);
   }
-
-  const apiKey = import.meta.env.SUPABASE_SECRET_KEY as string | undefined;
 
   if (!apiKey || !apiKey.startsWith("sb_secret_")) {
     if (!apiKey) console.error("[kc-period] Missing SUPABASE_SECRET_KEY");

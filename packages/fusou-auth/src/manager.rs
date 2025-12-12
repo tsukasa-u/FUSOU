@@ -9,7 +9,7 @@ use tokio::sync::Mutex;
 use serde::Deserialize;
 
 const SUPABASE_URL_EMBED: Option<&str> = option_env!("PUBLIC_SUPABASE_URL");
-const PUBLIC_SUPABASE_PUBLISHABLE_KEY_EMBED: Option<&str> = option_env!("PUBLIC_SUPABASE_PUBLISHABLE_KEY");
+const SUPABASE_PUBLISHABLE_KEY_EMBED: Option<&str> = option_env!("PUBLIC_SUPABASE_PUBLISHABLE_KEY");
 // Fallback TTL when Supabase response omits expires_in (seconds)
 const DEFAULT_ACCESS_TOKEN_TTL_SECS: i64 = 55 * 60; // 55 minutes to refresh before typical 60m expiry
 
@@ -63,7 +63,7 @@ impl<S: Storage> AuthManager<S> {
                 .map_err(|_| AuthError::Other("PUBLIC_SUPABASE_URL not set".to_string()))?
         };
 
-        let api_key = if let Some(v) = PUBLIC_SUPABASE_PUBLISHABLE_KEY_EMBED {
+        let api_key = if let Some(v) = SUPABASE_PUBLISHABLE_KEY_EMBED {
             v.to_string()
         } else {
             std::env::var("PUBLIC_SUPABASE_PUBLISHABLE_KEY")

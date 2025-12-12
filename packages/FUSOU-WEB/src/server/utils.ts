@@ -104,6 +104,24 @@ export function getEnvValue(
   return metaEnvVal;
 }
 
+export type SupabaseConfig = {
+  url: string | null;
+  serviceRoleKey: string | null;
+  publishableKey: string | null;
+};
+
+export function resolveSupabaseConfig(
+  runtimeEnv: Record<string, any> = {}
+): SupabaseConfig {
+  const url =
+    getEnvValue("PUBLIC_SUPABASE_URL", runtimeEnv)?.replace(/\/$/, "") ?? null;
+  const serviceRoleKey = getEnvValue("SUPABASE_SECRET_KEY", runtimeEnv) ?? null;
+  const publishableKey =
+    getEnvValue("PUBLIC_SUPABASE_PUBLISHABLE_KEY", runtimeEnv) ?? null;
+
+  return { url, serviceRoleKey, publishableKey };
+}
+
 /**
  * Cloudflare runtime環境変数からBindingsオブジェクトを構築
  */
@@ -225,10 +243,7 @@ export function sanitizeFileName(input: string | null): string | null {
 // ========================
 
 // Cache RemoteJWKSet globally to leverage Cloudflare Workers hot-instance caching.
-const SUPABASE_URL = (import.meta.env.PUBLIC_SUPABASE_URL || "").replace(
-  /\/$/,
-  ""
-);
+const { url: SUPABASE_URL } = resolveSupabaseConfig();
 
 // Log SUPABASE_URL for debugging (only in development)
 if (import.meta.env.DEV) {
