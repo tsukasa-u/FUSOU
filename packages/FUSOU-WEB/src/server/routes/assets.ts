@@ -71,6 +71,19 @@ app.post("/upload", async (c) => {
 
 // GET /keys
 app.get("/keys", async (c) => {
+  // Require valid Supabase access token
+  const authHeader = c.req.header("Authorization");
+  const accessToken = extractBearer(authHeader);
+  
+  if (!accessToken) {
+    return c.json({ error: "Missing Authorization bearer token" }, 401);
+  }
+
+  const supabaseUser = await validateJWT(accessToken);
+  if (!supabaseUser) {
+    return c.json({ error: "Invalid or expired JWT token" }, 401);
+  }
+
   const db = c.env.ASSET_INDEX_DB;
 
   if (!db) {
