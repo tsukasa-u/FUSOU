@@ -232,16 +232,32 @@ async function handleSignedUploadRequest(
     SIGNED_URL_TTL_SECONDS
   );
 
-  // Build upload URL for client. When running behind Astro adapter, external path includes '/api'.
-  const usingAdapter = !!(c.env as any)?.env;
-  const uploadUrl = new URL(url);
-  if (usingAdapter && !uploadUrl.pathname.startsWith("/api/")) {
-    uploadUrl.pathname =
-      "/api" +
-      (uploadUrl.pathname.startsWith("/")
-        ? uploadUrl.pathname
-        : "/" + uploadUrl.pathname);
-  }
+  // Build external upload URL using PUBLIC_SITE_URL to ensure '/api' prefix
+  const envObj = (c.env as any).env || c.env;
+  const siteUrl = (
+    envObj.PUBLIC_SITE_URL ||
+    import.meta.env.PUBLIC_SITE_URL ||
+    ""
+  )
+    .toString()
+    .trim();
+  const base = siteUrl.replace(/\/$/, "");
+  let uploadUrl = new URL(`${base}/api/asset-sync/upload`);
+  // let uploadUrl: URL;
+  // if (siteUrl) {
+  //   const base = siteUrl.replace(/\/$/, "");
+  //   uploadUrl = new URL(`${base}/api/asset-sync/upload`);
+  // } else {
+  //   // Fallback to current request URL with '/api' prefix if missing
+  //   uploadUrl = new URL(url);
+  //   if (!uploadUrl.pathname.startsWith("/api/")) {
+  //     uploadUrl.pathname =
+  //       "/api" +
+  //       (uploadUrl.pathname.startsWith("/")
+  //         ? uploadUrl.pathname
+  //         : "/" + uploadUrl.pathname);
+  //   }
+  // }
   uploadUrl.searchParams.set("token", token);
 
   return c.json({
