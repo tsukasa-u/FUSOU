@@ -8,8 +8,18 @@ import {
   TEMPORARY_COOKIE_OPTIONS,
 } from "@/utility/security";
 
-export const POST: APIRoute = async ({ request, cookies, redirect }) => {
-  const providedOrigin = import.meta.env.PUBLIC_SITE_URL?.trim();
+export const POST: APIRoute = async ({
+  request,
+  cookies,
+  redirect,
+  locals,
+}) => {
+  const runtimeEnv = (locals as any)?.runtime?.env || {};
+  const providedOrigin = (
+    runtimeEnv.PUBLIC_SITE_URL ||
+    import.meta.env.PUBLIC_SITE_URL?.trim() ||
+    ""
+  ).trim();
   if (!providedOrigin) {
     return new Response("Server misconfiguration: PUBLIC_SITE_URL is not set", {
       status: 500,
