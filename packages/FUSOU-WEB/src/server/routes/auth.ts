@@ -14,6 +14,11 @@ app.post('/signin', async (c) => {
   return c.json({ message: 'Use Astro native auth/signin endpoint' }, 400);
 });
 
+// GET /auth/signin - ブラウザからの誤ったアクセスに対する案内
+app.get('/signin', async (c) => {
+  return c.json({ error: true, message: 'auth/signin expects POST. If you are using the web app, use the Astro-native endpoint.' }, 405);
+});
+
 // GET /auth/callback
 app.get('/callback', async (c) => {
   return c.json({ error: 'Use Astro native callback endpoint' }, 400);
