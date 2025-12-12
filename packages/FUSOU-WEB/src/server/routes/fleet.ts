@@ -158,8 +158,8 @@ async function handleSnapshotUpload(
     }
 
     const isEmptyObject =
-      typeof payload === "object" &&
       payload !== null &&
+      typeof payload === "object" &&
       !Array.isArray(payload) &&
       Object.keys(payload).length === 0;
     const isEmptyArray = Array.isArray(payload) && payload.length === 0;
