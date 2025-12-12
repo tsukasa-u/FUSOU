@@ -40,6 +40,7 @@ app.get("/_envcheck", (c) => {
       type: keyType(buildKey),
       prefix: pickPrefix(buildKey),
     },
+    usingRuntimeOnly: true,
     supabaseUrlPresent: !!(
       c.env.PUBLIC_SUPABASE_URL || import.meta.env.PUBLIC_SUPABASE_URL
     ),
@@ -63,14 +64,11 @@ app.get("/latest", async (c) => {
     return c.json({ error: "Configuration error" }, 500);
   }
 
-  // Accept service role key from runtime env, or build-time if it's a valid sb_secret_ key
+  // Use runtime (Cloudflare Bindings) secret only per Workers' model
   const runtimeKey = c.env.SUPABASE_SECRET_KEY;
-  const buildKey = import.meta.env.SUPABASE_SECRET_KEY;
   const apiKey =
     typeof runtimeKey === "string" && runtimeKey.startsWith("sb_secret_")
       ? runtimeKey
-      : typeof buildKey === "string" && buildKey.startsWith("sb_secret_")
-      ? buildKey
       : undefined;
 
   if (!apiKey) {

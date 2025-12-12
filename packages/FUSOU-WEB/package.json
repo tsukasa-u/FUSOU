@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "dotenvx run -fk ../.env.keys -f .env --verbose --overload -- astro dev",
     "build": "dotenvx run -fk ../.env.keys -f .env --verbose --overload -- astro check && astro build",
-    "build.no.keys": "dotenvx run -f .env --verbose --overload -- astro build",
+    "build.no.keys": "dotenvx run -f .env --verbose --overload -- astro check && astro build",
     "preview": "dotenvx run -fk ../.env.keys -f .env --verbose --overload -- astro preview",
     "astro": "astro",
     "gen:licenses": "node ../../scripts/generate-licenses.js"
