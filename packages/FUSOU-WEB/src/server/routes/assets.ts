@@ -291,12 +291,14 @@ async function handleSignedUploadExecution(
 ): Promise<Response> {
   const token = url.searchParams.get("token");
   if (!token) {
+    console.warn("[asset-sync upload] missing token param on upload step");
     return c.json({ error: "Missing token parameter" }, 400);
   }
 
   const { verifySignedToken } = await import("../utils");
   const payload = await verifySignedToken(token, signingSecret);
   if (!payload) {
+    console.warn("[asset-sync upload] invalid or expired token on upload step");
     return c.json({ error: "Invalid or expired token" }, 401);
   }
 
@@ -304,6 +306,10 @@ async function handleSignedUploadExecution(
   const accessToken = extractBearer(authHeader);
 
   if (!accessToken) {
+    console.warn("[asset-sync upload] missing bearer on upload step", {
+      hasAuthHeader: !!authHeader,
+      headerPreview: authHeader ? authHeader.slice(0, 20) : null,
+    });
     return c.json({ error: "Missing Authorization bearer token" }, 401);
   }
 
