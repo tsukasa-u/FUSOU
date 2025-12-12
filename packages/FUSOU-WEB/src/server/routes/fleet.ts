@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import type { Bindings, R2BucketBinding } from "../types";
-import { getEnvValue } from "../utils";
+import { getEnvValue, getRuntimeEnv } from "../utils";
 import {
   CORS_HEADERS,
   MAX_BODY_SIZE,
@@ -16,8 +16,7 @@ type SnapshotConfig = {
 };
 
 function resolveSnapshotConfig(c: any): SnapshotConfig {
-  const env = (c.env as any).env || c.env;
-  const runtimeEnv = env ?? {};
+  const runtimeEnv = getRuntimeEnv(c);
   const supabaseUrl = getEnvValue("PUBLIC_SUPABASE_URL", runtimeEnv);
   const signingSecret = getEnvValue(
     "FLEET_SNAPSHOT_SIGNING_SECRET",

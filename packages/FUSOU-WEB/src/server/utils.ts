@@ -1,6 +1,7 @@
 import { jwtVerify, createRemoteJWKSet, SignJWT } from "jose";
 import { DEFAULT_ALLOWED_EXTENSIONS } from "./constants";
 import type { Bindings } from "./types";
+import type { Context } from "hono";
 
 // ========================
 // 署名付きトークン（JWT）
@@ -87,6 +88,15 @@ export function resolveSupabaseConfig(
     getEnvValue("PUBLIC_SUPABASE_PUBLISHABLE_KEY", runtimeEnv) ?? null;
 
   return { url, serviceRoleKey, publishableKey };
+}
+
+/**
+ * Astro adapter経由でも Workers 直実行でも同じ形で env を取得するヘルパー
+ */
+export function getRuntimeEnv(
+  c: Pick<Context, "env"> | { env?: any }
+): Record<string, any> {
+  return ((c as any)?.env as any)?.env || (c as any)?.env || {};
 }
 
 /**

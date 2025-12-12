@@ -16,6 +16,7 @@ import {
   sanitizeFileName,
   violatesAllowList,
   parseSize,
+  getRuntimeEnv,
 } from "../utils";
 
 const app = new Hono<{ Bindings: Bindings }>();
@@ -28,8 +29,7 @@ app.options(
 
 // POST /upload
 app.post("/upload", async (c) => {
-  // When called via Astro adapter, bindings are nested under c.env.env
-  const env = (c.env as any).env || c.env;
+  const env = getRuntimeEnv(c);
   const bucket = env.ASSET_SYNC_BUCKET;
   const db = env.ASSET_INDEX_DB;
   const signingSecret =
@@ -62,7 +62,8 @@ app.post("/upload", async (c) => {
       db,
       allowedExtensions,
       signingSecret,
-      url
+      url,
+      env
     );
   }
 
@@ -73,7 +74,8 @@ app.post("/upload", async (c) => {
     db,
     allowedExtensions,
     signingSecret,
-    url
+    url,
+    env
   );
 });
 
@@ -104,7 +106,7 @@ app.get("/keys", async (c) => {
     `GET /keys: JWT validation successful, user_id=${supabaseUser.id}`
   );
 
-  const env = (c.env as any).env || c.env;
+  const env = getRuntimeEnv(c);
   const db = env.ASSET_INDEX_DB;
 
   if (!db) {
@@ -168,7 +170,8 @@ async function handleSignedUploadRequest(
   db: D1Database,
   allowedExtensions: Set<string>,
   signingSecret: string,
-  url: URL
+  url: URL,
+  env: Record<string, any>
 ): Promise<Response> {
   const contentType = request.headers.get("content-type") ?? "";
   if (!contentType.toLowerCase().includes("application/json")) {
@@ -239,12 +242,7 @@ async function handleSignedUploadRequest(
   );
 
   // Build external upload URL using PUBLIC_SITE_URL to ensure '/api' prefix
-  const envObj = (c.env as any).env || c.env;
-  const siteUrl = (
-    envObj.PUBLIC_SITE_URL ||
-    import.meta.env.PUBLIC_SITE_URL ||
-    ""
-  )
+  const siteUrl = (env.PUBLIC_SITE_URL || import.meta.env.PUBLIC_SITE_URL || "")
     .toString()
     .trim();
   const base = siteUrl.replace(/\/$/, "");
@@ -287,7 +285,8 @@ async function handleSignedUploadExecution(
   db: D1Database,
   allowedExtensions: Set<string>,
   signingSecret: string,
-  url: URL
+  url: URL,
+  env: Record<string, any>
 ): Promise<Response> {
   const token = url.searchParams.get("token");
   if (!token) {
