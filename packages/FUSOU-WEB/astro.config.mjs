@@ -42,9 +42,24 @@ export default defineConfig({
       "process.env.PUBLIC_SITE_URL": JSON.stringify(
         process.env.PUBLIC_SITE_URL
       ),
-      // "import.meta.env.PUBLIC_CLOUDFLARE_ANALYTICS_TOKEN": JSON.stringify(
-      //   process.env.PUBLIC_CLOUDFLARE_ANALYTICS_TOKEN
-      // ),
+      "process.env.PUBLIC_CLOUDFLARE_ANALYTICS_TOKEN": JSON.stringify(
+        process.env.PUBLIC_CLOUDFLARE_ANALYTICS_TOKEN
+      ),
+      "process.env.ASSET_UPLOAD_SIGNING_SECRET": JSON.stringify(
+        process.env.ASSET_UPLOAD_SIGNING_SECRET
+      ),
+      "process.env.FLEET_SNAPSHOT_SIGNING_SECRET": JSON.stringify(
+        process.env.FLEET_SNAPSHOT_SIGNING_SECRET
+      ),
+      "process.env.ADMIN_API_SECRET": JSON.stringify(
+        process.env.ADMIN_API_SECRET
+      ),
+      "process.env.GOOGLE_CLIENT_ID": JSON.stringify(
+        process.env.GOOGLE_CLIENT_ID
+      ),
+      "process.env.GOOGLE_CLIENT_SECRET": JSON.stringify(
+        process.env.GOOGLE_CLIENT_SECRET
+      ),
     },
     resolve: {
       // @ts-ignore
