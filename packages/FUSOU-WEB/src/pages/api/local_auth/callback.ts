@@ -15,9 +15,10 @@ import {
 // };
 const COOKIE_OPTIONS = { ...SECURE_COOKIE_OPTIONS, sameSite: "lax" as const };
 
-export const GET: APIRoute = async ({ url, cookies, redirect }) => {
+export const GET: APIRoute = async ({ url, cookies, redirect, locals }) => {
   const authCode = url.searchParams.get("code");
   const provider = cookies.get("sb-local-provider")?.value;
+  const runtimeEnv = (locals as any)?.runtime?.env || {};
 
   if (!authCode) {
     console.error("No authorization code provided");
@@ -25,7 +26,7 @@ export const GET: APIRoute = async ({ url, cookies, redirect }) => {
   }
 
   // Supabase PKCE flow handles state validation internally
-  const supabase = createSupabaseServerClient(cookies);
+  const supabase = createSupabaseServerClient(cookies, runtimeEnv);
   const { data, error } = await supabase.auth.exchangeCodeForSession(authCode);
 
   if (error) {

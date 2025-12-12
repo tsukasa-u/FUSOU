@@ -1,20 +1,12 @@
 import { createClient } from "@supabase/supabase-js";
 import type { AstroCookies } from "astro";
 
+// Note: These are fallback values. Runtime values from Cloudflare
+// should be passed via createSupabaseServerClient parameters
 const SUPABASE_URL = import.meta.env.PUBLIC_SUPABASE_URL;
 const SERVICE_KEY =
   import.meta.env.SUPABASE_SECRET_KEY ||
   import.meta.env.PUBLIC_SUPABASE_PUBLISHABLE_KEY;
-
-if (!SUPABASE_URL) {
-  throw new Error("PUBLIC_SUPABASE_URL is not set");
-}
-
-if (!SERVICE_KEY) {
-  throw new Error(
-    "SUPABASE_SECRET_KEY (or PUBLIC_SUPABASE_PUBLISHABLE_KEY) is not set"
-  );
-}
 
 const cookieOptions = {
   path: "/",
@@ -38,8 +30,28 @@ const createCookieStorage = (cookies: AstroCookies) => {
   };
 };
 
-export const createSupabaseServerClient = (cookies: AstroCookies) => {
-  return createClient(SUPABASE_URL, SERVICE_KEY, {
+export const createSupabaseServerClient = (
+  cookies: AstroCookies,
+  runtimeEnv?: Record<string, any>
+) => {
+  // Prefer Cloudflare runtime environment variables
+  const supabaseUrl = runtimeEnv?.PUBLIC_SUPABASE_URL || SUPABASE_URL;
+  const serviceKey =
+    runtimeEnv?.SUPABASE_SECRET_KEY ||
+    runtimeEnv?.PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
+    SERVICE_KEY;
+
+  if (!supabaseUrl) {
+    throw new Error("PUBLIC_SUPABASE_URL is not set");
+  }
+
+  if (!serviceKey) {
+    throw new Error(
+      "SUPABASE_SECRET_KEY (or PUBLIC_SUPABASE_PUBLISHABLE_KEY) is not set"
+    );
+  }
+
+  return createClient(supabaseUrl, serviceKey, {
     auth: {
       flowType: "pkce",
       storage: createCookieStorage(cookies),

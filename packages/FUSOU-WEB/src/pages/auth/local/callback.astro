@@ -8,7 +8,8 @@ import { createSupabaseServerClient } from "@/utility/supabaseServer";
 import { validateRedirectUrl } from "@/utility/security";
 
 const cookies = Astro.cookies;
-const supabase = createSupabaseServerClient(cookies);
+const runtimeEnv = (Astro.locals as any)?.runtime?.env || {};
+const supabase = createSupabaseServerClient(cookies, runtimeEnv);
 
 // For local app flow: read from local auth tokens (sb-local-*)
 // These are set by /api/local_auth/callback
@@ -17,7 +18,14 @@ const refreshToken = cookies.get("sb-local-refresh-token");
 const providerRefreshToken = cookies.get("sb-local-provider-refresh-token");
 const provider = cookies.get("sb-local-provider");
 
-const allowedOrigin = import.meta.env.PUBLIC_SITE_URL?.trim() || "";
+// Prefer Cloudflare runtime environment variable, fallback to build-time env
+const cloudflareUrl = runtimeEnv.PUBLIC_SITE_URL;
+const buildTimeUrl = import.meta.env.PUBLIC_SITE_URL?.trim();
+const allowedOrigin = (cloudflareUrl || buildTimeUrl || "").trim();
+
+console.log("[auth/local/callback] Cloudflare PUBLIC_SITE_URL:", cloudflareUrl);
+console.log("[auth/local/callback] Build-time PUBLIC_SITE_URL:", buildTimeUrl);
+console.log("[auth/local/callback] Final allowedOrigin:", allowedOrigin);
 
 let error_message: string | null = null;
 let return_params: string | null = null;

@@ -6,7 +6,8 @@ import { Icon } from "astro-icon/components";
 import type { AuthResponse } from "@supabase/supabase-js";
 
 const cookies = Astro.cookies;
-const supabase = createSupabaseServerClient(cookies);
+const runtimeEnv = (Astro.locals as any)?.runtime?.env || {};
+const supabase = createSupabaseServerClient(cookies, runtimeEnv);
 
 const accessToken = cookies.get("sb-access-token");
 const refreshToken = cookies.get("sb-refresh-token");
