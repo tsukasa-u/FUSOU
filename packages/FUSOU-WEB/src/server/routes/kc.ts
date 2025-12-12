@@ -12,47 +12,6 @@ app.options(
   (_c) => new Response(null, { status: 204, headers: CORS_HEADERS })
 );
 
-// Simple health check to verify routing
-app.get("/_health", (c) => c.json({ ok: true }));
-
-// Env check endpoint (no secrets leaked; shows provenance and prefix only)
-app.get("/_envcheck", (c) => {
-  const runtimeKey = c.env.SUPABASE_SECRET_KEY;
-  const buildKey = import.meta.env.SUPABASE_SECRET_KEY as string | undefined;
-  const pickPrefix = (k?: string) =>
-    typeof k === "string" ? k.substring(0, 12) : "undefined";
-  const keyType = (k?: string) =>
-    typeof k === "string"
-      ? k.startsWith("sb_secret_")
-        ? "secret"
-        : k.startsWith("sb_publishable_")
-        ? "publishable"
-        : "unknown"
-      : "missing";
-  const selected =
-    typeof runtimeKey === "string" && runtimeKey.startsWith("sb_secret_")
-      ? "runtime"
-      : typeof buildKey === "string" && buildKey.startsWith("sb_secret_")
-      ? "build"
-      : "missing";
-  return c.json({
-    runtime: {
-      present: typeof runtimeKey === "string",
-      type: keyType(runtimeKey),
-      prefix: pickPrefix(runtimeKey),
-    },
-    build: {
-      present: typeof buildKey === "string",
-      type: keyType(buildKey),
-      prefix: pickPrefix(buildKey),
-    },
-    selected,
-    supabaseUrlPresent: !!(
-      c.env.PUBLIC_SUPABASE_URL || import.meta.env.PUBLIC_SUPABASE_URL
-    ),
-  });
-});
-
 // GET /latest
 app.get("/latest", async (c) => {
   const now = Date.now();
@@ -70,20 +29,12 @@ app.get("/latest", async (c) => {
     return c.json({ error: "Configuration error" }, 500);
   }
 
-  // Prefer runtime (Cloudflare Bindings) secret; optional build-time fallback if explicitly allowed
-  const runtimeKey = c.env.SUPABASE_SECRET_KEY;
-  const buildKey = import.meta.env.SUPABASE_SECRET_KEY as string | undefined;
+  // Use SUPABASE_SECRET_KEY from import.meta.env (dotenvx build-time injection)
+  const apiKey = import.meta.env.SUPABASE_SECRET_KEY as string | undefined;
 
-  const apiKey =
-    (typeof runtimeKey === "string" && runtimeKey.startsWith("sb_secret_"))
-      ? runtimeKey
-      : (typeof buildKey === "string" && buildKey.startsWith("sb_secret_"))
-      ? buildKey
-      : undefined;
-
-  if (!apiKey) {
+  if (!apiKey || !apiKey.startsWith("sb_secret_")) {
     console.error(
-      "[kc-period] Missing SUPABASE_SECRET_KEY (sb_secret_...) in runtime or build env"
+      "[kc-period] Missing or invalid SUPABASE_SECRET_KEY (sb_secret_...) from build env"
     );
     return c.json({ error: "API key unavailable" }, 503);
   }

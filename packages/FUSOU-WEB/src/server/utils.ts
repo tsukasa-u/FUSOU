@@ -44,65 +44,21 @@ export function getEnvValue(
  */
 export function injectEnv(locals: any): Bindings {
   const runtimeEnv = locals?.runtime?.env || {};
-  const hasRuntime = !!locals?.runtime?.env;
 
-  if (hasRuntime) {
-    // Cloudflare Workers/Pages runtime: use c.env values as source of truth.
-    // Do NOT hydrate secrets from import.meta.env here.
-    return {
-      ASSET_SYNC_BUCKET: runtimeEnv.ASSET_SYNC_BUCKET,
-      ASSET_INDEX_DB: runtimeEnv.ASSET_INDEX_DB,
-      ASSET_PAYLOAD_BUCKET: runtimeEnv.ASSET_PAYLOAD_BUCKET,
-      // Public values may fall back to build-time if absent at runtime
-      PUBLIC_SUPABASE_URL:
-        (runtimeEnv.PUBLIC_SUPABASE_URL as string | undefined) ??
-        ((import.meta.env as any).PUBLIC_SUPABASE_URL as string | undefined) ??
-        "",
-      // Secrets: runtime only
-      SUPABASE_SECRET_KEY: runtimeEnv.SUPABASE_SECRET_KEY as string | undefined,
-      PUBLIC_SUPABASE_PUBLISHABLE_KEY:
-        (runtimeEnv.PUBLIC_SUPABASE_PUBLISHABLE_KEY as string | undefined) ??
-        ((import.meta.env as any).PUBLIC_SUPABASE_PUBLISHABLE_KEY as
-          | string
-          | undefined),
-      ASSET_SYNC_ALLOWED_EXTENSIONS:
-        (runtimeEnv.ASSET_SYNC_ALLOWED_EXTENSIONS as string | undefined) ??
-        ((import.meta.env as any).ASSET_SYNC_ALLOWED_EXTENSIONS as
-          | string
-          | undefined),
-      ASSET_UPLOAD_SIGNING_SECRET: runtimeEnv.ASSET_UPLOAD_SIGNING_SECRET as
-        | string
-        | undefined,
-      FLEET_SNAPSHOT_SIGNING_SECRET:
-        runtimeEnv.FLEET_SNAPSHOT_SIGNING_SECRET as string | undefined,
-      ADMIN_API_SECRET: runtimeEnv.ADMIN_API_SECRET as string | undefined,
-    };
-  }
-
-  // Non-Cloudflare (local dev/node) fallback: allow dotenvx via process.env
   return {
-    ASSET_SYNC_BUCKET: undefined,
-    ASSET_INDEX_DB: undefined,
-    ASSET_PAYLOAD_BUCKET: undefined,
-    PUBLIC_SUPABASE_URL: getEnvValue("PUBLIC_SUPABASE_URL", runtimeEnv) || "",
-    SUPABASE_SECRET_KEY: getEnvValue("SUPABASE_SECRET_KEY", runtimeEnv),
-    PUBLIC_SUPABASE_PUBLISHABLE_KEY: getEnvValue(
-      "PUBLIC_SUPABASE_PUBLISHABLE_KEY",
-      runtimeEnv
-    ),
-    ASSET_SYNC_ALLOWED_EXTENSIONS: getEnvValue(
-      "ASSET_SYNC_ALLOWED_EXTENSIONS",
-      runtimeEnv
-    ),
-    ASSET_UPLOAD_SIGNING_SECRET: getEnvValue(
-      "ASSET_UPLOAD_SIGNING_SECRET",
-      runtimeEnv
-    ),
-    FLEET_SNAPSHOT_SIGNING_SECRET: getEnvValue(
-      "FLEET_SNAPSHOT_SIGNING_SECRET",
-      runtimeEnv
-    ),
-    ADMIN_API_SECRET: getEnvValue("ADMIN_API_SECRET", runtimeEnv),
+    ASSET_SYNC_BUCKET: runtimeEnv.ASSET_SYNC_BUCKET,
+    ASSET_INDEX_DB: runtimeEnv.ASSET_INDEX_DB,
+    ASSET_PAYLOAD_BUCKET: runtimeEnv.ASSET_PAYLOAD_BUCKET,
+    PUBLIC_SUPABASE_URL: import.meta.env.PUBLIC_SUPABASE_URL || "",
+    SUPABASE_SECRET_KEY: import.meta.env.SUPABASE_SECRET_KEY,
+    PUBLIC_SUPABASE_PUBLISHABLE_KEY: import.meta.env
+      .PUBLIC_SUPABASE_PUBLISHABLE_KEY,
+    ASSET_SYNC_ALLOWED_EXTENSIONS: import.meta.env
+      .ASSET_SYNC_ALLOWED_EXTENSIONS,
+    ASSET_UPLOAD_SIGNING_SECRET: import.meta.env.ASSET_UPLOAD_SIGNING_SECRET,
+    FLEET_SNAPSHOT_SIGNING_SECRET: import.meta.env
+      .FLEET_SNAPSHOT_SIGNING_SECRET,
+    ADMIN_API_SECRET: import.meta.env.ADMIN_API_SECRET,
   };
 }
 
