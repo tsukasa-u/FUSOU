@@ -12,10 +12,8 @@ app.options(
   (_c) => new Response(null, { status: 204, headers: CORS_HEADERS })
 );
 
-// GET /_health — quick routing check
-app.get("/_health", (c) => {
-  return c.json({ ok: true, route: "/kc-period/_health" });
-});
+// Simple health check to verify routing
+app.get("/_health", (c) => c.json({ ok: true }));
 
 // GET /latest
 app.get("/latest", async (c) => {
@@ -31,16 +29,14 @@ app.get("/latest", async (c) => {
     ""
   ).replace(/\/$/, "");
   if (!supabaseUrl) {
-    console.error("[kc-period] PUBLIC_SUPABASE_URL not configured");
-    return c.json({ error: "PUBLIC_SUPABASE_URL is not configured" }, 500);
+    return c.json({ error: "Configuration error" }, 500);
   }
 
   const apiKey =
     c.env.SUPABASE_SECRET_KEY ||
     import.meta.env.PUBLIC_SUPABASE_PUBLISHABLE_KEY;
   if (!apiKey) {
-    console.error("[kc-period] Supabase API key unavailable");
-    return c.json({ error: "Supabase API key is not available" }, 503);
+    return c.json({ error: "API key unavailable" }, 503);
   }
 
   const CLOCK_SKEW_BUFFER_MS = 5000;
@@ -59,12 +55,9 @@ app.get("/latest", async (c) => {
     if (!response.ok) {
       const message = (await response.text()).trim();
       console.error(
-        `[kc-period] Failed to fetch kc_period_tag: ${response.status} ${message}`
+        `Failed to fetch kc_period_tag: ${response.status} ${message}`
       );
-      return c.json(
-        { error: "Unable to fetch kc_period_tag", status: response.status },
-        502
-      );
+      return c.json({ error: "Unable to fetch kc_period_tag" }, 502);
     }
 
     const rows = (await response.json()) as Array<{ tag: string | null }>;
@@ -80,7 +73,7 @@ app.get("/latest", async (c) => {
     cachedPeriod = { payload, expiresAt: now + CACHE_TTL_MS };
     return c.json({ ...payload, cached: false });
   } catch (error) {
-    console.error("[kc-period] Exception while fetching kc_period_tag", error);
+    console.error("Failed to fetch kc_period_tag", error);
     return c.json({ error: "Failed to fetch period" }, 502);
   }
 });
