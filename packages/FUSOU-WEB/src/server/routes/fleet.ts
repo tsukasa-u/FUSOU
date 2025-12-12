@@ -1,26 +1,34 @@
-import { Hono } from 'hono';
-import type { Bindings, R2BucketBinding } from '../types';
-import { CORS_HEADERS, MAX_BODY_SIZE, SNAPSHOT_TOKEN_TTL_SECONDS } from '../constants';
+import { Hono } from "hono";
+import type { Bindings, R2BucketBinding } from "../types";
+import {
+  CORS_HEADERS,
+  MAX_BODY_SIZE,
+  SNAPSHOT_TOKEN_TTL_SECONDS,
+} from "../constants";
 
 const app = new Hono<{ Bindings: Bindings }>();
 
 // OPTIONS（CORS）
-app.options('*', (_c) => new Response(null, { status: 204, headers: CORS_HEADERS }));
+app.options(
+  "*",
+  (_c) => new Response(null, { status: 204, headers: CORS_HEADERS })
+);
 
-// POST /fleet/snapshot
-app.post('/fleet/snapshot', async (c) => {
+// POST /snapshot
+app.post("/snapshot", async (c) => {
   const bucket = c.env.ASSET_PAYLOAD_BUCKET;
-  const supabaseUrl = c.env.PUBLIC_SUPABASE_URL || import.meta.env.PUBLIC_SUPABASE_URL;
+  const supabaseUrl =
+    c.env.PUBLIC_SUPABASE_URL || import.meta.env.PUBLIC_SUPABASE_URL;
   const supabaseKey = c.env.SUPABASE_SECRET_KEY;
 
   if (!bucket || !supabaseUrl || !supabaseKey) {
-    return c.json({ error: 'Server misconfiguration' }, 500);
+    return c.json({ error: "Server misconfiguration" }, 500);
   }
 
   const url = new URL(c.req.url);
   const request = c.req.raw;
 
-  if (!url.searchParams.has('token')) {
+  if (!url.searchParams.has("token")) {
     return await handleSnapshotPreparation(c, request, url, supabaseUrl);
   }
 
@@ -33,28 +41,32 @@ async function handleSnapshotPreparation(
   url: URL,
   supabaseUrl: string
 ): Promise<Response> {
-  const authHeader = request.headers.get('Authorization');
-  const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7).trim() : null;
+  const authHeader = request.headers.get("Authorization");
+  const token = authHeader?.startsWith("Bearer ")
+    ? authHeader.slice(7).trim()
+    : null;
 
   if (!token) {
-    return c.json({ error: 'Unauthorized' }, 401);
+    return c.json({ error: "Unauthorized" }, 401);
   }
 
   let body: any;
   try {
     body = await request.json();
   } catch {
-    return c.json({ error: 'Invalid JSON body' }, 400);
+    return c.json({ error: "Invalid JSON body" }, 400);
   }
 
-  const tag = typeof body?.tag === 'string' ? body.tag.trim() : '';
+  const tag = typeof body?.tag === "string" ? body.tag.trim() : "";
   if (!tag) {
-    return c.json({ error: 'tag is required' }, 400);
+    return c.json({ error: "tag is required" }, 400);
   }
 
   return c.json({
     uploadUrl: url.toString(),
-    expiresAt: new Date(Date.now() + SNAPSHOT_TOKEN_TTL_SECONDS * 1000).toISOString(),
+    expiresAt: new Date(
+      Date.now() + SNAPSHOT_TOKEN_TTL_SECONDS * 1000
+    ).toISOString(),
     maxBodyBytes: MAX_BODY_SIZE,
     fields: { tag },
   });
@@ -72,19 +84,23 @@ async function handleSnapshotUpload(
     try {
       body = await request.json();
     } catch {
-      return c.json({ error: 'Invalid JSON body' }, 400);
+      return c.json({ error: "Invalid JSON body" }, 400);
     }
 
     const payload = body?.payload;
     if (!payload) {
-      return c.json({ error: 'payload is required' }, 400);
+      return c.json({ error: "payload is required" }, 400);
     }
 
-    const isEmptyObject = typeof payload === 'object' && payload !== null && !Array.isArray(payload) && Object.keys(payload).length === 0;
+    const isEmptyObject =
+      typeof payload === "object" &&
+      payload !== null &&
+      !Array.isArray(payload) &&
+      Object.keys(payload).length === 0;
     const isEmptyArray = Array.isArray(payload) && payload.length === 0;
 
     if (isEmptyObject || isEmptyArray) {
-      return c.json({ error: 'Empty payload is not allowed' }, 400);
+      return c.json({ error: "Empty payload is not allowed" }, 400);
     }
 
     const text = JSON.stringify(payload);
@@ -93,32 +109,37 @@ async function handleSnapshotUpload(
 
     let compressed: Uint8Array;
     try {
-      const cs = new CompressionStream('gzip');
+      const cs = new CompressionStream("gzip");
       const stream = new Response(data).body!.pipeThrough(cs);
       const buf = await new Response(stream).arrayBuffer();
       compressed = new Uint8Array(buf);
     } catch {
-      return c.json({ error: 'Compression failed' }, 500);
+      return c.json({ error: "Compression failed" }, 500);
     }
 
-    const hashBuf = await crypto.subtle.digest('SHA-256', compressed.slice(0));
+    const hashBuf = await crypto.subtle.digest("SHA-256", compressed.slice(0));
     const hashHex = Array.from(new Uint8Array(hashBuf as ArrayBuffer))
-      .map((b) => b.toString(16).padStart(2, '0'))
-      .join('');
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
 
-    const tag = body?.tag || 'default';
+    const tag = body?.tag || "default";
     const version = body?.version || Date.now();
-    const ownerId = 'user-' + Date.now();
-    const key = `fleets/${ownerId}/${encodeURIComponent(tag)}/${version}-${hashHex}.json.gz`;
+    const ownerId = "user-" + Date.now();
+    const key = `fleets/${ownerId}/${encodeURIComponent(
+      tag
+    )}/${version}-${hashHex}.json.gz`;
 
     await bucket.put(key, compressed, {
-      httpMetadata: { contentType: 'application/json', cacheControl: 'no-cache' },
+      httpMetadata: {
+        contentType: "application/json",
+        cacheControl: "no-cache",
+      },
     });
 
     return c.json({ ok: true, owner_id: ownerId, tag, version, r2_key: key });
   } catch (error) {
-    console.error('[Fleet-Snapshot] Upload error:', error);
-    return c.json({ error: 'Snapshot upload failed' }, 500);
+    console.error("[Fleet-Snapshot] Upload error:", error);
+    return c.json({ error: "Snapshot upload failed" }, 500);
   }
 }
 

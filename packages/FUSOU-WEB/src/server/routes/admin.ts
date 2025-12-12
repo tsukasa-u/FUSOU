@@ -1,32 +1,39 @@
-import { Hono } from 'hono';
-import type { Bindings } from '../types';
-import { CORS_HEADERS } from '../constants';
-import { extractBearer, timingSafeEqual } from '../utils';
+import { Hono } from "hono";
+import type { Bindings } from "../types";
+import { CORS_HEADERS } from "../constants";
+import { extractBearer, timingSafeEqual } from "../utils";
 
 const app = new Hono<{ Bindings: Bindings }>();
 
 // OPTIONS（CORS）
-app.options('*', (_c) => new Response(null, { status: 204, headers: CORS_HEADERS }));
+app.options(
+  "*",
+  (_c) => new Response(null, { status: 204, headers: CORS_HEADERS })
+);
 
-// POST /admin/sync-r2-to-d1
-app.post('/admin/sync-r2-to-d1', async (c) => {
-  const adminSecret = c.env.ADMIN_API_SECRET || import.meta.env.ADMIN_API_SECRET;
+// POST /sync-r2-to-d1
+app.post("/sync-r2-to-d1", async (c) => {
+  const adminSecret =
+    c.env.ADMIN_API_SECRET || import.meta.env.ADMIN_API_SECRET;
   if (!adminSecret) {
-    return c.json({ error: 'Admin API not configured' }, 503);
+    return c.json({ error: "Admin API not configured" }, 503);
   }
 
-  const authHeader = c.req.header('Authorization');
+  const authHeader = c.req.header("Authorization");
   const providedSecret = extractBearer(authHeader);
 
   if (!providedSecret || !timingSafeEqual(providedSecret, adminSecret)) {
-    return c.json({ error: 'Unauthorized: Invalid admin secret' }, 401);
+    return c.json({ error: "Unauthorized: Invalid admin secret" }, 401);
   }
 
   const bucket = c.env.ASSET_SYNC_BUCKET;
   const db = c.env.ASSET_INDEX_DB;
 
   if (!bucket || !db) {
-    return c.json({ error: 'ASSET_SYNC_BUCKET or ASSET_INDEX_DB not configured' }, 503);
+    return c.json(
+      { error: "ASSET_SYNC_BUCKET or ASSET_INDEX_DB not configured" },
+      503
+    );
   }
 
   const startTime = Date.now();
@@ -68,39 +75,46 @@ app.post('/admin/sync-r2-to-d1', async (c) => {
 
       for (let i = 0; i < batchKeys.length; i += CHUNK_SIZE) {
         const chunkKeys = batchKeys.slice(i, i + CHUNK_SIZE);
-        const chunkPlaceholders = chunkKeys.map(() => '?').join(',');
+        const chunkPlaceholders = chunkKeys.map(() => "?").join(",");
 
         try {
           const stmt = db
-            .prepare(`SELECT key FROM files WHERE key IN (${chunkPlaceholders})`)
+            .prepare(
+              `SELECT key FROM files WHERE key IN (${chunkPlaceholders})`
+            )
             .bind(...chunkKeys);
           const res = await stmt.all?.();
 
           if (res?.results) {
             for (const r of res.results) {
               const k = (r as any).key;
-              if (typeof k === 'string') existingKeysInBatch.add(k);
+              if (typeof k === "string") existingKeysInBatch.add(k);
             }
           }
         } catch (err) {
-          console.error('Failed to check existence', err);
+          console.error("Failed to check existence", err);
         }
       }
 
       // Find missing objects
-      const missingObjects = batchR2Objects.filter((obj) => !existingKeysInBatch.has(obj.key));
+      const missingObjects = batchR2Objects.filter(
+        (obj) => !existingKeysInBatch.has(obj.key)
+      );
 
       // Insert missing
       for (const obj of missingObjects) {
         if (resumeFromKey && obj.key < resumeFromKey) continue;
 
-        const uploadedAt = obj.uploaded ? new Date(obj.uploaded).getTime() : Date.now();
-        const contentType = obj.httpMetadata?.contentType || 'application/octet-stream';
+        const uploadedAt = obj.uploaded
+          ? new Date(obj.uploaded).getTime()
+          : Date.now();
+        const contentType =
+          obj.httpMetadata?.contentType || "application/octet-stream";
         const customMetadata = obj.customMetadata || {};
 
         try {
           const stmt = db.prepare(
-            'INSERT INTO files (key, size, uploaded_at, content_type, uploader_id, finder_tag, metadata) VALUES (?, ?, ?, ?, ?, ?, ?)'
+            "INSERT INTO files (key, size, uploaded_at, content_type, uploader_id, finder_tag, metadata) VALUES (?, ?, ?, ?, ?, ?, ?)"
           );
           await stmt
             .bind(
@@ -142,8 +156,11 @@ app.post('/admin/sync-r2-to-d1', async (c) => {
     result.duration = Date.now() - startTime;
     return c.json(result);
   } catch (e) {
-    console.error('Sync operation failed', e);
-    return c.json({ error: `Sync failed: ${e instanceof Error ? e.message : String(e)}` }, 500);
+    console.error("Sync operation failed", e);
+    return c.json(
+      { error: `Sync failed: ${e instanceof Error ? e.message : String(e)}` },
+      500
+    );
   }
 });
 

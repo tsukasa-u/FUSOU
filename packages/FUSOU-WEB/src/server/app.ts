@@ -32,10 +32,10 @@ app.onError((err, c) => {
 
 // Mount sub apps
 app.route('/auth', authApp);
-app.route('/', assetsApp); // assetsApp declares /asset-sync/*
-app.route('/', fleetApp);  // fleetApp declares /fleet/*
-app.route('/', kcApp);     // kcApp declares /kc-period/*
-app.route('/', adminApp);  // adminApp declares /admin/*
+app.route('/asset-sync', assetsApp); // assetsApp declares /upload, /keys, etc.
+app.route('/fleet', fleetApp);  // fleetApp declares /snapshot, etc.
+app.route('/kc-period', kcApp);     // kcApp declares /latest, etc.
+app.route('/admin', adminApp);  // adminApp declares /sync-r2-to-d1, etc.
 
 // Catch-all 404
 app.all('*', (c) => {
