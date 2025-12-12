@@ -1,9 +1,9 @@
-import { jwtVerify, createRemoteJWKSet } from "jose";
+import { jwtVerify, createRemoteJWKSet, SignJWT } from "jose";
 import { DEFAULT_ALLOWED_EXTENSIONS } from "./constants";
 import type { Bindings } from "./types";
 
 // ========================
-// 環境変数取得
+// 署名付きトークン（JWT）
 // ========================
 
 /**
@@ -14,23 +14,12 @@ export async function generateSignedToken(
   secret: string,
   expiresInSeconds: number
 ): Promise<string> {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(
-    JSON.stringify({ ...payload, exp: Date.now() + expiresInSeconds * 1000 })
-  );
-  const keyData = encoder.encode(secret);
-  const cryptoKey = await crypto.subtle.importKey(
-    "raw",
-    keyData,
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"]
-  );
-  const signature = await crypto.subtle.sign("HMAC", cryptoKey, data);
-  const sigHex = Array.from(new Uint8Array(signature))
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-  return `${btoa(JSON.stringify(payload))}.${sigHex}`;
+  const secretKey = new TextEncoder().encode(secret);
+  const token = await new SignJWT(payload)
+    .setProtectedHeader({ alg: "HS256" })
+    .setExpirationTime(`${expiresInSeconds}s`)
+    .sign(secretKey);
+  return token;
 }
 
 /**
@@ -41,31 +30,9 @@ export async function verifySignedToken(
   secret: string
 ): Promise<Record<string, any> | null> {
   try {
-    const [payloadB64, sigHex] = token.split(".");
-    if (!payloadB64 || !sigHex) return null;
-
-    const payload = JSON.parse(atob(payloadB64));
-    if (payload.exp && Date.now() > payload.exp) return null;
-
-    const encoder = new TextEncoder();
-    const data = encoder.encode(
-      JSON.stringify({ ...payload, exp: payload.exp })
-    );
-    const keyData = encoder.encode(secret);
-    const cryptoKey = await crypto.subtle.importKey(
-      "raw",
-      keyData,
-      { name: "HMAC", hash: "SHA-256" },
-      false,
-      ["verify"]
-    );
-
-    const sigBytes = new Uint8Array(
-      sigHex.match(/.{1,2}/g)!.map((byte) => parseInt(byte, 16))
-    );
-    const valid = await crypto.subtle.verify("HMAC", cryptoKey, sigBytes, data);
-
-    return valid ? payload : null;
+    const secretKey = new TextEncoder().encode(secret);
+    const { payload } = await jwtVerify(token, secretKey);
+    return payload as Record<string, any>;
   } catch {
     return null;
   }
