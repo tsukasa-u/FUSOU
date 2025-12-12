@@ -103,7 +103,16 @@ async function handleSnapshotPreparation(
     SNAPSHOT_TOKEN_TTL_SECONDS
   );
 
+  // When running under Astro adapter, add '/api' to external upload URL
+  const usingAdapter = !!(c.env as any)?.env;
   const uploadUrl = new URL(url);
+  if (usingAdapter && !uploadUrl.pathname.startsWith("/api/")) {
+    uploadUrl.pathname =
+      "/api" +
+      (uploadUrl.pathname.startsWith("/")
+        ? uploadUrl.pathname
+        : "/" + uploadUrl.pathname);
+  }
   uploadUrl.searchParams.set("token", signedToken);
 
   return c.json({

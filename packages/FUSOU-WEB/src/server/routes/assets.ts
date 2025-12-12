@@ -232,7 +232,16 @@ async function handleSignedUploadRequest(
     SIGNED_URL_TTL_SECONDS
   );
 
+  // Build upload URL for client. When running behind Astro adapter, external path includes '/api'.
+  const usingAdapter = !!(c.env as any)?.env;
   const uploadUrl = new URL(url);
+  if (usingAdapter && !uploadUrl.pathname.startsWith("/api/")) {
+    uploadUrl.pathname =
+      "/api" +
+      (uploadUrl.pathname.startsWith("/")
+        ? uploadUrl.pathname
+        : "/" + uploadUrl.pathname);
+  }
   uploadUrl.searchParams.set("token", token);
 
   return c.json({

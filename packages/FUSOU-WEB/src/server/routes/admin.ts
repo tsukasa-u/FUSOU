@@ -14,8 +14,7 @@ app.options(
 // POST /sync-r2-to-d1
 app.post("/sync-r2-to-d1", async (c) => {
   const env = (c.env as any).env || c.env;
-  const adminSecret =
-    env.ADMIN_API_SECRET || import.meta.env.ADMIN_API_SECRET;
+  const adminSecret = env.ADMIN_API_SECRET || import.meta.env.ADMIN_API_SECRET;
   if (!adminSecret) {
     return c.json({ error: "Admin API not configured" }, 503);
   }

@@ -22,9 +22,8 @@ app.get("/latest", async (c) => {
   }
 
   const env = (c.env as any).env || c.env;
-  const { url: supabaseUrl, serviceRoleKey: apiKey } = resolveSupabaseConfig(
-    env
-  );
+  const { url: supabaseUrl, serviceRoleKey: apiKey } =
+    resolveSupabaseConfig(env);
   if (!supabaseUrl) {
     return c.json({ error: "Configuration error" }, 500);
   }
