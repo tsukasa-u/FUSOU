@@ -39,9 +39,9 @@ export default defineConfig({
       "process.env.SUPABASE_SECRET_KEY": JSON.stringify(
         process.env.SUPABASE_SECRET_KEY
       ),
-      "process.env.PUBLIC_SITE_URL": JSON.stringify(
-        process.env.PUBLIC_SITE_URL
-      ),
+      // "process.env.PUBLIC_SITE_URL": JSON.stringify(
+      //   process.env.PUBLIC_SITE_URL
+      // ),
       "process.env.PUBLIC_CLOUDFLARE_ANALYTICS_TOKEN": JSON.stringify(
         process.env.PUBLIC_CLOUDFLARE_ANALYTICS_TOKEN
       ),
