@@ -32,15 +32,19 @@ app.get("/latest", async (c) => {
     return c.json({ error: "Configuration error" }, 500);
   }
 
-  // Only accept service role key from runtime env; do not fallback to publishable
-  const apiKey = c.env.SUPABASE_SECRET_KEY;
-  if (
-    !apiKey ||
-    typeof apiKey !== "string" ||
-    apiKey.startsWith("sb_publishable_")
-  ) {
+  // Accept service role key from runtime env, or build-time if it's a valid sb_secret_ key
+  const runtimeKey = c.env.SUPABASE_SECRET_KEY;
+  const buildKey = import.meta.env.SUPABASE_SECRET_KEY;
+  const apiKey =
+    typeof runtimeKey === "string" && runtimeKey.startsWith("sb_secret_")
+      ? runtimeKey
+      : typeof buildKey === "string" && buildKey.startsWith("sb_secret_")
+      ? buildKey
+      : undefined;
+
+  if (!apiKey) {
     console.error(
-      "[kc-period] Missing or invalid SUPABASE_SECRET_KEY in runtime env"
+      "[kc-period] Missing SUPABASE_SECRET_KEY (sb_secret_...) in runtime or build env"
     );
     return c.json({ error: "API key unavailable" }, 503);
   }
