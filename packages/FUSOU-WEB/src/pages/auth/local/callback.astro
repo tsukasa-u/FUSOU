@@ -19,13 +19,11 @@ const providerRefreshToken = cookies.get("sb-local-provider-refresh-token");
 const provider = cookies.get("sb-local-provider");
 
 // Prefer Cloudflare runtime environment variable, fallback to build-time env
-const cloudflareUrl = runtimeEnv.PUBLIC_SITE_URL;
-const buildTimeUrl = import.meta.env.PUBLIC_SITE_URL?.trim();
-const allowedOrigin = (cloudflareUrl || buildTimeUrl || "").trim();
-
-console.log("[auth/local/callback] Cloudflare PUBLIC_SITE_URL:", cloudflareUrl);
-console.log("[auth/local/callback] Build-time PUBLIC_SITE_URL:", buildTimeUrl);
-console.log("[auth/local/callback] Final allowedOrigin:", allowedOrigin);
+const allowedOrigin = (
+  runtimeEnv.PUBLIC_SITE_URL ||
+  import.meta.env.PUBLIC_SITE_URL?.trim() ||
+  ""
+).trim();
 
 let error_message: string | null = null;
 let return_params: string | null = null;

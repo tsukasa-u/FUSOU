@@ -15,14 +15,11 @@ export const POST: APIRoute = async ({
 }) => {
   // Prefer Cloudflare runtime environment variable, fallback to build-time env
   const runtimeEnv = (locals as any)?.runtime?.env || {};
-  const cloudflareUrl = runtimeEnv.PUBLIC_SITE_URL;
-  const buildTimeUrl = import.meta.env.PUBLIC_SITE_URL?.trim();
-
-  const providedOrigin = (cloudflareUrl || buildTimeUrl || "").trim();
-
-  console.log("[signin] Cloudflare PUBLIC_SITE_URL:", cloudflareUrl);
-  console.log("[signin] Build-time PUBLIC_SITE_URL:", buildTimeUrl);
-  console.log("[signin] Final providedOrigin:", providedOrigin);
+  const providedOrigin = (
+    runtimeEnv.PUBLIC_SITE_URL ||
+    import.meta.env.PUBLIC_SITE_URL?.trim() ||
+    ""
+  ).trim();
 
   if (!providedOrigin) {
     return new Response("Server misconfiguration: PUBLIC_SITE_URL is not set", {
