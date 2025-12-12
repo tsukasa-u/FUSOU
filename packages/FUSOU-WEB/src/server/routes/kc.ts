@@ -15,6 +15,37 @@ app.options(
 // Simple health check to verify routing
 app.get("/_health", (c) => c.json({ ok: true }));
 
+// Env check endpoint (no secrets leaked; shows provenance and prefix only)
+app.get("/_envcheck", (c) => {
+  const runtimeKey = c.env.SUPABASE_SECRET_KEY;
+  const buildKey = import.meta.env.SUPABASE_SECRET_KEY as string | undefined;
+  const pickPrefix = (k?: string) =>
+    typeof k === "string" ? k.substring(0, 12) : "undefined";
+  const keyType = (k?: string) =>
+    typeof k === "string"
+      ? k.startsWith("sb_secret_")
+        ? "secret"
+        : k.startsWith("sb_publishable_")
+        ? "publishable"
+        : "unknown"
+      : "missing";
+  return c.json({
+    runtime: {
+      present: typeof runtimeKey === "string",
+      type: keyType(runtimeKey),
+      prefix: pickPrefix(runtimeKey),
+    },
+    build: {
+      present: typeof buildKey === "string",
+      type: keyType(buildKey),
+      prefix: pickPrefix(buildKey),
+    },
+    supabaseUrlPresent: !!(
+      c.env.PUBLIC_SUPABASE_URL || import.meta.env.PUBLIC_SUPABASE_URL
+    ),
+  });
+});
+
 // GET /latest
 app.get("/latest", async (c) => {
   const now = Date.now();
