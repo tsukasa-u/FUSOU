@@ -20,6 +20,7 @@
     "apache-arrow": "^20.0.0",
     "chart.js": "^4.5.1",
     "daisyui": "^5.5.5",
+    "hono": "^4.10.8",
     "jose": "^6.1.2",
     "nanostores": "^1.1.0",
     "react": "^19.2.0",

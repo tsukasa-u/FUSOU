@@ -8,8 +8,8 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use serde::Deserialize;
 
-const SUPABASE_URL_EMBED: Option<&str> = option_env!("SUPABASE_URL");
-const SUPABASE_ANON_KEY_EMBED: Option<&str> = option_env!("SUPABASE_ANON_KEY");
+const SUPABASE_URL_EMBED: Option<&str> = option_env!("PUBLIC_SUPABASE_URL");
+const PUBLIC_SUPABASE_PUBLISHABLE_KEY_EMBED: Option<&str> = option_env!("PUBLIC_SUPABASE_PUBLISHABLE_KEY");
 // Fallback TTL when Supabase response omits expires_in (seconds)
 const DEFAULT_ACCESS_TOKEN_TTL_SECS: i64 = 55 * 60; // 55 minutes to refresh before typical 60m expiry
 
@@ -52,22 +52,22 @@ impl<S: Storage> AuthManager<S> {
         }
     }
 
-    /// Create an AuthManager by reading `SUPABASE_URL` and `SUPABASE_ANON_KEY` from env.
+    /// Create an AuthManager by reading `PUBLIC_SUPABASE_URL` and `PUBLIC_SUPABASE_PUBLISHABLE_KEY` from env.
     pub fn from_env(storage: Arc<S>) -> Result<Self, AuthError> {
         // Prefer compile-time optional embedded values (via `option_env!`).
         // If not present at compile time, fall back to runtime lookup.
         let supabase_url = if let Some(v) = SUPABASE_URL_EMBED {
             v.to_string()
         } else {
-            std::env::var("SUPABASE_URL")
-                .map_err(|_| AuthError::Other("SUPABASE_URL not set".to_string()))?
+            std::env::var("PUBLIC_SUPABASE_URL")
+                .map_err(|_| AuthError::Other("PUBLIC_SUPABASE_URL not set".to_string()))?
         };
 
-        let api_key = if let Some(v) = SUPABASE_ANON_KEY_EMBED {
+        let api_key = if let Some(v) = PUBLIC_SUPABASE_PUBLISHABLE_KEY_EMBED {
             v.to_string()
         } else {
-            std::env::var("SUPABASE_ANON_KEY")
-                .map_err(|_| AuthError::Other("SUPABASE_ANON_KEY not set".to_string()))?
+            std::env::var("PUBLIC_SUPABASE_PUBLISHABLE_KEY")
+                .map_err(|_| AuthError::Other("PUBLIC_SUPABASE_PUBLISHABLE_KEY not set".to_string()))?
         };
 
         let config = AuthConfig {

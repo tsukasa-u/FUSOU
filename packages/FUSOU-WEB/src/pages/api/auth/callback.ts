@@ -9,7 +9,7 @@ import {
 const createUserScopedClient = (accessToken: string) =>
   createClient(
     import.meta.env.PUBLIC_SUPABASE_URL,
-    import.meta.env.PUBLIC_SUPABASE_ANON_KEY!,
+    import.meta.env.PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
     {
       auth: {
         persistSession: false,

@@ -784,8 +784,6 @@ pub fn setup_init(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>
         get_response_parse_bidirectional_channel().clone_master();
     let scheduler_integrate_channel_master_clone =
         get_scheduler_integrate_bidirectional_channel().clone_master();
-    #[cfg(feature = "auth-local-server")]
-    let auth_bidirectional_channel_master_clone = get_auth_bidirectional_channel().clone_master();
 
     let app_handle = app.handle().clone();
     tauri::async_runtime::spawn(async move {
@@ -805,15 +803,6 @@ pub fn setup_init(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>
             }
         }
         // is it needed to add select! for timeout?
-        #[cfg(feature = "auth-local-server")]
-        let _ = tokio::join!(
-            request_shutdown(proxy_bidirectional_channel_master_clone),
-            request_shutdown(pac_bidirectional_channel_master_clone),
-            request_shutdown(response_parse_channel_master_clone),
-            request_shutdown(auth_bidirectional_channel_master_clone),
-            request_shutdown(scheduler_integrate_channel_master_clone),
-        );
-        #[cfg(not(feature = "auth-local-server"))]
         let _ = tokio::join!(
             request_shutdown(proxy_bidirectional_channel_master_clone),
             request_shutdown(pac_bidirectional_channel_master_clone),

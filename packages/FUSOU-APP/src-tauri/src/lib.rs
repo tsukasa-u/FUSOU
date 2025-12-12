@@ -30,9 +30,6 @@ use fusou_upload::UploadRetryService;
 
 use tauri_plugin_autostart::MacosLauncher;
 
-#[cfg(feature = "auth-local-server")]
-use crate::builder_setup::bidirectional_channel::get_manage_auth_channel;
-
 static RESOURCES_DIR: OnceCell<Mutex<PathBuf>> = OnceCell::new();
 
 static ROAMING_DIR: OnceCell<Mutex<PathBuf>> = OnceCell::new();
@@ -98,9 +95,6 @@ async fn bootstrap_tokens_on_startup(
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 #[tokio::main]
 pub async fn run() {
-    #[cfg(feature = "auth-local-server")]
-    let manage_auth_channel = get_manage_auth_channel();
-
     let ctx = tauri::generate_context!();
 
     let mut builder = tauri::Builder::default()
@@ -127,11 +121,6 @@ pub async fn run() {
                 builder_setup::single_instance::single_instance_init(app, argv)
             },
         ));
-
-    #[cfg(feature = "auth-local-server")]
-    {
-        builder = builder.manage(manage_auth_channel);
-    }
 
     builder = builder
         .invoke_handler(tauri::generate_handler![

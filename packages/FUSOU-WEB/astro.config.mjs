@@ -33,8 +33,8 @@ export default defineConfig({
       "import.meta.env.PUBLIC_SUPABASE_URL": JSON.stringify(
         process.env.PUBLIC_SUPABASE_URL
       ),
-      "import.meta.env.PUBLIC_SUPABASE_ANON_KEY": JSON.stringify(
-        process.env.PUBLIC_SUPABASE_ANON_KEY
+      "import.meta.env.PUBLIC_SUPABASE_PUBLISHABLE_KEY": JSON.stringify(
+        process.env.PUBLIC_SUPABASE_PUBLISHABLE_KEY
       ),
       "import.meta.env.PUBLIC_SITE_URL": JSON.stringify(
         process.env.PUBLIC_SITE_URL

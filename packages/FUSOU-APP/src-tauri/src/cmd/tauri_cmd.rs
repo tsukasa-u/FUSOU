@@ -8,8 +8,6 @@ use proxy_https::bidirectional_channel;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
 
-#[cfg(feature = "auth-local-server")]
-use crate::auth_server::AuthChannel;
 use crate::builder_setup::bidirectional_channel::get_pac_bidirectional_channel;
 use crate::builder_setup::bidirectional_channel::get_proxy_bidirectional_channel;
 use crate::builder_setup::logger::MessageVisitor;
