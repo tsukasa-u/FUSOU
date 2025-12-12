@@ -73,24 +73,39 @@ export function validateOrigin(
   const origin = request.headers.get("origin");
   const referer = request.headers.get("referer");
 
+  console.log("[validateOrigin] allowedOrigin:", allowedOrigin);
+  console.log("[validateOrigin] request origin header:", origin);
+  console.log("[validateOrigin] request referer header:", referer);
+
   try {
     const allowed = new URL(allowedOrigin);
+    console.log("[validateOrigin] allowed.host:", allowed.host);
 
     // Check Origin header first (more reliable)
     if (origin) {
       const originUrl = new URL(origin);
-      return originUrl.host === allowed.host;
+      console.log("[validateOrigin] originUrl.host:", originUrl.host);
+      const matches = originUrl.host === allowed.host;
+      console.log("[validateOrigin] origin matches:", matches);
+      return matches;
     }
 
     // Fallback to Referer header
     if (referer) {
       const refererUrl = new URL(referer);
-      return refererUrl.host === allowed.host;
+      console.log("[validateOrigin] refererUrl.host:", refererUrl.host);
+      const matches = refererUrl.host === allowed.host;
+      console.log("[validateOrigin] referer matches:", matches);
+      return matches;
     }
 
     // No origin or referer header - reject for security
+    console.log(
+      "[validateOrigin] No origin or referer header found - rejecting"
+    );
     return false;
-  } catch {
+  } catch (e) {
+    console.error("[validateOrigin] Exception:", e);
     return false;
   }
 }
