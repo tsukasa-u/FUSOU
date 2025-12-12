@@ -29,13 +29,16 @@ app.get("/latest", async (c) => {
     return c.json({ error: "Configuration error" }, 500);
   }
 
+  console.log("[kc-period]", supabaseUrl);
   // Use SUPABASE_SECRET_KEY from import.meta.env (dotenvx build-time injection)
   const apiKey = import.meta.env.SUPABASE_SECRET_KEY as string | undefined;
 
   if (!apiKey || !apiKey.startsWith("sb_secret_")) {
-    console.error(
-      "[kc-period] Missing or invalid SUPABASE_SECRET_KEY (sb_secret_...) from build env"
-    );
+    if (!apiKey) console.error("[kc-period] Missing SUPABASE_SECRET_KEY");
+    if (!apiKey?.startsWith("sb_secret_"))
+      console.error(
+        "[kc-period] Invalid SUPABASE_SECRET_KEY (does not start with sb_secret_)"
+      );
     return c.json({ error: "API key unavailable" }, 503);
   }
 
