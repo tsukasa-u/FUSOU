@@ -34,8 +34,10 @@ app.get("/latest", async (c) => {
 
   const apiKey =
     c.env.SUPABASE_SECRET_KEY ||
+    import.meta.env.SUPABASE_SECRET_KEY ||
     import.meta.env.PUBLIC_SUPABASE_PUBLISHABLE_KEY;
   if (!apiKey) {
+    console.error("[kc-period] Supabase API key unavailable");
     return c.json({ error: "API key unavailable" }, 503);
   }
 
