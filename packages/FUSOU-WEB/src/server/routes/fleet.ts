@@ -16,7 +16,8 @@ type SnapshotConfig = {
 };
 
 function resolveSnapshotConfig(c: any): SnapshotConfig {
-  const runtimeEnv = c.env ?? {};
+  const env = (c.env as any).env || c.env;
+  const runtimeEnv = env ?? {};
   const supabaseUrl = getEnvValue("PUBLIC_SUPABASE_URL", runtimeEnv);
   const signingSecret = getEnvValue(
     "FLEET_SNAPSHOT_SIGNING_SECRET",

@@ -21,8 +21,9 @@ app.get("/latest", async (c) => {
     return c.json({ ...cachedPeriod.payload, cached: true });
   }
 
+  const env = (c.env as any).env || c.env;
   const { url: supabaseUrl, serviceRoleKey: apiKey } = resolveSupabaseConfig(
-    c.env
+    env
   );
   if (!supabaseUrl) {
     return c.json({ error: "Configuration error" }, 500);

@@ -28,23 +28,20 @@ app.options(
 
 // POST /upload
 app.post("/upload", async (c) => {
-  console.log("[assets.ts /upload] c.env keys:", Object.keys(c.env || {}));
-  console.log("[assets.ts /upload] ASSET_SYNC_BUCKET:", typeof c.env?.ASSET_SYNC_BUCKET, c.env?.ASSET_SYNC_BUCKET);
-  console.log("[assets.ts /upload] ASSET_INDEX_DB:", typeof c.env?.ASSET_INDEX_DB, c.env?.ASSET_INDEX_DB);
-  
-  const bucket = c.env.ASSET_SYNC_BUCKET;
-  const db = c.env.ASSET_INDEX_DB;
+  // When called via Astro adapter, bindings are nested under c.env.env
+  const env = (c.env as any).env || c.env;
+  const bucket = env.ASSET_SYNC_BUCKET;
+  const db = env.ASSET_INDEX_DB;
   const signingSecret =
-    c.env.ASSET_UPLOAD_SIGNING_SECRET ||
+    env.ASSET_UPLOAD_SIGNING_SECRET ||
     import.meta.env.ASSET_UPLOAD_SIGNING_SECRET;
 
   if (!bucket || !db || !signingSecret) {
-    console.error("[assets.ts /upload] Missing bindings - bucket:", !!bucket, "db:", !!db, "signingSecret:", !!signingSecret);
     return c.json({ error: "Asset sync bucket not configured" }, 503);
   }
 
   const allowedExtensions = resolveAllowedExtensions(
-    c.env.ASSET_SYNC_ALLOWED_EXTENSIONS,
+    env.ASSET_SYNC_ALLOWED_EXTENSIONS,
     import.meta.env.ASSET_SYNC_ALLOWED_EXTENSIONS
   );
 
@@ -101,7 +98,8 @@ app.get("/keys", async (c) => {
     `GET /keys: JWT validation successful, user_id=${supabaseUser.id}`
   );
 
-  const db = c.env.ASSET_INDEX_DB;
+  const env = (c.env as any).env || c.env;
+  const db = env.ASSET_INDEX_DB;
 
   if (!db) {
     console.log("GET /keys: ASSET_INDEX_DB not configured");

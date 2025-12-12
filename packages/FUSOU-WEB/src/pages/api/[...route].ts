@@ -21,12 +21,12 @@ function stripApiPrefix(req: Request): Request {
 }
 
 export const GET = async ({ request, locals }: any) =>
-  app.fetch(stripApiPrefix(request), { env: injectEnv(locals) });
+  app.fetch(stripApiPrefix(request), injectEnv(locals));
 export const POST = async ({ request, locals }: any) =>
-  app.fetch(stripApiPrefix(request), { env: injectEnv(locals) });
+  app.fetch(stripApiPrefix(request), injectEnv(locals));
 export const PUT = async ({ request, locals }: any) =>
-  app.fetch(stripApiPrefix(request), { env: injectEnv(locals) });
+  app.fetch(stripApiPrefix(request), injectEnv(locals));
 export const DELETE = async ({ request, locals }: any) =>
-  app.fetch(stripApiPrefix(request), { env: injectEnv(locals) });
+  app.fetch(stripApiPrefix(request), injectEnv(locals));
 export const PATCH = async ({ request, locals }: any) =>
-  app.fetch(stripApiPrefix(request), { env: injectEnv(locals) });
+  app.fetch(stripApiPrefix(request), injectEnv(locals));

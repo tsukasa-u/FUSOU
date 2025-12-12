@@ -13,8 +13,9 @@ app.options(
 
 // POST /sync-r2-to-d1
 app.post("/sync-r2-to-d1", async (c) => {
+  const env = (c.env as any).env || c.env;
   const adminSecret =
-    c.env.ADMIN_API_SECRET || import.meta.env.ADMIN_API_SECRET;
+    env.ADMIN_API_SECRET || import.meta.env.ADMIN_API_SECRET;
   if (!adminSecret) {
     return c.json({ error: "Admin API not configured" }, 503);
   }
@@ -26,8 +27,8 @@ app.post("/sync-r2-to-d1", async (c) => {
     return c.json({ error: "Unauthorized: Invalid admin secret" }, 401);
   }
 
-  const bucket = c.env.ASSET_SYNC_BUCKET;
-  const db = c.env.ASSET_INDEX_DB;
+  const bucket = env.ASSET_SYNC_BUCKET;
+  const db = env.ASSET_INDEX_DB;
 
   if (!bucket || !db) {
     return c.json(
