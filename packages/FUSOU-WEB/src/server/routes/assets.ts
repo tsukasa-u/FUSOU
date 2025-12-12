@@ -181,11 +181,16 @@ async function handleSignedUploadRequest(
   const authHeader = request.headers.get("authorization");
   const accessToken = extractBearer(authHeader);
   if (!accessToken) {
+    console.warn("[asset-sync handshake] missing bearer", {
+      hasAuthHeader: !!authHeader,
+      headerPreview: authHeader ? authHeader.slice(0, 20) : null,
+    });
     return c.json({ error: "Missing Authorization bearer token" }, 401);
   }
 
   const supabaseUser = await validateJWT(accessToken);
   if (!supabaseUser) {
+    console.warn("[asset-sync handshake] invalid or expired JWT");
     return c.json({ error: "Invalid or expired JWT token" }, 401);
   }
 
@@ -314,6 +319,7 @@ async function handleSignedUploadExecution(
 
   const supabaseUser = await validateJWT(accessToken);
   if (!supabaseUser) {
+    console.warn("[asset-sync upload] invalid or expired JWT on upload step");
     return c.json({ error: "Invalid or expired JWT token" }, 401);
   }
 

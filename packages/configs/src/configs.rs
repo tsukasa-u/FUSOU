@@ -390,6 +390,7 @@ pub struct ConfigsAppAssetSyncRetry {
     max_attempts: Option<u32>,
     ttl_seconds: Option<u64>,
     interval_seconds: Option<u64>,
+    auth_backoff_seconds: Option<u64>,
 }
 
 impl ConfigsAppAssetSyncRetry {
@@ -403,6 +404,10 @@ impl ConfigsAppAssetSyncRetry {
 
     pub fn get_interval_seconds(&self) -> u64 {
         self.interval_seconds.unwrap_or_else(|| get_default_configs().app.asset_sync.retry.interval_seconds.unwrap())
+    }
+
+    pub fn get_auth_backoff_seconds(&self) -> u64 {
+        self.auth_backoff_seconds.unwrap_or_else(|| get_default_configs().app.asset_sync.retry.auth_backoff_seconds.unwrap())
     }
 }
 
@@ -1114,6 +1119,7 @@ mod tests {
             max_attempts: None,
             ttl_seconds: None,
             interval_seconds: None,
+            auth_backoff_seconds: None,
         };
         
         assert_eq!(
@@ -1130,6 +1136,11 @@ mod tests {
             empty_retry.get_interval_seconds(),
             default_configs.app.asset_sync.retry.get_interval_seconds(),
             "retry interval_seconds getter should return configs.toml default"
+        );
+        assert_eq!(
+            empty_retry.get_auth_backoff_seconds(),
+            default_configs.app.asset_sync.retry.get_auth_backoff_seconds(),
+            "retry auth_backoff_seconds getter should return configs.toml default"
         );
         
         // Test App Auth defaults

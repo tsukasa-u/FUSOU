@@ -2,7 +2,7 @@ use std::{
     collections::HashSet,
     path::{Path, PathBuf},
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         Arc, OnceLock, RwLock,
     },
     time::{Duration, Instant},
@@ -34,6 +34,8 @@ static PROCESSED_KEYS: Lazy<DashSet<String>> = Lazy::new(DashSet::new);
 static SUPABASE_AUTH_READY: AtomicBool = AtomicBool::new(false);
 static SUPABASE_WAITING_LOGGED: AtomicBool = AtomicBool::new(false);
 static SUPABASE_AUTH_FAILED: AtomicBool = AtomicBool::new(false);
+static LAST_AUTH_FAIL_EPOCH: AtomicU64 = AtomicU64::new(0);
+static SUPABASE_BACKOFF_LOGGED: AtomicBool = AtomicBool::new(false);
 static PERIOD_CACHE: Lazy<RwLock<Option<PeriodCache>>> = Lazy::new(|| RwLock::new(None));
 static LAST_PERIOD_TAG: Lazy<RwLock<Option<String>>> = Lazy::new(|| RwLock::new(None));
 static EXISTING_KEYS_CACHE: Lazy<RwLock<Option<RemoteKeyCache>>> = Lazy::new(|| RwLock::new(None));
@@ -117,6 +119,7 @@ pub struct AssetSyncInit {
     pub period_endpoint: Option<String>,
     pub blocked_extensions: Vec<String>,
     pub existing_keys_endpoint: Option<String>,
+    pub auth_backoff_secs: u64,
 }
 
 impl AssetSyncInit {
@@ -135,6 +138,7 @@ impl AssetSyncInit {
         let period_endpoint = config.get_period_endpoint();
         let blocked_extensions = config.get_skip_extensions();
         let existing_keys_endpoint = config.get_existing_keys_endpoint();
+        let auth_backoff_secs = config.retry.get_auth_backoff_seconds();
 
         let scan_interval_seconds = config
             .get_scan_interval_seconds()
@@ -152,6 +156,7 @@ impl AssetSyncInit {
             period_endpoint,
             blocked_extensions,
             existing_keys_endpoint,
+            auth_backoff_secs,
         })
     }
 }
@@ -265,9 +270,25 @@ async fn check_auth_ready(
         return true;
     }
 
-    // Return cached result if authentication failed recently (await reset on 401)
-    if SUPABASE_AUTH_FAILED.load(Ordering::Relaxed) {
-        return false;
+    // Cooldown after a recent authentication failure
+    let backoff_secs = settings.auth_backoff_secs;
+    let last_fail = LAST_AUTH_FAIL_EPOCH.load(Ordering::Relaxed);
+    if last_fail > 0 {
+        let now = now_epoch_secs();
+        let elapsed = now.saturating_sub(last_fail);
+        if elapsed < backoff_secs {
+            let remaining = backoff_secs - elapsed;
+            if !SUPABASE_BACKOFF_LOGGED.swap(true, Ordering::Relaxed) {
+                tracing::warn!(
+                    elapsed_secs = elapsed,
+                    remaining_secs = remaining,
+                    "authentication backoff active; waiting before retrying asset sync"
+                );
+            }
+            return false;
+        } else {
+            SUPABASE_BACKOFF_LOGGED.store(false, Ordering::Relaxed);
+        }
     }
 
     // Return cached result if already authenticated
@@ -286,6 +307,9 @@ async fn check_auth_ready(
 
     // Cache successful authentication
     SUPABASE_AUTH_READY.store(true, Ordering::Relaxed);
+    LAST_AUTH_FAIL_EPOCH.store(0, Ordering::Relaxed);
+    SUPABASE_BACKOFF_LOGGED.store(false, Ordering::Relaxed);
+    SUPABASE_AUTH_FAILED.store(false, Ordering::Relaxed);
     if SUPABASE_WAITING_LOGGED.swap(false, Ordering::Relaxed) {
         tracing::info!("Supabase authentication detected; starting asset uploads");
     }
@@ -402,6 +426,13 @@ fn build_client() -> Result<Client, reqwest::Error> {
     reqwest::Client::builder().build()
 }
 
+fn now_epoch_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
 fn derive_origin(endpoint: &str) -> Result<String, String> {
     let url =
         Url::parse(endpoint).map_err(|err| format!("invalid asset_sync.asset_sync_api_endpoint: {err}"))?;
@@ -493,6 +524,8 @@ pub async fn upload_via_api(
                 tracing::warn!(key, error = %e, "authentication failure detected; resetting auth cache");
                 SUPABASE_AUTH_READY.store(false, Ordering::Relaxed);
                 SUPABASE_AUTH_FAILED.store(true, Ordering::Relaxed);
+                LAST_AUTH_FAIL_EPOCH.store(now_epoch_secs(), Ordering::Relaxed);
+                SUPABASE_BACKOFF_LOGGED.store(false, Ordering::Relaxed);
                 SUPABASE_WAITING_LOGGED.store(false, Ordering::Relaxed);
             }
             Err(e)
@@ -655,6 +688,8 @@ async fn maybe_refresh_existing_keys(
         if status == StatusCode::UNAUTHORIZED {
             SUPABASE_AUTH_FAILED.store(true, Ordering::Relaxed);
             SUPABASE_AUTH_READY.store(false, Ordering::Relaxed);
+            LAST_AUTH_FAIL_EPOCH.store(now_epoch_secs(), Ordering::Relaxed);
+            SUPABASE_BACKOFF_LOGGED.store(false, Ordering::Relaxed);
             tracing::warn!("existing keys endpoint returned 401; marking authentication as failed");
         }
 
