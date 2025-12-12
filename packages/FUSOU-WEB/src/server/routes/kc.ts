@@ -29,6 +29,12 @@ app.get("/_envcheck", (c) => {
         ? "publishable"
         : "unknown"
       : "missing";
+  const selected =
+    typeof runtimeKey === "string" && runtimeKey.startsWith("sb_secret_")
+      ? "runtime"
+      : typeof buildKey === "string" && buildKey.startsWith("sb_secret_")
+      ? "build"
+      : "missing";
   return c.json({
     runtime: {
       present: typeof runtimeKey === "string",
@@ -40,7 +46,7 @@ app.get("/_envcheck", (c) => {
       type: keyType(buildKey),
       prefix: pickPrefix(buildKey),
     },
-    usingRuntimeOnly: true,
+    selected,
     supabaseUrlPresent: !!(
       c.env.PUBLIC_SUPABASE_URL || import.meta.env.PUBLIC_SUPABASE_URL
     ),
@@ -64,11 +70,15 @@ app.get("/latest", async (c) => {
     return c.json({ error: "Configuration error" }, 500);
   }
 
-  // Use runtime (Cloudflare Bindings) secret only per Workers' model
+  // Prefer runtime (Cloudflare Bindings) secret; optional build-time fallback if explicitly allowed
   const runtimeKey = c.env.SUPABASE_SECRET_KEY;
+  const buildKey = import.meta.env.SUPABASE_SECRET_KEY as string | undefined;
+
   const apiKey =
-    typeof runtimeKey === "string" && runtimeKey.startsWith("sb_secret_")
+    (typeof runtimeKey === "string" && runtimeKey.startsWith("sb_secret_"))
       ? runtimeKey
+      : (typeof buildKey === "string" && buildKey.startsWith("sb_secret_"))
+      ? buildKey
       : undefined;
 
   if (!apiKey) {
