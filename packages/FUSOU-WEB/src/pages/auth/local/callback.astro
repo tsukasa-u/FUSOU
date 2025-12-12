@@ -6,6 +6,7 @@ import WarningIcon from "../../../components/icons/WarningIcon.astro";
 import CheckIcon from "../../../components/icons/CheckIcon.astro";
 import { createSupabaseServerClient } from "@/utility/supabaseServer";
 import { validateRedirectUrl } from "@/utility/security";
+import { getEnvValue } from "@/server/utils";
 
 const cookies = Astro.cookies;
 const runtimeEnv = (Astro.locals as any)?.runtime?.env || {};
@@ -19,11 +20,7 @@ const providerRefreshToken = cookies.get("sb-local-provider-refresh-token");
 const provider = cookies.get("sb-local-provider");
 
 // Prefer Cloudflare runtime environment variable, fallback to build-time env
-const allowedOrigin = (
-  runtimeEnv.PUBLIC_SITE_URL ||
-  import.meta.env.PUBLIC_SITE_URL?.trim() ||
-  ""
-).trim();
+const allowedOrigin = getEnvValue("PUBLIC_SITE_URL", runtimeEnv)?.trim()!;
 
 let error_message: string | null = null;
 let return_params: string | null = null;
@@ -214,7 +211,6 @@ cookies.delete("sb-local-provider", { path: "/" });
                     class="input input-bordered font-mono w-full"
                     value={return_params ?? ""}
                     readonly
-                    disabled
                   />
                 </div>
                 <button
@@ -332,10 +328,6 @@ cookies.delete("sb-local-provider", { path: "/" });
   customElements.define("astro-data-auth_props", AstroDataAuthProps);
 </script>
 
-<script
-  is:inline
-  src="https://cdn.jsdelivr.net/npm/clipboard@2.0.11/dist/clipboard.min.js"
-></script>
 <script>
   const copy_token = () => {
     const swap_label = document.getElementById("copy-swap-id");
@@ -368,8 +360,12 @@ cookies.delete("sb-local-provider", { path: "/" });
         () => showStatus("Copied"),
         () => showStatus("Copy failed")
       );
-    } else if (tokensEl instanceof HTMLTextAreaElement) {
+    } else if (
+      tokensEl instanceof HTMLTextAreaElement ||
+      tokensEl instanceof HTMLInputElement
+    ) {
       tokensEl.select();
+      tokensEl.setSelectionRange?.(0, tokensEl.value.length);
       const ok = document.execCommand("copy");
       showStatus(ok ? "Copied" : "Copy failed");
     } else {

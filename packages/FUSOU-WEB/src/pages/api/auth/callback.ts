@@ -5,11 +5,12 @@ import {
   sanitizeErrorMessage,
   SECURE_COOKIE_OPTIONS,
 } from "@/utility/security";
+import { getEnvValue } from "@/server/utils";
 
 const createUserScopedClient = (accessToken: string) =>
   createClient(
-    import.meta.env.PUBLIC_SUPABASE_URL,
-    import.meta.env.PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
+    getEnvValue("PUBLIC_SUPABASE_URL")!,
+    getEnvValue("PUBLIC_SUPABASE_PUBLISHABLE_KEY")!,
     {
       auth: {
         persistSession: false,

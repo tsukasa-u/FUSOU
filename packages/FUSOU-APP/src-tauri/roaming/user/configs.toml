@@ -237,6 +237,9 @@ save_file_location = ""
     # Interval (in seconds) between retry attempts
     interval_seconds = 300 # 5 minutes
 
+    # Cooldown (in seconds) after an authentication failure before retrying
+    auth_backoff_seconds = 600
+
 
     [app.auth]
     # Whether to deny user authentication

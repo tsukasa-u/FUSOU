@@ -1,12 +1,6 @@
+import { getEnvValue } from "@/server/utils";
 import { createClient } from "@supabase/supabase-js";
 import type { AstroCookies } from "astro";
-
-// Note: These are fallback values. Runtime values from Cloudflare
-// should be passed via createSupabaseServerClient parameters
-const SUPABASE_URL = import.meta.env.PUBLIC_SUPABASE_URL;
-const SERVICE_KEY =
-  import.meta.env.SUPABASE_SECRET_KEY ||
-  import.meta.env.PUBLIC_SUPABASE_PUBLISHABLE_KEY;
 
 const cookieOptions = {
   path: "/",
@@ -35,11 +29,10 @@ export const createSupabaseServerClient = (
   runtimeEnv?: Record<string, any>
 ) => {
   // Prefer Cloudflare runtime environment variables
-  const supabaseUrl = runtimeEnv?.PUBLIC_SUPABASE_URL || SUPABASE_URL;
+  const supabaseUrl = getEnvValue("PUBLIC_SUPABASE_URL", runtimeEnv);
   const serviceKey =
-    runtimeEnv?.SUPABASE_SECRET_KEY ||
-    runtimeEnv?.PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
-    SERVICE_KEY;
+    getEnvValue("SUPABASE_SECRET_KEY", runtimeEnv) ||
+    getEnvValue("PUBLIC_SUPABASE_PUBLISHABLE_KEY", runtimeEnv);
 
   if (!supabaseUrl) {
     throw new Error("PUBLIC_SUPABASE_URL is not set");

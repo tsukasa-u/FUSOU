@@ -6,6 +6,7 @@ import {
   validateRedirectUrl,
   sanitizeErrorMessage,
 } from "@/utility/security";
+import { getEnvValue } from "@/server/utils";
 
 export const POST: APIRoute = async ({
   request,
@@ -15,9 +16,10 @@ export const POST: APIRoute = async ({
 }) => {
   // Prefer Cloudflare runtime environment variable, fallback to build-time env
   const runtimeEnv = locals?.runtime?.env || {};
-  const providedOrigin = (
-    runtimeEnv.PUBLIC_SITE_URL || import.meta.env.PUBLIC_SITE_URL
-  )?.trim();
+  // const providedOrigin = (
+  //   runtimeEnv.PUBLIC_SITE_URL || import.meta.env.PUBLIC_SITE_URL
+  // )?.trim();
+  const providedOrigin = getEnvValue("PUBLIC_SITE_URL", runtimeEnv)?.trim();
 
   if (!providedOrigin) {
     return new Response("Server misconfiguration: PUBLIC_SITE_URL is not set", {
