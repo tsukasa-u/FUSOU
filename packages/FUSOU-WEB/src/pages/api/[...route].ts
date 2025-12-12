@@ -1,6 +1,5 @@
 // Thin adapter forwarding Astro API routes to the composed Hono app.
 import app from "@/server/app";
-import { injectEnv } from "@/server/utils";
 
 export const prerender = false;
 
@@ -21,12 +20,12 @@ function stripApiPrefix(req: Request): Request {
 }
 
 export const GET = async ({ request, locals }: any) =>
-  app.fetch(stripApiPrefix(request), injectEnv(locals));
+  app.fetch(stripApiPrefix(request), { env: locals?.runtime?.env || {} });
 export const POST = async ({ request, locals }: any) =>
-  app.fetch(stripApiPrefix(request), injectEnv(locals));
+  app.fetch(stripApiPrefix(request), { env: locals?.runtime?.env || {} });
 export const PUT = async ({ request, locals }: any) =>
-  app.fetch(stripApiPrefix(request), injectEnv(locals));
+  app.fetch(stripApiPrefix(request), { env: locals?.runtime?.env || {} });
 export const DELETE = async ({ request, locals }: any) =>
-  app.fetch(stripApiPrefix(request), injectEnv(locals));
+  app.fetch(stripApiPrefix(request), { env: locals?.runtime?.env || {} });
 export const PATCH = async ({ request, locals }: any) =>
-  app.fetch(stripApiPrefix(request), injectEnv(locals));
+  app.fetch(stripApiPrefix(request), { env: locals?.runtime?.env || {} });
