@@ -17,7 +17,6 @@ export type Bindings = {
   ASSET_SYNC_SKIP_EXTENSIONS?: string;
   ASSET_SYNC_ALLOWED_EXTENSIONS?: string;
   ASSET_UPLOAD_SIGNING_SECRET?: string;
-  MAX_SNAPSHOT_BYTES?: string | number;
   FLEET_SNAPSHOT_SIGNING_SECRET?: string;
   ADMIN_API_SECRET?: string;
 };

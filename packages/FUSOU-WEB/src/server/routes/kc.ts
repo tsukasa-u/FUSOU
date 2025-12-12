@@ -45,6 +45,9 @@ app.get("/latest", async (c) => {
   const nowIso = new Date(Date.now() - CLOCK_SKEW_BUFFER_MS).toISOString();
   const queryUrl = `${supabaseUrl}/rest/v1/kc_period_tag?select=tag&tag=lte.${nowIso}&order=tag.desc.nullslast&limit=1`;
 
+  console.log("[kc-period] Supabase URL:", supabaseUrl);
+  console.log("[kc-period] Query URL:", queryUrl);
+
   try {
     const response = await fetch(queryUrl, {
       headers: {
@@ -75,7 +78,7 @@ app.get("/latest", async (c) => {
     cachedPeriod = { payload, expiresAt: now + CACHE_TTL_MS };
     return c.json({ ...payload, cached: false });
   } catch (error) {
-    console.error("Failed to fetch kc_period_tag", error);
+    console.error("[kc-period] Exception during fetch:", error);
     return c.json({ error: "Failed to fetch period" }, 502);
   }
 });
