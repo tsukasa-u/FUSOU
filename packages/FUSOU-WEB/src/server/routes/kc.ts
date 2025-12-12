@@ -29,8 +29,6 @@ app.get("/latest", async (c) => {
     return c.json({ error: "Configuration error" }, 500);
   }
 
-  console.log("[kc-period]", supabaseUrl);
-  // Use SUPABASE_SECRET_KEY from import.meta.env (dotenvx build-time injection)
   const apiKey = import.meta.env.SUPABASE_SECRET_KEY as string | undefined;
 
   if (!apiKey || !apiKey.startsWith("sb_secret_")) {
@@ -45,9 +43,6 @@ app.get("/latest", async (c) => {
   const CLOCK_SKEW_BUFFER_MS = 5000;
   const nowIso = new Date(Date.now() - CLOCK_SKEW_BUFFER_MS).toISOString();
   const queryUrl = `${supabaseUrl}/rest/v1/kc_period_tag?select=tag&tag=lte.${nowIso}&order=tag.desc.nullslast&limit=1`;
-
-  console.log("[kc-period] Supabase URL:", supabaseUrl);
-  console.log("[kc-period] Query URL:", queryUrl);
 
   try {
     const response = await fetch(queryUrl, {
