@@ -1,4 +1,4 @@
-import type { Context } from 'hono';
+import type { Context } from "hono";
 
 // ========================
 // 型定義
@@ -26,7 +26,13 @@ export type R2BucketBinding = {
   list(options?: R2ListOptions): Promise<R2ListResponse>;
   put(
     key: string,
-    value: ReadableStream | ArrayBuffer | ArrayBufferView | string | Blob | null,
+    value:
+      | ReadableStream
+      | ArrayBuffer
+      | ArrayBufferView
+      | string
+      | Blob
+      | null,
     options?: BucketPutOptions
   ): Promise<R2ObjectLike | null>;
   delete?(key: string): Promise<void>;

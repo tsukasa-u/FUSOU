@@ -177,9 +177,7 @@ const JWKS = SUPABASE_URL
   ? createRemoteJWKSet(new URL(`${SUPABASE_URL}/auth/v1/jwks`))
   : undefined;
 
-export async function validateJWT(
-  token: string
-): Promise<{
+export async function validateJWT(token: string): Promise<{
   id?: string;
   email?: string;
   payload?: Record<string, any>;
