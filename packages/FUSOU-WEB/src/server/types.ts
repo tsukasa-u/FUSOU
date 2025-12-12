@@ -6,19 +6,19 @@ import type { Context } from "hono";
 
 // Cloudflare bindings and app environment
 export type Bindings = {
-  ASSET_SYNC_BUCKET?: BucketBinding;
-  ASSET_INDEX_DB?: D1Database;
-  ASSET_PAYLOAD_BUCKET?: R2BucketBinding;
+  ASSET_SYNC_BUCKET: BucketBinding;
+  ASSET_INDEX_DB: D1Database;
+  ASSET_PAYLOAD_BUCKET: R2BucketBinding;
   // Supabase config (JWKS verification requires URL)
   PUBLIC_SUPABASE_URL: string; // required for JWKS
-  SUPABASE_SECRET_KEY?: string;
-  PUBLIC_SUPABASE_PUBLISHABLE_KEY?: string;
+  SUPABASE_SECRET_KEY: string;
+  PUBLIC_SUPABASE_PUBLISHABLE_KEY: string;
   // Removed SUPABASE_JWT_SECRET (migrated to JWKS public-key verification)
   ASSET_SYNC_SKIP_EXTENSIONS?: string;
   ASSET_SYNC_ALLOWED_EXTENSIONS?: string;
-  ASSET_UPLOAD_SIGNING_SECRET?: string;
-  FLEET_SNAPSHOT_SIGNING_SECRET?: string;
-  ADMIN_API_SECRET?: string;
+  ASSET_UPLOAD_SIGNING_SECRET: string;
+  FLEET_SNAPSHOT_SIGNING_SECRET: string;
+  ADMIN_API_SECRET: string;
 };
 
 export type R2BucketBinding = {
