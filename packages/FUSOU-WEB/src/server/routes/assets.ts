@@ -74,7 +74,7 @@ app.get("/keys", async (c) => {
   // Require valid Supabase access token
   const authHeader = c.req.header("Authorization");
   const accessToken = extractBearer(authHeader);
-  
+
   if (!accessToken) {
     return c.json({ error: "Missing Authorization bearer token" }, 401);
   }

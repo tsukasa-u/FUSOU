@@ -36,6 +36,9 @@ export default defineConfig({
       "import.meta.env.PUBLIC_SUPABASE_PUBLISHABLE_KEY": JSON.stringify(
         process.env.PUBLIC_SUPABASE_PUBLISHABLE_KEY
       ),
+      "import.meta.env.SUPABASE_SECRET_KEY": JSON.stringify(
+        process.env.SUPABASE_SECRET_KEY
+      ),
       "import.meta.env.PUBLIC_SITE_URL": JSON.stringify(
         process.env.PUBLIC_SITE_URL
       ),
