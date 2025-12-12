@@ -127,6 +127,11 @@ export function resolveSupabaseConfig(
  */
 export function injectEnv(locals: any): Bindings {
   const runtimeEnv = locals?.runtime?.env || {};
+  
+  console.log("[injectEnv] locals exists:", !!locals);
+  console.log("[injectEnv] locals.runtime exists:", !!locals?.runtime);
+  console.log("[injectEnv] locals.runtime.env exists:", !!locals?.runtime?.env);
+  console.log("[injectEnv] runtimeEnv keys:", Object.keys(runtimeEnv));
 
   return {
     ASSET_SYNC_BUCKET: runtimeEnv.ASSET_SYNC_BUCKET!,

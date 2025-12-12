@@ -28,6 +28,10 @@ app.options(
 
 // POST /upload
 app.post("/upload", async (c) => {
+  console.log("[assets.ts /upload] c.env keys:", Object.keys(c.env || {}));
+  console.log("[assets.ts /upload] ASSET_SYNC_BUCKET:", typeof c.env?.ASSET_SYNC_BUCKET, c.env?.ASSET_SYNC_BUCKET);
+  console.log("[assets.ts /upload] ASSET_INDEX_DB:", typeof c.env?.ASSET_INDEX_DB, c.env?.ASSET_INDEX_DB);
+  
   const bucket = c.env.ASSET_SYNC_BUCKET;
   const db = c.env.ASSET_INDEX_DB;
   const signingSecret =
@@ -35,6 +39,7 @@ app.post("/upload", async (c) => {
     import.meta.env.ASSET_UPLOAD_SIGNING_SECRET;
 
   if (!bucket || !db || !signingSecret) {
+    console.error("[assets.ts /upload] Missing bindings - bucket:", !!bucket, "db:", !!db, "signingSecret:", !!signingSecret);
     return c.json({ error: "Asset sync bucket not configured" }, 503);
   }
 
