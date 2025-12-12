@@ -14,16 +14,18 @@ export function validateRedirectUrl(
   allowedOrigin: string
 ): boolean {
   try {
-    const url = new URL(redirectUrl);
-    const allowed = new URL(allowedOrigin);
-
-    // Allow Tauri custom protocol for local app
-    if (url.protocol === "fusou:") {
-      if (url.pathname === "/auth") {
+    // Handle custom protocol URLs (fusou://) which don't work with standard URL constructor
+    if (redirectUrl.startsWith("fusou://")) {
+      // Extract the path portion and validate it
+      const pathMatch = redirectUrl.match(/^fusou:\/\/([^?#]*)/);
+      if (pathMatch && pathMatch[1] === "auth") {
         return true;
       }
       return false;
     }
+
+    const url = new URL(redirectUrl);
+    const allowed = new URL(allowedOrigin);
 
     // Allow localhost for local development/testing
     if (

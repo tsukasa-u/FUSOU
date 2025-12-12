@@ -1,38 +1,37 @@
 import type { APIRoute } from "astro";
-import { createClient } from "@supabase/supabase-js";
 import { createSupabaseServerClient } from "@/utility/supabaseServer";
-import { sanitizeErrorMessage, SECURE_COOKIE_OPTIONS } from "@/utility/security";
+import {
+  sanitizeErrorMessage,
+  SECURE_COOKIE_OPTIONS,
+} from "@/utility/security";
 
-const createUserScopedClient = (accessToken: string) =>
-  createClient(
-    import.meta.env.PUBLIC_SUPABASE_URL,
-    import.meta.env.PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
-    {
-      auth: {
-        persistSession: false,
-        autoRefreshToken: false,
-      },
-      global: {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
-      },
-    }
-  );
-
+// Use consistent cookie options with supabaseServer.ts
+// const COOKIE_OPTIONS = {
+//   path: "/",
+//   sameSite: "lax" as const,
+//   httpOnly: true,
+//   secure: import.meta.env.PROD,
+//   maxAge: 60 * 60 * 24 * 7, // 7 days
+// };
 const COOKIE_OPTIONS = { ...SECURE_COOKIE_OPTIONS, sameSite: "lax" as const };
 
 export const GET: APIRoute = async ({ url, cookies, redirect }) => {
   const authCode = url.searchParams.get("code");
+  const provider = cookies.get("sb-provider")?.value;
 
   if (!authCode) {
+    console.error("No authorization code provided");
     return new Response("No code provided", { status: 400 });
   }
 
+  // Supabase PKCE flow handles state validation internally
   const supabase = createSupabaseServerClient(cookies);
   const { data, error } = await supabase.auth.exchangeCodeForSession(authCode);
 
   if (error) {
+    console.error("Session exchange error:", error);
+    // Clean up provider cookie on error
+    cookies.delete("sb-provider", { path: "/" });
     return new Response(sanitizeErrorMessage(error), { status: 500 });
   }
 
@@ -41,47 +40,68 @@ export const GET: APIRoute = async ({ url, cookies, redirect }) => {
     refresh_token,
     provider_token,
     provider_refresh_token,
-    expires_at,
-    user,
   } = data.session;
-  const providerName =
-    user?.app_metadata?.provider ?? data.user.user_metadata?.provider ?? "google";
+
+  const userId = data.session.user?.id;
+  if (!userId) {
+    console.error("Session missing user id");
+    cookies.delete("sb-provider", { path: "/" });
+    return new Response("Session missing user id", { status: 500 });
+  }
+
+  // For local app flow: store tokens in cookies for returnLocalApp page to use
+  // Do NOT overwrite global auth tokens - those are for web app
+  // Instead, store in temporary cookies that returnLocalApp will read
+  cookies.set("sb-local-access-token", access_token, COOKIE_OPTIONS);
+  cookies.set("sb-local-refresh-token", refresh_token, COOKIE_OPTIONS);
+
+  console.log("✓ Set sb-local-access-token (for local app)");
+  console.log("✓ Set sb-local-refresh-token (for local app)");
 
   if (provider_token && provider_refresh_token) {
-    const upsertPayload = {
-      user_id: data.user.id,
-      provider_name: providerName,
-      access_token: provider_token,
-      refresh_token: provider_refresh_token,
-      expires_at: expires_at ? new Date(expires_at * 1000).toISOString() : null,
-    };
-
-    const userClient = createUserScopedClient(access_token);
-    const { error: storeTokenError } = await userClient
-      .from("provider_tokens")
-      .upsert(upsertPayload);
-
-    if (storeTokenError) {
-      console.warn("⚠️ Provider token storage failed (RLS policy):", {
-        code: storeTokenError.code,
-        message: storeTokenError.message,
-        details: storeTokenError.details,
-      });
-      console.warn("⚠️ User authentication succeeded, but provider tokens won't be persisted to database");
-      console.warn("⚠️ Tokens are still available in cookies for this session");
-    } else {
-      console.log("✓ Provider tokens stored successfully");
-    }
-
-    cookies.set("sb-provider-token", provider_token, COOKIE_OPTIONS);
-    cookies.set("sb-provider-refresh-token", provider_refresh_token, COOKIE_OPTIONS);
+    cookies.set("sb-local-provider-token", provider_token, COOKIE_OPTIONS);
+    cookies.set(
+      "sb-local-provider-refresh-token",
+      provider_refresh_token,
+      COOKIE_OPTIONS
+    );
+    console.log("✓ Set local provider tokens");
   } else {
     console.warn("Provider tokens missing in session; skipping persistence");
   }
 
-  cookies.set("sb-access-token", access_token, COOKIE_OPTIONS);
-  cookies.set("sb-refresh-token", refresh_token, COOKIE_OPTIONS);
+  // Keep sb-provider cookie for returnLocalApp to use
+  const providerValue = provider || "google";
+  if (!provider) {
+    cookies.set("sb-provider", "google", COOKIE_OPTIONS);
+    console.log("✓ Set sb-provider (default)");
+  } else {
+    cookies.set("sb-provider", provider, COOKIE_OPTIONS);
+    console.log("✓ Set sb-provider:", provider);
+  }
 
-  // Local app can listen to /local_auth/callback redirect
-  return redirect("/dashboard");
+  // Store tokens in database (server-side, atomic operation)
+  const dbInsertResult = await supabase
+    .from("provider_tokens")
+    .upsert([
+      {
+        user_id: userId,
+        provider_name: providerValue,
+        access_token: provider_token,
+        refresh_token: provider_refresh_token,
+        expires_at: null,
+      },
+    ])
+    .select();
+
+  if (dbInsertResult.error) {
+    console.error("Failed to store provider tokens:", dbInsertResult.error);
+    // Don't block redirect on DB error - tokens are still in cookies
+    console.warn("Proceeding with redirect despite DB error");
+  } else {
+    console.log("✓ Provider tokens stored in database");
+  }
+
+  console.log("Redirecting to /returnLocalApp");
+  return redirect("/returnLocalApp");
 };
