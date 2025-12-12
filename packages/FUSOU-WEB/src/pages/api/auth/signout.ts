@@ -1,8 +1,9 @@
 import type { APIRoute } from "astro";
 import { createSupabaseServerClient } from "@/utility/supabaseServer";
 
-export const POST: APIRoute = async ({ cookies, redirect }) => {
-  const supabase = createSupabaseServerClient(cookies);
+export const POST: APIRoute = async ({ cookies, redirect, locals }) => {
+  const runtimeEnv = (locals as any)?.runtime?.env || {};
+  const supabase = createSupabaseServerClient(cookies, runtimeEnv);
   await supabase.auth.signOut();
 
   const cookieNames = [
@@ -22,5 +23,5 @@ export const POST: APIRoute = async ({ cookies, redirect }) => {
     cookies.delete(name, { path: "/" });
   }
 
-  return redirect("/signin");
+  return redirect("/auth/signin");
 };

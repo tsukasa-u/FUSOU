@@ -390,6 +390,7 @@ pub struct ConfigsAppAssetSyncRetry {
     max_attempts: Option<u32>,
     ttl_seconds: Option<u64>,
     interval_seconds: Option<u64>,
+    auth_backoff_seconds: Option<u64>,
 }
 
 impl ConfigsAppAssetSyncRetry {
@@ -403,6 +404,10 @@ impl ConfigsAppAssetSyncRetry {
 
     pub fn get_interval_seconds(&self) -> u64 {
         self.interval_seconds.unwrap_or_else(|| get_default_configs().app.asset_sync.retry.interval_seconds.unwrap())
+    }
+
+    pub fn get_auth_backoff_seconds(&self) -> u64 {
+        self.auth_backoff_seconds.unwrap_or_else(|| get_default_configs().app.asset_sync.retry.auth_backoff_seconds.unwrap())
     }
 }
 
@@ -723,9 +728,10 @@ fn get_default_configs() -> &'static Configs {
 
 pub fn set_user_config(path: &str) -> Result<(), Box<dyn std::error::Error>> {
     let config = get_configs(path);
-    USER_CONFIGS
-        .set(config)
-        .map_err(|_| "User configs already set")?;
+    if USER_CONFIGS.set(config).is_err() {
+        // Configs may be initialized multiple times in dev/hot-reload runs; keep the first one.
+        tracing::warn!("User configs already set; reusing existing instance");
+    }
     Ok(())
 }
 
@@ -776,10 +782,17 @@ pub fn get_configs(config_path: &str) -> Configs {
 }
 
 pub fn get_user_configs() -> Configs {
-    const CONFIGS_PATH: &str = "configs.toml";
-    USER_CONFIGS
-        .get_or_init(|| get_configs(CONFIGS_PATH))
-        .clone()
+    if let Some(configs) = USER_CONFIGS.get() {
+        return configs.clone();
+    }
+
+    // Avoid creating a configs.toml in the current working directory when the
+    // caller forgets to call set_user_config(). In that case, fall back to the
+    // embedded defaults without touching the filesystem.
+    tracing::warn!(
+        "User configs not initialized; using embedded defaults (no file written)"
+    );
+    get_default_configs().clone()
 }
 
 /// Merge and update user config file with default template, preserving comments
@@ -1106,6 +1119,7 @@ mod tests {
             max_attempts: None,
             ttl_seconds: None,
             interval_seconds: None,
+            auth_backoff_seconds: None,
         };
         
         assert_eq!(
@@ -1122,6 +1136,11 @@ mod tests {
             empty_retry.get_interval_seconds(),
             default_configs.app.asset_sync.retry.get_interval_seconds(),
             "retry interval_seconds getter should return configs.toml default"
+        );
+        assert_eq!(
+            empty_retry.get_auth_backoff_seconds(),
+            default_configs.app.asset_sync.retry.get_auth_backoff_seconds(),
+            "retry auth_backoff_seconds getter should return configs.toml default"
         );
         
         // Test App Auth defaults

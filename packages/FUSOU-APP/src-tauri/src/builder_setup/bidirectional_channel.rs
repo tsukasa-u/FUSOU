@@ -2,9 +2,6 @@ use once_cell::sync::OnceCell;
 use proxy_https::bidirectional_channel::{BidirectionalChannel, StatusInfo};
 use proxy_https::bidirectional_channel::{Master, Slave};
 
-#[cfg(feature = "auth-local-server")]
-use crate::auth_server;
-
 static PROXY_BIDIRECTIONAL_CHANNEL: OnceCell<BidirectionalChannel<StatusInfo>> = OnceCell::new();
 
 static PAC_BIDIRECTIONAL_CHANNEL: OnceCell<BidirectionalChannel<StatusInfo>> = OnceCell::new();
@@ -17,9 +14,6 @@ static RESPONSE_PARSE_BIDIRECTIONAL_CHANNEL: OnceCell<BidirectionalChannel<Statu
 
 static SCHEDULER_INTEGRATE_BIDIRECTIONAL_CHANNEL: OnceCell<BidirectionalChannel<StatusInfo>> =
     OnceCell::new();
-
-#[cfg(feature = "auth-local-server")]
-static AUTH_BIDIRECTIONAL_CHANNEL: OnceCell<BidirectionalChannel<StatusInfo>> = OnceCell::new();
 
 pub fn get_proxy_bidirectional_channel() -> &'static BidirectionalChannel<StatusInfo> {
     PROXY_BIDIRECTIONAL_CHANNEL.get_or_init(|| BidirectionalChannel::<StatusInfo>::new(1))
@@ -41,11 +35,6 @@ pub fn get_scheduler_integrate_bidirectional_channel() -> &'static Bidirectional
 {
     SCHEDULER_INTEGRATE_BIDIRECTIONAL_CHANNEL
         .get_or_init(|| BidirectionalChannel::<StatusInfo>::new(1))
-}
-
-#[cfg(feature = "auth-local-server")]
-pub fn get_auth_bidirectional_channel() -> &'static BidirectionalChannel<StatusInfo> {
-    AUTH_BIDIRECTIONAL_CHANNEL.get_or_init(|| BidirectionalChannel::<StatusInfo>::new(1))
 }
 
 #[allow(dead_code)]

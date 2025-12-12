@@ -6,9 +6,10 @@ use chrono::{DateTime, Duration, Utc};
 use reqwest::Client;
 use std::sync::Arc;
 use tokio::sync::Mutex;
+use serde::Deserialize;
 
-const SUPABASE_URL_EMBED: Option<&str> = option_env!("SUPABASE_URL");
-const SUPABASE_ANON_KEY_EMBED: Option<&str> = option_env!("SUPABASE_ANON_KEY");
+const SUPABASE_URL_EMBED: Option<&str> = option_env!("PUBLIC_SUPABASE_URL");
+const SUPABASE_PUBLISHABLE_KEY_EMBED: Option<&str> = option_env!("PUBLIC_SUPABASE_PUBLISHABLE_KEY");
 // Fallback TTL when Supabase response omits expires_in (seconds)
 const DEFAULT_ACCESS_TOKEN_TTL_SECS: i64 = 55 * 60; // 55 minutes to refresh before typical 60m expiry
 
@@ -51,22 +52,22 @@ impl<S: Storage> AuthManager<S> {
         }
     }
 
-    /// Create an AuthManager by reading `SUPABASE_URL` and `SUPABASE_ANON_KEY` from env.
+    /// Create an AuthManager by reading `PUBLIC_SUPABASE_URL` and `PUBLIC_SUPABASE_PUBLISHABLE_KEY` from env.
     pub fn from_env(storage: Arc<S>) -> Result<Self, AuthError> {
         // Prefer compile-time optional embedded values (via `option_env!`).
         // If not present at compile time, fall back to runtime lookup.
         let supabase_url = if let Some(v) = SUPABASE_URL_EMBED {
             v.to_string()
         } else {
-            std::env::var("SUPABASE_URL")
-                .map_err(|_| AuthError::Other("SUPABASE_URL not set".to_string()))?
+            std::env::var("PUBLIC_SUPABASE_URL")
+                .map_err(|_| AuthError::Other("PUBLIC_SUPABASE_URL not set".to_string()))?
         };
 
-        let api_key = if let Some(v) = SUPABASE_ANON_KEY_EMBED {
+        let api_key = if let Some(v) = SUPABASE_PUBLISHABLE_KEY_EMBED {
             v.to_string()
         } else {
-            std::env::var("SUPABASE_ANON_KEY")
-                .map_err(|_| AuthError::Other("SUPABASE_ANON_KEY not set".to_string()))?
+            std::env::var("PUBLIC_SUPABASE_PUBLISHABLE_KEY")
+                .map_err(|_| AuthError::Other("PUBLIC_SUPABASE_PUBLISHABLE_KEY not set".to_string()))?
         };
 
         let config = AuthConfig {
@@ -91,9 +92,17 @@ impl<S: Storage> AuthManager<S> {
         // if expires_at is present and token is still valid -> return
         if let Some(exp) = session.expires_at {
             let now = Utc::now();
+            let seconds_until_expiry = (exp - now).num_seconds();
+            tracing::info!("get_access_token: checking token validity, expires_at={}, now={}, seconds_until_expiry={}, refresh_margin={}", 
+                exp, now, seconds_until_expiry, self.config.refresh_margin_secs);
             if now + Duration::seconds(self.config.refresh_margin_secs) < exp {
+                tracing::info!("get_access_token: using cached token (valid for {} more seconds)", seconds_until_expiry);
                 return Ok(session.access_token);
+            } else {
+                tracing::info!("get_access_token: token expiring soon (within {} seconds), will refresh", self.config.refresh_margin_secs);
             }
+        } else {
+            tracing::warn!("get_access_token: no expires_at in session, will refresh");
         }
 
         // otherwise refresh
@@ -108,12 +117,21 @@ impl<S: Storage> AuthManager<S> {
         // if another task refreshed while we were waiting
         if let Some(exp) = session2.expires_at {
             let now = Utc::now();
+            let seconds_until_expiry = (exp - now).num_seconds();
             if now + Duration::seconds(self.config.refresh_margin_secs) < exp {
+                tracing::info!("get_access_token: another task refreshed while waiting, using that token (valid for {} seconds)", seconds_until_expiry);
                 return Ok(session2.access_token);
             }
         }
 
+        tracing::info!("get_access_token: calling force_refresh");
         let refreshed = self.force_refresh(&session2).await?;
+        let token_preview = if refreshed.access_token.len() > 20 {
+            format!("{}...{}", &refreshed.access_token[..10], &refreshed.access_token[refreshed.access_token.len()-10..])
+        } else {
+            "<short-token>".to_string()
+        };
+        tracing::info!("get_access_token: refresh completed, new token preview: {}", token_preview);
         Ok(refreshed.access_token)
     }
 
@@ -206,7 +224,7 @@ impl<S: Storage> AuthManager<S> {
         // If expires_in is missing, fall back to a conservative default to avoid hammering refresh.
         let expires_at: Option<DateTime<Utc>> = Some(Utc::now()
             + Duration::seconds(
-                expires_in.unwrap_or(DEFAULT_ACCESS_TOKEN_TTL_SECS).max(60), // at least 60s
+                expires_in.unwrap_or(DEFAULT_ACCESS_TOKEN_TTL_SECS),
             ));
 
         let session = Session {
@@ -256,5 +274,62 @@ impl<S: Storage> AuthManager<S> {
             return Ok(resp2);
         }
         Ok(resp)
+    }
+
+    /// Fetch a provider's refresh token from Supabase provider_tokens table.
+    /// Uses RLS (Row Level Security) via Authorization header for user identification.
+    pub async fn fetch_provider_token(
+        &self,
+        provider_name: &str,
+    ) -> Result<Option<String>, AuthError> {
+        let access_token = self.get_access_token().await?;
+
+        let url = format!("{}/rest/v1/provider_tokens", self.config.supabase_url);
+
+        #[derive(Deserialize)]
+        struct ProviderTokenRow {
+            refresh_token: Option<String>,
+        }
+
+        let response = self
+            .client
+            .get(&url)
+            .header("apikey", &self.config.api_key)
+            .header("Authorization", format!("Bearer {}", access_token))
+            .query(&[
+                // PostgREST requires the "eq." operator for filtering
+                ("provider_name", format!("eq.{}", provider_name)),
+                ("select", "refresh_token".to_string()),
+                ("limit", "1".to_string()),
+            ])
+            .send()
+            .await
+            .map_err(|e| AuthError::Other(format!("Failed to query provider tokens: {}", e)))?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            return Err(AuthError::Other(format!(
+                "Supabase query failed {}: {}",
+                status, body
+            )));
+        }
+
+        let rows: Vec<ProviderTokenRow> = response
+            .json()
+            .await
+            .map_err(|e| AuthError::Other(format!("Failed to parse provider tokens: {}", e)))?;
+
+        if let Some(row) = rows.into_iter().find_map(|r| r.refresh_token) {
+            if row.trim().is_empty() {
+                tracing::debug!("{} refresh token empty", provider_name);
+                return Ok(None);
+            }
+            tracing::debug!("Successfully fetched {} refresh token", provider_name);
+            return Ok(Some(row));
+        }
+
+        tracing::debug!("No {} tokens found for user", provider_name);
+        Ok(None)
     }
 }

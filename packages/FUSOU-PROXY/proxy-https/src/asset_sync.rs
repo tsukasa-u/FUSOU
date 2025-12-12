@@ -2,7 +2,7 @@ use std::{
     collections::HashSet,
     path::{Path, PathBuf},
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         Arc, OnceLock, RwLock,
     },
     time::{Duration, Instant},
@@ -26,6 +26,7 @@ use chrono::{DateTime, Utc};
 use configs::ConfigsAppAssetSync;
 
 use fusou_upload::{PendingStore, Uploader, UploadRequest, UploadContext, UploadResult};
+use reqwest::StatusCode;
 
 static ASSET_SYNC_HANDLE: OnceLock<JoinHandle<()>> = OnceLock::new();
 static ASSET_SYNC_QUEUE: OnceLock<UnboundedSender<PathBuf>> = OnceLock::new();
@@ -33,6 +34,8 @@ static PROCESSED_KEYS: Lazy<DashSet<String>> = Lazy::new(DashSet::new);
 static SUPABASE_AUTH_READY: AtomicBool = AtomicBool::new(false);
 static SUPABASE_WAITING_LOGGED: AtomicBool = AtomicBool::new(false);
 static SUPABASE_AUTH_FAILED: AtomicBool = AtomicBool::new(false);
+static LAST_AUTH_FAIL_EPOCH: AtomicU64 = AtomicU64::new(0);
+static SUPABASE_BACKOFF_LOGGED: AtomicBool = AtomicBool::new(false);
 static PERIOD_CACHE: Lazy<RwLock<Option<PeriodCache>>> = Lazy::new(|| RwLock::new(None));
 static LAST_PERIOD_TAG: Lazy<RwLock<Option<String>>> = Lazy::new(|| RwLock::new(None));
 static EXISTING_KEYS_CACHE: Lazy<RwLock<Option<RemoteKeyCache>>> = Lazy::new(|| RwLock::new(None));
@@ -42,6 +45,31 @@ const MIN_SCAN_INTERVAL_SECS: u64 = 10;
 const PERIOD_CACHE_FALLBACK_SECS: u64 = 24 * 60 * 60;
 const REMOTE_KEYS_CACHE_FALLBACK_SECS: u64 = 60 * 60;
 const REMOTE_KEYS_REFRESH_MAX_JITTER_MS: u64 = 5_000;
+
+#[derive(Debug, Clone)]
+struct ExistingKeysError {
+    status: Option<StatusCode>,
+    message: String,
+}
+
+impl ExistingKeysError {
+    fn transport(msg: impl Into<String>) -> Self {
+        Self { status: None, message: msg.into() }
+    }
+
+    fn http(status: StatusCode, body: String) -> Self {
+        Self { status: Some(status), message: body }
+    }
+}
+
+impl std::fmt::Display for ExistingKeysError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.status {
+            Some(status) => write!(f, "{}: {}", status, self.message),
+            None => write!(f, "{}", self.message),
+        }
+    }
+}
 
 // Removed AssetSyncContext struct as we use UploadContext
 
@@ -91,6 +119,7 @@ pub struct AssetSyncInit {
     pub period_endpoint: Option<String>,
     pub blocked_extensions: Vec<String>,
     pub existing_keys_endpoint: Option<String>,
+    pub auth_backoff_secs: u64,
 }
 
 impl AssetSyncInit {
@@ -109,6 +138,7 @@ impl AssetSyncInit {
         let period_endpoint = config.get_period_endpoint();
         let blocked_extensions = config.get_skip_extensions();
         let existing_keys_endpoint = config.get_existing_keys_endpoint();
+        let auth_backoff_secs = config.retry.get_auth_backoff_seconds();
 
         let scan_interval_seconds = config
             .get_scan_interval_seconds()
@@ -126,6 +156,7 @@ impl AssetSyncInit {
             period_endpoint,
             blocked_extensions,
             existing_keys_endpoint,
+            auth_backoff_secs,
         })
     }
 }
@@ -212,8 +243,11 @@ async fn run_worker(
         tracing::warn!(error = %err, "failed to refresh asset sync period");
     }
 
-    if let Err(err) = maybe_refresh_existing_keys(&client, &settings).await {
-        tracing::warn!(error = %err, "failed to refresh existing asset keys cache");
+    // Only attempt to refresh existing keys if authentication is ready
+    if check_auth_ready(&settings, &auth_manager).await {
+        if let Err(err) = maybe_refresh_existing_keys(&client, &settings, &auth_manager).await {
+            tracing::warn!(error = %err, "failed to refresh existing asset keys cache");
+        }
     }
 
     loop {
@@ -236,9 +270,25 @@ async fn check_auth_ready(
         return true;
     }
 
-    // Return cached result if authentication failed recently (await reset on 401)
-    if SUPABASE_AUTH_FAILED.load(Ordering::Relaxed) {
-        return false;
+    // Cooldown after a recent authentication failure
+    let backoff_secs = settings.auth_backoff_secs;
+    let last_fail = LAST_AUTH_FAIL_EPOCH.load(Ordering::Relaxed);
+    if last_fail > 0 {
+        let now = now_epoch_secs();
+        let elapsed = now.saturating_sub(last_fail);
+        if elapsed < backoff_secs {
+            let remaining = backoff_secs - elapsed;
+            if !SUPABASE_BACKOFF_LOGGED.swap(true, Ordering::Relaxed) {
+                tracing::warn!(
+                    elapsed_secs = elapsed,
+                    remaining_secs = remaining,
+                    "authentication backoff active; waiting before retrying asset sync"
+                );
+            }
+            return false;
+        } else {
+            SUPABASE_BACKOFF_LOGGED.store(false, Ordering::Relaxed);
+        }
     }
 
     // Return cached result if already authenticated
@@ -257,6 +307,9 @@ async fn check_auth_ready(
 
     // Cache successful authentication
     SUPABASE_AUTH_READY.store(true, Ordering::Relaxed);
+    LAST_AUTH_FAIL_EPOCH.store(0, Ordering::Relaxed);
+    SUPABASE_BACKOFF_LOGGED.store(false, Ordering::Relaxed);
+    SUPABASE_AUTH_FAILED.store(false, Ordering::Relaxed);
     if SUPABASE_WAITING_LOGGED.swap(false, Ordering::Relaxed) {
         tracing::info!("Supabase authentication detected; starting asset uploads");
     }
@@ -301,7 +354,12 @@ async fn process_path(
         return Ok(());
     }
 
-    maybe_refresh_existing_keys(client, settings).await?;
+    if let Err(err) = maybe_refresh_existing_keys(client, settings, auth_manager).await {
+        if matches!(err.status, Some(StatusCode::UNAUTHORIZED)) {
+            tracing::warn!("Authentication failed while checking existing keys; stopping upload");
+        }
+        return Err(err.to_string());
+    }
 
     if remote_key_exists(&key) {
         PROCESSED_KEYS.insert(key.clone());
@@ -366,6 +424,13 @@ fn has_blocked_extension(path: &Path, blocked: &[String]) -> bool {
 }
 fn build_client() -> Result<Client, reqwest::Error> {
     reqwest::Client::builder().build()
+}
+
+fn now_epoch_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
 }
 
 fn derive_origin(endpoint: &str) -> Result<String, String> {
@@ -459,6 +524,8 @@ pub async fn upload_via_api(
                 tracing::warn!(key, error = %e, "authentication failure detected; resetting auth cache");
                 SUPABASE_AUTH_READY.store(false, Ordering::Relaxed);
                 SUPABASE_AUTH_FAILED.store(true, Ordering::Relaxed);
+                LAST_AUTH_FAIL_EPOCH.store(now_epoch_secs(), Ordering::Relaxed);
+                SUPABASE_BACKOFF_LOGGED.store(false, Ordering::Relaxed);
                 SUPABASE_WAITING_LOGGED.store(false, Ordering::Relaxed);
             }
             Err(e)
@@ -568,7 +635,8 @@ fn apply_period_transition(new_tag: Option<String>) {
 async fn maybe_refresh_existing_keys(
     client: &Client,
     settings: &AssetSyncInit,
-) -> Result<(), String> {
+    auth_manager: &AuthManager<FileStorage>,
+) -> Result<(), ExistingKeysError> {
     let endpoint = match settings.existing_keys_endpoint.as_deref() {
         Some(value) => value,
         None => {
@@ -586,27 +654,54 @@ async fn maybe_refresh_existing_keys(
 
     wait_for_remote_cache_jitter().await;
 
+    // Get access token for Authorization header
+    tracing::info!("maybe_refresh_existing_keys: requesting access token from auth_manager");
+    let access_token = auth_manager
+        .get_access_token()
+        .await
+        .map_err(|err| ExistingKeysError::transport(format!(
+            "failed to get access token for existing keys API: {err}"
+        )))?;
+    
+    let token_preview = if access_token.len() > 20 {
+        format!("{}...{}", &access_token[..10], &access_token[access_token.len()-10..])
+    } else {
+        "<short-token>".to_string()
+    };
+    tracing::info!("maybe_refresh_existing_keys: got access token, preview: {}, calling API: {}", token_preview, endpoint);
+
     let response = client
         .get(endpoint)
         .header("Accept", "application/json")
+        .header("Authorization", format!("Bearer {}", access_token))
         .send()
         .await
-        .map_err(|err| format!("failed to query existing keys endpoint: {err}"))?;
+        .map_err(|err| ExistingKeysError::transport(format!(
+            "failed to query existing keys endpoint: {err}"
+        )))?;
 
     if !response.status().is_success() {
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
-        return Err(format!(
-            "existing keys endpoint returned {}: {}",
-            status,
-            body.trim()
-        ));
+        
+        // Check if it's a 401 (Unauthorized) error - indicates token expiry
+        if status == StatusCode::UNAUTHORIZED {
+            SUPABASE_AUTH_FAILED.store(true, Ordering::Relaxed);
+            SUPABASE_AUTH_READY.store(false, Ordering::Relaxed);
+            LAST_AUTH_FAIL_EPOCH.store(now_epoch_secs(), Ordering::Relaxed);
+            SUPABASE_BACKOFF_LOGGED.store(false, Ordering::Relaxed);
+            tracing::warn!("existing keys endpoint returned 401; marking authentication as failed");
+        }
+
+        return Err(ExistingKeysError::http(status, body.trim().to_string()));
     }
 
     let payload: ExistingKeysResponse = response
         .json()
         .await
-        .map_err(|err| format!("failed to decode existing keys payload: {err}"))?;
+        .map_err(|err| ExistingKeysError::transport(format!(
+            "failed to decode existing keys payload: {err}"
+        )))?;
 
     cache_remote_keys(payload);
     Ok(())

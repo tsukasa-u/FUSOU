@@ -36,18 +36,14 @@ pub async fn launch_with_options(
         if let Some(&flag) = options.get("run_proxy_server") {
             if flag != 0 {
                 if let Some(&server_index) = options.get("server") {
-                    let server_address_from_config = if server_index == -1 {
-                        None
-                    } else {
-                        configs::get_user_configs_for_app()
-                            .connect_kc_server
-                            .get_server_address(server_index)
-                    };
-                    
+                    let binding_server_address = configs::get_user_configs_for_app()
+                        .connect_kc_server
+                        .get_server_address(server_index);
                     let server_address = if server_index == -1 {
                         Some(server_name.as_str())
                     } else {
-                        server_address_from_config.as_deref()
+                        binding_server_address
+                            .as_deref()
                     };
                     if let Some(server_address) = server_address {
                         let pac_path = get_ROAMING_DIR()

@@ -7,7 +7,7 @@ import {
   createSignal,
   For,
   Match,
-  onCleanup,
+  onMount,
   Show,
   Switch,
 } from "solid-js";
@@ -17,8 +17,6 @@ import IconCheckBoxGreen from "../icons/check_box_green";
 import IconCheckBoxRed from "../icons/check_box_red";
 
 import { location_route } from "../utility/location";
-import { getRefreshToken, supabase } from "../utility/supabase";
-import { useAuth } from "../utility/provider";
 import { ThemeControllerComponent } from "../components/settings/theme";
 import { createAsyncStore } from "@solidjs/router";
 
@@ -63,20 +61,6 @@ const DEFAULT_SERVER_LIST: { [key: string]: string } = {
   柱島泊地: "w20h.kancolle-server.com",
 };
 
-function open_auth_page() {
-  invoke("check_open_window", { label: "main" }).then((flag) => {
-    if (flag) {
-      invoke("open_auth_page")
-        .then(() => {
-          console.log("open auth page");
-        })
-        .catch((err) => {
-          console.error("open auth page error", err);
-        });
-    }
-  });
-}
-
 function Start() {
   createEffect(location_route);
 
@@ -107,8 +91,6 @@ function Start() {
   const [advancesSettingsCollapse, setAdavncedSettingsCollpse] =
     createSignal<boolean>(false);
 
-  const [authData, setAuthData] = useAuth();
-
   const checkSessionHealth = async () => {
     try {
       setSessionHealthLoading(true);
@@ -127,9 +109,8 @@ function Start() {
 
   const forceLocalSignOut = async () => {
     try {
+      // Rust handles all sign-out logic, including clearing session
       await invoke("force_local_sign_out");
-      await supabase.auth.signOut();
-      setAuthData({ accessToken: null, refreshToken: null });
       setSessionHealth(null);
     } catch (e) {
       console.error("Failed to force local sign out", e);
@@ -156,41 +137,19 @@ function Start() {
         return;
       }
 
-      setAuthData({ accessToken: access, refreshToken: refresh });
-
-      await invoke("set_refresh_token", {
-        token: `${provider}&bearer`,
-      });
-      console.log("Tokens applied from clipboard/input");
+      // Token data received - Rust side will handle setting session
+      // Just log for debugging
+      if (import.meta.env.DEV) {
+        console.log("Token data parsed (Rust will manage session)");
+      }
     } catch (e) {
       console.error("Failed to parse/apply tokens:", e);
     }
   };
 
   // const navigate = useNavigate();
-
-  createEffect(() => {
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((event, session) => {
-      if (session?.access_token && session?.refresh_token) {
-        invoke("set_supabase_session", {
-          access_token: session.access_token,
-          refresh_token: session.refresh_token,
-        }).catch((error) => {
-          console.error("Failed to propagate Supabase session", error);
-        });
-      } else if (event === "SIGNED_OUT") {
-        invoke("clear_supabase_session").catch((error) => {
-          console.error("Failed to clear Supabase session", error);
-        });
-      }
-    });
-
-    onCleanup(() => {
-      subscription.unsubscribe();
-    });
-  });
+  // Note: Auth state changes are now entirely handled by Rust-side AuthManager.
+  // SolidJS receives token updates via Tauri events ("set-supabase-tokens").
 
   function check_server_status() {
     setPacServerHealth(-1);
@@ -213,72 +172,7 @@ function Start() {
       });
   }
 
-  createEffect(() => {
-    if (authData.accessToken !== null && authData.refreshToken !== null) {
-      supabase.auth
-        .setSession({
-          access_token: authData.accessToken,
-          refresh_token: authData.refreshToken,
-        })
-        .then(({ data, error }) => {
-          if (error) {
-            console.error("Error setting session:", error);
-          } else {
-            console.log("Session set successfully:", data);
-          }
-        });
-    }
-  });
-
-  createEffect(() => {
-    supabase.auth.getSession().then(({ data, error }) => {
-      if (import.meta.env.DEV) console.log("session", data, error);
-      if (error) {
-        console.error("Error getting session:", error);
-        open_auth_page();
-      } else {
-        if (data.session == null) {
-          open_auth_page();
-        } else {
-          if (data.session.user == null) {
-            open_auth_page();
-          } else {
-            if (data.session.access_token && data.session.refresh_token) {
-              invoke("set_supabase_session", {
-                access_token: data.session.access_token,
-                refresh_token: data.session.refresh_token,
-              }).catch((error) => {
-                console.error(
-                  "Failed to propagate initial Supabase session",
-                  error
-                );
-              });
-            }
-            getRefreshToken(data.session.user.id)
-              .then((refreshToken) => {
-                if (refreshToken !== null) {
-                  const token: string =
-                    refreshToken + "&" + data.session.token_type;
-                  invoke("set_refresh_token", {
-                    token: token,
-                  })
-                    .then(() => {
-                      console.log("refresh_token set");
-                    })
-                    .catch((err) => {
-                      console.error("refresh_token error", err);
-                    });
-                } else {
-                  console.error("Error getting refresh token");
-                }
-              })
-              .catch((error) => {
-                console.error("Error getting refresh token:", error);
-              });
-          }
-        }
-      }
-    });
+  onMount(() => {
     check_server_status();
   });
 

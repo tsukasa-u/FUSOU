@@ -88,6 +88,27 @@ fn set_paths(
     Ok(())
 }
 
+fn configure_autostart(
+    app: &mut tauri::App,
+    autostart_allowed: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    {
+        if autostart_allowed {
+            if let Err(e) = ensure_autostart_initialized(app) {
+                tracing::warn!("Failed to initialize autostart entry: {}", e);
+            }
+        } else {
+            tracing::info!("Autostart disabled via config; skipping initialization");
+            if let Err(e) = app.autolaunch().disable() {
+                tracing::debug!("Failed to disable autostart entry: {}", e);
+            }
+        }
+    }
+
+    Ok(())
+}
+
 fn setup_tray(
     app: &mut tauri::App,
     shutdown_tx: mpsc::Sender<ShutdownSignal>,
@@ -110,10 +131,6 @@ fn setup_tray(
     let open_debug_window =
         MenuItemBuilder::with_id("open-debug-window".to_string(), "Open Debug Window")
             .build(app)?;
-
-    #[cfg(dev)]
-    let open_auth_window =
-        MenuItemBuilder::with_id("open-auth-window".to_string(), "Open Auth Window").build(app)?;
 
     let quit = MenuItemBuilder::with_id("quit".to_string(), "Quit").build(app)?;
     let restart = MenuItemBuilder::with_id("restart".to_string(), "Restart").build(app)?;
@@ -180,8 +197,7 @@ fn setup_tray(
     #[cfg(dev)]
     let danger_ope_sub_menu = danger_ope_sub_menu
         .separator()
-        .item(&open_debug_window)
-        .item(&open_auth_window);
+        .item(&open_debug_window);
 
     let danger_ope_sub_menu = danger_ope_sub_menu.build()?;
 
@@ -281,27 +297,6 @@ fn setup_tray(
                             .build()
                             {
                                 tracing::error!("Failed to build debug window: {}", e);
-                            }
-                        }
-                    },
-                    #[cfg(dev)]
-                    "open-auth-window" => match tray.get_webview_window("auth") {
-                        Some(debug_window) => {
-                            if let Err(e) = debug_window.show() {
-                                tracing::error!("Failed to show auth window: {}", e);
-                            }
-                        }
-                        None => {
-                            if let Err(e) = tauri::WebviewWindowBuilder::new(
-                                tray.app_handle(),
-                                "auth",
-                                tauri::WebviewUrl::App("/auth".into()),
-                            )
-                            .fullscreen(false)
-                            .title("fusou-auth")
-                            .build()
-                            {
-                                tracing::error!("Failed to build auth window: {}", e);
                             }
                         }
                     },
@@ -429,7 +424,7 @@ fn setup_tray(
                                         tracing::error!("Failed to show main window: {}", e);
                                     }
                                 }
-                                tauri_cmd::set_launch_page(tray.app_handle());
+                                let _ = window.emit_to("main", "set-main-page-launch", ());
                             }
                             None => {
                                 app::open_main_window(tray.app_handle());
@@ -506,34 +501,32 @@ fn setup_tray(
 
                         tauri::async_runtime::spawn(async move {
                             match manager.peek_session().await {
-                                Ok(Some(session)) => {
-                                    let access_len = session.access_token.len();
-                                    let refresh_len = session.refresh_token.len();
-                                    let status = if refresh_len < 30 || access_len < 30 {
-                                        "Session tokens may be corrupted (too short). Consider signing out and re-authenticating."
-                                    } else {
-                                        "Session tokens look OK."
-                                    };
+                                Ok(Some(_session)) => {
                                     let _ = app_handle
                                         .notification()
                                         .builder()
-                                        .title("Session Health Check")
-                                        .body(format!("access_len={}, refresh_len={}, {}", access_len, refresh_len, status))
+                                        .title("Session Check")
+                                        .body("Session is valid")
                                         .show();
                                 }
                                 Ok(None) => {
                                     let _ = app_handle
                                         .notification()
                                         .builder()
-                                        .title("Session Health Check")
-                                        .body("No session stored. You need to sign in.")
+                                        .title("Authentication Required")
+                                        .body("Please sign in")
                                         .show();
+                                    
+                                    // Open auth page using existing auth module function
+                                    if let Err(e) = crate::auth::auth_server::open_auth_page() {
+                                        tracing::error!("Failed to open auth page: {}", e);
+                                    }
                                 }
                                 Err(e) => {
                                     let _ = app_handle
                                         .notification()
                                         .builder()
-                                        .title("Session Health Check Error")
+                                        .title("Session Check Error")
                                         .body(format!("Failed to check session: {}", e))
                                         .show();
                                 }
@@ -775,19 +768,7 @@ pub fn setup_init(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>
     let autostart_allowed = configs::get_user_configs_for_app()
         .autostart
         .get_enable_autostart();
-    #[cfg(not(any(target_os = "android", target_os = "ios")))]
-    {
-        if autostart_allowed {
-            if let Err(e) = ensure_autostart_initialized(app) {
-                tracing::warn!("Failed to initialize autostart entry: {}", e);
-            }
-        } else {
-            tracing::info!("Autostart disabled via config; skipping initialization");
-            if let Err(e) = app.autolaunch().disable() {
-                tracing::debug!("Failed to disable autostart entry: {}", e);
-            }
-        }
-    }
+    configure_autostart(app, autostart_allowed)?;
     setup_tray(app, shutdown_tx, autostart_allowed)?;
     configure_channel_transport();
     setup_discord()?;
@@ -803,8 +784,6 @@ pub fn setup_init(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>
         get_response_parse_bidirectional_channel().clone_master();
     let scheduler_integrate_channel_master_clone =
         get_scheduler_integrate_bidirectional_channel().clone_master();
-    #[cfg(feature = "auth-local-server")]
-    let auth_bidirectional_channel_master_clone = get_auth_bidirectional_channel().clone_master();
 
     let app_handle = app.handle().clone();
     tauri::async_runtime::spawn(async move {
@@ -824,15 +803,6 @@ pub fn setup_init(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>
             }
         }
         // is it needed to add select! for timeout?
-        #[cfg(feature = "auth-local-server")]
-        let _ = tokio::join!(
-            request_shutdown(proxy_bidirectional_channel_master_clone),
-            request_shutdown(pac_bidirectional_channel_master_clone),
-            request_shutdown(response_parse_channel_master_clone),
-            request_shutdown(auth_bidirectional_channel_master_clone),
-            request_shutdown(scheduler_integrate_channel_master_clone),
-        );
-        #[cfg(not(feature = "auth-local-server"))]
         let _ = tokio::join!(
             request_shutdown(proxy_bidirectional_channel_master_clone),
             request_shutdown(pac_bidirectional_channel_master_clone),

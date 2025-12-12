@@ -30,28 +30,23 @@ impl UploadError {
     pub fn is_auth_error(&self) -> bool {
         matches!(self, UploadError::AuthenticationError { .. })
     }
-
-    /// Convert to error string for logging/storage
-    pub fn to_string(&self) -> String {
-        match self {
-            UploadError::AuthenticationError { status_code, message } => {
-                format!("Authentication error ({}): {}", status_code, message)
-            }
-            UploadError::ClientError { status_code, message } => {
-                format!("Client error ({}): {}", status_code, message)
-            }
-            UploadError::ServerError { status_code, message } => {
-                format!("Server error ({}): {}", status_code, message)
-            }
-            UploadError::TransportError(msg) => msg.clone(),
-            UploadError::Conflict => "Resource already exists (409)".to_string(),
-        }
-    }
 }
 
 impl std::fmt::Display for UploadError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.to_string())
+        match self {
+            UploadError::AuthenticationError { status_code, message } => {
+                write!(f, "Authentication error ({}): {}", status_code, message)
+            }
+            UploadError::ClientError { status_code, message } => {
+                write!(f, "Client error ({}): {}", status_code, message)
+            }
+            UploadError::ServerError { status_code, message } => {
+                write!(f, "Server error ({}): {}", status_code, message)
+            }
+            UploadError::TransportError(msg) => write!(f, "{}", msg),
+            UploadError::Conflict => write!(f, "Resource already exists (409)"),
+        }
     }
 }
 

@@ -237,6 +237,9 @@ save_file_location = ""
     # Interval (in seconds) between retry attempts
     interval_seconds = 300 # 5 minutes
 
+    # Cooldown (in seconds) after an authentication failure before retrying
+    auth_backoff_seconds = 600
+
 
     [app.auth]
     # Whether to deny user authentication
@@ -245,7 +248,7 @@ save_file_location = ""
 
     # Authentication page URL
     # The URL to open when authentication is required
-    auth_page_url = "https://fusou.dev/signinLocalApp"
+    auth_page_url = "https://fusou.dev/auth/local/signin"
 
 
     [app.kc_window]

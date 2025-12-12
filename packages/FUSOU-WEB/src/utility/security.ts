@@ -9,37 +9,53 @@
  * 2. Tauri custom protocol (fusou://)
  * 3. localhost URLs for local development
  */
-export function validateRedirectUrl(redirectUrl: string, allowedOrigin: string): boolean {
+export function validateRedirectUrl(
+  redirectUrl: string,
+  allowedOrigin: string
+): boolean {
   try {
-    const url = new URL(redirectUrl);
-    const allowed = new URL(allowedOrigin);
-    
-    // Allow Tauri custom protocol for local app
-    if (url.protocol === 'fusou:') {
-      return true;
-    }
-    
-    // Allow localhost for local development/testing
-    if (url.hostname === 'localhost' || url.hostname === '127.0.0.1') {
-      return true;
-    }
-    
-    // For web app callbacks, validate against allowed origin
-    // Check protocol (must be https in production)
-    if (import.meta.env.PROD && url.protocol !== 'https:') {
+    // Handle custom protocol URLs (fusou://) which don't work with standard URL constructor
+    if (redirectUrl.startsWith("fusou://")) {
+      // Extract the path portion and validate it
+      const pathMatch = redirectUrl.match(/^fusou:\/\/([^?#]*)/);
+      if (pathMatch && pathMatch[1] === "auth") {
+        return true;
+      }
       return false;
     }
-    
+
+    const url = new URL(redirectUrl);
+    const allowed = new URL(allowedOrigin);
+
+    // Allow localhost for local development/testing
+    if (
+      import.meta.env.DEV &&
+      (url.hostname === "localhost" || url.hostname === "127.0.0.1") &&
+      url.pathname.startsWith("/api/")
+    ) {
+      return true;
+    }
+
+    // For web app callbacks, validate against allowed origin
+    // Check protocol (must be https in production)
+    if (
+      import.meta.env.PROD &&
+      url.protocol !== "https:" &&
+      (url.hostname == "localhost" || url.hostname == "127.0.0.1")
+    ) {
+      return false;
+    }
+
     // Check host matches exactly
     if (url.host !== allowed.host) {
       return false;
     }
-    
+
     // Check path starts with /api/ (OAuth callbacks only)
-    if (!url.pathname.startsWith('/api/')) {
+    if (!url.pathname.startsWith("/api/")) {
       return false;
     }
-    
+
     return true;
   } catch {
     // Invalid URL format
@@ -50,25 +66,28 @@ export function validateRedirectUrl(redirectUrl: string, allowedOrigin: string):
 /**
  * Validates Origin or Referer header for CSRF protection
  */
-export function validateOrigin(request: Request, allowedOrigin: string): boolean {
-  const origin = request.headers.get('origin');
-  const referer = request.headers.get('referer');
-  
+export function validateOrigin(
+  request: Request,
+  allowedOrigin: string
+): boolean {
+  const origin = request.headers.get("origin");
+  const referer = request.headers.get("referer");
+
   try {
     const allowed = new URL(allowedOrigin);
-    
+
     // Check Origin header first (more reliable)
     if (origin) {
       const originUrl = new URL(origin);
       return originUrl.host === allowed.host;
     }
-    
+
     // Fallback to Referer header
     if (referer) {
       const refererUrl = new URL(referer);
       return refererUrl.host === allowed.host;
     }
-    
+
     // No origin or referer header - reject for security
     return false;
   } catch {
@@ -84,7 +103,7 @@ export function sanitizeErrorMessage(error: unknown): string {
     // In development, show detailed errors
     return error instanceof Error ? error.message : String(error);
   }
-  
+
   // In production, return generic error
   return "Authentication failed. Please try again.";
 }

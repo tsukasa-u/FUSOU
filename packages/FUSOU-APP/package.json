@@ -58,7 +58,6 @@
   "dependencies": {
     "@solid-primitives/cookies": "^0.0.1",
     "@solidjs/router": "^0.15.4",
-    "@supabase/supabase-js": "^2.86.0",
     "@tauri-apps/api": "^2.9.0",
     "@tauri-apps/plugin-autostart": "^2.5.1",
     "@tauri-apps/plugin-deep-link": "^2.4.5",

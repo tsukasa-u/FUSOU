@@ -1,20 +1,11 @@
-https://*.pages.dev/chartPage
+https://*.dev/*
+  X-Robots-Tag: noindex
+
+https://*.dev/
   ! X-Robots-Tag
 
-https://*.pages.dev/signin
+https://*.dev/download
   ! X-Robots-Tag
 
-https://*.pages.dev/signinLocalApp
-  ! X-Robots-Tag
-
-https://*.pages.dev/returnLocalApp
-  ! X-Robots-Tag
-
-https://*.pages.dev/register
-  ! X-Robots-Tag
-
-https://*.pages.dev/dashboard
-  ! X-Robots-Tag
-
-https://dev.fusou.pages.dev/*
+https://*.dev/docs/*
   ! X-Robots-Tag

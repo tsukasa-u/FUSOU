@@ -149,35 +149,6 @@ export function SettingsComponent() {
 
         <div class="divider divider-horizonal py-0 mt-4 mb-8" />
 
-        <p class="py-2 text-xl font-semibold">Sign In to Supabase</p>
-        <p class="px-px leading-5">
-          Open the authentication page to sign in or create a new account.
-        </p>
-        <div class="mt-4 flex items-center justify-end">
-          <button
-            class="btn btn-primary border-primary-content btn-wide"
-            onClick={async () => {
-              try {
-                await invoke("open_auth_page");
-                showFadeToast(
-                  "setting_toast",
-                  "Opening authentication page..."
-                );
-              } catch (e: any) {
-                console.error("Failed to open auth page:", e);
-                showFadeToast(
-                  "setting_toast",
-                  "Failed to open authentication page"
-                );
-              }
-            }}
-          >
-            Open Auth Page
-          </button>
-        </div>
-
-        <div class="divider divider-horizonal py-0 mt-4 mb-8" />
-
         <p class="py-2 text-xl font-semibold">Reload App Pages</p>
         <p class="px-px leading-5">
           Reload this application pages, not KanColle game web page
