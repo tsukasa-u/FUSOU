@@ -1,0 +1,11 @@
+[package]
+name = "compaction_merge"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+datafusion = "36"
+parquet = "51"
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+anyhow = "1"
+tracing = "0.1"
