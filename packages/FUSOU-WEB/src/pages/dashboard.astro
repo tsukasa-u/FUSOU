@@ -29,17 +29,11 @@ if (
   cookies.set("stored-sb-access-token", { data: [] }, { path: "/" });
   cookies.set("stored-sb-refresh-token", { data: [] }, { path: "/" });
   cookies.set("stored-sb-provider-token", { data: [] }, { path: "/" });
-  cookies.set(
-    "stored-sb-provider-refresh-token",
-    { data: [] },
-    { path: "/" }
-  );
+  cookies.set("stored-sb-provider-refresh-token", { data: [] }, { path: "/" });
   storedAccessToken = cookies.get("stored-sb-access-token");
   storedRefreshToken = cookies.get("stored-sb-refresh-token");
   storedProviderToken = cookies.get("stored-sb-provider-token");
-  storedProviderRefreshToken = cookies.get(
-    "stored-sb-provider-refresh-token"
-  );
+  storedProviderRefreshToken = cookies.get("stored-sb-provider-refresh-token");
 }
 
 type storedToken = { data: string[] };
@@ -62,7 +56,7 @@ if (refreshToken && accessToken && providerToken && providerRefreshToken) {
       cookies.delete("sb-refresh-token", { path: "/" });
       cookies.delete("sb-provider-token", { path: "/" });
       cookies.delete("sb-provider-refresh-token", { path: "/" });
-      return Astro.redirect("/signin");
+      return Astro.redirect("/auth/signin");
     }
     currentSession = session;
   } catch (error) {
@@ -70,7 +64,7 @@ if (refreshToken && accessToken && providerToken && providerRefreshToken) {
     cookies.delete("sb-refresh-token", { path: "/" });
     cookies.delete("sb-provider-token", { path: "/" });
     cookies.delete("sb-provider-refresh-token", { path: "/" });
-    return Astro.redirect("/signin");
+    return Astro.redirect("/auth/signin");
   }
 }
 
@@ -133,7 +127,7 @@ if (
     validProviderTokenList.length == 0 ||
     validProviderRefreshTokenList.length == 0
   ) {
-    return Astro.redirect("/signin");
+    return Astro.redirect("/auth/signin");
   }
 }
 
@@ -160,32 +154,43 @@ cookies.set(
 ---
 
 <Layout title="dashboard">
-  <div class="static h-full">
-    <div class="h-16"></div>
-
-    <div class="flex justify-center h-full">
-      <div class="w-full max-w-md place-self-center -mt-16">
+  <div class="min-h-screen flex flex-col">
+    <div class="flex justify-center flex-1 items-center">
+      <div class="w-full max-w-md">
         <div class="bg-base-100 rounded-md p-6">
           <h1 class="text-2xl text-center py-2">Account is authorized</h1>
           <ul class="list bg-base-100 rounded-box">
-            <li class="p-4 pb-2 text-xs opacity-60 tracking-wide">Your accounts</li>
+            <li class="p-4 pb-2 text-xs opacity-60 tracking-wide">
+              Your accounts
+            </li>
             {
               validSessionList.map((session, idx) => (
                 <li class="list-row">
                   <div>
-                    <Icon name={session?.data.session?.user.app_metadata.provider} class="size-10" />
+                    <Icon
+                      name={session?.data.session?.user.app_metadata.provider}
+                      class="size-10"
+                    />
                   </div>
                   <div>
                     <div>{session?.data.session?.user.user_metadata.name}</div>
-                    <div class="text-xs font-semibold opacity-60">{session?.data.user?.email}</div>
+                    <div class="text-xs font-semibold opacity-60">
+                      {session?.data.user?.email}
+                    </div>
                   </div>
                   <astro-data-account-info
                     data-access-token={session?.data.session?.access_token}
                     data-refresh-token={session?.data.session?.refresh_token}
                     data-provider-token={validProviderTokenList[idx]}
-                    data-provider-refresh-token={validProviderRefreshTokenList[idx]}
-                    data-provider={session?.data.session?.user.app_metadata.provider}
-                    data-username={session?.data.session?.user.user_metadata.name}
+                    data-provider-refresh-token={
+                      validProviderRefreshTokenList[idx]
+                    }
+                    data-provider={
+                      session?.data.session?.user.app_metadata.provider
+                    }
+                    data-username={
+                      session?.data.session?.user.user_metadata.name
+                    }
                     data-email={session?.data.user?.email}
                     data-date={Date.now()}
                   />
@@ -198,8 +203,13 @@ cookies.set(
 
           <div class="text-center text-lg">Add another account</div>
           <div class="h-1"></div>
-          <form action="/api/auth/signin" method="post">
-            <button class="btn w-full btn-ghost border border-base-300 rounded-sm flex items-center gap-2 bg-white text-black" value="google" name="provider" type="submit">
+          <form action="/api/auth/auth/signin" method="post">
+            <button
+              class="btn w-full btn-ghost border border-base-300 rounded-sm flex items-center gap-2 bg-white text-black"
+              value="google"
+              name="provider"
+              type="submit"
+            >
               <Icon name="google" class="size-6" />
               <div class="w-36 text-start">Sign in with Google</div>
             </button>
@@ -207,7 +217,10 @@ cookies.set(
 
           <form action="/api/auth/signout" method="post">
             <div class="divider">OR</div>
-            <button class="btn w-full btn-ghost border border-base-300 rounded-sm bg-white text-black" type="submit">Sign out</button>
+            <button
+              class="btn w-full btn-ghost border border-base-300 rounded-sm bg-white text-black"
+              type="submit">Sign out</button
+            >
           </form>
         </div>
       </div>

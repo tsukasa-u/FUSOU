@@ -3,9 +3,8 @@ import type { AstroCookies } from "astro";
 
 const SUPABASE_URL = import.meta.env.PUBLIC_SUPABASE_URL;
 const SERVICE_KEY =
-  import.meta.env.SUPABASE_SERVICE_ROLE_KEY ||
-  import.meta.env.SUPABASE_SERVICE_KEY ||
-  import.meta.env.PUBLIC_SUPABASE_ANON_KEY;
+  import.meta.env.SUPABASE_SECRET_KEY ||
+  import.meta.env.PUBLIC_SUPABASE_PUBLISHABLE_KEY;
 
 if (!SUPABASE_URL) {
   throw new Error("PUBLIC_SUPABASE_URL is not set");
@@ -13,7 +12,7 @@ if (!SUPABASE_URL) {
 
 if (!SERVICE_KEY) {
   throw new Error(
-    "SUPABASE_SERVICE_ROLE_KEY (or SUPABASE_SERVICE_KEY/PUBLIC_SUPABASE_ANON_KEY) is not set"
+    "SUPABASE_SECRET_KEY (or PUBLIC_SUPABASE_PUBLISHABLE_KEY) is not set"
   );
 }
 

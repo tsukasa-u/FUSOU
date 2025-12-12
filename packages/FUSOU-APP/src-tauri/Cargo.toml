@@ -68,7 +68,6 @@ hex = "0.4"
 custom-protocol = [ "tauri/custom-protocol" ]
 
 default = []
-auth-local-server = []
 grpc-channel = ["proxy-https/grpc"]
 
 [lib]

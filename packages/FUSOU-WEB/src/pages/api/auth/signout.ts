@@ -22,5 +22,5 @@ export const POST: APIRoute = async ({ cookies, redirect }) => {
     cookies.delete(name, { path: "/" });
   }
 
-  return redirect("/signin");
+  return redirect("/auth/signin");
 };

@@ -72,4 +72,4 @@ export const POST: APIRoute = async ({ request, cookies, redirect }) => {
 
       return redirect(data.url);
     }
-};
+}

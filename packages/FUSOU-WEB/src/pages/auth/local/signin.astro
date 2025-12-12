@@ -1,0 +1,94 @@
+---
+import Layout from "../../../layouts/Layout.astro";
+import Navigation from "../../../components/Navigation.astro";
+import KeyIcon from "../../../components/icons/KeyIcon.astro";
+
+// const { cookies, redirect } = Astro;
+
+// Check for local app-specific cookies only
+// const accessToken = cookies.get("sb-local-access-token");
+// const refreshToken = cookies.get("sb-local-refresh-token");
+// const providerToken = cookies.get("sb-local-provider-token");
+// const providerRefreshToken = cookies.get("sb-local-provider-refresh-token");
+
+// if (accessToken && refreshToken && providerToken && providerRefreshToken) {
+//   return redirect("/");
+// }
+---
+
+<Layout title="Sign in to local storage">
+  <div class="min-h-screen flex items-center justify-center">
+    <div class="w-full max-w-md">
+      <div class="bg-base-100 rounded-md p-6">
+        <div class="flex items-center gap-2">
+          <span class="flex-1 flex justify-end"
+            ><KeyIcon class="w-8 h-8" /></span
+          >
+          <span class="text-center text-2xl font-semibold">Sign in</span>
+          <span class="flex-1"><div class="h-8 w-8"></div></span>
+        </div>
+        <form action="/api/local_auth/signin" method="post" class="max-w-md">
+          <ul class="mt-8 flex flex-col gap-3 text-sm">
+            <li>
+              <button
+                class="btn w-full btn-ghost border border-base-300 rounded-sm flex items-center gap-2 bg-white text-black"
+                value="google"
+                name="provider"
+                type="submit"
+              >
+                <svg
+                  aria-label="Google logo"
+                  width="16"
+                  height="16"
+                  xmlns="http://www.w3.org/2000/svg"
+                  viewBox="0 0 512 512"
+                  ><g
+                    ><path d="m0 0H512V512H0" fill="#fff"></path><path
+                      fill="#34a853"
+                      d="M153 292c30 82 118 95 171 60h62v48A192 192 0 0190 341"
+                    ></path><path
+                      fill="#4285f4"
+                      d="m386 400a140 175 0 0053-179H260v74h102q-7 37-38 57"
+                    ></path><path
+                      fill="#fbbc02"
+                      d="m90 341a208 200 0 010-171l63 49q-12 37 0 73"
+                    ></path><path
+                      fill="#ea4335"
+                      d="m153 219c22-69 116-109 179-50l55-54c-78-75-230-72-297 55"
+                    ></path></g
+                  ></svg
+                >
+                <span class="text-start">Sign in with Google</span>
+              </button>
+            </li>
+            <div class="divider">OR</div>
+            <li>
+              <button
+                class="btn w-full btn-ghost border border-base-300 rounded-sm bg-white text-black"
+                id="skip_sign_in"
+              >
+                <div class="text-center">Skip Sign In</div>
+              </button>
+            </li>
+          </ul>
+        </form>
+      </div>
+      <div class="my-6 text-center text-sm text-base-content/70">
+        Sign in with your cloud storage provider to sync files across devices.
+      </div>
+    </div>
+  </div>
+
+  <Navigation />
+
+  <script>
+    document.addEventListener("DOMContentLoaded", () => {
+      const skipSignInButton = document.getElementById("skip_sign_in");
+      if (skipSignInButton) {
+        skipSignInButton.addEventListener("click", () => {
+          window.location.href = "/";
+        });
+      }
+    });
+  </script>
+</Layout>

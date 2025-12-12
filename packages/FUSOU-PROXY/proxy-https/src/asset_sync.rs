@@ -212,8 +212,11 @@ async fn run_worker(
         tracing::warn!(error = %err, "failed to refresh asset sync period");
     }
 
-    if let Err(err) = maybe_refresh_existing_keys(&client, &settings).await {
-        tracing::warn!(error = %err, "failed to refresh existing asset keys cache");
+    // Only attempt to refresh existing keys if authentication is ready
+    if check_auth_ready(&settings, &auth_manager).await {
+        if let Err(err) = maybe_refresh_existing_keys(&client, &settings, &auth_manager).await {
+            tracing::warn!(error = %err, "failed to refresh existing asset keys cache");
+        }
     }
 
     loop {
@@ -301,7 +304,13 @@ async fn process_path(
         return Ok(());
     }
 
-    maybe_refresh_existing_keys(client, settings).await?;
+    if let Err(err) = maybe_refresh_existing_keys(client, settings, auth_manager).await {
+        // If error contains 401, it means authentication failed
+        if err.contains("401") {
+            tracing::warn!("Authentication failed while checking existing keys; stopping upload");
+        }
+        return Err(err);
+    }
 
     if remote_key_exists(&key) {
         PROCESSED_KEYS.insert(key.clone());
@@ -568,6 +577,7 @@ fn apply_period_transition(new_tag: Option<String>) {
 async fn maybe_refresh_existing_keys(
     client: &Client,
     settings: &AssetSyncInit,
+    auth_manager: &AuthManager<FileStorage>,
 ) -> Result<(), String> {
     let endpoint = match settings.existing_keys_endpoint.as_deref() {
         Some(value) => value,
@@ -586,9 +596,24 @@ async fn maybe_refresh_existing_keys(
 
     wait_for_remote_cache_jitter().await;
 
+    // Get access token for Authorization header
+    tracing::info!("maybe_refresh_existing_keys: requesting access token from auth_manager");
+    let access_token = auth_manager
+        .get_access_token()
+        .await
+        .map_err(|err| format!("failed to get access token for existing keys API: {err}"))?;
+    
+    let token_preview = if access_token.len() > 20 {
+        format!("{}...{}", &access_token[..10], &access_token[access_token.len()-10..])
+    } else {
+        "<short-token>".to_string()
+    };
+    tracing::info!("maybe_refresh_existing_keys: got access token, preview: {}, calling API: {}", token_preview, endpoint);
+
     let response = client
         .get(endpoint)
         .header("Accept", "application/json")
+        .header("Authorization", format!("Bearer {}", access_token))
         .send()
         .await
         .map_err(|err| format!("failed to query existing keys endpoint: {err}"))?;
@@ -596,6 +621,14 @@ async fn maybe_refresh_existing_keys(
     if !response.status().is_success() {
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
+        
+        // Check if it's a 401 (Unauthorized) error - indicates token expiry
+        if status == 401 {
+            SUPABASE_AUTH_FAILED.store(true, Ordering::Relaxed);
+            SUPABASE_AUTH_READY.store(false, Ordering::Relaxed);
+            tracing::warn!("existing keys endpoint returned 401; marking authentication as failed");
+        }
+        
         return Err(format!(
             "existing keys endpoint returned {}: {}",
             status,

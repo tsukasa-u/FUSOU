@@ -1,0 +1,45 @@
+---
+import InfoIcon from "./icons/InfoIcon.astro";
+import WarningIcon from "./icons/WarningIcon.astro";
+
+interface Props {
+  type: "info" | "warning" | "error";
+  title: string;
+  class?: string;
+}
+
+const { type, title, class: className = "" } = Astro.props;
+
+const typeStyles = {
+  info: {
+    alertClass: "alert-info",
+    iconClass: "text-info",
+    titleClass: "text-base-content",
+  },
+  warning: {
+    alertClass: "alert-warning",
+    iconClass: "text-warning",
+    titleClass: "text-warning",
+  },
+  error: {
+    alertClass: "alert-error",
+    iconClass: "text-error",
+    titleClass: "text-error",
+  },
+};
+
+const styles = typeStyles[type];
+const IconComponent = type === "info" ? InfoIcon : WarningIcon;
+---
+
+<div
+  class={`alert ${styles.alertClass} bg-base-200 border border-base-300 text-sm text-base-content/80 flex items-start gap-3 ${className}`}
+>
+  <IconComponent class={`w-6 h-6 shrink-0 ${styles.iconClass}`} />
+  <div>
+    <div class={`font-semibold ${styles.titleClass}`}>{title}</div>
+    <div class="leading-snug">
+      <slot />
+    </div>
+  </div>
+</div>

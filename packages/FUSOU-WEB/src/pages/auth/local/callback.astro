@@ -1,6 +1,9 @@
 ---
-import Layout from "../layouts/Layout.astro";
-import Navigation from "../components/Navigation.astro";
+import Layout from "../../../layouts/Layout.astro";
+import Navigation from "../../../components/Navigation.astro";
+import AlertBox from "../../../components/AlertBox.astro";
+import WarningIcon from "../../../components/icons/WarningIcon.astro";
+import CheckIcon from "../../../components/icons/CheckIcon.astro";
 import { createSupabaseServerClient } from "@/utility/supabaseServer";
 import { validateRedirectUrl } from "@/utility/security";
 
@@ -8,20 +11,19 @@ const cookies = Astro.cookies;
 const supabase = createSupabaseServerClient(cookies);
 
 // For local app flow: read from local auth tokens (sb-local-*)
-// These are set by /api/local_auth/callback and won't overwrite web app tokens
+// These are set by /api/local_auth/callback
 const accessToken = cookies.get("sb-local-access-token");
 const refreshToken = cookies.get("sb-local-refresh-token");
 const providerRefreshToken = cookies.get("sb-local-provider-refresh-token");
-const provider = cookies.get("sb-provider");
+const provider = cookies.get("sb-local-provider");
 
 const allowedOrigin = import.meta.env.PUBLIC_SITE_URL?.trim() || "";
 
 let error_message: string | null = null;
 let return_params: string | null = null;
-let return_href: string = "/"; // Always initialize with valid fallback
+let return_href: string | null = null; // Initialize as null to detect missing href
 let set_session_error_flag: boolean = false;
-let sb_insert_error_flag: boolean = false;
-let sb_insert_success_flag: boolean = false;
+let return_href_missing_flag: boolean = false;
 
 const providerValue = provider?.value ?? "google";
 
@@ -35,7 +37,7 @@ if (refreshToken?.value && accessToken?.value && providerRefreshToken?.value) {
     if (sessionResult.error) {
       error_message = sessionResult.error.message;
       set_session_error_flag = true;
-      return_href = "/"; // Error case fallback
+      return_href_missing_flag = true;
     } else {
       const userId = sessionResult.data.session?.user.id;
       if (!userId) {
@@ -56,44 +58,32 @@ if (refreshToken?.value && accessToken?.value && providerRefreshToken?.value) {
 
       const candidateHref = `fusou://auth?${return_params}`;
 
+      // Keep the href for display/copy even if validation fails; redirect stays gated by validation
+      return_href = candidateHref;
+
       // Validate the Tauri custom protocol URL
       if (validateRedirectUrl(candidateHref, allowedOrigin)) {
-        return_href = candidateHref;
         // console.log("Return href set to:", return_href);
       } else {
         console.error("Invalid return href rejected: ", candidateHref);
         error_message = "Invalid redirect URL";
-        return_href = "/"; // Validation failure fallback
+        return_href_missing_flag = true;
       }
 
-      // Store tokens in database (non-blocking for user flow)
-      const { error } = await supabase
-        .from("users")
-        .upsert([
-          {
-            id: userId,
-            provider: providerValue,
-            provider_refresh_token: providerRefreshToken.value,
-          },
-        ])
-        .select();
-
-      if (error) {
-        error_message = error.message;
-        sb_insert_error_flag = true;
-      } else {
-        sb_insert_success_flag = true;
-      }
+      // Database write is now handled server-side in /api/local_auth/callback.ts
+      // No need to upsert here - tokens are already persisted
     }
   } catch (error) {
     error_message = error instanceof Error ? error.message : String(error);
     set_session_error_flag = true;
-    return_href = "/"; // Exception fallback
+    return_href_missing_flag = true;
   }
 } else {
-  // No tokens present - redirect to home
+  // No tokens present - show warning
   console.warn("Missing required cookies. Cannot proceed with authentication.");
-  return_href = "/"; // Default fallback
+  error_message = "Missing required authentication cookies";
+  set_session_error_flag = true;
+  return_href_missing_flag = true;
 }
 
 // Clean up local app tokens after they've been used
@@ -102,113 +92,107 @@ cookies.delete("sb-local-access-token", { path: "/" });
 cookies.delete("sb-local-refresh-token", { path: "/" });
 cookies.delete("sb-local-provider-token", { path: "/" });
 cookies.delete("sb-local-provider-refresh-token", { path: "/" });
-cookies.delete("sb-provider", { path: "/" });
-
-// Also clean up any web app tokens that may have been set
-cookies.delete("sb-access-token", { path: "/" });
-cookies.delete("sb-refresh-token", { path: "/" });
-cookies.delete("sb-provider-refresh-token", { path: "/" });
-cookies.delete("sb-provider", { path: "/" });
+cookies.delete("sb-local-provider", { path: "/" });
 ---
 
 <Layout title="Auth Local App">
   <div class="bg-base-200 min-h-screen flex items-center justify-center p-6">
     <div class="w-full max-w-md -mt-8">
       <div class="bg-base-100 rounded-md p-6">
-        <h1 class="text-2xl font-semibold text-center">Auth</h1>
-        <div class="h-3"></div>
+        <div id="heading_error" class="hidden">
+          <div
+            class="flex items-center gap-2 text-error text-2xl font-semibold"
+          >
+            <span class="flex-1 flex justify-end"
+              ><CheckIcon class="w-6 h-6 text-error" /></span
+            >
+            <span class="text-center">Authentication failed</span>
+            <span class="flex-1"><div class="h-6 w-6"></div></span>
+          </div>
+        </div>
+        <div class="h-4"></div>
 
         <div id="set_session_error" class="hidden">
-          <div class="text-center">Failed to authorize</div>
           <div class="h-6"></div>
           <div
-            class="text-red-500 rounded bg-base-200 border border-base-300 w-full py-2 px-4 text-md"
+            class="alert alert-error bg-base-200 border border-base-300 text-sm text-base-content/80 flex items-start gap-3"
           >
-            Failed to authorize
-            <div class="h-2"></div>
-            <div
-              class="text-base-content rounded bg-base-100 border border-base-300 w-full py-2 px-4 text-sm"
-            >
-              {error_message}
+            <WarningIcon class="w-6 h-6 text-error" />
+            <div>
+              <div class="font-semibold">We couldn't finish signing you in</div>
+              {
+                error_message && (
+                  <p class="mt-2 text-xs text-base-content/70">
+                    Details: {error_message}
+                  </p>
+                )
+              }
             </div>
+          </div>
+          <div class="h-6"></div>
+          <p class="text-sm text-base-content/80">
+            Close this tab and restart sign-in from the app. This page only
+            works right after the app redirects you here.
+          </p>
+          <div class="h-3"></div>
+          <p class="mt-3 text-xs text-base-content/70">
+            Do not open this URL directly. Always launch the sign-in flow from
+            the app.
+          </p>
+          <div class="h-6"></div>
+          <div class="flex flex-col gap-3">
+            <a href="/auth/local/signin" class="btn btn-error text-white w-full"
+              >Retry sign-in</a
+            >
+            <div class="divider">OR</div>
+            <a href="/" class="btn btn-ghost border border-base-300 w-full"
+              >Skip sign-in and return home</a
+            >
           </div>
         </div>
 
-        <div id="set_session_success">
+        <div id="set_session_success" class="hidden">
           <div class="flex flex-col items-center gap-2">
             <div
               class="flex items-center gap-2 text-success text-2xl font-semibold"
             >
-              <svg
-                class="w-6 h-6"
-                aria-hidden="true"
-                xmlns="http://www.w3.org/2000/svg"
-                fill="none"
-                viewBox="0 0 24 24"
-                ><path
-                  stroke="currentColor"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d="M5 13l4 4L19 7"></path></svg
+              <span class="flex-1 flex justify-end"
+                ><CheckIcon class="w-6 h-6" /></span
               >
-              <span>Authentication successful</span>
+              <span class="text-center">Authentication successful</span>
+              <span class="flex-1"><div class="h-6 w-6"></div></span>
             </div>
             <div class="text-sm text-base-content/70">
               You may now return to the app.
             </div>
           </div>
           <div class="h-6"></div>
-          <div id="sb_insert_error" class="hidden">
-            <div
-              class="text-red-500 rounded bg-base-200 border border-base-300 w-full py-2 px-4 text-md"
-            >
-              Failed to register refresh token
-              <div class="h-2"></div>
-              <div
-                class="text-base-content rounded bg-base-100 border border-base-300 w-full py-2 px-4 text-sm"
-              >
-                {error_message}
-              </div>
-            </div>
+          <div>
+            <AlertBox type="info" title="Tip">
+              <p>
+                Refresh tokens have been securely stored. No further action is
+                needed on the web side.
+              </p>
+            </AlertBox>
           </div>
-          <div id="sb_insert_success" class="hidden">
-            <div
-              class="alert alert-info bg-base-200 border border-base-300 text-sm text-base-content/80 flex items-start gap-3"
-            >
-              <svg
-                class="w-6 h-6 text-info"
-                aria-hidden="true"
-                xmlns="http://www.w3.org/2000/svg"
-                fill="none"
-                viewBox="2 2 22 22"
-                ><path
-                  stroke="currentColor"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d="M4 12c0 4.418 3.582 8 8 8s8-3.582 8-8-3.582-8-8-8-8 3.582-8 8Zm8-4v4"
-                ></path><path
-                  stroke="currentColor"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d="M12 16h.01"></path></svg
-              >
-              <div>
-                <div class="font-semibold text-base-content">Tip</div>
-                <p class="leading-snug">
-                  Refresh token registration succeeded. No further action is
-                  needed on the web side.
-                </p>
-              </div>
-            </div>
+          <div id="return_href_missing" class="hidden">
+            <div class="h-6"></div>
+            <AlertBox type="warning" title="Return URL is invalid">
+              <p>Copy the tokens below and paste them in the app manually.</p>
+              {
+                error_message && (
+                  <p class="mt-2 text-xs text-base-content/70">
+                    {error_message}
+                  </p>
+                )
+              }
+            </AlertBox>
           </div>
           <div>
             <div class="h-4"></div>
-            <h1 class="text-lg text-center">
-              <a href={return_href} class="link link-info">Return to app</a>
-            </h1>
+            <a href={return_href} class="btn btn-primary w-full"
+              >Return to app</a
+            >
             <div class="divider">OR</div>
             <div class="text-base text-center">Copy tokens</div>
             <fieldset class="fieldset mt-3">
@@ -240,10 +224,11 @@ cookies.delete("sb-provider", { path: "/" });
                         xmlns="http://www.w3.org/2000/svg"
                         fill="currentColor"
                         viewBox="0 0 18 20"
-                        ><path
-                          d="M16 1h-3.278A1.992 1.992 0 0 0 11 0H7a1.993 1.993 0 0 0-1.722 1H2a2 2 0 0 0-2 2v15a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V3a2 2 0 0 0-2-2Zm-3 14H5a1 1 0 0 1 0-2h8a1 1 0 0 1 0 2Zm0-4H5a1 1 0 0 1 0-2h8a1 1 0 1 1 0 2Zm0-5H5a1 1 0 0 1 0-2h2V2h4v2h2a1 1 0 1 1 0 2Z"
-                        ></path></svg
                       >
+                        <path
+                          d="M16 1h-3.278A1.992 1.992 0 0 0 11 0H7a1.993 1.993 0 0 0-1.722 1H2a2 2 0 0 0-2 2v15a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V3a2 2 0 0 0-2-2Zm-3 14H5a1 1 0 0 1 0-2h8a1 1 0 0 1 0 2Zm0-4H5a1 1 0 0 1 0-2h8a1 1 0 1 1 0 2Zm0-5H5a1 1 0 0 1 0-2h2V2h4v2h2a1 1 0 1 1 0 2Z"
+                        ></path>
+                      </svg>
                     </div>
                     <div class="swap-on">
                       <svg
@@ -252,13 +237,14 @@ cookies.delete("sb-provider", { path: "/" });
                         xmlns="http://www.w3.org/2000/svg"
                         fill="none"
                         viewBox="0 0 16 12"
-                        ><path
+                      >
+                        <path
                           stroke="currentColor"
                           stroke-linecap="round"
                           stroke-linejoin="round"
                           stroke-width="2"
-                          d="M1 5.917 5.724 10.5 15 1.5"></path></svg
-                      >
+                          d="M1 5.917 5.724 10.5 15 1.5"></path>
+                      </svg>
                     </div>
                   </label>
                 </button>
@@ -284,17 +270,16 @@ cookies.delete("sb-provider", { path: "/" });
 
 <astro-data-auth_props
   data-set-session-error-flag={String(set_session_error_flag)}
-  data-sb-insert-error-flag={String(sb_insert_error_flag)}
-  data-sb-insert-success-flag={String(sb_insert_success_flag)}
-  data-return-href={return_href}></astro-data-auth_props>
+  data-return-href-missing-flag={String(return_href_missing_flag)}
+  data-return-href={return_href ?? ""}></astro-data-auth_props>
 
 <script>
   class AstroDataAuthProps extends HTMLElement {
     constructor() {
       super();
       const setSessionErrorFlag = this.dataset.setSessionErrorFlag!;
-      const sbInsertErrorFlag = this.dataset.sbInsertErrorFlag;
-      const sbInsertSuccessFlag = this.dataset.sbInsertSuccessFlag;
+      const returnHrefMissingFlag =
+        this.dataset.returnHrefMissingFlag === "true";
       const returnHref = this.dataset.returnHref;
 
       window.addEventListener("DOMContentLoaded", () => {
@@ -302,33 +287,38 @@ cookies.delete("sb-provider", { path: "/" });
           document
             .getElementById("set_session_error")
             ?.classList.remove("hidden");
+          document.getElementById("heading_error")?.classList.remove("hidden");
+          document.getElementById("heading_success")?.classList.add("hidden");
+        } else {
+          // Session succeeded - show success message and prepare to redirect
+          document
+            .getElementById("set_session_success")
+            ?.classList.remove("hidden");
+          document
+            .getElementById("heading_success")
+            ?.classList.remove("hidden");
+          document.getElementById("heading_error")?.classList.add("hidden");
         }
-        if (sbInsertErrorFlag == "true")
+
+        if (returnHrefMissingFlag) {
           document
-            .getElementById("sb_insert_error")
+            .getElementById("return_href_missing")
             ?.classList.remove("hidden");
-        if (sbInsertSuccessFlag == "true")
-          document
-            .getElementById("sb_insert_success")
-            ?.classList.remove("hidden");
-        // If token registration succeeded and a return URL is present, redirect back to the app.
-        // Short timeout gives the user a moment to see the success message before the handoff.
-        if (sbInsertSuccessFlag == "true" && returnHref) {
-          setTimeout(() => {
-            try {
-              // Prefer the custom protocol deep link (fusou://...)
-              window.location.href = returnHref || "/";
-            } catch (e) {
-              // Fallback to navigating to root
-              window.location.href = "/";
-            }
-          }, 700);
         }
       });
 
+      // Only auto-redirect if return_href is valid and not the fallback "/" or missing
       window.addEventListener("load", () => {
-        // console.log("Return href from AstroDataAuthProps:", this.dataset.returnHref);
-        window.location.href = returnHref || "/";
+        if (!returnHrefMissingFlag && returnHref && returnHref !== "/") {
+          try {
+            // console.log("Redirecting to:", returnHref);
+            window.location.href = returnHref;
+          } catch (e) {
+            // If redirect fails, keep user on page
+            console.error("Failed to redirect:", e);
+          }
+        }
+        // If returnHrefMissingFlag is true or href is "/" or empty, stay on page and show warning
       });
     }
   }

@@ -245,7 +245,7 @@ save_file_location = ""
 
     # Authentication page URL
     # The URL to open when authentication is required
-    auth_page_url = "https://fusou.dev/signinLocalApp"
+    auth_page_url = "https://fusou.dev/auth/local/signin"
 
 
     [app.kc_window]
