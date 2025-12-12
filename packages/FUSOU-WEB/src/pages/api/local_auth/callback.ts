@@ -17,7 +17,7 @@ const COOKIE_OPTIONS = { ...SECURE_COOKIE_OPTIONS, sameSite: "lax" as const };
 
 export const GET: APIRoute = async ({ url, cookies, redirect }) => {
   const authCode = url.searchParams.get("code");
-  const provider = cookies.get("sb-provider")?.value;
+  const provider = cookies.get("sb-local-provider")?.value;
 
   if (!authCode) {
     console.error("No authorization code provided");
@@ -31,7 +31,7 @@ export const GET: APIRoute = async ({ url, cookies, redirect }) => {
   if (error) {
     console.error("Session exchange error:", error);
     // Clean up provider cookie on error
-    cookies.delete("sb-provider", { path: "/" });
+    cookies.delete("sb-local-provider", { path: "/" });
     return new Response(sanitizeErrorMessage(error), { status: 500 });
   }
 
@@ -45,7 +45,7 @@ export const GET: APIRoute = async ({ url, cookies, redirect }) => {
   const userId = data.session.user?.id;
   if (!userId) {
     console.error("Session missing user id");
-    cookies.delete("sb-provider", { path: "/" });
+    cookies.delete("sb-local-provider", { path: "/" });
     return new Response("Session missing user id", { status: 500 });
   }
 
@@ -70,14 +70,14 @@ export const GET: APIRoute = async ({ url, cookies, redirect }) => {
     console.warn("Provider tokens missing in session; skipping persistence");
   }
 
-  // Keep sb-provider cookie for returnLocalApp to use
+  // Keep sb-local-provider cookie for returnLocalApp to use (local app-specific)
   const providerValue = provider || "google";
   if (!provider) {
-    cookies.set("sb-provider", "google", COOKIE_OPTIONS);
-    console.log("✓ Set sb-provider (default)");
+    cookies.set("sb-local-provider", "google", COOKIE_OPTIONS);
+    console.log("✓ Set sb-local-provider (default)");
   } else {
-    cookies.set("sb-provider", provider, COOKIE_OPTIONS);
-    console.log("✓ Set sb-provider:", provider);
+    cookies.set("sb-local-provider", provider, COOKIE_OPTIONS);
+    console.log("✓ Set sb-local-provider:", provider);
   }
 
   // Store tokens in database (server-side, atomic operation)

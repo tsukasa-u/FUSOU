@@ -42,42 +42,69 @@ async fn bootstrap_tokens_on_startup(
 ) {
     // Try to load existing session from storage
     if let Ok(Some(session)) = storage.load_session().await {
-        tracing::info!("startup: found existing session, emitting tokens to frontend");
-        let _ = app_handle.emit_to(
-            "main",
-            "set-supabase-tokens",
-            vec![session.access_token.clone(), session.refresh_token.clone()],
-        );
+        // Verify token validity by attempting to get a valid access token
+        // This will automatically refresh if needed, or fail if refresh token is invalid
+        match auth_manager.get_access_token().await {
+            Ok(access_token) => {
+                tracing::info!("startup: found existing session and token is valid (or refreshed), emitting tokens to frontend");
+                
+                // Load the potentially refreshed session
+                let updated_session = storage.load_session().await
+                    .ok()
+                    .flatten()
+                    .unwrap_or(session);
+                
+                let _ = app_handle.emit_to(
+                    "main",
+                    "set-supabase-tokens",
+                    vec![access_token, updated_session.refresh_token.clone()],
+                );
 
-        // Fetch all cloud provider tokens from Supabase
-        // This supports multiple providers: google, dropbox, icloud, onedrive, etc.
-        let supported_providers = storage::CloudProviderFactory::supported_providers();
-        tracing::info!(?supported_providers, "startup: fetching provider refresh tokens");
+                // Fetch all cloud provider tokens from Supabase
+                // This supports multiple providers: google, dropbox, icloud, onedrive, etc.
+                let supported_providers = storage::CloudProviderFactory::supported_providers();
+                tracing::info!(?supported_providers, "startup: fetching provider refresh tokens");
 
-        for provider in supported_providers {
-            tracing::debug!(provider, "startup: begin fetch provider token");
-            match auth_manager.fetch_provider_token(provider).await {
-                Ok(Some(token)) => {
-                    if let Err(e) = storage::providers::gdrive::set_refresh_token(
-                        token.to_string(),
-                        provider.to_string(),
-                    ) {
-                        tracing::warn!(provider, error = ?e, "startup: failed to save provider token");
-                    } else {
-                        tracing::info!(provider, "startup: provider refresh token saved");
+                for provider in supported_providers {
+                    tracing::debug!(provider, "startup: begin fetch provider token");
+                    match auth_manager.fetch_provider_token(provider).await {
+                        Ok(Some(token)) => {
+                            if let Err(e) = storage::providers::gdrive::set_refresh_token(
+                                token.to_string(),
+                                provider.to_string(),
+                            ) {
+                                tracing::warn!(provider, error = ?e, "startup: failed to save provider token");
+                            } else {
+                                tracing::info!(provider, "startup: provider refresh token saved");
+                            }
+                        }
+                        Ok(None) => tracing::info!(provider, "startup: no provider token for user"),
+                        Err(e) => tracing::warn!(provider, error = %e, "startup: failed to fetch provider token"),
                     }
                 }
-                Ok(None) => tracing::info!(provider, "startup: no provider token for user"),
-                Err(e) => tracing::warn!(provider, error = %e, "startup: failed to fetch provider token"),
+            }
+            Err(e) => {
+                tracing::warn!("startup: token validation/refresh failed: {} - authentication required", e);
+                
+                // Send notification to user
+                if let Err(e) = app_handle_for_notification
+                    .notification()
+                    .builder()
+                    .title("Authentication Expired")
+                    .body("Your session has expired. Please sign in again to use FUSOU.")
+                    .show()
+                {
+                    tracing::error!("Failed to send notification: {}", e);
+                }
+
+                // Open authentication page
+                if let Err(e) = auth::auth_server::open_auth_page() {
+                    tracing::error!("Failed to open auth page: {}", e);
+                }
             }
         }
     } else {
         tracing::info!("startup: no existing session found - authentication required");
-
-        // Open authentication page using existing auth module function
-        if let Err(e) = auth::auth_server::open_auth_page() {
-            tracing::error!("Failed to open auth page: {}", e);
-        }
 
         // Send notification to user
         if let Err(e) = app_handle_for_notification
@@ -88,6 +115,11 @@ async fn bootstrap_tokens_on_startup(
             .show()
         {
             tracing::error!("Failed to send notification: {}", e);
+        }
+
+        // Open authentication page using existing auth module function
+        if let Err(e) = auth::auth_server::open_auth_page() {
+            tracing::error!("Failed to open auth page: {}", e);
         }
     }
 }

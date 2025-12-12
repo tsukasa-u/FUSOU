@@ -3,16 +3,17 @@ import Layout from "../../../layouts/Layout.astro";
 import Navigation from "../../../components/Navigation.astro";
 import KeyIcon from "../../../components/icons/KeyIcon.astro";
 
-const { cookies, redirect } = Astro;
+// const { cookies, redirect } = Astro;
 
-const accessToken = cookies.get("sb-access-token");
-const refreshToken = cookies.get("sb-refresh-token");
-const providerToken = cookies.get("sb-provider-token");
-const providerRefreshToken = cookies.get("sb-provider-refresh-token");
+// Check for local app-specific cookies only
+// const accessToken = cookies.get("sb-local-access-token");
+// const refreshToken = cookies.get("sb-local-refresh-token");
+// const providerToken = cookies.get("sb-local-provider-token");
+// const providerRefreshToken = cookies.get("sb-local-provider-refresh-token");
 
-if (accessToken && refreshToken && providerToken && providerRefreshToken) {
-  return redirect("/");
-}
+// if (accessToken && refreshToken && providerToken && providerRefreshToken) {
+//   return redirect("/");
+// }
 ---
 
 <Layout title="Sign in to local storage">
@@ -20,7 +21,9 @@ if (accessToken && refreshToken && providerToken && providerRefreshToken) {
     <div class="w-full max-w-md">
       <div class="bg-base-100 rounded-md p-6">
         <div class="flex items-center gap-2">
-          <span class="flex-1 flex justify-end"><KeyIcon class="w-8 h-8" /></span>
+          <span class="flex-1 flex justify-end"
+            ><KeyIcon class="w-8 h-8" /></span
+          >
           <span class="text-center text-2xl font-semibold">Sign in</span>
           <span class="flex-1"><div class="h-8 w-8"></div></span>
         </div>
@@ -53,7 +56,8 @@ if (accessToken && refreshToken && providerToken && providerRefreshToken) {
                       fill="#ea4335"
                       d="m153 219c22-69 116-109 179-50l55-54c-78-75-230-72-297 55"
                     ></path></g
-                  ></svg>
+                  ></svg
+                >
                 <span class="text-start">Sign in with Google</span>
               </button>
             </li>

@@ -92,9 +92,17 @@ impl<S: Storage> AuthManager<S> {
         // if expires_at is present and token is still valid -> return
         if let Some(exp) = session.expires_at {
             let now = Utc::now();
+            let seconds_until_expiry = (exp - now).num_seconds();
+            tracing::info!("get_access_token: checking token validity, expires_at={}, now={}, seconds_until_expiry={}, refresh_margin={}", 
+                exp, now, seconds_until_expiry, self.config.refresh_margin_secs);
             if now + Duration::seconds(self.config.refresh_margin_secs) < exp {
+                tracing::info!("get_access_token: using cached token (valid for {} more seconds)", seconds_until_expiry);
                 return Ok(session.access_token);
+            } else {
+                tracing::info!("get_access_token: token expiring soon (within {} seconds), will refresh", self.config.refresh_margin_secs);
             }
+        } else {
+            tracing::warn!("get_access_token: no expires_at in session, will refresh");
         }
 
         // otherwise refresh
@@ -109,12 +117,21 @@ impl<S: Storage> AuthManager<S> {
         // if another task refreshed while we were waiting
         if let Some(exp) = session2.expires_at {
             let now = Utc::now();
+            let seconds_until_expiry = (exp - now).num_seconds();
             if now + Duration::seconds(self.config.refresh_margin_secs) < exp {
+                tracing::info!("get_access_token: another task refreshed while waiting, using that token (valid for {} seconds)", seconds_until_expiry);
                 return Ok(session2.access_token);
             }
         }
 
+        tracing::info!("get_access_token: calling force_refresh");
         let refreshed = self.force_refresh(&session2).await?;
+        let token_preview = if refreshed.access_token.len() > 20 {
+            format!("{}...{}", &refreshed.access_token[..10], &refreshed.access_token[refreshed.access_token.len()-10..])
+        } else {
+            "<short-token>".to_string()
+        };
+        tracing::info!("get_access_token: refresh completed, new token preview: {}", token_preview);
         Ok(refreshed.access_token)
     }
 

@@ -1,7 +1,12 @@
 import type { APIRoute } from "astro";
 import { createSupabaseServerClient } from "@/utility/supabaseServer";
 import type { Provider } from "@supabase/supabase-js";
-import { validateOrigin, validateRedirectUrl, sanitizeErrorMessage, TEMPORARY_COOKIE_OPTIONS } from "@/utility/security";
+import {
+  validateOrigin,
+  validateRedirectUrl,
+  sanitizeErrorMessage,
+  TEMPORARY_COOKIE_OPTIONS,
+} from "@/utility/security";
 
 export const POST: APIRoute = async ({ request, cookies, redirect }) => {
   const providedOrigin = import.meta.env.PUBLIC_SITE_URL?.trim();
@@ -35,7 +40,7 @@ export const POST: APIRoute = async ({ request, cookies, redirect }) => {
 
   // Construct callback URL without custom state - Supabase will add its own state
   const callbackUrl = new URL(`${url_origin}/api/local_auth/callback`);
-  
+
   // Open Redirect protection: Validate callback URL
   if (!validateRedirectUrl(callbackUrl.toString(), providedOrigin)) {
     return new Response("Invalid callback URL", { status: 400 });
@@ -58,9 +63,9 @@ export const POST: APIRoute = async ({ request, cookies, redirect }) => {
       console.error("Supabase OAuth error:", error);
       return new Response(sanitizeErrorMessage(error), { status: 500 });
     }
-    
-    // Store provider for callback reference
-    cookies.set("sb-provider", provider, TEMPORARY_COOKIE_OPTIONS);
+
+    // Store provider for callback reference (local app-specific)
+    cookies.set("sb-local-provider", provider, TEMPORARY_COOKIE_OPTIONS);
 
     // Supabase handles state internally with PKCE flow
     // No need to manually manage state cookies
@@ -77,8 +82,8 @@ export const POST: APIRoute = async ({ request, cookies, redirect }) => {
       return new Response(sanitizeErrorMessage(error), { status: 500 });
     }
 
-    // Store provider for callback reference
-    cookies.set("sb-provider", provider, TEMPORARY_COOKIE_OPTIONS);
+    // Store provider for callback reference (local app-specific)
+    cookies.set("sb-local-provider", provider, TEMPORARY_COOKIE_OPTIONS);
 
     return redirect(data.url);
   }

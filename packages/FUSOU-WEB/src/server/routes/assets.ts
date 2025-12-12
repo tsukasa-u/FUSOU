@@ -71,22 +71,35 @@ app.post("/upload", async (c) => {
 
 // GET /keys
 app.get("/keys", async (c) => {
+  console.log("GET /keys: request received");
+
   // Require valid Supabase access token
   const authHeader = c.req.header("Authorization");
+  console.log(`GET /keys: Authorization header present: ${!!authHeader}`);
+
   const accessToken = extractBearer(authHeader);
 
   if (!accessToken) {
+    console.log("GET /keys: no bearer token found in Authorization header");
     return c.json({ error: "Missing Authorization bearer token" }, 401);
   }
 
+  console.log("GET /keys: bearer token extracted, calling validateJWT");
   const supabaseUser = await validateJWT(accessToken);
+
   if (!supabaseUser) {
+    console.log("GET /keys: JWT validation failed, returning 401");
     return c.json({ error: "Invalid or expired JWT token" }, 401);
   }
+
+  console.log(
+    `GET /keys: JWT validation successful, user_id=${supabaseUser.id}`
+  );
 
   const db = c.env.ASSET_INDEX_DB;
 
   if (!db) {
+    console.log("GET /keys: ASSET_INDEX_DB not configured");
     return c.json({ error: "ASSET_INDEX_DB is not configured" }, 503);
   }
 
@@ -204,8 +217,23 @@ async function handleSignedUploadRequest(
     return c.json({ error: "Asset already exists" }, 409);
   }
 
+  const { generateSignedToken } = await import("../utils");
+  const token = await generateSignedToken(
+    {
+      key,
+      relative_path: relativePath,
+      declared_size: declaredSize,
+      file_name: fileName,
+    },
+    signingSecret,
+    SIGNED_URL_TTL_SECONDS
+  );
+
+  const uploadUrl = new URL(url);
+  uploadUrl.searchParams.set("token", token);
+
   return c.json({
-    uploadUrl: url.toString(),
+    uploadUrl: uploadUrl.toString(),
     expiresAt: new Date(
       Date.now() + SIGNED_URL_TTL_SECONDS * 1000
     ).toISOString(),
@@ -227,6 +255,17 @@ async function handleSignedUploadExecution(
   signingSecret: string,
   url: URL
 ): Promise<Response> {
+  const token = url.searchParams.get("token");
+  if (!token) {
+    return c.json({ error: "Missing token parameter" }, 400);
+  }
+
+  const { verifySignedToken } = await import("../utils");
+  const payload = await verifySignedToken(token, signingSecret);
+  if (!payload) {
+    return c.json({ error: "Invalid or expired token" }, 401);
+  }
+
   const authHeader = request.headers.get("authorization");
   const accessToken = extractBearer(authHeader);
 
@@ -237,6 +276,12 @@ async function handleSignedUploadExecution(
   const supabaseUser = await validateJWT(accessToken);
   if (!supabaseUser) {
     return c.json({ error: "Invalid or expired JWT token" }, 401);
+  }
+
+  const key = payload.key;
+  const declaredSize = payload.declared_size;
+  if (!key || !declaredSize) {
+    return c.json({ error: "Invalid token payload" }, 400);
   }
 
   const contentLength = request.headers.get("content-length");
@@ -253,7 +298,6 @@ async function handleSignedUploadExecution(
   }
 
   try {
-    const key = `uploads/${supabaseUser.id}/${Date.now()}`;
     const result = await bucket.put(key, bodyStream, {
       httpMetadata: {
         contentType: "application/octet-stream",

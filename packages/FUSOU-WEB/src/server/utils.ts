@@ -7,6 +7,71 @@ import type { Bindings } from "./types";
 // ========================
 
 /**
+ * 署名付きトークンを生成
+ */
+export async function generateSignedToken(
+  payload: Record<string, any>,
+  secret: string,
+  expiresInSeconds: number
+): Promise<string> {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(
+    JSON.stringify({ ...payload, exp: Date.now() + expiresInSeconds * 1000 })
+  );
+  const keyData = encoder.encode(secret);
+  const cryptoKey = await crypto.subtle.importKey(
+    "raw",
+    keyData,
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+  const signature = await crypto.subtle.sign("HMAC", cryptoKey, data);
+  const sigHex = Array.from(new Uint8Array(signature))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+  return `${btoa(JSON.stringify(payload))}.${sigHex}`;
+}
+
+/**
+ * 署名付きトークンを検証
+ */
+export async function verifySignedToken(
+  token: string,
+  secret: string
+): Promise<Record<string, any> | null> {
+  try {
+    const [payloadB64, sigHex] = token.split(".");
+    if (!payloadB64 || !sigHex) return null;
+
+    const payload = JSON.parse(atob(payloadB64));
+    if (payload.exp && Date.now() > payload.exp) return null;
+
+    const encoder = new TextEncoder();
+    const data = encoder.encode(
+      JSON.stringify({ ...payload, exp: payload.exp })
+    );
+    const keyData = encoder.encode(secret);
+    const cryptoKey = await crypto.subtle.importKey(
+      "raw",
+      keyData,
+      { name: "HMAC", hash: "SHA-256" },
+      false,
+      ["verify"]
+    );
+
+    const sigBytes = new Uint8Array(
+      sigHex.match(/.{1,2}/g)!.map((byte) => parseInt(byte, 16))
+    );
+    const valid = await crypto.subtle.verify("HMAC", cryptoKey, sigBytes, data);
+
+    return valid ? payload : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * 環境変数を取得（暗号化対応）
  * runtimeEnv -> process.env -> import.meta.env の優先順位
  */
@@ -164,8 +229,23 @@ const SUPABASE_URL = (import.meta.env.PUBLIC_SUPABASE_URL || "").replace(
   /\/$/,
   ""
 );
+
+// Log SUPABASE_URL for debugging (only in development)
+if (import.meta.env.DEV) {
+  console.log(`[JWKS Init] SUPABASE_URL: ${SUPABASE_URL || "<not set>"}`);
+  console.log(
+    `[JWKS Init] JWKS URL: ${
+      SUPABASE_URL
+        ? `${SUPABASE_URL}/auth/v1/.well-known/jwks.json`
+        : "<not available>"
+    }`
+  );
+}
+
+// Create RemoteJWKSet for ES256/RS256 tokens (asymmetric signing keys)
+// https://supabase.com/docs/guides/auth/jwts
 const JWKS = SUPABASE_URL
-  ? createRemoteJWKSet(new URL(`${SUPABASE_URL}/auth/v1/jwks`))
+  ? createRemoteJWKSet(new URL(`${SUPABASE_URL}/auth/v1/.well-known/jwks.json`))
   : undefined;
 
 export async function validateJWT(token: string): Promise<{
@@ -175,14 +255,55 @@ export async function validateJWT(token: string): Promise<{
 } | null> {
   try {
     if (!SUPABASE_URL || !JWKS) {
-      console.error("PUBLIC_SUPABASE_URL not configured");
+      console.error(
+        "validateJWT: PUBLIC_SUPABASE_URL not configured or JWKS not initialized"
+      );
       return null;
     }
 
+    const tokenPreview =
+      token.length > 20
+        ? `${token.substring(0, 10)}...${token.substring(token.length - 10)}`
+        : "<short-token>";
+
+    // Decode JWT header to check algorithm (for debugging)
+    try {
+      const headerB64 = token.split(".")[0];
+      const headerJson = JSON.parse(atob(headerB64));
+      console.log(`validateJWT: JWT header:`, headerJson);
+
+      // Warn if still using legacy HS256
+      if (headerJson.alg === "HS256") {
+        console.warn(
+          "validateJWT: WARNING - Token is still using legacy HS256 algorithm"
+        );
+        console.warn(
+          "validateJWT: Please rotate JWT signing keys in Supabase dashboard to ES256"
+        );
+        return null;
+      }
+    } catch (e) {
+      console.error(`validateJWT: failed to decode JWT header:`, e);
+    }
+
+    console.log(
+      `validateJWT: attempting to verify token (preview: ${tokenPreview})`
+    );
+    console.log(
+      `validateJWT: issuer=${SUPABASE_URL}/auth/v1, audience=authenticated`
+    );
+    console.log(
+      `validateJWT: JWKS endpoint: ${SUPABASE_URL}/auth/v1/.well-known/jwks.json`
+    );
+
     const { payload } = await jwtVerify(token, JWKS, {
       issuer: `${SUPABASE_URL}/auth/v1`,
-      audience: undefined,
+      audience: "authenticated",
     });
+
+    console.log(
+      `validateJWT: verification successful, sub=${payload.sub}, email=${payload.email}, exp=${payload.exp}`
+    );
 
     return {
       id: typeof payload.sub === "string" ? payload.sub : undefined,
@@ -190,7 +311,29 @@ export async function validateJWT(token: string): Promise<{
       payload: payload as Record<string, any>,
     };
   } catch (error) {
-    console.error("JWT verification failed:", error);
+    console.error("validateJWT: JWT verification failed:", error);
+    if (error instanceof Error) {
+      console.error("validateJWT: error details:", {
+        name: error.name,
+        message: error.message,
+        code: (error as any).code,
+        stack: error.stack?.split("\n").slice(0, 5).join("\n"), // First 5 lines only
+      });
+
+      // Check if it's a JWKS endpoint error
+      if (
+        error.message.includes("JSON Web Key Set") ||
+        error.message.includes("200 OK") ||
+        error.message.includes("fetch JWKS")
+      ) {
+        console.error(
+          `validateJWT: JWKS endpoint error - check if ${SUPABASE_URL}/auth/v1/.well-known/jwks.json is accessible`
+        );
+        console.error(
+          "validateJWT: this usually means the Supabase URL is incorrect or the service is unreachable"
+        );
+      }
+    }
     return null;
   }
 }

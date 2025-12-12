@@ -5,341 +5,373 @@ import AlertBox from "../../../components/AlertBox.astro";
 import WarningIcon from "../../../components/icons/WarningIcon.astro";
 import CheckIcon from "../../../components/icons/CheckIcon.astro";
 import { createSupabaseServerClient } from "@/utility/supabaseServer";
+import { validateRedirectUrl } from "@/utility/security";
 
-interface AuthProps {
-  access_token: string;
-  refresh_token: string;
-  provider_token: string;
-  provider_refresh_token: string;
-  provider: string;
-  expires_in: number;
-}
+const cookies = Astro.cookies;
+const supabase = createSupabaseServerClient(cookies);
 
-const validateRedirectUrl = (url: string): boolean => {
+// For local app flow: read from local auth tokens (sb-local-*)
+// These are set by /api/local_auth/callback
+const accessToken = cookies.get("sb-local-access-token");
+const refreshToken = cookies.get("sb-local-refresh-token");
+const providerRefreshToken = cookies.get("sb-local-provider-refresh-token");
+const provider = cookies.get("sb-local-provider");
+
+const allowedOrigin = import.meta.env.PUBLIC_SITE_URL?.trim() || "";
+
+let error_message: string | null = null;
+let return_params: string | null = null;
+let return_href: string | null = null; // Initialize as null to detect missing href
+let set_session_error_flag: boolean = false;
+let return_href_missing_flag: boolean = false;
+
+const providerValue = provider?.value ?? "google";
+
+if (refreshToken?.value && accessToken?.value && providerRefreshToken?.value) {
   try {
-    const parsedUrl = new URL(url);
-    return (
-      parsedUrl.protocol === "fusou:" ||
-      parsedUrl.protocol === "http:" ||
-      parsedUrl.protocol === "https:"
-    );
-  } catch {
-    return false;
-  }
-};
+    const sessionResult = await supabase.auth.setSession({
+      refresh_token: refreshToken.value,
+      access_token: accessToken.value,
+    });
 
-let errorMessage: string | null = null;
-let successMessage: string | null = null;
-let authProps: AuthProps | null = null;
-let errorRetryLink: string | null = null;
-let errorSkipLink: string | null = null;
-
-// Get the OAuth code from the query parameter
-const code = Astro.url.searchParams.get("code");
-const nextUrl = Astro.url.searchParams.get("next");
-
-if (code && nextUrl && validateRedirectUrl(nextUrl)) {
-  try {
-    // Exchange the code for tokens
-    const supabase = createSupabaseServerClient(Astro.cookies);
-    const response = await fetch(
-      `${import.meta.env.PUBLIC_SUPABASE_URL}/auth/v1/token?grant_type=authorization_code`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          apikey: import.meta.env.PUBLIC_SUPABASE_ANON_KEY,
-        },
-        body: JSON.stringify({
-          code,
-          grant_type: "authorization_code",
-        }),
-      }
-    );
-
-    if (!response.ok) {
-      const error = await response.json();
-      errorMessage =
-        error.error_description || "Failed to exchange authorization code";
-      errorRetryLink = "/auth/local/signin";
-      errorSkipLink = "/";
+    if (sessionResult.error) {
+      error_message = sessionResult.error.message;
+      set_session_error_flag = true;
+      return_href_missing_flag = true;
     } else {
-      const data = await response.json();
-      const {
-        access_token,
-        refresh_token,
-        provider_token,
-        provider_refresh_token,
-        expires_in,
-      } = data;
-
-      // Set the session cookies
-      Astro.cookies.set("sb-access-token", access_token, {
-        httpOnly: true,
-        secure: import.meta.env.PROD,
-        sameSite: "lax",
-        maxAge: expires_in,
-        path: "/",
-      });
-
-      Astro.cookies.set("sb-refresh-token", refresh_token, {
-        httpOnly: true,
-        secure: import.meta.env.PROD,
-        sameSite: "lax",
-        path: "/",
-      });
-
-      if (provider_token) {
-        Astro.cookies.set("sb-provider-token", provider_token, {
-          httpOnly: true,
-          secure: import.meta.env.PROD,
-          sameSite: "lax",
-          maxAge: expires_in,
-          path: "/",
-        });
+      const userId = sessionResult.data.session?.user.id;
+      if (!userId) {
+        throw new Error("Supabase session missing user id");
       }
 
-      if (provider_refresh_token) {
-        Astro.cookies.set("sb-provider-refresh-token", provider_refresh_token, {
-          httpOnly: true,
-          secure: import.meta.env.PROD,
-          sameSite: "lax",
-          path: "/",
-        });
+      // Generate return parameters regardless of DB insert success
+      // This allows users to manually copy tokens even if DB fails
+      return_params =
+        "provider_refresh_token=" +
+        providerRefreshToken.value +
+        "&provider=" +
+        providerValue +
+        "&supabase_access_token=" +
+        accessToken.value +
+        "&supabase_refresh_token=" +
+        refreshToken.value;
+
+      const candidateHref = `fusou://auth?${return_params}`;
+
+      // Keep the href for display/copy even if validation fails; redirect stays gated by validation
+      return_href = candidateHref;
+
+      // Validate the Tauri custom protocol URL
+      if (validateRedirectUrl(candidateHref, allowedOrigin)) {
+        // console.log("Return href set to:", return_href);
+      } else {
+        console.error("Invalid return href rejected: ", candidateHref);
+        error_message = "Invalid redirect URL";
+        return_href_missing_flag = true;
       }
 
-      // Set the auth data for display and custom element
-      authProps = {
-        access_token,
-        refresh_token,
-        provider_token: provider_token || "",
-        provider_refresh_token: provider_refresh_token || "",
-        provider: "google",
-        expires_in,
-      };
-
-      successMessage = "Successfully authenticated!";
+      // Database write is now handled server-side in /api/local_auth/callback.ts
+      // No need to upsert here - tokens are already persisted
     }
   } catch (error) {
-    errorMessage = `Error: ${error instanceof Error ? error.message : String(error)}`;
-    errorRetryLink = "/auth/local/signin";
-    errorSkipLink = "/";
+    error_message = error instanceof Error ? error.message : String(error);
+    set_session_error_flag = true;
+    return_href_missing_flag = true;
   }
 } else {
-  errorMessage = "Invalid authentication request";
-  errorRetryLink = "/auth/local/signin";
-  errorSkipLink = "/";
+  // No tokens present - show warning
+  console.warn("Missing required cookies. Cannot proceed with authentication.");
+  error_message = "Missing required authentication cookies";
+  set_session_error_flag = true;
+  return_href_missing_flag = true;
 }
+
+// Clean up local app tokens after they've been used
+// Prevents tokens from lingering in browser cookies
+cookies.delete("sb-local-access-token", { path: "/" });
+cookies.delete("sb-local-refresh-token", { path: "/" });
+cookies.delete("sb-local-provider-token", { path: "/" });
+cookies.delete("sb-local-provider-refresh-token", { path: "/" });
+cookies.delete("sb-local-provider", { path: "/" });
 ---
 
-<Layout title="Authentication">
-  <div class="min-h-screen flex items-center justify-center">
-    <div class="w-full max-w-md">
-      {
-        authProps ? (
-          <div class="bg-base-100 rounded-md p-6">
-            <div class="flex items-center gap-2">
-              <span class="flex-1 flex justify-end">
-                <CheckIcon class="w-8 h-8" />
-              </span>
-              <span class="text-center text-2xl font-semibold">
-                Authenticated
-              </span>
-              <span class="flex-1">
-                <div class="h-8 w-8" />
-              </span>
-            </div>
+<Layout title="Auth Local App">
+  <div class="bg-base-200 min-h-screen flex items-center justify-center p-6">
+    <div class="w-full max-w-md -mt-8">
+      <div class="bg-base-100 rounded-md p-6">
+        <div id="heading_error" class="hidden">
+          <div
+            class="flex items-center gap-2 text-error text-2xl font-semibold"
+          >
+            <span class="flex-1 flex justify-end"
+              ><CheckIcon class="w-6 h-6 text-error" /></span
+            >
+            <span class="text-center">Authentication failed</span>
+            <span class="flex-1"><div class="h-6 w-6"></div></span>
+          </div>
+        </div>
+        <div class="h-4"></div>
 
-            {successMessage && (
-              <AlertBox type="info" title="Success">
-                {successMessage}
-              </AlertBox>
-            )}
-
-            <div class="mt-6 space-y-4">
-              <div class="bg-base-200 p-4 rounded">
-                <p class="text-xs text-base-content/70 mb-2">
-                  Access Token (expires in {authProps.expires_in}s)
-                </p>
-                <div class="flex items-center gap-2">
-                  <code class="text-xs break-all flex-1 select-all">
-                    {authProps.access_token.substring(0, 50)}...
-                  </code>
-                  <button
-                    class="btn btn-sm btn-ghost"
-                    id="copy_access_token"
-                    data-token={authProps.access_token}
-                  >
-                    Copy
-                  </button>
-                </div>
-              </div>
-
-              <div class="bg-base-200 p-4 rounded">
-                <p class="text-xs text-base-content/70 mb-2">Refresh Token</p>
-                <div class="flex items-center gap-2">
-                  <code class="text-xs break-all flex-1 select-all">
-                    {authProps.refresh_token.substring(0, 50)}...
-                  </code>
-                  <button
-                    class="btn btn-sm btn-ghost"
-                    id="copy_refresh_token"
-                    data-token={authProps.refresh_token}
-                  >
-                    Copy
-                  </button>
-                </div>
-              </div>
-
-              {authProps.provider_token && (
-                <div class="bg-base-200 p-4 rounded">
-                  <p class="text-xs text-base-content/70 mb-2">
-                    Provider Token
+        <div id="set_session_error" class="hidden">
+          <div class="h-6"></div>
+          <div
+            class="alert alert-error bg-base-200 border border-base-300 text-sm text-base-content/80 flex items-start gap-3"
+          >
+            <WarningIcon class="w-6 h-6 text-error" />
+            <div>
+              <div class="font-semibold">We couldn't finish signing you in</div>
+              {
+                error_message && (
+                  <p class="mt-2 text-xs text-base-content/70">
+                    Details: {error_message}
                   </p>
-                  <div class="flex items-center gap-2">
-                    <code class="text-xs break-all flex-1 select-all">
-                      {authProps.provider_token.substring(0, 50)}...
-                    </code>
-                    <button
-                      class="btn btn-sm btn-ghost"
-                      id="copy_provider_token"
-                      data-token={authProps.provider_token}
-                    >
-                      Copy
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            <div class="mt-6 text-center text-sm text-base-content/70">
-              <p>Tokens are being exchanged with the desktop application...</p>
+                )
+              }
             </div>
           </div>
-        ) : (
-          <div class="bg-base-100 rounded-md p-6">
-            <div class="flex items-center gap-2">
-              <span class="flex-1 flex justify-end">
-                <WarningIcon class="w-8 h-8" />
-              </span>
-              <span class="text-center text-2xl font-semibold">
-                Authentication Failed
-              </span>
-              <span class="flex-1">
-                <div class="h-8 w-8" />
-              </span>
+          <div class="h-6"></div>
+          <p class="text-sm text-base-content/80">
+            Close this tab and restart sign-in from the app. This page only
+            works right after the app redirects you here.
+          </p>
+          <div class="h-3"></div>
+          <p class="mt-3 text-xs text-base-content/70">
+            Do not open this URL directly. Always launch the sign-in flow from
+            the app.
+          </p>
+          <div class="h-6"></div>
+          <div class="flex flex-col gap-3">
+            <a href="/auth/local/signin" class="btn btn-error text-white w-full"
+              >Retry sign-in</a
+            >
+            <div class="divider">OR</div>
+            <a href="/" class="btn btn-ghost border border-base-300 w-full"
+              >Skip sign-in and return home</a
+            >
+          </div>
+        </div>
+
+        <div id="set_session_success" class="hidden">
+          <div class="flex flex-col items-center gap-2">
+            <div
+              class="flex items-center gap-2 text-success text-2xl font-semibold"
+            >
+              <span class="flex-1 flex justify-end"
+                ><CheckIcon class="w-6 h-6" /></span
+              >
+              <span class="text-center">Authentication successful</span>
+              <span class="flex-1"><div class="h-6 w-6"></div></span>
             </div>
-
-            {errorMessage && (
-              <AlertBox type="error" title="Error">
-                {errorMessage}
-              </AlertBox>
-            )}
-
-            <div class="mt-6 flex flex-col gap-3">
-              {errorRetryLink && (
-                <a href={errorRetryLink} class="btn btn-primary w-full">
-                  Try Again
-                </a>
-              )}
-              {errorSkipLink && (
-                <a href={errorSkipLink} class="btn btn-ghost w-full">
-                  Go Back
-                </a>
-              )}
+            <div class="text-sm text-base-content/70">
+              You may now return to the app.
             </div>
-
-            <div class="mt-6 text-center text-sm text-base-content/70">
+          </div>
+          <div class="h-6"></div>
+          <div>
+            <AlertBox type="info" title="Tip">
               <p>
-                If you continue to experience issues, please contact support.
+                Refresh tokens have been securely stored. No further action is
+                needed on the web side.
               </p>
-            </div>
+            </AlertBox>
           </div>
-        )
-      }
+          <div id="return_href_missing" class="hidden">
+            <div class="h-6"></div>
+            <AlertBox type="warning" title="Return URL is invalid">
+              <p>Copy the tokens below and paste them in the app manually.</p>
+              {
+                error_message && (
+                  <p class="mt-2 text-xs text-base-content/70">
+                    {error_message}
+                  </p>
+                )
+              }
+            </AlertBox>
+          </div>
+          <div>
+            <div class="h-4"></div>
+            <a href={return_href} class="btn btn-primary w-full"
+              >Return to app</a
+            >
+            <div class="divider">OR</div>
+            <div class="text-base text-center">Copy tokens</div>
+            <fieldset class="fieldset mt-3">
+              <legend class="fieldset-legend text-sm"
+                >Provider refresh token, access token & refresh token</legend
+              >
+              <div class="flex items-start gap-2">
+                <div class="flex-1 rounded-md border border-base-300">
+                  <input
+                    id="tokens"
+                    type="text"
+                    style="cursor: text"
+                    class="input input-bordered font-mono w-full"
+                    value={return_params ?? ""}
+                    readonly
+                    disabled
+                  />
+                </div>
+                <button
+                  id="copy-button"
+                  aria-label="Copy tokens"
+                  class="btn btn-ghost rounded-box p-2 items-center justify-center border border-base-300"
+                >
+                  <label class="swap" id="copy-swap-id">
+                    <div class="swap-off">
+                      <svg
+                        class="w-4 h-4"
+                        aria-hidden="true"
+                        xmlns="http://www.w3.org/2000/svg"
+                        fill="currentColor"
+                        viewBox="0 0 18 20"
+                      >
+                        <path
+                          d="M16 1h-3.278A1.992 1.992 0 0 0 11 0H7a1.993 1.993 0 0 0-1.722 1H2a2 2 0 0 0-2 2v15a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V3a2 2 0 0 0-2-2Zm-3 14H5a1 1 0 0 1 0-2h8a1 1 0 0 1 0 2Zm0-4H5a1 1 0 0 1 0-2h8a1 1 0 1 1 0 2Zm0-5H5a1 1 0 0 1 0-2h2V2h4v2h2a1 1 0 1 1 0 2Z"
+                        ></path>
+                      </svg>
+                    </div>
+                    <div class="swap-on">
+                      <svg
+                        class="w-4 h-4 text-success"
+                        aria-hidden="true"
+                        xmlns="http://www.w3.org/2000/svg"
+                        fill="none"
+                        viewBox="0 0 16 12"
+                      >
+                        <path
+                          stroke="currentColor"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          stroke-width="2"
+                          d="M1 5.917 5.724 10.5 15 1.5"></path>
+                      </svg>
+                    </div>
+                  </label>
+                </button>
+              </div>
+              <p class="label text-sm mt-2">
+                Paste into the tokens field on the app's launch page.
+              </p>
+              <div class="text-center mt-2 h-8">
+                <span
+                  id="copy-status"
+                  class="text-success text-sm sr-only"
+                  aria-live="polite"></span>
+              </div>
+            </fieldset>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 
   <Navigation />
-
-  {authProps && <astro-data-auth_props {...authProps} />}
-
-  <script>
-    document.addEventListener("DOMContentLoaded", () => {
-      // Handle copy buttons
-      document.querySelectorAll("[id^='copy_']").forEach((button) => {
-        button.addEventListener("click", async (event) => {
-          const token = (event.target as HTMLButtonElement).dataset.token;
-          if (token) {
-            try {
-              await navigator.clipboard.writeText(token);
-              const originalText = (event.target as HTMLButtonElement).textContent;
-              (event.target as HTMLButtonElement).textContent = "Copied!";
-              setTimeout(() => {
-                (event.target as HTMLButtonElement).textContent = originalText;
-              }, 2000);
-            } catch (err) {
-              console.error("Failed to copy token:", err);
-            }
-          }
-        });
-      });
-
-      // Handle custom element for auth props
-      const authElement = document.querySelector("astro-data-auth_props");
-      if (authElement) {
-        const authProps = {
-          access_token: authElement.getAttribute("access_token"),
-          refresh_token: authElement.getAttribute("refresh_token"),
-          provider_token: authElement.getAttribute("provider_token"),
-          provider_refresh_token: authElement.getAttribute("provider_refresh_token"),
-          provider: authElement.getAttribute("provider"),
-          expires_in: parseInt(
-            authElement.getAttribute("expires_in") || "0",
-            10
-          ),
-        };
-
-        // Send auth data to parent window if in iframe/popup
-        if (window.opener) {
-          window.opener.postMessage(
-            {
-              type: "AUTH_RESPONSE",
-              data: authProps,
-            },
-            "*"
-          );
-
-          // Close window after a delay to allow message delivery
-          setTimeout(() => {
-            window.close();
-          }, 1000);
-        }
-
-        // Also handle custom protocol for desktop app
-        const customProtocolUrl = `fusou://auth?access_token=${encodeURIComponent(
-          authProps.access_token || ""
-        )}&refresh_token=${encodeURIComponent(
-          authProps.refresh_token || ""
-        )}&provider_token=${encodeURIComponent(
-          authProps.provider_token || ""
-        )}&provider_refresh_token=${encodeURIComponent(
-          authProps.provider_refresh_token || ""
-        )}&provider=${encodeURIComponent(
-          authProps.provider || "google"
-        )}&expires_in=${authProps.expires_in || 0}`;
-
-        // Try to navigate with custom protocol
-        setTimeout(() => {
-          window.location.href = customProtocolUrl;
-        }, 500);
-      }
-    });
-  </script>
 </Layout>
 
-<style>
-  astro-data-auth_props {
-    display: none;
+<astro-data-auth_props
+  data-set-session-error-flag={String(set_session_error_flag)}
+  data-return-href-missing-flag={String(return_href_missing_flag)}
+  data-return-href={return_href ?? ""}></astro-data-auth_props>
+
+<script>
+  class AstroDataAuthProps extends HTMLElement {
+    constructor() {
+      super();
+      const setSessionErrorFlag = this.dataset.setSessionErrorFlag!;
+      const returnHrefMissingFlag =
+        this.dataset.returnHrefMissingFlag === "true";
+      const returnHref = this.dataset.returnHref;
+
+      window.addEventListener("DOMContentLoaded", () => {
+        if (setSessionErrorFlag == "true") {
+          document
+            .getElementById("set_session_error")
+            ?.classList.remove("hidden");
+          document.getElementById("heading_error")?.classList.remove("hidden");
+          document.getElementById("heading_success")?.classList.add("hidden");
+        } else {
+          // Session succeeded - show success message and prepare to redirect
+          document
+            .getElementById("set_session_success")
+            ?.classList.remove("hidden");
+          document
+            .getElementById("heading_success")
+            ?.classList.remove("hidden");
+          document.getElementById("heading_error")?.classList.add("hidden");
+        }
+
+        if (returnHrefMissingFlag) {
+          document
+            .getElementById("return_href_missing")
+            ?.classList.remove("hidden");
+        }
+      });
+
+      // Only auto-redirect if return_href is valid and not the fallback "/" or missing
+      window.addEventListener("load", () => {
+        if (!returnHrefMissingFlag && returnHref && returnHref !== "/") {
+          try {
+            // console.log("Redirecting to:", returnHref);
+            window.location.href = returnHref;
+          } catch (e) {
+            // If redirect fails, keep user on page
+            console.error("Failed to redirect:", e);
+          }
+        }
+        // If returnHrefMissingFlag is true or href is "/" or empty, stay on page and show warning
+      });
+    }
   }
-</style>
+
+  customElements.define("astro-data-auth_props", AstroDataAuthProps);
+</script>
+
+<script
+  is:inline
+  src="https://cdn.jsdelivr.net/npm/clipboard@2.0.11/dist/clipboard.min.js"
+></script>
+<script>
+  const copy_token = () => {
+    const swap_label = document.getElementById("copy-swap-id");
+    const copy_status = document.getElementById("copy-status");
+    swap_label?.classList.add("swap-active");
+    const tokensEl = document.getElementById("tokens");
+    let text = "";
+    if (
+      tokensEl instanceof HTMLTextAreaElement ||
+      tokensEl instanceof HTMLInputElement
+    ) {
+      // input & textarea share .value
+      // @ts-ignore runtime check
+      text = tokensEl.value || "";
+    } else if (tokensEl) {
+      text = tokensEl.textContent || "";
+    }
+    const showStatus = (msg) => {
+      if (!copy_status) return;
+      copy_status.textContent = msg;
+      copy_status.classList.remove("sr-only");
+      setTimeout(() => {
+        copy_status.classList.add("sr-only");
+        copy_status.textContent = "";
+      }, 1500);
+    };
+
+    if (text && navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(
+        () => showStatus("Copied"),
+        () => showStatus("Copy failed")
+      );
+    } else if (tokensEl instanceof HTMLTextAreaElement) {
+      tokensEl.select();
+      const ok = document.execCommand("copy");
+      showStatus(ok ? "Copied" : "Copy failed");
+    } else {
+      showStatus("No tokens to copy");
+    }
+
+    setTimeout(() => swap_label?.classList.remove("swap-active"), 1200);
+  };
+  const copy_button = document.getElementById("copy-button");
+  if (copy_button) copy_button.addEventListener("click", copy_token);
+</script>
