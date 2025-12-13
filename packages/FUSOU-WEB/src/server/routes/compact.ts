@@ -83,35 +83,55 @@ app.post('/compact', async (c) => {
     // Import WASM module dynamically
     let compact_single_dataset: any;
     try {
-      const wasmModule = await import('@/wasm/compactor/pkg/fusou_compactor_wasm.js' as string);
+      const wasmModule = await import('../../../wasm/compactor/pkg/fusou_compactor_wasm.js');
       compact_single_dataset = wasmModule.compact_single_dataset;
-    } catch {
-      // WASM module not available, use mock implementation for now
-      console.warn('WASM compactor module not found, using mock implementation');
-      compact_single_dataset = async () => 'Mock compaction result';
+    } catch (error) {
+      console.error('Failed to load WASM compactor module:', error);
+      await supabaseUpdate(supabase, body.dataset_id, {
+        compaction_in_progress: false,
+        compaction_needed: true,
+      });
+      return c.json(
+        { status: 'error', message: 'WASM compactor module not available' } as CompactResponse,
+        500
+      );
     }
 
     // Call WASM compaction with timeout
-    const timer = setTimeout(() => {}, requestTimeoutMs); // For logging purposes
     const startedAt = Date.now();
-    let result: Uint8Array | ArrayBuffer;
+    let result: string;
 
     try {
-      // WASM returns compacted Parquet file as binary
-      // Pass only dataset_id; Supabase and R2 access happens in compact.ts
-      result = await compact_single_dataset(body.dataset_id);
-    } finally {
-      clearTimeout(timer);
+      // Build R2 URL for WASM to access files
+      const r2BaseUrl = env.R2_PUBLIC_URL || `https://${env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com/${env.ASSET_PAYLOAD_BUCKET?.name || ''}`;
+      
+      // Call WASM function: compact_single_dataset(dataset_id, supabase_url, supabase_key, r2_url)
+      result = await compact_single_dataset(
+        body.dataset_id,
+        supabase_url,
+        supabase_key,
+        r2BaseUrl
+      );
+    } catch (error) {
+      const elapsed = Date.now() - startedAt;
+      console.error(
+        JSON.stringify({
+          level: 'error',
+          event: 'compact_wasm_failed',
+          dataset_id: body.dataset_id,
+          elapsed_ms: elapsed,
+          error: error instanceof Error ? error.message : String(error),
+        })
+      );
+      
+      await supabaseUpdate(supabase, body.dataset_id, {
+        compaction_in_progress: false,
+        compaction_needed: true,
+      });
+      
+      throw error;
     }
 
-    // Upload compacted file to R2
-    const compactedKey = `datasets/${body.dataset_id}/compacted-${Date.now()}.parquet`;
-    await bucket.put(compactedKey, result, {
-      httpMetadata: {
-        contentType: 'application/octet-stream',
-        cacheControl: 'public, max-age=31536000',
-      },
-    });
 
     const elapsed = Date.now() - startedAt;
     console.log(
@@ -120,6 +140,7 @@ app.post('/compact', async (c) => {
         event: 'compact_completed',
         dataset_id: body.dataset_id,
         elapsed_ms: elapsed,
+        result: result,
       })
     );
 
@@ -128,11 +149,14 @@ app.post('/compact', async (c) => {
       compaction_in_progress: false,
       last_compacted_at: new Date().toISOString(),
       compaction_needed: false,
-      compacted_r2_key: compactedKey,
     });
 
     return c.json(
-      { status: 'success', message: `Compaction completed, stored at ${compactedKey}` } as CompactResponse,
+      { 
+        status: 'success', 
+        message: result,
+        compacted_tables: result.match(/Compacted (\d+) tables/)?.[1] ? parseInt(result.match(/Compacted (\d+) tables/)![1]) : 0
+      } as CompactResponse,
       200
     );
   } catch (error) {
@@ -179,12 +203,11 @@ app.post('/compact', async (c) => {
 app.get('/compact/trigger', async (c) => {
   try {
     const dataset_id = c.req.query('dataset_id');
-    const env = getRuntimeEnv(c);
     const origin = c.req.header('origin') || 'http://localhost:3000';
 
     if (dataset_id) {
       // Call main API with short timeout
-      await fetch(`${origin}/api/compact`, {
+      await fetch(`${origin}/api/compaction/compact`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ dataset_id }),

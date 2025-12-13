@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import type { Bindings, BucketBinding, D1Database } from "../types";
+import type { Bindings } from "../types";
 import {
   MAX_UPLOAD_BYTES,
   CACHE_CONTROL,
@@ -17,14 +17,16 @@ import {
   violatesAllowList,
   parseSize,
   getRuntimeEnv,
+  getEnvValue,
 } from "../utils";
+import { handleTwoStageUpload } from "../utils/upload";
 
 const app = new Hono<{ Bindings: Bindings }>();
 
 // OPTIONS（CORS）
 app.options(
   "*",
-  (_c) => new Response(null, { status: 204, headers: CORS_HEADERS })
+  (_c) => new Response(null, { status: 204, headers: CORS_HEADERS }),
 );
 
 // POST /upload
@@ -32,9 +34,7 @@ app.post("/upload", async (c) => {
   const env = getRuntimeEnv(c);
   const bucket = env.ASSET_SYNC_BUCKET;
   const db = env.ASSET_INDEX_DB;
-  const signingSecret =
-    env.ASSET_UPLOAD_SIGNING_SECRET ||
-    import.meta.env.ASSET_UPLOAD_SIGNING_SECRET;
+  const signingSecret = getEnvValue("ASSET_UPLOAD_SIGNING_SECRET", env);
 
   if (!bucket || !db || !signingSecret) {
     console.error("[asset-sync] missing bindings", {
@@ -48,35 +48,112 @@ app.post("/upload", async (c) => {
 
   const allowedExtensions = resolveAllowedExtensions(
     env.ASSET_SYNC_ALLOWED_EXTENSIONS,
-    import.meta.env.ASSET_SYNC_ALLOWED_EXTENSIONS
+    import.meta.env.ASSET_SYNC_ALLOWED_EXTENSIONS,
   );
 
-  const url = new URL(c.req.url);
-  const request = c.req.raw;
-
-  if (!url.searchParams.has("token")) {
-    return await handleSignedUploadRequest(
-      c,
-      request,
-      bucket,
-      db,
-      allowedExtensions,
-      signingSecret,
-      url,
-      env
-    );
-  }
-
-  return await handleSignedUploadExecution(
-    c,
-    request,
+  return handleTwoStageUpload(c, {
     bucket,
-    db,
-    allowedExtensions,
     signingSecret,
-    url,
-    env
-  );
+    tokenTTL: SIGNED_URL_TTL_SECONDS,
+    maxBodySize: MAX_UPLOAD_BYTES,
+
+    // Preparation validation - check extension, size, hash, uniqueness
+    preparationValidator: async (body, _user) => {
+      const key = sanitizeKey(typeof body.key === "string" ? body.key : null);
+      if (!key) {
+        return c.json({ error: "Invalid or empty key" }, 400);
+      }
+
+      const relativePath = sanitizeKey(
+        typeof body.relative_path === "string" ? body.relative_path : null,
+      );
+      if (!relativePath) {
+        return c.json({ error: "Invalid relative_path" }, 400);
+      }
+
+      const declaredSize = parseSize(
+        typeof body.file_size === "string" ? body.file_size : undefined,
+      );
+      if (!declaredSize || declaredSize <= 0 || declaredSize > MAX_UPLOAD_BYTES) {
+        return c.json({ error: "Invalid file size" }, 400);
+      }
+
+      const contentHash = typeof body.content_hash === "string" ? body.content_hash.trim() : "";
+      if (!contentHash) {
+        return c.json({ error: "content_hash (SHA-256) is required" }, 400);
+      }
+
+      const fileName = sanitizeFileName(
+        typeof body.file_name === "string" ? body.file_name : null,
+      );
+      const candidateNames = [fileName, key, relativePath];
+
+      if (violatesAllowList(candidateNames, allowedExtensions)) {
+        return c.json({ error: "This file type is not allowed for upload" }, 415);
+      }
+
+      if (await bucket.head(key)) {
+        return c.json({ error: "Asset already exists" }, 409);
+      }
+
+      return {
+        tokenPayload: {
+          key,
+          relative_path: relativePath,
+          declared_size: declaredSize,
+          file_name: fileName,
+          content_hash: contentHash,
+        },
+        fields: {
+          key,
+          relative_path: relativePath,
+          declared_size: declaredSize,
+          file_name: fileName,
+        },
+      };
+    },
+
+    // Execution processing - validate size, upload to R2, record to D1
+    executionProcessor: async (tokenPayload, data, user) => {
+      const key = tokenPayload.key;
+      const declaredSize = tokenPayload.declared_size;
+
+      if (!key || !declaredSize) {
+        return c.json({ error: "Invalid token payload" }, 400);
+      }
+
+      const result = await bucket.put(key, data, {
+        httpMetadata: {
+          contentType: "application/octet-stream",
+          cacheControl: CACHE_CONTROL,
+        },
+        customMetadata: { uploaded_by: user.id },
+      });
+
+      const storedSize = result?.size || 0;
+      const uploadedAt = Date.now();
+
+      const stmt = db.prepare(
+        "INSERT OR REPLACE INTO files (key, size, uploaded_at, content_type, uploader_id, finder_tag, metadata) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      );
+
+      await stmt
+        .bind(
+          key,
+          storedSize,
+          uploadedAt,
+          "application/octet-stream",
+          user.id,
+          null,
+          JSON.stringify({ synced_at: uploadedAt }),
+        )
+        .run();
+
+      return {
+        response: { key, size: storedSize },
+      };
+    },
+  });
 });
 
 // GET /keys
@@ -103,7 +180,7 @@ app.get("/keys", async (c) => {
   }
 
   console.log(
-    `GET /keys: JWT validation successful, user_id=${supabaseUser.id}`
+    `GET /keys: JWT validation successful, user_id=${supabaseUser.id}`,
   );
 
   const env = getRuntimeEnv(c);
@@ -122,14 +199,14 @@ app.get("/keys", async (c) => {
     while (true) {
       const stmt = db
         .prepare(
-          "SELECT key FROM files ORDER BY uploaded_at DESC LIMIT ? OFFSET ?"
+          "SELECT key FROM files ORDER BY uploaded_at DESC LIMIT ? OFFSET ?",
         )
         .bind(BATCH_SIZE, cursor);
 
       const res = await stmt.all?.();
       const batch = (res?.results || [])
-        .map((r) =>
-          typeof (r as any).key === "string" ? (r as any).key : undefined
+        .map((r: { key?: unknown }) =>
+          typeof r.key === "string" ? r.key : undefined,
         )
         .filter(Boolean) as string[];
 
@@ -159,216 +236,9 @@ app.get("/mime", async (c) => {
   return c.json(SAFE_MIME_BY_EXTENSION);
 });
 
-// ------------------------
-// Handlers
-// ------------------------
-
-async function handleSignedUploadRequest(
-  c: any,
-  request: Request,
-  bucket: BucketBinding,
-  db: D1Database,
-  allowedExtensions: Set<string>,
-  signingSecret: string,
-  url: URL,
-  env: Record<string, any>
-): Promise<Response> {
-  const contentType = request.headers.get("content-type") ?? "";
-  if (!contentType.toLowerCase().includes("application/json")) {
-    return c.json({ error: "Signed upload requests must be JSON" }, 415);
-  }
-
-  const authHeader = request.headers.get("authorization");
-  const accessToken = extractBearer(authHeader);
-  if (!accessToken) {
-    return c.json({ error: "Missing Authorization bearer token" }, 401);
-  }
-
-  const supabaseUser = await validateJWT(accessToken);
-  if (!supabaseUser) {
-    return c.json({ error: "Invalid or expired JWT token" }, 401);
-  }
-
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
-    return c.json({ error: "Invalid JSON body" }, 400);
-  }
-
-  const bodyObj = body as Record<string, unknown>;
-  const key = sanitizeKey(typeof bodyObj.key === "string" ? bodyObj.key : null);
-  if (!key) {
-    return c.json({ error: "Invalid or empty key" }, 400);
-  }
-
-  const relativePath = sanitizeKey(
-    typeof bodyObj.relative_path === "string" ? bodyObj.relative_path : null
-  );
-  if (!relativePath) {
-    return c.json({ error: "Invalid relative_path" }, 400);
-  }
-
-  const declaredSize = parseSize(
-    typeof bodyObj.file_size === "string" ? bodyObj.file_size : undefined
-  );
-  if (!declaredSize || declaredSize <= 0 || declaredSize > MAX_UPLOAD_BYTES) {
-    return c.json({ error: "Invalid file size" }, 400);
-  }
-
-  const fileName = sanitizeFileName(
-    typeof bodyObj.file_name === "string" ? bodyObj.file_name : null
-  );
-  const candidateNames = [fileName, key, relativePath];
-
-  if (violatesAllowList(candidateNames, allowedExtensions)) {
-    return c.json({ error: "This file type is not allowed for upload" }, 415);
-  }
-
-  if (await bucket.head(key)) {
-    return c.json({ error: "Asset already exists" }, 409);
-  }
-
-  const { generateSignedToken } = await import("../utils");
-  const token = await generateSignedToken(
-    {
-      key,
-      relative_path: relativePath,
-      declared_size: declaredSize,
-      file_name: fileName,
-    },
-    signingSecret,
-    SIGNED_URL_TTL_SECONDS
-  );
-
-  // Build external upload URL using PUBLIC_SITE_URL to ensure '/api' prefix
-  const siteUrl = (env.PUBLIC_SITE_URL || import.meta.env.PUBLIC_SITE_URL || "")
-    .toString()
-    .trim();
-  const base = siteUrl.replace(/\/$/, "");
-  let uploadUrl = new URL(`${base}/api/asset-sync/upload`);
-  // let uploadUrl: URL;
-  // if (siteUrl) {
-  //   const base = siteUrl.replace(/\/$/, "");
-  //   uploadUrl = new URL(`${base}/api/asset-sync/upload`);
-  // } else {
-  //   // Fallback to current request URL with '/api' prefix if missing
-  //   uploadUrl = new URL(url);
-  //   if (!uploadUrl.pathname.startsWith("/api/")) {
-  //     uploadUrl.pathname =
-  //       "/api" +
-  //       (uploadUrl.pathname.startsWith("/")
-  //         ? uploadUrl.pathname
-  //         : "/" + uploadUrl.pathname);
-  //   }
-  // }
-  uploadUrl.searchParams.set("token", token);
-
-  return c.json({
-    uploadUrl: uploadUrl.toString(),
-    expiresAt: new Date(
-      Date.now() + SIGNED_URL_TTL_SECONDS * 1000
-    ).toISOString(),
-    fields: {
-      key,
-      relative_path: relativePath,
-      declared_size: declaredSize,
-      file_name: fileName,
-    },
-  });
-}
-
-async function handleSignedUploadExecution(
-  c: any,
-  request: Request,
-  bucket: BucketBinding,
-  db: D1Database,
-  allowedExtensions: Set<string>,
-  signingSecret: string,
-  url: URL,
-  env: Record<string, any>
-): Promise<Response> {
-  const token = url.searchParams.get("token");
-  if (!token) {
-    console.warn("[asset-sync upload] missing token param on upload step");
-    return c.json({ error: "Missing token parameter" }, 400);
-  }
-
-  const { verifySignedToken } = await import("../utils");
-  const payload = await verifySignedToken(token, signingSecret);
-  if (!payload) {
-    console.warn("[asset-sync upload] invalid or expired token on upload step");
-    return c.json({ error: "Invalid or expired token" }, 401);
-  }
-
-  const authHeader = request.headers.get("authorization");
-  const accessToken = extractBearer(authHeader);
-
-  if (!accessToken) {
-    console.warn("[asset-sync upload] missing bearer on upload step", {
-      hasAuthHeader: !!authHeader,
-      headerPreview: authHeader ? authHeader.slice(0, 20) : null,
-    });
-    return c.json({ error: "Missing Authorization bearer token" }, 401);
-  }
-
-  const supabaseUser = await validateJWT(accessToken);
-  if (!supabaseUser) {
-    return c.json({ error: "Invalid or expired JWT token" }, 401);
-  }
-
-  const key = payload.key;
-  const declaredSize = payload.declared_size;
-  if (!key || !declaredSize) {
-    return c.json({ error: "Invalid token payload" }, 400);
-  }
-
-  const contentLength = request.headers.get("content-length");
-  if (contentLength) {
-    const parsed = Number(contentLength);
-    if (!Number.isFinite(parsed) || parsed <= 0 || parsed > MAX_UPLOAD_BYTES) {
-      return c.json({ error: "Uploaded file exceeds allowed size" }, 413);
-    }
-  }
-
-  const bodyStream = request.body;
-  if (!bodyStream) {
-    return c.json({ error: "Upload payload is missing" }, 400);
-  }
-
-  try {
-    const result = await bucket.put(key, bodyStream, {
-      httpMetadata: {
-        contentType: "application/octet-stream",
-        cacheControl: CACHE_CONTROL,
-      },
-      customMetadata: { uploaded_by: supabaseUser.id },
-    });
-
-    const storedSize = result?.size || 0;
-
-    const uploadedAt = Date.now();
-    const stmt = db.prepare(
-      "INSERT OR REPLACE INTO files (key, size, uploaded_at, content_type, uploader_id, finder_tag, metadata) VALUES (?, ?, ?, ?, ?, ?, ?)"
-    );
-
-    await stmt
-      .bind(
-        key,
-        storedSize,
-        uploadedAt,
-        "application/octet-stream",
-        supabaseUser.id,
-        null,
-        JSON.stringify({ synced_at: uploadedAt })
-      )
-      .run();
-
-    return c.json({ key, size: storedSize });
-  } catch (error) {
-    console.error("Upload failed:", error);
-    return c.json({ error: "Failed to process upload" }, 500);
-  }
-}
+// GET /mime
+app.get("/mime", async (c) => {
+  return c.json(SAFE_MIME_BY_EXTENSION);
+});
 
 export default app;

@@ -3,6 +3,14 @@ import type { Bindings } from "../types";
 import { CORS_HEADERS } from "../constants";
 import { extractBearer, timingSafeEqual } from "../utils";
 
+type R2ObjectLike = {
+  key: string;
+  size: number;
+  uploaded?: string | Date;
+  httpMetadata?: { contentType?: string };
+  customMetadata?: Record<string, string>;
+};
+
 const app = new Hono<{ Bindings: Bindings }>();
 
 // OPTIONS（CORS）
@@ -62,12 +70,12 @@ app.post("/sync-r2-to-d1", async (c) => {
 
     while (truncated) {
       const listResult = await bucket.list({ limit: 1000, cursor });
-      const batchR2Objects = listResult.objects;
+      const batchR2Objects = listResult.objects as R2ObjectLike[];
 
       if (batchR2Objects.length === 0) break;
 
       result.scanned += batchR2Objects.length;
-      const batchKeys = batchR2Objects.map((o) => o.key);
+      const batchKeys = batchR2Objects.map((o: R2ObjectLike) => o.key);
 
       // Check existing keys in D1
       const existingKeysInBatch = new Set<string>();
@@ -98,7 +106,7 @@ app.post("/sync-r2-to-d1", async (c) => {
 
       // Find missing objects
       const missingObjects = batchR2Objects.filter(
-        (obj) => !existingKeysInBatch.has(obj.key)
+        (obj: R2ObjectLike) => !existingKeysInBatch.has(obj.key)
       );
 
       // Insert missing
