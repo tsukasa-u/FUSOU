@@ -354,16 +354,41 @@ impl ConfigsAppDatabaseLocal {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ConfigsAppDatabaseR2 {
+    enable: Option<bool>,
+    upload_endpoint: Option<String>,
+}
+
+impl ConfigsAppDatabaseR2 {
+    pub fn get_enable(&self) -> bool {
+        self.enable.unwrap_or_else(|| get_default_configs().app.database.r2.enable.unwrap())
+    }
+
+    pub fn get_upload_endpoint(&self) -> Option<String> {
+        match self.upload_endpoint {
+            Some(ref v) if !v.trim().is_empty() => Some(v.trim().to_string()),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConfigsAppDatabase {
     allow_data_to_cloud: Option<bool>,
+    allow_data_to_shared_cloud: Option<bool>,
     allow_data_to_local: Option<bool>,
     pub local: ConfigsAppDatabaseLocal,
     pub google_drive: ConfigsAppDatabaseGoogleDrive,
+    pub r2: ConfigsAppDatabaseR2,
 }
 
 impl ConfigsAppDatabase {
     pub fn get_allow_data_to_cloud(&self) -> bool {
         self.allow_data_to_cloud.unwrap_or_else(|| get_default_configs().app.database.allow_data_to_cloud.unwrap())
+    }
+
+    pub fn get_allow_data_to_shared_cloud(&self) -> bool {
+        self.allow_data_to_shared_cloud.unwrap_or_else(|| get_default_configs().app.database.allow_data_to_shared_cloud.unwrap())
     }
 
     pub fn get_allow_data_to_local(&self) -> bool {
@@ -377,6 +402,7 @@ pub struct ConfigsAppAssetSync {
     scan_interval_seconds: Option<u64>,
     asset_upload_endpoint: Option<String>,
     fleet_snapshot_endpoint: Option<String>,
+    r2_upload_endpoint: Option<String>,
     asset_key_prefix: Option<String>,
     kc_period_endpoint: Option<String>,
     asset_skip_extensions: Option<Vec<String>>,
@@ -453,6 +479,14 @@ impl ConfigsAppAssetSync {
 
     pub fn get_fleet_snapshot_endpoint(&self) -> Option<String> {
         match self.fleet_snapshot_endpoint {
+            Some(ref v) if !v.trim().is_empty() => Some(v.trim().to_string()),
+            _ => None,
+        }
+    }
+
+    /// New R2 upload endpoint
+    pub fn get_r2_upload_endpoint(&self) -> Option<String> {
+        match self.r2_upload_endpoint {
             Some(ref v) if !v.trim().is_empty() => Some(v.trim().to_string()),
             _ => None,
         }
@@ -1051,9 +1085,11 @@ mod tests {
         // Test App Database defaults
         let empty_database_fields = ConfigsAppDatabase {
             allow_data_to_cloud: None,
+            allow_data_to_shared_cloud: None,
             allow_data_to_local: None,
             local: default_configs.app.database.local.clone(),
             google_drive: default_configs.app.database.google_drive.clone(),
+            r2: default_configs.app.database.r2.clone(),
         };
         
         assert_eq!(
@@ -1090,6 +1126,7 @@ mod tests {
             scan_interval_seconds: None,
             asset_upload_endpoint: None,
             fleet_snapshot_endpoint: None,
+            r2_upload_endpoint: None,
             asset_key_prefix: None,
             kc_period_endpoint: None,
             asset_skip_extensions: None,
