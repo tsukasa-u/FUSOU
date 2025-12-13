@@ -10,9 +10,27 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "multipart"] }
 tracing = "0.1"
-uuid = { version = "1.0", features = ["v4"] }
+uuid = { version = "1.0", features = ["v4", "serde"] }
 thiserror = "1.0"
+chrono = { version = "0.4", features = ["serde"] }
 fusou-auth = { path = "../fusou-auth" }
 configs = { path = "../configs" }
+
+# Data processing
+datafusion = { version = "42", features = ["parquet"] }
+parquet = { version = "53", features = ["arrow"] }
+arrow = { version = "53" }
+arrow-array = { version = "53" }
+arrow-schema = { version = "53" }
+arrow-ipc = { version = "53" }
+
+# Storage
+object_store = { version = "0.10", features = ["aws"] }
+aws-config = "1.0"
+aws-sdk-s3 = "1.0"
+
+# Error handling
+anyhow = "1.0"
+bytes = "1.0"
 
 [dev-dependencies]
