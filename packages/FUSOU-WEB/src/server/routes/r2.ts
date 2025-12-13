@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import type { Bindings } from '../types';
 import { CORS_HEADERS } from '../constants';
+import { getRuntimeEnv } from '../utils';
 
 const app = new Hono<{ Bindings: Bindings }>();
 
@@ -17,7 +18,7 @@ const app = new Hono<{ Bindings: Bindings }>();
 app.options('*', (_c) => new Response(null, { status: 204, headers: CORS_HEADERS }));
 
 async function hmac(key: Uint8Array, data: string): Promise<Uint8Array> {
-  const keyObj = await crypto.subtle.importKey('raw', key, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const keyObj = await crypto.subtle.importKey('raw', key as BufferSource, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
   const signature = await crypto.subtle.sign('HMAC', keyObj, new TextEncoder().encode(data));
   return new Uint8Array(signature);
 }
@@ -28,7 +29,7 @@ function bytesToHex(bytes: Uint8Array): string {
 
 async function sha256Hex(data: string | Uint8Array): Promise<string> {
   const bytes = typeof data === 'string' ? new TextEncoder().encode(data) : data;
-  const hash = await crypto.subtle.digest('SHA-256', bytes);
+  const hash = await crypto.subtle.digest('SHA-256', bytes as BufferSource);
   return bytesToHex(new Uint8Array(hash));
 }
 
@@ -82,7 +83,7 @@ async function signUrl({
   const kService = await hmac(kRegion, service);
   const kSigning = await hmac(kService, 'aws4_request');
 
-  const keyObj = await crypto.subtle.importKey('raw', kSigning, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const keyObj = await crypto.subtle.importKey('raw', kSigning as BufferSource, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
   const signature = await crypto.subtle.sign('HMAC', keyObj, new TextEncoder().encode(stringToSign));
   const signatureHex = bytesToHex(new Uint8Array(signature));
 
@@ -100,13 +101,13 @@ app.post('/sign', async (c) => {
       return c.json({ error: 'Invalid payload: path and operation required' }, 400);
     }
 
-    const bindings = c.env || {};
-    const bucket = bindings.R2_BUCKET || 'fusou';
-    const accessKeyId = bindings.R2_ACCESS_KEY_ID || 'AKIA_TEST';
-    const secretAccessKey = bindings.R2_SECRET_ACCESS_KEY || 'SECRET_TEST';
-    const region = bindings.R2_REGION || 'auto';
-    const host = bindings.R2_HOST || 'ACCOUNT_ID.r2.cloudflarestorage.com';
-    const expires = Number(bindings.R2_SIGN_EXPIRES || '300');
+    const env = getRuntimeEnv(c);
+    const bucket = env.R2_BUCKET || 'fusou';
+    const accessKeyId = env.R2_ACCESS_KEY_ID || 'AKIA_TEST';
+    const secretAccessKey = env.R2_SECRET_ACCESS_KEY || 'SECRET_TEST';
+    const region = env.R2_REGION || 'auto';
+    const host = env.R2_HOST || 'ACCOUNT_ID.r2.cloudflarestorage.com';
+    const expires = Number(env.R2_SIGN_EXPIRES || '300');
 
     const url = await signUrl({
       method: body.operation === 'put' ? 'PUT' : 'GET',
