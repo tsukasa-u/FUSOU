@@ -8,6 +8,8 @@ import assetsApp from './routes/assets';
 import fleetApp from './routes/fleet';
 import kcApp from './routes/kc';
 import adminApp from './routes/admin';
+import compactApp from './routes/compact';
+import r2App from './routes/r2';
 
 const app = new Hono<{ Bindings: Bindings }>();
 
@@ -36,6 +38,8 @@ app.route('/asset-sync', assetsApp); // assetsApp declares /upload, /keys, etc.
 app.route('/fleet', fleetApp);  // fleetApp declares /snapshot, etc.
 app.route('/kc-period', kcApp);     // kcApp declares /latest, etc.
 app.route('/admin', adminApp);  // adminApp declares /sync-r2-to-d1, etc.
+app.route('/compact', compactApp); // compactApp declares /compact, /compact/trigger, /compact/status
+app.route('/r2', r2App); // r2App declares /sign, /health
 
 // Catch-all 404
 app.all('*', (c) => {

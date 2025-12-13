@@ -19,6 +19,17 @@ export type Bindings = {
   ASSET_UPLOAD_SIGNING_SECRET: string;
   FLEET_SNAPSHOT_SIGNING_SECRET: string;
   ADMIN_API_SECRET: string;
+  // Compaction service bindings
+  COMPACT_MAX_FRAGMENTS?: string;
+  COMPACT_MAX_BYTES?: string;
+  COMPACT_REQ_TIMEOUT_MS?: string;
+  // R2 signing bindings
+  R2_BUCKET?: string;
+  R2_ACCESS_KEY_ID?: string;
+  R2_SECRET_ACCESS_KEY?: string;
+  R2_REGION?: string;
+  R2_HOST?: string;
+  R2_SIGN_EXPIRES?: string;
 };
 
 export type R2BucketBinding = {
