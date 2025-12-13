@@ -55,12 +55,19 @@ app.post('/compact', async (c) => {
 
     const env = getRuntimeEnv(c);
     const { url: supabase_url, publishableKey: supabase_key } = resolveSupabaseConfig(env);
-    const r2_url = 'https://ACCOUNT_ID.r2.cloudflarestorage.com'; // Placeholder; replace with actual config
+    const bucket = env.ASSET_PAYLOAD_BUCKET;
     const requestTimeoutMs = Number(env.COMPACT_REQ_TIMEOUT_MS || '12000');
 
     if (!supabase_url || !supabase_key) {
       return c.json(
         { status: 'error', message: 'Missing environment configuration' } as CompactResponse,
+        500
+      );
+    }
+
+    if (!bucket) {
+      return c.json(
+        { status: 'error', message: 'R2 bucket not configured' } as CompactResponse,
         500
       );
     }
@@ -85,21 +92,26 @@ app.post('/compact', async (c) => {
     }
 
     // Call WASM compaction with timeout
-    const abort = new AbortController();
-    const timer = setTimeout(() => abort.abort(), requestTimeoutMs);
+    const timer = setTimeout(() => {}, requestTimeoutMs); // For logging purposes
     const startedAt = Date.now();
-    let result: string;
+    let result: Uint8Array | ArrayBuffer;
 
     try {
-      result = await compact_single_dataset(
-        body.dataset_id,
-        supabase_url,
-        supabase_key,
-        r2_url
-      );
+      // WASM returns compacted Parquet file as binary
+      // Pass only dataset_id; Supabase and R2 access happens in compact.ts
+      result = await compact_single_dataset(body.dataset_id);
     } finally {
       clearTimeout(timer);
     }
+
+    // Upload compacted file to R2
+    const compactedKey = `datasets/${body.dataset_id}/compacted-${Date.now()}.parquet`;
+    await bucket.put(compactedKey, result, {
+      httpMetadata: {
+        contentType: 'application/octet-stream',
+        cacheControl: 'public, max-age=31536000',
+      },
+    });
 
     const elapsed = Date.now() - startedAt;
     console.log(
@@ -116,9 +128,13 @@ app.post('/compact', async (c) => {
       compaction_in_progress: false,
       last_compacted_at: new Date().toISOString(),
       compaction_needed: false,
+      compacted_r2_key: compactedKey,
     });
 
-    return c.json({ status: 'success', message: result } as CompactResponse, 200);
+    return c.json(
+      { status: 'success', message: `Compaction completed, stored at ${compactedKey}` } as CompactResponse,
+      200
+    );
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
     const category = /timeout/i.test(message)
@@ -163,7 +179,7 @@ app.post('/compact', async (c) => {
 app.get('/compact/trigger', async (c) => {
   try {
     const dataset_id = c.req.query('dataset_id');
-    const bindings = c.env || {};
+    const env = getRuntimeEnv(c);
     const origin = c.req.header('origin') || 'http://localhost:3000';
 
     if (dataset_id) {

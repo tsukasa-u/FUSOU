@@ -7,10 +7,14 @@ const app = new Hono<{ Bindings: Bindings }>();
 
 /**
  * R2 signing service routes
- * Generates pre-signed URLs for secure uploads/downloads to Cloudflare R2
+ * Generates pre-signed URLs for CLIENT-SIDE uploads/downloads to Cloudflare R2
  * Uses AWS SigV4 algorithm for S3-compatible signing
+ * 
+ * NOTE: For server-side R2 operations (like compaction), use BucketBinding directly
+ * This API is only for client-initiated uploads/downloads
+ * 
  * Endpoints:
- *   POST /sign - generate presigned URL with SigV4 signature
+ *   POST /sign - generate presigned URL with SigV4 signature for client uploads
  *   GET /health - health check
  */
 
