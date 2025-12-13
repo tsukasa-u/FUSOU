@@ -126,8 +126,6 @@ export function injectEnv(locals: any): Bindings {
     FLEET_SNAPSHOT_SIGNING_SECRET:
       runtimeEnv.FLEET_SNAPSHOT_SIGNING_SECRET ||
       import.meta.env.FLEET_SNAPSHOT_SIGNING_SECRET!,
-    ADMIN_API_SECRET:
-      runtimeEnv.ADMIN_API_SECRET || import.meta.env.ADMIN_API_SECRET!,
   };
 }
 

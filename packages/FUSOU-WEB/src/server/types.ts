@@ -18,7 +18,6 @@ export type Bindings = {
   ASSET_SYNC_ALLOWED_EXTENSIONS?: string;
   ASSET_UPLOAD_SIGNING_SECRET: string;
   FLEET_SNAPSHOT_SIGNING_SECRET: string;
-  ADMIN_API_SECRET: string;
   // Compaction service bindings
   COMPACT_MAX_FRAGMENTS?: string;
   COMPACT_MAX_BYTES?: string;
