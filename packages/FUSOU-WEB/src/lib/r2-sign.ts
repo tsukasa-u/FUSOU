@@ -1,12 +1,12 @@
 // R2 SigV4 Signing utilities
-import crypto from 'crypto';
+import { createHmac, createHash, type BinaryLike } from 'crypto';
 
-function hmac(key: Buffer, data: string) {
-  return crypto.createHmac('sha256', key).update(data, 'utf8').digest();
+function hmac(key: BinaryLike, data: string) {
+  return createHmac('sha256', key).update(data, 'utf8').digest();
 }
 
-function sha256Hex(data: string | Buffer) {
-  return crypto.createHash('sha256').update(data).digest('hex');
+function sha256Hex(data: string | Uint8Array) {
+  return createHash('sha256').update(data).digest('hex');
 }
 
 export function signUrl({
@@ -64,12 +64,11 @@ export function signUrl({
     sha256Hex(canonicalRequest),
   ].join('\n');
 
-  const kDate = hmac(Buffer.from('AWS4' + secretAccessKey, 'utf8'), dateStamp);
-  const kRegion = hmac(kDate, region);
-  const kService = hmac(kRegion, service);
-  const kSigning = hmac(kService, 'aws4_request');
-  const signature = crypto
-    .createHmac('sha256', kSigning)
+  const kDate = hmac(Uint8Array.from(Buffer.from('AWS4' + secretAccessKey, 'utf8')), dateStamp);
+  const kRegion = hmac(Uint8Array.from(kDate), region);
+  const kService = hmac(Uint8Array.from(kRegion), service);
+  const kSigning = hmac(Uint8Array.from(kService), 'aws4_request');
+  const signature = createHmac('sha256', Uint8Array.from(kSigning))
     .update(stringToSign)
     .digest('hex');
 

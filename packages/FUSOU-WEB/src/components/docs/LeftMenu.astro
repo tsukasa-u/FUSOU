@@ -46,6 +46,12 @@ type MenuNode = {
   children: Map<string, MenuNode>;
 };
 
+type MenuEntry = {
+  title: string;
+  url?: string;
+  children: MenuEntry[];
+};
+
 const root = new Map<string, MenuNode>();
 
 for (const entry of posts) {
@@ -68,10 +74,10 @@ for (const entry of posts) {
   });
 }
 
-const mapToArray = (nodeMap: Map<string, MenuNode>) =>
+const mapToArray = (nodeMap: Map<string, MenuNode>): MenuEntry[] =>
   Array.from(nodeMap.values())
     .sort(compareSegments)
-    .map((node) => ({
+    .map((node: MenuNode): MenuEntry => ({
       title: node.title,
       url: node.url,
       children: mapToArray(node.children),
@@ -87,9 +93,9 @@ const escapeHtml = (value: string) =>
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
 
-const renderMenuHtml = (nodes: typeof menuTree): string =>
+const renderMenuHtml = (nodes: MenuEntry[]): string =>
   nodes
-    .map((node) => {
+    .map((node: MenuEntry) => {
       const children = node.children.length
         ? `<ul class="ml-3 pl-3 space-y-2">${renderMenuHtml(
             node.children

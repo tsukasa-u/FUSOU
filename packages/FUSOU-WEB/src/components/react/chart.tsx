@@ -9,9 +9,6 @@ import {
 import { Bubble } from "react-chartjs-2";
 import { faker } from "@faker-js/faker";
 
-const randomName = faker.person.fullName(); // Rowan Nikolaus
-const randomEmail = faker.internet.email(); // Kassandra.Haley@erich.biz
-
 ChartJS.register(LinearScale, PointElement, Tooltip, Legend);
 
 export const options = {

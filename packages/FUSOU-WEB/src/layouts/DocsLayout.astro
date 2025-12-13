@@ -10,7 +10,7 @@ import { getEntry } from "astro:content";
 
 const { entry, Content, headings } = Astro.props;
 const authors = await Promise.all(
-  entry.data.contributors.map(async (contributor) => {
+  entry.data.contributors.map(async (contributor: string) => {
     return await getEntry("authors", contributor);
   })
 );
@@ -50,6 +50,7 @@ const authors = await Promise.all(
         <!-- Cloudflare Web Analytics -->
         <script
           defer
+          is:inline
           src="https://static.cloudflareinsights.com/beacon.min.js"
           data-cf-beacon={`{"token": "${import.meta.env.PUBLIC_CLOUDFLARE_ANALYTICS_TOKEN}"}`}
         />

@@ -2,7 +2,6 @@
 
 import { useStore } from "@nanostores/solid";
 import {
-  sidePageSlected,
   setSidePageSlected,
   deleteSidePageSlected,
 } from "../states/sidePageMap";
@@ -23,7 +22,6 @@ import {
 
 export default function SidePage() {
   // const $sidePageItems = useStore(PageData);
-  const $sidePageSlected = useStore(sidePageSlected);
   const $pageData = useStore(PageData);
 
   const [show_add_page_dialog, set_show_add_page_dialog] = createSignal(false);

@@ -345,7 +345,7 @@ cookies.delete("sb-local-provider", { path: "/" });
     } else if (tokensEl) {
       text = tokensEl.textContent || "";
     }
-    const showStatus = (msg) => {
+    const showStatus = (msg: string) => {
       if (!copy_status) return;
       copy_status.textContent = msg;
       copy_status.classList.remove("sr-only");
@@ -366,8 +366,12 @@ cookies.delete("sb-local-provider", { path: "/" });
     ) {
       tokensEl.select();
       tokensEl.setSelectionRange?.(0, tokensEl.value.length);
-      const ok = document.execCommand("copy");
-      showStatus(ok ? "Copied" : "Copy failed");
+      try {
+        const ok = document.execCommand("copy");
+        showStatus(ok ? "Copied" : "Copy failed");
+      } catch (e) {
+        showStatus("Copy failed");
+      }
     } else {
       showStatus("No tokens to copy");
     }

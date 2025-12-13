@@ -1,16 +1,7 @@
 /** @jsxImportSource solid-js */
 
-import {
-  onMount,
-  createSignal,
-  createResource,
-  Show,
-  createEffect,
-  createMemo,
-} from "solid-js";
-// import { Chart, Title, Tooltip, Legend, Colors } from 'chart.js'
-import Chart from "chart.js/auto";
-import { Line, Scatter, Bubble } from "solid-chartjs";
+import { createResource, Show, createMemo } from "solid-js";
+import { Bubble } from "solid-chartjs";
 
 // const getOrCreateTooltip = (chart: any) => {
 //     let tooltipEl = chart.canvas.parentNode.querySelector('div');

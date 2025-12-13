@@ -6,7 +6,7 @@ import eh_worker from "@duckdb/duckdb-wasm/dist/duckdb-browser-eh.worker.js?url"
 import { createContext, useContext, type JSX } from "solid-js";
 
 import { createResource } from "solid-js";
-import type { ResourceReturn, ResourceOptions } from "solid-js";
+import type { ResourceReturn } from "solid-js";
 
 const DuckDBContext =
   // eslint-disable-next-line no-unused-vars
