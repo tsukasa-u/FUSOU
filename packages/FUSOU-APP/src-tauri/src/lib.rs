@@ -5,7 +5,7 @@ use once_cell::sync::OnceCell;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-use kc_api::{database, interface};
+use kc_api::interface;
 use tauri::{Manager, Emitter};
 use tauri_plugin_notification::NotificationExt;
 mod json_parser;
@@ -69,13 +69,15 @@ async fn bootstrap_tokens_on_startup(
                     tracing::debug!(provider, "startup: begin fetch provider token");
                     match auth_manager.fetch_provider_token(provider).await {
                         Ok(Some(token)) => {
-                            if let Err(e) = storage::providers::gdrive::set_refresh_token(
-                                token.to_string(),
-                                provider.to_string(),
-                            ) {
-                                tracing::warn!(provider, error = ?e, "startup: failed to save provider token");
-                            } else {
-                                tracing::info!(provider, "startup: provider refresh token saved");
+                            match storage::CloudProviderFactory::create(provider) {
+                                Ok(mut p) => {
+                                    if let Err(e) = p.initialize(token.to_string()).await {
+                                        tracing::warn!(provider, error = ?e, "startup: provider initialize failed");
+                                    } else {
+                                        tracing::info!(provider, "startup: provider refresh token saved");
+                                    }
+                                }
+                                Err(e) => tracing::warn!(provider, error = %e, "startup: provider factory create failed"),
                             }
                         }
                         Ok(None) => tracing::info!(provider, "startup: no provider token for user"),
@@ -202,11 +204,10 @@ pub async fn run() {
             let pending_dir = roaming_dir.join("pending_uploads");
             let pending_store = Arc::new(PendingStore::new(pending_dir));
             
-            let google_drive_handler = Arc::new(storage::providers::gdrive::GoogleDriveRetryHandler);
             let retry_service = Arc::new(UploadRetryService::new(
                 pending_store.clone(), 
                 auth_manager_for_retry,
-                Some(google_drive_handler)
+                None
             ));
             
             app.manage(pending_store.clone());
