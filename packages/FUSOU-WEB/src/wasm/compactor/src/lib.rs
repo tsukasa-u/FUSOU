@@ -7,6 +7,8 @@ use serde::{Deserialize, Serialize};
 // Types (without #[wasm_bindgen] on struct)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DatasetFileMetadata {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
     pub dataset_id: String,
     pub uploader_id: String,
     pub table_name: String,
@@ -15,6 +17,148 @@ pub struct DatasetFileMetadata {
     pub byte_length: i64,
     pub is_public: bool,
     pub is_compacted: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created_at: Option<String>,
+}
+
+/// Error messages for processing operations
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProcessingError {
+    pub error_type: String,
+    pub message: String,
+}
+
+impl ProcessingError {
+    fn network(msg: impl Into<String>) -> Self {
+        Self { error_type: "NetworkError".to_string(), message: msg.into() }
+    }
+    fn validation(msg: impl Into<String>) -> Self {
+        Self { error_type: "ValidationError".to_string(), message: msg.into() }
+    }
+    fn storage(msg: impl Into<String>) -> Self {
+        Self { error_type: "StorageError".to_string(), message: msg.into() }
+    }
+    fn serialization(msg: impl Into<String>) -> Self {
+        Self { error_type: "SerializationError".to_string(), message: msg.into() }
+    }
+    
+    fn to_js_value(&self) -> JsValue {
+        JsValue::from_str(&format!("{}: {}", self.error_type, self.message))
+    }
+}
+
+/// Validates and processes binary data (Avro or Parquet format)
+/// For MVP: validates non-empty data
+#[wasm_bindgen]
+pub fn validate_parquet_data(data: &[u8]) -> Result<(), JsValue> {
+    if data.is_empty() {
+        return Err(ProcessingError::validation("Input data is empty").to_js_value());
+    }
+    Ok(())
+}
+
+/// Concatenates multiple Parquet binaries into a single binary file
+/// Returns tuple of (concatenated_data, offsets_json)
+#[wasm_bindgen]
+pub fn concatenate_parquet_files(tables_json: &str) -> Result<JsValue, JsValue> {
+    let tables: HashMap<String, Vec<u8>> = serde_json::from_str(tables_json)
+        .map_err(|e| ProcessingError::serialization(format!("Invalid tables JSON: {}", e)).to_js_value())?;
+    
+    let mut concatenated = Vec::new();
+    let mut offsets: HashMap<String, (usize, usize)> = HashMap::new();
+
+    for (table_name, parquet_bytes) in tables {
+        let start_offset = concatenated.len();
+        let byte_length = parquet_bytes.len();
+        
+        concatenated.extend_from_slice(&parquet_bytes);
+        offsets.insert(table_name, (start_offset, byte_length));
+    }
+
+    let result = serde_json::json!({
+        "data": concatenated,
+        "offsets": offsets,
+        "total_bytes": concatenated.len()
+    });
+
+    Ok(serde_json::to_string(&result)
+        .map_err(|e| ProcessingError::serialization(e.to_string()).to_js_value())?
+        .into())
+}
+
+/// Main batch upload function: processes tables, concatenates, and uploads to R2
+/// 
+/// # Arguments
+/// * `tables_json` - JSON string of HashMap<table_name, Vec<u8>>
+/// * `upload_url` - Pre-signed URL for R2 upload
+/// * `uploader_id` - UUID of the user uploading
+/// * `is_public` - Whether the dataset is public
+/// * `dataset_id` - UUID of the dataset
+///
+/// # Returns
+/// JSON string of Vec<DatasetFileMetadata>
+#[wasm_bindgen]
+pub async fn process_and_upload_batch(
+    tables_json: &str,
+    upload_url: &str,
+    uploader_id: &str,
+    is_public: bool,
+    dataset_id: &str,
+) -> Result<String, JsValue> {
+    let tables: HashMap<String, Vec<u8>> = serde_json::from_str(tables_json)
+        .map_err(|e| ProcessingError::serialization(format!("Invalid tables JSON: {}", e)).to_js_value())?;
+
+    if tables.is_empty() {
+        return Err(ProcessingError::validation("No tables provided").to_js_value());
+    }
+
+    // Step 1: Validate each table's data
+    for (table_name, data) in &tables {
+        if data.is_empty() {
+            return Err(ProcessingError::validation(format!("Table '{}' has empty data", table_name)).to_js_value());
+        }
+    }
+
+    // Step 2: Concatenate all Parquet files
+    let mut concatenated = Vec::new();
+    let mut offsets: HashMap<String, (usize, usize)> = HashMap::new();
+
+    for (table_name, parquet_bytes) in &tables {
+        let start_offset = concatenated.len();
+        let byte_length = parquet_bytes.len();
+        
+        concatenated.extend_from_slice(parquet_bytes);
+        offsets.insert(table_name.clone(), (start_offset, byte_length));
+    }
+
+    // Step 3: Upload to R2
+    let file_id = uuid::Uuid::new_v4().to_string();
+    let file_key = format!("raw/{}/{}.bin", dataset_id, file_id);
+
+    upload_to_r2(upload_url, &concatenated).await?;
+
+    // Step 4: Generate metadata
+    let mut metadata_vec = Vec::new();
+    let now = js_sys::Date::new_0().to_iso_string().as_string().unwrap_or_default();
+
+    for (table_name, (start_byte, byte_length)) in offsets {
+        let metadata = DatasetFileMetadata {
+            id: None,
+            dataset_id: dataset_id.to_string(),
+            uploader_id: uploader_id.to_string(),
+            table_name: table_name.clone(),
+            file_path: file_key.clone(),
+            start_byte: start_byte as i64,
+            byte_length: byte_length as i64,
+            is_public,
+            is_compacted: false,
+            created_at: Some(now.clone()),
+        };
+        metadata_vec.push(metadata);
+    }
+
+    serde_json::to_string(&metadata_vec)
+        .map_err(|e| ProcessingError::serialization(e.to_string()).to_js_value())
 }
 
 /// Fetches metadata for a dataset from Supabase
@@ -29,8 +173,8 @@ pub async fn fetch_dataset_metadata(
         supabase_url, dataset_id
     );
 
-    let mut opts = RequestInit::new();
-    opts.method("GET");
+    let opts = RequestInit::new();
+    opts.set_method("GET");
 
     let headers = web_sys::Headers::new()
         .map_err(|_| JsValue::from_str("Failed to create headers"))?;
@@ -97,8 +241,8 @@ pub fn extract_parquet_fragment(
 pub async fn download_from_r2(file_path: &str, r2_url: &str) -> Result<Vec<u8>, JsValue> {
     let url = format!("{}{}", r2_url, file_path);
 
-    let mut opts = RequestInit::new();
-    opts.method("GET");
+    let opts = RequestInit::new();
+    opts.set_method("GET");
 
     let request = Request::new_with_str_and_init(&url, &opts)
         .map_err(|_| JsValue::from_str("Failed to create request"))?;
@@ -131,35 +275,36 @@ pub async fn download_from_r2(file_path: &str, r2_url: &str) -> Result<Vec<u8>, 
 
 /// Uploads a file to R2 with signed URL
 #[wasm_bindgen]
-pub async fn upload_to_r2(signed_url: &str, data: &[u8]) -> Result<String, JsValue> {
-    let mut opts = RequestInit::new();
-    opts.method("PUT");
+pub async fn upload_to_r2(signed_url: &str, data: &[u8]) -> Result<(), JsValue> {
+    let opts = RequestInit::new();
+    opts.set_method("PUT");
 
     let headers = web_sys::Headers::new()
-        .map_err(|_| JsValue::from_str("Failed to create headers"))?;
+        .map_err(|_| ProcessingError::network("Failed to create headers").to_js_value())?;
     
     opts.set_headers(&headers);
-    opts.set_body(Some(&js_sys::Uint8Array::from(data).into()));
+    let body = JsValue::from(js_sys::Uint8Array::from(data));
+    opts.set_body(&body);
 
     let request = Request::new_with_str_and_init(&signed_url, &opts)
-        .map_err(|_| JsValue::from_str("Failed to create request"))?;
+        .map_err(|_| ProcessingError::network("Failed to create request").to_js_value())?;
 
     let window = web_sys::window()
-        .ok_or_else(|| JsValue::from_str("No window object"))?;
+        .ok_or_else(|| ProcessingError::network("No window object").to_js_value())?;
 
     let resp_value = JsFuture::from(window.fetch_with_request(&request))
         .await
-        .map_err(|_| JsValue::from_str("Upload failed"))?;
+        .map_err(|_| ProcessingError::network("Upload failed").to_js_value())?;
 
     let resp: Response = resp_value
         .dyn_into()
-        .map_err(|_| JsValue::from_str("Failed to convert response"))?;
+        .map_err(|_| ProcessingError::network("Failed to convert response").to_js_value())?;
 
     if !resp.ok() {
-        return Err(JsValue::from_str(&format!("Upload error: {}", resp.status())));
+        return Err(ProcessingError::network(format!("Upload error: {}", resp.status())).to_js_value());
     }
 
-    Ok(format!("Uploaded {} bytes", data.len()))
+    Ok(())
 }
 
 /// Deletes a file from R2
@@ -167,8 +312,8 @@ pub async fn upload_to_r2(signed_url: &str, data: &[u8]) -> Result<String, JsVal
 pub async fn delete_from_r2(file_path: &str, r2_url: &str) -> Result<(), JsValue> {
     let url = format!("{}{}", r2_url, file_path);
 
-    let mut opts = RequestInit::new();
-    opts.method("DELETE");
+    let opts = RequestInit::new();
+    opts.set_method("DELETE");
 
     let request = Request::new_with_str_and_init(&url, &opts)
         .map_err(|_| JsValue::from_str("Failed to create request"))?;
@@ -205,8 +350,8 @@ pub async fn update_supabase_metadata(
         supabase_url, dataset_id, table_name
     );
 
-    let mut opts = RequestInit::new();
-    opts.method("POST");
+    let opts = RequestInit::new();
+    opts.set_method("POST");
 
     let headers = web_sys::Headers::new()
         .map_err(|_| JsValue::from_str("Failed to create headers"))?;
@@ -218,7 +363,8 @@ pub async fn update_supabase_metadata(
         .map_err(|_| JsValue::from_str("Failed to set content-type"))?;
     
     opts.set_headers(&headers);
-    opts.set_body(Some(&js_sys::JsValue::from_str(metadata_json)));
+    let body = JsValue::from_str(metadata_json);
+    opts.set_body(&body);
 
     let request = Request::new_with_str_and_init(&url, &opts)
         .map_err(|_| JsValue::from_str("Failed to create request"))?;
@@ -334,10 +480,11 @@ pub async fn compact_single_dataset(
             .and_then(|v| v.as_string()).unwrap_or_else(|| "".to_string()));
         let signed_url = if !sign_api.is_empty() {
             // Call sign API
-            let mut init = RequestInit::new();
-            init.method("POST");
+            let init = RequestInit::new();
+            init.set_method("POST");
             let payload = serde_json::json!({"path": output_path, "operation": "put"});
-            init.set_body(Some(&JsValue::from_str(&payload.to_string())));
+            let body = JsValue::from_str(&payload.to_string());
+            init.set_body(&body);
             let req = Request::new_with_str_and_init(&sign_api, &init).map_err(|_| JsValue::from_str("sign req"))?;
             let win = web_sys::window().ok_or_else(|| JsValue::from_str("No window"))?;
             let resp_value = JsFuture::from(win.fetch_with_request(&req)).await.map_err(|_| JsValue::from_str("sign fetch"))?;
