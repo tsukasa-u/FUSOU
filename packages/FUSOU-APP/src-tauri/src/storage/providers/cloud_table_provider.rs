@@ -2,11 +2,11 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use kc_api::database::batch_upload::BatchUploadBuilder;
-use kc_api::database::table::{GetDataTableEncode, PortTableEncode, PORT_TABLE_NAMES};
+use kc_api::database::table::{GetDataTableEncode, PortTableEncode};
 use uuid::Uuid;
 
 use crate::storage::cloud_provider_trait::{CloudProviderFactory, CloudStorageProvider};
-use crate::storage::common::{get_all_get_data_tables, get_all_port_tables, generate_master_data_filename, generate_port_table_filename, integrate_by_table_name};
+use crate::storage::common::{get_all_get_data_tables, get_all_port_tables, generate_master_data_filename, generate_port_table_filename};
 use crate::storage::constants::{GOOGLE_DRIVE_PROVIDER_NAME, MASTER_DATA_FOLDER_NAME, PERIOD_ROOT_FOLDER_NAME, TRANSACTION_DATA_FOLDER_NAME};
 use crate::storage::service::{StorageError, StorageFuture, StorageProvider};
 use fusou_upload::{PendingStore, UploadContext, UploadRetryService};
@@ -269,84 +269,17 @@ impl StorageProvider for CloudTableStorageProvider {
 
     fn integrate_port_table<'a>(
         &'a self,
-        period_tag: &'a str,
-        page_size: i32,
+        _period_tag: &'a str,
+        _page_size: i32,
     ) -> StorageFuture<'a, Result<(), StorageError>> {
-        // page_size is unused in this implementation because listing is unpaged.
-        let _ = page_size;
         Box::pin(async move {
-            let txn_root = Self::transaction_root(period_tag);
-            // If the root doesn't exist, nothing to integrate.
-            if let Err(e) = self.ensure_folder(&txn_root).await {
-                tracing::warn!(error = %e, "transaction root missing; skipping integration");
-                return Ok(());
-            }
-
-            let map_folders = match self.cloud.list_files(&txn_root).await {
-                Ok(list) => list,
-                Err(e) => {
-                    tracing::warn!(error = %e, "failed to list map folders for integration");
-                    return Ok(());
-                }
-            };
-
-            for map_folder_name in map_folders {
-                let map_folder = format!("{txn_root}/{map_folder_name}");
-                let file_name = generate_port_table_filename();
-                let folder_names = PORT_TABLE_NAMES.clone();
-
-                for table_name in folder_names {
-                    let table_dir = format!("{map_folder}/{table_name}");
-                    let file_list = match self.cloud.list_files(&table_dir).await {
-                        Ok(list) => list,
-                        Err(e) => {
-                            tracing::warn!(table_name, error = %e, "failed to list table folder");
-                            continue;
-                        }
-                    };
-
-                    if file_list.len() <= 1 {
-                        continue;
-                    }
-
-                    let mut contents = Vec::new();
-                    for fname in file_list.iter() {
-                        let remote_path = format!("{table_dir}/{fname}");
-                        match self.download_bytes(&remote_path).await {
-                            Ok(bytes) => contents.push(bytes),
-                            Err(e) => {
-                                tracing::warn!(remote_path, error = %e, "failed to download for integration");
-                                continue;
-                            }
-                        }
-                    }
-
-                    if contents.is_empty() {
-                        continue;
-                    }
-
-                    match integrate_by_table_name(&table_name, contents) {
-                        Ok(integrated) => {
-                            if integrated.is_empty() {
-                                continue;
-                            }
-                            let remote_path = format!("{table_dir}/{file_name}");
-                            if let Err(e) = self.upload_bytes(&remote_path, &integrated).await {
-                                tracing::warn!(table_name, error = %e, "failed to upload integrated file");
-                                continue;
-                            }
-                            for fname in file_list {
-                                let remote_path = format!("{table_dir}/{fname}");
-                                self.delete_file(&remote_path).await;
-                            }
-                        }
-                        Err(e) => {
-                            tracing::warn!(table_name, error = %e, "integration failed");
-                            continue;
-                        }
-                    }
-                }
-            }
+            // Integration is not needed with batch upload approach
+            // Each write_port_table() already uploads all tables as a single
+            // concatenated Parquet file with metadata, so there are no
+            // multiple files to integrate.
+            tracing::debug!(
+                "CloudTableStorageProvider: Integration not needed (using batch upload)"
+            );
             Ok(())
         })
     }
