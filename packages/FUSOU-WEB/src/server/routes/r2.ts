@@ -1,5 +1,4 @@
 import { Hono } from 'hono';
-import crypto from 'crypto';
 import type { Bindings } from '../types';
 import { CORS_HEADERS } from '../constants';
 
@@ -17,15 +16,23 @@ const app = new Hono<{ Bindings: Bindings }>();
 // OPTIONS (CORS)
 app.options('*', (_c) => new Response(null, { status: 204, headers: CORS_HEADERS }));
 
-function hmac(key: Buffer, data: string) {
-  return crypto.createHmac('sha256', key).update(data, 'utf8').digest();
+async function hmac(key: Uint8Array, data: string): Promise<Uint8Array> {
+  const keyObj = await crypto.subtle.importKey('raw', key, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const signature = await crypto.subtle.sign('HMAC', keyObj, new TextEncoder().encode(data));
+  return new Uint8Array(signature);
 }
 
-function sha256Hex(data: string | Buffer) {
-  return crypto.createHash('sha256').update(data).digest('hex');
+function bytesToHex(bytes: Uint8Array): string {
+  return Array.from(bytes).map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-function signUrl({
+async function sha256Hex(data: string | Uint8Array): Promise<string> {
+  const bytes = typeof data === 'string' ? new TextEncoder().encode(data) : data;
+  const hash = await crypto.subtle.digest('SHA-256', bytes);
+  return bytesToHex(new Uint8Array(hash));
+}
+
+async function signUrl({
   method,
   host,
   bucket,
@@ -43,7 +50,7 @@ function signUrl({
   secretAccessKey: string;
   region: string;
   expires: number;
-}) {
+}): Promise<string> {
   const now = new Date();
   const amzDate = now.toISOString().replace(/[-:]/g, '').slice(0, 15) + 'Z';
   const dateStamp = amzDate.slice(0, 8);
@@ -62,21 +69,24 @@ function signUrl({
 
   const canonicalHeaders = `host:${host}\n`;
   const signedHeaders = 'host';
-  const payloadHash = sha256Hex('');
+  const payloadHash = await sha256Hex('');
 
   const canonicalRequest = [method, canonicalUri, canonicalQuery, canonicalHeaders, signedHeaders, payloadHash].join(
     '\n'
   );
 
-  const stringToSign = [algorithm, amzDate, credentialScope, sha256Hex(canonicalRequest)].join('\n');
+  const stringToSign = [algorithm, amzDate, credentialScope, await sha256Hex(canonicalRequest)].join('\n');
 
-  const kDate = hmac(Buffer.from('AWS4' + secretAccessKey, 'utf8'), dateStamp);
-  const kRegion = hmac(kDate, region);
-  const kService = hmac(kRegion, service);
-  const kSigning = hmac(kService, 'aws4_request');
-  const signature = crypto.createHmac('sha256', kSigning).update(stringToSign).digest('hex');
+  const kDate = await hmac(new TextEncoder().encode('AWS4' + secretAccessKey), dateStamp);
+  const kRegion = await hmac(kDate, region);
+  const kService = await hmac(kRegion, service);
+  const kSigning = await hmac(kService, 'aws4_request');
 
-  const signedQuery = `${canonicalQuery}&X-Amz-Signature=${signature}`;
+  const keyObj = await crypto.subtle.importKey('raw', kSigning, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const signature = await crypto.subtle.sign('HMAC', keyObj, new TextEncoder().encode(stringToSign));
+  const signatureHex = bytesToHex(new Uint8Array(signature));
+
+  const signedQuery = `${canonicalQuery}&X-Amz-Signature=${signatureHex}`;
   const url = `https://${host}${canonicalUri}?${signedQuery}`;
   return url;
 }
@@ -98,7 +108,7 @@ app.post('/sign', async (c) => {
     const host = bindings.R2_HOST || 'ACCOUNT_ID.r2.cloudflarestorage.com';
     const expires = Number(bindings.R2_SIGN_EXPIRES || '300');
 
-    const url = signUrl({
+    const url = await signUrl({
       method: body.operation === 'put' ? 'PUT' : 'GET',
       host,
       bucket,
