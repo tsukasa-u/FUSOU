@@ -2,7 +2,7 @@ use kc_api::database::table::{GetDataTableEncode, PortTableEncode};
 use std::{future::Future, pin::Pin, sync::Arc};
 use tokio::sync::{Mutex, OnceCell};
 
-use crate::storage::providers::{GoogleDriveProvider, LocalFileSystemProvider};
+use crate::storage::providers::{CloudTableStorageProvider, LocalFileSystemProvider, R2StorageProvider};
 use fusou_upload::{PendingStore, UploadRetryService};
 
 pub type StorageFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
@@ -81,7 +81,10 @@ impl StorageService {
         let mut providers: Vec<Arc<dyn StorageProvider>> = Vec::new();
 
         if database_config.get_allow_data_to_cloud() {
-            providers.push(Arc::new(GoogleDriveProvider::new(pending_store, retry_service)));
+            match CloudTableStorageProvider::try_new_google(pending_store.clone(), retry_service.clone()) {
+                Ok(provider) => providers.push(Arc::new(provider)),
+                Err(err) => tracing::error!("Failed to initialize cloud storage provider (google): {err}"),
+            }
         }
 
         if database_config.get_allow_data_to_local() {
@@ -91,6 +94,11 @@ impl StorageService {
                     tracing::error!("Failed to initialize local storage provider: {err}");
                 }
             }
+        }
+
+        // Add R2 storage provider when shared cloud sync is enabled
+        if database_config.get_allow_data_to_shared_cloud() && database_config.r2.get_enable() {
+            providers.push(Arc::new(R2StorageProvider::new(pending_store, retry_service)));
         }
 
         if providers.is_empty() {
