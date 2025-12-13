@@ -1,15 +1,11 @@
 // Google Drive API operations (raw functions with retry logic)
 
 use super::client::DriveClient;
-use super::retry_handler::GoogleDriveOperation;
 use crate::storage::constants::{
     GOOGLE_DRIVE_FOLDER_MIME_TYPE, GOOGLE_DRIVE_TRASHED_FILTER,
 };
 use http_body_util::BodyExt;
 use tokio::time::sleep;
-use std::collections::HashMap;
-use std::sync::Arc;
-use fusou_upload::{PendingStore, UploadRetryService, UploadContext};
 
 pub fn backoff_delay(attempt: u32) -> tokio::time::Duration {
     // 200ms, 500ms, 1s, 2s, 4s (cap)
@@ -434,100 +430,4 @@ pub async fn check_or_create_folder_hierarchical(
     return folder_id;
 }
 
-// Wrapper Struct with error handling
-
-pub struct GoogleDriveWrapper {
-    pub hub: DriveClient,
-    pending_store: Arc<PendingStore>,
-    retry_service: Arc<UploadRetryService>,
-}
-
-impl GoogleDriveWrapper {
-    pub fn new(hub: DriveClient, pending_store: Arc<PendingStore>, retry_service: Arc<UploadRetryService>) -> Self {
-        Self { hub, pending_store, retry_service }
-    }
-
-    async fn handle_error(
-        &self,
-        operation: GoogleDriveOperation,
-        data: &[u8],
-        err: &google_drive3::Error
-    ) {
-        if let google_drive3::Error::Failure(resp) = err {
-            let status = resp.status();
-            if status == 401 || status == 403 {
-                let context_json = serde_json::to_value(&operation).unwrap();
-                let upload_context = UploadContext::Custom(context_json);
-                let context_str = serde_json::to_string(&upload_context).unwrap();
-                
-                let endpoint = "google_drive";
-                let headers = HashMap::new();
-                
-                if let Err(e) = self.pending_store.save_pending(endpoint, &headers, data, Some(context_str)) {
-                    tracing::error!("Failed to save pending Google Drive operation: {}", e);
-                } else {
-                    tracing::info!("Saved pending Google Drive operation due to auth error");
-                    self.retry_service.trigger_retry().await;
-                }
-            }
-        }
-    }
-
-    pub async fn create_file(
-        &mut self,
-        file_name: String,
-        mime_type: String,
-        content: &[u8],
-        folder_id: Option<String>,
-    ) -> Option<String> {
-        match create_file_raw(&mut self.hub, file_name.clone(), mime_type.clone(), content, folder_id.clone()).await {
-            Ok(id) => Some(id),
-            Err(e) => {
-                let op = GoogleDriveOperation::CreateFile {
-                    file_name,
-                    mime_type,
-                    folder_id,
-                };
-                self.handle_error(op, content, &e).await;
-                None
-            }
-        }
-    }
-
-    pub async fn create_or_replace_file(
-        &mut self,
-        file_name: String,
-        mime_type: String,
-        content: &[u8],
-        folder_id: Option<String>,
-    ) -> Option<String> {
-        match create_or_replace_file_raw(&mut self.hub, file_name.clone(), mime_type.clone(), content, folder_id.clone()).await {
-            Ok(id) => Some(id),
-            Err(e) => {
-                let op = GoogleDriveOperation::CreateOrReplaceFile {
-                    file_name,
-                    mime_type,
-                    folder_id,
-                };
-                self.handle_error(op, content, &e).await;
-                None
-            }
-        }
-    }
-
-    pub async fn delete_file(
-        &mut self,
-        file_id: String,
-    ) -> bool {
-        match delete_file_raw(&mut self.hub, file_id.clone()).await {
-            Ok(_) => true,
-            Err(e) => {
-                let op = GoogleDriveOperation::DeleteFile {
-                    file_id,
-                };
-                self.handle_error(op, &[], &e).await;
-                false
-            }
-        }
-    }
-}
+// End of public API functions
