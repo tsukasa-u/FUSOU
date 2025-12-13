@@ -14,6 +14,15 @@ interface CompactResponse {
   compacted_tables?: number;
 }
 
+/**
+ * Compaction service routes
+ * Triggers Parquet fragment consolidation via WASM orchestration
+ * Endpoints:
+ *   POST /compact - trigger compaction for a dataset
+ *   GET /compact/trigger - manual trigger endpoint
+ *   GET /compact/status - health check
+ */
+
 // OPTIONS (CORS)
 app.options('*', (_c) => new Response(null, { status: 204, headers: CORS_HEADERS }));
 
@@ -36,7 +45,7 @@ async function supabaseUpdate(
   return resp.ok;
 }
 
-// POST /compact - trigger compaction
+// POST /compact - trigger compaction for a dataset via WASM
 app.post('/compact', async (c) => {
   try {
     const body = await c.req.json<CompactRequest>().catch(() => null);
@@ -145,7 +154,7 @@ app.post('/compact', async (c) => {
   }
 });
 
-// GET /compact/trigger - manually trigger compaction
+// GET /compact/trigger - manually trigger compaction for a specific dataset
 app.get('/compact/trigger', async (c) => {
   try {
     const dataset_id = c.req.query('dataset_id');
@@ -183,7 +192,7 @@ app.get('/compact/trigger', async (c) => {
   }
 });
 
-// GET /compact/status - health check
+// GET /compact/status - health check for compaction service
 app.get('/compact/status', (c) => {
   return c.json(
     {

@@ -5,6 +5,15 @@ import { CORS_HEADERS } from '../constants';
 
 const app = new Hono<{ Bindings: Bindings }>();
 
+/**
+ * R2 signing service routes
+ * Generates pre-signed URLs for secure uploads/downloads to Cloudflare R2
+ * Uses AWS SigV4 algorithm for S3-compatible signing
+ * Endpoints:
+ *   POST /sign - generate presigned URL with SigV4 signature
+ *   GET /health - health check
+ */
+
 // OPTIONS (CORS)
 app.options('*', (_c) => new Response(null, { status: 204, headers: CORS_HEADERS }));
 
@@ -72,7 +81,7 @@ function signUrl({
   return url;
 }
 
-// POST /sign - generate presigned URL for R2
+// POST /sign - generate SigV4-signed presigned URL for R2 upload/download
 app.post('/sign', async (c) => {
   try {
     const body = await c.req.json<{ path: string; operation: 'put' | 'get' }>().catch(() => null);
@@ -107,7 +116,7 @@ app.post('/sign', async (c) => {
   }
 });
 
-// GET /health - health check
+// GET /health - health check for R2 signing service
 app.get('/health', (c) => {
   return c.json({ status: 'ok' });
 });
