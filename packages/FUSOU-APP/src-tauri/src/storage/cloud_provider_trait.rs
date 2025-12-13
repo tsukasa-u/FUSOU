@@ -4,6 +4,8 @@ use std::future::Future;
 use std::path::Path;
 use std::pin::Pin;
 
+use crate::storage::providers::GoogleDriveCloudStorageProvider;
+
 /// Common interface for cloud storage providers (Google Drive, iCloud, Dropbox, etc.)
 pub trait CloudStorageProvider: Send + Sync {
     /// Provider name (google, icloud, dropbox, onedrive, etc.)
@@ -58,10 +60,7 @@ impl CloudProviderFactory {
     /// Create a provider instance by name
     pub fn create(provider_name: &str) -> Result<Box<dyn CloudStorageProvider>, String> {
         match provider_name.to_lowercase().as_str() {
-            "google" => {
-                // Future: GoogleDriveProvider implements CloudStorageProvider
-                Err("Google Drive provider not yet migrated to trait".to_string())
-            }
+            "google" => Ok(Box::new(GoogleDriveCloudStorageProvider::default())),
             "dropbox" => {
                 // Future: DropboxProvider implements CloudStorageProvider
                 Err("Dropbox provider not yet implemented".to_string())
@@ -80,6 +79,7 @@ impl CloudProviderFactory {
     
     /// List all supported providers
     pub fn supported_providers() -> Vec<&'static str> {
-        vec!["google", "dropbox", "icloud", "onedrive"]
+        // vec!["google", "dropbox", "icloud", "onedrive"]
+        vec!["google"]
     }
 }
