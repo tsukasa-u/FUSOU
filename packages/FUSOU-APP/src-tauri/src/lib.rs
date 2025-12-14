@@ -43,6 +43,7 @@ async fn bootstrap_tokens_on_startup(
 ) {
     // Try to load existing session from storage
     if let Ok(Some(session)) = storage.load_session().await {
+        tracing::info!("startup: session loaded from storage");
         // Verify token validity by attempting to get a valid access token
         // This will automatically refresh if needed, or fail if refresh token is invalid
         match auth_manager.get_access_token().await {
@@ -67,15 +68,17 @@ async fn bootstrap_tokens_on_startup(
                 tracing::info!(?supported_providers, "startup: fetching provider refresh tokens");
 
                 for provider in supported_providers {
-                    tracing::debug!(provider, "startup: begin fetch provider token");
+                    tracing::info!(provider, "startup: begin fetch provider token");
                     match auth_manager.fetch_provider_token(provider).await {
                         Ok(Some(token)) => {
+                            tracing::info!(provider, "startup: fetched provider token successfully");
                             match storage::CloudProviderFactory::create(provider) {
                                 Ok(mut p) => {
+                                    tracing::info!(provider, "startup: created provider instance");
                                     if let Err(e) = p.initialize(token.to_string()).await {
                                         tracing::warn!(provider, error = ?e, "startup: provider initialize failed");
                                     } else {
-                                        tracing::info!(provider, "startup: provider refresh token saved");
+                                        tracing::info!(provider, "startup: provider initialized successfully");
                                     }
                                 }
                                 Err(e) => tracing::warn!(provider, error = %e, "startup: provider factory create failed"),
@@ -99,7 +102,7 @@ async fn bootstrap_tokens_on_startup(
             }
         }
     } else {
-        tracing::info!("startup: no existing session found - authentication required");
+        tracing::warn!("startup: no existing session found - authentication required");
 
         // Send notification to user
         notify::show(&app_handle_for_notification, "Authentication Required", "Please sign in with your Supabase account to use FUSOU");
@@ -215,13 +218,13 @@ pub async fn run() {
             let storage_for_bootstrap = storage.clone();
             let auth_manager_for_bootstrap = auth_manager.clone();
 
-            tokio::task::block_in_place(|| {
-                tokio::runtime::Handle::current().block_on(bootstrap_tokens_on_startup(
+            tauri::async_runtime::spawn(async move {
+                bootstrap_tokens_on_startup(
                     app_handle,
                     app_handle_for_notification,
                     storage_for_bootstrap,
                     auth_manager_for_bootstrap,
-                ))
+                ).await;
             });
             Ok(())
         })

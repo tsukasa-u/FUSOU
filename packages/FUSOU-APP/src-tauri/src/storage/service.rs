@@ -80,16 +80,30 @@ impl StorageService {
         let database_config = app_configs.database;
         let mut providers: Vec<Arc<dyn StorageProvider>> = Vec::new();
 
+        tracing::info!("Resolving storage providers: cloud={}, local={}, shared_cloud={}", 
+            database_config.get_allow_data_to_cloud(),
+            database_config.get_allow_data_to_local(),
+            database_config.get_allow_data_to_shared_cloud()
+        );
+
         if database_config.get_allow_data_to_cloud() {
+            tracing::info!("Attempting to initialize Google Drive storage provider");
             match CloudTableStorageProvider::try_new_google(pending_store.clone(), retry_service.clone()) {
-                Ok(provider) => providers.push(Arc::new(provider)),
+                Ok(provider) => {
+                    tracing::info!("Google Drive storage provider initialized successfully");
+                    providers.push(Arc::new(provider));
+                },
                 Err(err) => tracing::error!("Failed to initialize cloud storage provider (google): {err}"),
             }
         }
 
         if database_config.get_allow_data_to_local() {
+            tracing::info!("Attempting to initialize local filesystem storage provider");
             match LocalFileSystemProvider::try_new(database_config.local.get_output_directory()) {
-                Ok(provider) => providers.push(Arc::new(provider)),
+                Ok(provider) => {
+                    tracing::info!("Local filesystem storage provider initialized successfully");
+                    providers.push(Arc::new(provider));
+                },
                 Err(err) => {
                     tracing::error!("Failed to initialize local storage provider: {err}");
                 }
@@ -98,12 +112,15 @@ impl StorageService {
 
         // Add R2 storage provider when shared cloud sync is enabled
         if database_config.get_allow_data_to_shared_cloud() && database_config.r2.get_enable() {
+            tracing::info!("Initializing R2 storage provider");
             providers.push(Arc::new(R2StorageProvider::new(pending_store, retry_service)));
         }
 
         if providers.is_empty() {
+            tracing::warn!("No storage providers initialized - storage disabled");
             None
         } else {
+            tracing::info!("Storage service initialized with {} provider(s)", providers.len());
             Some(StorageService {
                 providers: Arc::new(providers),
             })

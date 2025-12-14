@@ -29,7 +29,8 @@ use fusou_upload::{PendingStore, Uploader, UploadRequest, UploadContext, UploadR
 use reqwest::StatusCode;
 
 static ASSET_SYNC_HANDLE: OnceLock<JoinHandle<()>> = OnceLock::new();
-static ASSET_SYNC_QUEUE: OnceLock<UnboundedSender<PathBuf>> = OnceLock::new();
+// Phase 2: Changed from UnboundedSender to bounded mpsc::Sender with capacity 100
+static ASSET_SYNC_QUEUE: OnceLock<mpsc::Sender<PathBuf>> = OnceLock::new();
 static PROCESSED_KEYS: Lazy<DashSet<String>> = Lazy::new(DashSet::new);
 static SUPABASE_AUTH_READY: AtomicBool = AtomicBool::new(false);
 static SUPABASE_WAITING_LOGGED: AtomicBool = AtomicBool::new(false);
@@ -45,6 +46,8 @@ const MIN_SCAN_INTERVAL_SECS: u64 = 10;
 const PERIOD_CACHE_FALLBACK_SECS: u64 = 24 * 60 * 60;
 const REMOTE_KEYS_CACHE_FALLBACK_SECS: u64 = 60 * 60;
 const REMOTE_KEYS_REFRESH_MAX_JITTER_MS: u64 = 5_000;
+// Phase 2: Queue capacity limit for backpressure handling
+const ASSET_SYNC_QUEUE_CAPACITY: usize = 100;
 
 #[derive(Debug, Clone)]
 struct ExistingKeysError {
@@ -199,7 +202,8 @@ pub fn start(
     let pending_store = Arc::new(PendingStore::new(pending_dir));
     let _ = PENDING_STORE.set(pending_store.clone());
 
-    let (tx, rx) = mpsc::unbounded_channel();
+    // Phase 2: Use bounded channel instead of unbounded for backpressure handling
+    let (tx, rx) = mpsc::channel(ASSET_SYNC_QUEUE_CAPACITY);
     let _ = ASSET_SYNC_QUEUE.set(tx);
 
     let settings = Arc::new(init);
@@ -224,16 +228,33 @@ pub fn start(
     Ok(())
 }
 
+// Phase 2: Implement backpressure handling with try_send
 pub fn notify_new_asset(path: PathBuf) {
     if let Some(queue) = ASSET_SYNC_QUEUE.get() {
-        let _ = queue.send(path);
+        match queue.try_send(path.clone()) {
+            Ok(()) => {
+                tracing::debug!(path = ?path, "Asset queued for sync");
+            }
+            Err(mpsc::error::TrySendError::Full(_)) => {
+                // Queue is full - backpressure activated
+                // Asset is dropped, HTTP handler continues without blocking
+                tracing::warn!(
+                    path = ?path,
+                    "asset sync queue full, dropping asset: backpressure activated"
+                );
+            }
+            Err(mpsc::error::TrySendError::Closed(_)) => {
+                // Worker is not running - skip silently
+                tracing::debug!(path = ?path, "asset sync worker not running, skipping notify");
+            }
+        }
     }
 }
 
 async fn run_worker(
     settings: Arc<AssetSyncInit>,
     auth_manager: Arc<AuthManager<FileStorage>>,
-    mut rx: UnboundedReceiver<PathBuf>,
+    mut rx: mpsc::Receiver<PathBuf>,
     pending_store: Arc<PendingStore>,
 ) -> Result<(), String> {
     let client = build_client()

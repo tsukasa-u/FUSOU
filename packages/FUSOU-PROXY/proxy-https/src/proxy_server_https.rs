@@ -129,7 +129,11 @@ fn log_response(
                     let parent = Path::new("kcsapi");
                     let path_parent = path_log.join(parent);
                     if !path_parent.exists() {
-                        fs::create_dir_all(path_parent).expect_or_log("Failed to create directory");
+                        // Phase 3: Use async directory creation
+                        if let Err(e) = tokio::fs::create_dir_all(&path_parent).await {
+                            tracing::error!("Failed to create kcsapi directory: {}", e);
+                            return;
+                        }
                     }
 
                     // let time_stamped = format!(
@@ -152,15 +156,20 @@ fn log_response(
                     );
                     let metadata_buffer = metadata_string.as_bytes();
                     let combined_buffer = [metadata_buffer, buffer.as_slice()].concat();
-                    fs::write(path_log.join(Path::new(&time_formated)), combined_buffer)
-                        .expect_or_log("Failed to write file");
+                    // Phase 3: Use async file I/O (non-blocking)
+                    if let Err(e) = tokio::fs::write(path_log.join(Path::new(&time_formated)), combined_buffer).await {
+                        tracing::error!("Failed to write kcsapi file: {}", e);
+                    }
                 } else {
                     let path_removed = uri_path.as_str().replacen("/", "", 1);
                     if let Some(parent) = Path::new(path_removed.as_str()).parent() {
                         let path_parent = path_log.join(parent);
                         if !path_parent.exists() {
-                            fs::create_dir_all(path_parent)
-                                .expect_or_log("Failed to create directory");
+                            // Phase 3: Use async directory creation (non-blocking)
+                            if let Err(e) = tokio::fs::create_dir_all(path_parent).await {
+                                tracing::error!("Failed to create directory: {}", e);
+                                return;
+                            }
                         }
                     }
 
@@ -177,15 +186,19 @@ fn log_response(
                                 buffer = body.clone();
                             }
                         }
-                        fs::write(&file_log_path, buffer).expect_or_log("Failed to write file");
+                        // Phase 3: Use async file I/O (non-blocking)
+                        if let Err(e) = tokio::fs::write(&file_log_path, buffer).await {
+                            tracing::error!("Failed to write json file: {}", e);
+                        }
                     } else {
-                        fs::write(&file_log_path, body.clone())
-                            .expect_or_log("Failed to write file");
+                        // Phase 3: Use async file I/O (non-blocking)
+                        if let Err(e) = tokio::fs::write(&file_log_path, body.clone()).await {
+                            tracing::error!("Failed to write file: {}", e);
+                        }
                     }
 
+                    // Phase 2: Non-blocking asset sync notification with backpressure handling
                     asset_sync::notify_new_asset(file_log_path_for_sync);
-
-                    // if !file_log_path.exists() {
                     //     fs::write(file_log_path, body.clone().clone())
                     //         .expect_or_log("Failed to write file");
                     // } else {
@@ -476,12 +489,12 @@ pub fn serve_proxy(
     log_save_path: String,
     ca_save_path: String,
     file_prefix: String,
-    auth_manager: Arc<AuthManager<FileStorage>>,
+    _auth_manager: Arc<AuthManager<FileStorage>>,
 ) -> Result<SocketAddr, Box<dyn std::error::Error>> {
     setup_default_crypto_provider();
 
     let configs = configs::get_user_configs_for_proxy();
-    let app_configs = configs::get_user_configs_for_app();
+    let _app_configs = configs::get_user_configs_for_app();
     let allow_save_api_requests = configs.get_allow_save_api_requests();
     let allow_save_api_responses = configs.get_allow_save_api_responses();
     let allow_save_resources = configs.get_allow_save_resources();
@@ -570,25 +583,37 @@ pub fn serve_proxy(
         log_save_path.clone()
     };
 
-    if app_configs.asset_sync.get_enable() {
-        match asset_sync::AssetSyncInit::from_configs(
-            &app_configs.asset_sync,
-            save_path.clone(),
-            if file_prefix.trim().is_empty() {
-                None
-            } else {
-                Some(file_prefix.clone())
-            },
-        ) {
-            Ok(init) => {
-                if let Err(err) = asset_sync::start(init, auth_manager.clone()) {
-                    tracing::warn!("failed to start asset sync: {}", err);
+    // Phase 1: Launch asset_sync in independent tokio task (non-blocking)
+    // This prevents asset_sync initialization from blocking the proxy's main handler
+    if _app_configs.asset_sync.get_enable() {
+        let auth_manager_clone = _auth_manager.clone();
+        let save_path_clone = save_path.clone();
+        let file_prefix_clone = file_prefix.clone();
+        let app_configs_clone = _app_configs.clone();
+        
+        tokio::spawn(async move {
+            match asset_sync::AssetSyncInit::from_configs(
+                &app_configs_clone.asset_sync,
+                save_path_clone,
+                if file_prefix_clone.trim().is_empty() {
+                    None
+                } else {
+                    Some(file_prefix_clone)
+                },
+            ) {
+                Ok(init) => {
+                    tracing::info!("Starting asset sync worker in background task");
+                    if let Err(err) = asset_sync::start(init, auth_manager_clone) {
+                        tracing::warn!("failed to start asset sync: {}", err);
+                    }
+                }
+                Err(err) => {
+                    tracing::warn!("asset sync disabled due to invalid configuration: {}", err);
                 }
             }
-            Err(err) => {
-                tracing::warn!("asset sync disabled due to invalid configuration: {}", err);
-            }
-        }
+        });
+    } else {
+        tracing::info!("asset sync disabled in configuration");
     }
 
     let server_proxy = Proxy::builder()

@@ -195,7 +195,7 @@ impl CloudStorageProvider for GoogleDriveCloudStorageProvider {
             };
 
             let query = format!(
-                "{trash_filter} and '{folder_id}' in parents",
+                "mimeType!='application/vnd.google-apps.folder' and {trash_filter} and '{folder_id}' in parents",
                 trash_filter = crate::storage::constants::GOOGLE_DRIVE_TRASHED_FILTER
             );
 
@@ -218,6 +218,53 @@ impl CloudStorageProvider for GoogleDriveCloudStorageProvider {
                 .collect();
 
             Ok(files)
+        })
+    }
+
+    fn list_folders(
+        &self,
+        remote_path: &str,
+    ) -> Pin<Box<dyn Future<Output = Result<Vec<String>, Box<dyn std::error::Error>>> + Send + '_>> {
+        let remote_path_owned = remote_path.to_string();
+        Box::pin(async move {
+            let mut hub = self.build_client().await?;
+
+            let trimmed = remote_path_owned.trim_matches('/');
+            let folders: Vec<String> = if trimmed.is_empty() {
+                Vec::new()
+            } else {
+                trimmed.split('/').filter(|p| !p.is_empty()).map(|p| p.to_string()).collect()
+            };
+
+            let folder_id = match self.resolve_folder(&mut hub, &folders, false).await? {
+                Some(id) => id,
+                None => return Ok(Vec::new()),
+            };
+
+            let query = format!(
+                "mimeType='application/vnd.google-apps.folder' and {trash_filter} and '{folder_id}' in parents",
+                trash_filter = crate::storage::constants::GOOGLE_DRIVE_TRASHED_FILTER
+            );
+
+            let result = hub
+                .files()
+                .list()
+                .q(&query)
+                .param("fields", "files(id,name)")
+                .page_size(100)
+                .doit()
+                .await
+                .map_err(|e| format!("failed to list folders: {e:?}"))?;
+
+            let folder_names = result
+                .1
+                .files
+                .unwrap_or_default()
+                .into_iter()
+                .filter_map(|f| f.name)
+                .collect();
+
+            Ok(folder_names)
         })
     }
 

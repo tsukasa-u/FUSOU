@@ -247,54 +247,194 @@ impl AvroToParquetConverter {
 
     /// Create a RecordBatch from Avro values
     ///
-    /// This is a simplified implementation for MVP.
-    /// For production, implement proper type handling for all fields.
+    /// Converts Avro records to Arrow arrays with proper type handling.
+    /// Each field is converted based on its Arrow schema type.
     fn create_record_batch(
         &self,
         records: &[apache_avro::types::Value],
         schema: Arc<Schema>,
     ) -> ConversionResult<RecordBatch> {
-        use arrow::array::{StringBuilder, ArrayRef};
-        use apache_avro::types::Value;
-
         if records.is_empty() {
             return Err(ConversionError::ValidationError(
                 "Cannot create RecordBatch from empty records".to_string(),
             ));
         }
 
-        // For MVP: Convert all fields to strings
-        // In production: Handle each field type properly based on schema
-        let mut columns: Vec<ArrayRef> = Vec::new();
+        let mut columns: Vec<arrow::array::ArrayRef> = Vec::new();
 
         for field in schema.fields() {
-            let mut string_builder = StringBuilder::new();
-            
-            for record in records {
-                if let Value::Record(fields) = record {
-                    let field_value = fields
-                        .iter()
-                        .find(|(name, _)| name == field.name())
-                        .map(|(_, value)| value);
-
-                    match field_value {
-                        Some(value) => {
-                            string_builder.append_value(format!("{:?}", value));
-                        }
-                        None => {
-                            string_builder.append_null();
-                        }
-                    }
-                } else {
-                    string_builder.append_null();
-                }
-            }
-
-            columns.push(Arc::new(string_builder.finish()));
+            let column = self.build_column_for_field(field, records)?;
+            columns.push(column);
         }
 
         RecordBatch::try_new(schema, columns)
             .map_err(|e| ConversionError::ParquetError(format!("Failed to create RecordBatch: {}", e)))
+    }
+
+    /// Build a column array for a specific field based on its type
+    fn build_column_for_field(
+        &self,
+        field: &arrow::datatypes::Field,
+        records: &[apache_avro::types::Value],
+    ) -> ConversionResult<arrow::array::ArrayRef> {
+        use arrow::array::{
+            BinaryBuilder, BooleanBuilder, Float32Builder, Float64Builder,
+            Int32Builder, Int64Builder, StringBuilder, TimestampMillisecondBuilder,
+        };
+        use arrow::datatypes::DataType;
+        use apache_avro::types::Value;
+
+        match field.data_type() {
+            DataType::Boolean => {
+                let mut builder = BooleanBuilder::new();
+                for record in records {
+                    if let Some(value) = self.get_field_value(record, field.name()) {
+                        match value {
+                            Value::Boolean(b) => builder.append_value(*b),
+                            _ => builder.append_null(),
+                        }
+                    } else {
+                        builder.append_null();
+                    }
+                }
+                Ok(Arc::new(builder.finish()))
+            }
+            DataType::Int32 => {
+                let mut builder = Int32Builder::new();
+                for record in records {
+                    if let Some(value) = self.get_field_value(record, field.name()) {
+                        match value {
+                            Value::Int(i) => builder.append_value(*i),
+                            Value::Long(l) => builder.append_value(*l as i32),
+                            _ => builder.append_null(),
+                        }
+                    } else {
+                        builder.append_null();
+                    }
+                }
+                Ok(Arc::new(builder.finish()))
+            }
+            DataType::Int64 => {
+                let mut builder = Int64Builder::new();
+                for record in records {
+                    if let Some(value) = self.get_field_value(record, field.name()) {
+                        match value {
+                            Value::Long(l) => builder.append_value(*l),
+                            Value::Int(i) => builder.append_value(*i as i64),
+                            _ => builder.append_null(),
+                        }
+                    } else {
+                        builder.append_null();
+                    }
+                }
+                Ok(Arc::new(builder.finish()))
+            }
+            DataType::Float32 => {
+                let mut builder = Float32Builder::new();
+                for record in records {
+                    if let Some(value) = self.get_field_value(record, field.name()) {
+                        match value {
+                            Value::Float(f) => builder.append_value(*f),
+                            Value::Double(d) => builder.append_value(*d as f32),
+                            _ => builder.append_null(),
+                        }
+                    } else {
+                        builder.append_null();
+                    }
+                }
+                Ok(Arc::new(builder.finish()))
+            }
+            DataType::Float64 => {
+                let mut builder = Float64Builder::new();
+                for record in records {
+                    if let Some(value) = self.get_field_value(record, field.name()) {
+                        match value {
+                            Value::Double(d) => builder.append_value(*d),
+                            Value::Float(f) => builder.append_value(*f as f64),
+                            _ => builder.append_null(),
+                        }
+                    } else {
+                        builder.append_null();
+                    }
+                }
+                Ok(Arc::new(builder.finish()))
+            }
+            DataType::Utf8 => {
+                let mut builder = StringBuilder::new();
+                for record in records {
+                    if let Some(value) = self.get_field_value(record, field.name()) {
+                        match value {
+                            Value::String(s) => builder.append_value(s),
+                            Value::Uuid(uuid) => builder.append_value(uuid.to_string()),
+                            // Handle other types by converting to string
+                            _ => builder.append_value(format!("{:?}", value)),
+                        }
+                    } else {
+                        builder.append_null();
+                    }
+                }
+                Ok(Arc::new(builder.finish()))
+            }
+            DataType::Binary => {
+                let mut builder = BinaryBuilder::new();
+                for record in records {
+                    if let Some(value) = self.get_field_value(record, field.name()) {
+                        match value {
+                            Value::Bytes(bytes) => builder.append_value(bytes),
+                            _ => builder.append_null(),
+                        }
+                    } else {
+                        builder.append_null();
+                    }
+                }
+                Ok(Arc::new(builder.finish()))
+            }
+            DataType::Timestamp(_, _) => {
+                let mut builder = TimestampMillisecondBuilder::new();
+                for record in records {
+                    if let Some(value) = self.get_field_value(record, field.name()) {
+                        match value {
+                            Value::TimestampMillis(ms) => builder.append_value(*ms),
+                            Value::TimestampMicros(us) => builder.append_value(*us / 1000),
+                            Value::Long(l) => builder.append_value(*l),
+                            _ => builder.append_null(),
+                        }
+                    } else {
+                        builder.append_null();
+                    }
+                }
+                Ok(Arc::new(builder.finish()))
+            }
+            // For unsupported types, convert to string as fallback
+            _ => {
+                warn!("Unsupported Arrow type {:?}, converting to string", field.data_type());
+                let mut builder = StringBuilder::new();
+                for record in records {
+                    if let Some(value) = self.get_field_value(record, field.name()) {
+                        builder.append_value(format!("{:?}", value));
+                    } else {
+                        builder.append_null();
+                    }
+                }
+                Ok(Arc::new(builder.finish()))
+            }
+        }
+    }
+
+    /// Extract field value from Avro record
+    fn get_field_value<'a>(
+        &self,
+        record: &'a apache_avro::types::Value,
+        field_name: &str,
+    ) -> Option<&'a apache_avro::types::Value> {
+        if let apache_avro::types::Value::Record(fields) = record {
+            fields
+                .iter()
+                .find(|(name, _)| name == field_name)
+                .map(|(_, value)| value)
+        } else {
+            None
+        }
     }
 
     /// Write Arrow RecordBatches to Parquet format

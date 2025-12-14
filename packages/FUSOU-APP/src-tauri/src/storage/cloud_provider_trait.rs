@@ -40,6 +40,12 @@ pub trait CloudStorageProvider: Send + Sync {
         remote_path: &str,
     ) -> Pin<Box<dyn Future<Output = Result<Vec<String>, Box<dyn std::error::Error>>> + Send + '_>>;
     
+    /// List folders (subdirectories) in a directory
+    fn list_folders(
+        &self,
+        remote_path: &str,
+    ) -> Pin<Box<dyn Future<Output = Result<Vec<String>, Box<dyn std::error::Error>>> + Send + '_>>;
+    
     /// Delete file from cloud storage
     fn delete_file(
         &self,

@@ -43,6 +43,12 @@ FUSOU is a monorepo for a KanColle proxy toolkit. It combines Rust backend servi
 - **gRPC**: Optional `--features grpc` enables `tonic` transport (protobufs, separate processes)
 - PAC (Proxy Auto Config) files intercept KanColle traffic to local proxy
 - HTTPS proxy uses self-signed CA; regenerated on each run
+- **Asset sync**: Background worker uploads non-API resources to R2
+  - Phase 1: Independent tokio::spawn task (non-blocking initialization)
+  - Phase 2: Bounded mpsc::channel(100) with backpressure (try_send, drops on full)
+  - Phase 3: Async I/O (tokio::fs) for all file operations
+  - Prevents WebView hang when HTTPS proxy enabled
+  - See: `FUSOU-PROXY/proxy-https/src/asset_sync.rs` for implementation
 - See: `FUSOU-PROXY/proxy-https/README.md` for feature flags
 
 ### Data Flow
@@ -52,6 +58,92 @@ FUSOU is a monorepo for a KanColle proxy toolkit. It combines Rust backend servi
 3. Parser emits structured data to desktop app
 4. Optional: Upload snapshots to Supabase/R2 via `FUSOU-WEB` APIs
 5. Asset sync service: Mirrors to R2 + D1 index
+
+### Storage Providers Architecture
+
+FUSOU-APP supports three storage backends for KanColle game data:
+
+| Provider | Data Format | Conversion | Integration | Purpose |
+|----------|------------|------------|-------------|---------|
+| **LocalFileSystemProvider** | Avro (.avro) | None | Client-side periodic (tokio_cron) | Local backup with file merging |
+| **CloudTableStorageProvider** (Google Drive) | Avro (.avro) | None | Client-side periodic (tokio_cron) | Cloud backup with individual files |
+| **R2StorageProvider** | Parquet (.bin) | Client-side (BatchUploadBuilder) | Server-side (Cloudflare Workers) | Shared database with batch upload |
+
+#### Key Implementation Details
+
+- **Storage trait**: `StorageProvider` in `src-tauri/src/storage/service.rs`
+  - Methods: `write_get_data_table()`, `write_port_table()`, `integrate_port_table()`
+  - Each provider implements for master data (get_data) and transaction data (port)
+
+- **Avro → Parquet conversion**: 
+  - **R2 ONLY** using `kc_api::database::batch_upload::BatchUploadBuilder`
+  - Location: `kc_api/crates/kc-api-database/src/batch_upload.rs`
+  - Underlying converter: `AvroToParquetConverter` in `avro_to_parquet.rs`
+  - Process: Converts multiple Avro tables → Parquet → concatenates into single binary
+  - Executed via `tokio::task::spawn_blocking` (CPU-intensive)
+  - Generates metadata JSON with table offsets for later extraction
+
+- **Type conversion in Avro → Parquet**:
+  - Critical: Schema types must match data types exactly
+  - `create_record_batch()` implements type-aware array builders:
+    * `Boolean` → `BooleanBuilder`
+    * `Int32` → `Int32Builder` (also accepts `Value::Long` with cast)
+    * `Int64` → `Int64Builder` (also accepts `Value::Int` with cast)
+    * `Float32` → `Float32Builder`
+    * `Float64` → `Float64Builder`
+    * `Utf8` → `StringBuilder` (handles String, Uuid, and debug formatting)
+    * `Binary` → `BinaryBuilder`
+    * `Timestamp` → `TimestampMillisecondBuilder`
+  - Previous bug: All fields converted to `StringBuilder` regardless of schema → "expected Int32 but found Utf8" errors
+  - **Fixed**: `build_column_for_field()` matches Arrow schema types with proper builders
+  - Fallback: Unsupported types default to `Utf8` with warning log
+
+- **Error handling in conversion**:
+  - Empty Avro data → `ValidationError`
+  - Schema mismatch → `SchemaError`
+  - Type conversion failure → `ParquetError` with detailed message
+  - All errors include context (table name, byte position, field index)
+
+- **Avro file integration**:
+  - **Local & Google Drive** periodically merge multiple `.avro` files
+  - Scheduled via `tokio_cron_scheduler` (see `src-tauri/src/scheduler/integrate_file.rs`)
+  - Cron schedule: `configs.database.google_drive.get_schedule_cron()` (default: hourly)
+  - Uses `integrate_by_table_name()` from `storage/common/integration.rs`
+  - Batch size: `page_size` config (default: 100 files per integration)
+
+- **Google Drive CloudStorageProvider trait**:
+  - Methods: `upload_file()`, `download_file()`, `list_files()`, `list_folders()`, `delete_file()`, `create_folder()`
+  - `list_files()`: Returns only files (excludes folders via `mimeType!='application/vnd.google-apps.folder'`)
+  - `list_folders()`: Returns only subdirectories (filters `mimeType='application/vnd.google-apps.folder'`)
+  - Authentication: Refresh token stored via `set_refresh_token()`, auto-initialized at startup
+
+- **File organization**:
+  ```
+  period_data/
+    {period_tag}/
+      master/               # get_data tables (master data)
+        {table_name}.avro   # Local/Google Drive: individual files
+      transaction/          # port tables (battle data)
+        {maparea}-{mapinfo}/
+          {table_name}/
+            {timestamp}.avro
+  ```
+
+- **R2 upload format**:
+  - Tag: `{period_tag}-port-{maparea_id}-{mapinfo_no}`
+  - Content: Concatenated Parquet binary with metadata
+  - Server integration: FUSOU-WEB `_scheduled.ts` processes uploads
+
+- **Provider initialization**:
+  - Triggered in `StorageService::resolve()` based on config flags:
+    - `allow_data_to_cloud`: Google Drive
+    - `allow_data_to_local`: Local filesystem
+    - `allow_data_to_shared_cloud` + `r2.enable`: R2
+  - Dependencies: `PendingStore`, `UploadRetryService` for upload retry logic
+
+- **Critical**: Never use `BatchUploadBuilder` for Google Drive or Local FS - they require raw Avro files for integration
+
+See: `FUSOU-APP/src-tauri/src/storage/` for all provider implementations
 
 ### Frontend Patterns
 
@@ -119,6 +211,32 @@ cargo test               # Run integration tests
 
 ## Common Development Patterns
 
+### Storage Provider Implementation Checklist
+
+When modifying storage providers, **always verify**:
+
+1. **Before deletion**: 
+   - Search for similar implementations across all providers (Local, Google Drive, R2)
+   - Check if functionality exists elsewhere via `grep_search` or `semantic_search`
+   - Verify usage with `list_code_usages` for the symbol being removed
+
+2. **Data format correctness**:
+   - Local FS: Avro only, no conversion
+   - Google Drive: Avro only, no conversion
+   - R2: **Must convert Avro → Parquet** using `BatchUploadBuilder`
+
+3. **Integration requirements**:
+   - Local FS: Implements `integrate_port_table()` with file merging
+   - Google Drive: Implements `integrate_port_table()` with cloud file merging
+   - R2: No-op `integrate_port_table()` (server-side processing)
+
+4. **Logging standards**:
+   - Prefix logs with provider name: `"Google Drive: ..."`, `"R2: ..."`, `"Local FS: ..."`
+   - Use `tracing::info!` for major operations (start, success)
+   - Use `tracing::debug!` for detailed steps (file collection, individual uploads)
+   - Use `tracing::warn!` for skipped/empty data
+   - Use `tracing::error!` for failures with full context
+
 ### Adding External HTTPS Call
 
 1. Use `reqwest::Client` with rustls-tls (preferred for security)
@@ -153,6 +271,37 @@ cargo test               # Run integration tests
 - Supabase refresh tokens expire; handled via 401 retry
 - gRPC feature requires protobuf recompilation (`build.rs`)
 - Admin API endpoints require secret bearer token (rate-limited)
+- **Google Drive credentials**: Must be provided at build time via `option_env!("GOOGLE_CLIENT_ID")` and `option_env!("GOOGLE_CLIENT_SECRET")` - no runtime fallback
+- **Asset sync backpressure**: Queue capacity 100; exceeding drops assets (logs warning, prevents blocking)
+- **PROCESSED_KEYS growth**: `DashSet` in asset_sync accumulates keys without periodic cleanup (clears only on period tag change)
+
+## Recent Changes (r2_parquet branch)
+
+### Storage Provider Refactoring
+- **Google Drive**: Removed incorrect Parquet conversion, now uploads raw Avro files
+- **R2**: Added `BatchUploadBuilder` for proper Avro → Parquet conversion with `spawn_blocking`
+- **Integration**: Implemented `integrate_port_table()` for Google Drive (previously no-op)
+- **Logging**: Enhanced all providers with detailed operation logs (provider-prefixed), aligned Google Drive logs with Local FS format
+
+### Avro → Parquet Type Conversion Fix
+- **Problem**: `create_record_batch()` converted all fields to `StringBuilder` → type mismatch errors
+  - Log example: `"column types must match schema types, expected Int32 but found Utf8 at column index 0"`
+  - Occurred when: R2 uploads attempted, Google Drive uploads (before Avro-only fix)
+- **Solution**: Implemented type-aware `build_column_for_field()` with proper builders per Arrow schema type
+  - Int32 fields → `Int32Builder`, Int64 → `Int64Builder`, etc.
+  - Handles type coercion (e.g., `Value::Long` → `i32` cast for Int32 fields)
+  - UUID types → String conversion with `.to_string()`
+  - Unsupported types → fallback to `Utf8` with warning
+- **Impact**: R2 Parquet uploads now succeed with correct schema preservation
+
+### Asset Sync Optimization
+- Phase 1-3 optimizations to prevent WebView hang
+- Bounded queue with backpressure handling
+- All file I/O converted to async (tokio::fs)
+
+### Authentication
+- Google Drive authentication strictly compile-time (option_env! only)
+- Enhanced logging for provider initialization and token fetching
 
 ## References
 

@@ -1,5 +1,6 @@
 use std::sync::Arc;
 use kc_api::database::table::{GetDataTableEncode, PortTableEncode};
+use kc_api::database::batch_upload::BatchUploadBuilder;
 
 use crate::storage::service::{StorageError, StorageFuture, StorageProvider};
 use crate::storage::common::get_all_port_tables;
@@ -124,8 +125,8 @@ impl StorageProvider for R2StorageProvider {
         mapinfo_no: i64,
     ) -> StorageFuture<'a, Result<(), StorageError>> {
         Box::pin(async move {
-            // Combine all port_tables into a single .bin file
-            let mut combined_data = Vec::new();
+            // Collect all non-empty Avro tables into HashMap
+            let mut tables = std::collections::HashMap::new();
             for (table_name, bytes) in get_all_port_tables(table) {
                 if bytes.is_empty() {
                     tracing::debug!(
@@ -136,10 +137,10 @@ impl StorageProvider for R2StorageProvider {
                     );
                     continue;
                 }
-                combined_data.extend_from_slice(&bytes);
+                tables.insert(table_name.to_string(), bytes.to_vec());
             }
 
-            if combined_data.is_empty() {
+            if tables.is_empty() {
                 tracing::warn!(
                     "No port_table data to upload for map {}-{}",
                     maparea_id,
@@ -148,13 +149,33 @@ impl StorageProvider for R2StorageProvider {
                 return Ok(());
             }
 
-            // Upload as single .bin file with map identifier
-            let tag = format!("{}-port-{}-{}", period_tag, maparea_id, mapinfo_no);
-            let size = combined_data.len();
-            self.upload_to_r2(&tag, combined_data).await?;
+            tracing::info!("Building Parquet batch upload for {} tables", tables.len());
+
+            // Convert Avro → Parquet using BatchUploadBuilder
+            let batch = tokio::task::spawn_blocking(move || {
+                let mut builder = BatchUploadBuilder::new();
+                for (table_name, avro_data) in tables {
+                    builder.add_table(table_name, avro_data);
+                }
+                builder.build()
+            })
+            .await
+            .map_err(|e| StorageError::Operation(format!("Task join error: {}", e)))?
+            .map_err(|e| StorageError::Operation(format!("Failed to build Parquet batch: {}", e)))?;
 
             tracing::info!(
-                "Uploaded port table to R2: period={}, map={}-{}, size={}",
+                "Parquet batch built: {} bytes total, {} tables",
+                batch.total_bytes,
+                batch.metadata.len()
+            );
+
+            // Upload concatenated Parquet data as single .bin file
+            let tag = format!("{}-port-{}-{}", period_tag, maparea_id, mapinfo_no);
+            let size = batch.data.len();
+            self.upload_to_r2(&tag, batch.data).await?;
+
+            tracing::info!(
+                "Uploaded Parquet batch to R2: period={}, map={}-{}, size={}",
                 period_tag, maparea_id, mapinfo_no, size
             );
             Ok(())

@@ -1,12 +1,11 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use kc_api::database::batch_upload::BatchUploadBuilder;
 use kc_api::database::table::{GetDataTableEncode, PortTableEncode};
 use uuid::Uuid;
 
 use crate::storage::cloud_provider_trait::{CloudProviderFactory, CloudStorageProvider};
-use crate::storage::common::{get_all_get_data_tables, get_all_port_tables, generate_master_data_filename, generate_port_table_filename};
+use crate::storage::common::{get_all_get_data_tables, get_all_port_tables, generate_port_table_filename};
 use crate::storage::constants::{GOOGLE_DRIVE_PROVIDER_NAME, MASTER_DATA_FOLDER_NAME, PERIOD_ROOT_FOLDER_NAME, TRANSACTION_DATA_FOLDER_NAME};
 use crate::storage::service::{StorageError, StorageFuture, StorageProvider};
 use fusou_upload::{PendingStore, UploadContext, UploadRetryService};
@@ -127,50 +126,44 @@ impl CloudTableStorageProvider {
         )
     }
 
-    /// Upload multiple tables as a single concatenated Parquet file
+    /// Upload individual Avro tables to cloud storage
     ///
     /// # Arguments
-    /// * `remote_path` - Path for the concatenated file
+    /// * `base_path` - Base directory path for uploads
     /// * `tables` - HashMap of table_name -> avro_bytes
     ///
     /// # Returns
-    /// JSON string containing metadata about table offsets
-    async fn upload_batch_tables(
+    /// Number of successfully uploaded tables
+    async fn upload_avro_tables(
         &self,
-        remote_path: &str,
+        base_path: &str,
         tables: HashMap<String, Vec<u8>>,
-    ) -> Result<String, StorageError> {
+    ) -> Result<usize, StorageError> {
         if tables.is_empty() {
             return Err(StorageError::Operation("No tables to upload".to_string()));
         }
 
-        tracing::info!("Building batch upload for {} tables", tables.len());
-
-        // Build batch upload with Avro → Parquet conversion and concatenation
-        let mut builder = BatchUploadBuilder::new();
+        let mut uploaded = 0;
         for (table_name, avro_data) in tables {
-            builder.add_table(table_name, avro_data);
+            let file_path = format!("{}/{}.avro", base_path, table_name);
+            match self.upload_bytes(&file_path, &avro_data).await {
+                Ok(_) => {
+                    tracing::info!(
+                        "Saved {} table to Google Drive: {} ({} bytes)",
+                        table_name,
+                        file_path,
+                        avro_data.len()
+                    );
+                    uploaded += 1;
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to upload {} table to Google Drive: {}", table_name, e);
+                    // Continue uploading other tables even if one fails
+                }
+            }
         }
 
-        let batch = builder.build().map_err(|e| {
-            StorageError::Operation(format!("Failed to build batch upload: {}", e))
-        })?;
-
-        tracing::info!(
-            "Batch built: {} bytes total, {} tables",
-            batch.total_bytes,
-            batch.metadata.len()
-        );
-
-        // Upload concatenated binary
-        self.upload_bytes(remote_path, &batch.data).await?;
-
-        // Return metadata as JSON
-        let metadata_json = serde_json::to_string(&batch.metadata).map_err(|e| {
-            StorageError::Operation(format!("Failed to serialize metadata: {}", e))
-        })?;
-
-        Ok(metadata_json)
+        Ok(uploaded)
     }
 }
 
@@ -192,27 +185,17 @@ impl StorageProvider for CloudTableStorageProvider {
             let mut tables = HashMap::new();
             for (table_name, bytes) in get_all_get_data_tables(table) {
                 if bytes.is_empty() {
-                    tracing::warn!(table_name, "Skipping empty master table");
                     continue;
                 }
                 tables.insert(table_name.to_string(), bytes.to_vec());
             }
 
             if tables.is_empty() {
-                tracing::warn!("No non-empty get_data tables to upload");
                 return Ok(());
             }
 
-            // Upload as single concatenated Parquet file
-            let file_name = generate_master_data_filename("master");
-            let batch_path = format!("{master_dir}/{file_name}.parquet");
-            let metadata_json = self.upload_batch_tables(batch_path.as_str(), tables).await?;
-
-            // Save metadata alongside data file
-            let metadata_path = format!("{master_dir}/{file_name}.metadata.json");
-            self.upload_bytes(&metadata_path, metadata_json.as_bytes()).await?;
-
-            tracing::info!("Uploaded batch master data: period={}, file={}", period_tag, file_name);
+            // Upload Avro files directly (no Parquet conversion for Google Drive)
+            self.upload_avro_tables(&master_dir, tables).await?;
 
             Ok(())
         })
@@ -236,32 +219,23 @@ impl StorageProvider for CloudTableStorageProvider {
             let mut tables = HashMap::new();
             for (table_name, bytes) in get_all_port_tables(table) {
                 if bytes.is_empty() {
-                    tracing::warn!(table_name, "Skipping empty table");
+                    tracing::warn!(
+                        "Skipping write of empty {} table for map {}-{}",
+                        table_name,
+                        maparea_id,
+                        mapinfo_no
+                    );
                     continue;
                 }
                 tables.insert(table_name.to_string(), bytes.to_vec());
             }
 
             if tables.is_empty() {
-                tracing::warn!("No non-empty port tables to upload");
                 return Ok(());
             }
 
-            // Upload as single concatenated Parquet file
-            let file_name = generate_port_table_filename();
-            let batch_path = format!("{map_folder}/{file_name}.parquet");
-            let metadata_json = self.upload_batch_tables(batch_path.as_str(), tables).await?;
-
-            // Save metadata alongside data file
-            let metadata_path = format!("{map_folder}/{file_name}.metadata.json");
-            self.upload_bytes(&metadata_path, metadata_json.as_bytes()).await?;
-
-            tracing::info!(
-                "Uploaded batch port table: map={}-{}, file={}",
-                maparea_id,
-                mapinfo_no,
-                file_name
-            );
+            // Upload Avro files directly (no Parquet conversion for Google Drive)
+            self.upload_avro_tables(&map_folder, tables).await?;
 
             Ok(())
         })
@@ -269,16 +243,138 @@ impl StorageProvider for CloudTableStorageProvider {
 
     fn integrate_port_table<'a>(
         &'a self,
-        _period_tag: &'a str,
-        _page_size: i32,
+        period_tag: &'a str,
+        page_size: i32,
     ) -> StorageFuture<'a, Result<(), StorageError>> {
         Box::pin(async move {
-            // Integration is not needed with batch upload approach
-            // Each write_port_table() already uploads all tables as a single
-            // concatenated Parquet file with metadata, so there are no
-            // multiple files to integrate.
-            tracing::debug!(
-                "CloudTableStorageProvider: Integration not needed (using batch upload)"
+            use kc_api::database::table::PORT_TABLE_NAMES;
+            use crate::storage::common::integrate_by_table_name;
+
+            tracing::info!(
+                "CloudTableStorageProvider: Starting port table integration for period {}",
+                period_tag
+            );
+
+            let txn_root = Self::transaction_root(period_tag);
+            
+            // List all map directories (e.g., "1-5", "2-3") in transaction root
+            let map_folders = match self.cloud.list_folders(&txn_root).await {
+                Ok(folders) => folders,
+                Err(e) => {
+                    tracing::warn!("Failed to list transaction folders: {}", e);
+                    return Ok(());
+                }
+            };
+
+            for map_folder in map_folders {
+                let map_path = format!("{}/{}", txn_root, map_folder);
+                
+                // Process each table type
+                for table_name in PORT_TABLE_NAMES.iter() {
+                    let table_path = format!("{}/{}", map_path, table_name);
+                    
+                    // List all .avro files in this table directory
+                    let files = match self.cloud.list_files(&table_path).await {
+                        Ok(files) => files,
+                        Err(_) => {
+                            // Table directory might not exist, skip
+                            continue;
+                        }
+                    };
+
+                    // Filter .avro files
+                    let avro_files: Vec<_> = files
+                        .into_iter()
+                        .filter(|f| f.ends_with(".avro"))
+                        .collect();
+
+                    // Need at least 2 files to integrate
+                    if avro_files.len() < 2 {
+                        continue;
+                    }
+
+                    // Limit files per integration batch
+                    let files_to_process: Vec<_> = avro_files
+                        .into_iter()
+                        .take(page_size as usize)
+                        .collect();
+
+                    if files_to_process.len() < 2 {
+                        continue;
+                    }
+
+                    tracing::info!(
+                        "Integrating {} files for table {} in map {}",
+                        files_to_process.len(),
+                        table_name,
+                        map_folder
+                    );
+
+                    // Download all files
+                    let mut file_contents = Vec::new();
+                    for file_name in &files_to_process {
+                        let file_path = format!("{}/{}", table_path, file_name);
+                        match self.download_bytes(&file_path).await {
+                            Ok(content) => file_contents.push(content),
+                            Err(e) => {
+                                tracing::warn!("Failed to download {}: {}", file_path, e);
+                                continue;
+                            }
+                        }
+                    }
+
+                    if file_contents.len() < 2 {
+                        tracing::warn!(
+                            "Insufficient files downloaded for integration: {} (needed >= 2)",
+                            file_contents.len()
+                        );
+                        continue;
+                    }
+
+                    // Integrate files
+                    match integrate_by_table_name(table_name, file_contents) {
+                        Ok(integrated_content) if !integrated_content.is_empty() => {
+                            // Generate new filename
+                            let integrated_filename = generate_port_table_filename();
+                            let integrated_path = format!("{}/{}", table_path, integrated_filename);
+
+                            // Upload integrated file
+                            match self.upload_bytes(&integrated_path, &integrated_content).await {
+                                Ok(_) => {
+                                    tracing::info!(
+                                        "Uploaded integrated file: {} ({} bytes)",
+                                        integrated_path,
+                                        integrated_content.len()
+                                    );
+
+                                    // Delete original files
+                                    for file_name in &files_to_process {
+                                        let file_path = format!("{}/{}", table_path, file_name);
+                                        self.delete_file(&file_path).await;
+                                    }
+                                }
+                                Err(e) => {
+                                    tracing::error!(
+                                        "Failed to upload integrated file {}: {}",
+                                        integrated_path,
+                                        e
+                                    );
+                                }
+                            }
+                        }
+                        Ok(_) => {
+                            tracing::warn!("Integration resulted in empty content for {}", table_name);
+                        }
+                        Err(e) => {
+                            tracing::error!("Failed to integrate table {}: {}", table_name, e);
+                        }
+                    }
+                }
+            }
+
+            tracing::info!(
+                "CloudTableStorageProvider: Completed port table integration for period {}",
+                period_tag
             );
             Ok(())
         })

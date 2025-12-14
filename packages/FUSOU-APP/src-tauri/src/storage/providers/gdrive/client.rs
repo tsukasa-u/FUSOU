@@ -87,21 +87,27 @@ pub async fn create_auth() -> Option<
     
     let provider_refresh_token = token.refresh_token;
     let token_type = token.token_type.unwrap_or("Bearer".to_string());
+    
+    // Build-time embedding only: values must be provided via build env or cargo:rustc-env
+    let client_id = match std::option_env!("GOOGLE_CLIENT_ID") {
+        Some(id) if !id.is_empty() => id.to_string(),
+        _ => {
+            tracing::error!("google client id missing; ensure build-time env is set via cargo:rustc-env");
+            return None;
+        }
+    };
+
+    let client_secret = match std::option_env!("GOOGLE_CLIENT_SECRET") {
+        Some(secret) if !secret.is_empty() => secret.to_string(),
+        _ => {
+            tracing::error!("google client secret missing; ensure build-time env is set via cargo:rustc-env");
+            return None;
+        }
+    };
+    
     let secret = yup_oauth2::authorized_user::AuthorizedUserSecret {
-        client_id: match std::option_env!("GOOGLE_CLIENT_ID") {
-            Some(id) => id.to_string(),
-            None => {
-                tracing::error!("failed to get google client id");
-                return None;
-            }
-        },
-        client_secret: match std::option_env!("GOOGLE_CLIENT_SECRET") {
-            Some(secret) => secret.to_string(),
-            None => {
-                tracing::error!("failed to get google client secret");
-                return None;
-            }
-        },
+        client_id,
+        client_secret,
         refresh_token: provider_refresh_token,
         key_type: token_type,
     };
