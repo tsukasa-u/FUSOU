@@ -56,7 +56,7 @@ app.post('/compact', async (c) => {
     const env = getRuntimeEnv(c);
     const { url: supabase_url, publishableKey: supabase_key } = resolveSupabaseConfig(env);
     const bucket = env.ASSET_PAYLOAD_BUCKET;
-    const requestTimeoutMs = Number(env.COMPACT_REQ_TIMEOUT_MS || '12000');
+    // const requestTimeoutMs = Number(env.COMPACT_REQ_TIMEOUT_MS || '12000');
 
     if (!supabase_url || !supabase_key) {
       return c.json(
@@ -83,7 +83,8 @@ app.post('/compact', async (c) => {
     // Import WASM module dynamically
     let compact_single_dataset: any;
     try {
-      const wasmModule = await import('../../../wasm/compactor/pkg/fusou_compactor_wasm.js');
+      // @ts-ignore - WASM module path
+      const wasmModule = await import('../../wasm/compactor/pkg/fusou_compactor_wasm.js');
       compact_single_dataset = wasmModule.compact_single_dataset;
     } catch (error) {
       console.error('Failed to load WASM compactor module:', error);

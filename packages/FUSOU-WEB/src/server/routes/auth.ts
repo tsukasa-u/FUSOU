@@ -95,7 +95,13 @@ app.post("/google/refresh_token", async (c) => {
       return c.json({ error: "Failed to refresh token" }, 500);
     }
 
-    const data = await response.json();
+    interface GoogleTokenResponse {
+      access_token: string;
+      expires_in: number;
+      refresh_token?: string;
+    }
+
+    const data = await response.json() as GoogleTokenResponse;
 
     if (data.refresh_token) {
       await supabase
