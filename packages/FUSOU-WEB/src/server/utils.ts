@@ -4,6 +4,77 @@ import type { Bindings } from "./types";
 import type { Context } from "hono";
 
 // ========================
+// 環境変数コンテキスト
+// ========================
+
+/**
+ * 統一された環境変数コンテキスト
+ * Cloudflare runtime -> process.env -> import.meta.env の優先順位でフォールバック
+ */
+export interface EnvContext {
+  /** ランタイム環境変数（Cloudflare Workers/Pages） */
+  readonly runtime: Record<string, any>;
+  /** ビルド時環境変数 */
+  readonly buildtime: Record<string, any>;
+  /** 開発環境かどうか */
+  readonly isDev: boolean;
+}
+
+/**
+ * Honoコンテキストから統一環境変数コンテキストを生成
+ */
+export function createEnvContext(c: Pick<Context, "env"> | { env?: any }): EnvContext {
+  const runtimeEnv = ((c as any)?.env as any)?.env || (c as any)?.env || {};
+  const isDev = import.meta.env.DEV;
+  
+  return {
+    runtime: runtimeEnv,
+    buildtime: import.meta.env as Record<string, any>,
+    isDev,
+  };
+}
+
+/**
+ * 環境変数コンテキストから値を取得
+ * 優先順位: runtime（暗号化されていない） -> process.env (dev) -> buildtime
+ */
+export function getEnv(ctx: EnvContext, key: string): string | undefined {
+  // ランタイム環境変数が暗号化されていない場合はそれを使用
+  const runtimeValue = ctx.runtime[key];
+  if (runtimeValue && !String(runtimeValue).startsWith("encrypted:")) {
+    return runtimeValue;
+  }
+
+  // 開発モードでは process.env を優先（dotenvxで復号化済み）
+  if (ctx.isDev && typeof process !== "undefined") {
+    const processValue = (process.env as any)[key];
+    if (processValue) return processValue;
+  }
+
+  // buildtime環境変数が暗号化されている場合は process.env にフォールバック
+  const buildtimeValue = ctx.buildtime[key];
+  if (
+    buildtimeValue &&
+    typeof buildtimeValue === "string" &&
+    buildtimeValue.startsWith("encrypted:")
+  ) {
+    if (typeof process !== "undefined") {
+      const processValue = (process.env as any)[key];
+      if (processValue) return processValue;
+    }
+  }
+  
+  return buildtimeValue;
+}
+
+/**
+ * 環境変数が設定されているか確認
+ */
+export function hasEnv(ctx: EnvContext, key: string): boolean {
+  return getEnv(ctx, key) !== undefined;
+}
+
+// ========================
 // 署名付きトークン（JWT）
 // ========================
 
@@ -41,35 +112,19 @@ export async function verifySignedToken(
 
 /**
  * 環境変数を取得（暗号化対応）
+ * @deprecated Use createEnvContext() + getEnv() instead
  * runtimeEnv -> process.env -> import.meta.env の優先順位
  */
 export function getEnvValue(
   key: string,
   runtimeEnv: Record<string, any> = {}
 ): string | undefined {
-  // ランタイム環境変数が暗号化されていない場合はそれを使用
-  if (runtimeEnv[key] && !String(runtimeEnv[key]).startsWith("encrypted:")) {
-    return runtimeEnv[key];
-  }
-
-  // 開発モードでは process.env を優先（dotenvxで復号化済み）
-  const isDev = import.meta.env.DEV;
-  if (isDev && typeof process !== "undefined" && (process.env as any)[key]) {
-    return (process.env as any)[key];
-  }
-
-  // import.meta.env が暗号化されている場合は process.env にフォールバック
-  const metaEnvVal = (import.meta.env as any)[key];
-  if (
-    metaEnvVal &&
-    typeof metaEnvVal === "string" &&
-    metaEnvVal.startsWith("encrypted:")
-  ) {
-    if (typeof process !== "undefined" && (process.env as any)[key]) {
-      return (process.env as any)[key];
-    }
-  }
-  return metaEnvVal;
+  const ctx: EnvContext = {
+    runtime: runtimeEnv,
+    buildtime: import.meta.env as Record<string, any>,
+    isDev: import.meta.env.DEV,
+  };
+  return getEnv(ctx, key);
 }
 
 export type SupabaseConfig = {
@@ -78,20 +133,34 @@ export type SupabaseConfig = {
   publishableKey: string | null;
 };
 
-export function resolveSupabaseConfig(
-  runtimeEnv: Record<string, any> = {}
-): SupabaseConfig {
-  const url =
-    getEnvValue("PUBLIC_SUPABASE_URL", runtimeEnv)?.replace(/\/$/, "") ?? null;
-  const serviceRoleKey = getEnvValue("SUPABASE_SECRET_KEY", runtimeEnv) ?? null;
-  const publishableKey =
-    getEnvValue("PUBLIC_SUPABASE_PUBLISHABLE_KEY", runtimeEnv) ?? null;
+/**
+ * Supabase設定を環境変数から解決
+ */
+export function resolveSupabaseConfig(ctx: EnvContext): SupabaseConfig {
+  const url = getEnv(ctx, "PUBLIC_SUPABASE_URL")?.replace(/\/$/, "") ?? null;
+  const serviceRoleKey = getEnv(ctx, "SUPABASE_SECRET_KEY") ?? null;
+  const publishableKey = getEnv(ctx, "PUBLIC_SUPABASE_PUBLISHABLE_KEY") ?? null;
 
   return { url, serviceRoleKey, publishableKey };
 }
 
 /**
+ * @deprecated Use createEnvContext() + resolveSupabaseConfig() instead
+ */
+export function resolveSupabaseConfigLegacy(
+  runtimeEnv: Record<string, any> = {}
+): SupabaseConfig {
+  const ctx: EnvContext = {
+    runtime: runtimeEnv,
+    buildtime: import.meta.env as Record<string, any>,
+    isDev: import.meta.env.DEV,
+  };
+  return resolveSupabaseConfig(ctx);
+}
+
+/**
  * Astro adapter経由でも Workers 直実行でも同じ形で env を取得するヘルパー
+ * @deprecated Use createEnvContext() instead for unified environment access
  */
 export function getRuntimeEnv(
   c: Pick<Context, "env"> | { env?: any }
@@ -103,29 +172,24 @@ export function getRuntimeEnv(
  * Cloudflare runtime環境変数からBindingsオブジェクトを構築
  */
 export function injectEnv(locals: any): Bindings {
-  const runtimeEnv = locals?.runtime?.env || {};
+  const ctx: EnvContext = {
+    runtime: locals?.runtime?.env || {},
+    buildtime: import.meta.env as Record<string, any>,
+    isDev: import.meta.env.DEV,
+  };
 
   return {
-    ASSET_SYNC_BUCKET: runtimeEnv.ASSET_SYNC_BUCKET!,
-    ASSET_INDEX_DB: runtimeEnv.ASSET_INDEX_DB!,
-    ASSET_PAYLOAD_BUCKET: runtimeEnv.ASSET_PAYLOAD_BUCKET!,
-    // Prefer Cloudflare runtime env, fallback to build-time env
-    PUBLIC_SUPABASE_URL:
-      runtimeEnv.PUBLIC_SUPABASE_URL || import.meta.env.PUBLIC_SUPABASE_URL!,
-    SUPABASE_SECRET_KEY:
-      runtimeEnv.SUPABASE_SECRET_KEY || import.meta.env.SUPABASE_SECRET_KEY!,
-    PUBLIC_SUPABASE_PUBLISHABLE_KEY:
-      runtimeEnv.PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
-      import.meta.env.PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
-    ASSET_SYNC_ALLOWED_EXTENSIONS:
-      runtimeEnv.ASSET_SYNC_ALLOWED_EXTENSIONS ||
-      import.meta.env.ASSET_SYNC_ALLOWED_EXTENSIONS!,
-    ASSET_UPLOAD_SIGNING_SECRET:
-      runtimeEnv.ASSET_UPLOAD_SIGNING_SECRET ||
-      import.meta.env.ASSET_UPLOAD_SIGNING_SECRET!,
-    FLEET_SNAPSHOT_SIGNING_SECRET:
-      runtimeEnv.FLEET_SNAPSHOT_SIGNING_SECRET ||
-      import.meta.env.FLEET_SNAPSHOT_SIGNING_SECRET!,
+    ASSET_SYNC_BUCKET: ctx.runtime.ASSET_SYNC_BUCKET!,
+    ASSET_INDEX_DB: ctx.runtime.ASSET_INDEX_DB!,
+    ASSET_PAYLOAD_BUCKET: ctx.runtime.ASSET_PAYLOAD_BUCKET!,
+    // Use unified env getter with proper fallback
+    PUBLIC_SUPABASE_URL: getEnv(ctx, "PUBLIC_SUPABASE_URL")!,
+    SUPABASE_SECRET_KEY: getEnv(ctx, "SUPABASE_SECRET_KEY")!,
+    PUBLIC_SUPABASE_PUBLISHABLE_KEY: getEnv(ctx, "PUBLIC_SUPABASE_PUBLISHABLE_KEY")!,
+    ASSET_UPLOAD_SIGNING_SECRET: getEnv(ctx, "ASSET_UPLOAD_SIGNING_SECRET")!,
+    FLEET_SNAPSHOT_SIGNING_SECRET: getEnv(ctx, "FLEET_SNAPSHOT_SIGNING_SECRET")!,
+    R2_SIGNING_SECRET: getEnv(ctx, "R2_SIGNING_SECRET")!,
+    R2_PRESIGNED_TOKEN_SECRET: getEnv(ctx, "R2_PRESIGNED_TOKEN_SECRET"),
   };
 }
 
@@ -227,7 +291,13 @@ export function sanitizeFileName(input: string | null): string | null {
 // ========================
 
 // Cache RemoteJWKSet globally to leverage Cloudflare Workers hot-instance caching.
-const { url: SUPABASE_URL } = resolveSupabaseConfig();
+// Use build-time env for initial JWKS setup (runtime env not available at module load)
+const initCtx: EnvContext = {
+  runtime: {},
+  buildtime: import.meta.env as Record<string, any>,
+  isDev: import.meta.env.DEV,
+};
+const { url: SUPABASE_URL } = resolveSupabaseConfig(initCtx);
 
 // Log SUPABASE_URL for debugging (only in development)
 if (import.meta.env.DEV) {
@@ -361,3 +431,102 @@ export function parseSize(value: string | undefined): number | null {
   if (!Number.isFinite(parsed)) return null;
   return parsed;
 }
+
+// ========================
+// R2 署名URL生成（S3 互換）
+// ========================
+
+/**
+ * R2 署名URL を生成（S3 署名 v4）
+ * Cloudflare R2 は S3 互換なので、S3署名でアクセス可能
+ */
+export async function generateR2SignedUrl(
+  bucket: any, // R2BucketBinding
+  key: string,
+  expiresInSeconds: number = 3600 // デフォルト1時間
+): Promise<string> {
+  // Cloudflare R2 の GetObject に対する署名URL を生成
+  // Workers 環境では bucket.createSignedUrl() を使用（利用可能な場合）
+  
+  // フォールバック: 公開読み取り前提（署名URL生成APIがない場合）
+  // 本来は AWS SDK の getSignedUrl を使用することが推奨されます
+  
+  try {
+    // Cloudflare Workers Bindings には署名URL生成機能がないため、
+    // 以下のいずれかの方法が必要：
+    // 1. Cloudflare REST API を呼び出す
+    // 2. AWS SDK を使用して署名を手動計算
+    // 3. Workers KV に一時トークンを保存
+    
+    // 現状の実装では、バケットの特定キーに対して
+    // 時限付きアクセスを提供するため、別方法を採用：
+    
+    const signedUrl = await generateTimeBasedSignedUrl(key, expiresInSeconds);
+    return signedUrl;
+  } catch (error) {
+    console.error(`Failed to generate R2 signed URL for key: ${key}`, error);
+    throw error;
+  }
+}
+
+/**
+ * 時間ベースの署名URL生成（Workers 環境用）
+ * JWT形式でアクセストークンを生成し、URLパラメータに含める
+ */
+export async function generateTimeBasedSignedUrl(
+  key: string,
+  expiresInSeconds: number = 3600
+): Promise<string> {
+  const now = Math.floor(Date.now() / 1000);
+  const expiresAt = now + expiresInSeconds;
+  
+  // 署名トークン生成（R2 Presigned URL の代替）
+  const token = await generateSignedToken(
+    {
+      key,
+      action: 'read',
+      exp: expiresAt,
+    },
+    process.env.R2_PRESIGNED_TOKEN_SECRET || 'fallback-secret',
+    expiresInSeconds
+  );
+  
+  // URL に token をパラメータとして含める
+  // WASM または外部クライアントが token を使用してアクセス
+  const baseUrl = process.env.R2_PUBLIC_URL || 'https://r2.example.com';
+  return `${baseUrl}/${key}?token=${encodeURIComponent(token)}&expires=${expiresAt}`;
+}
+
+/**
+ * R2 署名URL トークンを検証
+ * WASM からの読み取りリクエストで使用
+ */
+export async function verifyR2SignedUrl(
+  token: string,
+  key: string
+): Promise<boolean> {
+  try {
+    const payload = await verifySignedToken(
+      token,
+      process.env.R2_PRESIGNED_TOKEN_SECRET || 'fallback-secret'
+    );
+    
+    if (!payload) return false;
+    
+    // キーの一致確認
+    if (payload.key !== key) return false;
+    
+    // アクション確認
+    if (payload.action !== 'read') return false;
+    
+    // 有効期限確認
+    const now = Math.floor(Date.now() / 1000);
+    if (payload.exp && payload.exp < now) return false;
+    
+    return true;
+  } catch (error) {
+    console.error('R2 signed URL verification failed:', error);
+    return false;
+  }
+}
+

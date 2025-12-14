@@ -7,7 +7,7 @@ import {
   sanitizeErrorMessage,
   TEMPORARY_COOKIE_OPTIONS,
 } from "@/utility/security";
-import { getEnvValue } from "@/server/utils";
+import { createEnvContext, getEnv } from "@/server/utils";
 
 export const POST: APIRoute = async ({
   request,
@@ -15,8 +15,8 @@ export const POST: APIRoute = async ({
   redirect,
   locals,
 }) => {
-  const runtimeEnv = locals?.runtime?.env || {};
-  const providedOrigin = getEnvValue("PUBLIC_SITE_URL", runtimeEnv)?.trim();
+  const envCtx = createEnvContext({ env: locals?.runtime?.env || {} });
+  const providedOrigin = getEnv(envCtx, "PUBLIC_SITE_URL")?.trim();
   if (!providedOrigin) {
     return new Response("Server misconfiguration: PUBLIC_SITE_URL is not set", {
       status: 500,

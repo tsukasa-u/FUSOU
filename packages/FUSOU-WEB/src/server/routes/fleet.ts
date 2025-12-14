@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import type { Bindings } from "../types";
-import { getEnvValue, getRuntimeEnv } from "../utils";
+import { createEnvContext, getEnv } from "../utils";
 import {
   CORS_HEADERS,
   SNAPSHOT_TOKEN_TTL_SECONDS,
@@ -17,9 +17,9 @@ app.options(
 
 // POST /snapshot
 app.post("/snapshot", async (c) => {
-  const runtimeEnv = getRuntimeEnv(c);
-  const bucket = runtimeEnv.ASSET_PAYLOAD_BUCKET;
-  const signingSecret = getEnvValue("FLEET_SNAPSHOT_SIGNING_SECRET", runtimeEnv);
+  const env = createEnvContext(c);
+  const bucket = env.runtime.ASSET_PAYLOAD_BUCKET;
+  const signingSecret = getEnv(env, "FLEET_SNAPSHOT_SIGNING_SECRET");
 
   if (!bucket || !signingSecret) {
     return c.json({ error: "Server misconfiguration" }, 500);

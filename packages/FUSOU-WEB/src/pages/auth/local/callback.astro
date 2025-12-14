@@ -6,7 +6,7 @@ import WarningIcon from "../../../components/icons/WarningIcon.astro";
 import CheckIcon from "../../../components/icons/CheckIcon.astro";
 import { createSupabaseServerClient } from "@/utility/supabaseServer";
 import { validateRedirectUrl } from "@/utility/security";
-import { getEnvValue } from "@/server/utils";
+import { createEnvContext, getEnv } from "@/server/utils";
 
 const cookies = Astro.cookies;
 const runtimeEnv = (Astro.locals as any)?.runtime?.env || {};
@@ -19,8 +19,9 @@ const refreshToken = cookies.get("sb-local-refresh-token");
 const providerRefreshToken = cookies.get("sb-local-provider-refresh-token");
 const provider = cookies.get("sb-local-provider");
 
-// Prefer Cloudflare runtime environment variable, fallback to build-time env
-const allowedOrigin = getEnvValue("PUBLIC_SITE_URL", runtimeEnv)?.trim()!;
+// Get allowed origin using unified env API
+const envCtx = createEnvContext({ env: runtimeEnv });
+const allowedOrigin = getEnv(envCtx, "PUBLIC_SITE_URL")?.trim()!;
 
 let error_message: string | null = null;
 let return_params: string | null = null;

@@ -16,8 +16,8 @@ import {
   sanitizeFileName,
   violatesAllowList,
   parseSize,
-  getRuntimeEnv,
-  getEnvValue,
+  createEnvContext,
+  getEnv,
 } from "../utils";
 import { handleTwoStageUpload } from "../utils/upload";
 
@@ -31,24 +31,23 @@ app.options(
 
 // POST /upload
 app.post("/upload", async (c) => {
-  const env = getRuntimeEnv(c);
-  const bucket = env.ASSET_SYNC_BUCKET;
-  const db = env.ASSET_INDEX_DB;
-  const signingSecret = getEnvValue("ASSET_UPLOAD_SIGNING_SECRET", env);
+  const envCtx = createEnvContext(c);
+  const bucket = envCtx.runtime.ASSET_SYNC_BUCKET;
+  const db = envCtx.runtime.ASSET_INDEX_DB;
+  const signingSecret = getEnv(envCtx, "ASSET_UPLOAD_SIGNING_SECRET");
 
   if (!bucket || !db || !signingSecret) {
     console.error("[asset-sync] missing bindings", {
       hasBucket: !!bucket,
       hasDb: !!db,
       hasSigningSecret: !!signingSecret,
-      envKeys: Object.keys(env || {}),
+      envKeys: Object.keys(envCtx.runtime || {}),
     });
     return c.json({ error: "Asset sync bucket not configured" }, 503);
   }
 
   const allowedExtensions = resolveAllowedExtensions(
-    env.ASSET_SYNC_ALLOWED_EXTENSIONS,
-    import.meta.env.ASSET_SYNC_ALLOWED_EXTENSIONS,
+    getEnv(envCtx, "ASSET_SYNC_ALLOWED_EXTENSIONS"),
   );
 
   return handleTwoStageUpload(c, {
@@ -183,8 +182,8 @@ app.get("/keys", async (c) => {
     `GET /keys: JWT validation successful, user_id=${supabaseUser.id}`,
   );
 
-  const env = getRuntimeEnv(c);
-  const db = env.ASSET_INDEX_DB;
+  const envCtx = createEnvContext(c);
+  const db = envCtx.runtime.ASSET_INDEX_DB;
 
   if (!db) {
     console.log("GET /keys: ASSET_INDEX_DB not configured");

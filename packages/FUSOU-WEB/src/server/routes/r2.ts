@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import type { Bindings } from "../types";
 import { CORS_HEADERS } from "../constants";
-import { getRuntimeEnv, getEnvValue } from "../utils";
+import { createEnvContext, getEnv } from "../utils";
 import { handleTwoStageUpload } from "../utils/upload";
 
 const app = new Hono<{ Bindings: Bindings }>();
@@ -20,9 +20,9 @@ app.options(
 
 // POST /upload - 2-stage upload with JWT authentication
 app.post("/upload", async (c) => {
-  const runtimeEnv = getRuntimeEnv(c);
-  const bucket = runtimeEnv.R2_BUCKET_BINDING;
-  const signingSecret = getEnvValue("R2_SIGNING_SECRET", runtimeEnv);
+  const env = createEnvContext(c);
+  const bucket = env.runtime.R2_BUCKET_BINDING;
+  const signingSecret = getEnv(env, "R2_SIGNING_SECRET");
 
   if (!bucket || !signingSecret) {
     return c.json({ error: "Server misconfiguration" }, 500);

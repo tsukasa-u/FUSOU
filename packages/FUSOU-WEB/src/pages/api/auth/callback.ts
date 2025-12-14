@@ -5,12 +5,15 @@ import {
   sanitizeErrorMessage,
   SECURE_COOKIE_OPTIONS,
 } from "@/utility/security";
-import { getEnvValue } from "@/server/utils";
+
+// These are build-time constants, no need for runtime env
+const SUPABASE_URL = import.meta.env.PUBLIC_SUPABASE_URL!;
+const SUPABASE_PUBLISHABLE_KEY = import.meta.env.PUBLIC_SUPABASE_PUBLISHABLE_KEY!;
 
 const createUserScopedClient = (accessToken: string) =>
   createClient(
-    getEnvValue("PUBLIC_SUPABASE_URL")!,
-    getEnvValue("PUBLIC_SUPABASE_PUBLISHABLE_KEY")!,
+    SUPABASE_URL,
+    SUPABASE_PUBLISHABLE_KEY,
     {
       auth: {
         persistSession: false,

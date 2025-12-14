@@ -58,3 +58,27 @@ export const DEFAULT_ALLOWED_EXTENSIONS = [
   "json",
   // 'mp3',
 ];
+
+// ========================
+// Compaction Service Configuration
+// ========================
+export const COMPACTION_CONFIG = {
+  // Maximum number of fragments to compact in a single operation
+  MAX_FRAGMENTS: 1000,
+  // Maximum bytes to read/write in a single operation
+  MAX_BYTES: 100 * 1024 * 1024, // 100 MB
+  // Request timeout for compaction operations
+  REQ_TIMEOUT_MS: 120 * 1000, // 2 minutes
+};
+
+// ========================
+// R2 Signed URL Configuration
+// ========================
+export const R2_SIGNED_URL_CONFIG = {
+  // Default expiration time for R2 signed URLs (in seconds)
+  DEFAULT_EXPIRES_IN_SECONDS: 3600, // 1 hour
+  // Maximum expiration time allowed for signed URLs
+  MAX_EXPIRES_IN_SECONDS: 7 * 24 * 60 * 60, // 7 days
+  // Minimum expiration time allowed
+  MIN_EXPIRES_IN_SECONDS: 60, // 1 minute
+};

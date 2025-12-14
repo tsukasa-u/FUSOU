@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { createClient } from '@supabase/supabase-js';
 import type { Bindings } from '../types';
 import { CORS_HEADERS } from '../constants';
-import { getRuntimeEnv, resolveSupabaseConfig } from '../utils';
+import { createEnvContext, resolveSupabaseConfig, generateR2SignedUrl } from '../utils';
 
 const app = new Hono<{ Bindings: Bindings }>();
 
@@ -53,9 +53,9 @@ app.post('/compact', async (c) => {
       );
     }
 
-    const env = getRuntimeEnv(c);
-    const { url: supabase_url, publishableKey: supabase_key } = resolveSupabaseConfig(env);
-    const bucket = env.ASSET_PAYLOAD_BUCKET;
+    const envCtx = createEnvContext(c);
+    const { url: supabase_url, publishableKey: supabase_key } = resolveSupabaseConfig(envCtx);
+    const bucket = envCtx.runtime.ASSET_PAYLOAD_BUCKET;
     // const requestTimeoutMs = Number(env.COMPACT_REQ_TIMEOUT_MS || '12000');
 
     if (!supabase_url || !supabase_key) {
@@ -103,15 +103,17 @@ app.post('/compact', async (c) => {
     let result: string;
 
     try {
-      // Build R2 URL for WASM to access files
-      const r2BaseUrl = env.R2_PUBLIC_URL || `https://${env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com/${env.ASSET_PAYLOAD_BUCKET?.name || ''}`;
+      // Generate signed URL for R2 bucket access
+      // The WASM compactor will use this signed URL to read files from R2
+      // with automatic expiration (default 1 hour)
+      const signedUrl = await generateR2SignedUrl(bucket, 'compact', 3600);
       
-      // Call WASM function: compact_single_dataset(dataset_id, supabase_url, supabase_key, r2_url)
+      // Call WASM function: compact_single_dataset(dataset_id, supabase_url, supabase_key, r2_signed_url)
       result = await compact_single_dataset(
         body.dataset_id,
         supabase_url,
         supabase_key,
-        r2BaseUrl
+        signedUrl
       );
     } catch (error) {
       const elapsed = Date.now() - startedAt;
@@ -181,8 +183,8 @@ app.post('/compact', async (c) => {
 
     // Best-effort reset flag on failure
     try {
-      const env = getRuntimeEnv(c);
-      const { url: supabase_url, publishableKey: supabase_key } = resolveSupabaseConfig(env);
+      const envCtx = createEnvContext(c);
+      const { url: supabase_url, publishableKey: supabase_key } = resolveSupabaseConfig(envCtx);
       const body = await c.req.json<CompactRequest>().catch(() => null);
       if (supabase_url && supabase_key && body?.dataset_id) {
         const supabase = createClient(supabase_url, supabase_key);

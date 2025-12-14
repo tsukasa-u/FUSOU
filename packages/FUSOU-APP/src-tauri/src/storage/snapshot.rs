@@ -27,6 +27,8 @@ struct SnapshotRequest {
     payload: serde_json::Value,
     title: Option<String>,
     version: Option<i64>,
+    // Required for the preparation step; server verifies this against the payload
+    content_hash: Option<String>,
 }
 
 fn get_payload_data() -> serde_json::Value {
@@ -39,6 +41,25 @@ fn get_payload_data() -> serde_json::Value {
         slot_items.slot_items.values().cloned().collect(),
     );
     json!(payload)
+}
+
+fn canonicalize_json(value: &serde_json::Value) -> serde_json::Value {
+    use serde_json::{Map, Value};
+    match value {
+        Value::Object(map) => {
+            let mut btree: std::collections::BTreeMap<String, Value> = std::collections::BTreeMap::new();
+            for (k, v) in map.iter() {
+                btree.insert(k.clone(), canonicalize_json(v));
+            }
+            let mut ordered = Map::new();
+            for (k, v) in btree.into_iter() {
+                ordered.insert(k, v);
+            }
+            Value::Object(ordered)
+        }
+        Value::Array(arr) => Value::Array(arr.iter().map(canonicalize_json).collect()),
+        _ => value.clone(),
+    }
 }
 
 pub async fn perform_snapshot_sync_app(
@@ -95,14 +116,46 @@ pub async fn perform_snapshot_sync_app(
         }
     };
 
-    let payload_data = get_payload_data();
-
-    let request_body = SnapshotRequest {
-        tag: "latest".to_string(),
-        payload: payload_data,
-        title: Some("Auto Snapshot".to_string()),
-        version: Some(chrono::Utc::now().timestamp()),
+    let payload_data = canonicalize_json(&get_payload_data());
+    // Compute SHA-256 of the raw JSON bytes to satisfy server-side verification
+    let payload_bytes = match serde_json::to_vec(&payload_data) {
+        Ok(b) => b,
+        Err(e) => {
+            let msg = format!("Failed to serialize payload: {}", e);
+            tracing::error!("{}", msg);
+            return Err(msg);
+        }
     };
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(&payload_bytes);
+    let digest = hasher.finalize();
+    let content_hash_hex = hex::encode(digest);
+
+    let request_body_value = serde_json::json!({
+        "tag": "latest",
+        "payload": payload_data,
+        "title": "Auto Snapshot",
+        "version": chrono::Utc::now().timestamp(),
+        "content_hash": content_hash_hex,
+    });
+
+    // Serialize prepare body once
+    let request_body_string = match serde_json::to_string(&request_body_value) {
+        Ok(s) => s,
+        Err(e) => {
+            let msg = format!("Failed to serialize request body: {}", e);
+            tracing::error!("{}", msg);
+            return Err(msg);
+        }
+    };
+
+    tracing::info!(
+        content_hash = %content_hash_hex,
+        payload_size_bytes = payload_bytes.len(),
+        request_body_size_bytes = request_body_string.len(),
+        "Prepared snapshot request with deterministic JSON"
+    );
 
     let client = Client::new();
     let idempotency_key = Uuid::new_v4().to_string();
@@ -110,7 +163,8 @@ pub async fn perform_snapshot_sync_app(
     tracing::info!(endpoint = %snapshot_url, "Preparing snapshot upload");
     let prepare_req = client
         .post(&snapshot_url)
-        .json(&request_body)
+        .body(request_body_string.clone())
+        .header("Content-Type", "application/json")
         .header("Idempotency-Key", &idempotency_key)
         .bearer_auth(token.clone());
 
@@ -122,7 +176,7 @@ pub async fn perform_snapshot_sync_app(
             
             // Save to pending store
             if let Some(store) = app.try_state::<Arc<PendingStore>>() {
-                let body_json = serde_json::to_string(&request_body).unwrap_or_default();
+                let body_json = request_body_string.clone();
                 let mut headers = std::collections::HashMap::new();
                 headers.insert("Idempotency-Key".to_string(), idempotency_key.clone());
                 
@@ -149,7 +203,7 @@ pub async fn perform_snapshot_sync_app(
         
         if prepare_status.is_server_error() || prepare_status == reqwest::StatusCode::TOO_MANY_REQUESTS {
              if let Some(store) = app.try_state::<Arc<PendingStore>>() {
-                let body_json = serde_json::to_string(&request_body).unwrap_or_default();
+                let body_json = request_body_string.clone();
                 let mut headers = std::collections::HashMap::new();
                 headers.insert("Idempotency-Key".to_string(), idempotency_key.clone());
                 
@@ -178,9 +232,12 @@ pub async fn perform_snapshot_sync_app(
     let upload_url = prepare_json.upload_url;
     tracing::info!(endpoint = %upload_url, "Uploading snapshot data");
     
+    // Upload MUST send the raw payload JSON only, since server verifies
+    // SHA-256 over the entire request body and expects it to be the payload.
     let upload_req = client
         .post(&upload_url)
-        .json(&request_body)
+        .body(payload_bytes.clone())
+        .header("Content-Type", "application/json")
         .bearer_auth(token);
 
     let upload_resp = match upload_req.send().await {
@@ -191,7 +248,7 @@ pub async fn perform_snapshot_sync_app(
             
             // Save to pending store
             if let Some(store) = app.try_state::<Arc<PendingStore>>() {
-                let body_json = serde_json::to_string(&request_body).unwrap_or_default();
+                let body_json = String::from_utf8(payload_bytes.clone()).unwrap_or_default();
                 let mut headers = std::collections::HashMap::new();
                 headers.insert("Idempotency-Key".to_string(), idempotency_key.clone());
                 
@@ -237,7 +294,7 @@ pub async fn perform_snapshot_sync_app(
         
         if upload_status.is_server_error() || upload_status == reqwest::StatusCode::TOO_MANY_REQUESTS {
              if let Some(store) = app.try_state::<Arc<PendingStore>>() {
-                let body_json = serde_json::to_string(&request_body).unwrap_or_default();
+                let body_json = String::from_utf8(payload_bytes.clone()).unwrap_or_default();
                 let mut headers = std::collections::HashMap::new();
                 headers.insert("Idempotency-Key".to_string(), idempotency_key.clone());
                 

@@ -3,6 +3,7 @@ use reqwest::{Client, StatusCode};
 use serde::{Deserialize, Serialize};
 use fusou_auth::{AuthManager, FileStorage};
 use crate::pending_store::PendingStore;
+use sha2::{Digest, Sha256};
 
 #[derive(Deserialize)]
 struct HandshakeResponse {
@@ -120,10 +121,22 @@ impl Uploader {
         auth_manager: &AuthManager<FileStorage>,
         request: &UploadRequest<'_>,
     ) -> Result<UploadResult, UploadError> {
+        // Compute SHA-256 hash of the upload data
+        let mut hasher = Sha256::new();
+        hasher.update(&request.data);
+        let digest = hasher.finalize();
+        let content_hash = hex::encode(digest);
+
+        // Merge content_hash into handshake_body
+        let mut handshake_body = request.handshake_body.clone();
+        if let Some(obj) = handshake_body.as_object_mut() {
+            obj.insert("content_hash".to_string(), serde_json::Value::String(content_hash));
+        }
+
         // 1. Handshake
         let mut handshake_req = client
             .post(request.endpoint)
-            .json(&request.handshake_body);
+            .json(&handshake_body);
 
         for (k, v) in &request.headers {
             handshake_req = handshake_req.header(k, v);

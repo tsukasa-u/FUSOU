@@ -13,22 +13,10 @@ export type Bindings = {
   PUBLIC_SUPABASE_URL: string; // required for JWKS
   SUPABASE_SECRET_KEY: string;
   PUBLIC_SUPABASE_PUBLISHABLE_KEY: string;
-  // Removed SUPABASE_JWT_SECRET (migrated to JWKS public-key verification)
-  ASSET_SYNC_SKIP_EXTENSIONS?: string;
-  ASSET_SYNC_ALLOWED_EXTENSIONS?: string;
   ASSET_UPLOAD_SIGNING_SECRET: string;
   FLEET_SNAPSHOT_SIGNING_SECRET: string;
-  // Compaction service bindings
-  COMPACT_MAX_FRAGMENTS?: string;
-  COMPACT_MAX_BYTES?: string;
-  COMPACT_REQ_TIMEOUT_MS?: string;
-  // R2 signing bindings
-  R2_BUCKET?: string;
-  R2_ACCESS_KEY_ID?: string;
-  R2_SECRET_ACCESS_KEY?: string;
-  R2_REGION?: string;
-  R2_HOST?: string;
-  R2_SIGN_EXPIRES?: string;
+  R2_SIGNING_SECRET: string;
+  R2_PRESIGNED_TOKEN_SECRET?: string; // For R2 signed URL generation
 };
 
 export type R2BucketBinding = {

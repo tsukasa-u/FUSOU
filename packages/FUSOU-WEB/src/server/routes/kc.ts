@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import type { Bindings } from "../types";
 import { CORS_HEADERS, CACHE_TTL_MS } from "../constants";
-import { resolveSupabaseConfig, getRuntimeEnv } from "../utils";
+import { resolveSupabaseConfig, createEnvContext } from "../utils";
 
 const app = new Hono<{ Bindings: Bindings }>();
 
@@ -21,9 +21,9 @@ app.get("/latest", async (c) => {
     return c.json({ ...cachedPeriod.payload, cached: true });
   }
 
-  const runtimeEnv = getRuntimeEnv(c);
+  const envCtx = createEnvContext(c);
   const { url: supabaseUrl, serviceRoleKey: apiKey } =
-    resolveSupabaseConfig(runtimeEnv);
+    resolveSupabaseConfig(envCtx);
   if (!supabaseUrl) {
     return c.json({ error: "Configuration error" }, 500);
   }
