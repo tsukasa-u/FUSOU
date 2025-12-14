@@ -26,8 +26,4 @@ else
 fi
 
 echo "[strict] Starting astro dev with dotenvx..."
-
-# Source set_site_url to export PUBLIC_SITE_URL based on branch
-source ./scripts/set_site_url.sh
-
 dotenvx run -fk ../.env.keys -f .env --verbose --overload -- astro dev

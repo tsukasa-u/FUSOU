@@ -26,9 +26,5 @@ else
 fi
 
 echo "[strict] Running astro check + build..."
-
-# Source set_site_url to export PUBLIC_SITE_URL based on branch
-source ./scripts/set_site_url.sh
-
 astro check
 dotenvx run -f .env --verbose --overload -- astro build
