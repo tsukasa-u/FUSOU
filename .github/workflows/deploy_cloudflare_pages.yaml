@@ -21,14 +21,19 @@ jobs:
         with:
           node-version: lts/*
           cache: "pnpm"
-    
-      - name: Run sccache-cache
-        if: matrix.SCCACHE_GHA_ENABLED == 'true'
-        uses: mozilla-actions/sccache-action@v0.0.9
+
+      - name: install Rust stable
+        uses: dtolnay/rust-toolchain@stable # Set this to dtolnay/rust-toolchain@nightly
+        with:
+          targets: ${{ 'wasm32-unknown-unknown' }}
 
       - name: install wasm-pack
         run: |
           cargo install wasm-pack
+    
+      - name: Run sccache-cache
+        if: matrix.SCCACHE_GHA_ENABLED == 'true'
+        uses: mozilla-actions/sccache-action@v0.0.9
 
       - name: Build project
         run: |
