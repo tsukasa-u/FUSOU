@@ -28,8 +28,7 @@ jobs:
           targets: ${{ 'wasm32-unknown-unknown' }}
 
       - name: install wasm-pack
-        run: |
-          cargo install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
     
       - name: Run sccache-cache
         if: matrix.SCCACHE_GHA_ENABLED == 'true'
