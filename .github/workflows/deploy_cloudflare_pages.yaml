@@ -23,7 +23,7 @@ jobs:
           cache: "pnpm"
 
       - name: install Rust stable
-        uses: dtolnay/rust-toolchain@stable # Set this to dtolnay/rust-toolchain@nightly
+        uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ 'wasm32-unknown-unknown' }}
 
@@ -31,7 +31,7 @@ jobs:
         run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
     
       - name: Run sccache-cache
-        if: matrix.SCCACHE_GHA_ENABLED == 'true'
+        if: env.SCCACHE_GHA_ENABLED == 'true'
         uses: mozilla-actions/sccache-action@v0.0.9
 
       - name: Build project
@@ -44,8 +44,7 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-
-          # Optional: Enable this if you want to have GitHub Deployments triggered
-          gitHubToken: ${{ secrets.GITHUB_TOKEN }}
-
           
+          workingDirectory: 'packages/FUSOU-WEB'
+          command: pages deploy ./dist --project-name=fusou
+          gitHubToken: ${{ secrets.GITHUB_TOKEN }}
