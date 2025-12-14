@@ -30,11 +30,23 @@ app.post("/snapshot", async (c) => {
     signingSecret,
     tokenTTL: SNAPSHOT_TOKEN_TTL_SECONDS,
     preparationValidator: async (body, _userId) => {
-      const tag = typeof body?.tag === "string" ? body.tag.trim() : "";
+      const rawTag = typeof body?.tag === "string" ? body.tag.trim() : "";
       const contentHash = typeof body?.content_hash === "string" ? body.content_hash.trim() : "";
 
-      if (!tag) {
+      if (!rawTag) {
         return c.json({ error: "tag is required" }, 400);
+      }
+
+      // Sanitize tag to a URL-safe slug (lowercase, hyphens)
+      const tag = rawTag
+        .toLowerCase()
+        .replace(/\s+/g, "-")
+        .replace(/[^a-z0-9.-]/g, "-")
+        .replace(/-+/g, "-")
+        .replace(/^-|-$|\.$/g, "");
+
+      if (!tag) {
+        return c.json({ error: "tag becomes empty after sanitization" }, 400);
       }
 
       if (!contentHash) {
@@ -49,7 +61,7 @@ app.post("/snapshot", async (c) => {
         fields: { tag },
       };
     },
-    executionProcessor: async (tokenPayload, data, _userId) => {
+    executionProcessor: async (tokenPayload, data, user) => {
       const tag = tokenPayload.tag;
 
       if (!tag) {
@@ -97,11 +109,13 @@ app.post("/snapshot", async (c) => {
         .map((b) => b.toString(16).padStart(2, "0"))
         .join("");
 
+      // Use authenticated user id to ensure per-user isolation
+      const ownerId = String(user.id || "unknown");
+      // Normalize tag to a safe slug and ensure uniqueness by appending content hash prefix
+      const safeTag = encodeURIComponent(tag.toLowerCase().trim());
+      const hashPrefix = hashHex.slice(0, 8);
       const version = Date.now();
-      const ownerId = "user-" + Date.now();
-      const fileName = `fleets/${ownerId}/${encodeURIComponent(
-        tag,
-      )}/${version}-${hashHex}.json.gz`;
+      const fileName = `fleets/${ownerId}/${safeTag}/${version}-${hashPrefix}-${hashHex}.json.gz`;
 
       // Upload to R2
       await bucket.put(fileName, compressed, {
