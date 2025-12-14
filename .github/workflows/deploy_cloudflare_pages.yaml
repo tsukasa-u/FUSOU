@@ -48,3 +48,5 @@ jobs:
           workingDirectory: 'packages/FUSOU-WEB'
           command: pages deploy ./dist --project-name=fusou
           gitHubToken: ${{ secrets.GITHUB_TOKEN }}
+        env:
+          DOTENV_PRIVATE_KEY: ${{ secrets.DOTENV_PRIVATE_KEY }}
