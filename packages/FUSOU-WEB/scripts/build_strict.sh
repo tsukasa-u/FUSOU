@@ -26,5 +26,5 @@ else
 fi
 
 echo "[strict] Running astro check + build..."
-dotenvx run -fk ../.env.keys -f .env --verbose --overload -- astro check
-astro build
+astro check
+dotenvx run -fk ../.env.keys -f .env --verbose --overload -- astro build
