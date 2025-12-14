@@ -6,17 +6,18 @@ import type { Context } from "hono";
 
 // Cloudflare bindings and app environment
 export type Bindings = {
-  ASSET_SYNC_BUCKET: BucketBinding;
+  ASSET_SYNC_BUCKET: R2BucketBinding;
   ASSET_INDEX_DB: D1Database;
-  ASSET_PAYLOAD_BUCKET: R2BucketBinding;
+  FLEET_SNAPSHOT_BUCKET: R2BucketBinding;
+  BATTLE_DATA_BUCKET: R2BucketBinding;
   // Supabase config (JWKS verification requires URL)
   PUBLIC_SUPABASE_URL: string; // required for JWKS
   SUPABASE_SECRET_KEY: string;
   PUBLIC_SUPABASE_PUBLISHABLE_KEY: string;
   ASSET_UPLOAD_SIGNING_SECRET: string;
   FLEET_SNAPSHOT_SIGNING_SECRET: string;
-  R2_SIGNING_SECRET: string;
-  R2_PRESIGNED_TOKEN_SECRET?: string; // For R2 signed URL generation
+  BATTLE_DATA_SIGNING_SECRET: string;
+  BATTLE_DATA_SIGNED_URL_SECRET?: string; // For battle data signed URL generation
 };
 
 export type R2BucketBinding = {
@@ -86,8 +87,6 @@ export type D1ExecResult = {
 export type D1AllResult = { results?: D1Row[] };
 export type D1Result = Record<string, unknown>;
 export type D1Row = Record<string, unknown>;
-
-export type BucketBinding = R2BucketBinding;
 
 // Hono Context型
 export type AppContext = Context<{ Bindings: Bindings }>;

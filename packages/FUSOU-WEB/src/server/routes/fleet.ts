@@ -18,7 +18,7 @@ app.options(
 // POST /snapshot
 app.post("/snapshot", async (c) => {
   const env = createEnvContext(c);
-  const bucket = env.runtime.ASSET_PAYLOAD_BUCKET;
+  const bucket = env.runtime.FLEET_SNAPSHOT_BUCKET;
   const signingSecret = getEnv(env, "FLEET_SNAPSHOT_SIGNING_SECRET");
 
   if (!bucket || !signingSecret) {

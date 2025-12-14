@@ -181,15 +181,16 @@ export function injectEnv(locals: any): Bindings {
   return {
     ASSET_SYNC_BUCKET: ctx.runtime.ASSET_SYNC_BUCKET!,
     ASSET_INDEX_DB: ctx.runtime.ASSET_INDEX_DB!,
-    ASSET_PAYLOAD_BUCKET: ctx.runtime.ASSET_PAYLOAD_BUCKET!,
+    FLEET_SNAPSHOT_BUCKET: ctx.runtime.FLEET_SNAPSHOT_BUCKET!,
+    BATTLE_DATA_BUCKET: ctx.runtime.BATTLE_DATA_BUCKET!,
     // Use unified env getter with proper fallback
     PUBLIC_SUPABASE_URL: getEnv(ctx, "PUBLIC_SUPABASE_URL")!,
     SUPABASE_SECRET_KEY: getEnv(ctx, "SUPABASE_SECRET_KEY")!,
     PUBLIC_SUPABASE_PUBLISHABLE_KEY: getEnv(ctx, "PUBLIC_SUPABASE_PUBLISHABLE_KEY")!,
     ASSET_UPLOAD_SIGNING_SECRET: getEnv(ctx, "ASSET_UPLOAD_SIGNING_SECRET")!,
     FLEET_SNAPSHOT_SIGNING_SECRET: getEnv(ctx, "FLEET_SNAPSHOT_SIGNING_SECRET")!,
-    R2_SIGNING_SECRET: getEnv(ctx, "R2_SIGNING_SECRET")!,
-    R2_PRESIGNED_TOKEN_SECRET: getEnv(ctx, "R2_PRESIGNED_TOKEN_SECRET"),
+    BATTLE_DATA_SIGNING_SECRET: getEnv(ctx, "BATTLE_DATA_SIGNING_SECRET")!,
+    BATTLE_DATA_SIGNED_URL_SECRET: getEnv(ctx, "BATTLE_DATA_SIGNED_URL_SECRET"),
   };
 }
 
@@ -487,7 +488,7 @@ export async function generateTimeBasedSignedUrl(
       action: 'read',
       exp: expiresAt,
     },
-    process.env.R2_PRESIGNED_TOKEN_SECRET || 'fallback-secret',
+    process.env.BATTLE_DATA_SIGNED_URL_SECRET || 'fallback-secret',
     expiresInSeconds
   );
   
@@ -508,7 +509,7 @@ export async function verifyR2SignedUrl(
   try {
     const payload = await verifySignedToken(
       token,
-      process.env.R2_PRESIGNED_TOKEN_SECRET || 'fallback-secret'
+      process.env.BATTLE_DATA_SIGNED_URL_SECRET || 'fallback-secret'
     );
     
     if (!payload) return false;

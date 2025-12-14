@@ -55,7 +55,7 @@ app.post('/compact', async (c) => {
 
     const envCtx = createEnvContext(c);
     const { url: supabase_url, publishableKey: supabase_key } = resolveSupabaseConfig(envCtx);
-    const bucket = envCtx.runtime.ASSET_PAYLOAD_BUCKET;
+    const bucket = envCtx.runtime.FLEET_SNAPSHOT_BUCKET;
     // const requestTimeoutMs = Number(env.COMPACT_REQ_TIMEOUT_MS || '12000');
 
     if (!supabase_url || !supabase_key) {

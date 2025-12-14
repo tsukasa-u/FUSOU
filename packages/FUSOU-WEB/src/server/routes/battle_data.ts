@@ -7,8 +7,8 @@ import { handleTwoStageUpload } from "../utils/upload";
 const app = new Hono<{ Bindings: Bindings }>();
 
 /**
- * R2 server-side upload routes
- * Handles uploads to Cloudflare R2 via server-side bucket.put with JWT authentication
+ * Battle data server-side upload routes
+ * Handles uploads to Cloudflare R2 battle data bucket via server-side bucket.put with JWT authentication
  * Uses common two-stage upload handler with hash verification
  */
 
@@ -21,8 +21,8 @@ app.options(
 // POST /upload - 2-stage upload with JWT authentication
 app.post("/upload", async (c) => {
   const env = createEnvContext(c);
-  const bucket = env.runtime.R2_BUCKET_BINDING;
-  const signingSecret = getEnv(env, "R2_SIGNING_SECRET");
+  const bucket = env.runtime.BATTLE_DATA_BUCKET;
+  const signingSecret = getEnv(env, "BATTLE_DATA_SIGNING_SECRET");
 
   if (!bucket || !signingSecret) {
     return c.json({ error: "Server misconfiguration" }, 500);
@@ -63,7 +63,7 @@ app.post("/upload", async (c) => {
         return c.json({ error: "Invalid token payload" }, 400);
       }
 
-      // Upload to R2
+      // Upload to R2 battle data bucket
       await bucket.put(tokenPath, data, {
         httpMetadata: {
           contentType: "application/octet-stream",
@@ -81,7 +81,7 @@ app.post("/upload", async (c) => {
   });
 });
 
-// GET /health - health check for R2 signing service
+// GET /health - health check for battle data upload service
 app.get("/health", (c) => {
   return c.json({ status: "ok" });
 });
