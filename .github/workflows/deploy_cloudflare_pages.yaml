@@ -9,6 +9,9 @@ jobs:
     env:
       SCCACHE_GHA_ENABLED: "true"
       RUSTC_WRAPPER: "sccache"
+    defaults:
+      run:
+        working-directory: ./packages/FUSOU-WEB
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -24,16 +27,18 @@ jobs:
         if: matrix.SCCACHE_GHA_ENABLED == 'true'
         uses: mozilla-actions/sccache-action@v0.0.9
 
+      - name: Build project
+        run: |
+          pnpm install
+          pnpm build
+        
       - name: Deploy
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
-          command: "pnpm run build"
           # Optional: Enable this if you want to have GitHub Deployments triggered
           gitHubToken: ${{ secrets.GITHUB_TOKEN }}
-          packageManager: pnpm
-          workingDirectory: ./packages/FUSOU-WEB
 
           
