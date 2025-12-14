@@ -40,6 +40,13 @@ jobs:
           pnpm build.no.keys
         env:
           DOTENV_PRIVATE_KEY: ${{ secrets.DOTENV_PRIVATE_KEY }}
+      
+      - name: Verify WASM files for upload
+        run: |
+          echo "Checking WASM files in public directory..."
+          find public/wasm -name "*.wasm" || echo "Warning: No WASM files found in public/wasm"
+          echo "Checking WASM files in dist directory..."
+          find dist -name "*.wasm" | head -10 || echo "No WASM files in dist (expected for server mode)"
         
       - name: Deploy
         uses: cloudflare/wrangler-action@v3

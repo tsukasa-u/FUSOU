@@ -25,6 +25,14 @@ else
     --out-dir pkg
 fi
 
+# Copy WASM files to public directory for Cloudflare static asset upload
+echo "[strict] Copying WASM files to public directory..."
+mkdir -p public/wasm/compactor
+cp "$WASM_CRATE_DIR"/pkg/*.wasm public/wasm/compactor/ 2>/dev/null || true
+cp "$WASM_CRATE_DIR"/pkg/*.js public/wasm/compactor/ 2>/dev/null || true
+cp "$WASM_CRATE_DIR"/pkg/*.d.ts public/wasm/compactor/ 2>/dev/null || true
+cp "$WASM_CRATE_DIR"/pkg/package.json public/wasm/compactor/ 2>/dev/null || true
+
 echo "[strict] Running astro check + build..."
 astro check
 dotenvx run -f .env --verbose --overload -- astro build

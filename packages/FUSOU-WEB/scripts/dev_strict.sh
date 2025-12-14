@@ -25,5 +25,13 @@ else
     --out-dir pkg
 fi
 
+# Copy WASM files to public directory for local dev and static asset upload
+echo "[strict] Copying WASM files to public directory..."
+mkdir -p public/wasm/compactor
+cp "$WASM_CRATE_DIR"/pkg/*.wasm public/wasm/compactor/ 2>/dev/null || true
+cp "$WASM_CRATE_DIR"/pkg/*.js public/wasm/compactor/ 2>/dev/null || true
+cp "$WASM_CRATE_DIR"/pkg/*.d.ts public/wasm/compactor/ 2>/dev/null || true
+cp "$WASM_CRATE_DIR"/pkg/package.json public/wasm/compactor/ 2>/dev/null || true
+
 echo "[strict] Starting astro dev with dotenvx..."
 dotenvx run -fk ../.env.keys -f .env --verbose --overload -- astro dev
