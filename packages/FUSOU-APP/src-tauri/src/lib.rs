@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 
 use kc_api::interface;
 use tauri::{Manager, Emitter};
-use tauri_plugin_notification::NotificationExt;
+// use crate::notify; // access via module path since we declare below
 mod json_parser;
 
 use fusou_auth::{AuthManager, FileStorage, Storage};
@@ -24,6 +24,7 @@ mod sequence;
 mod util;
 mod window;
 mod wrap_proxy;
+mod notify;
 
 use fusou_upload::PendingStore;
 use fusou_upload::UploadRetryService;
@@ -89,15 +90,7 @@ async fn bootstrap_tokens_on_startup(
                 tracing::warn!("startup: token validation/refresh failed: {} - authentication required", e);
                 
                 // Send notification to user
-                if let Err(e) = app_handle_for_notification
-                    .notification()
-                    .builder()
-                    .title("Authentication Expired")
-                    .body("Your session has expired. Please sign in again to use FUSOU.")
-                    .show()
-                {
-                    tracing::error!("Failed to send notification: {}", e);
-                }
+                notify::show(&app_handle_for_notification, "Authentication Expired", "Your session has expired. Please sign in again to use FUSOU.");
 
                 // Open authentication page
                 if let Err(e) = auth::auth_server::open_auth_page() {
@@ -109,15 +102,7 @@ async fn bootstrap_tokens_on_startup(
         tracing::info!("startup: no existing session found - authentication required");
 
         // Send notification to user
-        if let Err(e) = app_handle_for_notification
-            .notification()
-            .builder()
-            .title("Authentication Required")
-            .body("Please sign in with your Supabase account to use FUSOU")
-            .show()
-        {
-            tracing::error!("Failed to send notification: {}", e);
-        }
+        notify::show(&app_handle_for_notification, "Authentication Required", "Please sign in with your Supabase account to use FUSOU");
 
         // Open authentication page using existing auth module function
         if let Err(e) = auth::auth_server::open_auth_page() {

@@ -24,7 +24,7 @@ use crate::interface::slot_item::SlotItems;
 use crate::sequence;
 use tracing_unwrap::OptionExt;
 
-use tauri_plugin_notification::NotificationExt;
+// use tauri_plugin_notification::NotificationExt; // replaced by notify wrapper where needed
 
 #[tauri::command]
 pub async fn get_mst_ships(window: tauri::Window) {
@@ -351,21 +351,7 @@ pub async fn perform_snapshot_sync(
     ).await
 }
 
-#[tauri::command]
-pub async fn show_native_notification(_window: tauri::Window, title: String, body: String) -> Result<(), String> {
-    // Use the bundled `tauri-plugin-notification` plugin via the app handle.
-    let app = _window.app_handle();
-    match app
-        .notification()
-        .builder()
-        .title(&title)
-        .body(&body)
-        .show()
-    {
-        Ok(_) => Ok(()),
-        Err(e) => Err(format!("native notification failed: {}", e)),
-    }
-}
+// Removed: use notify::show via internal callers when needed.
 
 /// Tauri command to get all stored logs
 #[tauri::command]

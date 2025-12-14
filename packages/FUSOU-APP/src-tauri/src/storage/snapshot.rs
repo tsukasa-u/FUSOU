@@ -3,7 +3,7 @@ use kc_api::fleet_snapshot::fleet::FleetSnapshot;
 use reqwest::Client;
 use serde_json::json;
 use tauri::AppHandle;
-use tauri_plugin_notification::NotificationExt;
+use crate::notify;
 use uuid::Uuid;
 use fusou_auth::{AuthManager, FileStorage};
 use std::sync::{Arc, Mutex};
@@ -99,41 +99,21 @@ pub async fn perform_snapshot_sync_app(
     match Uploader::upload(&client, &manager, request, pending_store.as_deref().map(|s| s.as_ref())).await {
         Ok(UploadResult::Success) => {
             tracing::info!("Snapshot upload successful");
-            let _ = app
-                .notification()
-                .builder()
-                .title("Snapshot sync")
-                .body("Snapshot sync completed")
-                .show();
+            notify::show(app, "Snapshot sync", "Snapshot sync completed");
             Ok(json!({ "ok": true, "tag": "latest" }))
         }
         Ok(UploadResult::Skipped) => {
             tracing::info!("Snapshot skipped (already exists or empty)");
-            let _ = app
-                .notification()
-                .builder()
-                .title("Snapshot sync")
-                .body("Snapshot already up-to-date")
-                .show();
+            notify::show(app, "Snapshot sync", "Snapshot already up-to-date");
             Ok(json!({ "ok": true, "skipped": true, "tag": "latest" }))
         }
         Err(e) => {
             // Check for authentication errors
             if e.contains("Authentication error") {
-                let _ = app
-                    .notification()
-                    .builder()
-                    .title("Sign-in Required")
-                    .body("Session expired. Please sign in again.")
-                    .show();
+                notify::show(app, "Sign-in Required", "Session expired. Please sign in again.");
                 let _ = auth_server::open_auth_page();
             } else {
-                let _ = app
-                    .notification()
-                    .builder()
-                    .title("Snapshot sync failed")
-                    .body(&format!("Upload error: {}", e))
-                    .show();
+                notify::show(app, "Snapshot sync failed", &format!("Upload error: {}", e));
             }
             tracing::error!(error = %e, "Snapshot upload failed");
             Err(e)
