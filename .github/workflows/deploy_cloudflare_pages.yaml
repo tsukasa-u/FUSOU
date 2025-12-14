@@ -37,7 +37,9 @@ jobs:
       - name: Build project
         run: |
           pnpm install
-          pnpm build
+          pnpm build.no.keys
+        env:
+          DOTENV_PRIVATE_KEY: ${{ secrets.DOTENV_PRIVATE_KEY }}
         
       - name: Deploy
         uses: cloudflare/wrangler-action@v3
@@ -48,5 +50,3 @@ jobs:
           workingDirectory: 'packages/FUSOU-WEB'
           command: pages deploy ./dist --project-name=fusou
           gitHubToken: ${{ secrets.GITHUB_TOKEN }}
-        env:
-          DOTENV_PRIVATE_KEY: ${{ secrets.DOTENV_PRIVATE_KEY }}
