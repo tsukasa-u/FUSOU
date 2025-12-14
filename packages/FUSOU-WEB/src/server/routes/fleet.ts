@@ -4,6 +4,8 @@ import { createEnvContext, getEnv } from "../utils";
 import {
   CORS_HEADERS,
   SNAPSHOT_TOKEN_TTL_SECONDS,
+  SNAPSHOT_EMPTY_PAYLOAD_THRESHOLD_BYTES,
+  SNAPSHOT_KEEP_LATEST_COUNT_PER_TAG,
 } from "../constants";
 import { handleTwoStageUpload } from "../utils/upload";
 
@@ -68,6 +70,18 @@ app.post("/snapshot", async (c) => {
         return c.json({ error: "Invalid token payload" }, 400);
       }
 
+      // Treat very small payloads as empty and skip upload
+      if (data && data.byteLength <= SNAPSHOT_EMPTY_PAYLOAD_THRESHOLD_BYTES) {
+        return {
+          response: {
+            ok: true,
+            skipped: true,
+            reason: `payload <=${SNAPSHOT_EMPTY_PAYLOAD_THRESHOLD_BYTES}B treated as empty; upload skipped`,
+            tag,
+          },
+        };
+      }
+
       // Parse and validate payload from data
       let payload: any;
       try {
@@ -124,6 +138,33 @@ app.post("/snapshot", async (c) => {
           cacheControl: "no-cache",
         },
       });
+
+      // Keep only the latest N snapshots for this tag: delete older versions
+      try {
+        const prefix = `fleets/${ownerId}/${safeTag}/`;
+        const listed = await bucket.list({ prefix });
+        const objects = listed.objects || [];
+        // Sort by uploaded time descending (newest first)
+        const sorted = objects.sort((a: any, b: any) => {
+          const at = a.uploaded ? new Date(a.uploaded).getTime() : 0;
+          const bt = b.uploaded ? new Date(b.uploaded).getTime() : 0;
+          return bt - at;
+        });
+        const toKeep = new Set(
+          sorted.slice(0, Math.max(SNAPSHOT_KEEP_LATEST_COUNT_PER_TAG, 1)).map((o: any) => o.key),
+        );
+        // Ensure the just-uploaded file is always kept
+        toKeep.add(fileName);
+        const keysToDelete = sorted
+          .map((o: any) => o.key)
+          .filter((key: string) => !toKeep.has(key));
+
+        for (const key of keysToDelete) {
+          await bucket.delete?.(key);
+        }
+      } catch (err) {
+        console.warn("snapshot cleanup failed", err);
+      }
 
       return {
         response: { ok: true, tag, r2_key: fileName },

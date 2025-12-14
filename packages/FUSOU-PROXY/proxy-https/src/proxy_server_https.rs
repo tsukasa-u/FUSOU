@@ -17,9 +17,7 @@ use chrono_tz::Asia::Tokyo;
 #[cfg(target_os = "windows")]
 use std::os::windows::fs::MetadataExt;
 
-// TODO: Re-enable asset_sync after removing fusou_upload dependency
-// use crate::{asset_sync, bidirectional_channel};
-use crate::bidirectional_channel;
+use crate::{asset_sync, bidirectional_channel};
 
 use configs;
 
@@ -185,8 +183,7 @@ fn log_response(
                             .expect_or_log("Failed to write file");
                     }
 
-                    // TODO: Re-enable asset_sync after removing fusou_upload dependency
-                    // asset_sync::notify_new_asset(file_log_path_for_sync);
+                    asset_sync::notify_new_asset(file_log_path_for_sync);
 
                     // if !file_log_path.exists() {
                     //     fs::write(file_log_path, body.clone().clone())
@@ -573,8 +570,6 @@ pub fn serve_proxy(
         log_save_path.clone()
     };
 
-    // TODO: Re-enable asset_sync after removing fusou_upload dependency
-    /*
     if app_configs.asset_sync.get_enable() {
         match asset_sync::AssetSyncInit::from_configs(
             &app_configs.asset_sync,
@@ -586,7 +581,7 @@ pub fn serve_proxy(
             },
         ) {
             Ok(init) => {
-                if let Err(err) = asset_sync::start(init, auth_manager) {
+                if let Err(err) = asset_sync::start(init, auth_manager.clone()) {
                     tracing::warn!("failed to start asset sync: {}", err);
                 }
             }
@@ -595,7 +590,6 @@ pub fn serve_proxy(
             }
         }
     }
-    */
 
     let server_proxy = Proxy::builder()
         .with_addr(addr)

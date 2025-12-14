@@ -106,11 +106,3 @@ pub fn get_manage_scheduler_integrate_channel() -> SchedulerIntegrateChannel {
         slave: get_scheduler_integrate_bidirectional_channel().clone_slave(),
     }
 }
-
-#[cfg(feature = "auth-local-server")]
-pub fn get_manage_auth_channel() -> auth_server::AuthChannel {
-    auth_server::AuthChannel {
-        // master: auth_bidirectional_channel_master.clone(),
-        slave: auth_bidirectional_channel_slave.clone(),
-    }
-}

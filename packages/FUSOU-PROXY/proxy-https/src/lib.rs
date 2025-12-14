@@ -1,5 +1,4 @@
-// TODO: Re-enable asset_sync after removing fusou_upload dependency
-// pub mod asset_sync;
+pub mod asset_sync;
 pub mod bidirectional_channel;
 // mpsc implementation (always compiled)
 pub mod channel_types;

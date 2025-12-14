@@ -14,6 +14,11 @@ export const CORS_HEADERS: Record<string, string> = {
 
 export const SIGNED_URL_TTL_SECONDS = 120;
 export const SNAPSHOT_TOKEN_TTL_SECONDS = 300;
+// Threshold for treating snapshot payload as empty and skipping upload
+export const SNAPSHOT_EMPTY_PAYLOAD_THRESHOLD_BYTES = 100;
+
+// Number of latest snapshot files to keep per tag (per owner)
+export const SNAPSHOT_KEEP_LATEST_COUNT_PER_TAG = 1;
 export const CACHE_TTL_SECONDS = 6 * 60 * 60;
 export const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 

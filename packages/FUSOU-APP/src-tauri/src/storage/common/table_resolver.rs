@@ -59,12 +59,12 @@ impl<'a> Iterator for PortTableIterator<'a> {
 }
 
 /// Get an iterator over all get_data tables
-pub fn get_all_get_data_tables(table: &GetDataTableEncode) -> GetDataTableIterator {
+pub fn get_all_get_data_tables(table: &GetDataTableEncode) -> GetDataTableIterator<'_> {
     GetDataTableIterator::new(table)
 }
 
 /// Get an iterator over all port tables
-pub fn get_all_port_tables(table: &PortTableEncode) -> PortTableIterator {
+pub fn get_all_port_tables(table: &PortTableEncode) -> PortTableIterator<'_> {
     PortTableIterator::new(table)
 }
 
