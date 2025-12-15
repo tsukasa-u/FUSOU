@@ -61,6 +61,14 @@ pub fn submit_port_table() {
         let cells = Cells::load();
         let maparea_id = cells.maparea_id;
         let mapinfo_no = cells.mapinfo_no;
+        tracing::info!(
+            "submit_port_table: preparing upload map={}-,{} cells={}, battles={}, event_map_present={}",
+            maparea_id,
+            mapinfo_no,
+            cells.cells.len(),
+            cells.battles.len(),
+            cells.event_map.is_some()
+        );
         tokio::task::spawn(async move {
             let _guard = acquire_port_table_guard().await;
 
@@ -80,5 +88,7 @@ pub fn submit_port_table() {
                 }
             }
         });
+    } else {
+        tracing::info!("submit_port_table: skipped (Cells reset_flag true, no accumulated data)");
     }
 }
