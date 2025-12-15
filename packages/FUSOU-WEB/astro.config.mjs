@@ -54,8 +54,12 @@ export default defineConfig({
       "process.env.FLEET_SNAPSHOT_SIGNING_SECRET": JSON.stringify(
         process.env.FLEET_SNAPSHOT_SIGNING_SECRET
       ),
-      "process.env.ADMIN_API_SECRET": JSON.stringify(
-        process.env.ADMIN_API_SECRET
+      "process.env.BATTLE_DATA_SIGNING_SECRET": JSON.stringify(
+        process.env.BATTLE_DATA_SIGNING_SECRET
+      ),
+      // Additional secrets/envs required by server code
+      "process.env.BATTLE_DATA_SIGNED_URL_SECRET": JSON.stringify(
+        process.env.BATTLE_DATA_SIGNED_URL_SECRET
       ),
       "process.env.GOOGLE_CLIENT_ID": JSON.stringify(
         process.env.GOOGLE_CLIENT_ID

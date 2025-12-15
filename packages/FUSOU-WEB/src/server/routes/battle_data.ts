@@ -25,12 +25,7 @@ app.post("/upload", async (c) => {
   const signingSecret = getEnv(env, "BATTLE_DATA_SIGNING_SECRET");
 
   if (!bucket || !signingSecret) {
-    const missing = [
-      !bucket ? "BATTLE_DATA_BUCKET" : null,
-      !signingSecret ? "BATTLE_DATA_SIGNING_SECRET" : null,
-    ].filter(Boolean);
-    console.error("[BattleData] Missing bindings:", missing);
-    return c.json({ error: "Server misconfiguration", missing }, 500);
+    return c.json({ error: "Server misconfiguration" }, 500);
   }
 
   return handleTwoStageUpload(c, {
