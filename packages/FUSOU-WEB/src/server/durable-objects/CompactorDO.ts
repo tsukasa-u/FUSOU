@@ -199,14 +199,21 @@ export class CompactorDO extends DurableObject<Bindings> {
       this.updateProgress(60, 'Processing with WASM');
       
       // WASM モジュールを動的にインポート
-      const { compact_single_dataset } = await import('fusou_compactor_wasm');
+      const wasmModule = await import('../../wasm/compactor/pkg/fusou_compactor_wasm.js');
+      const compactFn = wasmModule.compact_single_dataset as unknown as (
+        datasetId: string,
+        supabaseUrl: string,
+        supabaseKey: string,
+        data: Uint8Array
+      ) => Promise<number | string>;
 
-      const compacted = await compact_single_dataset(
+      const compactedResult = await compactFn(
         dataset_id,
         supabase_url,
         supabase_key,
         fullBinary
       );
+      const compacted = Number(compactedResult);
 
       console.log(`[CompactorDO] WASM processing completed: ${compacted} tables`);
 

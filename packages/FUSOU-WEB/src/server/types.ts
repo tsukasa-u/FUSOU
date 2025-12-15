@@ -25,6 +25,10 @@ export type Bindings = {
 export type R2BucketBinding = {
   head(key: string): Promise<R2ObjectLike | null>;
   list(options?: R2ListOptions): Promise<R2ListResponse>;
+  get(
+    key: string,
+    options?: { range?: { offset: number; length?: number } }
+  ): Promise<R2ObjectBody | null>;
   put(
     key: string,
     value:
@@ -62,6 +66,12 @@ export type R2ObjectLite = {
 export type R2ObjectLike = {
   size: number;
   etag?: string;
+};
+
+export type R2ObjectBody = {
+  size: number;
+  etag?: string;
+  arrayBuffer(): Promise<ArrayBuffer>;
 };
 
 export type BucketPutOptions = {
