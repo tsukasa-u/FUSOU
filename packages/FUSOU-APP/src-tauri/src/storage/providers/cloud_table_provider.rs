@@ -5,7 +5,14 @@ use kc_api::database::table::{GetDataTableEncode, PortTableEncode};
 use uuid::Uuid;
 
 use crate::storage::cloud_provider_trait::{CloudProviderFactory, CloudStorageProvider};
-use crate::storage::common::{get_all_get_data_tables, get_all_port_tables, generate_port_table_filename};
+use crate::storage::common::{
+    get_all_get_data_tables,
+    get_all_port_tables,
+    generate_port_table_filename,
+    master_folder,
+    transaction_root,
+    table_folder,
+};
 use crate::storage::constants::{GOOGLE_DRIVE_PROVIDER_NAME, MASTER_DATA_FOLDER_NAME, PERIOD_ROOT_FOLDER_NAME, TRANSACTION_DATA_FOLDER_NAME};
 use crate::storage::service::{StorageError, StorageFuture, StorageProvider};
 use fusou_upload::{PendingStore, UploadContext, UploadRetryService};
@@ -108,23 +115,7 @@ impl CloudTableStorageProvider {
         }
     }
 
-    fn master_folder(period_tag: &str) -> String {
-        format!(
-            "{root}/{period}/{master}",
-            root = PERIOD_ROOT_FOLDER_NAME,
-            period = period_tag,
-            master = MASTER_DATA_FOLDER_NAME
-        )
-    }
-
-    fn transaction_root(period_tag: &str) -> String {
-        format!(
-            "{root}/{period}/{txn}",
-            root = PERIOD_ROOT_FOLDER_NAME,
-            period = period_tag,
-            txn = TRANSACTION_DATA_FOLDER_NAME
-        )
-    }
+    // Folder path helpers are provided by common::path_layout
 
     /// Upload individual Avro tables to cloud storage
     ///
@@ -178,7 +169,7 @@ impl StorageProvider for CloudTableStorageProvider {
         table: &'a GetDataTableEncode,
     ) -> StorageFuture<'a, Result<(), StorageError>> {
         Box::pin(async move {
-            let master_dir = Self::master_folder(period_tag);
+            let master_dir = master_folder(period_tag);
             self.ensure_folder(&master_dir).await?;
 
             // Collect all tables into HashMap
@@ -209,14 +200,15 @@ impl StorageProvider for CloudTableStorageProvider {
         mapinfo_no: i64,
     ) -> StorageFuture<'a, Result<(), StorageError>> {
         Box::pin(async move {
-            let txn_root = Self::transaction_root(period_tag);
+            let txn_root = transaction_root(period_tag);
             self.ensure_folder(&txn_root).await?;
 
             let map_folder = format!("{}/{}-{}", txn_root, maparea_id, mapinfo_no);
             self.ensure_folder(&map_folder).await?;
 
-            // Collect all non-empty tables into HashMap
-            let mut tables = HashMap::new();
+            // Google Drive: mirror Local FS layout
+            // map_folder/{table_name}/{timestamp_uuid}.avro
+            let mut uploaded = 0usize;
             for (table_name, bytes) in get_all_port_tables(table) {
                 if bytes.is_empty() {
                     tracing::warn!(
@@ -227,15 +219,25 @@ impl StorageProvider for CloudTableStorageProvider {
                     );
                     continue;
                 }
-                tables.insert(table_name.to_string(), bytes.to_vec());
+
+                let table_dir = table_folder(&map_folder, table_name);
+                self.ensure_folder(&table_dir).await?;
+                let file_name = generate_port_table_filename();
+                let file_path = format!("{}/{}", table_dir, file_name);
+
+                self.upload_bytes(&file_path, &bytes).await?;
+                tracing::info!(
+                    "Saved {} table to Google Drive: {} ({} bytes)",
+                    table_name,
+                    file_path,
+                    bytes.len()
+                );
+                uploaded += 1;
             }
 
-            if tables.is_empty() {
-                return Ok(());
+            if uploaded == 0 {
+                tracing::warn!("No non-empty port_table content found for map {}-{}", maparea_id, mapinfo_no);
             }
-
-            // Upload Avro files directly (no Parquet conversion for Google Drive)
-            self.upload_avro_tables(&map_folder, tables).await?;
 
             Ok(())
         })
@@ -255,7 +257,7 @@ impl StorageProvider for CloudTableStorageProvider {
                 period_tag
             );
 
-            let txn_root = Self::transaction_root(period_tag);
+            let txn_root = transaction_root(period_tag);
             
             // List all map directories (e.g., "1-5", "2-3") in transaction root
             let map_folders = match self.cloud.list_folders(&txn_root).await {
@@ -268,10 +270,11 @@ impl StorageProvider for CloudTableStorageProvider {
 
             for map_folder in map_folders {
                 let map_path = format!("{}/{}", txn_root, map_folder);
+                let (maparea_id, mapinfo_no) = crate::storage::common::parse_map_ids(&map_folder).unwrap_or((0, 0));
                 
                 // Process each table type
                 for table_name in PORT_TABLE_NAMES.iter() {
-                    let table_path = format!("{}/{}", map_path, table_name);
+                    let table_path = table_folder(&map_path, table_name);
                     
                     // List all .avro files in this table directory
                     let files = match self.cloud.list_files(&table_path).await {
@@ -281,6 +284,13 @@ impl StorageProvider for CloudTableStorageProvider {
                             continue;
                         }
                     };
+                    tracing::debug!(
+                        "Scanning table {} in map {}-{} (dir: {})",
+                        table_name,
+                        maparea_id,
+                        mapinfo_no,
+                        table_path
+                    );
 
                     // Filter .avro files
                     let avro_files: Vec<_> = files
