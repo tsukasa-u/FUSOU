@@ -166,19 +166,21 @@ impl Uploader {
         }
 
         // 1. Handshake (JSON body)
+        // Serialize JSON manually to avoid automatic Content-Type header from .json()
+        let handshake_json = serde_json::to_vec(&handshake_body)
+            .map_err(|e| UploadError::TransportError(format!("Failed to serialize handshake: {}", e)))?;
+        
         let mut handshake_req = client
             .post(request.endpoint)
-            .json(&handshake_body);
+            .body(handshake_json)
+            .header("Content-Type", "application/json");
 
-        // Add custom headers first (excluding Content-Type)
+        // Add custom headers (excluding Content-Type to avoid duplicates)
         for (k, v) in &request.headers {
             if k.to_lowercase() != "content-type" {
                 handshake_req = handshake_req.header(k, v);
             }
         }
-        
-        // Force Content-Type to application/json
-        handshake_req = handshake_req.header("Content-Type", "application/json");
 
         if let Ok(token) = auth_manager.get_access_token().await {
             handshake_req = handshake_req.bearer_auth(token);
