@@ -22,13 +22,8 @@ impl R2StorageProvider {
     pub fn new(pending_store: Arc<PendingStore>, retry_service: Arc<UploadRetryService>) -> Self {
         tracing::info!("R2StorageProvider::new() called - initializing provider");
         
-        let storage_path = PathBuf::from("./.fusou/session.json");
-        let storage = FileStorage::new(storage_path);
-        let auth_manager = Arc::new(
-            AuthManager::from_env(Arc::new(storage))
-                .expect("Failed to initialize AuthManager for R2StorageProvider")
-        );
-        
+        let auth_manager = retry_service.auth_manager();
+
         tracing::info!("R2StorageProvider initialized successfully");
         
         Self {

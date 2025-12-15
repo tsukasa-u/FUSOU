@@ -36,6 +36,11 @@ impl UploadRetryService {
         }
     }
 
+    /// Get a clone of the underlying AuthManager used for retries
+    pub fn auth_manager(&self) -> Arc<AuthManager<FileStorage>> {
+        self.auth_manager.clone()
+    }
+
     pub async fn trigger_retry(&self) {
         let mut running = self.is_running.lock().await;
         if *running {
