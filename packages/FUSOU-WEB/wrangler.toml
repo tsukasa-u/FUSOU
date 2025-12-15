@@ -8,7 +8,3 @@ pages_build_output_dir = "dist"
 bindings = [
   { name = "COMPACTOR", class_name = "CompactorDO", script_name = "fusou" }
 ]
-
-[[migrations]]
-tag = "v1"
-new_classes = ["CompactorDO"]
