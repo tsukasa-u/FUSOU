@@ -9,17 +9,18 @@ pub type StorageFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
 #[derive(Debug)]
 pub enum StorageError {
-    ClientUnavailable,
     Io(std::io::Error),
     Operation(String),
+    #[allow(dead_code)]
+    Authentication,
 }
 
 impl std::fmt::Display for StorageError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            StorageError::ClientUnavailable => write!(f, "storage client is unavailable"),
             StorageError::Io(err) => write!(f, "io error: {err}"),
             StorageError::Operation(reason) => write!(f, "{reason}"),
+            StorageError::Authentication => write!(f, "authentication failed"),
         }
     }
 }

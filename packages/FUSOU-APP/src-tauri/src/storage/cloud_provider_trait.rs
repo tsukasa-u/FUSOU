@@ -8,17 +8,11 @@ use crate::storage::providers::GoogleDriveCloudStorageProvider;
 
 /// Common interface for cloud storage providers (Google Drive, iCloud, Dropbox, etc.)
 pub trait CloudStorageProvider: Send + Sync {
-    /// Provider name (google, icloud, dropbox, onedrive, etc.)
-    fn provider_name(&self) -> &str;
-    
     /// Initialize the provider with refresh token
     fn initialize(
         &mut self,
         refresh_token: String,
     ) -> Pin<Box<dyn Future<Output = Result<(), Box<dyn std::error::Error>>> + Send + '_>>;
-    
-    /// Check if provider is authenticated
-    fn is_authenticated(&self) -> bool;
     
     /// Upload file to cloud storage
     fn upload_file(

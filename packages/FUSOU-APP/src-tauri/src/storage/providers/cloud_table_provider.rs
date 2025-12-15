@@ -12,7 +12,6 @@ use crate::storage::common::{
     generate_port_table_filename,
     master_folder,
     transaction_root,
-    table_folder,
 };
 use crate::storage::constants::GOOGLE_DRIVE_PROVIDER_NAME;
 use crate::storage::service::{StorageError, StorageFuture, StorageProvider};
@@ -259,7 +258,7 @@ impl StorageProvider for CloudTableStorageProvider {
                     continue;
                 }
 
-                let table_dir = table_folder(&map_folder, table_name);
+                let table_dir = format!("{}/{}", map_folder, table_name);
                 self.ensure_folder(&table_dir).await?;
                 let file_name = generate_port_table_filename();
                 let file_path = format!("{}/{}", table_dir, file_name);
@@ -313,7 +312,7 @@ impl StorageProvider for CloudTableStorageProvider {
                 
                 // Process each table type
                 for table_name in PORT_TABLE_NAMES.iter() {
-                    let table_path = table_folder(&map_path, table_name);
+                    let table_path = format!("{}/{}", map_path, table_name);
                     
                     // List all .avro files in this table directory
                     let files = match self.cloud.list_files(&table_path).await {

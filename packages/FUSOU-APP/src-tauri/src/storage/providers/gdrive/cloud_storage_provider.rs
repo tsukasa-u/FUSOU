@@ -8,7 +8,7 @@ use crate::storage::cloud_provider_trait::CloudStorageProvider;
 use crate::storage::constants::{GOOGLE_DRIVE_ROOT_FOLDER_ID};
 
 use super::api::{check_folder, check_or_create_folder, delete_file_raw, get_file_content};
-use super::client::{create_auth, DriveClient, set_refresh_token, get_refresh_token};
+use super::client::{create_auth, DriveClient, set_refresh_token};
 
 /// Minimal Google Drive adapter that satisfies CloudStorageProvider.
 #[derive(Default, Clone)]
@@ -97,10 +97,6 @@ impl GoogleDriveCloudStorageProvider {
 }
 
 impl CloudStorageProvider for GoogleDriveCloudStorageProvider {
-    fn provider_name(&self) -> &str {
-        "google"
-    }
-
     fn initialize(
         &mut self,
         refresh_token: String,
@@ -111,10 +107,6 @@ impl CloudStorageProvider for GoogleDriveCloudStorageProvider {
             // Attempt to build client to validate token
             self.build_client().await.map(|_| ())
         })
-    }
-
-    fn is_authenticated(&self) -> bool {
-        get_refresh_token("google").is_some()
     }
 
     fn upload_file(

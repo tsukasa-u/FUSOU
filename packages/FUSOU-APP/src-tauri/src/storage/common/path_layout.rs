@@ -22,14 +22,6 @@ pub fn transaction_root(period_tag: &str) -> String {
     )
 }
 
-pub fn map_folder(period_tag: &str, maparea_id: i64, mapinfo_no: i64) -> String {
-    format!("{}/{}-{}", transaction_root(period_tag), maparea_id, mapinfo_no)
-}
-
-pub fn table_folder(map_folder: &str, table_name: &str) -> String {
-    format!("{}/{}", map_folder, table_name)
-}
-
 // PathBuf-based layout helpers (for local filesystem providers)
 
 pub fn master_dir(root: &Path, period_tag: &str) -> PathBuf {

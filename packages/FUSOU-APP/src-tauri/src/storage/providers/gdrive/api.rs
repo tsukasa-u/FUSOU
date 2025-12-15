@@ -57,65 +57,6 @@ pub async fn get_file_content(
     None
 }
 
-pub async fn get_file_list_in_folder(
-    hub: &mut DriveClient,
-    parent_folder_id: Option<String>,
-    page_size: i32,
-    mime_type: String,
-) -> Option<Vec<String>> {
-    let query = match parent_folder_id {
-        Some(parent_folder_id) => format!(
-            "mimeType='{mime_type}' and {trash_filter} and '{parent_folder_id}' in parents",
-            trash_filter = GOOGLE_DRIVE_TRASHED_FILTER
-        ),
-        None => format!(
-            "mimeType='{mime_type}' and {trash_filter}",
-            trash_filter = GOOGLE_DRIVE_TRASHED_FILTER
-        ),
-    };
-    let mut last_err: Option<String> = None;
-    for attempt in 0..5u32 {
-        let result = hub
-            .files()
-            .list()
-            .q(&query)
-            .param("fields", "files(id),nextPageToken")
-            .page_size(page_size.min(100))
-            .doit()
-            .await;
-        match result {
-            Ok(result) => {
-                let files = result.1.files?;
-                let mut file_list = Vec::<String>::new();
-                for file in files {
-                    file_list.push(file.id.unwrap_or_default());
-                }
-                return Some(file_list);
-            }
-            Err(e) => {
-                let msg = format!("{e:?}");
-                last_err = Some(msg.clone());
-                tracing::warn!(
-                    "google drive list failed (attempt {}): {}",
-                    attempt + 1,
-                    msg
-                );
-                if attempt < 4 {
-                    sleep(backoff_delay(attempt)).await;
-                    continue;
-                } else {
-                    break;
-                }
-            }
-        }
-    }
-    tracing::error!(
-        "get_file_list_in_folder giving up after retries: {}",
-        last_err.unwrap_or_else(|| "unknown error".to_string())
-    );
-    None
-}
-
 pub async fn check_folder(
     hub: &mut DriveClient,
     folder_name: String,
@@ -398,36 +339,6 @@ pub async fn check_or_create_folder(
         Ok(id) => Some(id),
         Err(_) => None,
     }
-}
-
-pub async fn check_or_create_folders(
-    hub: &mut DriveClient,
-    folder_names: Vec<String>,
-    parent_folder_id: Option<String>,
-) -> Option<Vec<String>> {
-    let mut folder_ids = Vec::<String>::new();
-    for folder_name in folder_names {
-        let folder_id = check_or_create_folder(hub, folder_name, parent_folder_id.clone()).await;
-        if let Some(folder_id) = folder_id {
-            folder_ids.push(folder_id);
-        } else {
-            return None;
-        }
-    }
-    return Some(folder_ids);
-}
-
-pub async fn check_or_create_folder_hierarchical(
-    hub: &mut DriveClient,
-    folder_names: Vec<String>,
-    parent_folder_id: Option<String>,
-) -> Option<String> {
-    let mut folder_id = parent_folder_id;
-    for folder_name in folder_names {
-        let new_folder_id = check_or_create_folder(hub, folder_name, folder_id.clone()).await?;
-        folder_id = Some(new_folder_id);
-    }
-    return folder_id;
 }
 
 // End of public API functions
