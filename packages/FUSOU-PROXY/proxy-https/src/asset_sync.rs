@@ -490,28 +490,16 @@ pub async fn upload_via_api(
         .or_else(|| path.file_name().map(|n| n.to_string_lossy().to_string()))
         .unwrap_or_else(|| "asset.bin".to_string());
 
-    // Step 1: Handshake
-    let handshake_req = UploadHandshakeRequest {
-        key: key.to_string(),
-        relative_path: relative.to_string_lossy().to_string(),
-        file_size: file_size.to_string(),
-        finder_tag: settings.finder_tag.clone().and_then(|tag| {
-            if tag.trim().is_empty() {
-                None
-            } else {
-                Some(tag)
-            }
-        }),
-        file_name: filename.clone(),
-        content_type: "application/octet-stream".to_string(),
-    };
-
-    let handshake_body = serde_json::to_value(&handshake_req)
-        .map_err(|e| format!("Failed to serialize handshake: {}", e))?;
+    // Step 1: Handshake (build via common helper)
+    let handshake_body = fusou_upload::Uploader::build_asset_sync_handshake(
+        key,
+        &relative.to_string_lossy(),
+        file_size,
+        Some(&filename),
+    );
 
     let mut headers = std::collections::HashMap::new();
     headers.insert("Origin".to_string(), settings.api_origin.clone());
-    headers.insert("Content-Type".to_string(), "application/octet-stream".to_string());
 
     let request = UploadRequest {
         endpoint: &settings.api_endpoint,

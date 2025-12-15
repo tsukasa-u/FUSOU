@@ -63,11 +63,8 @@ impl R2StorageProvider {
             ));
         }
 
-        // Build handshake request
-        let handshake_body = serde_json::json!({
-            "path": format!("{}.bin", tag),
-            "binary": true,
-        });
+        // Build handshake request via common helper
+        let handshake_body = fusou_upload::Uploader::build_battle_data_handshake(tag);
 
         let mut headers = std::collections::HashMap::new();
         headers.insert("Content-Type".to_string(), "application/octet-stream".to_string());

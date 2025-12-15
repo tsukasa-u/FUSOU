@@ -86,6 +86,38 @@ pub enum UploadResult {
 pub struct Uploader;
 
 impl Uploader {
+    /// Helper: build handshake body for battle-data upload
+    pub fn build_battle_data_handshake(path_tag: &str) -> serde_json::Value {
+        serde_json::json!({
+            "path": format!("{}.bin", path_tag),
+            "binary": true,
+        })
+    }
+
+    /// Helper: build handshake body for fleet snapshot upload
+    pub fn build_snapshot_handshake(tag: &str) -> serde_json::Value {
+        serde_json::json!({
+            "tag": tag,
+        })
+    }
+
+    /// Helper: build handshake body for asset-sync upload
+    pub fn build_asset_sync_handshake(
+        key: &str,
+        relative_path: &str,
+        declared_size: u64,
+        file_name: Option<&str>,
+    ) -> serde_json::Value {
+        let mut obj = serde_json::json!({
+            "key": key,
+            "relative_path": relative_path,
+            "file_size": declared_size.to_string(),
+        });
+        if let Some(name) = file_name {
+            if let Some(map) = obj.as_object_mut() { map.insert("file_name".to_string(), serde_json::Value::String(name.to_string())); }
+        }
+        obj
+    }
     pub async fn upload(
         client: &Client,
         auth_manager: &AuthManager<FileStorage>,
@@ -133,10 +165,11 @@ impl Uploader {
             obj.insert("content_hash".to_string(), serde_json::Value::String(content_hash));
         }
 
-        // 1. Handshake
+        // 1. Handshake (JSON body)
         let mut handshake_req = client
             .post(request.endpoint)
-            .json(&handshake_body);
+            .json(&handshake_body)
+            .header("Content-Type", "application/json");
 
         for (k, v) in &request.headers {
             handshake_req = handshake_req.header(k, v);
@@ -181,9 +214,11 @@ impl Uploader {
             .map_err(|e| UploadError::TransportError(format!("Invalid handshake response: {}", e)))?;
 
         // 2. Upload
+        // 2. Upload (binary body)
         let mut upload_req = client
             .post(&handshake_res.upload_url)
-            .body(request.data.clone());
+            .body(request.data.clone())
+            .header("Content-Type", "application/octet-stream");
 
         for (k, v) in &request.headers {
             upload_req = upload_req.header(k, v);

@@ -73,10 +73,8 @@ pub async fn perform_snapshot_sync_app(
         "Prepared snapshot data"
     );
 
-    // Build handshake request body
-    let handshake_body = serde_json::json!({
-        "tag": "latest",
-    });
+    // Build handshake request body via common helper
+    let handshake_body = fusou_upload::Uploader::build_snapshot_handshake("latest");
 
     let mut headers = std::collections::HashMap::new();
     headers.insert("Content-Type".to_string(), "application/json".to_string());
