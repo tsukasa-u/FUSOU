@@ -31,7 +31,7 @@ app.post("/upload", async (c) => {
   return handleTwoStageUpload(c, {
     bucket,
     signingSecret,
-    preparationValidator: async (body, userId) => {
+    preparationValidator: async (body, user) => {
       let path = typeof body?.path === "string" ? body.path.trim() : "";
       const isBinary = Boolean(body?.binary);
       const contentHash = typeof body?.content_hash === "string" ? body.content_hash.trim() : "";
@@ -46,6 +46,7 @@ app.post("/upload", async (c) => {
 
       // Normalize path to user-scoped storage
       const relative = path.replace(/^\/+/, "");
+      const userId = typeof user?.id === "string" ? user.id : String(user?.id ?? "");
       const normalizedPath = `databases/${userId}/${relative}`;
 
       return {
