@@ -421,3 +421,66 @@ export async function verifyR2SignedUrl(
   }
 }
 
+/**
+ * R2 バケットからバイナリデータを読み込む（署名URL不要）
+ * Worker環境内でのアクセス（env.R2バインディング経由）
+ * 
+ * @param bucket R2BucketBinding
+ * @param key オブジェクトキー
+ * @returns バイナリデータ（ArrayBuffer）
+ */
+export async function readR2Binary(
+  bucket: any,
+  key: string
+): Promise<ArrayBuffer> {
+  const obj = await bucket.get(key);
+  if (!obj) {
+    throw new Error(`R2 object not found: ${key}`);
+  }
+  return obj.arrayBuffer();
+}
+
+/**
+ * R2 バケットにバイナリデータを書き込む
+ * 
+ * @param bucket R2BucketBinding
+ * @param key オブジェクトキー
+ * @param data バイナリデータ
+ * @param metadata オプションのメタデータ
+ */
+export async function writeR2Binary(
+  bucket: any,
+  key: string,
+  data: ArrayBuffer | Uint8Array,
+  metadata?: Record<string, string>
+): Promise<void> {
+  await bucket.put(key, data, {
+    customMetadata: metadata,
+  });
+}
+
+/**
+ * R2 オブジェクトのメタデータを取得（ファイルサイズ確認用）
+ * 
+ * @param bucket R2BucketBinding
+ * @param key オブジェクトキー
+ * @returns メタデータ（size, contentType, lastModified）
+ */
+export async function getR2ObjectMetadata(
+  bucket: any,
+  key: string
+): Promise<{ size: number; contentType: string; lastModified: Date } | null> {
+  try {
+    const obj = await bucket.head(key);
+    if (!obj) return null;
+    return {
+      size: obj.size || 0,
+      contentType: obj.contentType || 'application/octet-stream',
+      lastModified: obj.uploaded || new Date(),
+    };
+  } catch (error) {
+    console.error(`Failed to get R2 metadata for ${key}:`, error);
+    return null;
+  }
+}
+
