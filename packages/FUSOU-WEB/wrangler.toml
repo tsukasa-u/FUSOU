@@ -6,5 +6,5 @@ pages_build_output_dir = "dist"
 # Durable Objects configuration
 [durable_objects]
 bindings = [
-  { name = "COMPACTOR", class_name = "CompactorDO", script_name = "fusou" }
+  { name = "COMPACTOR", class_name = "CompactorDO" }
 ]
