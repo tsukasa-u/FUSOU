@@ -178,7 +178,7 @@ impl AvroToParquetConverter {
 
     /// Map Avro types to Arrow types
     fn avro_type_to_arrow(&self, avro_type: &apache_avro::Schema) -> arrow::datatypes::DataType {
-        use arrow::datatypes::{DataType, Field, TimeUnit};
+        use arrow::datatypes::{DataType, TimeUnit};
 
         match avro_type {
             apache_avro::Schema::Null => DataType::Null,
@@ -201,8 +201,10 @@ impl AvroToParquetConverter {
                 DataType::Utf8 // Fallback for complex unions
             }
             apache_avro::Schema::Array(item_schema) => {
-                let item_type = self.avro_type_to_arrow(&item_schema.items);
-                DataType::List(Arc::new(Field::new("item", item_type, true)))
+                // Note: array schema currently flattened to Utf8 to avoid List<...> Parquet schema mismatch
+                // because we do not build List arrays in build_column_for_field.
+                warn!("Unsupported Avro array type {:?}, flattening to Utf8", item_schema);
+                DataType::Utf8
             }
             apache_avro::Schema::TimestampMillis | apache_avro::Schema::TimestampMicros => {
                 DataType::Timestamp(TimeUnit::Millisecond, None)
