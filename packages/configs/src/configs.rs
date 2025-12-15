@@ -355,15 +355,10 @@ impl ConfigsAppDatabaseLocal {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConfigsAppDatabaseR2 {
-    enable: Option<bool>,
     upload_endpoint: Option<String>,
 }
 
 impl ConfigsAppDatabaseR2 {
-    pub fn get_enable(&self) -> bool {
-        self.enable.unwrap_or_else(|| get_default_configs().app.database.r2.enable.unwrap())
-    }
-
     pub fn get_upload_endpoint(&self) -> Option<String> {
         match self.upload_endpoint {
             Some(ref v) if !v.trim().is_empty() => Some(v.trim().to_string()),

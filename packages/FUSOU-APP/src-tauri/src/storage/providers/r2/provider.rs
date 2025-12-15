@@ -47,7 +47,7 @@ impl R2StorageProvider {
         let db_config = configs.database;
         let r2_config = &db_config.r2;
 
-        if !(db_config.get_allow_data_to_shared_cloud() && r2_config.get_enable()) {
+        if !db_config.get_allow_data_to_shared_cloud() {
             return Err(StorageError::Operation(
                 "R2 shared database upload is disabled in config".into(),
             ));

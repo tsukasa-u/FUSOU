@@ -112,7 +112,7 @@ impl StorageService {
         }
 
         // Add R2 storage provider when shared cloud sync is enabled
-        if database_config.get_allow_data_to_shared_cloud() && database_config.r2.get_enable() {
+        if database_config.get_allow_data_to_shared_cloud() {
             tracing::info!("Initializing R2 storage provider");
             providers.push(Arc::new(R2StorageProvider::new(pending_store, retry_service)));
         }
