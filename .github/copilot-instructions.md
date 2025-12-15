@@ -138,7 +138,7 @@ FUSOU-APP supports three storage backends for KanColle game data:
   - Triggered in `StorageService::resolve()` based on config flags:
     - `allow_data_to_cloud`: Google Drive
     - `allow_data_to_local`: Local filesystem
-    - `allow_data_to_shared_cloud` + `r2.enable`: R2
+    - `allow_data_to_shared_cloud`: R2
   - Dependencies: `PendingStore`, `UploadRetryService` for upload retry logic
 
 - **Critical**: Never use `BatchUploadBuilder` for Google Drive or Local FS - they require raw Avro files for integration
