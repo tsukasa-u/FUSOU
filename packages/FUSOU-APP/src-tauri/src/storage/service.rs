@@ -160,11 +160,22 @@ impl StorageService {
         maparea_id: i64,
         mapinfo_no: i64,
     ) {
+        tracing::info!(
+            "StorageService::write_port_table called: period={}, map={}-{}, provider_count={}",
+            period_tag, maparea_id, mapinfo_no, self.providers.len()
+        );
+        
         let mut handles = Vec::new();
         for provider in self.providers.iter().cloned() {
             let table_clone = table.clone();
             let period_clone = period_tag.to_string();
             let provider_name = provider.name().to_string();
+            
+            tracing::info!(
+                "Dispatching write_port_table to provider: {} for map {}-{}",
+                provider_name, maparea_id, mapinfo_no
+            );
+            
             let handle = tokio::spawn(async move {
                 if let Err(err) = provider
                     .write_port_table(&period_clone, &table_clone, maparea_id, mapinfo_no)
@@ -174,6 +185,11 @@ impl StorageService {
                         "{} storage failed to write port_table: {}",
                         provider_name,
                         err
+                    );
+                } else {
+                    tracing::info!(
+                        "{} storage successfully wrote port_table for map {}-{}",
+                        provider_name, maparea_id, mapinfo_no
                     );
                 }
             });

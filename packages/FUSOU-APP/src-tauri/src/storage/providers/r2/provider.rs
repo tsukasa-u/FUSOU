@@ -20,12 +20,16 @@ pub struct R2StorageProvider {
 
 impl R2StorageProvider {
     pub fn new(pending_store: Arc<PendingStore>, retry_service: Arc<UploadRetryService>) -> Self {
+        tracing::info!("R2StorageProvider::new() called - initializing provider");
+        
         let storage_path = PathBuf::from("./.fusou/session.json");
         let storage = FileStorage::new(storage_path);
         let auth_manager = Arc::new(
             AuthManager::from_env(Arc::new(storage))
                 .expect("Failed to initialize AuthManager for R2StorageProvider")
         );
+        
+        tracing::info!("R2StorageProvider initialized successfully");
         
         Self {
             pending_store,
@@ -125,6 +129,11 @@ impl StorageProvider for R2StorageProvider {
         mapinfo_no: i64,
     ) -> StorageFuture<'a, Result<(), StorageError>> {
         Box::pin(async move {
+            tracing::info!(
+                "R2StorageProvider::write_port_table CALLED: period={}, map={}-{}",
+                period_tag, maparea_id, mapinfo_no
+            );
+            
             // Collect all non-empty Avro tables into HashMap
             let mut tables = std::collections::HashMap::new();
             for (table_name, bytes) in get_all_port_tables(table) {
