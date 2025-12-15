@@ -1,15 +1,12 @@
 # Cloudflare Pages configuration for FUSOU-WEB
-name = "fusou"
+name = "fusou-web"
 compatibility_date = "2024-01-01"
 pages_build_output_dir = "dist"
 
 # Durable Objects configuration
+# Note: Pages does not support migrations, so they are omitted.
+# Durable Objects are registered on first deployment.
 [durable_objects]
 bindings = [
-  { name = "COMPACTOR", class_name = "CompactorDO", script_name = "fusou" }
+  { name = "COMPACTOR", class_name = "CompactorDO", script_name = "fusou-web" }
 ]
-
-# Durable Objects migrations (required for Pages)
-[[migrations]]
-tag = "v1"
-new_classes = [ "CompactorDO" ]
