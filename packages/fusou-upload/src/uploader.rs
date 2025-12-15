@@ -168,12 +168,17 @@ impl Uploader {
         // 1. Handshake (JSON body)
         let mut handshake_req = client
             .post(request.endpoint)
-            .json(&handshake_body)
-            .header("Content-Type", "application/json");
+            .json(&handshake_body);
 
+        // Add custom headers first (excluding Content-Type)
         for (k, v) in &request.headers {
-            handshake_req = handshake_req.header(k, v);
+            if k.to_lowercase() != "content-type" {
+                handshake_req = handshake_req.header(k, v);
+            }
         }
+        
+        // Force Content-Type to application/json
+        handshake_req = handshake_req.header("Content-Type", "application/json");
 
         if let Ok(token) = auth_manager.get_access_token().await {
             handshake_req = handshake_req.bearer_auth(token);
@@ -213,16 +218,20 @@ impl Uploader {
         let handshake_res: HandshakeResponse = resp.json().await
             .map_err(|e| UploadError::TransportError(format!("Invalid handshake response: {}", e)))?;
 
-        // 2. Upload
         // 2. Upload (binary body)
         let mut upload_req = client
             .post(&handshake_res.upload_url)
-            .body(request.data.clone())
-            .header("Content-Type", "application/octet-stream");
+            .body(request.data.clone());
 
+        // Add custom headers first (excluding Content-Type)
         for (k, v) in &request.headers {
-            upload_req = upload_req.header(k, v);
+            if k.to_lowercase() != "content-type" {
+                upload_req = upload_req.header(k, v);
+            }
         }
+        
+        // Force Content-Type to application/octet-stream
+        upload_req = upload_req.header("Content-Type", "application/octet-stream");
         
         if let Ok(token) = auth_manager.get_access_token().await {
             upload_req = upload_req.bearer_auth(token);
