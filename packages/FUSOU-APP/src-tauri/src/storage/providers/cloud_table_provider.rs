@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use futures::future::join_all;
 use kc_api::database::table::{GetDataTableEncode, PortTableEncode};
 use uuid::Uuid;
 
@@ -13,7 +14,7 @@ use crate::storage::common::{
     transaction_root,
     table_folder,
 };
-use crate::storage::constants::{GOOGLE_DRIVE_PROVIDER_NAME, MASTER_DATA_FOLDER_NAME, PERIOD_ROOT_FOLDER_NAME, TRANSACTION_DATA_FOLDER_NAME};
+use crate::storage::constants::GOOGLE_DRIVE_PROVIDER_NAME;
 use crate::storage::service::{StorageError, StorageFuture, StorageProvider};
 use fusou_upload::{PendingStore, UploadContext, UploadRetryService};
 
@@ -117,14 +118,14 @@ impl CloudTableStorageProvider {
 
     // Folder path helpers are provided by common::path_layout
 
-    /// Upload individual Avro tables to cloud storage
+    /// Upload individual Avro tables to cloud storage in parallel with deduplication
     ///
     /// # Arguments
     /// * `base_path` - Base directory path for uploads
     /// * `tables` - HashMap of table_name -> avro_bytes
     ///
     /// # Returns
-    /// Number of successfully uploaded tables
+    /// Number of successfully uploaded/skipped tables
     async fn upload_avro_tables(
         &self,
         base_path: &str,
@@ -134,27 +135,52 @@ impl CloudTableStorageProvider {
             return Err(StorageError::Operation("No tables to upload".to_string()));
         }
 
-        let mut uploaded = 0;
+        // Build upload tasks for parallel execution
+        let mut tasks = Vec::new();
         for (table_name, avro_data) in tables {
             let file_path = format!("{}/{}.avro", base_path, table_name);
-            match self.upload_bytes(&file_path, &avro_data).await {
-                Ok(_) => {
+            let self_clone = self.clone();
+            let table_name_clone = table_name.clone();
+            let task = async move {
+                // Check if file already exists to avoid duplicates
+                if let Ok(true) = self_clone.cloud.file_exists(&file_path).await {
                     tracing::info!(
-                        "Saved {} table to Google Drive: {} ({} bytes)",
-                        table_name,
-                        file_path,
-                        avro_data.len()
+                        "Skipping {} table (already exists in Google Drive): {}",
+                        table_name_clone,
+                        file_path
                     );
-                    uploaded += 1;
+                    return Ok(());
                 }
-                Err(e) => {
-                    tracing::warn!("Failed to upload {} table to Google Drive: {}", table_name, e);
-                    // Continue uploading other tables even if one fails
+
+                // File doesn't exist or we can't check, attempt upload
+                match self_clone.upload_bytes(&file_path, &avro_data).await {
+                    Ok(_) => {
+                        tracing::info!(
+                            "Saved {} table to Google Drive: {} ({} bytes)",
+                            table_name_clone,
+                            file_path,
+                            avro_data.len()
+                        );
+                        Ok(())
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            "Failed to upload {} table to Google Drive: {}",
+                            table_name_clone,
+                            e
+                        );
+                        Err(e)
+                    }
                 }
-            }
+            };
+            tasks.push(task);
         }
 
-        Ok(uploaded)
+        // Execute all uploads in parallel
+        let results = join_all(tasks).await;
+        let success_count = results.iter().filter(|r| r.is_ok()).count();
+
+        Ok(success_count)
     }
 }
 
@@ -182,13 +208,26 @@ impl StorageProvider for CloudTableStorageProvider {
             }
 
             if tables.is_empty() {
+                tracing::debug!("No get_data_table content to upload for period {}", period_tag);
                 return Ok(());
             }
 
             // Upload Avro files directly (no Parquet conversion for Google Drive)
-            self.upload_avro_tables(&master_dir, tables).await?;
-
-            Ok(())
+            // Parallel uploads with deduplication check
+            match self.upload_avro_tables(&master_dir, tables).await {
+                Ok(count) => {
+                    tracing::info!(
+                        "Uploaded {} get_data_table files to Google Drive for period {}",
+                        count,
+                        period_tag
+                    );
+                    Ok(())
+                }
+                Err(e) => {
+                    tracing::error!("Failed to upload get_data_table for period {}: {}", period_tag, e);
+                    Err(e)
+                }
+            }
         })
     }
 

@@ -313,4 +313,29 @@ impl CloudStorageProvider for GoogleDriveCloudStorageProvider {
             Ok(folder_id)
         })
     }
+
+    fn file_exists(
+        &self,
+        remote_path: &str,
+    ) -> Pin<Box<dyn Future<Output = Result<bool, Box<dyn std::error::Error>>> + Send + '_>> {
+        let remote_path_owned = remote_path.to_string();
+        Box::pin(async move {
+            let mut hub = match self.build_client().await {
+                Ok(h) => h,
+                Err(e) => {
+                    tracing::error!("failed to build Google Drive client for file_exists: {e:?}");
+                    return Err(e);
+                }
+            };
+
+            match self.resolve_file_id(&mut hub, &remote_path_owned).await {
+                Ok(Some(_)) => Ok(true),
+                Ok(None) => Ok(false),
+                Err(e) => {
+                    tracing::debug!("error checking file existence in Google Drive: {e}");
+                    Err(e.into())
+                }
+            }
+        })
+    }
 }

@@ -57,6 +57,12 @@ pub trait CloudStorageProvider: Send + Sync {
         &self,
         remote_path: &str,
     ) -> Pin<Box<dyn Future<Output = Result<String, Box<dyn std::error::Error>>> + Send + '_>>;
+
+    /// Check if a file exists in cloud storage
+    fn file_exists(
+        &self,
+        remote_path: &str,
+    ) -> Pin<Box<dyn Future<Output = Result<bool, Box<dyn std::error::Error>>> + Send + '_>>;
 }
 
 /// Factory for creating cloud storage providers

@@ -81,7 +81,7 @@ impl StorageProvider for LocalFileSystemProvider {
         table: &'a GetDataTableEncode,
     ) -> StorageFuture<'a, Result<(), StorageError>> {
         Box::pin(async move {
-            let period_dir = self.period_directory(period_tag);
+            let _period_dir = self.period_directory(period_tag);
             let master_dir = path_layout::master_dir(&self.root, period_tag);
             Self::ensure_dir(&master_dir).await?;
 
@@ -102,7 +102,7 @@ impl StorageProvider for LocalFileSystemProvider {
         mapinfo_no: i64,
     ) -> StorageFuture<'a, Result<(), StorageError>> {
         Box::pin(async move {
-            let period_dir = self.period_directory(period_tag);
+            let _period_dir = self.period_directory(period_tag);
             let map_dir = path_layout::map_dir(&self.root, period_tag, maparea_id, mapinfo_no);
             Self::ensure_dir(&map_dir).await?;
 
