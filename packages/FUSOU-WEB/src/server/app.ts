@@ -8,6 +8,7 @@ import assetsApp from './routes/assets';
 import fleetApp from './routes/fleet';
 import kcApp from './routes/kc';
 import compactApp from './routes/compact';
+import analyticsApp from './routes/analytics';
 import battleDataApp from './routes/battle_data';
 
 const app = new Hono<{ Bindings: Bindings }>();
@@ -17,8 +18,17 @@ app.use('*', logger((msg) => {
   console.log(`[Hono API] ${msg}`);
 }));
 
-// Global CORS
+// Global CORS (preflight)
 app.options('*', (_c) => new Response(null, { status: 204, headers: CORS_HEADERS }));
+
+// Global CORS (actual responses)
+app.use('*', async (c, next) => {
+  await next();
+  for (const [k, v] of Object.entries(CORS_HEADERS)) {
+    // Avoid overriding explicitly-set headers
+    if (!c.res.headers.has(k)) c.res.headers.set(k, v);
+  }
+});
 
 // Global error handler
 app.onError((err, c) => {
@@ -38,6 +48,7 @@ app.route('/fleet', fleetApp);  // fleetApp declares /snapshot, etc.
 app.route('/kc-period', kcApp);     // kcApp declares /latest, etc.
 app.route('/compaction', compactApp); // compactApp declares /compact, /compact/trigger, /compact/status
 app.route('/battle-data', battleDataApp); // battleDataApp declares /upload, /health
+app.route('/analytics', analyticsApp); // analyticsApp declares /compaction-metrics
 
 // Catch-all 404
 app.all('*', (c) => {

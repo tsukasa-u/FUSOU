@@ -2,7 +2,7 @@
   // "extends": "astro/tsconfigs/strict",
   "extends": "astro/tsconfigs/base",
   "include": [".astro/types.d.ts", "**/*"],
-  "exclude": ["dist"],
+  "exclude": ["dist", "src/server/durable-objects/**"],
   "compilerOptions": {
     "lib": ["ES2022", "DOM"],
     "module": "es2020",

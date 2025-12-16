@@ -44,6 +44,17 @@ interface CompactionResult {
   message?: string;
 }
 
+/**
+ * Standard retry configuration for Supabase operations
+ * Free tier: exponential backoff with max 3 retries
+ * Prevents rate limiting issues on shared infrastructure
+ */
+const SUPABASE_RETRY_CONFIG = {
+  limit: 3,
+  delay: 2000, // 2 seconds in milliseconds
+  backoff: 'exponential' as const,
+};
+
 export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionParams> {
   async run(event: any, step: WorkflowStep) {
     const { datasetId, bucketKey, metricId } = event.params;
@@ -61,11 +72,7 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
       const step1Start = Date.now();
 
       const validation = await step.do('validate-dataset', {
-        retries: {
-          limit: 3,
-          delay: '5 seconds',
-          backoff: 'exponential'
-        }
+        retries: SUPABASE_RETRY_CONFIG
       }, async () => {
         const supabase = createClient(
           this.env.PUBLIC_SUPABASE_URL,
@@ -103,15 +110,37 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
         duration: `${step1Duration}ms`,
       });
 
+      // ===== Set compaction_in_progress flag =====
+      const setFlagStart = Date.now();
+      await step.do('set-in-progress-flag', {
+        retries: SUPABASE_RETRY_CONFIG
+      }, async () => {
+        const supabase = createClient(
+          this.env.PUBLIC_SUPABASE_URL,
+          this.env.SUPABASE_SECRET_KEY
+        );
+
+        const { error } = await supabase
+          .from('datasets')
+          .update({ compaction_in_progress: true })
+          .eq('id', datasetId);
+
+        if (error) {
+          throw new Error(`Failed to set in-progress flag: ${error.message}`);
+        }
+      });
+
+      const setFlagDuration = Date.now() - setFlagStart;
+      console.info(`[Workflow] Set in-progress flag`, {
+        datasetId,
+        duration: `${setFlagDuration}ms`,
+      });
+
       // ===== Step 2: Get File Metadata =====
       const step2Start = Date.now();
 
       const fileMetadata = await step.do('get-file-metadata', {
-        retries: {
-          limit: 3,
-          delay: '3 seconds',
-          backoff: 'exponential'
-        },
+        retries: SUPABASE_RETRY_CONFIG,
         timeout: '30 seconds'
       }, async () => {
         const object = await this.env.BATTLE_DATA_BUCKET.head(bucketKey);
@@ -154,7 +183,7 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
       const compactionResult = await step.do('compact-with-wasm', {
         retries: {
           limit: 2,
-          delay: '10 seconds',
+          delay: 10000,
           backoff: 'linear'
         },
         timeout: '5 minutes'
@@ -205,7 +234,7 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
       await step.do('update-metadata', {
         retries: {
           limit: 3,
-          delay: '3 seconds',
+          delay: 3000,
           backoff: 'linear'
         }
       }, async () => {
@@ -356,6 +385,8 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
         if (updateMetricsError) {
           console.warn(`[Workflow] Failed to update failure metrics: ${updateMetricsError.message}`);
         }
+      } else {
+        console.warn(`[Workflow] No metricId provided for failure tracking`, { datasetId, errorMessage, failedStep });
       }
 
       throw error;
@@ -659,12 +690,18 @@ export const queue = {
 /**
  * DLQ Handler
  * Processes messages that failed 3 times and moved to Dead Letter Queue
+ * Records failures to processing_metrics for monitoring and alerting
  */
 export const queueDLQ = {
   async queue(batch: MessageBatch<any>, env: Env) {
     console.warn(`[DLQ Handler] Processing ${batch.messages.length} failed messages`, {
       timestamp: new Date().toISOString(),
     });
+
+    const supabase = createClient(
+      env.PUBLIC_SUPABASE_URL,
+      env.SUPABASE_SECRET_KEY
+    );
 
     for (const message of batch.messages) {
       try {
@@ -680,13 +717,76 @@ export const queueDLQ = {
           timestamp: new Date().toISOString(),
         });
 
-        // ===== Future: Record to metrics table =====
-        // Example: Insert into processing_metrics table
-        // await recordDLQMetric(datasetId, error, metricId);
+        // ===== Record to metrics table =====
+        if (metricId) {
+          // Update existing metrics record with DLQ failure status
+          const { error: updateError } = await supabase
+            .from('processing_metrics')
+            .update({
+              status: 'dlq_failure',
+              error_message: 'Message moved to DLQ after max retries',
+              error_step: 'consumer',
+              workflow_completed_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', metricId);
+
+          if (updateError) {
+            console.error(`[DLQ Handler] Failed to update metrics record`, {
+              metricId,
+              error: updateError.message,
+            });
+          } else {
+            console.info(`[DLQ Handler] Updated metrics record`, { metricId });
+          }
+        } else {
+          // Create new DLQ failure record if metricId is missing
+          const { error: insertError } = await supabase
+            .from('processing_metrics')
+            .insert({
+              dataset_id: datasetId,
+              workflow_instance_id: `dlq-${Date.now()}-${datasetId}`,
+              status: 'dlq_failure',
+              error_message: 'Message in DLQ without metricId',
+              error_step: 'consumer',
+              queued_at: triggeredAt,
+              workflow_completed_at: new Date().toISOString(),
+            });
+
+          if (insertError) {
+            console.error(`[DLQ Handler] Failed to create DLQ metrics record`, {
+              datasetId,
+              error: insertError.message,
+            });
+          } else {
+            console.info(`[DLQ Handler] Created DLQ metrics record`, { datasetId });
+          }
+        }
+
+        // Reset compaction_in_progress flag if dataset is stuck
+        if (datasetId) {
+          const { error: resetError } = await supabase
+            .from('datasets')
+            .update({ 
+              compaction_in_progress: false,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', datasetId)
+            .eq('compaction_in_progress', true);
+
+          if (resetError) {
+            console.error(`[DLQ Handler] Failed to reset compaction flag`, {
+              datasetId,
+              error: resetError.message,
+            });
+          } else {
+            console.info(`[DLQ Handler] Reset compaction flag`, { datasetId });
+          }
+        }
 
         // ===== Future: Send alert notification =====
         // Example: Send to monitoring system (Slack, PagerDuty, etc.)
-        // await notifyDLQFailure(datasetId);
+        // await notifyDLQFailure(env, datasetId, priority);
 
         // Acknowledge DLQ message (don't retry indefinitely)
         message.ack();

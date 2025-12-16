@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Compaction Dashboard</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+</head>
+<body class="bg-gray-900 text-gray-100 min-h-screen p-6">
+  <div class="max-w-7xl mx-auto">
+    <header class="mb-8">
+      <h1 class="text-3xl font-bold">📊 Compaction Queue Dashboard</h1>
+      <p class="text-gray-400 mt-2">Last updated: <span id="last-update">-</span></p>
+    </header>
+
+    <!-- Status Cards -->
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+      <div class="bg-gray-800 rounded-lg p-6">
+        <div class="text-gray-400 text-sm">Pending</div>
+        <div class="text-3xl font-bold text-yellow-400" id="pending-count">-</div>
+      </div>
+      <div class="bg-gray-800 rounded-lg p-6">
+        <div class="text-gray-400 text-sm">Success (24h)</div>
+        <div class="text-3xl font-bold text-green-400" id="success-count">-</div>
+      </div>
+      <div class="bg-gray-800 rounded-lg p-6">
+        <div class="text-gray-400 text-sm">Failures</div>
+        <div class="text-3xl font-bold text-red-400" id="failure-count">-</div>
+      </div>
+      <div class="bg-gray-800 rounded-lg p-6">
+        <div class="text-gray-400 text-sm">🚨 DLQ</div>
+        <div class="text-3xl font-bold text-orange-400" id="dlq-count">-</div>
+      </div>
+    </div>
+
+    <!-- Charts -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+      <div class="bg-gray-800 rounded-lg p-6">
+        <h2 class="text-xl font-semibold mb-4">Status Distribution</h2>
+        <canvas id="status-chart"></canvas>
+      </div>
+      <div class="bg-gray-800 rounded-lg p-6">
+        <h2 class="text-xl font-semibold mb-4">Hourly Performance</h2>
+        <canvas id="performance-chart"></canvas>
+      </div>
+    </div>
+
+    <!-- DLQ Alerts -->
+    <div class="bg-gray-800 rounded-lg p-6 mb-8">
+      <h2 class="text-xl font-semibold mb-4">🚨 DLQ Failures (Requires Attention)</h2>
+      <div id="dlq-alerts" class="space-y-2">
+        <div class="text-gray-500 text-center py-4">Loading...</div>
+      </div>
+    </div>
+
+    <!-- Error Analysis -->
+    <div class="bg-gray-800 rounded-lg p-6">
+      <h2 class="text-xl font-semibold mb-4">Error Analysis (Top 10)</h2>
+      <div id="error-analysis">
+        <div class="text-gray-500 text-center py-4">Loading...</div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // @ts-nocheck
+    let statusChart, performanceChart;
+
+    const ChartLib = (typeof window !== 'undefined' && window.Chart) ? window.Chart : null;
+
+    function setText(id, value) {
+      const el = document.getElementById(id);
+      if (el) el.textContent = String(value ?? '');
+    }
+
+    async function fetchMetrics() {
+      try {
+        const response = await fetch('/analytics/compaction-metrics');
+        /** @type {any} */
+        const data = await response.json();
+        
+        if (!data) return;
+        updateCards(data.status_distribution || []);
+        updateStatusChart(data.status_distribution || []);
+        updatePerformanceChart(data.hourly_performance || []);
+        updateDLQAlerts(data.dlq_failures || []);
+        updateErrorAnalysis(data.error_analysis || []);
+        
+        setText('last-update', new Date(data.timestamp).toLocaleString('ja-JP'));
+      } catch (error) {
+        console.error('Failed to fetch metrics:', error);
+      }
+    }
+
+    function updateCards(statusData) {
+      const pending = statusData.find(s => s.status === 'pending');
+      const success = statusData.find(s => s.status === 'success');
+      const failure = statusData.find(s => s.status === 'failure');
+      const dlq = statusData.find(s => s.status === 'dlq_failure');
+
+      setText('pending-count', pending?.count || 0);
+      setText('success-count', success?.count || 0);
+      setText('failure-count', failure?.count || 0);
+      setText('dlq-count', dlq?.count || 0);
+    }
+
+    function updateStatusChart(statusData) {
+      const canvas = document.getElementById('status-chart');
+      if (!(canvas instanceof HTMLCanvasElement) || !ChartLib) return;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      
+      if (statusChart) {
+        statusChart.destroy();
+      }
+
+      const labels = statusData.map(s => s.status);
+      const counts = statusData.map(s => s.count);
+      const colors = labels.map(label => {
+        if (label === 'success') return 'rgb(74, 222, 128)';
+        if (label === 'failure') return 'rgb(248, 113, 113)';
+        if (label === 'dlq_failure') return 'rgb(251, 146, 60)';
+        return 'rgb(250, 204, 21)';
+      });
+
+      statusChart = new ChartLib(ctx, {
+        type: 'doughnut',
+        data: {
+          labels,
+          datasets: [{
+            data: counts,
+            backgroundColor: colors,
+          }]
+        },
+        options: {
+          responsive: true,
+          plugins: {
+            legend: { position: 'bottom' }
+          }
+        }
+      });
+    }
+
+    function updatePerformanceChart(hourlyData) {
+      const canvas = document.getElementById('performance-chart');
+      if (!(canvas instanceof HTMLCanvasElement) || !ChartLib) return;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      
+      if (performanceChart) {
+        performanceChart.destroy();
+      }
+
+      const labels = hourlyData.map(h => 
+        new Date(h.hour).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })
+      ).reverse();
+      const successCounts = hourlyData.map(h => h.success_count).reverse();
+      const failureCounts = hourlyData.map(h => h.failure_count).reverse();
+
+      performanceChart = new ChartLib(ctx, {
+        type: 'line',
+        data: {
+          labels,
+          datasets: [
+            {
+              label: 'Success',
+              data: successCounts,
+              borderColor: 'rgb(74, 222, 128)',
+              backgroundColor: 'rgba(74, 222, 128, 0.1)',
+              tension: 0.4
+            },
+            {
+              label: 'Failure',
+              data: failureCounts,
+              borderColor: 'rgb(248, 113, 113)',
+              backgroundColor: 'rgba(248, 113, 113, 0.1)',
+              tension: 0.4
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          scales: {
+            y: { beginAtZero: true }
+          }
+        }
+      });
+    }
+
+    function updateDLQAlerts(dlqFailures) {
+      const container = document.getElementById('dlq-alerts');
+      if (!container) return;
+      
+      if (!dlqFailures || dlqFailures.length === 0) {
+        container.innerHTML = '<div class="text-green-400 text-center py-4">✅ No DLQ failures</div>';
+        return;
+      }
+
+      container.innerHTML = dlqFailures.map(failure => `
+        <div class="bg-red-900/20 border border-red-500 rounded p-4">
+          <div class="flex justify-between items-start">
+            <div>
+              <div class="text-sm text-gray-400">Dataset: ${failure.dataset_id}</div>
+              <div class="text-red-400 font-medium">${failure.error_step || 'Unknown step'}</div>
+              <div class="text-sm text-gray-300 mt-1">${failure.error_message || 'No error message'}</div>
+            </div>
+            <div class="text-xs text-gray-500">
+              ${new Date(failure.created_at).toLocaleString('ja-JP')}
+            </div>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    function updateErrorAnalysis(errorData) {
+      const container = document.getElementById('error-analysis');
+      if (!container) return;
+      
+      if (!errorData || errorData.length === 0) {
+        container.innerHTML = '<div class="text-gray-500 text-center py-4">No errors found</div>';
+        return;
+      }
+
+      container.innerHTML = `
+        <table class="w-full text-left">
+          <thead class="border-b border-gray-700">
+            <tr>
+              <th class="pb-2">Step</th>
+              <th class="pb-2">Count</th>
+              <th class="pb-2">Latest Error</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${errorData.map(error => `
+              <tr class="border-b border-gray-700/50">
+                <td class="py-2 font-medium">${error.error_step || 'Unknown'}</td>
+                <td class="py-2 text-red-400">${error.error_count}</td>
+                <td class="py-2 text-sm text-gray-400">${new Date(error.latest_error_at).toLocaleString('ja-JP')}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      `;
+    }
+
+    // Initial fetch
+    fetchMetrics();
+
+    // Auto-refresh every 30 seconds
+    setInterval(fetchMetrics, 30000);
+  </script>
+</body>
+</html>
