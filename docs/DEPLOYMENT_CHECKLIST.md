@@ -25,8 +25,16 @@
 
 ### R2 バケット確認
 - [ ] **ASSETS_BUCKET** → `dev-kc-assets` (存在確認)
+- [ ] **ASSET_SYNC_BUCKET** → `dev-kc-assets` or 専用バケット (存在確認)
 - [ ] **FLEET_SNAPSHOT_BUCKET** → `dev-kc-fleets` (存在確認)
 - [ ] **BATTLE_DATA_BUCKET** → `dev-kc-battle-data` (存在確認)
+
+### D1 データベース確認（新規）
+- [ ] **ASSET_INDEX_DB** → `dev_kc_asset_index` (既存、アセット索引用)
+- [ ] **BATTLE_INDEX_DB** → `dev_kc_battle_index` (新規、バトルデータ索引用)
+  - Cloudflare Dashboard → D1 → 「Create database」
+  - 作成後、`wrangler.toml` の `database_id` を更新
+  - SQL初期化: `wrangler d1 execute <database_id> --file docs/sql/battle_index_init.sql`
 
 ### キュー設定確認
 - [ ] **COMPACTION_QUEUE** バインディング

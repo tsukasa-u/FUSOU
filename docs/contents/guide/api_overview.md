@@ -96,10 +96,15 @@ sequenceDiagram
 
 ### battle_data (port/battle系テーブル)
 - フロー: `write_port_table` が Local FS / Google Drive / R2 へ同時呼び出し。
-- 保存形式:
-  - Local/Drive: Avro個別 `period/transaction/{maparea}-{mapinfo}/{table}.avro`
-    - R2: Parquet連結 `{period}-port-{maparea}-{mapinfo}.bin` (署名付きURL経由)
-    - ハッシュ: `fusou-upload/Uploader` がSHA-256を計算し、`content_hash`をhandshakeに付与して送信します。
+- R2保存設計（蓄積＋非上書）:
+  - キー形式: **可変キー** `battle_data/{dataset_id}/{table}/{YYYYMMDDHHmmss}-{uuid}.parquet`（上書き防止）
+  - アップロード: 署名付きURL（2段階）で Parquet/バイナリを送信
+  - インデックス: D1（`BATTLE_INDEX_DB`）へ `battle_files` テーブルに断片メタを記録
+    - `key`, `dataset_id`, `table`, `size`, `etag`, `uploaded_at`, `content_hash`, `uploaded_by`
+  - 参照API: D1をクエリし、最新/期間指定で一覧取得（短期キャッシュ付与）
+- ハッシュ: `fusou-upload/Uploader` がSHA-256を計算し、`content_hash`をhandshakeに付与して送信
+- コンパクション: Supabase RPC＋ワークフロー側で、期間窓の断片一覧を取得→マージ→新キーへ成果物保存
+- Local/Drive: Avro個別 `period/transaction/{maparea}-{mapinfo}/{table}.avro`（従来通り）
 
 ### fleet snapshot
 - 実装: `src-tauri/src/storage/snapshot.rs`
@@ -214,6 +219,94 @@ flowchart TD
 - battle_data (port_table): `Uploader`がバイナリのSHA-256を計算し、`content_hash`としてhandshakeに付与。
 - fleet snapshot: 正規化したJSONバイトのSHA-256を`Uploader`が計算し、`content_hash`として送信。
 - asset-sync: 取得アセットのSHA-256を`Uploader`が計算し、`content_hash`として送信。
+- battle_data: R2保存済み各断片のSHA-256を計算・記録し、後段コンパクション時に検証。
+
+---
+
+## Battle Data REST API
+
+### POST /battle-data/upload (2段階署名付きURL)
+
+**フェーズ1: ハンドシェイク**
+```
+POST /api/battle-data/upload
+Content-Type: application/json
+Authorization: Bearer <supabase_access_token>
+
+{
+  "dataset_id": "dataset-123",
+  "table": "port",
+  "file_size": "1048576",
+  "content_hash": "sha256_hex_string"
+}
+```
+
+レスポンス:
+```json
+{
+  "uploadUrl": "https://pages.dev/api/battle-data/upload?token=...&expires=...&signature=...",
+  "expiresAt": "2025-12-17T05:05:00Z",
+  "fields": {...}
+}
+```
+
+**フェーズ2: 本体アップロード**
+- クエリ `token`, `expires`, `signature` を保持したまま、バイナリストリームをPUTまたはPOST
+- 署名検証後、R2へ可変キーで保存＋D1へ索引追記
+
+### GET /battle-data/chunks
+
+期間指定で断片メタ一覧を取得。
+
+```
+GET /api/battle-data/chunks?dataset_id=dataset-123&table=port&from=2025-12-16T00:00:00Z&to=2025-12-17T00:00:00Z&limit=100&offset=0
+Authorization: Bearer <supabase_access_token>
+```
+
+レスポンス:
+```json
+{
+  "chunks": [
+    {
+      "key": "battle_data/dataset-123/port/20251217050000-uuid.parquet",
+      "dataset_id": "dataset-123",
+      "table": "port",
+      "size": 1048576,
+      "etag": "...",
+      "uploaded_at": "2025-12-17T05:00:00Z",
+      "content_hash": "sha256_hex"
+    },
+    ...
+  ],
+  "count": 42
+}
+```
+
+**キャッシュ**: `Cache-Control: public, max-age=60, stale-while-revalidate=300`
+
+### GET /battle-data/latest
+
+最新断片メタを取得。
+
+```
+GET /api/battle-data/latest?dataset_id=dataset-123&table=port
+Authorization: Bearer <supabase_access_token>
+```
+
+レスポンス:
+```json
+{
+  "latest": {
+    "key": "battle_data/dataset-123/port/20251217050000-uuid.parquet",
+    "size": 1048576,
+    "etag": "...",
+    "uploaded_at": "2025-12-17T05:00:00Z",
+    "content_hash": "sha256_hex"
+  }
+}
+```
+
+**キャッシュ**: `Cache-Control: public, max-age=60, stale-while-revalidate=300`
 
 ---
 
@@ -221,6 +314,7 @@ flowchart TD
 - `write_port_table`: Local FS / Google Drive / R2 を並列実行。R2 のみ Parquet 変換。
 - `write_get_data_table`: Local FS / Google Drive のみ。R2 は即スキップ。
 - コンパクション: R2 保存済みデータセットは Cloudflare Workflow により定期的に最適化（サーバー側）。
+  - ワークフロー: `/battle-data/chunks` で期間内の断片一覧取得→マージ→成果物を新キーで保存→D1へ登録。
 
 ---
 

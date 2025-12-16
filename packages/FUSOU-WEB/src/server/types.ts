@@ -10,6 +10,7 @@ export type Bindings = {
   ASSETS_BUCKET: R2BucketBinding;
   ASSET_SYNC_BUCKET: R2BucketBinding;
   ASSET_INDEX_DB: D1Database;
+  BATTLE_INDEX_DB: D1Database;
   FLEET_SNAPSHOT_BUCKET: R2BucketBinding;
   BATTLE_DATA_BUCKET: R2BucketBinding;
   
