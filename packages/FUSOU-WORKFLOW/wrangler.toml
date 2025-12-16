@@ -45,3 +45,10 @@ max_retries = 1
 # ===== CPU limit: 5 minutes per step =====
 [limits]
 cpu_ms = 300000
+
+[observability]
+[observability.logs]
+enabled = false
+head_sampling_rate = 1
+invocation_logs = true
+persist = true
