@@ -1,4 +1,3 @@
-<!-- markdownlint-disable MD032 MD040 MD025 MD022 MD007 MD010 MD041 MD003 -->
 ---
 title: FUSOU API Overview
 description: FUSOU のクライアント(Tauri)とバックエンド(Supabase / Cloudflare R2 / Google Drive / Cloudflare Pages Workers)の連携仕様と署名付きURLフローのまとめ。
@@ -7,6 +6,8 @@ date: 2025-12-16
 slug: guide/api_overview
 tags: [guide, api]
 ---
+
+<!-- markdownlint-disable MD032 MD040 MD025 MD022 MD007 MD010 MD041 MD003 -->
 
 # FUSOU API Overview
 
