@@ -1,8 +1,8 @@
 # FUSOU データセットコンパクション設計・実装・運用ドキュメント
 
-最終更新: 2025-12-13 / ブランチ: `r2_parquet`
+最終更新: 2025-12-16 / ブランチ: `r2_parquet`
 
-本ドキュメントは、Cloudflare Pages + WASM による Parquet コンパクションの設計、実装内容、運用方法、無料枠制限を踏まえたチューニング指針を詳細にまとめたものです。
+本ドキュメントは、Cloudflare Workflow による Parquet コンパクションの設計、実装内容、運用方法、128MB メモリ制限を踏まえたチューニング指針を詳細にまとめたものです。
 
 ---
 
@@ -10,129 +10,176 @@
 
 - FUSOU はユーザーのアップロードした各テーブルのデータを **raw 連結バイナリ**（各テーブルの Parquet 断片を連結）として R2 に保存します。
 - 後段の分析や配信効率のため、テーブル単位で **最適化ファイル（optimized Parquet）** に再編成（コンパクション）します。
-- コンパクションは **Cloudflare Pages Functions**（サーバレス環境）上で **WASM** を用いて実行し、Supabase メタデータを参照・更新します。
+- コンパクションは **Cloudflare Workflow**（マルチステップ非同期処理）上で **TypeScript ネイティブ**実装として実行し、Supabase メタデータを参照・更新します。
 
 ---
 
 ## 2. コンポーネント構成
 
-### 2.1 FUSOU-WEB（Astro + Cloudflare Pages）
+### 2.1 FUSOU-WORKFLOW（Cloudflare Worker + TypeScript）
+
+- **実行モデル**: `DataCompactionWorkflow` クラスで 4-step フロー実装
+- **Step 1: validate-dataset**
+  - Supabase から dataset レコード取得（SELECT with 3x retry）
+  - `compaction_needed`, `compaction_in_progress` の状態確認
+- **Step 2: get-file-metadata**
+  - R2 `bucket.head()` でファイル存在確認とサイズ取得
+- **Step 3: compact-with-wasm**
+  - TypeScript ネイティブ実装（WASM不要）
+  - Parquet footer メタデータ解析（Thrift compact protocol デコード）
+  - 断片化 Row Group の検出とマージ
+  - 新 Parquet ファイル生成と R2 `bucket.put()` で書き込み
+  - ETag 取得して返却
+- **Step 4: update-metadata**
+  - Supabase UPDATE で 5 フィールド更新（3x retry）
+    - `compaction_in_progress := false`
+    - `compaction_needed := false`
+    - `last_compacted_at := now()`
+    - `file_size_bytes := compactedSize` (実値)
+    - `file_etag := etag` (R2 ETag)
+
+### 2.2 FUSOU-WEB（Astro + Cloudflare Pages）
 
 - `src/pages/api/compact.ts`:
-  - API ハンドラー。
-  - リクエスト検証、WASM 呼び出し、Supabase メタデータ更新（冪等性フラグ）を担当。
-  - 無料枠リソース制限対策のガードレール（タイムアウト、サイズ上限等）を適用。
-
-- `src/pages/api/compact/trigger.ts`:
-  - 手動トリガー用エンドポイント。
-  - 内部で `POST /api/compact` を呼び出すことで、統一されたフローを維持。
-
-- `src/wasm/compactor/`:
-  - Rust WASM 実装。
-  - Supabase からメタデータ取得、R2 からの raw ファイルダウンロード、断片抽出、断片連結、R2 への最適化ファイルアップロード、旧ファイル削除などのロジック。
-  - 無料枠制限に配慮した **テーブル単位の断片数/サイズ制限** を適用。
+  - API ハンドラー（トリガーポイント）
+  - リクエスト検証、Workflow インスタンス生成
+  - 202 Accepted レスポンス返却
+  
+- `src/pages/api/compact/status/[instanceId].ts`:
+  - ステータス確認エンドポイント
+  - Workflow の進捗情報取得
 
 - `functions/_scheduled.ts`:
-  - Cloudflare Pages の Scheduled Functions で定期実行。
-  - Supabase の対象データセット一覧を取得し、低並列で順次 `POST /api/compact` を呼び出す。
+  - 定期実行スケジューラー
+  - `compaction_needed = true` のデータセット検出
+  - 順次 `POST /api/compact` でトリガー
 
-### 2.2 Supabase（PostgreSQL + REST）
+### 2.3 Supabase（PostgreSQL + REST）
 
-- テーブル例: `datasets`, `dataset_files`
-- フラグ例:
-  - `datasets.compaction_in_progress`（boolean）
-  - `datasets.compaction_needed`（boolean）
-  - `datasets.last_compacted_at`（timestamp）
+- テーブル: `datasets`
+- 実装カラム:
+  - `id`（UUID, PRIMARY KEY）
+  - `compaction_in_progress`（boolean）
+  - `compaction_needed`（boolean）
+  - `last_compacted_at`（timestamptz, nullable）
+  - `file_size_bytes`（integer）
+  - `file_etag`（string）
 
-### 2.3 Cloudflare R2
+### 2.4 Cloudflare R2
 
-- S3 互換ストレージ。
-- 保存構造例:
-  - `raw/{dataset_id}/{uuid}.bin`（テーブル断片連結バイナリ）
-  - `optimized/{dataset_id}/{table_name}-{uuid}.parquet`（最適化済みテーブルファイル）
+- S3 互換ストレージ
+- 保存構造:
+  - `{dataset_id}` キーで Parquet ファイル保存
+  - ETag で ファイルバージョン追跡
 
 ---
 
 ## 3. 実装詳細
 
-### 3.1 API ハンドラー（`src/pages/api/compact.ts`）
+### 3.1 Workflow エントリーポイント（`packages/FUSOU-WORKFLOW/src/index.ts`）
 
-- リクエスト検証:
-  - `dataset_id`（必須、string）
-- 環境変数（必須）:
-  - `PUBLIC_SUPABASE_URL`
-  - `PUBLIC_SUPABASE_ANON_KEY`
-  - `R2_PUBLIC_URL`
-- ガードレール（推奨）:
-  - `COMPACT_MAX_FRAGMENTS`（テーブルごとの断片数上限、デフォルト: 8）
-  - `COMPACT_MAX_BYTES`（テーブルごとの合計サイズ上限、デフォルト: 25MB）
-  - `COMPACT_REQ_TIMEOUT_MS`（WASM 実行のラップタイムアウト、デフォルト: 12,000ms）
-- Supabase 冪等性更新フロー:
-  1. 実行前に `compaction_in_progress=true`, `compaction_needed=false` を PATCH。
-  2. 成功後に `compaction_in_progress=false`, `last_compacted_at=now`, `compaction_needed=false` を PATCH。
-  3. 失敗時は best-effort で `compaction_in_progress=false`, `compaction_needed=true` を復帰。
-- WASM 呼び出し:
-  - `import('@/wasm/compactor/pkg/fusou_compactor_wasm.js')` から `compact_single_dataset()` を取得・実行。
-  - タイムアウトを `AbortController` でラップ。
+**DataCompactionWorkflow クラス**:
+```typescript
+class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionParams> {
+  async run(event, step) {
+    // Step 1-4 を順次実行
+  }
+}
+```
 
-### 3.2 WASM 実装（`src/wasm/compactor/src/lib.rs`）
+**Step 1: validate-dataset**
+- Supabase SELECT でデータセット存在確認
+- リトライ: 3回、exponential backoff
+- エラー時: throw
 
-- 主関数: `compact_single_dataset(dataset_id, supabase_url, supabase_key, r2_url)`
-- Supabase から `dataset_files` のメタデータ JSON を取得。
-- `table_name` 単位にグループ化し、各グループをコンパクション。
-- 断片抽出: raw バイナリから `start_byte`, `byte_length` を用いてスライス。
-- マージ: MVP として断片連結（将来的に DataFusion によるスキーマ整合や重複排除へ拡張）。
-- R2 へのアップロード: `optimized/{dataset}/{table}-{uuid}.parquet` に PUT。
-- Supabase メタデータ更新: 新規ファイルを登録（API 側ハンドラーが datasets フラグを更新）。
-- 旧 raw ファイル削除: 後方互換性とコスト削減のため削除。
-- ガードレール:
-  - `COMPACT_MAX_FRAGMENTS` と `COMPACT_MAX_BYTES` を環境（`js_sys::global()` 経由）から読み取り適用。
-  - 断片数や合計サイズが閾値を超える前に処理を切り上げ、次回へ分割。
+**Step 2: get-file-metadata**
+- R2 `bucket.head(bucketKey)` でファイルメタデータ取得
+- ファイルサイズ確認
 
-### 3.3 スケジュール実行（`functions/_scheduled.ts`）
+**Step 3: compact-with-wasm**
+- `analyzeAndCompactParquet()` 呼び出し
+- `compactFragmentedRowGroups()` でマージ処理
+- `writeCompactedParquetFile()` で R2 書き込み
+- リトライ: 2回、linear backoff
+- 戻り値: `{ newFileSize, newRowGroupCount, etag }`
 
-- `fetchPendingDatasets()`:
-  - Supabase の `datasets` から `compaction_needed=true` のレコードを REST で取得。
-  - 取得上限は `MAX_DATASETS_PER_RUN`（デフォルト: 10）。
-- `triggerCompaction(datasetId)`:
-  - `POST /api/compact` を呼び出し、1 データセット単位で実行。
-- 実行設計:
-  - `CONCURRENCY=2` の低並列でトリガー（無料枠の CPU/メモリを考慮）。
-  - 連続呼び出しに 250ms の待機を挟み、負荷を平滑化。
+**Step 4: update-metadata**
+- Supabase UPDATE で 5フィールド同時更新
+- リトライ: 3回、linear backoff
+- エラー時: throw
+
+**HTTP ハンドラー**:
+- `POST /compact { datasetId }` → Workflow インスタンス生成 → 202 Accepted
+- `GET /status/:instanceId` → Workflow 進捗状況
+- `GET /` → ヘルスチェック
+
+### 3.2 Parquet 解析・処理（`packages/FUSOU-WORKFLOW/src/parquet-compactor.ts`）
+
+**parseParquetMetadata()**:
+- Thrift compact protocol デコード
+- FileMetaData から num_rows, row_groups を抽出
+
+**compactFragmentedRowGroups()**:
+- 健全な Row Group と断片化 RG を分類
+- 断片化 RG のデータを Range requests で読み込み
+- MergedRowGroup 構造で再統合
+- 出力: `{ newFileSize, newRowGroupCount, etag }`
+
+**ThriftCompactReader**:
+- 39個の write メソッドで Thrift encoding サポート
+- Zigzag/Varint エンコーディング実装
+
+### 3.3 Parquet ファイル書き込み（`packages/FUSOU-WORKFLOW/src/parquet-writer.ts`）
+
+**writeCompactedParquetFile()**:
+- 健全な Row Group データ読み込み（Range requests）
+- マージ Row Group データ読み込み
+- 新 Parquet footer 生成（Thrift compact protocol）
+- ファイル組み立て: data + footer + metadataSize + magic bytes
+- R2 `bucket.put()` で書き込み
+- 戻り値: `{ newFileSize, etag }`
+
+**generateParquetFooter()**:
+- Thrift FileMetaData 生成
+- Version, CreatedBy, RowGroups list など
+
+**ThriftCompactWriter**:
+- writeField(), writeI32/I64(), writeVarint() など
+- バッファ自動拡張機能
 
 ---
 
-## 4. 無料枠制限と対策
+## 4. リソース制限と対策
 
-Cloudflare の無料枠は変更される可能性があるため、**最新の制限はダッシュボードと公式ドキュメント**をご参照ください。設計上の一般的な考慮事項と対策は以下の通りです。
+Cloudflare Workers の制限:
+- **メモリ**: 128MB（ハード制限）
+- **CPU時間**: 30秒（ページロード）/ 30分（Durable Objects）
+- **ネットワーク I/O**: レート制限なし（Supabase/R2 側の制限を受ける）
 
-- CPU時間（計算時間）:
-  - 断片数・合計サイズの上限で計算量を抑制。
-  - 連結のみの MVP として、圧縮/デコード/複雑な集約は避ける。
-- 壁時計時間（タイムアウト）:
-  - API 側で短いタイムアウト（`COMPACT_REQ_TIMEOUT_MS`）を設定。
-  - I/O は短いタイムアウト＋リトライで外部待ちを削減。
-- メモリ:
-  - 1 テーブル当たりの断片数・合計サイズを制限。
-  - 将来的にはストリーミング/チャンクアップロードの導入で常駐メモリを低減。
-- 同時実行:
-  - `CONCURRENCY=2` とし、過剰な同時処理を避ける。
+**対策**:
+
+| 制限 | 対策 |
+|-----|------|
+| メモリ 128MB | Range requests でストリーミング処理。複数 Row Group の同時読み込み避ける |
+| CPU 30秒 | Parquet 連結のみ実装。圧縮/デコード/複雑集約は将来対応 |
+| ネットワーク | リトライ戦略（exponential/linear backoff）で対応 |
+
+**Workflow の強み**:
+- 複数ステップで分割実行で CPU 時間をリセット
+- ビルトイン retry メカニズム（指数/線形バックオフ）
+- ステップ失敗時の部分復旧対応
 
 ---
 
 ## 5. 環境変数一覧
 
-必須:
-- `PUBLIC_SUPABASE_URL`
-- `PUBLIC_SUPABASE_ANON_KEY`
-- `R2_PUBLIC_URL`
+**必須**（Worker 環境変数）:
+- `PUBLIC_SUPABASE_URL`: Supabase API エンドポイント
+- `SUPABASE_SECRET_KEY`: Supabase service role キー
+- `BATTLE_DATA_BUCKET`: R2 バケット（Binding）
 
-推奨（ガードレール）:
-- `COMPACT_MAX_FRAGMENTS`（例: 8〜10）
-- `COMPACT_MAX_BYTES`（例: 26214400 = 25MB）
-- `COMPACT_REQ_TIMEOUT_MS`（例: 12000）
-- `API_BASE`（例: Cloudflare Pages の公開ベース URL）
-- `MAX_DATASETS_PER_RUN`（例: 10）
+**オプション**（Pages から Workflow へ伝播）:
+- `WORKFLOW_INSTANCE_TIMEOUT_MS`（デフォルト: 30000ms）
 
 ---
 
@@ -140,80 +187,119 @@ Cloudflare の無料枠は変更される可能性があるため、**最新の�
 
 ### 6.1 ローカルでの確認
 
-WASM ビルド:
+Worker 開発:
 ```bash
-cd packages/FUSOU-WEB
+cd packages/FUSOU-WORKFLOW
 npm install
-npm run build:wasm
-```
-
-開発サーバー起動 & API テスト:
-```bash
 npm run dev
-curl -X POST http://localhost:3000/api/compact -H "Content-Type: application/json" -d '{"dataset_id":"<uuid>"}'
-curl "http://localhost:3000/api/compact/trigger?dataset_id=<uuid>"
 ```
 
-### 6.2 本番デプロイ（Cloudflare Pages）
+Workflow トリガー:
+```bash
+curl -X POST http://localhost:8787/compact \
+  -H "Content-Type: application/json" \
+  -d '{"datasetId":"uuid-123","bucketKey":"uuid-123"}'
+```
 
+### 6.2 本番デプロイ（Cloudflare）
+
+```bash
+cd packages/FUSOU-WORKFLOW
+npm run build
+wrangler deploy
+```
+
+FUSOU-WEB との連携:
 ```bash
 cd packages/FUSOU-WEB
+# Service Binding を wrangler.toml で設定
+# [[services]]
+# binding = "DATA_COMPACTION"
+# service = "fusou-workflow"
 npm run build
-# Cloudflare Pages の CI/CD もしくは wrangler を使用
-# wrangler publish（Workers を併用する場合）
+npm run deploy
 ```
-
-Scheduled Functions は Pages プロジェクト設定で有効化し、`functions/_scheduled.ts` が反映されることを確認します。
 
 ---
 
 ## 7. データフロー
 
-1. ユーザーアップロード（FUSOU-APP → `fusou-upload`）
-   - raw 連結バイナリを R2 に保存
-   - Supabase に `dataset_files` メタデータを登録
-2. 定期/手動コンパクション（FUSOU-WEB）
-   - API（または Scheduled）でテーブル別に断片抽出・連結
-   - optimized Parquet を R2 に保存
-   - Supabase メタデータと `datasets` フラグを更新
-   - 旧 raw ファイルを削除
+**全体フロー**:
+```
+ユーザーアップロード (FUSOU-APP/fusou-upload)
+  ↓
+R2 に Parquet ファイル保存
+  ↓
+POST /api/compact (FUSOU-WEB)
+  ↓
+Workflow インスタンス生成 (FUSOU-WORKFLOW)
+  ├─ Step 1: Supabase SELECT（3x retry）
+  ├─ Step 2: R2 bucket.head()
+  ├─ Step 3: Parquet 解析・圧縮・書き込み（2x retry）
+  └─ Step 4: Supabase UPDATE（3x retry）
+  ↓
+202 Accepted レスポンス返却
+  ↓
+スケジューラー定期実行 (FUSOU-WEB/_scheduled.ts)
+  ↓
+compaction_needed=true のデータセット自動処理
+```
+
+**Supabase 操作**:
+- **SELECT** (Step 1): `compaction_needed`, `compaction_in_progress` 確認
+- **UPDATE** (Step 4): 5フィールド同時更新
+  - `compaction_in_progress := false`
+  - `compaction_needed := false`
+  - `last_compacted_at := now()`
+  - `file_size_bytes := compactedSize`
+  - `file_etag := etag`
 
 ---
 
 ## 8. 拡張計画（ロードマップ）
 
-- DataFusion SQL による本格的な Parquet マージ（スキーマ整合、重複排除）
-- ストリーミング／チャンクアップロードによるメモリ削減
-- 失敗時のリトライ戦略（指数バックオフ）
-- メトリクス/ログ強化（処理時間、サイズ、成功率）
-- Supabase 側の RLS と冪等性ロック強化（Advisory Lock 等）
+**短期（現在）**:
+- ✅ Parquet 連結による Row Group マージ
+- ✅ Thrift compact protocol デコード・エンコード
+- ✅ R2 Range requests によるストリーミング処理
+- ✅ Supabase フラグ管理
+
+**中期（予定）**:
+- DataFusion SQL による本格 Parquet マージ（スキーマ整合、重複排除）
+- チャンク/ストリーミングアップロード（メモリ削減）
+- 詳細メトリクス記録（処理時間、圧縮率、エラー分類）
+- Supabase Advisory Lock による完全な並行制御
+
+**長期（検討中）**:
+- 複数テーブルの同時 compaction
+- キャッシュ層の導入（頻繁にアクセスされるファイル）
+- より高度な圧縮戦略
 
 ---
 
 ## 9. トラブルシューティング
 
-- WASM ビルド失敗:
-  - `rustup target add wasm32-unknown-unknown`
-  - `Cargo.toml` の `[lib] crate-type = ["cdylib"]` を確認
-- API 404/500:
-  - `src/pages/api/` 配下のファイルが正しい位置にあるか確認
-  - `.env` の必須変数が設定されているか確認
-- タイムアウト多発:
-  - `COMPACT_MAX_FRAGMENTS` と `COMPACT_MAX_BYTES` を下げる
-  - `COMPACT_REQ_TIMEOUT_MS` を短く、I/Oリトライを適宜調整
-- メモリ不足（OOM）:
-  - 合計サイズを小さくし、断片数も減らす
-  - 将来的にストリーミング処理へ移行
+| 症状 | 原因 | 対策 |
+|-----|------|------|
+| **Workflow が Step 1 で失敗** | Supabase 接続エラー | `SUPABASE_SECRET_KEY` 確認、ネットワーク確認 |
+| **Step 2 で R2 ファイル不在** | ファイル削除済み or 存在しない | `bucketKey` が正しいか確認 |
+| **Step 3 で Parquet 解析失敗** | 無効なファイルフォーマット | Parquet ファイル検証ツール使用 |
+| **Step 4 で Supabase UPDATE 失敗** | RLS ポリシー or 接続エラー | RLS ポリシー確認、retry 回数確認 |
+| **メモリ不足（OOM）** | 大きなファイル処理 | ファイルサイズを制限、Range requests 活用 |
+| **Workflow タイムアウト** | ネットワーク遅延 | リトライ戦略調整、timeout 値拡張 |
 
 ---
 
 ## 10. 付録: 主要ファイルパス
 
-- API: `packages/FUSOU-WEB/src/pages/api/compact.ts`
-- 手動トリガー: `packages/FUSOU-WEB/src/pages/api/compact/trigger.ts`
-- WASM: `packages/FUSOU-WEB/src/wasm/compactor/src/lib.rs`
-- Scheduled: `packages/FUSOU-WEB/functions/_scheduled.ts`
+- Workflow エントリー: `packages/FUSOU-WORKFLOW/src/index.ts`
+- Parquet 解析: `packages/FUSOU-WORKFLOW/src/parquet-compactor.ts`
+- Parquet 書き込み: `packages/FUSOU-WORKFLOW/src/parquet-writer.ts`
+- Pages API: `packages/FUSOU-WEB/src/pages/api/compact.ts`
+- Pages スケジューラー: `packages/FUSOU-WEB/functions/_scheduled.ts`
+- Workflow 設定: `packages/FUSOU-WORKFLOW/wrangler.toml`
+- Pages 設定: `packages/FUSOU-WEB/wrangler.toml`
 
 ---
 
-本ドキュメントの内容に沿って、無料枠の制限に配慮した安全な運用が可能です。ご不明点や追加要件があれば、強化版の実装（DataFusion マージ、ストリーミング化、冪等性ロックの強化等）をご提案・実装します。
+本ドキュメントの内容に沿って、Cloudflare Workers の 128MB メモリ制限に配慮した安全な運用が可能です。ご不明点や追加要件があれば、強化版の実装（DataFusion マージ、ストリーミング化、詳細監視等）をご提案・実装します。

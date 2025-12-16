@@ -1,7 +1,9 @@
-# Multi-Cloud Provider Support Architecture
+# Multi-Cloud Provider Architecture（設計・拡張予定）
 
 ## 概要
 FUSOU は複数のクラウドストレージプロバイダ（Google Drive, Dropbox, iCloud, OneDrive など）に対応できる拡張性のあるアーキテクチャを採用しています。
+
+**現在の状況**: Google Drive のみ実装済み。その他プロバイダは trait インターフェース設計済みで、実装待ちです。
 
 ## アーキテクチャ
 
@@ -20,24 +22,14 @@ create table public.provider_tokens (
 ```
 
 **拡張性：**
-- ✅ `provider_name` で複数プロバイダを識別
+- ✅ `provider_name` で複数プロバイダを識別（スキーマ変更不要）
 - ✅ 1ユーザーが複数のクラウドサービスを同時利用可能
-- ✅ 新しいプロバイダ追加時にスキーマ変更不要
+- ⏳ 新しいプロバイダ追加時は trait 実装 + factory 登録のみ
 
-### 2. Rust バックエンド
-
-#### `fusou-auth/src/manager.rs`
-```rust
-pub async fn fetch_provider_token(&self, provider_name: &str) -> Result<Option<String>, AuthError>
-```
-- ✅ プロバイダ名をパラメータで受け取る
-- ✅ 任意のプロバイダトークンを取得可能
+### 2. Rust バックエンド（共通インターフェース）
 
 #### `storage/cloud_provider_trait.rs`
 ```rust
-use std::future::Future;
-use std::pin::Pin;
-
 pub trait CloudStorageProvider: Send + Sync {
     fn provider_name(&self) -> &str;
     
@@ -46,58 +38,48 @@ pub trait CloudStorageProvider: Send + Sync {
     
     fn upload_file(&self, local_path: &Path, remote_path: &str) 
         -> Pin<Box<dyn Future<Output = Result<String, Box<dyn std::error::Error>>> + Send + '_>>;
-    // ... 他のメソッド
+    
+    fn download_file(&self, remote_path: &str, local_path: &Path)
+        -> Pin<Box<dyn Future<Output = Result<(), Box<dyn std::error::Error>>> + Send + '_>>;
+    
+    fn create_folder(&self, remote_path: &str)
+        -> Pin<Box<dyn Future<Output = Result<String, Box<dyn std::error::Error>>> + Send + '_>>;
+    
+    fn list_files(&self, remote_path: &str)
+        -> Pin<Box<dyn Future<Output = Result<Vec<FileInfo>, Box<dyn std::error::Error>>> + Send + '_>>;
 }
 ```
-- ✅ tokioネイティブの`Pin<Box<dyn Future>>`を使用（`async-trait`不要）
-- ✅ 共通インターフェース定義
-- ✅ 新しいプロバイダは trait を実装するだけ
+- ✅ tokio ネイティブの `Pin<Box<dyn Future>>` を使用（`async-trait` 不要）
+- ✅ 共通インターフェース定義で新プロバイダ追加が容易
 
-#### `storage/providers/gdrive/client.rs`
+#### `storage/providers/gdrive/` - Google Drive 実装（現在のみ）
 ```rust
-pub static CLOUD_PROVIDER_TOKENS: Lazy<Mutex<HashMap<String, UserAccessTokenInfo>>> =
-    Lazy::new(|| Mutex::new(HashMap::new()));
+pub struct GoogleDriveProvider { /* ... */ }
 
-pub fn set_refresh_token(refresh_token: String, provider_name: String) -> Result<(), ()>
-pub fn get_refresh_token(provider_name: &str) -> Option<UserAccessTokenInfo>
+impl CloudStorageProvider for GoogleDriveProvider { /* ... */ }
 ```
-- ✅ HashMap で複数プロバイダのトークン管理
-- ✅ プロバイダ名で識別
+- ✅ Google Drive API v3 統合（実装完了）
+- ✅ トークンリフレッシュ対応
 
-#### `lib.rs` - 起動時処理
+#### `storage/cloud_provider_trait.rs` - Factory パターン
 ```rust
-let supported_providers = storage::CloudProviderFactory::supported_providers();
+pub struct CloudProviderFactory;
 
-for provider in supported_providers {
-    match auth_manager_for_startup.fetch_provider_token(provider).await {
-        Ok(Some(token)) => {
-            storage::providers::gdrive::set_refresh_token(token, provider.to_string())?;
+impl CloudProviderFactory {
+    pub fn create(provider_name: &str) -> Result<Box<dyn CloudStorageProvider>, String> {
+        match provider_name {
+            "google" => Ok(Box::new(GoogleDriveProvider::new())),
+            "dropbox" => Err("Dropbox provider not yet implemented".to_string()),
+            "icloud" => Err("iCloud provider not yet implemented".to_string()),
+            "onedrive" => Err("OneDrive provider not yet implemented".to_string()),
+            _ => Err(format!("Unknown provider: {}", provider_name)),
         }
-        // ...
+    }
+    
+    pub fn supported_providers() -> Vec<&'static str> {
+        vec!["google"] // TODO: dropbox, icloud, onedrive を追加
     }
 }
-```
-- ✅ 全プロバイダのトークンを自動取得
-- ✅ 新しいプロバイダは `supported_providers()` に追加するだけ
-
-## 新しいプロバイダの追加手順
-
-### 1. Supabase にトークンを保存
-```sql
-INSERT INTO provider_tokens (user_id, provider_name, refresh_token, access_token)
-VALUES (
-  auth.uid(),
-  'dropbox',  -- 新しいプロバイダ名
-  '<refresh_token>',
-  '<access_token>'
-);
-```
-
-### 2. Rust でプロバイダ実装を作成
-```rust
-// src/storage/providers/dropbox/mod.rs
-use std::future::Future;
-use std::pin::Pin;
 
 pub struct DropboxProvider {
     refresh_token: Option<String>,

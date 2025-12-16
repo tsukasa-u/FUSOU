@@ -1,64 +1,78 @@
-# Env setup and testing for snapshot API
+# 環境設定 - FUSOU-WEB
 
-This document explains how to configure Cloudflare Pages/Workers and Supabase environment variables and how to test the `POST /api/fleet/snapshot` endpoint.
+このドキュメントは、Cloudflare Pages/Workers と Supabase の環境変数設定、および主要な API エンドポイントのテスト方法を説明します。
 
-## Required environment variables
+## 必須環境変数・バインディング
 
-- `ASSET_PAYLOAD_BUCKET` (Cloudflare R2 binding name) — set as a Pages/Workers binding.
-- `SUPABASE_URL` — your Supabase project URL (e.g. `https://xyz.supabase.co`).
-- `SUPABASE_SERVICE_KEY` — service_role key from Supabase (keep secret; only use from server/worker).
+### Cloudflare Pages（Dashboard での設定）
 
-## Setting variables in Cloudflare Pages (via dashboard)
+以下の R2 バケットバインディングと環境変数を設定してください：
 
-1. Open your Cloudflare Pages project.
-2. Go to `Settings` → `Environment variables`.
-3. Add the variables above for the `Production` (and `Preview` if you want) environment.
+**R2 バケットバインディング:**
+- `ASSETS_BUCKET` → `dev-kc-assets` (静的アセット保存)
+- `FLEET_SNAPSHOT_BUCKET` → `dev-kc-fleets` (艦隊スナップショット)
+- `BATTLE_DATA_BUCKET` → `dev-kc-battle-data` (ゲームデータ)
 
-Alternatively using `wrangler` for Workers (example):
+**D1 データベースバインディング:**
+- `ASSET_INDEX_DB` → `dev_kc_asset_index` (アセットインデックス)
 
+**Service バインディング:**
+- `COMPACTION_WORKFLOW` → `fusou-workflow` (コンパクション Workflow)
+
+**環境変数:**
+- `PUBLIC_SUPABASE_URL` - 例: `https://xyz.supabase.co`
+- `PUBLIC_SUPABASE_PUBLISHABLE_KEY` - Supabase 公開キー
+
+**Secrets（Cloudflare Dashboard から設定）:**
+- `SUPABASE_SECRET_KEY` - Supabase service_role キー（秘密保持）
+- `ASSET_UPLOAD_SIGNING_SECRET` - アセットアップロード署名用秘密鍵
+- `FLEET_SNAPSHOT_SIGNING_SECRET` - スナップショット署名用秘密鍵
+- `BATTLE_DATA_SIGNING_SECRET` - バトルデータ署名用秘密鍵
+
+### 設定方法
+
+**Dashboard 経由:**
+1. Cloudflare Pages プロジェクトを開く
+2. `Settings` → `Environment variables`
+3. 上記の環境変数を `Production` / `Preview` 環境に追加
+
+**wrangler CLI 経由（Secrets 設定例）:**
 ```bash
-# Login wrangler first:
 wrangler login
-# Put secret (example for service key)
-wrangler secret put SUPABASE_SERVICE_KEY
+wrangler secret put SUPABASE_SECRET_KEY --account-id <account-id>
 ```
 
-R2 binding: in Pages/Workers, configure an R2 bucket binding named `ASSET_PAYLOAD_BUCKET` (or change the name to match the code).
+## 主要 API エンドポイント
 
-## Testing locally / deploying
+### POST `/api/compact`
+- 役割: Parquet コンパクション Workflow をトリガー
+- リクエスト: `{ "datasetId": "<uuid>" }`
+- レスポンス: `{ "status": "accepted", "instanceId": "..." }`
 
-1. Deploy your Pages site so the API is reachable, or use `wrangler dev` for Workers.
-2. Use the test script `docs/scripts/test_snapshot.sh` to POST a sample payload.
+### GET `/api/compact/status/:instanceId`
+- 役割: Workflow 進捗確認
+- レスポンス: `{ "status": "running|success|error", "output": {...} }`
 
-Example:
+### POST `/api/fleet/snapshot`
+- 役割: 艦隊スナップショット保存
+- リクエスト: JSON ペイロード + `Idempotency-Key` ヘッダ
+- レスポンス: `{ "ok": true, "r2_key": "..." }`
 
-```bash
-export SITE_URL="https://your-site.pages.dev"
-export AUTH_TOKEN="<service-or-test-jwt>"
-export OWNER_ID="<uuid>"
-export TAG="test"
-./docs/scripts/test_snapshot.sh
-```
+### GET `/api/assets`
+- 役割: アセット情報取得
+- レスポンス: アセットリスト
 
-If the request succeeds you should see a JSON response with `ok: true` and the `r2_key` of the stored object.
+## Supabase テーブルセットアップ
 
-## Applying the Supabase schema
+必要なテーブル（SQL）:
+- `datasets` - コンパクション対象データセット管理
+- `fleet_snapshots` - 艦隊スナップショット履歴
+- `processing_metrics` - 処理メトリクス記録
 
-If you have `psql` and your Supabase DB URL, you can apply the SQL in `docs/sql/supabase_fleets_schema.sql`:
+詳細は [docs/SUPABASE_DATA_SCHEMA.md](../SUPABASE_DATA_SCHEMA.md) を参照。
 
-```bash
-export SUPABASE_DB_URL="postgres://..."
-./docs/scripts/apply_supabase_schema.sh
-```
+## セキュリティに関する注意
 
-Or use Supabase CLI if you prefer.
-
-## Security notes
-
-- Never expose `SUPABASE_SERVICE_KEY` to client-side code. Only store it in worker/server env. Use Supabase RLS policies and JWT validation.
-- For public previews, consider using different keys or restricting service_key usage.
-
-## Next steps after testing
-
-- Implement `GET /s/:token` Worker to resolve `share_token` and serve the payload with proper `ETag` and `Cache-Control`.
-- Harden the snapshot endpoint with JWT verification and rate limits.
+- `SUPABASE_SECRET_KEY` は絶対にクライアント側に露出させない
+- JWT 検証と RLS（Row-Level Security）ポリシーを設定
+- 署名付き URL は時間制限付きで発行
