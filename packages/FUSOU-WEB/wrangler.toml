@@ -28,6 +28,7 @@ jurisdiction = "eu"
 [[ d1_databases ]]
 binding = "ASSET_INDEX_DB"
 database_name = "dev_kc_asset_index"
+database_id = "c625d190-44b7-4a80-85fe-6fddbba64248"
 
 # ===== Queue Bindings =====
 # Producer binding (send messages from Pages)
