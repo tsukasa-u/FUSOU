@@ -12,11 +12,25 @@ service = "fusou-workflow"
 # ===== R2 Bucket Bindings =====
 [[r2_buckets]]
 binding = "ASSETS_BUCKET"
-bucket_name = "fusou-assets"
+bucket_name = "dev-kc-assets"
 jurisdiction = "eu"
+
+[[r2_buckets]]
+binding = "FLEET_SNAPSHOT_BUCKET"
+bucket_name = "dev-kc-fleets"
+jurisdiction = "eu"
+
+[[r2_buckets]]
+binding = "BATTLE_DATA_BUCKET"
+bucket_name = "dev-kc-battle-data"
+jurisdiction = "eu"
+
+[[ d1_databases ]]
+binding = "ASSET_INDEX_DB"
+database_name = "dev_kc_asset_index"
 
 # ===== Queue Bindings =====
 # Producer binding (send messages from Pages)
 [[queues.producers]]
-queue = "compaction-queue"
+queue = "dev-kc-compaction-queue"
 binding = "COMPACTION_QUEUE"
