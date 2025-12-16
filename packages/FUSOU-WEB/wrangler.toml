@@ -22,7 +22,7 @@ service = "fusou-workflow"
 
 # ===== R2 Bucket Bindings =====
 [[r2_buckets]]
-binding = "ASSETS_BUCKET"
+binding = "ASSET_SYNC_BUCKET"
 bucket_name = "dev-kc-assets"
 # location = "apac"  # Optional: Hint for primary location (Asia-Pacific for Japanese users)
 
