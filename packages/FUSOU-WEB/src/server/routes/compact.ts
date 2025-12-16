@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import type { Bindings } from '../types';
 import { CORS_HEADERS, MAX_UPLOAD_BYTES } from '../constants';
 import { validateJWT } from '../utils';
+import { runCompactionJob } from '../compaction/job';
 
 const app = new Hono<{ Bindings: Bindings }>();
 
@@ -39,6 +40,7 @@ async function withRetry<T>(
   }
   throw new Error('Max retries exceeded');
 }
+
 
 /**
  * Compaction service routes (Queue-based implementation)
@@ -143,42 +145,79 @@ app.post('/upload', async (c) => {
       etag: r2Result.etag,
     });
 
-    // ===== Step 2: Supabase レコード挿入 =====
-    // Use authenticated user's ID from JWT token
-    // Insert dataset record with retry logic for rate limiting
-    const insertResult = await withRetry(async () => {
-      const result = await supabase
-        .from('datasets')
-        .insert({
-          user_id: userId, // From authenticated JWT
-          name: `${tableId}-${new Date().getTime()}`,
-          file_size_bytes: buffer.byteLength,
-          file_etag: `${datasetId}/${tableId}`,
-          compaction_needed: true,
-          compaction_in_progress: false,
-        })
-        .select();
-      
-      if (result.error) throw result.error;
-      return result;
-    });
+    // ===== Step 2: Supabase datasets レコードの再利用 or 作成 =====
+    // ポリシー: datasetId が既存ならそれを再利用し、常に新規作成しない
+    // 1) 既存確認（所有者チェック込み）
+    let resolvedDatasetId = datasetId;
+    let createdNew = false;
 
-    const { data, error: insertError } = insertResult;
+    const { data: existingDs, error: existingErr } = await supabase
+      .from('datasets')
+      .select('id, user_id')
+      .eq('id', datasetId)
+      .single();
 
-    if (insertError || !data || !data[0]) {
-      console.error(`[Upload API] Supabase insert failed`, { error: insertError, data });
-      return c.json({ error: 'Failed to create dataset record', details: (insertError as any)?.message || 'No data returned' }, 500);
+    if (existingErr || !existingDs) {
+      // 2) 見つからない場合のみ作成（レート制限に配慮してリトライ）
+      const insertResult = await withRetry(async () => {
+        const result = await supabase
+          .from('datasets')
+          .insert({
+            user_id: userId, // From authenticated JWT
+            name: `${tableId}-${new Date().getTime()}`,
+            file_size_bytes: buffer.byteLength,
+            file_etag: `${datasetId}/${tableId}`,
+            compaction_needed: true,
+            compaction_in_progress: false,
+          })
+          .select();
+        if (result.error) throw result.error;
+        return result;
+      });
+
+      const { data: created, error: insertError } = insertResult;
+      if (insertError || !created || !created[0]) {
+        console.error(`[Upload API] Supabase insert failed`, { error: insertError, data: created });
+        return c.json({ error: 'Failed to create dataset record', details: (insertError as any)?.message || 'No data returned' }, 500);
+      }
+      resolvedDatasetId = created[0].id;
+      createdNew = true;
+      console.info(`[Upload API] Supabase record created`, { datasetId: resolvedDatasetId });
+    } else {
+      // 3) 既存 re-use: 所有者チェック
+      if (existingDs.user_id !== userId) {
+        return c.json({ error: 'Forbidden - dataset not owned by user' }, 403);
+      }
+      // 既存データセットを更新してフラグを立てる
+      const updateResult = await withRetry(async () => {
+        const result = await supabase
+          .from('datasets')
+          .update({
+            file_size_bytes: buffer.byteLength,
+            file_etag: `${datasetId}/${tableId}`,
+            compaction_needed: true,
+            compaction_in_progress: false,
+          })
+          .eq('id', datasetId)
+          .select('id')
+          .single();
+        if (result.error) throw result.error;
+        return result;
+      }).catch((error) => {
+        console.warn('[Upload API] Failed to update existing dataset flags', { error });
+        return null;
+      });
+      if (updateResult?.data?.id) {
+        resolvedDatasetId = updateResult.data.id;
+      }
     }
-
-    const createdDataset = data[0];
-    console.info(`[Upload API] Supabase record created`, { datasetId: createdDataset.id });
 
     // ===== Step 3: Create processing_metrics record for monitoring =====
     const metricsResult = await withRetry(async () => {
       const result = await supabase
         .from('processing_metrics')
         .insert({
-          dataset_id: createdDataset.id,
+          dataset_id: resolvedDatasetId,
           workflow_instance_id: `realtime-${Date.now()}`,
           status: 'pending',
           queued_at: new Date().toISOString(),
@@ -200,18 +239,18 @@ app.post('/upload', async (c) => {
     // ===== Step 4: Queue に投入（リトライ付き） =====
     await withRetry(async () =>
       env.COMPACTION_QUEUE.send({
-        datasetId: createdDataset.id,
+        datasetId: resolvedDatasetId,
         triggeredAt: new Date().toISOString(),
         priority: 'realtime',
         metricId: metricsId,
       })
     );
 
-    console.info(`[Upload API] Enqueued to compaction queue`, { datasetId: createdDataset.id, metricsId });
+    console.info(`[Upload API] Enqueued to compaction queue`, { datasetId: resolvedDatasetId, metricsId, createdNew });
 
     return c.json({
       success: true,
-      datasetId: createdDataset.id,
+      datasetId: resolvedDatasetId,
       tableId,
       fileName: file.name,
       fileSize: buffer.byteLength,
@@ -443,6 +482,66 @@ app.post('/trigger-scheduled', async (c) => {
   } catch (error) {
     console.error('[Trigger Scheduled] Unexpected error', { error });
     return c.json({ error: 'Internal server error', details: String(error) }, 500);
+  }
+});
+
+/**
+ * POST /run-now
+ * Synchronous compaction runner (fallback when Queue consumer is unavailable)
+ * Body: { datasetId: string, table?: string, periodTag?: string }
+ */
+app.post('/run-now', async (c) => {
+  try {
+    const authHeader = c.req.header('Authorization');
+    const bearer = authHeader?.startsWith('Bearer ')
+      ? authHeader.slice(7).trim()
+      : null;
+    if (!bearer) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+
+    const supabaseUser = await validateJWT(bearer);
+    if (!supabaseUser) {
+      return c.json({ error: 'Invalid or expired JWT token' }, 401);
+    }
+
+    let body: any;
+    try {
+      body = await c.req.json();
+    } catch (error) {
+      return c.json({ error: 'Invalid JSON format' }, 400);
+    }
+
+    const datasetId = body?.datasetId as string | undefined;
+    const table = body?.table as string | undefined;
+    const periodTag = body?.periodTag as string | undefined;
+
+    if (!datasetId) {
+      return c.json({ error: 'datasetId is required' }, 400);
+    }
+
+    // Optional ownership check: ensure dataset belongs to caller
+    const supabase = createClient(c.env.PUBLIC_SUPABASE_URL, c.env.SUPABASE_SECRET_KEY, {
+      auth: { persistSession: false },
+    });
+    const { data: ds, error: dsError } = await supabase
+      .from('datasets')
+      .select('id, user_id')
+      .eq('id', datasetId)
+      .single();
+    if (dsError || !ds) {
+      return c.json({ error: 'Dataset not found' }, 404);
+    }
+    if (ds.user_id !== supabaseUser.id) {
+      return c.json({ error: 'Forbidden' }, 403);
+    }
+
+    const result = await runCompactionJob(c.env, datasetId, table, periodTag);
+
+    return c.json({ success: true, datasetId, table, periodTag, result });
+  } catch (error) {
+    console.error('[Run Now API] Unexpected error', { error });
+    return c.json({ error: 'Internal server error' }, 500);
   }
 });
 

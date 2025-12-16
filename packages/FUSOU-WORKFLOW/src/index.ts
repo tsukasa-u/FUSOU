@@ -3,14 +3,14 @@ import '@dotenvx/dotenvx/config';
 
 import { WorkflowEntrypoint, WorkflowStep } from 'cloudflare:workers';
 import { createClient } from '@supabase/supabase-js';
-import { 
-  parseParquetMetadata, 
-  compactFragmentedRowGroups,
-  RowGroupInfo 
-} from './parquet-compactor';
+import { pickFragmentsForBucket } from './parquet-merge';
+import { streamMergeParquetFragments } from './parquet-stream-merge';
+import { groupFragmentsBySchema, processSchemaGroups, SchemaGroupOutput } from './parquet-schema';
+import { validateParquetFile, formatValidationReport, validateParquetBatch } from './parquet-validator';
 
 interface Env {
   BATTLE_DATA_BUCKET: R2Bucket;
+  BATTLE_INDEX_DB: D1Database;
   DATA_COMPACTION: Workflow;
   COMPACTION_QUEUE: Queue;
   COMPACTION_DLQ: Queue;
@@ -21,6 +21,8 @@ interface Env {
 interface CompactionParams {
   datasetId: string;
   bucketKey: string;
+  table?: string;
+  periodTag?: string;
   metricId?: string;
 }
 
@@ -57,7 +59,7 @@ const SUPABASE_RETRY_CONFIG = {
 
 export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionParams> {
   async run(event: any, step: WorkflowStep) {
-    const { datasetId, bucketKey, metricId } = event.params;
+    const { datasetId, bucketKey, metricId, table, periodTag } = event.params;
     const workflowStartTime = Date.now();
     const stepMetrics: StepMetrics[] = [];
 
@@ -136,96 +138,109 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
         duration: `${setFlagDuration}ms`,
       });
 
-      // ===== Step 2: Get File Metadata =====
+      // ===== Step 2: List fragments from D1 (by dataset/table/periodTag) =====
+      interface D1Fragment {
+        key: string;
+        size: number;
+        etag: string | null;
+        uploaded_at: string;
+        content_hash: string | null;
+        table: string;
+        period_tag: string;
+      }
+
       const step2Start = Date.now();
-
-      const fileMetadata = await step.do('get-file-metadata', {
-        retries: SUPABASE_RETRY_CONFIG,
-        timeout: '30 seconds'
-      }, async () => {
-        const object = await this.env.BATTLE_DATA_BUCKET.head(bucketKey);
-        
-        if (!object) {
-          throw new Error(`File not found in R2: ${bucketKey}`);
-        }
-        
-        return {
-          size: object.size,
-          etag: object.etag,
-          uploaded: object.uploaded.toISOString(),
-          contentType: object.httpMetadata?.contentType,
-          customMetadata: object.customMetadata
-        };
+      const fragments = await step.do('list-fragments', { retries: SUPABASE_RETRY_CONFIG }, async (): Promise<D1Fragment[]> => {
+        const stmt = this.env.BATTLE_INDEX_DB.prepare(
+          `SELECT key, size, etag, uploaded_at, content_hash, "table" as table, period_tag
+           FROM battle_files
+           WHERE dataset_id = ? ${table ? 'AND "table" = ?' : ''} ${periodTag ? 'AND period_tag = ?' : ''}
+           ORDER BY uploaded_at ASC`
+        );
+        const params: unknown[] = [datasetId];
+        if (table) params.push(table);
+        if (periodTag) params.push(periodTag);
+        const res = await stmt.bind(...params).all();
+        // Ensure serializable plain objects
+        return (res?.results || []).map((row: any) => ({ ...row } as D1Fragment));
       });
-
       const step2Duration = Date.now() - step2Start;
       stepMetrics.push({
-        stepName: 'get-file-metadata',
+        stepName: 'list-fragments',
         startTime: step2Start,
         endTime: step2Start + step2Duration,
         duration: step2Duration,
         status: 'success',
-        details: {
-          fileSize: fileMetadata.size,
-          etag: fileMetadata.etag,
-        },
+        details: { count: fragments.length },
       });
 
-      console.info(`[Workflow] Step 2 completed: get-file-metadata`, {
-        datasetId,
-        duration: `${step2Duration}ms`,
-        fileSize: `${fileMetadata.size} bytes`,
+      const fragmentsArr = fragments || [];
+
+      if (!fragmentsArr.length) {
+        throw new Error('No fragments found for compaction');
+      }
+
+      // Deduplicate by content_hash (type-safe)
+      const seen = new Set<string>();
+      const filtered = fragmentsArr.filter((row) => {
+        const h = row.content_hash;
+        if (!h) return true;
+        if (seen.has(h)) return false;
+        seen.add(h);
+        return true;
       });
 
-      // ===== Step 3: Compact with WASM/TypeScript =====
+      if (filtered.length === 0) {
+        throw new Error('No fragments found after deduplication');
+      }
+
+      // ===== Step 3: Schema grouping + Stream merge =====
       const step3Start = Date.now();
+      const THRESHOLD = 256 * 1024 * 1024;
+      const period = periodTag || filtered[0]?.period_tag || 'unknown';
+      const tbl = table || filtered[0]?.table || 'unknown';
+      let outputs: Array<{ key: string; size: number; etag: string }> = [];
+      const totalOriginal = filtered.reduce((sum, r) => sum + (r.size || 0), 0);
 
-      const compactionResult = await step.do('compact-with-wasm', {
-        retries: {
-          limit: 2,
-          delay: 10000,
-          backoff: 'linear'
-        },
-        timeout: '5 minutes'
-      }, async () => {
-        try {
-          const stats = await analyzeAndCompactParquet(
-            this.env.BATTLE_DATA_BUCKET,
-            bucketKey,
-            fileMetadata.size
-          );
+      const frags = filtered.map((r) => ({ key: r.key, size: r.size }));
+      
+      // スキーマグルーピング実行
+      const schemaGroups = await groupFragmentsBySchema(this.env.BATTLE_DATA_BUCKET, frags);
+      
+      let globalIndex = 0;
+      for (const [schemaHash, groupFrags] of schemaGroups.entries()) {
+        console.log(`[Workflow] Processing schema group ${schemaHash}: ${groupFrags.length} fragments`);
+        
+        let cursor = 0;
+        while (cursor < groupFrags.length) {
+          const { picked, nextIndex } = pickFragmentsForBucket(groupFrags, cursor, THRESHOLD);
+          if (picked.length === 0) break;
           
-          return {
-            originalSize: fileMetadata.size,
-            compactedSize: stats.newFileSize,
-            rowGroupsBefore: stats.rowGroupsBefore,
-            rowGroupsAfter: stats.rowGroupsAfter,
-            compressionRatio: stats.compressionRatio,
-            etag: stats.etag
-          };
-        } catch (error) {
-          throw error;
+          const outKey = `battle_compacted/${period}/${datasetId}/${tbl}/${globalIndex}.parquet`;
+          
+          // ストリーミング最適化マージ使用
+          const res = await streamMergeParquetFragments(this.env.BATTLE_DATA_BUCKET, outKey, picked, THRESHOLD);
+          outputs.push({ key: outKey, size: res.newFileSize, etag: res.etag });
+          
+          globalIndex += 1;
+          cursor = nextIndex;
         }
-      });
+      }
+
+      const totalCompacted = outputs.reduce((sum, o) => sum + o.size, 0);
 
       const step3Duration = Date.now() - step3Start;
       stepMetrics.push({
-        stepName: 'compact-with-wasm',
+        stepName: 'compact-fragments',
         startTime: step3Start,
         endTime: step3Start + step3Duration,
         duration: step3Duration,
         status: 'success',
         details: {
-          originalSize: compactionResult.originalSize,
-          compressedSize: compactionResult.compactedSize,
-          compressionRatio: `${compactionResult.compressionRatio}%`,
+          outputs: outputs.length,
+          totalOriginal,
+          totalCompacted,
         },
-      });
-
-      console.info(`[Workflow] Step 3 completed: compact-with-wasm`, {
-        datasetId,
-        duration: `${step3Duration}ms`,
-        compressionRatio: `${compactionResult.compressionRatio}%`,
       });
 
       // ===== Step 4: Update Metadata =====
@@ -250,10 +265,10 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
             compaction_in_progress: false,
             compaction_needed: false,
             last_compacted_at: now,
-            file_size_bytes: compactionResult.compactedSize,
-            file_etag: compactionResult.etag,
-            compression_ratio: compactionResult.compressionRatio,
-            row_count: compactionResult.rowGroupsAfter || 0,
+            file_size_bytes: totalCompacted,
+            file_etag: outputs[0]?.etag || outputs[0]?.key || null,
+            compression_ratio: totalOriginal > 0 ? totalCompacted / totalOriginal : null,
+            row_count: null,
             updated_at: now,
           })
           .eq('id', datasetId);
@@ -287,9 +302,9 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
           duration: `${m.duration}ms`,
         })),
         compression: {
-          originalSize: `${compactionResult.originalSize} bytes`,
-          compressedSize: `${compactionResult.compactedSize} bytes`,
-          ratio: `${compactionResult.compressionRatio}%`,
+          originalSize: `${totalOriginal} bytes`,
+          compressedSize: `${totalCompacted} bytes`,
+          ratio: `${totalOriginal > 0 ? (totalCompacted / totalOriginal) : 1}`,
         },
       });
 
@@ -311,9 +326,9 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
             step3_compact_duration_ms: stepMetrics[2]?.duration || 0,
             step4_update_metadata_duration_ms: stepMetrics[3]?.duration || 0,
             workflow_total_duration_ms: totalDuration,
-            original_size_bytes: compactionResult.originalSize,
-            compressed_size_bytes: compactionResult.compactedSize,
-            compression_ratio: compactionResult.compressionRatio,
+            original_size_bytes: totalOriginal,
+            compressed_size_bytes: totalCompacted,
+            compression_ratio: totalOriginal > 0 ? totalCompacted / totalOriginal : null,
             workflow_completed_at: workflowCompletedAt,
             updated_at: workflowCompletedAt,
           })
@@ -327,10 +342,10 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
       return {
         success: true,
         datasetId,
-        originalSize: compactionResult.originalSize,
-        compressedSize: compactionResult.compactedSize,
-        compressionRatio: compactionResult.compressionRatio,
-        rowCount: compactionResult.rowGroupsAfter || 0,
+        originalSize: totalOriginal,
+        compressedSize: totalCompacted,
+        compressionRatio: totalOriginal > 0 ? totalCompacted / totalOriginal : 1,
+        rowCount: null,
         totalDuration,
         timestamp: new Date().toISOString()
       };
@@ -411,11 +426,54 @@ export default {
       return new Response(null, { status: 204, headers: corsHeaders });
     }
 
-    // POST /compact - trigger new workflow instance
+    // POST /run - trigger new workflow instance (datasetId required; bucketKey optional→defaults to datasetId)
+    if (path === '/run' && request.method === 'POST') {
+      try {
+        const body = await request.json<Partial<CompactionParams>>();
+
+        const datasetId = body.datasetId;
+        const bucketKey = body.bucketKey || datasetId;
+        if (!datasetId || !bucketKey) {
+          return new Response(
+            JSON.stringify({ error: 'Missing datasetId or bucketKey' }),
+            { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
+        }
+
+        const instance = await env.DATA_COMPACTION.create({
+          params: {
+            datasetId,
+            bucketKey,
+            metricId: body.metricId,
+            table: body.table,
+            periodTag: body.periodTag,
+          },
+        });
+
+        return new Response(
+          JSON.stringify({
+            invocationId: instance.id,
+            status: 'started',
+            datasetId,
+            table: body.table,
+            periodTag: body.periodTag,
+          }),
+          { status: 202, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        return new Response(
+          JSON.stringify({ error: message }),
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+    }
+
+    // POST /compact - trigger new workflow instance (legacy; kept for compatibility)
     if (path === '/compact' && request.method === 'POST') {
       try {
         const body = await request.json<CompactionParams>();
-        
+
         if (!body.datasetId || !body.bucketKey) {
           return new Response(
             JSON.stringify({ error: 'Missing datasetId or bucketKey' }),
@@ -485,144 +543,91 @@ export default {
       );
     }
 
+    // POST /validate - Parquet形式検証
+    if (path === '/validate' && request.method === 'POST') {
+      try {
+        const body = await request.json<{ 
+          keys: string[];
+          deleteOnFailure?: boolean;
+          minRowGroups?: number;
+          maxFileSize?: number;
+        }>();
+        if (!body.keys || !Array.isArray(body.keys)) {
+          return new Response(
+            JSON.stringify({ error: 'Missing or invalid keys array' }),
+            { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
+        }
+
+        const validateOptions = {
+          deleteOnFailure: body.deleteOnFailure,
+          minRowGroups: body.minRowGroups,
+          maxFileSize: body.maxFileSize,
+        };
+        const results = await validateParquetBatch(env.BATTLE_DATA_BUCKET, body.keys, validateOptions);
+        const reports = Array.from(results.entries()).map(([key, info]) => ({
+          key,
+          valid: info.valid,
+          fileSize: info.fileSize,
+          rowGroups: info.numRowGroups,
+          totalRows: info.totalRows,
+          errors: info.errors,
+          warnings: info.warnings,
+          cleaned: info.cleaned,
+        }));
+
+        return new Response(
+          JSON.stringify({ results: reports }),
+          { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        return new Response(
+          JSON.stringify({ error: message }),
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+    }
+
+    // GET /validate/:key - 単一ファイル検証（キーをパスに埋込）
+    if (path.startsWith('/validate/') && request.method === 'GET') {
+      try {
+        const key = decodeURIComponent(path.slice('/validate/'.length));
+        if (!key) {
+          return new Response(
+            JSON.stringify({ error: 'Missing key' }),
+            { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
+        }
+
+        const info = await validateParquetFile(env.BATTLE_DATA_BUCKET, key);
+        const report = formatValidationReport(info, key);
+
+        return new Response(
+          JSON.stringify({ key, info, report }),
+          { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unknown error';
+        return new Response(
+          JSON.stringify({ error: message }),
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+    }
+
     return new Response('Not Found', { status: 404, headers: corsHeaders });
+  },
+  async queue(batch: MessageBatch<any>, env: Env): Promise<void> {
+    // Route to appropriate handler based on queue name
+    // MessageBatch.queue property contains the queue name
+    const queueName = (batch as any).queue as string | undefined;
+    if (queueName && (queueName.includes('dlq') || queueName.includes('DLQ'))) {
+      return queueDLQ.queue(batch, env);
+    }
+    return queue.queue(batch, env);
   }
 };
-
-/**
- * Parquet バイナリの解析と compaction
- * 
- * Parquet フォーマット：
- * - Header: "PAR1" (4 bytes)
- * - Data pages with Row Groups
- * - Footer metadata
- * - Footer size (4 bytes, little-endian)
- * - Magic: "PAR1" (4 bytes)
- */
-interface ParquetStats {
-  newFileSize: number;
-  rowGroupsBefore: number;
-  rowGroupsAfter: number;
-  compressionRatio: number;
-  compacted: boolean;
-  etag: string;
-}
-
-async function analyzeAndCompactParquet(
-  bucket: R2Bucket,
-  bucketKey: string,
-  fileSize: number
-): Promise<ParquetStats> {
-  const FOOTER_SIZE_BYTES = 8; // 4 bytes for size + 4 bytes for magic
-  const MIN_ROW_GROUP_SIZE = 2 * 1024 * 1024; // 2MB threshold for fragmentation
-  
-  // Step 1: Read Parquet footer (last 8 bytes)
-  const footerBuffer = await readRange(bucket, bucketKey, fileSize - FOOTER_SIZE_BYTES, FOOTER_SIZE_BYTES);
-  
-  if (!isParquetFile(footerBuffer)) {
-    throw new Error('File does not have valid Parquet magic number');
-  }
-  
-  // Step 2: Extract footer metadata size
-  const view = new DataView(footerBuffer.buffer, footerBuffer.byteOffset, footerBuffer.byteLength);
-  const metadataSize = view.getUint32(0, true); // little-endian
-  
-  console.log(`[Parquet] Metadata size: ${metadataSize} bytes`);
-  
-  if (metadataSize > 100 * 1024 * 1024) {
-    throw new Error(`Metadata too large: ${metadataSize} bytes`);
-  }
-  
-  // Step 3: Read full footer metadata
-  const footerStart = fileSize - metadataSize - FOOTER_SIZE_BYTES;
-  const footerData = await readRange(bucket, bucketKey, footerStart, metadataSize);
-  
-  // Step 4: Parse footer to extract Row Group information
-  const rowGroups = parseParquetMetadata(footerData);
-  
-  console.log(`[Parquet] Found ${rowGroups.length} Row Groups`);
-  
-  // Step 5: Identify fragmented Row Groups (< 2MB)
-  const fragmentedIndices = rowGroups
-    .map((rg, idx) => ({ idx, size: rg.totalByteSize }))
-    .filter(rg => rg.size < MIN_ROW_GROUP_SIZE)
-    .map(rg => rg.idx);
-  
-  console.log(`[Parquet] Found ${fragmentedIndices.length} fragmented Row Groups`);
-  
-  // Step 6: Decision: Compact or keep as-is
-  const shouldCompact = fragmentedIndices.length > 0;
-  
-  if (!shouldCompact) {
-    console.log(`[Parquet] File is already well-compacted`);
-    return {
-      newFileSize: fileSize,
-      rowGroupsBefore: rowGroups.length,
-      rowGroupsAfter: rowGroups.length,
-      compressionRatio: 1.0,
-      compacted: false,
-      etag: ''
-    };
-  }
-  
-  // Step 7: Compact fragmented Row Groups
-  console.log(`[Parquet] Compacting ${fragmentedIndices.length} fragmented Row Groups...`);
-  
-  const compactionResult = await compactFragmentedRowGroups(
-    bucket,
-    bucketKey,
-    footerStart,
-    rowGroups,
-    fragmentedIndices,
-    readRange
-  );
-  
-  return {
-    newFileSize: compactionResult.newFileSize,
-    rowGroupsBefore: rowGroups.length,
-    rowGroupsAfter: compactionResult.newRowGroupCount,
-    compressionRatio: compactionResult.newFileSize / fileSize,
-    compacted: true,
-    etag: compactionResult.etag
-  };
-}
-
-/**
- * Range request を使ってバイナリ範囲を読み込む
- */
-async function readRange(
-  bucket: R2Bucket,
-  bucketKey: string,
-  offset: number,
-  length: number
-): Promise<Uint8Array> {
-  const object = await bucket.get(bucketKey, {
-    range: { offset, length }
-  });
-  
-  if (!object) {
-    throw new Error(`Failed to read range [${offset}, ${offset + length}) from ${bucketKey}`);
-  }
-  
-  return new Uint8Array(await object.arrayBuffer());
-}
-
-/**
- * Parquet magic number チェック
- */
-function isParquetFile(footerBuffer: Uint8Array): boolean {
-  if (footerBuffer.length < 4) return false;
-  
-  const magic = footerBuffer.slice(-4);
-  const magicStr = new TextDecoder().decode(magic);
-  
-  if (magicStr !== 'PAR1') {
-    console.warn(`[Parquet] Invalid magic number: ${magicStr}`);
-    return false;
-  }
-  
-  return true;
-}
 
 /**
  * Queue Consumer Handler
@@ -633,6 +638,8 @@ interface CompactionQueueMessage {
   triggeredAt: string;
   priority?: 'scheduled' | 'realtime' | 'manual';
   metricId?: string;
+  table?: string;
+  periodTag?: string;
 }
 
 export const queue = {
@@ -643,7 +650,7 @@ export const queue = {
 
     for (const message of batch.messages) {
       try {
-        const { datasetId, triggeredAt, priority = 'scheduled', metricId } = message.body as CompactionQueueMessage;
+        const { datasetId, triggeredAt, priority = 'scheduled', metricId, table, periodTag } = message.body as CompactionQueueMessage;
 
         console.info(`[Consumer] Processing message`, {
           datasetId,
@@ -659,6 +666,8 @@ export const queue = {
             datasetId,
             bucketKey: datasetId,
             metricId,
+            table,
+            periodTag,
           },
         });
 

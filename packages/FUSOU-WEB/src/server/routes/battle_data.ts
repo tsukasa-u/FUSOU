@@ -3,7 +3,6 @@ import type { Bindings } from "../types";
 import { CORS_HEADERS } from "../constants";
 import { createEnvContext, getEnv } from "../utils";
 import { handleTwoStageUpload } from "../utils/upload";
-import { v4 as uuidv4 } from "uuid";
 
 const app = new Hono<{ Bindings: Bindings }>();
 
@@ -43,6 +42,7 @@ app.post("/upload", async (c) => {
       const datasetId = typeof body?.dataset_id === "string" ? body.dataset_id.trim() : "";
       const table = typeof body?.table === "string" ? body.table.trim() : "";
       const contentHash = typeof body?.content_hash === "string" ? body.content_hash.trim() : "";
+      const periodTag = typeof body?.kc_period_tag === "string" ? body.kc_period_tag.trim() : "";
       const declaredSize = parseInt(typeof body?.file_size === "string" ? body.file_size : "0", 10);
 
       if (!datasetId) {
@@ -54,6 +54,9 @@ app.post("/upload", async (c) => {
       if (!contentHash) {
         return c.json({ error: "content_hash (SHA-256) is required" }, 400);
       }
+      if (!periodTag) {
+        return c.json({ error: "kc_period_tag is required" }, 400);
+      }
       if (declaredSize <= 0) {
         return c.json({ error: "file_size must be > 0" }, 400);
       }
@@ -61,7 +64,7 @@ app.post("/upload", async (c) => {
       // Generate variable key with timestamp + UUID to prevent overwrites
       const now = new Date();
       const timestamp = now.toISOString().replace(/[^\d]/g, "").slice(0, 14); // YYYYMMDDHHmmss
-      const uuid = uuidv4();
+      const uuid = crypto.randomUUID();
       const variableKey = `battle_data/${datasetId}/${table}/${timestamp}-${uuid}.parquet`;
 
       return {
@@ -71,6 +74,7 @@ app.post("/upload", async (c) => {
           table,
           content_hash: contentHash,
           declared_size: declaredSize,
+          period_tag: periodTag,
         },
       };
     },
@@ -79,8 +83,7 @@ app.post("/upload", async (c) => {
       const datasetId = tokenPayload.dataset_id;
       const table = tokenPayload.table;
       const contentHash = tokenPayload.content_hash;
-      const declaredSize = tokenPayload.declared_size;
-
+      const periodTag = (tokenPayload as any).period_tag as string;
       if (!key || !datasetId || !table) {
         return c.json({ error: "Invalid token payload" }, 400);
       }
@@ -95,6 +98,7 @@ app.post("/upload", async (c) => {
           uploaded_by: user.id,
           dataset_id: datasetId,
           table,
+          period_tag: periodTag,
         },
       });
 
@@ -105,11 +109,11 @@ app.post("/upload", async (c) => {
       // Record fragment metadata in D1 for indexing
       try {
         const stmt = indexDb.prepare(
-          `INSERT INTO battle_files (key, dataset_id, table, size, etag, uploaded_at, content_hash, uploaded_by)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+          `INSERT INTO battle_files (key, dataset_id, "table", period_tag, size, etag, uploaded_at, content_hash, uploaded_by)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
         );
         await stmt
-          .bind(key, datasetId, table, actualSize, etag, uploadedAt, contentHash, user.id)
+          .bind(key, datasetId, table, periodTag, actualSize, etag, uploadedAt, contentHash, user.id)
           .run();
       } catch (err) {
         console.error("[battle_data] Failed to record fragment in D1:", err);
@@ -148,8 +152,8 @@ app.get("/chunks", async (c) => {
   }
 
   try {
-    let sql = `SELECT key, dataset_id, table, size, etag, uploaded_at, content_hash
-               FROM battle_files WHERE dataset_id = ? AND table = ?`;
+    let sql = `SELECT key, dataset_id, "table" as table, size, etag, uploaded_at, content_hash
+           FROM battle_files WHERE dataset_id = ? AND "table" = ?`;
     const params: unknown[] = [datasetId, table];
 
     if (from) {
@@ -164,7 +168,12 @@ app.get("/chunks", async (c) => {
     sql += ` ORDER BY uploaded_at DESC LIMIT ? OFFSET ?`;
     params.push(limit, offset);
 
-    const result = await indexDb.prepare(sql).bind(...params).all();
+    const stmt = indexDb.prepare(sql);
+    const result = await stmt.bind(...params).all?.();
+    if (!result) {
+      throw new Error("D1 returned no results for chunks query");
+    }
+
     const chunks = result.results || [];
 
     c.res.headers.set("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
@@ -196,14 +205,12 @@ app.get("/latest", async (c) => {
   }
 
   try {
-    const result = await indexDb
-      .prepare(
-        `SELECT key, dataset_id, table, size, etag, uploaded_at, content_hash
-         FROM battle_files WHERE dataset_id = ? AND table = ?
-         ORDER BY uploaded_at DESC LIMIT 1`
-      )
-      .bind(datasetId, table)
-      .first();
+    const stmt = indexDb.prepare(
+      `SELECT key, dataset_id, "table" as table, size, etag, uploaded_at, content_hash
+       FROM battle_files WHERE dataset_id = ? AND "table" = ?
+       ORDER BY uploaded_at DESC LIMIT 1`
+    );
+    const result = await stmt.bind(datasetId, table).first?.();
 
     if (!result) {
       return c.json({ error: "No fragments found" }, 404);

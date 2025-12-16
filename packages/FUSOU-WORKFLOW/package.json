@@ -8,7 +8,10 @@
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "types": "wrangler types",
-    "tail": "wrangler tail"
+    "tail": "wrangler tail",
+    "test": "scripts/test-parquet-optimization.sh",
+    "validate:py": "python3 scripts/validate_parquet.py",
+    "validate:sql": "duckdb < scripts/validate_parquet.sql"
   },
   "keywords": ["cloudflare", "workers", "workflows"],
   "author": "",

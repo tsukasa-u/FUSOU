@@ -227,7 +227,8 @@ flowchart TD
 
 ### POST /battle-data/upload (2段階署名付きURL)
 
-**フェーズ1: ハンドシェイク**
+#### フェーズ1: ハンドシェイク
+
 ```
 POST /api/battle-data/upload
 Content-Type: application/json
@@ -242,6 +243,7 @@ Authorization: Bearer <supabase_access_token>
 ```
 
 レスポンス:
+
 ```json
 {
   "uploadUrl": "https://pages.dev/api/battle-data/upload?token=...&expires=...&signature=...",
@@ -250,7 +252,7 @@ Authorization: Bearer <supabase_access_token>
 }
 ```
 
-**フェーズ2: 本体アップロード**
+#### フェーズ2: 本体アップロード
 - クエリ `token`, `expires`, `signature` を保持したまま、バイナリストリームをPUTまたはPOST
 - 署名検証後、R2へ可変キーで保存＋D1へ索引追記
 
@@ -264,6 +266,7 @@ Authorization: Bearer <supabase_access_token>
 ```
 
 レスポンス:
+
 ```json
 {
   "chunks": [
@@ -294,6 +297,7 @@ Authorization: Bearer <supabase_access_token>
 ```
 
 レスポンス:
+
 ```json
 {
   "latest": {

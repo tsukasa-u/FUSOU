@@ -169,6 +169,7 @@ export function injectEnv(locals: any): Bindings {
     ASSETS_BUCKET: ctx.runtime.ASSETS_BUCKET!,
     ASSET_SYNC_BUCKET: ctx.runtime.ASSET_SYNC_BUCKET!,
     ASSET_INDEX_DB: ctx.runtime.ASSET_INDEX_DB!,
+    BATTLE_INDEX_DB: ctx.runtime.BATTLE_INDEX_DB!,
     FLEET_SNAPSHOT_BUCKET: ctx.runtime.FLEET_SNAPSHOT_BUCKET!,
     BATTLE_DATA_BUCKET: ctx.runtime.BATTLE_DATA_BUCKET!,
     PUBLIC_SUPABASE_URL: getEnv(ctx, "PUBLIC_SUPABASE_URL")!,

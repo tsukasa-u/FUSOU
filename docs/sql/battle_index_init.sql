@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS battle_files (
   -- Dataset and table identifiers (for grouping/filtering)
   dataset_id TEXT NOT NULL,
   "table" TEXT NOT NULL,
+  period_tag TEXT NOT NULL,
   
   -- File metrics
   size INTEGER NOT NULL,  -- bytes
@@ -34,6 +35,8 @@ CREATE TABLE IF NOT EXISTS battle_files (
 -- Composite index for period queries (dataset + table + time range)
 CREATE INDEX IF NOT EXISTS idx_battle_files_period 
   ON battle_files(dataset_id, "table", uploaded_at);
+CREATE INDEX IF NOT EXISTS idx_battle_files_period_tag 
+  ON battle_files(dataset_id, "table", period_tag, uploaded_at);
 
 -- Index for latest fragment lookup
 CREATE INDEX IF NOT EXISTS idx_battle_files_latest 
@@ -48,6 +51,7 @@ CREATE VIEW IF NOT EXISTS battle_files_latest AS
 SELECT 
   dataset_id,
   "table",
+  period_tag,
   key,
   size,
   etag,
@@ -66,10 +70,11 @@ CREATE VIEW IF NOT EXISTS battle_files_period_summary AS
 SELECT 
   dataset_id,
   "table",
+  period_tag,
   DATE(uploaded_at) as period_date,
   COUNT(*) as fragment_count,
   SUM(size) as total_bytes,
   MIN(uploaded_at) as period_start,
   MAX(uploaded_at) as period_end
 FROM battle_files
-GROUP BY dataset_id, "table", DATE(uploaded_at);
+GROUP BY dataset_id, "table", period_tag, DATE(uploaded_at);

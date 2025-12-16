@@ -60,3 +60,9 @@ invocation_logs = true
 enabled = false
 persist = true
 head_sampling_rate = 1
+
+# ===== D1 database bindings =====
+[[ d1_databases ]]
+binding = "BATTLE_INDEX_DB"
+database_name = "dev_kc_battle_index"
+database_id = "700f4191-f93c-4db4-873d-d5fee9a901e3"
