@@ -3,12 +3,9 @@
   "type": "module",
   "version": "0.0.1",
   "scripts": {
-    "dev": "bash ./scripts/dev_strict.sh",
-    "build": "bash ./scripts/build_strict.sh",
-    "build.no.keys": "bash ./scripts/build_strict_no_keys.sh",
-    "build:wasm": "WASM_CRATE_DIR=${WASM_CRATE_DIR:-src/wasm/compactor}; cd \"$WASM_CRATE_DIR\" && pnpm exec wasm-pack build --target bundler --out-dir ./pkg",
-    "build.strict": "WASM_CRATE_DIR=${WASM_CRATE_DIR:-src/wasm/compactor}; (command -v wasm-pack >/dev/null 2>&1 && test -f \"$WASM_CRATE_DIR/Cargo.toml\" && npm run build:wasm || { echo 'Error: wasm build required for deploy. Ensure wasm-pack and Cargo.toml at ' \"$WASM_CRATE_DIR\"; exit 1; }) && dotenvx run -fk ../.env.keys -f .env --verbose --overload -- astro check && astro build",
-    "build.strict.no.keys": "WASM_CRATE_DIR=${WASM_CRATE_DIR:-src/wasm/compactor}; (command -v wasm-pack >/dev/null 2>&1 && test -f \"$WASM_CRATE_DIR/Cargo.toml\" && npm run build:wasm || { echo 'Error: wasm build required for deploy. Ensure wasm-pack and Cargo.toml at ' \"$WASM_CRATE_DIR\"; exit 1; }) && dotenvx run -f .env --verbose --overload -- astro build",
+    "dev": "dotenvx run -fk ../.env.keys -f .env --verbose --overload -- astro dev",
+    "build": "astro check && dotenvx run -fk ../.env.keys -f .env --verbose --overload -- astro build",
+    "build.no.keys": "astro check && dotenvx run -f .env --verbose --overload -- astro build",
     "preview": "dotenvx run -fk ../.env.keys -f .env --verbose --overload -- astro preview",
     "astro": "astro",
     "gen:licenses": "node ../../scripts/generate-licenses.js"

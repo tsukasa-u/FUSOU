@@ -1,12 +1,22 @@
 # Cloudflare Pages configuration for FUSOU-WEB
-name = "fusou-web"
+name = "fusou"
 compatibility_date = "2024-01-01"
 pages_build_output_dir = "dist"
 
-# Durable Objects configuration
-# Note: Pages does not support migrations, so they are omitted.
-# Durable Objects are registered on first deployment.
-[durable_objects]
-bindings = [
-  { name = "COMPACTOR", class_name = "CompactorDO", script_name = "fusou-web" }
-]
+# ===== Service Bindings =====
+# Connect to separate Workers
+[[services]]
+binding = "COMPACTION_WORKFLOW"
+service = "fusou-workflow"
+
+# ===== R2 Bucket Bindings =====
+[[r2_buckets]]
+binding = "ASSETS_BUCKET"
+bucket_name = "fusou-assets"
+jurisdiction = "eu"
+
+# ===== Queue Bindings =====
+# Producer binding (send messages from Pages)
+[[queues.producers]]
+queue = "compaction-queue"
+binding = "COMPACTION_QUEUE"
