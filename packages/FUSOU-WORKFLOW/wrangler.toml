@@ -1,0 +1,47 @@
+name = "fusou-workflow"
+compatibility_date = "2024-10-22"
+compatibility_flags = ["nodejs_compat"]
+
+# Main entry point
+main = "src/index.ts"
+
+# ===== Environment Variables =====
+# Note: Using dotenvx for encrypted environment variable management
+# 1. Create .env file (copy from .env.example)
+# 2. Run: npx dotenvx encrypt
+# 3. Set DOTENV_PRIVATE_KEY as Worker secret:
+#    wrangler secret put DOTENV_PRIVATE_KEY
+# 4. The import '@dotenvx/dotenvx/config' in index.ts automatically loads variables
+# Do NOT add secrets to [vars] section - use dotenvx encryption instead
+
+# ===== Workflow definitions =====
+[[workflows]]
+name = "data-compaction-workflow"
+binding = "DATA_COMPACTION"
+class_name = "DataCompactionWorkflow"
+
+# ===== R2 bucket bindings =====
+[[r2_buckets]]
+binding = "BATTLE_DATA_BUCKET"
+bucket_name = "dev-kc-battle-data"
+jurisdiction = "eu"
+
+# ===== Queue bindings =====
+# Consumer: receives from main queue
+[[queues.consumers]]
+queue = "dev-kc-compaction-queue"
+max_batch_size = 10
+max_batch_timeout = 30
+max_retries = 3
+dead_letter_queue = "dev-kc-compaction-dlq"
+
+# DLQ Handler: processes failed messages
+[[queues.consumers]]
+queue = "dev-kc-compaction-dlq"
+max_batch_size = 5
+max_batch_timeout = 60
+max_retries = 1
+
+# ===== CPU limit: 5 minutes per step =====
+[limits]
+cpu_ms = 300000

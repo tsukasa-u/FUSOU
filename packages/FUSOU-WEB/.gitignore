@@ -13,8 +13,15 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
-# environment variables
+# environment variables (unencrypted)
+.env
+.env.local
+.env.development
 .env.production
+
+# dotenvx keys (NEVER commit these!)
+.env.keys
+.env.*.keys
 
 # macOS-specific files
 .DS_Store

@@ -18,8 +18,8 @@ export type Bindings = {
   FLEET_SNAPSHOT_SIGNING_SECRET: string;
   BATTLE_DATA_SIGNING_SECRET: string;
   BATTLE_DATA_SIGNED_URL_SECRET?: string; // For battle data signed URL generation
-  // Durable Object namespace
-  COMPACTOR: DurableObjectNamespace;
+  // Service binding to Workflow Worker
+  COMPACTION_WORKFLOW: Fetcher;
 };
 
 export type R2BucketBinding = {

@@ -4,9 +4,7 @@ import type { Bindings } from '../types';
 import { CORS_HEADERS } from '../constants';
 import { 
   createEnvContext, 
-  resolveSupabaseConfig, 
-  readR2Binary, 
-  writeR2Binary,
+  resolveSupabaseConfig,
   getR2ObjectMetadata 
 } from '../utils';
 
@@ -17,44 +15,25 @@ interface CompactRequest {
 }
 
 interface CompactResponse {
-  status: 'success' | 'error';
+  status: 'success' | 'error' | 'accepted';
   message: string;
-  compacted_tables?: number;
+  instanceId?: string;
+  dataset_id?: string;
 }
-
-// Compaction設定（Cloudflare Workers環境向け）
-const COMPACT_CONFIG = {
-  MAX_FILE_SIZE_BYTES: 100 * 1024 * 1024, // 100MB
-  SAFETY_MARGIN_MS: 5000, // 5秒の安全マージン
-  TIMEOUT_MS: 25000, // 25秒（30秒制限-5秒）
-};
 
 /**
  * Compaction service routes
- * Triggers Parquet fragment consolidation via WASM orchestration
+ * Triggers Parquet fragment consolidation via Cloudflare Workflows
  * Endpoints:
- *   POST /compact - trigger compaction for a dataset
- *   GET /compact/trigger - manual trigger endpoint
+ *   POST /compact - trigger compaction workflow
+ *   GET /compact/status/:instanceId - check workflow instance status
  *   GET /compact/status - health check
  */
 
 // OPTIONS (CORS)
 app.options('*', (_c) => new Response(null, { status: 204, headers: CORS_HEADERS }));
 
-// Helper to update Supabase flags using client
-async function supabaseUpdate(
-  supabase: ReturnType<typeof createClient<any, any>>,
-  datasetId: string,
-  payload: Record<string, any>
-) {
-  const { error } = await supabase
-    .from('datasets')
-    .update(payload)
-    .eq('id', datasetId);
-  return !error;
-}
-
-// POST /compact - trigger compaction via Durable Object (bypasses 10ms CPU limit)
+// POST /compact - trigger compaction workflow
 app.post('/compact', async (c) => {
   try {
     const body = await c.req.json<CompactRequest>().catch(() => null);
@@ -70,58 +49,97 @@ app.post('/compact', async (c) => {
 
     const envCtx = createEnvContext(c);
     const { url: supabase_url, publishableKey: supabase_key } = resolveSupabaseConfig(envCtx);
+    const bucket = envCtx.runtime.BATTLE_DATA_BUCKET;
+    const workflowService = envCtx.runtime.COMPACTION_WORKFLOW;
 
     if (!supabase_url || !supabase_key) {
       return c.json(
-        { status: 'error', message: 'Missing environment configuration' } as CompactResponse,
+        { status: 'error', message: 'Missing Supabase configuration' } as CompactResponse,
         500
       );
     }
 
-    // Durable Object の取得（dataset_id をキーにする）
-    const compactorDO = c.env.COMPACTOR;
-    if (!compactorDO) {
+    if (!bucket) {
       return c.json(
-        { status: 'error', message: 'Compactor Durable Object not configured' } as CompactResponse,
+        { status: 'error', message: 'R2 bucket not configured' } as CompactResponse,
         500
       );
     }
 
-    // Durable Object ID を dataset_id から生成
-    const id = compactorDO.idFromName(dataset_id);
-    const stub = compactorDO.get(id);
+    if (!workflowService) {
+      return c.json(
+        { status: 'error', message: 'Compaction Workflow service not configured' } as CompactResponse,
+        500
+      );
+    }
+
+    // Check file exists and get metadata
+    const metadata = await getR2ObjectMetadata(bucket, dataset_id);
+    if (!metadata) {
+      return c.json(
+        { status: 'error', message: `Dataset file not found: ${dataset_id}` } as CompactResponse,
+        404
+      );
+    }
 
     console.log(
       JSON.stringify({
         level: 'info',
-        event: 'compact_delegating_to_do',
+        event: 'compact_workflow_trigger',
         dataset_id,
+        file_size_bytes: metadata.size,
       })
     );
 
-    // Durable Object に処理を委譲（10ms 以内に完了）
-    const doResponse = await stub.fetch('https://internal/compact', {
+    // Mark as in progress in Supabase
+    const supabase = createClient(supabase_url, supabase_key);
+    await supabase
+      .from('datasets')
+      .update({
+        compaction_in_progress: true,
+        compaction_needed: false,
+      })
+      .eq('id', dataset_id);
+
+    // Trigger Workflow via Service Binding
+    const workflowResponse = await workflowService.fetch('https://workflow/compact', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+      },
       body: JSON.stringify({
-        dataset_id,
-        supabase_url,
-        supabase_key,
+        datasetId: dataset_id,
+        bucketKey: dataset_id,
       }),
     });
 
-    // Durable Object からのレスポンスをそのまま返す
-    return new Response(doResponse.body, {
-      status: doResponse.status,
-      headers: doResponse.headers,
-    });
+    if (!workflowResponse.ok) {
+      throw new Error(`Workflow trigger failed: ${workflowResponse.statusText}`);
+    }
+
+    const workflowResult = await workflowResponse.json<{
+      instanceId: string;
+      status: string;
+      datasetId: string;
+    }>();
+
+    // Return 202 Accepted with workflow instance ID
+    return c.json(
+      {
+        status: 'accepted',
+        message: 'Compaction workflow started',
+        instanceId: workflowResult.instanceId,
+        dataset_id,
+      } as CompactResponse,
+      202
+    );
 
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
     console.error(
       JSON.stringify({
         level: 'error',
-        event: 'compact_delegation_failed',
+        event: 'compact_workflow_failed',
         error: message,
       })
     );
@@ -133,70 +151,32 @@ app.post('/compact', async (c) => {
   }
 });
 
-// GET /compact/trigger - manually trigger compaction for a specific dataset
-app.get('/compact/trigger', async (c) => {
+// GET /compact/status/:instanceId - check workflow instance status
+app.get('/compact/status/:instanceId', async (c) => {
   try {
-    const dataset_id = c.req.query('dataset_id');
-    const origin = c.req.header('origin');
+    const instanceId = c.req.param('instanceId');
+    const envCtx = createEnvContext(c);
+    const workflowService = envCtx.runtime.COMPACTION_WORKFLOW;
 
-    if (dataset_id) {
-      // Call main API with short timeout
-      await fetch(`${origin}/api/compaction/compact`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ dataset_id }),
-      }).catch(() => {});
-
+    if (!workflowService) {
       return c.json(
-        {
-          status: 'triggered',
-          dataset_id,
-          message: `Compaction triggered for dataset: ${dataset_id}`,
-        },
-        202
-      );
-    } else {
-      return c.json(
-        {
-          status: 'triggered',
-          message: 'Compaction triggered for all datasets',
-        },
-        202
-      );
-    }
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unknown error';
-    return c.json({ status: 'error', message }, 500);
-  }
-});
-
-// GET /compact/status/:dataset_id - check compaction status for a specific dataset
-app.get('/compact/status/:dataset_id', async (c) => {
-  try {
-    const dataset_id = c.req.param('dataset_id');
-
-    // Durable Object の取得
-    const compactorDO = c.env.COMPACTOR;
-    if (!compactorDO) {
-      return c.json(
-        { status: 'error', message: 'Compactor Durable Object not configured' },
+        { status: 'error', message: 'Workflow service not configured' },
         500
       );
     }
 
-    // Durable Object ID を dataset_id から生成
-    const id = compactorDO.idFromName(dataset_id);
-    const stub = compactorDO.get(id);
-
-    // Durable Object からステータスを取得
-    const doResponse = await stub.fetch('https://internal/status', {
+    // Query workflow status via Service Binding
+    const workflowResponse = await workflowService.fetch(`https://workflow/status/${instanceId}`, {
       method: 'GET',
     });
 
-    return new Response(doResponse.body, {
-      status: doResponse.status,
-      headers: doResponse.headers,
-    });
+    if (!workflowResponse.ok) {
+      throw new Error(`Workflow status check failed: ${workflowResponse.statusText}`);
+    }
+
+    const statusData = await workflowResponse.json();
+
+    return c.json(statusData, 200);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
     return c.json({ status: 'error', message }, 500);

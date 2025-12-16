@@ -277,6 +277,25 @@ importers:
         specifier: ^4.51.0
         version: 4.51.0(@cloudflare/workers-types@4.20251128.0)
 
+  packages/FUSOU-WORKFLOW:
+    dependencies:
+      '@supabase/supabase-js':
+        specifier: ^2.86.0
+        version: 2.86.0
+    devDependencies:
+      '@cloudflare/workers-types':
+        specifier: ^4.20251128.0
+        version: 4.20251128.0
+      '@dotenvx/dotenvx':
+        specifier: ^1.51.1
+        version: 1.51.1
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+      wrangler:
+        specifier: ^4.51.0
+        version: 4.51.0(@cloudflare/workers-types@4.20251128.0)
+
   packages/shared-ui:
     dependencies:
       lit:

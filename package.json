@@ -12,14 +12,14 @@
     "packages/*"
   ],
   "scripts": {
-    "env.encrypt": "dotenvx encrypt -fk ./packages/.env.keys -f ./packages/FUSOU-WEB/.env -f ./packages/FUSOU-APP/src-tauri/.env -f ./packages/FUSOU-APP/.env -f ./packages/fusou-auth/.env",
-    "env.decrypt": "dotenvx decrypt -fk ./packages/.env.keys -f ./packages/FUSOU-WEB/.env -f ./packages/FUSOU-APP/src-tauri/.env -f ./packages/FUSOU-APP/.env -f ./packages/fusou-auth/.env",
+    "env.encrypt": "dotenvx encrypt -fk ./packages/.env.keys -f ./packages/FUSOU-WEB/.env -f ./packages/FUSOU-APP/src-tauri/.env -f ./packages/FUSOU-APP/.env -f ./packages/fusou-auth/.env -f ./packages/FUSOU-WORKFLOW/.env",
+    "env.decrypt": "dotenvx decrypt -fk ./packages/.env.keys -f ./packages/FUSOU-WEB/.env -f ./packages/FUSOU-APP/src-tauri/.env -f ./packages/FUSOU-APP/.env -f ./packages/fusou-auth/.env -f ./packages/FUSOU-WORKFLOW/.env",
     "env.ls": "dotenvx ls",
     "gen:licenses": "node scripts/generate-licenses.js"
   },
   "keywords": [],
   "author": "",
-  "license": "ISC",
+  "license": "MIT",
   "packageManager": "pnpm@10.14.0+sha512.ad27a79641b49c3e481a16a805baa71817a04bbe06a38d17e60e2eaee83f6a146c6a688125f5792e48dd5ba30e7da52a5cda4c3992b9ccf333f9ce223af84748",
   "devDependencies": {
     "@dotenvx/dotenvx": "^1.44.2",

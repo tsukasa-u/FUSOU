@@ -3,6 +3,17 @@ name = "fusou"
 compatibility_date = "2024-01-01"
 pages_build_output_dir = "dist"
 
+# ===== Environment Variables =====
+# Note: Using dotenvx for encrypted environment variable management
+# Development:
+#   - dotenvx run commands in package.json automatically load .env
+# Production (Cloudflare Pages):
+#   1. Create .env.production with production values
+#   2. Run: npx dotenvx encrypt -f .env.production
+#   3. In Cloudflare Pages Dashboard → Settings → Environment Variables → Production
+#      Add: DOTENV_PRIVATE_KEY = <value from .env.production.keys>
+# Do NOT add secrets to [vars] section - use dotenvx encryption instead
+
 # ===== Service Bindings =====
 # Connect to separate Workers
 [[services]]
@@ -35,3 +46,12 @@ database_id = "c625d190-44b7-4a80-85fe-6fddbba64248"
 [[queues.producers]]
 queue = "dev-kc-compaction-queue"
 binding = "COMPACTION_QUEUE"
+
+# DLQ for monitoring
+[[queues.producers]]
+queue = "dev-kc-compaction-dlq"
+binding = "COMPACTION_DLQ"
+
+# ===== Scheduled cron triggers =====
+[[triggers.crons]]
+cron = "0 2 * * *"  # Daily at 02:00 UTC

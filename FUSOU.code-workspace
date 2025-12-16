@@ -25,6 +25,9 @@
       "path": "packages/fusou-upload"
     },
     {
+      "path": "packages/FUSOU-WORKFLOW"
+    },
+    {
       "path": "docs"
     },
     {
