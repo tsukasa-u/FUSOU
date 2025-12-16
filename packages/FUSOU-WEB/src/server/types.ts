@@ -6,10 +6,13 @@ import type { Context } from "hono";
 
 // Cloudflare bindings and app environment
 export type Bindings = {
+  // R2 Buckets
+  ASSETS_BUCKET: R2BucketBinding;
   ASSET_SYNC_BUCKET: R2BucketBinding;
   ASSET_INDEX_DB: D1Database;
   FLEET_SNAPSHOT_BUCKET: R2BucketBinding;
   BATTLE_DATA_BUCKET: R2BucketBinding;
+  
   // Supabase config (JWKS verification requires URL)
   PUBLIC_SUPABASE_URL: string; // required for JWKS
   SUPABASE_SECRET_KEY: string;
@@ -18,6 +21,11 @@ export type Bindings = {
   FLEET_SNAPSHOT_SIGNING_SECRET: string;
   BATTLE_DATA_SIGNING_SECRET: string;
   BATTLE_DATA_SIGNED_URL_SECRET?: string; // For battle data signed URL generation
+  
+  // Queues
+  COMPACTION_QUEUE: Queue;
+  COMPACTION_DLQ: Queue;
+  
   // Service binding to Workflow Worker
   COMPACTION_WORKFLOW: Fetcher;
 };

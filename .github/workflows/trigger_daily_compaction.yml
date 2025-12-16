@@ -1,0 +1,23 @@
+name: Trigger Daily Compaction
+
+on:
+  schedule:
+    # Daily at 02:00 UTC (11:00 JST)
+    - cron: '0 2 * * *'
+  workflow_dispatch: # Allow manual trigger
+
+jobs:
+  trigger-compaction:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger scheduled compaction
+        run: |
+          curl -X POST https://${{ secrets.PAGES_DOMAIN }}/api/compaction/trigger-scheduled \
+            -H "Content-Type: application/json" \
+            -w "\nHTTP Status: %{http_code}\n" \
+            -s -S
+        continue-on-error: false
+
+      - name: Check result
+        if: failure()
+        run: echo "Failed to trigger compaction. Check the logs above."

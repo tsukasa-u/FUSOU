@@ -166,6 +166,7 @@ export function injectEnv(locals: any): Bindings {
   };
 
   return {
+    ASSETS_BUCKET: ctx.runtime.ASSETS_BUCKET!,
     ASSET_SYNC_BUCKET: ctx.runtime.ASSET_SYNC_BUCKET!,
     ASSET_INDEX_DB: ctx.runtime.ASSET_INDEX_DB!,
     FLEET_SNAPSHOT_BUCKET: ctx.runtime.FLEET_SNAPSHOT_BUCKET!,
@@ -177,6 +178,8 @@ export function injectEnv(locals: any): Bindings {
     FLEET_SNAPSHOT_SIGNING_SECRET: getEnv(ctx, "FLEET_SNAPSHOT_SIGNING_SECRET")!,
     BATTLE_DATA_SIGNING_SECRET: getEnv(ctx, "BATTLE_DATA_SIGNING_SECRET")!,
     BATTLE_DATA_SIGNED_URL_SECRET: getEnv(ctx, "BATTLE_DATA_SIGNED_URL_SECRET"),
+    COMPACTION_QUEUE: ctx.runtime.COMPACTION_QUEUE!,
+    COMPACTION_DLQ: ctx.runtime.COMPACTION_DLQ!,
     COMPACTION_WORKFLOW: ctx.runtime.COMPACTION_WORKFLOW!,
   };
 }

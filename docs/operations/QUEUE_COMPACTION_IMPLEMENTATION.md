@@ -16,14 +16,15 @@
 ## アーキテクチャ概要
 
 ```
-┌──────────────────────────────────┐
-│ FUSOU-WEB (Cloudflare Pages)    │
-│                                  │
-│ 1. POST /api/compact             │ ← 手動トリガー
-│ 2. POST /upload                  │ ← リアルタイムアップロード
-│ 3. _scheduled.ts (Cron daily)    │ ← 定期実行（毎日 02:00 UTC）
-│                                  │
-└─────────────┬────────────────────┘
+┌──────────────────────────────────────────────────┐
+│ FUSOU-WEB (Cloudflare Pages)                    │
+│                                                  │
+│ 1. POST /api/compaction/sanitize-state          │ ← 手動トリガー
+│ 2. POST /api/compaction/upload                  │ ← リアルタイムアップロード
+│ 3. POST /api/compaction/trigger-scheduled       │ ← スケジュール実行
+│    (GitHub Actions cron: 0 2 * * *)             │   (毎日 02:00 UTC)
+│                                                  │
+└─────────────┬────────────────────────────────────┘
               │ Queue に投入
               ▼
 ┌────────────────────────────────────────────────┐
@@ -37,7 +38,7 @@
              ▼
 ┌────────────────────────────────────────────────┐
 │ Consumer Worker (FUSOU-WORKFLOW)               │
-│ src/consumer.ts                                │
+│ src/index.ts (export const queue)              │
 │                                                │
 │ Message を受け取る                             │
 │ → Workflow instance 生成                      │
@@ -76,25 +77,38 @@
   - 毎日 02:00 UTC に実行（wrangler.toml で設定）
   - `compaction_needed=true` のデータセットを取得
   - Queue に投入
+## 実装ファイル構成
 
-- **`src/pages/api/compact.ts`** - 手動トリガーエンドポイント
-  - POST リクエストで Queue に投入
+### 1. FUSOU-WEB
 
-- **`src/pages/api/upload.ts`** - アップロード完了時
-  - アップロード完了後に Queue に投入（オプション）
+**API Integration (Hono + Astro):**
+- **`src/pages/api/[...route].ts`** - Astro catch-all route → Hono app
+- **`src/server/app.ts`** - Hono メインアプリ（全ルートをマウント）
+- **`src/server/routes/compact.ts`** - Compaction API routes（Hono）
+  - POST `/api/compaction/upload` - Parquet ファイルアップロード
+  - POST `/api/compaction/sanitize-state` - 手動コンパクション
+  - POST `/api/compaction/trigger-scheduled` - スケジュール実行（GitHub Actions用）
+  - GET `/api/compaction/dlq-status` - DLQ ステータス確認
+
+**ルーティング構造:**
+- Astro: `/api/**` → `src/pages/api/[...route].ts`
+- Astro → Hono: `app.fetch(request, env)`
+- Hono: `app.route('/compaction', compactApp)`
+- compactApp: `app.post('/upload', ...)` → `/api/compaction/upload`
+
+**設計思想:**
+- Astro Pages: ページ遷移、クッキー、セッション管理
+- Hono: 純粋な REST API（JSON レスポンス、認証ヘッダー）
+- Astro catch-all route が Hono app に全 API リクエストを委譲
+
+**Scheduled Function:**
+- **`functions/_scheduled.ts`** - Cloudflare Cron (注: Pages では使用不可)
 
 ### 2. FUSOU-WORKFLOW
-- **`src/consumer.ts`** - Queue Consumer
-  - Message batch 受け取り
-  - Workflow instance 生成
-  - リトライ・DLQ 送信処理
-
-- **`src/dlq-handler.ts`** - DLQ Handler
-  - 失敗メッセージのログ記録
-  - アラート機能（将来実装）
-
-- **`src/index.ts`** - Workflow メイン
-  - 既存実装、変更なし
+- **`src/index.ts`** - Queue Consumer + DLQ Handler + Workflow
+  - export const queue - Main Queue Consumer
+  - export const dlq - DLQ Handler  
+  - class DataCompactionWorkflow - Workflow 実装
 
 ## デプロイ手順
 
@@ -156,15 +170,35 @@ npx wrangler pages deploy dist
 - 本番環境: Cloudflare Pages が暗号化された `.env.production` + `DOTENV_PRIVATE_KEY` で復号化
 - Astro/Cloudflare Functions では `locals.runtime.env` または `env` パラメータでアクセス
 - dotenvx は暗号化により `.env` ファイルをリポジトリにコミット可能（安全）
-# 以下を追加：
-#   PUBLIC_SUPABASE_URL = https://your-project.supabase.co
-#   SUPABASE_SECRET_KEY = your-secret-key（Show as secret にチェック）
 ```
 
 **重要：** 
 - ローカル開発では dotenvx が `.env` ファイルから環境変数を読み込みます
 - 本番環境（Cloudflare）では Cloudflare Dashboard の Environment Variables から読み込まれます
-- `_scheduled.ts` と Cloudflare Functions は `env` パラメータから環境変数を取得します
+- API endpoints と Cloudflare Functions は `locals.runtime.env` から環境変数を取得します
+
+### 2.5. GitHub Actions スケジュール設定
+
+**スケジュール実行のセットアップ:**
+
+1. **GitHub Secret の追加:**
+   - Repository Settings → Secrets and variables → Actions
+   - `PAGES_DOMAIN` を追加（例: `fusou.pages.dev`）
+
+2. **Workflow ファイル確認:**
+   `.github/workflows/trigger_daily_compaction.yml` が以下の設定で存在すること：
+   ```yaml
+   on:
+     schedule:
+       - cron: '0 2 * * *'  # 毎日 02:00 UTC (11:00 JST)
+     workflow_dispatch:      # 手動実行も可能
+   ```
+
+3. **手動テスト実行:**
+   - GitHub → Actions → "Daily Compaction Trigger"
+   - "Run workflow" ボタンで手動実行してテスト
+
+**注意：** Cloudflare Pages は `[[triggers.crons]]` をサポートしていません。そのため GitHub Actions を外部 cron サービスとして使用し、`/api/compaction/trigger-scheduled` エンドポイントを呼び出します
 
 ### 3. Cloudflare Dashboard 設定
 
@@ -187,7 +221,7 @@ wrangler queues create dev-kc-compaction-dlq
 
 ### 手動トリガー
 ```
-1. User: curl -X POST https://your-site.pages.dev/api/compact -d '{"datasetId":"uuid-123"}'
+1. User: curl -X POST https://your-site.pages.dev/api/compaction/sanitize-state -d '{"datasetId":"uuid-123"}'
 2. FUSOU-WEB: Request 検証 → Queue に投入
 3. Consumer: Message 受信 → Workflow インスタンス生成
 4. Workflow: 4 step 実行 (validate → get-metadata → compact → update)
@@ -196,13 +230,16 @@ wrangler queues create dev-kc-compaction-dlq
 
 ### 定期実行
 ```
-1. Cron: 02:00 UTC → _scheduled.ts トリガー
-2. _scheduled.ts: Supabase から pending dataset 取得
-3. _scheduled.ts: 各 dataset を Queue に投入（並列）
-4. Consumer: Message batch 処理（max 10 並列）
-5. Workflow: 各データセット コンパクション実行
-6. Result: 完了 or DLQ 移動
+1. GitHub Actions: 02:00 UTC に Cron 実行
+2. GitHub Actions: POST https://fusou.pages.dev/api/compaction/trigger-scheduled
+3. trigger-scheduled: Supabase から pending dataset 取得（max 10）
+4. trigger-scheduled: 各 dataset を Queue に投入（並列）
+5. Consumer: Message batch 処理（max 10 並列）
+6. Workflow: 各データセット コンパクション実行
+7. Result: 完了 or DLQ 移動
 ```
+
+**注意：** Cloudflare Pages は scheduled functions (`functions/_scheduled.ts`) をサポートしていません。代わりに GitHub Actions を外部 cron サービスとして使用し、API endpoint `/api/compaction/trigger-scheduled` を呼び出します。
 
 ### DLQ 処理
 ```
@@ -221,14 +258,23 @@ wrangler queues create dev-kc-compaction-dlq
 cd packages/FUSOU-WEB
 npm run dev
 
-# 別ターミナル: _scheduled テスト
-curl -X POST http://localhost:8787/api/compact \
+# 別ターミナル: 手動コンパクション API テスト
+curl -X POST http://localhost:4321/api/compaction/sanitize-state \
   -H "Content-Type: application/json" \
   -d '{"datasetId":"test-uuid-123"}'
+
+# スケジュール実行 API テスト
+curl -X POST http://localhost:4321/api/compaction/trigger-scheduled
 ```
 
 ### 本番環境テスト
 ```bash
+# スケジュール実行エンドポイントの手動テスト
+curl -X POST https://fusou.pages.dev/api/compaction/trigger-scheduled
+
+# GitHub Actions 手動実行
+# GitHub → Actions → "Daily Compaction Trigger" → "Run workflow"
+
 # Queue message 送信テスト
 wrangler queues send dev-kc-compaction-queue '{"datasetId":"test-uuid","triggeredAt":"2025-12-17T00:00:00Z","priority":"manual"}'
 
@@ -236,15 +282,21 @@ wrangler queues send dev-kc-compaction-queue '{"datasetId":"test-uuid","triggere
 wrangler tail fusou-workflow
 
 # DLQ メッセージ確認
-wrangler queue tail dev-kc-compaction-dlq
+wrangler queues consumer dev-kc-compaction-dlq
 ```
 
 ## トラブルシューティング
 
+### スケジュール実行が動かない
+1. GitHub Actions workflow が有効か確認
+2. GitHub Secret `PAGES_DOMAIN` が設定されているか確認
+3. GitHub Actions ログで HTTP status code 確認
+4. `/api/compaction/trigger-scheduled` endpoint に直接アクセスして動作確認
+
 ### Message が処理されない
 1. Consumer Worker が deployed か確認
 2. Queue バインディングが正しいか確認
-3. `wrangler tail` でログ確認
+3. `wrangler tail fusou-workflow` でログ確認
 4. Cloudflare Dashboard → Queues で状態確認
 
 ### DLQ メッセージが溜まる

@@ -53,5 +53,15 @@ queue = "dev-kc-compaction-dlq"
 binding = "COMPACTION_DLQ"
 
 # ===== Scheduled cron triggers =====
-[[triggers.crons]]
-cron = "0 2 * * *"  # Daily at 02:00 UTC
+# Note: Cloudflare Pages does not support scheduled functions via wrangler.toml
+# Alternative approaches:
+#
+# Option 1: External Cron Service (Recommended)
+#   Use GitHub Actions, Cloudflare Workers Cron, or other cron services to call:
+#   POST https://your-site.pages.dev/api/compaction/trigger-scheduled
+#
+# Option 2: Cloudflare Workers Cron (Separate Worker)
+#   Create a separate Worker with cron trigger that calls the endpoint
+#
+# Option 3: Manual Trigger
+#   Call the endpoint manually when needed for testing

@@ -2,196 +2,251 @@ import { Hono } from 'hono';
 import { createClient } from '@supabase/supabase-js';
 import type { Bindings } from '../types';
 import { CORS_HEADERS } from '../constants';
-import { 
-  createEnvContext, 
-  resolveSupabaseConfig,
-  getR2ObjectMetadata 
-} from '../utils';
 
 const app = new Hono<{ Bindings: Bindings }>();
 
-interface CompactRequest {
-  dataset_id: string;
-}
-
-interface CompactResponse {
-  status: 'success' | 'error' | 'accepted';
-  message: string;
-  instanceId?: string;
-  dataset_id?: string;
-}
-
 /**
- * Compaction service routes
- * Triggers Parquet fragment consolidation via Cloudflare Workflows
+ * Compaction service routes (Queue-based implementation)
  * Endpoints:
- *   POST /compact - trigger compaction workflow
- *   GET /compact/status/:instanceId - check workflow instance status
- *   GET /compact/status - health check
+ *   POST /upload - Upload Parquet file to R2 and trigger compaction
+ *   POST /sanitize-state - Manual trigger for dataset compaction
+ *   POST /trigger-scheduled - Scheduled compaction (called by GitHub Actions)
+ *   GET /dlq-status - Dead Letter Queue status
  */
 
 // OPTIONS (CORS)
 app.options('*', (_c) => new Response(null, { status: 204, headers: CORS_HEADERS }));
 
-// POST /compact - trigger compaction workflow
-app.post('/compact', async (c) => {
+/**
+ * POST /upload
+ * Upload Parquet file to R2 and trigger compaction workflow
+ */
+app.post('/upload', async (c) => {
   try {
-    const body = await c.req.json<CompactRequest>().catch(() => null);
+    const env = c.env;
+    
+    const formData = await c.req.formData();
+    const datasetId = formData.get('datasetId') as string;
+    const tableId = formData.get('tableId') as string;
+    const file = formData.get('file') as File;
 
-    if (!body || !body.dataset_id || typeof body.dataset_id !== 'string') {
-      return c.json(
-        { status: 'error', message: 'dataset_id is required and must be a string' } as CompactResponse,
-        400
-      );
+    if (!datasetId || !tableId || !file) {
+      return c.json({ error: 'Missing required fields: datasetId, tableId, file' }, 400);
     }
 
-    const dataset_id = body.dataset_id;
+    const supabase = createClient(env.PUBLIC_SUPABASE_URL, env.SUPABASE_SECRET_KEY);
 
-    const envCtx = createEnvContext(c);
-    const { url: supabase_url, publishableKey: supabase_key } = resolveSupabaseConfig(envCtx);
-    const bucket = envCtx.runtime.BATTLE_DATA_BUCKET;
-    const workflowService = envCtx.runtime.COMPACTION_WORKFLOW;
+    // ===== Step 1: R2 に Parquet ファイル保存 =====
+    const bucketKey = `${datasetId}/${tableId}`;
+    const buffer = await file.arrayBuffer();
 
-    if (!supabase_url || !supabase_key) {
-      return c.json(
-        { status: 'error', message: 'Missing Supabase configuration' } as CompactResponse,
-        500
-      );
-    }
+    console.info(`[Upload API] Uploading file to R2`, {
+      datasetId,
+      tableId,
+      bucketKey,
+      fileSize: buffer.byteLength,
+      timestamp: new Date().toISOString(),
+    });
 
-    if (!bucket) {
-      return c.json(
-        { status: 'error', message: 'R2 bucket not configured' } as CompactResponse,
-        500
-      );
-    }
-
-    if (!workflowService) {
-      return c.json(
-        { status: 'error', message: 'Compaction Workflow service not configured' } as CompactResponse,
-        500
-      );
-    }
-
-    // Check file exists and get metadata
-    const metadata = await getR2ObjectMetadata(bucket, dataset_id);
-    if (!metadata) {
-      return c.json(
-        { status: 'error', message: `Dataset file not found: ${dataset_id}` } as CompactResponse,
-        404
-      );
-    }
-
-    console.log(
-      JSON.stringify({
-        level: 'info',
-        event: 'compact_workflow_trigger',
-        dataset_id,
-        file_size_bytes: metadata.size,
-      })
-    );
-
-    // Mark as in progress in Supabase
-    const supabase = createClient(supabase_url, supabase_key);
-    await supabase
-      .from('datasets')
-      .update({
-        compaction_in_progress: true,
-        compaction_needed: false,
-      })
-      .eq('id', dataset_id);
-
-    // Trigger Workflow via Service Binding
-    const workflowResponse = await workflowService.fetch('https://workflow/compact', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
+    const r2Result = await env.ASSETS_BUCKET.put(bucketKey, buffer, {
+      customMetadata: {
+        dataset_id: datasetId,
+        table_id: tableId,
+        uploaded_at: new Date().toISOString(),
+        original_filename: file.name,
       },
-      body: JSON.stringify({
-        datasetId: dataset_id,
-        bucketKey: dataset_id,
-      }),
     });
 
-    if (!workflowResponse.ok) {
-      throw new Error(`Workflow trigger failed: ${workflowResponse.statusText}`);
+    if (!r2Result) {
+      console.error(`[Upload API] R2 upload failed`);
+      return c.json({ error: 'Failed to upload file to R2' }, 500);
     }
 
-    const workflowResult = await workflowResponse.json<{
-      instanceId: string;
-      status: string;
-      datasetId: string;
-    }>();
+    console.info(`[Upload API] R2 upload completed`, {
+      bucketKey,
+      etag: r2Result.etag,
+    });
 
-    // Return 202 Accepted with workflow instance ID
-    return c.json(
-      {
-        status: 'accepted',
-        message: 'Compaction workflow started',
-        instanceId: workflowResult.instanceId,
-        dataset_id,
-      } as CompactResponse,
-      202
-    );
+    // ===== Step 2: Supabase レコード挿入 =====
+    const { data, error: insertError } = await supabase
+      .from('datasets')
+      .insert({
+        dataset_id: datasetId,
+        table_id: tableId,
+        file_name: file.name,
+        file_size: buffer.byteLength,
+        status: 'pending',
+        uploaded_at: new Date().toISOString(),
+      })
+      .select();
 
+    if (insertError) {
+      console.error(`[Upload API] Supabase insert failed`, { error: insertError });
+      return c.json({ error: 'Failed to create dataset record', details: insertError.message }, 500);
+    }
+
+    console.info(`[Upload API] Supabase record created`, { data });
+
+    // ===== Step 3: Queue に投入 =====
+    await env.COMPACTION_QUEUE.send({
+      datasetId,
+      triggeredAt: new Date().toISOString(),
+      priority: 'realtime',
+    });
+
+    console.info(`[Upload API] Enqueued to compaction queue`, { datasetId });
+
+    return c.json({
+      success: true,
+      datasetId,
+      tableId,
+      fileName: file.name,
+      fileSize: buffer.byteLength,
+    });
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unknown error';
-    console.error(
-      JSON.stringify({
-        level: 'error',
-        event: 'compact_workflow_failed',
-        error: message,
+    console.error('[Upload API] Unexpected error', { error });
+    return c.json({ error: 'Internal server error' }, 500);
+  }
+});
+
+/**
+ * POST /sanitize-state
+ * Manual trigger for dataset compaction
+ */
+app.post('/sanitize-state', async (c) => {
+  try {
+    const env = c.env;
+    const { datasetId } = await c.req.json();
+
+    if (!datasetId) {
+      return c.json({ error: 'datasetId is required' }, 400);
+    }
+
+    const supabase = createClient(env.PUBLIC_SUPABASE_URL, env.SUPABASE_SECRET_KEY);
+
+    // Verify dataset exists
+    const { data, error } = await supabase
+      .from('datasets')
+      .select('dataset_id, status')
+      .eq('dataset_id', datasetId)
+      .single();
+
+    if (error || !data) {
+      return c.json({ error: 'Dataset not found' }, 404);
+    }
+
+    // Enqueue to compaction queue
+    await env.COMPACTION_QUEUE.send({
+      datasetId,
+      triggeredAt: new Date().toISOString(),
+      priority: 'manual',
+    });
+
+    console.info(`[Sanitize State API] Enqueued dataset`, { datasetId });
+
+    return c.json({
+      success: true,
+      datasetId,
+      message: 'Dataset enqueued for compaction',
+    });
+  } catch (error) {
+    console.error('[Sanitize State API] Unexpected error', { error });
+    return c.json({ error: 'Internal server error' }, 500);
+  }
+});
+
+/**
+ * POST /trigger-scheduled
+ * Scheduled compaction trigger (called by GitHub Actions cron)
+ */
+app.post('/trigger-scheduled', async (c) => {
+  try {
+    const env = c.env;
+    const supabase = createClient(env.PUBLIC_SUPABASE_URL, env.SUPABASE_SECRET_KEY);
+
+    console.info('[Trigger Scheduled] Starting scheduled compaction');
+
+    // Fetch pending datasets
+    const { data: datasets, error } = await supabase
+      .from('datasets')
+      .select('dataset_id')
+      .eq('status', 'pending')
+      .order('uploaded_at', { ascending: true })
+      .limit(10);
+
+    if (error) {
+      console.error('[Trigger Scheduled] Failed to fetch datasets', { error });
+      return c.json({ error: 'Failed to fetch pending datasets', details: error.message }, 500);
+    }
+
+    if (!datasets || datasets.length === 0) {
+      console.info('[Trigger Scheduled] No pending datasets found');
+      return c.json({
+        success: true,
+        message: 'No pending datasets to process',
+        enqueued: 0,
+        datasets: [],
+      });
+    }
+
+    // Enqueue all pending datasets
+    const enqueuePromises = datasets.map((dataset) =>
+      env.COMPACTION_QUEUE.send({
+        datasetId: dataset.dataset_id,
+        triggeredAt: new Date().toISOString(),
+        priority: 'scheduled',
       })
     );
 
-    return c.json(
-      { status: 'error', message: `Compaction failed: ${message}` } as CompactResponse,
-      500
-    );
-  }
-});
+    await Promise.all(enqueuePromises);
 
-// GET /compact/status/:instanceId - check workflow instance status
-app.get('/compact/status/:instanceId', async (c) => {
-  try {
-    const instanceId = c.req.param('instanceId');
-    const envCtx = createEnvContext(c);
-    const workflowService = envCtx.runtime.COMPACTION_WORKFLOW;
-
-    if (!workflowService) {
-      return c.json(
-        { status: 'error', message: 'Workflow service not configured' },
-        500
-      );
-    }
-
-    // Query workflow status via Service Binding
-    const workflowResponse = await workflowService.fetch(`https://workflow/status/${instanceId}`, {
-      method: 'GET',
+    const datasetIds = datasets.map((d) => d.dataset_id);
+    console.info('[Trigger Scheduled] Enqueued datasets', {
+      count: datasets.length,
+      datasetIds,
     });
 
-    if (!workflowResponse.ok) {
-      throw new Error(`Workflow status check failed: ${workflowResponse.statusText}`);
-    }
-
-    const statusData = await workflowResponse.json();
-
-    return c.json(statusData, 200);
+    return c.json({
+      success: true,
+      message: `Enqueued ${datasets.length} datasets for compaction`,
+      enqueued: datasets.length,
+      datasets: datasetIds,
+    });
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unknown error';
-    return c.json({ status: 'error', message }, 500);
+    console.error('[Trigger Scheduled] Unexpected error', { error });
+    return c.json({ error: 'Internal server error' }, 500);
   }
 });
 
-// GET /compact/status - health check for compaction service
-app.get('/compact/status', (c) => {
-  return c.json(
-    {
-      status: 'success',
-      message: 'Compaction service is running',
-    } as CompactResponse,
-    200
-  );
+/**
+ * GET /dlq-status
+ * Get Dead Letter Queue status
+ */
+app.get('/dlq-status', async (c) => {
+  try {
+    const env = c.env;
+    const supabase = createClient(env.PUBLIC_SUPABASE_URL, env.SUPABASE_SECRET_KEY);
+
+    const { data, error } = await supabase
+      .from('compaction_failures')
+      .select('*')
+      .order('failed_at', { ascending: false })
+      .limit(100);
+
+    if (error) {
+      console.error('[DLQ Status API] Supabase query failed', { error });
+      return c.json({ error: 'Failed to fetch DLQ status', details: error.message }, 500);
+    }
+
+    return c.json({
+      success: true,
+      failures: data || [],
+      count: data?.length || 0,
+    });
+  } catch (error) {
+    console.error('[DLQ Status API] Unexpected error', { error });
+    return c.json({ error: 'Internal server error' }, 500);
+  }
 });
 
 export default app;
