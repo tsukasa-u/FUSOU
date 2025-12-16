@@ -24,17 +24,17 @@ service = "fusou-workflow"
 [[r2_buckets]]
 binding = "ASSETS_BUCKET"
 bucket_name = "dev-kc-assets"
-jurisdiction = "eu"
+# location = "apac"  # Optional: Hint for primary location (Asia-Pacific for Japanese users)
 
 [[r2_buckets]]
 binding = "FLEET_SNAPSHOT_BUCKET"
 bucket_name = "dev-kc-fleets"
-jurisdiction = "eu"
+# location = "apac"  # Optional: Hint for primary location (Asia-Pacific for Japanese users)
 
 [[r2_buckets]]
 binding = "BATTLE_DATA_BUCKET"
 bucket_name = "dev-kc-battle-data"
-jurisdiction = "eu"
+# location = "apac"  # Optional: Hint for primary location (Asia-Pacific for Japanese users)
 
 [[ d1_databases ]]
 binding = "ASSET_INDEX_DB"

@@ -24,7 +24,7 @@ class_name = "DataCompactionWorkflow"
 [[r2_buckets]]
 binding = "BATTLE_DATA_BUCKET"
 bucket_name = "dev-kc-battle-data"
-jurisdiction = "eu"
+# location = "apac"  # Optional: Hint for primary location (Asia-Pacific for Japanese users)
 
 # ===== Queue bindings =====
 # Consumer: receives from main queue
