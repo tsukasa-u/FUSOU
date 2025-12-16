@@ -1,3 +1,4 @@
+<!-- markdownlint-disable MD032 MD040 MD025 MD022 MD007 MD010 MD041 MD003 -->
 ---
 title: FUSOU API Overview
 description: FUSOU のクライアント(Tauri)とバックエンド(Supabase / Cloudflare R2 / Google Drive / Cloudflare Pages Workers)の連携仕様と署名付きURLフローのまとめ。
@@ -96,8 +97,8 @@ sequenceDiagram
 - フロー: `write_port_table` が Local FS / Google Drive / R2 へ同時呼び出し。
 - 保存形式:
   - Local/Drive: Avro個別 `period/transaction/{maparea}-{mapinfo}/{table}.avro`
-  - R2: Parquet連結 `{period}-port-{maparea}-{mapinfo}.bin` (署名付きURL経由)
- - ハッシュ: `fusou-upload/Uploader` がSHA-256を計算し、`content_hash`をhandshakeに付与して送信します。
+    - R2: Parquet連結 `{period}-port-{maparea}-{mapinfo}.bin` (署名付きURL経由)
+    - ハッシュ: `fusou-upload/Uploader` がSHA-256を計算し、`content_hash`をhandshakeに付与して送信します。
 
 ### fleet snapshot
 - 実装: `src-tauri/src/storage/snapshot.rs`

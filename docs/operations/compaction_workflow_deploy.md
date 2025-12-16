@@ -1,3 +1,4 @@
+<!-- markdownlint-disable MD032 MD040 MD025 MD022 MD007 MD010 -->
 # Compaction Workflow Deploy & Ops Guide
 
 This note summarizes how to deploy the compaction workflow to Cloudflare, create the Supabase tables, build Cloudflare Pages without WASM, and how dotenvx is used in this repo.

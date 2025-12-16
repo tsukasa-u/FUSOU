@@ -1,3 +1,4 @@
+<!-- markdownlint-disable MD032 MD040 MD025 MD022 MD007 MD010 -->
 # Supabase データスキーマ・データフロー仕様書
 
 最終更新: 2025-12-16 / ブランチ: `r2_parquet`

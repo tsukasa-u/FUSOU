@@ -1,3 +1,4 @@
+<!-- markdownlint-disable MD032 MD040 MD025 MD022 MD007 MD010 MD031 MD024 MD029 MD036 MD041 MD003 MD034 -->
 # dotenvx Configuration for FUSOU
 
 ## Overview

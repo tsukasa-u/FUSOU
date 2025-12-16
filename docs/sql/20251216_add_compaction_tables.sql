@@ -57,9 +57,9 @@ CREATE TABLE IF NOT EXISTS processing_metrics (
   compression_ratio DECIMAL(5, 2),
   
   -- === 処理結果 ===
-  status VARCHAR DEFAULT 'pending', -- pending, success, failure, dlq, timeout
+  status VARCHAR DEFAULT 'pending', -- pending, success, failure, dlq_failure, timeout
   error_message TEXT,
-  error_step VARCHAR, -- エラーが発生したステップ名
+  error_step VARCHAR, -- エラーが発生したステップ名（consumer, validate-dataset, get-file-metadata, compact-with-wasm, update-metadata）
   
   -- === タイムスタンプ ===
   queued_at TIMESTAMPTZ,
@@ -77,8 +77,15 @@ CREATE INDEX IF NOT EXISTS idx_metrics_workflow_instance ON processing_metrics(w
 CREATE INDEX IF NOT EXISTS idx_metrics_created ON processing_metrics(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_metrics_status ON processing_metrics(status);
 
--- パフォーマンス分析用ビュー
-CREATE OR REPLACE VIEW metrics_hourly_summary AS
+-- Internal analytics schema (not exposed via APIs)
+CREATE SCHEMA IF NOT EXISTS analytics;
+
+-- Remove old views from public schema if they exist
+DROP VIEW IF EXISTS public.metrics_hourly_summary CASCADE;
+DROP VIEW IF EXISTS public.metrics_error_analysis CASCADE;
+
+-- パフォーマンス分析用ビュー（内部用・API非公開）
+CREATE OR REPLACE VIEW analytics.metrics_hourly_summary AS
 SELECT
   DATE_TRUNC('hour', created_at) as hour,
   COUNT(*) as total_count,
@@ -90,32 +97,45 @@ SELECT
   ROUND(AVG(original_size_bytes), 0)::INTEGER as avg_original_size_bytes,
   MIN(created_at) as period_start,
   MAX(created_at) as period_end
-FROM processing_metrics
+FROM public.processing_metrics
 GROUP BY DATE_TRUNC('hour', created_at)
 ORDER BY hour DESC;
 
--- エラー分析用ビュー
-CREATE OR REPLACE VIEW metrics_error_analysis AS
+-- エラー分析用ビュー（内部用・API非公開）
+CREATE OR REPLACE VIEW analytics.metrics_error_analysis AS
 SELECT
   error_step,
   COUNT(*) as error_count,
-  ROUND(AVG(CAST(error_message AS FLOAT)), 2) as avg_error_rate,
   STRING_AGG(DISTINCT error_message, '; ') as error_messages,
   MAX(created_at) as latest_error_at
-FROM processing_metrics
+FROM public.processing_metrics
 WHERE status = 'failure'
 GROUP BY error_step
 ORDER BY error_count DESC;
+
+-- Note: Internal views (metrics_hourly_summary, metrics_error_analysis) are in the analytics schema
+-- and are not exposed via Supabase APIs. Access them directly via Postgres or through authenticated functions.
 
 -- RLS（Row Level Security）ポリシー設定
 ALTER TABLE datasets ENABLE ROW LEVEL SECURITY;
 ALTER TABLE processing_metrics ENABLE ROW LEVEL SECURITY;
 
+-- Drop existing policies if they exist (for idempotency)
+DROP POLICY IF EXISTS "Users can see their own datasets" ON datasets;
+DROP POLICY IF EXISTS "Users can update their own datasets" ON datasets;
+DROP POLICY IF EXISTS "Service role can insert datasets" ON datasets;
+DROP POLICY IF EXISTS "Service role can access all metrics" ON processing_metrics;
+DROP POLICY IF EXISTS "Users can read metrics for their datasets" ON processing_metrics;
+
+-- Create policies
 CREATE POLICY "Users can see their own datasets" ON datasets
   FOR SELECT USING (auth.uid() = user_id);
 
 CREATE POLICY "Users can update their own datasets" ON datasets
   FOR UPDATE USING (auth.uid() = user_id);
+
+CREATE POLICY "Service role can insert datasets" ON datasets
+  FOR INSERT WITH CHECK (true);
 
 CREATE POLICY "Service role can access all metrics" ON processing_metrics
   FOR ALL USING (true);

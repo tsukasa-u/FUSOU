@@ -1,3 +1,4 @@
+<!-- markdownlint-disable MD032 MD040 MD025 MD022 MD007 MD010 MD031 MD024 MD029 MD036 -->
 # Queue ベースのコンパクション実装ガイド
 
 最終更新: 2025-12-17
@@ -300,10 +301,15 @@ wrangler queues consumer dev-kc-compaction-dlq
 4. Cloudflare Dashboard → Queues で状態確認
 
 ### DLQ メッセージが溜まる
-1. エラーログを確認
-2. Workflow インスタンス ID で詳細確認
-3. Supabase 接続確認
-4. R2 アクセス確認
+1. `/api/compaction/dlq-status` でエラー詳細を確認
+   ```bash
+   curl https://fusou.pages.dev/api/compaction/dlq-status | jq
+   ```
+2. DLQ Handler が正しくデプロイされているか確認
+3. `processing_metrics` テーブルで `status='dlq_failure'` レコードを確認
+4. Workflow インスタンス ID で詳細確認
+5. Supabase 接続確認
+6. R2 アクセス確認
 
 ### Cron が実行されない
 1. `wrangler.toml` に `[[triggers.crons]]` が正しく記載されているか確認
@@ -313,13 +319,14 @@ wrangler queues consumer dev-kc-compaction-dlq
 ## 運用ポイント
 
 - **Queue 監視**: Cloudflare Dashboard で `dev-kc-compaction-queue` のメッセージ数を定期確認
-- **DLQ 監視**: DLQ メッセージ数が増える場合は Workflow エラーを調査
+- **DLQ 監視**: `/api/compaction/dlq-status` で失敗レコード確認（`dlq_failure` と `failure` を区別）
+- **メトリクス記録**: DLQ Handler が `processing_metrics` に自動記録（status: `dlq_failure`）
+- **フラグリセット**: DLQ Handler が stuck した `compaction_in_progress` フラグを自動リセット
 - **Cron スケジュール**: データセット数に応じて実行時刻を調整可能（`0 2 * * *` を編集）
-- **メトリクス**: 将来的に DLQ Handler から metrics table に記録可能
 
 ## 将来の拡張
 
-- [ ] DLQ メッセージを metrics table に記録
+- [x] DLQ メッセージを metrics table に記録 ✅ (実装済み)
 - [ ] Slack/PagerDuty アラート統合
 - [ ] Queue 処理統計ダッシュボード
 - [ ] 優先度付きキュー（priority フィールドを活用）
