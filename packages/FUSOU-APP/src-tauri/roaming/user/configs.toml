@@ -175,9 +175,13 @@ save_file_location = ""
     # Whether to save KanColle data to the cloud
     # this feature can be enabled with user authentication
     # check [app.auth]
+
+    # Whether to allow syncing KanColle data to your cloud storage
     allow_data_to_cloud = true
+
     # Whether to sync KanColle data to the shared database (Cloudflare R2)
     allow_data_to_shared_cloud = true
+
     # Whether to save KanColle data to the local filesystem
     allow_data_to_local = true
 

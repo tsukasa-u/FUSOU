@@ -48,3 +48,7 @@ packages/shared-ui/custom-elements.json
 packages/.env.keys
 
 *.py
+
+# Supabase temporary files
+supabase/.temp/
+supabase/.branches/
