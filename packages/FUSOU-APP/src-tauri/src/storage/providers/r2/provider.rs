@@ -34,9 +34,9 @@ impl R2StorageProvider {
     }
 
     /// Upload a single .bin file with tag-based identification using common Uploader
-    async fn upload_to_r2(&self, tag: &str, data: Vec<u8>) -> Result<(), StorageError> {
+    async fn upload_to_r2(&self, tag: &str, dataset_id: &str, table_name: &str, data: Vec<u8>, table_offsets: String) -> Result<(), StorageError> {
         let file_size = data.len();
-        tracing::debug!("Uploading to R2: tag={}, size={}", tag, file_size);
+        tracing::debug!("Uploading to R2: tag={}, dataset={}, table={}, size={}", tag, dataset_id, table_name, file_size);
 
         let configs = configs::get_user_configs_for_app();
         let db_config = configs.database;
@@ -59,7 +59,7 @@ impl R2StorageProvider {
         }
 
         // Build handshake request via common helper
-        let handshake_body = fusou_upload::Uploader::build_battle_data_handshake(tag);
+        let handshake_body = fusou_upload::Uploader::build_battle_data_handshake(tag, dataset_id, table_name, file_size as u64, &table_offsets);
 
         let mut headers = std::collections::HashMap::new();
         headers.insert("Content-Type".to_string(), "application/octet-stream".to_string());
@@ -121,6 +121,8 @@ impl StorageProvider for R2StorageProvider {
         mapinfo_no: i64,
     ) -> StorageFuture<'a, Result<(), StorageError>> {
         Box::pin(async move {
+               // Get user_env_id (per-installation unique identifier to use as dataset_id)
+               let user_env_id = crate::util::get_user_env_id().await;
             tracing::info!(
                 "R2StorageProvider::write_port_table CALLED: period={}, map={}-{}",
                 period_tag, maparea_id, mapinfo_no
@@ -170,10 +172,14 @@ impl StorageProvider for R2StorageProvider {
                 batch.metadata.len()
             );
 
+            // Serialize table offset metadata to JSON
+            let table_offsets = serde_json::to_string(&batch.metadata)
+                .map_err(|e| StorageError::Operation(format!("Failed to serialize metadata: {}", e)))?;
+
             // Upload concatenated Parquet data as single .bin file
             let tag = format!("{}-port-{}-{}", period_tag, maparea_id, mapinfo_no);
             let size = batch.data.len();
-            self.upload_to_r2(&tag, batch.data).await?;
+            self.upload_to_r2(&tag, &user_env_id, "port_table", batch.data, table_offsets).await?;
 
             tracing::info!(
                 "Uploaded Parquet batch to R2: period={}, map={}-{}, size={}",

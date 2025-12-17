@@ -28,6 +28,9 @@ CREATE TABLE IF NOT EXISTS battle_files (
   -- Audit trail
   uploaded_by TEXT NOT NULL,  -- Supabase user ID
   
+  -- Table offset metadata (JSON array for concatenated Parquet files)
+  table_offsets TEXT DEFAULT NULL,
+  
   -- Indexes for common queries
   created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
@@ -65,16 +68,27 @@ WHERE (dataset_id, "table", uploaded_at) IN (
   GROUP BY dataset_id, "table"
 );
 
--- View: Period window summary (for compaction decision)
+-- View: Period summary per dataset (no daily window)
 CREATE VIEW IF NOT EXISTS battle_files_period_summary AS
 SELECT 
   dataset_id,
   "table",
   period_tag,
-  DATE(uploaded_at) as period_date,
   COUNT(*) as fragment_count,
   SUM(size) as total_bytes,
   MIN(uploaded_at) as period_start,
   MAX(uploaded_at) as period_end
 FROM battle_files
-GROUP BY dataset_id, "table", period_tag, DATE(uploaded_at);
+GROUP BY dataset_id, "table", period_tag;
+
+-- View: Global period summary across all users (for global compaction)
+CREATE VIEW IF NOT EXISTS battle_files_global_period_summary AS
+SELECT 
+  "table",
+  period_tag,
+  COUNT(*) as fragment_count,
+  SUM(size) as total_bytes,
+  MIN(uploaded_at) as period_start,
+  MAX(uploaded_at) as period_end
+FROM battle_files
+GROUP BY "table", period_tag;

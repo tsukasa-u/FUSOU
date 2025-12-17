@@ -4,9 +4,10 @@ import '@dotenvx/dotenvx/config';
 import { WorkflowEntrypoint, WorkflowStep } from 'cloudflare:workers';
 import { createClient } from '@supabase/supabase-js';
 import { pickFragmentsForBucket } from './parquet-merge';
-import { streamMergeParquetFragments } from './parquet-stream-merge';
-import { groupFragmentsBySchema, processSchemaGroups, SchemaGroupOutput } from './parquet-schema';
+import { streamMergeParquetFragments, streamMergeExtractedFragments } from './parquet-stream-merge';
+import { groupFragmentsBySchema, groupExtractedFragmentsBySchema, processSchemaGroups, SchemaGroupOutput } from './parquet-schema';
 import { validateParquetFile, formatValidationReport, validateParquetBatch } from './parquet-validator';
+import { extractTableSafe, validateOffsetMetadata, parseTableOffsets } from './table-offset-extractor';
 
 interface Env {
   BATTLE_DATA_BUCKET: R2Bucket;
@@ -147,12 +148,13 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
         content_hash: string | null;
         table: string;
         period_tag: string;
+        table_offsets: string | null;
       }
 
       const step2Start = Date.now();
       const fragments = await step.do('list-fragments', { retries: SUPABASE_RETRY_CONFIG }, async (): Promise<D1Fragment[]> => {
         const stmt = this.env.BATTLE_INDEX_DB.prepare(
-          `SELECT key, size, etag, uploaded_at, content_hash, "table" as table, period_tag
+          `SELECT key, size, etag, uploaded_at, content_hash, "table" as table, period_tag, table_offsets
            FROM battle_files
            WHERE dataset_id = ? ${table ? 'AND "table" = ?' : ''} ${periodTag ? 'AND period_tag = ?' : ''}
            ORDER BY uploaded_at ASC`
@@ -194,18 +196,140 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
         throw new Error('No fragments found after deduplication');
       }
 
-      // ===== Step 3: Schema grouping + Stream merge =====
+      // ===== Step 3: Extract target table from concatenated files =====
+      const extractStart = Date.now();
+      const targetTable = table || filtered[0]?.table || 'unknown';
+      
+      console.log(`[Workflow] Extracting table "${targetTable}" from ${filtered.length} fragments`);
+      
+      const extractedFragments: Array<{ key: string; data: ArrayBuffer; size: number }> = [];
+      
+      for (const frag of filtered) {
+        try {
+          if (frag.table_offsets) {
+            // Parse offset metadata
+            const offsets = parseTableOffsets(frag.table_offsets);
+            if (!offsets) {
+              console.warn(`[Workflow] Failed to parse offset metadata in ${frag.key}, downloading full file`);
+              // Treat as legacy fragment
+              const fullFile = await this.env.BATTLE_DATA_BUCKET.get(frag.key);
+              if (fullFile) {
+                const data = await fullFile.arrayBuffer();
+                extractedFragments.push({
+                  key: frag.key,
+                  data,
+                  size: data.byteLength,
+                });
+              } else {
+                console.warn(`[Workflow] Failed to download ${frag.key}, skipping`);
+              }
+              continue;
+            }
+            
+            // Validate offset metadata
+            const validationError = validateOffsetMetadata(offsets, frag.size);
+            if (validationError) {
+              console.warn(`[Workflow] Invalid offset metadata in ${frag.key}: ${validationError}, downloading full file`);
+              // Treat as legacy fragment
+              const fullFile = await this.env.BATTLE_DATA_BUCKET.get(frag.key);
+              if (fullFile) {
+                const data = await fullFile.arrayBuffer();
+                extractedFragments.push({
+                  key: frag.key,
+                  data,
+                  size: data.byteLength,
+                });
+              } else {
+                console.warn(`[Workflow] Failed to download ${frag.key}, skipping`);
+              }
+              continue;
+            }
+            
+            // Modern fragment with offset metadata - extract target table only
+            const extracted = await extractTableSafe(
+              this.env.BATTLE_DATA_BUCKET,
+              frag.key,
+              targetTable,
+              frag.table_offsets
+            );
+            
+            if (extracted) {
+              // Verify extracted data is valid Parquet
+              const data = new Uint8Array(extracted.data);
+              if (data.length < 12) {
+                console.warn(`[Workflow] Extracted data too small from ${frag.key}, skipping`);
+                continue;
+              }
+              
+              const magic = new TextDecoder().decode(data.slice(-4));
+              if (magic !== 'PAR1') {
+                console.warn(`[Workflow] Extracted data invalid Parquet magic from ${frag.key}, skipping`);
+                continue;
+              }
+              
+              console.log(`[Workflow] Extracted ${targetTable} from ${frag.key}: ${extracted.size} bytes`);
+              extractedFragments.push({
+                key: frag.key,
+                data: extracted.data,
+                size: extracted.size,
+              });
+            } else {
+              console.warn(`[Workflow] Failed to extract ${targetTable} from ${frag.key}, skipping`);
+            }
+          } else {
+            // Legacy fragment without offset metadata - download full file
+            console.log(`[Workflow] Legacy fragment ${frag.key}: downloading full file`);
+            const fullFile = await this.env.BATTLE_DATA_BUCKET.get(frag.key);
+            
+            if (fullFile) {
+              const data = await fullFile.arrayBuffer();
+              extractedFragments.push({
+                key: frag.key,
+                data,
+                size: data.byteLength,
+              });
+            } else {
+              console.warn(`[Workflow] Failed to download ${frag.key}, skipping`);
+            }
+          }
+        } catch (err) {
+          console.error(`[Workflow] Error extracting from ${frag.key}:`, err);
+          // Continue processing other fragments
+        }
+      }
+      
+      if (extractedFragments.length === 0) {
+        throw new Error('No valid fragments after table extraction');
+      }
+      
+      const extractDuration = Date.now() - extractStart;
+      console.log(`[Workflow] Table extraction completed: ${extractedFragments.length} fragments in ${extractDuration}ms`);
+      
+      stepMetrics.push({
+        stepName: 'extract-tables',
+        startTime: extractStart,
+        endTime: extractStart + extractDuration,
+        duration: extractDuration,
+        status: 'success',
+        details: {
+          targetTable,
+          totalFragments: filtered.length,
+          extractedFragments: extractedFragments.length,
+          modernFragments: filtered.filter(f => f.table_offsets).length,
+          legacyFragments: filtered.filter(f => !f.table_offsets).length,
+        },
+      });
+
+      // ===== Step 4: Schema grouping + Stream merge =====
       const step3Start = Date.now();
       const THRESHOLD = 256 * 1024 * 1024;
       const period = periodTag || filtered[0]?.period_tag || 'unknown';
       const tbl = table || filtered[0]?.table || 'unknown';
       let outputs: Array<{ key: string; size: number; etag: string }> = [];
-      const totalOriginal = filtered.reduce((sum, r) => sum + (r.size || 0), 0);
+      const totalOriginal = extractedFragments.reduce((sum, r) => sum + r.size, 0);
 
-      const frags = filtered.map((r) => ({ key: r.key, size: r.size }));
-      
-      // スキーマグルーピング実行
-      const schemaGroups = await groupFragmentsBySchema(this.env.BATTLE_DATA_BUCKET, frags);
+      // 抽出済みデータでスキーマグルーピング実行
+      const schemaGroups = await groupExtractedFragmentsBySchema(extractedFragments);
       
       let globalIndex = 0;
       for (const [schemaHash, groupFrags] of schemaGroups.entries()) {
@@ -213,13 +337,29 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
         
         let cursor = 0;
         while (cursor < groupFrags.length) {
-          const { picked, nextIndex } = pickFragmentsForBucket(groupFrags, cursor, THRESHOLD);
+          const { picked, nextIndex } = pickFragmentsForBucket(
+            groupFrags.map((f) => ({ key: f.key, size: f.size })),
+            cursor,
+            THRESHOLD
+          );
           if (picked.length === 0) break;
+          
+          // 選択されたフラグメントのデータを取得
+          const pickedWithData = picked.map((pickedKey) => {
+            const frag = groupFrags.find((g) => g.key === pickedKey);
+            if (!frag) throw new Error(`Fragment not found: ${pickedKey}`);
+            return frag;
+          });
           
           const outKey = `battle_compacted/${period}/${datasetId}/${tbl}/${globalIndex}.parquet`;
           
-          // ストリーミング最適化マージ使用
-          const res = await streamMergeParquetFragments(this.env.BATTLE_DATA_BUCKET, outKey, picked, THRESHOLD);
+          // 抽出済みデータを使ったストリーミングマージ
+          const res = await streamMergeExtractedFragments(
+            this.env.BATTLE_DATA_BUCKET,
+            outKey,
+            pickedWithData,
+            THRESHOLD
+          );
           outputs.push({ key: outKey, size: res.newFileSize, etag: res.etag });
           
           globalIndex += 1;
@@ -240,10 +380,11 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
           outputs: outputs.length,
           totalOriginal,
           totalCompacted,
+          schemaGroups: schemaGroups.size,
         },
       });
 
-      // ===== Step 4: Update Metadata =====
+      // ===== Step 5: Update Metadata =====
       const step4Start = Date.now();
 
       await step.do('update-metadata', {

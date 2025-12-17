@@ -216,3 +216,130 @@ function generateMinimalFooter(rowGroups: RowGroupInfo[]): Uint8Array {
   w.writeStop();
   return w.bytes();
 }
+
+/**
+ * 抽出済みデータからストリーミングマージ（offset extraction後の処理用）
+ */
+export async function streamMergeExtractedFragments(
+  bucket: R2Bucket,
+  outKey: string,
+  sourceFragments: Array<{ key: string; data: ArrayBuffer; size: number }>,
+  thresholdBytes: number
+): Promise<{ newFileSize: number; etag: string; rowGroupCount: number }> {
+  // 1. 全フラグメントのメタデータ取得（ArrayBufferから直接）
+  const fragments = sourceFragments.map((frag) => {
+    const data = new Uint8Array(frag.data);
+    
+    // Footer読み取り
+    if (data.length < 12) throw new Error(`Invalid Parquet: ${frag.key}`);
+    
+    const tailBuf = data.slice(-8);
+    const magic = new TextDecoder().decode(tailBuf.slice(-4));
+    if (magic !== 'PAR1') throw new Error(`Invalid Parquet magic: ${frag.key}`);
+    
+    const footerSizeView = new DataView(tailBuf.buffer, tailBuf.byteOffset, 4);
+    const footerSize = footerSizeView.getUint32(0, true);
+    
+    const footerStart = data.length - 8 - footerSize;
+    const footerData = data.slice(footerStart, footerStart + footerSize);
+    
+    const rowGroups = parseParquetMetadata(footerData);
+    
+    return {
+      key: frag.key,
+      data,
+      footerSize,
+      footerStart,
+      rowGroups,
+      totalSize: data.length,
+    };
+  });
+
+  // 2. Row Groupを選別してバケツに詰める
+  const selectedRgs: Array<{ frag: typeof fragments[0]; rg: RowGroupInfo; rgIndex: number }> = [];
+  let accumulatedBytes = 0;
+
+  for (const frag of fragments) {
+    for (let i = 0; i < frag.rowGroups.length; i++) {
+      const rg = frag.rowGroups[i];
+      if (accumulatedBytes > 0 && accumulatedBytes + rg.totalByteSize > thresholdBytes) {
+        break;
+      }
+      selectedRgs.push({ frag, rg, rgIndex: i });
+      accumulatedBytes += rg.totalByteSize;
+    }
+    if (accumulatedBytes >= thresholdBytes) break;
+  }
+
+  if (selectedRgs.length === 0) {
+    throw new Error('No row groups selected for merge');
+  }
+
+  // 3. データチャンク準備
+  let writeOffset = 0;
+  const newRowGroups: RowGroupInfo[] = [];
+  const dataChunks: Uint8Array[] = [];
+
+  for (const { frag, rg } of selectedRgs) {
+    // Row Group範囲を直接抽出
+    const rgStart = rg.offset;
+    const rgEnd = rgStart + rg.totalByteSize;
+    const rgData = frag.data.slice(rgStart, rgEnd);
+    
+    dataChunks.push(rgData);
+    
+    // オフセット再計算
+    const newRg: RowGroupInfo = {
+      ...rg,
+      offset: writeOffset,
+      columnChunks: rg.columnChunks.map((cc) => ({
+        ...cc,
+        offset: cc.offset - rgStart + writeOffset,
+      })),
+    };
+    
+    newRowGroups.push(newRg);
+    writeOffset += rg.totalByteSize;
+  }
+
+  // 4. Footer生成
+  const footerData = generateMinimalFooter(newRowGroups);
+  const footerSizeBytes = new Uint8Array(4);
+  new DataView(footerSizeBytes.buffer).setUint32(0, footerData.length, true);
+  const magicBytes = new TextEncoder().encode('PAR1');
+
+  // 5. 最終結合してR2にアップロード
+  const totalSize = writeOffset + footerData.length + 4 + 4;
+  const finalData = new Uint8Array(totalSize);
+  
+  // Header magic
+  finalData.set(magicBytes, 0);
+  
+  // Data chunks
+  let offset = 4;
+  for (const chunk of dataChunks) {
+    finalData.set(chunk, offset);
+    offset += chunk.length;
+  }
+  
+  // Footer
+  finalData.set(footerData, offset);
+  offset += footerData.length;
+  
+  // Footer size + magic
+  finalData.set(footerSizeBytes, offset);
+  offset += 4;
+  finalData.set(magicBytes, offset);
+
+  // R2アップロード
+  const uploadResult = await bucket.put(outKey, finalData);
+  if (!uploadResult) {
+    throw new Error('Failed to upload compacted file to R2');
+  }
+
+  return {
+    newFileSize: totalSize,
+    etag: uploadResult.etag,
+    rowGroupCount: newRowGroups.length,
+  };
+}

@@ -87,14 +87,30 @@ pub struct Uploader;
 
 impl Uploader {
     /// Helper: build handshake body for battle-data upload
-    pub fn build_battle_data_handshake(path_tag: &str) -> serde_json::Value {
+    /// 
+    /// # Arguments
+    /// * `path_tag` - Format: "{period_tag}-port-{maparea_id}-{mapinfo_no}"
+    /// * `dataset_id` - Unique per-installation identifier (user_env_id UUID)
+    /// * `table` - Table name being uploaded (e.g., "port_table")
+    /// * `file_size` - Size of the binary data in bytes
+    /// * `table_offsets` - JSON string containing offset metadata for concatenated tables
+    pub fn build_battle_data_handshake(
+        path_tag: &str,
+        dataset_id: &str,
+        table: &str,
+        file_size: u64,
+        table_offsets: &str,
+    ) -> serde_json::Value {
         serde_json::json!({
             "path": format!("{}.bin", path_tag),
             "binary": true,
+            "dataset_id": dataset_id,
+            "table": table,
+            "kc_period_tag": path_tag.split('-').next().unwrap_or(path_tag),
+            "file_size": file_size.to_string(),
+            "table_offsets": table_offsets,
         })
-    }
-
-    /// Helper: build handshake body for fleet snapshot upload
+    }    /// Helper: build handshake body for fleet snapshot upload
     pub fn build_snapshot_handshake(tag: &str) -> serde_json::Value {
         serde_json::json!({
             "tag": tag,
