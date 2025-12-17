@@ -44,6 +44,7 @@ impl UploadRetryService {
     pub async fn trigger_retry(&self) {
         let mut running = self.is_running.lock().await;
         if *running {
+            tracing::debug!("Retry process already running, skipping duplicate trigger");
             return;
         }
         *running = true;
@@ -72,16 +73,32 @@ impl UploadRetryService {
                     return;
                 }
 
-                tracing::info!("Found {} pending uploads", pending_items.len());
+                tracing::info!("Found {} pending uploads to retry", pending_items.len());
 
                 let client = reqwest::Client::new();
+                
+                // Track processed hashes to avoid retrying exact duplicates in single batch
+                let mut processed_hashes = std::collections::HashSet::new();
 
                 for mut meta in pending_items {
+                    // Skip if we already retried this content hash in this batch
+                    if let Some(hash) = meta.headers.get("content-hash") {
+                        if processed_hashes.contains(hash) {
+                            tracing::info!("Skipping duplicate retry for content-hash {}, already processed in this batch", hash);
+                            continue;
+                        }
+                        processed_hashes.insert(hash.clone());
+                    }
+
                     if meta.attempt_count >= retry_config.get_max_attempts() {
-                        tracing::warn!("Max attempts reached for {}, deleting", meta.id);
+                        tracing::warn!("Max attempts ({}) reached for {}, deleting", 
+                            retry_config.get_max_attempts(), meta.id);
                         let _ = store.delete_pending(&meta.id);
                         continue;
                     }
+
+                    tracing::info!("Retrying upload {} (attempt {}/{})", 
+                        meta.id, meta.attempt_count + 1, retry_config.get_max_attempts());
 
                     if let Err(e) = Self::retry_one(&store, &mut meta, &client, &auth_manager, custom_handler.as_deref()).await {
                         tracing::error!("Failed to retry upload {}: {}", meta.id, e);
@@ -98,6 +115,9 @@ impl UploadRetryService {
                 let mut running = is_running.lock().await;
                 *running = false;
                 tracing::info!("Upload retry process finished");
+            }
+        });
+    }
             }
         });
     }

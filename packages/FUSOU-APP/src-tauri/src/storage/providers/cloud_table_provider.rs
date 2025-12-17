@@ -57,6 +57,12 @@ impl CloudTableStorageProvider {
             .await
             .map_err(|e| StorageError::Io(e))?;
 
+        // Create a hash of the data to detect duplicates
+        use sha2::{Digest, Sha256};
+        let mut hasher = Sha256::new();
+        hasher.update(&bytes);
+        let data_hash = hex::encode(hasher.finalize());
+
         let result = self
             .cloud
             .upload_file(temp_path.as_path(), remote_path)
@@ -65,24 +71,46 @@ impl CloudTableStorageProvider {
             .map_err(|e| {
                 let msg = format!("{e}");
                 // Detect auth errors (401/403 pattern in error message) and save for retry
+                // ONLY trigger retry if this is an auth/transient error that should be retried
                 if msg.contains("401") || msg.contains("403") || msg.contains("Unauthorized") || msg.contains("Forbidden") {
                     let pending_save = self.pending_store.clone();
                     let retry = self.retry_service.clone();
                     let provider = self.provider_name.to_string();
                     let path = remote_path.to_string();
                     let data = bytes.to_vec();
+                    let hash = data_hash.clone();
                     tokio::spawn(async move {
                         let mut headers = HashMap::new();
                         headers.insert("remote-path".to_string(), path.clone());
-                        let context = UploadContext::Custom(serde_json::json!({ "operation": "upload", "remote_path": path }));
+                        headers.insert("content-hash".to_string(), hash.clone());
+                        let context = UploadContext::Custom(serde_json::json!({ 
+                            "operation": "upload", 
+                            "remote_path": path,
+                            "content_hash": hash
+                        }));
                         let context_str = serde_json::to_string(&context).unwrap_or_default();
-                        if let Err(e) = pending_save.save_pending(&provider, &headers, &data, Some(context_str)) {
-                            tracing::warn!(error = %e, "failed to save pending upload");
+                        
+                        // Check if this exact file already has pending items
+                        let pending_items = pending_save.list_pending();
+                        let already_pending = pending_items.iter().any(|item| {
+                            item.headers.get("content-hash").map(|h| h == &hash).unwrap_or(false)
+                        });
+                        
+                        if already_pending {
+                            tracing::info!("upload already pending for file (hash={}), skipping duplicate entry", hash);
                         } else {
-                            tracing::info!("saved pending upload for retry");
-                            retry.trigger_retry().await;
+                            if let Err(e) = pending_save.save_pending(&provider, &headers, &data, Some(context_str)) {
+                                tracing::warn!(error = %e, "failed to save pending upload");
+                            } else {
+                                tracing::info!("saved pending upload for retry (hash={})", hash);
+                                // Only trigger retry after FIRST save, not on every error
+                                retry.trigger_retry().await;
+                            }
                         }
                     });
+                } else {
+                    // Non-retryable errors: log and fail fast
+                    tracing::error!("Non-retryable upload error for {}: {}", remote_path, msg);
                 }
                 StorageError::Operation(msg)
             });

@@ -5,12 +5,29 @@ use crate::{
 use tokio;
 use fusou_upload::{PendingStore, UploadRetryService};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use once_cell::sync::Lazy;
+
+// Prevent concurrent integration jobs from running
+static INTEGRATION_IN_PROGRESS: Lazy<Arc<AtomicBool>> = Lazy::new(|| Arc::new(AtomicBool::new(false)));
 
 pub fn integrate_port_table(
     pending_store: Arc<PendingStore>,
     retry_service: Arc<UploadRetryService>
 ) {
+    // Quick check to prevent redundant integration jobs
+    if INTEGRATION_IN_PROGRESS.compare_exchange(
+        false,
+        true,
+        Ordering::SeqCst,
+        Ordering::SeqCst,
+    ).is_err() {
+        tracing::info!("Integration already in progress, skipping this trigger");
+        return;
+    }
+
     let Some(storage_service) = StorageService::resolve(pending_store, retry_service) else {
+        INTEGRATION_IN_PROGRESS.store(false, Ordering::SeqCst);
         return;
     };
 
@@ -24,9 +41,19 @@ pub fn integrate_port_table(
             .database
             .google_drive
             .get_page_size() as i32;
-        storage_service
-            .integrate_port_table(&pariod_tag, page_size)
-            .await;
-        tracing::info!("Finished integrate port table tasks");
+        
+        match tokio::time::timeout(
+            tokio::time::Duration::from_secs(3600), // 1 hour timeout
+            storage_service.integrate_port_table(&pariod_tag, page_size)
+        ).await {
+            Ok(_) => {
+                tracing::info!("Finished integrate port table tasks");
+            }
+            Err(_) => {
+                tracing::error!("Integration timeout after 1 hour");
+            }
+        }
+        
+        INTEGRATION_IN_PROGRESS.store(false, Ordering::SeqCst);
     });
 }
