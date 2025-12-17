@@ -91,6 +91,23 @@ if [[ $BATTLE_FILES_EXISTS -gt 0 ]]; then
     npx wrangler d1 execute dev_kc_battle_index $REMOTE_FLAG --command "ALTER TABLE battle_files ADD COLUMN table_offsets TEXT DEFAULT NULL;" > /dev/null 2>&1 || true
     echo "✅ table_offsets column added"
   fi
+
+  # Check for period_tag column
+  PERIOD_EXISTS=$(npx wrangler d1 execute dev_kc_battle_index $REMOTE_FLAG --command "SELECT name FROM pragma_table_info('battle_files') WHERE name='period_tag';" 2>/dev/null | grep -c "period_tag" || true)
+  if [[ $PERIOD_EXISTS -gt 0 ]]; then
+    echo "✅ period_tag column exists"
+  else
+    echo "⚠️  period_tag column missing; adding it (NULLable for backward compatibility)"
+    npx wrangler d1 execute dev_kc_battle_index $REMOTE_FLAG --command "ALTER TABLE battle_files ADD COLUMN period_tag TEXT;" > /dev/null 2>&1 || true
+    echo "✅ period_tag column added"
+  fi
+
+  # Ensure indexes exist
+  echo "Ensuring indexes exist..."
+  npx wrangler d1 execute dev_kc_battle_index $REMOTE_FLAG --command "CREATE INDEX IF NOT EXISTS idx_battle_files_period ON battle_files(dataset_id, \"table\", uploaded_at);" > /dev/null 2>&1 || true
+  npx wrangler d1 execute dev_kc_battle_index $REMOTE_FLAG --command "CREATE INDEX IF NOT EXISTS idx_battle_files_period_tag ON battle_files(dataset_id, \"table\", period_tag, uploaded_at);" > /dev/null 2>&1 || true
+  npx wrangler d1 execute dev_kc_battle_index $REMOTE_FLAG --command "CREATE INDEX IF NOT EXISTS idx_battle_files_latest ON battle_files(dataset_id, \"table\", uploaded_at DESC);" > /dev/null 2>&1 || true
+  npx wrangler d1 execute dev_kc_battle_index $REMOTE_FLAG --command "CREATE INDEX IF NOT EXISTS idx_battle_files_uploaded_by ON battle_files(uploaded_by, uploaded_at DESC);" > /dev/null 2>&1 || true
 else
   echo "❌ battle_files table not found"
   exit 1

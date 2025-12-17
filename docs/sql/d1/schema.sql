@@ -19,6 +19,9 @@ CREATE TABLE IF NOT EXISTS battle_files (
   -- Dataset and table identifiers (for grouping/filtering)
   dataset_id TEXT NOT NULL,
   "table" TEXT NOT NULL,
+  
+  -- Period tag for grouping (e.g., 2025, 2024Q4, 2025-11-05)
+  period_tag TEXT NOT NULL,
 
   -- File metrics
   size INTEGER NOT NULL,      -- bytes
@@ -40,40 +43,64 @@ CREATE TABLE IF NOT EXISTS battle_files (
 );
 
 -- Indexes for common query patterns
-CREATE INDEX IF NOT EXISTS idx_battle_files_dataset_id ON battle_files(dataset_id);
-CREATE INDEX IF NOT EXISTS idx_battle_files_table ON battle_files("table");
-CREATE INDEX IF NOT EXISTS idx_battle_files_uploaded_at ON battle_files(uploaded_at DESC);
-CREATE INDEX IF NOT EXISTS idx_battle_files_uploaded_by ON battle_files(uploaded_by);
+-- Composite indexes for period-based queries
+CREATE INDEX IF NOT EXISTS idx_battle_files_period 
+  ON battle_files(dataset_id, "table", uploaded_at);
+CREATE INDEX IF NOT EXISTS idx_battle_files_period_tag 
+  ON battle_files(dataset_id, "table", period_tag, uploaded_at);
+
+-- Index for latest fragment lookup
+CREATE INDEX IF NOT EXISTS idx_battle_files_latest 
+  ON battle_files(dataset_id, "table", uploaded_at DESC);
+
+-- Index for uploader tracking (audit)
+CREATE INDEX IF NOT EXISTS idx_battle_files_uploaded_by 
+  ON battle_files(uploaded_by, uploaded_at DESC);
 
 -- ============================================================================
 -- Views for data analysis
 -- ============================================================================
 
--- Latest fragment for each table in each dataset
+-- Latest fragment per dataset/table
 CREATE VIEW IF NOT EXISTS battle_files_latest AS
-SELECT DISTINCT ON (dataset_id, "table")
-  id, key, dataset_id, "table", size, etag, uploaded_at,
-  content_hash, uploaded_by, created_at, table_offsets
-FROM battle_files
-ORDER BY dataset_id, "table", uploaded_at DESC;
-
--- Fragment summary by period
-CREATE VIEW IF NOT EXISTS battle_files_period_summary AS
-SELECT
+SELECT 
   dataset_id,
   "table",
-  COUNT(*) as fragment_count,
-  SUM(size) as total_size,
-  MIN(uploaded_at) as earliest_upload,
-  MAX(uploaded_at) as latest_upload
+  period_tag,
+  key,
+  size,
+  etag,
+  uploaded_at,
+  content_hash,
+  uploaded_by
 FROM battle_files
-GROUP BY dataset_id, "table";
+WHERE (dataset_id, "table", uploaded_at) IN (
+  SELECT dataset_id, "table", MAX(uploaded_at)
+  FROM battle_files
+  GROUP BY dataset_id, "table"
+);
 
--- Global summary
-CREATE VIEW IF NOT EXISTS battle_files_global_summary AS
-SELECT
-  COUNT(*) as total_fragments,
-  COUNT(DISTINCT dataset_id) as dataset_count,
-  COUNT(DISTINCT "table") as table_count,
-  SUM(size) as total_size_bytes
-FROM battle_files;
+-- Period summary per dataset
+CREATE VIEW IF NOT EXISTS battle_files_period_summary AS
+SELECT 
+  dataset_id,
+  "table",
+  period_tag,
+  COUNT(*) as fragment_count,
+  SUM(size) as total_bytes,
+  MIN(uploaded_at) as period_start,
+  MAX(uploaded_at) as period_end
+FROM battle_files
+GROUP BY dataset_id, "table", period_tag;
+
+-- Global period summary
+CREATE VIEW IF NOT EXISTS battle_files_global_period_summary AS
+SELECT 
+  "table",
+  period_tag,
+  COUNT(*) as fragment_count,
+  SUM(size) as total_bytes,
+  MIN(uploaded_at) as period_start,
+  MAX(uploaded_at) as period_end
+FROM battle_files
+GROUP BY "table", period_tag;
