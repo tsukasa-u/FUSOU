@@ -86,26 +86,24 @@ app.post('/upload', async (c) => {
       : null;
 
     if (!token) {
-      console.warn('[Upload API] Missing Authorization header');
+      console.warn('[compact-upload] Missing Authorization header');
       return c.json({ error: 'Unauthorized - Missing Authorization header' }, 401);
     }
 
     const supabaseUser = await validateJWT(token);
     
     if (!supabaseUser) {
-      console.warn('[Upload API] Invalid JWT token');
+      console.warn('[compact-upload] Invalid JWT token');
       return c.json({ error: 'Unauthorized - Invalid or expired token' }, 401);
     }
 
     const userId = supabaseUser.id;
-    console.info('[Upload API] Authenticated user', { userId });
-
-    // === Parse and validate form data ===
+      console.info('[compact-upload] Authenticated user', { userId });    // === Parse and validate form data ===
     let formData;
     try {
       formData = await c.req.formData();
     } catch (error) {
-      console.error('[Upload API] Invalid FormData', { error });
+      console.error('[compact-upload] Invalid FormData', { error });
       return c.json({ error: 'Invalid FormData format' }, 400);
     }
 
@@ -118,7 +116,7 @@ app.post('/upload', async (c) => {
       return c.json({ error: 'Missing required fields: datasetId, tableId, file' }, 400);
     }
 
-    console.info('[Upload API] Form data parsed', {
+      console.info('[compact-upload] Form data parsed', {
       datasetId,
       tableId,
       periodTag,
@@ -141,7 +139,7 @@ app.post('/upload', async (c) => {
     const bucketKey = `${datasetId}/${tableId}`;
     const buffer = await file.arrayBuffer();
 
-    console.info(`[Upload API] Uploading file to R2`, {
+      console.info(`[compact-upload] Uploading file to R2`, {
       datasetId,
       tableId,
       bucketKey,
@@ -161,11 +159,11 @@ app.post('/upload', async (c) => {
     });
 
     if (!r2Result) {
-      console.error(`[Upload API] R2 upload failed`);
+        console.error(`[compact-upload] R2 upload failed`);
       return c.json({ error: 'Failed to upload file to R2' }, 500);
     }
 
-    console.info(`[Upload API] R2 upload completed`, {
+      console.info(`[compact-upload] R2 upload completed`, {
       bucketKey,
       etag: r2Result.etag,
     });
@@ -202,12 +200,12 @@ app.post('/upload', async (c) => {
 
       const { data: created, error: insertError } = insertResult;
       if (insertError || !created || !created[0]) {
-        console.error(`[Upload API] Supabase insert failed`, { error: insertError, data: created });
+        console.error(`[compact-upload] Supabase insert failed`, { error: insertError, data: created });
         return c.json({ error: 'Failed to create dataset record', details: (insertError as any)?.message || 'No data returned' }, 500);
       }
       resolvedDatasetId = created[0].id;
       createdNew = true;
-      console.info(`[Upload API] Supabase record created`, { datasetId: resolvedDatasetId });
+      console.info(`[compact-upload] Supabase record created`, { datasetId: resolvedDatasetId });
     } else {
       // 3) 既存 re-use: 所有者チェック
       if (existingDs.user_id !== userId) {
@@ -229,7 +227,7 @@ app.post('/upload', async (c) => {
         if (result.error) throw result.error;
         return result;
       }).catch((error) => {
-        console.warn('[Upload API] Failed to update existing dataset flags', { error });
+        console.warn('[compact-upload] Failed to update existing dataset flags', { error });
         return null;
       });
       if (updateResult?.data?.id) {
@@ -253,7 +251,7 @@ app.post('/upload', async (c) => {
       if (result.error) throw result.error;
       return result;
     }).catch((error) => {
-      console.warn(`[Upload API] Failed to create metrics record`, { error });
+      console.warn(`[compact-upload] Failed to create metrics record`, { error });
       // Don't fail the upload if metrics creation fails (graceful degradation)
       return { data: null, error };
     });
@@ -309,7 +307,7 @@ app.post('/upload', async (c) => {
       fileSize: buffer.byteLength,
     });
   } catch (error) {
-    console.error('[Upload API] Unexpected error', { error });
+      console.error('[compact-upload] Unexpected error', { error });
     return c.json({ error: 'Internal server error' }, 500);
   }
 });
