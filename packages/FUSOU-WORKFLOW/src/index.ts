@@ -763,9 +763,19 @@ export default {
     // Route to appropriate handler based on queue name
     // MessageBatch.queue property contains the queue name
     const queueName = (batch as any).queue as string | undefined;
+    
+    console.info('[Queue Router] Received batch', {
+      batchSize: batch.messages.length,
+      queueName,
+      timestamp: new Date().toISOString(),
+    });
+    
     if (queueName && (queueName.includes('dlq') || queueName.includes('DLQ'))) {
+      console.info('[Queue Router] Routing to DLQ handler', { queueName });
       return queueDLQ.queue(batch, env);
     }
+    
+    console.info('[Queue Router] Routing to main queue handler', { queueName });
     return queue.queue(batch, env);
   }
 };
@@ -801,7 +811,8 @@ interface CompactionQueueMessage {
 
 export const queue = {
   async queue(batch: MessageBatch<any>, env: Env) {
-    console.info(`[Consumer] Processing ${batch.messages.length} messages`, {
+    console.info(`[Queue Consumer] ===== BATCH START =====`, {
+      batchSize: batch.messages.length,
       timestamp: new Date().toISOString(),
     });
 
@@ -809,13 +820,21 @@ export const queue = {
       try {
         const { datasetId, triggeredAt, priority = 'scheduled', metricId, table, periodTag } = message.body as CompactionQueueMessage;
 
-        console.info(`[Consumer] Processing message`, {
+        console.info(`[Queue Consumer] Processing message`, {
           datasetId,
           priority,
           triggeredAt,
           metricId,
+          table,
+          periodTag,
           messageId: message.id,
+          timestamp: new Date().toISOString(),
         });
+
+        // Validate required fields
+        if (!datasetId) {
+          throw new Error('Missing required field: datasetId');
+        }
 
         // Dispatch to Workflow
         const workflowInstance = await env.DATA_COMPACTION.create({
@@ -827,28 +846,38 @@ export const queue = {
           },
         });
 
-        console.info(`[Consumer] Workflow dispatched`, {
+        console.info(`[Queue Consumer] Workflow dispatched successfully`, {
           datasetId,
           workflowInstanceId: workflowInstance.id,
+          timestamp: new Date().toISOString(),
         });
 
         // Acknowledge message on success
         message.ack();
+        console.info(`[Queue Consumer] Message acknowledged`, { messageId: message.id });
 
       } catch (error) {
         const errorMsg = error instanceof Error ? error.message : String(error);
 
-        console.error(`[Consumer] Message processing failed`, {
+        console.error(`[Queue Consumer] Message processing failed`, {
           messageId: message.id,
           body: message.body,
           error: errorMsg,
+          stack: error instanceof Error ? error.stack : undefined,
+          timestamp: new Date().toISOString(),
         });
 
         // Retry logic (max 3 retries via wrangler config)
         // If max retries exceeded, message goes to DLQ automatically
         message.retry();
+        console.warn(`[Queue Consumer] Message queued for retry`, { messageId: message.id });
       }
     }
+
+    console.info(`[Queue Consumer] ===== BATCH END =====`, {
+      batchSize: batch.messages.length,
+      timestamp: new Date().toISOString(),
+    });
   },
 } satisfies ExportedHandler<Env>;
 
