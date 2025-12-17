@@ -37,7 +37,7 @@ interface StepMetrics {
   duration: number;
   status: 'success' | 'error';
   errorMessage?: string;
-  details?: Record<string, any>;
+  details?: Record<string, unknown>;
 }
 
 interface CompactionResult {
@@ -165,8 +165,8 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
         if (table) params.push(table);
         if (periodTag) params.push(periodTag);
         const res = await stmt.bind(...params).all();
-        // Ensure serializable plain objects
-        return (res?.results || []).map((row: any) => ({ ...row } as D1Fragment));
+        // Cast results to typed fragments; D1 returns plain objects
+        return (res?.results || []) as unknown as D1Fragment[];
       });
       const step2Duration = Date.now() - step2Start;
       stepMetrics.push({
@@ -759,10 +759,10 @@ export default {
 
     return new Response('Not Found', { status: 404, headers: corsHeaders });
   },
-  async queue(batch: MessageBatch<any>, env: Env, ctx: ExecutionContext): Promise<void> {
+  async queue(batch: MessageBatch<unknown>, env: Env, ctx: ExecutionContext): Promise<void> {
     // Route to appropriate handler based on queue name
     // MessageBatch.queue property contains the queue name
-    const queueName = (batch as any).queue as string | undefined;
+    const queueName = (batch as { queue?: string }).queue as string | undefined;
     
     console.info('[Queue Router] Received batch', {
       batchSize: batch.messages.length,
@@ -810,7 +810,7 @@ interface CompactionQueueMessage {
 }
 
 export const queue = {
-  async queue(batch: MessageBatch<any>, env: Env, ctx: ExecutionContext) {
+  async queue(batch: MessageBatch<unknown>, env: Env, ctx: ExecutionContext) {
     console.info(`[Queue Consumer] ===== BATCH START =====`, {
       batchSize: batch.messages.length,
       timestamp: new Date().toISOString(),
@@ -887,7 +887,7 @@ export const queue = {
  * Records failures to processing_metrics for monitoring and alerting
  */
 export const queueDLQ = {
-  async queue(batch: MessageBatch<any>, env: Env, ctx: ExecutionContext) {
+  async queue(batch: MessageBatch<unknown>, env: Env, ctx: ExecutionContext) {
     console.warn(`[DLQ Handler] Processing ${batch.messages.length} failed messages`, {
       timestamp: new Date().toISOString(),
     });
