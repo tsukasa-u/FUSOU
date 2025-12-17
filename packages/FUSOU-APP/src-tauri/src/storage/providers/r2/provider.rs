@@ -70,8 +70,11 @@ impl R2StorageProvider {
             data,
             headers,
             context: UploadContext::Custom(serde_json::json!({
-                "tag": tag,
                 "provider": "r2",
+                "tag": tag,
+                "dataset_id": dataset_id,
+                "table": table_name,
+                "table_offsets": table_offsets,
             })),
         };
 

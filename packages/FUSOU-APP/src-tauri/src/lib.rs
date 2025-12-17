@@ -192,10 +192,12 @@ pub async fn run() {
             let pending_dir = roaming_dir.join("pending_uploads");
             let pending_store = Arc::new(PendingStore::new(pending_dir));
             
+            // Register app-level custom retry handler so pending items are retried and deleted on success
+            let retry_handler = Arc::new(crate::storage::retry_handler::AppUploadRetryHandler::new(auth_manager_for_retry.clone()));
             let retry_service = Arc::new(UploadRetryService::new(
                 pending_store.clone(), 
                 auth_manager_for_retry,
-                None
+                Some(retry_handler)
             ));
             
             app.manage(pending_store.clone());
