@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { createClient } from "@supabase/supabase-js";
 import type { Bindings } from "../types";
 import { CORS_HEADERS } from "../constants";
 import { createEnvContext, getEnv } from "../utils";
@@ -121,6 +122,77 @@ app.post("/upload", async (c) => {
       } catch (err) {
         console.error("[battle_data] Failed to record fragment in D1:", err);
         return c.json({ error: "Failed to record fragment metadata" }, 500);
+      }
+
+      // Create processing_metrics record for monitoring
+      let metricId: string | undefined;
+      try {
+        const supabaseUrl = getEnv(env, "PUBLIC_SUPABASE_URL");
+        const supabaseKey = getEnv(env, "SUPABASE_SECRET_KEY");
+        
+        if (!supabaseUrl || !supabaseKey) {
+          console.warn("[battle_data] Supabase environment variables not configured");
+        } else {
+          const supabase = createClient(supabaseUrl, supabaseKey, {
+            auth: { persistSession: false }
+          });
+
+          const { data, error } = await supabase
+            .from('processing_metrics')
+            .insert({
+              user_id: user.id,
+              dataset_id: datasetId,
+              operation: 'upload',
+              status: 'queued',
+              triggered_at: uploadedAt,
+              metadata: {
+                table,
+                period_tag: periodTag,
+                content_hash: contentHash,
+              },
+            })
+            .select('id')
+            .single();
+
+          if (error) {
+            console.warn("[battle_data] Failed to create processing_metrics record:", error);
+          } else if (data) {
+            metricId = data.id;
+            console.info("[battle_data] Processing metrics record created", { metricId });
+          }
+        }
+      } catch (err) {
+        console.error("[battle_data] Failed to create processing_metrics:", err);
+        // Don't fail the upload - metrics are optional
+      }
+
+      // Enqueue to compaction queue for background processing
+      try {
+        if (env.runtime.COMPACTION_QUEUE) {
+          console.info("[battle_data] Enqueueing to COMPACTION_QUEUE", {
+            datasetId,
+            table,
+            periodTag,
+            metricId,
+            key,
+          });
+          
+          await env.runtime.COMPACTION_QUEUE.send({
+            datasetId,
+            table,
+            periodTag,
+            priority: "realtime",
+            triggeredAt: uploadedAt,
+            metricId,
+          });
+          
+          console.info("[battle_data] Successfully enqueued to COMPACTION_QUEUE");
+        } else {
+          console.warn("[battle_data] COMPACTION_QUEUE binding not available");
+        }
+      } catch (queueErr) {
+        console.error("[battle_data] Failed to enqueue to COMPACTION_QUEUE:", queueErr);
+        // Don't fail the upload if queue enqueue fails - data is already stored in R2
       }
 
       return {
