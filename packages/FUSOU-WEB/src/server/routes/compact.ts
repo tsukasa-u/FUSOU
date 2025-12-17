@@ -96,11 +96,19 @@ app.post('/upload', async (c) => {
 
     const datasetId = formData.get('datasetId') as string;
     const tableId = formData.get('tableId') as string;
+    const periodTag = (formData.get('periodTag') as string) || '0'; // Default to '0' if not provided
     const file = formData.get('file') as File;
 
     if (!datasetId || !tableId || !file) {
       return c.json({ error: 'Missing required fields: datasetId, tableId, file' }, 400);
     }
+
+    console.info('[Upload API] Form data parsed', {
+      datasetId,
+      tableId,
+      periodTag,
+      fileSize: file.size,
+    });
 
     // Basic validation: file size and extension
     if (file.size > MAX_UPLOAD_BYTES) {
@@ -122,6 +130,7 @@ app.post('/upload', async (c) => {
       datasetId,
       tableId,
       bucketKey,
+      periodTag,
       fileSize: buffer.byteLength,
       timestamp: new Date().toISOString(),
     });
@@ -130,6 +139,7 @@ app.post('/upload', async (c) => {
       customMetadata: {
         dataset_id: datasetId,
         table_id: tableId,
+        period_tag: periodTag,
         uploaded_at: new Date().toISOString(),
         original_filename: file.name,
       },
@@ -237,16 +247,44 @@ app.post('/upload', async (c) => {
     console.info(`[Upload API] Metrics record created`, { metricsId });
 
     // ===== Step 4: Queue に投入（リトライ付き） =====
-    await withRetry(async () =>
-      env.COMPACTION_QUEUE.send({
-        datasetId: resolvedDatasetId,
-        triggeredAt: new Date().toISOString(),
-        priority: 'realtime',
-        metricId: metricsId,
-      })
-    );
+    console.info(`[Upload API] Step 4: About to enqueue to COMPACTION_QUEUE`, {
+      datasetId: resolvedDatasetId,
+      metricsId,
+      periodTag,
+      queueExists: !!env.COMPACTION_QUEUE,
+      timestamp: new Date().toISOString(),
+    });
 
-    console.info(`[Upload API] Enqueued to compaction queue`, { datasetId: resolvedDatasetId, metricsId, createdNew });
+    let queueSuccess = false;
+    try {
+      await withRetry(async () => {
+        console.debug(`[Upload API] Calling env.COMPACTION_QUEUE.send()...`);
+        const sendResult = await env.COMPACTION_QUEUE.send({
+          datasetId: resolvedDatasetId,
+          triggeredAt: new Date().toISOString(),
+          priority: 'realtime',
+          metricId: metricsId,
+          periodTag: periodTag,
+          table: tableId,
+        });
+        console.debug(`[Upload API] Queue send result:`, { sendResult });
+        return sendResult;
+      });
+      queueSuccess = true;
+      console.info(`[Upload API] Successfully enqueued to compaction queue`, { datasetId: resolvedDatasetId, metricsId, periodTag, createdNew });
+    } catch (queueError) {
+      console.error(`[Upload API] FAILED to enqueue to compaction queue`, {
+        datasetId: resolvedDatasetId,
+        metricsId,
+        periodTag,
+        error: String(queueError),
+        errorMessage: (queueError as any)?.message,
+        errorStack: (queueError as any)?.stack,
+        timestamp: new Date().toISOString(),
+      });
+      // Don't fail the upload if queue enqueue fails - metrics are already recorded
+      console.warn(`[Upload API] Continuing despite queue failure - R2 upload and metadata are complete`);
+    }
 
     return c.json({
       success: true,
@@ -349,16 +387,35 @@ app.post('/sanitize-state', async (c) => {
     const metricsId = manualMetricsResult.data?.id;
 
     // Enqueue to compaction queue (with retry)
-    await withRetry(async () =>
-      env.COMPACTION_QUEUE.send({
-        datasetId,
-        triggeredAt: new Date().toISOString(),
-        priority: 'manual',
-        metricId: metricsId,
-      })
-    );
+    console.info(`[Sanitize State API] About to enqueue dataset`, {
+      datasetId,
+      metricsId,
+      queueExists: !!env.COMPACTION_QUEUE,
+    });
 
-    console.info(`[Sanitize State API] Enqueued dataset`, { datasetId, name: data.name });
+    try {
+      await withRetry(async () => {
+        console.debug(`[Sanitize State API] Calling env.COMPACTION_QUEUE.send()...`);
+        const sendResult = await env.COMPACTION_QUEUE.send({
+          datasetId,
+          triggeredAt: new Date().toISOString(),
+          priority: 'manual',
+          metricId: metricsId,
+        });
+        console.debug(`[Sanitize State API] Queue send result:`, { sendResult });
+        return sendResult;
+      });
+      console.info(`[Sanitize State API] Successfully enqueued dataset`, { datasetId, name: data.name });
+    } catch (queueError) {
+      console.error(`[Sanitize State API] FAILED to enqueue dataset`, {
+        datasetId,
+        metricsId,
+        error: String(queueError),
+        errorMessage: (queueError as any)?.message,
+      });
+      // Don't fail the request - metrics are already recorded
+      console.warn(`[Sanitize State API] Continuing despite queue failure`);
+    }
 
     return c.json({
       success: true,
@@ -451,6 +508,14 @@ app.post('/trigger-scheduled', async (c) => {
     );
 
     // ===== OPTIMIZATION 2: Batch queue operations with retry logic =====
+    console.info(`[Trigger Scheduled] Step: About to enqueue ${datasets.length} datasets`, {
+      datasetIds: datasets.map((d) => d.id),
+      queueExists: !!env.COMPACTION_QUEUE,
+      metricsCount: metricsResults?.length || 0,
+    });
+
+    const enqueueResults: Array<{ datasetId: string; status: 'success' | 'failed'; error?: string }> = [];
+
     const enqueuePromises = datasets.map((dataset) =>
       withRetry(() =>
         Promise.resolve(
@@ -462,9 +527,32 @@ app.post('/trigger-scheduled', async (c) => {
           })
         )
       )
+        .then(() => {
+          console.debug(`[Trigger Scheduled] Successfully enqueued dataset`, { datasetId: dataset.id });
+          enqueueResults.push({ datasetId: dataset.id, status: 'success' });
+        })
+        .catch((err) => {
+          console.error(`[Trigger Scheduled] Failed to enqueue dataset`, {
+            datasetId: dataset.id,
+            error: String(err),
+            errorMessage: (err as any)?.message,
+          });
+          enqueueResults.push({ datasetId: dataset.id, status: 'failed', error: String(err) });
+        })
     );
 
     await Promise.allSettled(enqueuePromises);
+
+    const successCount = enqueueResults.filter((r) => r.status === 'success').length;
+    const failureCount = enqueueResults.filter((r) => r.status === 'failed').length;
+
+    console.info(`[Trigger Scheduled] Enqueue batch completed`, {
+      total: datasets.length,
+      successful: successCount,
+      failed: failureCount,
+      failures: enqueueResults.filter((r) => r.status === 'failed'),
+      timestamp: new Date().toISOString(),
+    });
 
     const datasetIds = datasets.map((d) => d.id);
     console.info('[Trigger Scheduled] Enqueued datasets', {
