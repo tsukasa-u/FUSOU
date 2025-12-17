@@ -91,8 +91,25 @@ app.post("/upload", async (c) => {
         return c.json({ error: "This file type is not allowed for upload" }, 415);
       }
 
-      if (await bucket.head(key)) {
-        return c.json({ error: "Asset already exists" }, 409);
+      // Check if file exists and compare content_hash for updates
+      try {
+        const existingStmt = db.prepare(
+          "SELECT content_hash FROM files WHERE key = ? LIMIT 1"
+        );
+        const existingRes = await existingStmt.bind(key).first();
+        
+        if (existingRes) {
+          const existingHash = existingRes.content_hash as string | null;
+          if (existingHash === contentHash) {
+            // Content unchanged - return 409 Conflict
+            return c.json({ error: "Asset already exists and content has not changed" }, 409);
+          }
+          // Content updated - allow re-upload
+          console.info(`Asset ${key} content updated, proceeding with re-upload`);
+        }
+      } catch (err) {
+        // If query fails, continue with upload (table may not have content_hash column yet)
+        console.warn("[asset-sync] Could not check existing content_hash:", String(err));
       }
 
       return {
@@ -133,7 +150,7 @@ app.post("/upload", async (c) => {
       const uploadedAt = Date.now();
 
       const stmt = db.prepare(
-        "INSERT OR REPLACE INTO files (key, size, uploaded_at, content_type, uploader_id, finder_tag, metadata) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        "INSERT OR REPLACE INTO files (key, size, uploaded_at, content_type, uploader_id, finder_tag, metadata, content_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
       );
 
       await stmt
@@ -145,6 +162,7 @@ app.post("/upload", async (c) => {
           user.id,
           null,
           JSON.stringify({ synced_at: uploadedAt }),
+          tokenPayload.content_hash,
         )
         .run();
 
