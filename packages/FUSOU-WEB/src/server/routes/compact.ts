@@ -44,11 +44,26 @@ async function withRetry<T>(
 
 /**
  * Compaction service routes (Queue-based implementation)
- * Endpoints:
- *   POST /upload - Upload Parquet file to R2 and trigger compaction
- *   POST /sanitize-state - Manual trigger for dataset compaction
- *   POST /trigger-scheduled - Scheduled compaction (called by GitHub Actions)
- *   GET /dlq-status - Dead Letter Queue status
+ * 
+ * Three complementary endpoints for managing data compaction:
+ * 
+ * 1. POST /upload - Metrics-based compaction upload
+ *    Purpose: Accept multiple metric datasets and trigger compaction
+ *    Priority: 'realtime'
+ *    Flow: Upload → Metrics → Queue → Workflow
+ *    Use case: User uploads new metrics data that needs immediate compaction
+ * 
+ * 2. POST /sanitize-state - Manual dataset compaction trigger
+ *    Purpose: Manually trigger compaction for specific dataset
+ *    Priority: 'manual'
+ *    Flow: Validation → Metrics → Queue → Workflow
+ *    Use case: User manually requests compaction (e.g., cleanup, optimization)
+ * 
+ * 3. POST /trigger-scheduled - Batch scheduled compaction
+ *    Purpose: Periodic batch compaction for all datasets (called by GitHub Actions)
+ *    Priority: 'scheduled'
+ *    Flow: Find all datasets → Create metrics → Batch queue → Workflows
+ *    Use case: Nightly/periodic compaction of accumulated fragments
  */
 
 // OPTIONS (CORS)
@@ -301,7 +316,16 @@ app.post('/upload', async (c) => {
 
 /**
  * POST /sanitize-state
- * Manual trigger for dataset compaction
+ * Manual trigger for dataset-wide compaction and state cleaning
+ * 
+ * Purpose: Allow users to manually request compaction for a dataset
+ * Queue priority: 'manual'
+ * Use cases:
+ *   - User wants to clean up accumulated fragments immediately
+ *   - Data integrity check needed
+ *   - Manual optimization request
+ * 
+ * Security: Requires valid Supabase JWT token
  */
 app.post('/sanitize-state', async (c) => {
   try {
@@ -430,8 +454,21 @@ app.post('/sanitize-state', async (c) => {
 
 /**
  * POST /trigger-scheduled
- * Scheduled compaction trigger (called by GitHub Actions cron)
- * Optimized with batch metric insertion and retry logic
+ * Batch scheduled compaction trigger (called by GitHub Actions cron)
+ * 
+ * Purpose: Periodic batch compaction of all datasets needing compaction
+ * Queue priority: 'scheduled'
+ * Flow: Fetch datasets → Create metrics → Batch queue → Parallel workflows
+ * 
+ * Optimization:
+ *   - Batch metric insertion (up to 10 datasets at a time)
+ *   - Retry logic for transient failures
+ *   - Parallel queue operations for efficiency
+ * 
+ * Use case: Nightly/periodic compaction of accumulated fragments
+ * 
+ * Note: No authentication required (assumed to be called only from CI/CD)
+ *       In production, should add auth or IP whitelist
  */
 app.post('/trigger-scheduled', async (c) => {
   try {

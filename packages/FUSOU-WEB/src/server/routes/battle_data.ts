@@ -21,10 +21,27 @@ app.options(
 );
 
 /**
- * POST /upload - 2-stage upload with JWT authentication
- * - Generates variable key: battle_data/{dataset_id}/{table}/{YYYYMMDDHHmmss}-{uuid}.parquet
- * - Stores in R2 BATTLE_DATA_BUCKET
- * - Records fragment metadata in D1 BATTLE_INDEX_DB for indexing
+ * POST /upload - Real-time battle data upload with automatic compaction triggering
+ * 
+ * Purpose: Accept single Parquet file uploads from battle simulator and queue for automatic compaction
+ * 
+ * Process:
+ * 1. R2 storage: Save Parquet fragment with variable key (timestamp + UUID)
+ * 2. D1 indexing: Record metadata for period-based fragment discovery
+ * 3. Metrics: Create processing_metrics record for monitoring
+ * 4. Queue: Send to COMPACTION_QUEUE with priority 'realtime'
+ * 
+ * Flow:
+ * - User uploads battle data (Parquet format)
+ * - File immediately stored in R2 with unique key
+ * - Metadata recorded in D1 for workflow to discover
+ * - Processing record created in Supabase for monitoring
+ * - Message queued with high priority for fast compaction
+ * - Returns 200 OK immediately (non-blocking)
+ * - Workflow processes asynchronously (typically within 30-60 seconds)
+ * 
+ * Note: Metrics creation and queue sending failures don't fail the upload
+ * (graceful degradation - data is already safely stored in R2)
  */
 app.post("/upload", async (c) => {
   const env = createEnvContext(c);
