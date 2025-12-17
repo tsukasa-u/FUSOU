@@ -23,8 +23,9 @@ impl RetryHandler for AppUploadRetryHandler {
             if let Some(provider) = context.get("provider").and_then(|v| v.as_str()) {
                 match provider {
                     "r2" => {
-                        // Expect fields: tag, dataset_id, table, table_offsets
-                        let tag = context.get("tag").and_then(|v| v.as_str()).ok_or("missing tag")?;
+                        // Expect fields: tag (path_tag), period_tag, dataset_id, table, table_offsets
+                        let path_tag = context.get("tag").and_then(|v| v.as_str()).ok_or("missing tag")?;
+                        let period_tag = context.get("period_tag").and_then(|v| v.as_str()).unwrap_or("0");
                         let dataset_id = context.get("dataset_id").and_then(|v| v.as_str()).ok_or("missing dataset_id")?;
                         let table = context.get("table").and_then(|v| v.as_str()).unwrap_or("port_table");
                         let table_offsets = context.get("table_offsets").and_then(|v| v.as_str()).ok_or("missing table_offsets")?;
@@ -37,7 +38,8 @@ impl RetryHandler for AppUploadRetryHandler {
 
                         let file_size = data.len() as u64;
                         let handshake_body = Uploader::build_battle_data_handshake(
-                            tag,
+                            period_tag,
+                            path_tag,
                             dataset_id,
                             table,
                             file_size,

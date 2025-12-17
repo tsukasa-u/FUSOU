@@ -34,9 +34,17 @@ impl R2StorageProvider {
     }
 
     /// Upload a single .bin file with tag-based identification using common Uploader
-    async fn upload_to_r2(&self, tag: &str, dataset_id: &str, table_name: &str, data: Vec<u8>, table_offsets: String) -> Result<(), StorageError> {
+    async fn upload_to_r2(
+        &self,
+        period_tag: &str,
+        path_tag: &str,
+        dataset_id: &str,
+        table_name: &str,
+        data: Vec<u8>,
+        table_offsets: String,
+    ) -> Result<(), StorageError> {
         let file_size = data.len();
-        tracing::debug!("Uploading to R2: tag={}, dataset={}, table={}, size={}", tag, dataset_id, table_name, file_size);
+        tracing::debug!("Uploading to R2: period={}, path_tag={}, dataset={}, table={}, size={}", period_tag, path_tag, dataset_id, table_name, file_size);
 
         let configs = configs::get_user_configs_for_app();
         let db_config = configs.database;
@@ -59,7 +67,14 @@ impl R2StorageProvider {
         }
 
         // Build handshake request via common helper
-        let handshake_body = fusou_upload::Uploader::build_battle_data_handshake(tag, dataset_id, table_name, file_size as u64, &table_offsets);
+        let handshake_body = fusou_upload::Uploader::build_battle_data_handshake(
+            period_tag,
+            path_tag,
+            dataset_id,
+            table_name,
+            file_size as u64,
+            &table_offsets,
+        );
 
         let mut headers = std::collections::HashMap::new();
         headers.insert("Content-Type".to_string(), "application/octet-stream".to_string());
@@ -71,7 +86,8 @@ impl R2StorageProvider {
             headers,
             context: UploadContext::Custom(serde_json::json!({
                 "provider": "r2",
-                "tag": tag,
+                "tag": path_tag,
+                "period_tag": period_tag,
                 "dataset_id": dataset_id,
                 "table": table_name,
                 "table_offsets": table_offsets,
@@ -82,15 +98,15 @@ impl R2StorageProvider {
         
         match Uploader::upload(&client, &self.auth_manager, request, Some(&self.pending_store)).await {
             Ok(UploadResult::Success) => {
-                tracing::info!("Successfully uploaded to R2: tag={}, size={}", tag, file_size);
+                tracing::info!("Successfully uploaded to R2: tag={}, size={}", path_tag, file_size);
                 Ok(())
             }
             Ok(UploadResult::Skipped) => {
-                tracing::info!("R2 upload skipped (already exists): tag={}", tag);
+                tracing::info!("R2 upload skipped (already exists): tag={}", path_tag);
                 Ok(())
             }
             Err(e) => {
-                tracing::error!("R2 upload failed: tag={}, error={}", tag, e);
+                tracing::error!("R2 upload failed: tag={}, error={}", path_tag, e);
                 // Trigger retry processing for pending items saved by Uploader
                 let retry = self._retry_service.clone();
                 tokio::spawn(async move {
@@ -187,7 +203,7 @@ impl StorageProvider for R2StorageProvider {
             // Upload concatenated Parquet data as single .bin file
             let tag = format!("{}-port-{}-{}", period_tag, maparea_id, mapinfo_no);
             let size = batch.data.len();
-            self.upload_to_r2(&tag, &user_env_id, "port_table", batch.data, table_offsets).await?;
+            self.upload_to_r2(period_tag, &tag, &user_env_id, "port_table", batch.data, table_offsets).await?;
 
             tracing::info!(
                 "Uploaded Parquet batch to R2: period={}, map={}-{}, size={}",

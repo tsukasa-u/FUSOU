@@ -95,6 +95,7 @@ impl Uploader {
     /// * `file_size` - Size of the binary data in bytes
     /// * `table_offsets` - JSON string containing offset metadata for concatenated tables
     pub fn build_battle_data_handshake(
+        period_tag: &str,
         path_tag: &str,
         dataset_id: &str,
         table: &str,
@@ -106,7 +107,7 @@ impl Uploader {
             "binary": true,
             "dataset_id": dataset_id,
             "table": table,
-            "kc_period_tag": path_tag.split('-').next().unwrap_or(path_tag),
+            "kc_period_tag": period_tag,
             "file_size": file_size.to_string(),
             "table_offsets": table_offsets,
         })
