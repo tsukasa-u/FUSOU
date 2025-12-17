@@ -52,3 +52,5 @@ packages/.env.keys
 # Supabase temporary files
 supabase/.temp/
 supabase/.branches/
+
+packages/FUSOU-WORKFLOW/worker-configuration.d.ts

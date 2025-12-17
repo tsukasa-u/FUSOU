@@ -20,11 +20,11 @@ pub struct R2StorageProvider {
 
 impl R2StorageProvider {
     pub fn new(pending_store: Arc<PendingStore>, retry_service: Arc<UploadRetryService>) -> Self {
-        tracing::info!("R2StorageProvider::new() called - initializing provider");
+        tracing::debug!("R2StorageProvider::new() called");
         
         let auth_manager = retry_service.auth_manager();
 
-        tracing::info!("R2StorageProvider initialized successfully");
+        tracing::debug!("R2StorageProvider initialized");
         
         Self {
             pending_store,

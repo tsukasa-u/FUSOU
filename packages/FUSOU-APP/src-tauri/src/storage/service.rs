@@ -5,6 +5,9 @@ use tokio::sync::{Mutex, OnceCell};
 use crate::storage::providers::{CloudTableStorageProvider, LocalFileSystemProvider, R2StorageProvider};
 use fusou_upload::{PendingStore, UploadRetryService};
 
+// Global singleton for StorageService to avoid repeated initialization
+static STORAGE_SERVICE_INSTANCE: OnceCell<Option<StorageService>> = OnceCell::const_new();
+
 pub type StorageFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
 #[derive(Debug)]
@@ -73,7 +76,22 @@ pub struct StorageService {
 }
 
 impl StorageService {
-    pub fn resolve(
+    /// Get or initialize the singleton StorageService instance.
+    /// This ensures initialization happens only once, avoiding redundant logs and provider creation.
+    pub async fn get_instance(
+        pending_store: Arc<PendingStore>,
+        retry_service: Arc<UploadRetryService>
+    ) -> Option<&'static StorageService> {
+        STORAGE_SERVICE_INSTANCE
+            .get_or_init(|| async {
+                Self::initialize(pending_store, retry_service)
+            })
+            .await
+            .as_ref()
+    }
+
+    /// Internal initialization - called only once by get_instance
+    fn initialize(
         pending_store: Arc<PendingStore>,
         retry_service: Arc<UploadRetryService>
     ) -> Option<StorageService> {
@@ -81,17 +99,17 @@ impl StorageService {
         let database_config = app_configs.database;
         let mut providers: Vec<Arc<dyn StorageProvider>> = Vec::new();
 
-        tracing::info!("Resolving storage providers: cloud={}, local={}, shared_cloud={}", 
+        tracing::info!("Initializing storage service: cloud={}, local={}, shared_cloud={}", 
             database_config.get_allow_data_to_cloud(),
             database_config.get_allow_data_to_local(),
             database_config.get_allow_data_to_shared_cloud()
         );
 
         if database_config.get_allow_data_to_cloud() {
-            tracing::info!("Attempting to initialize Google Drive storage provider");
+            tracing::debug!("Attempting to initialize Google Drive storage provider");
             match CloudTableStorageProvider::try_new_google(pending_store.clone(), retry_service.clone()) {
                 Ok(provider) => {
-                    tracing::info!("Google Drive storage provider initialized successfully");
+                    tracing::info!("Google Drive storage provider initialized");
                     providers.push(Arc::new(provider));
                 },
                 Err(err) => tracing::error!("Failed to initialize cloud storage provider (google): {err}"),
@@ -99,10 +117,10 @@ impl StorageService {
         }
 
         if database_config.get_allow_data_to_local() {
-            tracing::info!("Attempting to initialize local filesystem storage provider");
+            tracing::debug!("Attempting to initialize local filesystem storage provider");
             match LocalFileSystemProvider::try_new(database_config.local.get_output_directory()) {
                 Ok(provider) => {
-                    tracing::info!("Local filesystem storage provider initialized successfully");
+                    tracing::info!("Local filesystem storage provider initialized");
                     providers.push(Arc::new(provider));
                 },
                 Err(err) => {
@@ -113,8 +131,9 @@ impl StorageService {
 
         // Add R2 storage provider when shared cloud sync is enabled
         if database_config.get_allow_data_to_shared_cloud() {
-            tracing::info!("Initializing R2 storage provider");
+            tracing::debug!("Attempting to initialize R2 storage provider");
             providers.push(Arc::new(R2StorageProvider::new(pending_store, retry_service)));
+            tracing::info!("R2 storage provider initialized");
         }
 
         if providers.is_empty() {
@@ -126,6 +145,15 @@ impl StorageService {
                 providers: Arc::new(providers),
             })
         }
+    }
+    
+    /// Legacy compatibility method - deprecated, use get_instance instead
+    #[deprecated(note = "Use get_instance() for singleton pattern to avoid repeated initialization")]
+    pub fn resolve(
+        pending_store: Arc<PendingStore>,
+        retry_service: Arc<UploadRetryService>
+    ) -> Option<StorageService> {
+        Self::initialize(pending_store, retry_service)
     }
 
     pub async fn write_get_data_table(&self, period_tag: &str, table: GetDataTableEncode) {

@@ -27,12 +27,13 @@ pub fn submit_get_data_table() {
         tracing::warn!("Storage dependencies not initialized for submit_get_data_table");
         return;
     };
-    let Some(storage_service) = StorageService::resolve(pending_store, retry_service) else {
-        return;
-    };
 
-    let get_data_table = GetDataTable::new();
     tokio::task::spawn(async move {
+        let Some(storage_service) = StorageService::get_instance(pending_store, retry_service).await else {
+            return;
+        };
+
+        let get_data_table = GetDataTable::new();
         match get_data_table.encode() {
             Ok(get_data_table_encode) => {
                 let pariod_tag = supabase::get_period_tag().await;
@@ -53,9 +54,6 @@ pub fn submit_port_table() {
         tracing::warn!("Storage dependencies not initialized for submit_port_table");
         return;
     };
-    let Some(storage_service) = StorageService::resolve(pending_store, retry_service) else {
-        return;
-    };
 
     if !Cells::reset_flag() {
         let cells = Cells::load();
@@ -70,6 +68,10 @@ pub fn submit_port_table() {
             cells.event_map.is_some()
         );
         tokio::task::spawn(async move {
+            let Some(storage_service) = StorageService::get_instance(pending_store, retry_service).await else {
+                return;
+            };
+
             let _guard = acquire_port_table_guard().await;
 
             let user_env = get_user_env_id().await;

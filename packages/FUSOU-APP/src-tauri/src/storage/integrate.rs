@@ -26,12 +26,12 @@ pub fn integrate_port_table(
         return;
     }
 
-    let Some(storage_service) = StorageService::resolve(pending_store, retry_service) else {
-        INTEGRATION_IN_PROGRESS.store(false, Ordering::SeqCst);
-        return;
-    };
-
     tokio::task::spawn(async move {
+        let Some(storage_service) = StorageService::get_instance(pending_store, retry_service).await else {
+            INTEGRATION_IN_PROGRESS.store(false, Ordering::SeqCst);
+            return;
+        };
+
         let _guard = acquire_port_table_guard().await;
 
         tracing::info!("Start to integrate port table in cloud storage");

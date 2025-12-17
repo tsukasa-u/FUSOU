@@ -759,7 +759,7 @@ export default {
 
     return new Response('Not Found', { status: 404, headers: corsHeaders });
   },
-  async queue(batch: MessageBatch<any>, env: Env): Promise<void> {
+  async queue(batch: MessageBatch<any>, env: Env, ctx: ExecutionContext): Promise<void> {
     // Route to appropriate handler based on queue name
     // MessageBatch.queue property contains the queue name
     const queueName = (batch as any).queue as string | undefined;
@@ -772,11 +772,11 @@ export default {
     
     if (queueName && (queueName.includes('dlq') || queueName.includes('DLQ'))) {
       console.info('[Queue Router] Routing to DLQ handler', { queueName });
-      return queueDLQ.queue(batch, env);
+      return queueDLQ.queue(batch, env, ctx);
     }
     
     console.info('[Queue Router] Routing to main queue handler', { queueName });
-    return queue.queue(batch, env);
+    return queue.queue(batch, env, ctx);
   }
 };
 
@@ -810,7 +810,7 @@ interface CompactionQueueMessage {
 }
 
 export const queue = {
-  async queue(batch: MessageBatch<any>, env: Env) {
+  async queue(batch: MessageBatch<any>, env: Env, ctx: ExecutionContext) {
     console.info(`[Queue Consumer] ===== BATCH START =====`, {
       batchSize: batch.messages.length,
       timestamp: new Date().toISOString(),
@@ -887,7 +887,7 @@ export const queue = {
  * Records failures to processing_metrics for monitoring and alerting
  */
 export const queueDLQ = {
-  async queue(batch: MessageBatch<any>, env: Env) {
+  async queue(batch: MessageBatch<any>, env: Env, ctx: ExecutionContext) {
     console.warn(`[DLQ Handler] Processing ${batch.messages.length} failed messages`, {
       timestamp: new Date().toISOString(),
     });
