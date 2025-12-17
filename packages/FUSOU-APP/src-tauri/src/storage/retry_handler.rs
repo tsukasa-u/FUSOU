@@ -1,8 +1,8 @@
-use std::path::PathBuf;
 use std::sync::Arc;
 
 use fusou_auth::{AuthManager, FileStorage};
-use fusou_upload::{RetryHandler, Uploader, UploadRequest, UploadContext};
+use fusou_upload::{Uploader, UploadRequest, UploadContext};
+use fusou_upload::retry_service::RetryHandler;
 
 use crate::storage::cloud_provider_trait::CloudProviderFactory;
 

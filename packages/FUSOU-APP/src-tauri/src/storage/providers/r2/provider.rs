@@ -7,7 +7,7 @@ use crate::storage::common::get_all_port_tables;
 
 use fusou_upload::{PendingStore, UploadRetryService, Uploader, UploadRequest, UploadResult, UploadContext};
 use fusou_auth::{AuthManager, FileStorage};
-use std::path::PathBuf;
+// use std::path::PathBuf;
 
 const R2_STORAGE_PROVIDER_NAME: &str = "r2";
 

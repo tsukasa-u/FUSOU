@@ -118,9 +118,6 @@ impl UploadRetryService {
             }
         });
     }
-            }
-        });
-    }
 
     async fn retry_one(
         store: &PendingStore, 
