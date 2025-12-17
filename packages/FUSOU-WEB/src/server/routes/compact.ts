@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { createClient } from '@supabase/supabase-js';
 import type { Bindings } from '../types';
 import { CORS_HEADERS, MAX_UPLOAD_BYTES } from '../constants';
-import { validateJWT } from '../utils';
+import { validateJWT, createEnvContext, getEnv } from '../utils';
 import { runCompactionJob } from '../compaction/job';
 
 const app = new Hono<{ Bindings: Bindings }>();
@@ -77,7 +77,14 @@ app.options('*', (_c) => new Response(null, { status: 204, headers: CORS_HEADERS
  */
 app.post('/upload', async (c) => {
   try {
-    const env = c.env;
+    const env = createEnvContext(c);
+    const r2Bucket = env.runtime.ASSETS_BUCKET;
+    const supabaseUrl = getEnv(env, 'PUBLIC_SUPABASE_URL');
+    const supabaseKey = getEnv(env, 'SUPABASE_SECRET_KEY');
+
+    if (!r2Bucket || !supabaseUrl || !supabaseKey) {
+      return c.json({ error: 'Server misconfiguration: missing R2 bucket or Supabase config' }, 500);
+    }
     
     // === Security: Validate JWT token first ===
     const authHeader = c.req.header('Authorization');
@@ -98,7 +105,9 @@ app.post('/upload', async (c) => {
     }
 
     const userId = supabaseUser.id;
-      console.info('[compact-upload] Authenticated user', { userId });    // === Parse and validate form data ===
+    console.info('[compact-upload] Authenticated user', { userId });
+
+    // === Parse and validate form data ===
     let formData;
     try {
       formData = await c.req.formData();
@@ -109,11 +118,17 @@ app.post('/upload', async (c) => {
 
     const datasetId = formData.get('datasetId') as string;
     const tableId = formData.get('tableId') as string;
-    const periodTag = (formData.get('periodTag') as string) || '0'; // Default to '0' if not provided
+    const periodTag = (formData.get('periodTag') as string) || '0';
     const file = formData.get('file') as File;
 
     if (!datasetId || !tableId || !file) {
       return c.json({ error: 'Missing required fields: datasetId, tableId, file' }, 400);
+    }
+
+    // Validate periodTag format (alphanumeric + hyphens)
+    if (!/^[\w\-]+$/.test(periodTag)) {
+      console.warn('[compact-upload] Invalid period_tag format', { periodTag });
+      return c.json({ error: 'periodTag must contain only alphanumeric characters and hyphens' }, 400);
     }
 
       console.info('[compact-upload] Form data parsed', {
@@ -131,7 +146,7 @@ app.post('/upload', async (c) => {
       return c.json({ error: 'Only .parquet files are accepted' }, 415);
     }
 
-    const supabase = createClient(env.PUBLIC_SUPABASE_URL, env.SUPABASE_SECRET_KEY, {
+    const supabase = createClient(supabaseUrl, supabaseKey, {
       auth: { persistSession: false },
     });
 
@@ -148,7 +163,7 @@ app.post('/upload', async (c) => {
       timestamp: new Date().toISOString(),
     });
 
-    const r2Result = await env.BATTLE_DATA_BUCKET.put(bucketKey, buffer, {
+    const r2Result = await r2Bucket.put(bucketKey, buffer, {
       customMetadata: {
         dataset_id: datasetId,
         table_id: tableId,
@@ -264,15 +279,19 @@ app.post('/upload', async (c) => {
       datasetId: resolvedDatasetId,
       metricsId,
       periodTag,
-      queueExists: !!env.COMPACTION_QUEUE,
+      queueExists: !!env.runtime.COMPACTION_QUEUE,
       timestamp: new Date().toISOString(),
     });
 
     let queueSuccess = false;
     try {
+      if (!env.runtime.COMPACTION_QUEUE) {
+        console.warn('[compact-upload] COMPACTION_QUEUE binding not available');
+        return c.json({ error: 'Server misconfiguration: COMPACTION_QUEUE binding missing' }, 500);
+      }
       await withRetry(async () => {
-        console.info(`[compact-upload] Calling env.COMPACTION_QUEUE.send()...`);
-        const sendResult = await env.COMPACTION_QUEUE.send({
+        console.info(`[compact-upload] Calling env.runtime.COMPACTION_QUEUE.send()...`);
+        const sendResult = await env.runtime.COMPACTION_QUEUE.send({
           datasetId: resolvedDatasetId,
           triggeredAt: new Date().toISOString(),
           priority: 'realtime',
@@ -327,7 +346,13 @@ app.post('/upload', async (c) => {
  */
 app.post('/sanitize-state', async (c) => {
   try {
-    const env = c.env;
+    const env = createEnvContext(c);
+    const supabaseUrl = getEnv(env, 'PUBLIC_SUPABASE_URL');
+    const supabaseKey = getEnv(env, 'SUPABASE_SECRET_KEY');
+
+    if (!supabaseUrl || !supabaseKey) {
+      return c.json({ error: 'Server misconfiguration: Supabase config missing' }, 500);
+    }
 
     // Require JWT authentication
     const authHeader = c.req.header('Authorization');
@@ -358,7 +383,7 @@ app.post('/sanitize-state', async (c) => {
     }
 
     // Verify ownership of dataset
-    const supabase = createClient(env.PUBLIC_SUPABASE_URL, env.SUPABASE_SECRET_KEY, {
+    const supabase = createClient(supabaseUrl, supabaseKey, {
       auth: { persistSession: false },
     });
     const { data: ds, error: dsError } = await supabase
@@ -412,13 +437,17 @@ app.post('/sanitize-state', async (c) => {
     console.info(`[compact-sanitize] About to enqueue dataset`, {
       datasetId,
       metricsId,
-      queueExists: !!env.COMPACTION_QUEUE,
+      queueExists: !!env.runtime.COMPACTION_QUEUE,
     });
 
     try {
+      if (!env.runtime.COMPACTION_QUEUE) {
+        console.warn('[compact-sanitize] COMPACTION_QUEUE binding not available');
+        return c.json({ error: 'Server misconfiguration: COMPACTION_QUEUE binding missing' }, 500);
+      }
       await withRetry(async () => {
-        console.info(`[compact-sanitize] Calling env.COMPACTION_QUEUE.send()...`);
-        const sendResult = await env.COMPACTION_QUEUE.send({
+        console.info(`[compact-sanitize] Calling env.runtime.COMPACTION_QUEUE.send()...`);
+        const sendResult = await env.runtime.COMPACTION_QUEUE.send({
           datasetId,
           triggeredAt: new Date().toISOString(),
           priority: 'manual',
@@ -470,8 +499,15 @@ app.post('/sanitize-state', async (c) => {
  */
 app.post('/trigger-scheduled', async (c) => {
   try {
-    const env = c.env;
-    const supabase = createClient(env.PUBLIC_SUPABASE_URL, env.SUPABASE_SECRET_KEY, {
+    const env = createEnvContext(c);
+    const supabaseUrl = getEnv(env, 'PUBLIC_SUPABASE_URL');
+    const supabaseKey = getEnv(env, 'SUPABASE_SECRET_KEY');
+
+    if (!supabaseUrl || !supabaseKey) {
+      return c.json({ error: 'Server misconfiguration: Supabase config missing' }, 500);
+    }
+
+    const supabase = createClient(supabaseUrl, supabaseKey, {
       auth: { persistSession: false },
     });
 
@@ -545,16 +581,21 @@ app.post('/trigger-scheduled', async (c) => {
     // ===== OPTIMIZATION 2: Batch queue operations with retry logic =====
     console.info(`[compact-scheduled] Step: About to enqueue ${datasets.length} datasets`, {
       datasetIds: datasets.map((d) => d.id),
-      queueExists: !!env.COMPACTION_QUEUE,
+      queueExists: !!env.runtime.COMPACTION_QUEUE,
       metricsCount: metricsResults?.length || 0,
     });
+
+    if (!env.runtime.COMPACTION_QUEUE) {
+      console.warn('[compact-scheduled] COMPACTION_QUEUE binding not available');
+      return c.json({ error: 'Server misconfiguration: COMPACTION_QUEUE binding missing' }, 500);
+    }
 
     const enqueueResults: Array<{ datasetId: string; status: 'success' | 'failed'; error?: string }> = [];
 
     const enqueuePromises = datasets.map((dataset) =>
       withRetry(() =>
         Promise.resolve(
-          env.COMPACTION_QUEUE.send({
+          env.runtime.COMPACTION_QUEUE.send({
             datasetId: dataset.id,
             triggeredAt: new Date().toISOString(),
             priority: 'scheduled',
@@ -644,7 +685,15 @@ app.post('/run-now', async (c) => {
     }
 
     // Optional ownership check: ensure dataset belongs to caller
-    const supabase = createClient(c.env.PUBLIC_SUPABASE_URL, c.env.SUPABASE_SECRET_KEY, {
+    const env = createEnvContext(c);
+    const supabaseUrl = getEnv(env, 'PUBLIC_SUPABASE_URL');
+    const supabaseKey = getEnv(env, 'SUPABASE_SECRET_KEY');
+
+    if (!supabaseUrl || !supabaseKey) {
+      return c.json({ error: 'Server misconfiguration: Supabase config missing' }, 500);
+    }
+
+    const supabase = createClient(supabaseUrl, supabaseKey, {
       auth: { persistSession: false },
     });
     const { data: ds, error: dsError } = await supabase
@@ -675,8 +724,15 @@ app.post('/run-now', async (c) => {
  */
 app.get('/dlq-status', async (c) => {
   try {
-    const env = c.env;
-    const supabase = createClient(env.PUBLIC_SUPABASE_URL, env.SUPABASE_SECRET_KEY, {
+    const env = createEnvContext(c);
+    const supabaseUrl = getEnv(env, 'PUBLIC_SUPABASE_URL');
+    const supabaseKey = getEnv(env, 'SUPABASE_SECRET_KEY');
+
+    if (!supabaseUrl || !supabaseKey) {
+      return c.json({ error: 'Server misconfiguration: Supabase config missing' }, 500);
+    }
+
+    const supabase = createClient(supabaseUrl, supabaseKey, {
       auth: { persistSession: false },
     });
 
