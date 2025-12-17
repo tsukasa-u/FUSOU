@@ -91,6 +91,11 @@ impl R2StorageProvider {
             }
             Err(e) => {
                 tracing::error!("R2 upload failed: tag={}, error={}", tag, e);
+                // Trigger retry processing for pending items saved by Uploader
+                let retry = self._retry_service.clone();
+                tokio::spawn(async move {
+                    retry.trigger_retry().await;
+                });
                 Err(StorageError::Operation(format!("Upload failed: {}", e)))
             }
         }
