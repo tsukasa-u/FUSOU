@@ -8,6 +8,40 @@ import { handleTwoStageUpload } from "../utils/upload";
 const app = new Hono<{ Bindings: Bindings }>();
 
 /**
+ * Retry utility for handling rate limits and transient errors
+ * Implements exponential backoff to respect Supabase Free tier limits
+ */
+async function withRetry<T>(
+  fn: () => Promise<T>,
+  maxRetries = 3,
+  baseDelay = 1000
+): Promise<T> {
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      const isLastAttempt = attempt === maxRetries - 1;
+      const isRateLimitError =
+        (error as any)?.message?.includes('429') ||
+        (error as any)?.message?.includes('Too Many Requests') ||
+        (error as any)?.status === 429;
+
+      if (isLastAttempt || !isRateLimitError) {
+        throw error;
+      }
+
+      // Exponential backoff: 1s, 2s, 4s
+      const delay = baseDelay * Math.pow(2, attempt);
+      console.warn(`[battle-data] Retry: Attempt ${attempt + 1} failed, retrying in ${delay}ms`, {
+        error: (error as any)?.message,
+      });
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
+  }
+  throw new Error('Max retries exceeded');
+}
+
+/**
  * Battle data server-side upload routes
  * - Uploads to Cloudflare R2 with VARIABLE keys (timestamp + UUID) to prevent overwrites
  * - Indexes fragments in D1 (BATTLE_INDEX_DB) for period-based compaction and querying
@@ -76,6 +110,10 @@ app.post("/upload", async (c) => {
       if (!periodTag) {
         return c.json({ error: "kc_period_tag is required" }, 400);
       }
+      // Validate periodTag format to match other endpoints
+      if (!/^[\w\-]+$/.test(periodTag)) {
+        return c.json({ error: "kc_period_tag must contain only alphanumeric characters and hyphens" }, 400);
+      }
       if (declaredSize <= 0) {
         return c.json({ error: "file_size must be > 0" }, 400);
       }
@@ -141,75 +179,106 @@ app.post("/upload", async (c) => {
         return c.json({ error: "Failed to record fragment metadata" }, 500);
       }
 
-      // Create processing_metrics record for monitoring
+      // ===== Step 3: Create processing_metrics record for monitoring =====
       let metricId: string | undefined;
       try {
         const supabaseUrl = getEnv(env, "PUBLIC_SUPABASE_URL");
         const supabaseKey = getEnv(env, "SUPABASE_SECRET_KEY");
         
+        console.info("[battle-data] Step 3: About to create processing_metrics record", {
+          datasetId,
+          table,
+          periodTag,
+          timestamp: new Date().toISOString(),
+        });
+
         if (!supabaseUrl || !supabaseKey) {
-          console.warn("[battle_data] Supabase environment variables not configured");
+          console.warn("[battle-data] Supabase environment variables not configured");
         } else {
           const supabase = createClient(supabaseUrl, supabaseKey, {
             auth: { persistSession: false }
           });
 
-          const { data, error } = await supabase
-            .from('processing_metrics')
-            .insert({
-              user_id: user.id,
-              dataset_id: datasetId,
-              operation: 'upload',
-              status: 'queued',
-              triggered_at: uploadedAt,
-              metadata: {
-                table,
-                period_tag: periodTag,
-                content_hash: contentHash,
-              },
-            })
-            .select('id')
-            .single();
+          const metricsResult = await withRetry(async () => {
+            const result = await supabase
+              .from('processing_metrics')
+              .insert({
+                user_id: user.id,
+                dataset_id: datasetId,
+                operation: 'upload',
+                status: 'queued',
+                triggered_at: uploadedAt,
+                metadata: {
+                  table,
+                  period_tag: periodTag,
+                  content_hash: contentHash,
+                },
+              })
+              .select('id')
+              .single();
+            
+            if (result.error) throw result.error;
+            return result;
+          }).catch((error) => {
+            console.warn("[battle-data] Failed to create metrics record", { error });
+            // Don't fail the upload if metrics creation fails (graceful degradation)
+            return { data: null, error };
+          });
 
-          if (error) {
-            console.warn("[battle_data] Failed to create processing_metrics record:", error);
-          } else if (data) {
-            metricId = data.id;
-            console.info("[battle_data] Processing metrics record created", { metricId });
+          if (metricsResult.data?.id) {
+            metricId = metricsResult.data.id;
+            console.info("[battle-data] Processing metrics record created", { metricId });
           }
         }
       } catch (err) {
-        console.error("[battle_data] Failed to create processing_metrics:", err);
+        console.error("[battle-data] Unexpected error creating processing_metrics:", err);
         // Don't fail the upload - metrics are optional
       }
 
-      // Enqueue to compaction queue for background processing
+      // ===== Step 4: Queue to compaction queue for background processing =====
+      console.info("[battle-data] Step 4: About to enqueue to COMPACTION_QUEUE", {
+        datasetId,
+        table,
+        periodTag,
+        metricId,
+        queueExists: !!env.runtime.COMPACTION_QUEUE,
+        timestamp: new Date().toISOString(),
+      });
+
       try {
-        if (env.runtime.COMPACTION_QUEUE) {
-          console.info("[battle_data] Enqueueing to COMPACTION_QUEUE", {
-            datasetId,
-            table,
-            periodTag,
-            metricId,
-            key,
-          });
-          
-          await env.runtime.COMPACTION_QUEUE.send({
-            datasetId,
-            table,
-            periodTag,
-            priority: "realtime",
-            triggeredAt: uploadedAt,
-            metricId,
-          });
-          
-          console.info("[battle_data] Successfully enqueued to COMPACTION_QUEUE");
+        if (!env.runtime.COMPACTION_QUEUE) {
+          console.warn("[battle-data] COMPACTION_QUEUE binding not available");
         } else {
-          console.warn("[battle_data] COMPACTION_QUEUE binding not available");
+          await withRetry(async () => {
+            console.info("[battle-data] Calling env.runtime.COMPACTION_QUEUE.send()...");
+            const sendResult = await env.runtime.COMPACTION_QUEUE.send({
+              datasetId,
+              table,
+              periodTag,
+              priority: "realtime",
+              triggeredAt: uploadedAt,
+              metricId,
+            });
+            console.info("[battle-data] Queue send result:", { sendResult });
+            return sendResult;
+          });
+          console.info("[battle-data] Successfully enqueued to COMPACTION_QUEUE", {
+            datasetId,
+            table,
+            periodTag,
+            metricId,
+          });
         }
       } catch (queueErr) {
-        console.error("[battle_data] Failed to enqueue to COMPACTION_QUEUE:", queueErr);
+        console.error("[battle-data] FAILED to enqueue to COMPACTION_QUEUE", {
+          datasetId,
+          metricId,
+          error: String(queueErr),
+          errorMessage: (queueErr as any)?.message,
+          timestamp: new Date().toISOString(),
+        });
         // Don't fail the upload if queue enqueue fails - data is already stored in R2
+        console.warn("[battle-data] Continuing despite queue failure - R2 upload and metadata are complete");
       }
 
       return {
