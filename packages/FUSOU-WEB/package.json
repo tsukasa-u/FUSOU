@@ -4,8 +4,8 @@
   "version": "0.0.1",
   "scripts": {
     "dev": "dotenvx run -fk ../.env.keys -f .env --verbose --overload -- astro dev",
-    "build": "astro check && dotenvx run -fk ../.env.keys -f .env --verbose --overload -- astro build",
-    "build.no.keys": "astro check && dotenvx run -f .env --verbose --overload -- astro build",
+    "build": "astro check && dotenvx run -fk ../.env.keys -f .env --verbose --overload -- astro build && cp -r functions dist/functions",
+    "build.no.keys": "astro check && dotenvx run -f .env --verbose --overload -- astro build && cp -r functions dist/functions",
     "preview": "dotenvx run -fk ../.env.keys -f .env --verbose --overload -- astro preview",
     "astro": "astro",
     "gen:licenses": "node ../../scripts/generate-licenses.js"
