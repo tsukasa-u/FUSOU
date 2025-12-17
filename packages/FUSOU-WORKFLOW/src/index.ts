@@ -1,7 +1,7 @@
 // Load .env variables automatically (dotenvx for Cloudflare Workers)
 import '@dotenvx/dotenvx/config';
 
-import { WorkflowEntrypoint, WorkflowStep } from 'cloudflare:workers';
+import { WorkflowEntrypoint, WorkflowStep, WorkflowEvent } from 'cloudflare:workers';
 import { createClient } from '@supabase/supabase-js';
 import { pickFragmentsForBucket } from './parquet-merge';
 import { streamMergeParquetFragments, streamMergeExtractedFragments } from './parquet-stream-merge';
@@ -62,8 +62,8 @@ const SUPABASE_RETRY_CONFIG = {
 };
 
 export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionParams> {
-  async run(event: any, step: WorkflowStep) {
-    const { datasetId, metricId, table, periodTag } = event.params;
+  async run(event: Readonly<WorkflowEvent<CompactionParams>>, step: WorkflowStep) {
+    const { datasetId, metricId, table, periodTag } = event.payload;
     const workflowStartTime = Date.now();
     const stepMetrics: StepMetrics[] = [];
 
