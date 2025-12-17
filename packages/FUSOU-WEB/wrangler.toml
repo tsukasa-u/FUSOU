@@ -57,14 +57,6 @@ binding = "COMPACTION_QUEUE"
 queue = "dev-kc-compaction-dlq"
 binding = "COMPACTION_DLQ"
 
-# Consumer binding (process messages from the queue)
-[[queues.consumers]]
-queue = "dev-kc-compaction-queue"
-max_batch_size = 10
-max_batch_timeout = 30
-max_retries = 3
-dead_letter_queue = "dev-kc-compaction-dlq"
-
 # ===== Scheduled cron triggers =====
 # Note: Cloudflare Pages does not support scheduled functions via wrangler.toml
 # Alternative approaches:

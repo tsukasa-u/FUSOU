@@ -1,0 +1,29 @@
+# Cloudflare Worker for FUSOU Queue Consumer
+name = "fusou-queue-consumer"
+main = "src/index.ts"
+compatibility_date = "2024-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+# ===== Service Bindings =====
+# Connect to FUSOU-WEB Pages for compaction job
+[[services]]
+binding = "COMPACTION_WORKFLOW"
+service = "fusou-workflow"
+environment = "production"
+
+# ===== Queue Bindings =====
+# Consumer binding (process messages from the queue)
+[[queues.consumers]]
+queue = "dev-kc-compaction-queue"
+max_batch_size = 10
+max_batch_timeout = 30
+max_retries = 3
+dead_letter_queue = "dev-kc-compaction-dlq"
+
+# Producer binding (send to DLQ if needed)
+[[queues.producers]]
+queue = "dev-kc-compaction-dlq"
+binding = "COMPACTION_DLQ"
+
+# Environment-specific configuration
+# For production, update queue names and bindings
