@@ -258,7 +258,7 @@ app.post('/upload', async (c) => {
     let queueSuccess = false;
     try {
       await withRetry(async () => {
-        console.debug(`[Upload API] Calling env.COMPACTION_QUEUE.send()...`);
+        console.info(`[Upload API] Calling env.COMPACTION_QUEUE.send()...`);
         const sendResult = await env.COMPACTION_QUEUE.send({
           datasetId: resolvedDatasetId,
           triggeredAt: new Date().toISOString(),
@@ -267,7 +267,7 @@ app.post('/upload', async (c) => {
           periodTag: periodTag,
           table: tableId,
         });
-        console.debug(`[Upload API] Queue send result:`, { sendResult });
+        console.info(`[Upload API] Queue send result:`, { sendResult });
         return sendResult;
       });
       queueSuccess = true;
@@ -395,14 +395,14 @@ app.post('/sanitize-state', async (c) => {
 
     try {
       await withRetry(async () => {
-        console.debug(`[Sanitize State API] Calling env.COMPACTION_QUEUE.send()...`);
+        console.info(`[Sanitize State API] Calling env.COMPACTION_QUEUE.send()...`);
         const sendResult = await env.COMPACTION_QUEUE.send({
           datasetId,
           triggeredAt: new Date().toISOString(),
           priority: 'manual',
           metricId: metricsId,
         });
-        console.debug(`[Sanitize State API] Queue send result:`, { sendResult });
+        console.info(`[Sanitize State API] Queue send result:`, { sendResult });
         return sendResult;
       });
       console.info(`[Sanitize State API] Successfully enqueued dataset`, { datasetId, name: data.name });
@@ -528,7 +528,7 @@ app.post('/trigger-scheduled', async (c) => {
         )
       )
         .then(() => {
-          console.debug(`[Trigger Scheduled] Successfully enqueued dataset`, { datasetId: dataset.id });
+          console.info(`[Trigger Scheduled] Successfully enqueued dataset`, { datasetId: dataset.id });
           enqueueResults.push({ datasetId: dataset.id, status: 'success' });
         })
         .catch((err) => {
