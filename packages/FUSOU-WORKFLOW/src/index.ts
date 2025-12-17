@@ -19,9 +19,12 @@ interface Env {
   SUPABASE_SECRET_KEY: string;
 }
 
+/**
+ * Parameters for DataCompactionWorkflow
+ * Fragments are located via D1 database lookup using datasetId, not bucketKey.
+ */
 interface CompactionParams {
   datasetId: string;
-  bucketKey: string;
   table?: string;
   periodTag?: string;
   metricId?: string;
@@ -60,12 +63,11 @@ const SUPABASE_RETRY_CONFIG = {
 
 export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionParams> {
   async run(event: any, step: WorkflowStep) {
-    const { datasetId, bucketKey, metricId, table, periodTag } = event.params;
+    const { datasetId, metricId, table, periodTag } = event.params;
     const workflowStartTime = Date.now();
     const stepMetrics: StepMetrics[] = [];
 
     console.info(`[Workflow] Started for ${datasetId}`, {
-      bucketKey,
       metricId,
       timestamp: new Date().toISOString(),
     });
@@ -567,16 +569,15 @@ export default {
       return new Response(null, { status: 204, headers: corsHeaders });
     }
 
-    // POST /run - trigger new workflow instance (datasetId required; bucketKey optional→defaults to datasetId)
+    // POST /run - trigger new workflow instance (datasetId required)
     if (path === '/run' && request.method === 'POST') {
       try {
         const body = await request.json<Partial<CompactionParams>>();
 
         const datasetId = body.datasetId;
-        const bucketKey = body.bucketKey || datasetId;
-        if (!datasetId || !bucketKey) {
+        if (!datasetId) {
           return new Response(
-            JSON.stringify({ error: 'Missing datasetId or bucketKey' }),
+            JSON.stringify({ error: 'Missing datasetId' }),
             { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
           );
         }
@@ -584,7 +585,6 @@ export default {
         const instance = await env.DATA_COMPACTION.create({
           params: {
             datasetId,
-            bucketKey,
             metricId: body.metricId,
             table: body.table,
             periodTag: body.periodTag,
@@ -615,9 +615,9 @@ export default {
       try {
         const body = await request.json<CompactionParams>();
 
-        if (!body.datasetId || !body.bucketKey) {
+        if (!body.datasetId) {
           return new Response(
-            JSON.stringify({ error: 'Missing datasetId or bucketKey' }),
+            JSON.stringify({ error: 'Missing datasetId' }),
             { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
           );
         }
@@ -773,13 +773,29 @@ export default {
 /**
  * Queue Consumer Handler
  * Processes messages from COMPACTION_QUEUE and dispatches to Workflow
+ * 
+ * Message format and field requirements:
+ * - All endpoints (battle-data/upload, compact/upload, etc.) produce messages with this structure
+ * - Fragments are retrieved from D1 database using datasetId, not from R2 directly
+ * - metricId enables end-to-end monitoring and processing status tracking
  */
 interface CompactionQueueMessage {
+  /** Required. Dataset ID to process. Used to locate fragments in D1. */
   datasetId: string;
+  
+  /** Required. ISO8601 timestamp when this message was triggered. */
   triggeredAt: string;
+  
+  /** Optional. Processing priority level. Defaults to 'scheduled'. */
   priority?: 'scheduled' | 'realtime' | 'manual';
+  
+  /** Optional. Processing metrics record ID. Enables workflow monitoring and status updates. */
   metricId?: string;
+  
+  /** Optional. Specific table to process. Only set by upload endpoints. */
   table?: string;
+  
+  /** Optional. Time period tag. Only set by upload endpoints. */
   periodTag?: string;
 }
 
@@ -805,7 +821,6 @@ export const queue = {
         const workflowInstance = await env.DATA_COMPACTION.create({
           params: {
             datasetId,
-            bucketKey: datasetId,
             metricId,
             table,
             periodTag,
