@@ -15,8 +15,6 @@ interface Env {
   DATA_COMPACTION: Workflow;
   COMPACTION_QUEUE: Queue;
   COMPACTION_DLQ: Queue;
-  PUBLIC_SUPABASE_URL: string;
-  SUPABASE_SECRET_KEY: string;
 }
 
 /**
@@ -62,6 +60,18 @@ const SUPABASE_RETRY_CONFIG = {
 };
 
 export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionParams> {
+  /**
+   * Get environment variable from process.env (loaded by dotenvx)
+   * dotenvx automatically decrypts .env file and populates process.env
+   */
+  private getEnvVar(name: string): string {
+    const value = (globalThis as unknown as { process?: { env?: Record<string, string> } }).process?.env?.[name];
+    if (!value) {
+      throw new Error(`Environment variable ${name} is not defined`);
+    }
+    return value;
+  }
+
   async run(event: Readonly<WorkflowEvent<CompactionParams>>, step: WorkflowStep) {
     const { datasetId, metricId, table, periodTag } = event.payload;
     const workflowStartTime = Date.now();
@@ -80,8 +90,8 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
         retries: SUPABASE_RETRY_CONFIG
       }, async () => {
         const supabase = createClient(
-          this.env.PUBLIC_SUPABASE_URL,
-          this.env.SUPABASE_SECRET_KEY
+          this.getEnvVar('PUBLIC_SUPABASE_URL'),
+          this.getEnvVar('SUPABASE_SECRET_KEY')
         );
 
         const { data, error } = await supabase
@@ -121,8 +131,8 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
         retries: SUPABASE_RETRY_CONFIG
       }, async () => {
         const supabase = createClient(
-          this.env.PUBLIC_SUPABASE_URL,
-          this.env.SUPABASE_SECRET_KEY
+          this.getEnvVar('PUBLIC_SUPABASE_URL'),
+          this.getEnvVar('SUPABASE_SECRET_KEY')
         );
 
         const { error } = await supabase
@@ -397,8 +407,8 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
         }
       }, async () => {
         const supabase = createClient(
-          this.env.PUBLIC_SUPABASE_URL,
-          this.env.SUPABASE_SECRET_KEY
+          this.getEnvVar('PUBLIC_SUPABASE_URL'),
+          this.getEnvVar('SUPABASE_SECRET_KEY')
         );
 
         const now = new Date().toISOString();
@@ -454,8 +464,8 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
       // === Metrics更新（Workflow完了） ===
       if (metricId) {
         const supabase = createClient(
-          this.env.PUBLIC_SUPABASE_URL,
-          this.env.SUPABASE_SECRET_KEY
+          this.getEnvVar('PUBLIC_SUPABASE_URL'),
+          this.getEnvVar('SUPABASE_SECRET_KEY')
         );
 
         const workflowCompletedAt = new Date().toISOString();
@@ -508,8 +518,8 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
       // === フラグリセット ===
       try {
         const supabase = createClient(
-          this.env.PUBLIC_SUPABASE_URL,
-          this.env.SUPABASE_SECRET_KEY
+          this.getEnvVar('PUBLIC_SUPABASE_URL'),
+          this.getEnvVar('SUPABASE_SECRET_KEY')
         );
 
         await supabase
@@ -523,8 +533,8 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
       // === Metricsレコード更新（エラー） ===
       if (metricId) {
         const supabase = createClient(
-          this.env.PUBLIC_SUPABASE_URL,
-          this.env.SUPABASE_SECRET_KEY
+          this.getEnvVar('PUBLIC_SUPABASE_URL'),
+          this.getEnvVar('SUPABASE_SECRET_KEY')
         );
 
         const workflowFailedAt = new Date().toISOString();
@@ -892,10 +902,10 @@ export const queueDLQ = {
       timestamp: new Date().toISOString(),
     });
 
-    const supabase = createClient(
-      env.PUBLIC_SUPABASE_URL,
-      env.SUPABASE_SECRET_KEY
-    );
+    const publicUrl = (globalThis as unknown as { process?: { env?: Record<string, string> } }).process?.env?.PUBLIC_SUPABASE_URL || '';
+    const secretKey = (globalThis as unknown as { process?: { env?: Record<string, string> } }).process?.env?.SUPABASE_SECRET_KEY || '';
+
+    const supabase = createClient(publicUrl, secretKey);
 
     for (const message of batch.messages) {
       try {
