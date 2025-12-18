@@ -150,7 +150,7 @@ app.post("/upload", async (c) => {
       const uploadedAt = Date.now();
 
       const stmt = db.prepare(
-        "INSERT OR REPLACE INTO files (key, size, uploaded_at, content_type, uploader_id, finder_tag, metadata, content_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT OR REPLACE INTO files (key, size, uploaded_at, content_type, uploader_id, finder_tag, metadata, content_hash, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
       );
 
       await stmt
@@ -163,6 +163,7 @@ app.post("/upload", async (c) => {
           null,
           JSON.stringify({ synced_at: uploadedAt }),
           tokenPayload.content_hash,
+          new Date(uploadedAt).toISOString(),
         )
         .run();
 
@@ -210,25 +211,45 @@ app.get("/keys", async (c) => {
 
   try {
     const keys: string[] = [];
+    const items: {
+      key: string;
+      contentHash: string | null;
+      size: number;
+      uploadedAt: number | null;
+    }[] = [];
     let cursor = 0;
     const BATCH_SIZE = 1000;
 
     while (true) {
       const stmt = db
         .prepare(
-          "SELECT key FROM files ORDER BY uploaded_at DESC LIMIT ? OFFSET ?",
+          "SELECT key, content_hash, size, uploaded_at FROM files ORDER BY uploaded_at DESC LIMIT ? OFFSET ?",
         )
         .bind(BATCH_SIZE, cursor);
 
       const res = await stmt.all?.();
-      const batch = (res?.results || [])
-        .map((r: { key?: unknown }) =>
-          typeof r.key === "string" ? r.key : undefined,
-        )
-        .filter(Boolean) as string[];
+      const batch = (res?.results || []) as Array<{
+        key?: unknown;
+        content_hash?: unknown;
+        size?: unknown;
+        uploaded_at?: unknown;
+      }>;
+
+      const filtered = batch.filter((r) => typeof r.key === "string");
+      for (const r of filtered) {
+        const key = r.key as string;
+        keys.push(key);
+        items.push({
+          key,
+          contentHash:
+            typeof r.content_hash === "string" ? r.content_hash : null,
+          size: typeof r.size === "number" ? r.size : 0,
+          uploadedAt:
+            typeof r.uploaded_at === "number" ? r.uploaded_at : null,
+        });
+      }
 
       if (batch.length === 0) break;
-      keys.push(...batch);
       cursor += batch.length;
       if (batch.length < BATCH_SIZE) break;
     }
@@ -238,7 +259,8 @@ app.get("/keys", async (c) => {
 
     return c.json({
       keys,
-      total: keys.length,
+      items,
+      total: items.length,
       refreshedAt: new Date(refreshedAt).toISOString(),
       cacheExpiresAt: new Date(expiresAt).toISOString(),
       cached: false,
@@ -248,9 +270,43 @@ app.get("/keys", async (c) => {
   }
 });
 
-// GET /mime
-app.get("/mime", async (c) => {
-  return c.json(SAFE_MIME_BY_EXTENSION);
+// GET /check-hash
+// Check if a file with the same content hash already exists
+app.get("/check-hash", async (c) => {
+  const envCtx = createEnvContext(c);
+  const db = envCtx.runtime.ASSET_INDEX_DB;
+
+  if (!db) {
+    return c.json({ error: "Database not configured" }, 503);
+  }
+
+  const contentHash = c.req.query("hash");
+  if (!contentHash) {
+    return c.json({ error: "Missing hash parameter" }, 400);
+  }
+
+  try {
+    const stmt = db.prepare(
+      "SELECT key, size, uploaded_at FROM files WHERE content_hash = ? LIMIT 1"
+    );
+    const result = await stmt.bind(contentHash).first();
+
+    if (result) {
+      return c.json({
+        exists: true,
+        file: {
+          key: result.key,
+          size: result.size,
+          uploadedAt: result.uploaded_at,
+        },
+      });
+    } else {
+      return c.json({ exists: false });
+    }
+  } catch (err) {
+    console.error("[asset-sync] hash check error", err);
+    return c.json({ error: "Failed to check hash" }, 500);
+  }
 });
 
 // GET /mime

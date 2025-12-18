@@ -1,5 +1,5 @@
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
@@ -13,6 +13,7 @@ use once_cell::sync::Lazy;
 use rand::{thread_rng, Rng};
 use reqwest::{Client, Url};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use tokio::{
     fs,
     sync::mpsc::{self, UnboundedReceiver, UnboundedSender},
@@ -101,12 +102,26 @@ struct PeriodApiResponse {
 
 struct RemoteKeyCache {
     keys: HashSet<String>,
+    hashes: HashMap<String, Option<String>>, // key -> content_hash
     expires_at: Instant,
+}
+
+#[derive(Deserialize)]
+struct ExistingKeyItem {
+    key: String,
+    #[serde(default)]
+    content_hash: Option<String>,
+    #[serde(default)]
+    size: Option<u64>,
+    #[serde(default, rename = "uploadedAt")]
+    uploaded_at: Option<u64>,
 }
 
 #[derive(Deserialize)]
 struct ExistingKeysResponse {
     keys: Vec<String>,
+    #[serde(default)]
+    items: Vec<ExistingKeyItem>,
     cache_expires_at: Option<String>,
 }
 
@@ -382,9 +397,25 @@ async fn process_path(
         return Err(err.to_string());
     }
 
+    // Compute hash early to compare with remote state
+    let bytes = fs::read(path)
+        .await
+        .map_err(|err| format!("failed to read file for upload: {err}"))?;
+    let local_hash = sha256_hex(&bytes);
+
+    if let Some(remote_hash_opt) = remote_content_hash(&key) {
+        if let Some(remote_hash) = remote_hash_opt {
+            if remote_hash == local_hash {
+                PROCESSED_KEYS.insert(key.clone());
+                tracing::info!(key, "skipping upload; remote content hash matches local");
+                return Ok(());
+            }
+        }
+    }
+
     if remote_key_exists(&key) {
         PROCESSED_KEYS.insert(key.clone());
-        tracing::info!(key, "skipping because remote key already exists");
+        tracing::info!(key, "skipping because remote key already exists (hash unknown)");
         return Ok(());
     }
 
@@ -401,6 +432,8 @@ async fn process_path(
         relative,
         &key,
         metadata.len(),
+        bytes,
+        &local_hash,
         auth_manager,
         Some(pending_store),
     )
@@ -475,14 +508,12 @@ pub async fn upload_via_api(
     relative: &Path,
     key: &str,
     file_size: u64,
+    file_bytes: Vec<u8>,
+    file_hash: &str,
     auth_manager: &AuthManager<FileStorage>,
     pending_store: Option<&PendingStore>,
 ) -> Result<(), String> {
     tracing::info!(key, file = %path.display(), size = file_size, "starting upload process");
-
-    let bytes = fs::read(path)
-        .await
-        .map_err(|err| format!("failed to read file for upload: {err}"))?;
 
     let filename = relative
         .file_name()
@@ -504,7 +535,7 @@ pub async fn upload_via_api(
     let request = UploadRequest {
         endpoint: &settings.api_endpoint,
         handshake_body,
-        data: bytes,
+        data: file_bytes,
         headers,
         context: UploadContext::Asset {
             relative_path: relative.to_string_lossy().to_string(),
@@ -516,13 +547,14 @@ pub async fn upload_via_api(
     match Uploader::upload(client, auth_manager, request, pending_store).await {
         Ok(UploadResult::Success) => {
             tracing::info!(key, endpoint = %settings.api_endpoint, "asset upload successful");
-            register_remote_key(key);
+            register_remote_key(key, Some(file_hash));
             // Reset auth failure flag on successful upload
             SUPABASE_AUTH_FAILED.store(false, Ordering::Relaxed);
             Ok(())
         },
         Ok(UploadResult::Skipped) => {
             tracing::info!(key, "asset already existed upstream (409)");
+            register_remote_key(key, Some(file_hash));
             Ok(())
         },
         Err(e) => {
@@ -747,7 +779,15 @@ fn cache_remote_keys(payload: ExistingKeysResponse) {
         .unwrap_or_else(|| Duration::from_secs(REMOTE_KEYS_CACHE_FALLBACK_SECS));
 
     let expires_at = Instant::now() + ttl;
-    let keys: HashSet<String> = payload.keys.into_iter().collect();
+    let keys: HashSet<String> = payload.keys.iter().cloned().collect();
+    let mut hashes: HashMap<String, Option<String>> = HashMap::new();
+    for item in payload.items.into_iter() {
+        hashes.insert(item.key.clone(), item.content_hash);
+    }
+    // Ensure keys from legacy `keys` field are present in hash map (with None if absent)
+    for k in &keys {
+        hashes.entry(k.clone()).or_insert(None);
+    }
     let count = keys.len();
 
     tracing::info!(
@@ -761,7 +801,7 @@ fn cache_remote_keys(payload: ExistingKeysResponse) {
         let mut guard = EXISTING_KEYS_CACHE
             .write()
             .expect("existing keys cache lock poisoned");
-        *guard = Some(RemoteKeyCache { keys, expires_at });
+        *guard = Some(RemoteKeyCache { keys, hashes, expires_at });
     }
 
     tracing::debug!(count = count, "existing remote asset key cache refreshed");
@@ -778,7 +818,7 @@ fn remote_key_exists(key: &str) -> bool {
     }
 }
 
-fn register_remote_key(key: &str) {
+fn register_remote_key(key: &str, hash: Option<&str>) {
     let mut guard = EXISTING_KEYS_CACHE
         .write()
         .expect("existing keys cache lock poisoned");
@@ -786,6 +826,10 @@ fn register_remote_key(key: &str) {
     match guard.as_mut() {
         Some(cache) => {
             cache.keys.insert(key.to_string());
+            cache
+                .hashes
+                .entry(key.to_string())
+                .or_insert(hash.map(|s| s.to_string()));
             if cache.expires_at <= Instant::now() {
                 cache.expires_at =
                     Instant::now() + Duration::from_secs(REMOTE_KEYS_CACHE_FALLBACK_SECS);
@@ -793,12 +837,30 @@ fn register_remote_key(key: &str) {
         }
         None => {
             let mut keys = HashSet::new();
+            let mut hashes = HashMap::new();
             keys.insert(key.to_string());
+            hashes.insert(key.to_string(), hash.map(|s| s.to_string()));
             *guard = Some(RemoteKeyCache {
                 keys,
+                hashes,
                 expires_at: Instant::now() + Duration::from_secs(REMOTE_KEYS_CACHE_FALLBACK_SECS),
             });
         }
     }
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    let digest = hasher.finalize();
+    digest.iter().map(|b| format!("{:02x}", b)).collect()
+}
+
+fn remote_content_hash(key: &str) -> Option<Option<String>> {
+    EXISTING_KEYS_CACHE
+        .read()
+        .expect("existing keys cache lock poisoned")
+        .as_ref()
+        .and_then(|cache| cache.hashes.get(key).cloned())
 }
 
