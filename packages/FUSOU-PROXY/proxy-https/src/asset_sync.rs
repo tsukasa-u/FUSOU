@@ -397,32 +397,37 @@ async fn process_path(
         return Err(err.to_string());
     }
 
+    let metadata = fs::metadata(path).await.map_err(|err| err.to_string())?;
+    if metadata.len() == 0 {
+        tracing::info!(file = %path.display(), "skipping zero-length file");
+        return Err("skip zero-length file".into());
+    }
+
     // Compute hash early to compare with remote state
     let bytes = fs::read(path)
         .await
         .map_err(|err| format!("failed to read file for upload: {err}"))?;
     let local_hash = sha256_hex(&bytes);
 
+    // Check if remote has this key with a hash
     if let Some(remote_hash_opt) = remote_content_hash(&key) {
         if let Some(remote_hash) = remote_hash_opt {
+            // Remote has hash - compare with local
             if remote_hash == local_hash {
                 PROCESSED_KEYS.insert(key.clone());
-                tracing::info!(key, "skipping upload; remote content hash matches local");
+                tracing::info!(key, local_hash, "skipping upload; remote content hash matches local");
                 return Ok(());
+            } else {
+                // Hash differs - need to upload updated version
+                tracing::info!(key, local_hash, remote_hash, "content changed, uploading updated version");
             }
+        } else {
+            // Remote key exists but no hash - upload to populate hash
+            tracing::info!(key, local_hash, "remote exists but hash unknown, uploading to update");
         }
-    }
-
-    if remote_key_exists(&key) {
-        PROCESSED_KEYS.insert(key.clone());
-        tracing::info!(key, "skipping because remote key already exists (hash unknown)");
-        return Ok(());
-    }
-
-    let metadata = fs::metadata(path).await.map_err(|err| err.to_string())?;
-    if metadata.len() == 0 {
-        tracing::info!(file = %path.display(), "skipping zero-length file");
-        return Err("skip zero-length file".into());
+    } else {
+        // Key doesn't exist remotely - upload
+        tracing::info!(key, local_hash, "new file, uploading");
     }
 
     upload_via_api(
