@@ -696,6 +696,22 @@ export default {
       );
     }
 
+    // GET /test-env - temporary endpoint to verify env injection without leaking secrets
+    if (path === '/test-env' && request.method === 'GET') {
+      const publicUrl = (globalThis as any)?.process?.env?.PUBLIC_SUPABASE_URL as string | undefined;
+      const secretKey = (globalThis as any)?.process?.env?.SUPABASE_SECRET_KEY as string | undefined;
+
+      return new Response(
+        JSON.stringify({
+          injected: Boolean(publicUrl && secretKey),
+          supabaseUrlPrefix: publicUrl ? publicUrl.slice(0, 32) : null,
+          supabaseKeyLength: secretKey ? secretKey.length : null,
+          timestamp: new Date().toISOString(),
+        }),
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
     // POST /validate - Parquet形式検証
     if (path === '/validate' && request.method === 'POST') {
       try {
