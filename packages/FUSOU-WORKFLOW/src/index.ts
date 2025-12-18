@@ -63,11 +63,13 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
   /**
    * Get environment variable from process.env (loaded by dotenvx)
    * dotenvx automatically decrypts .env file and populates process.env
+   * In Cloudflare Workers: import '@dotenvx/dotenvx/config' makes variables available
    */
   private getEnvVar(name: string): string {
-    const value = (globalThis as unknown as { process?: { env?: Record<string, string> } }).process?.env?.[name];
+    // @ts-ignore - process is available at runtime in Cloudflare Workers
+    const value = process?.env?.[name];
     if (!value) {
-      throw new Error(`Environment variable ${name} is not defined`);
+      throw new Error(`Environment variable ${name} is not defined. Make sure DOTENV_PRIVATE_KEY secret is set.`);
     }
     return value;
   }
@@ -902,8 +904,18 @@ export const queueDLQ = {
       timestamp: new Date().toISOString(),
     });
 
-    const publicUrl = (globalThis as unknown as { process?: { env?: Record<string, string> } }).process?.env?.PUBLIC_SUPABASE_URL || '';
-    const secretKey = (globalThis as unknown as { process?: { env?: Record<string, string> } }).process?.env?.SUPABASE_SECRET_KEY || '';
+    // @ts-ignore - process is available at runtime in Cloudflare Workers
+    const publicUrl = process?.env?.PUBLIC_SUPABASE_URL;
+    // @ts-ignore
+    const secretKey = process?.env?.SUPABASE_SECRET_KEY;
+
+    if (!publicUrl || !secretKey) {
+      console.error('[DLQ Handler] Missing Supabase environment variables', {
+        hasUrl: !!publicUrl,
+        hasKey: !!secretKey,
+      });
+      return;
+    }
 
     const supabase = createClient(publicUrl, secretKey);
 
