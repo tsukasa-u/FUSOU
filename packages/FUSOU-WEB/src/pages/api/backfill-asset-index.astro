@@ -1,0 +1,149 @@
+---
+/**
+ * Backfill Asset Index: R2 → D1 Content Hash Population
+ * 
+ * Purpose:
+ *   Scans existing R2 objects, computes SHA-256 hashes, and updates D1 ASSET_INDEX.
+ *   This enables content-based deduplication in the asset sync system.
+ * 
+ * Query Parameters:
+ *   - limit: number (default: 100) - Objects to process per request
+ *   - cursor: string (optional) - R2 list cursor for pagination
+ *   - dry_run: boolean (default: false) - If true, compute hashes but don't update D1
+ * 
+ * Response:
+ *   {
+ *     success: boolean,
+ *     total: number,        // Objects processed in this batch
+ *     updated: number,      // D1 rows inserted/updated
+ *     skipped: number,      // Objects already having correct hash
+ *     cursor: string|null,  // Next cursor for pagination
+ *     hasMore: boolean,     // Whether more pages exist
+ *     errors: string[],     // First 10 errors if any
+ *     dry_run: boolean
+ *   }
+ * 
+ * Usage:
+ *   Manual: curl "https://r2-parquet.fusou.pages.dev/api/backfill-asset-index?limit=50"
+ *   Script: ./scripts/backfill-complete.sh
+ * 
+ * Implementation Notes:
+ *   - Uses R2 cursor-based pagination to handle large buckets
+ *   - Computes SHA-256 via Web Crypto API
+ *   - Skips objects with matching content_hash to avoid redundant updates
+ *   - Rate limited by Cloudflare Workers CPU time (~50ms per file)
+ */
+
+const runtime = Astro.locals.runtime;
+const ASSET_SYNC_BUCKET = runtime?.env?.ASSET_SYNC_BUCKET;
+const ASSET_INDEX_DB = runtime?.env?.ASSET_INDEX_DB;
+
+if (!ASSET_SYNC_BUCKET || !ASSET_INDEX_DB) {
+  return new Response(JSON.stringify({ error: 'Missing R2 or D1 bindings' }), {
+    status: 500,
+    headers: { 'Content-Type': 'application/json' },
+  });
+}
+
+const url = new URL(Astro.request.url);
+const limit = parseInt(url.searchParams.get('limit') || '100', 10);
+const dryRun = url.searchParams.get('dry_run') === 'true';
+const cursor = url.searchParams.get('cursor') || undefined;
+
+// SHA-256 hash helper
+async function sha256(data: ArrayBuffer): Promise<string> {
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+try {
+  // Step 1: List R2 objects with cursor for pagination
+  const listed = await ASSET_SYNC_BUCKET.list({ limit, cursor });
+  const objects = listed.objects || [];
+  const nextCursor = listed.truncated ? listed.cursor : null;
+
+  let processed = 0;
+  let updated = 0;
+  let skipped = 0;
+  const errors: string[] = [];
+
+  // Step 2: Process each object
+  for (const obj of objects) {
+    processed++;
+    const key = obj.key;
+    const size = obj.size;
+    const uploadedAt = obj.uploaded.getTime();
+
+    try {
+      // Download from R2
+      const r2Object = await ASSET_SYNC_BUCKET.get(key);
+      if (!r2Object) {
+        errors.push(`R2 object not found: ${key}`);
+        continue;
+      }
+
+      // Compute SHA-256
+      const arrayBuffer = await r2Object.arrayBuffer();
+      const contentHash = await sha256(arrayBuffer);
+
+      // Check existing in D1
+      const existing = await ASSET_INDEX_DB.prepare(
+        'SELECT content_hash FROM files WHERE key = ?'
+      ).bind(key).first();
+
+      if (existing && existing.content_hash === contentHash) {
+        skipped++;
+        continue;
+      }
+
+      // Insert or update
+      if (!dryRun) {
+        await ASSET_INDEX_DB.prepare(
+          `INSERT INTO files (key, size, uploaded_at, content_type, uploader_id, content_hash, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(key) DO UPDATE SET
+             size = excluded.size,
+             uploaded_at = excluded.uploaded_at,
+             content_hash = excluded.content_hash`
+        ).bind(
+          key,
+          size,
+          uploadedAt,
+          r2Object.httpMetadata?.contentType || 'application/octet-stream',
+          'backfill',
+          contentHash,
+          new Date(uploadedAt).toISOString()
+        ).run();
+      }
+
+      updated++;
+
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      errors.push(`${key}: ${message}`);
+    }
+  }
+
+  return new Response(JSON.stringify({
+    success: true,
+    total: processed,
+    updated,
+    skipped,
+    cursor: nextCursor,
+    hasMore: !!nextCursor,
+    errors: errors.length > 0 ? errors.slice(0, 10) : undefined,
+    dry_run: dryRun,
+  }, null, 2), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' },
+  });
+
+} catch (err) {
+  const message = err instanceof Error ? err.message : String(err);
+  return new Response(JSON.stringify({ error: message }), {
+    status: 500,
+    headers: { 'Content-Type': 'application/json' },
+  });
+}
+---
