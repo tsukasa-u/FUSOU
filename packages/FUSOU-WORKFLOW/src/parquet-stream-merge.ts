@@ -270,6 +270,17 @@ export async function streamMergeExtractedFragments(
     };
   });
 
+    // Debug: Log all parsed fragments with RowGroup details
+    console.log(`[Parquet Stream Merge] Parsed ${fragments.length} fragments:`);
+    fragments.forEach((frag, idx) => {
+      console.log(`  Fragment ${idx}: ${frag.key}`);
+      console.log(`    fileSize=${frag.data.length}, footerSize=${frag.footerSize}, rowGroupCount=${frag.rowGroups.length}`);
+      frag.rowGroups.forEach((rg, rgIdx) => {
+        const isValid = rg.offset !== undefined && rg.totalByteSize !== undefined && rg.numRows !== undefined;
+        console.log(`      RG${rgIdx}: offset=${rg.offset}, totalByteSize=${rg.totalByteSize}, numRows=${rg.numRows}, isValid=${isValid}`);
+      });
+    });
+
   // 2. Row Groupを選別してバケツに詰める
   const selectedRgs: Array<{ frag: typeof fragments[0]; rg: RowGroupInfo; rgIndex: number }> = [];
   let accumulatedBytes = 0;
@@ -277,6 +288,18 @@ export async function streamMergeExtractedFragments(
   for (const frag of fragments) {
     for (let i = 0; i < frag.rowGroups.length; i++) {
       const rg = frag.rowGroups[i];
+      
+        // Defensive check: Skip invalid RowGroups
+        if (!rg || rg.totalByteSize === undefined || rg.offset === undefined) {
+          console.warn(`[Parquet Stream Merge] Skipping invalid RowGroup: ${frag.key} RG${i}`, {
+            hasRg: !!rg,
+            offset: rg?.offset,
+            totalByteSize: rg?.totalByteSize,
+            numRows: rg?.numRows
+          });
+          continue;
+        }
+      
       if (accumulatedBytes > 0 && accumulatedBytes + rg.totalByteSize > thresholdBytes) {
         break;
       }
