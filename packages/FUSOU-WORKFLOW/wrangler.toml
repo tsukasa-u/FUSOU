@@ -10,10 +10,7 @@ main = "src/index.ts"
 # Settings → Variables and Secrets:
 # - PUBLIC_SUPABASE_URL: Text variable
 # - SUPABASE_SECRET_KEY: Secret
-# Bindings declared below (values come from Dashboard at runtime)
-
-[vars]
-PUBLIC_SUPABASE_URL = ""
+# These are automatically bound at runtime by Cloudflare Workers
 
 # ===== Workflow definitions =====
 [[workflows]]

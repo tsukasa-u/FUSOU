@@ -856,6 +856,9 @@ interface CompactionQueueMessage {
   
   /** Optional. Time period tag. Only set by upload endpoints. */
   periodTag?: string;
+  
+  /** Optional. User ID who owns the dataset. Required for creating new dataset records. */
+  userId?: string;
 }
 
 export const queue = {
@@ -867,7 +870,7 @@ export const queue = {
 
     for (const message of batch.messages) {
       try {
-        const { datasetId, triggeredAt, priority = 'scheduled', metricId, table, periodTag } = message.body as CompactionQueueMessage;
+        const { datasetId, triggeredAt, priority = 'scheduled', metricId, table, periodTag, userId } = message.body as CompactionQueueMessage;
 
         console.info(`[Queue Consumer] Processing message`, {
           datasetId,
@@ -876,6 +879,7 @@ export const queue = {
           metricId,
           table,
           periodTag,
+          userId,
           messageId: message.id,
           timestamp: new Date().toISOString(),
         });
@@ -892,6 +896,7 @@ export const queue = {
             metricId,
             table,
             periodTag,
+            userId,
           },
         });
 

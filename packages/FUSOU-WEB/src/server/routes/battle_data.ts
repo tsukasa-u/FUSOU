@@ -203,16 +203,10 @@ app.post("/upload", async (c) => {
             const result = await supabase
               .from('processing_metrics')
               .insert({
-                user_id: user.id,
                 dataset_id: datasetId,
-                operation: 'upload',
-                status: 'queued',
-                triggered_at: uploadedAt,
-                metadata: {
-                  table,
-                  period_tag: periodTag,
-                  content_hash: contentHash,
-                },
+                workflow_instance_id: `upload-${Date.now()}`,
+                status: 'pending',
+                queued_at: uploadedAt,
               })
               .select('id')
               .single();
