@@ -190,23 +190,14 @@ export async function groupFragmentsBySchema(
     const batch = fragments.slice(i, i + batchSize);
     const batchResults = await Promise.all(
       batch.map(async (frag) => {
-        try {
-          const fingerprint = await extractSchemaFingerprint(bucket, frag.key);
-          return { frag, fingerprint };
-        } catch (error) {
-          console.warn(`[Schema] Failed to extract schema from ${frag.key}: ${error}`);
-          return { frag, fingerprint: { hash: 'error', numColumns: 0, columnNames: [], columnTypes: [] } };
-        }
+        // FAIL-FAST: Don't catch errors in development, let workflow fail immediately
+        const fingerprint = await extractSchemaFingerprint(bucket, frag.key);
+        return { frag, fingerprint };
       })
     );
     
     batchResults.forEach(({ frag, fingerprint }) => {
       const hash = fingerprint.hash;
-      // Skip files with error or unknown schema
-      if (hash === 'error') {
-        console.warn(`[Schema] Skipping fragment with extraction error: ${frag.key}`);
-        return;
-      }
       if (!schemaGroups.has(hash)) {
         schemaGroups.set(hash, []);
       }
@@ -233,23 +224,14 @@ export async function groupExtractedFragmentsBySchema(
     const batch = fragments.slice(i, i + batchSize);
     const batchResults = await Promise.all(
       batch.map(async (frag) => {
-        try {
-          const fingerprint = await extractSchemaFingerprintFromData(frag.data);
-          return { frag, fingerprint };
-        } catch (error) {
-          console.warn(`[Schema] Failed to extract schema from ${frag.key}: ${error}`);
-          return { frag, fingerprint: { hash: 'error', numColumns: 0, columnNames: [], columnTypes: [] } };
-        }
+        // FAIL-FAST: Don't catch errors in development, let workflow fail immediately
+        const fingerprint = await extractSchemaFingerprintFromData(frag.data);
+        return { frag, fingerprint };
       })
     );
     
     batchResults.forEach(({ frag, fingerprint }) => {
       const hash = fingerprint.hash;
-      // Skip files with error or unknown schema
-      if (hash === 'error') {
-        console.warn(`[Schema] Skipping fragment with extraction error: ${frag.key}`);
-        return;
-      }
       if (!schemaGroups.has(hash)) {
         schemaGroups.set(hash, []);
       }
