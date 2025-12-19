@@ -80,58 +80,42 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
       }, async () => {
         const supabase = createClient(
           this.env.PUBLIC_SUPABASE_URL,
-          this.env.SUPABASE_SECRET_KEY
+          this.env.SUPABASE_SECRET_KEY,
+          {
+            auth: {
+              persistSession: false,
+              autoRefreshToken: false,
+            },
+          }
         );
 
-        // SECURITY FIX: Check dataset ownership by both id AND user_id
-        // This prevents data contamination when multiple users share the same PC
-        // (dataset_id is PC-specific, not user-specific)
         if (!userId) {
           throw new Error('userId is required for dataset validation');
         }
 
-        const { data: existing, error: fetchError } = await supabase
-          .from('datasets')
-          .select('id, user_id, compaction_needed, compaction_in_progress')
-          .eq('id', datasetId)
-          .eq('user_id', userId)  // CRITICAL: Verify ownership
-          .limit(1)
-          .maybeSingle();
+        // Use RPC for atomicity, RLS enforcement, and ownership verification
+        const { data, error } = await supabase.rpc('rpc_ensure_dataset', {
+          dataset_id: datasetId,
+          user_id: userId,
+          table_name: table || null,
+          period_tag: periodTag || null,
+        });
 
-        if (fetchError) {
-          throw new Error(`Dataset fetch failed: ${fetchError.message}`);
+        if (error) {
+          throw new Error(`RPC rpc_ensure_dataset failed: ${error.message}`);
         }
 
-        // If exists AND belongs to this user, return it
-        if (existing) {
-          console.info(`[Workflow] Dataset exists for user`, { datasetId, userId });
-          return existing;
+        if (!data) {
+          throw new Error('RPC rpc_ensure_dataset returned no data');
         }
 
-        // If not found, create it (idempotent workflow design)
-        console.info(`[Workflow] Creating missing dataset record`, { datasetId, table, periodTag, userId });
-        
-        const { data: created, error: createError } = await supabase
-          .from('datasets')
-          .insert({
-            id: datasetId,
-            user_id: userId,
-            name: `${table || 'unknown'}-${periodTag || Date.now()}`,
-            compaction_needed: true,
-            compaction_in_progress: false,
-          })
-          .select('id, user_id, compaction_needed, compaction_in_progress')
-          .single();
-
-        if (createError) {
-          throw new Error(`Dataset creation failed: ${createError.message}`);
-        }
-        if (!created) {
-          throw new Error('Dataset creation failed: no data returned');
-        }
-
-        console.info(`[Workflow] Dataset created`, { datasetId, userId });
-        return created;
+        console.info(`[Workflow] Ensured dataset`, { datasetId, userId, created: data.created });
+        return {
+          id: data.id,
+          user_id: data.user_id,
+          compaction_needed: data.compaction_needed,
+          compaction_in_progress: data.compaction_in_progress,
+        };
       });
 
       const step1Duration = Date.now() - step1Start;
@@ -155,25 +139,26 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
         try {
           const supabase = createClient(
             this.env.PUBLIC_SUPABASE_URL,
-            this.env.SUPABASE_SECRET_KEY
+            this.env.SUPABASE_SECRET_KEY,
+            {
+              auth: {
+                persistSession: false,
+                autoRefreshToken: false,
+              },
+            }
           );
 
           const { data: metricsData, error: metricsError } = await supabase
-            .from('processing_metrics')
-            .insert({
+            .rpc('rpc_create_processing_metrics', {
               dataset_id: datasetId,
               workflow_instance_id: `workflow-${Date.now()}`,
-              status: 'pending',
-              queued_at: new Date().toISOString(),
-              workflow_started_at: new Date().toISOString(),
-            })
-            .select('id')
-            .single();
+              metric_status: 'pending',
+            });
 
           if (metricsError) {
             console.warn(`[Workflow] Failed to create metrics record: ${metricsError.message}`);
-          } else if (metricsData?.id) {
-            resolvedMetricId = metricsData.id;
+          } else if (metricsData) {
+            resolvedMetricId = metricsData;
             console.info(`[Workflow] Created processing_metrics record`, { metricId: resolvedMetricId });
           }
         } catch (error) {
@@ -188,29 +173,33 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
       }, async () => {
         const supabase = createClient(
           this.env.PUBLIC_SUPABASE_URL,
-          this.env.SUPABASE_SECRET_KEY
+          this.env.SUPABASE_SECRET_KEY,
+          {
+            auth: {
+              persistSession: false,
+              autoRefreshToken: false,
+            },
+          }
         );
 
-        // SECURITY: Atomic check-and-set with user_id verification
+        // SECURITY: Atomic flag set with user_id verification via RPC
         // Prevents race conditions AND cross-user data contamination
         if (!userId) {
           throw new Error('userId is required to set in-progress flag');
         }
 
-        const { data: updated, error } = await supabase
-          .from('datasets')
-          .update({ compaction_in_progress: true })
-          .eq('id', datasetId)
-          .eq('user_id', userId)  // CRITICAL: Verify ownership
-          .eq('compaction_in_progress', false)
-          .select('id');
+        const { data: success, error } = await supabase
+          .rpc('rpc_set_compaction_flag', {
+            dataset_id: datasetId,
+            user_id: userId,
+            in_progress: true,
+          });
 
         if (error) {
           throw new Error(`Failed to set in-progress flag: ${error.message}`);
         }
 
-        // If no rows were updated, either another workflow is running OR user doesn't own this dataset
-        if (!updated || updated.length === 0) {
+        if (!success) {
           throw new Error('Cannot set in-progress flag: dataset not found for this user or already in progress');
         }
       });
@@ -493,32 +482,34 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
       }, async () => {
         const supabase = createClient(
           this.env.PUBLIC_SUPABASE_URL,
-          this.env.SUPABASE_SECRET_KEY
+          this.env.SUPABASE_SECRET_KEY,
+          {
+            auth: {
+              persistSession: false,
+              autoRefreshToken: false,
+            },
+          }
         );
 
-        // SECURITY: Verify ownership before updating dataset metadata
+        // SECURITY: Verify ownership via RPC before updating dataset metadata
         if (!userId) {
           throw new Error('userId is required to update dataset metadata');
         }
 
-        const now = new Date().toISOString();
-        const { error } = await supabase
-          .from('datasets')
-          .update({
-            compaction_in_progress: false,
-            compaction_needed: false,
-            last_compacted_at: now,
-            file_size_bytes: totalCompacted,
-            file_etag: outputs[0]?.etag || outputs[0]?.key || null,
-            compression_ratio: totalOriginal > 0 ? totalCompacted / totalOriginal : null,
-            row_count: null,
-            updated_at: now,
-          })
-          .eq('id', datasetId)
-          .eq('user_id', userId);  // CRITICAL: Verify ownership
+        const { data: success, error } = await supabase
+          .rpc('rpc_finalize_compaction', {
+            dataset_id: datasetId,
+            user_id: userId,
+            total_original_size: totalOriginal,
+            total_compacted_size: totalCompacted,
+          });
 
         if (error) {
-          throw new Error(`Metadata update failed: ${error.message}`);
+          throw new Error(`Metadata finalization failed: ${error.message}`);
+        }
+
+        if (!success) {
+          throw new Error('Metadata finalization failed: dataset not found or ownership check failed');
         }
       });
 
@@ -540,30 +531,30 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
       if (resolvedMetricId) {
         const supabase = createClient(
           this.env.PUBLIC_SUPABASE_URL,
-          this.env.SUPABASE_SECRET_KEY
+          this.env.SUPABASE_SECRET_KEY,
+          {
+            auth: {
+              persistSession: false,
+              autoRefreshToken: false,
+            },
+          }
         );
 
-        const workflowCompletedAt = new Date().toISOString();
-
         const { error: updateMetricsError } = await supabase
-          .from('processing_metrics')
-          .update({
-            status: 'success',
-            step1_validate_duration_ms: stepMetrics[0]?.duration || 0,
-            step2_metadata_duration_ms: stepMetrics[1]?.duration || 0,
-            step3_compact_duration_ms: stepMetrics[2]?.duration || 0,
-            step4_update_metadata_duration_ms: stepMetrics[3]?.duration || 0,
-            workflow_total_duration_ms: totalDuration,
-            original_size_bytes: totalOriginal,
-            compressed_size_bytes: totalCompacted,
-            compression_ratio: totalOriginal > 0 ? totalCompacted / totalOriginal : null,
-            workflow_completed_at: workflowCompletedAt,
-            updated_at: workflowCompletedAt,
-          })
-          .eq('id', resolvedMetricId);
+          .rpc('rpc_record_compaction_metrics', {
+            metric_id: resolvedMetricId,
+            metric_status: 'success',
+            step1_duration: stepMetrics[0]?.duration || 0,
+            step2_duration: stepMetrics[1]?.duration || 0,
+            step3_duration: stepMetrics[2]?.duration || 0,
+            step4_duration: stepMetrics[3]?.duration || 0,
+            total_duration: totalDuration,
+            original_size: totalOriginal,
+            compressed_size: totalCompacted,
+          });
 
         if (updateMetricsError) {
-          console.warn(`[Workflow] Failed to update metrics: ${updateMetricsError.message}`);
+          console.warn(`[Workflow] Failed to record metrics: ${updateMetricsError.message}`);
         }
       }
 
@@ -594,16 +585,27 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
       try {
         const supabase = createClient(
           this.env.PUBLIC_SUPABASE_URL,
-          this.env.SUPABASE_SECRET_KEY
+          this.env.SUPABASE_SECRET_KEY,
+          {
+            auth: {
+              persistSession: false,
+              autoRefreshToken: false,
+            },
+          }
         );
 
-        // SECURITY: Only reset flag if user owns this dataset
+        // SECURITY: Only reset flag if user owns this dataset via RPC
         if (userId) {
-          await supabase
-            .from('datasets')
-            .update({ compaction_in_progress: false })
-            .eq('id', datasetId)
-            .eq('user_id', userId);  // Verify ownership
+          const { data: success, error: resetError } = await supabase
+            .rpc('rpc_set_compaction_flag', {
+              dataset_id: datasetId,
+              user_id: userId,
+              in_progress: false,
+            });
+
+          if (resetError) {
+            console.warn(`[Workflow] Failed to reset flag: ${resetError.message}`);
+          }
         } else {
           console.warn('[Workflow] Cannot reset flag: userId not available');
         }
@@ -615,24 +617,26 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
       if (resolvedMetricId) {
         const supabase = createClient(
           this.env.PUBLIC_SUPABASE_URL,
-          this.env.SUPABASE_SECRET_KEY
+          this.env.SUPABASE_SECRET_KEY,
+          {
+            auth: {
+              persistSession: false,
+              autoRefreshToken: false,
+            },
+          }
         );
 
-        const workflowFailedAt = new Date().toISOString();
-
         const { error: updateMetricsError } = await supabase
-          .from('processing_metrics')
-          .update({
-            status: 'failure',
+          .rpc('rpc_record_compaction_metrics', {
+            metric_id: resolvedMetricId,
+            metric_status: 'failure',
+            total_duration: failureDuration,
             error_message: errorMessage,
             error_step: failedStep,
-            workflow_completed_at: workflowFailedAt,
-            updated_at: workflowFailedAt,
-          })
-          .eq('id', resolvedMetricId);
+          });
 
         if (updateMetricsError) {
-          console.warn(`[Workflow] Failed to update failure metrics: ${updateMetricsError.message}`);
+          console.warn(`[Workflow] Failed to record failure metrics: ${updateMetricsError.message}`);
         }
       } else {
         console.warn(`[Workflow] No resolvedMetricId available for failure tracking`, { datasetId, errorMessage, failedStep });
