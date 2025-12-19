@@ -5,6 +5,26 @@ use std::sync::Mutex;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+pub static KCS_BASIC: Lazy<Mutex<Basic>> = Lazy::new(|| Mutex::new(Basic { member_id: String::new() }));
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[ts(export, export_to = "port.ts")]
+pub struct Basic {
+    pub member_id: String,
+}
+
+impl Basic {
+    pub fn load() -> Self {
+        let badic = KCS_BASIC.lock().unwrap();
+        badic.clone()
+    }
+
+    pub fn restore(&self) {
+        let mut basic = KCS_BASIC.lock().unwrap();
+        *basic = self.clone();
+    }
+}
+
 pub static KCS_DECKS: Lazy<Mutex<DeckPorts>> = Lazy::new(|| {
     Mutex::new(DeckPorts {
         deck_ports: HashMap::new(),

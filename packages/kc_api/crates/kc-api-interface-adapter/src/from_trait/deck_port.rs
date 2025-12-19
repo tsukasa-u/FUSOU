@@ -1,7 +1,17 @@
 use crate::InterfaceWrapper;
 use kc_api_dto::endpoints as kcapi_main;
-use kc_api_interface::deck_port::{DeckPort, DeckPorts};
+use kc_api_interface::deck_port::{Basic, DeckPort, DeckPorts};
 use std::collections::HashMap;
+use sha2::{Sha256, Digest};
+
+impl From<kcapi_main::api_port::port::ApiBasic> for InterfaceWrapper<Basic> {
+    fn from(basic: kcapi_main::api_port::port::ApiBasic) -> Self {
+        let hashed_member_id = format!("{:x}", Sha256::digest(basic.api_member_id.as_bytes()));
+        Self(Basic {
+            member_id: hashed_member_id,
+        })
+    }
+}
 
 impl From<Vec<kcapi_main::api_port::port::ApiDeckPort>> for InterfaceWrapper<DeckPorts> {
     fn from(deck_ports: Vec<kcapi_main::api_port::port::ApiDeckPort>) -> Self {
