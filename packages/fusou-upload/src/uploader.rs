@@ -90,7 +90,7 @@ impl Uploader {
     /// 
     /// # Arguments
     /// * `path_tag` - Format: "{period_tag}-port-{maparea_id}-{mapinfo_no}"
-    /// * `dataset_id` - Unique per-installation identifier (user_env_id UUID)
+    /// * `dataset_id` - User-scoped dataset identifier (hashed member_id)
     /// * `table` - Table name being uploaded (e.g., "port_table")
     /// * `file_size` - Size of the binary data in bytes
     /// * `table_offsets` - JSON string containing offset metadata for concatenated tables
@@ -111,10 +111,16 @@ impl Uploader {
             "file_size": file_size.to_string(),
             "table_offsets": table_offsets,
         })
-    }    /// Helper: build handshake body for fleet snapshot upload
-    pub fn build_snapshot_handshake(tag: &str) -> serde_json::Value {
+    }
+    /// Helper: build handshake body for fleet snapshot upload
+    ///
+    /// # Arguments
+    /// * `tag` - Snapshot tag identifier (e.g., "latest")
+    /// * `dataset_id` - User-scoped dataset identifier (hashed member_id)
+    pub fn build_snapshot_handshake(tag: &str, dataset_id: &str) -> serde_json::Value {
         serde_json::json!({
             "tag": tag,
+            "dataset_id": dataset_id,
         })
     }
 

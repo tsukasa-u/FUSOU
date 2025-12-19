@@ -33,10 +33,15 @@ app.post("/snapshot", async (c) => {
     tokenTTL: SNAPSHOT_TOKEN_TTL_SECONDS,
     preparationValidator: async (body, _userId) => {
       const rawTag = typeof body?.tag === "string" ? body.tag.trim() : "";
+      const datasetId = typeof body?.dataset_id === "string" ? body.dataset_id.trim() : "";
       const contentHash = typeof body?.content_hash === "string" ? body.content_hash.trim() : "";
 
       if (!rawTag) {
         return c.json({ error: "tag is required" }, 400);
+      }
+
+      if (!datasetId) {
+        return c.json({ error: "dataset_id is required" }, 400);
       }
 
       // Sanitize tag to a URL-safe slug (lowercase, hyphens)
@@ -58,16 +63,22 @@ app.post("/snapshot", async (c) => {
       return {
         tokenPayload: {
           tag,
+          dataset_id: datasetId,
           content_hash: contentHash,
         },
-        fields: { tag },
+        fields: { tag, dataset_id: datasetId },
       };
     },
     executionProcessor: async (tokenPayload, data, user) => {
       const tag = tokenPayload.tag;
+      const datasetId = typeof tokenPayload?.dataset_id === "string" ? tokenPayload.dataset_id.trim() : "";
 
       if (!tag) {
         return c.json({ error: "Invalid token payload" }, 400);
+      }
+
+      if (!datasetId) {
+        return c.json({ error: "Invalid token payload (missing dataset_id)" }, 400);
       }
 
       // Treat very small payloads as empty and skip upload
@@ -123,13 +134,12 @@ app.post("/snapshot", async (c) => {
         .map((b) => b.toString(16).padStart(2, "0"))
         .join("");
 
-      // Use authenticated user id to ensure per-user isolation
-      const ownerId = String(user.id || "unknown");
       // Normalize tag to a safe slug and ensure uniqueness by appending content hash prefix
       const safeTag = encodeURIComponent(tag.toLowerCase().trim());
       const hashPrefix = hashHex.slice(0, 8);
       const version = Date.now();
-      const fileName = `fleets/${ownerId}/${safeTag}/${version}-${hashPrefix}-${hashHex}.json.gz`;
+      // Store under dataset_id (hashed member_id), aligning with battle-data convention
+      const fileName = `fleets/${datasetId}/${safeTag}/${version}-${hashPrefix}-${hashHex}.json.gz`;
 
       // Upload to R2
       await bucket.put(fileName, compressed, {
@@ -167,7 +177,7 @@ app.post("/snapshot", async (c) => {
       }
 
       return {
-        response: { ok: true, tag, r2_key: fileName },
+        response: { ok: true, tag, dataset_id: datasetId, r2_key: fileName },
       };
     },
   });

@@ -145,8 +145,8 @@ impl StorageProvider for R2StorageProvider {
         mapinfo_no: i64,
     ) -> StorageFuture<'a, Result<(), StorageError>> {
         Box::pin(async move {
-               // Get user_env_id (per-installation unique identifier to use as dataset_id)
-               let user_env_id = crate::util::get_user_env_id().await;
+               // Get user_member_id (user-specific hashed ID for cross-device data integration)
+               let user_env_id = crate::util::get_user_member_id().await;
             tracing::info!(
                 "R2StorageProvider::write_port_table CALLED: period={}, map={}-{}",
                 period_tag, maparea_id, mapinfo_no

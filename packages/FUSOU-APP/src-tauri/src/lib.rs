@@ -117,6 +117,15 @@ async fn bootstrap_tokens_on_startup(
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 #[tokio::main]
 pub async fn run() {
+    // Load environment variable for MEMBER_ID_SALT at compile time (required)
+    if let Some(salt) = option_env!("FUSOU_MEMBER_ID_SALT") {
+        kc_api::interface_adapter::set_member_id_salt(salt.to_string());
+        tracing::info!("MEMBER_ID_SALT loaded from environment");
+    } else {
+        // セキュリティ上、ソルト未設定は許可しない（早期失敗）
+        panic!("FUSOU_MEMBER_ID_SALT is not set at build-time. Define it in the build environment or .cargo/config.toml.");
+    }
+
     let ctx = tauri::generate_context!();
 
     let mut builder = tauri::Builder::default()

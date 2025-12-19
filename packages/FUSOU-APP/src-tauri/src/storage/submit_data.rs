@@ -6,7 +6,7 @@ use kc_api::{
 use crate::{
     auth::supabase,
     storage::service::{acquire_port_table_guard, StorageService},
-    util::get_user_env_id,
+    util::get_user_member_id,
 };
 
 use fusou_upload::{PendingStore, UploadRetryService};
@@ -74,7 +74,7 @@ pub fn submit_port_table() {
 
             let _guard = acquire_port_table_guard().await;
 
-            let user_env = get_user_env_id().await;
+            let user_env = get_user_member_id().await;
             let timestamp = chrono::Utc::now().timestamp();
             let port_table = PortTable::new(cells, user_env, timestamp);
             Cells::reset();
