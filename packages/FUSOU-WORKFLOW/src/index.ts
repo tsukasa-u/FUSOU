@@ -147,11 +147,6 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
         },
       });
 
-      console.info(`[Workflow] Step 1 completed: ensure-dataset`, {
-        datasetId,
-        duration: `${step1Duration}ms`,
-      });
-
       // ===== Step 1.5: Create processing_metrics if not provided =====
       // This happens when triggered from battle-data/upload (no metricId in message)
       // Must be done AFTER ensure-dataset to satisfy FK constraint
@@ -184,8 +179,6 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
         } catch (error) {
           console.warn(`[Workflow] Error creating metrics record`, { error });
         }
-        const metricsDuration = Date.now() - metricsStart;
-        console.info(`[Workflow] Metrics creation completed in ${metricsDuration}ms`);
       }
 
       // ===== Set compaction_in_progress flag (with race condition check) =====
@@ -220,12 +213,6 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
         if (!updated || updated.length === 0) {
           throw new Error('Cannot set in-progress flag: dataset not found for this user or already in progress');
         }
-      });
-
-      const setFlagDuration = Date.now() - setFlagStart;
-      console.info(`[Workflow] Set in-progress flag`, {
-        datasetId,
-        duration: `${setFlagDuration}ms`,
       });
 
       // ===== Step 2: List fragments from D1 (by dataset/table/periodTag) =====
@@ -356,7 +343,6 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
                 continue;
               }
               
-              console.log(`[Workflow] Extracted ${targetTable} from ${frag.key}: ${extracted.size} bytes`);
               extractedFragments.push({
                 key: frag.key,
                 data: extracted.data,
@@ -367,7 +353,6 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
             }
           } else {
             // Legacy fragment without offset metadata - download full file
-            console.log(`[Workflow] Legacy fragment ${frag.key}: downloading full file`);
             const fullFile = await this.env.BATTLE_DATA_BUCKET.get(frag.key);
             
             if (fullFile) {
@@ -392,8 +377,6 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
       }
       
       const extractDuration = Date.now() - extractStart;
-      console.log(`[Workflow] Table extraction completed: ${extractedFragments.length} fragments in ${extractDuration}ms`);
-      
       stepMetrics.push({
         stepName: 'extract-tables',
         startTime: extractStart,
@@ -422,8 +405,6 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
       
       let globalIndex = 0;
       for (const [schemaHash, groupFrags] of schemaGroups.entries()) {
-        console.log(`[Workflow] Processing schema group ${schemaHash}: ${groupFrags.length} fragments`);
-        
         let cursor = 0;
         while (cursor < groupFrags.length) {
           const { picked, nextIndex } = pickFragmentsForBucket(
@@ -523,26 +504,10 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
         status: 'success',
       });
 
-      console.info(`[Workflow] Step 4 completed: update-metadata`, {
-        datasetId,
-        duration: `${step4Duration}ms`,
-      });
-
       // ===== Workflow Completion =====
       const totalDuration = Date.now() - workflowStartTime;
 
-      console.info(`[Workflow] Completed successfully for ${datasetId}`, {
-        totalDuration: `${totalDuration}ms`,
-        stepBreakdown: stepMetrics.map((m) => ({
-          step: m.stepName,
-          duration: `${m.duration}ms`,
-        })),
-        compression: {
-          originalSize: `${totalOriginal} bytes`,
-          compressedSize: `${totalCompacted} bytes`,
-          ratio: `${totalOriginal > 0 ? (totalCompacted / totalOriginal) : 1}`,
-        },
-      });
+      console.info(`[Workflow] Completed ${datasetId} (${totalDuration}ms)`);
 
       // === Metrics更新（Workflow完了） ===
       if (resolvedMetricId) {
@@ -929,26 +894,9 @@ interface CompactionQueueMessage {
 
 export const queue = {
   async queue(batch: MessageBatch<unknown>, env: Env, ctx: ExecutionContext) {
-    console.info(`[Queue Consumer] ===== BATCH START =====`, {
-      batchSize: batch.messages.length,
-      timestamp: new Date().toISOString(),
-    });
-
     for (const message of batch.messages) {
       try {
         const { datasetId, triggeredAt, priority = 'scheduled', metricId, table, periodTag, userId } = message.body as CompactionQueueMessage;
-
-        console.info(`[Queue Consumer] Processing message`, {
-          datasetId,
-          priority,
-          triggeredAt,
-          metricId,
-          table,
-          periodTag,
-          userId,
-          messageId: message.id,
-          timestamp: new Date().toISOString(),
-        });
 
         // Validate required fields
         if (!datasetId) {
@@ -966,15 +914,8 @@ export const queue = {
           },
         });
 
-        console.info(`[Queue Consumer] Workflow dispatched successfully`, {
-          datasetId,
-          workflowInstanceId: workflowInstance.id,
-          timestamp: new Date().toISOString(),
-        });
-
         // Acknowledge message on success
         message.ack();
-        console.info(`[Queue Consumer] Message acknowledged`, { messageId: message.id });
 
       } catch (error) {
         const errorMsg = error instanceof Error ? error.message : String(error);
@@ -994,10 +935,6 @@ export const queue = {
       }
     }
 
-    console.info(`[Queue Consumer] ===== BATCH END =====`, {
-      batchSize: batch.messages.length,
-      timestamp: new Date().toISOString(),
-    });
   },
 } satisfies ExportedHandler<Env>;
 

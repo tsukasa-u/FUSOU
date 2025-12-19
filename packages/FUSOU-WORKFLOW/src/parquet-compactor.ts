@@ -105,7 +105,7 @@ function parseThriftRowGroup(reader: ThriftCompactReader, index: number): RowGro
   const columnChunks: ColumnChunkInfo[] = [];
   let totalByteSize = 0;
   let numRows = 0;
-  let offset = reader.getPosition();
+  const offset = reader.getPosition();
   
   // RowGroup 構造体を読む
   while (!reader.isAtEnd()) {
@@ -132,7 +132,7 @@ function parseThriftRowGroup(reader: ThriftCompactReader, index: number): RowGro
   
   return {
     index,
-    offset,
+    offset: offset || 0,
     totalByteSize: totalByteSize > 0 ? totalByteSize : 10 * 1024 * 1024,
     numRows: numRows > 0 ? numRows : 100000,
     columnChunks
