@@ -83,11 +83,18 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
           this.env.SUPABASE_SECRET_KEY
         );
 
-        // Try to find existing dataset
+        // SECURITY FIX: Check dataset ownership by both id AND user_id
+        // This prevents data contamination when multiple users share the same PC
+        // (dataset_id is PC-specific, not user-specific)
+        if (!userId) {
+          throw new Error('userId is required for dataset validation');
+        }
+
         const { data: existing, error: fetchError } = await supabase
           .from('datasets')
-          .select('id, compaction_needed, compaction_in_progress')
+          .select('id, user_id, compaction_needed, compaction_in_progress')
           .eq('id', datasetId)
+          .eq('user_id', userId)  // CRITICAL: Verify ownership
           .limit(1)
           .maybeSingle();
 
@@ -95,18 +102,14 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
           throw new Error(`Dataset fetch failed: ${fetchError.message}`);
         }
 
-        // If exists, return it
+        // If exists AND belongs to this user, return it
         if (existing) {
-          console.info(`[Workflow] Dataset exists`, { datasetId });
+          console.info(`[Workflow] Dataset exists for user`, { datasetId, userId });
           return existing;
         }
 
         // If not found, create it (idempotent workflow design)
         console.info(`[Workflow] Creating missing dataset record`, { datasetId, table, periodTag, userId });
-        
-        if (!userId) {
-          throw new Error('userId is required to create dataset record');
-        }
         
         const { data: created, error: createError } = await supabase
           .from('datasets')
@@ -117,7 +120,7 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
             compaction_needed: true,
             compaction_in_progress: false,
           })
-          .select('id, compaction_needed, compaction_in_progress')
+          .select('id, user_id, compaction_needed, compaction_in_progress')
           .single();
 
         if (createError) {
@@ -127,7 +130,7 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
           throw new Error('Dataset creation failed: no data returned');
         }
 
-        console.info(`[Workflow] Dataset created`, { datasetId });
+        console.info(`[Workflow] Dataset created`, { datasetId, userId });
         return created;
       });
 
@@ -185,7 +188,7 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
         console.info(`[Workflow] Metrics creation completed in ${metricsDuration}ms`);
       }
 
-      // ===== Set compaction_in_progress flag =====
+      // ===== Set compaction_in_progress flag (with race condition check) =====
       const setFlagStart = Date.now();
       await step.do('set-in-progress-flag', {
         retries: SUPABASE_RETRY_CONFIG
@@ -195,13 +198,27 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
           this.env.SUPABASE_SECRET_KEY
         );
 
-        const { error } = await supabase
+        // SECURITY: Atomic check-and-set with user_id verification
+        // Prevents race conditions AND cross-user data contamination
+        if (!userId) {
+          throw new Error('userId is required to set in-progress flag');
+        }
+
+        const { data: updated, error } = await supabase
           .from('datasets')
           .update({ compaction_in_progress: true })
-          .eq('id', datasetId);
+          .eq('id', datasetId)
+          .eq('user_id', userId)  // CRITICAL: Verify ownership
+          .eq('compaction_in_progress', false)
+          .select('id');
 
         if (error) {
           throw new Error(`Failed to set in-progress flag: ${error.message}`);
+        }
+
+        // If no rows were updated, either another workflow is running OR user doesn't own this dataset
+        if (!updated || updated.length === 0) {
+          throw new Error('Cannot set in-progress flag: dataset not found for this user or already in progress');
         }
       });
 
@@ -471,6 +488,11 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
           this.env.SUPABASE_SECRET_KEY
         );
 
+        // SECURITY: Verify ownership before updating dataset metadata
+        if (!userId) {
+          throw new Error('userId is required to update dataset metadata');
+        }
+
         const now = new Date().toISOString();
         const { error } = await supabase
           .from('datasets')
@@ -484,7 +506,8 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
             row_count: null,
             updated_at: now,
           })
-          .eq('id', datasetId);
+          .eq('id', datasetId)
+          .eq('user_id', userId);  // CRITICAL: Verify ownership
 
         if (error) {
           throw new Error(`Metadata update failed: ${error.message}`);
@@ -582,10 +605,16 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
           this.env.SUPABASE_SECRET_KEY
         );
 
-        await supabase
-          .from('datasets')
-          .update({ compaction_in_progress: false })
-          .eq('id', datasetId);
+        // SECURITY: Only reset flag if user owns this dataset
+        if (userId) {
+          await supabase
+            .from('datasets')
+            .update({ compaction_in_progress: false })
+            .eq('id', datasetId)
+            .eq('user_id', userId);  // Verify ownership
+        } else {
+          console.warn('[Workflow] Cannot reset flag: userId not available');
+        }
       } catch (resetError) {
         console.error(`[Workflow] Failed to reset flag: ${resetError}`);
       }
@@ -998,11 +1027,12 @@ export const queueDLQ = {
 
     for (const message of batch.messages) {
       try {
-        const { datasetId, triggeredAt, priority, metricId } = message.body as CompactionQueueMessage;
+        const { datasetId, triggeredAt, priority, metricId, userId } = message.body as CompactionQueueMessage;
 
         // Log detailed failure information
         console.error(`[DLQ Handler] Message in DLQ`, {
           datasetId,
+          userId,
           triggeredAt,
           priority,
           metricId,
@@ -1056,8 +1086,9 @@ export const queueDLQ = {
           }
         }
 
-        // Reset compaction_in_progress flag if dataset is stuck
-        if (datasetId) {
+        // SECURITY: Reset compaction_in_progress flag with user verification
+        // Only reset if we have userId (required for ownership check)
+        if (datasetId && userId) {
           const { error: resetError } = await supabase
             .from('datasets')
             .update({ 
@@ -1065,16 +1096,24 @@ export const queueDLQ = {
               updated_at: new Date().toISOString(),
             })
             .eq('id', datasetId)
+            .eq('user_id', userId)  // Verify ownership
             .eq('compaction_in_progress', true);
 
           if (resetError) {
             console.error(`[DLQ Handler] Failed to reset compaction flag`, {
               datasetId,
+              userId,
               error: resetError.message,
             });
           } else {
-            console.info(`[DLQ Handler] Reset compaction flag`, { datasetId });
+            console.info(`[DLQ Handler] Reset compaction flag`, { datasetId, userId });
           }
+        } else {
+          console.warn(`[DLQ Handler] Cannot reset flag: missing datasetId or userId`, {
+            datasetId,
+            userId,
+            suggestion: 'Manual flag reset required via admin dashboard'
+          });
         }
 
         // ===== Future: Send alert notification =====
