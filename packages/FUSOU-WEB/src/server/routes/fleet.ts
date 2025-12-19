@@ -72,6 +72,7 @@ app.post("/snapshot", async (c) => {
     executionProcessor: async (tokenPayload, data, user) => {
       const tag = tokenPayload.tag;
       const datasetId = typeof tokenPayload?.dataset_id === "string" ? tokenPayload.dataset_id.trim() : "";
+      const ownerId = user?.id;
 
       if (!tag) {
         return c.json({ error: "Invalid token payload" }, 400);
@@ -79,6 +80,10 @@ app.post("/snapshot", async (c) => {
 
       if (!datasetId) {
         return c.json({ error: "Invalid token payload (missing dataset_id)" }, 400);
+      }
+
+      if (!ownerId) {
+        return c.json({ error: "User authentication required" }, 401);
       }
 
       // Treat very small payloads as empty and skip upload
@@ -151,7 +156,7 @@ app.post("/snapshot", async (c) => {
 
       // Keep only the latest N snapshots for this tag: delete older versions
       try {
-        const prefix = `fleets/${ownerId}/${safeTag}/`;
+        const prefix = `fleets/${datasetId}/${safeTag}/`;
         const listed = await bucket.list({ prefix });
         const objects = listed.objects || [];
         // Sort by uploaded time descending (newest first)
