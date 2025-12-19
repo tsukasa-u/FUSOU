@@ -156,7 +156,7 @@ app.post("/snapshot", async (c) => {
 
       // Keep only the latest N snapshots for this tag: delete older versions
       try {
-        const prefix = `fleets/${ownerId}/${safeTag}/`;
+        const prefix = `fleets/${datasetId}/${safeTag}/`;
         const listed = await bucket.list({ prefix });
         const objects = listed.objects || [];
         // Sort by uploaded time descending (newest first)
