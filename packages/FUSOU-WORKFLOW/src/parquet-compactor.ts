@@ -84,6 +84,15 @@ function parseThriftFileMetadata(data: Uint8Array, offset: number): {
       const listInfo = reader.readListInfo();
       for (let i = 0; i < listInfo.size; i++) {
         const rg = parseThriftRowGroup(reader, i);
+        if (!rg || rg.totalByteSize === undefined || rg.offset === undefined) {
+          console.error(`[Parquet] Invalid RowGroup parsed at index ${i}:`, {
+            hasRg: !!rg,
+            totalByteSize: rg?.totalByteSize,
+            offset: rg?.offset,
+            numRows: rg?.numRows,
+          });
+          continue;
+        }
         row_groups.push(rg);
       }
     } else {
