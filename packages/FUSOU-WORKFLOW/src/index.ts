@@ -85,10 +85,14 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
           .from('datasets')
           .select('id, compaction_needed, compaction_in_progress')
           .eq('id', datasetId)
-          .single();
+          .limit(1)
+          .maybeSingle();
 
-        if (error || !data) {
-          throw new Error(`Dataset validation failed: ${error?.message || 'not found'}`);
+        if (error) {
+          throw new Error(`Dataset validation failed: ${error.message}`);
+        }
+        if (!data) {
+          throw new Error('Dataset validation failed: not found');
         }
 
         return data;
