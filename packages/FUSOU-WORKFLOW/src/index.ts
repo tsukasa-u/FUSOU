@@ -64,6 +64,7 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
     const { datasetId, metricId, table, periodTag, userId } = event.payload;
     const workflowStartTime = Date.now();
     const stepMetrics: StepMetrics[] = [];
+    let resolvedMetricId = metricId; // Will be set if metricId is missing
 
     console.info(`[Workflow] Started for ${datasetId}`, {
       metricId,
@@ -147,6 +148,42 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
         datasetId,
         duration: `${step1Duration}ms`,
       });
+
+      // ===== Step 1.5: Create processing_metrics if not provided =====
+      // This happens when triggered from battle-data/upload (no metricId in message)
+      // Must be done AFTER ensure-dataset to satisfy FK constraint
+      if (!resolvedMetricId) {
+        const metricsStart = Date.now();
+        try {
+          const supabase = createClient(
+            this.env.PUBLIC_SUPABASE_URL,
+            this.env.SUPABASE_SECRET_KEY
+          );
+
+          const { data: metricsData, error: metricsError } = await supabase
+            .from('processing_metrics')
+            .insert({
+              dataset_id: datasetId,
+              workflow_instance_id: `workflow-${Date.now()}`,
+              status: 'pending',
+              queued_at: new Date().toISOString(),
+              workflow_started_at: new Date().toISOString(),
+            })
+            .select('id')
+            .single();
+
+          if (metricsError) {
+            console.warn(`[Workflow] Failed to create metrics record: ${metricsError.message}`);
+          } else if (metricsData?.id) {
+            resolvedMetricId = metricsData.id;
+            console.info(`[Workflow] Created processing_metrics record`, { metricId: resolvedMetricId });
+          }
+        } catch (error) {
+          console.warn(`[Workflow] Error creating metrics record`, { error });
+        }
+        const metricsDuration = Date.now() - metricsStart;
+        console.info(`[Workflow] Metrics creation completed in ${metricsDuration}ms`);
+      }
 
       // ===== Set compaction_in_progress flag =====
       const setFlagStart = Date.now();
@@ -485,7 +522,7 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
       });
 
       // === Metrics更新（Workflow完了） ===
-      if (metricId) {
+      if (resolvedMetricId) {
         const supabase = createClient(
           this.env.PUBLIC_SUPABASE_URL,
           this.env.SUPABASE_SECRET_KEY
@@ -508,7 +545,7 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
             workflow_completed_at: workflowCompletedAt,
             updated_at: workflowCompletedAt,
           })
-          .eq('id', metricId);
+          .eq('id', resolvedMetricId);
 
         if (updateMetricsError) {
           console.warn(`[Workflow] Failed to update metrics: ${updateMetricsError.message}`);
@@ -554,7 +591,7 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
       }
 
       // === Metricsレコード更新（エラー） ===
-      if (metricId) {
+      if (resolvedMetricId) {
         const supabase = createClient(
           this.env.PUBLIC_SUPABASE_URL,
           this.env.SUPABASE_SECRET_KEY
@@ -571,13 +608,13 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
             workflow_completed_at: workflowFailedAt,
             updated_at: workflowFailedAt,
           })
-          .eq('id', metricId);
+          .eq('id', resolvedMetricId);
 
         if (updateMetricsError) {
           console.warn(`[Workflow] Failed to update failure metrics: ${updateMetricsError.message}`);
         }
       } else {
-        console.warn(`[Workflow] No metricId provided for failure tracking`, { datasetId, errorMessage, failedStep });
+        console.warn(`[Workflow] No resolvedMetricId available for failure tracking`, { datasetId, errorMessage, failedStep });
       }
 
       throw error;

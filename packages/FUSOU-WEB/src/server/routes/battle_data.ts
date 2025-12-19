@@ -179,62 +179,13 @@ app.post("/upload", async (c) => {
         return c.json({ error: "Failed to record fragment metadata" }, 500);
       }
 
-      // ===== Step 3: Create processing_metrics record for monitoring =====
-      let metricId: string | undefined;
-      try {
-        const supabaseUrl = getEnv(env, "PUBLIC_SUPABASE_URL");
-        const supabaseKey = getEnv(env, "SUPABASE_SECRET_KEY");
-        
-        console.info("[battle-data] Step 3: About to create processing_metrics record", {
-          datasetId,
-          table,
-          periodTag,
-          timestamp: new Date().toISOString(),
-        });
-
-        if (!supabaseUrl || !supabaseKey) {
-          console.warn("[battle-data] Supabase environment variables not configured");
-        } else {
-          const supabase = createClient(supabaseUrl, supabaseKey, {
-            auth: { persistSession: false }
-          });
-
-          const metricsResult = await withRetry(async () => {
-            const result = await supabase
-              .from('processing_metrics')
-              .insert({
-                dataset_id: datasetId,
-                workflow_instance_id: `upload-${Date.now()}`,
-                status: 'pending',
-                queued_at: uploadedAt,
-              })
-              .select('id')
-              .single();
-            
-            if (result.error) throw result.error;
-            return result;
-          }).catch((error) => {
-            console.warn("[battle-data] Failed to create metrics record", { error });
-            // Don't fail the upload if metrics creation fails (graceful degradation)
-            return { data: null, error };
-          });
-
-          if (metricsResult.data?.id) {
-            metricId = metricsResult.data.id;
-            console.info("[battle-data] Processing metrics record created", { metricId });
-          }
-        }
-      } catch (err) {
-        console.error("[battle-data] Unexpected error creating processing_metrics:", err);
-        // Don't fail the upload - metrics are optional
-      }
-
-      // ===== Step 4: Queue to compaction queue for background processing =====
-      console.info("[battle-data] Step 4: About to enqueue to COMPACTION_QUEUE", {
+      // ===== Step 3: Queue to compaction queue for background processing =====
+      // Note: processing_metrics record will be created by the Workflow
+      // to ensure datasets record exists first (avoiding FK constraint violation)
+      console.info("[battle-data] Step 3: About to enqueue to COMPACTION_QUEUE", {
         datasetId,
         table,
         periodTag,
-        metricId,
         queueExists: !!env.runtime.COMPACTION_QUEUE,
         timestamp: new Date().toISOString(),
       });
@@ -251,7 +202,6 @@ app.post("/upload", async (c) => {
               periodTag,
               priority: "realtime",
               triggeredAt: uploadedAt,
-              metricId,
               userId: user.id,
             });
             console.info("[battle-data] Queue send result:", { sendResult });
@@ -261,13 +211,11 @@ app.post("/upload", async (c) => {
             datasetId,
             table,
             periodTag,
-            metricId,
           });
         }
       } catch (queueErr) {
         console.error("[battle-data] FAILED to enqueue to COMPACTION_QUEUE", {
           datasetId,
-          metricId,
           error: String(queueErr),
           errorMessage: (queueErr as any)?.message,
           timestamp: new Date().toISOString(),
