@@ -5,9 +5,6 @@ use std::collections::HashMap;
 use sha2::{Sha256, Digest};
 use once_cell::sync::OnceCell;
 
-// アプリケーション固有の固定ソルト（レインボーテーブル攻撃を防ぐ）
-// 環境変数 FUSOU_MEMBER_ID_SALT で上書き可能
-// 重要: すべてのユーザー・デバイスで同じ値を使う必要があります
 static MEMBER_ID_SALT: OnceCell<String> = OnceCell::new();
 
 pub fn set_member_id_salt(salt: String) {
@@ -15,8 +12,6 @@ pub fn set_member_id_salt(salt: String) {
 }
 
 fn get_member_id_salt() -> &'static str {
-    // セキュリティのため、デフォルトは使用しない。
-    // アプリ起動時に `set_member_id_salt()` が必ず呼ばれることを前提にする。
     match MEMBER_ID_SALT.get() {
         Some(s) => s.as_str(),
         None => panic!(
