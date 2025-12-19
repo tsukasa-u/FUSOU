@@ -6,17 +6,15 @@ compatibility_flags = ["nodejs_compat"]
 main = "src/index.ts"
 
 # ===== Environment Variables =====
-# Supabase credentials set via Dashboard:
-# Settings → Variables and Secrets
-# - PUBLIC_SUPABASE_URL: Text variable (set in Dashboard)
-# - SUPABASE_SECRET_KEY: Secret (set in Dashboard)
-# Declared below to bind to env interface
+# Supabase credentials managed via Cloudflare Dashboard
+# Settings → Variables and Secrets:
+# - PUBLIC_SUPABASE_URL: Text variable
+# - SUPABASE_SECRET_KEY: Secret
+# Bindings declared below (values come from Dashboard at runtime)
 
 [vars]
+# Variable declarations only - values from Dashboard at runtime
 PUBLIC_SUPABASE_URL = ""
-
-[[secrets]]
-name = "SUPABASE_SECRET_KEY"
 
 # ===== Workflow definitions =====
 [[workflows]]
