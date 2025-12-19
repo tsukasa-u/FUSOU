@@ -3,10 +3,32 @@ use kc_api_dto::endpoints as kcapi_main;
 use kc_api_interface::deck_port::{Basic, DeckPort, DeckPorts};
 use std::collections::HashMap;
 use sha2::{Sha256, Digest};
+use once_cell::sync::OnceCell;
+
+// アプリケーション固有の固定ソルト（レインボーテーブル攻撃を防ぐ）
+// 環境変数 FUSOU_MEMBER_ID_SALT で上書き可能
+// 重要: すべてのユーザー・デバイスで同じ値を使う必要があります
+static MEMBER_ID_SALT: OnceCell<String> = OnceCell::new();
+
+pub fn set_member_id_salt(salt: String) {
+    MEMBER_ID_SALT.set(salt).ok();
+}
+
+fn get_member_id_salt() -> &'static str {
+    // セキュリティのため、デフォルトは使用しない。
+    // アプリ起動時に `set_member_id_salt()` が必ず呼ばれることを前提にする。
+    match MEMBER_ID_SALT.get() {
+        Some(s) => s.as_str(),
+        None => panic!(
+            "FUSOU_MEMBER_ID_SALT is not set. Call set_member_id_salt() at startup (e.g., from option_env!)."
+        ),
+    }
+}
 
 impl From<kcapi_main::api_port::port::ApiBasic> for InterfaceWrapper<Basic> {
     fn from(basic: kcapi_main::api_port::port::ApiBasic) -> Self {
-        let hashed_member_id = format!("{:x}", Sha256::digest(basic.api_member_id.as_bytes()));
+        let input = format!("{}{}", basic.api_member_id, get_member_id_salt());
+        let hashed_member_id = format!("{:x}", Sha256::digest(input.as_bytes()));
         Self(Basic {
             member_id: hashed_member_id,
         })

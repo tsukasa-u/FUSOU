@@ -5,9 +5,15 @@ use std::path::PathBuf;
 use tokio::sync::OnceCell;
 use tracing_unwrap::{OptionExt, ResultExt};
 use uuid::Uuid;
+use kc_api::interface::deck_port::Basic;
 
 use crate::RESOURCES_DIR;
 use crate::ROAMING_DIR;
+/// Deprecated: Environment-scoped ID cache (ENV_UNIQ_ID). Do not use for user identification.
+///
+/// Use [`get_user_member_id()`] instead for a user-scoped, salted SHA-256 identifier
+/// that enables secure cross-device data consolidation.
+#[deprecated(since = "0.4.0", note = "Environment-scoped ID cache. Do not use for user identification. Use get_user_member_id() instead.")]
 static KC_USER_ENV_UNIQUE_ID: OnceCell<String> = OnceCell::const_new();
 
 #[allow(non_snake_case)]
@@ -30,6 +36,12 @@ pub fn get_RESOURCES_DIR() -> PathBuf {
         .clone();
 }
 
+/// Deprecated: Returns an environment-scoped ID (ENV_UNIQ_ID). Do not use for user identification.
+///
+/// Use [`get_user_member_id()`] instead. It uses the server-provided user ID
+/// hashed with a fixed salt (SHA-256), enabling cross-device data consolidation
+/// and meeting security requirements.
+#[deprecated(since = "0.4.0", note = "Environment-scoped ID. Do not use for user identification. Use get_user_member_id() instead.")]
 pub async fn get_user_env_id() -> String {
     KC_USER_ENV_UNIQUE_ID
         .get_or_init(|| async {
@@ -60,6 +72,11 @@ pub async fn get_user_env_id() -> String {
         })
         .await
         .clone()
+}
+
+pub async fn get_user_member_id() -> String {
+    let basic = Basic::load();
+    basic.member_id
 }
 
 #[allow(dead_code)]
