@@ -1,4 +1,5 @@
-use kc_api_interface::deck_port::DeckPorts;
+use kc_api_dto::endpoints::api_get_member::basic;
+use kc_api_interface::deck_port::{DeckPorts, Basic};
 use kc_api_interface::interface::{EmitData, Identifier, Set};
 use kc_api_interface::logs::Logs;
 use kc_api_interface::material::Materials;
@@ -23,7 +24,11 @@ impl TraitForConvert for port::Res {
         // let deck_ports = InterfaceWrapper::<DeckPorts>::from(self.api_data.api_deck_port.clone()).unwrap();
         let deck_ports = InterfaceWrapper::<DeckPorts>::from(self.api_data.clone()).unwrap();
 
+        let basic =
+            InterfaceWrapper::<Basic>::from(self.api_data.api_basic.clone()).unwrap();
+
         Some(vec![
+            EmitData::Set(Set::Basic(basic)),
             EmitData::Set(Set::Materials(materials)),
             EmitData::Set(Set::Ships(ships)),
             EmitData::Set(Set::NDocks(ndocks)),

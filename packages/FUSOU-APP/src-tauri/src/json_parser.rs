@@ -40,6 +40,9 @@ pub fn emit_data(handle: &tauri::AppHandle, emit_data: EmitData) {
                 data.restore();
                 let _ = handle.emit_to("main", "set-kcs-deck-ports", data);
             }
+            Set::Basic(data) => {
+                data.restore();
+            }
             Set::Materials(data) => {
                 let _ = handle.emit_to("main", "set-kcs-materials", data);
             }
