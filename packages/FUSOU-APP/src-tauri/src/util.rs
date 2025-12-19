@@ -2,10 +2,12 @@ use std::fs;
 use std::io::Read;
 use std::io::Write;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::OnceCell;
 use tracing_unwrap::{OptionExt, ResultExt};
 use uuid::Uuid;
 use kc_api::interface::deck_port::Basic;
+use tauri::Manager;
 
 use crate::RESOURCES_DIR;
 use crate::ROAMING_DIR;
@@ -15,6 +17,9 @@ use crate::ROAMING_DIR;
 /// that enables secure cross-device data consolidation.
 #[deprecated(since = "0.4.0", note = "Environment-scoped ID cache. Do not use for user identification. Use get_user_member_id() instead.")]
 static KC_USER_ENV_UNIQUE_ID: OnceCell<String> = OnceCell::const_new();
+
+/// Flag to ensure member_id upsert is called only once per session
+static MEMBER_ID_UPSERTED: AtomicBool = AtomicBool::new(false);
 
 #[allow(non_snake_case)]
 pub fn get_ROAMING_DIR() -> PathBuf {
@@ -77,6 +82,94 @@ pub async fn get_user_env_id() -> String {
 pub async fn get_user_member_id() -> String {
     let basic = Basic::load();
     basic.member_id
+}
+
+/// Upsert member_id_hash to Supabase user mapping.
+/// Called once per session when Basic is first updated after game launch.
+pub async fn try_upsert_member_id(app: &tauri::AppHandle) {
+    // Check if already upserted this session
+    if MEMBER_ID_UPSERTED.swap(true, Ordering::SeqCst) {
+        tracing::debug!("member_id upsert already done this session, skipping");
+        return;
+    }
+
+    let member_id_hash = get_user_member_id().await;
+    if member_id_hash.is_empty() {
+        tracing::warn!("member_id is empty, skipping upsert");
+        MEMBER_ID_UPSERTED.store(false, Ordering::SeqCst); // Reset flag to retry later
+        return;
+    }
+
+    tracing::info!("Upserting member_id_hash to Supabase");
+
+    // Get auth manager from app state
+    let auth_manager_state = app.try_state::<std::sync::Arc<std::sync::Mutex<fusou_auth::AuthManager<fusou_auth::FileStorage>>>>();
+    if auth_manager_state.is_none() {
+        tracing::warn!("AuthManager not available, skipping member_id upsert");
+        MEMBER_ID_UPSERTED.store(false, Ordering::SeqCst);
+        return;
+    }
+
+    let auth_manager = auth_manager_state.unwrap();
+    
+    // Clone the auth manager to avoid holding lock across await
+    let auth_manager_clone = {
+        let manager = auth_manager.lock().unwrap();
+        manager.clone()
+    };
+    
+    let access_token = auth_manager_clone.get_access_token().await;
+
+    let token = match access_token {
+        Ok(t) => t,
+        Err(e) => {
+            tracing::warn!("Failed to get access token for member_id upsert: {}", e);
+            MEMBER_ID_UPSERTED.store(false, Ordering::SeqCst);
+            return;
+        }
+    };
+
+    // Get endpoint from configs (use explicit member_map_endpoint only)
+    let app_configs = configs::get_user_configs_for_app();
+    let upsert_url = match app_configs.auth.get_member_map_endpoint() {
+        Some(explicit) => explicit.trim_end_matches('/').to_string(),
+        None => {
+            tracing::warn!("member_map_endpoint not configured, cannot upsert member_id");
+            MEMBER_ID_UPSERTED.store(false, Ordering::SeqCst);
+            return;
+        }
+    };
+
+    // Send POST request
+    let client = reqwest::Client::new();
+    let client_version = env!("CARGO_PKG_VERSION");
+    let body = serde_json::json!({
+        "member_id_hash": member_id_hash,
+        "client_version": client_version
+    });
+
+    match client
+        .post(&upsert_url)
+        .bearer_auth(token)
+        .json(&body)
+        .send()
+        .await
+    {
+        Ok(resp) => {
+            if resp.status().is_success() {
+                tracing::info!("member_id upsert successful");
+            } else {
+                let status = resp.status();
+                let body_text = resp.text().await.unwrap_or_default();
+                tracing::error!("member_id upsert failed: status={}, body={}", status, body_text);
+                MEMBER_ID_UPSERTED.store(false, Ordering::SeqCst); // Retry next time
+            }
+        }
+        Err(e) => {
+            tracing::error!("member_id upsert network error: {}", e);
+            MEMBER_ID_UPSERTED.store(false, Ordering::SeqCst); // Retry next time
+        }
+    }
 }
 
 #[allow(dead_code)]
