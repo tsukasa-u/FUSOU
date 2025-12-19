@@ -12,6 +12,9 @@ main = "src/index.ts"
 # - SUPABASE_SECRET_KEY: Secret
 # Bindings declared below (values come from Dashboard at runtime)
 
+[vars]
+PUBLIC_SUPABASE_URL = ""
+
 # ===== Workflow definitions =====
 [[workflows]]
 name = "data-compaction-workflow"

@@ -190,6 +190,7 @@ app.post('/sanitize-state', async (c) => {
           triggeredAt: new Date().toISOString(),
           priority: 'manual',
           metricId: metricsId,
+          userId: supabaseUser.id,
         });
         console.info(`[compact-sanitize] Queue send result:`, { sendResult });
         return sendResult;
@@ -255,7 +256,7 @@ app.post('/trigger-scheduled', async (c) => {
     const fetchResult = await withRetry(async () => {
       const result = await supabase
         .from('datasets')
-        .select('id, name')
+        .select('id, name, user_id')
         .eq('compaction_needed', true)
         .eq('compaction_in_progress', false)
         .order('created_at', { ascending: true })
@@ -338,6 +339,7 @@ app.post('/trigger-scheduled', async (c) => {
             triggeredAt: new Date().toISOString(),
             priority: 'scheduled',
             metricId: metricsMap.get(dataset.id),
+            userId: dataset.user_id,
           })
         )
       )
