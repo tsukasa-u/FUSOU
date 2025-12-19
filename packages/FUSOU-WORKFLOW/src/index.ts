@@ -77,8 +77,8 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
         retries: SUPABASE_RETRY_CONFIG
       }, async () => {
         const supabase = createClient(
-          env.PUBLIC_SUPABASE_URL,
-          env.SUPABASE_SECRET_KEY
+          this.env.PUBLIC_SUPABASE_URL,
+          this.env.SUPABASE_SECRET_KEY
         );
 
         const { data, error } = await supabase
@@ -118,8 +118,8 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
         retries: SUPABASE_RETRY_CONFIG
       }, async () => {
         const supabase = createClient(
-          env.PUBLIC_SUPABASE_URL,
-          env.SUPABASE_SECRET_KEY
+          this.env.PUBLIC_SUPABASE_URL,
+          this.env.SUPABASE_SECRET_KEY
         );
 
         const { error } = await supabase
@@ -394,8 +394,8 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
         }
       }, async () => {
         const supabase = createClient(
-          env.PUBLIC_SUPABASE_URL,
-          env.SUPABASE_SECRET_KEY
+          this.env.PUBLIC_SUPABASE_URL,
+          this.env.SUPABASE_SECRET_KEY
         );
 
         const now = new Date().toISOString();
@@ -451,8 +451,8 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
       // === Metrics更新（Workflow完了） ===
       if (metricId) {
         const supabase = createClient(
-          env.PUBLIC_SUPABASE_URL,
-          env.SUPABASE_SECRET_KEY
+          this.env.PUBLIC_SUPABASE_URL,
+          this.env.SUPABASE_SECRET_KEY
         );
 
         const workflowCompletedAt = new Date().toISOString();
@@ -505,8 +505,8 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
       // === フラグリセット ===
       try {
         const supabase = createClient(
-          env.PUBLIC_SUPABASE_URL,
-          env.SUPABASE_SECRET_KEY
+          this.env.PUBLIC_SUPABASE_URL,
+          this.env.SUPABASE_SECRET_KEY
         );
 
         await supabase
@@ -520,8 +520,8 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
       // === Metricsレコード更新（エラー） ===
       if (metricId) {
         const supabase = createClient(
-          env.PUBLIC_SUPABASE_URL,
-          env.SUPABASE_SECRET_KEY
+          this.env.PUBLIC_SUPABASE_URL,
+          this.env.SUPABASE_SECRET_KEY
         );
 
         const workflowFailedAt = new Date().toISOString();
