@@ -84,6 +84,15 @@ function parseThriftFileMetadata(data: Uint8Array, offset: number): {
       const listInfo = reader.readListInfo();
       for (let i = 0; i < listInfo.size; i++) {
         const rg = parseThriftRowGroup(reader, i);
+        if (!rg || rg.totalByteSize === undefined || rg.offset === undefined) {
+          console.error(`[Parquet] Invalid RowGroup parsed at index ${i}:`, {
+            hasRg: !!rg,
+            totalByteSize: rg?.totalByteSize,
+            offset: rg?.offset,
+            numRows: rg?.numRows,
+          });
+          continue;
+        }
         row_groups.push(rg);
       }
     } else {
@@ -106,6 +115,10 @@ function parseThriftRowGroup(reader: ThriftCompactReader, index: number): RowGro
   let totalByteSize = 0;
   let numRows = 0;
   const offset = reader.getPosition();
+  
+  if (offset === undefined || offset === null) {
+    console.error(`[Parquet] getPosition() returned undefined for RG${index}`);
+  }
   
   // RowGroup 構造体を読む
   while (!reader.isAtEnd()) {
@@ -130,13 +143,25 @@ function parseThriftRowGroup(reader: ThriftCompactReader, index: number): RowGro
     }
   }
   
-  return {
+  const result = {
     index,
     offset: offset || 0,
     totalByteSize: totalByteSize > 0 ? totalByteSize : 10 * 1024 * 1024,
     numRows: numRows > 0 ? numRows : 100000,
     columnChunks
   };
+  
+  if (result.totalByteSize === undefined || result.offset === undefined) {
+    console.error(`[Parquet] Created invalid RowGroup RG${index}:`, {
+      offset: result.offset,
+      totalByteSize: result.totalByteSize,
+      numRows: result.numRows,
+      originalTotalByteSize: totalByteSize,
+      originalOffset: offset
+    });
+  }
+  
+  return result;
 }
 
 /**
@@ -384,12 +409,21 @@ export async function compactFragmentedRowGroups(
   
   for (const rg of fragmentedRowGroups) {
     try {
+      if (!rg || rg.totalByteSize === undefined || rg.offset === undefined) {
+        console.error(`[Parquet] Invalid RowGroup at index ${rg?.index || 'unknown'}:`, {
+          hasRg: !!rg,
+          totalByteSize: rg?.totalByteSize,
+          offset: rg?.offset,
+          index: rg?.index
+        });
+        continue;
+      }
       const data = await readRange(bucket, bucketKey, rg.offset, rg.totalByteSize);
       fragmentedData.push(data);
       totalFragmentedSize += rg.totalByteSize;
       console.log(`[Parquet] Read RG${rg.index}: ${rg.totalByteSize} bytes`);
     } catch (error) {
-      console.error(`[Parquet] Failed to read RG${rg.index}: ${error}`);
+      console.error(`[Parquet] Failed to read RG${rg?.index || 'unknown'}: ${error}`);
     }
   }
   

@@ -423,13 +423,40 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
           
           const outKey = `battle_compacted/${period}/${datasetId}/${tbl}/${globalIndex}.parquet`;
           
+          // DETAILED LOGGING before stream merge
+          console.log(`[Workflow] About to merge schema group ${schemaHash}`, {
+            fragmentCount: pickedWithData.length,
+            fragments: pickedWithData.map(f => ({ key: f.key, size: f.size, hasData: !!f.data }))
+          });
+          
           // 抽出済みデータを使ったストリーミングマージ
-          const res = await streamMergeExtractedFragments(
-            this.env.BATTLE_DATA_BUCKET,
-            outKey,
-            pickedWithData,
-            THRESHOLD
-          );
+          let res;
+          try {
+            res = await streamMergeExtractedFragments(
+              this.env.BATTLE_DATA_BUCKET,
+              outKey,
+              pickedWithData,
+              THRESHOLD
+            );
+          } catch (error) {
+            console.error('[Workflow] Stream merge failed', {
+              datasetId,
+              period,
+              table: tbl,
+              schemaHash,
+              pickedCount: pickedWithData.length,
+              outKey,
+              threshold: THRESHOLD,
+              pickedFragments: pickedWithData.map(p => ({
+                key: p.key,
+                size: p.size,
+                dataLength: p.data?.byteLength
+              })),
+              error: error instanceof Error ? error.message : String(error),
+              errorStack: error instanceof Error ? error.stack : undefined,
+            });
+            throw error;
+          }
           outputs.push({ key: outKey, size: res.newFileSize, etag: res.etag });
           
           globalIndex += 1;
