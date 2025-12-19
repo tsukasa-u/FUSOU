@@ -243,7 +243,7 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
       const step2Start = Date.now();
       const fragments = await step.do('list-fragments', { retries: SUPABASE_RETRY_CONFIG }, async (): Promise<D1Fragment[]> => {
         const stmt = this.env.BATTLE_INDEX_DB.prepare(
-          `SELECT key, size, etag, uploaded_at, content_hash, "table" as table, period_tag, table_offsets
+          `SELECT key, size, etag, uploaded_at, content_hash, "table", period_tag, table_offsets
            FROM battle_files
            WHERE dataset_id = ? ${table ? 'AND "table" = ?' : ''} ${periodTag ? 'AND period_tag = ?' : ''}
            ORDER BY uploaded_at ASC`
