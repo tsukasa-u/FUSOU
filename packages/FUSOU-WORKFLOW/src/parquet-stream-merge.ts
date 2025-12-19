@@ -46,6 +46,7 @@ async function readFragmentMetadata(
   
   const footerData = new Uint8Array(await footerObj.arrayBuffer());
   const rowGroups = parseParquetMetadata(footerData);
+    
   
   return {
     key,
@@ -257,6 +258,7 @@ export async function streamMergeExtractedFragments(
     const footerData = data.slice(footerStart, footerStart + footerSize);
     
     const rowGroups = parseParquetMetadata(footerData);
+    
     
     return {
       key: frag.key,
