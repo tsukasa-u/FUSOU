@@ -70,10 +70,10 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
     });
 
     try {
-      // ===== Step 1: Validate Dataset =====
+      // ===== Step 1: Ensure Dataset Exists (create if missing) =====
       const step1Start = Date.now();
 
-      const validation = await step.do('validate-dataset', {
+      const validation = await step.do('ensure-dataset', {
         retries: SUPABASE_RETRY_CONFIG
       }, async () => {
         const supabase = createClient(
@@ -81,26 +81,52 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
           this.env.SUPABASE_SECRET_KEY
         );
 
-        const { data, error } = await supabase
+        // Try to find existing dataset
+        const { data: existing, error: fetchError } = await supabase
           .from('datasets')
           .select('id, compaction_needed, compaction_in_progress')
           .eq('id', datasetId)
           .limit(1)
           .maybeSingle();
 
-        if (error) {
-          throw new Error(`Dataset validation failed: ${error.message}`);
-        }
-        if (!data) {
-          throw new Error('Dataset validation failed: not found');
+        if (fetchError) {
+          throw new Error(`Dataset fetch failed: ${fetchError.message}`);
         }
 
-        return data;
+        // If exists, return it
+        if (existing) {
+          console.info(`[Workflow] Dataset exists`, { datasetId });
+          return existing;
+        }
+
+        // If not found, create it (idempotent workflow design)
+        console.info(`[Workflow] Creating missing dataset record`, { datasetId, table, periodTag });
+        
+        const { data: created, error: createError } = await supabase
+          .from('datasets')
+          .insert({
+            id: datasetId,
+            name: `${table || 'unknown'}-${periodTag || Date.now()}`,
+            compaction_needed: true,
+            compaction_in_progress: false,
+          })
+          .select('id, compaction_needed, compaction_in_progress')
+          .single();
+
+        if (createError) {
+          throw new Error(`Dataset creation failed: ${createError.message}`);
+        }
+        if (!created) {
+          throw new Error('Dataset creation failed: no data returned');
+        }
+
+        console.info(`[Workflow] Dataset created`, { datasetId });
+        return created;
       });
 
       const step1Duration = Date.now() - step1Start;
       stepMetrics.push({
-        stepName: 'validate-dataset',
+        stepName: 'ensure-dataset',
         startTime: step1Start,
         endTime: step1Start + step1Duration,
         duration: step1Duration,
@@ -111,7 +137,7 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
         },
       });
 
-      console.info(`[Workflow] Step 1 completed: validate-dataset`, {
+      console.info(`[Workflow] Step 1 completed: ensure-dataset`, {
         datasetId,
         duration: `${step1Duration}ms`,
       });
