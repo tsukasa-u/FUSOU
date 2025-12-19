@@ -258,6 +258,7 @@ app.post("/upload", async (c) => {
               priority: "realtime",
               triggeredAt: uploadedAt,
               metricId,
+              userId: user.id,
             });
             console.info("[battle-data] Queue send result:", { sendResult });
             return sendResult;

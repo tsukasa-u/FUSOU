@@ -25,6 +25,7 @@ interface CompactionParams {
   table?: string;
   periodTag?: string;
   metricId?: string;
+  userId?: string;
 }
 
 interface StepMetrics {
@@ -60,7 +61,7 @@ const SUPABASE_RETRY_CONFIG = {
 
 export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionParams> {
   async run(event: Readonly<WorkflowEvent<CompactionParams>>, step: WorkflowStep) {
-    const { datasetId, metricId, table, periodTag } = event.payload;
+    const { datasetId, metricId, table, periodTag, userId } = event.payload;
     const workflowStartTime = Date.now();
     const stepMetrics: StepMetrics[] = [];
 
@@ -100,12 +101,17 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
         }
 
         // If not found, create it (idempotent workflow design)
-        console.info(`[Workflow] Creating missing dataset record`, { datasetId, table, periodTag });
+        console.info(`[Workflow] Creating missing dataset record`, { datasetId, table, periodTag, userId });
+        
+        if (!userId) {
+          throw new Error('userId is required to create dataset record');
+        }
         
         const { data: created, error: createError } = await supabase
           .from('datasets')
           .insert({
             id: datasetId,
+            user_id: userId,
             name: `${table || 'unknown'}-${periodTag || Date.now()}`,
             compaction_needed: true,
             compaction_in_progress: false,
