@@ -72,6 +72,7 @@ app.post("/snapshot", async (c) => {
     executionProcessor: async (tokenPayload, data, user) => {
       const tag = tokenPayload.tag;
       const datasetId = typeof tokenPayload?.dataset_id === "string" ? tokenPayload.dataset_id.trim() : "";
+      const ownerId = user?.id;
 
       if (!tag) {
         return c.json({ error: "Invalid token payload" }, 400);
@@ -79,6 +80,10 @@ app.post("/snapshot", async (c) => {
 
       if (!datasetId) {
         return c.json({ error: "Invalid token payload (missing dataset_id)" }, 400);
+      }
+
+      if (!ownerId) {
+        return c.json({ error: "User authentication required" }, 401);
       }
 
       // Treat very small payloads as empty and skip upload
