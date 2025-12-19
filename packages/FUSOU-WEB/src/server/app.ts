@@ -10,6 +10,7 @@ import kcApp from './routes/kc';
 import compactApp from './routes/compact';
 import analyticsApp from './routes/analytics';
 import battleDataApp from './routes/battle_data';
+import userApp from './routes/user';
 
 const app = new Hono<{ Bindings: Bindings }>();
 
@@ -49,6 +50,7 @@ app.route('/kc-period', kcApp);     // kcApp declares /latest, etc.
 app.route('/compaction', compactApp); // compactApp declares /compact, /compact/trigger, /compact/status
 app.route('/battle-data', battleDataApp); // battleDataApp declares /upload, /health
 app.route('/analytics', analyticsApp); // analyticsApp declares /compaction-metrics
+app.route('/user', userApp); // userApp declares /member-map/upsert, /member-map
 
 // Catch-all 404
 app.all('*', (c) => {

@@ -42,6 +42,11 @@ pub fn emit_data(handle: &tauri::AppHandle, emit_data: EmitData) {
             }
             Set::Basic(data) => {
                 data.restore();
+                // Upsert member_id to Supabase once per session after Basic is loaded
+                let handle_clone = handle.clone();
+                tokio::task::spawn(async move {
+                    crate::util::try_upsert_member_id(&handle_clone).await;
+                });
             }
             Set::Materials(data) => {
                 let _ = handle.emit_to("main", "set-kcs-materials", data);

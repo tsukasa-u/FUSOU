@@ -462,6 +462,8 @@ impl ConfigsAppAssetSync {
         }
     }
 
+    // member_map_endpoint moved to app.auth
+
     // Backward-compatible wrappers for older getter names
     pub fn get_asset_sync_api_endpoint(&self) -> Option<String> {
         self.get_asset_upload_endpoint()
@@ -587,6 +589,7 @@ impl ConfigsAppAssetSync {
 pub struct ConfigsAppAuth {
     deny_auth: Option<bool>,
     auth_page_url: Option<String>,
+    member_map_endpoint: Option<String>,
 }
 
 impl ConfigsAppAuth {
@@ -598,6 +601,18 @@ impl ConfigsAppAuth {
         match &self.auth_page_url {
             Some(v) if !v.is_empty() => v.clone(),
             _ => get_default_configs().app.auth.auth_page_url.clone().unwrap(),
+        }
+    }
+
+    pub fn get_member_map_endpoint(&self) -> Option<String> {
+        match &self.member_map_endpoint {
+            Some(v) if !v.trim().is_empty() => Some(v.trim().to_string()),
+            _ => get_default_configs()
+                .app
+                .auth
+                .member_map_endpoint
+                .as_ref()
+                .map(|s| s.trim().to_string()),
         }
     }
 }
@@ -1179,6 +1194,7 @@ mod tests {
         let empty_auth = ConfigsAppAuth {
             deny_auth: None,
             auth_page_url: None,
+            member_map_endpoint: None,
         };
         
         assert_eq!(
