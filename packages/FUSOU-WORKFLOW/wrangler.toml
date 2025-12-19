@@ -6,18 +6,10 @@ compatibility_flags = ["nodejs_compat"]
 main = "src/index.ts"
 
 # ===== Environment Variables =====
-# Note: Using dotenvx for encrypted environment variable management
-# 1. Create .env file with plaintext values
-# 2. Run: npx dotenvx encrypt
-# 3. Retrieve DOTENV_PRIVATE_KEY from .env.keys
-# 4. Set as Worker secret: wrangler secret put DOTENV_PRIVATE_KEY
-# 5. The import '@dotenvx/dotenvx/config' in index.ts automatically loads encrypted values
-# 6. Deploy with: npm run deploy (uses dotenvx run -- wrangler deploy)
-# 
-# How it works:
-# - At deployment: dotenvx run wrapper decrypts and injects vars into build environment
-# - At runtime: import '@dotenvx/dotenvx/config' loads from encrypted .env file
-# - Variables are available in process.env (NOT Cloudflare bindings this.env)
+# Supabase credentials are set as Cloudflare Worker Secrets in the Dashboard
+# - PUBLIC_SUPABASE_URL: Text variable 
+# - SUPABASE_SECRET_KEY: Secret
+# These are bound to the Env interface and accessible in code
 
 # ===== Workflow definitions =====
 [[workflows]]

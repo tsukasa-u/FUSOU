@@ -6,7 +6,7 @@
   "main": "src/index.ts",
   "scripts": {
     "dev": "wrangler dev",
-    "deploy": "dotenvx run -- wrangler deploy",
+    "deploy": "wrangler deploy",
     "types": "wrangler types",
     "tail": "wrangler tail",
     "test": "scripts/test-parquet-optimization.sh",
@@ -18,7 +18,6 @@
   "license": "MIT",
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20251128.0",
-    "@dotenvx/dotenvx": "^1.51.1",
     "typescript": "^5.9.3",
     "wrangler": "^4.51.0"
   },

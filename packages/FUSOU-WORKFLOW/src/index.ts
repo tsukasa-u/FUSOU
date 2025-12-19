@@ -1,6 +1,3 @@
-// Load .env variables automatically (dotenvx for Cloudflare Workers)
-import '@dotenvx/dotenvx/config';
-
 import { WorkflowEntrypoint, WorkflowStep, WorkflowEvent } from 'cloudflare:workers';
 import { createClient } from '@supabase/supabase-js';
 import { pickFragmentsForBucket } from './parquet-merge';
@@ -15,6 +12,8 @@ interface Env {
   DATA_COMPACTION: Workflow;
   COMPACTION_QUEUE: Queue;
   COMPACTION_DLQ: Queue;
+  PUBLIC_SUPABASE_URL: string;
+  SUPABASE_SECRET_KEY: string;
 }
 
 /**
@@ -60,20 +59,6 @@ const SUPABASE_RETRY_CONFIG = {
 };
 
 export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionParams> {
-  /**
-   * Get environment variable from process.env (loaded by dotenvx)
-   * dotenvx automatically decrypts .env file and populates process.env
-   * In Cloudflare Workers: import '@dotenvx/dotenvx/config' makes variables available
-   */
-  private getEnvVar(name: string): string {
-    // @ts-ignore - process is available at runtime in Cloudflare Workers
-    const value = process?.env?.[name];
-    if (!value) {
-      throw new Error(`Environment variable ${name} is not defined. Make sure DOTENV_PRIVATE_KEY secret is set.`);
-    }
-    return value;
-  }
-
   async run(event: Readonly<WorkflowEvent<CompactionParams>>, step: WorkflowStep) {
     const { datasetId, metricId, table, periodTag } = event.payload;
     const workflowStartTime = Date.now();
@@ -92,8 +77,8 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
         retries: SUPABASE_RETRY_CONFIG
       }, async () => {
         const supabase = createClient(
-          this.getEnvVar('PUBLIC_SUPABASE_URL'),
-          this.getEnvVar('SUPABASE_SECRET_KEY')
+          env.PUBLIC_SUPABASE_URL,
+          env.SUPABASE_SECRET_KEY
         );
 
         const { data, error } = await supabase
@@ -133,8 +118,8 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
         retries: SUPABASE_RETRY_CONFIG
       }, async () => {
         const supabase = createClient(
-          this.getEnvVar('PUBLIC_SUPABASE_URL'),
-          this.getEnvVar('SUPABASE_SECRET_KEY')
+          env.PUBLIC_SUPABASE_URL,
+          env.SUPABASE_SECRET_KEY
         );
 
         const { error } = await supabase
@@ -409,8 +394,8 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
         }
       }, async () => {
         const supabase = createClient(
-          this.getEnvVar('PUBLIC_SUPABASE_URL'),
-          this.getEnvVar('SUPABASE_SECRET_KEY')
+          env.PUBLIC_SUPABASE_URL,
+          env.SUPABASE_SECRET_KEY
         );
 
         const now = new Date().toISOString();
@@ -466,8 +451,8 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
       // === Metrics更新（Workflow完了） ===
       if (metricId) {
         const supabase = createClient(
-          this.getEnvVar('PUBLIC_SUPABASE_URL'),
-          this.getEnvVar('SUPABASE_SECRET_KEY')
+          env.PUBLIC_SUPABASE_URL,
+          env.SUPABASE_SECRET_KEY
         );
 
         const workflowCompletedAt = new Date().toISOString();
@@ -520,8 +505,8 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
       // === フラグリセット ===
       try {
         const supabase = createClient(
-          this.getEnvVar('PUBLIC_SUPABASE_URL'),
-          this.getEnvVar('SUPABASE_SECRET_KEY')
+          env.PUBLIC_SUPABASE_URL,
+          env.SUPABASE_SECRET_KEY
         );
 
         await supabase
@@ -535,8 +520,8 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
       // === Metricsレコード更新（エラー） ===
       if (metricId) {
         const supabase = createClient(
-          this.getEnvVar('PUBLIC_SUPABASE_URL'),
-          this.getEnvVar('SUPABASE_SECRET_KEY')
+          env.PUBLIC_SUPABASE_URL,
+          env.SUPABASE_SECRET_KEY
         );
 
         const workflowFailedAt = new Date().toISOString();
