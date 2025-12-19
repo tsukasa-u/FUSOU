@@ -73,8 +73,9 @@ pub async fn perform_snapshot_sync_app(
         "Prepared snapshot data"
     );
 
-    // Build handshake request body via common helper
-    let handshake_body = fusou_upload::Uploader::build_snapshot_handshake("latest");
+    // Build handshake request body via common helper (include dataset_id)
+    let dataset_id = crate::util::get_user_member_id().await;
+    let handshake_body = fusou_upload::Uploader::build_snapshot_handshake("latest", &dataset_id);
 
     let mut headers = std::collections::HashMap::new();
     headers.insert("Content-Type".to_string(), "application/json".to_string());
