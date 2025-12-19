@@ -681,10 +681,10 @@ export default {
       );
     }
 
-    // GET /test-env - temporary endpoint to verify env injection without leaking secrets
+    // GET /test-env - verify env bindings without leaking secrets
     if (path === '/test-env' && request.method === 'GET') {
-      const publicUrl = (globalThis as any)?.process?.env?.PUBLIC_SUPABASE_URL as string | undefined;
-      const secretKey = (globalThis as any)?.process?.env?.SUPABASE_SECRET_KEY as string | undefined;
+      const publicUrl = env.PUBLIC_SUPABASE_URL;
+      const secretKey = env.SUPABASE_SECRET_KEY;
 
       return new Response(
         JSON.stringify({
@@ -905,10 +905,8 @@ export const queueDLQ = {
       timestamp: new Date().toISOString(),
     });
 
-    // @ts-ignore - process is available at runtime in Cloudflare Workers
-    const publicUrl = process?.env?.PUBLIC_SUPABASE_URL;
-    // @ts-ignore
-    const secretKey = process?.env?.SUPABASE_SECRET_KEY;
+    const publicUrl = env.PUBLIC_SUPABASE_URL;
+    const secretKey = env.SUPABASE_SECRET_KEY;
 
     if (!publicUrl || !secretKey) {
       console.error('[DLQ Handler] Missing Supabase environment variables', {
