@@ -69,7 +69,9 @@ export async function extractSchemaFingerprintFromData(
   // スキーマ情報を抽出（簡易版: Row Group最初のColumn Chunkから推定）
   const rowGroups = parseParquetMetadata(footerData);
   
-  if (rowGroups.length === 0 || rowGroups[0].columnChunks.length === 0) {
+  // DEFENSIVE: Check for undefined/null rowGroups or columnChunks
+  // Prevents TypeError: Cannot read properties of undefined (reading 'columnChunks')
+  if (rowGroups.length === 0 || !rowGroups[0] || !rowGroups[0].columnChunks || rowGroups[0].columnChunks.length === 0) {
     // スキーマなし（エラー扱い）
     return {
       hash: 'unknown',
@@ -129,7 +131,9 @@ async function _extractSchemaFingerprintLegacy(
   // スキーマ情報を抽出（簡易版: Row Group最初のColumn Chunkから推定）
   const rowGroups = parseParquetMetadata(footerData);
   
-  if (rowGroups.length === 0 || rowGroups[0].columnChunks.length === 0) {
+  // DEFENSIVE: Check for undefined/null rowGroups or columnChunks
+  // Prevents TypeError: Cannot read properties of undefined (reading 'columnChunks')
+  if (rowGroups.length === 0 || !rowGroups[0] || !rowGroups[0].columnChunks || rowGroups[0].columnChunks.length === 0) {
     // スキーマなし（エラー扱い）
     return {
       hash: 'unknown',
