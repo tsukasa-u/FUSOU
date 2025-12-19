@@ -13,8 +13,6 @@ main = "src/index.ts"
 # Bindings declared below (values come from Dashboard at runtime)
 
 [vars]
-# Variable declarations only - values from Dashboard at runtime
-PUBLIC_SUPABASE_URL = ""
 
 # ===== Workflow definitions =====
 [[workflows]]
