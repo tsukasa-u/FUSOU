@@ -282,47 +282,70 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
               continue;
             }
             
-            // Modern fragment with offset metadata - extract target table only
-            const extracted = await extractTableSafe(
-              this.env.BATTLE_DATA_BUCKET,
-              frag.key,
-              targetTable,
-              frag.table_offsets
-            );
-            
-            if (extracted) {
-              // Verify extracted data is valid Parquet
-              const data = new Uint8Array(extracted.data);
-              if (data.length < 12) {
-                console.warn(`[Workflow] Extracted data too small from ${frag.key}, skipping`);
-                continue;
-              }
-              
-              const magic = new TextDecoder().decode(data.slice(-4));
-              if (magic !== 'PAR1') {
-                console.warn(`[Workflow] Extracted data invalid Parquet magic from ${frag.key}, skipping`);
-                continue;
-              }
-              
-              extractedFragments.push({
-                key: frag.key,
-                data: extracted.data,
-                size: extracted.size,
-              });
-            } else {
-              // Fallback: treat as legacy single-table fragment if extraction failed
-              console.warn(`[Workflow] Failed to extract ${targetTable} from ${frag.key}, downloading full fragment as fallback`);
-              const fullFile = await this.env.BATTLE_DATA_BUCKET.get(frag.key);
-              if (fullFile) {
-                const data = await fullFile.arrayBuffer();
-                console.warn(`[Workflow] CRITICAL: Downloading full concatenated file ${frag.key} (${data.byteLength} bytes) because extraction failed - this may cause memory errors in streamMerge if file is multi-table`);
+            // Modern fragment with offset metadata
+            // Special case: when targetTable is the container 'port_table', extract ALL tables by offsets
+            if ((targetTable || '').toLowerCase() === 'port_table') {
+              for (const off of offsets) {
+                if (off.format !== 'parquet') continue;
+                const perTableExtract = await extractTableSafe(
+                  this.env.BATTLE_DATA_BUCKET,
+                  frag.key,
+                  off.table_name,
+                  frag.table_offsets
+                );
+                if (!perTableExtract) {
+                  console.warn(`[Workflow] Failed to extract ${off.table_name} from ${frag.key}; skipping this table`);
+                  continue;
+                }
+                const dataView = new Uint8Array(perTableExtract.data);
+                if (dataView.length < 12) {
+                  console.warn(`[Workflow] Extracted data too small from ${frag.key}#${off.table_name}, skipping`);
+                  continue;
+                }
+                const magic = new TextDecoder().decode(dataView.slice(-4));
+                if (magic !== 'PAR1') {
+                  console.warn(`[Workflow] Extracted data invalid Parquet magic from ${frag.key}#${off.table_name}, skipping`);
+                  continue;
+                }
+                // Ensure unique key per extracted table to avoid merge mapping collisions
                 extractedFragments.push({
-                  key: frag.key,
-                  data,
-                  size: data.byteLength,
+                  key: `${frag.key}#${off.table_name}`,
+                  data: perTableExtract.data,
+                  size: perTableExtract.size,
+                });
+              }
+            } else {
+              // Extract only the requested target table
+              const extracted = await extractTableSafe(
+                this.env.BATTLE_DATA_BUCKET,
+                frag.key,
+                targetTable,
+                frag.table_offsets
+              );
+              
+              if (extracted) {
+                // Verify extracted data is valid Parquet
+                const data = new Uint8Array(extracted.data);
+                if (data.length < 12) {
+                  console.warn(`[Workflow] Extracted data too small from ${frag.key}, skipping`);
+                  continue;
+                }
+                
+                const magic = new TextDecoder().decode(data.slice(-4));
+                if (magic !== 'PAR1') {
+                  console.warn(`[Workflow] Extracted data invalid Parquet magic from ${frag.key}, skipping`);
+                  continue;
+                }
+                
+                extractedFragments.push({
+                  key: `${frag.key}#${targetTable}`,
+                  data: extracted.data,
+                  size: extracted.size,
                 });
               } else {
-                console.warn(`[Workflow] Failed to download ${frag.key} during fallback, skipping`);
+                // Fallback: treat as legacy single-table fragment if extraction failed
+                console.warn(`[Workflow] Failed to extract ${targetTable} from ${frag.key}, skipping fallback to full-file to avoid multi-table parse errors`);
+                // Intentionally skip to avoid hyparquet failures on concatenated files
               }
             }
           } else {
@@ -370,7 +393,8 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
       const step3Start = Date.now();
       const THRESHOLD = 256 * 1024 * 1024;
       const period = periodTag || filtered[0]?.period_tag || 'unknown';
-      const tbl = table || filtered[0]?.table || 'unknown';
+      const baseTable = table || filtered[0]?.table || 'unknown';
+      const tbl = (baseTable || '').toLowerCase() === 'port_table' ? 'mixed' : baseTable;
       let outputs: Array<{ key: string; size: number; etag: string }> = [];
       const totalOriginal = extractedFragments.reduce((sum, r) => sum + r.size, 0);
 
