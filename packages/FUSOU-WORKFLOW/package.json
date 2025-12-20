@@ -13,7 +13,11 @@
     "validate:py": "python3 scripts/validate_parquet.py",
     "validate:sql": "duckdb < scripts/validate_parquet.sql"
   },
-  "keywords": ["cloudflare", "workers", "workflows"],
+  "keywords": [
+    "cloudflare",
+    "workers",
+    "workflows"
+  ],
   "author": "",
   "license": "MIT",
   "devDependencies": {
@@ -22,6 +26,7 @@
     "wrangler": "^4.51.0"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.86.0"
+    "@supabase/supabase-js": "^2.86.0",
+    "hyparquet": "^1.23.3"
   }
 }

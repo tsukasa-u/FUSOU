@@ -3,7 +3,7 @@
  * メモリ効率化: Range GET→逐次転送でメモリ消費を最小化
  */
 
-import { parseParquetMetadata, RowGroupInfo } from './parquet-compactor';
+import { parseParquetMetadataFromFullFile, RowGroupInfo } from './parquet-compactor';
 
 interface SourceFragment {
   key: string;
@@ -15,38 +15,31 @@ interface SourceFragment {
 
 /**
  * フッター情報のみ先読み（メタデータ取得）
+ * 
+ * NOTE: hyparquet を使用するため、全ファイルを読み込んでメタデータをパースします
  */
 async function readFragmentMetadata(
   bucket: R2Bucket,
   key: string
 ): Promise<SourceFragment> {
-  // 末尾8バイト読み取り（footer size + magic）
-  const tailObj = await bucket.get(key, {
-    range: { suffix: 8 },
-  });
-  if (!tailObj) throw new Error(`Fragment not found: ${key}`);
+  // 全ファイルを読み込み
+  const fileObj = await bucket.get(key);
+  if (!fileObj) throw new Error(`Fragment not found: ${key}`);
   
-  const tailBuf = new Uint8Array(await tailObj.arrayBuffer());
-  const magic = new TextDecoder().decode(tailBuf.slice(-4));
+  const fileData = new Uint8Array(await fileObj.arrayBuffer());
+  const totalSize = fileData.length;
+  
+  // Magic number チェック
+  const magic = new TextDecoder().decode(fileData.slice(-4));
   if (magic !== 'PAR1') throw new Error(`Invalid magic in ${key}`);
   
-  const footerSizeView = new DataView(tailBuf.buffer, tailBuf.byteOffset, 4);
+  // Footer サイズを取得
+  const footerSizeView = new DataView(fileData.buffer, fileData.byteOffset + fileData.length - 8, 4);
   const footerSize = footerSizeView.getUint32(0, true);
-  
-  // Footer本体を読み取り
-  const headObj = await bucket.head(key);
-  if (!headObj) throw new Error(`Cannot head ${key}`);
-  const totalSize = headObj.size;
   const footerStart = totalSize - 8 - footerSize;
   
-  const footerObj = await bucket.get(key, {
-    range: { offset: footerStart, length: footerSize },
-  });
-  if (!footerObj) throw new Error(`Cannot read footer of ${key}`);
-  
-  const footerData = new Uint8Array(await footerObj.arrayBuffer());
-  const rowGroups = parseParquetMetadata(footerData);
-    
+  // hyparquet を使って全ファイルからメタデータをパース
+  const rowGroups = parseParquetMetadataFromFullFile(fileData);
   
   return {
     key,

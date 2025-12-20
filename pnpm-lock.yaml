@@ -282,6 +282,9 @@ importers:
       '@supabase/supabase-js':
         specifier: ^2.86.0
         version: 2.86.0
+      hyparquet:
+        specifier: ^1.23.3
+        version: 1.23.3
     devDependencies:
       '@cloudflare/workers-types':
         specifier: ^4.20251128.0
@@ -3498,6 +3501,9 @@ packages:
   human-signals@2.1.0:
     resolution: {integrity: sha512-B4FFZ6q/T2jhhksgkbEW3HBvWIfDW85snkQgawt07S7J5QXTk6BkNV+0yAeZrM5QpMAdYlocGoljn0sJ/WQkFw==}
     engines: {node: '>=10.17.0'}
+
+  hyparquet@1.23.3:
+    resolution: {integrity: sha512-6ppbspbAH8ZgMT/8cUs3YQQF5I6q85oNI1ToTJX9nq5YMgZDM+BoU6Lc7QyS5Ve13xx1Vw+aacZ/Qh1N/Pxeyg==}
 
   iceberg-js@0.8.0:
     resolution: {integrity: sha512-kmgmea2nguZEvRqW79gDqNXyxA3OS5WIgMVffrHpqXV4F/J4UmNIw2vstixioLTNSkd5rFB8G0s3Lwzogm6OFw==}
@@ -8873,6 +8879,8 @@ snapshots:
   http-cache-semantics@4.2.0: {}
 
   human-signals@2.1.0: {}
+
+  hyparquet@1.23.3: {}
 
   iceberg-js@0.8.0: {}
 
