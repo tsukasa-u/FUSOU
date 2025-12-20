@@ -226,10 +226,27 @@ export async function compactFragmentedRowGroups(
         });
         continue;
       }
-      const data = await readRange(bucket, bucketKey, rg.offset, rg.totalByteSize);
+      // 読み取り範囲の安全チェック（フッター開始位置を上限としてクランプ）
+      const safeOffset = Math.max(0, Math.min(rg.offset, footerStart));
+      const maxReadable = footerStart - safeOffset;
+      const requestedSize = rg.totalByteSize;
+      const safeSize = Math.max(0, Math.min(requestedSize, maxReadable));
+
+      if (safeSize <= 0) {
+        console.warn(`[Parquet] Skipping RG${rg.index}: out-of-bounds range`, {
+          offset: rg.offset,
+          totalByteSize: rg.totalByteSize,
+          footerStart,
+          safeOffset,
+          safeSize,
+        });
+        continue;
+      }
+
+      const data = await readRange(bucket, bucketKey, safeOffset, safeSize);
       fragmentedData.push(data);
-      totalFragmentedSize += rg.totalByteSize;
-      console.log(`[Parquet] Read RG${rg.index}: ${rg.totalByteSize} bytes`);
+      totalFragmentedSize += safeSize;
+      console.log(`[Parquet] Read RG${rg.index}: ${safeSize} bytes (requested ${requestedSize})`);
     } catch (error) {
       console.error(`[Parquet] Failed to read RG${rg?.index || 'unknown'}: ${error}`);
     }
