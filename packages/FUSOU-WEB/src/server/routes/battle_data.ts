@@ -4,6 +4,7 @@ import type { Bindings } from "../types";
 import { CORS_HEADERS } from "../constants";
 import { createEnvContext, getEnv } from "../utils";
 import { handleTwoStageUpload } from "../utils/upload";
+import { validateOffsetMetadata } from "../validators/offsets";
 
 const app = new Hono<{ Bindings: Bindings }>();
 
@@ -35,8 +36,8 @@ async function withRetry<T>(
       console.warn(`[battle-data] Retry: Attempt ${attempt + 1} failed, retrying in ${delay}ms`, {
         error: (error as any)?.message,
       });
-      await new Promise(resolve => setTimeout(resolve, delay));
-    }
+            let declaredSize = parseInt(typeof body?.file_size === "string" ? body.file_size : "0", 10);
+            let tableOffsets = typeof body?.table_offsets === "string" ? body.table_offsets.trim() : null;
   }
   throw new Error('Max retries exceeded');
 }
@@ -118,6 +119,21 @@ app.post("/upload", async (c) => {
         return c.json({ error: "file_size must be > 0" }, 400);
       }
 
+      // Strict server-side validation of provided table_offsets; reject on failure
+      if (tableOffsets) {
+        try {
+          const parsed = JSON.parse(tableOffsets);
+          const { valid, errors } = validateOffsetMetadata(parsed, declaredSize);
+          if (!valid) {
+            console.warn(`[battle-data] Invalid table_offsets provided; rejecting. Errors: ${errors.join(', ')}`);
+            return c.json({ error: "Invalid table_offsets", details: errors }, 400);
+          }
+        } catch (e) {
+          console.warn(`[battle-data] Failed to parse table_offsets; rejecting. Error: ${String(e)}`);
+          return c.json({ error: "Malformed table_offsets JSON" }, 400);
+        }
+      }
+
       // Generate variable key with timestamp + UUID to prevent overwrites
       const now = new Date();
       const timestamp = now.toISOString().replace(/[^\d]/g, "").slice(0, 14); // YYYYMMDDHHmmss
@@ -142,7 +158,7 @@ app.post("/upload", async (c) => {
       const table = tokenPayload.table;
       const contentHash = tokenPayload.content_hash;
       const periodTag = (tokenPayload as any).period_tag as string;
-      const tableOffsets = (tokenPayload as any).table_offsets as string | null;
+        let tableOffsets = (tokenPayload as any).table_offsets as string | null;
       if (!key || !datasetId || !table) {
         return c.json({ error: "Invalid token payload" }, 400);
       }

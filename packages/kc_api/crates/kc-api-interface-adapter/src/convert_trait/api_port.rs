@@ -1,4 +1,3 @@
-use kc_api_dto::endpoints::api_get_member::basic;
 use kc_api_interface::deck_port::{DeckPorts, Basic};
 use kc_api_interface::interface::{EmitData, Identifier, Set};
 use kc_api_interface::logs::Logs;

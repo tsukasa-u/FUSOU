@@ -139,11 +139,18 @@ impl BatchUploadBuilder {
             debug!("Converted '{}': {} bytes Parquet", table.name, parquet_tables.last().unwrap().1.len());
         }
 
-        // Step 2: Concatenate all Parquet files and track offsets
+        // Step 2: Concatenate all Parquet files and track offsets (strict validation)
         let mut concatenated = Vec::new();
         let mut metadata = Vec::new();
 
         for (table_name, parquet_bytes) in parquet_tables {
+            if parquet_bytes.is_empty() {
+                return Err(ConversionError::ValidationError(format!(
+                    "Parquet conversion produced empty output for table '{}'",
+                    table_name
+                )));
+            }
+
             let start_byte = concatenated.len();
             let byte_length = parquet_bytes.len();
 
@@ -163,6 +170,18 @@ impl BatchUploadBuilder {
         }
 
         let total_bytes = concatenated.len();
+
+        // Sanity: ensure each segment fits within the concatenated buffer and total matches
+        for meta in &metadata {
+            let end = meta.start_byte + meta.byte_length;
+            if end > total_bytes {
+                return Err(ConversionError::ValidationError(format!(
+                    "Invalid offset for table '{}': end {} exceeds total {}",
+                    meta.table_name, end, total_bytes
+                )));
+            }
+        }
+
         info!("Batch upload build completed: {} bytes total", total_bytes);
 
         Ok(BatchUploadData {
