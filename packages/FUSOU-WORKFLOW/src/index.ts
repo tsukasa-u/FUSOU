@@ -169,7 +169,6 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
       interface D1Fragment {
         key: string;
         size: number;
-        etag: string | null;
         uploaded_at: string;
         content_hash: string | null;
         table: string;
@@ -180,7 +179,7 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
       const step2Start = Date.now();
       const fragments = await step.do('list-fragments', { retries: { limit: 3, delay: 1000, backoff: 'exponential' as const } }, async (): Promise<D1Fragment[]> => {
         const stmt = this.env.BATTLE_INDEX_DB.prepare(
-          `SELECT key, size, etag, uploaded_at, content_hash, "table", period_tag, table_offsets
+          `SELECT key, size, uploaded_at, content_hash, "table", period_tag, table_offsets
            FROM battle_files
            WHERE dataset_id = ? ${table ? 'AND "table" = ?' : ''} ${periodTag ? 'AND period_tag = ?' : ''}
            ORDER BY uploaded_at ASC`
@@ -226,11 +225,7 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
       const extractStart = Date.now();
       const targetTable = table || filtered[0]?.table || 'unknown';
       
-      console.log(`[Workflow] Extracting table "${targetTable}" from ${filtered.length} fragments`);
-      console.log(`[Workflow] Fragment details:`);
-      for (const frag of filtered) {
-        console.log(`  - ${frag.key}: size=${frag.size}, table=${frag.table}, has_table_offsets=${!!frag.table_offsets}, offsets_content=${frag.table_offsets ? frag.table_offsets.substring(0, 100) : 'null'}`);
-      }
+      console.log(`[Workflow] Extracting "${targetTable}" from ${filtered.length} fragments (${filtered.filter(f => f.table_offsets).length} with offsets, ${filtered.filter(f => !f.table_offsets).length} legacy)`);
       
       const extractedFragments: Array<{ 
         key: string; 
@@ -248,8 +243,6 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
           if (frag.table_offsets) {
             // Parse offset metadata
             const offsets = parseTableOffsets(frag.table_offsets);
-            console.info(`[Workflow] Fragment ${frag.key} has table_offsets: ${frag.table_offsets}`);
-            console.info(`[Workflow] Parsed offsets for ${frag.key}: ${offsets ? JSON.stringify(offsets.map(o => o.table_name)) : 'null'}`);
             if (!offsets) {
               console.warn(`[Workflow] Failed to parse offset metadata in ${frag.key}, downloading full file`);
               // Treat as legacy fragment
