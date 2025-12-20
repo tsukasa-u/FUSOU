@@ -136,6 +136,66 @@ export function parseParquetMetadataFromFullFile(fileData: Uint8Array): RowGroup
 }
 
 /**
+ * フッター（metadata + 8バイトの長さと"PAR1"）だけからメタデータをパース
+ * 大容量ファイルでもフッターのみのRange GETで対応可能
+ */
+export function parseParquetMetadataFromFooterBuffer(footerBuffer: Uint8Array): RowGroupInfo[] {
+  try {
+    const metadata = parquetMetadata(footerBuffer);
+
+    const rowGroups: RowGroupInfo[] = [];
+    if (metadata.row_groups) {
+      for (let i = 0; i < metadata.row_groups.length; i++) {
+        const rg = metadata.row_groups[i];
+        const columnChunks: ColumnChunkInfo[] = [];
+        let rgStart = Number.POSITIVE_INFINITY;
+        let rgEnd = 0;
+
+        if (rg.columns && rg.columns.length > 0) {
+          for (let colIdx = 0; colIdx < rg.columns.length; colIdx++) {
+            const col = rg.columns[colIdx];
+            const md = col.meta_data ?? ({} as any);
+
+            const starts: number[] = [];
+            if (typeof md.dictionary_page_offset === 'number') starts.push(Number(md.dictionary_page_offset));
+            if (typeof md.index_page_offset === 'number') starts.push(Number(md.index_page_offset));
+            if (typeof md.data_page_offset === 'number') starts.push(Number(md.data_page_offset));
+
+            const colStart = starts.length > 0 ? Math.min(...starts) : (typeof col.file_offset === 'number' ? Number(col.file_offset) : 0);
+            const colSizeCompressed = typeof md.total_compressed_size === 'number' ? Number(md.total_compressed_size) : 0;
+            const colEnd = colStart + colSizeCompressed;
+
+            rgStart = Math.min(rgStart, colStart);
+            rgEnd = Math.max(rgEnd, colEnd);
+
+            columnChunks.push({
+              columnIndex: colIdx,
+              offset: colStart,
+              size: colSizeCompressed,
+              type: md.type !== undefined ? String(md.type) : 'unknown',
+            });
+          }
+        }
+
+        rowGroups.push({
+          index: i,
+          offset: Number.isFinite(rgStart) ? rgStart : (typeof (rg as any).file_offset === 'number' ? Number((rg as any).file_offset) : undefined),
+          totalByteSize: rgEnd > rgStart ? (rgEnd - rgStart) : undefined,
+          numRows: typeof (rg as any).num_rows === 'number' ? Number((rg as any).num_rows) : 0,
+          columnChunks,
+        });
+      }
+    }
+
+    return rowGroups;
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error(`[Parquet.parseFromFooter] Failed: ${errorMessage}`);
+    return [];
+  }
+}
+
+/**
  * Parquet footer メタデータを hyparquet でパース
  * 
  * NOTE: hyparquet の parquetMetadata は完全な Parquet ファイルを期待するため、

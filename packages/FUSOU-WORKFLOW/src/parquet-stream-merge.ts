@@ -3,7 +3,7 @@
  * メモリ効率化: Range GET→逐次転送でメモリ消費を最小化
  */
 
-import { parseParquetMetadataFromFullFile, RowGroupInfo } from './parquet-compactor';
+import { parseParquetMetadataFromFullFile, parseParquetMetadataFromFooterBuffer, RowGroupInfo } from './parquet-compactor';
 
 interface SourceFragment {
   key: string;
@@ -22,32 +22,53 @@ async function readFragmentMetadata(
   bucket: R2Bucket,
   key: string
 ): Promise<SourceFragment> {
-  // 全ファイルを読み込み
-  const fileObj = await bucket.get(key);
-  if (!fileObj) throw new Error(`Fragment not found: ${key}`);
-  
-  const fileData = new Uint8Array(await fileObj.arrayBuffer());
-  const totalSize = fileData.length;
-  
-  // Magic number チェック
-  const magic = new TextDecoder().decode(fileData.slice(-4));
+  // まずHEADでサイズのみ取得（ボディは読まない）
+  let totalSize = 0;
+  try {
+    const head = await (bucket as any).head?.(key);
+    if (head && typeof head.size === 'number') {
+      totalSize = head.size;
+    }
+  } catch (_) {
+    // head未対応の場合は最小限のGETでサイズを得る（Range: 0-0 でもsizeは得られる）
+  }
+
+  // サイズが未取得なら最小のGETで取得
+  if (!totalSize) {
+    const tiny = await bucket.get(key, { range: { offset: 0, length: 1 } });
+    if (!tiny) throw new Error(`Fragment not found: ${key}`);
+    totalSize = (tiny as any).size || tiny.body?.size || 0;
+  }
+
+  if (totalSize < 12) throw new Error(`Invalid Parquet (too small): ${key}`);
+
+  // 末尾8バイトだけ取得してfooterサイズを読む
+  const tailObj = await bucket.get(key, { range: { offset: totalSize - 8, length: 8 } });
+  if (!tailObj) throw new Error(`Failed to read tail: ${key}`);
+  const tailBuf = new Uint8Array(await tailObj.arrayBuffer());
+  const magic = new TextDecoder().decode(tailBuf.slice(4));
   if (magic !== 'PAR1') throw new Error(`Invalid magic in ${key}`);
-  
-  // Footer サイズを取得
-  const footerSizeView = new DataView(fileData.buffer, fileData.byteOffset + fileData.length - 8, 4);
-  const footerSize = footerSizeView.getUint32(0, true);
+  const footerSize = new DataView(tailBuf.buffer, tailBuf.byteOffset, 4).getUint32(0, true);
   const footerStart = totalSize - 8 - footerSize;
-  
-  // hyparquet を使って全ファイルからメタデータをパース
-  const rowGroups = parseParquetMetadataFromFullFile(fileData);
-  
-  return {
-    key,
-    footerSize,
-    footerStart,
-    rowGroups,
-    totalSize,
-  };
+  if (footerStart < 4 || footerSize <= 0) throw new Error(`Invalid footer region in ${key}`);
+
+  // フッター（metadata + 8バイト）だけをRange GET
+  const footerObj = await bucket.get(key, { range: { offset: footerStart, length: footerSize + 8 } });
+  if (!footerObj) throw new Error(`Failed to read footer: ${key}`);
+  const footerBuf = new Uint8Array(await footerObj.arrayBuffer());
+
+  // hyparquetでフッターだけからメタデータをパース
+  let rowGroups = parseParquetMetadataFromFooterBuffer(footerBuf);
+
+  // 万一空ならフォールバックで全体読み取り（小ファイル前提）
+  if (!rowGroups || rowGroups.length === 0) {
+    const fileObj = await bucket.get(key);
+    if (!fileObj) throw new Error(`Fragment not found (fallback): ${key}`);
+    const fileData = new Uint8Array(await fileObj.arrayBuffer());
+    rowGroups = parseParquetMetadataFromFullFile(fileData);
+  }
+
+  return { key, footerSize, footerStart, rowGroups, totalSize };
 }
 
 /**
