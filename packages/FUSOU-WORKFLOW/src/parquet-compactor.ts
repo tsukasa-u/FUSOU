@@ -85,11 +85,15 @@ export function parseParquetMetadataFromFullFile(fileData: Uint8Array): RowGroup
           }
         }
 
+        // Prefer row-group level metadata if available
+        const rgLevelStart = typeof (rg as any).file_offset === 'number' ? Number((rg as any).file_offset) : undefined;
+        const rgLevelSize = typeof (rg as any).total_byte_size === 'number' ? Number((rg as any).total_byte_size) : undefined;
+
         const rowGroupInfo: RowGroupInfo = {
           index: i,
-          // Prefer computed compressed span; fallback to rg.file_offset if present
-          offset: Number.isFinite(rgStart) ? rgStart : (typeof (rg as any).file_offset === 'number' ? Number((rg as any).file_offset) : undefined),
-          totalByteSize: rgEnd > rgStart ? (rgEnd - rgStart) : undefined,
+          // Prefer explicit row-group level file_offset/total_byte_size
+          offset: rgLevelStart !== undefined ? rgLevelStart : (Number.isFinite(rgStart) ? rgStart : undefined),
+          totalByteSize: rgLevelSize !== undefined ? rgLevelSize : (rgEnd > rgStart ? (rgEnd - rgStart) : undefined),
           numRows: typeof (rg as any).num_rows === 'number' ? Number((rg as any).num_rows) : 0,
           columnChunks,
         };
@@ -164,11 +168,14 @@ export function parseParquetMetadataFromFooterBuffer(footerBuffer: Uint8Array): 
             });
           }
         }
+        // Prefer row-group level metadata if available
+        const rgLevelStart = typeof (rg as any).file_offset === 'number' ? Number((rg as any).file_offset) : undefined;
+        const rgLevelSize = typeof (rg as any).total_byte_size === 'number' ? Number((rg as any).total_byte_size) : undefined;
 
         rowGroups.push({
           index: i,
-          offset: Number.isFinite(rgStart) ? rgStart : (typeof (rg as any).file_offset === 'number' ? Number((rg as any).file_offset) : undefined),
-          totalByteSize: rgEnd > rgStart ? (rgEnd - rgStart) : undefined,
+          offset: rgLevelStart !== undefined ? rgLevelStart : (Number.isFinite(rgStart) ? rgStart : undefined),
+          totalByteSize: rgLevelSize !== undefined ? rgLevelSize : (rgEnd > rgStart ? (rgEnd - rgStart) : undefined),
           numRows: typeof (rg as any).num_rows === 'number' ? Number((rg as any).num_rows) : 0,
           columnChunks,
         });
