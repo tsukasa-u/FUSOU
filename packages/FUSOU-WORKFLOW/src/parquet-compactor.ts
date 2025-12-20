@@ -69,6 +69,7 @@ function parseThriftFileMetadata(data: Uint8Array, offset: number): {
   const row_groups: RowGroupInfo[] = [];
   
   const reader = new ThriftCompactReader(data, pos);
+  reader.resetFieldId();
   
   console.log(`[Parquet.parseThriftFileMetadata] Starting parse at pos=${pos}, dataLength=${data.length}`);
   
@@ -132,6 +133,7 @@ function parseThriftRowGroup(reader: ThriftCompactReader, index: number): RowGro
   let fileOffset: number | undefined;
   
   const startPos = reader.getPosition();
+  reader.resetFieldId();
   
   // RowGroup 構造体を読む
   while (!reader.isAtEnd()) {
@@ -195,6 +197,8 @@ function parseColumnChunk(reader: ThriftCompactReader, index: number): ColumnChu
   let offset = reader.getPosition();
   let size = 65536;
   
+  reader.resetFieldId();
+  
   while (!reader.isAtEnd()) {
     const fieldInfo = reader.readFieldInfo();
     if (fieldInfo.type === FieldType.STOP) break;
@@ -224,6 +228,7 @@ function parseColumnChunk(reader: ThriftCompactReader, index: number): ColumnChu
  * ColumnMetaData をパース（スキップ主目的）
  */
 function parseColumnMetaData(reader: ThriftCompactReader): void {
+  reader.resetFieldId();
   while (!reader.isAtEnd()) {
     const fieldInfo = reader.readFieldInfo();
     if (fieldInfo.type === FieldType.STOP) break;
@@ -256,6 +261,7 @@ enum FieldType {
 class ThriftCompactReader {
   private data: Uint8Array;
   private pos: number;
+  private lastFieldId: number = 0;
   
   constructor(data: Uint8Array, startPos: number = 0) {
     this.data = data;
@@ -275,9 +281,23 @@ class ThriftCompactReader {
     
     const byte = this.data[this.pos++];
     const type = (byte & 0x0f) as FieldType;
-    const fieldId = (byte >> 4) & 0x0f;
+    const delta = (byte >> 4) & 0x0f;
     
+    let fieldId: number;
+    if (delta === 0) {
+      // Field ID is encoded as a zigzag varint
+      fieldId = this.readZigZagVarint();
+    } else {
+      // Field ID is lastFieldId + delta
+      fieldId = this.lastFieldId + delta;
+    }
+    
+    this.lastFieldId = fieldId;
     return { fieldId, type };
+  }
+  
+  resetFieldId(): void {
+    this.lastFieldId = 0;
   }
   
   readI32(): number {
@@ -288,6 +308,11 @@ class ThriftCompactReader {
   readI64(): number {
     const zigzag = this.readVarintLong();
     return Number((zigzag >> 1n) ^ (-(zigzag & 1n)));
+  }
+  
+  readZigZagVarint(): number {
+    const zigzag = this.readVarint();
+    return (zigzag >>> 1) ^ -(zigzag & 1);
   }
   
   readVarint(): number {
@@ -374,11 +399,14 @@ class ThriftCompactReader {
         }
         break;
       case FieldType.STRUCT:
+        const prevFieldId = this.lastFieldId;
+        this.resetFieldId();
         while (!this.isAtEnd()) {
           const fieldInfo = this.readFieldInfo();
           if (fieldInfo.type === FieldType.STOP) break;
           this.skipField(fieldInfo.type);
         }
+        this.lastFieldId = prevFieldId;
         break;
     }
   }
