@@ -86,16 +86,16 @@ export function parseParquetMetadataFromFullFile(fileData: Uint8Array): RowGroup
           }
         }
 
-        // Prefer row-group level metadata if available
-        const rgLevelStart = typeof (rg as any).file_offset === 'number' ? Number((rg as any).file_offset) : undefined;
-        const rgLevelSize = typeof (rg as any).total_byte_size === 'number' ? Number((rg as any).total_byte_size) : undefined;
+        // Prefer row-group level metadata if available (hyparquet uses bigint for these fields)
+        const rgLevelStart = typeof rg.file_offset === 'bigint' ? Number(rg.file_offset) : undefined;
+        const rgLevelSize = typeof rg.total_byte_size === 'bigint' ? Number(rg.total_byte_size) : undefined;
 
         const rowGroupInfo: RowGroupInfo = {
           index: i,
           // Prefer explicit row-group level file_offset/total_byte_size
           offset: rgLevelStart !== undefined ? rgLevelStart : (Number.isFinite(rgStart) ? rgStart : undefined),
           totalByteSize: rgLevelSize !== undefined ? rgLevelSize : (rgEnd > rgStart ? (rgEnd - rgStart) : undefined),
-          numRows: typeof (rg as any).num_rows === 'number' ? Number((rg as any).num_rows) : 0,
+          numRows: typeof rg.num_rows === 'bigint' ? Number(rg.num_rows) : 0,
           columnChunks,
         };
 
@@ -151,13 +151,14 @@ export function parseParquetMetadataFromFooterBuffer(footerBuffer: Uint8Array): 
             const col = rg.columns[colIdx];
             const md = col.meta_data ?? ({} as any);
 
+            // hyparquet uses bigint for offset fields
             const starts: number[] = [];
-            if (typeof md.dictionary_page_offset === 'number') starts.push(Number(md.dictionary_page_offset));
-            if (typeof md.index_page_offset === 'number') starts.push(Number(md.index_page_offset));
-            if (typeof md.data_page_offset === 'number') starts.push(Number(md.data_page_offset));
+            if (typeof md.dictionary_page_offset === 'bigint') starts.push(Number(md.dictionary_page_offset));
+            if (typeof md.index_page_offset === 'bigint') starts.push(Number(md.index_page_offset));
+            if (typeof md.data_page_offset === 'bigint') starts.push(Number(md.data_page_offset));
 
-            const colStart = starts.length > 0 ? Math.min(...starts) : (typeof col.file_offset === 'number' ? Number(col.file_offset) : 0);
-            const colSizeCompressed = typeof md.total_compressed_size === 'number' ? Number(md.total_compressed_size) : 0;
+            const colStart = starts.length > 0 ? Math.min(...starts) : (typeof col.file_offset === 'bigint' ? Number(col.file_offset) : 0);
+            const colSizeCompressed = typeof md.total_compressed_size === 'bigint' ? Number(md.total_compressed_size) : 0;
             const colEnd = colStart + colSizeCompressed;
 
             rgStart = Math.min(rgStart, colStart);
@@ -171,15 +172,15 @@ export function parseParquetMetadataFromFooterBuffer(footerBuffer: Uint8Array): 
             });
           }
         }
-        // Prefer row-group level metadata if available
-        const rgLevelStart = typeof (rg as any).file_offset === 'number' ? Number((rg as any).file_offset) : undefined;
-        const rgLevelSize = typeof (rg as any).total_byte_size === 'number' ? Number((rg as any).total_byte_size) : undefined;
+        // Prefer row-group level metadata if available (hyparquet uses bigint for these fields)
+        const rgLevelStart = typeof rg.file_offset === 'bigint' ? Number(rg.file_offset) : undefined;
+        const rgLevelSize = typeof rg.total_byte_size === 'bigint' ? Number(rg.total_byte_size) : undefined;
 
         rowGroups.push({
           index: i,
           offset: rgLevelStart !== undefined ? rgLevelStart : (Number.isFinite(rgStart) ? rgStart : undefined),
           totalByteSize: rgLevelSize !== undefined ? rgLevelSize : (rgEnd > rgStart ? (rgEnd - rgStart) : undefined),
-          numRows: typeof (rg as any).num_rows === 'number' ? Number((rg as any).num_rows) : 0,
+          numRows: typeof rg.num_rows === 'bigint' ? Number(rg.num_rows) : 0,
           columnChunks,
         });
       }
