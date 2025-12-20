@@ -246,13 +246,18 @@ impl AvroToParquetConverter {
 
         // Process remaining records
         if !records.is_empty() {
-            let batch = self.create_record_batch(&records, schema)?;
+            let batch = self.create_record_batch(&records, schema.clone())?;
             batches.push(batch);
         }
 
         debug!("Total Avro records read: {}", total_records_read);
         if total_records_read == 0 {
             warn!("WARNING: No Avro records found! Input data may be empty or invalid");
+            // CRITICAL: Create an empty RecordBatch to ensure at least 1 RowGroup exists
+            // This prevents hyparquet from failing with "0 RowGroups" error
+            warn!("Creating empty RecordBatch to ensure valid Parquet file structure");
+            let empty_batch = RecordBatch::new_empty(schema);
+            batches.push(empty_batch);
         }
 
         Ok(batches)
