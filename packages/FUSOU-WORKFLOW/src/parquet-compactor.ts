@@ -130,8 +130,11 @@ export function parseParquetMetadataFromFullFile(fileData: Uint8Array): RowGroup
     console.error(`[Parquet.parseFromFullFile] Failed: ${errorMessage}`);
     console.error(`[Parquet.parseFromFullFile] Error stack: ${errorStack}`);
     
-    // Fallback: 簡易推定
-    return generateEstimatedRowGroups(fileData.length);
+    // CRITICAL: Do NOT use generateEstimatedRowGroups as it produces completely wrong offsets
+    // Instead, treat this as an unparseable file and throw error to prevent silent corruption
+    console.error(`[Parquet.parseFromFullFile] CRITICAL: Unable to parse Parquet metadata. Refusing to generate fake RowGroups.`);
+    console.error(`[Parquet.parseFromFullFile] File size: ${fileData.length} bytes, Footer attempt failed.`);
+    throw new Error(`[Parquet.parseFromFullFile] Unable to parse Parquet file (${fileData.length} bytes): ${errorMessage}`);
   }
 }
 

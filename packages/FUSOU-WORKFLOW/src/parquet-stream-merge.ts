@@ -314,9 +314,18 @@ export async function streamMergeExtractedFragments(
     const footerSize = footerSizeView.getUint32(0, true);
     
     const footerStart = data.length - 8 - footerSize;
-    // hyparquetで全ファイルから確実にメタデータを取得
-    const rawRowGroups = parseParquetMetadataFromFullFile(data) || [];
-    const rowGroups = rawRowGroups.filter((rg, idx) => {
+    
+    // Try to parse metadata, with detailed error handling
+    let rowGroups: RowGroupInfo[] = [];
+    try {
+      rowGroups = parseParquetMetadataFromFullFile(data) || [];
+    } catch (parseErr) {
+      console.error(`[Parquet Stream Merge] Failed to parse metadata for ${frag.key}:`, String(parseErr));
+      // Return empty rowGroups array - this fragment will be skipped due to validation
+      rowGroups = [];
+    }
+    
+    const validRowGroups = rowGroups.filter((rg, idx) => {
       const isValid = !!rg && rg.offset !== undefined && rg.totalByteSize !== undefined && rg.offset !== undefined;
       if (!isValid) {
         console.warn(`[Parquet Stream Merge] Dropping invalid RowGroup from ${frag.key} at index ${idx}`, {
@@ -334,7 +343,7 @@ export async function streamMergeExtractedFragments(
       data,
       footerSize,
       footerStart,
-      rowGroups,
+      rowGroups: validRowGroups,
       totalSize: data.length,
     };
   });
