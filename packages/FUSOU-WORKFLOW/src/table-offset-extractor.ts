@@ -9,6 +9,7 @@ export interface TableOffsetMetadata {
   start_byte: number;
   byte_length: number;
   format: string;
+  num_rows?: number; // Optional: row count for filtering empty tables
 }
 
 export interface ExtractedTable {
@@ -54,6 +55,28 @@ export function parseTableOffsets(offsetsJson: string | null): TableOffsetMetada
     console.error('[OffsetExtractor] Failed to parse table_offsets JSON:', error);
     return null;
   }
+}
+
+/**
+ * Filter out tables with zero row counts from offset metadata
+ * Should be called server-side during fragment generation to exclude empty tables
+ * Client-side caller should remove these tables before extraction
+ */
+export function filterEmptyTables(offsets: TableOffsetMetadata[]): { valid: TableOffsetMetadata[]; empty: TableOffsetMetadata[] } {
+  const valid: TableOffsetMetadata[] = [];
+  const empty: TableOffsetMetadata[] = [];
+
+  for (const offset of offsets) {
+    // If num_rows is explicitly provided and is 0 or negative, mark as empty
+    if (typeof offset.num_rows === 'number' && offset.num_rows <= 0) {
+      console.info(`[OffsetExtractor] Filtering empty table '${offset.table_name}' (numRows=${offset.num_rows})`);
+      empty.push(offset);
+    } else {
+      valid.push(offset);
+    }
+  }
+
+  return { valid, empty };
 }
 
 /**
@@ -229,6 +252,10 @@ export function validateOffsetMetadata(
  * - Checks last 4 bytes for 'PAR1' magic
  * - Reads footer size (little-endian uint32) and ensures bounds
  * - Reconstructs minimal buffer [footer][size][PAR1] and parses via hyparquet
+ * 
+ * NOTE: Tables with numRows=0 are valid Parquet files but have no data.
+ * They are skipped at the server-side filtering stage (filterEmptyTables).
+ * This function will return true for empty Parquet files as they are structurally valid.
  */
 function validateParquetSliceWithHyparquet(buffer: ArrayBuffer): boolean {
   try {
@@ -284,12 +311,19 @@ function validateParquetSliceWithHyparquet(buffer: ArrayBuffer): boolean {
 
     // Parse with hyparquet; if it throws, validation fails
     const md = parquetMetadata(synthetic.buffer);
+    
+    // CHANGE: Allow zero row groups (empty tables are valid Parquet files)
+    // These should have been filtered out at server-side, but if they slip through,
+    // we still accept them as structurally valid
     const rgCount = Array.isArray(md.row_groups) ? md.row_groups.length : 0;
-    if (rgCount <= 0) {
-      console.warn('[OffsetExtractor] hyparquet parsed 0 row groups for slice');
-      return false;
+    const numRows = typeof md.num_rows === 'number' ? Number(md.num_rows) : 0;
+    
+    if (rgCount === 0) {
+      // Log for debugging but accept it - empty tables are valid Parquet files
+      console.warn('[OffsetExtractor] Parquet file has 0 row groups (numRows=0), but structure is valid');
     }
-    return true;
+    
+    return true; // Accept even if rgCount === 0 (empty table)
   } catch (err) {
     console.warn('[OffsetExtractor] hyparquet metadata parse failed for slice:', err);
     return false;

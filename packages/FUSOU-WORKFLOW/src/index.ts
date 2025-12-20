@@ -3,7 +3,7 @@ import { pickFragmentsForBucket } from './parquet-merge';
 import { streamMergeParquetFragments, streamMergeExtractedFragments } from './parquet-stream-merge';
 import { groupFragmentsBySchema, groupExtractedFragmentsBySchema, processSchemaGroups, SchemaGroupOutput } from './parquet-schema';
 import { validateParquetFile, formatValidationReport, validateParquetBatch } from './parquet-validator';
-import { extractTableSafe, validateOffsetMetadata, parseTableOffsets } from './table-offset-extractor';
+import { extractTableSafe, validateOffsetMetadata, parseTableOffsets, filterEmptyTables } from './table-offset-extractor';
 
 interface Env {
   BATTLE_DATA_BUCKET: R2Bucket;
@@ -285,7 +285,14 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
             // Modern fragment with offset metadata
             // Special case: when targetTable is the container 'port_table', extract ALL tables by offsets
             if ((targetTable || '').toLowerCase() === 'port_table') {
-              for (const off of offsets) {
+              // Filter out empty tables (numRows=0) to avoid extraction errors
+              const { valid: validOffsets, empty: emptyTables } = filterEmptyTables(offsets);
+              
+              if (emptyTables.length > 0) {
+                console.info(`[Workflow] Filtered out ${emptyTables.length} empty tables from ${frag.key}: ${emptyTables.map(t => t.table_name).join(', ')}`);
+              }
+              
+              for (const off of validOffsets) {
                 if (off.format !== 'parquet') continue;
                 const perTableExtract = await extractTableSafe(
                   this.env.BATTLE_DATA_BUCKET,

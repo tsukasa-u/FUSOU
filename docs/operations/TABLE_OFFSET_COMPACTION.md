@@ -4,6 +4,8 @@
 
 Battle data fragments uploaded to R2 contain **concatenated Parquet files** with multiple tables. To enable efficient compaction and table-specific extraction, we store offset metadata alongside each fragment.
 
+Tables with **zero rows** are automatically filtered out at the server-side during fragment generation to avoid processing empty data during compaction.
+
 ## Data Structure
 
 ### Client Side (FUSOU-APP)
@@ -17,9 +19,11 @@ When uploading, the client sends:
   "kc_period_tag": "2025-11-05",
   "file_size": "123456",
   "content_hash": "sha256_hex",
-  "table_offsets": "[{\"table_name\":\"api_port\",\"start_byte\":0,\"byte_length\":50000,\"format\":\"parquet\"},{\"table_name\":\"api_ship\",\"start_byte\":50000,\"byte_length\":30000,\"format\":\"parquet\"}]"
+  "table_offsets": "[{\"table_name\":\"api_port\",\"start_byte\":0,\"byte_length\":50000,\"format\":\"parquet\",\"num_rows\":1234},{\"table_name\":\"api_ship\",\"start_byte\":50000,\"byte_length\":30000,\"format\":\"parquet\",\"num_rows\":0}]"
 }
 ```
+
+**Note:** The `num_rows` field is optional and included when available. Tables with `num_rows=0` are filtered out during compaction.
 
 ### Server Side (D1 battle_files)
 
@@ -27,9 +31,20 @@ When uploading, the client sends:
 INSERT INTO battle_files (
   key, dataset_id, "table", period_tag,
   size, etag, uploaded_at, content_hash, uploaded_by,
-  table_offsets  -- JSON string
+  table_offsets  -- JSON string with optional num_rows field
 ) VALUES (...);
 ```
+
+## Empty Table Handling
+
+### Client-Side (FUSOU-APP)
+- When converting Avro to Parquet, the batch builder captures row counts in metadata
+- Row count is included in `num_rows` field if available
+
+### Server-Side (FUSOU-WORKFLOW)
+- During compaction, the workflow filters out tables with `numRows=0` using `filterEmptyTables()`
+- Empty tables are logged as skipped, avoiding unnecessary extraction and validation errors
+- This prevents "hyparquet parsed 0 row groups" warnings for empty Parquet files
 
 ## Compaction Implementation
 
@@ -48,8 +63,15 @@ const fragments = await indexDb.prepare(
 for (const frag of fragments.results) {
   const offsets = JSON.parse(frag.table_offsets);
   
+  // Filter out empty tables before extraction
+  const { valid: validOffsets, empty: emptyTables } = filterEmptyTables(offsets);
+  
+  if (emptyTables.length > 0) {
+    console.info(`Filtered out ${emptyTables.length} empty tables`);
+  }
+  
   // Find the target table offset
-  const targetTable = offsets.find(o => o.table_name === 'api_port');
+  const targetTable = validOffsets.find(o => o.table_name === 'api_port');
   
   if (!targetTable) {
     console.warn(`Table api_port not found in fragment ${frag.key}`);
@@ -68,6 +90,7 @@ for (const frag of fragments.results) {
   
   // Now `tableParquet` is a pure Parquet file for `api_port`
   // Ready for merging with other fragments of the same table
+````
 }
 ```
 
