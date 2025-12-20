@@ -18,7 +18,7 @@
 //! // batch.metadata: offset info for each table
 //! ```
 
-use crate::avro_to_parquet::{AvroToParquetConverter, ConversionError, ConversionResult};
+use crate::avro_to_parquet::{AvroToParquetConverter, ConversionError, ConversionResult, ParquetOutput};
 use serde::{Deserialize, Serialize};
 use tracing::{debug, info};
 
@@ -128,26 +128,40 @@ impl BatchUploadBuilder {
 
         info!("Starting batch upload build: {} tables", self.tables.len());
 
-        // Step 1: Convert all tables to Parquet
-        let mut parquet_tables = Vec::new();
+        // Step 1: Convert all tables to Parquet, skipping zero-row outputs
+        let mut parquet_tables: Vec<(String, ParquetOutput)> = Vec::new();
+        let rt = tokio::runtime::Runtime::new()
+            .map_err(|e| ConversionError::IoError(e.to_string()))?;
         for table in &self.tables {
             debug!("Converting table '{}' to Parquet ({} bytes)", table.name, table.avro_data.len());
-            
-            // Use blocking conversion since avro_to_parquet is async
-            let parquet_bytes = tokio::runtime::Runtime::new()
-                .map_err(|e| ConversionError::IoError(e.to_string()))?
-                .block_on(self.converter.convert(&table.avro_data))?;
-            
-            parquet_tables.push((table.name.clone(), parquet_bytes));
-            debug!("Converted '{}': {} bytes Parquet", table.name, parquet_tables.last().unwrap().1.len());
+            match rt.block_on(self.converter.convert(&table.avro_data)) {
+                Ok(out) => {
+                    if out.num_rows == 0 {
+                        // Defensive: skip zero-row outputs
+                        debug!("Skipping '{}' due to 0 rows after conversion", table.name);
+                        continue;
+                    }
+                    parquet_tables.push((table.name.clone(), out));
+                    debug!("Converted '{}': {} bytes Parquet, rows={} ", table.name, parquet_tables.last().unwrap().1.bytes.len(), parquet_tables.last().unwrap().1.num_rows);
+                }
+                Err(ConversionError::ValidationError(msg)) => {
+                    // Skip tables that produce no rows or invalid content
+                    debug!("Skipping '{}' due to validation error: {}", table.name, msg);
+                    continue;
+                }
+                Err(err) => {
+                    // Propagate non-validation errors
+                    return Err(err);
+                }
+            }
         }
 
         // Step 2: Concatenate all Parquet files and track offsets (strict validation)
         let mut concatenated = Vec::new();
         let mut metadata = Vec::new();
 
-        for (table_name, parquet_bytes) in parquet_tables {
-            if parquet_bytes.is_empty() {
+        for (table_name, out) in parquet_tables {
+            if out.bytes.is_empty() {
                 return Err(ConversionError::ValidationError(format!(
                     "Parquet conversion produced empty output for table '{}'",
                     table_name
@@ -155,12 +169,16 @@ impl BatchUploadBuilder {
             }
 
             let start_byte = concatenated.len();
-            let byte_length = parquet_bytes.len();
+            let byte_length = out.bytes.len();
 
             // Try to extract row count from Parquet metadata
-            let num_rows = extract_row_count_from_parquet(&parquet_bytes);
+            let mut num_rows = extract_row_count_from_parquet(&out.bytes);
+            // If metadata parse fails, fallback to converter's row count
+            if num_rows.is_none() {
+                num_rows = Some(out.num_rows as i64);
+            }
 
-            concatenated.extend_from_slice(&parquet_bytes);
+            concatenated.extend_from_slice(&out.bytes);
 
             metadata.push(TableMetadata {
                 table_name: table_name.clone(),
@@ -187,6 +205,12 @@ impl BatchUploadBuilder {
                     meta.table_name, end, total_bytes
                 )));
             }
+        }
+
+        if metadata.is_empty() {
+            return Err(ConversionError::ValidationError(
+                "No non-empty tables to build batch".to_string(),
+            ));
         }
 
         info!("Batch upload build completed: {} bytes total", total_bytes);

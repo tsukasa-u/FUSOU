@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use kc_api::database::table::{GetDataTableEncode, PortTableEncode};
 use kc_api::database::batch_upload::BatchUploadBuilder;
+use kc_api::database::avro_to_parquet::ConversionError;
 
 use crate::storage::service::{StorageError, StorageFuture, StorageProvider};
 use crate::storage::common::get_all_port_tables;
@@ -206,7 +207,7 @@ impl StorageProvider for R2StorageProvider {
             }
 
             // Convert Avro → Parquet using BatchUploadBuilder
-            let batch = tokio::task::spawn_blocking(move || {
+            let batch_result = tokio::task::spawn_blocking(move || {
                 let mut builder = BatchUploadBuilder::new();
                 for (table_name, avro_data) in tables {
                     builder.add_table(table_name, avro_data);
@@ -214,8 +215,24 @@ impl StorageProvider for R2StorageProvider {
                 builder.build()
             })
             .await
-            .map_err(|e| StorageError::Operation(format!("Task join error: {}", e)))?
-            .map_err(|e| StorageError::Operation(format!("Failed to build Parquet batch: {}", e)))?;
+            .map_err(|e| StorageError::Operation(format!("Task join error: {}", e)))?;
+
+            let batch = match batch_result {
+                Ok(b) => b,
+                Err(ConversionError::ValidationError(msg)) => {
+                    // Gracefully skip when all tables are empty or invalid
+                    tracing::warn!(
+                        "R2: Skipping port_table upload for map {}-{} due to validation: {}",
+                        maparea_id,
+                        mapinfo_no,
+                        msg
+                    );
+                    return Ok(());
+                }
+                Err(err) => {
+                    return Err(StorageError::Operation(format!("Failed to build Parquet batch: {}", err)));
+                }
+            };
 
             tracing::info!(
                 "Parquet batch built: {} bytes total, {} tables",

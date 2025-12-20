@@ -59,6 +59,15 @@ impl std::error::Error for ConversionError {}
 
 pub type ConversionResult<T> = Result<T, ConversionError>;
 
+/// Output of Parquet conversion
+#[derive(Debug, Clone)]
+pub struct ParquetOutput {
+    /// Parquet binary bytes
+    pub bytes: Vec<u8>,
+    /// Total number of rows across all written RecordBatches
+    pub num_rows: usize,
+}
+
 /// Converter for transforming Avro data to Parquet format
 ///
 /// This converter uses Apache Arrow as an intermediate representation
@@ -108,14 +117,14 @@ impl AvroToParquetConverter {
     /// * `avro_data` - Binary data in Avro format
     ///
     /// # Returns
-    /// Binary data in Parquet format with SNAPPY compression
+    /// Parquet binary data with SNAPPY compression and total row count
     ///
     /// # Errors
     /// Returns `ConversionError` if:
     /// - Avro data is invalid or corrupted
     /// - Schema conversion fails
     /// - Parquet writing fails
-    pub async fn convert(&self, avro_data: &[u8]) -> ConversionResult<Vec<u8>> {
+    pub async fn convert(&self, avro_data: &[u8]) -> ConversionResult<ParquetOutput> {
         if avro_data.is_empty() {
             return Err(ConversionError::ValidationError(
                 "Input Avro data is empty".to_string(),
@@ -146,10 +155,17 @@ impl AvroToParquetConverter {
         info!("Total rows across all batches: {}", total_rows);
 
         // Step 4: Write Arrow RecordBatches to Parquet
+        // Reject zero-row outputs to avoid generating empty RowGroups
+        if total_rows == 0 {
+            return Err(ConversionError::ValidationError(
+                "No Avro records to convert (0 rows)".to_string(),
+            ));
+        }
+
         let parquet_bytes = self.write_parquet(record_batches, arrow_schema_ref)?;
         info!("Parquet conversion completed: {} bytes", parquet_bytes.len());
 
-        Ok(parquet_bytes)
+        Ok(ParquetOutput { bytes: parquet_bytes, num_rows: total_rows })
     }
 
     /// Convert Avro schema to Arrow schema
@@ -251,14 +267,7 @@ impl AvroToParquetConverter {
         }
 
         debug!("Total Avro records read: {}", total_records_read);
-        if total_records_read == 0 {
-            warn!("WARNING: No Avro records found! Input data may be empty or invalid");
-            // CRITICAL: Create an empty RecordBatch to ensure at least 1 RowGroup exists
-            // This prevents hyparquet from failing with "0 RowGroups" error
-            warn!("Creating empty RecordBatch to ensure valid Parquet file structure");
-            let empty_batch = RecordBatch::new_empty(schema);
-            batches.push(empty_batch);
-        }
+        // Note: do NOT create an empty RecordBatch; zero rows should be handled by caller
 
         Ok(batches)
     }
