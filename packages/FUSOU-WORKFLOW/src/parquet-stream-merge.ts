@@ -340,12 +340,22 @@ export async function streamMergeExtractedFragments(
         isValid: !!rg && rg.offset !== undefined && rg.totalByteSize !== undefined,
       })),
     }));
-    console.error(`[Parquet Stream Merge] CRITICAL: No valid RowGroups found. Diagnostics:`, {
+    console.error(`[Parquet Stream Merge] CRITICAL: No valid RowGroups found. Diagnostics:`, JSON.stringify({
       fragmentCount: fragments.length,
       totalRowGroups: fragments.reduce((sum, f) => sum + (f.rowGroups?.length || 0), 0),
       fragments: diagnostics,
-    });
-    throw new Error(`No row groups selected for merge (${fragments.length} fragments, ${fragments.reduce((sum, f) => sum + (f.rowGroups?.length || 0), 0)} RGs total, 0 valid)`);
+    }, null, 2));
+    
+    // Include first fragment's detailed info in error message for debugging
+    const firstFragDetail = diagnostics[0] ? {
+      key: diagnostics[0].key,
+      fileSize: diagnostics[0].fileSize,
+      rgCount: diagnostics[0].rowGroupCount,
+      firstRg: diagnostics[0].rowGroups[0]
+    } : null;
+    
+    throw new Error(`No row groups selected for merge (${fragments.length} fragments, ${fragments.reduce((sum, f) => sum + (f.rowGroups?.length || 0), 0)} RGs total, 0 valid). First fragment detail: ${JSON.stringify(firstFragDetail)}`);
+  }
   }
 
   // 3. データチャンク準備

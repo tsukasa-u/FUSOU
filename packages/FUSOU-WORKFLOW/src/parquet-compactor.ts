@@ -37,8 +37,11 @@ export function parseParquetMetadata(footerData: Uint8Array): RowGroupInfo[] {
     // - row_groups (field 5, list of RowGroup)
     
     console.log(`[Parquet.parseParquetMetadata] Starting metadata parse, footerSize=${footerData.length}`);
+    console.log(`[Parquet.parseParquetMetadata] Footer first 50 bytes: ${Array.from(footerData.slice(0, 50)).map(b => b.toString(16).padStart(2, '0')).join(' ')}`);
     
     const metadata = parseThriftFileMetadata(footerData, 0);
+    
+    console.log(`[Parquet.parseParquetMetadata] Parsed metadata: num_row_groups=${metadata.num_row_groups}, row_groups.length=${metadata.row_groups.length}`);
     
     // 各 Row Group をパース
     for (let i = 0; i < metadata.num_row_groups; i++) {
@@ -47,10 +50,21 @@ export function parseParquetMetadata(footerData: Uint8Array): RowGroupInfo[] {
     }
     
     console.log(`[Parquet.parseParquetMetadata] Successfully parsed ${rowGroups.length} Row Groups (expected ${metadata.num_row_groups})`);
+    
+    if (rowGroups.length === 0) {
+      console.warn(`[Parquet.parseParquetMetadata] WARNING: No RowGroups found in metadata. This may indicate a parsing error.`);
+    }
+    
     return rowGroups;
   } catch (error) {
-    console.error(`[Parquet.parseParquetMetadata] Failed to parse metadata: ${error}`);
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorStack = error instanceof Error ? error.stack : '';
+    console.error(`[Parquet.parseParquetMetadata] Failed to parse metadata: ${errorMessage}`);
+    console.error(`[Parquet.parseParquetMetadata] Error stack: ${errorStack}`);
+    console.error(`[Parquet.parseParquetMetadata] Footer size: ${footerData.length}, first 100 bytes: ${Array.from(footerData.slice(0, 100)).map(b => b.toString(16).padStart(2, '0')).join(' ')}`);
+    
     // Fallback: 簡易パース
+    console.warn(`[Parquet.parseParquetMetadata] Falling back to estimated RowGroups`);
     return generateEstimatedRowGroups(footerData.length);
   }
 }
@@ -285,19 +299,28 @@ class ThriftCompactReader {
     
     let fieldId: number;
     if (delta === 0) {
-      // Field ID is encoded as a zigzag varint
-      fieldId = this.readZigZagVarint();
+      // Field ID follows as a zigzag-encoded i16
+      fieldId = this.readI16();
     } else {
       // Field ID is lastFieldId + delta
       fieldId = this.lastFieldId + delta;
     }
     
-    this.lastFieldId = fieldId;
+    // Special case: if type is STOP, don't update lastFieldId
+    if (type !== FieldType.STOP) {
+      this.lastFieldId = fieldId;
+    }
+    
     return { fieldId, type };
   }
   
   resetFieldId(): void {
     this.lastFieldId = 0;
+  }
+  
+  readI16(): number {
+    const zigzag = this.readVarint();
+    return (zigzag >>> 1) ^ -(zigzag & 1);
   }
   
   readI32(): number {
