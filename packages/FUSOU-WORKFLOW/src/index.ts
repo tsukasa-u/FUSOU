@@ -683,6 +683,7 @@ export default {
             metricId: body.metricId,
             table: body.table,
             periodTag: body.periodTag,
+            userId: body.userId,
           },
         });
 
