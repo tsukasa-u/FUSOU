@@ -451,11 +451,11 @@ export async function streamMergeExtractedFragments(
         }
         
         // Sanity check: RowGroup size should not exceed file size
-        if (rg.totalByteSize > frag.data.length) {
-          console.error(`[Parquet Stream Merge] CRITICAL: RowGroup size (${rg.totalByteSize}) > file size (${frag.data.length}). File: ${frag.key}, RG${i}`, {
+        if (rg.totalByteSize > frag.footerStart) {
+          console.error(`[Parquet Stream Merge] CRITICAL: RowGroup size (${rg.totalByteSize}) exceeds data region before footer (${frag.footerStart}). File: ${frag.key}, RG${i}`, {
             offset: rg.offset,
             totalByteSize: rg.totalByteSize,
-            fileSize: frag.data.length,
+            footerStart: frag.footerStart,
             rgEnd: rg.offset + rg.totalByteSize,
             footerStart: frag.footerStart
           });
