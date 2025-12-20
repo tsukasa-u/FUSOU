@@ -200,6 +200,11 @@ export function parseParquetMetadataFromFooterBuffer(footerBuffer: Uint8Array): 
   }
 }
 
+// Backward-compatible alias used by legacy merge path
+export function parseParquetMetadata(footerBuffer: Uint8Array): RowGroupInfo[] {
+  return parseParquetMetadataFromFooterBuffer(footerBuffer);
+}
+
 /**
  * Parquet footer メタデータを hyparquet でパース
  * 
