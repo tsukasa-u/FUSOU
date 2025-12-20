@@ -61,27 +61,34 @@ async function readFragmentMetadata(
   const footerBuf = new Uint8Array(await footerObj.arrayBuffer());
 
   // hyparquetでフッターだけからメタデータをパース
+  const sanitizeRowGroups = (rgs: RowGroupInfo[], fileSize: number, footerStartPos: number) => {
+    let invalid = 0;
+    const filtered = (rgs || []).filter((rg) => {
+      const hasBounds = !!rg && rg.offset !== undefined && rg.totalByteSize !== undefined;
+      if (!hasBounds) { invalid++; return false; }
+      // Bounds check: RowGroup must lie before footer
+      const end = rg.offset + rg.totalByteSize;
+      const inRange = rg.offset >= 0 && end <= Math.min(fileSize, footerStartPos);
+      if (!inRange) { invalid++; return false; }
+      return true;
+    }).filter((rg) => (rg.numRows ?? 0) > 0);
+    return { filtered, invalid };
+  };
+
   let rowGroups = parseParquetMetadataFromFooterBuffer(footerBuf);
+  let { filtered: sanitizedRgs, invalid: invalidFromFooter } = sanitizeRowGroups(rowGroups, totalSize, footerStart);
 
-  // 取得したRowGroupのうち、構造が不正なものや行数0のものを事前に除外
-  // （マージ時の警告スパムを減らし、空結果の早期判定を可能にする）
-  rowGroups = (rowGroups || []).filter((rg) => {
-    const valid = !!rg && rg.offset !== undefined && rg.totalByteSize !== undefined;
-    return valid;
-  }).filter((rg) => (rg.numRows ?? 0) > 0);
-
-  // 万一空ならフォールバックで全体読み取り（小ファイル前提）
-  if (!rowGroups || rowGroups.length === 0) {
+  // フッター解析で不正RGがあれば全体読み取りにフォールバック
+  if (invalidFromFooter > 0 || !sanitizedRgs || sanitizedRgs.length === 0) {
     const fileObj = await bucket.get(key);
     if (!fileObj) throw new Error(`Fragment not found (fallback): ${key}`);
     const fileData = new Uint8Array(await fileObj.arrayBuffer());
     rowGroups = parseParquetMetadataFromFullFile(fileData) || [];
-    // フォールバックでも同様に事前フィルタを適用
-    rowGroups = (rowGroups || []).filter((rg) => {
-      const valid = !!rg && rg.offset !== undefined && rg.totalByteSize !== undefined;
-      return valid;
-    }).filter((rg) => (rg.numRows ?? 0) > 0);
+    const res = sanitizeRowGroups(rowGroups, fileData.length, footerStart);
+    sanitizedRgs = res.filtered;
   }
+
+  rowGroups = sanitizedRgs || [];
 
   return { key, footerSize, footerStart, rowGroups, totalSize };
 }
@@ -392,11 +399,18 @@ export async function streamMergeExtractedFragments(
     let zeroRowDropsLocal = 0;
 
     const validRowGroupsPre = rowGroups.filter((rg, idx) => {
-      const isValid = !!rg && rg.offset !== undefined && rg.totalByteSize !== undefined && rg.offset !== undefined;
-      if (!isValid) {
+      const hasBounds = !!rg && rg.offset !== undefined && rg.totalByteSize !== undefined;
+      if (!hasBounds) {
         invalidDropsLocal++;
+        return false;
       }
-      return isValid;
+      const end = rg.offset + rg.totalByteSize;
+      const inRange = rg.offset >= 0 && end <= frag.data.length; // header already included in data
+      if (!inRange) {
+        invalidDropsLocal++;
+        return false;
+      }
+      return true;
     });
 
     // 行数0のRowGroupは事前に除外（空データはマージ・ログ対象外）
