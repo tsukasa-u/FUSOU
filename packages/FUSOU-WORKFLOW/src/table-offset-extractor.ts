@@ -69,11 +69,15 @@ export function filterEmptyTables(offsets: TableOffsetMetadata[]): { valid: Tabl
   for (const offset of offsets) {
     // If num_rows is explicitly provided and is 0 or negative, mark as empty
     if (typeof offset.num_rows === 'number' && offset.num_rows <= 0) {
-      console.info(`[OffsetExtractor] Filtering empty table '${offset.table_name}' (numRows=${offset.num_rows})`);
       empty.push(offset);
     } else {
       valid.push(offset);
     }
+  }
+
+  // Aggregate logging: only log summary if any empty tables were found
+  if (empty.length > 0) {
+    console.info(`[OffsetExtractor] Filtered ${empty.length} empty tables: ${empty.map(t => t.table_name).join(', ')}`);
   }
 
   return { valid, empty };

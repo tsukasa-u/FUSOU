@@ -134,12 +134,12 @@ export async function streamMergeParquetFragments(
     console.log(`[Parquet Stream Merge] Fetching RG from ${frag.key}: offset=${rg.offset}, length=${rg.totalByteSize}`);
     
     // Sanity check before Range GET
-    if (rg.offset! + rg.totalByteSize! > frag.data.length) {
+    if (rg.offset! + rg.totalByteSize! > frag.totalSize) {
       console.error(`[Parquet Stream Merge] CRITICAL: RG bounds exceed file size!`, {
         file: frag.key,
         rgOffset: rg.offset,
         rgSize: rg.totalByteSize,
-        fileSize: frag.data.length,
+        fileSize: frag.totalSize,
         rgEnd: rg.offset! + rg.totalByteSize!
       });
       throw new Error(`RG bounds exceed file size: ${frag.key}`);
@@ -361,27 +361,6 @@ export async function streamMergeExtractedFragments(
     };
   });
 
-    // Debug: Log all parsed fragments with RowGroup details
-    console.log(`[Parquet Stream Merge] Parsed ${fragments.length} fragments:`);
-    fragments.forEach((frag, idx) => {
-      console.log(`  Fragment ${idx}: ${frag.key}`);
-      const safeRowGroups = frag.rowGroups || [];
-      console.log(`    fileSize=${frag.data.length}, footerSize=${frag.footerSize}, rowGroupCount=${safeRowGroups.length}`);
-      safeRowGroups.forEach((rg, rgIdx) => {
-        if (!rg || rg.offset === undefined || rg.totalByteSize === undefined) {
-          console.warn(`      RG${rgIdx}: invalid (offset/size missing)`, {
-            hasRg: !!rg,
-            offset: rg?.offset,
-            totalByteSize: rg?.totalByteSize,
-            numRows: rg?.numRows
-          });
-          return;
-        }
-        const isValid = rg.offset !== undefined && rg.totalByteSize !== undefined && rg.numRows !== undefined;
-        console.log(`      RG${rgIdx}: offset=${rg.offset}, totalByteSize=${rg.totalByteSize}, numRows=${rg.numRows}, isValid=${isValid}`);
-      });
-    });
-
   // 2. Row Groupを選別してバケツに詰める
   const selectedRgs: Array<{ frag: typeof fragments[0]; rg: RowGroupInfo; rgIndex: number }> = [];
   let accumulatedBytes = 0;
@@ -419,7 +398,6 @@ export async function streamMergeExtractedFragments(
       }
       selectedRgs.push({ frag, rg, rgIndex: i });
       accumulatedBytes += rg.totalByteSize;
-      console.log(`[Parquet Stream Merge] Selected RG${i} from ${frag.key}: size=${rg.totalByteSize}, accumulated=${accumulatedBytes}`);
     }
     if (accumulatedBytes >= thresholdBytes) break;
   }
