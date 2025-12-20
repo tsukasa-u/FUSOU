@@ -3,7 +3,7 @@
  * フッター/Row Group整合性を確認
  */
 
-import { parseParquetMetadata, RowGroupInfo } from './parquet-compactor';
+import { parseParquetMetadataFromFooterBuffer, RowGroupInfo } from './parquet-compactor';
 
 export interface ParquetFileInfo {
   valid: boolean;
@@ -88,9 +88,15 @@ export async function validateParquetFile(
 
     // 4. Parse footer metadata
     const footerData = buffer.slice(footerStart, footerStart + footerSize);
+    // hyparquet用に footer(metadata) + 4B(size) + 4B('PAR1') を連結
+    const footerBuf = new Uint8Array(footerData.length + 8);
+    footerBuf.set(footerData, 0);
+    new DataView(footerBuf.buffer, footerData.length, 4).setUint32(0, footerSize, true);
+    footerBuf.set(new TextEncoder().encode('PAR1'), footerData.length + 4);
+
     let rowGroups: RowGroupInfo[] = [];
     try {
-      rowGroups = parseParquetMetadata(footerData);
+      rowGroups = parseParquetMetadataFromFooterBuffer(footerBuf);
     } catch (error) {
       errors.push(`Failed to parse footer metadata: ${error}`);
       return { valid: false, fileSize, footerSize, numRowGroups: 0, totalRows: 0, rowGroups: [], errors, warnings };

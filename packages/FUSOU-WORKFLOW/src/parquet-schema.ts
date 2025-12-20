@@ -3,7 +3,7 @@
  * 異スキーマ混在を自動分離
  */
 
-import { parseParquetMetadata } from './parquet-compactor';
+import { parseParquetMetadataFromFooterBuffer, parseParquetMetadataFromFullFile, RowGroupInfo } from './parquet-compactor';
 
 export interface SchemaFingerprint {
   hash: string;
@@ -38,8 +38,14 @@ export async function extractSchemaFingerprint(
   if (!footerObj) throw new Error(`Cannot read footer of ${key}`);
   
   const footerData = new Uint8Array(await footerObj.arrayBuffer());
-  
-  return extractSchemaFingerprintFromData(footerData);
+  // hyparquet用に footer(metadata) + 4B(size) + 4B('PAR1') を連結
+  const footerBuf = new Uint8Array(footerSize + 8);
+  footerBuf.set(footerData, 0);
+  new DataView(footerBuf.buffer, footerSize, 4).setUint32(0, footerSize, true);
+  footerBuf.set(new TextEncoder().encode('PAR1'), footerSize + 4);
+
+  const rowGroups = parseParquetMetadataFromFooterBuffer(footerBuf);
+  return buildSchemaFingerprintFromRowGroups(rowGroups);
 }
 
 /**
@@ -49,56 +55,22 @@ export async function extractSchemaFingerprintFromData(
   parquetData: ArrayBuffer | Uint8Array
 ): Promise<SchemaFingerprint> {
   const data = parquetData instanceof Uint8Array ? parquetData : new Uint8Array(parquetData);
-  
-  // Footer読み取り（末尾8バイト→size→footer本体）
-  if (data.length < 12) {
-    throw new Error('Invalid Parquet file: too small');
+  const rowGroups = parseParquetMetadataFromFullFile(data);
+  return await buildSchemaFingerprintFromRowGroups(rowGroups);
+}
+
+async function buildSchemaFingerprintFromRowGroups(rowGroups: RowGroupInfo[]): Promise<SchemaFingerprint> {
+  if (!rowGroups || rowGroups.length === 0 || !rowGroups[0] || !rowGroups[0].columnChunks || rowGroups[0].columnChunks.length === 0) {
+    return { hash: 'unknown', numColumns: 0, columnNames: [], columnTypes: [] };
   }
-  
-  const tailBuf = data.slice(-8);
-  const footerSizeView = new DataView(tailBuf.buffer, tailBuf.byteOffset, 4);
-  const footerSize = footerSizeView.getUint32(0, true);
-  
-  if (data.length < 8 + footerSize) {
-    throw new Error('Invalid Parquet file: footer size mismatch');
-  }
-  
-  const footerStart = data.length - 8 - footerSize;
-  const footerData = data.slice(footerStart, footerStart + footerSize);
-  
-  // スキーマ情報を抽出（簡易版: Row Group最初のColumn Chunkから推定）
-  const rowGroups = parseParquetMetadata(footerData);
-  
-  // DEFENSIVE: Check for undefined/null rowGroups or columnChunks
-  // Prevents TypeError: Cannot read properties of undefined (reading 'columnChunks')
-  if (rowGroups.length === 0 || !rowGroups[0] || !rowGroups[0].columnChunks || rowGroups[0].columnChunks.length === 0) {
-    // スキーマなし（エラー扱い）
-    return {
-      hash: 'unknown',
-      numColumns: 0,
-      columnNames: [],
-      columnTypes: [],
-    };
-  }
-  
-  // Column数と型リストを抽出
+
   const firstRg = rowGroups[0];
   const numColumns = firstRg.columnChunks.length;
   const columnTypes = firstRg.columnChunks.map((cc) => cc.type);
-  
-  // Column名は通常footerのSchemaElementから取得するが、簡易実装では型のみでハッシュ
-  const columnNames = firstRg.columnChunks.map((cc, i) => `col_${i}`);
-  
-  // 指紋ハッシュ生成（シンプルな文字列連結→ハッシュ化）
+  const columnNames = firstRg.columnChunks.map((_, i) => `col_${i}`);
   const schemaStr = `cols:${numColumns}|types:${columnTypes.join(',')}`;
   const hash = await simpleHash(schemaStr);
-  
-  return {
-    hash,
-    numColumns,
-    columnNames,
-    columnTypes,
-  };
+  return { hash, numColumns, columnNames, columnTypes };
 }
 
 /**
