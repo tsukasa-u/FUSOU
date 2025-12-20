@@ -8,8 +8,8 @@
  */
 export interface RowGroupInfo {
   index: number;
-  offset: number;
-  totalByteSize: number;
+  offset: number | undefined;
+  totalByteSize: number | undefined;
   numRows: number;
   columnChunks: ColumnChunkInfo[];
 }
@@ -36,6 +36,8 @@ export function parseParquetMetadata(footerData: Uint8Array): RowGroupInfo[] {
     // - num_rows (field 4, int64)
     // - row_groups (field 5, list of RowGroup)
     
+    console.log(`[Parquet.parseParquetMetadata] Starting metadata parse, footerSize=${footerData.length}`);
+    
     const metadata = parseThriftFileMetadata(footerData, 0);
     
     // 各 Row Group をパース
@@ -44,10 +46,10 @@ export function parseParquetMetadata(footerData: Uint8Array): RowGroupInfo[] {
       rowGroups.push(rg);
     }
     
-    console.log(`[Parquet] Parsed ${rowGroups.length} Row Groups from footer`);
+    console.log(`[Parquet.parseParquetMetadata] Successfully parsed ${rowGroups.length} Row Groups (expected ${metadata.num_row_groups})`);
     return rowGroups;
   } catch (error) {
-    console.error(`[Parquet] Failed to parse metadata: ${error}`);
+    console.error(`[Parquet.parseParquetMetadata] Failed to parse metadata: ${error}`);
     // Fallback: 簡易パース
     return generateEstimatedRowGroups(footerData.length);
   }
@@ -68,24 +70,35 @@ function parseThriftFileMetadata(data: Uint8Array, offset: number): {
   
   const reader = new ThriftCompactReader(data, pos);
   
+  console.log(`[Parquet.parseThriftFileMetadata] Starting parse at pos=${pos}, dataLength=${data.length}`);
+  
   // FileMetaData 構造体を読む
   while (!reader.isAtEnd()) {
     const fieldInfo = reader.readFieldInfo();
-    if (fieldInfo.type === FieldType.STOP) break;
+    if (fieldInfo.type === FieldType.STOP) {
+      console.log(`[Parquet.parseThriftFileMetadata] Hit STOP byte`);
+      break;
+    }
+    
+    console.log(`[Parquet.parseThriftFileMetadata] Field fieldId=${fieldInfo.fieldId}, type=${fieldInfo.type}`);
     
     if (fieldInfo.fieldId === 3 && fieldInfo.type === FieldType.I32) {
       // num_row_groups
       num_row_groups = reader.readI32();
+      console.log(`[Parquet.parseThriftFileMetadata] Found num_row_groups=${num_row_groups}`);
     } else if (fieldInfo.fieldId === 4 && fieldInfo.type === FieldType.I64) {
       // num_rows
       num_rows = reader.readI64();
+      console.log(`[Parquet.parseThriftFileMetadata] Found num_rows=${num_rows}`);
     } else if (fieldInfo.fieldId === 5 && fieldInfo.type === FieldType.LIST) {
       // row_groups list
       const listInfo = reader.readListInfo();
+      console.log(`[Parquet.parseThriftFileMetadata] Found row_groups list with size=${listInfo.size}`);
       for (let i = 0; i < listInfo.size; i++) {
+        console.log(`[Parquet.parseThriftFileMetadata] Parsing RowGroup ${i}...`);
         const rg = parseThriftRowGroup(reader, i);
         if (!rg || rg.totalByteSize === undefined || rg.offset === undefined) {
-          console.error(`[Parquet] Invalid RowGroup parsed at index ${i}:`, {
+          console.error(`[Parquet.parseThriftFileMetadata] Invalid RowGroup parsed at index ${i}:`, {
             hasRg: !!rg,
             totalByteSize: rg?.totalByteSize,
             offset: rg?.offset,
@@ -100,6 +113,8 @@ function parseThriftFileMetadata(data: Uint8Array, offset: number): {
     }
   }
   
+  console.log(`[Parquet.parseThriftFileMetadata] Parse complete. row_groups.length=${row_groups.length}`);
+  
   return {
     num_row_groups,
     num_rows,
@@ -112,9 +127,11 @@ function parseThriftFileMetadata(data: Uint8Array, offset: number): {
  */
 function parseThriftRowGroup(reader: ThriftCompactReader, index: number): RowGroupInfo {
   const columnChunks: ColumnChunkInfo[] = [];
-  let totalByteSize = 0;
-  let numRows = 0;
+  let totalByteSize: number | undefined;
+  let numRows: number | undefined;
   let fileOffset: number | undefined;
+  
+  const startPos = reader.getPosition();
   
   // RowGroup 構造体を読む
   while (!reader.isAtEnd()) {
@@ -142,23 +159,31 @@ function parseThriftRowGroup(reader: ThriftCompactReader, index: number): RowGro
     }
   }
   
-  const result = {
+  const endPos = reader.getPosition();
+  
+  // 診断：パースされた値を記録
+  console.log(`[Parquet.parseThriftRowGroup] RG${index}: startPos=${startPos}, endPos=${endPos}, bytesRead=${endPos - startPos}`, {
+    fileOffset,
+    totalByteSize,
+    numRows,
+    columnChunkCount: columnChunks.length
+  });
+  
+  // fileOffset と totalByteSize は必須
+  if (fileOffset === undefined) {
+    console.warn(`[Parquet.parseThriftRowGroup] RG${index}: fileOffset is undefined (field 4 not found)`);
+  }
+  if (totalByteSize === undefined) {
+    console.warn(`[Parquet.parseThriftRowGroup] RG${index}: totalByteSize is undefined (field 3 not found)`);
+  }
+  
+  const result: RowGroupInfo = {
     index,
-    offset: fileOffset !== undefined ? fileOffset : 0,
-    totalByteSize: totalByteSize > 0 ? totalByteSize : 10 * 1024 * 1024,
-    numRows: numRows > 0 ? numRows : 100000,
+    offset: fileOffset ?? undefined,
+    totalByteSize: totalByteSize ?? undefined,
+    numRows: numRows ?? 0,
     columnChunks
   };
-  
-  if (result.totalByteSize === undefined || result.offset === undefined || fileOffset === undefined) {
-    console.error(`[Parquet] Created invalid RowGroup RG${index}:`, {
-      offset: result.offset,
-      fileOffset: fileOffset,
-      totalByteSize: result.totalByteSize,
-      numRows: result.numRows,
-      originalTotalByteSize: totalByteSize
-    });
-  }
   
   return result;
 }

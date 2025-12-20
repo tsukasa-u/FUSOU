@@ -255,8 +255,8 @@ export async function streamMergeExtractedFragments(
     
     const rawRowGroups = parseParquetMetadata(footerData) || [];
     const rowGroups = rawRowGroups.filter((rg, idx) => {
-      const ok = !!rg && rg.offset !== undefined && rg.totalByteSize !== undefined;
-      if (!ok) {
+      const isValid = !!rg && rg.offset !== undefined && rg.totalByteSize !== undefined && rg.offset !== undefined;
+      if (!isValid) {
         console.warn(`[Parquet Stream Merge] Dropping invalid RowGroup from ${frag.key} at index ${idx}`, {
           hasRg: !!rg,
           offset: rg?.offset,
@@ -264,7 +264,7 @@ export async function streamMergeExtractedFragments(
           numRows: rg?.numRows
         });
       }
-      return ok;
+      return isValid;
     });
     
     return {

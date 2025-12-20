@@ -220,6 +220,7 @@ save_file_location = ""
     # HTTPS endpoint provided by FUSOU-WEB that mediates Cloudflare R2 uploads
     asset_upload_endpoint = "https://r2-parquet.fusou.pages.dev/api/asset-sync/upload"
 
+
     # Optional explicit snapshot upload endpoint (if empty, origin derived from asset_upload_endpoint)
     fleet_snapshot_endpoint = "https://r2-parquet.fusou.pages.dev/api/fleet/snapshot"
 
@@ -259,6 +260,9 @@ save_file_location = ""
     # Authentication page URL
     # The URL to open when authentication is required
     auth_page_url = "https://fusou.dev/auth/local/signin"
+
+    # Endpoint for user/member_id hash mapping upsert (optional; if empty, falls back to asset_upload_endpoint origin)
+    member_map_endpoint = "https://r2-parquet.fusou.pages.dev/api/user/member-map/upsert"
 
 
     [app.kc_window]
