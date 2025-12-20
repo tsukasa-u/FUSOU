@@ -155,6 +155,11 @@ impl StorageProvider for R2StorageProvider {
             // Collect all non-empty Avro tables into HashMap
             let mut tables = std::collections::HashMap::new();
             for (table_name, bytes) in get_all_port_tables(table) {
+                tracing::debug!(
+                    "Processing table {}: {} bytes",
+                    table_name,
+                    bytes.len()
+                );
                 if bytes.is_empty() {
                     tracing::debug!(
                         "Skipping empty {} table for map {}-{}",
@@ -169,14 +174,17 @@ impl StorageProvider for R2StorageProvider {
 
             if tables.is_empty() {
                 tracing::warn!(
-                    "No port_table data to upload for map {}-{}",
+                    "No port_table data to upload for map {}-{} - ALL tables are empty!",
                     maparea_id,
                     mapinfo_no
                 );
                 return Ok(());
             }
 
-            tracing::info!("Building Parquet batch upload for {} tables", tables.len());
+            tracing::info!("Building Parquet batch upload for {} tables (with data)", tables.len());
+            for (name, data) in &tables {
+                tracing::info!("  - {}: {} bytes", name, data.len());
+            }
 
             // Convert Avro → Parquet using BatchUploadBuilder
             let batch = tokio::task::spawn_blocking(move || {
