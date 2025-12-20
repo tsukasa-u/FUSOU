@@ -154,6 +154,9 @@ impl StorageProvider for R2StorageProvider {
             
             // Collect all non-empty Avro tables into HashMap
             let mut tables = std::collections::HashMap::new();
+            let mut empty_tables = Vec::new();
+            let mut total_avro_bytes = 0;
+            
             for (table_name, bytes) in get_all_port_tables(table) {
                 tracing::debug!(
                     "Processing table {}: {} bytes",
@@ -161,16 +164,32 @@ impl StorageProvider for R2StorageProvider {
                     bytes.len()
                 );
                 if bytes.is_empty() {
-                    tracing::debug!(
-                        "Skipping empty {} table for map {}-{}",
+                    tracing::warn!(
+                        "EMPTY TABLE FOUND: {} has 0 bytes for map {}-{}",
                         table_name,
                         maparea_id,
                         mapinfo_no
                     );
+                    empty_tables.push(table_name.to_string());
                     continue;
                 }
+                total_avro_bytes += bytes.len();
                 tables.insert(table_name.to_string(), bytes.to_vec());
             }
+            
+            if !empty_tables.is_empty() {
+                tracing::info!(
+                    "Empty tables: {:?}",
+                    empty_tables
+                );
+            }
+            tracing::info!(
+                "Collected {} non-empty tables, {} total Avro bytes for map {}-{}",
+                tables.len(),
+                total_avro_bytes,
+                maparea_id,
+                mapinfo_no
+            );
 
             if tables.is_empty() {
                 tracing::warn!(
