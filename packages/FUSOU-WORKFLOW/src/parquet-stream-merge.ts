@@ -356,7 +356,6 @@ export async function streamMergeExtractedFragments(
     
     throw new Error(`No row groups selected for merge (${fragments.length} fragments, ${fragments.reduce((sum, f) => sum + (f.rowGroups?.length || 0), 0)} RGs total, 0 valid). First fragment detail: ${JSON.stringify(firstFragDetail)}`);
   }
-  }
 
   // 3. データチャンク準備
   let writeOffset = 0;

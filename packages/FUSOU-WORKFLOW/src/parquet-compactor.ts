@@ -53,6 +53,7 @@ export function parseParquetMetadata(footerData: Uint8Array): RowGroupInfo[] {
     
     if (rowGroups.length === 0) {
       console.warn(`[Parquet.parseParquetMetadata] WARNING: No RowGroups found in metadata. This may indicate a parsing error.`);
+      throw new Error(`Parsed 0 RowGroups (expected ${metadata.num_row_groups}). Footer size=${footerData.length}, footer hex=${Array.from(footerData.slice(0, 100)).map(b => b.toString(16).padStart(2, '0')).join(' ')}`);
     }
     
     return rowGroups;
