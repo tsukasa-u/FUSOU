@@ -65,27 +65,53 @@ export function parseParquetMetadataFromFullFile(fileData: Uint8Array): RowGroup
     if (metadata.row_groups) {
       for (let i = 0; i < metadata.row_groups.length; i++) {
         const rg = metadata.row_groups[i];
-        
+
+        const columnChunks: ColumnChunkInfo[] = [];
+        let rgStart = Number.POSITIVE_INFINITY;
+        let rgEnd = 0;
+
+        if (rg.columns && rg.columns.length > 0) {
+          for (let colIdx = 0; colIdx < rg.columns.length; colIdx++) {
+            const col = rg.columns[colIdx];
+            const md = col.meta_data ?? {} as any;
+
+            const starts: number[] = [];
+            if (typeof md.dictionary_page_offset === 'number') starts.push(Number(md.dictionary_page_offset));
+            if (typeof md.index_page_offset === 'number') starts.push(Number(md.index_page_offset));
+            if (typeof md.data_page_offset === 'number') starts.push(Number(md.data_page_offset));
+
+            const colStart = starts.length > 0 ? Math.min(...starts) : (typeof col.file_offset === 'number' ? Number(col.file_offset) : 0);
+            const colSizeCompressed = typeof md.total_compressed_size === 'number' ? Number(md.total_compressed_size) : 0;
+            const colEnd = colStart + colSizeCompressed;
+
+            rgStart = Math.min(rgStart, colStart);
+            rgEnd = Math.max(rgEnd, colEnd);
+
+            columnChunks.push({
+              columnIndex: colIdx,
+              offset: colStart,
+              size: colSizeCompressed,
+              type: md.type !== undefined ? String(md.type) : 'unknown',
+            });
+          }
+        }
+
         const rowGroupInfo: RowGroupInfo = {
           index: i,
-          offset: rg.file_offset !== undefined ? Number(rg.file_offset) : undefined,
-          totalByteSize: rg.total_byte_size !== undefined ? Number(rg.total_byte_size) : undefined,
-          numRows: rg.num_rows !== undefined ? Number(rg.num_rows) : 0,
-          columnChunks: rg.columns?.map((col, colIdx) => ({
-            columnIndex: colIdx,
-            offset: col.file_offset !== undefined ? Number(col.file_offset) : 0,
-            size: col.meta_data?.total_compressed_size !== undefined ? Number(col.meta_data.total_compressed_size) : 0,
-            type: col.meta_data?.type !== undefined ? String(col.meta_data.type) : 'unknown',
-          })) || [],
+          // Prefer computed compressed span; fallback to rg.file_offset if present
+          offset: Number.isFinite(rgStart) ? rgStart : (typeof (rg as any).file_offset === 'number' ? Number((rg as any).file_offset) : undefined),
+          totalByteSize: rgEnd > rgStart ? (rgEnd - rgStart) : undefined,
+          numRows: typeof (rg as any).num_rows === 'number' ? Number((rg as any).num_rows) : 0,
+          columnChunks,
         };
-        
+
         console.log(`[Parquet.parseFromFullFile] RG${i}:`, {
           offset: rowGroupInfo.offset,
           totalByteSize: rowGroupInfo.totalByteSize,
           numRows: rowGroupInfo.numRows,
           columns: rowGroupInfo.columnChunks.length,
         });
-        
+
         rowGroups.push(rowGroupInfo);
       }
     }
