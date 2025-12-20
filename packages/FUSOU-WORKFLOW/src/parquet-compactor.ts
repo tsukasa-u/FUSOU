@@ -46,12 +46,12 @@ export function parseParquetMetadataFromFullFile(fileData: Uint8Array): RowGroup
     const footerBuffer = fileData.buffer.slice(
       fileData.byteOffset + footerStart,
       fileData.byteOffset + fileData.byteLength
-    );
+    ) as ArrayBuffer;
     
     console.log(`[Parquet.parseFromFullFile] Footer: ${footerBuffer.byteLength} bytes (offset ${footerStart})`);
     
     // hyparquet の parquetMetadata を使用
-    const metadata = parquetMetadata(footerBuffer);
+    const metadata = parquetMetadata(footerBuffer as ArrayBuffer);
     
     console.log(`[Parquet.parseFromFullFile] Metadata parsed:`, {
       numRowGroups: metadata.row_groups?.length,
@@ -141,7 +141,12 @@ export function parseParquetMetadataFromFullFile(fileData: Uint8Array): RowGroup
  */
 export function parseParquetMetadataFromFooterBuffer(footerBuffer: Uint8Array): RowGroupInfo[] {
   try {
-    const metadata = parquetMetadata(footerBuffer);
+    // hyparquet expects an ArrayBuffer; create a view of the exact slice
+    const ab = footerBuffer.buffer.slice(
+      footerBuffer.byteOffset,
+      footerBuffer.byteOffset + footerBuffer.byteLength
+    ) as ArrayBuffer;
+    const metadata = parquetMetadata(ab);
 
     const rowGroups: RowGroupInfo[] = [];
     if (metadata.row_groups) {

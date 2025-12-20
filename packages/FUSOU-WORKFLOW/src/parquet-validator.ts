@@ -96,7 +96,7 @@ export async function validateParquetFile(
 
     let rowGroups: RowGroupInfo[] = [];
     try {
-      rowGroups = parseParquetMetadataFromFooterBuffer(footerBuf);
+      rowGroups = parseParquetMetadataFromFooterBuffer(footerBuf).filter(rg => rg.offset !== undefined && rg.totalByteSize !== undefined);
     } catch (error) {
       errors.push(`Failed to parse footer metadata: ${error}`);
       return { valid: false, fileSize, footerSize, numRowGroups: 0, totalRows: 0, rowGroups: [], errors, warnings };
@@ -112,11 +112,11 @@ export async function validateParquetFile(
       totalRows += rg.numRows;
 
       // Offset範囲チェック
-      if (rg.offset < prevEnd && i > 0) {
+      if (rg.offset! < prevEnd && i > 0) {
         warnings.push(`RG${i}: offset ${rg.offset} overlaps with previous RG (ended at ${prevEnd})`);
       }
       
-      const rgEnd = rg.offset + rg.totalByteSize;
+      const rgEnd = rg.offset! + rg.totalByteSize!;
       if (rgEnd > footerStart) {
         errors.push(`RG${i}: data extends beyond footer (${rgEnd} > ${footerStart})`);
       }
@@ -126,7 +126,7 @@ export async function validateParquetFile(
       // Column chunk整合性
       for (let c = 0; c < rg.columnChunks.length; c++) {
         const cc = rg.columnChunks[c];
-        if (cc.offset < rg.offset || cc.offset + cc.size > rgEnd) {
+        if (cc.offset < rg.offset! || cc.offset + cc.size > rgEnd) {
           warnings.push(`RG${i} CC${c}: offset ${cc.offset} out of RG bounds [${rg.offset}, ${rgEnd}]`);
         }
       }
@@ -135,7 +135,7 @@ export async function validateParquetFile(
       if (rg.numRows <= 0) {
         warnings.push(`RG${i}: zero or negative row count (${rg.numRows})`);
       }
-      if (rg.totalByteSize <= 0) {
+      if ((rg.totalByteSize ?? 0) <= 0) {
         warnings.push(`RG${i}: zero or negative byte size (${rg.totalByteSize})`);
       }
     }
@@ -234,8 +234,8 @@ export function formatValidationReport(info: ParquetFileInfo, key: string): stri
   lines.push(`Row Groups Detail:`);
   info.rowGroups.forEach((rg, i) => {
     lines.push(`  RG${i}:`);
-    lines.push(`    Offset: ${rg.offset.toLocaleString()}`);
-    lines.push(`    Size: ${rg.totalByteSize.toLocaleString()} bytes`);
+    lines.push(`    Offset: ${(rg.offset ?? -1).toLocaleString()}`);
+    lines.push(`    Size: ${(rg.totalByteSize ?? 0).toLocaleString()} bytes`);
     lines.push(`    Rows: ${rg.numRows.toLocaleString()}`);
     lines.push(`    Columns: ${rg.columnChunks.length}`);
   });

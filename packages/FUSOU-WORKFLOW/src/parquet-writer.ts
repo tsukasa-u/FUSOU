@@ -33,6 +33,9 @@ export async function writeCompactedParquetFile(
   // Healthy Row Groups のデータを読み込み
   for (const rg of healthyRowGroups) {
     try {
+      if (rg.offset === undefined || rg.totalByteSize === undefined) {
+        throw new Error(`Healthy RG${rg.index} has undefined offset/size`);
+      }
       const data = await readRange(bucket, bucketKey, rg.offset, rg.totalByteSize);
       dataChunks.push(data);
       totalDataSize += rg.totalByteSize;
@@ -45,6 +48,9 @@ export async function writeCompactedParquetFile(
 
   // Merged Row Group のデータを読み込み
   try {
+    if (mergedRowGroup.offset === undefined || mergedRowGroup.totalByteSize === undefined) {
+      throw new Error(`Merged RG has undefined offset/size`);
+    }
     const data = await readRange(bucket, bucketKey, mergedRowGroup.offset, mergedRowGroup.totalByteSize);
     dataChunks.push(data);
     totalDataSize += mergedRowGroup.totalByteSize;
@@ -198,7 +204,7 @@ function writeRowGroup(writer: ThriftCompactWriter, rg: RowGroupInfo | MergedRow
 
   // total_byte_size
   writer.writeField(3, FieldType.I64);
-  writer.writeI64(rg.totalByteSize);
+  writer.writeI64((rg.totalByteSize ?? 0));
 
   // Stop field
   writer.writeStop();

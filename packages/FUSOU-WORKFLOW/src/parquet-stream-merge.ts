@@ -25,7 +25,7 @@ async function readFragmentMetadata(
   // まずHEADでサイズのみ取得（ボディは読まない）
   let totalSize = 0;
   try {
-    const head = await (bucket as any).head?.(key);
+    const head = await bucket.head(key);
     if (head && typeof head.size === 'number') {
       totalSize = head.size;
     }
@@ -37,7 +37,7 @@ async function readFragmentMetadata(
   if (!totalSize) {
     const tiny = await bucket.get(key, { range: { offset: 0, length: 1 } });
     if (!tiny) throw new Error(`Fragment not found: ${key}`);
-    totalSize = (tiny as any).size || tiny.body?.size || 0;
+    totalSize = (tiny as any).size || 0;
   }
 
   if (totalSize < 12) throw new Error(`Invalid Parquet (too small): ${key}`);
@@ -132,7 +132,7 @@ export async function streamMergeParquetFragments(
   for (const { frag, rg } of selectedRgs) {
     // Range GETでRow Groupデータのみ取得
     const rgObj = await bucket.get(frag.key, {
-      range: { offset: rg.offset, length: rg.totalByteSize },
+      range: { offset: rg.offset!, length: rg.totalByteSize! },
     });
     if (!rgObj) throw new Error(`Failed to get RG from ${frag.key}`);
     
@@ -142,7 +142,7 @@ export async function streamMergeParquetFragments(
     // オフセット再計算
     const remappedChunks = (rg.columnChunks || []).map((cc) => ({
       columnIndex: cc.columnIndex,
-      offset: writeOffset + (cc.offset - rg.offset),
+      offset: writeOffset + (cc.offset - rg.offset!),
       size: cc.size,
       type: cc.type,
     }));
@@ -150,7 +150,7 @@ export async function streamMergeParquetFragments(
     newRowGroups.push({
       index: newRowGroups.length,
       offset: writeOffset,
-      totalByteSize: rg.totalByteSize,
+      totalByteSize: rg.totalByteSize!,
       numRows: rg.numRows,
       columnChunks: remappedChunks,
     });
@@ -233,7 +233,7 @@ function writeRowGroup(writer: ThriftCompactWriter, rg: RowGroupInfo) {
   writer.writeListHeader(rg.columnChunks.length, FieldType.STRUCT);
   for (const cc of rg.columnChunks) writeColumnChunk(writer, cc);
   writer.writeField(2, FieldType.I64); writer.writeI64(rg.numRows);
-  writer.writeField(3, FieldType.I64); writer.writeI64(rg.totalByteSize);
+  writer.writeField(3, FieldType.I64); writer.writeI64(rg.totalByteSize!);
   writer.writeStop();
 }
 
@@ -386,9 +386,12 @@ export async function streamMergeExtractedFragments(
   const dataChunks: Uint8Array[] = [];
 
   for (const { frag, rg } of selectedRgs) {
+    if (rg.offset === undefined || rg.totalByteSize === undefined) {
+      throw new Error(`Selected RG has undefined bounds: ${frag.key}`);
+    }
     // Row Group範囲を直接抽出
-    const rgStart = rg.offset;
-    const rgEnd = rgStart + rg.totalByteSize;
+    const rgStart = rg.offset!;
+    const rgEnd = rgStart + rg.totalByteSize!;
     const rgData = frag.data.slice(rgStart, rgEnd);
     
     dataChunks.push(rgData);
@@ -404,7 +407,7 @@ export async function streamMergeExtractedFragments(
     };
     
     newRowGroups.push(newRg);
-    writeOffset += rg.totalByteSize;
+    writeOffset += rg.totalByteSize!;
   }
 
   // 4. Footer生成
