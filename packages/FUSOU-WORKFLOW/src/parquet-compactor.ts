@@ -114,11 +114,7 @@ function parseThriftRowGroup(reader: ThriftCompactReader, index: number): RowGro
   const columnChunks: ColumnChunkInfo[] = [];
   let totalByteSize = 0;
   let numRows = 0;
-  const offset = reader.getPosition();
-  
-  if (offset === undefined || offset === null) {
-    console.error(`[Parquet] getPosition() returned undefined for RG${index}`);
-  }
+  let fileOffset: number | undefined;
   
   // RowGroup 構造体を読む
   while (!reader.isAtEnd()) {
@@ -138,6 +134,9 @@ function parseThriftRowGroup(reader: ThriftCompactReader, index: number): RowGro
     } else if (fieldInfo.fieldId === 3 && fieldInfo.type === FieldType.I64) {
       // total_byte_size
       totalByteSize = reader.readI64();
+    } else if (fieldInfo.fieldId === 4 && fieldInfo.type === FieldType.I64) {
+      // file_offset (this is the actual offset in the file)
+      fileOffset = reader.readI64();
     } else {
       reader.skipField(fieldInfo.type);
     }
@@ -145,19 +144,19 @@ function parseThriftRowGroup(reader: ThriftCompactReader, index: number): RowGro
   
   const result = {
     index,
-    offset: offset || 0,
+    offset: fileOffset !== undefined ? fileOffset : 0,
     totalByteSize: totalByteSize > 0 ? totalByteSize : 10 * 1024 * 1024,
     numRows: numRows > 0 ? numRows : 100000,
     columnChunks
   };
   
-  if (result.totalByteSize === undefined || result.offset === undefined) {
+  if (result.totalByteSize === undefined || result.offset === undefined || fileOffset === undefined) {
     console.error(`[Parquet] Created invalid RowGroup RG${index}:`, {
       offset: result.offset,
+      fileOffset: fileOffset,
       totalByteSize: result.totalByteSize,
       numRows: result.numRows,
-      originalTotalByteSize: totalByteSize,
-      originalOffset: offset
+      originalTotalByteSize: totalByteSize
     });
   }
   

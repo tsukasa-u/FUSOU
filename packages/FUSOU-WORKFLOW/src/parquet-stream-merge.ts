@@ -78,8 +78,13 @@ export async function streamMergeParquetFragments(
   for (const frag of fragments) {
     for (let i = 0; i < frag.rowGroups.length; i++) {
       const rg = frag.rowGroups[i];
-      if (!rg || rg.totalByteSize === undefined) {
-        console.error(`[StreamMerge] Invalid RowGroup in ${frag.key} at index ${i}:`, { rg, hasRg: !!rg, totalByteSize: rg?.totalByteSize });
+      if (!rg || rg.totalByteSize === undefined || rg.offset === undefined) {
+        console.error(`[StreamMerge] Invalid RowGroup in ${frag.key} at index ${i}:`, { 
+          hasRg: !!rg, 
+          totalByteSize: rg?.totalByteSize,
+          offset: rg?.offset,
+          numRows: rg?.numRows
+        });
         continue;
       }
       if (accumulatedBytes > 0 && accumulatedBytes + rg.totalByteSize > thresholdBytes) {
@@ -87,15 +92,6 @@ export async function streamMergeParquetFragments(
       }
       selectedRgs.push({ srcKey: frag.key, rg, rgIndex: i });
       accumulatedBytes += rg.totalByteSize;
-          if (!rg || rg.totalByteSize === undefined || rg.offset === undefined) {
-            console.error(`[StreamMerge] Invalid RowGroup in ${frag.key} at index ${i}:`, {
-              hasRg: !!rg,
-              totalByteSize: rg?.totalByteSize,
-              offset: rg?.offset,
-              numRows: rg?.numRows
-            });
-            continue;
-          }
     }
     if (accumulatedBytes >= thresholdBytes) break;
   }
