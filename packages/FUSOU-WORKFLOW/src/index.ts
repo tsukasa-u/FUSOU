@@ -1,7 +1,7 @@
 import { WorkflowEntrypoint, WorkflowStep, WorkflowEvent } from 'cloudflare:workers';
 import { pickFragmentsForBucket } from './parquet-merge';
-import { streamMergeParquetFragments, streamMergeExtractedFragments } from './parquet-stream-merge';
-import { groupFragmentsBySchema, groupExtractedFragmentsBySchema, processSchemaGroups, SchemaGroupOutput } from './parquet-schema';
+import { streamMergeExtractedFragments } from './parquet-stream-merge';
+import { SchemaGroupOutput } from './parquet-schema';
 import { validateParquetFile, formatValidationReport, validateParquetBatch } from './parquet-validator';
 import { extractTableSafe, validateOffsetMetadata, parseTableOffsets, filterEmptyTables } from './table-offset-extractor';
 
@@ -225,7 +225,8 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
       const extractStart = Date.now();
       const targetTable = table || filtered[0]?.table || 'unknown';
       
-      console.log(`[Workflow] Extracting "${targetTable}" from ${filtered.length} fragments (${filtered.filter(f => f.table_offsets).length} with offsets, ${filtered.filter(f => !f.table_offsets).length} legacy)`);
+      const modernCount = filtered.filter(f => f.table_offsets).length;
+      console.log(`[Workflow] Extracting "${targetTable}" from ${filtered.length} fragments (${modernCount} modern, ${filtered.length - modernCount} legacy)`);
       
       const extractedFragments: Array<{ 
         key: string; 
@@ -379,6 +380,7 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
       }
       
       const extractDuration = Date.now() - extractStart;
+      const modernFragmentsCount = filtered.filter(f => f.table_offsets).length;
       stepMetrics.push({
         stepName: 'extract-tables',
         startTime: extractStart,
@@ -389,8 +391,8 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
           targetTable,
           totalFragments: filtered.length,
           extractedFragments: extractedFragments.length,
-          modernFragments: filtered.filter(f => f.table_offsets).length,
-          legacyFragments: filtered.filter(f => !f.table_offsets).length,
+          modernFragments: modernFragmentsCount,
+          legacyFragments: filtered.length - modernFragmentsCount,
         },
       });
 
