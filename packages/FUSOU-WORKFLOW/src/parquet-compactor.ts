@@ -202,32 +202,7 @@ export function parseParquetMetadataFromFooterBuffer(footerBuffer: Uint8Array): 
  * この関数では簡易的なフォールバック処理を行います。
  * 推奨：parseParquetMetadataFromFullFile() を使用してください。
  */
-export function parseParquetMetadata(footerData: Uint8Array): RowGroupInfo[] {
-  const rowGroups: RowGroupInfo[] = [];
-  
-  try {
-    console.log(`[Parquet.parseParquetMetadata] Starting metadata parse with parquet-wasm, footerSize=${footerData.length}`);
-    
-    // parquet-wasm には footer だけからメタデータを読む API がないため、
-    // Thrift フォーマットを直接パースする必要があります。
-    // しかし、カスタム実装は複雑すぎるため、Fallback として推定値を返します。
-    // 
-    // より良い方法：R2 から全ファイルを読み込んで readParquet() を使う
-    console.warn(`[Parquet.parseParquetMetadata] parquet-wasm requires full file, not just footer. Using fallback.`);
-    
-    // Fallback: 簡易パース
-    return generateEstimatedRowGroups(footerData.length);
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    const errorStack = error instanceof Error ? error.stack : '';
-    console.error(`[Parquet.parseParquetMetadata] Failed to parse metadata with parquet-wasm: ${errorMessage}`);
-    console.error(`[Parquet.parseParquetMetadata] Error stack: ${errorStack}`);
-    
-    // Fallback: 簡易パース
-    console.warn(`[Parquet.parseParquetMetadata] Falling back to estimated RowGroups`);
-    return generateEstimatedRowGroups(footerData.length);
-  }
-}
+// Legacy stub removed: use parseParquetMetadataFromFooterBuffer or parseParquetMetadataFromFullFile instead
 /**
  * 推定 Row Group を生成（フォールバック）
  */

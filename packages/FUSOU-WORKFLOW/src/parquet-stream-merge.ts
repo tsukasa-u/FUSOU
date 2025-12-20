@@ -86,7 +86,7 @@ export async function streamMergeParquetFragments(
   );
 
   // 2. Row Groupを選別してバケツに詰める
-  const selectedRgs: Array<{ srcKey: string; rg: RowGroupInfo; rgIndex: number }> = [];
+  const selectedRgs: Array<{ frag: SourceFragment; rg: RowGroupInfo; rgIndex: number }> = [];
   let accumulatedBytes = 0;
 
   for (const frag of fragments) {
@@ -101,10 +101,20 @@ export async function streamMergeParquetFragments(
         });
         continue;
       }
+      // 安全側チェック: RG 範囲がフッター内に収まっていない場合はスキップ
+      if (rg.offset < 0 || rg.offset + rg.totalByteSize > frag.footerStart) {
+        console.warn(`[StreamMerge] Skip RG out of bounds: ${frag.key} RG${i}`, {
+          offset: rg.offset,
+          totalByteSize: rg.totalByteSize,
+          footerStart: frag.footerStart,
+        });
+        continue;
+      }
+
       if (accumulatedBytes > 0 && accumulatedBytes + rg.totalByteSize > thresholdBytes) {
         break;
       }
-      selectedRgs.push({ srcKey: frag.key, rg, rgIndex: i });
+      selectedRgs.push({ frag, rg, rgIndex: i });
       accumulatedBytes += rg.totalByteSize;
     }
     if (accumulatedBytes >= thresholdBytes) break;
@@ -119,12 +129,12 @@ export async function streamMergeParquetFragments(
   const newRowGroups: RowGroupInfo[] = [];
   const dataChunks: Uint8Array[] = [];
 
-  for (const { srcKey, rg } of selectedRgs) {
+  for (const { frag, rg } of selectedRgs) {
     // Range GETでRow Groupデータのみ取得
-    const rgObj = await bucket.get(srcKey, {
+    const rgObj = await bucket.get(frag.key, {
       range: { offset: rg.offset, length: rg.totalByteSize },
     });
-    if (!rgObj) throw new Error(`Failed to get RG from ${srcKey}`);
+    if (!rgObj) throw new Error(`Failed to get RG from ${frag.key}`);
     
     const rgData = new Uint8Array(await rgObj.arrayBuffer());
     dataChunks.push(rgData);

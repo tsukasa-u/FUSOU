@@ -76,64 +76,7 @@ async function buildSchemaFingerprintFromRowGroups(rowGroups: RowGroupInfo[]): P
 /**
  * Parquetフッターからスキーマ指紋を生成（旧実装 - 後方互換性のため残す）
  */
-async function _extractSchemaFingerprintLegacy(
-  bucket: R2Bucket,
-  key: string
-): Promise<SchemaFingerprint> {
-  // Footer読み取り（末尾8バイト→size→footer本体）
-  const tailObj = await bucket.get(key, { range: { suffix: 8 } });
-  if (!tailObj) throw new Error(`Fragment not found: ${key}`);
-  
-  const tailBuf = new Uint8Array(await tailObj.arrayBuffer());
-  const footerSizeView = new DataView(tailBuf.buffer, tailBuf.byteOffset, 4);
-  const footerSize = footerSizeView.getUint32(0, true);
-  
-  const headObj = await bucket.head(key);
-  if (!headObj) throw new Error(`Cannot head ${key}`);
-  const totalSize = headObj.size;
-  const footerStart = totalSize - 8 - footerSize;
-  
-  const footerObj = await bucket.get(key, {
-    range: { offset: footerStart, length: footerSize },
-  });
-  if (!footerObj) throw new Error(`Cannot read footer of ${key}`);
-  
-  const footerData = new Uint8Array(await footerObj.arrayBuffer());
-  
-  // スキーマ情報を抽出（簡易版: Row Group最初のColumn Chunkから推定）
-  const rowGroups = parseParquetMetadata(footerData);
-  
-  // DEFENSIVE: Check for undefined/null rowGroups or columnChunks
-  // Prevents TypeError: Cannot read properties of undefined (reading 'columnChunks')
-  if (rowGroups.length === 0 || !rowGroups[0] || !rowGroups[0].columnChunks || rowGroups[0].columnChunks.length === 0) {
-    // スキーマなし（エラー扱い）
-    return {
-      hash: 'unknown',
-      numColumns: 0,
-      columnNames: [],
-      columnTypes: [],
-    };
-  }
-  
-  // Column数と型リストを抽出
-  const firstRg = rowGroups[0];
-  const numColumns = firstRg.columnChunks.length;
-  const columnTypes = firstRg.columnChunks.map((cc) => cc.type);
-  
-  // Column名は通常footerのSchemaElementから取得するが、簡易実装では型のみでハッシュ
-  const columnNames = firstRg.columnChunks.map((cc, i) => `col_${i}`);
-  
-  // 指紋ハッシュ生成（シンプルな文字列連結→ハッシュ化）
-  const schemaStr = `cols:${numColumns}|types:${columnTypes.join(',')}`;
-  const hash = await simpleHash(schemaStr);
-  
-  return {
-    hash,
-    numColumns,
-    columnNames,
-    columnTypes,
-  };
-}
+// Legacy implementation removed: use hyparquet-based extractors above for safety
 
 /**
  * シンプルなハッシュ関数（Web Crypto API利用）
