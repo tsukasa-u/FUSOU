@@ -321,6 +321,19 @@ export async function streamMergeExtractedFragments(
       rowGroups = parseParquetMetadataFromFullFile(data) || [];
     } catch (parseErr) {
       console.error(`[Parquet Stream Merge] Failed to parse metadata for ${frag.key}:`, String(parseErr));
+      
+      // Debug: show file structure for diagnosis
+      if (data.length < 200) {
+        console.error(`[Parquet Stream Merge] File too small (${data.length} bytes). First 100 bytes:`, 
+          Array.from(data.slice(0, 100)).map(b => b.toString(16).padStart(2, '0')).join(' '));
+        console.error(`[Parquet Stream Merge] Last 100 bytes:`,
+          Array.from(data.slice(Math.max(0, data.length - 100))).map(b => b.toString(16).padStart(2, '0')).join(' '));
+      } else {
+        console.error(`[Parquet Stream Merge] Magic (last 4 bytes):`, new TextDecoder().decode(data.slice(-4)));
+        console.error(`[Parquet Stream Merge] Footer size should be at bytes [-8:-4], actual:`, 
+          new DataView(data.buffer, data.byteOffset + data.length - 8, 4).getUint32(0, true));
+      }
+      
       // Return empty rowGroups array - this fragment will be skipped due to validation
       rowGroups = [];
     }
