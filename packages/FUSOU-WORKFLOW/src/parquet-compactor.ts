@@ -6,6 +6,18 @@
 import { parquetMetadata, type ColumnMetaData } from 'hyparquet';
 
 /**
+ * Safe bigint to number conversion with overflow validation
+ * Returns undefined if value exceeds Number.MAX_SAFE_INTEGER
+ */
+function safeNumberFromBigInt(value: bigint | undefined): number | undefined {
+  if (value === undefined) return undefined;
+  if (value > BigInt(Number.MAX_SAFE_INTEGER)) {
+    console.warn(`[parquet-compactor] BigInt value ${value} exceeds MAX_SAFE_INTEGER, precision may be lost`);
+  }
+  return Number(value);
+}
+
+/**
  * Parquet Row Group 情報
  */
 export interface RowGroupInfo {
@@ -41,6 +53,12 @@ export function parseParquetMetadataFromFullFile(fileData: Uint8Array): RowGroup
     // Footer メタデータ領域のみを抽出（末尾の8バイトは除外）
     const footerStart = fileData.byteLength - metadataLength - 8;
     const footerEnd = footerStart + metadataLength;
+    
+    // Validate footer region is within bounds
+    if (footerStart < 0 || footerEnd > fileData.byteLength || metadataLength <= 0) {
+      throw new Error(`Invalid footer region: start=${footerStart}, end=${footerEnd}, length=${metadataLength}`);
+    }
+    
     const footerBuffer = fileData.buffer.slice(
       fileData.byteOffset + footerStart,
       fileData.byteOffset + footerEnd
@@ -65,15 +83,36 @@ export function parseParquetMetadataFromFullFile(fileData: Uint8Array): RowGroup
             const col = rg.columns[colIdx];
             const md: Partial<ColumnMetaData> = col.meta_data ?? {};
 
-            // hyparquet uses bigint for offset fields
+            // hyparquet uses bigint for offset fields - use safe conversion
             const starts: number[] = [];
-            if (typeof md.dictionary_page_offset === 'bigint') starts.push(Number(md.dictionary_page_offset));
-            if (typeof md.index_page_offset === 'bigint') starts.push(Number(md.index_page_offset));
-            if (typeof md.data_page_offset === 'bigint') starts.push(Number(md.data_page_offset));
+            const dictOffset = safeNumberFromBigInt(md.dictionary_page_offset);
+            const indexOffset = safeNumberFromBigInt(md.index_page_offset);
+            const dataOffset = safeNumberFromBigInt(md.data_page_offset);
+            if (dictOffset !== undefined) starts.push(dictOffset);
+            if (indexOffset !== undefined) starts.push(indexOffset);
+            if (dataOffset !== undefined) starts.push(dataOffset);
 
-            const colStart = starts.length > 0 ? Math.min(...starts) : (typeof col.file_offset === 'bigint' ? Number(col.file_offset) : 0);
-            const colSizeCompressed = typeof md.total_compressed_size === 'bigint' ? Number(md.total_compressed_size) : 0;
+            // Fallback to col.file_offset, then undefined (not 0!) if all offsets are missing
+            const colStartRaw = starts.length > 0 
+              ? Math.min(...starts) 
+              : safeNumberFromBigInt(col.file_offset);
+            const colSizeCompressed = safeNumberFromBigInt(md.total_compressed_size);
+            
+            // Skip this column chunk if essential metadata is missing or invalid
+            // colSizeCompressed must be > 0 (size 0 is invalid, would indicate missing data)
+            // colStart must be >= 0 (negative offsets are invalid)
+            if (colStartRaw === undefined || colSizeCompressed === undefined || colSizeCompressed <= 0 || colStartRaw < 0) {
+              continue;
+            }
+            
+            const colStart = colStartRaw;
             const colEnd = colStart + colSizeCompressed;
+            
+            // Validate colEnd doesn't overflow
+            if (colEnd > Number.MAX_SAFE_INTEGER) {
+              console.warn(`[parquet-compactor] ColumnChunk end offset ${colEnd} exceeds MAX_SAFE_INTEGER, skipping`);
+              continue;
+            }
 
             rgStart = Math.min(rgStart, colStart);
             rgEnd = Math.max(rgEnd, colEnd);
@@ -88,15 +127,30 @@ export function parseParquetMetadataFromFullFile(fileData: Uint8Array): RowGroup
         }
 
         // Prefer row-group level metadata if available (hyparquet uses bigint for these fields)
-        const rgLevelStart = typeof rg.file_offset === 'bigint' ? Number(rg.file_offset) : undefined;
-        const rgLevelSize = typeof rg.total_byte_size === 'bigint' ? Number(rg.total_byte_size) : undefined;
+        const rgLevelStart = safeNumberFromBigInt(rg.file_offset);
+        const rgLevelSize = safeNumberFromBigInt(rg.total_byte_size);
+        
+        // Validate row-group level metadata
+        // If RG-level metadata is present, it must be valid (non-negative start, positive size)
+        let finalOffset: number | undefined;
+        let finalSize: number | undefined;
+        
+        if (rgLevelStart !== undefined && rgLevelSize !== undefined && rgLevelStart >= 0 && rgLevelSize > 0) {
+          // RG-level metadata is valid
+          finalOffset = rgLevelStart;
+          finalSize = rgLevelSize;
+        } else if (Number.isFinite(rgStart) && rgEnd > rgStart) {
+          // Fall back to column-level computed metadata
+          finalOffset = rgStart;
+          finalSize = rgEnd - rgStart;
+        }
+        // else: both metadata sources are invalid, leave as undefined
 
         const rowGroupInfo: RowGroupInfo = {
           index: i,
-          // Prefer explicit row-group level file_offset/total_byte_size
-          offset: rgLevelStart !== undefined ? rgLevelStart : (Number.isFinite(rgStart) ? rgStart : undefined),
-          totalByteSize: rgLevelSize !== undefined ? rgLevelSize : (rgEnd > rgStart ? (rgEnd - rgStart) : undefined),
-          numRows: typeof rg.num_rows === 'bigint' ? Number(rg.num_rows) : 0,
+          offset: finalOffset,
+          totalByteSize: finalSize,
+          numRows: Math.max(0, safeNumberFromBigInt(rg.num_rows) ?? 0),  // Ensure non-negative
           columnChunks,
         };
 
@@ -130,6 +184,12 @@ export function parseParquetMetadataFromFullFile(fileData: Uint8Array): RowGroup
  */
 export function parseParquetMetadataFromFooterBuffer(footerBuffer: Uint8Array): RowGroupInfo[] {
   try {
+    // Validate input buffer
+    if (!footerBuffer || footerBuffer.byteLength < 8) {
+      console.warn(`[Parquet.parseFromFooterBuffer] Invalid footer buffer: length=${footerBuffer?.byteLength ?? 0}`);
+      return [];
+    }
+    
     // hyparquet はフッターメタデータのみを期待するため、末尾の8バイト（サイズ+魔法）を除外
     const totalLen = footerBuffer.byteLength;
     const metaLen = totalLen >= 8 ? totalLen - 8 : totalLen;
@@ -152,15 +212,36 @@ export function parseParquetMetadataFromFooterBuffer(footerBuffer: Uint8Array): 
             const col = rg.columns[colIdx];
             const md: Partial<ColumnMetaData> = col.meta_data ?? {};
 
-            // hyparquet uses bigint for offset fields
+            // hyparquet uses bigint for offset fields - use safe conversion
             const starts: number[] = [];
-            if (typeof md.dictionary_page_offset === 'bigint') starts.push(Number(md.dictionary_page_offset));
-            if (typeof md.index_page_offset === 'bigint') starts.push(Number(md.index_page_offset));
-            if (typeof md.data_page_offset === 'bigint') starts.push(Number(md.data_page_offset));
+            const dictOffset = safeNumberFromBigInt(md.dictionary_page_offset);
+            const indexOffset = safeNumberFromBigInt(md.index_page_offset);
+            const dataOffset = safeNumberFromBigInt(md.data_page_offset);
+            if (dictOffset !== undefined) starts.push(dictOffset);
+            if (indexOffset !== undefined) starts.push(indexOffset);
+            if (dataOffset !== undefined) starts.push(dataOffset);
 
-            const colStart = starts.length > 0 ? Math.min(...starts) : (typeof col.file_offset === 'bigint' ? Number(col.file_offset) : 0);
-            const colSizeCompressed = typeof md.total_compressed_size === 'bigint' ? Number(md.total_compressed_size) : 0;
+            // Fallback to col.file_offset, then undefined (not 0!) if all offsets are missing
+            const colStartRaw = starts.length > 0 
+              ? Math.min(...starts) 
+              : safeNumberFromBigInt(col.file_offset);
+            const colSizeCompressed = safeNumberFromBigInt(md.total_compressed_size);
+            
+            // Skip this column chunk if essential metadata is missing or invalid
+            // colSizeCompressed must be > 0 (size 0 is invalid, would indicate missing data)
+            // colStart must be >= 0 (negative offsets are invalid)
+            if (colStartRaw === undefined || colSizeCompressed === undefined || colSizeCompressed <= 0 || colStartRaw < 0) {
+              continue;
+            }
+            
+            const colStart = colStartRaw;
             const colEnd = colStart + colSizeCompressed;
+            
+            // Validate colEnd doesn't overflow
+            if (colEnd > Number.MAX_SAFE_INTEGER) {
+              console.warn(`[parquet-compactor] ColumnChunk end offset ${colEnd} exceeds MAX_SAFE_INTEGER, skipping`);
+              continue;
+            }
 
             rgStart = Math.min(rgStart, colStart);
             rgEnd = Math.max(rgEnd, colEnd);
@@ -174,14 +255,30 @@ export function parseParquetMetadataFromFooterBuffer(footerBuffer: Uint8Array): 
           }
         }
         // Prefer row-group level metadata if available (hyparquet uses bigint for these fields)
-        const rgLevelStart = typeof rg.file_offset === 'bigint' ? Number(rg.file_offset) : undefined;
-        const rgLevelSize = typeof rg.total_byte_size === 'bigint' ? Number(rg.total_byte_size) : undefined;
+        const rgLevelStart = safeNumberFromBigInt(rg.file_offset);
+        const rgLevelSize = safeNumberFromBigInt(rg.total_byte_size);
+        
+        // Validate row-group level metadata
+        // If RG-level metadata is present, it must be valid (non-negative start, positive size)
+        let finalOffset: number | undefined;
+        let finalSize: number | undefined;
+        
+        if (rgLevelStart !== undefined && rgLevelSize !== undefined && rgLevelStart >= 0 && rgLevelSize > 0) {
+          // RG-level metadata is valid
+          finalOffset = rgLevelStart;
+          finalSize = rgLevelSize;
+        } else if (Number.isFinite(rgStart) && rgEnd > rgStart) {
+          // Fall back to column-level computed metadata
+          finalOffset = rgStart;
+          finalSize = rgEnd - rgStart;
+        }
+        // else: both metadata sources are invalid, leave as undefined
 
         rowGroups.push({
           index: i,
-          offset: rgLevelStart !== undefined ? rgLevelStart : (Number.isFinite(rgStart) ? rgStart : undefined),
-          totalByteSize: rgLevelSize !== undefined ? rgLevelSize : (rgEnd > rgStart ? (rgEnd - rgStart) : undefined),
-          numRows: typeof rg.num_rows === 'bigint' ? Number(rg.num_rows) : 0,
+          offset: finalOffset,
+          totalByteSize: finalSize,
+          numRows: Math.max(0, safeNumberFromBigInt(rg.num_rows) ?? 0),  // Ensure non-negative
           columnChunks,
         });
       }
