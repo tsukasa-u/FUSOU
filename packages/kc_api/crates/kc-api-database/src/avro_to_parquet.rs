@@ -140,6 +140,10 @@ impl AvroToParquetConverter {
         // Step 3: Convert Avro records to Arrow RecordBatches
         let record_batches = self.avro_to_arrow_batches(reader, arrow_schema_ref.clone())?;
         info!("Converted {} record batches", record_batches.len());
+        
+        // Diagnostic: log total rows across all batches
+        let total_rows: usize = record_batches.iter().map(|b| b.num_rows()).sum();
+        info!("Total rows across all batches: {}", total_rows);
 
         // Step 4: Write Arrow RecordBatches to Parquet
         let parquet_bytes = self.write_parquet(record_batches, arrow_schema_ref)?;
@@ -224,12 +228,14 @@ impl AvroToParquetConverter {
     ) -> ConversionResult<Vec<RecordBatch>> {
         let mut batches = Vec::new();
         let mut records = Vec::new();
+        let mut total_records_read = 0;
 
         for value_result in reader {
             let value = value_result
                 .map_err(|e| ConversionError::AvroError(format!("Failed to read Avro record: {}", e)))?;
             
             records.push(value);
+            total_records_read += 1;
 
             if records.len() >= self.batch_size {
                 let batch = self.create_record_batch(&records, schema.clone())?;
@@ -242,6 +248,11 @@ impl AvroToParquetConverter {
         if !records.is_empty() {
             let batch = self.create_record_batch(&records, schema)?;
             batches.push(batch);
+        }
+
+        debug!("Total Avro records read: {}", total_records_read);
+        if total_records_read == 0 {
+            warn!("WARNING: No Avro records found! Input data may be empty or invalid");
         }
 
         Ok(batches)

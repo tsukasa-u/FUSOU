@@ -208,20 +208,12 @@ impl StorageProvider for R2StorageProvider {
             }
 
             // Serialize table offset metadata to JSON
-            // IMPORTANT: Add 'port_table' meta entry to represent the entire concatenated file
-            // This allows the workflow to extract the full file if needed
-            let mut metadata_with_parent = batch.metadata.clone();
-            metadata_with_parent.insert(0, kc_api::database::batch_upload::TableMetadata {
-                table_name: "port_table".to_string(),
-                start_byte: 0,
-                byte_length: batch.total_bytes as u32,
-                format: "parquet".to_string(),
-            });
-            
-            let table_offsets = serde_json::to_string(&metadata_with_parent)
+            // NOTE: Do NOT add 'port_table' entry here - it causes overlap validation errors
+            // If all individual tables are needed, the workflow should download the full file
+            let table_offsets = serde_json::to_string(&batch.metadata)
                 .map_err(|e| StorageError::Operation(format!("Failed to serialize metadata: {}", e)))?;
-            tracing::info!("table_offsets JSON (with port_table entry): {}", table_offsets);
-            tracing::info!("Total metadata entries: {} (including parent port_table)", metadata_with_parent.len());
+            tracing::info!("table_offsets JSON: {}", table_offsets);
+            tracing::info!("Total metadata entries: {}", batch.metadata.len());
 
             // Upload concatenated Parquet data as single .bin file
             let tag = format!("{}-port-{}-{}", period_tag, maparea_id, mapinfo_no);
