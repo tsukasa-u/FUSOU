@@ -3,7 +3,7 @@
  * Handles streaming binary analysis and Row Group compaction
  */
 
-import { parquetMetadata } from 'hyparquet';
+import { parquetMetadata, type ColumnMetaData } from 'hyparquet';
 
 /**
  * Parquet Row Group 情報
@@ -63,15 +63,16 @@ export function parseParquetMetadataFromFullFile(fileData: Uint8Array): RowGroup
         if (rg.columns && rg.columns.length > 0) {
           for (let colIdx = 0; colIdx < rg.columns.length; colIdx++) {
             const col = rg.columns[colIdx];
-            const md = col.meta_data ?? {} as any;
+            const md: Partial<ColumnMetaData> = col.meta_data ?? {};
 
+            // hyparquet uses bigint for offset fields
             const starts: number[] = [];
-            if (typeof md.dictionary_page_offset === 'number') starts.push(Number(md.dictionary_page_offset));
-            if (typeof md.index_page_offset === 'number') starts.push(Number(md.index_page_offset));
-            if (typeof md.data_page_offset === 'number') starts.push(Number(md.data_page_offset));
+            if (typeof md.dictionary_page_offset === 'bigint') starts.push(Number(md.dictionary_page_offset));
+            if (typeof md.index_page_offset === 'bigint') starts.push(Number(md.index_page_offset));
+            if (typeof md.data_page_offset === 'bigint') starts.push(Number(md.data_page_offset));
 
-            const colStart = starts.length > 0 ? Math.min(...starts) : (typeof col.file_offset === 'number' ? Number(col.file_offset) : 0);
-            const colSizeCompressed = typeof md.total_compressed_size === 'number' ? Number(md.total_compressed_size) : 0;
+            const colStart = starts.length > 0 ? Math.min(...starts) : (typeof col.file_offset === 'bigint' ? Number(col.file_offset) : 0);
+            const colSizeCompressed = typeof md.total_compressed_size === 'bigint' ? Number(md.total_compressed_size) : 0;
             const colEnd = colStart + colSizeCompressed;
 
             rgStart = Math.min(rgStart, colStart);
@@ -149,7 +150,7 @@ export function parseParquetMetadataFromFooterBuffer(footerBuffer: Uint8Array): 
         if (rg.columns && rg.columns.length > 0) {
           for (let colIdx = 0; colIdx < rg.columns.length; colIdx++) {
             const col = rg.columns[colIdx];
-            const md = col.meta_data ?? ({} as any);
+            const md: Partial<ColumnMetaData> = col.meta_data ?? {};
 
             // hyparquet uses bigint for offset fields
             const starts: number[] = [];

@@ -28,7 +28,7 @@ async function readFragmentMetadata(
   // サイズは最小のGETから取得（HEADを使わずAPI回数を削減）
   const tiny = await bucket.get(key, { range: { offset: 0, length: 1 } });
   if (!tiny) throw new Error(`Fragment not found: ${key}`);
-  let totalSize = (tiny as any).size || 0;
+  const totalSize = tiny.size;
 
   if (totalSize < 12) throw new Error(`Invalid Parquet (too small): ${key}`);
 
