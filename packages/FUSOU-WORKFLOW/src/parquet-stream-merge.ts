@@ -131,12 +131,27 @@ export async function streamMergeParquetFragments(
 
   for (const { frag, rg } of selectedRgs) {
     // Range GETでRow Groupデータのみ取得
+    console.log(`[Parquet Stream Merge] Fetching RG from ${frag.key}: offset=${rg.offset}, length=${rg.totalByteSize}`);
+    
+    // Sanity check before Range GET
+    if (rg.offset! + rg.totalByteSize! > frag.data.length) {
+      console.error(`[Parquet Stream Merge] CRITICAL: RG bounds exceed file size!`, {
+        file: frag.key,
+        rgOffset: rg.offset,
+        rgSize: rg.totalByteSize,
+        fileSize: frag.data.length,
+        rgEnd: rg.offset! + rg.totalByteSize!
+      });
+      throw new Error(`RG bounds exceed file size: ${frag.key}`);
+    }
+    
     const rgObj = await bucket.get(frag.key, {
       range: { offset: rg.offset!, length: rg.totalByteSize! },
     });
     if (!rgObj) throw new Error(`Failed to get RG from ${frag.key}`);
     
     const rgData = new Uint8Array(await rgObj.arrayBuffer());
+    console.log(`[Parquet Stream Merge] Fetched RG from ${frag.key}: actual data length=${rgData.length}`);
     dataChunks.push(rgData);
 
     // オフセット再計算
@@ -166,6 +181,30 @@ export async function streamMergeParquetFragments(
 
   // 5. 最終ファイル組み立て（一括アップロード; 真のストリーミングはR2 Multipartへ拡張可）
   const totalSize = writeOffset + footerData.length + 4 + 4;
+  
+  // CRITICAL DEFENSIVE CHECK
+  const MAX_ALLOC_SIZE = 512 * 1024 * 1024; // 512MB safety limit
+  if (totalSize > MAX_ALLOC_SIZE) {
+    console.error(`[Parquet Stream Merge] CRITICAL: Merged file size (${totalSize}) exceeds max allocation (${MAX_ALLOC_SIZE})`, {
+      writeOffset,
+      footerDataLength: footerData.length,
+      selectedRgsCount: selectedRgs.length,
+      dataChunksCount: dataChunks.length,
+      totalDataChunksSize: dataChunks.reduce((sum, c) => sum + c.length, 0)
+    });
+    throw new Error(`[Parquet Stream Merge] Output size ${totalSize} exceeds limit ${MAX_ALLOC_SIZE}`);
+  }
+  
+  if (totalSize < 0 || !Number.isFinite(totalSize)) {
+    console.error(`[Parquet Stream Merge] CRITICAL: Invalid total size`, {
+      totalSize,
+      writeOffset,
+      footerDataLength: footerData.length
+    });
+    throw new Error(`[Parquet Stream Merge] Invalid total size: ${totalSize}`);
+  }
+  
+  console.log(`[Parquet Stream Merge] Allocating merged Parquet: totalSize=${totalSize}, writeOffset=${writeOffset}, footerSize=${footerData.length}`);
   const out = new Uint8Array(totalSize);
   let pos = 0;
   for (const chunk of dataChunks) {
@@ -339,12 +378,26 @@ export async function streamMergeExtractedFragments(
           });
           continue;
         }
+        
+        // Sanity check: RowGroup size should not exceed file size
+        if (rg.totalByteSize > frag.data.length) {
+          console.error(`[Parquet Stream Merge] CRITICAL: RowGroup size (${rg.totalByteSize}) > file size (${frag.data.length}). File: ${frag.key}, RG${i}`, {
+            offset: rg.offset,
+            totalByteSize: rg.totalByteSize,
+            fileSize: frag.data.length,
+            rgEnd: rg.offset + rg.totalByteSize,
+            footerStart: frag.footerStart
+          });
+          console.error(`[Parquet Stream Merge] This likely indicates multi-table concatenation without proper offset metadata. Skipping this RowGroup.`);
+          continue;
+        }
       
       if (accumulatedBytes > 0 && accumulatedBytes + rg.totalByteSize > thresholdBytes) {
         break;
       }
       selectedRgs.push({ frag, rg, rgIndex: i });
       accumulatedBytes += rg.totalByteSize;
+      console.log(`[Parquet Stream Merge] Selected RG${i} from ${frag.key}: size=${rg.totalByteSize}, accumulated=${accumulatedBytes}`);
     }
     if (accumulatedBytes >= thresholdBytes) break;
   }
