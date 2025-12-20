@@ -63,12 +63,24 @@ async function readFragmentMetadata(
   // hyparquetでフッターだけからメタデータをパース
   let rowGroups = parseParquetMetadataFromFooterBuffer(footerBuf);
 
+  // 取得したRowGroupのうち、構造が不正なものや行数0のものを事前に除外
+  // （マージ時の警告スパムを減らし、空結果の早期判定を可能にする）
+  rowGroups = (rowGroups || []).filter((rg) => {
+    const valid = !!rg && rg.offset !== undefined && rg.totalByteSize !== undefined;
+    return valid;
+  }).filter((rg) => (rg.numRows ?? 0) > 0);
+
   // 万一空ならフォールバックで全体読み取り（小ファイル前提）
   if (!rowGroups || rowGroups.length === 0) {
     const fileObj = await bucket.get(key);
     if (!fileObj) throw new Error(`Fragment not found (fallback): ${key}`);
     const fileData = new Uint8Array(await fileObj.arrayBuffer());
-    rowGroups = parseParquetMetadataFromFullFile(fileData);
+    rowGroups = parseParquetMetadataFromFullFile(fileData) || [];
+    // フォールバックでも同様に事前フィルタを適用
+    rowGroups = (rowGroups || []).filter((rg) => {
+      const valid = !!rg && rg.offset !== undefined && rg.totalByteSize !== undefined;
+      return valid;
+    }).filter((rg) => (rg.numRows ?? 0) > 0);
   }
 
   return { key, footerSize, footerStart, rowGroups, totalSize };
@@ -93,6 +105,10 @@ export async function streamMergeParquetFragments(
   let accumulatedBytes = 0;
 
   for (const frag of fragments) {
+    // 事前に空RowGroupを除外済みのため、ここで空判定が成立する場合はスキップ対象
+    if (!frag.rowGroups || frag.rowGroups.length === 0) {
+      continue;
+    }
     for (let i = 0; i < frag.rowGroups.length; i++) {
       const rg = frag.rowGroups[i];
       if (!rg || rg.totalByteSize === undefined || rg.offset === undefined) {
@@ -124,6 +140,12 @@ export async function streamMergeParquetFragments(
   }
 
   if (selectedRgs.length === 0) {
+    // すべてのフラグメントが非空RowGroupを持たない（＝行数0のみ、または不正）場合は空結果として扱う
+    const allEmpty = fragments.every(f => !f.rowGroups || f.rowGroups.length === 0);
+    if (allEmpty) {
+      console.warn(`[Parquet Stream Merge] All ${fragments.length} fragments have empty RowGroups (numRows=0). Returning empty result.`);
+      return { newFileSize: 0, etag: '', rowGroupCount: 0 };
+    }
     throw new Error('No row groups selected for merge');
   }
 
@@ -349,18 +371,21 @@ export async function streamMergeExtractedFragments(
       rowGroups = [];
     }
     
-    const validRowGroups = rowGroups.filter((rg, idx) => {
-      const isValid = !!rg && rg.offset !== undefined && rg.totalByteSize !== undefined && rg.offset !== undefined;
-      if (!isValid) {
-        console.warn(`[Parquet Stream Merge] Dropping invalid RowGroup from ${frag.key} at index ${idx}`, {
-          hasRg: !!rg,
-          offset: rg?.offset,
-          totalByteSize: rg?.totalByteSize,
-          numRows: rg?.numRows
-        });
-      }
-      return isValid;
-    });
+    const validRowGroups = rowGroups
+      .filter((rg, idx) => {
+        const isValid = !!rg && rg.offset !== undefined && rg.totalByteSize !== undefined && rg.offset !== undefined;
+        if (!isValid) {
+          console.warn(`[Parquet Stream Merge] Dropping invalid RowGroup from ${frag.key} at index ${idx}`, {
+            hasRg: !!rg,
+            offset: rg?.offset,
+            totalByteSize: rg?.totalByteSize,
+            numRows: rg?.numRows
+          });
+        }
+        return isValid;
+      })
+      // 行数0のRowGroupは事前に除外（空データはマージ・ログ対象外）
+      .filter((rg) => (rg.numRows ?? 0) > 0);
     
     return {
       key: frag.key,
@@ -377,6 +402,10 @@ export async function streamMergeExtractedFragments(
   let accumulatedBytes = 0;
 
   for (const frag of fragments) {
+    // 事前フィルタにより、空RowGroupのみのフラグメントはここでスキップ
+    if (!frag.rowGroups || frag.rowGroups.length === 0) {
+      continue;
+    }
     for (let i = 0; i < frag.rowGroups.length; i++) {
       const rg = frag.rowGroups[i];
       
@@ -414,8 +443,8 @@ export async function streamMergeExtractedFragments(
   }
 
   if (selectedRgs.length === 0) {
-    // Check if all RowGroups were empty (numRows=0) - this is valid but should have been filtered earlier
-    const allEmpty = fragments.every(f => f.rowGroups.every(rg => rg.numRows === 0));
+    // すべてのフラグメントが非空RowGroupを持たない（事前フィルタ後に空）場合は空結果として扱う
+    const allEmpty = fragments.every(f => !f.rowGroups || f.rowGroups.length === 0);
     if (allEmpty) {
       console.warn(`[Parquet Stream Merge] All ${fragments.length} fragments have empty RowGroups (numRows=0). Returning empty result.`);
       return { etag: '', newFileSize: 0, rowGroupCount: 0 };
