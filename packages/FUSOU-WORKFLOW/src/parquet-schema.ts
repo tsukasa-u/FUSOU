@@ -198,6 +198,7 @@ export async function groupFragmentsByOffsetMetadata(
   fragments: Array<{ key: string; data: ArrayBuffer; size: number; offsetMetadata?: string }>
 ): Promise<Map<string, Array<{ key: string; data: ArrayBuffer; size: number }>>> {
   const schemaGroups = new Map<string, Array<{ key: string; data: ArrayBuffer; size: number }>>();
+  let emptyRowGroupCount = 0;
   
   for (const frag of fragments) {
     let schemaHash = 'unknown';
@@ -207,6 +208,13 @@ export async function groupFragmentsByOffsetMetadata(
       try {
         const offsets = JSON.parse(frag.offsetMetadata);
         if (Array.isArray(offsets) && offsets.length > 0) {
+          // Check if all tables have num_rows = 0 (empty RowGroups)
+          const allEmpty = offsets.every((t: any) => typeof t.num_rows === 'number' && t.num_rows === 0);
+          if (allEmpty) {
+            emptyRowGroupCount++;
+            continue; // Skip fragments with all empty RowGroups
+          }
+          
           const fingerprint = await extractSchemaFingerprintFromOffsetMetadata(offsets);
           schemaHash = fingerprint.hash;
         }
@@ -236,7 +244,11 @@ export async function groupFragmentsByOffsetMetadata(
     });
   }
   
-  console.log(`[Schema] Grouped ${fragments.length} fragments into ${schemaGroups.size} schema groups (using offset metadata)`);
+  if (emptyRowGroupCount > 0) {
+    console.info(`[Schema] Filtered ${emptyRowGroupCount} fragments with all empty RowGroups (numRows=0)`);
+  }
+  
+  console.log(`[Schema] Grouped ${fragments.length - emptyRowGroupCount} fragments into ${schemaGroups.size} schema groups (using offset metadata)`);
   
   return schemaGroups;
 }

@@ -403,6 +403,13 @@ export async function streamMergeExtractedFragments(
   }
 
   if (selectedRgs.length === 0) {
+    // Check if all RowGroups were empty (numRows=0) - this is valid but should have been filtered earlier
+    const allEmpty = fragments.every(f => f.rowGroups.every(rg => rg.numRows === 0));
+    if (allEmpty) {
+      console.warn(`[Parquet Stream Merge] All ${fragments.length} fragments have empty RowGroups (numRows=0). Returning empty result.`);
+      return { etag: '', newFileSize: 0, rowGroupCount: 0 };
+    }
+    
     // Detailed diagnostics: collect all RowGroup info to understand why none were selected
     const diagnostics = fragments.map((frag) => ({
       key: frag.key,
@@ -492,7 +499,11 @@ export async function streamMergeExtractedFragments(
   offset += 4;
   finalData.set(magicBytes, offset);
 
-  // R2アップロード
+  // R2アップロード (skip if finalData is empty)
+  if (finalData.length === 0) {
+    return { etag: '', newFileSize: 0, rowGroupCount: 0 };
+  }
+  
   const uploadResult = await bucket.put(outKey, finalData);
   if (!uploadResult) {
     throw new Error('Failed to upload compacted file to R2');

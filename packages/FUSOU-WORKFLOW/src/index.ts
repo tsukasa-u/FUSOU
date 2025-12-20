@@ -483,6 +483,13 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
               pickedWithData,
               THRESHOLD
             );
+            
+            // Skip empty results (all RowGroups had numRows=0)
+            if (res.newFileSize === 0) {
+              console.warn(`[Workflow] Skipping empty merge result for schema group ${schemaHash} (all RowGroups empty)`);
+              cursor = nextIndex;
+              continue;
+            }
           } catch (error) {
             console.error('[Workflow] Stream merge failed', {
               datasetId,
