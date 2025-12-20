@@ -590,6 +590,7 @@ pub struct ConfigsAppAuth {
     deny_auth: Option<bool>,
     auth_page_url: Option<String>,
     member_map_endpoint: Option<String>,
+    conflict_page_url: Option<String>,
 }
 
 impl ConfigsAppAuth {
@@ -611,6 +612,18 @@ impl ConfigsAppAuth {
                 .app
                 .auth
                 .member_map_endpoint
+                .as_ref()
+                .map(|s| s.trim().to_string()),
+        }
+    }
+
+    pub fn get_conflict_page_url(&self) -> Option<String> {
+        match &self.conflict_page_url {
+            Some(v) if !v.trim().is_empty() => Some(v.trim().to_string()),
+            _ => get_default_configs()
+                .app
+                .auth
+                .conflict_page_url
                 .as_ref()
                 .map(|s| s.trim().to_string()),
         }
@@ -916,8 +929,7 @@ fn merge_table_values(default_table: &mut toml_edit::Table, user_table: &toml_ed
 #[cfg(test)]
 mod tests {
     use super::*;
-    use toml;
-
+    
     #[test]
     fn test_config_toml_is_valid() {
         // Test that config.toml can be successfully parsed into Configs structure
@@ -1195,6 +1207,7 @@ mod tests {
             deny_auth: None,
             auth_page_url: None,
             member_map_endpoint: None,
+            conflict_page_url: None,
         };
         
         assert_eq!(

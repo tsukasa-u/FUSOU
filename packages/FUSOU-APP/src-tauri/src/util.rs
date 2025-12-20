@@ -21,6 +21,10 @@ static KC_USER_ENV_UNIQUE_ID: OnceCell<String> = OnceCell::const_new();
 /// Flag to ensure member_id upsert is called only once per session
 static MEMBER_ID_UPSERTED: AtomicBool = AtomicBool::new(false);
 
+/// Flag to indicate if there's a member_id conflict (409 error)
+/// When true, upload operations should be skipped
+static MEMBER_ID_CONFLICT: AtomicBool = AtomicBool::new(false);
+
 #[allow(non_snake_case)]
 pub fn get_ROAMING_DIR() -> PathBuf {
     return ROAMING_DIR
@@ -156,10 +160,37 @@ pub async fn try_upsert_member_id(app: &tauri::AppHandle) {
         .await
     {
         Ok(resp) => {
-            if resp.status().is_success() {
+            let status = resp.status();
+            if status.is_success() {
                 tracing::info!("member_id upsert successful");
+            } else if status.as_u16() == 409 {
+                // Conflict: member_id already mapped to another account
+                let body_text = resp.text().await.unwrap_or_default();
+                tracing::error!("member_id conflict detected (409): {}", body_text);
+                
+                // Set conflict flag to block uploads
+                MEMBER_ID_CONFLICT.store(true, Ordering::SeqCst);
+                
+                // Get conflict page URL from config and replace {hash} placeholder
+                if let Some(url_template) = app_configs.auth.get_conflict_page_url() {
+                    let conflict_url = url_template.replace("{hash}", &member_id_hash);
+                    tracing::warn!("Opening conflict resolution page: {}", conflict_url);
+                    let _ = webbrowser::open(&conflict_url);
+                } else {
+                    tracing::warn!("conflict_page_url not configured in app.auth, skipping browser open");
+                }
+                
+                // Show desktop notification
+                if let Some(notification) = app.notification() {
+                    let _ = notification
+                        .builder()
+                        .title("Account Conflict Detected")
+                        .body("This game account is already linked to another FUSOU account. Please switch to the correct account.")
+                        .show();
+                }
+                
+                MEMBER_ID_UPSERTED.store(false, Ordering::SeqCst); // Retry next session
             } else {
-                let status = resp.status();
                 let body_text = resp.text().await.unwrap_or_default();
                 tracing::error!("member_id upsert failed: status={}, body={}", status, body_text);
                 MEMBER_ID_UPSERTED.store(false, Ordering::SeqCst); // Retry next time
@@ -170,6 +201,18 @@ pub async fn try_upsert_member_id(app: &tauri::AppHandle) {
             MEMBER_ID_UPSERTED.store(false, Ordering::SeqCst); // Retry next time
         }
     }
+}
+
+/// Check if there's a member_id conflict (409 error detected)
+/// Upload operations should be skipped when this returns true
+pub fn has_member_id_conflict() -> bool {
+    MEMBER_ID_CONFLICT.load(Ordering::SeqCst)
+}
+
+/// Reset the member_id conflict flag (call after user switches to correct account)
+pub fn reset_member_id_conflict() {
+    MEMBER_ID_CONFLICT.store(false, Ordering::SeqCst);
+    MEMBER_ID_UPSERTED.store(false, Ordering::SeqCst);
 }
 
 #[allow(dead_code)]
