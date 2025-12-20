@@ -227,11 +227,19 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
       const targetTable = table || filtered[0]?.table || 'unknown';
       
       console.log(`[Workflow] Extracting table "${targetTable}" from ${filtered.length} fragments`);
+      console.log(`[Workflow] Fragment details:`);
+      for (const frag of filtered) {
+        console.log(`  - ${frag.key}: size=${frag.size}, table=${frag.table}, has_table_offsets=${!!frag.table_offsets}, offsets_content=${frag.table_offsets ? frag.table_offsets.substring(0, 100) : 'null'}`);
+      }
       
       const extractedFragments: Array<{ key: string; data: ArrayBuffer; size: number }> = [];
       
       for (const frag of filtered) {
         try {
+          if (!frag.table_offsets) {
+            console.warn(`[Workflow] CRITICAL: Fragment ${frag.key} has NO table_offsets (NULL/undefined) - will download full file which may be multi-table concatenated and cause memory errors`);
+          }
+          
           if (frag.table_offsets) {
             // Parse offset metadata
             const offsets = parseTableOffsets(frag.table_offsets);
@@ -243,6 +251,7 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
               const fullFile = await this.env.BATTLE_DATA_BUCKET.get(frag.key);
               if (fullFile) {
                 const data = await fullFile.arrayBuffer();
+                console.warn(`[Workflow] CRITICAL: Downloading full concatenated file ${frag.key} (${data.byteLength} bytes) because table_offsets parsing failed - this may cause memory errors in streamMerge`);
                 extractedFragments.push({
                   key: frag.key,
                   data,
@@ -306,6 +315,7 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
               const fullFile = await this.env.BATTLE_DATA_BUCKET.get(frag.key);
               if (fullFile) {
                 const data = await fullFile.arrayBuffer();
+                console.warn(`[Workflow] CRITICAL: Downloading full concatenated file ${frag.key} (${data.byteLength} bytes) because extraction failed - this may cause memory errors in streamMerge if file is multi-table`);
                 extractedFragments.push({
                   key: frag.key,
                   data,
