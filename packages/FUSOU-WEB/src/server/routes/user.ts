@@ -108,7 +108,16 @@ app.post("/member-map/upsert", async (c) => {
       // Check for specific errors
       if (error.message?.includes("already mapped to another user")) {
         return c.json(
-          { error: "This member_id is already mapped to another user" },
+          {
+            error: "member_id_already_mapped",
+            message: "This game account is already linked to another FUSOU account",
+            resolution_options: {
+              switch_account: "Switch to the original account",
+              transfer_ownership: "Transfer ownership (Generate code in old account → Enter in new account)",
+              contact_support: "Contact support if you cannot access the old account"
+            },
+            member_id_hash: memberIdHash
+          },
           409
         );
       }

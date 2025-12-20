@@ -264,6 +264,10 @@ save_file_location = ""
     # Endpoint for user/member_id hash mapping upsert (optional; if empty, falls back to asset_upload_endpoint origin)
     member_map_endpoint = "https://r2-parquet.fusou.pages.dev/api/user/member-map/upsert"
 
+    # Conflict resolution page URL (optional; used when member_id is already mapped to another account)
+    # If not configured, will use conflict_page_url from 409 response (if available)
+    conflict_page_url = "https://r2-parquet.fusou.pages.dev/account/conflict"
+
 
     [app.kc_window]
     # The debounce time (in milliseconds) for window resize events
