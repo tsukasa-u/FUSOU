@@ -154,6 +154,8 @@ export async function streamMergeParquetFragments(
   const newRowGroups: RowGroupInfo[] = [];
   const dataChunks: Uint8Array[] = [];
 
+  const headerShift = 4; // PAR1 header bytes at file start
+
   for (const { frag, rg } of selectedRgs) {
     // Range GETでRow Groupデータのみ取得
     if (VERBOSE_STREAM_LOGS) {
@@ -193,10 +195,13 @@ export async function streamMergeParquetFragments(
 
     newRowGroups.push({
       index: newRowGroups.length,
-      offset: writeOffset,
+      offset: writeOffset + headerShift,
       totalByteSize: rg.totalByteSize!,
       numRows: rg.numRows,
-      columnChunks: remappedChunks,
+      columnChunks: remappedChunks.map((cc) => ({
+        ...cc,
+        offset: cc.offset + headerShift,
+      })),
     });
 
     writeOffset += rgData.length;
@@ -208,8 +213,11 @@ export async function streamMergeParquetFragments(
   new DataView(footerSizeBuf).setUint32(0, footerData.length, true);
   const magic = new TextEncoder().encode('PAR1');
 
+  // Parquetヘッダー(4B)を先頭に置く標準レイアウト: magic | data | footer | footer_size | magic
+  const headerSize = 4;
+
   // 5. 最終ファイル組み立て（一括アップロード; 真のストリーミングはR2 Multipartへ拡張可）
-  const totalSize = writeOffset + footerData.length + 4 + 4;
+  const totalSize = headerSize + writeOffset + footerData.length + 4 + 4;
   
   // CRITICAL DEFENSIVE CHECK
   const MAX_ALLOC_SIZE = 512 * 1024 * 1024; // 512MB safety limit
@@ -238,10 +246,18 @@ export async function streamMergeParquetFragments(
   }
   const out = new Uint8Array(totalSize);
   let pos = 0;
+
+  // Write header magic
+  out.set(magic, pos);
+  pos += headerSize;
+
+  // Write data chunks
   for (const chunk of dataChunks) {
     out.set(chunk, pos);
     pos += chunk.length;
   }
+
+  // Write footer and trailers
   out.set(footerData, pos);
   pos += footerData.length;
   out.set(new Uint8Array(footerSizeBuf), pos);
@@ -509,12 +525,14 @@ export async function streamMergeExtractedFragments(
     dataChunks.push(rgData);
     
     // オフセット再計算
+    // Parquetヘッダー4Bが先頭に付与されるため、オフセットを+4する
+    const headerShift = 4;
     const newRg: RowGroupInfo = {
       ...rg,
-      offset: writeOffset,
+      offset: writeOffset + headerShift,
       columnChunks: rg.columnChunks.map((cc) => ({
         ...cc,
-        offset: cc.offset - rgStart + writeOffset,
+        offset: cc.offset - rgStart + writeOffset + headerShift,
       })),
     };
     
@@ -529,14 +547,15 @@ export async function streamMergeExtractedFragments(
   const magicBytes = new TextEncoder().encode('PAR1');
 
   // 5. 最終結合してR2にアップロード
-  const totalSize = writeOffset + footerData.length + 4 + 4;
+  const headerSize = 4;
+  const totalSize = headerSize + writeOffset + footerData.length + 4 + 4;
   const finalData = new Uint8Array(totalSize);
   
   // Header magic
   finalData.set(magicBytes, 0);
   
-  // Data chunks
-  let offset = 4;
+  // Data chunks start right after the header
+  let offset = headerSize;
   for (const chunk of dataChunks) {
     finalData.set(chunk, offset);
     offset += chunk.length;
