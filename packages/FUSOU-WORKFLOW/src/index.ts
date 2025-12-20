@@ -232,7 +232,12 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
         console.log(`  - ${frag.key}: size=${frag.size}, table=${frag.table}, has_table_offsets=${!!frag.table_offsets}, offsets_content=${frag.table_offsets ? frag.table_offsets.substring(0, 100) : 'null'}`);
       }
       
-      const extractedFragments: Array<{ key: string; data: ArrayBuffer; size: number }> = [];
+      const extractedFragments: Array<{ 
+        key: string; 
+        data: ArrayBuffer; 
+        size: number;
+        offsetMetadata?: string; // Store original offset metadata for schema extraction
+      }> = [];
       
       for (const frag of filtered) {
         try {
@@ -316,6 +321,7 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
                   key: `${frag.key}#${extracted.table_name}`,
                   data: extracted.data,
                   size: extracted.size,
+                  offsetMetadata: frag.table_offsets, // Preserve offset metadata for schema grouping
                 });
               }
             } else {
@@ -345,6 +351,7 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
                   key: `${frag.key}#${targetTable}`,
                   data: extracted.data,
                   size: extracted.size,
+                  offsetMetadata: frag.table_offsets, // Preserve offset metadata for schema grouping
                 });
               } else {
                 // Fallback: treat as legacy single-table fragment if extraction failed
@@ -362,6 +369,7 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
                 key: frag.key,
                 data,
                 size: data.byteLength,
+                offsetMetadata: undefined, // Legacy fragments have no offset metadata
               });
             } else {
               console.warn(`[Workflow] Failed to download ${frag.key}, skipping`);
@@ -424,8 +432,10 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
 
       console.info(`[Workflow] Filtered ${extractedFragments.length - validFragments.length} empty/invalid fragments, ${validFragments.length} valid fragments remain`);
 
-      // 抽出済みデータでスキーマグルーピング実行
-      const schemaGroups = await groupExtractedFragmentsBySchema(validFragments);
+      // OPTIMIZATION: Use offset metadata for schema grouping instead of parsing Parquet data
+      // This eliminates expensive hyparquet parsing for 498 fragments
+      const { groupFragmentsByOffsetMetadata } = await import('./parquet-schema');
+      const schemaGroups = await groupFragmentsByOffsetMetadata(validFragments);
       
       // Filter out groups with "unknown" schema (empty Parquet files that have no row groups)
       const validSchemaGroups = new Map<string, typeof validFragments>();

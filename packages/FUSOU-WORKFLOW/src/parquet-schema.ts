@@ -191,6 +191,57 @@ export async function groupExtractedFragmentsBySchema(
 }
 
 /**
+ * OPTIMIZED: Group fragments by schema using offset metadata (no Parquet parsing)
+ * This eliminates expensive hyparquet parsing by using schema info already in D1
+ */
+export async function groupFragmentsByOffsetMetadata(
+  fragments: Array<{ key: string; data: ArrayBuffer; size: number; offsetMetadata?: string }>
+): Promise<Map<string, Array<{ key: string; data: ArrayBuffer; size: number }>>> {
+  const schemaGroups = new Map<string, Array<{ key: string; data: ArrayBuffer; size: number }>>();
+  
+  for (const frag of fragments) {
+    let schemaHash = 'unknown';
+    
+    // Try to extract schema from offset metadata first (fast path)
+    if (frag.offsetMetadata) {
+      try {
+        const offsets = JSON.parse(frag.offsetMetadata);
+        if (Array.isArray(offsets) && offsets.length > 0) {
+          const fingerprint = await extractSchemaFingerprintFromOffsetMetadata(offsets);
+          schemaHash = fingerprint.hash;
+        }
+      } catch (error) {
+        console.warn(`[Schema] Failed to parse offset metadata for ${frag.key}, falling back to Parquet parsing`);
+      }
+    }
+    
+    // Fallback: Parse Parquet data if offset metadata unavailable (legacy fragments)
+    if (schemaHash === 'unknown') {
+      try {
+        const fingerprint = await extractSchemaFingerprintFromData(frag.data);
+        schemaHash = fingerprint.hash;
+      } catch (error) {
+        console.warn(`[Schema] Failed to extract schema for ${frag.key}:`, error);
+        schemaHash = 'unknown';
+      }
+    }
+    
+    if (!schemaGroups.has(schemaHash)) {
+      schemaGroups.set(schemaHash, []);
+    }
+    schemaGroups.get(schemaHash)!.push({
+      key: frag.key,
+      data: frag.data,
+      size: frag.size
+    });
+  }
+  
+  console.log(`[Schema] Grouped ${fragments.length} fragments into ${schemaGroups.size} schema groups (using offset metadata)`);
+  
+  return schemaGroups;
+}
+
+/**
  * スキーマグループごとにコンパクション実行
  * 戻り値: { schemaHash: string, fragments: {...}[], outputKeys: string[] }[]
  */
