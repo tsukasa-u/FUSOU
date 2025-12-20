@@ -121,7 +121,9 @@ app.post("/upload", async (c) => {
       // Strict server-side validation of provided table_offsets; reject on failure
       if (tableOffsets) {
         try {
+          console.info(`[battle-data] Received table_offsets for ${table}: ${tableOffsets}`);
           const parsed = JSON.parse(tableOffsets);
+          console.info(`[battle-data] Parsed table_offsets (${parsed.length} tables): ${JSON.stringify(parsed.map((p: any) => p.table_name))}`);
           const { valid, errors } = validateOffsetMetadata(parsed, declaredSize);
           if (!valid) {
             console.warn(`[battle-data] Invalid table_offsets provided; rejecting. Errors: ${errors.join(', ')}`);
@@ -131,6 +133,8 @@ app.post("/upload", async (c) => {
           console.warn(`[battle-data] Failed to parse table_offsets; rejecting. Error: ${String(e)}`);
           return c.json({ error: "Malformed table_offsets JSON" }, 400);
         }
+      } else {
+        console.info(`[battle-data] No table_offsets provided for table '${table}'`);
       }
 
       // Generate variable key with timestamp + UUID to prevent overwrites
@@ -182,13 +186,15 @@ app.post("/upload", async (c) => {
 
       // Record fragment metadata in D1 for indexing
       try {
+        console.info(`[battle-data] Recording fragment in D1: key=${key}, table=${table}, table_offsets_present=${!!tableOffsets}`);
         const stmt = indexDb.prepare(
-          `INSERT INTO battle_files (key, dataset_id, "table", period_tag, size, etag, uploaded_at, content_hash, uploaded_by, table_offsets)
+          `INSERT INTO battle_files (key, dataset_id, \"table\", period_tag, size, etag, uploaded_at, content_hash, uploaded_by, table_offsets)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         );
         await stmt
           .bind(key, datasetId, table, periodTag, actualSize, etag, uploadedAt, contentHash, user.id, tableOffsets)
           .run();
+        console.info(`[battle-data] Fragment recorded in D1 successfully`);
       } catch (err) {
         console.error("[battle_data] Failed to record fragment in D1:", err);
         return c.json({ error: "Failed to record fragment metadata" }, 500);

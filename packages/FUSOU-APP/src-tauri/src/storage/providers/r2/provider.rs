@@ -195,10 +195,14 @@ impl StorageProvider for R2StorageProvider {
                 batch.total_bytes,
                 batch.metadata.len()
             );
+            for meta in &batch.metadata {
+                tracing::info!("  - Table: {}, offset: {}, size: {}", meta.table_name, meta.start_byte, meta.byte_length);
+            }
 
             // Serialize table offset metadata to JSON
             let table_offsets = serde_json::to_string(&batch.metadata)
                 .map_err(|e| StorageError::Operation(format!("Failed to serialize metadata: {}", e)))?;
+            tracing::info!("table_offsets JSON: {}", table_offsets);
 
             // Upload concatenated Parquet data as single .bin file
             let tag = format!("{}-port-{}-{}", period_tag, maparea_id, mapinfo_no);

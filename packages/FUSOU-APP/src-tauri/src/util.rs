@@ -11,6 +11,7 @@ use tauri::Manager;
 
 use crate::RESOURCES_DIR;
 use crate::ROAMING_DIR;
+use crate::notify;
 /// Deprecated: Environment-scoped ID cache (ENV_UNIQ_ID). Do not use for user identification.
 ///
 /// Use [`get_user_member_id()`] instead for a user-scoped, salted SHA-256 identifier
@@ -180,14 +181,7 @@ pub async fn try_upsert_member_id(app: &tauri::AppHandle) {
                     tracing::warn!("conflict_page_url not configured in app.auth, skipping browser open");
                 }
                 
-                // Show desktop notification
-                if let Some(notification) = app.notification() {
-                    let _ = notification
-                        .builder()
-                        .title("Account Conflict Detected")
-                        .body("This game account is already linked to another FUSOU account. Please switch to the correct account.")
-                        .show();
-                }
+                notify::show(app, "Account Conflict Detected", "This game account is already linked to another FUSOU account. Please switch to the correct account.");
                 
                 MEMBER_ID_UPSERTED.store(false, Ordering::SeqCst); // Retry next session
             } else {

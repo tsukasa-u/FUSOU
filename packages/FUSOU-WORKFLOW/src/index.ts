@@ -235,6 +235,8 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
           if (frag.table_offsets) {
             // Parse offset metadata
             const offsets = parseTableOffsets(frag.table_offsets);
+            console.info(`[Workflow] Fragment ${frag.key} has table_offsets: ${frag.table_offsets}`);
+            console.info(`[Workflow] Parsed offsets for ${frag.key}: ${offsets ? JSON.stringify(offsets.map(o => o.table_name)) : 'null'}`);
             if (!offsets) {
               console.warn(`[Workflow] Failed to parse offset metadata in ${frag.key}, downloading full file`);
               // Treat as legacy fragment
@@ -299,7 +301,19 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
                 size: extracted.size,
               });
             } else {
-              console.warn(`[Workflow] Failed to extract ${targetTable} from ${frag.key}, skipping`);
+              // Fallback: treat as legacy single-table fragment if extraction failed
+              console.warn(`[Workflow] Failed to extract ${targetTable} from ${frag.key}, downloading full fragment as fallback`);
+              const fullFile = await this.env.BATTLE_DATA_BUCKET.get(frag.key);
+              if (fullFile) {
+                const data = await fullFile.arrayBuffer();
+                extractedFragments.push({
+                  key: frag.key,
+                  data,
+                  size: data.byteLength,
+                });
+              } else {
+                console.warn(`[Workflow] Failed to download ${frag.key} during fallback, skipping`);
+              }
             }
           } else {
             // Legacy fragment without offset metadata - download full file
