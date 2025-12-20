@@ -405,11 +405,49 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
       let outputs: Array<{ key: string; size: number; etag: string }> = [];
       const totalOriginal = extractedFragments.reduce((sum, r) => sum + r.size, 0);
 
+      // Filter out empty Parquet files (0 row groups) before schema grouping
+      const validFragments = extractedFragments.filter((frag) => {
+        const data = new Uint8Array(frag.data);
+        // Check if this looks like a valid Parquet file
+        // Minimum Parquet: 4 bytes magic PAR1 + some metadata + 4 bytes magic at end = 8+ bytes
+        if (data.length < 12) {
+          console.info(`[Workflow] Filtering out empty fragment ${frag.key} (size: ${frag.size} bytes)`);
+          return false;
+        }
+        
+        // Check for Parquet magic bytes
+        const magic = new TextDecoder().decode(data.slice(-4));
+        if (magic !== 'PAR1') {
+          console.info(`[Workflow] Filtering out invalid Parquet fragment ${frag.key} (no PAR1 magic)`);
+          return false;
+        }
+        
+        return true;
+      });
+
+      console.info(`[Workflow] Filtered ${extractedFragments.length - validFragments.length} empty/invalid fragments, ${validFragments.length} valid fragments remain`);
+
       // 抽出済みデータでスキーマグルーピング実行
-      const schemaGroups = await groupExtractedFragmentsBySchema(extractedFragments);
+      const schemaGroups = await groupExtractedFragmentsBySchema(validFragments);
+      
+      // Filter out groups with "unknown" schema (empty Parquet files that have no row groups)
+      const validSchemaGroups = new Map<string, typeof validFragments>();
+      let unknownCount = 0;
+      for (const [schemaHash, groupFrags] of schemaGroups.entries()) {
+        if (schemaHash === 'unknown') {
+          unknownCount += groupFrags.length;
+          console.info(`[Workflow] Filtering out ${groupFrags.length} fragments with unknown schema (empty Parquet)`);
+        } else {
+          validSchemaGroups.set(schemaHash, groupFrags);
+        }
+      }
+
+      if (unknownCount > 0) {
+        console.info(`[Workflow] Filtered ${unknownCount} total empty Parquet fragments before compaction`);
+      }
       
       let globalIndex = 0;
-      for (const [schemaHash, groupFrags] of schemaGroups.entries()) {
+      for (const [schemaHash, groupFrags] of validSchemaGroups.entries()) {
         let cursor = 0;
         while (cursor < groupFrags.length) {
           const { picked, nextIndex } = pickFragmentsForBucket(

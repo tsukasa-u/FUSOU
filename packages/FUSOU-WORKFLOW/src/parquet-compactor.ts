@@ -119,8 +119,9 @@ export function parseParquetMetadataFromFullFile(fileData: Uint8Array): RowGroup
     console.log(`[Parquet.parseFromFullFile] Successfully parsed ${rowGroups.length} Row Groups using hyparquet`);
     
     if (rowGroups.length === 0) {
-      console.warn(`[Parquet.parseFromFullFile] WARNING: No RowGroups found in metadata.`);
-      throw new Error(`Parsed 0 RowGroups from ${fileData.length} byte file`);
+      console.warn(`[Parquet.parseFromFullFile] WARNING: No RowGroups found in metadata. File may represent empty table (numRows=0).`);
+      // Return empty array instead of throwing - allows empty tables to be filtered later
+      return [];
     }
     
     return rowGroups;
