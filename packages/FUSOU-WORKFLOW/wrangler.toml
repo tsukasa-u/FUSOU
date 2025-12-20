@@ -6,11 +6,8 @@ compatibility_flags = ["nodejs_compat"]
 main = "src/index.ts"
 
 # ===== Environment Variables =====
-# Supabase credentials managed via Cloudflare Dashboard
-# Settings → Variables and Secrets:
-# - PUBLIC_SUPABASE_URL: Text variable
-# - SUPABASE_SECRET_KEY: Secret
-# These are automatically bound at runtime by Cloudflare Workers
+# All configuration is now via D1 database
+# Previous Supabase credentials have been removed
 
 # ===== Workflow definitions =====
 [[workflows]]

@@ -19,7 +19,8 @@ export async function runCompactionJob(
   env: Bindings,
   datasetId: string,
   tableFilter?: string,
-  periodTagFilter?: string
+  periodTagFilter?: string,
+  userId?: string
 ): Promise<CompactionResult> {
   const { BATTLE_INDEX_DB: indexDb, BATTLE_DATA_BUCKET: bucket } = env;
   if (!indexDb || !bucket) {
@@ -34,7 +35,7 @@ export async function runCompactionJob(
       const workflowRes = await (env as any).COMPACTION_WORKFLOW.fetch("/run", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ datasetId, table: tableFilter, periodTag: periodTagFilter }),
+        body: JSON.stringify({ datasetId, table: tableFilter, periodTag: periodTagFilter, userId }),
       });
       const json = await workflowRes.json();
       return { status: "offloaded", delegated: { workflowInvocationId: json?.invocationId } };

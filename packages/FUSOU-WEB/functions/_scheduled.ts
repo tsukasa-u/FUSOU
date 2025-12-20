@@ -1,28 +1,31 @@
-import { createClient } from "@supabase/supabase-js";
-import type { Bindings } from "../src/server/types";
+import type { Bindings, D1Database } from "../src/server/types";
 
 type ScheduledHandler = (event: any, env: Bindings, ctx: any) => Promise<void>;
 
 const MAX_DATASETS_PER_RUN = Number(process.env.MAX_DATASETS_PER_RUN || 10);
 
 async function fetchPendingDatasets(
-  supabase: any,
+  db: D1Database,
   limit: number
-): Promise<Array<{ id: string }>> {
-  const { data, error } = await supabase
-    .from("datasets")
-    .select("id")
-    .eq("compaction_needed", true)
-    .eq("compaction_in_progress", false)
-    .order("updated_at", { ascending: true })
-    .limit(limit);
+): Promise<Array<{ id: string; user_id: string }>> {
+  const res = await db
+    .prepare(
+      `SELECT id, user_id
+       FROM datasets
+       WHERE compaction_needed = 1 AND compaction_in_progress = 0
+       ORDER BY updated_at ASC
+       LIMIT ?`
+    )
+    .bind(limit)
+    .all?.();
 
-  if (error) throw new Error(`Supabase fetch failed: ${error.message}`);
-  return data || [];
+  const rows = (res?.results || []) as Array<{ id: string; user_id: string }>;
+  return rows;
 }
 
 async function enqueueDataset(
   datasetId: string,
+  userId: string,
   compactionQueue: any
 ): Promise<void> {
   try {
@@ -32,6 +35,7 @@ async function enqueueDataset(
       datasetId: datasetId,
       triggeredAt: new Date().toISOString(),
       priority: "scheduled",
+      userId: userId,
     });
 
     console.log(`[Scheduled] Enqueued: ${datasetId}`);
@@ -42,19 +46,16 @@ async function enqueueDataset(
 }
 
 export const scheduled: ScheduledHandler = async (event, env, ctx) => {
-  const supabaseUrl = env.PUBLIC_SUPABASE_URL as string;
-  const supabaseKey = env.SUPABASE_SECRET_KEY as string;
+  const db = env.BATTLE_INDEX_DB as unknown as D1Database | undefined;
   const compactionQueue = env.COMPACTION_QUEUE as any;
 
-  if (!supabaseUrl || !supabaseKey || !compactionQueue) {
-    console.log("[Scheduled] Missing environment configuration");
+  if (!db || !compactionQueue) {
+    console.log("[Scheduled] Missing environment configuration (D1 or Queue)");
     return;
   }
 
   try {
-    const supabase = createClient(supabaseUrl, supabaseKey);
-
-    const datasets = await fetchPendingDatasets(supabase, MAX_DATASETS_PER_RUN);
+    const datasets = await fetchPendingDatasets(db, MAX_DATASETS_PER_RUN);
     if (datasets.length === 0) {
       console.log("[Scheduled] No pending datasets");
       return;
@@ -65,7 +66,7 @@ export const scheduled: ScheduledHandler = async (event, env, ctx) => {
     );
 
     const enqueuePromises = datasets.map((dataset) =>
-      enqueueDataset(dataset.id, compactionQueue)
+      enqueueDataset(dataset.id, dataset.user_id, compactionQueue)
     );
 
     await Promise.all(enqueuePromises);

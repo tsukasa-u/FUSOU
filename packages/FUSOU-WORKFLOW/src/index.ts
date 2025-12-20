@@ -1,5 +1,4 @@
 import { WorkflowEntrypoint, WorkflowStep, WorkflowEvent } from 'cloudflare:workers';
-import { createClient } from '@supabase/supabase-js';
 import { pickFragmentsForBucket } from './parquet-merge';
 import { streamMergeParquetFragments, streamMergeExtractedFragments } from './parquet-stream-merge';
 import { groupFragmentsBySchema, groupExtractedFragmentsBySchema, processSchemaGroups, SchemaGroupOutput } from './parquet-schema';
@@ -12,8 +11,6 @@ interface Env {
   DATA_COMPACTION: Workflow;
   COMPACTION_QUEUE: Queue;
   COMPACTION_DLQ: Queue;
-  PUBLIC_SUPABASE_URL: string;
-  SUPABASE_SECRET_KEY: string;
 }
 
 /**
@@ -24,8 +21,7 @@ interface CompactionParams {
   datasetId: string;
   table?: string;
   periodTag?: string;
-  metricId?: string;
-  userId?: string;
+  userId: string;  // Required: all workflow steps need user validation
 }
 
 interface StepMetrics {
@@ -49,79 +45,55 @@ interface CompactionResult {
 }
 
 /**
- * Standard retry configuration for Supabase operations
- * Free tier: exponential backoff with max 3 retries
- * Prevents rate limiting issues on shared infrastructure
+ * Standard retry configuration for D1 operations
+ * Uses exponential backoff with max 3 retries
  */
-const SUPABASE_RETRY_CONFIG = {
-  limit: 3,
-  delay: 2000, // 2 seconds in milliseconds
-  backoff: 'exponential' as const,
-};
 
 export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionParams> {
   async run(event: Readonly<WorkflowEvent<CompactionParams>>, step: WorkflowStep) {
-    const { datasetId, metricId, table, periodTag, userId } = event.payload;
+    const { datasetId, table, periodTag, userId } = event.payload;
     const workflowStartTime = Date.now();
     const stepMetrics: StepMetrics[] = [];
-    let resolvedMetricId = metricId; // Will be set if metricId is missing
 
     console.info(`[Workflow] Started for ${datasetId}`, {
-      metricId,
       timestamp: new Date().toISOString(),
     });
 
     try {
-      // ===== Step 1: Ensure Dataset Exists (create if missing) =====
+      // ===== Step 1: Ensure Dataset Exists (create if missing) - D1 Database =====
       const step1Start = Date.now();
 
-      const validation = await step.do('ensure-dataset', {
-        retries: SUPABASE_RETRY_CONFIG
-      }, async () => {
-        const supabase = createClient(
-          this.env.PUBLIC_SUPABASE_URL,
-          this.env.SUPABASE_SECRET_KEY,
-          {
-            auth: {
-              persistSession: false,
-              autoRefreshToken: false,
-            },
-          }
-        );
+      type ValidationResult = {
+        id: string | number;
+        user_id: string;
+        compaction_needed: number | boolean;
+        compaction_in_progress: number | boolean;
+      };
 
+      const validation = await step.do('ensure-dataset', {
+        retries: {
+          limit: 3,
+          delay: 1000,
+          backoff: 'exponential' as const,
+        }
+      }, async (): Promise<ValidationResult> => {
         if (!userId) {
           throw new Error('userId is required for dataset validation');
         }
 
-        // Verify user exists first (preventing foreign key constraint violations)
-        const { data: userData, error: userError } = await supabase
-          .from('auth.users')
-          .select('id')
-          .eq('id', userId)
-          .maybeSingle();
-
-        if (userError || !userData) {
-          throw new Error(`User ${userId} does not exist in auth.users`);
-        }
-
-        // Direct SQL execution with service_role (bypasses RLS, but we verified user exists)
-        // This is safer than RPC with weakened auth checks for autonomous workflows
-        const { data: existing, error: selectError } = await supabase
-          .from('datasets')
-          .select('id, user_id, compaction_needed, compaction_in_progress')
-          .eq('id', datasetId)
-          .maybeSingle();
-
-        if (selectError) {
-          throw new Error(`Failed to check dataset existence: ${selectError.message}`);
-        }
+        // Query D1 for existing dataset
+        const existing = await this.env.BATTLE_INDEX_DB.prepare(
+          `SELECT id, user_id, compaction_needed, compaction_in_progress
+           FROM datasets
+           WHERE id = ?`
+        ).bind(datasetId).first<ValidationResult>();
 
         if (existing) {
-          // Verify ownership even with service_role for security
+          // Verify ownership
           if (existing.user_id !== userId) {
             throw new Error(`Dataset ${datasetId} belongs to different user`);
           }
-          console.info(`[Workflow] Dataset exists`, { datasetId, userId });
+          console.info(`[Workflow] Dataset exists in D1`, { datasetId, userId });
           return {
             id: existing.id,
             user_id: existing.user_id,
@@ -130,31 +102,20 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
           };
         }
 
-        // Create new dataset with verified user_id
-        const { data: created, error: insertError } = await supabase
-          .from('datasets')
-          .insert({
-            id: datasetId,
-            user_id: userId,
-            dataset_name: table || 'unknown',
-            dataset_ref: datasetId,
-            compaction_needed: true,
-            compaction_in_progress: false,
-          })
-          .select('id, user_id, compaction_needed, compaction_in_progress')
-          .single();
+        // Create new dataset in D1
+        // Note: User existence is validated by application layer, D1 has no FK constraint
+        await this.env.BATTLE_INDEX_DB.prepare(
+          `INSERT INTO datasets (id, user_id, dataset_name, dataset_ref, compaction_needed, compaction_in_progress, created_at, updated_at)
+           VALUES (?, ?, ?, ?, 1, 0, datetime('now'), datetime('now'))`
+        ).bind(datasetId, userId, table || 'unknown', datasetId).run();
 
-        if (insertError) {
-          throw new Error(`Failed to create dataset: ${insertError.message}`);
-        }
-
-        console.info(`[Workflow] Created dataset`, { datasetId, userId });
+        console.info(`[Workflow] Created dataset in D1`, { datasetId, userId });
         return {
-          id: created.id,
-          user_id: created.user_id,
-          compaction_needed: created.compaction_needed,
-          compaction_in_progress: created.compaction_in_progress,
-        };
+          id: datasetId,
+          user_id: userId,
+          compaction_needed: 1,
+          compaction_in_progress: 0,
+        } as ValidationResult;
       });
 
       const step1Duration = Date.now() - step1Start;
@@ -165,82 +126,43 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
         duration: step1Duration,
         status: 'success',
         details: {
-          compaction_needed: validation.compaction_needed,
-          compaction_in_progress: validation.compaction_in_progress,
+          compaction_needed: (validation as ValidationResult)?.compaction_needed,
+          compaction_in_progress: (validation as ValidationResult)?.compaction_in_progress,
         },
       });
 
-      // ===== Step 1.5: Create processing_metrics if not provided =====
-      // This happens when triggered from battle-data/upload (no metricId in message)
-      // Must be done AFTER ensure-dataset to satisfy FK constraint
-      if (!resolvedMetricId) {
-        const metricsStart = Date.now();
-        try {
-          const supabase = createClient(
-            this.env.PUBLIC_SUPABASE_URL,
-            this.env.SUPABASE_SECRET_KEY,
-            {
-              auth: {
-                persistSession: false,
-                autoRefreshToken: false,
-              },
-            }
-          );
-
-          const { data: metricsData, error: metricsError } = await supabase
-            .rpc('rpc_create_processing_metrics', {
-              dataset_id: datasetId,
-              workflow_instance_id: `workflow-${Date.now()}`,
-              metric_status: 'pending',
-            });
-
-          if (metricsError) {
-            console.warn(`[Workflow] Failed to create metrics record: ${metricsError.message}`);
-          } else if (metricsData) {
-            resolvedMetricId = metricsData;
-            console.info(`[Workflow] Created processing_metrics record`, { metricId: resolvedMetricId });
-          }
-        } catch (error) {
-          console.warn(`[Workflow] Error creating metrics record`, { error });
-        }
-      }
-
-      // ===== Set compaction_in_progress flag (with race condition check) =====
+      // ===== Set compaction_in_progress flag - D1 Database =====
       const setFlagStart = Date.now();
       await step.do('set-in-progress-flag', {
-        retries: SUPABASE_RETRY_CONFIG
+        retries: {
+          limit: 3,
+          delay: 1000,
+          backoff: 'exponential' as const,
+        }
       }, async () => {
-        const supabase = createClient(
-          this.env.PUBLIC_SUPABASE_URL,
-          this.env.SUPABASE_SECRET_KEY,
-          {
-            auth: {
-              persistSession: false,
-              autoRefreshToken: false,
-            },
-          }
-        );
-
-        // SECURITY: Atomic flag set with user_id verification via RPC
-        // Prevents race conditions AND cross-user data contamination
         if (!userId) {
           throw new Error('userId is required to set in-progress flag');
         }
 
-        const { data: success, error } = await supabase
-          .rpc('rpc_set_compaction_flag', {
-            dataset_id: datasetId,
-            user_id: userId,
-            in_progress: true,
-          });
+        // Atomic UPDATE with user verification
+        const result = await this.env.BATTLE_INDEX_DB.prepare(
+          `UPDATE datasets
+           SET compaction_in_progress = 1, updated_at = datetime('now')
+           WHERE id = ? AND user_id = ?`
+        ).bind(datasetId, userId).run();
 
-        if (error) {
-          throw new Error(`Failed to set in-progress flag: ${error.message}`);
-        }
-
-        if (!success) {
+        if (!result.success || result.meta.changes === 0) {
           throw new Error('Cannot set in-progress flag: dataset not found for this user or already in progress');
         }
+      });
+
+      const setFlagDuration = Date.now() - setFlagStart;
+      stepMetrics.push({
+        stepName: 'set-in-progress-flag',
+        startTime: setFlagStart,
+        endTime: setFlagStart + setFlagDuration,
+        duration: setFlagDuration,
+        status: 'success',
       });
 
       // ===== Step 2: List fragments from D1 (by dataset/table/periodTag) =====
@@ -256,7 +178,7 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
       }
 
       const step2Start = Date.now();
-      const fragments = await step.do('list-fragments', { retries: SUPABASE_RETRY_CONFIG }, async (): Promise<D1Fragment[]> => {
+      const fragments = await step.do('list-fragments', { retries: { limit: 3, delay: 1000, backoff: 'exponential' as const } }, async (): Promise<D1Fragment[]> => {
         const stmt = this.env.BATTLE_INDEX_DB.prepare(
           `SELECT key, size, etag, uploaded_at, content_hash, "table", period_tag, table_offsets
            FROM battle_files
@@ -300,7 +222,7 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
         throw new Error('No fragments found after deduplication');
       }
 
-      // ===== Step 3: Extract target table from concatenated files =====
+      // ===== Step 2.5: Extract target table from concatenated files (substep) =====
       const extractStart = Date.now();
       const targetTable = table || filtered[0]?.table || 'unknown';
       
@@ -420,7 +342,7 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
         },
       });
 
-      // ===== Step 4: Schema grouping + Stream merge =====
+      // ===== Step 3: Schema grouping + Stream merge (fetch-and-merge) =====
       const step3Start = Date.now();
       const THRESHOLD = 256 * 1024 * 1024;
       const period = periodTag || filtered[0]?.period_tag || 'unknown';
@@ -509,7 +431,7 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
         },
       });
 
-      // ===== Step 5: Update Metadata =====
+      // ===== Step 4: Update Metadata (update-metadata) =====
       const step4Start = Date.now();
 
       await step.do('update-metadata', {
@@ -519,35 +441,29 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
           backoff: 'linear'
         }
       }, async () => {
-        const supabase = createClient(
-          this.env.PUBLIC_SUPABASE_URL,
-          this.env.SUPABASE_SECRET_KEY,
-          {
-            auth: {
-              persistSession: false,
-              autoRefreshToken: false,
-            },
-          }
-        );
-
-        // SECURITY: Verify ownership via RPC before updating dataset metadata
+        // SECURITY: Verify ownership via UPDATE with user_id check
         if (!userId) {
           throw new Error('userId is required to update dataset metadata');
         }
 
-        const { data: success, error } = await supabase
-          .rpc('rpc_finalize_compaction', {
-            dataset_id: datasetId,
-            user_id: userId,
-            total_original_size: totalOriginal,
-            total_compacted_size: totalCompacted,
-          });
+        // Atomic finalization: set flags and update metadata in one transaction
+        const result = await this.env.BATTLE_INDEX_DB.prepare(
+          `UPDATE datasets
+           SET compaction_needed = 0,
+               compaction_in_progress = 0,
+               file_size_bytes = ?,
+               compression_ratio = ?,
+               last_compacted_at = datetime('now'),
+               updated_at = datetime('now')
+           WHERE id = ? AND user_id = ?`
+        ).bind(
+          totalCompacted,
+          totalOriginal > 0 ? totalCompacted / totalOriginal : 1.0,
+          datasetId,
+          userId
+        ).run();
 
-        if (error) {
-          throw new Error(`Metadata finalization failed: ${error.message}`);
-        }
-
-        if (!success) {
+        if (!result.success || result.meta.changes === 0) {
           throw new Error('Metadata finalization failed: dataset not found or ownership check failed');
         }
       });
@@ -566,35 +482,20 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
 
       console.info(`[Workflow] Completed ${datasetId} (${totalDuration}ms)`);
 
-      // === Metrics更新（Workflow完了） ===
-      if (resolvedMetricId) {
-        const supabase = createClient(
-          this.env.PUBLIC_SUPABASE_URL,
-          this.env.SUPABASE_SECRET_KEY,
-          {
-            auth: {
-              persistSession: false,
-              autoRefreshToken: false,
-            },
-          }
-        );
-
-        const { error: updateMetricsError } = await supabase
-          .rpc('rpc_record_compaction_metrics', {
-            metric_id: resolvedMetricId,
-            metric_status: 'success',
-            step1_duration: stepMetrics[0]?.duration || 0,
-            step2_duration: stepMetrics[1]?.duration || 0,
-            step3_duration: stepMetrics[2]?.duration || 0,
-            step4_duration: stepMetrics[3]?.duration || 0,
-            total_duration: totalDuration,
-            original_size: totalOriginal,
-            compressed_size: totalCompacted,
-          });
-
-        if (updateMetricsError) {
-          console.warn(`[Workflow] Failed to record metrics: ${updateMetricsError.message}`);
-        }
+      // Record success metrics to D1 (non-fatal on error)
+      try {
+        await this.env.BATTLE_INDEX_DB.prepare(
+          `INSERT INTO compaction_metrics (
+             dataset_id, status, workflow_total_duration_ms, compression_ratio, original_size_bytes, created_at
+           ) VALUES (?, 'success', ?, ?, ?, datetime('now'))`
+        ).bind(
+          datasetId,
+          totalDuration,
+          totalOriginal > 0 ? totalCompacted / totalOriginal : 1.0,
+          totalOriginal
+        ).run();
+      } catch (metricsErr) {
+        console.warn('[Workflow] Failed to write success metrics', { error: String(metricsErr) });
       }
 
       return {
@@ -620,31 +521,14 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
         completedSteps: stepMetrics.length,
       });
 
-      // === フラグリセット ===
+      // === フラグリセット（D1） ===
       try {
-        const supabase = createClient(
-          this.env.PUBLIC_SUPABASE_URL,
-          this.env.SUPABASE_SECRET_KEY,
-          {
-            auth: {
-              persistSession: false,
-              autoRefreshToken: false,
-            },
-          }
-        );
-
-        // SECURITY: Only reset flag if user owns this dataset via RPC
         if (userId) {
-          const { data: success, error: resetError } = await supabase
-            .rpc('rpc_set_compaction_flag', {
-              dataset_id: datasetId,
-              user_id: userId,
-              in_progress: false,
-            });
-
-          if (resetError) {
-            console.warn(`[Workflow] Failed to reset flag: ${resetError.message}`);
-          }
+          await this.env.BATTLE_INDEX_DB.prepare(
+            `UPDATE datasets
+             SET compaction_in_progress = 0, updated_at = datetime('now')
+             WHERE id = ? AND user_id = ?`
+          ).bind(datasetId, userId).run();
         } else {
           console.warn('[Workflow] Cannot reset flag: userId not available');
         }
@@ -652,33 +536,20 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
         console.error(`[Workflow] Failed to reset flag: ${resetError}`);
       }
 
-      // === Metricsレコード更新（エラー） ===
-      if (resolvedMetricId) {
-        const supabase = createClient(
-          this.env.PUBLIC_SUPABASE_URL,
-          this.env.SUPABASE_SECRET_KEY,
-          {
-            auth: {
-              persistSession: false,
-              autoRefreshToken: false,
-            },
-          }
-        );
-
-        const { error: updateMetricsError } = await supabase
-          .rpc('rpc_record_compaction_metrics', {
-            metric_id: resolvedMetricId,
-            metric_status: 'failure',
-            total_duration: failureDuration,
-            error_message: errorMessage,
-            error_step: failedStep,
-          });
-
-        if (updateMetricsError) {
-          console.warn(`[Workflow] Failed to record failure metrics: ${updateMetricsError.message}`);
-        }
-      } else {
-        console.warn(`[Workflow] No resolvedMetricId available for failure tracking`, { datasetId, errorMessage, failedStep });
+      // Record failure metrics to D1 (non-fatal)
+      try {
+        await this.env.BATTLE_INDEX_DB.prepare(
+          `INSERT INTO compaction_metrics (
+             dataset_id, status, workflow_total_duration_ms, error_step, error_message, created_at
+           ) VALUES (?, 'failure', ?, ?, ?, datetime('now'))`
+        ).bind(
+          datasetId,
+          failureDuration,
+          failedStep,
+          errorMessage
+        ).run();
+      } catch (metricsErr) {
+        console.warn('[Workflow] Failed to write failure metrics', { error: String(metricsErr) });
       }
 
       throw error;
@@ -716,13 +587,19 @@ export default {
           );
         }
 
+        const userId = body.userId;
+        if (!userId) {
+          return new Response(
+            JSON.stringify({ error: 'Missing userId' }),
+            { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
+        }
         const instance = await env.DATA_COMPACTION.create({
           params: {
             datasetId,
-            metricId: body.metricId,
             table: body.table,
             periodTag: body.periodTag,
-            userId: body.userId,
+            userId,
           },
         });
 
@@ -757,6 +634,12 @@ export default {
           );
         }
 
+        if (!body.userId) {
+          return new Response(
+            JSON.stringify({ error: 'Missing userId' }),
+            { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
+        }
         const instance = await env.DATA_COMPACTION.create({
           params: body
         });
@@ -821,14 +704,12 @@ export default {
 
     // GET /test-env - verify env bindings without leaking secrets
     if (path === '/test-env' && request.method === 'GET') {
-      const publicUrl = env.PUBLIC_SUPABASE_URL;
-      const secretKey = env.SUPABASE_SECRET_KEY;
-
       return new Response(
         JSON.stringify({
-          injected: Boolean(publicUrl && secretKey),
-          supabaseUrlPrefix: publicUrl ? publicUrl.slice(0, 32) : null,
-          supabaseKeyLength: secretKey ? secretKey.length : null,
+          injected: true,
+          database: 'D1',
+          buckets: ['BATTLE_DATA_BUCKET'],
+          queues: ['dev-kc-compaction-queue'],
           timestamp: new Date().toISOString(),
         }),
         { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -938,7 +819,6 @@ export default {
  * Message format and field requirements:
  * - All endpoints (battle-data/upload, compact/upload, etc.) produce messages with this structure
  * - Fragments are retrieved from D1 database using datasetId, not from R2 directly
- * - metricId enables end-to-end monitoring and processing status tracking
  */
 interface CompactionQueueMessage {
   /** Required. Dataset ID to process. Used to locate fragments in D1. */
@@ -949,36 +829,35 @@ interface CompactionQueueMessage {
   
   /** Optional. Processing priority level. Defaults to 'scheduled'. */
   priority?: 'scheduled' | 'realtime' | 'manual';
-  
-  /** Optional. Processing metrics record ID. Enables workflow monitoring and status updates. */
-  metricId?: string;
-  
+
   /** Optional. Specific table to process. Only set by upload endpoints. */
   table?: string;
   
   /** Optional. Time period tag. Only set by upload endpoints. */
   periodTag?: string;
   
-  /** Optional. User ID who owns the dataset. Required for creating new dataset records. */
-  userId?: string;
+  /** Required. User ID who owns the dataset. All workflow steps require user validation. */
+  userId: string;
 }
 
 export const queue = {
   async queue(batch: MessageBatch<unknown>, env: Env, ctx: ExecutionContext) {
     for (const message of batch.messages) {
       try {
-        const { datasetId, triggeredAt, priority = 'scheduled', metricId, table, periodTag, userId } = message.body as CompactionQueueMessage;
+        const { datasetId, triggeredAt, priority = 'scheduled', table, periodTag, userId } = message.body as CompactionQueueMessage;
 
         // Validate required fields
         if (!datasetId) {
           throw new Error('Missing required field: datasetId');
+        }
+        if (!userId) {
+          throw new Error('Missing required field: userId');
         }
 
         // Dispatch to Workflow
         const workflowInstance = await env.DATA_COMPACTION.create({
           params: {
             datasetId,
-            metricId,
             table,
             periodTag,
             userId,
@@ -1012,7 +891,7 @@ export const queue = {
 /**
  * DLQ Handler
  * Processes messages that failed 3 times and moved to Dead Letter Queue
- * Records failures to processing_metrics for monitoring and alerting
+ * Resets compaction_in_progress flag to allow retry in next scheduled run
  */
 export const queueDLQ = {
   async queue(batch: MessageBatch<unknown>, env: Env, ctx: ExecutionContext) {
@@ -1020,22 +899,9 @@ export const queueDLQ = {
       timestamp: new Date().toISOString(),
     });
 
-    const publicUrl = env.PUBLIC_SUPABASE_URL;
-    const secretKey = env.SUPABASE_SECRET_KEY;
-
-    if (!publicUrl || !secretKey) {
-      console.error('[DLQ Handler] Missing Supabase environment variables', {
-        hasUrl: !!publicUrl,
-        hasKey: !!secretKey,
-      });
-      return;
-    }
-
-    const supabase = createClient(publicUrl, secretKey);
-
     for (const message of batch.messages) {
       try {
-        const { datasetId, triggeredAt, priority, metricId, userId } = message.body as CompactionQueueMessage;
+        const { datasetId, triggeredAt, priority, userId } = message.body as CompactionQueueMessage;
 
         // Log detailed failure information
         console.error(`[DLQ Handler] Message in DLQ`, {
@@ -1043,78 +909,25 @@ export const queueDLQ = {
           userId,
           triggeredAt,
           priority,
-          metricId,
           messageId: message.id,
           timestamp: new Date().toISOString(),
         });
 
-        // ===== Record to metrics table =====
-        if (metricId) {
-          // Update existing metrics record with DLQ failure status
-          const { error: updateError } = await supabase
-            .from('processing_metrics')
-            .update({
-              status: 'dlq_failure',
-              error_message: 'Message moved to DLQ after max retries',
-              error_step: 'consumer',
-              workflow_completed_at: new Date().toISOString(),
-              updated_at: new Date().toISOString(),
-            })
-            .eq('id', metricId);
-
-          if (updateError) {
-            console.error(`[DLQ Handler] Failed to update metrics record`, {
-              metricId,
-              error: updateError.message,
-            });
-          } else {
-            console.info(`[DLQ Handler] Updated metrics record`, { metricId });
-          }
-        } else {
-          // Create new DLQ failure record if metricId is missing
-          const { error: insertError } = await supabase
-            .from('processing_metrics')
-            .insert({
-              dataset_id: datasetId,
-              workflow_instance_id: `dlq-${Date.now()}-${datasetId}`,
-              status: 'dlq_failure',
-              error_message: 'Message in DLQ without metricId',
-              error_step: 'consumer',
-              queued_at: triggeredAt,
-              workflow_completed_at: new Date().toISOString(),
-            });
-
-          if (insertError) {
-            console.error(`[DLQ Handler] Failed to create DLQ metrics record`, {
-              datasetId,
-              error: insertError.message,
-            });
-          } else {
-            console.info(`[DLQ Handler] Created DLQ metrics record`, { datasetId });
-          }
-        }
-
-        // SECURITY: Reset compaction_in_progress flag with user verification
+        // SECURITY: Reset compaction_in_progress flag with user verification (D1)
         // Only reset if we have userId (required for ownership check)
         if (datasetId && userId) {
-          const { error: resetError } = await supabase
-            .from('datasets')
-            .update({ 
-              compaction_in_progress: false,
-              updated_at: new Date().toISOString(),
-            })
-            .eq('id', datasetId)
-            .eq('user_id', userId)  // Verify ownership
-            .eq('compaction_in_progress', true);
-
-          if (resetError) {
-            console.error(`[DLQ Handler] Failed to reset compaction flag`, {
+          try {
+            await env.BATTLE_INDEX_DB.prepare(
+              `UPDATE datasets
+               SET compaction_in_progress = 0, updated_at = datetime('now')
+               WHERE id = ? AND user_id = ?`
+            ).bind(datasetId, userId).run();
+            console.info(`[DLQ Handler] Reset in-progress flag in D1`, { datasetId, userId });
+          } catch (resetError) {
+            console.error(`[DLQ Handler] Failed to reset flag in D1`, {
               datasetId,
-              userId,
-              error: resetError.message,
+              error: resetError,
             });
-          } else {
-            console.info(`[DLQ Handler] Reset compaction flag`, { datasetId, userId });
           }
         } else {
           console.warn(`[DLQ Handler] Cannot reset flag: missing datasetId or userId`, {

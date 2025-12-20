@@ -1,5 +1,4 @@
 import { Hono } from "hono";
-import { createClient } from "@supabase/supabase-js";
 import type { Bindings } from "../types";
 import { CORS_HEADERS } from "../constants";
 import { createEnvContext, getEnv } from "../utils";

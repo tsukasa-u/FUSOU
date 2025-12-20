@@ -1,120 +1,87 @@
 import { Hono } from 'hono';
-import { createClient } from '@supabase/supabase-js';
 import type { Bindings } from '../types';
-import { CORS_HEADERS } from '../constants';
 
 const app = new Hono<{ Bindings: Bindings }>();
 
-// CORS preflight
-app.options('*', (_c) => new Response(null, { status: 204, headers: CORS_HEADERS }));
-
-// GET /analytics/compaction-metrics
 app.get('/compaction-metrics', async (c) => {
-  const env = c.env;
-  const supabase = createClient(env.PUBLIC_SUPABASE_URL, env.SUPABASE_SECRET_KEY, {
-    auth: { persistSession: false },
-  });
-
-  try {
-    // Status distribution (via SQL function if available)
-    const { data: statusData, error: statusError } = await supabase
-      .rpc('get_compaction_status_summary');
-    if (statusError) throw statusError;
-
-    // Hourly performance (last 24h)
-    const sinceIso = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-    const { data: hourlyData, error: hourlyError } = await supabase
-      .from('processing_metrics')
-      .select('created_at, status, consumer_total_duration_ms, workflow_total_duration_ms, compression_ratio, original_size_bytes')
-      .gte('created_at', sinceIso)
-      .order('created_at', { ascending: false });
-    if (hourlyError) throw hourlyError;
-
-    const hourlyMap = new Map<string, any>();
-    (hourlyData || []).forEach((row) => {
-      const hour = new Date(row.created_at).toISOString().slice(0, 13) + ':00:00.000Z';
-      if (!hourlyMap.has(hour)) {
-        hourlyMap.set(hour, {
-          hour,
-          total_count: 0,
-          success_count: 0,
-          failure_count: 0,
-          durations: [],
-          compressions: [],
-          sizes: [],
-        });
-      }
-      const slot = hourlyMap.get(hour);
-      slot.total_count++;
-      if (row.status === 'success') slot.success_count++;
-      if (row.status === 'failure') slot.failure_count++;
-      if (row.consumer_total_duration_ms) slot.durations.push(row.consumer_total_duration_ms);
-      if (row.compression_ratio) slot.compressions.push(row.compression_ratio);
-      if (row.original_size_bytes) slot.sizes.push(row.original_size_bytes);
-    });
-
-    const processedHourly = Array.from(hourlyMap.values()).map((h) => ({
-      hour: h.hour,
-      total_count: h.total_count,
-      success_count: h.success_count,
-      failure_count: h.failure_count,
-      avg_consumer_duration_ms: h.durations.length > 0
-        ? Math.round(h.durations.reduce((a: number, b: number) => a + b, 0) / h.durations.length)
-        : 0,
-      avg_compression_ratio: h.compressions.length > 0
-        ? Math.round((h.compressions.reduce((a: number, b: number) => a + b, 0) / h.compressions.length) * 100) / 100
-        : 0,
-      avg_original_size_bytes: h.sizes.length > 0
-        ? Math.round(h.sizes.reduce((a: number, b: number) => a + b, 0) / h.sizes.length)
-        : 0,
-    }));
-
-    // Error analysis (top 10)
-    const { data: errorRows, error: errorErr } = await supabase
-      .from('processing_metrics')
-      .select('error_step, error_message, created_at')
-      .eq('status', 'failure')
-      .order('created_at', { ascending: false })
-      .limit(100);
-    if (errorErr) throw errorErr;
-
-    const errorMap = new Map<string, any>();
-    (errorRows || []).forEach((row) => {
-      const step = row.error_step || 'unknown';
-      if (!errorMap.has(step)) {
-        errorMap.set(step, { error_step: step, error_count: 0, latest_error_at: row.created_at });
-      }
-      const agg = errorMap.get(step);
-      agg.error_count++;
-      if (new Date(row.created_at) > new Date(agg.latest_error_at)) agg.latest_error_at = row.created_at;
-    });
-    const processedErrors = Array.from(errorMap.values())
-      .sort((a, b) => b.error_count - a.error_count)
-      .slice(0, 10);
-
-    // DLQ failures (recent)
-    const { data: dlqRows, error: dlqErr } = await supabase
-      .from('processing_metrics')
-      .select('dataset_id, error_message, error_step, created_at')
-      .eq('status', 'dlq_failure')
-      .order('created_at', { ascending: false })
-      .limit(10);
-    if (dlqErr) throw dlqErr;
-
-    return c.json({
-      status_distribution: statusData,
-      hourly_performance: processedHourly,
-      error_analysis: processedErrors,
-      dlq_failures: dlqRows,
-      timestamp: new Date().toISOString(),
-    }, 200, {
-      ...CORS_HEADERS,
-      'Cache-Control': 'public, max-age=60',
-    });
-  } catch (error) {
-    console.error('[Analytics API] Error:', error);
-    return c.json({ error: 'Failed to fetch metrics' }, 500, CORS_HEADERS);
+  const db = c.env.BATTLE_INDEX_DB;
+  if (!db) {
+    return c.json({ error: 'Server misconfiguration: BATTLE_INDEX_DB binding missing' }, 500);
   }
+
+  // Pending count from datasets
+  const pendingRow = await db
+    .prepare('SELECT COUNT(1) AS cnt FROM datasets WHERE compaction_needed = 1')
+    .first?.();
+  const pendingCount = Number((pendingRow as any)?.cnt ?? 0);
+
+  // Success/failure distribution in last 24 hours
+  const distRows = await db
+    .prepare(
+      "SELECT status, COUNT(1) AS cnt FROM compaction_metrics WHERE created_at >= datetime('now','-1 day') GROUP BY status"
+    )
+    .all?.();
+  const distMap: Record<string, number> = {};
+  for (const r of (distRows?.results ?? [])) {
+    const status = String((r as any).status ?? '');
+    const cnt = Number((r as any).cnt ?? 0);
+    distMap[status] = cnt;
+  }
+  const successCount = distMap['success'] ?? 0;
+  const failureCount = distMap['failure'] ?? 0;
+
+  // DLQ failures (approximate using recent failures list)
+  const dlqRows = await db
+    .prepare(
+      'SELECT dataset_id, error_step, error_message, created_at FROM compaction_metrics WHERE status = "failure" ORDER BY created_at DESC LIMIT 10'
+    )
+    .all?.();
+  const dlqFailures = (dlqRows?.results ?? []).map((r) => ({
+    dataset_id: String((r as any).dataset_id ?? ''),
+    error_step: (r as any).error_step ?? null,
+    error_message: (r as any).error_message ?? null,
+    created_at: (r as any).created_at,
+  }));
+  const dlqCount = dlqFailures.length;
+
+  // Hourly performance buckets (recent hours present in metrics)
+  const perfRows = await db
+    .prepare(
+      "SELECT strftime('%Y-%m-%dT%H:00:00Z', created_at) AS hour, SUM(CASE WHEN status='success' THEN 1 ELSE 0 END) AS success_count, SUM(CASE WHEN status='failure' THEN 1 ELSE 0 END) AS failure_count FROM compaction_metrics WHERE created_at >= datetime('now','-1 day') GROUP BY hour ORDER BY hour DESC LIMIT 12"
+    )
+    .all?.();
+  const hourlyPerformance = (perfRows?.results ?? []).map((r) => ({
+    hour: (r as any).hour,
+    success_count: Number((r as any).success_count ?? 0),
+    failure_count: Number((r as any).failure_count ?? 0),
+  }));
+
+  // Error analysis: top steps causing failures
+  const errRows = await db
+    .prepare(
+      "SELECT error_step, COUNT(1) AS error_count, MAX(created_at) AS latest_error_at FROM compaction_metrics WHERE status = 'failure' AND error_step IS NOT NULL GROUP BY error_step ORDER BY error_count DESC LIMIT 10"
+    )
+    .all?.();
+  const errorAnalysis = (errRows?.results ?? []).map((r) => ({
+    error_step: (r as any).error_step,
+    error_count: Number((r as any).error_count ?? 0),
+    latest_error_at: (r as any).latest_error_at,
+  }));
+
+  const statusDistribution = [
+    { status: 'pending', count: pendingCount },
+    { status: 'success', count: successCount },
+    { status: 'failure', count: failureCount },
+    { status: 'dlq_failure', count: dlqCount },
+  ];
+
+  return c.json({
+    status_distribution: statusDistribution,
+    hourly_performance: hourlyPerformance,
+    dlq_failures: dlqFailures,
+    error_analysis: errorAnalysis,
+    timestamp: new Date().toISOString(),
+  });
 });
 
 export default app;

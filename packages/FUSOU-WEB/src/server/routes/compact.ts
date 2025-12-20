@@ -1,8 +1,7 @@
 import { Hono } from 'hono';
-import { createClient } from '@supabase/supabase-js';
 import type { Bindings } from '../types';
 import { CORS_HEADERS, MAX_UPLOAD_BYTES } from '../constants';
-import { validateJWT, createEnvContext, getEnv } from '../utils';
+import { validateJWT, createEnvContext } from '../utils';
 import { runCompactionJob } from '../compaction/job';
 
 const app = new Hono<{ Bindings: Bindings }>();
@@ -50,13 +49,13 @@ async function withRetry<T>(
  * 1. POST /sanitize-state - Manual dataset compaction trigger
  *    Purpose: Manually trigger compaction for specific dataset
  *    Priority: 'manual'
- *    Flow: Validation → Metrics → Queue → Workflow
+ *    Flow: Validation → Queue → Workflow
  *    Use case: User manually requests compaction (e.g., cleanup, optimization)
  * 
  * 2. POST /trigger-scheduled - Batch scheduled compaction
  *    Purpose: Periodic batch compaction (called by GitHub Actions cron)
  *    Priority: 'scheduled'
- *    Flow: Fetch pending → Batch metrics → Queue → Workflows
+ *    Flow: Fetch pending → Queue → Workflows
  *    Use case: Nightly/periodic cleanup of all datasets needing compaction
  * 
  * 3. POST /run-now - Synchronous compaction fallback
@@ -85,11 +84,10 @@ app.options('*', (_c) => new Response(null, { status: 204, headers: CORS_HEADERS
 app.post('/sanitize-state', async (c) => {
   try {
     const env = createEnvContext(c);
-    const supabaseUrl = getEnv(env, 'PUBLIC_SUPABASE_URL');
-    const supabaseKey = getEnv(env, 'SUPABASE_SECRET_KEY');
+    const db = env.runtime.BATTLE_INDEX_DB;
 
-    if (!supabaseUrl || !supabaseKey) {
-      return c.json({ error: 'Server misconfiguration: Supabase config missing' }, 500);
+    if (!db) {
+      return c.json({ error: 'Server misconfiguration: BATTLE_INDEX_DB binding missing' }, 500);
     }
 
     // Require JWT authentication
@@ -110,7 +108,7 @@ app.post('/sanitize-state', async (c) => {
     try {
       body = await c.req.json();
     } catch (error) {
-      console.error('[Sanitize State] Invalid JSON', { error });
+      console.error('[compact] Invalid JSON in /sanitize-state', { error });
       return c.json({ error: 'Invalid JSON format' }, 400);
     }
 
@@ -120,61 +118,24 @@ app.post('/sanitize-state', async (c) => {
       return c.json({ error: 'datasetId is required' }, 400);
     }
 
-    // Verify ownership of dataset
-    const supabase = createClient(supabaseUrl, supabaseKey, {
-      auth: { persistSession: false },
-    });
-    const { data: ds, error: dsError } = await supabase
-      .from('datasets')
-      .select('id, user_id, compaction_in_progress, compaction_needed')
-      .eq('id', datasetId)
-      .single();
-    if (dsError || !ds) {
+    // Verify ownership of dataset (from D1)
+    const queryResult = await db.prepare(
+      'SELECT id, user_id, dataset_name FROM datasets WHERE id = ?'
+    ).bind(datasetId).first();
+    
+    if (!queryResult) {
       return c.json({ error: 'Dataset not found' }, 404);
     }
+    
+    const ds = queryResult as { id: string; user_id: string; dataset_name: string };
     if (ds.user_id !== supabaseUser.id) {
       return c.json({ error: 'Forbidden' }, 403);
     }
 
-    // Verify dataset exists by id (UUID primary key)
-    const { data, error } = await supabase
-      .from('datasets')
-      .select('id, name, compaction_needed')
-      .eq('id', datasetId)
-      .single();
-
-    if (error || !data) {
-      console.error(`[compact-sanitize] Dataset not found`, { datasetId, error });
-      return c.json({ error: 'Dataset not found' }, 404);
-    }
-
-    // Create metrics record for this manual trigger with retry logic
-    const manualMetricsResult = await withRetry(async () => {
-      const result = await supabase
-        .from('processing_metrics')
-        .insert({
-          dataset_id: datasetId,
-          workflow_instance_id: `manual-${Date.now()}`,
-          status: 'pending',
-          queued_at: new Date().toISOString(),
-        })
-        .select()
-        .single();
-      
-      if (result.error) throw result.error;
-      return result;
-    }).catch((error) => {
-      console.warn(`[compact-sanitize] Failed to create metrics record`, { error });
-      // Don't fail if metrics creation fails (graceful degradation)
-      return { data: null, error };
-    });
-
-    const metricsId = manualMetricsResult.data?.id;
-
     // Enqueue to compaction queue (with retry)
     console.info(`[compact-sanitize] About to enqueue dataset`, {
       datasetId,
-      metricsId,
+      datasetName: ds.dataset_name,
       queueExists: !!env.runtime.COMPACTION_QUEUE,
     });
 
@@ -189,21 +150,19 @@ app.post('/sanitize-state', async (c) => {
           datasetId,
           triggeredAt: new Date().toISOString(),
           priority: 'manual',
-          metricId: metricsId,
           userId: supabaseUser.id,
         });
         console.info(`[compact-sanitize] Queue send result:`, { sendResult });
         return sendResult;
       });
-      console.info(`[compact-sanitize] Successfully enqueued dataset`, { datasetId, name: data.name });
+      console.info(`[compact-sanitize] Successfully enqueued dataset`, { datasetId, datasetName: ds.dataset_name });
     } catch (queueError) {
       console.error(`[compact-sanitize] FAILED to enqueue dataset`, {
         datasetId,
-        metricsId,
         error: String(queueError),
         errorMessage: (queueError as any)?.message,
       });
-      // Don't fail the request - metrics are already recorded
+      // Log failure but continue - will retry in next scheduled compaction
       console.warn(`[compact-sanitize] Continuing despite queue failure`);
     }
 
@@ -224,7 +183,7 @@ app.post('/sanitize-state', async (c) => {
  * 
  * Purpose: Periodic batch compaction of all datasets needing compaction
  * Queue priority: 'scheduled'
- * Flow: Fetch datasets → Create metrics → Batch queue → Parallel workflows
+ * Flow: Fetch datasets → Batch queue → Parallel workflows
  * 
  * Optimization:
  *   - Batch metric insertion (up to 10 datasets at a time)
@@ -239,41 +198,20 @@ app.post('/sanitize-state', async (c) => {
 app.post('/trigger-scheduled', async (c) => {
   try {
     const env = createEnvContext(c);
-    const supabaseUrl = getEnv(env, 'PUBLIC_SUPABASE_URL');
-    const supabaseKey = getEnv(env, 'SUPABASE_SECRET_KEY');
+    const db = env.runtime.BATTLE_INDEX_DB;
 
-    if (!supabaseUrl || !supabaseKey) {
-      return c.json({ error: 'Server misconfiguration: Supabase config missing' }, 500);
+    if (!db) {
+      return c.json({ error: 'Server misconfiguration: BATTLE_INDEX_DB binding missing' }, 500);
     }
-
-    const supabase = createClient(supabaseUrl, supabaseKey, {
-      auth: { persistSession: false },
-    });
 
     console.info('[compact-scheduled] Starting scheduled compaction');
 
     // Fetch datasets that need compaction (not currently in progress)
-    const fetchResult = await withRetry(async () => {
-      const result = await supabase
-        .from('datasets')
-        .select('id, name, user_id')
-        .eq('compaction_needed', true)
-        .eq('compaction_in_progress', false)
-        .order('created_at', { ascending: true })
-        .limit(10);
-      
-      if (result.error) throw result.error;
-      return result;
-    });
+    const datasets = await db.prepare(
+      'SELECT id, user_id, dataset_name FROM datasets WHERE compaction_needed = 1 AND compaction_in_progress = 0 ORDER BY created_at ASC LIMIT 10'
+    ).all();
 
-    const { data: datasets, error } = fetchResult;
-
-    if (error) {
-      console.error('[compact-scheduled] Failed to fetch datasets', { error });
-      return c.json({ error: 'Failed to fetch pending datasets', details: (error as any)?.message }, 500);
-    }
-
-    if (!datasets || datasets.length === 0) {
+    if (!datasets.results || datasets.results.length === 0) {
       console.info('[compact-scheduled] No pending datasets found');
       return c.json({
         success: true,
@@ -283,45 +221,10 @@ app.post('/trigger-scheduled', async (c) => {
       });
     }
 
-    // ===== OPTIMIZATION 1: Batch metric insertion =====
-    // Insert all metrics records in a single batch to reduce Supabase queries
-    const metricsPayload = datasets.map((dataset) => ({
-      dataset_id: dataset.id,
-      workflow_instance_id: `scheduled-${Date.now()}-${dataset.id}`,
-      status: 'pending' as const,
-      queued_at: new Date().toISOString(),
-    }));
-
-    const metricsInsertResult = await withRetry(async () => {
-      const result = await supabase
-        .from('processing_metrics')
-        .insert(metricsPayload)
-        .select('id, dataset_id');
-      
-      if (result.error) throw result.error;
-      return result;
-    });
-
-    const { data: metricsResults, error: metricsError } = metricsInsertResult;
-
-    if (metricsError) {
-      console.error('[compact-scheduled] Failed to create metrics records', { metricsError });
-      return c.json({ 
-        error: 'Failed to create metrics records', 
-        details: (metricsError as any)?.message 
-      }, 500);
-    }
-
-    // Create a map of dataset_id -> metricId for quick lookup
-    const metricsMap = new Map(
-      (metricsResults || []).map((m) => [m.dataset_id, m.id])
-    );
-
-    // ===== OPTIMIZATION 2: Batch queue operations with retry logic =====
-    console.info(`[compact-scheduled] Step: About to enqueue ${datasets.length} datasets`, {
-      datasetIds: datasets.map((d) => d.id),
+    // ===== Batch queue operations with retry logic =====
+    console.info(`[compact-scheduled] Step: About to enqueue ${datasets.results.length} datasets`, {
+      datasetIds: (datasets.results as Array<{ id: string }>).map((d) => d.id),
       queueExists: !!env.runtime.COMPACTION_QUEUE,
-      metricsCount: metricsResults?.length || 0,
     });
 
     if (!env.runtime.COMPACTION_QUEUE) {
@@ -331,14 +234,13 @@ app.post('/trigger-scheduled', async (c) => {
 
     const enqueueResults: Array<{ datasetId: string; status: 'success' | 'failed'; error?: string }> = [];
 
-    const enqueuePromises = datasets.map((dataset) =>
+    const enqueuePromises = (datasets.results as Array<{ id: string; user_id: string; dataset_name: string }>).map((dataset) =>
       withRetry(() =>
         Promise.resolve(
           env.runtime.COMPACTION_QUEUE.send({
             datasetId: dataset.id,
             triggeredAt: new Date().toISOString(),
             priority: 'scheduled',
-            metricId: metricsMap.get(dataset.id),
             userId: dataset.user_id,
           })
         )
@@ -363,24 +265,24 @@ app.post('/trigger-scheduled', async (c) => {
     const failureCount = enqueueResults.filter((r) => r.status === 'failed').length;
 
     console.info(`[compact-scheduled] Enqueue batch completed`, {
-      total: datasets.length,
+      total: datasets.results.length,
       successful: successCount,
       failed: failureCount,
       failures: enqueueResults.filter((r) => r.status === 'failed'),
       timestamp: new Date().toISOString(),
     });
 
-    const datasetIds = datasets.map((d) => d.id);
+    const datasetIds = (datasets.results as Array<{ id: string }>).map((d) => d.id);
     console.info('[compact-scheduled] Enqueued datasets', {
-      count: datasets.length,
+      count: datasets.results.length,
       datasetIds,
       timestamp: new Date().toISOString(),
     });
 
     return c.json({
       success: true,
-      message: `Enqueued ${datasets.length} datasets for compaction`,
-      enqueued: datasets.length,
+      message: `Enqueued ${datasets.results.length} datasets for compaction`,
+      enqueued: datasets.results.length,
       datasets: datasetIds,
     });
   } catch (error) {
@@ -426,87 +328,30 @@ app.post('/run-now', async (c) => {
 
     // Optional ownership check: ensure dataset belongs to caller
     const env = createEnvContext(c);
-    const supabaseUrl = getEnv(env, 'PUBLIC_SUPABASE_URL');
-    const supabaseKey = getEnv(env, 'SUPABASE_SECRET_KEY');
+    const db = env.runtime.BATTLE_INDEX_DB;
 
-    if (!supabaseUrl || !supabaseKey) {
-      return c.json({ error: 'Server misconfiguration: Supabase config missing' }, 500);
+    if (!db) {
+      return c.json({ error: 'Server misconfiguration: BATTLE_INDEX_DB binding missing' }, 500);
     }
 
-    const supabase = createClient(supabaseUrl, supabaseKey, {
-      auth: { persistSession: false },
-    });
-    const { data: ds, error: dsError } = await supabase
-      .from('datasets')
-      .select('id, user_id')
-      .eq('id', datasetId)
-      .single();
-    if (dsError || !ds) {
+    const queryResult = await db.prepare(
+      'SELECT id, user_id FROM datasets WHERE id = ?'
+    ).bind(datasetId).first();
+    
+    if (!queryResult) {
       return c.json({ error: 'Dataset not found' }, 404);
     }
+    
+    const ds = queryResult as { id: string; user_id: string };
     if (ds.user_id !== supabaseUser.id) {
       return c.json({ error: 'Forbidden' }, 403);
     }
 
-    const result = await runCompactionJob(c.env, datasetId, table, periodTag);
+    const result = await runCompactionJob(c.env, datasetId, table, periodTag, supabaseUser.id);
 
     return c.json({ success: true, datasetId, table, periodTag, result });
   } catch (error) {
     console.error('[Run Now API] Unexpected error', { error });
-    return c.json({ error: 'Internal server error' }, 500);
-  }
-});
-
-/**
- * GET /dlq-status
- * Get Dead Letter Queue status (failed compaction records)
- * Includes both workflow failures and DLQ failures
- */
-app.get('/dlq-status', async (c) => {
-  try {
-    const env = createEnvContext(c);
-    const supabaseUrl = getEnv(env, 'PUBLIC_SUPABASE_URL');
-    const supabaseKey = getEnv(env, 'SUPABASE_SECRET_KEY');
-
-    if (!supabaseUrl || !supabaseKey) {
-      return c.json({ error: 'Server misconfiguration: Supabase config missing' }, 500);
-    }
-
-    const supabase = createClient(supabaseUrl, supabaseKey, {
-      auth: { persistSession: false },
-    });
-
-    // Fetch failed records from processing_metrics (including dlq_failure)
-    const { data, error } = await supabase
-      .from('processing_metrics')
-      .select('id, dataset_id, workflow_instance_id, status, error_message, error_step, created_at, workflow_completed_at')
-      .in('status', ['failure', 'dlq_failure'])
-      .order('created_at', { ascending: false })
-      .limit(100);
-
-    if (error) {
-      console.error('[DLQ Status API] Supabase query failed', { error });
-      return c.json({ error: 'Failed to fetch DLQ status', details: error.message }, 500);
-    }
-
-    // Separate by failure type for better monitoring
-    const workflowFailures = (data || []).filter(r => r.status === 'failure');
-    const dlqFailures = (data || []).filter(r => r.status === 'dlq_failure');
-
-    return c.json({
-      success: true,
-      total: data?.length || 0,
-      workflow_failures: {
-        count: workflowFailures.length,
-        records: workflowFailures,
-      },
-      dlq_failures: {
-        count: dlqFailures.length,
-        records: dlqFailures,
-      },
-    });
-  } catch (error) {
-    console.error('[DLQ Status API] Unexpected error', { error });
     return c.json({ error: 'Internal server error' }, 500);
   }
 });
