@@ -244,9 +244,8 @@ export async function streamMergeExtractedFragments(
     const footerSize = footerSizeView.getUint32(0, true);
     
     const footerStart = data.length - 8 - footerSize;
-    const footerData = data.slice(footerStart, footerStart + footerSize);
-    
-    const rawRowGroups = parseParquetMetadata(footerData) || [];
+    // hyparquetで全ファイルから確実にメタデータを取得
+    const rawRowGroups = parseParquetMetadataFromFullFile(data) || [];
     const rowGroups = rawRowGroups.filter((rg, idx) => {
       const isValid = !!rg && rg.offset !== undefined && rg.totalByteSize !== undefined && rg.offset !== undefined;
       if (!isValid) {
