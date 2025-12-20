@@ -38,11 +38,12 @@ export function parseParquetMetadataFromFullFile(fileData: Uint8Array): RowGroup
     
     const metadataLength = view.getUint32(fileData.byteLength - 8, true);
     
-    // Footer 全体を取得（metadata + metadata_length + "PAR1"）
+    // Footer メタデータ領域のみを抽出（末尾の8バイトは除外）
     const footerStart = fileData.byteLength - metadataLength - 8;
+    const footerEnd = footerStart + metadataLength;
     const footerBuffer = fileData.buffer.slice(
       fileData.byteOffset + footerStart,
-      fileData.byteOffset + fileData.byteLength
+      fileData.byteOffset + footerEnd
     ) as ArrayBuffer;
     
     // hyparquet の parquetMetadata を使用
@@ -128,10 +129,12 @@ export function parseParquetMetadataFromFullFile(fileData: Uint8Array): RowGroup
  */
 export function parseParquetMetadataFromFooterBuffer(footerBuffer: Uint8Array): RowGroupInfo[] {
   try {
-    // hyparquet expects an ArrayBuffer; create a view of the exact slice
+    // hyparquet はフッターメタデータのみを期待するため、末尾の8バイト（サイズ+魔法）を除外
+    const totalLen = footerBuffer.byteLength;
+    const metaLen = totalLen >= 8 ? totalLen - 8 : totalLen;
     const ab = footerBuffer.buffer.slice(
       footerBuffer.byteOffset,
-      footerBuffer.byteOffset + footerBuffer.byteLength
+      footerBuffer.byteOffset + metaLen
     ) as ArrayBuffer;
     const metadata = parquetMetadata(ab);
 
