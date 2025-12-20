@@ -93,28 +93,67 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
           throw new Error('userId is required for dataset validation');
         }
 
-        // Use RPC for atomicity, RLS enforcement, and ownership verification
-        const { data, error } = await supabase.rpc('rpc_ensure_dataset', {
-          dataset_id: datasetId,
-          user_id: userId,
-          table_name: table || null,
-          period_tag: periodTag || null,
-        });
+        // Verify user exists first (preventing foreign key constraint violations)
+        const { data: userData, error: userError } = await supabase
+          .from('auth.users')
+          .select('id')
+          .eq('id', userId)
+          .maybeSingle();
 
-        if (error) {
-          throw new Error(`RPC rpc_ensure_dataset failed: ${error.message}`);
+        if (userError || !userData) {
+          throw new Error(`User ${userId} does not exist in auth.users`);
         }
 
-        if (!data) {
-          throw new Error('RPC rpc_ensure_dataset returned no data');
+        // Direct SQL execution with service_role (bypasses RLS, but we verified user exists)
+        // This is safer than RPC with weakened auth checks for autonomous workflows
+        const { data: existing, error: selectError } = await supabase
+          .from('datasets')
+          .select('id, user_id, compaction_needed, compaction_in_progress')
+          .eq('id', datasetId)
+          .maybeSingle();
+
+        if (selectError) {
+          throw new Error(`Failed to check dataset existence: ${selectError.message}`);
         }
 
-        console.info(`[Workflow] Ensured dataset`, { datasetId, userId, created: data.created });
+        if (existing) {
+          // Verify ownership even with service_role for security
+          if (existing.user_id !== userId) {
+            throw new Error(`Dataset ${datasetId} belongs to different user`);
+          }
+          console.info(`[Workflow] Dataset exists`, { datasetId, userId });
+          return {
+            id: existing.id,
+            user_id: existing.user_id,
+            compaction_needed: existing.compaction_needed,
+            compaction_in_progress: existing.compaction_in_progress,
+          };
+        }
+
+        // Create new dataset with verified user_id
+        const { data: created, error: insertError } = await supabase
+          .from('datasets')
+          .insert({
+            id: datasetId,
+            user_id: userId,
+            dataset_name: table || 'unknown',
+            dataset_ref: datasetId,
+            compaction_needed: true,
+            compaction_in_progress: false,
+          })
+          .select('id, user_id, compaction_needed, compaction_in_progress')
+          .single();
+
+        if (insertError) {
+          throw new Error(`Failed to create dataset: ${insertError.message}`);
+        }
+
+        console.info(`[Workflow] Created dataset`, { datasetId, userId });
         return {
-          id: data.id,
-          user_id: data.user_id,
-          compaction_needed: data.compaction_needed,
-          compaction_in_progress: data.compaction_in_progress,
+          id: created.id,
+          user_id: created.user_id,
+          compaction_needed: created.compaction_needed,
+          compaction_in_progress: created.compaction_in_progress,
         };
       });
 
