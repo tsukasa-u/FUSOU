@@ -78,8 +78,13 @@ export async function streamMergeParquetFragments(
   for (const frag of fragments) {
     for (let i = 0; i < frag.rowGroups.length; i++) {
       const rg = frag.rowGroups[i];
-      if (!rg || rg.totalByteSize === undefined) {
-        console.error(`[StreamMerge] Invalid RowGroup in ${frag.key} at index ${i}:`, { rg, hasRg: !!rg, totalByteSize: rg?.totalByteSize });
+      if (!rg || rg.totalByteSize === undefined || rg.offset === undefined) {
+        console.error(`[StreamMerge] Invalid RowGroup in ${frag.key} at index ${i}:`, { 
+          hasRg: !!rg, 
+          totalByteSize: rg?.totalByteSize,
+          offset: rg?.offset,
+          numRows: rg?.numRows
+        });
         continue;
       }
       if (accumulatedBytes > 0 && accumulatedBytes + rg.totalByteSize > thresholdBytes) {
@@ -87,15 +92,6 @@ export async function streamMergeParquetFragments(
       }
       selectedRgs.push({ srcKey: frag.key, rg, rgIndex: i });
       accumulatedBytes += rg.totalByteSize;
-          if (!rg || rg.totalByteSize === undefined || rg.offset === undefined) {
-            console.error(`[StreamMerge] Invalid RowGroup in ${frag.key} at index ${i}:`, {
-              hasRg: !!rg,
-              totalByteSize: rg?.totalByteSize,
-              offset: rg?.offset,
-              numRows: rg?.numRows
-            });
-            continue;
-          }
     }
     if (accumulatedBytes >= thresholdBytes) break;
   }
@@ -257,8 +253,19 @@ export async function streamMergeExtractedFragments(
     const footerStart = data.length - 8 - footerSize;
     const footerData = data.slice(footerStart, footerStart + footerSize);
     
-    const rowGroups = parseParquetMetadata(footerData);
-    
+    const rawRowGroups = parseParquetMetadata(footerData) || [];
+    const rowGroups = rawRowGroups.filter((rg, idx) => {
+      const ok = !!rg && rg.offset !== undefined && rg.totalByteSize !== undefined;
+      if (!ok) {
+        console.warn(`[Parquet Stream Merge] Dropping invalid RowGroup from ${frag.key} at index ${idx}`, {
+          hasRg: !!rg,
+          offset: rg?.offset,
+          totalByteSize: rg?.totalByteSize,
+          numRows: rg?.numRows
+        });
+      }
+      return ok;
+    });
     
     return {
       key: frag.key,
@@ -274,8 +281,18 @@ export async function streamMergeExtractedFragments(
     console.log(`[Parquet Stream Merge] Parsed ${fragments.length} fragments:`);
     fragments.forEach((frag, idx) => {
       console.log(`  Fragment ${idx}: ${frag.key}`);
-      console.log(`    fileSize=${frag.data.length}, footerSize=${frag.footerSize}, rowGroupCount=${frag.rowGroups.length}`);
-      frag.rowGroups.forEach((rg, rgIdx) => {
+      const safeRowGroups = frag.rowGroups || [];
+      console.log(`    fileSize=${frag.data.length}, footerSize=${frag.footerSize}, rowGroupCount=${safeRowGroups.length}`);
+      safeRowGroups.forEach((rg, rgIdx) => {
+        if (!rg || rg.offset === undefined || rg.totalByteSize === undefined) {
+          console.warn(`      RG${rgIdx}: invalid (offset/size missing)`, {
+            hasRg: !!rg,
+            offset: rg?.offset,
+            totalByteSize: rg?.totalByteSize,
+            numRows: rg?.numRows
+          });
+          return;
+        }
         const isValid = rg.offset !== undefined && rg.totalByteSize !== undefined && rg.numRows !== undefined;
         console.log(`      RG${rgIdx}: offset=${rg.offset}, totalByteSize=${rg.totalByteSize}, numRows=${rg.numRows}, isValid=${isValid}`);
       });
@@ -310,7 +327,25 @@ export async function streamMergeExtractedFragments(
   }
 
   if (selectedRgs.length === 0) {
-    throw new Error('No row groups selected for merge');
+    // Detailed diagnostics: collect all RowGroup info to understand why none were selected
+    const diagnostics = fragments.map((frag) => ({
+      key: frag.key,
+      fileSize: frag.data.length,
+      rowGroupCount: frag.rowGroups.length,
+      rowGroups: (frag.rowGroups || []).map((rg, idx) => ({
+        index: idx,
+        offset: rg?.offset,
+        totalByteSize: rg?.totalByteSize,
+        numRows: rg?.numRows,
+        isValid: !!rg && rg.offset !== undefined && rg.totalByteSize !== undefined,
+      })),
+    }));
+    console.error(`[Parquet Stream Merge] CRITICAL: No valid RowGroups found. Diagnostics:`, {
+      fragmentCount: fragments.length,
+      totalRowGroups: fragments.reduce((sum, f) => sum + (f.rowGroups?.length || 0), 0),
+      fragments: diagnostics,
+    });
+    throw new Error(`No row groups selected for merge (${fragments.length} fragments, ${fragments.reduce((sum, f) => sum + (f.rowGroups?.length || 0), 0)} RGs total, 0 valid)`);
   }
 
   // 3. データチャンク準備
