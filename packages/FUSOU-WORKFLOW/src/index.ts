@@ -434,6 +434,11 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
       });
 
       console.info(`[Workflow] Filtered ${extractedFragments.length - validFragments.length} empty/invalid fragments, ${validFragments.length} valid fragments remain`);
+      
+      // Debug: Log fragment keys for local diagnostics
+      if (validFragments.length > 0) {
+        console.debug(`[Workflow] Valid extracted fragments:`, validFragments.slice(0, 3).map(f => ({ key: f.key, size: f.size })));
+      }
 
       // OPTIMIZATION: Use offset metadata for schema grouping instead of parsing Parquet data
       // This eliminates expensive hyparquet parsing for 498 fragments
@@ -457,6 +462,9 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
       
       let globalIndex = 0;
       for (const [schemaHash, groupFrags] of validSchemaGroups.entries()) {
+        if (groupFrags.length > 0) {
+          console.debug(`[Workflow] Processing schema ${schemaHash}: ${groupFrags.length} fragments, example key: ${groupFrags[0].key}`);
+        }
         let cursor = 0;
         while (cursor < groupFrags.length) {
           const { picked, nextIndex } = pickFragmentsForBucket(
