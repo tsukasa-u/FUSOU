@@ -28,8 +28,6 @@ export interface ColumnChunkInfo {
  */
 export function parseParquetMetadataFromFullFile(fileData: Uint8Array): RowGroupInfo[] {
   try {
-    console.log(`[Parquet.parseFromFullFile] Starting metadata parse with hyparquet, fileSize=${fileData.length}`);
-    
     // Footer のオフセットを計算
     const view = new DataView(fileData.buffer, fileData.byteOffset, fileData.byteLength);
     const footerMagic = view.getUint32(fileData.byteLength - 4, true);
@@ -39,7 +37,6 @@ export function parseParquetMetadataFromFullFile(fileData: Uint8Array): RowGroup
     }
     
     const metadataLength = view.getUint32(fileData.byteLength - 8, true);
-    console.log(`[Parquet.parseFromFullFile] Metadata length: ${metadataLength}`);
     
     // Footer 全体を取得（metadata + metadata_length + "PAR1"）
     const footerStart = fileData.byteLength - metadataLength - 8;
@@ -48,16 +45,8 @@ export function parseParquetMetadataFromFullFile(fileData: Uint8Array): RowGroup
       fileData.byteOffset + fileData.byteLength
     ) as ArrayBuffer;
     
-    console.log(`[Parquet.parseFromFullFile] Footer: ${footerBuffer.byteLength} bytes (offset ${footerStart})`);
-    
     // hyparquet の parquetMetadata を使用
     const metadata = parquetMetadata(footerBuffer as ArrayBuffer);
-    
-    console.log(`[Parquet.parseFromFullFile] Metadata parsed:`, {
-      numRowGroups: metadata.row_groups?.length,
-      numRows: metadata.num_rows,
-      version: metadata.version,
-    });
     
     // RowGroup 情報を抽出
     const rowGroups: RowGroupInfo[] = [];
@@ -105,21 +94,11 @@ export function parseParquetMetadataFromFullFile(fileData: Uint8Array): RowGroup
           columnChunks,
         };
 
-        console.log(`[Parquet.parseFromFullFile] RG${i}:`, {
-          offset: rowGroupInfo.offset,
-          totalByteSize: rowGroupInfo.totalByteSize,
-          numRows: rowGroupInfo.numRows,
-          columns: rowGroupInfo.columnChunks.length,
-        });
-
         rowGroups.push(rowGroupInfo);
       }
     }
     
-    console.log(`[Parquet.parseFromFullFile] Successfully parsed ${rowGroups.length} Row Groups using hyparquet`);
-    
     if (rowGroups.length === 0) {
-      console.warn(`[Parquet.parseFromFullFile] WARNING: No RowGroups found in metadata. File may represent empty table (numRows=0).`);
       // Return empty array instead of throwing - allows empty tables to be filtered later
       return [];
     }

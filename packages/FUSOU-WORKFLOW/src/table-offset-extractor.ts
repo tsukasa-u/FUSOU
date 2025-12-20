@@ -108,26 +108,14 @@ export async function extractTableFromFragment(
   }
 
   try {
-    // Optional bounds check using object size (safe-side fail if out-of-range)
-    const head = await bucket.head(fragmentKey);
-    if (!head) {
-      console.error(`[OffsetExtractor] Failed to head fragment ${fragmentKey}`);
-      return null;
-    }
-
-    const objectSize = head.size;
+    // Validate range parameters before R2 request
     if (targetOffset.start_byte < 0 || targetOffset.byte_length <= 0) {
       console.warn(`[OffsetExtractor] Invalid range: start=${targetOffset.start_byte}, length=${targetOffset.byte_length}`);
       return null;
     }
 
-    const endByte = targetOffset.start_byte + targetOffset.byte_length;
-    if (endByte > objectSize) {
-      console.warn(`[OffsetExtractor] Range exceeds object size: end=${endByte}, objectSize=${objectSize}`);
-      return null;
-    }
-
     // Use R2 Range request to read only the target table portion
+    // Note: R2 will automatically reject out-of-bounds ranges, no need for HEAD request
     const r2Response = await bucket.get(fragmentKey, {
       range: {
         offset: targetOffset.start_byte,
@@ -149,8 +137,6 @@ export async function extractTableFromFragment(
       return null;
     }
 
-    console.log(`[OffsetExtractor] Extracted table '${targetTable}' from ${fragmentKey}: ${data.byteLength} bytes`);
-
     return {
       table_name: targetTable,
       data,
@@ -159,6 +145,69 @@ export async function extractTableFromFragment(
   } catch (error) {
     console.error(`[OffsetExtractor] Error extracting table from ${fragmentKey}:`, error);
     return null;
+  }
+}
+
+/**
+ * Extract ALL tables from a fragment in one bulk operation (optimized for port_table)
+ * Fetches the entire fragment once and slices tables in memory
+ * Returns array of extracted tables
+ */
+export async function extractAllTablesFromFragmentBulk(
+  bucket: R2Bucket,
+  fragmentKey: string,
+  offsets: TableOffsetMetadata[]
+): Promise<ExtractedTable[]> {
+  try {
+    // Single R2 GET request for entire fragment
+    const fullData = await bucket.get(fragmentKey);
+    if (!fullData) {
+      console.error(`[OffsetExtractor] Failed to fetch fragment ${fragmentKey}`);
+      return [];
+    }
+
+    const buffer = await fullData.arrayBuffer();
+    const results: ExtractedTable[] = [];
+
+    // Extract each table from the in-memory buffer
+    for (const offset of offsets) {
+      if (offset.format.toLowerCase() !== 'parquet') {
+        continue;
+      }
+
+      // Validate range
+      if (offset.start_byte < 0 || offset.byte_length <= 0) {
+        console.warn(`[OffsetExtractor] Invalid range for ${offset.table_name}: start=${offset.start_byte}, length=${offset.byte_length}`);
+        continue;
+      }
+
+      const endByte = offset.start_byte + offset.byte_length;
+      if (endByte > buffer.byteLength) {
+        console.warn(`[OffsetExtractor] Range exceeds buffer size for ${offset.table_name}: end=${endByte}, size=${buffer.byteLength}`);
+        continue;
+      }
+
+      // Slice table data from buffer
+      const tableData = buffer.slice(offset.start_byte, endByte);
+
+      // Validate Parquet structure
+      const isValid = validateParquetSliceWithHyparquet(tableData);
+      if (!isValid) {
+        console.warn(`[OffsetExtractor] Slice for table '${offset.table_name}' failed Parquet validation`);
+        continue;
+      }
+
+      results.push({
+        table_name: offset.table_name,
+        data: tableData,
+        size: tableData.byteLength
+      });
+    }
+
+    return results;
+  } catch (error) {
+    console.error(`[OffsetExtractor] Error in bulk extraction from ${fragmentKey}:`, error);
+    return [];
   }
 }
 
@@ -316,13 +365,8 @@ function validateParquetSliceWithHyparquet(buffer: ArrayBuffer): boolean {
     // These should have been filtered out at server-side, but if they slip through,
     // we still accept them as structurally valid
     const rgCount = Array.isArray(md.row_groups) ? md.row_groups.length : 0;
-    const numRows = typeof md.num_rows === 'number' ? Number(md.num_rows) : 0;
     
-    if (rgCount === 0) {
-      // Log for debugging but accept it - empty tables are valid Parquet files
-      console.warn('[OffsetExtractor] Parquet file has 0 row groups (numRows=0), but structure is valid');
-    }
-    
+    // No need to log for empty tables - they are valid Parquet files
     return true; // Accept even if rgCount === 0 (empty table)
   } catch (err) {
     console.warn('[OffsetExtractor] hyparquet metadata parse failed for slice:', err);

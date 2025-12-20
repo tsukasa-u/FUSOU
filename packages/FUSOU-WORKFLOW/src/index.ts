@@ -289,36 +289,33 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
               const { valid: validOffsets, empty: emptyTables } = filterEmptyTables(offsets);
               
               if (emptyTables.length > 0) {
-                console.info(`[Workflow] Filtered out ${emptyTables.length} empty tables from ${frag.key}: ${emptyTables.map(t => t.table_name).join(', ')}`);
+                console.info(`[Workflow] Filtered out ${emptyTables.length} empty tables from ${frag.key}`);
               }
               
-              for (const off of validOffsets) {
-                if (off.format !== 'parquet') continue;
-                const perTableExtract = await extractTableSafe(
-                  this.env.BATTLE_DATA_BUCKET,
-                  frag.key,
-                  off.table_name,
-                  frag.table_offsets
-                );
-                if (!perTableExtract) {
-                  console.warn(`[Workflow] Failed to extract ${off.table_name} from ${frag.key}; skipping this table`);
-                  continue;
-                }
-                const dataView = new Uint8Array(perTableExtract.data);
+              // OPTIMIZATION: Bulk extraction - fetch entire fragment once instead of per-table
+              const { extractAllTablesFromFragmentBulk } = await import('./table-offset-extractor');
+              const extractedTables = await extractAllTablesFromFragmentBulk(
+                this.env.BATTLE_DATA_BUCKET,
+                frag.key,
+                validOffsets
+              );
+              
+              for (const extracted of extractedTables) {
+                const dataView = new Uint8Array(extracted.data);
                 if (dataView.length < 12) {
-                  console.warn(`[Workflow] Extracted data too small from ${frag.key}#${off.table_name}, skipping`);
+                  console.warn(`[Workflow] Extracted data too small from ${frag.key}#${extracted.table_name}, skipping`);
                   continue;
                 }
                 const magic = new TextDecoder().decode(dataView.slice(-4));
                 if (magic !== 'PAR1') {
-                  console.warn(`[Workflow] Extracted data invalid Parquet magic from ${frag.key}#${off.table_name}, skipping`);
+                  console.warn(`[Workflow] Extracted data invalid Parquet magic from ${frag.key}#${extracted.table_name}, skipping`);
                   continue;
                 }
                 // Ensure unique key per extracted table to avoid merge mapping collisions
                 extractedFragments.push({
-                  key: `${frag.key}#${off.table_name}`,
-                  data: perTableExtract.data,
-                  size: perTableExtract.size,
+                  key: `${frag.key}#${extracted.table_name}`,
+                  data: extracted.data,
+                  size: extracted.size,
                 });
               }
             } else {

@@ -91,6 +91,37 @@ async function simpleHash(input: string): Promise<string> {
 }
 
 /**
+ * Extract schema fingerprint from table offset metadata (no R2 access needed)
+ * This avoids expensive R2 GET requests by using metadata already in D1
+ */
+export async function extractSchemaFingerprintFromOffsetMetadata(
+  offsets: Array<{ table_name: string; schema?: any }>
+): Promise<SchemaFingerprint> {
+  if (!offsets || offsets.length === 0) {
+    return { hash: 'unknown', numColumns: 0, columnNames: [], columnTypes: [] };
+  }
+
+  // Use first table's schema metadata if available
+  const firstTable = offsets[0];
+  if (!firstTable.schema || typeof firstTable.schema !== 'object') {
+    return { hash: 'unknown', numColumns: 0, columnNames: [], columnTypes: [] };
+  }
+
+  const schema = firstTable.schema;
+  const columnNames = Array.isArray(schema.columns) ? schema.columns.map((c: any) => c.name || 'unknown') : [];
+  const columnTypes = Array.isArray(schema.columns) ? schema.columns.map((c: any) => c.type || 'unknown') : [];
+  const numColumns = columnNames.length;
+
+  if (numColumns === 0) {
+    return { hash: 'unknown', numColumns: 0, columnNames: [], columnTypes: [] };
+  }
+
+  const schemaStr = `cols:${numColumns}|types:${columnTypes.join(',')}`;
+  const hash = await simpleHash(schemaStr);
+  return { hash, numColumns, columnNames, columnTypes };
+}
+
+/**
  * フラグメント群をスキーマ指紋でグルーピング
  */
 export async function groupFragmentsBySchema(
