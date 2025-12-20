@@ -2,6 +2,7 @@
  * Table Offset Extractor
  * Handles parsing and extraction of individual tables from concatenated Parquet files
  */
+import { parquetMetadata } from 'hyparquet';
 
 export interface TableOffsetMetadata {
   table_name: string;
@@ -77,7 +78,32 @@ export async function extractTableFromFragment(
     return null;
   }
 
+  // Reject non-Parquet formats early for safety
+  if (targetOffset.format.toLowerCase() !== 'parquet') {
+    console.warn(`[OffsetExtractor] Table '${targetTable}' has unsupported format '${targetOffset.format}'. Expected 'parquet'.`);
+    return null;
+  }
+
   try {
+    // Optional bounds check using object size (safe-side fail if out-of-range)
+    const head = await bucket.head(fragmentKey);
+    if (!head) {
+      console.error(`[OffsetExtractor] Failed to head fragment ${fragmentKey}`);
+      return null;
+    }
+
+    const objectSize = head.size;
+    if (targetOffset.start_byte < 0 || targetOffset.byte_length <= 0) {
+      console.warn(`[OffsetExtractor] Invalid range: start=${targetOffset.start_byte}, length=${targetOffset.byte_length}`);
+      return null;
+    }
+
+    const endByte = targetOffset.start_byte + targetOffset.byte_length;
+    if (endByte > objectSize) {
+      console.warn(`[OffsetExtractor] Range exceeds object size: end=${endByte}, objectSize=${objectSize}`);
+      return null;
+    }
+
     // Use R2 Range request to read only the target table portion
     const r2Response = await bucket.get(fragmentKey, {
       range: {
@@ -92,6 +118,13 @@ export async function extractTableFromFragment(
     }
 
     const data = await r2Response.arrayBuffer();
+
+    // Validate that the slice is a proper Parquet file by checking footer and parsing metadata with hyparquet
+    const isValid = validateParquetSliceWithHyparquet(data);
+    if (!isValid) {
+      console.warn(`[OffsetExtractor] Slice for table '${targetTable}' failed Parquet validation (footer/metadata).`);
+      return null;
+    }
 
     console.log(`[OffsetExtractor] Extracted table '${targetTable}' from ${fragmentKey}: ${data.byteLength} bytes`);
 
@@ -189,4 +222,76 @@ export function validateOffsetMetadata(
     valid: errors.length === 0,
     errors
   };
+}
+
+/**
+ * Validate that the provided ArrayBuffer represents a valid Parquet file slice:
+ * - Checks last 4 bytes for 'PAR1' magic
+ * - Reads footer size (little-endian uint32) and ensures bounds
+ * - Reconstructs minimal buffer [footer][size][PAR1] and parses via hyparquet
+ */
+function validateParquetSliceWithHyparquet(buffer: ArrayBuffer): boolean {
+  try {
+    const view = new Uint8Array(buffer);
+    if (view.length < 8) {
+      console.warn('[OffsetExtractor] Slice too small to contain Parquet trailer (size + magic)');
+      return false;
+    }
+
+    // Check header magic at start as well
+    if (view.length >= 4) {
+      const headerMagic = String.fromCharCode(view[0], view[1], view[2], view[3]);
+      if (headerMagic !== 'PAR1') {
+        console.warn(`[OffsetExtractor] Invalid header magic at slice start: '${headerMagic}'`);
+        return false;
+      }
+    }
+
+    // Read magic 'PAR1'
+    const magic = String.fromCharCode(view[view.length - 4], view[view.length - 3], view[view.length - 2], view[view.length - 1]);
+    if (magic !== 'PAR1') {
+      console.warn(`[OffsetExtractor] Invalid magic at slice end: '${magic}'`);
+      return false;
+    }
+
+    // Read footer size (little-endian uint32) from the 4 bytes before magic
+    const sizeBytes = view.slice(view.length - 8, view.length - 4);
+    const footerSize = (sizeBytes[0]) | (sizeBytes[1] << 8) | (sizeBytes[2] << 16) | (sizeBytes[3] << 24);
+    if (footerSize <= 0) {
+      console.warn(`[OffsetExtractor] Invalid footer size: ${footerSize}`);
+      return false;
+    }
+
+    const footerStart = view.length - 8 - footerSize;
+    if (footerStart < 0) {
+      console.warn(`[OffsetExtractor] Footer start is negative: ${footerStart}`);
+      return false;
+    }
+
+    const footer = view.slice(footerStart, footerStart + footerSize);
+
+    // Build synthetic buffer: [footer][size(4B LE)][PAR1]
+    const synthetic = new Uint8Array(footer.length + 8);
+    synthetic.set(footer, 0);
+    synthetic[footer.length + 0] = (footerSize & 0xFF);
+    synthetic[footer.length + 1] = ((footerSize >> 8) & 0xFF);
+    synthetic[footer.length + 2] = ((footerSize >> 16) & 0xFF);
+    synthetic[footer.length + 3] = ((footerSize >> 24) & 0xFF);
+    synthetic[footer.length + 4] = 'P'.charCodeAt(0);
+    synthetic[footer.length + 5] = 'A'.charCodeAt(0);
+    synthetic[footer.length + 6] = 'R'.charCodeAt(0);
+    synthetic[footer.length + 7] = '1'.charCodeAt(0);
+
+    // Parse with hyparquet; if it throws, validation fails
+    const md = parquetMetadata(synthetic.buffer);
+    const rgCount = Array.isArray(md.row_groups) ? md.row_groups.length : 0;
+    if (rgCount <= 0) {
+      console.warn('[OffsetExtractor] hyparquet parsed 0 row groups for slice');
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.warn('[OffsetExtractor] hyparquet metadata parse failed for slice:', err);
+    return false;
+  }
 }

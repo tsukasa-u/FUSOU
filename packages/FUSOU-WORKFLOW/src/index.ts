@@ -292,9 +292,9 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
             }
             
             // Validate offset metadata
-            const validationError = validateOffsetMetadata(offsets, frag.size);
-            if (validationError) {
-              console.warn(`[Workflow] Invalid offset metadata in ${frag.key}: ${validationError}, downloading full file`);
+            const { valid, errors } = validateOffsetMetadata(offsets, frag.size);
+            if (!valid) {
+              console.warn(`[Workflow] Invalid offset metadata in ${frag.key}: ${errors.join(', ')}, downloading full file`);
               // Treat as legacy fragment
               const fullFile = await this.env.BATTLE_DATA_BUCKET.get(frag.key);
               if (fullFile) {
