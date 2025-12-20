@@ -25,23 +25,10 @@ async function readFragmentMetadata(
   bucket: R2Bucket,
   key: string
 ): Promise<SourceFragment> {
-  // まずHEADでサイズのみ取得（ボディは読まない）
-  let totalSize = 0;
-  try {
-    const head = await bucket.head(key);
-    if (head && typeof head.size === 'number') {
-      totalSize = head.size;
-    }
-  } catch (_) {
-    // head未対応の場合は最小限のGETでサイズを得る（Range: 0-0 でもsizeは得られる）
-  }
-
-  // サイズが未取得なら最小のGETで取得
-  if (!totalSize) {
-    const tiny = await bucket.get(key, { range: { offset: 0, length: 1 } });
-    if (!tiny) throw new Error(`Fragment not found: ${key}`);
-    totalSize = (tiny as any).size || 0;
-  }
+  // サイズは最小のGETから取得（HEADを使わずAPI回数を削減）
+  const tiny = await bucket.get(key, { range: { offset: 0, length: 1 } });
+  if (!tiny) throw new Error(`Fragment not found: ${key}`);
+  let totalSize = (tiny as any).size || 0;
 
   if (totalSize < 12) throw new Error(`Invalid Parquet (too small): ${key}`);
 
