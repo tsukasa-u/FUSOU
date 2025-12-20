@@ -5,6 +5,9 @@
 
 import { parseParquetMetadataFromFullFile, parseParquetMetadataFromFooterBuffer, RowGroupInfo } from './parquet-compactor';
 
+// Toggle verbose success-path logs for stream merge operations
+const VERBOSE_STREAM_LOGS = false;
+
 interface SourceFragment {
   key: string;
   footerSize: number;
@@ -131,7 +134,9 @@ export async function streamMergeParquetFragments(
 
   for (const { frag, rg } of selectedRgs) {
     // Range GETでRow Groupデータのみ取得
-    console.log(`[Parquet Stream Merge] Fetching RG from ${frag.key}: offset=${rg.offset}, length=${rg.totalByteSize}`);
+    if (VERBOSE_STREAM_LOGS) {
+      console.log(`[Parquet Stream Merge] Fetching RG from ${frag.key}: offset=${rg.offset}, length=${rg.totalByteSize}`);
+    }
     
     // Sanity check before Range GET
     if (rg.offset! + rg.totalByteSize! > frag.totalSize) {
@@ -151,7 +156,9 @@ export async function streamMergeParquetFragments(
     if (!rgObj) throw new Error(`Failed to get RG from ${frag.key}`);
     
     const rgData = new Uint8Array(await rgObj.arrayBuffer());
-    console.log(`[Parquet Stream Merge] Fetched RG from ${frag.key}: actual data length=${rgData.length}`);
+    if (VERBOSE_STREAM_LOGS) {
+      console.log(`[Parquet Stream Merge] Fetched RG from ${frag.key}: actual data length=${rgData.length}`);
+    }
     dataChunks.push(rgData);
 
     // オフセット再計算
@@ -204,7 +211,9 @@ export async function streamMergeParquetFragments(
     throw new Error(`[Parquet Stream Merge] Invalid total size: ${totalSize}`);
   }
   
-  console.log(`[Parquet Stream Merge] Allocating merged Parquet: totalSize=${totalSize}, writeOffset=${writeOffset}, footerSize=${footerData.length}`);
+  if (VERBOSE_STREAM_LOGS) {
+    console.log(`[Parquet Stream Merge] Allocating merged Parquet: totalSize=${totalSize}, writeOffset=${writeOffset}, footerSize=${footerData.length}`);
+  }
   const out = new Uint8Array(totalSize);
   let pos = 0;
   for (const chunk of dataChunks) {
@@ -227,7 +236,9 @@ export async function streamMergeParquetFragments(
     },
   });
 
-  console.log(`[StreamMerge] Written ${outKey}: ${totalSize} bytes, ${newRowGroups.length} RG`);
+  if (VERBOSE_STREAM_LOGS) {
+    console.log(`[StreamMerge] Written ${outKey}: ${totalSize} bytes, ${newRowGroups.length} RG`);
+  }
 
   return {
     newFileSize: totalSize,

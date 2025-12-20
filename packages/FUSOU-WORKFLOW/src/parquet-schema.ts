@@ -5,6 +5,9 @@
 
 import { parseParquetMetadataFromFooterBuffer, parseParquetMetadataFromFullFile, RowGroupInfo } from './parquet-compactor';
 
+// Toggle schema grouping summary logs to reduce console noise in normal runs
+const SCHEMA_SUMMARY_LOGS = false;
+
 export interface SchemaFingerprint {
   hash: string;
   numColumns: number;
@@ -151,7 +154,9 @@ export async function groupFragmentsBySchema(
     });
   }
   
-  console.log(`[Schema] Grouped ${fragments.length} fragments into ${schemaGroups.size} schema groups`);
+  if (SCHEMA_SUMMARY_LOGS) {
+    console.log(`[Schema] Grouped ${fragments.length} fragments into ${schemaGroups.size} schema groups`);
+  }
   
   return schemaGroups;
 }
@@ -185,7 +190,9 @@ export async function groupExtractedFragmentsBySchema(
     });
   }
   
-  console.log(`[Schema] Grouped ${fragments.length} extracted fragments into ${schemaGroups.size} schema groups`);
+  if (SCHEMA_SUMMARY_LOGS) {
+    console.log(`[Schema] Grouped ${fragments.length} extracted fragments into ${schemaGroups.size} schema groups`);
+  }
   
   return schemaGroups;
 }
@@ -244,11 +251,13 @@ export async function groupFragmentsByOffsetMetadata(
     });
   }
   
-  if (emptyRowGroupCount > 0) {
+  if (SCHEMA_SUMMARY_LOGS && emptyRowGroupCount > 0) {
     console.info(`[Schema] Filtered ${emptyRowGroupCount} fragments with all empty RowGroups (numRows=0)`);
   }
   
-  console.log(`[Schema] Grouped ${fragments.length - emptyRowGroupCount} fragments into ${schemaGroups.size} schema groups (using offset metadata)`);
+  if (SCHEMA_SUMMARY_LOGS) {
+    console.log(`[Schema] Grouped ${fragments.length - emptyRowGroupCount} fragments into ${schemaGroups.size} schema groups (using offset metadata)`);
+  }
   
   return schemaGroups;
 }
@@ -276,7 +285,9 @@ export async function processSchemaGroups(
   const results: SchemaGroupOutput[] = [];
   
   for (const [hash, frags] of schemaGroups.entries()) {
-    console.log(`[Schema] Processing schema group ${hash}: ${frags.length} fragments`);
+    if (SCHEMA_SUMMARY_LOGS) {
+      console.log(`[Schema] Processing schema group ${hash}: ${frags.length} fragments`);
+    }
     
     const { outputKeys, totalOriginalSize, totalCompactedSize } = await compactionFn(bucket, frags);
     

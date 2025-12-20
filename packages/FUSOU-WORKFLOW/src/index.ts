@@ -234,6 +234,7 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
         size: number;
         offsetMetadata?: string; // Store original offset metadata for schema extraction
       }> = [];
+      let totalEmptyTablesFiltered = 0;
       
       for (const frag of filtered) {
         try {
@@ -288,7 +289,7 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
               const { valid: validOffsets, empty: emptyTables } = filterEmptyTables(offsets);
               
               if (emptyTables.length > 0) {
-                console.info(`[Workflow] Filtered out ${emptyTables.length} empty tables from ${frag.key}`);
+                totalEmptyTablesFiltered += emptyTables.length;
               }
               
               // OPTIMIZATION: Bulk extraction - fetch entire fragment once instead of per-table
@@ -378,6 +379,13 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
       if (extractedFragments.length === 0) {
         throw new Error('No valid fragments after table extraction');
       }
+
+      console.info(`[Workflow] Extraction summary`, {
+        targetTable,
+        totalFragments: filtered.length,
+        extractedFragments: extractedFragments.length,
+        emptyTablesSkipped: totalEmptyTablesFiltered,
+      });
       
       const extractDuration = Date.now() - extractStart;
       const modernFragmentsCount = filtered.filter(f => f.table_offsets).length;
@@ -438,14 +446,13 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
       for (const [schemaHash, groupFrags] of schemaGroups.entries()) {
         if (schemaHash === 'unknown') {
           unknownCount += groupFrags.length;
-          console.info(`[Workflow] Filtering out ${groupFrags.length} fragments with unknown schema (empty Parquet)`);
         } else {
           validSchemaGroups.set(schemaHash, groupFrags);
         }
       }
 
       if (unknownCount > 0) {
-        console.info(`[Workflow] Filtered ${unknownCount} total empty Parquet fragments before compaction`);
+        console.info(`[Workflow] Filtered ${unknownCount} empty Parquet fragments before compaction`);
       }
       
       let globalIndex = 0;
@@ -466,13 +473,8 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
             return frag;
           });
           
-          const outKey = `battle_compacted/${period}/${datasetId}/${tbl}/${globalIndex}.parquet`;
-          
-          // DETAILED LOGGING before stream merge
-          console.log(`[Workflow] About to merge schema group ${schemaHash}`, {
-            fragmentCount: pickedWithData.length,
-            fragments: pickedWithData.map(f => ({ key: f.key, size: f.size, hasData: !!f.data }))
-          });
+          const mergeIndex = globalIndex;
+          const outKey = `battle_compacted/${period}/${datasetId}/${tbl}/${mergeIndex}.parquet`;
           
           // 抽出済みデータを使ったストリーミングマージ
           let res;
@@ -509,6 +511,13 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
             });
             throw error;
           }
+
+          console.info(`[Workflow] Merged schema group ${schemaHash} batch ${mergeIndex}`, {
+            fragments: pickedWithData.length,
+            outKey,
+            size: res.newFileSize,
+            rowGroups: res.rowGroupCount,
+          });
           outputs.push({ key: outKey, size: res.newFileSize, etag: res.etag });
           
           globalIndex += 1;
@@ -898,18 +907,18 @@ export default {
     // MessageBatch.queue property contains the queue name
     const queueName = (batch as { queue?: string }).queue as string | undefined;
     
-    console.info('[Queue Router] Received batch', {
+    const target = queueName && (queueName.includes('dlq') || queueName.includes('DLQ')) ? 'dlq' : 'main';
+    console.info('[Queue Router] Dispatching batch', {
       batchSize: batch.messages.length,
       queueName,
+      target,
       timestamp: new Date().toISOString(),
     });
     
-    if (queueName && (queueName.includes('dlq') || queueName.includes('DLQ'))) {
-      console.info('[Queue Router] Routing to DLQ handler', { queueName });
+    if (target === 'dlq') {
       return queueDLQ.queue(batch, env, ctx);
     }
     
-    console.info('[Queue Router] Routing to main queue handler', { queueName });
     return queue.queue(batch, env, ctx);
   }
 };

@@ -4,6 +4,9 @@
  */
 import { parquetMetadata } from 'hyparquet';
 
+// Toggle verbose informational logs for offset handling
+const OFFSET_INFO_LOGS = false;
+
 export interface TableOffsetMetadata {
   table_name: string;
   start_byte: number;
@@ -76,7 +79,7 @@ export function filterEmptyTables(offsets: TableOffsetMetadata[]): { valid: Tabl
   }
 
   // Aggregate logging: only log summary if any empty tables were found
-  if (empty.length > 0) {
+  if (OFFSET_INFO_LOGS && empty.length > 0) {
     console.info(`[OffsetExtractor] Filtered ${empty.length} empty tables: ${empty.map(t => t.table_name).join(', ')}`);
   }
 
@@ -229,7 +232,9 @@ export async function extractTableSafe(
 
   if (!offsets) {
     // Legacy fragment without offset metadata
-    console.info(`[OffsetExtractor] Fragment ${fragmentKey} has no offset metadata (legacy)`);
+    if (OFFSET_INFO_LOGS) {
+      console.info(`[OffsetExtractor] Fragment ${fragmentKey} has no offset metadata (legacy)`);
+    }
     return null;
   }
 
