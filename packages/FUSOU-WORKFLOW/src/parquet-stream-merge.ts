@@ -371,21 +371,24 @@ export async function streamMergeExtractedFragments(
       rowGroups = [];
     }
     
-    const validRowGroups = rowGroups
-      .filter((rg, idx) => {
-        const isValid = !!rg && rg.offset !== undefined && rg.totalByteSize !== undefined && rg.offset !== undefined;
-        if (!isValid) {
-          console.warn(`[Parquet Stream Merge] Dropping invalid RowGroup from ${frag.key} at index ${idx}`, {
-            hasRg: !!rg,
-            offset: rg?.offset,
-            totalByteSize: rg?.totalByteSize,
-            numRows: rg?.numRows
-          });
-        }
-        return isValid;
-      })
-      // 行数0のRowGroupは事前に除外（空データはマージ・ログ対象外）
-      .filter((rg) => (rg.numRows ?? 0) > 0);
+    // Aggregate filtering counts per fragment to reduce log noise
+    let invalidDropsLocal = 0;
+    let zeroRowDropsLocal = 0;
+
+    const validRowGroupsPre = rowGroups.filter((rg, idx) => {
+      const isValid = !!rg && rg.offset !== undefined && rg.totalByteSize !== undefined && rg.offset !== undefined;
+      if (!isValid) {
+        invalidDropsLocal++;
+      }
+      return isValid;
+    });
+
+    // 行数0のRowGroupは事前に除外（空データはマージ・ログ対象外）
+    const validRowGroups = validRowGroupsPre.filter((rg) => {
+      const isZero = (rg.numRows ?? 0) === 0;
+      if (isZero) zeroRowDropsLocal++;
+      return !isZero;
+    });
     
     return {
       key: frag.key,
@@ -394,8 +397,17 @@ export async function streamMergeExtractedFragments(
       footerStart,
       rowGroups: validRowGroups,
       totalSize: data.length,
+      invalidDrops: invalidDropsLocal,
+      zeroRowDrops: zeroRowDropsLocal,
     };
   });
+
+  // Summarize filtered RowGroups across all fragments to reduce warn spam
+  const totalInvalidDrops = fragments.reduce((sum, f) => sum + (f.invalidDrops ?? 0), 0);
+  const totalZeroRowDrops = fragments.reduce((sum, f) => sum + (f.zeroRowDrops ?? 0), 0);
+  if (totalInvalidDrops > 0 || totalZeroRowDrops > 0) {
+    console.warn(`[Parquet Stream Merge] Filtered ${totalInvalidDrops} invalid RGs and ${totalZeroRowDrops} zero-row RGs across ${fragments.length} fragments (${outKey})`);
+  }
 
   // 2. Row Groupを選別してバケツに詰める
   const selectedRgs: Array<{ frag: typeof fragments[0]; rg: RowGroupInfo; rgIndex: number }> = [];
