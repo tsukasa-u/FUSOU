@@ -36,8 +36,8 @@ async function withRetry<T>(
       console.warn(`[battle-data] Retry: Attempt ${attempt + 1} failed, retrying in ${delay}ms`, {
         error: (error as any)?.message,
       });
-            let declaredSize = parseInt(typeof body?.file_size === "string" ? body.file_size : "0", 10);
-            let tableOffsets = typeof body?.table_offsets === "string" ? body.table_offsets.trim() : null;
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
   }
   throw new Error('Max retries exceeded');
 }
