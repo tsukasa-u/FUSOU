@@ -392,7 +392,8 @@ export async function streamMergeExtractedFragments(
         return false;
       }
       const end = rg.offset + rg.totalByteSize;
-      const inRange = rg.offset >= 0 && end <= frag.data.length; // header already included in data
+      // Use footerStart as upper bound to avoid overlapping footer region
+      const inRange = rg.offset >= 0 && end <= frag.footerStart;
       if (!inRange) {
         invalidDropsLocal++;
         return false;
