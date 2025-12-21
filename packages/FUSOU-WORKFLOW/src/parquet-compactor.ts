@@ -175,6 +175,18 @@ export function parseParquetMetadataFromFullFile(fileData: Uint8Array): RowGroup
     console.error(`[Parquet.parseFromFullFile] Failed: ${errorMessage}`);
     console.error(`[Parquet.parseFromFullFile] Error stack: ${errorStack}`);
     
+    // Diagnostic: show last 8 bytes (footerSize + 'PAR1') if available
+    if (fileData.length >= 8) {
+      const tail = fileData.slice(fileData.length - 8);
+      const tailHex = Array.from(tail).map(b => b.toString(16).padStart(2, '0')).join(' ');
+      const last4Ascii = new TextDecoder().decode(tail.slice(4));
+      console.error(`[Parquet.parseFromFullFile] Tail[8] hex: ${tailHex}, last4(ascii): '${last4Ascii}'`);
+      const footerSizeLE = new DataView(tail.buffer, tail.byteOffset, 4).getUint32(0, true);
+      console.error(`[Parquet.parseFromFullFile] FooterSize(LE): ${footerSizeLE}`);
+    } else {
+      console.error(`[Parquet.parseFromFullFile] File too small to contain footer (size=${fileData.length})`);
+    }
+    
     // CRITICAL: Do NOT use generateEstimatedRowGroups as it produces completely wrong offsets
     // Instead, treat this as an unparseable file and throw error to prevent silent corruption
     console.error(`[Parquet.parseFromFullFile] CRITICAL: Unable to parse Parquet metadata. Refusing to generate fake RowGroups.`);
