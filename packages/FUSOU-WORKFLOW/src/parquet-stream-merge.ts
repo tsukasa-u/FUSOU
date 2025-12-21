@@ -51,14 +51,14 @@ async function readFragmentMetadata(
   const sanitizeRowGroups = (rgs: RowGroupInfo[], fileSize: number, footerStartPos: number) => {
     let invalid = 0;
     const filtered = (rgs || []).filter((rg) => {
-      const hasBounds = !!rg && rg.offset !== undefined && rg.totalByteSize !== undefined;
-      if (!hasBounds) { invalid++; return false; }
+      if (!rg || rg.offset === undefined || rg.totalByteSize === undefined) { invalid++; return false; }
       // Bounds check: RowGroup must lie before footer
       const end = rg.offset + rg.totalByteSize;
       const inRange = rg.offset >= 0 && end <= Math.min(fileSize, footerStartPos);
       if (!inRange) { invalid++; return false; }
+      if ((rg.numRows ?? 0) <= 0) { invalid++; return false; }
       return true;
-    }).filter((rg) => (rg.numRows ?? 0) > 0);
+    });
     return { filtered, invalid };
   };
 
@@ -385,27 +385,24 @@ export async function streamMergeExtractedFragments(
     let invalidDropsLocal = 0;
     let zeroRowDropsLocal = 0;
 
-    const validRowGroupsPre = rowGroups.filter((rg, idx) => {
-      const hasBounds = !!rg && rg.offset !== undefined && rg.totalByteSize !== undefined;
-      if (!hasBounds) {
+    const validRowGroups = rowGroups.filter((rg, idx) => {
+      if (!rg || rg.offset === undefined || rg.totalByteSize === undefined) {
         invalidDropsLocal++;
         return false;
       }
       const end = rg.offset + rg.totalByteSize;
       // Use footerStart as upper bound to avoid overlapping footer region
-      const inRange = rg.offset >= 0 && end <= frag.footerStart;
+      const inRange = rg.offset >= 0 && end <= footerStart;
       if (!inRange) {
         invalidDropsLocal++;
         return false;
       }
-      return true;
-    });
-
-    // 行数0のRowGroupは事前に除外（空データはマージ・ログ対象外）
-    const validRowGroups = validRowGroupsPre.filter((rg) => {
       const isZero = (rg.numRows ?? 0) === 0;
-      if (isZero) zeroRowDropsLocal++;
-      return !isZero;
+      if (isZero) {
+        zeroRowDropsLocal++;
+        return false;
+      }
+      return true;
     });
     
     return {
@@ -450,14 +447,13 @@ export async function streamMergeExtractedFragments(
           continue;
         }
         
-        // Sanity check: RowGroup size should not exceed file size
+        // Sanity check: RowGroup size should not exceed data region before footer
         if (rg.totalByteSize > frag.footerStart) {
           console.error(`[Parquet Stream Merge] CRITICAL: RowGroup size (${rg.totalByteSize}) exceeds data region before footer (${frag.footerStart}). File: ${frag.key}, RG${i}`, {
             offset: rg.offset,
             totalByteSize: rg.totalByteSize,
             footerStart: frag.footerStart,
-            rgEnd: rg.offset + rg.totalByteSize,
-            footerStart: frag.footerStart
+            rgEnd: rg.offset + rg.totalByteSize
           });
           console.error(`[Parquet Stream Merge] This likely indicates multi-table concatenation without proper offset metadata. Skipping this RowGroup.`);
           continue;
