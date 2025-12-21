@@ -85,6 +85,19 @@ app.post("/upload", async (c) => {
       const periodTag = typeof body?.kc_period_tag === "string" ? body.kc_period_tag.trim() : "";
       const declaredSize = parseInt(typeof body?.file_size === "string" ? body.file_size : "0", 10);
       const tableOffsets = typeof body?.table_offsets === "string" ? body.table_offsets.trim() : null;
+      const pathTag = typeof body?.path === "string" ? body.path.trim() : null;
+      const isBinary = typeof body?.binary === "boolean" ? body.binary : false;
+
+      // Verify that client indicated binary format
+      if (!isBinary) {
+        console.warn("[battle-data] Rejecting non-binary upload");
+        return c.json({ error: "binary field must be true for battle data" }, 400);
+      }
+
+      if (!pathTag) {
+        console.warn("[battle-data] Rejecting upload without path field");
+        return c.json({ error: "path is required for battle data" }, 400);
+      }
 
       if (!datasetId) {
         return c.json({ error: "dataset_id is required" }, 400);
@@ -100,6 +113,13 @@ app.post("/upload", async (c) => {
       }
       if (declaredSize <= 0) {
         return c.json({ error: "file_size must be > 0" }, 400);
+      }
+
+      // Get content_hash from body (computed by client)
+      const contentHash = typeof body?.content_hash === "string" ? body.content_hash.trim() : "";
+      if (!contentHash) {
+        console.warn("[battle-data] Rejecting upload without content_hash");
+        return c.json({ error: "content_hash is required" }, 400);
       }
 
       // Validate table_offsets if provided
@@ -128,6 +148,8 @@ app.post("/upload", async (c) => {
           period_tag: periodTag,
           declared_size: declaredSize,
           table_offsets: tableOffsets,
+          content_hash: contentHash,
+          path_tag: pathTag,
         },
       };
     },
@@ -202,16 +224,10 @@ app.post("/upload", async (c) => {
 
         if (messages.length) {
           await withRetry(async () => {
-            // Prefer sendBatch if available
-            if (typeof (env.runtime.COMPACTION_QUEUE as any).sendBatch === 'function') {
-              console.info('[battle-data] Using sendBatch for', messages.length, 'messages');
-              return await (env.runtime.COMPACTION_QUEUE as any).sendBatch(messages.map(m => m.body));
-            }
-            // Fallback: send individually
-            console.info('[battle-data] Using individual send for', messages.length, 'messages');
-            for (const m of messages) {
-              await env.runtime.COMPACTION_QUEUE.send(m.body);
-            }
+            // Cloudflare Queue sendBatch expects array of message bodies (not wrapped in {body: ...})
+            console.info('[battle-data] Sending', messages.length, 'messages to COMPACTION_QUEUE');
+            const bodies = messages.map(m => m.body);
+            await env.runtime.COMPACTION_QUEUE.sendBatch(bodies);
             return { ok: true };
           });
           console.info('[battle-data] Successfully enqueued', messages.length, 'Avro slices to COMPACTION_QUEUE');

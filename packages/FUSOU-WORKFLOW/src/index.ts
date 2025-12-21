@@ -3,8 +3,6 @@ import { buildAvroContainer, getAvroHeaderLength, getAvroHeaderLengthFromPrefix 
 interface Env {
   BATTLE_DATA_BUCKET: R2Bucket;
   BATTLE_INDEX_DB: D1Database;
-  COMPACTION_QUEUE: Queue;
-  COMPACTION_DLQ: Queue;
   OUTPUT_KEY_NAME?: string;
 }
 
@@ -147,16 +145,20 @@ async function handleIngest(request: Request, env: Env): Promise<Response> {
   }
 
   if (!messages.length) {
-    return new Response(JSON.stringify({ error: 'No valid records to enqueue' }), {
+    return new Response(JSON.stringify({ error: 'No valid records to process' }), {
       status: 400,
       headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
     });
   }
 
-  await env.COMPACTION_QUEUE.sendBatch(messages);
-
-  return new Response(JSON.stringify({ status: 'accepted', messages: messages.length }), {
-    status: 202,
+  // Note: /ingest endpoint is deprecated. FUSOU-WEB sends directly to COMPACTION_QUEUE.
+  // This endpoint remains for backward compatibility but does not enqueue.
+  return new Response(JSON.stringify({ 
+    status: 'deprecated', 
+    message: 'This endpoint is deprecated. Use FUSOU-WEB battle_data upload endpoint instead.',
+    records: messages.length 
+  }), {
+    status: 410,
     headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
   });
 }
