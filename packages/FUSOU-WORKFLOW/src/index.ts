@@ -2,8 +2,10 @@ import { buildAvroContainer, getAvroHeaderLength, getAvroHeaderLengthFromPrefix 
 
 interface Env {
   BATTLE_DATA_BUCKET: R2Bucket;
+  BATTLE_INDEX_DB: D1Database;
   COMPACTION_QUEUE: Queue;
   COMPACTION_DLQ: Queue;
+  OUTPUT_KEY_NAME?: string;
 }
 
 interface IngestTableBatch {
@@ -307,8 +309,9 @@ const queueConsumer = {
         continue;
       }
       try {
-        const baseKeyName = (env as any).OUTPUT_KEY_NAME || 'latest.avro';
-        const key = `${table}/${typeof baseKeyName === 'string' ? baseKeyName.replace('.parquet', '.avro') : 'latest.avro'}`;
+        const rawName = (env as any).OUTPUT_KEY_NAME;
+        const baseKeyName = typeof rawName === 'string' && rawName.trim().length ? rawName.trim() : 'latest.avro';
+        const key = `${table}/${baseKeyName.endsWith('.avro') ? baseKeyName : `${baseKeyName}.avro`}`;
 
         // Fetch existing file
         const existing = await env.BATTLE_DATA_BUCKET.get(key);
@@ -360,6 +363,7 @@ const queueDLQ = {
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    console.info('[Worker/fetch] Request received', { method: request.method, path: new URL(request.url).pathname });
     const url = new URL(request.url);
     const path = url.pathname;
 
@@ -385,8 +389,10 @@ export default {
     return new Response('Not Found', { status: 404, headers: CORS_HEADERS });
   },
   async queue(batch: MessageBatch<unknown>, env: Env, ctx: ExecutionContext): Promise<void> {
+    console.info('[Worker/queue] Queue handler invoked', { messageCount: batch.messages.length, batched: true });
     const queueName = (batch as { queue?: string }).queue as string | undefined;
     const target = queueName && queueName.toLowerCase().includes('dlq') ? 'dlq' : 'main';
+    console.info('[Worker/queue] Routing to target', { queueName, target });
     if (target === 'dlq') {
       return queueDLQ.queue(batch, env, ctx);
     }
