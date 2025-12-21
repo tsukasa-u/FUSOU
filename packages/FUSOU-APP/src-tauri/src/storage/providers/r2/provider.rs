@@ -1,7 +1,5 @@
 use std::sync::Arc;
 use kc_api::database::table::{GetDataTableEncode, PortTableEncode};
-use kc_api::database::batch_upload::BatchUploadBuilder;
-use kc_api::database::avro_to_parquet::ConversionError;
 
 use crate::storage::service::{StorageError, StorageFuture, StorageProvider};
 use crate::storage::common::get_all_port_tables;
@@ -201,63 +199,68 @@ impl StorageProvider for R2StorageProvider {
                 return Ok(());
             }
 
-            tracing::info!("Building Parquet batch upload for {} tables (with data)", tables.len());
+            tracing::info!("Building Avro batch upload for {} tables (with data)", tables.len());
             for (name, data) in &tables {
                 tracing::info!("  - {}: {} bytes", name, data.len());
             }
 
-            // Convert Avro → Parquet using BatchUploadBuilder
-            let batch_result = tokio::task::spawn_blocking(move || {
-                let mut builder = BatchUploadBuilder::new();
-                for (table_name, avro_data) in tables {
-                    builder.add_table(table_name, avro_data);
-                }
-                builder.build()
-            })
-            .await
-            .map_err(|e| StorageError::Operation(format!("Task join error: {}", e)))?;
+            // NEW: Concatenate Avro files directly without Parquet conversion
+            let mut concatenated = Vec::new();
+            let mut metadata = Vec::new();
 
-            let batch = match batch_result {
-                Ok(b) => b,
-                Err(ConversionError::ValidationError(msg)) => {
-                    // Gracefully skip when all tables are empty or invalid
-                    tracing::warn!(
-                        "R2: Skipping port_table upload for map {}-{} due to validation: {}",
-                        maparea_id,
-                        mapinfo_no,
-                        msg
-                    );
-                    return Ok(());
+            for (table_name, avro_data) in tables {
+                if avro_data.is_empty() {
+                    tracing::warn!("Skipping empty table '{}'", table_name);
+                    continue;
                 }
-                Err(err) => {
-                    return Err(StorageError::Operation(format!("Failed to build Parquet batch: {}", err)));
-                }
-            };
 
-            tracing::info!(
-                "Parquet batch built: {} bytes total, {} tables",
-                batch.total_bytes,
-                batch.metadata.len()
-            );
-            for meta in &batch.metadata {
-                tracing::info!("  - Table: {}, offset: {}, size: {}", meta.table_name, meta.start_byte, meta.byte_length);
+                let start_byte = concatenated.len();
+                let byte_length = avro_data.len();
+
+                concatenated.extend_from_slice(&avro_data);
+
+                // Metadata struct matching server-side expectations
+                #[derive(serde::Serialize)]
+                struct TableMeta {
+                    table_name: String,
+                    start_byte: usize,
+                    byte_length: usize,
+                    format: String,
+                }
+
+                metadata.push(TableMeta {
+                    table_name: table_name.clone(),
+                    start_byte,
+                    byte_length,
+                    format: "avro".to_string(),
+                });
+
+                tracing::info!(
+                    "Added '{}' to batch: offset={}, length={}",
+                    table_name, start_byte, byte_length
+                );
             }
 
+            let total_bytes = concatenated.len();
+            tracing::info!(
+                "Avro batch built: {} bytes total, {} tables",
+                total_bytes,
+                metadata.len()
+            );
+
             // Serialize table offset metadata to JSON
-            // NOTE: Do NOT add 'port_table' entry here - it causes overlap validation errors
-            // If all individual tables are needed, the workflow should download the full file
-            let table_offsets = serde_json::to_string(&batch.metadata)
+            let table_offsets = serde_json::to_string(&metadata)
                 .map_err(|e| StorageError::Operation(format!("Failed to serialize metadata: {}", e)))?;
             tracing::info!("table_offsets JSON: {}", table_offsets);
-            tracing::info!("Total metadata entries: {}", batch.metadata.len());
+            tracing::info!("Total metadata entries: {}", metadata.len());
 
-            // Upload concatenated Parquet data as single .bin file
+            // Upload concatenated Avro data as single .bin file
             let tag = format!("{}-port-{}-{}", period_tag, maparea_id, mapinfo_no);
-            let size = batch.data.len();
-            self.upload_to_r2(period_tag, &tag, &user_env_id, "port_table", batch.data, table_offsets).await?;
+            let size = concatenated.len();
+            self.upload_to_r2(period_tag, &tag, &user_env_id, "port_table", concatenated, table_offsets).await?;
 
             tracing::info!(
-                "Uploaded Parquet batch to R2: period={}, map={}-{}, size={}",
+                "Uploaded Avro batch to R2: period={}, map={}-{}, size={}",
                 period_tag, maparea_id, mapinfo_no, size
             );
             Ok(())

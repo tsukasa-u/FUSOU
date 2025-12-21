@@ -27,6 +27,7 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.86.0",
+    "avsc": "^5.7.7",
     "hyparquet": "^1.23.3"
   }
 }

@@ -54,3 +54,5 @@ supabase/.temp/
 supabase/.branches/
 
 packages/FUSOU-WORKFLOW/worker-configuration.d.ts
+
+packages/FUSOU-WORKFLOW/test/
