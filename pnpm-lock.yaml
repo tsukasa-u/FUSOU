@@ -283,7 +283,7 @@ importers:
         specifier: ^2.86.0
         version: 2.86.0
       avsc:
-        specifier: ^5.7.7
+        specifier: ^5.7.9
         version: 5.7.9
       hyparquet:
         specifier: ^1.23.3
