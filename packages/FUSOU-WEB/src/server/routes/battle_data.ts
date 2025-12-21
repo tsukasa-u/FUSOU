@@ -1,266 +1,139 @@
-import { Hono } from "hono";
-import type { Bindings } from "../types";
-import { CORS_HEADERS } from "../constants";
-import { createEnvContext, getEnv } from "../utils";
-import { handleTwoStageUpload } from "../utils/upload";
-import { validateOffsetMetadata } from "../validators/offsets";
+import { Hono } from 'hono';
+import type { Bindings } from '../types';
+import { createEnvContext, getEnv } from '../utils';
 
 const app = new Hono<{ Bindings: Bindings }>();
 
-/**
- * Retry utility for handling rate limits and transient errors
- * Implements exponential backoff to respect Supabase Free tier limits
- */
-async function withRetry<T>(
-  fn: () => Promise<T>,
-  maxRetries = 3,
-  baseDelay = 1000
-): Promise<T> {
+// Simple retry helper (rate-limit safe)
+async function withRetry<T>(fn: () => Promise<T>, maxRetries = 3, baseDelay = 1000): Promise<T> {
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
       return await fn();
     } catch (error) {
       const isLastAttempt = attempt === maxRetries - 1;
-      const isRateLimitError =
-        (error as any)?.message?.includes('429') ||
-        (error as any)?.message?.includes('Too Many Requests') ||
-        (error as any)?.status === 429;
-
-      if (isLastAttempt || !isRateLimitError) {
-        throw error;
-      }
-
-      // Exponential backoff: 1s, 2s, 4s
+      const isRateLimitError = (error as any)?.message?.includes('429') || (error as any)?.status === 429;
+      if (isLastAttempt || !isRateLimitError) throw error;
       const delay = baseDelay * Math.pow(2, attempt);
-      console.warn(`[battle-data] Retry: Attempt ${attempt + 1} failed, retrying in ${delay}ms`, {
-        error: (error as any)?.message,
-      });
-      await new Promise(resolve => setTimeout(resolve, delay));
+      console.warn(`[Retry] Attempt ${attempt + 1} failed, retrying in ${delay}ms`, { error: (error as any)?.message });
+      await new Promise(r => setTimeout(r, delay));
     }
   }
   throw new Error('Max retries exceeded');
 }
 
-/**
- * Battle data server-side upload routes
- * - Uploads to Cloudflare R2 with VARIABLE keys (timestamp + UUID) to prevent overwrites
- * - Indexes fragments in D1 (BATTLE_INDEX_DB) for period-based compaction and querying
- * - Provides REST APIs for chunk retrieval and latest data access
- */
+type OffsetEntry = { start_byte: number; byte_length: number; table_name?: string };
+function validateOffsetMetadata(offsets: any, totalSize: number): { valid: boolean; errors?: string[] } {
+  const errors: string[] = [];
+  if (!Array.isArray(offsets)) return { valid: false, errors: ['table_offsets must be an array'] };
+  let cursor = 0;
+  for (const [idx, entry] of offsets.entries()) {
+    const start = Number(entry?.start_byte);
+    const len = Number(entry?.byte_length);
+    if (!Number.isFinite(start) || !Number.isFinite(len)) errors.push(`offset[${idx}] invalid numbers`);
+    if (start < cursor) errors.push(`offset[${idx}] overlaps previous slice`);
+    if (len <= 0) errors.push(`offset[${idx}] byte_length must be > 0`);
+    if (start + len > totalSize) errors.push(`offset[${idx}] exceeds total size`);
+    cursor = start + len;
+  }
+  return { valid: errors.length === 0, errors };
+}
 
-// OPTIONS (CORS)
-app.options(
-  "*",
-  (_c) => new Response(null, { status: 204, headers: CORS_HEADERS }),
-);
-
-/**
- * POST /upload - Real-time battle data upload with automatic compaction triggering
- * 
- * Purpose: Accept single Parquet file uploads from battle simulator and queue for automatic compaction
- * 
- * Process:
- * 1. R2 storage: Save Parquet fragment with variable key (timestamp + UUID)
- * 2. D1 indexing: Record metadata for period-based fragment discovery
- * 3. Metrics: Create processing_metrics record for monitoring
- * 4. Queue: Send to COMPACTION_QUEUE with priority 'realtime'
- * 
- * Flow:
- * - User uploads battle data (Parquet format)
- * - File immediately stored in R2 with unique key
- * - Metadata recorded in D1 for workflow to discover
- * - Processing record created in Supabase for monitoring
- * - Message queued with high priority for fast compaction
- * - Returns 200 OK immediately (non-blocking)
- * - Workflow processes asynchronously (typically within 30-60 seconds)
- * 
- * Note: Metrics creation and queue sending failures don't fail the upload
- * (graceful degradation - data is already safely stored in R2)
- */
+// Upload route: accept JSON (file_base64) or binary body, then enqueue Avro slices
 app.post("/upload", async (c) => {
   const env = createEnvContext(c);
-  const bucket = env.runtime.BATTLE_DATA_BUCKET;
-  const indexDb = env.runtime.BATTLE_INDEX_DB;
   const signingSecret = getEnv(env, "BATTLE_DATA_SIGNING_SECRET");
-
-  if (!bucket || !indexDb || !signingSecret) {
-    return c.json({ error: "Server misconfiguration: missing R2 bucket or D1 database" }, 500);
+  if (!env.runtime.COMPACTION_QUEUE || !signingSecret) {
+    return c.json({ error: "Server misconfiguration: missing COMPACTION_QUEUE or signing secret" }, 500);
   }
 
-  return handleTwoStageUpload(c, {
-    bucket,
-    signingSecret,
-    preparationValidator: async (body, user) => {
-      const datasetId = typeof body?.dataset_id === "string" ? body.dataset_id.trim() : "";
-      const table = typeof body?.table === "string" ? body.table.trim() : "";
-      const contentHash = typeof body?.content_hash === "string" ? body.content_hash.trim() : "";
-      const periodTag = typeof body?.kc_period_tag === "string" ? body.kc_period_tag.trim() : "";
-      const declaredSize = parseInt(typeof body?.file_size === "string" ? body.file_size : "0", 10);
-      const tableOffsets = typeof body?.table_offsets === "string" ? body.table_offsets.trim() : null;
+  let datasetId = "";
+  let table = "";
+  let periodTag = "";
+  let tableOffsetsStr: string | null = null;
+  let dataU8: Uint8Array | null = null;
 
-      if (!datasetId) {
-        return c.json({ error: "dataset_id is required" }, 400);
+  // Try JSON first
+  const ct = c.req.header('content-type') || '';
+  if (ct.includes('application/json')) {
+    try {
+      const body: any = await c.req.json();
+      datasetId = typeof body?.dataset_id === 'string' ? body.dataset_id.trim() : '';
+      table = typeof body?.table === 'string' ? body.table.trim() : '';
+      periodTag = typeof body?.kc_period_tag === 'string' ? body.kc_period_tag.trim() : '';
+      tableOffsetsStr = typeof body?.table_offsets === 'string' ? body.table_offsets.trim() : null;
+      const fileB64 = typeof body?.file_base64 === 'string' ? body.file_base64 : null;
+      if (fileB64) dataU8 = Uint8Array.from(Buffer.from(fileB64, 'base64'));
+    } catch (e) {
+      return c.json({ error: 'Invalid JSON body' }, 400);
+    }
+  }
+
+  // Fallback to raw binary
+  if (!dataU8) {
+    try {
+      const buf = await c.req.arrayBuffer();
+      dataU8 = new Uint8Array(buf);
+    } catch {
+      // ignore
+    }
+  }
+
+  if (!datasetId) datasetId = c.req.query('dataset_id') || '';
+  if (!table) table = c.req.query('table') || '';
+  if (!periodTag) periodTag = c.req.query('kc_period_tag') || '';
+  if (!tableOffsetsStr) tableOffsetsStr = c.req.query('table_offsets') || null;
+
+  if (!datasetId) return c.json({ error: 'dataset_id is required' }, 400);
+  if (!table) return c.json({ error: 'table is required' }, 400);
+  if (!periodTag) return c.json({ error: 'kc_period_tag is required' }, 400);
+  if (!/^[\w\-]+$/.test(periodTag)) return c.json({ error: 'kc_period_tag must contain only alphanumeric characters and hyphens' }, 400);
+  if (!dataU8 || dataU8.length === 0) return c.json({ error: 'binary body or file_base64 is required' }, 400);
+
+  // Validate offsets if provided
+  let offsets: OffsetEntry[] = [];
+  if (tableOffsetsStr) {
+    try {
+      const parsed = JSON.parse(tableOffsetsStr);
+      const { valid, errors } = validateOffsetMetadata(parsed, dataU8.length);
+      if (!valid) return c.json({ error: 'Invalid table_offsets', details: errors }, 400);
+      offsets = parsed as OffsetEntry[];
+    } catch {
+      return c.json({ error: 'Malformed table_offsets JSON' }, 400);
+    }
+  }
+
+  const triggeredAt = new Date().toISOString();
+  try {
+    const messages: any[] = [];
+    if (Array.isArray(offsets) && offsets.length) {
+      for (const entry of offsets) {
+        const start = Number(entry.start_byte ?? 0);
+        const len = Number(entry.byte_length ?? 0);
+        const tname = String(entry.table_name ?? table);
+        if (len <= 0) continue;
+        const slice = dataU8.subarray(start, start + len);
+        const b64 = Buffer.from(slice).toString('base64');
+        messages.push({ table: tname, avro_base64: b64, datasetId, periodTag, triggeredAt, userId: 'unknown' });
       }
-      if (!table) {
-        return c.json({ error: "table is required" }, 400);
-      }
-      if (!contentHash) {
-        return c.json({ error: "content_hash (SHA-256) is required" }, 400);
-      }
-      if (!periodTag) {
-        return c.json({ error: "kc_period_tag is required" }, 400);
-      }
-      // Validate periodTag format to match other endpoints
-      if (!/^[\w\-]+$/.test(periodTag)) {
-        return c.json({ error: "kc_period_tag must contain only alphanumeric characters and hyphens" }, 400);
-      }
-      if (declaredSize <= 0) {
-        return c.json({ error: "file_size must be > 0" }, 400);
-      }
+    } else {
+      const b64 = Buffer.from(dataU8).toString('base64');
+      messages.push({ table, avro_base64: b64, datasetId, periodTag, triggeredAt, userId: 'unknown' });
+    }
 
-      // Strict server-side validation of provided table_offsets; reject on failure
-      if (tableOffsets) {
-        try {
-          console.info(`[battle-data] Received table_offsets for ${table}: ${tableOffsets}`);
-          const parsed = JSON.parse(tableOffsets);
-          console.info(`[battle-data] Parsed table_offsets (${parsed.length} tables): ${JSON.stringify(parsed.map((p: any) => p.table_name))}`);
-          const { valid, errors } = validateOffsetMetadata(parsed, declaredSize);
-          if (!valid) {
-            console.warn(`[battle-data] Invalid table_offsets provided; rejecting. Errors: ${errors.join(', ')}`);
-            return c.json({ error: "Invalid table_offsets", details: errors }, 400);
-          }
-        } catch (e) {
-          console.warn(`[battle-data] Failed to parse table_offsets; rejecting. Error: ${String(e)}`);
-          return c.json({ error: "Malformed table_offsets JSON" }, 400);
-        }
-      } else {
-        console.info(`[battle-data] No table_offsets provided for table '${table}'`);
-      }
+    if (typeof (env.runtime.COMPACTION_QUEUE as any).sendBatch === 'function') {
+      await (env.runtime.COMPACTION_QUEUE as any).sendBatch(messages.map((m) => ({ body: m })));
+    } else {
+      for (const m of messages) await env.runtime.COMPACTION_QUEUE.send(m);
+    }
+    console.info(`[battle-data] Enqueued ${messages.length} Avro slices to COMPACTION_QUEUE (dataset=${datasetId}, period=${periodTag})`);
+  } catch (err) {
+    console.error('[battle-data] FAILED to enqueue slices', { error: String(err) });
+    return c.json({ error: 'Failed to enqueue slices' }, 500);
+  }
 
-      // Generate variable key with timestamp + UUID to prevent overwrites
-      const now = new Date();
-      const timestamp = now.toISOString().replace(/[^\d]/g, "").slice(0, 14); // YYYYMMDDHHmmss
-      const uuid = crypto.randomUUID();
-      const variableKey = `battle_data/${datasetId}/${table}/${timestamp}-${uuid}.parquet`;
-
-      return {
-        tokenPayload: {
-          key: variableKey,
-          dataset_id: datasetId,
-          table,
-          content_hash: contentHash,
-          declared_size: declaredSize,
-          period_tag: periodTag,
-          table_offsets: tableOffsets,
-        },
-      };
-    },
-    executionProcessor: async (tokenPayload, data, user) => {
-      const key = tokenPayload.key;
-      const datasetId = tokenPayload.dataset_id;
-      const table = tokenPayload.table;
-      const contentHash = tokenPayload.content_hash;
-      const periodTag = (tokenPayload as any).period_tag as string;
-        let tableOffsets = (tokenPayload as any).table_offsets as string | null;
-      if (!key || !datasetId || !table) {
-        return c.json({ error: "Invalid token payload" }, 400);
-      }
-
-      // Upload to R2
-      const result = await bucket.put(key, data, {
-        httpMetadata: {
-          contentType: "application/octet-stream",
-          cacheControl: "immutable",
-        },
-        customMetadata: {
-          uploaded_by: user.id,
-          dataset_id: datasetId,
-          table,
-          period_tag: periodTag,
-        },
-      });
-
-      const actualSize = result?.size || data.length;
-      const etag = result?.etag || "";
-      const uploadedAt = new Date().toISOString();
-
-      // Record fragment metadata in D1 for indexing
-      try {
-        console.info(`[battle-data] Recording fragment in D1: key=${key}, table=${table}, table_offsets_present=${!!tableOffsets}`);
-        const stmt = indexDb.prepare(
-          `INSERT INTO battle_files (key, dataset_id, \"table\", period_tag, size, etag, uploaded_at, content_hash, uploaded_by, table_offsets)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-        );
-        await stmt
-          .bind(key, datasetId, table, periodTag, actualSize, etag, uploadedAt, contentHash, user.id, tableOffsets)
-          .run();
-        console.info(`[battle-data] Fragment recorded in D1 successfully`);
-      } catch (err) {
-        console.error("[battle_data] Failed to record fragment in D1:", err);
-        return c.json({ error: "Failed to record fragment metadata" }, 500);
-      }
-
-      // ===== Step 3: Queue to compaction queue for background processing =====
-      // If table_offsets were provided, split the uploaded blob into per-table
-      // Avro fragments and send them as individual queue messages (base64-encoded)
-      // so the Workflow can append them into per-table Avro files in R2.
-      try {
-        if (!env.runtime.COMPACTION_QUEUE) {
-          console.warn("[battle-data] COMPACTION_QUEUE binding not available");
-        } else if (tableOffsets) {
-          // tokenPayload.table_offsets was preserved as a string; parse it
-          let offsets: any[] = [];
-          try {
-            offsets = JSON.parse(tableOffsets as string) as any[];
-          } catch (e) {
-            console.warn('[battle-data] Failed to parse table_offsets for queue split', e);
-            offsets = [];
-          }
-
-          if (Array.isArray(offsets) && offsets.length) {
-            const messages: any[] = [];
-            for (const entry of offsets) {
-              const start = Number(entry.start_byte ?? 0);
-              const len = Number(entry.byte_length ?? 0);
-              const tname = String(entry.table_name ?? table);
-              if (len <= 0) continue;
-              const slice = data.subarray(start, start + len);
-              // base64 encode
-              const b64 = Buffer.from(slice).toString('base64');
-              messages.push({ body: { table: tname, avro_base64: b64, datasetId, periodTag, uploadedAt, userId: user.id } });
-            }
-
-            if (messages.length) {
-              await withRetry(async () => {
-                // Prefer sendBatch if available
-                if (typeof (env.runtime.COMPACTION_QUEUE as any).sendBatch === 'function') {
-                  return await (env.runtime.COMPACTION_QUEUE as any).sendBatch(messages.map(m => m.body));
-                }
-                // Fallback: send individually
-                for (const m of messages) await env.runtime.COMPACTION_QUEUE.send(m.body);
-                return { ok: true };
-              });
-              console.info('[battle-data] Enqueued', messages.length, 'per-table fragments to COMPACTION_QUEUE');
-            }
-          }
-        } else {
-          // No table_offsets: enqueue a single notification message for the whole file
-          await withRetry(async () => {
-            return await env.runtime.COMPACTION_QUEUE.send({ datasetId, table, periodTag, priority: 'realtime', triggeredAt: uploadedAt, userId: user.id });
-          });
-          console.info('[battle-data] Enqueued single compaction notification to COMPACTION_QUEUE');
-        }
-      } catch (queueErr) {
-        console.error('[battle-data] FAILED to enqueue to COMPACTION_QUEUE', { error: String(queueErr) });
-        console.warn('[battle-data] Continuing despite queue failure - R2 upload and metadata are complete');
-      }
-
-      return {
-        response: { ok: true, key, size: actualSize, uploaded_at: uploadedAt },
-      };
-    },
-  });
+  return c.json({ ok: true, dataset_id: datasetId, table, period_tag: periodTag });
 });
+ 
 
 /**
  * GET /chunks - Retrieve battle data fragments by period
