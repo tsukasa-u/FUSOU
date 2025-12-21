@@ -189,6 +189,13 @@ export async function extractAllTablesFromFragmentBulk(
       }
 
       const endByte = offset.start_byte + offset.byte_length;
+      
+            // Check for integer overflow in endByte calculation
+            if (endByte > Number.MAX_SAFE_INTEGER || endByte < offset.start_byte) {
+              console.warn(`[OffsetExtractor] Integer overflow in range calculation for ${offset.table_name}: start=${offset.start_byte}, length=${offset.byte_length}`);
+              continue;
+            }
+      
       if (endByte > buffer.byteLength) {
         console.warn(`[OffsetExtractor] Range exceeds buffer size for ${offset.table_name}: end=${endByte}, size=${buffer.byteLength}`);
         continue;

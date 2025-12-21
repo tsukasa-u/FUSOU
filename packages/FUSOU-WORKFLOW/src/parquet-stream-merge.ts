@@ -54,6 +54,14 @@ async function readFragmentMetadata(
       if (!rg || rg.offset === undefined || rg.totalByteSize === undefined) { invalid++; return false; }
       // Bounds check: RowGroup must lie before footer
       const end = rg.offset + rg.totalByteSize;
+      
+      // Check for overflow in end calculation
+      if (end > Number.MAX_SAFE_INTEGER || end < rg.offset) {
+        console.warn(`[Parquet Stream Merge] RG offset overflow detected`, { offset: rg.offset, size: rg.totalByteSize });
+        invalid++;
+        return false;
+      }
+      
       const inRange = rg.offset >= 0 && end <= Math.min(fileSize, footerStartPos);
       if (!inRange) { invalid++; return false; }
       if ((rg.numRows ?? 0) <= 0) { invalid++; return false; }
@@ -115,7 +123,18 @@ export async function streamMergeParquetFragments(
         continue;
       }
       // 安全側チェック: RG 範囲がフッター内に収まっていない場合はスキップ
-      if (rg.offset < 0 || rg.offset + rg.totalByteSize > frag.footerStart) {
+      const rgEnd = rg.offset + rg.totalByteSize;
+      
+      // Check for overflow before bounds check
+      if (rgEnd > Number.MAX_SAFE_INTEGER || rgEnd < rg.offset) {
+        console.warn(`[StreamMerge] RG overflow detected: ${frag.key} RG${i}`, {
+          offset: rg.offset,
+          totalByteSize: rg.totalByteSize
+        });
+        continue;
+      }
+      
+      if (rg.offset < 0 || rgEnd > frag.footerStart) {
         console.warn(`[StreamMerge] Skip RG out of bounds: ${frag.key} RG${i}`, {
           offset: rg.offset,
           totalByteSize: rg.totalByteSize,
@@ -128,7 +147,14 @@ export async function streamMergeParquetFragments(
         break;
       }
       selectedRgs.push({ frag, rg, rgIndex: i });
-      accumulatedBytes += rg.totalByteSize;
+      
+      // Accumulate with overflow check (defensive)
+      const newAccumulated = accumulatedBytes + rg.totalByteSize;
+      if (newAccumulated > Number.MAX_SAFE_INTEGER || newAccumulated < accumulatedBytes) {
+        console.warn(`[Parquet Stream Merge] accumulatedBytes overflow: ${accumulatedBytes} + ${rg.totalByteSize}`);
+        break; // Stop accumulating to avoid incorrect threshold calculations
+      }
+      accumulatedBytes = newAccumulated;
     }
     if (accumulatedBytes >= thresholdBytes) break;
   }
@@ -151,25 +177,35 @@ export async function streamMergeParquetFragments(
   const headerShift = 4; // PAR1 header bytes at file start
 
   for (const { frag, rg } of selectedRgs) {
+    // Type safety: re-validate after selection (TypeScript can't track filter guarantees)
+    if (rg.offset === undefined || rg.totalByteSize === undefined) {
+      console.error(`[Parquet Stream Merge] CRITICAL: Invalid RG in selectedRgs`, { frag: frag.key, rg });
+      throw new Error(`Invalid RG detected in selectedRgs: offset or totalByteSize undefined`);
+    }
+    
+    // Capture validated values for type narrowing
+    const rgOffset = rg.offset;
+    const rgTotalByteSize = rg.totalByteSize;
+    
     // Range GETでRow Groupデータのみ取得
     if (VERBOSE_STREAM_LOGS) {
-      console.log(`[Parquet Stream Merge] Fetching RG from ${frag.key}: offset=${rg.offset}, length=${rg.totalByteSize}`);
+      console.log(`[Parquet Stream Merge] Fetching RG from ${frag.key}: offset=${rgOffset}, length=${rgTotalByteSize}`);
     }
     
     // Sanity check before Range GET
-    if (rg.offset! + rg.totalByteSize! > frag.totalSize) {
+    if (rgOffset + rgTotalByteSize > frag.totalSize) {
       console.error(`[Parquet Stream Merge] CRITICAL: RG bounds exceed file size!`, {
         file: frag.key,
-        rgOffset: rg.offset,
-        rgSize: rg.totalByteSize,
+        rgOffset,
+        rgSize: rgTotalByteSize,
         fileSize: frag.totalSize,
-        rgEnd: rg.offset! + rg.totalByteSize!
+        rgEnd: rgOffset + rgTotalByteSize
       });
       throw new Error(`RG bounds exceed file size: ${frag.key}`);
     }
     
     const rgObj = await bucket.get(frag.key, {
-      range: { offset: rg.offset!, length: rg.totalByteSize! },
+      range: { offset: rgOffset, length: rgTotalByteSize },
     });
     if (!rgObj) throw new Error(`Failed to get RG from ${frag.key}`);
     
@@ -177,20 +213,43 @@ export async function streamMergeParquetFragments(
     if (VERBOSE_STREAM_LOGS) {
       console.log(`[Parquet Stream Merge] Fetched RG from ${frag.key}: actual data length=${rgData.length}`);
     }
+    
+    // Validate fetched data matches expected size
+    if (rgData.length !== rgTotalByteSize) {
+      console.error(`[Parquet Stream Merge] CRITICAL: Fetched data size mismatch!`, {
+        file: frag.key,
+        expected: rgTotalByteSize,
+        actual: rgData.length
+      });
+      throw new Error(`RG data size mismatch: expected ${rgTotalByteSize}, got ${rgData.length} from ${frag.key}`);
+    }
+    
     dataChunks.push(rgData);
 
     // オフセット再計算
-    const remappedChunks = (rg.columnChunks || []).map((cc) => ({
-      columnIndex: cc.columnIndex,
-      offset: writeOffset + (cc.offset - rg.offset!),
-      size: cc.size,
-      type: cc.type,
-    }));
+    const remappedChunks = (rg.columnChunks || []).map((cc) => {
+      // Validate column chunk is within RowGroup bounds
+      if (cc.offset < rgOffset || cc.offset >= rgOffset + rgTotalByteSize) {
+        console.warn(`[Parquet Stream Merge] Column chunk offset out of RG bounds`, {
+          file: frag.key,
+          ccOffset: cc.offset,
+          rgStart: rgOffset,
+          rgEnd: rgOffset + rgTotalByteSize
+        });
+      }
+      
+      return {
+        columnIndex: cc.columnIndex,
+        offset: writeOffset + (cc.offset - rgOffset),
+        size: cc.size,
+        type: cc.type,
+      };
+    });
 
     newRowGroups.push({
       index: newRowGroups.length,
       offset: writeOffset + headerShift,
-      totalByteSize: rg.totalByteSize!,
+      totalByteSize: rgTotalByteSize,
       numRows: rg.numRows,
       columnChunks: remappedChunks.map((cc) => ({
         ...cc,
@@ -314,8 +373,15 @@ function writeRowGroup(writer: ThriftCompactWriter, rg: RowGroupInfo) {
   writer.writeField(1, FieldType.LIST);
   writer.writeListHeader(rg.columnChunks.length, FieldType.STRUCT);
   for (const cc of rg.columnChunks) writeColumnChunk(writer, cc);
-  writer.writeField(2, FieldType.I64); writer.writeI64(rg.numRows);
-  writer.writeField(3, FieldType.I64); writer.writeI64(rg.totalByteSize!);
+  
+  // Validate numRows before writing
+  const numRows = rg.numRows < 0 ? 0 : rg.numRows;
+  writer.writeField(2, FieldType.I64); writer.writeI64(numRows);
+  
+  if (rg.totalByteSize === undefined) {
+    throw new Error(`Invalid RowGroup: totalByteSize is undefined`);
+  }
+  writer.writeField(3, FieldType.I64); writer.writeI64(rg.totalByteSize);
   writer.writeStop();
 }
 
@@ -346,6 +412,11 @@ export async function streamMergeExtractedFragments(
   const fragments = sourceFragments.map((frag) => {
     const data = new Uint8Array(frag.data);
     
+    // Declare rowGroups at the top of the scope
+    let rowGroups: RowGroupInfo[] = [];
+    let invalidDropsLocal = 0;
+    let zeroRowDropsLocal = 0;
+    
     // Footer読み取り
     if (data.length < 12) throw new Error(`Invalid Parquet: ${frag.key}`);
     
@@ -356,12 +427,31 @@ export async function streamMergeExtractedFragments(
     const footerSizeView = new DataView(tailBuf.buffer, tailBuf.byteOffset, 4);
     const footerSize = footerSizeView.getUint32(0, true);
     
+    // Validate footer size before calculating footerStart
+    if (footerSize <= 0 || footerSize > data.length - 8) {
+      console.error(`[Parquet Stream Merge] Invalid footer size for ${frag.key}:`, {
+        footerSize,
+        fileSize: data.length,
+        maxValid: data.length - 8
+      });
+      return { key: frag.key, data, footerSize: 0, footerStart: 0, rowGroups, totalSize: data.length, invalidDrops: 1, zeroRowDrops: 0 };
+    }
+    
     const footerStart = data.length - 8 - footerSize;
     
+    if (footerStart < 4) {
+      console.error(`[Parquet Stream Merge] Invalid footer start position for ${frag.key}:`, {
+        footerStart,
+        footerSize,
+        fileSize: data.length
+      });
+      return { key: frag.key, data, footerSize, footerStart: 0, rowGroups, totalSize: data.length, invalidDrops: 1, zeroRowDrops: 0 };
+    }
+    
     // Try to parse metadata, with detailed error handling
-    let rowGroups: RowGroupInfo[] = [];
     try {
-      rowGroups = parseParquetMetadataFromFullFile(data) || [];
+      const parsed = parseParquetMetadataFromFullFile(data);
+      if (parsed) rowGroups = parsed;
     } catch (parseErr) {
       console.error(`[Parquet Stream Merge] Failed to parse metadata for ${frag.key}:`, String(parseErr));
       
@@ -378,12 +468,7 @@ export async function streamMergeExtractedFragments(
       }
       
       // Return empty rowGroups array - this fragment will be skipped due to validation
-      rowGroups = [];
     }
-    
-    // Aggregate filtering counts per fragment to reduce log noise
-    let invalidDropsLocal = 0;
-    let zeroRowDropsLocal = 0;
 
     const validRowGroups = rowGroups.filter((rg, idx) => {
       if (!rg || rg.offset === undefined || rg.totalByteSize === undefined) {
@@ -449,11 +534,14 @@ export async function streamMergeExtractedFragments(
         
         // Sanity check: RowGroup size should not exceed data region before footer
         if (rg.totalByteSize > frag.footerStart) {
+          const safeRgEnd = rg.offset + rg.totalByteSize;
+          const rgEndDisplay = (safeRgEnd > Number.MAX_SAFE_INTEGER || safeRgEnd < rg.offset) ? 'OVERFLOW' : safeRgEnd;
+          
           console.error(`[Parquet Stream Merge] CRITICAL: RowGroup size (${rg.totalByteSize}) exceeds data region before footer (${frag.footerStart}). File: ${frag.key}, RG${i}`, {
             offset: rg.offset,
             totalByteSize: rg.totalByteSize,
             footerStart: frag.footerStart,
-            rgEnd: rg.offset + rg.totalByteSize
+            rgEnd: rgEndDisplay
           });
           console.error(`[Parquet Stream Merge] This likely indicates multi-table concatenation without proper offset metadata. Skipping this RowGroup.`);
           continue;
@@ -515,9 +603,15 @@ export async function streamMergeExtractedFragments(
     if (rg.offset === undefined || rg.totalByteSize === undefined) {
       throw new Error(`Selected RG has undefined bounds: ${frag.key}`);
     }
-    // Row Group範囲を直接抽出
-    const rgStart = rg.offset!;
-    const rgEnd = rgStart + rg.totalByteSize!;
+    // Row Group範囲を直接抽出 (validated above, safe to use)
+    const rgStart = rg.offset;
+    const rgEnd = rgStart + rg.totalByteSize;
+    
+        // Defense-in-depth: Validate rgEnd even though this was validated earlier
+        if (rgEnd > Number.MAX_SAFE_INTEGER || rgEnd < rgStart) {
+          throw new Error(`Selected RG has overflow in end calculation: ${frag.key}, offset=${rgStart}, size=${rg.totalByteSize}`);
+        }
+    
     const rgData = frag.data.slice(rgStart, rgEnd);
     
     dataChunks.push(rgData);
@@ -530,12 +624,29 @@ export async function streamMergeExtractedFragments(
       offset: writeOffset + headerShift,
       columnChunks: rg.columnChunks.map((cc) => ({
         ...cc,
-        offset: cc.offset - rgStart + writeOffset + headerShift,
+        offset: (() => {
+          // Calculate new offset: (cc.offset - rgStart) + writeOffset + headerShift
+          const relativeOffset = cc.offset - rgStart;
+          const newOffset = relativeOffset + writeOffset + headerShift;
+          
+          // Check for overflow in the result
+          if (newOffset > Number.MAX_SAFE_INTEGER || newOffset < 0) {
+            throw new Error(`Column chunk offset overflow: cc.offset=${cc.offset}, rgStart=${rgStart}, writeOffset=${writeOffset}`);
+          }
+          
+          return newOffset;
+        })(),
       })),
     };
     
     newRowGroups.push(newRg);
-    writeOffset += rg.totalByteSize!;
+    
+    // Accumulate writeOffset with overflow check
+    const newWriteOffset = writeOffset + rg.totalByteSize;
+    if (newWriteOffset > Number.MAX_SAFE_INTEGER || newWriteOffset < writeOffset) {
+      throw new Error(`writeOffset overflow during accumulation: ${writeOffset} + ${rg.totalByteSize}`);
+    }
+    writeOffset = newWriteOffset;
   }
 
   // 4. Footer生成

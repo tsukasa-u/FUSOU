@@ -52,22 +52,45 @@ export async function mergeFragmentsToParquet(
   for (const src of sources) {
     // Append row groups in order
     for (const rg of src.rowGroups) {
+      // Defensive guard: skip invalid RGs
+      if (rg.offset === undefined || rg.totalByteSize === undefined) {
+        console.warn(`[DEPRECATED mergeFragments] Skipping RG with undefined offset/size in ${src.key}`);
+        continue;
+      }
+      
       if (bucketBytes > 0 && bucketBytes + rg.totalByteSize > thresholdBytes) {
         // Stop when threshold exceeded; caller should create next bucket
         break;
       }
       const start = rg.offset;
       const end = rg.offset + rg.totalByteSize;
+      
+            // Check for overflow in end calculation
+            if (end > Number.MAX_SAFE_INTEGER || end < rg.offset) {
+              console.warn(`[DEPRECATED mergeFragments] RG overflow detected in ${src.key}: offset=${rg.offset}, size=${rg.totalByteSize}`);
+              continue;
+            }
+      
       const rgData = src.buf.slice(start, end);
       dataChunks.push(rgData);
 
       // Remap RowGroup offsets to new file space
-      const remappedChunks = (rg.columnChunks || []).map((cc) => ({
-        columnIndex: cc.columnIndex,
-        offset: writeOffset + (cc.offset - start),
-        size: cc.size,
-        type: cc.type,
-      }));
+      const remappedChunks = (rg.columnChunks || []).map((cc) => {
+        const relativeOffset = cc.offset - start;
+        const newOffset = writeOffset + relativeOffset;
+        
+        // Check for overflow
+        if (newOffset > Number.MAX_SAFE_INTEGER || newOffset < 0) {
+          throw new Error(`[DEPRECATED mergeFragments] Column chunk offset overflow: cc.offset=${cc.offset}, start=${start}, writeOffset=${writeOffset}`);
+        }
+        
+        return {
+          columnIndex: cc.columnIndex,
+          offset: newOffset,
+          size: cc.size,
+          type: cc.type,
+        };
+      });
 
       newRowGroups.push({
         index: newRowGroups.length,
@@ -77,8 +100,19 @@ export async function mergeFragmentsToParquet(
         columnChunks: remappedChunks,
       });
 
-      writeOffset += rgData.length;
-      bucketBytes += rg.totalByteSize;
+      // Accumulate with overflow checks
+      const newWriteOffset = writeOffset + rgData.length;
+      const newBucketBytes = bucketBytes + rg.totalByteSize;
+      
+      if (newWriteOffset > Number.MAX_SAFE_INTEGER || newWriteOffset < writeOffset) {
+        throw new Error(`[DEPRECATED mergeFragments] writeOffset overflow: ${writeOffset} + ${rgData.length}`);
+      }
+      if (newBucketBytes > Number.MAX_SAFE_INTEGER || newBucketBytes < bucketBytes) {
+        console.warn(`[DEPRECATED mergeFragments] bucketBytes overflow: ${bucketBytes} + ${rg.totalByteSize}`);
+      }
+      
+      writeOffset = newWriteOffset;
+      bucketBytes = newBucketBytes;
     }
     if (bucketBytes >= thresholdBytes) break;
   }

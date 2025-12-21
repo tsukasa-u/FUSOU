@@ -89,9 +89,25 @@ try {
       continue;
     }
     
+    // Guard against undefined before arithmetic
+    if (rg.offset === undefined || rg.totalByteSize === undefined) {
+      console.log(`  ✗ INVALID: offset or totalByteSize is undefined`);
+      invalidCount++;
+      console.log();
+      continue;
+    }
+    
     // Range check
     const rgStart = rg.offset;
     const rgEnd = rg.offset + rg.totalByteSize;
+    
+        // Check for overflow
+        if (rgEnd > Number.MAX_SAFE_INTEGER || rgEnd < rg.offset) {
+          console.log(`  ✗ INVALID: integer overflow in end position (offset=${rg.offset}, size=${rg.totalByteSize})`);
+          invalidCount++;
+          console.log();
+          continue;
+        }
     
     if (rgStart < 0) {
       console.log(`  ✗ INVALID: offset < 0`);

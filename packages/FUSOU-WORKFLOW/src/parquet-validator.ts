@@ -87,9 +87,25 @@ export async function validateParquetFile(
     }
 
     // 4. Parse footer metadata
-    const footerData = buffer.slice(footerStart, footerStart + footerSize);
+    const footerEnd = footerStart + footerSize;
+    
+    // Check for overflow in footerEnd calculation
+    if (footerEnd > Number.MAX_SAFE_INTEGER || footerEnd < footerStart) {
+      errors.push(`Footer end overflow: footerStart=${footerStart}, footerSize=${footerSize}`);
+      return { valid: false, fileSize, footerSize, numRowGroups: 0, totalRows: 0, rowGroups: [], errors, warnings };
+    }
+    
+    const footerData = buffer.slice(footerStart, footerEnd);
     // hyparquet用に footer(metadata) + 4B(size) + 4B('PAR1') を連結
-    const footerBuf = new Uint8Array(footerData.length + 8);
+    const footerBufSize = footerData.length + 8;
+    
+    // Check for overflow in buffer allocation size
+    if (footerBufSize > Number.MAX_SAFE_INTEGER || footerBufSize < footerData.length) {
+      errors.push(`Footer buffer size overflow: ${footerData.length} + 8`);
+      return { valid: false, fileSize, footerSize, numRowGroups: 0, totalRows: 0, rowGroups: [], errors, warnings };
+    }
+    
+    const footerBuf = new Uint8Array(footerBufSize);
     footerBuf.set(footerData, 0);
     new DataView(footerBuf.buffer, footerData.length, 4).setUint32(0, footerSize, true);
     footerBuf.set(new TextEncoder().encode('PAR1'), footerData.length + 4);
@@ -109,16 +125,31 @@ export async function validateParquetFile(
 
     for (let i = 0; i < rowGroups.length; i++) {
       const rg = rowGroups[i];
+      
+      // Re-validate bounds exist (defensive, already filtered but type-safe)
+      if (rg.offset === undefined || rg.totalByteSize === undefined) {
+        errors.push(`RG${i}: missing offset or totalByteSize after filter`);
+        continue;
+      }
+      
       totalRows += rg.numRows;
 
       // Offset範囲チェック
-      if (rg.offset! < prevEnd && i > 0) {
+      if (rg.offset < prevEnd && i > 0) {
         warnings.push(`RG${i}: offset ${rg.offset} overlaps with previous RG (ended at ${prevEnd})`);
       }
       
-      const rgEnd = rg.offset! + rg.totalByteSize!;
+      const rgEnd = rg.offset + rg.totalByteSize;
+      
+            // Check for overflow in rgEnd calculation
+            if (rgEnd > Number.MAX_SAFE_INTEGER || rgEnd < rg.offset) {
+              errors.push(`RG${i}: integer overflow in end position calculation (offset=${rg.offset}, size=${rg.totalByteSize})`);
+              continue;
+            }
+      
       if (rgEnd > footerStart) {
         errors.push(`RG${i}: data extends beyond footer (${rgEnd} > ${footerStart})`);
+        continue; // Skip further checks for this invalid RG
       }
 
       prevEnd = rgEnd;
@@ -126,7 +157,15 @@ export async function validateParquetFile(
       // Column chunk整合性
       for (let c = 0; c < rg.columnChunks.length; c++) {
         const cc = rg.columnChunks[c];
-        if (cc.offset < rg.offset! || cc.offset + cc.size > rgEnd) {
+        const ccEnd = cc.offset + cc.size;
+        
+        // Check for overflow in column chunk end calculation
+        if (ccEnd > Number.MAX_SAFE_INTEGER || ccEnd < cc.offset) {
+          warnings.push(`RG${i} CC${c}: integer overflow in end position (offset=${cc.offset}, size=${cc.size})`);
+          continue;
+        }
+        
+        if (cc.offset < rg.offset || ccEnd > rgEnd) {
           warnings.push(`RG${i} CC${c}: offset ${cc.offset} out of RG bounds [${rg.offset}, ${rgEnd}]`);
         }
       }

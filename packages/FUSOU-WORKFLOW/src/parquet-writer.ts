@@ -86,7 +86,13 @@ export async function writeCompactedParquetFile(
   const magicBuffer = new TextEncoder().encode('PAR1');
 
   // すべてのデータを結合
-  const totalFileSize = totalDataSize + footerData.length + 4 + 4; // data + footer + footerSize + magic
+  const totalFileSize = totalDataSize + footerData.length + 8; // data + footer + footerSize(4) + magic(4)
+  
+  // Check for overflow in totalFileSize calculation
+  if (totalFileSize > Number.MAX_SAFE_INTEGER || totalFileSize < totalDataSize) {
+    throw new Error(`Total file size overflow: totalDataSize=${totalDataSize}, footerLength=${footerData.length}`);
+  }
+  
   const fileBuffer = new Uint8Array(totalFileSize);
 
   let offset = 0;
@@ -94,12 +100,19 @@ export async function writeCompactedParquetFile(
   // データを書き込み
   for (const chunk of dataChunks) {
     fileBuffer.set(chunk, offset);
-    offset += chunk.length;
+    const newOffset = offset + chunk.length;
+    
+    // Defensive check: offset should never exceed totalFileSize
+    if (newOffset > totalFileSize) {
+      throw new Error(`Offset overflow during file assembly: ${offset} + ${chunk.length} > ${totalFileSize}`);
+    }
+    
+    offset = newOffset;
   }
 
   // Footer を書き込み
   fileBuffer.set(footerData, offset);
-  offset += footerData.length;
+  offset += footerData.length; // Safe: totalFileSize accounts for this
 
   // Footer size を書き込み
   fileBuffer.set(new Uint8Array(footerSizeBuffer), offset);
@@ -158,7 +171,14 @@ function generateParquetFooter(rowGroups: (RowGroupInfo | MergedRowGroup)[]): Ui
   // In a real implementation, we'd preserve the original schema
 
   // num_rows: sum of all row groups
-  const totalRows = rowGroups.reduce((sum, rg) => sum + rg.numRows, 0);
+  const totalRows = rowGroups.reduce((sum, rg) => {
+    const newSum = sum + rg.numRows;
+    // Warn on overflow (extremely rare, but possible in theory)
+    if (newSum > Number.MAX_SAFE_INTEGER) {
+      console.warn(`[Parquet Writer] WARNING: totalRows accumulation approaching MAX_SAFE_INTEGER (${sum} + ${rg.numRows})`);
+    }
+    return newSum;
+  }, 0);
   writer.writeField(4, FieldType.I64);
   writer.writeI64(totalRows);
 
@@ -200,11 +220,19 @@ function writeRowGroup(writer: ThriftCompactWriter, rg: RowGroupInfo | MergedRow
 
   // num_rows
   writer.writeField(2, FieldType.I64);
-  writer.writeI64(rg.numRows);
+  if (rg.numRows < 0) {
+    console.warn(`[Parquet Writer] Invalid numRows ${rg.numRows}, writing 0`);
+    writer.writeI64(0);
+  } else {
+    writer.writeI64(rg.numRows);
+  }
 
   // total_byte_size
   writer.writeField(3, FieldType.I64);
-  writer.writeI64((rg.totalByteSize ?? 0));
+  if (rg.totalByteSize === undefined || rg.totalByteSize <= 0) {
+    throw new Error(`[Parquet Writer] Invalid totalByteSize: ${rg.totalByteSize}. Cannot write RowGroup with zero/undefined size.`);
+  }
+  writer.writeI64(rg.totalByteSize);
 
   // Stop field
   writer.writeStop();
@@ -253,7 +281,7 @@ enum FieldType {
 class ThriftCompactWriter {
   private buffer: Uint8Array;
   private pos: number = 0;
-  private fieldStack: number[] = [];
+  private lastFieldId: number = 0;
 
   constructor(initialSize: number = 4096) {
     this.buffer = new Uint8Array(initialSize);
@@ -275,12 +303,11 @@ class ThriftCompactWriter {
    * フィールドヘッダーを書き込む
    */
   writeField(fieldId: number, type: FieldType): void {
-    const lastFieldId = this.fieldStack[this.fieldStack.length - 1] || 0;
-    this.fieldStack[this.fieldStack.length - 1] = fieldId;
-
-    if (fieldId > lastFieldId && fieldId - lastFieldId <= 15) {
+    const delta = fieldId - this.lastFieldId;
+    
+    if (delta > 0 && delta <= 15) {
       // Delta encoding
-      const byte = ((fieldId - lastFieldId) << 4) | type;
+      const byte = (delta << 4) | type;
       this.ensureCapacity(1);
       this.buffer[this.pos++] = byte;
     } else {
@@ -289,6 +316,8 @@ class ThriftCompactWriter {
       this.buffer[this.pos++] = type;
       this.writeI16(fieldId);
     }
+    
+    this.lastFieldId = fieldId;
   }
 
   /**
@@ -358,7 +387,8 @@ class ThriftCompactWriter {
   writeStop(): void {
     this.ensureCapacity(1);
     this.buffer[this.pos++] = FieldType.STOP;
-    this.fieldStack.pop();
+    // Reset lastFieldId for next struct (if nested)
+    this.lastFieldId = 0;
   }
 
   /**

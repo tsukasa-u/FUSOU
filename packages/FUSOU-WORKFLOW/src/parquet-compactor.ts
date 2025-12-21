@@ -54,6 +54,11 @@ export function parseParquetMetadataFromFullFile(fileData: Uint8Array): RowGroup
     const footerStart = fileData.byteLength - metadataLength - 8;
     const footerEnd = footerStart + metadataLength;
     
+        // Check for overflow in footerEnd calculation
+        if (footerEnd > Number.MAX_SAFE_INTEGER || footerEnd < footerStart) {
+          throw new Error(`Footer end overflow: footerStart=${footerStart}, metadataLength=${metadataLength}`);
+        }
+    
     // Validate footer region is within bounds
     if (footerStart < 0 || footerEnd > fileData.byteLength || metadataLength <= 0) {
       throw new Error(`Invalid footer region: start=${footerStart}, end=${footerEnd}, length=${metadataLength}`);
@@ -382,7 +387,15 @@ export async function compactFragmentedRowGroups(
 
       const data = await readRange(bucket, bucketKey, safeOffset, safeSize);
       fragmentedData.push(data);
-      totalFragmentedSize += safeSize;
+      
+      // Accumulate with overflow check
+      const newTotalSize = totalFragmentedSize + safeSize;
+      if (newTotalSize > Number.MAX_SAFE_INTEGER || newTotalSize < totalFragmentedSize) {
+        console.warn(`[Parquet] totalFragmentedSize overflow: ${totalFragmentedSize} + ${safeSize}`);
+        // Continue anyway, but log the issue
+      }
+      totalFragmentedSize = newTotalSize;
+      
       console.log(`[Parquet] Read RG${rg.index}: ${safeSize} bytes (requested ${requestedSize})`);
     } catch (error) {
       console.error(`[Parquet] Failed to read RG${rg?.index || 'unknown'}: ${error}`);
@@ -405,7 +418,13 @@ export async function compactFragmentedRowGroups(
     index: healthyRowGroups.length,
     offset: 0, // 実際のオフセットは後で計算
     totalByteSize: totalFragmentedSize,
-    numRows: fragmentedRowGroups.reduce((sum, rg) => sum + rg.numRows, 0),
+    numRows: fragmentedRowGroups.reduce((sum, rg) => {
+      const newSum = sum + rg.numRows;
+      if (newSum > Number.MAX_SAFE_INTEGER) {
+        console.warn(`[Parquet Compactor] WARNING: numRows accumulation approaching MAX_SAFE_INTEGER`);
+      }
+      return newSum;
+    }, 0),
     columnChunks: fragmentedRowGroups.flatMap(rg => rg.columnChunks)
   };
   
