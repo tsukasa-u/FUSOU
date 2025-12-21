@@ -64,13 +64,18 @@ export function parseParquetMetadataFromFullFile(fileData: Uint8Array): RowGroup
       throw new Error(`Invalid footer region: start=${footerStart}, end=${footerEnd}, length=${metadataLength}`);
     }
     
-    const footerBuffer = fileData.buffer.slice(
+    // Build minimal buffer: [footer(metadata)][size(LE 4B)][PAR1(4B)]
+    const footerData = new Uint8Array(fileData.buffer.slice(
       fileData.byteOffset + footerStart,
       fileData.byteOffset + footerEnd
-    ) as ArrayBuffer;
-    
-    // hyparquet の parquetMetadata を使用
-    const metadata = parquetMetadata(footerBuffer as ArrayBuffer);
+    ));
+    const composite = new Uint8Array(footerData.length + 8);
+    composite.set(footerData, 0);
+    new DataView(composite.buffer, footerData.length, 4).setUint32(0, metadataLength, true);
+    composite.set(new TextEncoder().encode('PAR1'), footerData.length + 4);
+
+    // hyparquet の parquetMetadata は [footer][size][PAR1] を想定
+    const metadata = parquetMetadata(composite.buffer as ArrayBuffer);
     
     // RowGroup 情報を抽出
     const rowGroups: RowGroupInfo[] = [];
@@ -207,12 +212,10 @@ export function parseParquetMetadataFromFooterBuffer(footerBuffer: Uint8Array): 
       return [];
     }
     
-    // hyparquet はフッターメタデータのみを期待するため、末尾の8バイト（サイズ+魔法）を除外
-    const totalLen = footerBuffer.byteLength;
-    const metaLen = totalLen >= 8 ? totalLen - 8 : totalLen;
+    // hyparquet の parquetMetadata は [footer][size][PAR1] 形式のバッファを受け取る
     const ab = footerBuffer.buffer.slice(
       footerBuffer.byteOffset,
-      footerBuffer.byteOffset + metaLen
+      footerBuffer.byteOffset + footerBuffer.byteLength
     ) as ArrayBuffer;
     const metadata = parquetMetadata(ab);
 
