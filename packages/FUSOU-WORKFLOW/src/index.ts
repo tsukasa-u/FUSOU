@@ -17,7 +17,9 @@ const CORS_HEADERS = {
   'Access-Control-Allow-Headers': 'Content-Type',
 };
 
-const MAX_RECORDS_PER_MESSAGE = 200;
+// Default maximum payload per queue message (bytes). Adjust to Cloudflare Queue limits.
+const MAX_BYTES_PER_MESSAGE = 256 * 1024; // 256 KB
+const MAX_RECORDS_PER_MESSAGE = 200; // fallback maximum count
 
 function chunkArray<T>(items: T[], size: number): T[][] {
   const out: T[][] = [];
@@ -99,9 +101,46 @@ async function handleIngest(request: Request, env: Env): Promise<Response> {
     if (!batch.table || !Array.isArray(batch.records) || batch.records.length === 0) {
       continue;
     }
-    const chunks = chunkArray(batch.records, MAX_RECORDS_PER_MESSAGE);
-    for (const chunk of chunks) {
-      messages.push({ body: { table: batch.table, records: chunk } });
+
+    // Chunk by byte-size using buildAvroContainer to measure exact serialized size.
+    // This is conservative and may cost CPU; it's safer than relying solely on record counts.
+    let current: any[] = [];
+    for (const record of batch.records) {
+      current.push(record);
+      let ok = true;
+      try {
+        const buf = buildAvroContainer(current);
+        if (buf.length > MAX_BYTES_PER_MESSAGE || current.length > MAX_RECORDS_PER_MESSAGE) {
+          // If current only contains this record and it still exceeds limit,
+          // we must emit it alone to avoid infinite loop.
+          if (current.length === 1) {
+            messages.push({ body: { table: batch.table, records: current } });
+            current = [];
+            ok = false;
+          } else {
+            // emit all but last record
+            const last = current.pop();
+            messages.push({ body: { table: batch.table, records: current } });
+            current = [last];
+            ok = false;
+          }
+        }
+      } catch (err) {
+        // If Avro build fails for current chunk, fallback: emit previous chunk if any
+        if (current.length === 1) {
+          messages.push({ body: { table: batch.table, records: current } });
+          current = [];
+        } else {
+          const last = current.pop();
+          messages.push({ body: { table: batch.table, records: current } });
+          current = [last];
+        }
+        ok = false;
+      }
+      // continue accumulating if ok
+    }
+    if (current.length) {
+      messages.push({ body: { table: batch.table, records: current } });
     }
   }
 
@@ -166,22 +205,41 @@ async function handleRead(request: Request, env: Env, ctx: ExecutionContext): Pr
               }
             }));
           } else {
-            // Subsequent files: fetch header prefix to compute header length
-            const headResp = await env.BATTLE_DATA_BUCKET.get(obj.key, {
-              range: { offset: 0, length: 8192 },
-            });
-            if (!headResp) {
-              console.warn('[Reader] Missing object for header', { key: obj.key });
-              continue;
+            // Subsequent files: fetch header prefix to compute header length.
+            // Retry with increasing prefix size if header not fully contained.
+            const MAX_HEADER_PREFIX = 64 * 1024; // 64KB
+            let prefixLen = 8 * 1024; // 8KB initial
+            let headerLen: number | null = null;
+            let prefixBuf: Uint8Array | null = null;
+            while (prefixLen <= MAX_HEADER_PREFIX) {
+              const headResp = await env.BATTLE_DATA_BUCKET.get(obj.key, {
+                range: { offset: 0, length: prefixLen },
+              });
+              if (!headResp) {
+                console.warn('[Reader] Missing object for header', { key: obj.key });
+                break;
+              }
+              const prefix = new Uint8Array(await headResp.arrayBuffer());
+              try {
+                const parsed = getAvroHeaderLengthFromPrefix(prefix);
+                headerLen = parsed;
+                prefixBuf = prefix;
+                break;
+              } catch (err) {
+                // likely truncated header; increase prefix and retry
+                if (prefixLen >= MAX_HEADER_PREFIX) {
+                  console.error('[Reader] Avro header too large or malformed', { key: obj.key, error: String(err) });
+                  break;
+                }
+                prefixLen = Math.min(prefixLen * 2, MAX_HEADER_PREFIX);
+                continue;
+              }
             }
-            const prefix = new Uint8Array(await headResp.arrayBuffer());
-            const headerLen = getAvroHeaderLengthFromPrefix(prefix);
+            if (!headerLen || !prefixBuf) continue;
 
-            const fullSize = obj.size ?? prefix.length;
+            const fullSize = obj.size ?? prefixBuf.length;
             const remainingLength = Math.max(0, fullSize - headerLen);
-            if (remainingLength === 0) {
-              continue; // nothing to stream
-            }
+            if (remainingLength === 0) continue; // nothing to stream
 
             const bodyResp = await env.BATTLE_DATA_BUCKET.get(obj.key, {
               range: { offset: headerLen, length: remainingLength },
@@ -248,7 +306,21 @@ const queueConsumer = {
       }
       try {
         const avroBuffer = buildAvroContainer(group.records);
-        const key = `${table}/${Date.now()}_${crypto.randomUUID()}.avro`;
+
+        // Compute deterministic hash of the payload for idempotency.
+        const hashInput = JSON.stringify(group.records);
+        const hashBuf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(hashInput));
+        const hashHex = Array.from(new Uint8Array(hashBuf)).map((b) => b.toString(16).padStart(2, '0')).join('');
+        const key = `${table}/${hashHex}.avro`;
+
+        // If object already exists (same payload hash), skip write and ack messages.
+        const existing = await env.BATTLE_DATA_BUCKET.get(key);
+        if (existing) {
+          console.info('[Queue] Skipping write; object already exists', { table, records: group.records.length, key });
+          group.messages.forEach((m) => m.ack());
+          continue;
+        }
+
         await env.BATTLE_DATA_BUCKET.put(key, avroBuffer, {
           httpMetadata: { contentType: 'application/avro' },
           customMetadata: {
@@ -256,6 +328,7 @@ const queueConsumer = {
             table,
             record_count: String(group.records.length),
             timestamp: new Date().toISOString(),
+            payload_hash: hashHex,
           },
         });
         console.info('[Queue] Stored table batch', { table, records: group.records.length, key });

@@ -201,48 +201,58 @@ app.post("/upload", async (c) => {
       }
 
       // ===== Step 3: Queue to compaction queue for background processing =====
-      // Note: processing_metrics record will be created by the Workflow
-      // to ensure datasets record exists first (avoiding FK constraint violation)
-      console.info("[battle-data] Step 3: About to enqueue to COMPACTION_QUEUE", {
-        datasetId,
-        table,
-        periodTag,
-        queueExists: !!env.runtime.COMPACTION_QUEUE,
-        timestamp: new Date().toISOString(),
-      });
-
+      // If table_offsets were provided, split the uploaded blob into per-table
+      // Avro fragments and send them as individual queue messages (base64-encoded)
+      // so the Workflow can append them into per-table Avro files in R2.
       try {
         if (!env.runtime.COMPACTION_QUEUE) {
           console.warn("[battle-data] COMPACTION_QUEUE binding not available");
+        } else if (tableOffsets) {
+          // tokenPayload.table_offsets was preserved as a string; parse it
+          let offsets: any[] = [];
+          try {
+            offsets = JSON.parse(tableOffsets as string) as any[];
+          } catch (e) {
+            console.warn('[battle-data] Failed to parse table_offsets for queue split', e);
+            offsets = [];
+          }
+
+          if (Array.isArray(offsets) && offsets.length) {
+            const messages: any[] = [];
+            for (const entry of offsets) {
+              const start = Number(entry.start_byte ?? 0);
+              const len = Number(entry.byte_length ?? 0);
+              const tname = String(entry.table_name ?? table);
+              if (len <= 0) continue;
+              const slice = data.subarray(start, start + len);
+              // base64 encode
+              const b64 = Buffer.from(slice).toString('base64');
+              messages.push({ body: { table: tname, avro_base64: b64, datasetId, periodTag, uploadedAt, userId: user.id } });
+            }
+
+            if (messages.length) {
+              await withRetry(async () => {
+                // Prefer sendBatch if available
+                if (typeof (env.runtime.COMPACTION_QUEUE as any).sendBatch === 'function') {
+                  return await (env.runtime.COMPACTION_QUEUE as any).sendBatch(messages.map(m => m.body));
+                }
+                // Fallback: send individually
+                for (const m of messages) await env.runtime.COMPACTION_QUEUE.send(m.body);
+                return { ok: true };
+              });
+              console.info('[battle-data] Enqueued', messages.length, 'per-table fragments to COMPACTION_QUEUE');
+            }
+          }
         } else {
+          // No table_offsets: enqueue a single notification message for the whole file
           await withRetry(async () => {
-            console.info("[battle-data] Calling env.runtime.COMPACTION_QUEUE.send()...");
-            const sendResult = await env.runtime.COMPACTION_QUEUE.send({
-              datasetId,
-              table,
-              periodTag,
-              priority: "realtime",
-              triggeredAt: uploadedAt,
-              userId: user.id,
-            });
-            console.info("[battle-data] Queue send result:", { sendResult });
-            return sendResult;
+            return await env.runtime.COMPACTION_QUEUE.send({ datasetId, table, periodTag, priority: 'realtime', triggeredAt: uploadedAt, userId: user.id });
           });
-          console.info("[battle-data] Successfully enqueued to COMPACTION_QUEUE", {
-            datasetId,
-            table,
-            periodTag,
-          });
+          console.info('[battle-data] Enqueued single compaction notification to COMPACTION_QUEUE');
         }
       } catch (queueErr) {
-        console.error("[battle-data] FAILED to enqueue to COMPACTION_QUEUE", {
-          datasetId,
-          error: String(queueErr),
-          errorMessage: (queueErr as any)?.message,
-          timestamp: new Date().toISOString(),
-        });
-        // Don't fail the upload if queue enqueue fails - data is already stored in R2
-        console.warn("[battle-data] Continuing despite queue failure - R2 upload and metadata are complete");
+        console.error('[battle-data] FAILED to enqueue to COMPACTION_QUEUE', { error: String(queueErr) });
+        console.warn('[battle-data] Continuing despite queue failure - R2 upload and metadata are complete');
       }
 
       return {
