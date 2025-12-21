@@ -224,10 +224,8 @@ app.post("/upload", async (c) => {
 
         if (messages.length) {
           await withRetry(async () => {
-            // Cloudflare Queue sendBatch expects array of message bodies (not wrapped in {body: ...})
             console.info('[battle-data] Sending', messages.length, 'messages to COMPACTION_QUEUE');
-            const bodies = messages.map(m => m.body);
-            await env.runtime.COMPACTION_QUEUE.sendBatch(bodies);
+            await env.runtime.COMPACTION_QUEUE.sendBatch(messages);
             return { ok: true };
           });
           console.info('[battle-data] Successfully enqueued', messages.length, 'Avro slices to COMPACTION_QUEUE');
