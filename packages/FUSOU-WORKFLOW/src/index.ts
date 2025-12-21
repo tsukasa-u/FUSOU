@@ -276,23 +276,25 @@ async function handleRead(request: Request, env: Env, ctx: ExecutionContext): Pr
 
 const queueConsumer = {
   async queue(batch: MessageBatch<unknown>, env: Env, _ctx: ExecutionContext) {
-    type Group = { records: any[]; messages: Message<unknown>[] };
+    type Group = { slices: Uint8Array[]; messages: Message<unknown>[] };
     const grouped = new Map<string, Group>();
+
+    console.log('[Queue] Batch received', { size: batch.messages.length });
 
     for (const message of batch.messages) {
       try {
-        const body = message.body as Partial<IngestTableBatch>;
-        if (!body?.table || !Array.isArray(body.records)) {
+        const body = message.body as any;
+        const table = body?.table;
+        const b64 = body?.avro_base64;
+        if (!table || typeof b64 !== 'string') {
           console.warn('[Queue] Invalid message payload', { id: message.id });
           message.ack();
           continue;
         }
-        if (!grouped.has(body.table)) {
-          grouped.set(body.table, { records: [], messages: [] });
-        }
-        const group = grouped.get(body.table)!;
-        group.records.push(...body.records);
-        group.messages.push(message as Message<unknown>);
+        if (!grouped.has(table)) grouped.set(table, { slices: [], messages: [] });
+        const arr = Uint8Array.from((globalThis as any).Buffer ? (globalThis as any).Buffer.from(b64, 'base64') : atobToU8(b64));
+        grouped.get(table)!.slices.push(arr);
+        grouped.get(table)!.messages.push(message as Message<unknown>);
       } catch (err) {
         console.error('[Queue] Failed to parse message', { id: message.id, error: String(err) });
         message.retry();
@@ -300,41 +302,47 @@ const queueConsumer = {
     }
 
     for (const [table, group] of grouped) {
-      if (!group.records.length) {
+      if (!group.slices.length) {
         group.messages.forEach((m) => m.ack());
         continue;
       }
       try {
-        const avroBuffer = buildAvroContainer(group.records);
+        const baseKeyName = (env as any).OUTPUT_KEY_NAME || 'latest.avro';
+        const key = `${table}/${typeof baseKeyName === 'string' ? baseKeyName.replace('.parquet', '.avro') : 'latest.avro'}`;
 
-        // Compute deterministic hash of the payload for idempotency.
-        const hashInput = JSON.stringify(group.records);
-        const hashBuf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(hashInput));
-        const hashHex = Array.from(new Uint8Array(hashBuf)).map((b) => b.toString(16).padStart(2, '0')).join('');
-        const key = `${table}/${hashHex}.avro`;
-
-        // If object already exists (same payload hash), skip write and ack messages.
+        // Fetch existing file
         const existing = await env.BATTLE_DATA_BUCKET.get(key);
-        if (existing) {
-          console.info('[Queue] Skipping write; object already exists', { table, records: group.records.length, key });
-          group.messages.forEach((m) => m.ack());
-          continue;
+        let existingBuf = existing?.body ? new Uint8Array(await existing.arrayBuffer()) : null;
+
+        // If no existing: take first slice as initial file, append remaining without headers
+        const outChunks: Uint8Array[] = [];
+        if (!existingBuf) {
+          outChunks.push(group.slices[0]);
+          for (let i = 1; i < group.slices.length; i++) {
+            const slice = group.slices[i];
+            const headerLen = safeHeaderLen(slice);
+            outChunks.push(slice.subarray(headerLen));
+          }
+          console.info('[Queue] Creating new Avro file', { table, key, initialBytes: group.slices[0].length });
+        } else {
+          outChunks.push(existingBuf);
+          for (const slice of group.slices) {
+            const headerLen = safeHeaderLen(slice);
+            outChunks.push(slice.subarray(headerLen));
+          }
+          console.info('[Queue] Appending slices', { table, key, appendCount: group.slices.length, baseBytes: existingBuf.length });
         }
 
-        await env.BATTLE_DATA_BUCKET.put(key, avroBuffer, {
-          httpMetadata: { contentType: 'application/avro' },
-          customMetadata: {
-            format: 'avro',
-            table,
-            record_count: String(group.records.length),
-            timestamp: new Date().toISOString(),
-            payload_hash: hashHex,
-          },
-        });
-        console.info('[Queue] Stored table batch', { table, records: group.records.length, key });
+        const totalLen = outChunks.reduce((s, c) => s + c.length, 0);
+        const finalBuf = new Uint8Array(totalLen);
+        let off = 0;
+        for (const c of outChunks) { finalBuf.set(c, off); off += c.length; }
+
+        await env.BATTLE_DATA_BUCKET.put(key, finalBuf, { httpMetadata: { contentType: 'application/avro' } });
+        console.info('[Queue] Stored Avro file', { table, key, bytes: finalBuf.length });
         group.messages.forEach((m) => m.ack());
       } catch (err) {
-        console.error('[Queue] Failed to store batch', { table, error: String(err) });
+        console.error('[Queue] Failed to append Avro', { table, error: String(err) });
         group.messages.forEach((m) => m.retry());
       }
     }
@@ -385,6 +393,25 @@ export default {
     return queueConsumer.queue(batch, env, ctx);
   },
 };
+
+function atobToU8(b64: string): Uint8Array {
+  const bin = (globalThis as any).atob(b64);
+  const arr = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+  return arr;
+}
+
+function safeHeaderLen(prefix: Uint8Array): number {
+  try {
+    // Use a prefix up to 64KB to find header length
+    const max = Math.min(prefix.length, 64 * 1024);
+    const head = prefix.subarray(0, max);
+    return getAvroHeaderLengthFromPrefix(head);
+  } catch {
+    // Fallback: assume 4 + small metadata + 16 sync (unsafe default)
+    return 4 + 1024 + 16;
+  }
+}
 
 // Export a placeholder Workflow object so Wrangler can detect the workflow
 // declared in `wrangler.toml`. The real workflow definition (steps) lives
