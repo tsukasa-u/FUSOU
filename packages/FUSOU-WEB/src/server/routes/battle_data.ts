@@ -223,17 +223,24 @@ app.post("/upload", async (c) => {
         }
 
         if (messages.length) {
-          await withRetry(async () => {
+          try {
             console.info('[battle-data] Sending', messages.length, 'messages to COMPACTION_QUEUE');
             await env.runtime.COMPACTION_QUEUE.sendBatch(messages);
-            return { ok: true };
-          });
-          console.info('[battle-data] Successfully enqueued', messages.length, 'Avro slices to COMPACTION_QUEUE');
+            console.info('[battle-data] Successfully enqueued', messages.length, 'Avro slices to COMPACTION_QUEUE');
+          } catch (sendBatchErr) {
+            console.error('[battle-data] FAILED at sendBatch', {
+              error: String(sendBatchErr),
+              messageCount: messages.length,
+              firstMessageKeys: messages[0] ? Object.keys(messages[0]) : null,
+              firstMessageBodyKeys: messages[0]?.body ? Object.keys(messages[0].body) : null,
+            });
+            throw sendBatchErr;
+          }
         } else {
           console.warn('[battle-data] No messages to enqueue');
         }
       } catch (queueErr) {
-        console.error('[battle-data] FAILED to enqueue to COMPACTION_QUEUE', { error: String(queueErr) });
+        console.error('[battle-data] FAILED to enqueue to COMPACTION_QUEUE', { error: String(queueErr), stack: String(queueErr) });
         return c.json({ error: 'Failed to enqueue slices' }, 500);
       }
 
