@@ -24,47 +24,92 @@ export async function writeCompactedParquetFile(
 ): Promise<{ newFileSize: number; etag: string }> {
   console.log(`[Parquet Writer] Starting file write for ${bucketKey}`);
 
-  // Step 1: すべての data を集める
+  // Step 1: すべての data を集める（読み込みサイズの整合性も検証）
   console.log(`[Parquet Writer] Collecting data from ${healthyRowGroups.length} healthy RG + 1 merged RG`);
 
   const dataChunks: Uint8Array[] = [];
-  let totalDataSize = 0;
+  const inputRowGroups: Array<{ rg: RowGroupInfo; label: string }> = [];
 
   // Healthy Row Groups のデータを読み込み
   for (const rg of healthyRowGroups) {
-    try {
-      if (rg.offset === undefined || rg.totalByteSize === undefined) {
-        throw new Error(`Healthy RG${rg.index} has undefined offset/size`);
-      }
-      const data = await readRange(bucket, bucketKey, rg.offset, rg.totalByteSize);
-      dataChunks.push(data);
-      totalDataSize += rg.totalByteSize;
-      console.log(`[Parquet Writer] Loaded healthy RG${rg.index}: ${rg.totalByteSize} bytes`);
-    } catch (error) {
-      console.error(`[Parquet Writer] Failed to load healthy RG${rg.index}: ${error}`);
-      throw error;
+    if (rg.offset === undefined || rg.totalByteSize === undefined) {
+      throw new Error(`Healthy RG${rg.index} has undefined offset/size`);
     }
+    const data = await readRange(bucket, bucketKey, rg.offset, rg.totalByteSize);
+    if (data.length !== rg.totalByteSize) {
+      throw new Error(`Healthy RG${rg.index} size mismatch: expected ${rg.totalByteSize}, got ${data.length}`);
+    }
+    dataChunks.push(data);
+    inputRowGroups.push({ rg, label: `healthy-${rg.index}` });
+    console.log(`[Parquet Writer] Loaded healthy RG${rg.index}: ${rg.totalByteSize} bytes`);
   }
 
   // Merged Row Group のデータを読み込み
-  try {
-    if (mergedRowGroup.offset === undefined || mergedRowGroup.totalByteSize === undefined) {
-      throw new Error(`Merged RG has undefined offset/size`);
-    }
+  if (mergedRowGroup.offset === undefined || mergedRowGroup.totalByteSize === undefined) {
+    throw new Error(`Merged RG has undefined offset/size`);
+  }
+  {
     const data = await readRange(bucket, bucketKey, mergedRowGroup.offset, mergedRowGroup.totalByteSize);
+    if (data.length !== mergedRowGroup.totalByteSize) {
+      throw new Error(`Merged RG size mismatch: expected ${mergedRowGroup.totalByteSize}, got ${data.length}`);
+    }
     dataChunks.push(data);
-    totalDataSize += mergedRowGroup.totalByteSize;
+    inputRowGroups.push({ rg: mergedRowGroup, label: 'merged' });
     console.log(`[Parquet Writer] Loaded merged RG: ${mergedRowGroup.totalByteSize} bytes`);
-  } catch (error) {
-    console.error(`[Parquet Writer] Failed to load merged RG: ${error}`);
-    throw error;
   }
 
   // Step 2: Footer メタデータを生成
   console.log(`[Parquet Writer] Generating footer metadata`);
 
-  const newRowGroups = [...healthyRowGroups, mergedRowGroup];
-  const footerData = generateParquetFooter(newRowGroups);
+  // Step 2: オフセットを新ファイルレイアウトに再計算
+  // Parquetヘッダー4Bが先頭に入るので +4 シフトする
+  const headerShift = 4;
+  const remappedRowGroups: RowGroupInfo[] = [];
+  let writeOffset = 0;
+
+  for (let i = 0; i < inputRowGroups.length; i++) {
+    const { rg, label } = inputRowGroups[i];
+    if (rg.offset === undefined || rg.totalByteSize === undefined) {
+      throw new Error(`RowGroup ${label} has undefined offset/size during remap`);
+    }
+
+    const rgOffset = rg.offset;
+    const rgSize = rg.totalByteSize;
+
+    const remappedChunks: ColumnChunkInfo[] = rg.columnChunks.map((cc) => {
+      const relative = cc.offset - rgOffset;
+      if (relative < 0 || relative > rgSize) {
+        console.warn(`[Parquet Writer] Column chunk out of RG bounds in ${label}`, {
+          ccOffset: cc.offset,
+          rgOffset,
+          rgSize,
+        });
+        // Skip invalid chunk to avoid corrupt offsets
+        return { ...cc, offset: headerShift + writeOffset };
+      }
+      const newOffset = headerShift + writeOffset + relative;
+      if (newOffset > Number.MAX_SAFE_INTEGER || newOffset < 0) {
+        throw new Error(`Column chunk offset overflow in ${label}: newOffset=${newOffset}`);
+      }
+      return { ...cc, offset: newOffset };
+    });
+
+    const newRgOffset = headerShift + writeOffset;
+    remappedRowGroups.push({
+      ...rg,
+      index: i,
+      offset: newRgOffset,
+      columnChunks: remappedChunks,
+    });
+
+    const newWriteOffset = writeOffset + rgSize;
+    if (newWriteOffset > Number.MAX_SAFE_INTEGER || newWriteOffset < writeOffset) {
+      throw new Error(`writeOffset overflow while remapping: ${writeOffset} + ${rgSize}`);
+    }
+    writeOffset = newWriteOffset;
+  }
+
+  const footerData = generateParquetFooter(remappedRowGroups);
 
   console.log(`[Parquet Writer] Footer size: ${footerData.length} bytes`);
 
@@ -85,8 +130,10 @@ export async function writeCompactedParquetFile(
 
   const magicBuffer = new TextEncoder().encode('PAR1');
 
-  // すべてのデータを結合
-  const totalFileSize = totalDataSize + footerData.length + 8; // data + footer + footerSize(4) + magic(4)
+  // すべてのデータを結合 (header(4) + data + footer + footerSize(4) + magic(4))
+  const totalDataSize = remappedRowGroups.reduce((sum, rg) => sum + (rg.totalByteSize ?? 0), 0);
+  const headerSize = 4;
+  const totalFileSize = headerSize + totalDataSize + footerData.length + 8;
   
   // Check for overflow in totalFileSize calculation
   if (totalFileSize > Number.MAX_SAFE_INTEGER || totalFileSize < totalDataSize) {
@@ -97,8 +144,13 @@ export async function writeCompactedParquetFile(
 
   let offset = 0;
 
+  // 先頭に Parquet ヘッダーを書き込む
+  fileBuffer.set(magicBuffer, offset);
+  offset += headerSize;
+
   // データを書き込み
-  for (const chunk of dataChunks) {
+  for (let i = 0; i < dataChunks.length; i++) {
+    const chunk = dataChunks[i];
     fileBuffer.set(chunk, offset);
     const newOffset = offset + chunk.length;
     
@@ -124,19 +176,18 @@ export async function writeCompactedParquetFile(
 
   console.log(`[Parquet Writer] File assembled: ${totalFileSize} bytes`);
 
-  // Step 4: R2 に書き込む
+  // Step 4: R2 に書き込む（content-encodingは付与しない）
   console.log(`[Parquet Writer] Uploading to R2: ${bucketKey}`);
 
   const uploadResult = await bucket.put(bucketKey, fileBuffer, {
     httpMetadata: {
       contentType: 'application/octet-stream',
-      contentEncoding: 'gzip',
     },
     customMetadata: {
       'compacted': 'true',
       'compaction_timestamp': new Date().toISOString(),
       'original_row_groups': String(healthyRowGroups.length + 1),
-      'new_row_groups': String(newRowGroups.length),
+      'new_row_groups': String(remappedRowGroups.length),
     },
   });
 

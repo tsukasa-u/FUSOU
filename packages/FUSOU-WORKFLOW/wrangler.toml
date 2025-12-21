@@ -5,6 +5,11 @@ compatibility_flags = ["nodejs_compat"]
 # Main entry point
 main = "src/index.ts"
 
+# ===== Strict Spec Enforcement (vars) =====
+[vars]
+APPEND_STRICT = "true"
+OUTPUT_KEY_NAME = "latest.parquet"
+
 # ===== Environment Variables =====
 # All configuration is now via D1 database
 # Previous Supabase credentials have been removed

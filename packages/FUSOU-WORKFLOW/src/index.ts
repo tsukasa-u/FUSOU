@@ -1,6 +1,6 @@
 import { WorkflowEntrypoint, WorkflowStep, WorkflowEvent } from 'cloudflare:workers';
 import { pickFragmentsForBucket } from './parquet-merge';
-import { streamMergeExtractedFragments } from './parquet-stream-merge';
+import { streamMergeParquetFragments, streamMergeExtractedFragments } from './parquet-stream-merge';
 import { SchemaGroupOutput } from './parquet-schema';
 import { validateParquetFile, formatValidationReport, validateParquetBatch } from './parquet-validator';
 import { extractTableSafe, validateOffsetMetadata, parseTableOffsets, filterEmptyTables } from './table-offset-extractor';
@@ -409,7 +409,8 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
       const THRESHOLD = 256 * 1024 * 1024;
       const period = periodTag || filtered[0]?.period_tag || 'unknown';
       const baseTable = table || filtered[0]?.table || 'unknown';
-      const tbl = (baseTable || '').toLowerCase() === 'port_table' ? 'mixed' : baseTable;
+      // 出力パスは元のテーブル名をそのまま使用する（port_table を mixed に置き換えない）
+      const tbl = (baseTable || 'unknown').toLowerCase();
       let outputs: Array<{ key: string; size: number; etag: string }> = [];
       const totalOriginal = extractedFragments.reduce((sum, r) => sum + r.size, 0);
 
@@ -465,6 +466,10 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
         if (groupFrags.length > 0) {
           console.debug(`[Workflow] Processing schema ${schemaHash}: ${groupFrags.length} fragments, example key: ${groupFrags[0].key}`);
         }
+        // グループ内のキーからテーブル名を推定（`...parquet#<table>` 形式）。なければ元のtblを使う。
+        const sampleKey = groupFrags[0]?.key || '';
+        const derivedTable = sampleKey.includes('#') ? sampleKey.split('#').pop() || tbl : tbl;
+        const outTable = (derivedTable || tbl).toLowerCase();
         let cursor = 0;
         while (cursor < groupFrags.length) {
           const { picked, nextIndex } = pickFragmentsForBucket(
@@ -482,18 +487,53 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
           });
           
           const mergeIndex = globalIndex;
-          const outKey = `battle_compacted/${period}/${datasetId}/${tbl}/${mergeIndex}.parquet`;
-          
-          // 抽出済みデータを使ったストリーミングマージ
+          // 追記仕様: テーブルごとの安定キーへ集約
+          const outKey = `battle_compacted/${period}/${datasetId}/${outTable}/latest.parquet`;
+
+          // Strict append enforcement via wrangler vars
+          const expectedName = (this.env as any).OUTPUT_KEY_NAME || 'latest.parquet';
+          if ((this.env as any).APPEND_STRICT === 'true') {
+            if (!outKey.endsWith(`/${expectedName}`)) {
+              throw new Error(`AppendStrict: output key must end with '/${expectedName}', got '${outKey}'`);
+            }
+          }
+
+          // 既存があれば既存ファイルもソースとして取り込み、まとめて再構成（オブジェクトストレージのため全体再書き込み）
           let res;
           try {
-            res = await streamMergeExtractedFragments(
-              this.env.BATTLE_DATA_BUCKET,
-              outKey,
-              pickedWithData,
-              THRESHOLD
-            );
-            
+            const head = await this.env.BATTLE_DATA_BUCKET.head(outKey);
+            if (head && head.size > 0) {
+              // 既存ファイルを読み込み、抽出済み断片と同じメモリ経路でマージする
+              const existingObj = await this.env.BATTLE_DATA_BUCKET.get(outKey);
+              if (!existingObj) {
+                throw new Error(`Existing output ${outKey} not found during append`);
+              }
+              const existingData = await existingObj.arrayBuffer();
+              if (existingData.byteLength !== head.size) {
+                console.warn(`[Workflow] Existing file size mismatch: head=${head.size}, body=${existingData.byteLength}`);
+              }
+
+              const fragmentsForAppend = [
+                { key: outKey, data: existingData, size: existingData.byteLength },
+                ...pickedWithData,
+              ];
+
+              res = await streamMergeExtractedFragments(
+                this.env.BATTLE_DATA_BUCKET,
+                outKey,
+                fragmentsForAppend,
+                Number.MAX_SAFE_INTEGER // appendはしきい値無しで全取り込み
+              );
+            } else {
+              // 初回作成: 抽出済みデータから新規作成
+              res = await streamMergeExtractedFragments(
+                this.env.BATTLE_DATA_BUCKET,
+                outKey,
+                pickedWithData,
+                Number.MAX_SAFE_INTEGER
+              );
+            }
+
             // Skip empty results (all RowGroups had numRows=0)
             if (res.newFileSize === 0) {
               console.warn(`[Workflow] Skipping empty merge result for schema group ${schemaHash} (all RowGroups empty)`);
@@ -520,7 +560,7 @@ export class DataCompactionWorkflow extends WorkflowEntrypoint<Env, CompactionPa
             throw error;
           }
 
-          console.info(`[Workflow] Merged schema group ${schemaHash} batch ${mergeIndex}`, {
+          console.info(`[Workflow] Appended schema group ${schemaHash} batch ${mergeIndex}`, {
             fragments: pickedWithData.length,
             outKey,
             size: res.newFileSize,
