@@ -8,6 +8,18 @@ import { validateOffsetMetadata } from "../validators/offsets";
 const app = new Hono<{ Bindings: Bindings }>();
 
 /**
+ * Convert Uint8Array to base64 string (Cloudflare Workers compatible)
+ */
+function arrayBufferToBase64(bytes: Uint8Array): string {
+  let binary = '';
+  const len = bytes.byteLength;
+  for (let i = 0; i < len; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
+}
+
+/**
  * Retry utility for handling rate limits and transient errors
  * Implements exponential backoff to respect Supabase Free tier limits
  */
@@ -195,7 +207,7 @@ app.post("/upload", async (c) => {
             const tname = String(entry.table_name ?? table);
             if (len <= 0) continue;
             const slice = data.subarray(start, start + len);
-            const b64 = Buffer.from(slice).toString('base64');
+            const b64 = arrayBufferToBase64(slice);
             messages.push({
               body: {
                 table: tname,
@@ -209,7 +221,7 @@ app.post("/upload", async (c) => {
           }
         } else {
           // No offsets: treat entire payload as single table slice
-          const b64 = Buffer.from(data).toString('base64');
+          const b64 = arrayBufferToBase64(data);
           messages.push({
             body: {
               table,
