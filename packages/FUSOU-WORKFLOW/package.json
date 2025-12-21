@@ -9,9 +9,7 @@
     "deploy": "wrangler deploy",
     "types": "wrangler types",
     "tail": "wrangler tail",
-    "test": "scripts/test-parquet-optimization.sh",
-    "validate:py": "python3 scripts/validate_parquet.py",
-    "validate:sql": "duckdb < scripts/validate_parquet.sql"
+    "test": "npx tsc --outDir dist && node test/avro-smoke.mjs"
   },
   "keywords": [
     "cloudflare",
@@ -26,7 +24,6 @@
     "wrangler": "^4.51.0"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.86.0",
-    "hyparquet": "^1.23.3"
+    "@supabase/supabase-js": "^2.86.0"
   }
 }
