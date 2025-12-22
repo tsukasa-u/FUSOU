@@ -288,29 +288,43 @@ app.get("/chunks", async (c) => {
   }
 
   try {
-    let sql = `SELECT key, dataset_id, "table" as table, size, etag, uploaded_at, content_hash
-           FROM battle_files WHERE dataset_id = ? AND "table" = ?`;
+    let sql = `SELECT 
+           s.segment_key AS key,
+           f.dataset_id AS dataset_id,
+           f.table_name AS table,
+           s.segment_size AS size,
+           s.etag AS etag,
+           s.created_at AS created_at,
+           s.content_hash AS content_hash
+         FROM avro_segments s
+         JOIN avro_files f ON f.file_key = s.parent_file_key
+         WHERE f.dataset_id = ? AND f.table_name = ?`;
     const params: unknown[] = [datasetId, table];
 
-    if (from) {
-      sql += ` AND uploaded_at >= ?`;
-      params.push(from);
-    }
-    if (to) {
-      sql += ` AND uploaded_at <= ?`;
-      params.push(to);
-    }
+    // Convert ISO8601 to epoch millis if provided
+    const fromMs = from ? Date.parse(from) : undefined;
+    const toMs = to ? Date.parse(to) : undefined;
+    if (fromMs && !Number.isNaN(fromMs)) { sql += ` AND s.created_at >= ?`; params.push(fromMs); }
+    if (toMs && !Number.isNaN(toMs)) { sql += ` AND s.created_at <= ?`; params.push(toMs); }
 
-    sql += ` ORDER BY uploaded_at DESC LIMIT ? OFFSET ?`;
+    sql += ` ORDER BY s.created_at DESC LIMIT ? OFFSET ?`;
     params.push(limit, offset);
 
     const stmt = indexDb.prepare(sql);
     const result = await stmt.bind(...params).all?.();
-    if (!result) {
-      throw new Error("D1 returned no results for chunks query");
-    }
+    if (!result) { throw new Error("D1 returned no results for chunks query"); }
 
-    const chunks = result.results || [];
+    const rows = (result.results || []) as any[];
+    // Back-compat: expose uploaded_at ISO like before
+    const chunks = rows.map(r => ({
+      key: r.key,
+      dataset_id: r.dataset_id,
+      table: r.table,
+      size: r.size,
+      etag: r.etag,
+      uploaded_at: new Date(Number(r.created_at || 0)).toISOString(),
+      content_hash: r.content_hash,
+    }));
 
     c.res.headers.set("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
     return c.json({ chunks, count: chunks.length, dataset_id: datasetId, table });
@@ -342,18 +356,35 @@ app.get("/latest", async (c) => {
 
   try {
     const stmt = indexDb.prepare(
-      `SELECT key, dataset_id, "table" as table, size, etag, uploaded_at, content_hash
-       FROM battle_files WHERE dataset_id = ? AND "table" = ?
-       ORDER BY uploaded_at DESC LIMIT 1`
+      `SELECT 
+         s.segment_key AS key,
+         f.dataset_id AS dataset_id,
+         f.table_name AS table,
+         s.segment_size AS size,
+         s.etag AS etag,
+         s.created_at AS created_at,
+         s.content_hash AS content_hash
+       FROM avro_segments s
+       JOIN avro_files f ON f.file_key = s.parent_file_key
+       WHERE f.dataset_id = ? AND f.table_name = ?
+       ORDER BY s.created_at DESC LIMIT 1`
     );
-    const result = await stmt.bind(datasetId, table).first?.();
+    const row = await stmt.bind(datasetId, table).first?.();
 
-    if (!result) {
-      return c.json({ error: "No fragments found" }, 404);
-    }
+    if (!row) { return c.json({ error: "No fragments found" }, 404); }
+
+    const latest = {
+      key: row.key,
+      dataset_id: row.dataset_id,
+      table: row.table,
+      size: row.size,
+      etag: row.etag,
+      uploaded_at: new Date(Number(row.created_at || 0)).toISOString(),
+      content_hash: row.content_hash,
+    };
 
     c.res.headers.set("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
-    return c.json({ latest: result });
+    return c.json({ latest });
   } catch (err) {
     console.error("[battle_data] Failed to query latest:", err);
     return c.json({ error: "Failed to retrieve latest fragment" }, 500);
@@ -388,21 +419,41 @@ app.get("/global/chunks", async (c) => {
   }
 
   try {
-    let sql = `SELECT key, dataset_id, "table" as table, size, etag, uploaded_at, content_hash
-           FROM battle_files WHERE "table" = ? AND period_tag = ?`;
+    let sql = `SELECT 
+           s.segment_key AS key,
+           f.dataset_id AS dataset_id,
+           f.table_name AS table,
+           s.segment_size AS size,
+           s.etag AS etag,
+           s.created_at AS created_at,
+           s.content_hash AS content_hash
+         FROM avro_segments s
+         JOIN avro_files f ON f.file_key = s.parent_file_key
+         WHERE f.table_name = ? AND f.period_tag = ?`;
     const params: unknown[] = [table, periodTag];
 
-    if (from) { sql += ` AND uploaded_at >= ?`; params.push(from); }
-    if (to) { sql += ` AND uploaded_at <= ?`; params.push(to); }
+    const fromMs = from ? Date.parse(from) : undefined;
+    const toMs = to ? Date.parse(to) : undefined;
+    if (fromMs && !Number.isNaN(fromMs)) { sql += ` AND s.created_at >= ?`; params.push(fromMs); }
+    if (toMs && !Number.isNaN(toMs)) { sql += ` AND s.created_at <= ?`; params.push(toMs); }
 
-    sql += ` ORDER BY uploaded_at DESC LIMIT ? OFFSET ?`;
+    sql += ` ORDER BY s.created_at DESC LIMIT ? OFFSET ?`;
     params.push(limit, offset);
 
     const stmt = indexDb.prepare(sql);
     const result = await stmt.bind(...params).all?.();
     if (!result) { throw new Error("D1 returned no results for global chunks query"); }
 
-    const chunks = result.results || [];
+    const rows = (result.results || []) as any[];
+    const chunks = rows.map(r => ({
+      key: r.key,
+      dataset_id: r.dataset_id,
+      table: r.table,
+      size: r.size,
+      etag: r.etag,
+      uploaded_at: new Date(Number(r.created_at || 0)).toISOString(),
+      content_hash: r.content_hash,
+    }));
     c.res.headers.set("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
     return c.json({ chunks, count: chunks.length, table, period_tag: periodTag });
   } catch (err) {
@@ -430,15 +481,34 @@ app.get("/global/latest", async (c) => {
 
   try {
     const stmt = indexDb.prepare(
-      `SELECT key, dataset_id, "table" as table, size, etag, uploaded_at, content_hash
-       FROM battle_files WHERE "table" = ? AND period_tag = ?
-       ORDER BY uploaded_at DESC LIMIT 1`
+      `SELECT 
+         s.segment_key AS key,
+         f.dataset_id AS dataset_id,
+         f.table_name AS table,
+         s.segment_size AS size,
+         s.etag AS etag,
+         s.created_at AS created_at,
+         s.content_hash AS content_hash
+       FROM avro_segments s
+       JOIN avro_files f ON f.file_key = s.parent_file_key
+       WHERE f.table_name = ? AND f.period_tag = ?
+       ORDER BY s.created_at DESC LIMIT 1`
     );
-    const result = await stmt.bind(table, periodTag).first?.();
-    if (!result) { return c.json({ error: "No fragments found" }, 404); }
+    const row = await stmt.bind(table, periodTag).first?.();
+    if (!row) { return c.json({ error: "No fragments found" }, 404); }
+
+    const latest = {
+      key: row.key,
+      dataset_id: row.dataset_id,
+      table: row.table,
+      size: row.size,
+      etag: row.etag,
+      uploaded_at: new Date(Number(row.created_at || 0)).toISOString(),
+      content_hash: row.content_hash,
+    };
 
     c.res.headers.set("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
-    return c.json({ latest: result });
+    return c.json({ latest });
   } catch (err) {
     console.error("[battle_data] Failed to query global latest:", err);
     return c.json({ error: "Failed to retrieve global latest fragment" }, 500);

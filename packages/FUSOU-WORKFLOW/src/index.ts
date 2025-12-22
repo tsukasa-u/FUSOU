@@ -324,15 +324,33 @@ const queueConsumer = {
         const datasetId = group.datasetId ?? datasetPart ?? 'unknown_dataset';
         const periodTag = group.periodTag ?? 'latest';
 
-        // Use datasetId / table / periodTag to determine storage strategy
-        // Primary canonical key (single-file) used if size permits, otherwise create segment keys
-        const canonicalKey = `${datasetId}/${table}/${periodTag}.avro`;
+        // Determine current active segment index by querying D1
+        let currentSegmentIndex = 0;
+        let currentSegmentKey = `${datasetId}/${table}/${periodTag}.0.avro`;
+        
+        if (env.BATTLE_INDEX_DB) {
+          try {
+            // Find the highest segment number for this dataset/table/period
+            const maxSegment = await env.BATTLE_INDEX_DB.prepare(
+              `SELECT MAX(segment_number) as max_index 
+               FROM avro_segments 
+               WHERE parent_file_key = ?`
+            ).bind(`${datasetId}/${table}/${periodTag}`).first<{ max_index: number | null }>();
+            
+            if (maxSegment && maxSegment.max_index != null) {
+              currentSegmentIndex = maxSegment.max_index;
+              currentSegmentKey = `${datasetId}/${table}/${periodTag}.${currentSegmentIndex}.avro`;
+            }
+          } catch (dbErr) {
+            console.warn('[Queue] Failed to query D1 for max segment index, using default', { error: String(dbErr) });
+          }
+        }
 
-        // Fetch existing file (may be canonical or a previous segment). We'll check size.
-        const existing = await env.BATTLE_DATA_BUCKET.get(canonicalKey);
+        // Fetch current active segment file
+        const existing = await env.BATTLE_DATA_BUCKET.get(currentSegmentKey);
         let existingBuf = existing?.body ? new Uint8Array(await existing.arrayBuffer()) : null;
 
-        // Build proposed appended buffer length (estimate): existing + appended (strip headers for subsequent slices)
+        // Calculate bytes to append (strip headers for subsequent slices)
         let appendBytes = 0;
         for (let i = 0; i < group.slices.length; i++) {
           const slice = group.slices[i];
@@ -343,57 +361,63 @@ const queueConsumer = {
           }
         }
 
-        // Decide whether to append to canonicalKey or create a new segment
-        let targetKey = canonicalKey;
+        // Determine target segment and prepare chunks
+        let targetKey = currentSegmentKey;
+        let targetSegmentIndex = currentSegmentIndex;
         let outChunks: Uint8Array[] = [];
+        
         if (!existingBuf) {
-          // No existing canonical file: check proposed size
-          if (appendBytes > MAX_FILE_BYTES) {
-            // Too large for canonical file: create a new segment key
-            const ts = new Date().toISOString().replace(/[:.]/g, '-');
-            const segKey = `${datasetId}/${table}/${periodTag}/${ts}-${cryptoRandomId()}.avro`;
-            outChunks.push(group.slices[0]);
-            for (let i = 1; i < group.slices.length; i++) {
-              const slice = group.slices[i];
-              const headerLen = safeHeaderLen(slice);
-              outChunks.push(slice.subarray(headerLen));
-            }
-            targetKey = segKey;
-            console.info('[Queue] Creating segmented Avro file (too big for canonical)', { datasetId, table, targetKey, bytes: appendBytes });
-          } else {
-            // Fits into canonical file
-            outChunks.push(group.slices[0]);
-            for (let i = 1; i < group.slices.length; i++) {
-              const slice = group.slices[i];
-              const headerLen = safeHeaderLen(slice);
-              outChunks.push(slice.subarray(headerLen));
-            }
-            targetKey = canonicalKey;
-            console.info('[Queue] Creating canonical Avro file', { datasetId, table, targetKey, bytes: appendBytes });
+          // No existing file: create first segment (.0.avro)
+          outChunks.push(group.slices[0]);
+          for (let i = 1; i < group.slices.length; i++) {
+            const slice = group.slices[i];
+            const headerLen = safeHeaderLen(slice);
+            outChunks.push(slice.subarray(headerLen));
           }
+          targetKey = currentSegmentKey;
+          targetSegmentIndex = currentSegmentIndex;
+          console.info('[Queue] Creating new segment file', { datasetId, table, targetKey, segmentIndex: targetSegmentIndex, bytes: appendBytes });
         } else {
-          // Existing canonical exists: check if appending would exceed limit
+          // Existing segment exists: check if appending would exceed limit
           if (existingBuf.length + appendBytes > MAX_FILE_BYTES) {
-            // Cannot append to canonical; create a new segment key instead
-            const ts = new Date().toISOString().replace(/[:.]/g, '-');
-            const segKey = `${datasetId}/${table}/${periodTag}/${ts}-${cryptoRandomId()}.avro`;
+            // Current segment would exceed 512MB: move to next segment index
+            targetSegmentIndex = currentSegmentIndex + 1;
+            targetKey = `${datasetId}/${table}/${periodTag}.${targetSegmentIndex}.avro`;
+            
+            // Create new segment file with first slice as header
             outChunks.push(group.slices[0]);
             for (let i = 1; i < group.slices.length; i++) {
               const slice = group.slices[i];
               const headerLen = safeHeaderLen(slice);
               outChunks.push(slice.subarray(headerLen));
             }
-            targetKey = segKey;
-            console.info('[Queue] Creating new segment (canonical would exceed max size)', { datasetId, table, targetKey, appendBytes, canonicalBytes: existingBuf.length });
+            console.info('[Queue] Creating next segment (current would exceed 512MB)', { 
+              datasetId, 
+              table, 
+              previousSegment: currentSegmentKey,
+              previousBytes: existingBuf.length,
+              newSegment: targetKey, 
+              segmentIndex: targetSegmentIndex,
+              appendBytes 
+            });
           } else {
-            // Append to existing canonical file
+            // Append to current segment
             outChunks.push(existingBuf);
             for (const slice of group.slices) {
               const headerLen = safeHeaderLen(slice);
               outChunks.push(slice.subarray(headerLen));
             }
-            targetKey = canonicalKey;
-            console.info('[Queue] Appending to canonical Avro file', { datasetId, table, targetKey, appendCount: group.slices.length, baseBytes: existingBuf.length });
+            targetKey = currentSegmentKey;
+            targetSegmentIndex = currentSegmentIndex;
+            console.info('[Queue] Appending to current segment', { 
+              datasetId, 
+              table, 
+              targetKey, 
+              segmentIndex: targetSegmentIndex,
+              existingBytes: existingBuf.length,
+              appendBytes,
+              totalBytes: existingBuf.length + appendBytes
+            });
           }
         }
 
@@ -405,24 +429,76 @@ const queueConsumer = {
         const putResult = await env.BATTLE_DATA_BUCKET.put(targetKey, finalBuf, { httpMetadata: { contentType: 'application/avro' } });
         const bytesStored = finalBuf.length;
         const etag = (putResult as any)?.etag ?? '';
-        console.info('[Queue] Stored Avro file', { datasetId, table, key: targetKey, bytes: bytesStored });
+        console.info('[Queue] Stored Avro segment file', { datasetId, table, key: targetKey, segmentIndex: targetSegmentIndex, bytes: bytesStored });
 
-        // Record fragment metadata in D1 for indexing if DB is available
+        // Record segment metadata in D1
         try {
           if (env.BATTLE_INDEX_DB) {
-            const uploadedAt = new Date().toISOString();
-            const stmt = env.BATTLE_INDEX_DB.prepare(
-              `INSERT INTO battle_files (key, dataset_id, "table", period_tag, size, etag, uploaded_at, content_hash, uploaded_by, table_offsets)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-            );
-            // content_hash and table_offsets currently unavailable from queue message; set to NULL
-            await stmt.bind(targetKey, datasetId, table, periodTag, bytesStored, etag, uploadedAt, null, null, null).run();
-            console.info('[Queue] Recorded fragment in D1', { key: targetKey, datasetId, table });
+            const nowTs = Date.now();
+            const parentKey = `${datasetId}/${table}/${periodTag}`;
+            
+            // Check if parent record exists
+            const checkParent = await env.BATTLE_INDEX_DB.prepare(
+              `SELECT file_key, segment_count FROM avro_files WHERE file_key = ?`
+            ).bind(parentKey).first<{ file_key: string; segment_count: number }>();
+            
+            if (!checkParent) {
+              // Create parent record
+              await env.BATTLE_INDEX_DB.prepare(
+                `INSERT INTO avro_files (
+                  file_key, dataset_id, table_name, period_tag,
+                  current_size, is_segmented, segment_count,
+                  created_at, last_appended_at, last_etag
+                ) VALUES (?, ?, ?, ?, 0, TRUE, ?, ?, ?, ?)`
+              ).bind(parentKey, datasetId, table, periodTag, targetSegmentIndex + 1, nowTs, nowTs, '').run();
+              console.info('[Queue] Created parent record in avro_files', { parent_key: parentKey });
+            } else if (targetSegmentIndex + 1 > checkParent.segment_count) {
+              // Update parent segment count if we created a new segment
+              await env.BATTLE_INDEX_DB.prepare(
+                `UPDATE avro_files 
+                 SET segment_count = ?,
+                     last_appended_at = ?
+                 WHERE file_key = ?`
+              ).bind(targetSegmentIndex + 1, nowTs, parentKey).run();
+              console.info('[Queue] Updated parent segment count', { parent_key: parentKey, new_count: targetSegmentIndex + 1 });
+            } else {
+              // Just update last_appended_at for existing segment append
+              await env.BATTLE_INDEX_DB.prepare(
+                `UPDATE avro_files 
+                 SET last_appended_at = ?
+                 WHERE file_key = ?`
+              ).bind(nowTs, parentKey).run();
+            }
+            
+            // Insert or update segment record
+            const checkSegment = await env.BATTLE_INDEX_DB.prepare(
+              `SELECT segment_key FROM avro_segments WHERE segment_key = ?`
+            ).bind(targetKey).first<{ segment_key: string }>();
+            
+            if (!checkSegment) {
+              // Insert new segment
+              await env.BATTLE_INDEX_DB.prepare(
+                `INSERT INTO avro_segments (
+                  segment_key, parent_file_key, segment_number,
+                  segment_size, created_at, etag
+                ) VALUES (?, ?, ?, ?, ?, ?)`
+              ).bind(targetKey, parentKey, targetSegmentIndex, bytesStored, nowTs, etag).run();
+              console.info('[Queue] Created segment record', { segment_key: targetKey, segment_number: targetSegmentIndex });
+            } else {
+              // Update existing segment (append case)
+              await env.BATTLE_INDEX_DB.prepare(
+                `UPDATE avro_segments 
+                 SET segment_size = ?,
+                     etag = ?
+                 WHERE segment_key = ?`
+              ).bind(bytesStored, etag, targetKey).run();
+              console.info('[Queue] Updated segment record', { segment_key: targetKey, bytes: bytesStored });
+            }
           } else {
             console.warn('[Queue] BATTLE_INDEX_DB not configured; skipping index record');
           }
         } catch (dbErr) {
-          console.error('[Queue] Failed to record fragment in D1', { key: targetKey, error: String(dbErr) });
+          console.error('[Queue] Failed to record in D1', { key: targetKey, error: String(dbErr) });
         }
 
         group.messages.forEach((m) => m.ack());

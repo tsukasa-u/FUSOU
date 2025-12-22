@@ -8,7 +8,9 @@
     "build.no.keys": "astro check && dotenvx run -f .env --verbose --overload -- astro build",
     "preview": "dotenvx run -fk ../.env.keys -f .env --verbose --overload -- astro preview",
     "astro": "astro",
-    "gen:licenses": "node ../../scripts/generate-licenses.js"
+    "gen:licenses": "node ../../scripts/generate-licenses.js",
+    "verify:battle-data": "node scripts/verify-battle-data.mjs",
+    "test:battle-data": "vitest run src/server/routes/__tests__/battle_data.integration.test.ts"
   },
   "dependencies": {
     "@astrojs/cloudflare": "^12.6.12",
