@@ -20,6 +20,8 @@ const CORS_HEADERS = {
 // Default maximum payload per queue message (bytes). Adjust to Cloudflare Queue limits.
 const MAX_BYTES_PER_MESSAGE = 256 * 1024; // 256 KB
 const MAX_RECORDS_PER_MESSAGE = 200; // fallback maximum count
+// Maximum size per stored Avro fragment file in R2 (512 MiB per user-file)
+const MAX_FILE_BYTES = 512 * 1024 * 1024; // 512 MB
 
 function chunkArray<T>(items: T[], size: number): T[][] {
   const out: T[][] = [];
@@ -280,7 +282,7 @@ async function handleRead(request: Request, env: Env, ctx: ExecutionContext): Pr
 
 const queueConsumer = {
   async queue(batch: MessageBatch<unknown>, env: Env, _ctx: ExecutionContext) {
-    type Group = { slices: Uint8Array[]; messages: Message<unknown>[] };
+    type Group = { slices: Uint8Array[]; messages: Message<unknown>[]; datasetId?: string; periodTag?: string };
     const grouped = new Map<string, Group>();
 
     console.log('[Queue] Batch received', { size: batch.messages.length });
@@ -288,54 +290,111 @@ const queueConsumer = {
     for (const message of batch.messages) {
       try {
         const body = message.body as any;
-        const table = body?.table;
-        const b64 = body?.avro_base64;
+        const table = body?.table as string | undefined;
+        const b64 = body?.avro_base64 as string | undefined;
+        const datasetId = body?.datasetId ?? body?.dataset_id;
+        const periodTag = body?.periodTag ?? body?.period_tag;
+
         if (!table || typeof b64 !== 'string') {
           console.warn('[Queue] Invalid message payload', { id: message.id });
           message.ack();
           continue;
         }
-        if (!grouped.has(table)) grouped.set(table, { slices: [], messages: [] });
-        const arr = Uint8Array.from((globalThis as any).Buffer ? (globalThis as any).Buffer.from(b64, 'base64') : atobToU8(b64));
-        grouped.get(table)!.slices.push(arr);
-        grouped.get(table)!.messages.push(message as Message<unknown>);
+
+        // Group by datasetId + table so we can store per-dataset per-table files
+        const groupKey = `${String(datasetId ?? 'global')}::${table}`;
+        if (!grouped.has(groupKey)) grouped.set(groupKey, { slices: [], messages: [], datasetId: datasetId, periodTag: periodTag });
+
+        const arr = (globalThis as any).Buffer ? (globalThis as any).Buffer.from(b64, 'base64') : atobToU8(b64);
+        grouped.get(groupKey)!.slices.push(arr instanceof Uint8Array ? arr : new Uint8Array(arr));
+        grouped.get(groupKey)!.messages.push(message as Message<unknown>);
       } catch (err) {
         console.error('[Queue] Failed to parse message', { id: message.id, error: String(err) });
         message.retry();
       }
     }
 
-    for (const [table, group] of grouped) {
+    for (const [groupKey, group] of grouped) {
       if (!group.slices.length) {
         group.messages.forEach((m) => m.ack());
         continue;
       }
       try {
-        const rawName = (env as any).OUTPUT_KEY_NAME;
-        const baseKeyName = typeof rawName === 'string' && rawName.trim().length ? rawName.trim() : 'latest.avro';
-        const key = `${table}/${baseKeyName.endsWith('.avro') ? baseKeyName : `${baseKeyName}.avro`}`;
+        const [datasetPart, table] = groupKey.split('::');
+        const datasetId = group.datasetId ?? datasetPart ?? 'unknown_dataset';
+        const periodTag = group.periodTag ?? 'latest';
 
-        // Fetch existing file
-        const existing = await env.BATTLE_DATA_BUCKET.get(key);
+        // Use datasetId / table / periodTag to determine storage strategy
+        // Primary canonical key (single-file) used if size permits, otherwise create segment keys
+        const canonicalKey = `${datasetId}/${table}/${periodTag}.avro`;
+
+        // Fetch existing file (may be canonical or a previous segment). We'll check size.
+        const existing = await env.BATTLE_DATA_BUCKET.get(canonicalKey);
         let existingBuf = existing?.body ? new Uint8Array(await existing.arrayBuffer()) : null;
 
-        // If no existing: take first slice as initial file, append remaining without headers
-        const outChunks: Uint8Array[] = [];
+        // Build proposed appended buffer length (estimate): existing + appended (strip headers for subsequent slices)
+        let appendBytes = 0;
+        for (let i = 0; i < group.slices.length; i++) {
+          const slice = group.slices[i];
+          if (existingBuf || i > 0) {
+            appendBytes += slice.length - safeHeaderLen(slice);
+          } else {
+            appendBytes += slice.length;
+          }
+        }
+
+        // Decide whether to append to canonicalKey or create a new segment
+        let targetKey = canonicalKey;
+        let outChunks: Uint8Array[] = [];
         if (!existingBuf) {
-          outChunks.push(group.slices[0]);
-          for (let i = 1; i < group.slices.length; i++) {
-            const slice = group.slices[i];
-            const headerLen = safeHeaderLen(slice);
-            outChunks.push(slice.subarray(headerLen));
+          // No existing canonical file: check proposed size
+          if (appendBytes > MAX_FILE_BYTES) {
+            // Too large for canonical file: create a new segment key
+            const ts = new Date().toISOString().replace(/[:.]/g, '-');
+            const segKey = `${datasetId}/${table}/${periodTag}/${ts}-${cryptoRandomId()}.avro`;
+            outChunks.push(group.slices[0]);
+            for (let i = 1; i < group.slices.length; i++) {
+              const slice = group.slices[i];
+              const headerLen = safeHeaderLen(slice);
+              outChunks.push(slice.subarray(headerLen));
+            }
+            targetKey = segKey;
+            console.info('[Queue] Creating segmented Avro file (too big for canonical)', { datasetId, table, targetKey, bytes: appendBytes });
+          } else {
+            // Fits into canonical file
+            outChunks.push(group.slices[0]);
+            for (let i = 1; i < group.slices.length; i++) {
+              const slice = group.slices[i];
+              const headerLen = safeHeaderLen(slice);
+              outChunks.push(slice.subarray(headerLen));
+            }
+            targetKey = canonicalKey;
+            console.info('[Queue] Creating canonical Avro file', { datasetId, table, targetKey, bytes: appendBytes });
           }
-          console.info('[Queue] Creating new Avro file', { table, key, initialBytes: group.slices[0].length });
         } else {
-          outChunks.push(existingBuf);
-          for (const slice of group.slices) {
-            const headerLen = safeHeaderLen(slice);
-            outChunks.push(slice.subarray(headerLen));
+          // Existing canonical exists: check if appending would exceed limit
+          if (existingBuf.length + appendBytes > MAX_FILE_BYTES) {
+            // Cannot append to canonical; create a new segment key instead
+            const ts = new Date().toISOString().replace(/[:.]/g, '-');
+            const segKey = `${datasetId}/${table}/${periodTag}/${ts}-${cryptoRandomId()}.avro`;
+            outChunks.push(group.slices[0]);
+            for (let i = 1; i < group.slices.length; i++) {
+              const slice = group.slices[i];
+              const headerLen = safeHeaderLen(slice);
+              outChunks.push(slice.subarray(headerLen));
+            }
+            targetKey = segKey;
+            console.info('[Queue] Creating new segment (canonical would exceed max size)', { datasetId, table, targetKey, appendBytes, canonicalBytes: existingBuf.length });
+          } else {
+            // Append to existing canonical file
+            outChunks.push(existingBuf);
+            for (const slice of group.slices) {
+              const headerLen = safeHeaderLen(slice);
+              outChunks.push(slice.subarray(headerLen));
+            }
+            targetKey = canonicalKey;
+            console.info('[Queue] Appending to canonical Avro file', { datasetId, table, targetKey, appendCount: group.slices.length, baseBytes: existingBuf.length });
           }
-          console.info('[Queue] Appending slices', { table, key, appendCount: group.slices.length, baseBytes: existingBuf.length });
         }
 
         const totalLen = outChunks.reduce((s, c) => s + c.length, 0);
@@ -343,11 +402,32 @@ const queueConsumer = {
         let off = 0;
         for (const c of outChunks) { finalBuf.set(c, off); off += c.length; }
 
-        await env.BATTLE_DATA_BUCKET.put(key, finalBuf, { httpMetadata: { contentType: 'application/avro' } });
-        console.info('[Queue] Stored Avro file', { table, key, bytes: finalBuf.length });
+        const putResult = await env.BATTLE_DATA_BUCKET.put(targetKey, finalBuf, { httpMetadata: { contentType: 'application/avro' } });
+        const bytesStored = finalBuf.length;
+        const etag = (putResult as any)?.etag ?? '';
+        console.info('[Queue] Stored Avro file', { datasetId, table, key: targetKey, bytes: bytesStored });
+
+        // Record fragment metadata in D1 for indexing if DB is available
+        try {
+          if (env.BATTLE_INDEX_DB) {
+            const uploadedAt = new Date().toISOString();
+            const stmt = env.BATTLE_INDEX_DB.prepare(
+              `INSERT INTO battle_files (key, dataset_id, "table", period_tag, size, etag, uploaded_at, content_hash, uploaded_by, table_offsets)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+            );
+            // content_hash and table_offsets currently unavailable from queue message; set to NULL
+            await stmt.bind(targetKey, datasetId, table, periodTag, bytesStored, etag, uploadedAt, null, null, null).run();
+            console.info('[Queue] Recorded fragment in D1', { key: targetKey, datasetId, table });
+          } else {
+            console.warn('[Queue] BATTLE_INDEX_DB not configured; skipping index record');
+          }
+        } catch (dbErr) {
+          console.error('[Queue] Failed to record fragment in D1', { key: targetKey, error: String(dbErr) });
+        }
+
         group.messages.forEach((m) => m.ack());
       } catch (err) {
-        console.error('[Queue] Failed to append Avro', { table, error: String(err) });
+        console.error('[Queue] Failed to append Avro', { groupKey, error: String(err) });
         group.messages.forEach((m) => m.retry());
       }
     }
@@ -418,6 +498,22 @@ function safeHeaderLen(prefix: Uint8Array): number {
   } catch {
     // Fallback: assume 4 + small metadata + 16 sync (unsafe default)
     return 4 + 1024 + 16;
+  }
+}
+
+function cryptoRandomId(): string {
+  try {
+    if ((globalThis as any).crypto && typeof (globalThis as any).crypto.randomUUID === 'function') {
+      return (globalThis as any).crypto.randomUUID();
+    }
+    // Fallback: generate 12-char random base36
+    const arr = new Uint8Array(16);
+    (globalThis as any).crypto.getRandomValues(arr);
+    let s = '';
+    for (let i = 0; i < arr.length; i++) s += arr[i].toString(36);
+    return s.slice(0, 12);
+  } catch {
+    return Math.random().toString(36).slice(2, 14);
   }
 }
 
