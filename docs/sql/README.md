@@ -5,10 +5,10 @@ FUSOU プロジェクト用の複数データベース設定ガイドです。�
 ## データベース構成
 
 ### 1. **D1 (Cloudflare D1)** - SQLite
-フラグメント管理とメタデータ保存用の軽量データベース
+Avro 断片のインデックス管理とメタデータ保存用の軽量データベース
 
-- **用途**: 戦闘データフラグメントのインデックス管理
-- **テーブル**: `battle_files` - R2アップロードファイルの追跡
+- **用途**: Avro 追記モデルの親ファイル/セグメント管理
+- **テーブル**: `avro_files`, `avro_segments`（必要に応じて `avro_append_history`）
 - **スケール**: 小〜中規模（アップロード記録の管理）
 - **アクセス**: Cloudflare Workers/Pages から直接アクセス
 
@@ -27,7 +27,8 @@ sql/
 ├── README.md                 ← このファイル
 ├── d1/                       ← D1 (Cloudflare D1) 用
 │   ├── README.md
-│   ├── schema.sql           ← D1 スキーマ定義
+│   ├── avro-schema.sql      ← D1 Avro スキーマ定義
+│   ├── cleanup-parquet.sql  ← Parquet 時代のテーブル/ビュー削除
 │   └── setup.sh             ← セットアップスクリプト
 ├── supabase/                ← Supabase (PostgreSQL) 用
 │   ├── README.md

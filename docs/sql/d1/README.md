@@ -4,7 +4,8 @@
 
 ## ファイル構成
 
-- `schema.sql` - D1の完全なスキーマ定義
+- `avro-schema.sql` - D1の完全なスキーマ定義（Avro append モデル）
+- `cleanup-parquet.sql` - 旧 Parquet 時代のテーブル/ビュー削除
 - `setup.sh` - 新規開発者向けのセットアップスクリプト
 
 ## セットアップ方法
@@ -19,43 +20,41 @@
 
 ```bash
 cd packages/FUSOU-WEB
-npx wrangler d1 execute dev_kc_battle_index --file=../../docs/sql/d1/schema.sql
+npx wrangler d1 execute dev_kc_battle_index --file=../../docs/sql/d1/avro-schema.sql
+npx wrangler d1 execute dev_kc_battle_index --file=../../docs/sql/d1/cleanup-parquet.sql
 ```
 
 ### ステップ2: リモートD1への適用（本番環境）
 
 ```bash
 cd packages/FUSOU-WEB
-npx wrangler d1 execute dev_kc_battle_index --remote --file=../../docs/sql/d1/schema.sql
+npx wrangler d1 execute dev_kc_battle_index --remote --file=../../docs/sql/d1/avro-schema.sql
+npx wrangler d1 execute dev_kc_battle_index --remote --file=../../docs/sql/d1/cleanup-parquet.sql
 ```
 
 ### ステップ3: スキーマ検証
 
 ```bash
 cd packages/FUSOU-WEB
-npx wrangler d1 execute dev_kc_battle_index --command "PRAGMA table_info(battle_files);"
+npx wrangler d1 execute dev_kc_battle_index --command "PRAGMA table_info(avro_files);"
+npx wrangler d1 execute dev_kc_battle_index --command "PRAGMA table_info(avro_segments);"
 ```
 
 ## テーブル構成
 
-### battle_files
+### avro_files / avro_segments
 
-R2にアップロードされた戦闘データのフラグメント情報を管理するインデックステーブル
+Avro 追記ファイルとそのセグメントのメタデータ管理用テーブル。
 
-**主要カラム:**
-- `id` - プライマリキー
-- `key` - R2オブジェクトキー
-- `dataset_id` - データセットID
-- `table` - テーブル名（api_port, api_ship等）
-- `size` - ファイルサイズ
-- `table_offsets` - 連結Parquetファイル内の各テーブルのオフセットメタデータ
-- `uploaded_at` - アップロード日時
-- `uploaded_by` - アップロードユーザーID
+**主なカラム:**
+- `avro_files.file_key` - 仮想親キー（`datasetId/table/periodTag`）
+- `avro_files.segment_count`, `avro_files.last_appended_at`
+- `avro_segments.segment_key` - 実ファイルキー（`datasetId/table/periodTag.N.avro`）
+- `avro_segments.segment_number`, `avro_segments.segment_size`, `avro_segments.created_at`
 
 **用途:**
-- 戦闘データフラグメントのトラッキング
-- オフセットベースのテーブル抽出
-- コンパクションワークフローでの参照
+- セグメント化（512MB 超）に伴う連番 `.N.avro` の管理
+- 最新セグメントの取得、期間集計ビューの基盤
 
 ## トラブルシューティング
 

@@ -1,12 +1,11 @@
 -- ============================================================================
--- Cloudflare D1 Schema - Battle Data Index Database
+-- DEPRECATED: Parquet-era Battle Data Index (battle_files)
 -- ============================================================================
--- This schema manages the metadata for battle data fragments stored in R2.
--- It supports offset-based table extraction for efficient compaction.
---
--- Database: dev_kc_battle_index
--- Purpose: Battle data pipeline and workflow processing
--- ============================================================================
+-- This file is kept for historical reference only. The project has migrated to
+-- Avro append-only storage with indexed segments. Use docs/sql/d1/avro-schema.sql
+-- to create and manage the current schema (avro_files, avro_segments, etc.).
+-- Running this file is not recommended.
+-- ==========================================================================
 
 -- Create the main battle files index table
 CREATE TABLE IF NOT EXISTS battle_files (

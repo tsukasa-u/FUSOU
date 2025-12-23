@@ -1,4 +1,4 @@
-# Cloudflare Pages Queue Consumer Issue - Resolution
+# Cloudflare Pages Queue Consumer Issue - Resolution (Avro-only)
 
 ## Problem
 
@@ -39,7 +39,7 @@ FUSOU-WORKFLOW (Cloudflare Worker)
   │  (via queues.consumers in wrangler.toml)
   │
   ├─ Validates dataset
-  ├─ Extracts & groups Parquet fragments
+   ├─ Extracts & groups Avro fragments
   ├─ Performs data compaction
   ├─ Updates D1 metadata
   └─ Updates R2 with compacted data
@@ -82,7 +82,7 @@ FUSOU-WORKFLOW (`/packages/FUSOU-WORKFLOW/`) is a Cloudflare Worker (not Pages) 
 
 3. **Complete Compaction Logic**:
    - Validates datasets
-   - Extracts Parquet fragments from R2
+   - Extracts Avro fragments from R2
    - Groups by schema
    - Performs stream-based merge compaction
    - Updates D1 metadata
@@ -129,7 +129,7 @@ FUSOU-WORKFLOW (`/packages/FUSOU-WORKFLOW/`) is a Cloudflare Worker (not Pages) 
    ```
    DataCompactionWorkflow:
    - Validates dataset exists
-   - Reads Parquet files from R2
+   - Reads Avro files from R2
    - Groups fragments by schema
    - Performs stream-based merge compaction
    - Updates metadata in D1
@@ -236,15 +236,15 @@ POST /api/battle-data/upload
 Authorization: Bearer {jwt_token}
 Content-Type: multipart/form-data
 
-File: parquet_data.parquet
+File: latest.avro
 periodTag: "2025-port-1-1"
 ```
 
 **FUSOU-WEB Processing (in `compact.ts`):**
 - Validates JWT token
 - Extracts R2 upload credentials
-- Validates Parquet file
-- Uploads to R2: `datasets/{datasetId}/{timestamp}.parquet`
+- Validates Avro container
+- Uploads to R2: `tables/{table}/latest.avro`
 - Creates metadata record in D1 (BATTLE_INDEX_DB)
 - **Enqueues message to COMPACTION_QUEUE**
 - Returns 200 OK (with or without queue success)
@@ -293,7 +293,7 @@ export const queue = {
 
 2. **List Fragments**
    - Query R2: `s3://dev-kc-battle-data/datasets/{datasetId}/`
-   - Find all Parquet files (fragments)
+   - Find all Avro files (fragments)
 
 3. **Extract & Group**
    - Extract schema from each fragment
@@ -370,7 +370,7 @@ Ensure messages match structure:
 Check FUSOU-WORKFLOW logs for errors in these steps:
 - `validate-dataset` - Dataset not found?
 - `list-fragments` - R2 not accessible?
-- `extract-schema` - Invalid Parquet files?
+- `extract-schema` - Invalid Avro files?
 - `stream-merge` - Memory/streaming errors?
 
 ### "Page deployment fails"
@@ -401,7 +401,7 @@ If found, remove it and redeploy.
   - [ ] Queues → dev-kc-compaction-queue shows messages
   - [ ] Workers → fusou-workflow appears in consumer list
   - [ ] Recent logs show queue processing
-- [ ] Test upload endpoint with sample Parquet file
+- [ ] Test upload endpoint with sample Avro file
 - [ ] Check D1 metadata is updated
 - [ ] Verify compacted files appear in R2
 

@@ -54,14 +54,18 @@ fi
 echo "✅ FUSOU-WEB configuration found"
 echo ""
 
-# Step 3: Apply schema
-echo "[3/5] Applying D1 schema..."
+# Step 3: Apply Avro-oriented schema and cleanup legacy Parquet artifacts
+echo "[3/5] Applying Avro D1 schema..."
 cd "$WEB_PACKAGE"
-if npx wrangler d1 execute dev_kc_battle_index $REMOTE_FLAG --file="$SCRIPT_DIR/schema.sql" > /dev/null 2>&1; then
-  echo "✅ Schema applied successfully"
+if npx wrangler d1 execute dev_kc_battle_index $REMOTE_FLAG --file="$PROJECT_ROOT/docs/sql/d1/avro-schema.sql" > /dev/null 2>&1; then
+  echo "✅ Avro schema applied successfully"
 else
-  echo "⚠️  Schema application returned non-zero (may be OK if tables already exist)"
+  echo "⚠️  Avro schema application returned non-zero (may be OK if tables already exist)"
 fi
+
+echo "Applying cleanup for legacy Parquet-era tables/views (if any)..."
+npx wrangler d1 execute dev_kc_battle_index $REMOTE_FLAG --file="$PROJECT_ROOT/docs/sql/d1/cleanup-parquet.sql" > /dev/null 2>&1 || true
+echo "✅ Cleanup executed"
 echo ""
 
 # Step 4: Verify schema
@@ -75,43 +79,24 @@ fi
 echo "✅ Found $TABLES_COUNT user-defined tables"
 echo ""
 
-# Step 5: Verify battle_files table
-echo "[5/5] Verifying battle_files table..."
-BATTLE_FILES_EXISTS=$(npx wrangler d1 execute dev_kc_battle_index $REMOTE_FLAG --command "SELECT name FROM sqlite_master WHERE type='table' AND name='battle_files';" 2>/dev/null | grep -c "battle_files" || true)
+# Step 5: Verify Avro tables and indexes
+echo "[5/5] Verifying Avro tables (avro_files, avro_segments)..."
+AVRO_FILES_EXISTS=$(npx wrangler d1 execute dev_kc_battle_index $REMOTE_FLAG --command "SELECT name FROM sqlite_master WHERE type='table' AND name='avro_files';" 2>/dev/null | grep -c "avro_files" || true)
+AVRO_SEGMENTS_EXISTS=$(npx wrangler d1 execute dev_kc_battle_index $REMOTE_FLAG --command "SELECT name FROM sqlite_master WHERE type='table' AND name='avro_segments';" 2>/dev/null | grep -c "avro_segments" || true)
 
-if [[ $BATTLE_FILES_EXISTS -gt 0 ]]; then
-  # Check for table_offsets column
-  OFFSETS_EXISTS=$(npx wrangler d1 execute dev_kc_battle_index $REMOTE_FLAG --command "SELECT name FROM pragma_table_info('battle_files') WHERE name='table_offsets';" 2>/dev/null | grep -c "table_offsets" || true)
-  
-  if [[ $OFFSETS_EXISTS -gt 0 ]]; then
-    echo "✅ battle_files table exists with table_offsets column"
-  else
-    echo "⚠️  battle_files exists but table_offsets column missing"
-    echo "   Attempting to add table_offsets column..."
-    npx wrangler d1 execute dev_kc_battle_index $REMOTE_FLAG --command "ALTER TABLE battle_files ADD COLUMN table_offsets TEXT DEFAULT NULL;" > /dev/null 2>&1 || true
-    echo "✅ table_offsets column added"
-  fi
-
-  # Check for period_tag column
-  PERIOD_EXISTS=$(npx wrangler d1 execute dev_kc_battle_index $REMOTE_FLAG --command "SELECT name FROM pragma_table_info('battle_files') WHERE name='period_tag';" 2>/dev/null | grep -c "period_tag" || true)
-  if [[ $PERIOD_EXISTS -gt 0 ]]; then
-    echo "✅ period_tag column exists"
-  else
-    echo "⚠️  period_tag column missing; adding it (NULLable for backward compatibility)"
-    npx wrangler d1 execute dev_kc_battle_index $REMOTE_FLAG --command "ALTER TABLE battle_files ADD COLUMN period_tag TEXT;" > /dev/null 2>&1 || true
-    echo "✅ period_tag column added"
-  fi
-
-  # Ensure indexes exist
-  echo "Ensuring indexes exist..."
-  npx wrangler d1 execute dev_kc_battle_index $REMOTE_FLAG --command "CREATE INDEX IF NOT EXISTS idx_battle_files_period ON battle_files(dataset_id, \"table\", uploaded_at);" > /dev/null 2>&1 || true
-  npx wrangler d1 execute dev_kc_battle_index $REMOTE_FLAG --command "CREATE INDEX IF NOT EXISTS idx_battle_files_period_tag ON battle_files(dataset_id, \"table\", period_tag, uploaded_at);" > /dev/null 2>&1 || true
-  npx wrangler d1 execute dev_kc_battle_index $REMOTE_FLAG --command "CREATE INDEX IF NOT EXISTS idx_battle_files_latest ON battle_files(dataset_id, \"table\", uploaded_at DESC);" > /dev/null 2>&1 || true
-  npx wrangler d1 execute dev_kc_battle_index $REMOTE_FLAG --command "CREATE INDEX IF NOT EXISTS idx_battle_files_uploaded_by ON battle_files(uploaded_by, uploaded_at DESC);" > /dev/null 2>&1 || true
-else
-  echo "❌ battle_files table not found"
+if [[ $AVRO_FILES_EXISTS -eq 0 || $AVRO_SEGMENTS_EXISTS -eq 0 ]]; then
+  echo "❌ Avro tables not found"
   exit 1
 fi
+
+echo "✅ avro_files and avro_segments exist"
+echo "Ensuring Avro indexes exist..."
+npx wrangler d1 execute dev_kc_battle_index $REMOTE_FLAG --command "CREATE INDEX IF NOT EXISTS idx_avro_files_dataset ON avro_files(dataset_id, table_name, period_tag);" > /dev/null 2>&1 || true
+npx wrangler d1 execute dev_kc_battle_index $REMOTE_FLAG --command "CREATE INDEX IF NOT EXISTS idx_avro_files_period ON avro_files(period_tag DESC);" > /dev/null 2>&1 || true
+npx wrangler d1 execute dev_kc_battle_index $REMOTE_FLAG --command "CREATE INDEX IF NOT EXISTS idx_avro_files_last_appended ON avro_files(last_appended_at DESC);" > /dev/null 2>&1 || true
+npx wrangler d1 execute dev_kc_battle_index $REMOTE_FLAG --command "CREATE INDEX IF NOT EXISTS idx_avro_segments_parent ON avro_segments(parent_file_key, segment_number);" > /dev/null 2>&1 || true
+npx wrangler d1 execute dev_kc_battle_index $REMOTE_FLAG --command "CREATE INDEX IF NOT EXISTS idx_avro_segments_created ON avro_segments(created_at DESC);" > /dev/null 2>&1 || true
+echo "✅ Avro indexes ensured"
 echo ""
 
 echo "=========================================="
@@ -123,8 +108,8 @@ echo "Tables created: $TABLES_COUNT"
 echo ""
 echo "Next steps:"
 echo "  1. Connect to database:"
-echo "     npx wrangler d1 execute dev_kc_battle_index $REMOTE_FLAG --command \"SELECT * FROM battle_files LIMIT 1;\""
+echo "     npx wrangler d1 execute dev_kc_battle_index $REMOTE_FLAG --command \"SELECT * FROM avro_files LIMIT 1;\""
 echo "  2. Review schema:"
-echo "     npx wrangler d1 execute dev_kc_battle_index $REMOTE_FLAG --command \"PRAGMA table_info(battle_files);\""
+echo "     npx wrangler d1 execute dev_kc_battle_index $REMOTE_FLAG --command \"PRAGMA table_info(avro_files);\""
 echo "  3. Check indexes:"
 echo "     npx wrangler d1 execute dev_kc_battle_index $REMOTE_FLAG --command \"SELECT sql FROM sqlite_master WHERE type='index';\""
