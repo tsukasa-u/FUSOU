@@ -1,4 +1,4 @@
-import { buildAvroContainer, getAvroHeaderLength, getAvroHeaderLengthFromPrefix } from './avro-manual';
+import { buildAvroContainer, getAvroHeaderLength, getAvroHeaderLengthFromPrefix } from './avro-manual.js';
 
 interface Env {
   BATTLE_DATA_BUCKET: R2Bucket;

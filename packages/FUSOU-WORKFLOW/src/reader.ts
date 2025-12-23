@@ -15,8 +15,8 @@
  * - Hot + Cold (multi-block, parallel): < 500ms
  */
 
-import { autoDecompress } from './utils/compression';
-import { parseAvroDataBlock } from './avro-manual';
+import { autoDecompress } from './utils/compression.js';
+import { parseAvroDataBlock } from './avro-manual.js';
 
 interface Env {
   BATTLE_DATA_BUCKET: R2Bucket;

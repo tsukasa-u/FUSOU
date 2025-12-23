@@ -20,8 +20,8 @@
  * Performance Target: < 5 minutes for 100K records
  */
 
-import { buildAvroContainer, getAvroHeaderLength } from './avro-manual';
-import { compressDeflate } from './utils/compression';
+import { buildAvroContainer, getAvroHeaderLength } from './avro-manual.js';
+import { compressDeflate } from './utils/compression.js';
 
 interface Env {
   BATTLE_DATA_BUCKET: R2Bucket;
