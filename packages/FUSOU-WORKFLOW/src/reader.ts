@@ -16,6 +16,7 @@
  */
 
 import { autoDecompress } from './utils/compression';
+import { parseAvroDataBlock } from './avro-manual';
 
 interface Env {
   BATTLE_DATA_BUCKET: R2Bucket;
@@ -179,21 +180,13 @@ async function fetchAvroHeader(
 
 /**
  * Deserialize Avro data block to JSON records
- * (Simplified: assumes JSON-serialized Avro for now)
+ * Uses parseAvroDataBlock from avro-manual
  */
 function deserializeAvroBlock(
   header: Uint8Array,
   dataBlock: Uint8Array
 ): any[] {
-  // TODO: Proper Avro deserialization using fast-avro
-  // For now, assume data is JSON array
-  try {
-    const decoded = new TextDecoder().decode(dataBlock);
-    return JSON.parse(decoded);
-  } catch (err) {
-    console.error('Failed to deserialize Avro block:', err);
-    return [];
-  }
+  return parseAvroDataBlock(header, dataBlock);
 }
 
 /**
@@ -239,7 +232,9 @@ async function fetchColdData(
 }
 
 /**
- * Merge Hot and Cold data, deduplicate by timestamp
+ * Merge Hot and Cold data, deduplicate by content hash
+ * Note: Deduplication uses JSON stringification for simplicity
+ * For production, consider using a more robust hash function
  */
 function mergeAndDeduplicate(
   hotRecords: any[],
@@ -251,14 +246,17 @@ function mergeAndDeduplicate(
   // Sort by timestamp
   combined.sort((a, b) => (a.timestamp ?? 0) - (b.timestamp ?? 0));
   
-  // Deduplicate by timestamp (keep first occurrence)
-  const seen = new Set<number>();
+  // Deduplicate by content hash (not just timestamp)
+  // This prevents losing records with same timestamp but different content
+  const seen = new Set<string>();
   const deduplicated: any[] = [];
   
   for (const record of combined) {
-    const ts = record.timestamp ?? 0;
-    if (!seen.has(ts)) {
-      seen.add(ts);
+    // Create a simple hash from record content
+    // In production, use a proper hash function (e.g., SHA-256)
+    const hash = JSON.stringify(record);
+    if (!seen.has(hash)) {
+      seen.add(hash);
       deduplicated.push(record);
     }
   }

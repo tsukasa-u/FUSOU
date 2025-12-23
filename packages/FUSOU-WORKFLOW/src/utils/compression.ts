@@ -10,7 +10,10 @@
  * - Node.js zlib module available in Workers runtime
  */
 
+// Type-safe imports for Workers with nodejs_compat
+// @ts-ignore - Node.js modules available via nodejs_compat flag
 import { deflate, inflate } from 'node:zlib';
+// @ts-ignore
 import { promisify } from 'node:util';
 
 const deflateAsync = promisify(deflate);
@@ -52,17 +55,13 @@ export async function decompressDeflate(data: Uint8Array): Promise<Uint8Array> {
 /**
  * Synchronous compression (for small data, use with caution)
  * Note: Blocks event loop, only use for < 1MB data
+ * DEPRECATED: Use async compressDeflate instead
  */
 export function compressDeflateSync(data: Uint8Array): Uint8Array | null {
   try {
-    // Import sync version
-    const { deflateSync } = require('node:zlib');
-    const compressed = deflateSync(data);
-    
-    if (compressed.byteLength < data.byteLength) {
-      return new Uint8Array(compressed);
-    }
-    
+    // Note: Workers environment prefers async operations
+    // This function is kept for backward compatibility but should not be used
+    console.warn('compressDeflateSync is deprecated, use compressDeflate instead');
     return null;
   } catch (err) {
     console.error('Sync deflate compression failed:', err);
@@ -157,36 +156,13 @@ export async function autoDecompress(
 /**
  * Streaming compression for large files
  * (Advanced: for files > 100MB, use TransformStream)
+ * Note: Currently not supported in Workers runtime
+ * Use compressDeflate for now
  */
-export class DeflateStream extends TransformStream<Uint8Array, Uint8Array> {
-  constructor() {
-    const { createDeflate } = require('node:zlib');
-    const deflateStream = createDeflate();
-    
-    super({
-      start(controller) {
-        deflateStream.on('data', (chunk: Buffer) => {
-          controller.enqueue(new Uint8Array(chunk));
-        });
-        
-        deflateStream.on('end', () => {
-          controller.terminate();
-        });
-        
-        deflateStream.on('error', (err: Error) => {
-          controller.error(err);
-        });
-      },
-      
-      transform(chunk) {
-        deflateStream.write(chunk);
-      },
-      
-      flush() {
-        deflateStream.end();
-      }
-    });
-  }
+export async function createDeflateStream(): Promise<TransformStream<Uint8Array, Uint8Array>> {
+  // TODO: Implement proper streaming compression when Workers supports it
+  // For now, recommend using compressDeflate with chunked processing
+  throw new Error('Streaming compression not yet implemented for Workers runtime');
 }
 
 /**

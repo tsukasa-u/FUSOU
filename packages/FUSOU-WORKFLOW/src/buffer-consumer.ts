@@ -34,8 +34,17 @@ interface QueueMessage {
  * Generate bulk INSERT SQL with placeholders
  * Example: INSERT INTO buffer_logs (dataset_id, table_name, timestamp, data, uploaded_by) 
  *          VALUES (?,?,?,?,?), (?,?,?,?,?)
+ * 
+ * Note: D1 has limits on SQL query size and parameter count
+ * Safe limit: ~500 records per bulk insert (2500 parameters)
  */
 function buildBulkInsertSQL(recordCount: number): string {
+  // Safety check: D1 parameter limit
+  const MAX_SAFE_RECORDS = 500;
+  if (recordCount > MAX_SAFE_RECORDS) {
+    throw new Error(`Bulk insert too large: ${recordCount} records (max: ${MAX_SAFE_RECORDS})`);
+  }
+  
   const placeholder = '(?,?,?,?,?)';
   const placeholders = Array(recordCount).fill(placeholder).join(',');
   return `INSERT INTO buffer_logs (dataset_id, table_name, timestamp, data, uploaded_by) VALUES ${placeholders}`;
@@ -85,6 +94,7 @@ export async function handleBufferConsumer(
   env: Env
 ): Promise<void> {
   const allRecords: BufferLogRecord[] = [];
+  const failedMessages: Message<QueueMessage>[] = [];
   
   // Step 1: Flatten all messages into single record array
   for (const message of batch.messages) {
@@ -93,13 +103,14 @@ export async function handleBufferConsumer(
       allRecords.push(...normalized);
     } catch (err) {
       console.error('Failed to normalize message:', err);
-      // Optionally: send to DLQ or log for manual review
-      message.retry(); // Retry this specific message
+      failedMessages.push(message);
     }
   }
   
   if (allRecords.length === 0) {
     console.log('No valid records to buffer');
+    // Retry failed messages
+    failedMessages.forEach(msg => msg.retry());
     return;
   }
   
@@ -114,8 +125,14 @@ export async function handleBufferConsumer(
     
     console.log(`✅ Buffered ${allRecords.length} records (success: ${result.success})`);
     
-    // Step 3: ACK all messages (fast return)
-    batch.ackAll();
+    // Step 3: ACK successful messages only
+    batch.messages.forEach(msg => {
+      if (!failedMessages.includes(msg)) {
+        msg.ack();
+      } else {
+        msg.retry();
+      }
+    });
     
   } catch (err) {
     console.error('❌ Bulk insert failed:', err);
@@ -134,6 +151,7 @@ export async function handleBufferConsumerChunked(
   chunkSize: number = 500  // Adjust based on D1 limits
 ): Promise<void> {
   const allRecords: BufferLogRecord[] = [];
+  const failedMessages: Message<QueueMessage>[] = [];
   
   for (const message of batch.messages) {
     try {
@@ -141,12 +159,13 @@ export async function handleBufferConsumerChunked(
       allRecords.push(...normalized);
     } catch (err) {
       console.error('Failed to normalize message:', err);
-      message.retry();
+      failedMessages.push(message);
     }
   }
   
   if (allRecords.length === 0) {
     console.log('No valid records to buffer');
+    failedMessages.forEach(msg => msg.retry());
     return;
   }
   
@@ -179,8 +198,14 @@ export async function handleBufferConsumerChunked(
     }
   }
   
-  // All chunks succeeded
-  batch.ackAll();
+  // All chunks succeeded - ACK successful messages
+  batch.messages.forEach(msg => {
+    if (!failedMessages.includes(msg)) {
+      msg.ack();
+    } else {
+      msg.retry();
+    }
+  });
 }
 
 /**

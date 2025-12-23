@@ -106,10 +106,20 @@ async function buildConsolidatedAvro(
   const blockMetadata: BlockMetadata[] = [];
   let currentOffset = 0;
   
+  // Safety check: need at least one non-empty group
+  const nonEmptyGroups = groups.filter(g => g.records.length > 0);
+  if (nonEmptyGroups.length === 0) {
+    // Return empty Avro file with minimal header
+    // Use placeholder record for schema generation
+    const placeholderRecord = { timestamp: Date.now(), data: 'empty' };
+    const emptyHeader = buildAvroContainer([placeholderRecord]);
+    return { buffer: new Uint8Array(emptyHeader), blockMetadata: [] };
+  }
+  
   // Step 1: Write shared Avro header (once for entire file)
   // Use first group's schema as template (assume all groups share schema)
-  const sampleRecords = groups[0]?.records ?? [];
-  const headerContainer = buildAvroContainer(sampleRecords, tableName);
+  const sampleRecords = nonEmptyGroups[0].records;
+  const headerContainer = buildAvroContainer(sampleRecords);
   const headerLength = getAvroHeaderLength(headerContainer);
   const header = headerContainer.slice(0, headerLength);
   
@@ -121,7 +131,7 @@ async function buildConsolidatedAvro(
     if (group.records.length === 0) continue;
     
     // Build full Avro container for this group
-    const container = buildAvroContainer(group.records, group.table_name);
+    const container = buildAvroContainer(group.records);
     
     // Extract data block only (skip header)
     const groupHeaderLength = getAvroHeaderLength(container);
@@ -132,6 +142,10 @@ async function buildConsolidatedAvro(
       .map(r => r.timestamp ?? Date.now())
       .filter(t => typeof t === 'number');
     
+    // Safety: ensure timestamps array is not empty
+    const minTimestamp = timestamps.length > 0 ? Math.min(...timestamps) : Date.now();
+    const maxTimestamp = timestamps.length > 0 ? Math.max(...timestamps) : Date.now();
+    
     blockMetadata.push({
       dataset_id: group.dataset_id,
       table_name: group.table_name,
@@ -139,8 +153,8 @@ async function buildConsolidatedAvro(
       start_byte: currentOffset,
       length: dataBlock.byteLength,
       record_count: group.records.length,
-      start_timestamp: Math.min(...timestamps),
-      end_timestamp: Math.max(...timestamps)
+      start_timestamp: minTimestamp,
+      end_timestamp: maxTimestamp
     });
     
     // Append to stream
@@ -182,20 +196,29 @@ async function registerArchivedFile(
   fileSize: number,
   compressionCodec: string | null = 'deflate'
 ): Promise<number> {
-  const result = await db.prepare(`
+  // D1 may not support RETURNING clause, use last_insert_rowid() instead
+  const insertResult = await db.prepare(`
     INSERT INTO archived_files (file_path, file_size, compression_codec, created_at, last_modified_at)
     VALUES (?, ?, ?, ?, ?)
-    RETURNING id
   `).bind(
     filePath,
     fileSize,
     compressionCodec,
     Date.now(),
     Date.now()
-  ).first<{ id: number }>();
+  ).run();
+  
+  if (!insertResult.success) {
+    throw new Error('Failed to insert archived file');
+  }
+  
+  // Get the last inserted ID
+  const result = await db.prepare(`
+    SELECT last_insert_rowid() as id
+  `).first<{ id: number }>();
   
   if (!result?.id) {
-    throw new Error('Failed to register archived file');
+    throw new Error('Failed to get inserted file ID');
   }
   
   return result.id;
@@ -203,6 +226,7 @@ async function registerArchivedFile(
 
 /**
  * Insert block indexes in bulk
+ * Note: Chunked if needed to avoid D1 parameter limits
  */
 async function insertBlockIndexes(
   db: D1Database,
@@ -210,25 +234,32 @@ async function insertBlockIndexes(
 ): Promise<void> {
   if (blockMetadata.length === 0) return;
   
-  // Bulk insert with placeholders
-  const placeholder = '(?,?,?,?,?,?,?,?)';
-  const placeholders = Array(blockMetadata.length).fill(placeholder).join(',');
-  const sql = `INSERT INTO block_indexes 
-    (dataset_id, table_name, file_id, start_byte, length, record_count, start_timestamp, end_timestamp)
-    VALUES ${placeholders}`;
+  // D1 parameter limit safety: chunk into smaller batches
+  const CHUNK_SIZE = 100; // 100 blocks = 800 parameters (safe)
   
-  const params = blockMetadata.flatMap(block => [
-    block.dataset_id,
-    block.table_name,
-    block.file_id,
-    block.start_byte,
-    block.length,
-    block.record_count,
-    block.start_timestamp,
-    block.end_timestamp
-  ]);
-  
-  await db.prepare(sql).bind(...params).run();
+  for (let i = 0; i < blockMetadata.length; i += CHUNK_SIZE) {
+    const chunk = blockMetadata.slice(i, i + CHUNK_SIZE);
+    
+    // Bulk insert with placeholders
+    const placeholder = '(?,?,?,?,?,?,?,?)';
+    const placeholders = Array(chunk.length).fill(placeholder).join(',');
+    const sql = `INSERT INTO block_indexes 
+      (dataset_id, table_name, file_id, start_byte, length, record_count, start_timestamp, end_timestamp)
+      VALUES ${placeholders}`;
+    
+    const params = chunk.flatMap(block => [
+      block.dataset_id,
+      block.table_name,
+      block.file_id,
+      block.start_byte,
+      block.length,
+      block.record_count,
+      block.start_timestamp,
+      block.end_timestamp
+    ]);
+    
+    await db.prepare(sql).bind(...params).run();
+  }
 }
 
 /**
@@ -279,47 +310,55 @@ export async function handleArchiver(env: Env): Promise<void> {
   for (const [tableName, tableDatasets] of tableGroups.entries()) {
     console.log(`🔨 Processing table: ${tableName} (${tableDatasets.length} datasets)`);
     
-    // Generate file path
-    const filePath = generateFilePath(tableName);
-    
-    // Build consolidated Avro
-    // Register file first to get file_id
-    const tempFileId = await registerArchivedFile(env.BATTLE_INDEX_DB, filePath, 0);
-    
-    const { buffer, blockMetadata } = await buildConsolidatedAvro(
-      tableDatasets,
-      tempFileId,
-      tableName
-    );
-    
-    // Optionally compress
-    const compressed = await compressDeflate(buffer);
-    const finalBuffer = compressed ?? buffer;
-    
-    console.log(`📏 Built Avro file: ${finalBuffer.byteLength} bytes (${blockMetadata.length} blocks)`);
-    
-    // Step 4: Upload to R2
-    await env.BATTLE_DATA_BUCKET.put(filePath, finalBuffer, {
-      httpMetadata: {
-        contentType: 'application/octet-stream',
-      },
-      customMetadata: {
-        'archive-date': new Date().toISOString(),
-        'block-count': String(blockMetadata.length),
-        'compression': compressed ? 'deflate' : 'none'
-      }
-    });
-    
-    console.log(`✅ Uploaded to R2: ${filePath}`);
-    
-    // Step 5: Update file size in D1
-    await env.BATTLE_INDEX_DB.prepare(`
-      UPDATE archived_files SET file_size = ?, last_modified_at = ? WHERE id = ?
-    `).bind(finalBuffer.byteLength, Date.now(), tempFileId).run();
-    
-    // Step 6: Insert block indexes
-    await insertBlockIndexes(env.BATTLE_INDEX_DB, blockMetadata);
-    console.log(`📇 Inserted ${blockMetadata.length} block indexes`);
+    try {
+      // Generate file path
+      const filePath = generateFilePath(tableName);
+      
+      // Build consolidated Avro
+      // Register file first to get file_id
+      const tempFileId = await registerArchivedFile(env.BATTLE_INDEX_DB, filePath, 0);
+      
+      const { buffer, blockMetadata } = await buildConsolidatedAvro(
+        tableDatasets,
+        tempFileId,
+        tableName
+      );
+      
+      // Optionally compress
+      const compressed = await compressDeflate(buffer);
+      const finalBuffer = compressed ?? buffer;
+      
+      console.log(`📏 Built Avro file: ${finalBuffer.byteLength} bytes (${blockMetadata.length} blocks)`);
+      
+      // Step 4: Upload to R2
+      await env.BATTLE_DATA_BUCKET.put(filePath, finalBuffer, {
+        httpMetadata: {
+          contentType: 'application/octet-stream',
+        },
+        customMetadata: {
+          'archive-date': new Date().toISOString(),
+          'block-count': String(blockMetadata.length),
+          'compression': compressed ? 'deflate' : 'none'
+        }
+      });
+      
+      console.log(`✅ Uploaded to R2: ${filePath}`);
+      
+      // Step 5: Update file size in D1
+      await env.BATTLE_INDEX_DB.prepare(`
+        UPDATE archived_files SET file_size = ?, last_modified_at = ? WHERE id = ?
+      `).bind(finalBuffer.byteLength, Date.now(), tempFileId).run();
+      
+      // Step 6: Insert block indexes
+      await insertBlockIndexes(env.BATTLE_INDEX_DB, blockMetadata);
+      console.log(`📇 Inserted ${blockMetadata.length} block indexes`);
+      
+    } catch (err) {
+      console.error(`❌ Failed to archive table ${tableName}:`, err);
+      // Continue with next table instead of failing entire archival
+      // Buffer data will remain and be retried next hour
+      continue;
+    }
   }
   
   // Step 7: Cleanup buffer (atomic deletion by ID)

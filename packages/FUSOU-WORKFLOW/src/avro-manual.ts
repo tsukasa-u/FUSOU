@@ -305,3 +305,33 @@ export function getAvroHeaderLengthFromPrefix(buffer: Uint8Array): number {
 export function getAvroHeaderLength(buffer: Uint8Array): number {
   return getAvroHeaderLengthFromPrefix(buffer);
 }
+
+/**
+ * Parse Avro data block and extract records
+ * Note: Simplified implementation for Hot/Cold reader
+ * Assumes records were stored as JSON in buffer_logs
+ */
+export function parseAvroDataBlock(
+  header: Uint8Array,
+  dataBlock: Uint8Array
+): any[] {
+  try {
+    // For Hot/Cold architecture, data blocks contain JSON-serialized records
+    // This is because buffer_logs stores data as JSON BLOB
+    const decoded = new TextDecoder().decode(dataBlock);
+    
+    // Try to parse as JSON array first
+    try {
+      const parsed = JSON.parse(decoded);
+      return Array.isArray(parsed) ? parsed : [parsed];
+    } catch {
+      // If not JSON, try parsing as newline-delimited JSON
+      const lines = decoded.split('\n').filter(line => line.trim());
+      return lines.map(line => JSON.parse(line));
+    }
+  } catch (err) {
+    console.error('Failed to parse Avro data block:', err);
+    return [];
+  }
+}
+
