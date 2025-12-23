@@ -15,8 +15,8 @@
  * - Hot + Cold (multi-block, parallel): < 500ms
  */
 
-import { autoDecompress } from './utils/compression.js';
-import { parseAvroDataBlock } from './avro-manual.js';
+import { detectCompressionCodec } from './utils/compression.js';
+import { parseDeflateAvroBlock, getAvroHeaderLengthFromPrefix, parseNullAvroBlock } from './avro-manual.js';
 
 interface Env {
   BATTLE_DATA_BUCKET: R2Bucket;
@@ -28,6 +28,7 @@ interface QueryParams {
   table_name: string;
   from?: number;  // timestamp (ms)
   to?: number;    // timestamp (ms)
+  format?: string; // 'json' (default) | 'ocf'
 }
 
 interface HotRecord {
@@ -137,7 +138,7 @@ async function fetchColdBlock(
   filePath: string,
   startByte: number,
   length: number,
-  compressionCodec: string | null
+  _compressionCodec: string | null
 ): Promise<Uint8Array> {
   const obj = await r2.get(filePath, {
     range: { offset: startByte, length }
@@ -148,10 +149,7 @@ async function fetchColdBlock(
   }
   
   const buffer = await obj.arrayBuffer();
-  const data = new Uint8Array(buffer);
-  
-  // Decompress if needed
-  return await autoDecompress(data, compressionCodec);
+  return new Uint8Array(buffer);
 }
 
 /**
@@ -163,30 +161,39 @@ async function fetchAvroHeader(
   filePath: string
 ): Promise<Uint8Array> {
   // Read first 4KB (headers are typically < 1KB)
-  const obj = await r2.get(filePath, {
-    range: { offset: 0, length: 4096 }
-  });
+  const obj = await r2.get(filePath, { range: { offset: 0, length: 4096 } });
   
   if (!obj) {
     throw new Error(`R2 object not found: ${filePath}`);
   }
   
   const buffer = await obj.arrayBuffer();
-  
-  // TODO: Parse Avro header length and return exact bytes
-  // For now, return first 4KB
-  return new Uint8Array(buffer);
+  const prefix = new Uint8Array(buffer);
+  // Try parse exact header length if Avro magic is present
+  try {
+    const headerLen = getAvroHeaderLengthFromPrefix(prefix);
+    return prefix.slice(0, headerLen);
+  } catch {
+    // Not an Avro file (NDJSON path), treat header as empty
+    return new Uint8Array(0);
+  }
 }
 
 /**
  * Deserialize Avro data block to JSON records
  * Uses parseAvroDataBlock from avro-manual
  */
-function deserializeAvroBlock(
+async function deserializeAvroBlock(
   header: Uint8Array,
   dataBlock: Uint8Array
-): any[] {
-  return parseAvroDataBlock(header, dataBlock);
+): Promise<any[]> {
+  const codec = detectCompressionCodec(header);
+  if (codec === 'deflate') {
+    // dataBlock is still compressed (we did not auto-decompress in fetchColdBlock)
+    return await parseDeflateAvroBlock(header, dataBlock);
+  }
+  // null/none: decode without decompression
+  return parseNullAvroBlock(header, dataBlock);
 }
 
 /**
@@ -220,11 +227,11 @@ async function fetchColdData(
     );
     
     const blockBuffers = await Promise.all(blockPromises);
-    
-    // Deserialize each block
-    for (const buffer of blockBuffers) {
-      const records = deserializeAvroBlock(header, buffer);
-      allRecords.push(...records);
+    // Deserialize each block (codec-aware)
+    const parsePromises = blockBuffers.map(buf => deserializeAvroBlock(header, buf));
+    const parsedBlocks = await Promise.all(parsePromises);
+    for (const recs of parsedBlocks) {
+      allRecords.push(...recs);
     }
   }
   
@@ -277,7 +284,8 @@ export async function handleRead(
     dataset_id: url.searchParams.get('dataset_id') ?? '',
     table_name: url.searchParams.get('table_name') ?? '',
     from: url.searchParams.has('from') ? Number(url.searchParams.get('from')) : undefined,
-    to: url.searchParams.has('to') ? Number(url.searchParams.get('to')) : undefined
+    to: url.searchParams.has('to') ? Number(url.searchParams.get('to')) : undefined,
+    format: url.searchParams.get('format') ?? 'json'
   };
   
   if (!params.dataset_id || !params.table_name) {
@@ -288,6 +296,33 @@ export async function handleRead(
   }
   
   try {
+    // Special mode: return an Avro OCF stream (header + blocks) for one file group
+    if ((params.format ?? 'json') === 'ocf') {
+      const indexes = await fetchColdIndexes(env.BATTLE_INDEX_DB, params);
+      if (indexes.length === 0) {
+        return new Response('Not Found', { status: 404 });
+      }
+      // Group by file_path; choose the first group
+      const filePath = indexes[0].file_path;
+      const blocks = indexes.filter(i => i.file_path === filePath);
+      const header = await fetchAvroHeader(env.BATTLE_DATA_BUCKET, filePath);
+      const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
+      const writer = writable.getWriter();
+      await writer.write(header);
+      const blockPromises = blocks.map(b => fetchColdBlock(env.BATTLE_DATA_BUCKET, filePath, b.start_byte, b.length, b.compression_codec));
+      const buffers = await Promise.all(blockPromises);
+      for (const buf of buffers) {
+        await writer.write(buf);
+      }
+      await writer.close();
+      const headers = new Headers({
+        'Content-Type': 'application/octet-stream',
+        'Cache-Control': 'public, max-age=3600, immutable',
+        'Access-Control-Allow-Origin': '*'
+      });
+      return new Response(readable, { status: 200, headers });
+    }
+
     // Step 1: Fetch Hot data (fast, always fresh)
     const hotRecords = await fetchHotData(env.BATTLE_INDEX_DB, params);
     console.log(`Hot records: ${hotRecords.length}`);

@@ -57,7 +57,7 @@ curl http://localhost:8787/__scheduled?cron=*
 
 または、Archiverを直接呼び出すエンドポイントを作成:
 ```typescript
-// archiver.tsに追加
+// cron.ts に追加
 export default {
   async fetch(request: Request, env: Env) {
     if (request.url.endsWith('/archive')) {

@@ -60,16 +60,17 @@ class MockD1Database {
       async run() {
         // Handle INSERT
         if (sql.includes('INSERT INTO buffer_logs')) {
-          const recordCount = boundParams.length / 5; // 5 params per record
+          const recordCount = boundParams.length / 6; // 6 params per record (added period_tag)
           for (let i = 0; i < recordCount; i++) {
-            const offset = i * 5;
+            const offset = i * 6;
             self.tables.buffer_logs.push({
               id: self.autoIncrement.buffer_logs++,
               dataset_id: boundParams[offset],
               table_name: boundParams[offset + 1],
-              timestamp: boundParams[offset + 2],
-              data: boundParams[offset + 3],
-              uploaded_by: boundParams[offset + 4]
+              period_tag: boundParams[offset + 2],
+              timestamp: boundParams[offset + 3],
+              data: boundParams[offset + 4],
+              uploaded_by: boundParams[offset + 5]
             });
           }
           self.lastInsertTable = 'buffer_logs';
@@ -200,15 +201,15 @@ class MockD1Database {
         return { results: [] };
       },
       
-      asynif (!self.lastInsertTable) {
+      async first() {
+        // Handle SELECT last_insert_rowid()
+        if (sql.includes('last_insert_rowid')) {
+          if (!self.lastInsertTable) {
             return { id: 0 };
           }
           const lastId = self.autoIncrement[self.lastInsertTable] - 1;
           console.log(`  MockD1: last_insert_rowid() from ${self.lastInsertTable} = ${lastId}`);
-          return { id: lastst recently inserted ID from any table
-          const lastIds = Object.values(self.autoIncrement);
-          const maxId = Math.max(...lastIds.map(id => id - 1));
-          return { id: maxId };
+          return { id: lastId };
         }
         
         // Handle other first queries
@@ -285,11 +286,11 @@ async function runTest() {
   // Import modules
   log('\n📦 Loading modules...', 'blue');
   const bufferConsumer = await import(path.join(distPath, 'buffer-consumer.js'));
-  const archiver = await import(path.join(distPath, 'archiver.js'));
+  const cron = await import(path.join(distPath, 'cron.js'));
   const reader = await import(path.join(distPath, 'reader.js'));
   
   log('  ✅ buffer-consumer.js', 'green');
-  log('  ✅ archiver.js', 'green');
+  log('  ✅ cron.js', 'green');
   log('  ✅ reader.js', 'green');
 
   // Setup mock environment
@@ -309,6 +310,11 @@ async function runTest() {
     { timestamp: Date.now() + 2000, api_no: 3, result: 'success', data: 'test3' }
   ];
 
+  const testRecordsUser2 = [
+    { timestamp: Date.now() + 500, api_no: 10, result: 'success', data: 'user2-test1' },
+    { timestamp: Date.now() + 1500, api_no: 11, result: 'success', data: 'user2-test2' }
+  ];
+
   const mockMessage = (id, body) => ({
     id,
     body,
@@ -322,8 +328,16 @@ async function runTest() {
       mockMessage('msg1', {
         dataset_id: 'test-user-001',
         table: 'battle',
+        period_tag: '2025_12_23',
         records: testRecords,
-        uploaded_by: 'test-user'
+        uploaded_by: 'test-user-001'
+      }),
+      mockMessage('msg2', {
+        dataset_id: 'test-user-002',
+        table: 'battle',
+        period_tag: '2025_12_23',
+        records: testRecordsUser2,
+        uploaded_by: 'test-user-002'
       })
     ]
   };
@@ -331,15 +345,15 @@ async function runTest() {
   await bufferConsumer.default.queue(batch, env);
   
   log(`  📊 Buffer records: ${db.tables.buffer_logs.length}`, 'green');
-  if (db.tables.buffer_logs.length !== 3) {
-    throw new Error(`Expected 3 buffer records, got ${db.tables.buffer_logs.length}`);
+  if (db.tables.buffer_logs.length !== 5) {
+    throw new Error(`Expected 5 buffer records, got ${db.tables.buffer_logs.length}`);
   }
   log('  ✅ Buffer consumer test passed', 'green');
 
-  // Test 2: Archiver
-  logSection('Test 2: Archiver (Hot → Cold)');
+  // Test 2: Cron Archiver
+  logSection('Test 2: Cron Archiver (Hot → Cold)');
   
-  await archiver.handleArchiver(env);
+  await cron.handleCron(env);
   
   log(`  📁 Archived files: ${db.tables.archived_files.length}`, 'green');
   log(`  📇 Block indexes: ${db.tables.block_indexes.length}`, 'green');
@@ -348,14 +362,27 @@ async function runTest() {
   if (db.tables.archived_files.length === 0) {
     throw new Error('No files archived');
   }
-  if (db.tables.block_indexes.length === 0) {
-    throw new Error('No block indexes created');
+  if (db.tables.block_indexes.length !== 2) {
+    throw new Error(`Expected 2 block indexes (one per dataset_id), got ${db.tables.block_indexes.length}`);
   }
   if (db.tables.buffer_logs.length !== 0) {
     throw new Error('Buffer not cleaned up');
   }
   
-  log('  ✅ Archiver test passed', 'green');
+  // Verify block indexes have different offsets
+  const idx1 = db.tables.block_indexes[0];
+  const idx2 = db.tables.block_indexes[1];
+  log(`  📍 Block 1 (${idx1.dataset_id}): offset=${idx1.start_byte}, length=${idx1.length}`, 'green');
+  log(`  📍 Block 2 (${idx2.dataset_id}): offset=${idx2.start_byte}, length=${idx2.length}`, 'green');
+  
+  if (idx1.start_byte === idx2.start_byte) {
+    throw new Error('Block indexes have same offset - blocks not separated!');
+  }
+  if (idx2.start_byte !== idx1.start_byte + idx1.length) {
+    throw new Error('Block 2 offset incorrect - should be Block 1 offset + length');
+  }
+  
+  log('  ✅ Cron archiver test passed', 'green');
 
   // Test 3: Reader
   logSection('Test 3: Reader (Hot + Cold Merge)');
@@ -395,12 +422,49 @@ async function runTest() {
   
   log('  ✅ Reader test passed', 'green');
 
+  // ============================================================
+  logSection('Test 4: Verify NO _dataset_id Pollution');
+  
+  // Get the archived Avro file from R2
+  const r2Obj = await env.BATTLE_DATA_BUCKET.get('battle/2025_12_23.avro');
+  if (!r2Obj) {
+    throw new Error('Avro file not found in R2');
+  }
+  
+  const avroBuffer = new Uint8Array(await r2Obj.arrayBuffer());
+  log(`  📂 R2 file size: ${avroBuffer.byteLength} bytes`, 'cyan');
+  
+  // Parse with parseNullAvroBlock
+  const { parseNullAvroBlock, getAvroHeaderLength } = await import('../dist/avro-manual.js');
+  const headerLength = getAvroHeaderLength(avroBuffer);
+  const header = avroBuffer.subarray(0, headerLength);
+  const body = avroBuffer.subarray(headerLength);
+  
+  const decodedRecords = parseNullAvroBlock(header, body);
+  log(`  📊 Decoded records: ${decodedRecords.length}`, 'cyan');
+  
+  let pollutionFound = false;
+  for (const record of decodedRecords) {
+    if ('_dataset_id' in record) {
+      log(`  ❌ POLLUTION: _dataset_id found in record: ${JSON.stringify(record)}`, 'red');
+      pollutionFound = true;
+    }
+  }
+  
+  if (pollutionFound) {
+    throw new Error('_dataset_id pollution detected in archived records');
+  }
+  
+  log('  ✅ No _dataset_id pollution detected', 'green');
+  log('  ✅ User data integrity verified', 'green');
+
   // Summary
   logSection('✅ All Tests Passed!');
   log('  🔥 Hot Storage: ✓', 'green');
   log('  ❄️  Cold Storage: ✓', 'green');
   log('  📦 Archival: ✓', 'green');
   log('  📖 Reader: ✓', 'green');
+  log('  🔒 Data Integrity: ✓ (no pollution)', 'green');
   log('  🎯 Data Flow: Buffer → Archive → Read ✓', 'green');
 }
 

@@ -13,11 +13,14 @@
 
 interface Env {
   BATTLE_INDEX_DB: D1Database;
+  // Optional tuning: chunk size for bulk inserts (<= 500)
+  BUFFER_CHUNK_SIZE?: string;
 }
 
 interface BufferLogRecord {
   dataset_id: string;
   table_name: string;
+  period_tag: string;
   timestamp: number;  // milliseconds
   data: unknown;       // JSON payload (will be serialized to BLOB)
   uploaded_by?: string;
@@ -26,6 +29,7 @@ interface BufferLogRecord {
 interface QueueMessage {
   dataset_id: string;
   table: string;
+  period_tag?: string;
   records: any[];
   uploaded_by?: string;
 }
@@ -45,14 +49,14 @@ function buildBulkInsertSQL(recordCount: number): string {
     throw new Error(`Bulk insert too large: ${recordCount} records (max: ${MAX_SAFE_RECORDS})`);
   }
   
-  const placeholder = '(?,?,?,?,?)';
+  const placeholder = '(?,?,?,?,?,?)';
   const placeholders = Array(recordCount).fill(placeholder).join(',');
-  return `INSERT INTO buffer_logs (dataset_id, table_name, timestamp, data, uploaded_by) VALUES ${placeholders}`;
+  return `INSERT INTO buffer_logs (dataset_id, table_name, period_tag, timestamp, data, uploaded_by) VALUES ${placeholders}`;
 }
 
 /**
  * Flatten records into bind parameter array
- * Order: [dataset_id, table_name, timestamp, data_blob, uploaded_by, ...]
+ * Order: [dataset_id, table_name, period_tag, timestamp, data_blob, uploaded_by, ...]
  */
 function flattenRecords(records: BufferLogRecord[]): (string | number | ArrayBuffer | null)[] {
   const params: (string | number | ArrayBuffer | null)[] = [];
@@ -61,6 +65,7 @@ function flattenRecords(records: BufferLogRecord[]): (string | number | ArrayBuf
     params.push(
       record.dataset_id,
       record.table_name,
+      record.period_tag,
       record.timestamp,
       new TextEncoder().encode(JSON.stringify(record.data)), // Convert to BLOB
       record.uploaded_by ?? null
@@ -79,6 +84,7 @@ function normalizeMessage(msg: QueueMessage): BufferLogRecord[] {
   return msg.records.map(record => ({
     dataset_id: msg.dataset_id,
     table_name: msg.table,
+    period_tag: msg.period_tag ?? 'latest',
     timestamp: record.timestamp ?? now,  // Use record timestamp or fallback to now
     data: record,
     uploaded_by: msg.uploaded_by
@@ -170,12 +176,15 @@ export async function handleBufferConsumerChunked(
   }
   
   // Chunk records into manageable batches
+  // Resolve chunk size from env (safe cap at 500)
+  const envChunk = Number(env.BUFFER_CHUNK_SIZE ?? chunkSize);
+  const safeChunk = Math.min(Number.isFinite(envChunk) && envChunk > 0 ? envChunk : chunkSize, 500);
   const chunks: BufferLogRecord[][] = [];
-  for (let i = 0; i < allRecords.length; i += chunkSize) {
-    chunks.push(allRecords.slice(i, i + chunkSize));
+  for (let i = 0; i < allRecords.length; i += safeChunk) {
+    chunks.push(allRecords.slice(i, i + safeChunk));
   }
   
-  console.log(`Processing ${allRecords.length} records in ${chunks.length} chunks`);
+  console.log(`Processing ${allRecords.length} records in ${chunks.length} chunks (size=${safeChunk})`);
   
   // Insert each chunk sequentially (D1 doesn't support parallel writes well)
   for (let i = 0; i < chunks.length; i++) {

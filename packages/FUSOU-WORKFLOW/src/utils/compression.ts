@@ -136,7 +136,7 @@ export async function autoDecompress(
   data: Uint8Array,
   codec: string | null
 ): Promise<Uint8Array> {
-  if (!codec || codec === 'null') {
+  if (!codec || codec === 'null' || codec === 'none') {
     return data;  // No compression
   }
   

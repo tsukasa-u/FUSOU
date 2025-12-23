@@ -285,11 +285,15 @@ export function getAvroHeaderLengthFromPrefix(buffer: Uint8Array): number {
   while (remaining > 0) {
     // Key (string)
     const keyLen = decodeLong(buffer, offset);
-    offset = keyLen.offset + keyLen.value;
+    const keyBytesLen = keyLen.value;
+    offset = keyLen.offset;
+    offset += keyBytesLen;
     
     // Value (bytes)
     const valLen = decodeLong(buffer, offset);
-    offset = valLen.offset + valLen.value;
+    const valBytesLen = valLen.value;
+    offset = valLen.offset;
+    offset += valBytesLen;
     
     remaining--;
   }
@@ -331,6 +335,252 @@ export function parseAvroDataBlock(
     }
   } catch (err) {
     console.error('Failed to parse Avro data block:', err);
+    return [];
+  }
+}
+
+// ------- Additional support: parse deflate OCF blocks -------
+// @ts-ignore
+import { inflateRaw } from 'node:zlib';
+// @ts-ignore
+import { promisify } from 'node:util';
+const inflateRawAsync = promisify(inflateRaw);
+
+function decodeString(buffer: Uint8Array, offset: number): { value: string; offset: number } {
+  const lenInfo = decodeLong(buffer, offset);
+  const start = lenInfo.offset;
+  const end = start + lenInfo.value;
+  const value = new TextDecoder().decode(buffer.slice(start, end));
+  return { value, offset: end };
+}
+
+/**
+ * Parse Avro data block with null/none codec (no compression)
+ * Uses header to obtain schema, then decodes `count` records from the block.
+ * Expects dataBlock to start at the beginning of a block (count, size, records, sync).
+ */
+export function parseNullAvroBlock(header: Uint8Array, dataBlock: Uint8Array): any[] {
+  // Parse schema and codec from header
+  const { schema, codec } = parseHeaderSchemaAndCodec(header);
+  if (!schema) {
+    return [];
+  }
+
+  // For null/none/no codec, records are uncompressed
+  // Data block layout: [count][size][records...][sync]
+  try {
+    // count
+    const countInfo = decodeLong(dataBlock, 0);
+    let pos = countInfo.offset;
+    const recordCount = countInfo.value;
+
+    // size in bytes of the records payload
+    const sizeInfo = decodeLong(dataBlock, pos);
+    pos = sizeInfo.offset;
+    const payloadSize = sizeInfo.value;
+
+    // Slice out only the records payload (exclude trailing sync)
+    const payloadEnd = pos + payloadSize;
+    const payload = dataBlock.slice(pos, payloadEnd);
+
+    // Decode records sequentially according to schema
+    const out: any[] = [];
+    let cur = 0;
+    for (let i = 0; i < recordCount; i++) {
+      const rec = decodeRecord(payload, cur, schema);
+      out.push(rec.record);
+      cur = rec.offset;
+    }
+    return out;
+  } catch (err) {
+    console.error('Null codec block parse failed:', err);
+    return [];
+  }
+}
+
+/**
+ * Parse all blocks from Avro OCF file body (handles multiple blocks concatenated)
+ * Returns all records from all blocks
+ */
+export function parseAllNullAvroBlocks(header: Uint8Array, body: Uint8Array): any[] {
+  const { schema } = parseHeaderSchemaAndCodec(header);
+  if (!schema) {
+    return [];
+  }
+
+  const allRecords: any[] = [];
+  const syncMarkerLength = 16;
+  let offset = 0;
+
+  while (offset < body.length) {
+    try {
+      // Parse block count
+      const countInfo = decodeLong(body, offset);
+      offset = countInfo.offset;
+      const recordCount = countInfo.value;
+
+      if (recordCount === 0) break;
+
+      // Parse block size
+      const sizeInfo = decodeLong(body, offset);
+      offset = sizeInfo.offset;
+      const payloadSize = sizeInfo.value;
+
+      // Extract payload
+      const payloadStart = offset;
+      const payloadEnd = offset + payloadSize;
+      const syncStart = payloadEnd;
+      const syncEnd = syncStart + syncMarkerLength;
+
+      if (syncEnd > body.length) break;
+
+      const payload = body.slice(payloadStart, payloadEnd);
+
+      // Decode all records in this block
+      let cur = 0;
+      for (let i = 0; i < recordCount; i++) {
+        const rec = decodeRecord(payload, cur, schema);
+        allRecords.push(rec.record);
+        cur = rec.offset;
+      }
+
+      // Move to next block
+      offset = syncEnd;
+    } catch (err) {
+      // End of blocks or parse error
+      break;
+    }
+  }
+
+  return allRecords;
+}
+
+function decodeBytesBuf(buffer: Uint8Array, offset: number): { value: Uint8Array; offset: number } {
+  const lenInfo = decodeLong(buffer, offset);
+  const start = lenInfo.offset;
+  const end = start + lenInfo.value;
+  return { value: buffer.slice(start, end), offset: end };
+}
+
+function parseHeaderSchemaAndCodec(header: Uint8Array): { schema: any; codec: string | null } {
+  // Validate magic
+  if (header.length < 4 || header[0] !== 0x4f || header[1] !== 0x62 || header[2] !== 0x6a || header[3] !== 0x01) {
+    return { schema: null, codec: null };
+  }
+  let offset = 4;
+  const countInfo = decodeLong(header, offset);
+  offset = countInfo.offset;
+  let remaining = countInfo.value;
+  let schemaJsonStr: string | null = null;
+  let codecStr: string | null = null;
+  while (remaining > 0) {
+    const keyInfo = decodeString(header, offset);
+    offset = keyInfo.offset;
+    const valInfo = decodeBytesBuf(header, offset);
+    offset = valInfo.offset;
+    const key = keyInfo.value;
+    const valText = new TextDecoder().decode(valInfo.value);
+    if (key === 'avro.schema') schemaJsonStr = valText;
+    if (key === 'avro.codec') codecStr = valText;
+    remaining--;
+  }
+  // end marker
+  const endMarker = decodeLong(header, offset);
+  offset = endMarker.offset;
+  // sync marker: skip 16 bytes (not needed here)
+  // const sync = header.slice(offset, offset + 16);
+  try {
+    const schema = schemaJsonStr ? JSON.parse(schemaJsonStr) : null;
+    return { schema, codec: codecStr };
+  } catch {
+    return { schema: null, codec: codecStr };
+  }
+}
+
+function decodeValue(buffer: Uint8Array, offset: number, type: string): { value: any; offset: number } {
+  switch (type) {
+    case 'boolean':
+      return { value: buffer[offset] === 1, offset: offset + 1 };
+    case 'long':
+    case 'int': {
+      const info = decodeLong(buffer, offset);
+      return { value: info.value, offset: info.offset };
+    }
+    case 'double':
+    case 'float': {
+      const dv = new DataView(buffer.buffer, buffer.byteOffset + offset, 8);
+      const value = dv.getFloat64(0, true);
+      return { value, offset: offset + 8 };
+    }
+    case 'string': {
+      const info = decodeString(buffer, offset);
+      return { value: info.value, offset: info.offset };
+    }
+    case 'bytes': {
+      const info = decodeBytesBuf(buffer, offset);
+      return { value: info.value, offset: info.offset };
+    }
+    default: {
+      const info = decodeString(buffer, offset);
+      return { value: info.value, offset: info.offset };
+    }
+  }
+}
+
+function decodeRecord(buffer: Uint8Array, offset: number, schema: { fields: { name: string; type: string | string[] }[] }): { record: any; offset: number } {
+  const out: any = {};
+  let pos = offset;
+  for (const field of schema.fields) {
+    if (Array.isArray(field.type)) {
+      // union: assume ['null','string']
+      const branch = decodeLong(buffer, pos); // 0 or 1
+      pos = branch.offset;
+      if (branch.value === 0) {
+        out[field.name] = null;
+      } else {
+        const v = decodeValue(buffer, pos, (field.type[1] as string));
+        pos = v.offset;
+        out[field.name] = v.value;
+      }
+    } else {
+      const v = decodeValue(buffer, pos, field.type as string);
+      pos = v.offset;
+      out[field.name] = v.value;
+    }
+  }
+  return { record: out, offset: pos };
+}
+
+export async function parseDeflateAvroBlock(header: Uint8Array, dataBlock: Uint8Array): Promise<any[]> {
+  const { schema, codec } = parseHeaderSchemaAndCodec(header);
+  if (!schema || codec !== 'deflate') {
+    return [];
+  }
+  // count
+  const countInfo = decodeLong(dataBlock, 0);
+  let pos = countInfo.offset;
+  // size
+  const sizeInfo = decodeLong(dataBlock, pos);
+  pos = sizeInfo.offset;
+  const compSize = sizeInfo.value;
+  const compEnd = pos + compSize;
+  const compBuf = dataBlock.slice(pos, compEnd);
+  pos = compEnd;
+  // skip sync marker (16 bytes)
+  // const sync = dataBlock.slice(pos, pos + 16);
+  // pos += 16;
+  try {
+    const inflated = await inflateRawAsync(compBuf);
+    const out: any[] = [];
+    let cur = 0;
+    for (let i = 0; i < countInfo.value; i++) {
+      const rec = decodeRecord(inflated, cur, schema);
+      out.push(rec.record);
+      cur = rec.offset;
+    }
+    return out;
+  } catch (err) {
+    console.error('Deflate block parse failed:', err);
     return [];
   }
 }

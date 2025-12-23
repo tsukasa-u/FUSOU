@@ -9,7 +9,11 @@
     "deploy": "wrangler deploy",
     "types": "wrangler types",
     "tail": "wrangler tail",
-    "test": "npx tsc --outDir dist && node test/avro-smoke.mjs"
+    "test": "npx tsc --outDir dist && node test/avro-smoke.mjs",
+    "schema:local": "wrangler d1 execute dev_kc_battle_index --local --file db/schema.sql",
+    "schema:list:local": "wrangler d1 execute dev_kc_battle_index --local --command 'SELECT name FROM sqlite_master WHERE type=\"table\"'",
+    "schema:remote": "wrangler d1 execute dev_kc_battle_index --remote --file db/schema.sql",
+    "schema:list:remote": "wrangler d1 execute dev_kc_battle_index --remote --command 'SELECT name FROM sqlite_master WHERE type=\"table\"'"
   },
   "keywords": [
     "cloudflare",
