@@ -148,41 +148,49 @@ wrangler d1 create battle-index
 
 #### 2.2 スキーママイグレーション
 
-```bash
-# migration ファイルを作成
-mkdir -p migrations
+既存スキーマを確認：
 
-cat > migrations/001_initial_schema.sql << 'EOF'
--- Buffer Logs (Hot Storage)
-CREATE TABLE buffer_logs (
+```bash
+# 既存のスキーマファイル
+cat docs/sql/d1/hot-cold-schema.sql
+```
+
+以下の 3 つのテーブルがスキーマに含まれています：
+
+**buffer_logs** (Hot Storage)
+```sql
+CREATE TABLE IF NOT EXISTS buffer_logs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   dataset_id TEXT NOT NULL,
   table_name TEXT NOT NULL,
-  period_tag TEXT NOT NULL,
   timestamp INTEGER NOT NULL,
-  data BLOB NOT NULL,          -- JSON 形式のユーザーデータ
+  data BLOB NOT NULL,           -- JSON 形式のユーザーデータ
   uploaded_by TEXT,
-  created_at INTEGER DEFAULT (unixepoch() * 1000)
+  created_at INTEGER DEFAULT (strftime('%s', 'now') * 1000)
 );
 
-CREATE INDEX idx_buffer_logs_dataset_table_period
-  ON buffer_logs(dataset_id, table_name, period_tag);
+CREATE INDEX IF NOT EXISTS idx_buffer_search 
+  ON buffer_logs (dataset_id, table_name, timestamp);
+```
 
--- Archived Files (Cold Storage Manifest)
-CREATE TABLE archived_files (
+**archived_files** (Cold Storage Manifest)
+```sql
+CREATE TABLE IF NOT EXISTS archived_files (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   file_path TEXT NOT NULL UNIQUE,
-  file_size INTEGER NOT NULL,
-  compression_codec TEXT DEFAULT 'deflate',
-  created_at INTEGER NOT NULL,
-  last_modified_at INTEGER NOT NULL
+  file_size INTEGER,
+  compression_codec TEXT,        -- 'deflate', 'snappy', or NULL
+  created_at INTEGER DEFAULT (strftime('%s', 'now') * 1000),
+  last_modified_at INTEGER
 );
 
-CREATE INDEX idx_archived_files_created_at
-  ON archived_files(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_archived_path 
+  ON archived_files (file_path);
+```
 
--- Block Index (Block-level Metadata for Range Reads)
-CREATE TABLE block_indexes (
+**block_indexes** (Block-level Metadata for Range Reads)
+```sql
+CREATE TABLE IF NOT EXISTS block_indexes (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   dataset_id TEXT NOT NULL,
   table_name TEXT NOT NULL,
@@ -190,31 +198,26 @@ CREATE TABLE block_indexes (
   start_byte INTEGER NOT NULL,
   length INTEGER NOT NULL,
   record_count INTEGER NOT NULL,
-  start_timestamp INTEGER,
-  end_timestamp INTEGER,
-  created_at INTEGER DEFAULT (unixepoch() * 1000),
+  start_timestamp INTEGER NOT NULL,
+  end_timestamp INTEGER NOT NULL,
   FOREIGN KEY (file_id) REFERENCES archived_files(id)
 );
 
-CREATE INDEX idx_block_indexes_dataset_table
-  ON block_indexes(dataset_id, table_name);
-
-CREATE INDEX idx_block_indexes_timestamp_range
-  ON block_indexes(start_timestamp, end_timestamp);
-EOF
+CREATE INDEX IF NOT EXISTS idx_block_indexes_dataset_table
+  ON block_indexes(dataset_id, table_name, start_timestamp, end_timestamp);
 ```
 
-#### 2.3 マイグレーション実行
+#### 2.3 スキーマ適用
 
 ```bash
 # ローカル D1 で実行（テスト）
-wrangler d1 execute battle-index --local --file migrations/001_initial_schema.sql
+wrangler d1 execute battle-index --local --file docs/sql/d1/hot-cold-schema.sql
 
 # 本番環境に適用
-wrangler d1 execute battle-index --file migrations/001_initial_schema.sql
+wrangler d1 execute battle-index --file docs/sql/d1/hot-cold-schema.sql
 
-# 確認
-wrangler d1 execute battle-index "SELECT name FROM sqlite_master WHERE type='table';"
+# テーブル確認
+wrangler d1 execute battle-index "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name;"
 ```
 
 ✅ `buffer_logs`, `archived_files`, `block_indexes` テーブルが作成されたことを確認
@@ -555,6 +558,7 @@ ANALYZE;
 
 | ファイル | 説明 |
 |---------|------|
+| [docs/sql/d1/hot-cold-schema.sql](../../docs/sql/d1/hot-cold-schema.sql) | **D1 スキーマ定義**（buffer_logs, archived_files, block_indexes） |
 | `src/avro-manual.ts` | 手動 Avro OCF 実装（エンコード・デコード） |
 | `src/utils/avro.ts` | Avro ヘッダー・ブロックビルダー |
 | `src/buffer-consumer.ts` | Hot ストレージ (D1) ライター |
@@ -562,7 +566,6 @@ ANALYZE;
 | `src/reader.ts` | Hot/Cold マージリーダー |
 | `test/test-hot-cold.mjs` | 統合テスト（ブロック境界検証） |
 | `test/test-rust-schema-runs.mjs` | 50-user 負荷テスト |
-| `migrations/001_initial_schema.sql` | D1 スキーマ |
 | `wrangler.toml` | Cloudflare Workers 設定 |
 
 ---
