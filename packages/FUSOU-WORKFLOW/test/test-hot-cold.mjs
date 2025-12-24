@@ -31,6 +31,35 @@ function logSection(title) {
   console.log('='.repeat(60));
 }
 
+function assert(cond, msg = 'Assertion failed') {
+  if (!cond) throw new Error(msg);
+}
+
+function decodeLong(buffer, offset) {
+  let n = 0;
+  let shift = 0;
+  let pos = offset;
+  let b;
+  do {
+    b = buffer[pos++];
+    n |= (b & 0x7f) << shift;
+    shift += 7;
+  } while (b & 0x80);
+  const value = (n >>> 1) ^ -(n & 1);
+  return { value, offset: pos };
+}
+
+function verifyNoPollution(records) {
+  const forbidden = ['_dataset_id', '_table_name', '_period_tag', '_internal', '_user_id'];
+  for (const rec of records) {
+    for (const f of forbidden) {
+      if (f in rec) {
+        throw new Error(`Pollution detected: field ${f} present`);
+      }
+    }
+  }
+}
+
 // Mock implementations for local testing
 class MockD1Database {
   constructor() {
@@ -435,28 +464,48 @@ async function runTest() {
   log(`  📂 R2 file size: ${avroBuffer.byteLength} bytes`, 'cyan');
   
   // Parse with parseNullAvroBlock
-  const { parseNullAvroBlock, getAvroHeaderLength } = await import('../dist/avro-manual.js');
+  const { parseDeflateAvroBlock, getAvroHeaderLength } = await import('../dist/avro-manual.js');
   const headerLength = getAvroHeaderLength(avroBuffer);
   const header = avroBuffer.subarray(0, headerLength);
-  const body = avroBuffer.subarray(headerLength);
-  
-  const decodedRecords = parseNullAvroBlock(header, body);
-  log(`  📊 Decoded records: ${decodedRecords.length}`, 'cyan');
-  
-  let pollutionFound = false;
-  for (const record of decodedRecords) {
-    if ('_dataset_id' in record) {
-      log(`  ❌ POLLUTION: _dataset_id found in record: ${JSON.stringify(record)}`, 'red');
-      pollutionFound = true;
+  const syncMarker = header.subarray(header.length - 16);
+
+  // Block-level integrity using D1 block index metadata
+  const blockIndexes = [...db.tables.block_indexes].sort((a, b) => a.start_byte - b.start_byte);
+  assert(blockIndexes.length > 0, 'No block indexes found');
+  assert(blockIndexes[0].start_byte === headerLength, 'First block offset must equal header length');
+
+  let expectedOffset = headerLength;
+  let totalDecoded = 0;
+  for (const idx of blockIndexes) {
+    const block = avroBuffer.subarray(idx.start_byte, idx.start_byte + idx.length);
+    assert(idx.start_byte === expectedOffset, `Unexpected start_byte for ${idx.dataset_id}`);
+
+    const countInfo = decodeLong(block, 0);
+    const sizeInfo = decodeLong(block, countInfo.offset);
+    const payloadStart = sizeInfo.offset;
+    const payloadEnd = payloadStart + sizeInfo.value;
+    const syncStart = payloadEnd;
+    const syncEnd = syncStart + 16;
+
+    assert(countInfo.value === idx.record_count, `record_count mismatch for ${idx.dataset_id}`);
+    assert(syncEnd === block.length, `length mismatch for ${idx.dataset_id}`);
+
+    const blockSync = block.subarray(syncStart, syncEnd);
+    for (let i = 0; i < 16; i++) {
+      assert(blockSync[i] === syncMarker[i], 'Sync marker mismatch');
     }
+
+    const decoded = await parseDeflateAvroBlock(header, block);
+    assert(decoded.length === idx.record_count, `Decoded length mismatch for ${idx.dataset_id}`);
+    verifyNoPollution(decoded);
+    totalDecoded += decoded.length;
+
+    expectedOffset += idx.length;
   }
-  
-  if (pollutionFound) {
-    throw new Error('_dataset_id pollution detected in archived records');
-  }
-  
-  log('  ✅ No _dataset_id pollution detected', 'green');
-  log('  ✅ User data integrity verified', 'green');
+
+  log(`  📊 Decoded records (cold): ${totalDecoded}`, 'cyan');
+  log('  ✅ Block offsets/lengths validated against D1 index', 'green');
+  log('  ✅ No metadata pollution detected', 'green');
 
   // Summary
   logSection('✅ All Tests Passed!');

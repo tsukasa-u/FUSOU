@@ -67,7 +67,8 @@ function encodeDouble(value: number): Uint8Array {
 // Simple schema inference from JS object
 interface AvroField {
   name: string;
-  type: string | string[];
+  // Avro type can be a primitive string, a union (array), or a complex object
+  type: any;
 }
 
 interface AvroSchema {
@@ -111,32 +112,90 @@ function inferSchema(record: any): AvroSchema {
 // Encode a record according to schema
 function encodeRecord(record: any, schema: AvroSchema): Uint8Array {
   const parts: Uint8Array[] = [];
-  
+
   for (const field of schema.fields) {
     const value = record[field.name];
-    
-    if (Array.isArray(field.type)) {
-      // Union type (e.g., ['null', 'string'])
+    const fieldType = field.type;
+
+    if (Array.isArray(fieldType)) {
+      // Generic union handling; assume first branch may be 'null'
       if (value === null || value === undefined) {
-        parts.push(encodeLong(0)); // null branch
+        parts.push(encodeLong(0));
       } else {
-        parts.push(encodeLong(1)); // second type branch
-        const secondType = field.type[1];
-        parts.push(encodeValue(value, secondType));
+        // Find first non-null branch; prefer index 1 for ['null', T]
+        let branchIndex = 0;
+        for (let i = 0; i < fieldType.length; i++) {
+          if (fieldType[i] !== 'null') { branchIndex = i; break; }
+        }
+        parts.push(encodeLong(branchIndex));
+        parts.push(encodeComplexValue(value, fieldType[branchIndex]));
       }
     } else {
-      parts.push(encodeValue(value, field.type));
+      parts.push(encodeComplexValue(value, fieldType));
     }
   }
-  
+
   const totalLen = parts.reduce((sum, p) => sum + p.length, 0);
   const result = new Uint8Array(totalLen);
   let offset = 0;
-  for (const part of parts) {
-    result.set(part, offset);
-    offset += part.length;
-  }
+  for (const part of parts) { result.set(part, offset); offset += part.length; }
   return result;
+}
+
+// Exported helper to encode a record according to a provided schema
+export function encodeRecordWithSchema(record: any, schema: AvroSchema): Uint8Array {
+  return encodeRecord(record, schema);
+}
+
+function encodeArray(arr: any[], itemsType: any): Uint8Array {
+  // Avro array encoding: one or more blocks
+  // For simplicity, encode all items in a single block: [count][items...][0]
+  const parts: Uint8Array[] = [];
+  parts.push(encodeLong(arr.length));
+  for (const item of arr) {
+    if (Array.isArray(itemsType)) {
+      // union per item
+      if (item === null || item === undefined) {
+        parts.push(encodeLong(0));
+      } else {
+        let branchIndex = 0;
+        for (let i = 0; i < itemsType.length; i++) {
+          if (itemsType[i] !== 'null') { branchIndex = i; break; }
+        }
+        parts.push(encodeLong(branchIndex));
+        parts.push(encodeComplexValue(item, itemsType[branchIndex]));
+      }
+    } else {
+      parts.push(encodeComplexValue(item, itemsType));
+    }
+  }
+  parts.push(encodeLong(0)); // end of blocks
+  const total = parts.reduce((s, p) => s + p.length, 0);
+  const out = new Uint8Array(total);
+  let off = 0;
+  for (const p of parts) { out.set(p, off); off += p.length; }
+  return out;
+}
+
+function encodeComplexValue(value: any, type: any): Uint8Array {
+  if (value === null || value === undefined) {
+    return new Uint8Array(0);
+  }
+  if (typeof type === 'string') {
+    return encodeValue(value, type);
+  }
+  if (typeof type === 'object') {
+    if (type.type === 'array') {
+      return encodeArray(Array.isArray(value) ? value : [], type.items);
+    }
+    if (type.type === 'string') {
+      // handle logicalType like uuid
+      return encodeValue(value, 'string');
+    }
+    // Fallback to string
+    return encodeValue(value, 'string');
+  }
+  return encodeValue(value, 'string');
 }
 
 function encodeValue(value: any, type: string): Uint8Array {
@@ -255,6 +314,80 @@ export function buildAvroContainer(records: any[]): Uint8Array {
   }
   
   return result;
+}
+
+export function buildOCFWithSchema(schema: AvroSchema, records: any[], codec: 'null' | 'deflate' = 'null'): Uint8Array {
+  if (!records || records.length === 0) {
+    throw new Error('Cannot build Avro container without records');
+  }
+
+  const chunks: Uint8Array[] = [];
+
+  // Magic
+  chunks.push(new Uint8Array([0x4f, 0x62, 0x6a, 0x01]));
+
+  // Metadata
+  const schemaJson = JSON.stringify(schema);
+  const metadata: Record<string, Uint8Array> = {
+    'avro.schema': new TextEncoder().encode(schemaJson),
+    'avro.codec': new TextEncoder().encode(codec),
+  };
+  chunks.push(encodeMap(metadata));
+
+  // Sync
+  const syncMarker = new Uint8Array(16);
+  crypto.getRandomValues(syncMarker);
+  chunks.push(syncMarker);
+
+  // Records payload (uncompressed for 'null')
+  const recordBufs: Uint8Array[] = records.map(r => encodeRecord(r, schema));
+  const totalSize = recordBufs.reduce((s, b) => s + b.length, 0);
+  // count
+  chunks.push(encodeLong(records.length));
+  // size
+  chunks.push(encodeLong(totalSize));
+  // payload
+  chunks.push(...recordBufs);
+  // sync
+  chunks.push(syncMarker);
+
+  const totalLen = chunks.reduce((s, c) => s + c.length, 0);
+  const out = new Uint8Array(totalLen);
+  let off = 0;
+  for (const c of chunks) { out.set(c, off); off += c.length; }
+  return out;
+}
+
+export function buildHeaderWithSchema(schema: AvroSchema, codec: 'null' | 'deflate', syncMarker: Uint8Array): Uint8Array {
+  const chunks: Uint8Array[] = [];
+  chunks.push(new Uint8Array([0x4f, 0x62, 0x6a, 0x01]));
+  const schemaJson = JSON.stringify(schema);
+  const metadata: Record<string, Uint8Array> = {
+    'avro.schema': new TextEncoder().encode(schemaJson),
+    'avro.codec': new TextEncoder().encode(codec),
+  };
+  chunks.push(encodeMap(metadata));
+  chunks.push(syncMarker);
+  const total = chunks.reduce((s, c) => s + c.length, 0);
+  const out = new Uint8Array(total);
+  let off = 0;
+  for (const c of chunks) { out.set(c, off); off += c.length; }
+  return out;
+}
+
+export function buildNullBlock(schema: AvroSchema, records: any[], syncMarker: Uint8Array): Uint8Array {
+  if (!records.length) return new Uint8Array(0);
+  const encoded = records.map(r => encodeRecord(r, schema));
+  const payloadSize = encoded.reduce((s, b) => s + b.length, 0);
+  const parts: Uint8Array[] = [];
+  const count = encodeLong(records.length);
+  const size = encodeLong(payloadSize);
+  parts.push(count, size, ...encoded, syncMarker);
+  const total = parts.reduce((s, p) => s + p.length, 0);
+  const out = new Uint8Array(total);
+  let off = 0;
+  for (const p of parts) { out.set(p, off); off += p.length; }
+  return out;
 }
 
 /**
@@ -527,26 +660,76 @@ function decodeValue(buffer: Uint8Array, offset: number, type: string): { value:
   }
 }
 
-function decodeRecord(buffer: Uint8Array, offset: number, schema: { fields: { name: string; type: string | string[] }[] }): { record: any; offset: number } {
+function decodeArray(buffer: Uint8Array, offset: number, itemsType: any): { value: any[]; offset: number } {
+  const result: any[] = [];
+  let pos = offset;
+  while (true) {
+    const countInfo = decodeLong(buffer, pos);
+    pos = countInfo.offset;
+    let count = countInfo.value;
+    if (count === 0) break;
+    if (count < 0) {
+      // read block size but ignore value
+      const sizeInfo = decodeLong(buffer, pos);
+      pos = sizeInfo.offset;
+      count = -count;
+    }
+    for (let i = 0; i < count; i++) {
+      if (Array.isArray(itemsType)) {
+        const branch = decodeLong(buffer, pos);
+        pos = branch.offset;
+        if (itemsType[branch.value] === 'null') {
+          result.push(null);
+        } else {
+          const v = decodeComplexValue(buffer, pos, itemsType[branch.value]);
+          result.push(v.value);
+          pos = v.offset;
+        }
+      } else {
+        const v = decodeComplexValue(buffer, pos, itemsType);
+        result.push(v.value);
+        pos = v.offset;
+      }
+    }
+  }
+  return { value: result, offset: pos };
+}
+
+function decodeComplexValue(buffer: Uint8Array, offset: number, type: any): { value: any; offset: number } {
+  if (typeof type === 'string') {
+    return decodeValue(buffer, offset, type);
+  }
+  if (Array.isArray(type)) {
+    // union at value position; read branch index
+    const branch = decodeLong(buffer, offset);
+    let pos = branch.offset;
+    const t = type[branch.value];
+    if (t === 'null') {
+      return { value: null, offset: pos };
+    }
+    const v = decodeComplexValue(buffer, pos, t);
+    return v;
+  }
+  if (typeof type === 'object') {
+    if (type.type === 'array') {
+      return decodeArray(buffer, offset, type.items);
+    }
+    if (type.type === 'string') {
+      return decodeValue(buffer, offset, 'string');
+    }
+    // Fallback
+    return decodeValue(buffer, offset, 'string');
+  }
+  return decodeValue(buffer, offset, 'string');
+}
+
+function decodeRecord(buffer: Uint8Array, offset: number, schema: { fields: { name: string; type: any }[] }): { record: any; offset: number } {
   const out: any = {};
   let pos = offset;
   for (const field of schema.fields) {
-    if (Array.isArray(field.type)) {
-      // union: assume ['null','string']
-      const branch = decodeLong(buffer, pos); // 0 or 1
-      pos = branch.offset;
-      if (branch.value === 0) {
-        out[field.name] = null;
-      } else {
-        const v = decodeValue(buffer, pos, (field.type[1] as string));
-        pos = v.offset;
-        out[field.name] = v.value;
-      }
-    } else {
-      const v = decodeValue(buffer, pos, field.type as string);
-      pos = v.offset;
-      out[field.name] = v.value;
-    }
+    const v = decodeComplexValue(buffer, pos, field.type);
+    pos = v.offset;
+    out[field.name] = v.value;
   }
   return { record: out, offset: pos };
 }
