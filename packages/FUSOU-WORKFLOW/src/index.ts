@@ -27,7 +27,6 @@ async function handleRead(request: Request, env: Env, _ctx: ExecutionContext): P
 
 const queueConsumer = {
   async queue(batch: MessageBatch<unknown>, env: Env, _ctx: ExecutionContext) {
-    console.log('[Queue] Batch received', { size: batch.messages.length });
     if (!env.BATTLE_INDEX_DB) {
       console.error('[Queue] Missing BATTLE_INDEX_DB binding');
       batch.messages.forEach((m) => m.retry());
@@ -49,7 +48,6 @@ const queueDLQ = {
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-    console.info('[Worker/fetch] Request received', { method: request.method, path: new URL(request.url).pathname });
     const url = new URL(request.url);
     const path = url.pathname;
 
@@ -105,10 +103,8 @@ export default {
     return new Response('Not Found', { status: 404, headers: CORS_HEADERS });
   },
   async queue(batch: MessageBatch<unknown>, env: Env, ctx: ExecutionContext): Promise<void> {
-    console.info('[Worker/queue] Queue handler invoked', { messageCount: batch.messages.length, batched: true });
     const queueName = (batch as { queue?: string }).queue as string | undefined;
     const target = queueName && queueName.toLowerCase().includes('dlq') ? 'dlq' : 'main';
-    console.info('[Worker/queue] Routing to target', { queueName, target });
     if (target === 'dlq') {
       return queueDLQ.queue(batch, env, ctx);
     }

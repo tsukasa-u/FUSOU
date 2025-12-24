@@ -44,6 +44,7 @@ CREATE TABLE IF NOT EXISTS buffer_logs (
     -- Classification (for grouping during archival)
     dataset_id TEXT NOT NULL,        -- User/Dataset identifier
     table_name TEXT NOT NULL,        -- Table type (e.g., 'battle', 'pvp')
+    period_tag TEXT NOT NULL DEFAULT 'latest', -- Server-issued period tag
     
     -- Temporal metadata
     timestamp INTEGER NOT NULL,      -- Record's logical timestamp (milliseconds)

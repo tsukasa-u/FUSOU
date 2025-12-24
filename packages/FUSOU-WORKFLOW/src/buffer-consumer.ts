@@ -85,7 +85,7 @@ function normalizeMessage(msg: QueueMessage): BufferLogRecord[] {
   return [{
     dataset_id: msg.datasetId,
     table_name: msg.table,
-    period_tag: msg.periodTag,
+    period_tag: msg.periodTag ?? 'latest',
     timestamp: msg.triggeredAt ? new Date(msg.triggeredAt).getTime() : now,
     data: avroBytes.buffer,  // Store as Avro BLOB
     uploaded_by: msg.userId
@@ -185,23 +185,20 @@ export async function handleBufferConsumerChunked(
     chunks.push(allRecords.slice(i, i + safeChunk));
   }
   
-  console.log(`Processing ${allRecords.length} records in ${chunks.length} chunks (size=${safeChunk})`);
-  
   // Insert each chunk sequentially (D1 doesn't support parallel writes well)
+  let successCount = 0;
   for (let i = 0; i < chunks.length; i++) {
     const chunk = chunks[i];
     const sql = buildBulkInsertSQL(chunk.length);
     const params = flattenRecords(chunk);
     
     try {
-      const result = await env.BATTLE_INDEX_DB.prepare(sql)
+      await env.BATTLE_INDEX_DB.prepare(sql)
         .bind(...params)
         .run();
-      
-      console.log(`✅ Chunk ${i + 1}/${chunks.length}: ${chunk.length} records (success: ${result.success})`);
-      
+      successCount += chunk.length;
     } catch (err) {
-      console.error(`❌ Chunk ${i + 1}/${chunks.length} failed:`, err);
+      console.error(`[Buffer Consumer] Chunk ${i + 1}/${chunks.length} failed:`, err instanceof Error ? err.message : String(err));
       // Retry entire batch if any chunk fails (atomic operation)
       batch.retryAll();
       return;
@@ -216,6 +213,9 @@ export async function handleBufferConsumerChunked(
       msg.retry();
     }
   });
+  
+  // Summary log
+  console.log(`[Buffer Consumer] ${successCount} records inserted (${chunks.length} chunks, ${failedMessages.length} skipped)`);
 }
 
 /**

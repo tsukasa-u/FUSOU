@@ -1,11 +1,10 @@
 /**
- * Archiver Cron Worker using manual Avro OCF blocks (deflate codec)
- * - Streams a single hourly OCF file to R2
- * - Builds a shared header once, then appends per-user blocks
- * - Records byte offsets/lengths for D1 block index to enable Range reads
+ * Archiver Cron Worker for Avro BLOB concatenation
+ * - Reads Avro binaries from D1 buffer_logs
+ * - Groups by table_name + period_tag + dataset_id
+ * - Concatenates Avro OCF blocks (already compressed from client)
+ * - Records byte offsets in block_indexes for Range reads
  */
-
-import { generateHeader, generateBlock, inferSchemaFromRecord, generateSyncMarker, AvroSchema } from './utils/avro.js';
 
 interface Env {
   BATTLE_DATA_BUCKET: R2Bucket;
@@ -18,19 +17,26 @@ interface BufferRow {
   table_name: string;
   period_tag: string;
   timestamp: number;
-  data: ArrayBuffer;
+  data: ArrayBuffer;  // Already Avro OCF binary
   uploaded_by: string | null;
 }
 
-interface RecordWithMetadata {
+interface DatasetBlock {
   dataset_id: string;
-  record: any;
+  avroData: Uint8Array;
+  recordCount: number;
+  startTimestamp: number;
+  endTimestamp: number;
 }
 
-interface DatasetGroup {
+interface GroupKey {
   table_name: string;
   period_tag: string;
-  records: RecordWithMetadata[];
+}
+
+interface ArchiveGroup {
+  key: GroupKey;
+  blocks: DatasetBlock[];
 }
 
 interface BlockIndexRow {
@@ -48,34 +54,80 @@ async function fetchBufferedData(db: D1Database): Promise<BufferRow[]> {
   const res = await db.prepare(`
     SELECT id, dataset_id, table_name, period_tag, timestamp, data, uploaded_by
     FROM buffer_logs
-    ORDER BY id ASC
+    ORDER BY table_name, period_tag, dataset_id, id ASC
   `).all<BufferRow>();
   return res.results ?? [];
 }
 
-interface RecordWithMetadata {
-  dataset_id: string;
-  record: any;
-}
-
-function groupByDataset(rows: BufferRow[]): DatasetGroup[] {
-  const groups = new Map<string, DatasetGroup>();
+/**
+ * Group Avro binaries by table_name + period_tag + dataset_id
+ * Each dataset gets one concatenated block in the final file
+ */
+function groupByDataset(rows: BufferRow[]): ArchiveGroup[] {
+  const groupMap = new Map<string, Map<string, BufferRow[]>>();
+  
+  // Group by (table_name::period_tag) -> dataset_id -> rows[]
   for (const row of rows) {
-    const key = `${row.table_name}::${row.period_tag}`;
-    if (!groups.has(key)) {
-      groups.set(key, { table_name: row.table_name, period_tag: row.period_tag, records: [] });
+    const groupKey = `${row.table_name}::${row.period_tag}`;
+    if (!groupMap.has(groupKey)) {
+      groupMap.set(groupKey, new Map());
     }
-    const decoded = new TextDecoder().decode(row.data);
-    const record = JSON.parse(decoded);
-    // Store metadata separately to avoid polluting user data
-    const recordWithMetadata: RecordWithMetadata = { dataset_id: row.dataset_id, record };
-    groups.get(key)!.records.push(recordWithMetadata);
+    const datasetMap = groupMap.get(groupKey)!;
+    if (!datasetMap.has(row.dataset_id)) {
+      datasetMap.set(row.dataset_id, []);
+    }
+    datasetMap.get(row.dataset_id)!.push(row);
   }
-  return Array.from(groups.values());
+  
+  // Convert to ArchiveGroup[]
+  const groups: ArchiveGroup[] = [];
+  for (const [groupKey, datasetMap] of groupMap.entries()) {
+    const [table_name, period_tag] = groupKey.split('::');
+    const blocks: DatasetBlock[] = [];
+    
+    for (const [dataset_id, rows] of datasetMap.entries()) {
+      // Concatenate all Avro binaries for this dataset
+      // D1 might return BLOB as Uint8Array or ArrayBuffer depending on driver
+      const buffers: Uint8Array[] = rows.map(r => {
+        if (r.data instanceof Uint8Array) return r.data;
+        if (r.data instanceof ArrayBuffer) return new Uint8Array(r.data);
+        // Fallback: assume it has a buffer property
+        return new Uint8Array(r.data.buffer || r.data);
+      });
+      
+      const totalSize = buffers.reduce((sum, b) => sum + b.byteLength, 0);
+      const combined = new Uint8Array(totalSize);
+      let offset = 0;
+      for (const buf of buffers) {
+        combined.set(buf, offset);
+        offset += buf.byteLength;
+      }
+      
+      const timestamps = rows.map(r => r.timestamp);
+      blocks.push({
+        dataset_id,
+        avroData: combined,
+        recordCount: rows.length,
+        startTimestamp: Math.min(...timestamps),
+        endTimestamp: Math.max(...timestamps)
+      });
+    }
+    
+    groups.push({
+      key: { table_name, period_tag },
+      blocks
+    });
+  }
+  
+  return groups;
 }
 
-function generateFilePath(tableName: string, periodTag: string): string {
-  return `${tableName}/${periodTag}.avro`;
+// File size limit: 128MB (2^27 bytes)
+const MAX_FILE_SIZE = 128 * 1024 * 1024;
+
+function generateFilePath(periodTag: string, tableName: string, index: number): string {
+  const indexStr = String(index).padStart(3, '0');
+  return `${periodTag}/${tableName}-${indexStr}.avro`;
 }
 
 async function registerArchivedFile(db: D1Database, filePath: string, fileSize: number, codec: string = 'deflate'): Promise<number> {
@@ -105,99 +157,104 @@ async function cleanupBuffer(db: D1Database, maxId: number): Promise<void> {
 }
 
 export async function handleCron(env: Env): Promise<void> {
-  const rows = await fetchBufferedData(env.BATTLE_INDEX_DB);
-  if (!rows.length) {
-    console.log('No buffered data to archive');
-    return;
-  }
+  try {
+    const rows = await fetchBufferedData(env.BATTLE_INDEX_DB);
+    if (!rows.length) {
+      return; // Silent: no data to archive
+    }
 
-  const maxId = Math.max(...rows.map(r => r.id));
-  const groups = groupByDataset(rows);
+    const maxId = Math.max(...rows.map(r => r.id));
+    const groups = groupByDataset(rows);
 
-  // Process each table_name + period_tag independently (one file per group)
-  for (const group of groups) {
-    if (!group.records.length) continue;
+    let totalFiles = 0;
+    let totalBytes = 0;
+    let totalDatasets = 0;
 
-    const filePath = generateFilePath(group.table_name, group.period_tag);
+    // Process each table_name + period_tag group
+    for (const group of groups) {
+      if (!group.blocks.length) continue;
 
-    // Infer schema from first actual record (not metadata wrapper)
-    const schema: AvroSchema = group.records.length
-      ? inferSchemaFromRecord(group.records[0].record)
-      : { type: 'record', name: 'Record', fields: [{ name: 'payload', type: 'string' }] };
-    const syncMarker = generateSyncMarker();
+      // Split blocks into files with 128MB limit
+      const fileChunks: { blocks: DatasetBlock[]; size: number }[] = [];
+      let currentChunk: DatasetBlock[] = [];
+      let currentSize = 0;
 
-    // Group records by dataset_id for per-user blocks
-    const datasetGroups = new Map<string, { dataset_id: string; records: any[] }>();
-    for (const item of group.records) {
-      const did = item.dataset_id;
-      if (!datasetGroups.has(did)) {
-        datasetGroups.set(did, { dataset_id: did, records: [] });
+      for (const block of group.blocks) {
+        if (currentSize + block.avroData.byteLength > MAX_FILE_SIZE && currentChunk.length > 0) {
+          // Start new file
+          fileChunks.push({ blocks: currentChunk, size: currentSize });
+          currentChunk = [];
+          currentSize = 0;
+        }
+        currentChunk.push(block);
+        currentSize += block.avroData.byteLength;
       }
-      datasetGroups.get(did)!.records.push(item.record);  // Store ONLY user data
-    }
-
-    // Build header once
-    const header = generateHeader(schema, syncMarker);
-    
-    // Build separate blocks for each dataset_id
-    const blocks: { dataset_id: string; records: any[]; buffer: Uint8Array }[] = [];
-    for (const group of datasetGroups.values()) {
-      const blockBuffer = await generateBlock(schema, group.records, syncMarker);
-      blocks.push({ dataset_id: group.dataset_id, records: group.records, buffer: blockBuffer });
-    }
-
-    // Calculate total size: header + all blocks
-    const totalSize = header.byteLength + blocks.reduce((sum, b) => sum + b.buffer.byteLength, 0);
-
-    // Concatenate header + all blocks into one file
-    const combined = new Uint8Array(totalSize);
-    combined.set(header, 0);
-    let offset = header.byteLength;
-    for (const block of blocks) {
-      combined.set(block.buffer, offset);
-      offset += block.buffer.byteLength;
-    }
-
-    // Upload to R2 (header + multiple blocks, one per dataset_id)
-    await env.BATTLE_DATA_BUCKET.put(filePath, combined, {
-      httpMetadata: { contentType: 'application/octet-stream' },
-      customMetadata: {
-        'archive-date': new Date().toISOString(),
-        'block-count': String(blocks.length),
-        'compression': 'deflate',
-        'upload-mode': 'multi-block'
+      
+      // Add last chunk
+      if (currentChunk.length > 0) {
+        fileChunks.push({ blocks: currentChunk, size: currentSize });
       }
-    });
 
-    // Register file and create block indexes per dataset_id with correct offsets
-    const fileId = await registerArchivedFile(env.BATTLE_INDEX_DB, filePath, totalSize, 'deflate');
-    
-    const blockIndexes: BlockIndexRow[] = [];
-    let currentOffset = header.byteLength;
-    for (const block of blocks) {
-      const ts = block.records.map(r => r.timestamp ?? Date.now()).filter(t => typeof t === 'number');
-      const startTs = ts.length ? Math.min(...ts) : Date.now();
-      const endTs = ts.length ? Math.max(...ts) : Date.now();
-      blockIndexes.push({
-        dataset_id: block.dataset_id,
-        table_name: group.table_name,
-        file_id: fileId,
-        start_byte: currentOffset,
-        length: block.buffer.byteLength,
-        record_count: block.records.length,
-        start_timestamp: startTs,
-        end_timestamp: endTs,
-      });
-      currentOffset += block.buffer.byteLength;
+      // Upload each file chunk with index
+      for (let fileIndex = 0; fileIndex < fileChunks.length; fileIndex++) {
+        const chunk = fileChunks[fileIndex];
+        const filePath = generateFilePath(group.key.period_tag, group.key.table_name, fileIndex + 1);
+
+        // Concatenate blocks for this file
+        const combined = new Uint8Array(chunk.size);
+        let offset = 0;
+        for (const block of chunk.blocks) {
+          combined.set(block.avroData, offset);
+          offset += block.avroData.byteLength;
+        }
+
+        // Upload to R2
+        await env.BATTLE_DATA_BUCKET.put(filePath, combined, {
+          httpMetadata: { contentType: 'application/octet-stream' },
+          customMetadata: {
+            'archive-date': new Date().toISOString(),
+            'block-count': String(chunk.blocks.length),
+            'format': 'avro-ocf',
+            'table': group.key.table_name,
+            'period': group.key.period_tag,
+            'file-index': String(fileIndex + 1),
+            'total-files': String(fileChunks.length)
+          }
+        });
+
+        // Register file in D1
+        const fileId = await registerArchivedFile(env.BATTLE_INDEX_DB, filePath, chunk.size, 'deflate');
+        
+        // Create block indexes for each dataset in this file
+        const blockIndexes: BlockIndexRow[] = [];
+        let currentOffset = 0;
+        for (const block of chunk.blocks) {
+          blockIndexes.push({
+            dataset_id: block.dataset_id,
+            table_name: group.key.table_name,
+            file_id: fileId,
+            start_byte: currentOffset,
+            length: block.avroData.byteLength,
+            record_count: block.recordCount,
+            start_timestamp: block.startTimestamp,
+            end_timestamp: block.endTimestamp,
+          });
+          currentOffset += block.avroData.byteLength;
+        }
+        await insertBlockIndexes(env.BATTLE_INDEX_DB, blockIndexes);
+        
+        totalFiles++;
+        totalBytes += chunk.size;
+        totalDatasets += chunk.blocks.length;
+      }
     }
-    await insertBlockIndexes(env.BATTLE_INDEX_DB, blockIndexes);
-  }
 
-  await cleanupBuffer(env.BATTLE_INDEX_DB, maxId);
+    await cleanupBuffer(env.BATTLE_INDEX_DB, maxId);
+    
+    // Summary log
+    console.log(`[Archival] ${totalFiles} files, ${totalDatasets} datasets, ${(totalBytes / 1024).toFixed(1)}KB archived from ${rows.length} buffer rows`);
+  } catch (error) {
+    console.error('[Archival Error]', error instanceof Error ? error.message : String(error));
+    throw error;
+  }
 }
-
-export default {
-  async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
-    ctx.waitUntil(handleCron(env));
-  }
-};
