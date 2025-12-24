@@ -78,14 +78,14 @@ node test/test-rust-schema-runs.mjs
 
 ### Step 1: Wrangler プロジェクト設定
 
-#### 1.1 `wrangler.toml` の確認
+#### 1.1 `wrangler.toml` の確認と修正
 
 ```bash
 cd packages/FUSOU-WORKFLOW
 cat wrangler.toml
 ```
 
-以下の設定が存在することを確認：
+以下の設定を確認・修正：
 
 ```toml
 name = "fusou-workflow"
@@ -104,25 +104,56 @@ database_id = "xxxx-xxxx-xxxx-xxxx"  # 実際の ID に置き換え
 binding = "BATTLE_DATA_BUCKET"
 bucket_name = "battle-data"
 
-# Queue バインディング（Buffer Consumer 用）
+# Queue バインディング（既存 Compaction Queue を再利用）
 [[queues.consumers]]
-queue = "battle-ingest"
+queue = "dev-kc-compaction-queue"
 binding = "BATTLE_QUEUE"
 ```
 
-#### 1.2 ID 取得
+⚠️ **重要**: Queue は既存の `dev-kc-compaction-queue` を使用します（新規作成不要）
 
+#### 1.2 Queue メッセージ形式の統一
+
+既存の Compaction Queue は以下の **新形式** に統一します：
+
+**新しいメッセージ形式**:
+```json
+{
+  "dataset_id": "user-001",
+  "table": "battle",
+  "period_tag": "2025_12_24",
+  "records": [
+    { "timestamp": 1703423400000, "api_no": 1, "result": "success" }
+  ],
+  "uploaded_by": "user-id"
+}
+```
+
+**設定変更**:
 ```bash
 # D1 データベース ID 取得
 wrangler d1 list
 
 # R2 バケット ID 取得
 wrangler r2 bucket list
+
+# database_id と bucket_name を wrangler.toml に記載
 ```
 
-⚠️ **重要**: `database_id` と `bucket_name` は環境に合わせて変更してください。
+#### 1.3 既存メッセージの処理
 
-#### 1.3 環境変数設定
+既存の Avro base64 形式メッセージ（旧 Compaction）は処理されなくなります。
+
+DLQ に積まれたメッセージは削除または手動処理が必要：
+
+```bash
+# DLQ の内容を確認（オプション）
+wrangler queues list
+
+# DLQ を空にしたい場合は Cloudflare ダッシュボードから手動削除
+```
+
+#### 1.4 環境変数設定
 
 ```bash
 # .env ファイルを作成（.gitignore に入れる）
@@ -137,16 +168,14 @@ EOF
 
 ### Step 2: D1 マイグレーション（初回のみ）
 
-#### 2.1 データベース作成
+#### 2.1 データベース確認
 
 ```bash
-# D1 データベースが存在しない場合は作成
-wrangler d1 create battle-index
-
-# コマンド実行後に database_id が出力されるので wrangler.toml に記載
+# D1 データベース ID が既に存在するか確認
+wrangler d1 list
 ```
 
-#### 2.2 スキーママイグレーション
+#### 2.2 スキーマ適用
 
 既存スキーマを確認：
 
@@ -155,59 +184,7 @@ wrangler d1 create battle-index
 cat docs/sql/d1/hot-cold-schema.sql
 ```
 
-以下の 3 つのテーブルがスキーマに含まれています：
-
-**buffer_logs** (Hot Storage)
-```sql
-CREATE TABLE IF NOT EXISTS buffer_logs (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  dataset_id TEXT NOT NULL,
-  table_name TEXT NOT NULL,
-  timestamp INTEGER NOT NULL,
-  data BLOB NOT NULL,           -- JSON 形式のユーザーデータ
-  uploaded_by TEXT,
-  created_at INTEGER DEFAULT (strftime('%s', 'now') * 1000)
-);
-
-CREATE INDEX IF NOT EXISTS idx_buffer_search 
-  ON buffer_logs (dataset_id, table_name, timestamp);
-```
-
-**archived_files** (Cold Storage Manifest)
-```sql
-CREATE TABLE IF NOT EXISTS archived_files (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  file_path TEXT NOT NULL UNIQUE,
-  file_size INTEGER,
-  compression_codec TEXT,        -- 'deflate', 'snappy', or NULL
-  created_at INTEGER DEFAULT (strftime('%s', 'now') * 1000),
-  last_modified_at INTEGER
-);
-
-CREATE INDEX IF NOT EXISTS idx_archived_path 
-  ON archived_files (file_path);
-```
-
-**block_indexes** (Block-level Metadata for Range Reads)
-```sql
-CREATE TABLE IF NOT EXISTS block_indexes (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  dataset_id TEXT NOT NULL,
-  table_name TEXT NOT NULL,
-  file_id INTEGER NOT NULL,
-  start_byte INTEGER NOT NULL,
-  length INTEGER NOT NULL,
-  record_count INTEGER NOT NULL,
-  start_timestamp INTEGER NOT NULL,
-  end_timestamp INTEGER NOT NULL,
-  FOREIGN KEY (file_id) REFERENCES archived_files(id)
-);
-
-CREATE INDEX IF NOT EXISTS idx_block_indexes_dataset_table
-  ON block_indexes(dataset_id, table_name, start_timestamp, end_timestamp);
-```
-
-#### 2.3 スキーマ適用
+スキーマ適用コマンド：
 
 ```bash
 # ローカル D1 で実行（テスト）
@@ -536,7 +513,50 @@ ANALYZE;
 
 ---
 
-## 本番環境チェックリスト
+## 実装選択肢
+
+### 既存 Compaction Queue との統合
+
+新しい Avro Hot/Cold システムは **既存の `dev-kc-compaction-queue`** を直接使用します：
+
+| 構成要素 | 役割 | メッセージ形式 |
+|---------|------|--------------|
+| `dev-kc-compaction-queue` | データ入力 Queue | 新形式（JSON: dataset_id, table, records...） |
+| `buffer-consumer.ts` | Hot Storage Writer | D1 `buffer_logs` にバッファ |
+| `cron.ts` | Archival Worker | Hot → Cold（R2 Avro OCF） |
+| `reader.ts` | Hot/Cold Merger | 透過的な読み取り |
+
+### メッセージ形式の変更
+
+**旧形式（非互換）**:
+```json
+{
+  "table": "battle",
+  "avro_base64": "T2JqAQQW...",
+  "datasetId": "...",
+  "periodTag": "...",
+  "triggeredAt": "...",
+  "userId": "..."
+}
+```
+
+**新形式（統一形式）**:
+```json
+{
+  "dataset_id": "user-001",
+  "table": "battle",
+  "period_tag": "2025_12_24",
+  "records": [
+    { "timestamp": 1703423400000, "api_no": 1, "result": "success" },
+    { "timestamp": 1703423401000, "api_no": 2, "result": "success" }
+  ],
+  "uploaded_by": "user-id"
+}
+```
+
+⚠️ **重要**: 既存の旧形式メッセージは処理されません。DLQ に積まれたメッセージは削除してください。
+
+---
 
 - [ ] D1 マイグレーション完了 & テーブル確認
 - [ ] R2 バケット作成 & 書き込み権限確認
