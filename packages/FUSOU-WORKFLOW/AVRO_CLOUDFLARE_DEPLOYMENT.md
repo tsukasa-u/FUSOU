@@ -2,6 +2,64 @@
 
 このドキュメントは、Avro Object Container File (OCF) 形式の Hot/Cold パイプラインを Cloudflare Workers + D1 + R2 環境にデプロイするための手順書です。
 
+## ⚠️ CRITICAL: クライアント移行が必要
+
+**STATUS (2025-12-24):** Hot/Cold システムは旧 Compaction システムと**互換性のない新メッセージフォーマット**を使用します。
+
+**現在の状態:**
+- ✅ Queue purged: 古いメッセージはすべてクリア済み
+- ✅ Consumer updated: 古いフォーマットのメッセージは検出してスキップ
+- ❌ Client NOT updated: FUSOU-APP はまだ古いフォーマットを送信中
+
+**旧フォーマット（廃止予定）:**
+```json
+{
+  "table": "battle",
+  "avro_base64": "T2JqAQQU...",
+  "datasetId": "73b5d4e...",
+  "periodTag": "2025-12-18",
+  "triggeredAt": "2025-12-24T03:42:47.111Z",
+  "userId": "c5fb8495-..."
+}
+```
+
+**新フォーマット（必須）:**
+```json
+{
+  "dataset_id": "73b5d4e...",
+  "table": "battle",
+  "period_tag": "2025-12-18",
+  "records": [
+    {"env_uuid": "...", "uuid": "...", "index": 0, ...},
+    {"env_uuid": "...", "uuid": "...", "index": 1, ...}
+  ],
+  "uploaded_by": "c5fb8495-..."
+}
+```
+
+**本番利用前の必須対応:**
+
+1. **Rust クライアント更新:** [FUSOU-APP/src-tauri/src/storage/providers/r2/provider.rs](../FUSOU-APP/src-tauri/src/storage/providers/r2/provider.rs) を修正:
+   - Avro バイナリデータを JSON レコードにデコード
+   - `records` 配列に個別レコードを格納
+   - `datasetId` → `dataset_id`
+   - `periodTag` → `period_tag`
+   - `userId` → `uploaded_by`
+
+2. **代替案:** FUSOU-WEB の `/api/battle-data/upload` エンドポイントを更新:
+   - 受信した Avro base64 データをパース
+   - レコード配列に変換
+   - 新フォーマットでキューに送信
+
+3. **更新クライアントのデプロイ:** R2StorageProvider を更新した FUSOU-APP をリビルドして配布
+
+**現在の動作:**
+- 旧フォーマットのメッセージは**警告ログを出して静かにスキップ**
+- データ破損なし、ただしデータ取り込みもなし
+- DLQ は蓄積しない（リトライ前にスキップ）
+
+---
+
 ## 概要
 
 ### アーキテクチャの変更点
@@ -140,18 +198,31 @@ wrangler r2 bucket list
 # database_id と bucket_name を wrangler.toml に記載
 ```
 
-#### 1.3 既存メッセージの処理
+#### 1.3 既存メッセージのクリア（重要）
 
 既存の Avro base64 形式メッセージ（旧 Compaction）は処理されなくなります。
+デプロイ前に Queue と DLQ をクリアしてください。
 
-DLQ に積まれたメッセージは削除または手動処理が必要：
+**Queue クリア手順**:
 
 ```bash
-# DLQ の内容を確認（オプション）
-wrangler queues list
-
-# DLQ を空にしたい場合は Cloudflare ダッシュボードから手動削除
+# 1. Cloudflare ダッシュボードでクリア（推奨）
+# https://dash.cloudflare.com → Workers & Pages → Queues
+# → dev-kc-compaction-queue → "Purge Queue" ボタンをクリック
+# → dev-kc-compaction-dlq → "Purge Queue" ボタンをクリック
 ```
+
+**wrangler CLI でクリア（未サポートの場合はダッシュボード使用）**:
+
+```bash
+# Queue の全メッセージを削除
+wrangler queues purge dev-kc-compaction-queue
+
+# DLQ の全メッセージを削除
+wrangler queues purge dev-kc-compaction-dlq
+```
+
+⚠️ **注意**: この操作は元に戻せません。必要に応じて旧メッセージをバックアップしてください。
 
 #### 1.4 環境変数設定
 

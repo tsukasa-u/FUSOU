@@ -26,12 +26,32 @@ interface BufferLogRecord {
   uploaded_by?: string;
 }
 
-interface QueueMessage {
+// New format (Hot/Cold system)
+interface NewQueueMessage {
   dataset_id: string;
   table: string;
   period_tag?: string;
   records: any[];
   uploaded_by?: string;
+}
+
+// Old format (Compaction system - legacy, will be phased out)
+interface OldQueueMessage {
+  datasetId: string;
+  table: string;
+  avro_base64: string;
+  periodTag?: string;
+  userId?: string;
+  triggeredAt?: string;
+}
+
+type QueueMessage = NewQueueMessage | OldQueueMessage;
+
+/**
+ * Type guard to detect old format messages
+ */
+function isOldFormat(msg: QueueMessage): msg is OldQueueMessage {
+  return 'avro_base64' in msg || 'datasetId' in msg;
 }
 
 /**
@@ -77,10 +97,19 @@ function flattenRecords(records: BufferLogRecord[]): (string | number | ArrayBuf
 
 /**
  * Normalize queue message to buffer log records
+ * Handles both new format (records array) and old format (avro_base64)
  */
 function normalizeMessage(msg: QueueMessage): BufferLogRecord[] {
   const now = Date.now();
   
+  // OLD FORMAT: Skip Avro base64 messages - they're incompatible with Hot/Cold system
+  if (isOldFormat(msg)) {
+    console.warn(`[DEPRECATED] Old format message detected - skipping: table=${msg.table}, datasetId=${msg.datasetId}`);
+    console.warn('Please update client to send new format: {dataset_id, table, period_tag, records: [...]}');
+    return [];  // Return empty array to skip processing
+  }
+  
+  // NEW FORMAT: Process records array
   return msg.records.map(record => ({
     dataset_id: msg.dataset_id,
     table_name: msg.table,
