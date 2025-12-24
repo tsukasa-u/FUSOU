@@ -22,48 +22,25 @@ interface BufferLogRecord {
   table_name: string;
   period_tag: string;
   timestamp: number;  // milliseconds
-  data: unknown;       // JSON payload (will be serialized to BLOB)
+  data: ArrayBuffer;   // Avro binary BLOB
   uploaded_by?: string;
 }
 
-// New format (Hot/Cold system)
-interface NewQueueMessage {
-  dataset_id: string;
-  table: string;
-  period_tag?: string;
-  records: any[];
-  uploaded_by?: string;
-}
-
-// Old format (Compaction system - legacy, will be phased out)
-interface OldQueueMessage {
-  datasetId: string;
+// Queue message format (from /api/battle-data/upload)
+interface QueueMessage {
   table: string;
   avro_base64: string;
-  periodTag?: string;
-  userId?: string;
+  datasetId: string;
+  periodTag: string;
   triggeredAt?: string;
-}
-
-type QueueMessage = NewQueueMessage | OldQueueMessage;
-
-/**
- * Type guard to detect old format messages
- */
-function isOldFormat(msg: QueueMessage): msg is OldQueueMessage {
-  return 'avro_base64' in msg || 'datasetId' in msg;
+  userId?: string;
 }
 
 /**
  * Generate bulk INSERT SQL with placeholders
- * Example: INSERT INTO buffer_logs (dataset_id, table_name, timestamp, data, uploaded_by) 
- *          VALUES (?,?,?,?,?), (?,?,?,?,?)
- * 
- * Note: D1 has limits on SQL query size and parameter count
- * Safe limit: ~500 records per bulk insert (2500 parameters)
+ * Single record per message (1 Avro binary per row)
  */
 function buildBulkInsertSQL(recordCount: number): string {
-  // Safety check: D1 parameter limit
   const MAX_SAFE_RECORDS = 500;
   if (recordCount > MAX_SAFE_RECORDS) {
     throw new Error(`Bulk insert too large: ${recordCount} records (max: ${MAX_SAFE_RECORDS})`);
@@ -76,7 +53,7 @@ function buildBulkInsertSQL(recordCount: number): string {
 
 /**
  * Flatten records into bind parameter array
- * Order: [dataset_id, table_name, period_tag, timestamp, data_blob, uploaded_by, ...]
+ * Order: [dataset_id, table_name, period_tag, timestamp, avro_blob, uploaded_by, ...]
  */
 function flattenRecords(records: BufferLogRecord[]): (string | number | ArrayBuffer | null)[] {
   const params: (string | number | ArrayBuffer | null)[] = [];
@@ -87,7 +64,7 @@ function flattenRecords(records: BufferLogRecord[]): (string | number | ArrayBuf
       record.table_name,
       record.period_tag,
       record.timestamp,
-      new TextEncoder().encode(JSON.stringify(record.data)), // Convert to BLOB
+      record.data,  // Already ArrayBuffer (Avro binary)
       record.uploaded_by ?? null
     );
   }
@@ -96,28 +73,23 @@ function flattenRecords(records: BufferLogRecord[]): (string | number | ArrayBuf
 }
 
 /**
- * Normalize queue message to buffer log records
- * Handles both new format (records array) and old format (avro_base64)
+ * Normalize queue message to buffer log record
+ * Converts base64 Avro to binary BLOB for storage
  */
 function normalizeMessage(msg: QueueMessage): BufferLogRecord[] {
   const now = Date.now();
   
-  // OLD FORMAT: Skip Avro base64 messages - they're incompatible with Hot/Cold system
-  if (isOldFormat(msg)) {
-    console.warn(`[DEPRECATED] Old format message detected - skipping: table=${msg.table}, datasetId=${msg.datasetId}`);
-    console.warn('Please update client to send new format: {dataset_id, table, period_tag, records: [...]}');
-    return [];  // Return empty array to skip processing
-  }
+  // Decode base64 to binary
+  const avroBytes = Uint8Array.from(atob(msg.avro_base64), c => c.charCodeAt(0));
   
-  // NEW FORMAT: Process records array
-  return msg.records.map(record => ({
-    dataset_id: msg.dataset_id,
+  return [{
+    dataset_id: msg.datasetId,
     table_name: msg.table,
-    period_tag: msg.period_tag ?? 'latest',
-    timestamp: record.timestamp ?? now,  // Use record timestamp or fallback to now
-    data: record,
-    uploaded_by: msg.uploaded_by
-  }));
+    period_tag: msg.periodTag,
+    timestamp: msg.triggeredAt ? new Date(msg.triggeredAt).getTime() : now,
+    data: avroBytes.buffer,  // Store as Avro BLOB
+    uploaded_by: msg.userId
+  }];
 }
 
 /**
