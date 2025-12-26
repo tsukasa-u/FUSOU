@@ -1,0 +1,106 @@
+{
+  "v1": {
+    "table_version": "0.4",
+    "tables": {
+      "env_info": [
+        "2d556ba347faeaa44239817b4fd58a2cda7b7fdfbae2d7366584822097008e3f"
+      ],
+      "cells": [
+        "069ee0341eb65443eeb0d47f7db0534d5c6c7889caf0ed665dfb5d29e999b9c2"
+      ],
+      "airbase": [
+        "4d538cf5918eaf097b38c30f1e1616e4113ce63f4d6af1d214a42326004f4ef5"
+      ],
+      "plane_info": [
+        "bfcf01c2a77d5e42ec3b5a4e2eac3fc3c76727a7d55403b2bd2cd010f17612d3"
+      ],
+      "own_slotitem": [
+        "cb26ec6ca8ded19e50fc5d0869fc78c154381c2ce8f156eb2ae805f27d6b4c26"
+      ],
+      "enemy_slotitem": [
+        "40958e859405ec8ad7fbe09691e216995044c4c735420a6e604d78578aa12fe0"
+      ],
+      "friend_slotitem": [
+        "347114c0c2f672963b3b75c26b739eb4e7222022b316984cbf51f5991252b3eb"
+      ],
+      "own_ship": [
+        "4ce507360d6bbe42538158924536625ebaf817f7545f92fca2e3bcfcd41ce724"
+      ],
+      "enemy_ship": [
+        "78e3e50415d7571499331423ae2670fb6cabf19fd1977a11f6a8c8b0e772f2ea"
+      ],
+      "friend_ship": [
+        "29fc80994f5949a327d06084f7aecfebdbcf0509b2c0ba71bf94bb9dca00ceb6"
+      ],
+      "own_deck": [
+        "0b7faee9c7b8b183d00d7090af8da2a036b5c81102e55a6216ec5995cc206195"
+      ],
+      "support_deck": [
+        "92f3d92b36f24f2ce66daa358bfe5160cdfc81818317deebc2d7c62f57b5dc77"
+      ],
+      "enemy_deck": [
+        "c7acd153fedf41e225596c9c2d484f17ca5445b1e03d0c74e10472c854d7273d"
+      ],
+      "friend_deck": [
+        "462fa7956defd023dcbb2e5fe8cc1e68497a271ab0e6cd76d7af9c51301c86fc"
+      ],
+      "airbase_airattack": [
+        "74b4b9cfec9e38eaf73d429b57968ce315589d2a480410597ffb00ec2b6bb241"
+      ],
+      "airbase_airattack_list": [
+        "6ee1327e50e564a53909359b472919bf97f16e7b0a0d4a7ecd97f31c5ba8d210"
+      ],
+      "airbase_assult": [
+        "6cc99cb4c32423b8ae880fe1c27061ba45a2bab9ee6e734471fea954b10dc1fc"
+      ],
+      "carrierbase_assault": [
+        "dc6a64a1d81b167490bd320551c572fe597bd7c9df3722b7bf9f0a1f5d15725e"
+      ],
+      "closing_raigeki": [
+        "b1cf6525cf7b2b8e1e6504deb91b6ad4e3d895ddc10c6a34f3357acf7992e853"
+      ],
+      "friendly_support_hourai": [
+        "fd30bb96bc1e0c9d1359d280283b8e3e706dedade902ce0bf07919a5e88a767b"
+      ],
+      "friendly_support_hourai_list": [
+        "a6ab5b53f641bae8204d7428975575e82b834197bfd6bcf324a51581c07d6373"
+      ],
+      "hougeki": [
+        "758a2d5c50c2126c2b77a13a873cef02a55039cf099d5b36eed2d88eae382730"
+      ],
+      "hougeki_list": [
+        "7a4950b54a7c07788f1f8b52e6df8f22d546b99a23ec82b8eeb7579d7a707bb6"
+      ],
+      "midnight_hougeki": [
+        "d1c79cde5895a076f4c26ad409240c27de0a05e4a9677b73fd61cbe3cfe1627d"
+      ],
+      "midnight_hougeki_list": [
+        "8c895fe954f600d38cda9ede21218ce6dc6d4d0dce75f1b51ce41410b56bd745"
+      ],
+      "opening_airattack": [
+        "1ec93c154403a58ddcc7c609c203ca1ed2a7ee868deb0624e28f545823604223"
+      ],
+      "opening_airattack_list": [
+        "3225a85c65acec3d75f5bd0ab9f51bdb890638952c4075ab5517e500fa71c17e"
+      ],
+      "opening_raigeki": [
+        "45dd7993779ffb32a642076063cc6e74662c38296d5ee4e640288b2bc0b0fa22"
+      ],
+      "opening_taisen": [
+        "2f07a947722d53935607f5c05fdf713df3e574f7ff8360c7bc0d00c61bb81d57"
+      ],
+      "opening_taisen_list": [
+        "0d4563a588f9e10dc37d1799bebe475da7bb69325353c558adbec433bb0bc723"
+      ],
+      "support_airattack": [
+        "970d6614d2fd4796669e07b7ea6108945552b6e2a6e09c3b6f07b196b09af02b"
+      ],
+      "support_hourai": [
+        "43a6c4faa4ef18e2b983fd553b1f4ed8d4cfdaef1833632fa903841d29df8df1"
+      ],
+      "battle": [
+        "8446dac50a1e4f1847f6ef06081c9c819e3dfa3ec8cf1546d23ab3ab929db870"
+      ]
+    }
+  }
+}
