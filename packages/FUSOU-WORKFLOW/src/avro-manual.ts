@@ -75,6 +75,7 @@ interface AvroSchema {
   type: 'record';
   name: string;
   fields: AvroField[];
+  namespace?: string;
 }
 
 function inferSchema(record: any): AvroSchema {
@@ -107,6 +108,21 @@ function inferSchema(record: any): AvroSchema {
     name: 'Record',
     fields
   };
+}
+
+// Ensure namespace embeds schema_version for downstream validation
+export function ensureSchemaNamespace(schema: AvroSchema, schemaVersion: string = 'v1'): AvroSchema {
+  if (schema.namespace && schema.namespace.includes(schemaVersion)) {
+    return schema;
+  }
+  return { ...schema, namespace: `fusou.${schemaVersion}` };
+}
+
+export function computeSchemaFingerprint(schemaJson: string): string {
+  // Use SHA-256 hex fingerprint for allowlist checks
+  // @ts-ignore
+  const { createHash } = require('node:crypto');
+  return createHash('sha256').update(schemaJson).digest('hex');
 }
 
 // Encode a record according to schema
@@ -316,18 +332,19 @@ export function buildAvroContainer(records: any[]): Uint8Array {
   return result;
 }
 
-export function buildOCFWithSchema(schema: AvroSchema, records: any[], codec: 'null' | 'deflate' = 'null'): Uint8Array {
+export async function buildOCFWithSchema(schema: AvroSchema, records: any[], codec: 'null' | 'deflate' = 'null', schemaVersion: string = 'v1'): Promise<Uint8Array> {
   if (!records || records.length === 0) {
     throw new Error('Cannot build Avro container without records');
   }
 
+  const schemaWithNs = ensureSchemaNamespace(schema, schemaVersion);
   const chunks: Uint8Array[] = [];
 
   // Magic
   chunks.push(new Uint8Array([0x4f, 0x62, 0x6a, 0x01]));
 
   // Metadata
-  const schemaJson = JSON.stringify(schema);
+  const schemaJson = JSON.stringify(schemaWithNs);
   const metadata: Record<string, Uint8Array> = {
     'avro.schema': new TextEncoder().encode(schemaJson),
     'avro.codec': new TextEncoder().encode(codec),
@@ -339,15 +356,32 @@ export function buildOCFWithSchema(schema: AvroSchema, records: any[], codec: 'n
   crypto.getRandomValues(syncMarker);
   chunks.push(syncMarker);
 
-  // Records payload (uncompressed for 'null')
+  // Records payload
   const recordBufs: Uint8Array[] = records.map(r => encodeRecord(r, schema));
-  const totalSize = recordBufs.reduce((s, b) => s + b.length, 0);
+  const uncompressedPayloadSize = recordBufs.reduce((s, b) => s + b.length, 0);
+  // Concatenate uncompressed payload
+  const uncompressedPayload = new Uint8Array(uncompressedPayloadSize);
+  let upOff = 0;
+  for (const b of recordBufs) { uncompressedPayload.set(b, upOff); upOff += b.length; }
+
+  let blockPayload: Uint8Array = uncompressedPayload;
+  if (codec === 'deflate') {
+    // Compress payload using raw deflate to match Avro OCF expectations
+    // @ts-ignore
+    const { deflateRaw } = await import('node:zlib');
+    // @ts-ignore
+    const { promisify } = await import('node:util');
+    const deflateRawAsync = promisify(deflateRaw);
+    const comp = await deflateRawAsync(uncompressedPayload);
+    blockPayload = new Uint8Array(comp);
+  }
+
   // count
   chunks.push(encodeLong(records.length));
-  // size
-  chunks.push(encodeLong(totalSize));
+  // size (size of block payload in bytes; for deflate, compressed size)
+  chunks.push(encodeLong(blockPayload.length));
   // payload
-  chunks.push(...recordBufs);
+  chunks.push(blockPayload);
   // sync
   chunks.push(syncMarker);
 

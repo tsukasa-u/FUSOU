@@ -145,8 +145,10 @@ export async function autoDecompress(
       return await decompressDeflate(data);
     
     case 'snappy':
-      // TODO: Implement snappy decompression when needed
-      throw new Error('Snappy decompression not yet implemented');
+      // Explicitly unsupported for now to avoid silent corruption.
+      // Avro Snappy requires appending a 4-byte CRC32 of the uncompressed data.
+      // Implementing correct framed Snappy + CRC verification will be added when needed.
+      throw new Error('Snappy codec unsupported: requires Avro Snappy CRC32 handling');
     
     default:
       throw new Error(`Unsupported compression codec: ${codec}`);

@@ -16,6 +16,7 @@ interface BufferRow {
   dataset_id: string;
   table_name: string;
   period_tag: string;
+  schema_version: string;
   timestamp: number;
   data: ArrayBuffer;  // Already Avro OCF binary
   uploaded_by: string | null;
@@ -30,6 +31,7 @@ interface DatasetBlock {
 }
 
 interface GroupKey {
+  schema_version: string;
   table_name: string;
   period_tag: string;
 }
@@ -42,6 +44,7 @@ interface ArchiveGroup {
 interface BlockIndexRow {
   dataset_id: string;
   table_name: string;
+  schema_version: string;
   file_id: number;
   start_byte: number;
   length: number;
@@ -52,9 +55,9 @@ interface BlockIndexRow {
 
 async function fetchBufferedData(db: D1Database): Promise<BufferRow[]> {
   const res = await db.prepare(`
-    SELECT id, dataset_id, table_name, period_tag, timestamp, data, uploaded_by
+    SELECT id, dataset_id, table_name, period_tag, schema_version, timestamp, data, uploaded_by
     FROM buffer_logs
-    ORDER BY table_name, period_tag, dataset_id, id ASC
+    ORDER BY schema_version, table_name, period_tag, dataset_id, id ASC
   `).all<BufferRow>();
   return res.results ?? [];
 }
@@ -66,9 +69,9 @@ async function fetchBufferedData(db: D1Database): Promise<BufferRow[]> {
 function groupByDataset(rows: BufferRow[]): ArchiveGroup[] {
   const groupMap = new Map<string, Map<string, BufferRow[]>>();
   
-  // Group by (table_name::period_tag) -> dataset_id -> rows[]
+  // Group by (schema_version::table_name::period_tag) -> dataset_id -> rows[]
   for (const row of rows) {
-    const groupKey = `${row.table_name}::${row.period_tag}`;
+    const groupKey = `${row.schema_version}::${row.table_name}::${row.period_tag}`;
     if (!groupMap.has(groupKey)) {
       groupMap.set(groupKey, new Map());
     }
@@ -82,7 +85,7 @@ function groupByDataset(rows: BufferRow[]): ArchiveGroup[] {
   // Convert to ArchiveGroup[]
   const groups: ArchiveGroup[] = [];
   for (const [groupKey, datasetMap] of groupMap.entries()) {
-    const [table_name, period_tag] = groupKey.split('::');
+    const [schema_version, table_name, period_tag] = groupKey.split('::');
     const blocks: DatasetBlock[] = [];
     
     for (const [dataset_id, rows] of datasetMap.entries()) {
@@ -91,8 +94,8 @@ function groupByDataset(rows: BufferRow[]): ArchiveGroup[] {
       const buffers: Uint8Array[] = rows.map(r => {
         if (r.data instanceof Uint8Array) return r.data;
         if (r.data instanceof ArrayBuffer) return new Uint8Array(r.data);
-        // Fallback: assume it has a buffer property
-        return new Uint8Array(r.data.buffer || r.data);
+        // Fallback: treat as any and attempt conversion
+        return new Uint8Array((r.data as any).buffer || r.data);
       });
       
       const totalSize = buffers.reduce((sum, b) => sum + b.byteLength, 0);
@@ -114,7 +117,7 @@ function groupByDataset(rows: BufferRow[]): ArchiveGroup[] {
     }
     
     groups.push({
-      key: { table_name, period_tag },
+      key: { schema_version, table_name, period_tag },
       blocks
     });
   }
@@ -125,16 +128,16 @@ function groupByDataset(rows: BufferRow[]): ArchiveGroup[] {
 // File size limit: 128MB (2^27 bytes)
 const MAX_FILE_SIZE = 128 * 1024 * 1024;
 
-function generateFilePath(periodTag: string, tableName: string, index: number): string {
+function generateFilePath(schemaVersion: string, periodTag: string, tableName: string, index: number): string {
   const indexStr = String(index).padStart(3, '0');
-  return `${periodTag}/${tableName}-${indexStr}.avro`;
+  return `${schemaVersion}/${periodTag}/${tableName}-${indexStr}.avro`;
 }
 
-async function registerArchivedFile(db: D1Database, filePath: string, fileSize: number, codec: string = 'deflate'): Promise<number> {
+async function registerArchivedFile(db: D1Database, filePath: string, schemaVersion: string, fileSize: number, codec: string = 'deflate'): Promise<number> {
   await db.prepare(`
-    INSERT INTO archived_files (file_path, file_size, compression_codec, created_at, last_modified_at)
-    VALUES (?, ?, ?, ?, ?)
-  `).bind(filePath, fileSize, codec, Date.now(), Date.now()).run();
+    INSERT INTO archived_files (file_path, schema_version, file_size, compression_codec, created_at, last_modified_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).bind(filePath, schemaVersion, fileSize, codec, Date.now(), Date.now()).run();
   const row = await db.prepare('SELECT last_insert_rowid() AS id').first<{ id: number }>();
   return row?.id ?? 0;
 }
@@ -142,12 +145,12 @@ async function registerArchivedFile(db: D1Database, filePath: string, fileSize: 
 async function insertBlockIndexes(db: D1Database, rows: BlockIndexRow[]): Promise<void> {
   if (!rows.length) return;
   const sql = `
-    INSERT INTO block_indexes (dataset_id, table_name, file_id, start_byte, length, record_count, start_timestamp, end_timestamp)
-    VALUES ${rows.map(() => '(?,?,?,?,?,?,?,?)').join(',')}
+    INSERT INTO block_indexes (dataset_id, table_name, schema_version, file_id, start_byte, length, record_count, start_timestamp, end_timestamp)
+    VALUES ${rows.map(() => '(?,?,?,?,?,?,?,?,?)').join(',')}
   `;
   const params: (string | number)[] = [];
   for (const r of rows) {
-    params.push(r.dataset_id, r.table_name, r.file_id, r.start_byte, r.length, r.record_count, r.start_timestamp, r.end_timestamp);
+    params.push(r.dataset_id, r.table_name, r.schema_version, r.file_id, r.start_byte, r.length, r.record_count, r.start_timestamp, r.end_timestamp);
   }
   await db.prepare(sql).bind(...params).run();
 }
@@ -198,7 +201,7 @@ export async function handleCron(env: Env): Promise<void> {
       // Upload each file chunk with index
       for (let fileIndex = 0; fileIndex < fileChunks.length; fileIndex++) {
         const chunk = fileChunks[fileIndex];
-        const filePath = generateFilePath(group.key.period_tag, group.key.table_name, fileIndex + 1);
+        const filePath = generateFilePath(group.key.schema_version, group.key.period_tag, group.key.table_name, fileIndex + 1);
 
         // Concatenate blocks for this file
         const combined = new Uint8Array(chunk.size);
@@ -215,6 +218,7 @@ export async function handleCron(env: Env): Promise<void> {
             'archive-date': new Date().toISOString(),
             'block-count': String(chunk.blocks.length),
             'format': 'avro-ocf',
+            'schema-version': group.key.schema_version,
             'table': group.key.table_name,
             'period': group.key.period_tag,
             'file-index': String(fileIndex + 1),
@@ -223,7 +227,7 @@ export async function handleCron(env: Env): Promise<void> {
         });
 
         // Register file in D1
-        const fileId = await registerArchivedFile(env.BATTLE_INDEX_DB, filePath, chunk.size, 'deflate');
+        const fileId = await registerArchivedFile(env.BATTLE_INDEX_DB, filePath, group.key.schema_version, chunk.size, 'deflate');
         
         // Create block indexes for each dataset in this file
         const blockIndexes: BlockIndexRow[] = [];
@@ -232,6 +236,7 @@ export async function handleCron(env: Env): Promise<void> {
           blockIndexes.push({
             dataset_id: block.dataset_id,
             table_name: group.key.table_name,
+            schema_version: group.key.schema_version,
             file_id: fileId,
             start_byte: currentOffset,
             length: block.avroData.byteLength,

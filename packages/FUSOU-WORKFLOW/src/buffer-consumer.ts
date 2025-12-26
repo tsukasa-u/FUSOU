@@ -21,6 +21,7 @@ interface BufferLogRecord {
   dataset_id: string;
   table_name: string;
   period_tag: string;
+  schema_version: string;
   timestamp: number;  // milliseconds
   data: ArrayBuffer;   // Avro binary BLOB
   uploaded_by?: string;
@@ -32,6 +33,7 @@ interface QueueMessage {
   avro_base64: string;
   datasetId: string;
   periodTag: string;
+  schemaVersion?: string;  // v1, v2, etc.
   triggeredAt?: string;
   userId?: string;
 }
@@ -46,14 +48,14 @@ function buildBulkInsertSQL(recordCount: number): string {
     throw new Error(`Bulk insert too large: ${recordCount} records (max: ${MAX_SAFE_RECORDS})`);
   }
   
-  const placeholder = '(?,?,?,?,?,?)';
+  const placeholder = '(?,?,?,?,?,?,?)';
   const placeholders = Array(recordCount).fill(placeholder).join(',');
-  return `INSERT INTO buffer_logs (dataset_id, table_name, period_tag, timestamp, data, uploaded_by) VALUES ${placeholders}`;
+  return `INSERT INTO buffer_logs (dataset_id, table_name, period_tag, schema_version, timestamp, data, uploaded_by) VALUES ${placeholders}`;
 }
 
 /**
  * Flatten records into bind parameter array
- * Order: [dataset_id, table_name, period_tag, timestamp, avro_blob, uploaded_by, ...]
+ * Order: [dataset_id, table_name, period_tag, schema_version, timestamp, avro_blob, uploaded_by, ...]
  */
 function flattenRecords(records: BufferLogRecord[]): (string | number | ArrayBuffer | null)[] {
   const params: (string | number | ArrayBuffer | null)[] = [];
@@ -63,6 +65,7 @@ function flattenRecords(records: BufferLogRecord[]): (string | number | ArrayBuf
       record.dataset_id,
       record.table_name,
       record.period_tag,
+      record.schema_version,
       record.timestamp,
       record.data,  // Already ArrayBuffer (Avro binary)
       record.uploaded_by ?? null
@@ -86,6 +89,7 @@ function normalizeMessage(msg: QueueMessage): BufferLogRecord[] {
     dataset_id: msg.datasetId,
     table_name: msg.table,
     period_tag: msg.periodTag ?? 'latest',
+    schema_version: msg.schemaVersion || 'v1',  // Default to v1 if not provided
     timestamp: msg.triggeredAt ? new Date(msg.triggeredAt).getTime() : now,
     data: avroBytes.buffer,  // Store as Avro BLOB
     uploaded_by: msg.userId
