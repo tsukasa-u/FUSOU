@@ -42,15 +42,16 @@
     "@cloudflare/workers-types": "^4.20251128.0",
     "@dotenvx/dotenvx": "^1.51.1",
     "@faker-js/faker": "^9.9.0",
-    "avro-js": "^1.11.3",
     "@r4ai/remark-callout": "^0.6.2",
     "@tailwindcss/vite": "^4.1.17",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
     "astro": "^5.16.2",
     "astro-icon": "^1.1.5",
+    "avro-js": "^1.11.3",
     "tailwindcss": "^4.1.17",
     "typescript": "^5.9.3",
+    "vite-plugin-node-polyfills": "^0.24.0",
     "wrangler": "^4.51.0"
   }
 }

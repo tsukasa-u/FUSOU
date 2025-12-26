@@ -8,6 +8,7 @@ import icon from "astro-icon";
 import react from "@astrojs/react";
 import remarkCallout from "@r4ai/remark-callout";
 import { fileURLToPath, URL } from "node:url";
+import { nodePolyfills } from 'vite-plugin-node-polyfills';
 
 // https://astro.build/config
 // @ts-ignore
@@ -31,7 +32,15 @@ export default defineConfig({
       external: ["node:fs/promises", "node:path", "node:url", "node:crypto"],
     },
     // @ts-ignore
-    plugins: [tailwindcss()],
+    plugins: [
+      tailwindcss(),
+      nodePolyfills({
+        include: ['buffer', 'util'],
+        globals: {
+          Buffer: true,
+        },
+      }),
+    ],
     define: {
       "process.env.PUBLIC_SUPABASE_URL": JSON.stringify(
         process.env.PUBLIC_SUPABASE_URL
