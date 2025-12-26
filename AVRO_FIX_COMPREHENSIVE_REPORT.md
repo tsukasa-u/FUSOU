@@ -24,9 +24,15 @@
 **Root Cause:** avsc uses `new Function()` which violates Cloudflare Workers security policy
 
 **Solution:** Migrated to avro-js with:
-- Schema validation via `avro.Type.forSchema()`
+- Schema validation via `avro.parse()` (not Type.forSchema - this was corrected during testing)
 - Manual OCF parsing for Workers compatibility
 - Proper error handling and edge case coverage
+
+**Critical Discovery During Testing:**
+- Initial implementation incorrectly used `avro.Type.forSchema()` 
+- Actual avro-js API is `avro.parse(schema)`
+- This was discovered and fixed when running actual tests
+- All tests now passing with correct API usage
 
 ### Phase 3: Enhanced OCF Parsing Implementation
 **Improvements Applied:**
@@ -222,6 +228,38 @@ fix: improve error handling and metadata parsing validation
    - Requires additional infrastructure
 
 ## 7. Testing Recommendations
+
+### Actual Testing Performed ✅
+
+**Unit Tests (test-avro-validator.mjs):**
+- ✅ Valid Avro file validation
+- ✅ File too small detection  
+- ✅ Invalid magic bytes detection
+- ✅ Invalid schema detection
+- ✅ Schema extraction verification
+
+**Integration Tests (test-real-avro-files.mjs):**
+- ✅ Real battle data file: 2477 bytes, 10 records detected
+- ✅ Tampered file: 2494 bytes, validated successfully
+- ✅ Record counting algorithm working
+
+**Test Results:**
+```
+=== Avro Validator Tests with avro-js ===
+✓ Valid file accepted
+✓ Tiny file rejected
+✓ Invalid magic bytes rejected
+✓ Invalid schema rejected
+✓ Schema extraction successful
+=== All validator tests passed ===
+
+=== Real File Tests ===
+✓ test-battle.avro: 2477 bytes, 10 records
+✓ test-battle-tampered.avro: 2494 bytes, 10 records
+=== Real file tests completed ===
+```
+
+### Additional Tests to Add
 
 1. **Unit Tests to Add**
    - Test with various Avro file sizes
