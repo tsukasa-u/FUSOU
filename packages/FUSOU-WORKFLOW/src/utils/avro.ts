@@ -174,7 +174,7 @@ export function generateHeader(schema: AvroSchema | string, syncMarker: Uint8Arr
   // Metadata
   const metadata: Record<string, Uint8Array> = {
     'avro.schema': new TextEncoder().encode(schemaJson),
-    'avro.codec': new TextEncoder().encode('deflate'),
+    'avro.codec': new TextEncoder().encode('null'),
   };
   chunks.push(encodeMap(metadata));
   // Sync marker
@@ -188,13 +188,14 @@ export function generateHeader(schema: AvroSchema | string, syncMarker: Uint8Arr
 }
 
 /**
- * Generate a compressed data block + sync marker for given records.
+ * Generate a data block + sync marker for given records.
  * Returns bytes suitable to append after an OCF header.
  */
 export async function generateBlock(
   schema: AvroSchema,
   records: any[],
-  syncMarker: Uint8Array
+  syncMarker: Uint8Array,
+  codec: string = 'null'
 ): Promise<Uint8Array> {
   if (!records.length) return new Uint8Array(0);
   // Encode each record according to schema
@@ -204,18 +205,20 @@ export async function generateBlock(
   let off = 0;
   for (const r of encodedRecords) { uncompressed.set(r, off); off += r.length; }
 
-  // Compress with raw DEFLATE for Avro 'deflate' codec
-  const compressed = new Uint8Array(await deflateRawAsync(uncompressed));
+  // Apply codec
+  const payload = codec === 'deflate' 
+    ? new Uint8Array(await deflateRawAsync(uncompressed))
+    : uncompressed;
 
   // Compose block: count + size + data + sync
   const count = encodeLong(records.length);
-  const size = encodeLong(compressed.length);
-  const blockLen = count.length + size.length + compressed.length + syncMarker.length;
+  const size = encodeLong(payload.length);
+  const blockLen = count.length + size.length + payload.length + syncMarker.length;
   const block = new Uint8Array(blockLen);
   let pos = 0;
   block.set(count, pos); pos += count.length;
   block.set(size, pos); pos += size.length;
-  block.set(compressed, pos); pos += compressed.length;
+  block.set(payload, pos); pos += payload.length;
   block.set(syncMarker, pos);
   return block;
 }

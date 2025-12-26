@@ -118,11 +118,13 @@ export function ensureSchemaNamespace(schema: AvroSchema, schemaVersion: string 
   return { ...schema, namespace: `fusou.${schemaVersion}` };
 }
 
-export function computeSchemaFingerprint(schemaJson: string): string {
-  // Use SHA-256 hex fingerprint for allowlist checks
-  // @ts-ignore
-  const { createHash } = require('node:crypto');
-  return createHash('sha256').update(schemaJson).digest('hex');
+export async function computeSchemaFingerprint(schemaJson: string): Promise<string> {
+  // Use WebCrypto (available in Cloudflare Workers) for SHA-256 fingerprint
+  const encoder = new TextEncoder();
+  const data = encoder.encode(schemaJson);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
 // Encode a record according to schema

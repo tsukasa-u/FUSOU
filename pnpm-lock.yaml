@@ -286,6 +286,9 @@ importers:
       '@cloudflare/workers-types':
         specifier: ^4.20251128.0
         version: 4.20251128.0
+      avsc:
+        specifier: ^5.7.7
+        version: 5.7.9
       typescript:
         specifier: ^5.9.3
         version: 5.9.3
@@ -2597,6 +2600,10 @@ packages:
     hasBin: true
     peerDependencies:
       postcss: ^8.1.0
+
+  avsc@5.7.9:
+    resolution: {integrity: sha512-yOA4wFeI7ET3v32Di/sUybQ+ttP20JHSW3mxLuNGeO0uD6PPcvLrIQXSvy/rhJOWU5JrYh7U4OHplWMmtAtjMg==}
+    engines: {node: '>=0.11'}
 
   axe-core@4.11.0:
     resolution: {integrity: sha512-ilYanEU8vxxBexpJd8cWM4ElSQq4QctCLKih0TSfjIfCQTeyH/6zVrmIJfLPrKTKJRbiG+cfnZbQIjAlJmF1jQ==}
@@ -7903,6 +7910,8 @@ snapshots:
       picocolors: 1.1.1
       postcss: 8.5.6
       postcss-value-parser: 4.2.0
+
+  avsc@5.7.9: {}
 
   axe-core@4.11.0: {}
 

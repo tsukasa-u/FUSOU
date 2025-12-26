@@ -26,7 +26,7 @@ async function testCompilation() {
   execSync('npx tsc --outDir dist', { cwd: path.join(__dirname, '..'), stdio: 'inherit' });
   
   const { default: fs } = await import('fs');
-  const files = ['buffer-consumer.js', 'archiver.js', 'reader.js', 'avro-manual.js', 'utils/compression.js'];
+  const files = ['buffer-consumer.js', 'cron.js', 'reader.js', 'avro-manual.js', 'utils/compression.js'];
   
   for (const file of files) {
     const filePath = path.join(distPath, file);
@@ -51,8 +51,8 @@ async function testModuleImports() {
     const bufferConsumer = await import(path.join(distPath, 'buffer-consumer.js'));
     log('  ✅ buffer-consumer.js imported', 'success');
     
-    const archiver = await import(path.join(distPath, 'archiver.js'));
-    log('  ✅ archiver.js imported', 'success');
+    const cron = await import(path.join(distPath, 'cron.js'));
+    log('  ✅ cron.js imported', 'success');
     
     const reader = await import(path.join(distPath, 'reader.js'));
     log('  ✅ reader.js imported', 'success');
@@ -61,7 +61,7 @@ async function testModuleImports() {
     log('  ✅ avro-manual.js imported', 'success');
     
     log('✅ Module imports test passed', 'success');
-    return { bufferConsumer, archiver, reader, avroManual };
+    return { bufferConsumer, cron, reader, avroManual };
   } catch (err) {
     log(`❌ Import failed: ${err.message}`, 'error');
     throw err;

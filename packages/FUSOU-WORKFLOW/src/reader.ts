@@ -194,27 +194,32 @@ async function fetchAvroHeader(
   }
 }
 
-function parseSchemaFingerprintFromHeader(header: Uint8Array): { fingerprint: string | null; namespace: string | null } {
+async function parseSchemaFingerprintFromHeader(header: Uint8Array): Promise<{ fingerprint: string | null; namespace: string | null }> {
   try {
-    // Find avro.schema JSON in header text quickly (small headers)
+    // Rough extraction: find avro.schema JSON payload inside header text
     const text = new TextDecoder().decode(header);
-    const schemaKeyIdx = text.indexOf('"avro.schema"');
-    if (schemaKeyIdx === -1) return { fingerprint: null, namespace: null };
-    // crude extraction: find first '{' after key
-    const brace = text.indexOf('{', schemaKeyIdx);
-    if (brace === -1) return { fingerprint: null, namespace: null };
-    // parse with JSON from the actual bytes for correctness
-    const { schema } = ((): any => {
-      // Reuse avro-manual parser to avoid drift
-      // Minimal implementation: decode via existing parser for schema+codec
-      // @ts-ignore
-      const tmp = require('./avro-manual.js');
-      const res = tmp.parseHeaderSchemaAndCodec ? tmp.parseHeaderSchemaAndCodec(header) : { schema: null };
-      return res;
-    })();
-    if (!schema) return { fingerprint: null, namespace: null };
-    const schemaJson = JSON.stringify(schema);
-    const fp = computeSchemaFingerprint(schemaJson);
+    const keyIdx = text.indexOf('"avro.schema"');
+    if (keyIdx === -1) return { fingerprint: null, namespace: null };
+    const startBrace = text.indexOf('{', keyIdx);
+    if (startBrace === -1) return { fingerprint: null, namespace: null };
+    // Find matching closing brace using a simple stack walk
+    let depth = 0;
+    let endBrace = -1;
+    for (let i = startBrace; i < text.length; i++) {
+      const ch = text[i];
+      if (ch === '{') depth++;
+      if (ch === '}') {
+        depth--;
+        if (depth === 0) {
+          endBrace = i;
+          break;
+        }
+      }
+    }
+    if (endBrace === -1) return { fingerprint: null, namespace: null };
+    const schemaJson = text.slice(startBrace, endBrace + 1);
+    const schema = JSON.parse(schemaJson);
+    const fp = await computeSchemaFingerprint(schemaJson);
     const ns = typeof schema.namespace === 'string' ? schema.namespace : null;
     return { fingerprint: fp, namespace: ns };
   } catch {
@@ -233,13 +238,13 @@ function loadSchemaFingerprintMap(env: Env): Record<string, string> {
   return {};
 }
 
-function validateHeaderSchemaVersion(
+async function validateHeaderSchemaVersion(
   header: Uint8Array,
   expectedVersion: string | undefined,
   allowedMap: Record<string, string>
-): void {
+): Promise<void> {
   if (!expectedVersion) return;
-  const { fingerprint, namespace } = parseSchemaFingerprintFromHeader(header);
+  const { fingerprint, namespace } = await parseSchemaFingerprintFromHeader(header);
   if (namespace && !namespace.includes(expectedVersion)) {
     throw new Error(`Schema namespace mismatch: expected version ${expectedVersion}, got namespace ${namespace}`);
   }
@@ -298,7 +303,7 @@ async function fetchColdData(
     const headerCodec = detectCompressionCodec(header);
 
     // Schema namespace/fingerprint validation (per file)
-    validateHeaderSchemaVersion(header, expectedSchemaVersion, allowedFingerprints);
+    await validateHeaderSchemaVersion(header, expectedSchemaVersion, allowedFingerprints);
     
     // Fetch all blocks for this file in parallel
     const blockPromises = blocks.map(block => {

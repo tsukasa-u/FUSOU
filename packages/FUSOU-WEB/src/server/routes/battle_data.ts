@@ -95,6 +95,11 @@ app.post("/upload", async (c) => {
       const datasetId = typeof body?.dataset_id === "string" ? body.dataset_id.trim() : "";
       const table = typeof body?.table === "string" ? body.table.trim() : "";
       const periodTag = typeof body?.kc_period_tag === "string" ? body.kc_period_tag.trim() : "";
+      const schemaVersion = typeof body?.schema_version === "string"
+        ? body.schema_version.trim()
+        : typeof body?.schemaVersion === "string"
+          ? body.schemaVersion.trim()
+          : "v1";
       const declaredSize = parseInt(typeof body?.file_size === "string" ? body.file_size : "0", 10);
       const tableOffsets = typeof body?.table_offsets === "string" ? body.table_offsets.trim() : null;
       const pathTag = typeof body?.path === "string" ? body.path.trim() : null;
@@ -162,6 +167,7 @@ app.post("/upload", async (c) => {
           table_offsets: tableOffsets,
           content_hash: contentHash,
           path_tag: pathTag,
+          schema_version: schemaVersion,
         },
       };
     },
@@ -170,6 +176,7 @@ app.post("/upload", async (c) => {
       const table = tokenPayload.table as string;
       const periodTag = (tokenPayload as any).period_tag as string;
       let tableOffsets = (tokenPayload as any).table_offsets as string | null;
+      const schemaVersion = (tokenPayload as any).schema_version as string || "v1";
 
       const triggeredAt = new Date().toISOString();
 
@@ -214,6 +221,7 @@ app.post("/upload", async (c) => {
                 avro_base64: b64,
                 datasetId,
                 periodTag,
+                schemaVersion,
                 triggeredAt,
                 userId: user.id,
               },
@@ -228,6 +236,7 @@ app.post("/upload", async (c) => {
               avro_base64: b64,
               datasetId,
               periodTag,
+              schemaVersion,
               triggeredAt,
               userId: user.id,
             },
