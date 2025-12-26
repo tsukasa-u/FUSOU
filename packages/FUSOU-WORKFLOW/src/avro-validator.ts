@@ -1,12 +1,13 @@
 /**
- * Avro OCF Validator for Cloudflare Workers (no avsc dependency)
+ * Avro OCF Validator for Cloudflare Workers
  * 
- * Lightweight validation without dynamic code generation:
- * - Only checks magic bytes, header structure, codec
- * - Does NOT perform full record decoding (avsc not available in Workers)
- * - Server-side validation happens in FUSOU-WEB before queuing
- * - Workers only does lightweight structural validation
+ * Uses apache-avro library (pure JavaScript, no eval/code generation)
+ * - Performs full record decoding and validation
+ * - Compatible with Cloudflare Workers (no dynamic code generation)
+ * - Validates against expected schema
  */
+
+import { DataFileReader, LONG_TYPE } from 'apache-avro';
 
 export interface DecodeValidationResult {
   valid: boolean;
@@ -20,7 +21,7 @@ export async function validateAvroOCF(
   expectedSchema: string | object
 ): Promise<DecodeValidationResult> {
   try {
-    // Lightweight validation: just check magic bytes and basic structure
+    // Validate magic bytes first
     if (avroBytes.byteLength < 4) {
       return { valid: false, error: 'Avro file too small' };
     }
@@ -30,23 +31,32 @@ export async function validateAvroOCF(
       return { valid: false, error: 'Invalid Avro magic bytes' };
     }
     
-    // Check for schema in header
-    const headerSlice = avroBytes.slice(0, Math.min(avroBytes.byteLength, 512));
-    const headerText = new TextDecoder().decode(headerSlice);
+    // Parse schema
+    const schemaObj = typeof expectedSchema === 'string' 
+      ? JSON.parse(expectedSchema) 
+      : expectedSchema;
     
-    if (!headerText.includes('avro.schema')) {
-      return { valid: false, error: 'No avro.schema found in header' };
+    // Use DataFileReader to decode Avro OCF
+    // apache-avro's DataFileReader handles Avro Container Format
+    let recordCount = 0;
+    
+    try {
+      const reader = new DataFileReader(Buffer.from(avroBytes), schemaObj);
+      
+      // Iterate through all records
+      while (reader.hasNext()) {
+        reader.next();
+        recordCount++;
+      }
+      
+      reader.close();
+    } catch (decodeErr) {
+      return {
+        valid: false,
+        error: `Avro decode failed: ${decodeErr instanceof Error ? decodeErr.message : String(decodeErr)}`,
+        details: { recordCount: Math.max(0, recordCount - 1) }
+      };
     }
-    
-    // Check for compression codec
-    if (headerText.includes('deflate') || headerText.includes('snappy')) {
-      return { valid: false, error: 'Compressed Avro codecs not supported' };
-    }
-    
-    // Estimate record count by looking for sync marker (16 bytes)
-    // Avro files have sync markers between blocks
-    const syncMarkerCount = (avroBytes.byteLength - avroBytes.lastIndexOf(0x00)) / 16;
-    const recordCount = Math.max(1, Math.floor(syncMarkerCount));
     
     return { valid: true, recordCount };
   } catch (err) {

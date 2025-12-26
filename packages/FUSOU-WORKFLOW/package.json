@@ -28,6 +28,7 @@
     "wrangler": "^4.51.0"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.86.0"
+    "@supabase/supabase-js": "^2.86.0",
+    "apache-avro": "^1.11.3"
   }
 }
