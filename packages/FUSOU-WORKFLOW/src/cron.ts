@@ -129,9 +129,10 @@ function groupByDataset(rows: BufferRow[]): ArchiveGroup[] {
 // File size limit: 128MB (2^27 bytes)
 const MAX_FILE_SIZE = 128 * 1024 * 1024;
 
-function generateFilePath(schemaVersion: string, periodTag: string, tableName: string, index: number): string {
+function generateFilePath(schemaVersion: string, periodTag: string, tableName: string, index: number, runTimestamp: number): string {
   const indexStr = String(index).padStart(3, '0');
-  return `${schemaVersion}/${periodTag}/${tableName}-${indexStr}.avro`;
+  // Ensure uniqueness per cron run by embedding runTimestamp in the path
+  return `${schemaVersion}/${periodTag}/${runTimestamp}/${tableName}-${indexStr}.avro`;
 }
 
 async function registerArchivedFile(db: D1Database, filePath: string, schemaVersion: string, fileSize: number, codec: string = 'deflate'): Promise<number> {
@@ -194,6 +195,7 @@ async function cleanupBuffer(db: D1Database, maxId: number): Promise<void> {
 
 export async function handleCron(env: Env): Promise<void> {
   try {
+    const runTimestamp = Date.now();
     const rows = await fetchBufferedData(env.BATTLE_INDEX_DB);
     if (!rows.length) {
       return; // Silent: no data to archive
@@ -234,7 +236,13 @@ export async function handleCron(env: Env): Promise<void> {
       // Upload each file chunk with index
       for (let fileIndex = 0; fileIndex < fileChunks.length; fileIndex++) {
         const chunk = fileChunks[fileIndex];
-        const filePath = generateFilePath(group.key.schema_version, group.key.period_tag, group.key.table_name, fileIndex + 1);
+        const filePath = generateFilePath(
+          group.key.schema_version,
+          group.key.period_tag,
+          group.key.table_name,
+          fileIndex + 1,
+          runTimestamp
+        );
 
         // Concatenate blocks for this file
         const combined = new Uint8Array(chunk.size);
@@ -249,6 +257,7 @@ export async function handleCron(env: Env): Promise<void> {
           httpMetadata: { contentType: 'application/octet-stream' },
           customMetadata: {
             'archive-date': new Date().toISOString(),
+            'run-timestamp': String(runTimestamp),
             'block-count': String(chunk.blocks.length),
             'format': 'avro-ocf',
             'schema-version': group.key.schema_version,
