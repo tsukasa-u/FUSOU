@@ -33,7 +33,7 @@ tauri-plugin-autostart = "2.5.1"
 tauri-plugin-notification = "2.3.3"
 tokio = { version = "1.38.0", features = ["full"] }
 webbrowser = "1.0.1"
-kc_api = { package = "kc-api", path = "./../../kc_api/crates/kc-api" }
+kc_api = { package = "kc-api", path = "./../../kc_api/crates/kc-api", features = ["schema_v1"] }
 proxy-https = { path = "./../../FUSOU-PROXY/proxy-https" }
 fusou-auth = { path = "./../../fusou-auth" }
 fusou-upload = { path = "./../../fusou-upload" }

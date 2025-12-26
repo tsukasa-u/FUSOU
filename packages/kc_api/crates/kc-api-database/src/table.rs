@@ -33,8 +33,8 @@ use kc_api_interface::mst_use_item::{MstUseItem, MstUseItems};
 use register_trait::FieldSizeChecker;
 use uuid::Uuid;
 
-// pub const DATABASE_TABLE_VERSION: &str = dotenv!("DATABASE_TABLE_VERSION");
-pub const DATABASE_TABLE_VERSION: &str = include_str!("../../../DATABASE_TABLE_VERSION");
+// Import DATABASE_TABLE_VERSION from schema_version module
+pub use crate::schema_version::DATABASE_TABLE_VERSION;
 
 #[derive(Debug, Clone)]
 pub enum PortTableEnum {

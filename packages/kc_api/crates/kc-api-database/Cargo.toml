@@ -24,6 +24,9 @@ regex = { workspace = true }
 dot-writer = { workspace = true }
 
 [features]
-default = [ "graphviz" ]
+default = ["graphviz", "schema_v1"]
 graphviz = []
 cytoscape = []
+schema_v1 = []
+schema_v2 = []
+breaking_schema = []

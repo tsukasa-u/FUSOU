@@ -8,5 +8,9 @@ pub mod decode;
 pub mod encode;
 pub mod integrate;
 pub mod models;
+pub mod schema_version;
 
 pub mod table;
+
+// Re-export version constants
+pub use schema_version::{SCHEMA_VERSION, DATABASE_TABLE_VERSION};

@@ -3,6 +3,7 @@ use std::sync::Arc;
 use fusou_auth::{AuthManager, FileStorage};
 use fusou_upload::{Uploader, UploadRequest, UploadContext};
 use fusou_upload::retry_service::RetryHandler;
+use kc_api::database::SCHEMA_VERSION;
 
 use crate::storage::cloud_provider_trait::CloudProviderFactory;
 
@@ -44,6 +45,7 @@ impl RetryHandler for AppUploadRetryHandler {
                             table,
                             file_size,
                             table_offsets,
+                            SCHEMA_VERSION,
                         );
 
                         let mut headers = std::collections::HashMap::new();
