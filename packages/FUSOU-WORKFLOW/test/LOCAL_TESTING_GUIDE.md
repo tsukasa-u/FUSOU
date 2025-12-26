@@ -176,7 +176,8 @@ ls -la /home/ogu-h/Documents/GitHub/FUSOU/packages/FUSOU-DATABASE/fusou/2025-11-
 ```javascript
 // test/load-fusou-data.mjs
 import { readFileSync } from 'fs';
-import avro from 'avsc';
+import avroLib from 'avro-js';
+const avro = avroLib;
 
 const avroFile = '/home/ogu-h/Documents/GitHub/FUSOU/packages/FUSOU-DATABASE/fusou/2025-11-05/master_data/mst_ships.avro';
 const data = readFileSync(avroFile);
