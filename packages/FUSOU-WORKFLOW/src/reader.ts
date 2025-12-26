@@ -17,10 +17,12 @@
 
 import { detectCompressionCodec } from './utils/compression.js';
 import { parseDeflateAvroBlock, getAvroHeaderLengthFromPrefix, parseNullAvroBlock } from './avro-manual.js';
+import { computeSchemaFingerprint } from './avro-manual.js';
 
 interface Env {
   BATTLE_DATA_BUCKET: R2Bucket;
   BATTLE_INDEX_DB: D1Database;
+  SCHEMA_FINGERPRINTS_JSON?: string; // optional map: { "v1": "<sha256>" }
 }
 
 interface QueryParams {
@@ -29,6 +31,7 @@ interface QueryParams {
   from?: number;  // timestamp (ms)
   to?: number;    // timestamp (ms)
   format?: string; // 'json' (default) | 'ocf'
+  schema_version?: string; // Optional: filter by schema version (v1, v2, etc.) - defaults to latest
 }
 
 interface HotRecord {
@@ -43,6 +46,7 @@ interface BlockIndex {
   id: number;
   dataset_id: string;
   table_name: string;
+  schema_version: string;
   file_id: number;
   start_byte: number;
   length: number;
@@ -98,11 +102,11 @@ async function fetchColdIndexes(
   db: D1Database,
   params: QueryParams
 ): Promise<BlockIndex[]> {
-  const { dataset_id, table_name, from, to } = params;
+  const { dataset_id, table_name, from, to, schema_version } = params;
   
   let sql = `
     SELECT 
-      bi.id, bi.dataset_id, bi.table_name, bi.file_id,
+      bi.id, bi.dataset_id, bi.table_name, bi.schema_version, bi.file_id,
       bi.start_byte, bi.length, bi.record_count,
       bi.start_timestamp, bi.end_timestamp,
       af.file_path, af.compression_codec
@@ -112,6 +116,17 @@ async function fetchColdIndexes(
   `;
   
   const bindings: any[] = [dataset_id, table_name];
+  
+  // Filter by schema_version if specified
+  // If not specified, return all versions (backward compatible)
+  if (schema_version !== undefined) {
+    sql += ' AND bi.schema_version = ?';
+    bindings.push(schema_version);
+  } else {
+    // Default: prefer v1, but fallback to any version if v1 not available
+    // This handles NULL values from pre-migration data
+    sql += ' AND (bi.schema_version = \'v1\' OR bi.schema_version IS NULL)';
+  }
   
   if (from !== undefined) {
     sql += ' AND bi.end_timestamp >= ?';
@@ -179,6 +194,61 @@ async function fetchAvroHeader(
   }
 }
 
+function parseSchemaFingerprintFromHeader(header: Uint8Array): { fingerprint: string | null; namespace: string | null } {
+  try {
+    // Find avro.schema JSON in header text quickly (small headers)
+    const text = new TextDecoder().decode(header);
+    const schemaKeyIdx = text.indexOf('"avro.schema"');
+    if (schemaKeyIdx === -1) return { fingerprint: null, namespace: null };
+    // crude extraction: find first '{' after key
+    const brace = text.indexOf('{', schemaKeyIdx);
+    if (brace === -1) return { fingerprint: null, namespace: null };
+    // parse with JSON from the actual bytes for correctness
+    const { schema } = ((): any => {
+      // Reuse avro-manual parser to avoid drift
+      // Minimal implementation: decode via existing parser for schema+codec
+      // @ts-ignore
+      const tmp = require('./avro-manual.js');
+      const res = tmp.parseHeaderSchemaAndCodec ? tmp.parseHeaderSchemaAndCodec(header) : { schema: null };
+      return res;
+    })();
+    if (!schema) return { fingerprint: null, namespace: null };
+    const schemaJson = JSON.stringify(schema);
+    const fp = computeSchemaFingerprint(schemaJson);
+    const ns = typeof schema.namespace === 'string' ? schema.namespace : null;
+    return { fingerprint: fp, namespace: ns };
+  } catch {
+    return { fingerprint: null, namespace: null };
+  }
+}
+
+function loadSchemaFingerprintMap(env: Env): Record<string, string> {
+  if (!env.SCHEMA_FINGERPRINTS_JSON) return {};
+  try {
+    const parsed = JSON.parse(env.SCHEMA_FINGERPRINTS_JSON);
+    if (typeof parsed === 'object' && parsed !== null) return parsed as Record<string, string>;
+  } catch {
+    return {};
+  }
+  return {};
+}
+
+function validateHeaderSchemaVersion(
+  header: Uint8Array,
+  expectedVersion: string | undefined,
+  allowedMap: Record<string, string>
+): void {
+  if (!expectedVersion) return;
+  const { fingerprint, namespace } = parseSchemaFingerprintFromHeader(header);
+  if (namespace && !namespace.includes(expectedVersion)) {
+    throw new Error(`Schema namespace mismatch: expected version ${expectedVersion}, got namespace ${namespace}`);
+  }
+  const expectedFp = allowedMap[expectedVersion];
+  if (expectedFp && fingerprint && fingerprint !== expectedFp) {
+    throw new Error(`Schema fingerprint mismatch for ${expectedVersion}`);
+  }
+}
+
 /**
  * Deserialize Avro data block to JSON records
  * Uses parseAvroDataBlock from avro-manual
@@ -197,14 +267,18 @@ async function deserializeAvroBlock(
 }
 
 /**
- * Fetch Cold data from R2 with Range Requests (parallel)
+ * Merge Hot and Cold data, deduplicate by content hash
+ * Note: Deduplication uses JSON stringification for simplicity
+ * For production, consider using a more robust hash function
  */
 async function fetchColdData(
   r2: R2Bucket,
-  indexes: BlockIndex[]
+  indexes: BlockIndex[],
+  expectedSchemaVersion: string | undefined,
+  allowedFingerprints: Record<string, string>
 ): Promise<any[]> {
   if (indexes.length === 0) return [];
-  
+
   // Group by file to cache headers
   const fileGroups = new Map<string, BlockIndex[]>();
   for (const idx of indexes) {
@@ -213,18 +287,26 @@ async function fetchColdData(
     }
     fileGroups.get(idx.file_path)!.push(idx);
   }
-  
+
   // Fetch all blocks in parallel
   const allRecords: any[] = [];
   
   for (const [filePath, blocks] of fileGroups.entries()) {
     // Fetch header once per file
     const header = await fetchAvroHeader(r2, filePath);
+    // Optional: verify header codec matches index expectation, if provided
+    const headerCodec = detectCompressionCodec(header);
+
+    // Schema namespace/fingerprint validation (per file)
+    validateHeaderSchemaVersion(header, expectedSchemaVersion, allowedFingerprints);
     
     // Fetch all blocks for this file in parallel
-    const blockPromises = blocks.map(block =>
-      fetchColdBlock(r2, filePath, block.start_byte, block.length, block.compression_codec)
-    );
+    const blockPromises = blocks.map(block => {
+      if (block.compression_codec && headerCodec && block.compression_codec !== headerCodec) {
+        throw new Error(`Compression codec mismatch for ${filePath}: header=${headerCodec}, index=${block.compression_codec}`);
+      }
+      return fetchColdBlock(r2, filePath, block.start_byte, block.length, block.compression_codec);
+    });
     
     const blockBuffers = await Promise.all(blockPromises);
     // Deserialize each block (codec-aware)
@@ -238,11 +320,6 @@ async function fetchColdData(
   return allRecords;
 }
 
-/**
- * Merge Hot and Cold data, deduplicate by content hash
- * Note: Deduplication uses JSON stringification for simplicity
- * For production, consider using a more robust hash function
- */
 function mergeAndDeduplicate(
   hotRecords: any[],
   coldRecords: any[]
@@ -332,7 +409,9 @@ export async function handleRead(
     console.log(`Cold indexes: ${coldIndexes.length}`);
     
     // Step 3: Fetch Cold data (Range Requests, parallel)
-    const coldRecords = await fetchColdData(env.BATTLE_DATA_BUCKET, coldIndexes);
+    const allowedFingerprints = loadSchemaFingerprintMap(env);
+    const effectiveSchemaVersion = params.schema_version ?? (coldIndexes[0]?.schema_version ?? undefined);
+    const coldRecords = await fetchColdData(env.BATTLE_DATA_BUCKET, coldIndexes, effectiveSchemaVersion, allowedFingerprints);
     console.log(`Cold records: ${coldRecords.length}`);
     
     // Step 4: Merge and deduplicate
