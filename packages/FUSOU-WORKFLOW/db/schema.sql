@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS archived_files (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   file_path TEXT NOT NULL UNIQUE,
   file_size INTEGER NOT NULL,
+  schema_version TEXT NOT NULL DEFAULT 'v1',
   compression_codec TEXT DEFAULT 'none',
   created_at INTEGER NOT NULL,
   last_modified_at INTEGER NOT NULL
@@ -35,8 +36,8 @@ CREATE TABLE IF NOT EXISTS block_indexes (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   dataset_id TEXT NOT NULL,
   table_name TEXT NOT NULL,
-  schema_version TEXT NOT NULL,
-  period_tag TEXT NOT NULL DEFAULT 'latest',
+  schema_version TEXT NOT NULL DEFAULT 'v1',
+  period_tag TEXT NOT NULL,
   file_id INTEGER NOT NULL,
   start_byte INTEGER NOT NULL,
   length INTEGER NOT NULL,

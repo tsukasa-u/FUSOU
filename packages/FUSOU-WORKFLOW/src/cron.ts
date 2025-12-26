@@ -1,10 +1,12 @@
 /**
- * Archiver Cron Worker for Avro BLOB concatenation
- * - Reads Avro binaries from D1 buffer_logs
+ * Archiver Cron Worker for Avro OCF merging
+ * - Reads Avro OCF files from D1 buffer_logs
  * - Groups by table_name + period_tag + dataset_id
- * - Concatenates Avro OCF blocks (already compressed from client)
+ * - Merges Avro OCF files into single valid OCF (preserves header, concatenates blocks)
  * - Records byte offsets in block_indexes for Range reads
  */
+
+import { mergeAvroOCF } from './avro-merger.js';
 
 interface Env {
   BATTLE_DATA_BUCKET: R2Bucket;
@@ -86,32 +88,43 @@ function groupByDataset(rows: BufferRow[]): ArchiveGroup[] {
   // Convert to ArchiveGroup[]
   const groups: ArchiveGroup[] = [];
   for (const [groupKey, datasetMap] of groupMap.entries()) {
-    const [schema_version, table_name, period_tag] = groupKey.split('::');
+    const parts = groupKey.split('::');
+    if (parts.length !== 3) {
+      throw new Error(`Internal error: groupKey format invalid: "${groupKey}" (expected "schema_version::table_name::period_tag")`);
+    }
+    const [schema_version, table_name, period_tag] = parts;
     const blocks: DatasetBlock[] = [];
     
     for (const [dataset_id, rows] of datasetMap.entries()) {
-      // Concatenate all Avro binaries for this dataset
+      // Convert all Avro OCF binaries to Uint8Array
       // D1 might return BLOB as Uint8Array or ArrayBuffer depending on driver
-      const buffers: Uint8Array[] = rows.map(r => {
+      const ocfFiles: Uint8Array[] = rows.map(r => {
         if (r.data instanceof Uint8Array) return r.data;
         if (r.data instanceof ArrayBuffer) return new Uint8Array(r.data);
         // Fallback: treat as any and attempt conversion
         return new Uint8Array((r.data as any).buffer || r.data);
       });
       
-      const totalSize = buffers.reduce((sum, b) => sum + b.byteLength, 0);
-      const combined = new Uint8Array(totalSize);
-      let offset = 0;
-      for (const buf of buffers) {
-        combined.set(buf, offset);
-        offset += buf.byteLength;
+      // Merge multiple Avro OCF files into a single valid OCF
+      // This preserves the header (magic, metadata, sync marker) from the first file
+      // and properly concatenates data blocks from all files
+      if (ocfFiles.length === 0) {
+        throw new Error(`No OCF files to merge for dataset ${dataset_id}`);
+      }
+      
+      let mergedAvro: Uint8Array;
+      try {
+        mergedAvro = mergeAvroOCF(ocfFiles);
+      } catch (err) {
+        console.error(`[Archiver] Failed to merge ${ocfFiles.length} OCF files for dataset ${dataset_id} (total ${ocfFiles.reduce((s, o) => s + o.byteLength, 0)}B):`, err);
+        throw new Error(`OCF merge failed: ${err instanceof Error ? err.message : String(err)}`);
       }
       
       const timestamps = rows.map(r => r.timestamp);
       blocks.push({
         dataset_id,
-        avroData: combined,
-        recordCount: rows.length,
+        avroData: mergedAvro,
+        recordCount: rows.length,  // Number of source OCF files merged
         startTimestamp: Math.min(...timestamps),
         endTimestamp: Math.max(...timestamps)
       });
@@ -140,18 +153,27 @@ async function registerArchivedFile(db: D1Database, filePath: string, schemaVers
   // This allows cron to safely retry without UNIQUE constraint failures
   const now = Date.now();
   
+  // Validate inputs
+  if (!filePath || filePath.length === 0) {
+    throw new Error('filePath cannot be empty');
+  }
+  if (fileSize < 0 || !Number.isFinite(fileSize)) {
+    throw new Error(`Invalid fileSize: ${fileSize}`);
+  }
+  
   // First check if file already exists
   const existing = await db.prepare(`
     SELECT id FROM archived_files WHERE file_path = ?
   `).bind(filePath).first<{ id: number }>();
   
   if (existing?.id) {
-    // Update last_modified_at for existing file
+    // Update file metadata for existing entry (idempotent)
+    // CRITICAL: Include schema_version in UPDATE to ensure consistency
     await db.prepare(`
       UPDATE archived_files 
-      SET file_size = ?, compression_codec = ?, last_modified_at = ?
+      SET file_size = ?, compression_codec = ?, schema_version = ?, last_modified_at = ?
       WHERE id = ?
-    `).bind(fileSize, codec, now, existing.id).run();
+    `).bind(fileSize, codec, schemaVersion, now, existing.id).run();
     return existing.id;
   }
   
@@ -244,12 +266,25 @@ export async function handleCron(env: Env): Promise<void> {
           runTimestamp
         );
 
-        // Concatenate blocks for this file
-        const combined = new Uint8Array(chunk.size);
-        let offset = 0;
-        for (const block of chunk.blocks) {
-          combined.set(block.avroData, offset);
-          offset += block.avroData.byteLength;
+        // Merge blocks for this file (if multiple blocks in same file chunk)
+        const blocksList: Uint8Array[] = chunk.blocks.map(b => b.avroData);
+        
+        let combined: Uint8Array;
+        if (blocksList.length === 0) {
+          throw new Error('Empty block list for file chunk');
+        } else if (blocksList.length === 1) {
+          // Single block, use as-is (already merged from OCF files within dataset)
+          combined = blocksList[0];
+        } else {
+          // Multiple blocks from different datasets in same chunk
+          // WARNING: Merging blocks from different datasets assumes compatible schema
+          // In production, ensure that datasets in same file chunk have identical schemas
+          try {
+            combined = mergeAvroOCF(blocksList);
+          } catch (err) {
+            console.error(`[Archiver] Failed to merge ${blocksList.length} blocks (total ${blocksList.reduce((s, b) => s + b.byteLength, 0)}B):`, err);
+            throw new Error(`Block merge failed: ${err instanceof Error ? err.message : String(err)}`);
+          }
         }
 
         // Upload to R2
@@ -269,7 +304,9 @@ export async function handleCron(env: Env): Promise<void> {
         });
 
         // Register file in D1
-        const fileId = await registerArchivedFile(env.BATTLE_INDEX_DB, filePath, group.key.schema_version, chunk.size, 'deflate');
+        // CRITICAL: Use actual combined size, not chunk.size (which may be estimate)
+        const actualSize = combined.byteLength;
+        const fileId = await registerArchivedFile(env.BATTLE_INDEX_DB, filePath, group.key.schema_version, actualSize, 'deflate');
         
         // Create block indexes for each dataset in this file
         const blockIndexes: BlockIndexRow[] = [];
