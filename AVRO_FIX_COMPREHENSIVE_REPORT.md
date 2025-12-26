@@ -78,7 +78,7 @@
 
 #### Cloudflare Workers Compatibility
 ✅ **VERIFIED SAFE:**
-- No code generation (avro-js Type.forSchema doesn't use new Function())
+- No code generation (avro-js parse() doesn't use new Function or eval)
 - No Node.js Buffer API usage
 - No stream APIs that require streams module
 - No fs or network operations
@@ -178,8 +178,8 @@ fix: improve error handling and metadata parsing validation
 
 ## 4. Verification Checklist
 
-- ✅ avro-js API verified (Type.forSchema exists and works)
-- ✅ No code generation exploits (Type.forSchema is safe)
+- ✅ avro-js API verified (parse() exists and works correctly)
+- ✅ No code generation exploits (parse() is safe, no eval/new Function)
 - ✅ Cloudflare Workers compatibility confirmed
 - ✅ Bounds checking implemented throughout
 - ✅ Error handling complete for all paths
