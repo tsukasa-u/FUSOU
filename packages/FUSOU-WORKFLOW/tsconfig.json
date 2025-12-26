@@ -12,8 +12,9 @@
     "forceConsistentCasingInFileNames": true,
     "types": [
       "@cloudflare/workers-types/experimental"
-    ]
+    ],
+    "skipLibCheck": true
   },
-  "include": ["src/**/*"],
+  "include": ["src/**/*", "node-compat.d.ts"],
   "exclude": ["node_modules"]
 }

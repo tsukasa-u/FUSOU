@@ -69,3 +69,8 @@ head_sampling_rate = 1
 binding = "BATTLE_INDEX_DB"
 database_name = "dev_kc_battle_index"
 database_id = "700f4191-f93c-4db4-873d-d5fee9a901e3"
+
+## Environment Variables
+# Do NOT hardcode variables here.
+# - Development: use dotenvx with `.env`
+# - Production: configure in Cloudflare Dashboard → Settings → Environment Variables

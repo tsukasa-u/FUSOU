@@ -22,7 +22,7 @@ import { computeSchemaFingerprint } from './avro-manual.js';
 interface Env {
   BATTLE_DATA_BUCKET: R2Bucket;
   BATTLE_INDEX_DB: D1Database;
-  SCHEMA_FINGERPRINTS_JSON?: string; // optional map: { "v1": "<sha256>" }
+  SCHEMA_FINGERPRINTS_JSON?: string; // map: { "v1": { "table": ["<sha256>", ...] }, ... }
 }
 
 interface QueryParams {
@@ -227,11 +227,19 @@ async function parseSchemaFingerprintFromHeader(header: Uint8Array): Promise<{ f
   }
 }
 
-function loadSchemaFingerprintMap(env: Env): Record<string, string> {
+type FingerprintEntry = string | string[];
+type FingerprintTableMap = Record<string, FingerprintEntry>;
+interface FingerprintVersionEntry {
+  table_version: string;
+  tables: FingerprintTableMap;
+}
+type FingerprintVersionMap = Record<string, FingerprintVersionEntry>;
+
+function loadSchemaFingerprintMap(env: Env): FingerprintVersionMap {
   if (!env.SCHEMA_FINGERPRINTS_JSON) return {};
   try {
     const parsed = JSON.parse(env.SCHEMA_FINGERPRINTS_JSON);
-    if (typeof parsed === 'object' && parsed !== null) return parsed as Record<string, string>;
+    if (typeof parsed === 'object' && parsed !== null) return parsed as FingerprintVersionMap;
   } catch {
     return {};
   }
@@ -241,16 +249,20 @@ function loadSchemaFingerprintMap(env: Env): Record<string, string> {
 async function validateHeaderSchemaVersion(
   header: Uint8Array,
   expectedVersion: string | undefined,
-  allowedMap: Record<string, string>
+  allowedMap: FingerprintVersionMap,
+  tableName: string
 ): Promise<void> {
   if (!expectedVersion) return;
   const { fingerprint, namespace } = await parseSchemaFingerprintFromHeader(header);
   if (namespace && !namespace.includes(expectedVersion)) {
     throw new Error(`Schema namespace mismatch: expected version ${expectedVersion}, got namespace ${namespace}`);
   }
-  const expectedFp = allowedMap[expectedVersion];
-  if (expectedFp && fingerprint && fingerprint !== expectedFp) {
-    throw new Error(`Schema fingerprint mismatch for ${expectedVersion}`);
+  const versionEntry = allowedMap[expectedVersion];
+  if (!versionEntry || !fingerprint) return;
+  const allowed = versionEntry.tables[tableName];
+  const allowedList = Array.isArray(allowed) ? allowed : (allowed ? [allowed] : []);
+  if (allowedList.length > 0 && !allowedList.includes(fingerprint)) {
+    throw new Error(`Schema fingerprint mismatch for ${expectedVersion}/${tableName} (TABLE_VERSION: ${versionEntry.table_version})`);
   }
 }
 
@@ -280,7 +292,8 @@ async function fetchColdData(
   r2: R2Bucket,
   indexes: BlockIndex[],
   expectedSchemaVersion: string | undefined,
-  allowedFingerprints: Record<string, string>
+  allowedFingerprints: FingerprintVersionMap,
+  tableName: string
 ): Promise<any[]> {
   if (indexes.length === 0) return [];
 
@@ -303,7 +316,7 @@ async function fetchColdData(
     const headerCodec = detectCompressionCodec(header);
 
     // Schema namespace/fingerprint validation (per file)
-    await validateHeaderSchemaVersion(header, expectedSchemaVersion, allowedFingerprints);
+    await validateHeaderSchemaVersion(header, expectedSchemaVersion, allowedFingerprints, tableName);
     
     // Fetch all blocks for this file in parallel
     const blockPromises = blocks.map(block => {
@@ -416,7 +429,13 @@ export async function handleRead(
     // Step 3: Fetch Cold data (Range Requests, parallel)
     const allowedFingerprints = loadSchemaFingerprintMap(env);
     const effectiveSchemaVersion = params.schema_version ?? (coldIndexes[0]?.schema_version ?? undefined);
-    const coldRecords = await fetchColdData(env.BATTLE_DATA_BUCKET, coldIndexes, effectiveSchemaVersion, allowedFingerprints);
+    const coldRecords = await fetchColdData(
+      env.BATTLE_DATA_BUCKET,
+      coldIndexes,
+      effectiveSchemaVersion,
+      allowedFingerprints,
+      params.table_name
+    );
     console.log(`Cold records: ${coldRecords.length}`);
     
     // Step 4: Merge and deduplicate

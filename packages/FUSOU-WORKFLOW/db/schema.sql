@@ -6,6 +6,8 @@ CREATE TABLE IF NOT EXISTS buffer_logs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   dataset_id TEXT NOT NULL,
   table_name TEXT NOT NULL,
+  period_tag TEXT NOT NULL DEFAULT 'latest',
+  schema_version TEXT NOT NULL DEFAULT 'v1',
   timestamp INTEGER NOT NULL,
   data BLOB NOT NULL,
   uploaded_by TEXT,
@@ -13,7 +15,7 @@ CREATE TABLE IF NOT EXISTS buffer_logs (
 );
 
 CREATE INDEX IF NOT EXISTS idx_buffer_dataset_table_ts
-  ON buffer_logs(dataset_id, table_name, timestamp);
+  ON buffer_logs(dataset_id, table_name, period_tag, schema_version, timestamp);
 
 -- Archived files metadata
 CREATE TABLE IF NOT EXISTS archived_files (
@@ -33,6 +35,8 @@ CREATE TABLE IF NOT EXISTS block_indexes (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   dataset_id TEXT NOT NULL,
   table_name TEXT NOT NULL,
+  schema_version TEXT NOT NULL,
+  period_tag TEXT NOT NULL DEFAULT 'latest',
   file_id INTEGER NOT NULL,
   start_byte INTEGER NOT NULL,
   length INTEGER NOT NULL,
@@ -43,7 +47,7 @@ CREATE TABLE IF NOT EXISTS block_indexes (
 );
 
 CREATE INDEX IF NOT EXISTS idx_block_dataset_table_ts
-  ON block_indexes(dataset_id, table_name, start_timestamp, end_timestamp);
+  ON block_indexes(dataset_id, table_name, schema_version, period_tag, start_timestamp, end_timestamp);
 
 CREATE INDEX IF NOT EXISTS idx_block_file_offset
   ON block_indexes(file_id, start_byte);

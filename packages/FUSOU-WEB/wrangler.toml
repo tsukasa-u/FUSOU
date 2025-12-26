@@ -1,18 +1,14 @@
 # Cloudflare Pages configuration for FUSOU-WEB
 name = "fusou"
 compatibility_date = "2024-01-01"
+compatibility_flags = ["nodejs_compat"]
 pages_build_output_dir = "dist"
 
 # ===== Environment Variables =====
-# Note: Using dotenvx for encrypted environment variable management
-# Development:
-#   - dotenvx run commands in package.json automatically load .env
-# Production (Cloudflare Pages):
-#   1. Create .env.production with production values
-#   2. Run: npx dotenvx encrypt -f .env.production
-#   3. In Cloudflare Pages Dashboard → Settings → Environment Variables → Production
-#      Add: DOTENV_PRIVATE_KEY = <value from .env.production.keys>
-# Do NOT add secrets to [vars] section - use dotenvx encryption instead
+# Note: Do NOT hardcode variables in wrangler.toml.
+# - Development: keep non-secret config in .env via dotenvx
+# - Production (Cloudflare Pages): set environment variables in the Pages Dashboard
+#   e.g. Settings → Environment Variables → add SCHEMA_FINGERPRINTS_JSON
 
 # ===== Service Bindings =====
 # Connect to separate Workers
