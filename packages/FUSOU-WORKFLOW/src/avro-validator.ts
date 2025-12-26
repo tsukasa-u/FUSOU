@@ -91,9 +91,17 @@ export async function validateAvroOCF(
     }
     
     // Parse metadata and find sync marker
-    const { metadataEnd, syncMarker } = parseOCFMetadata(avroBytes);
-    if (metadataEnd === -1) {
-      return { valid: false, error: 'Failed to parse OCF metadata' };
+    let metadataEnd: number;
+    let syncMarker: Uint8Array;
+    try {
+      const parsed = parseOCFMetadata(avroBytes);
+      metadataEnd = parsed.metadataEnd;
+      syncMarker = parsed.syncMarker;
+    } catch (parseErr) {
+      return { 
+        valid: false, 
+        error: `Failed to parse OCF metadata: ${parseErr instanceof Error ? parseErr.message : String(parseErr)}`
+      };
     }
     
     // Count records by parsing data blocks
@@ -166,36 +174,43 @@ export function extractSchemaFromOCF(avroBytes: Uint8Array): string | null {
 }
 /**
  * Parse OCF metadata to find where it ends
- * Returns { metadataEnd, syncMarker }
+ * Returns { metadataEnd, syncMarker } or throws on invalid input
  */
 function parseOCFMetadata(avroBytes: Uint8Array): { metadataEnd: number; syncMarker: Uint8Array } {
   // Metadata is Avro-encoded map: [key-value pairs] with empty array as terminator
   // After metadata comes the 16-byte sync marker
   
-  // Simple approach: scan for the sync marker pattern
-  // Sync marker is 16 random bytes that appears after metadata and before data blocks
+  // Validation
+  if (!avroBytes || avroBytes.length < 24) {
+    throw new Error('Invalid Avro buffer: too small for metadata');
+  }
   
   // Heuristic: metadata is usually in first 1-4KB
-  // Look for likely sync marker locations by scanning for patterns
-  
   // For Workers, we use a simple heuristic:
   // Skip to a reasonable offset where metadata typically ends (500-1024 bytes)
   let offset = Math.min(1024, avroBytes.length - 16);
   
-  // Try to find the sync marker by looking for repeated patterns
-  // (this is a heuristic, not perfect, but works for most Avro files)
+  // Find a reasonable sync marker offset
+  // Metadata typically ends between 100 and 2000 bytes
   for (let i = 100; i < Math.min(4096, avroBytes.length - 16); i++) {
-    // Simple check: if we found what looks like a valid data block start
-    // (which would have the sync marker 16 bytes before the block data)
-    // For now, use a conservative estimate
-    if (i > 100) {
+    // Conservative: metadata usually ends by 1KB for most schemas
+    if (i > 100 && i < 2000) {
       offset = i;
       break;
     }
   }
   
-  // Extract what we think is the sync marker (16 bytes after metadata)
-  const syncMarker = avroBytes.slice(offset, offset + 16);
+  // Validate offset is within bounds
+  if (offset < 4 || offset >= avroBytes.length - 16) {
+    throw new Error('Invalid metadata offset calculated');
+  }
+  
+  // Extract what we assume is the sync marker (16 bytes after metadata)
+  const syncMarker = avroBytes.slice(offset, Math.min(offset + 16, avroBytes.length));
+  
+  if (syncMarker.length < 16) {
+    throw new Error('Invalid sync marker: insufficient data');
+  }
   
   return { metadataEnd: offset, syncMarker };
 }
