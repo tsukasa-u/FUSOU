@@ -45,6 +45,7 @@ CREATE TABLE IF NOT EXISTS buffer_logs (
     dataset_id TEXT NOT NULL,        -- User/Dataset identifier
     table_name TEXT NOT NULL,        -- Table type (e.g., 'battle', 'pvp')
     period_tag TEXT NOT NULL DEFAULT 'latest', -- Server-issued period tag
+    schema_version TEXT NOT NULL DEFAULT 'v1', -- Schema version (v1, v2, etc.)
     
     -- Temporal metadata
     timestamp INTEGER NOT NULL,      -- Record's logical timestamp (milliseconds)
@@ -69,6 +70,10 @@ CREATE INDEX IF NOT EXISTS idx_buffer_cleanup
 CREATE INDEX IF NOT EXISTS idx_buffer_batch 
     ON buffer_logs (id);
 
+-- Index for schema version filtering
+CREATE INDEX IF NOT EXISTS idx_buffer_schema_version
+    ON buffer_logs (schema_version, table_name, period_tag);
+
 -- ============================================================================
 -- Table 2: archived_files (File Path Normalization)
 -- ============================================================================
@@ -83,9 +88,12 @@ CREATE TABLE IF NOT EXISTS archived_files (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     
     -- R2 object key (without bucket name)
-    -- Format: "table_name/period_tag.avro"
-    -- Example: "battle/202412.avro"
+    -- Format: "{schema_version}/{period_tag}/{table_name}-{index}.avro"
+    -- Example: "v1/2025-12-25/battle-001.avro"
     file_path TEXT NOT NULL UNIQUE,
+    
+    -- Schema version (v1, v2, etc.)
+    schema_version TEXT NOT NULL DEFAULT 'v1',
     
     -- File metadata
     file_size INTEGER,               -- Total file size in bytes (optional)
@@ -99,6 +107,10 @@ CREATE TABLE IF NOT EXISTS archived_files (
 -- Index for reverse lookup (path → id)
 CREATE INDEX IF NOT EXISTS idx_archived_path 
     ON archived_files (file_path);
+
+-- Index for schema version filtering
+CREATE INDEX IF NOT EXISTS idx_archived_schema
+    ON archived_files (schema_version);
 
 -- ============================================================================
 -- Table 3: block_indexes (Byte-Level Address Book)
@@ -120,6 +132,7 @@ CREATE TABLE IF NOT EXISTS block_indexes (
     -- Classification (who/what/when)
     dataset_id TEXT NOT NULL,
     table_name TEXT NOT NULL,
+    schema_version TEXT NOT NULL DEFAULT 'v1',
     
     -- File reference (normalized foreign key)
     file_id INTEGER NOT NULL,
@@ -143,7 +156,7 @@ CREATE TABLE IF NOT EXISTS block_indexes (
 -- Composite index for dataset + table + time range queries
 -- This is the PRIMARY access pattern for reading Cold data
 CREATE INDEX IF NOT EXISTS idx_block_search 
-    ON block_indexes (dataset_id, table_name, start_timestamp, end_timestamp);
+    ON block_indexes (dataset_id, table_name, schema_version, start_timestamp, end_timestamp);
 
 -- Index for file-based cleanup (delete all blocks when file is removed)
 CREATE INDEX IF NOT EXISTS idx_block_file 
