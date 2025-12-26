@@ -2,7 +2,7 @@
  * Avro OCF Decode Validator (Pages Side - Supports Full Validation)
  * 
  * Security Considerations:
- * - Uses avro-js Type.forSchema() for schema validation (no code generation)
+ * - Uses avro-js parse() for schema validation (no code generation)
  * - TextDecoder with UTF-8 validation (safe from binary data)
  * - Uint8Array bounds checking throughout
  * - No external codec support (prevents decompression attacks)
@@ -10,14 +10,15 @@
  * 
  * Purpose: Fully validate and count Avro OCF files
  * Includes:
- * - Schema validation via avro-js Type.forSchema()
+ * - Schema validation via avro-js parse()
  * - Manual OCF structure parsing
  * - Record counting via sync marker detection
  * 
  * Node.js compatibility mode with @astrojs/cloudflare
  */
 
-import * as avro from 'avro-js';
+import avroLib from 'avro-js';
+const avro = avroLib;
 
 export interface DecodeValidationResult {
   valid: boolean;
@@ -58,7 +59,7 @@ export async function validateAvroOCF(
     // Validate schema with avro-js
     let type: any;
     try {
-      type = avro.Type.forSchema(schemaObj);
+      type = avro.parse(schemaObj);
     } catch (err) {
       return { 
         valid: false, 

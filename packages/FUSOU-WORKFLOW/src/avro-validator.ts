@@ -2,7 +2,7 @@
  * Avro OCF Validator for Cloudflare Workers
  * 
  * Security Considerations:
- * - Uses avro-js Type.forSchema() for schema validation (no code generation)
+ * - Uses avro-js parse() for schema validation (no code generation)
  * - TextDecoder with UTF-8 validation (safe from binary data)
  * - Uint8Array bounds checking throughout
  * - No external codec support (prevents decompression attacks)
@@ -10,12 +10,13 @@
  * 
  * Implements OCF parsing with avro-js for schema validation
  * - Parses Avro Object Container Format manually
- * - Uses avro-js for schema validation and record decoding
+ * - Uses avro-js parse() for schema validation
  * - No external codec support (null codec only)
  * - Pure JavaScript, Workers-compatible
  */
 
-import * as avro from 'avro-js';
+import avroLib from 'avro-js';
+const avro = avroLib;
 
 export interface DecodeValidationResult {
   valid: boolean;
@@ -60,7 +61,7 @@ export async function validateAvroOCF(
     // Validate schema is valid Avro
     let type: any;
     try {
-      type = avro.Type.forSchema(schemaObj);
+      type = avro.parse(schemaObj);
     } catch (schemaErr) {
       return { valid: false, error: `Invalid schema: ${schemaErr instanceof Error ? schemaErr.message : String(schemaErr)}` };
     }

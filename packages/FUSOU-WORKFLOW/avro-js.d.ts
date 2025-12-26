@@ -4,15 +4,19 @@
  */
 
 declare module 'avro-js' {
-  export class Type {
-    static forSchema(schema: any): Type;
-    createBinaryEncoder(stream: any): any;
-    createBinaryDecoder(buffer: Buffer | Uint8Array): any;
-  }
+  export function parse(schema: any): any;
+  export function createFileDecoder(filePath: string): any;
+  export function createFileEncoder(filePath: string, schema: any): any;
+  export function extractFileHeader(buffer: Buffer | Uint8Array): any;
 
-  export interface DecodeOptions {
-    schema?: any;
-  }
+  export const streams: {
+    RawDecoder: any;
+    BlockDecoder: any;
+    RawEncoder: any;
+    BlockEncoder: any;
+  };
 
-  export function createDecoder(buffer: Buffer | Uint8Array, options?: DecodeOptions): any;
+  export const types: {
+    Type: any;
+  };
 }
