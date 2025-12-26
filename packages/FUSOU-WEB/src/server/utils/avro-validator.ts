@@ -3,14 +3,13 @@
  * 
  * Purpose: Fully decode Avro OCF files to verify schema conformance and detect data corruption
  * 
- * Uses avsc (npm: avsc) to decode and validate entire file
- * - Requires nodejs_compat flag in wrangler.toml
+ * Uses avro-js (npm: avro-js) to decode and validate entire file
+ * - Works with nodejs_compat flag in wrangler.toml
  * - Always enabled (constant-time validation)
  * - Suitable for small files (<= 64KB)
  */
 
-import * as avro from 'avsc';
-import { Readable } from 'node:stream';
+import * as avro from 'avro-js';
 
 export interface DecodeValidationResult {
   valid: boolean;
@@ -38,37 +37,29 @@ export async function validateAvroOCF(
     
     const type = avro.Type.forSchema(schemaObj);
     
-    // Create readable stream from bytes
-    const stream = Readable.from(Buffer.from(avroBytes));
-    
-    // Create file decoder (handles OCF format)
-    const decoder: any = (type as any).createFileDecoder(stream);
+    // Create decoder for Avro OCF
+    const decoder = avro.createDecoder(Buffer.from(avroBytes), { schema: type });
     
     let recordCount = 0;
-    const errors: string[] = [];
     
     // Decode all records
-    await new Promise<void>((resolve, reject) => {
-      decoder.on('data', () => {
+    try {
+      while (decoder.hasNext()) {
+        decoder.next();
         recordCount++;
-        // Record successfully decoded - schema conformant
-      });
-      
-      decoder.on('error', (err: any) => {
-        errors.push(err.message || String(err));
-        reject(err);
-      });
-      
-      decoder.on('end', () => {
-        resolve();
-      });
-    });
-    
-    if (errors.length > 0) {
+      }
+    } catch (err) {
       return {
         valid: false,
-        error: 'Decode errors encountered',
-        details: { errors }
+        error: `Decode error after ${recordCount} records: ${err instanceof Error ? err.message : String(err)}`,
+        details: { recordCount }
+      };
+    }
+    
+    if (recordCount === 0) {
+      return {
+        valid: false,
+        error: 'No records found in Avro file'
       };
     }
     
