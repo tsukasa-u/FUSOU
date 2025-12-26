@@ -11,6 +11,8 @@
  * Performance Target: < 500ms for 100 records
  */
 
+import { validateAvroOCF, extractSchemaFromOCF } from './avro-validator';
+
 interface Env {
   BATTLE_INDEX_DB: D1Database;
   // Optional tuning: chunk size for bulk inserts (<= 500)
@@ -76,22 +78,74 @@ function flattenRecords(records: BufferLogRecord[]): (string | number | ArrayBuf
 }
 
 /**
+ * Lightweight Avro header validation (defense-in-depth)
+ */
+function validateAvroHeader(data: Uint8Array): { valid: boolean; error?: string } {
+  // Size sanity (already limited by Pages, but double-check)
+  if (data.byteLength > 1048576) {  // 1MB hard cap
+    return { valid: false, error: `Unexpectedly large: ${data.byteLength} bytes` };
+  }
+  
+  // Magic bytes
+  if (data.byteLength < 4 || data[0] !== 0x4F || data[1] !== 0x62 || data[2] !== 0x6A || data[3] !== 0x01) {
+    return { valid: false, error: 'Invalid magic bytes' };
+  }
+  
+  // Reject compressed codecs
+  const headerSlice = data.slice(0, Math.min(data.byteLength, 512));
+  const text = new TextDecoder().decode(headerSlice);
+  const codecIdx = text.indexOf('avro.codec');
+  if (codecIdx !== -1) {
+    const codecSlice = text.slice(codecIdx, codecIdx + 50);
+    if (codecSlice.includes('deflate') || codecSlice.includes('snappy')) {
+      return { valid: false, error: 'Compressed codec not allowed' };
+    }
+  }
+  
+  return { valid: true };
+}
+
+/**
  * Normalize queue message to buffer log record
  * Converts base64 Avro to binary BLOB for storage
+ * Performs defense-in-depth validation (even though WEB already validated)
  */
-function normalizeMessage(msg: QueueMessage): BufferLogRecord[] {
+async function normalizeMessage(msg: QueueMessage): Promise<BufferLogRecord[]> {
   const now = Date.now();
   
-  // Decode base64 to binary
-  const avroBytes = Uint8Array.from(atob(msg.avro_base64), c => c.charCodeAt(0));
+  // Decode base64 to binary (efficient O(n) instead of O(n²) loop)
+  const binaryString = atob(msg.avro_base64);
+  const avroBytes = new Uint8Array(binaryString.length);
+  for (let i = 0; i < binaryString.length; i++) {
+    avroBytes[i] = binaryString.charCodeAt(i);
+  }
+  
+  // Defense-in-depth: lightweight header check
+  const headerCheck = validateAvroHeader(avroBytes);
+  if (!headerCheck.valid) {
+    throw new Error(`Avro validation failed: ${headerCheck.error}`);
+  }
+  
+  // Defense-in-depth: full decode validation
+  const schemaJson = extractSchemaFromOCF(avroBytes);
+  if (!schemaJson) {
+    throw new Error('Schema not found in Avro header');
+  }
+  
+  const decodeResult = await validateAvroOCF(avroBytes, schemaJson);
+  if (!decodeResult.valid) {
+    throw new Error(`Decode failed: ${decodeResult.error}`);
+  }
+  
+  console.log(`[Consumer] Validated ${msg.table}: ${decodeResult.recordCount} records`);
   
   return [{
     dataset_id: msg.datasetId,
     table_name: msg.table,
     period_tag: msg.periodTag ?? 'latest',
-    schema_version: msg.schemaVersion || 'v1',  // Default to v1 if not provided
+    schema_version: msg.schemaVersion || 'v1',
     timestamp: msg.triggeredAt ? new Date(msg.triggeredAt).getTime() : now,
-    data: avroBytes.buffer,  // Store as Avro BLOB
+    data: avroBytes.buffer,
     uploaded_by: msg.userId
   }];
 }
@@ -107,13 +161,13 @@ export async function handleBufferConsumer(
   const allRecords: BufferLogRecord[] = [];
   const failedMessages: Message<QueueMessage>[] = [];
   
-  // Step 1: Flatten all messages into single record array
+  // Step 1: Flatten all messages into single record array (with async validation)
   for (const message of batch.messages) {
     try {
-      const normalized = normalizeMessage(message.body);
+      const normalized = await normalizeMessage(message.body);
       allRecords.push(...normalized);
     } catch (err) {
-      console.error('Failed to normalize message:', err);
+      console.error('Failed to normalize/validate message:', err);
       failedMessages.push(message);
     }
   }
@@ -166,10 +220,10 @@ export async function handleBufferConsumerChunked(
   
   for (const message of batch.messages) {
     try {
-      const normalized = normalizeMessage(message.body);
+      const normalized = await normalizeMessage(message.body);
       allRecords.push(...normalized);
     } catch (err) {
-      console.error('Failed to normalize message:', err);
+      console.error('Failed to normalize/validate message:', err);
       failedMessages.push(message);
     }
   }

@@ -4,53 +4,52 @@ import { CORS_HEADERS } from "../constants";
 import { createEnvContext, getEnv } from "../utils";
 import { handleTwoStageUpload } from "../utils/upload";
 import { validateOffsetMetadata } from "../validators/offsets";
+import { validateAvroOCF, extractSchemaFromOCF } from "../utils/avro-validator";
 
 const app = new Hono<{ Bindings: Bindings }>();
 
 /**
  * Convert Uint8Array to base64 string (Cloudflare Workers compatible)
+ * Uses chunks to avoid O(n²) string concatenation
  */
 function arrayBufferToBase64(bytes: Uint8Array): string {
+  const chunkSize = 8192;
   let binary = '';
-  const len = bytes.byteLength;
-  for (let i = 0; i < len; i++) {
-    binary += String.fromCharCode(bytes[i]);
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    const chunk = bytes.subarray(i, Math.min(i + chunkSize, bytes.length));
+    binary += String.fromCharCode(...Array.from(chunk));
   }
   return btoa(binary);
 }
 
 /**
- * Retry utility for handling rate limits and transient errors
- * Implements exponential backoff to respect Supabase Free tier limits
+ * Lightweight Avro header validation (DoS prevention)
+ * Checks magic bytes, codec, and size limit before expensive decode
  */
-async function withRetry<T>(
-  fn: () => Promise<T>,
-  maxRetries = 3,
-  baseDelay = 1000
-): Promise<T> {
-  for (let attempt = 0; attempt < maxRetries; attempt++) {
-    try {
-      return await fn();
-    } catch (error) {
-      const isLastAttempt = attempt === maxRetries - 1;
-      const isRateLimitError =
-        (error as any)?.message?.includes('429') ||
-        (error as any)?.message?.includes('Too Many Requests') ||
-        (error as any)?.status === 429;
-
-      if (isLastAttempt || !isRateLimitError) {
-        throw error;
-      }
-
-      // Exponential backoff: 1s, 2s, 4s
-      const delay = baseDelay * Math.pow(2, attempt);
-      console.warn(`[battle-data] Retry: Attempt ${attempt + 1} failed, retrying in ${delay}ms`, {
-        error: (error as any)?.message,
-      });
-      await new Promise(resolve => setTimeout(resolve, delay));
+function validateAvroHeader(data: Uint8Array, maxBytes: number = 65536): { valid: boolean; error?: string } {
+  // Size limit (default 64KB)
+  if (data.byteLength > maxBytes) {
+    return { valid: false, error: `File too large: ${data.byteLength} bytes (max: ${maxBytes})` };
+  }
+  
+  // Magic bytes: "Obj\x01" (4 bytes)
+  if (data.byteLength < 4 || data[0] !== 0x4F || data[1] !== 0x62 || data[2] !== 0x6A || data[3] !== 0x01) {
+    return { valid: false, error: 'Invalid Avro magic bytes' };
+  }
+  
+  // Extract codec from header (search for "avro.codec")
+  const headerSlice = data.slice(0, Math.min(data.byteLength, 512));
+  const text = new TextDecoder().decode(headerSlice);
+  const codecIdx = text.indexOf('avro.codec');
+  if (codecIdx !== -1) {
+    const codecSlice = text.slice(codecIdx, codecIdx + 50);
+    // Reject compressed codecs (deflate/snappy) - potential decompression bombs
+    if (codecSlice.includes('deflate') || codecSlice.includes('snappy')) {
+      return { valid: false, error: 'Compressed Avro not supported (codec must be null)' };
     }
   }
-  throw new Error('Max retries exceeded');
+  
+  return { valid: true };
 }
 
 /**
@@ -205,15 +204,47 @@ app.post("/upload", async (c) => {
           }
         }
 
+        // Get size limit from env (default 64KB)
+        const maxBytes = env.buildtime.MAX_BATTLE_SLICE_BYTES
+          ? parseInt(env.buildtime.MAX_BATTLE_SLICE_BYTES, 10)
+          : 65536;
+
         const messages: any[] = [];
         if (Array.isArray(offsets) && offsets.length) {
-          // Split by provided offsets
+          // Split by provided offsets and validate each slice
           for (const entry of offsets) {
             const start = Number(entry.start_byte ?? 0);
             const len = Number(entry.byte_length ?? 0);
             const tname = String(entry.table_name ?? table);
             if (len <= 0) continue;
+            
             const slice = data.subarray(start, start + len);
+            
+            // Lightweight header validation (DoS prevention)
+            const headerCheck = validateAvroHeader(slice, maxBytes);
+            if (!headerCheck.valid) {
+              console.error(`[battle-data] Invalid Avro header for ${tname}:`, headerCheck.error);
+              return c.json({ error: `Invalid Avro data: ${headerCheck.error}` }, 400);
+            }
+            
+            // Extract schema and validate via full decode
+            const schemaJson = extractSchemaFromOCF(slice);
+            if (!schemaJson) {
+              console.error(`[battle-data] Failed to extract schema from ${tname}`);
+              return c.json({ error: 'Invalid Avro: schema not found in header' }, 400);
+            }
+            
+            const decodeResult = await validateAvroOCF(slice, schemaJson);
+            if (!decodeResult.valid) {
+              console.error(`[battle-data] Decode validation failed for ${tname}:`, decodeResult.error);
+              return c.json({ 
+                error: 'Schema validation failed', 
+                details: decodeResult.error 
+              }, 400);
+            }
+            
+            console.info(`[battle-data] Validated ${tname}: ${decodeResult.recordCount} records`);
+            
             const b64 = arrayBufferToBase64(slice);
             messages.push({
               body: {
@@ -229,6 +260,32 @@ app.post("/upload", async (c) => {
           }
         } else {
           // No offsets: treat entire payload as single table slice
+          
+          // Lightweight header validation
+          const headerCheck = validateAvroHeader(data, maxBytes);
+          if (!headerCheck.valid) {
+            console.error('[battle-data] Invalid Avro header:', headerCheck.error);
+            return c.json({ error: `Invalid Avro data: ${headerCheck.error}` }, 400);
+          }
+          
+          // Extract schema and validate via full decode
+          const schemaJson = extractSchemaFromOCF(data);
+          if (!schemaJson) {
+            console.error('[battle-data] Failed to extract schema from payload');
+            return c.json({ error: 'Invalid Avro: schema not found in header' }, 400);
+          }
+          
+          const decodeResult = await validateAvroOCF(data, schemaJson);
+          if (!decodeResult.valid) {
+            console.error('[battle-data] Decode validation failed:', decodeResult.error);
+            return c.json({ 
+              error: 'Schema validation failed', 
+              details: decodeResult.error 
+            }, 400);
+          }
+          
+          console.info(`[battle-data] Validated ${table}: ${decodeResult.recordCount} records`);
+          
           const b64 = arrayBufferToBase64(data);
           messages.push({
             body: {
@@ -298,25 +355,27 @@ app.get("/chunks", async (c) => {
 
   try {
     let sql = `SELECT 
-           s.segment_key AS key,
-           f.dataset_id AS dataset_id,
-           f.table_name AS table,
-           s.segment_size AS size,
-           s.etag AS etag,
-           s.created_at AS created_at,
-           s.content_hash AS content_hash
-         FROM avro_segments s
-         JOIN avro_files f ON f.file_key = s.parent_file_key
-         WHERE f.dataset_id = ? AND f.table_name = ?`;
+           bi.id AS id,
+           bi.dataset_id,
+           bi.table_name AS table,
+           bi.length AS size,
+           af.file_path,
+           af.created_at,
+           bi.start_timestamp,
+           bi.end_timestamp,
+           bi.record_count
+         FROM block_indexes bi
+         JOIN archived_files af ON af.id = bi.file_id
+         WHERE bi.dataset_id = ? AND bi.table_name = ?`;
     const params: unknown[] = [datasetId, table];
 
     // Convert ISO8601 to epoch millis if provided
     const fromMs = from ? Date.parse(from) : undefined;
     const toMs = to ? Date.parse(to) : undefined;
-    if (fromMs && !Number.isNaN(fromMs)) { sql += ` AND s.created_at >= ?`; params.push(fromMs); }
-    if (toMs && !Number.isNaN(toMs)) { sql += ` AND s.created_at <= ?`; params.push(toMs); }
+    if (fromMs && !Number.isNaN(fromMs)) { sql += ` AND bi.start_timestamp >= ?`; params.push(fromMs); }
+    if (toMs && !Number.isNaN(toMs)) { sql += ` AND bi.end_timestamp <= ?`; params.push(toMs); }
 
-    sql += ` ORDER BY s.created_at DESC LIMIT ? OFFSET ?`;
+    sql += ` ORDER BY bi.start_timestamp DESC LIMIT ? OFFSET ?`;
     params.push(limit, offset);
 
     const stmt = indexDb.prepare(sql);
@@ -324,15 +383,15 @@ app.get("/chunks", async (c) => {
     if (!result) { throw new Error("D1 returned no results for chunks query"); }
 
     const rows = (result.results || []) as any[];
-    // Back-compat: expose uploaded_at ISO like before
+    // Map block_indexes to response format
     const chunks = rows.map(r => ({
-      key: r.key,
+      id: r.id,
+      file_path: r.file_path,
       dataset_id: r.dataset_id,
       table: r.table,
       size: r.size,
-      etag: r.etag,
-      uploaded_at: new Date(Number(r.created_at || 0)).toISOString(),
-      content_hash: r.content_hash,
+      record_count: r.record_count,
+      uploaded_at: new Date(r.start_timestamp).toISOString(),
     }));
 
     c.res.headers.set("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
@@ -366,30 +425,31 @@ app.get("/latest", async (c) => {
   try {
     const stmt = indexDb.prepare(
       `SELECT 
-         s.segment_key AS key,
-         f.dataset_id AS dataset_id,
-         f.table_name AS table,
-         s.segment_size AS size,
-         s.etag AS etag,
-         s.created_at AS created_at,
-         s.content_hash AS content_hash
-       FROM avro_segments s
-       JOIN avro_files f ON f.file_key = s.parent_file_key
-       WHERE f.dataset_id = ? AND f.table_name = ?
-       ORDER BY s.created_at DESC LIMIT 1`
+         bi.id,
+         bi.dataset_id,
+         bi.table_name AS table,
+         bi.length AS size,
+         af.file_path,
+         af.created_at,
+         bi.start_timestamp,
+         bi.record_count
+       FROM block_indexes bi
+       JOIN archived_files af ON af.id = bi.file_id
+       WHERE bi.dataset_id = ? AND bi.table_name = ?
+       ORDER BY bi.start_timestamp DESC LIMIT 1`
     );
     const row = await stmt.bind(datasetId, table).first?.();
 
     if (!row) { return c.json({ error: "No fragments found" }, 404); }
 
     const latest = {
-      key: row.key,
+      id: row.id,
+      file_path: row.file_path,
       dataset_id: row.dataset_id,
       table: row.table,
       size: row.size,
-      etag: row.etag,
-      uploaded_at: new Date(Number(row.created_at || 0)).toISOString(),
-      content_hash: row.content_hash,
+      record_count: row.record_count,
+      uploaded_at: new Date(Number(row.start_timestamp || 0)).toISOString(),
     };
 
     c.res.headers.set("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
@@ -417,36 +477,37 @@ app.get("/global/chunks", async (c) => {
   }
 
   const table = c.req.query("table");
-  const periodTag = c.req.query("period_tag");
   const from = c.req.query("from");
   const to = c.req.query("to");
   const limit = Math.min(parseInt(c.req.query("limit") || "1000", 10), 10000);
   const offset = Math.max(0, parseInt(c.req.query("offset") || "0", 10));
 
-  if (!table || !periodTag) {
-    return c.json({ error: "table and period_tag are required" }, 400);
+  if (!table) {
+    return c.json({ error: "table is required" }, 400);
   }
 
   try {
     let sql = `SELECT 
-           s.segment_key AS key,
-           f.dataset_id AS dataset_id,
-           f.table_name AS table,
-           s.segment_size AS size,
-           s.etag AS etag,
-           s.created_at AS created_at,
-           s.content_hash AS content_hash
-         FROM avro_segments s
-         JOIN avro_files f ON f.file_key = s.parent_file_key
-         WHERE f.table_name = ? AND f.period_tag = ?`;
-    const params: unknown[] = [table, periodTag];
+           bi.id,
+           bi.dataset_id,
+           bi.table_name AS table,
+           bi.length AS size,
+           af.file_path,
+           af.created_at,
+           bi.start_timestamp,
+           bi.end_timestamp,
+           bi.record_count
+         FROM block_indexes bi
+         JOIN archived_files af ON af.id = bi.file_id
+         WHERE bi.table_name = ?`;
+    const params: unknown[] = [table];
 
     const fromMs = from ? Date.parse(from) : undefined;
     const toMs = to ? Date.parse(to) : undefined;
-    if (fromMs && !Number.isNaN(fromMs)) { sql += ` AND s.created_at >= ?`; params.push(fromMs); }
-    if (toMs && !Number.isNaN(toMs)) { sql += ` AND s.created_at <= ?`; params.push(toMs); }
+    if (fromMs && !Number.isNaN(fromMs)) { sql += ` AND bi.start_timestamp >= ?`; params.push(fromMs); }
+    if (toMs && !Number.isNaN(toMs)) { sql += ` AND bi.end_timestamp <= ?`; params.push(toMs); }
 
-    sql += ` ORDER BY s.created_at DESC LIMIT ? OFFSET ?`;
+    sql += ` ORDER BY bi.start_timestamp DESC LIMIT ? OFFSET ?`;
     params.push(limit, offset);
 
     const stmt = indexDb.prepare(sql);
@@ -455,16 +516,16 @@ app.get("/global/chunks", async (c) => {
 
     const rows = (result.results || []) as any[];
     const chunks = rows.map(r => ({
-      key: r.key,
+      id: r.id,
+      file_path: r.file_path,
       dataset_id: r.dataset_id,
       table: r.table,
       size: r.size,
-      etag: r.etag,
-      uploaded_at: new Date(Number(r.created_at || 0)).toISOString(),
-      content_hash: r.content_hash,
+      record_count: r.record_count,
+      uploaded_at: new Date(r.start_timestamp).toISOString(),
     }));
     c.res.headers.set("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
-    return c.json({ chunks, count: chunks.length, table, period_tag: periodTag });
+    return c.json({ chunks, count: chunks.length, table });
   } catch (err) {
     console.error("[battle_data] Failed to query global chunks:", err);
     return c.json({ error: "Failed to retrieve global chunks" }, 500);
@@ -482,38 +543,38 @@ app.get("/global/latest", async (c) => {
   }
 
   const table = c.req.query("table");
-  const periodTag = c.req.query("period_tag");
 
-  if (!table || !periodTag) {
-    return c.json({ error: "table and period_tag are required" }, 400);
+  if (!table) {
+    return c.json({ error: "table is required" }, 400);
   }
 
   try {
     const stmt = indexDb.prepare(
       `SELECT 
-         s.segment_key AS key,
-         f.dataset_id AS dataset_id,
-         f.table_name AS table,
-         s.segment_size AS size,
-         s.etag AS etag,
-         s.created_at AS created_at,
-         s.content_hash AS content_hash
-       FROM avro_segments s
-       JOIN avro_files f ON f.file_key = s.parent_file_key
-       WHERE f.table_name = ? AND f.period_tag = ?
-       ORDER BY s.created_at DESC LIMIT 1`
+         bi.id,
+         bi.dataset_id,
+         bi.table_name AS table,
+         bi.length AS size,
+         af.file_path,
+         af.created_at,
+         bi.start_timestamp,
+         bi.record_count
+       FROM block_indexes bi
+       JOIN archived_files af ON af.id = bi.file_id
+       WHERE bi.table_name = ?
+       ORDER BY bi.start_timestamp DESC LIMIT 1`
     );
-    const row = await stmt.bind(table, periodTag).first?.();
+    const row = await stmt.bind(table).first?.();
     if (!row) { return c.json({ error: "No fragments found" }, 404); }
 
     const latest = {
-      key: row.key,
+      id: row.id,
+      file_path: row.file_path,
       dataset_id: row.dataset_id,
       table: row.table,
       size: row.size,
-      etag: row.etag,
-      uploaded_at: new Date(Number(row.created_at || 0)).toISOString(),
-      content_hash: row.content_hash,
+      record_count: row.record_count,
+      uploaded_at: new Date(Number(row.start_timestamp || 0)).toISOString(),
     };
 
     c.res.headers.set("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
