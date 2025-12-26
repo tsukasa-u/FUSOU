@@ -45,6 +45,7 @@ interface BlockIndexRow {
   dataset_id: string;
   table_name: string;
   schema_version: string;
+  period_tag: string;
   file_id: number;
   start_byte: number;
   length: number;
@@ -134,23 +135,55 @@ function generateFilePath(schemaVersion: string, periodTag: string, tableName: s
 }
 
 async function registerArchivedFile(db: D1Database, filePath: string, schemaVersion: string, fileSize: number, codec: string = 'deflate'): Promise<number> {
+  // Use INSERT OR REPLACE to handle duplicate file_path (idempotent)
+  // This allows cron to safely retry without UNIQUE constraint failures
+  const now = Date.now();
+  
+  // First check if file already exists
+  const existing = await db.prepare(`
+    SELECT id FROM archived_files WHERE file_path = ?
+  `).bind(filePath).first<{ id: number }>();
+  
+  if (existing?.id) {
+    // Update last_modified_at for existing file
+    await db.prepare(`
+      UPDATE archived_files 
+      SET file_size = ?, compression_codec = ?, last_modified_at = ?
+      WHERE id = ?
+    `).bind(fileSize, codec, now, existing.id).run();
+    return existing.id;
+  }
+  
+  // New file: INSERT
   await db.prepare(`
     INSERT INTO archived_files (file_path, schema_version, file_size, compression_codec, created_at, last_modified_at)
     VALUES (?, ?, ?, ?, ?, ?)
-  `).bind(filePath, schemaVersion, fileSize, codec, Date.now(), Date.now()).run();
+  `).bind(filePath, schemaVersion, fileSize, codec, now, now).run();
+  
   const row = await db.prepare('SELECT last_insert_rowid() AS id').first<{ id: number }>();
   return row?.id ?? 0;
 }
 
 async function insertBlockIndexes(db: D1Database, rows: BlockIndexRow[]): Promise<void> {
   if (!rows.length) return;
+  
+  // Delete existing indexes for these file_ids to handle retries
+  const fileIds = [...new Set(rows.map(r => r.file_id))];
+  if (fileIds.length > 0) {
+    const placeholders = fileIds.map(() => '?').join(',');
+    await db.prepare(`
+      DELETE FROM block_indexes WHERE file_id IN (${placeholders})
+    `).bind(...fileIds).run();
+  }
+  
+  // Insert new indexes
   const sql = `
-    INSERT INTO block_indexes (dataset_id, table_name, schema_version, file_id, start_byte, length, record_count, start_timestamp, end_timestamp)
-    VALUES ${rows.map(() => '(?,?,?,?,?,?,?,?,?)').join(',')}
+    INSERT INTO block_indexes (dataset_id, table_name, schema_version, period_tag, file_id, start_byte, length, record_count, start_timestamp, end_timestamp)
+    VALUES ${rows.map(() => '(?,?,?,?,?,?,?,?,?,?)').join(',')}
   `;
   const params: (string | number)[] = [];
   for (const r of rows) {
-    params.push(r.dataset_id, r.table_name, r.schema_version, r.file_id, r.start_byte, r.length, r.record_count, r.start_timestamp, r.end_timestamp);
+    params.push(r.dataset_id, r.table_name, r.schema_version, r.period_tag, r.file_id, r.start_byte, r.length, r.record_count, r.start_timestamp, r.end_timestamp);
   }
   await db.prepare(sql).bind(...params).run();
 }
@@ -237,6 +270,7 @@ export async function handleCron(env: Env): Promise<void> {
             dataset_id: block.dataset_id,
             table_name: group.key.table_name,
             schema_version: group.key.schema_version,
+            period_tag: group.key.period_tag,
             file_id: fileId,
             start_byte: currentOffset,
             length: block.avroData.byteLength,
@@ -259,7 +293,18 @@ export async function handleCron(env: Env): Promise<void> {
     // Summary log
     console.log(`[Archival] ${totalFiles} files, ${totalDatasets} datasets, ${(totalBytes / 1024).toFixed(1)}KB archived from ${rows.length} buffer rows`);
   } catch (error) {
-    console.error('[Archival Error]', error instanceof Error ? error.message : String(error));
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    
+    // Handle UNIQUE constraint errors gracefully
+    if (errorMsg.includes('UNIQUE constraint failed')) {
+      console.error('[Archival Error] UNIQUE constraint violation - likely duplicate file_path from retry', errorMsg);
+      console.error('[Archival Info] This is expected if cron is retrying. Existing files will be reused.');
+      // Don't throw - allow graceful degradation for idempotent cron jobs
+      return;
+    }
+    
+    // Other errors should be thrown
+    console.error('[Archival Error]', errorMsg);
     throw error;
   }
 }
