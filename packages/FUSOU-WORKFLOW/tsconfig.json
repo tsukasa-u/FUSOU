@@ -14,6 +14,6 @@
       "@cloudflare/workers-types/experimental"
     ]
   },
-  "include": ["src/**/*", "node-compat.d.ts"],
+  "include": ["src/**/*", "node-compat.d.ts", "avro-js.d.ts"],
   "exclude": ["node_modules"]
 }
