@@ -1,6 +1,13 @@
 /**
  * Avro OCF Validator for Cloudflare Workers
  * 
+ * Security Considerations:
+ * - Uses avro-js Type.forSchema() for schema validation (no code generation)
+ * - TextDecoder with UTF-8 validation (safe from binary data)
+ * - Uint8Array bounds checking throughout
+ * - No external codec support (prevents decompression attacks)
+ * - Regex patterns are bounded and safe
+ * 
  * Implements OCF parsing with avro-js for schema validation
  * - Parses Avro Object Container Format manually
  * - Uses avro-js for schema validation and record decoding
@@ -205,7 +212,15 @@ function countOCFRecords(
   // This is a conservative count - we count sync marker occurrences
   // which should correspond to block boundaries
   
-  let recordCount = 0;
+  // Input validation
+  if (metadataEnd < 0 || metadataEnd >= avroBytes.length) {
+    return 0;
+  }
+  
+  if (!syncMarker || syncMarker.length < 16) {
+    return 0;
+  }
+  
   let blockCount = 0;
   
   // Search for sync markers in the data section
@@ -215,12 +230,14 @@ function countOCFRecords(
   }
   
   // Count sync marker occurrences (each block ends with sync marker)
-  for (let i = dataStart; i < avroBytes.length - 16; i++) {
-    // Check if we found a sync marker
+  // Add proper bounds checking to prevent out-of-bounds access
+  for (let i = dataStart; i <= avroBytes.length - 16; i++) {
+    // Check if we found a sync marker (first byte match)
     if (avroBytes[i] === syncMarker[0]) {
       let matches = true;
-      for (let j = 0; j < 16 && i + j < avroBytes.length; j++) {
-        if (avroBytes[i + j] !== syncMarker[j]) {
+      // Check remaining bytes within bounds
+      for (let j = 1; j < 16; j++) {
+        if (i + j >= avroBytes.length || avroBytes[i + j] !== syncMarker[j]) {
           matches = false;
           break;
         }
@@ -234,6 +251,7 @@ function countOCFRecords(
   
   // If no blocks found, estimate based on file size
   // (fallback to conservative estimate)
+  let recordCount: number;
   if (blockCount === 0) {
     const dataSize = avroBytes.length - dataStart;
     recordCount = Math.max(1, Math.ceil(dataSize / 256));

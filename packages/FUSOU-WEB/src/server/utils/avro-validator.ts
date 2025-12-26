@@ -1,6 +1,13 @@
 /**
  * Avro OCF Decode Validator (Pages Side - Supports Full Validation)
  * 
+ * Security Considerations:
+ * - Uses avro-js Type.forSchema() for schema validation (no code generation)
+ * - TextDecoder with UTF-8 validation (safe from binary data)
+ * - Uint8Array bounds checking throughout
+ * - No external codec support (prevents decompression attacks)
+ * - Regex patterns are bounded and safe
+ * 
  * Purpose: Fully validate and count Avro OCF files
  * Includes:
  * - Schema validation via avro-js Type.forSchema()
@@ -210,6 +217,15 @@ function countOCFRecords(
 ): number {
   // Count by finding sync marker occurrences in data section
   
+  // Input validation
+  if (metadataEnd < 0 || metadataEnd >= avroBytes.length) {
+    return 0;
+  }
+  
+  if (!syncMarker || syncMarker.length < 16) {
+    return 0;
+  }
+  
   let blockCount = 0;
   const dataStart = metadataEnd + 16;
   
@@ -218,11 +234,13 @@ function countOCFRecords(
   }
   
   // Search for sync marker bytes in the data section
-  for (let i = dataStart; i < avroBytes.length - 16; i++) {
-    // Check if we found the sync marker
+  // Add proper bounds checking to prevent out-of-bounds access
+  for (let i = dataStart; i <= avroBytes.length - 16; i++) {
+    // Check if we found the sync marker (first byte match)
     if (avroBytes[i] === syncMarker[0]) {
       let matches = true;
-      for (let j = 0; j < Math.min(16, syncMarker.length); j++) {
+      // Check remaining bytes within bounds
+      for (let j = 1; j < 16; j++) {
         if (i + j >= avroBytes.length || avroBytes[i + j] !== syncMarker[j]) {
           matches = false;
           break;
