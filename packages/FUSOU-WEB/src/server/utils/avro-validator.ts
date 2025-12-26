@@ -56,10 +56,10 @@ export async function validateAvroOCF(
       ? JSON.parse(expectedSchema) 
       : expectedSchema;
     
-    // Validate schema with avro-js
+    // Validate schema with avro-js (disable code generation for Cloudflare Workers)
     let type: any;
     try {
-      type = avro.parse(schemaObj);
+      type = avro.parse(schemaObj, { noCodeGeneration: true });
     } catch (err) {
       return { 
         valid: false, 
