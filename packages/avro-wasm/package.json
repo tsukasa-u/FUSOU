@@ -23,5 +23,8 @@
     "cloudflare-workers",
     "validation"
   ],
-  "license": "MIT OR Apache-2.0"
+  "license": "MIT OR Apache-2.0",
+  "devDependencies": {
+    "wasm-pack": "^0.13.0"
+  }
 }
