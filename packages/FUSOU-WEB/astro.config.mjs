@@ -47,8 +47,9 @@ export default defineConfig({
         },
       }),
       */
-      wasm(),
-      topLevelAwait(),
+      // Disabled: vite-plugin-wasm injects 'URL = globalThis.URL' which crashes in Cloudflare Workers
+      // wasm(),
+      // topLevelAwait(),
     ],
     define: {
       "process.env.PUBLIC_SUPABASE_URL": JSON.stringify(
