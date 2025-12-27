@@ -25,6 +25,11 @@ export default {
       "buffer": false, // 'buffer/' alias caused issues in some ESM builds, use node:buffer or false if not needed
     }
   },
+  externals: [
+    {
+      './avro_wasm_bg.wasm': './avro_wasm_bg.wasm',
+    },
+  ],
   module: {
     rules: [
       {
@@ -33,10 +38,6 @@ export default {
         options: {
           transpileOnly: true,
         },
-      },
-      {
-        test: /\.wasm$/,
-        type: 'webassembly/async',
       },
     ],
   },
@@ -48,7 +49,6 @@ export default {
     }),
   ],
   experiments: {
-    asyncWebAssembly: true,
     outputModule: true, // Required for output.module: true
   },
   performance: {
