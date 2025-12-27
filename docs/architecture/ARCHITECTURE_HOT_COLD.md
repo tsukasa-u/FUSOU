@@ -2,15 +2,17 @@
 
 ## Overview
 
-統合戦略: 現在のAvroベース戦闘データシステムにHot/Cold分離アーキテクチャを統合します。
+統合戦略: 現在の Avro ベース戦闘データシステムに Hot/Cold 分離アーキテクチャを統合します。
 
 ### Current System (Before)
+
 - Queue → Consumer → R2 Avro Append (Immediate)
 - D1: `avro_files`, `avro_segments` (Metadata only)
 - Read: Direct R2 access with full file download
 
 ### New System (After)
-- Queue → **Buffer Consumer** → **D1 Buffer** (Hot, 1時間分)
+
+- Queue → **Buffer Consumer** → **D1 Buffer** (Hot, 1 時間分)
 - **Archiver Cron** → R2 Consolidated Avro (Cold, Range-Requestable)
 - D1: Hot buffer + Block Index (Byte-level addressing)
 - Read: Hot (D1) + Cold (R2 Range Request)
@@ -41,9 +43,10 @@
 
 ## D1 Schema Extension
 
-### 新規テーブル (Hot/Cold統合用)
+### 新規テーブル (Hot/Cold 統合用)
 
 #### 1. `buffer_logs` - Hot Data Buffer
+
 ```sql
 -- 直近1時間分のデータを保持（アーカイブ前の一時バッファ）
 CREATE TABLE buffer_logs (
@@ -55,13 +58,14 @@ CREATE TABLE buffer_logs (
     created_at INTEGER DEFAULT (strftime('%s', 'now') * 1000)
 );
 
-CREATE INDEX idx_buffer_search 
+CREATE INDEX idx_buffer_search
     ON buffer_logs (dataset_id, table_name, timestamp);
-CREATE INDEX idx_buffer_cleanup 
+CREATE INDEX idx_buffer_cleanup
     ON buffer_logs (created_at);
 ```
 
-#### 2. `archived_files` - R2ファイル正規化
+#### 2. `archived_files` - R2 ファイル正規化
+
 ```sql
 -- ファイルパスを正規化（容量削減のため）
 CREATE TABLE archived_files (
@@ -72,12 +76,14 @@ CREATE TABLE archived_files (
 ```
 
 #### 3. `block_indexes` - Byte-Level Address Book
+
 ```sql
 -- 「誰のデータが、どのファイルの、何バイト目にあるか」
 CREATE TABLE block_indexes (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     dataset_id TEXT NOT NULL,
     table_name TEXT NOT NULL,
+    period_tag TEXT NOT NULL,        -- 追加: 期間タグ
     file_id INTEGER NOT NULL,        -- archived_files.id
     start_byte INTEGER NOT NULL,     -- R2 Range Request開始位置
     length INTEGER NOT NULL,         -- データ長
@@ -87,21 +93,22 @@ CREATE TABLE block_indexes (
     FOREIGN KEY (file_id) REFERENCES archived_files(id)
 );
 
-CREATE INDEX idx_block_search 
-    ON block_indexes (dataset_id, table_name, start_timestamp);
-CREATE INDEX idx_block_file 
+CREATE INDEX idx_block_search
+    ON block_indexes (dataset_id, table_name, period_tag, start_timestamp);
+CREATE INDEX idx_block_file
     ON block_indexes (file_id);
 ```
 
 ### 既存テーブルとの関係
 
 - **`avro_files`/`avro_segments`**: 既存のリアルタイム書き込みシステムと**並行運用**
-  - リアルタイム: 即座にR2へ保存（小規模・頻繁アクセス）
-  - バッチ: Hot → Cold移行（大規模・効率的）
+  - リアルタイム: 即座に R2 へ保存（小規模・頻繁アクセス）
+  - バッチ: Hot → Cold 移行（大規模・効率的）
 
 **統合方針:**
+
 - リアルタイム要求: 既存システム継続使用
-- 分析系要求: Hot/Cold統合読み出し
+- 分析系要求: Hot/Cold 統合読み出し
 - 段階移行: まずログシステムで実装 → 戦闘データへ段階適用
 
 ---
@@ -109,17 +116,20 @@ CREATE INDEX idx_block_file
 ## Implementation Plan
 
 ### Phase 1: Parallel Infrastructure (新規ログシステム)
-1. 新規D1スキーマ作成 (`buffer_logs`, `archived_files`, `block_indexes`)
-2. Buffer Consumer実装 (Bulk Insert)
-3. Archiver Cron実装 (Manual Avro Block Construction)
-4. Reader API実装 (Hot + Cold Merge)
+
+1. 新規 D1 スキーマ作成 (`buffer_logs`, `archived_files`, `block_indexes`)
+2. Buffer Consumer 実装 (Bulk Insert)
+3. Archiver Cron 実装 (Manual Avro Block Construction)
+4. Reader API 実装 (Hot + Cold Merge)
 
 ### Phase 2: Battle Data Integration (既存システム拡張)
+
 1. 既存`avro_files`との統合設計
-2. Migration Strategy (既存データのCold化)
+2. Migration Strategy (既存データの Cold 化)
 3. Unified Query Interface
 
 ### Phase 3: Optimization
+
 1. Durable Object Cache for Block Index
 2. Compression (`deflate`/`snappy`)
 3. Cache-Control Headers for Cold Data
@@ -129,34 +139,41 @@ CREATE INDEX idx_block_file
 ## Key Optimizations
 
 ### 1. Compression (必須)
-- R2保存時: `deflate` または `snappy` 圧縮
+
+- R2 保存時: `deflate` または `snappy` 圧縮
 - `wrangler.toml`: `compatibility_flags = ["nodejs_compat"]` ✅ 既に設定済み
 
 ### 2. Range Request (必須)
+
 ```typescript
 // ❌ NG: Full download
 const obj = await R2.get(key);
 
 // ✅ OK: Range Request
 const obj = await R2.get(key, {
-  range: { offset: startByte, length: blockLength }
+  range: { offset: startByte, length: blockLength },
 });
 ```
 
-### 3. Bulk Insert (D1課金対策)
+### 3. Bulk Insert (D1 課金対策)
+
 ```typescript
 // ❌ NG: 1件ずつINSERT
 for (const record of records) {
-  await db.prepare('INSERT INTO buffer_logs...').bind(record).run();
+  await db.prepare("INSERT INTO buffer_logs...").bind(record).run();
 }
 
 // ✅ OK: Bulk Insert
-const values = records.map(r => `(?,?,?)`).join(',');
-const params = records.flatMap(r => [r.dataset_id, r.timestamp, r.data]);
-await db.prepare(`INSERT INTO buffer_logs VALUES ${values}`).bind(...params).run();
+const values = records.map((r) => `(?,?,?)`).join(",");
+const params = records.flatMap((r) => [r.dataset_id, r.timestamp, r.data]);
+await db
+  .prepare(`INSERT INTO buffer_logs VALUES ${values}`)
+  .bind(...params)
+  .run();
 ```
 
 ### 4. 安全なデータ移動
+
 ```sql
 -- ✅ ID範囲指定で削除（新規書き込みと競合しない）
 DELETE FROM buffer_logs WHERE id <= ?;

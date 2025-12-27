@@ -52,3 +52,50 @@ CREATE INDEX IF NOT EXISTS idx_block_dataset_table_ts
 
 CREATE INDEX IF NOT EXISTS idx_block_file_offset
   ON block_indexes(file_id, start_byte);
+
+-- View: hot_cold_summary (Added from hot-cold-schema.sql)
+CREATE VIEW IF NOT EXISTS hot_cold_summary AS
+SELECT
+    'Hot (Buffer)' AS storage_type,
+    dataset_id,
+    table_name,
+    period_tag,
+    COUNT(*) AS record_count,
+    SUM(LENGTH(data)) AS total_bytes,
+    MIN(timestamp) AS earliest_timestamp,
+    MAX(timestamp) AS latest_timestamp
+FROM buffer_logs
+GROUP BY dataset_id, table_name, period_tag
+
+UNION ALL
+
+SELECT
+    'Cold (Archived)' AS storage_type,
+    bi.dataset_id,
+    bi.table_name,
+    bi.period_tag,
+    SUM(bi.record_count) AS record_count,
+    SUM(bi.length) AS total_bytes,
+    MIN(bi.start_timestamp) AS earliest_timestamp,
+    MAX(bi.end_timestamp) AS latest_timestamp
+FROM block_indexes bi
+GROUP BY bi.dataset_id, bi.table_name, bi.period_tag;
+
+-- View: archive_efficiency (Added from hot-cold-schema.sql)
+CREATE VIEW IF NOT EXISTS archive_efficiency AS
+SELECT
+    af.file_path,
+    af.compression_codec,
+    af.file_size,
+    COUNT(bi.id) AS block_count,
+    SUM(bi.length) AS total_indexed_bytes,
+    ROUND(CAST(SUM(bi.length) AS REAL) / af.file_size * 100, 2) AS utilization_percent,
+    CASE
+        WHEN af.compression_codec IS NOT NULL
+        THEN ROUND(CAST(af.file_size AS REAL) / SUM(bi.length), 2)
+        ELSE NULL
+    END AS compression_ratio,
+    af.created_at
+FROM archived_files af
+LEFT JOIN block_indexes bi ON af.id = bi.file_id
+GROUP BY af.id;

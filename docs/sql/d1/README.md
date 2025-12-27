@@ -1,81 +1,18 @@
-# D1 Database Setup Guide
+# D1 SQL Schemas
 
-このディレクトリには、Cloudflare D1データベースのスキーマ定義とセットアップスクリプトが含まれています。
+This directory contains SQL schemas for Cloudflare D1 databases.
 
-## ファイル構成
+## Active Schemas
 
-- `avro-schema.sql` - D1の完全なスキーマ定義（Avro append モデル）
-- `cleanup-parquet.sql` - 旧 Parquet 時代のテーブル/ビュー削除
-- `setup.sh` - 新規開発者向けのセットアップスクリプト
+- `asset-index.sql`: Schema for `dev_kc_asset_index` (Active). Used by `FUSOU-WEB` and asset services.
+- `hot-cold-schema.sql` (Deprecated/Merged): This file has been consolidated into `../workflow/schema.sql`. Please use the workflow schema for the Hot/Cold architecture.
 
-## セットアップ方法
+## Deprecated/Reference
 
-### 前提条件
+- `deprecated_asset_index_ref.sql` (formerly `schema.sql`): Old schema for asset index, kept for reference.
+- `deprecated_parquet_battle_index.sql` (formerly `battle-index.sql`): Old Parquet-based schema. Replaced by Avro architecture.
+- `avro-schema.sql`: Early Avro schema. The active Avro schema (with Hot/Cold support) is in `../workflow/schema.sql`.
 
-- Node.js 18以上
-- Wrangler CLI（`npm i -g wrangler`）
-- Cloudflare アカウントでログイン（`wrangler login`）
+## Note
 
-### ステップ1: ローカルD1データベースの初期化
-
-```bash
-cd packages/FUSOU-WEB
-npx wrangler d1 execute dev_kc_battle_index --file=../../docs/sql/d1/avro-schema.sql
-npx wrangler d1 execute dev_kc_battle_index --file=../../docs/sql/d1/cleanup-parquet.sql
-```
-
-### ステップ2: リモートD1への適用（本番環境）
-
-```bash
-cd packages/FUSOU-WEB
-npx wrangler d1 execute dev_kc_battle_index --remote --file=../../docs/sql/d1/avro-schema.sql
-npx wrangler d1 execute dev_kc_battle_index --remote --file=../../docs/sql/d1/cleanup-parquet.sql
-```
-
-### ステップ3: スキーマ検証
-
-```bash
-cd packages/FUSOU-WEB
-npx wrangler d1 execute dev_kc_battle_index --command "PRAGMA table_info(avro_files);"
-npx wrangler d1 execute dev_kc_battle_index --command "PRAGMA table_info(avro_segments);"
-```
-
-## テーブル構成
-
-### avro_files / avro_segments
-
-Avro 追記ファイルとそのセグメントのメタデータ管理用テーブル。
-
-**主なカラム:**
-- `avro_files.file_key` - 仮想親キー（`datasetId/table/periodTag`）
-- `avro_files.segment_count`, `avro_files.last_appended_at`
-- `avro_segments.segment_key` - 実ファイルキー（`datasetId/table/periodTag.N.avro`）
-- `avro_segments.segment_number`, `avro_segments.segment_size`, `avro_segments.created_at`
-
-**用途:**
-- セグメント化（512MB 超）に伴う連番 `.N.avro` の管理
-- 最新セグメントの取得、期間集計ビューの基盤
-
-## トラブルシューティング
-
-### テーブルが存在しないエラー
-
-```bash
-# スキーマの再実行
-npx wrangler d1 execute dev_kc_battle_index --file=../../docs/sql/d1/schema.sql
-```
-
-### スキーマの確認
-
-```bash
-# ローカルD1のテーブル情報
-npx wrangler d1 execute dev_kc_battle_index --command "SELECT name FROM sqlite_master WHERE type='table';"
-
-# リモートD1のテーブル情報
-npx wrangler d1 execute dev_kc_battle_index --remote --command "SELECT name FROM sqlite_master WHERE type='table';"
-```
-
-## 参照
-
-- [Cloudflare D1 ドキュメント](https://developers.cloudflare.com/d1/)
-- [../../../docs/operations/TABLE_OFFSET_COMPACTION.md](../../../docs/operations/TABLE_OFFSET_COMPACTION.md) - オフセットベースコンパクション実装ガイド
+The main Battle Index database (`dev_kc_battle_index`) schema is located in `../workflow/schema.sql` as it is managed by the FUSOU-WORKFLOW package.

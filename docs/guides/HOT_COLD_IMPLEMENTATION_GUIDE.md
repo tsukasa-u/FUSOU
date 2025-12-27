@@ -3,19 +3,22 @@
 ## ✅ 実装完了コンポーネント
 
 ### 1. D1 Schema
-- **File:** `docs/sql/d1/hot-cold-schema.sql`
+
+- **File:** `docs/sql/workflow/schema.sql`
 - **Tables:** `buffer_logs`, `archived_files`, `block_indexes`
 - **Views:** `hot_cold_summary`, `archive_efficiency`
 
 ### 2. Buffer Consumer (Queue → D1 Hot Storage)
+
 - **File:** `packages/FUSOU-WORKFLOW/src/buffer-consumer.ts`
 - **Features:**
-  - Bulk Insert最適化 (100+ records/query)
-  - Chunked処理 (大規模バッチ対応)
-  - 高速ACK (レスポンス時間 < 500ms)
+  - Bulk Insert 最適化 (100+ records/query)
+  - Chunked 処理 (大規模バッチ対応)
+  - 高速 ACK (レスポンス時間 < 500ms)
 
 ### 3. Archiver (Cron Worker: Hot → Cold)
-- **File:** `packages/FUSOU-WORKFLOW/src/archiver.ts`
+
+- **File:** `packages/FUSOU-WORKFLOW/src/cron.ts`
 - **Features:**
   - Manual Avro Block Construction
   - Byte-level indexing
@@ -23,37 +26,39 @@
   - 安全なバッファクリーンアップ
 
 ### 4. Compression Utilities
+
 - **File:** `packages/FUSOU-WORKFLOW/src/utils/compression.ts`
-- **Codecs:** deflate (snappy対応準備済み)
-- **API:** async/sync, streaming対応
+- **Codecs:** deflate (snappy 対応準備済み)
+- **API:** async/sync, streaming 対応
 
 ### 5. Reader API (Hot + Cold Merge)
+
 - **File:** `packages/FUSOU-WORKFLOW/src/reader.ts`
 - **Features:**
-  - R2 Range Request最適化
+  - R2 Range Request 最適化
   - 並列ブロック取得
-  - Hot/Coldマージ・重複排除
+  - Hot/Cold マージ・重複排除
   - キャッシュヘッダー最適化
 
 ---
 
 ## 🚀 デプロイ手順
 
-### Step 1: D1スキーマ適用
+### Step 1: D1 スキーマ適用
 
 ```bash
 cd packages/FUSOU-WORKFLOW
 
 # Local環境
 npx wrangler d1 execute dev_kc_battle_index --local \
-  --file=../../docs/sql/d1/hot-cold-schema.sql
+  --file=../../docs/sql/workflow/schema.sql
 
 # Remote環境
 npx wrangler d1 execute dev_kc_battle_index --remote \
-  --file=../../docs/sql/d1/hot-cold-schema.sql
+  --file=../../docs/sql/workflow/schema.sql
 ```
 
-### Step 2: wrangler.toml設定
+### Step 2: wrangler.toml 設定
 
 `packages/FUSOU-WORKFLOW/wrangler.toml`に以下を追加:
 
@@ -73,42 +78,46 @@ max_retries = 3
 dead_letter_queue = "dev-kc-buffer-dlq"
 ```
 
-### Step 3: メインWorkerへの統合
+### Step 3: メイン Worker への統合
 
 `packages/FUSOU-WORKFLOW/src/index.ts`に追加:
 
 ```typescript
-import BufferConsumer from './buffer-consumer';
-import Archiver from './archiver';
-import Reader from './reader';
+import BufferConsumer from "./buffer-consumer";
+import Archiver from "./archiver";
+import Reader from "./reader";
 
 export default {
   // 既存のfetchハンドラ
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
-    
+
     // Reader API
-    if (url.pathname.startsWith('/v1/read')) {
+    if (url.pathname.startsWith("/v1/read")) {
       return await Reader.fetch(request, env);
     }
-    
+
     // 既存のハンドラ...
-    return new Response('Not Found', { status: 404 });
+    return new Response("Not Found", { status: 404 });
   },
-  
+
   // Queue Consumer (Buffer Writer)
   async queue(batch: MessageBatch, env: Env): Promise<void> {
     await BufferConsumer.queue(batch, env);
   },
-  
+
   // Scheduled Worker (Archiver)
-  async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
+  async scheduled(
+    event: ScheduledEvent,
+    env: Env,
+    ctx: ExecutionContext
+  ): Promise<void> {
     await Archiver.scheduled(event, env, ctx);
-  }
+  },
 };
 ```
 
-### Step 4: Queue作成
+### Step 4: Queue 作成
 
 ```bash
 # Buffer Queue
@@ -185,7 +194,7 @@ curl "http://localhost:8787/v1/read?dataset_id=test-user-001&table_name=battle&f
 
 ## 📊 モニタリング
 
-### Hot/Cold分布確認
+### Hot/Cold 分布確認
 
 ```sql
 SELECT * FROM hot_cold_summary;
@@ -197,10 +206,10 @@ SELECT * FROM hot_cold_summary;
 SELECT * FROM archive_efficiency ORDER BY compression_ratio DESC;
 ```
 
-### 古いHotデータ検出 (2時間以上)
+### 古い Hot データ検出 (2 時間以上)
 
 ```sql
-SELECT COUNT(*) FROM buffer_logs 
+SELECT COUNT(*) FROM buffer_logs
 WHERE created_at < (strftime('%s', 'now') * 1000) - (2 * 60 * 60 * 1000);
 ```
 
@@ -211,42 +220,45 @@ WHERE created_at < (strftime('%s', 'now') * 1000) - (2 * 60 * 60 * 1000);
 ### 1. 既存システムとの共存
 
 - **現在の`avro_files`/`avro_segments`テーブルは削除しない**
-- Hot/Coldシステムは**並行運用**
+- Hot/Cold システムは**並行運用**
 - 段階的移行: 新規データ → Hot/Cold、既存データ → 従来システム
 
 ### 2. コスト最適化
 
-- **D1 Writes:** Bulk Insert必須 (1件ずつ禁止)
-- **R2 Reads:** Range Request必須 (全ファイルダウンロード禁止)
-- **圧縮:** deflate推奨 (2-5x削減)
+- **D1 Writes:** Bulk Insert 必須 (1 件ずつ禁止)
+- **R2 Reads:** Range Request 必須 (全ファイルダウンロード禁止)
+- **圧縮:** deflate 推奨 (2-5x 削減)
 
 ### 3. パフォーマンス目標
 
-| 操作 | 目標レイテンシ |
-|------|---------------|
-| Hot Read (D1) | < 50ms |
-| Cold Read (1 block) | < 200ms |
-| Cold Read (multi-block) | < 500ms |
-| Archival (hourly) | < 5 minutes |
+| 操作                    | 目標レイテンシ |
+| ----------------------- | -------------- |
+| Hot Read (D1)           | < 50ms         |
+| Cold Read (1 block)     | < 200ms        |
+| Cold Read (multi-block) | < 500ms        |
+| Archival (hourly)       | < 5 minutes    |
 
 ---
 
 ## 🔄 次のステップ
 
 ### Phase 1 (完了 ✅)
-- [x] D1スキーマ設計
-- [x] Buffer Consumer実装
-- [x] Archiver実装
-- [x] Reader API実装
+
+- [x] D1 スキーマ設計
+- [x] Buffer Consumer 実装
+- [x] Archiver 実装
+- [x] Reader API 実装
 - [x] 圧縮ユーティリティ
 
 ### Phase 2 (未実装)
+
 - [ ] 既存`avro_files`との統合
 - [ ] Durable Object Cache for Block Index
-- [ ] Snappy圧縮サポート
+- [ ] Snappy 圧縮サポート
 - [ ] Analytics Dashboard
 
 ### Phase 3 (最適化)
+
 - [ ] Auto-scaling Archiver (負荷に応じて頻度調整)
 - [ ] Multi-region R2 Replication
 - [ ] Advanced Caching Strategy
