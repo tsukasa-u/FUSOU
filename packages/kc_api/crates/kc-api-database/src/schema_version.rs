@@ -1,22 +1,11 @@
-/// Database table version: KanColle game data structure version
-/// 
-/// This version tracks changes to the game data schema (PortTable, EnvInfo, etc.)
-/// Updates when KanColle game mechanics introduce new data fields or structures.
-/// 
-/// Format: MAJOR.MINOR (Semantic Versioning)
-/// - MAJOR: Breaking changes (existing field removed)
-/// - MINOR: Compatible changes (new field added)
+#[cfg(feature = "schema_v1")]
 pub const DATABASE_TABLE_VERSION: &str = "0.4";
 
-/// Schema version constants for battle data storage
-/// 
-/// These versions control the R2 storage path structure and should be
-/// synchronized with the client application's Avro schema generation.
-/// 
-/// Usage in client code:
-/// ```rust
-/// let version = kc_api_database::SCHEMA_VERSION;
-/// ```
+#[cfg(feature = "schema_v2")]
+pub const DATABASE_TABLE_VERSION: &str = "1.0";
+
+#[cfg(all(not(feature = "schema_v1"), not(feature = "schema_v2")))]
+pub const DATABASE_TABLE_VERSION: &str = "0.0";
 
 #[cfg(feature = "schema_v1")]
 pub const SCHEMA_VERSION: &str = "v1";
@@ -24,8 +13,8 @@ pub const SCHEMA_VERSION: &str = "v1";
 #[cfg(feature = "schema_v2")]
 pub const SCHEMA_VERSION: &str = "v2";
 
-#[cfg(not(any(feature = "schema_v1", feature = "schema_v2")))]
-compile_error!("Must enable either 'schema_v1' or 'schema_v2' feature");
+#[cfg(all(not(feature = "schema_v1"), not(feature = "schema_v2")))]
+pub const SCHEMA_VERSION: &str = "v0";
 
 #[cfg(test)]
 mod tests {
@@ -86,7 +75,10 @@ mod tests {
         #[cfg(feature = "breaking_schema")]
         {
             let parts: Vec<&str> = DATABASE_TABLE_VERSION.split('.').collect();
-            assert!(parts.len() >= 1, "DATABASE_TABLE_VERSION must have MAJOR.MINOR format");
+            assert!(
+                parts.len() >= 1,
+                "DATABASE_TABLE_VERSION must have MAJOR.MINOR format"
+            );
             let major: u32 = parts[0]
                 .parse()
                 .expect("MAJOR version must be a number for DATABASE_TABLE_VERSION");

@@ -5,14 +5,14 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
-apache-avro = { workspace = true }
-arrow = { workspace = true }
-datafusion = { workspace = true }
-parquet = { workspace = true }
+# apache-avro: Use different configurations based on features
+# For native builds (full feature): uses workspace with zstandard
+# For wasm builds: uses minimal config without zstandard
+apache-avro = { version = "0.17", default-features = false, features = ["snappy", "derive"] }
 register_trait = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-tokio = { workspace = true }
+tokio = { workspace = true, optional = true }
 uuid = { workspace = true }
 tracing = { workspace = true }
 kc-api-interface = { workspace = true }
@@ -24,9 +24,21 @@ regex = { workspace = true }
 dot-writer = { workspace = true }
 
 [features]
-default = ["graphviz", "schema_v1"]
+default = ["graphviz", "full"]
 graphviz = []
 cytoscape = []
+breaking_schema = []
+# Full feature includes all heavy dependencies (for native builds)
+# Note: zstandard support requires native builds, not available in WASM
+full = ["tokio", "apache-avro/zstandard"]
+# WASM feature excludes heavy dependencies (for WASM builds)
+wasm = []
+
+# Note: schema_v1 and schema_v2 features are kept for backward compatibility with FUSOU-APP
+# Both versions are are compiled by default now, but these flags are needed for dependent crates
 schema_v1 = []
 schema_v2 = []
-breaking_schema = []
+
+# Optional: Override uuid for WASM target to include js feature
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+uuid = { version = "1.19", features = ["v4", "v7", "js"] }

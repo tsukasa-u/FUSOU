@@ -524,39 +524,171 @@ impl PortTable {
         }
 
         // Use the same encoders as encode(), but guard by record counts
-        enc_push_if_non_empty!(EnvInfo::get_table_name(), self.env_info.len(), encode(self.env_info.clone()));
-        enc_push_if_non_empty!(Cells::get_table_name(), self.cells.len(), encode(self.cells.clone()));
-        enc_push_if_non_empty!(AirBase::get_table_name(), self.airbase.len(), encode(self.airbase.clone()));
-        enc_push_if_non_empty!(PlaneInfo::get_table_name(), self.plane_info.len(), encode(self.plane_info.clone()));
-        enc_push_if_non_empty!(OwnSlotItem::get_table_name(), self.own_slotitem.len(), encode(self.own_slotitem.clone()));
-        enc_push_if_non_empty!(EnemySlotItem::get_table_name(), self.enemy_slotitem.len(), encode(self.enemy_slotitem.clone()));
-        enc_push_if_non_empty!(FriendSlotItem::get_table_name(), self.friend_slotitem.len(), encode(self.friend_slotitem.clone()));
-        enc_push_if_non_empty!(OwnShip::get_table_name(), self.own_ship.len(), encode(self.own_ship.clone()));
-        enc_push_if_non_empty!(EnemyShip::get_table_name(), self.enemy_ship.len(), encode(self.enemy_ship.clone()));
-        enc_push_if_non_empty!(FriendShip::get_table_name(), self.friend_ship.len(), encode(self.friend_ship.clone()));
-        enc_push_if_non_empty!(OwnDeck::get_table_name(), self.own_deck.len(), encode(self.own_deck.clone()));
-        enc_push_if_non_empty!(SupportDeck::get_table_name(), self.support_deck.len(), encode(self.support_deck.clone()));
-        enc_push_if_non_empty!(EnemyDeck::get_table_name(), self.enemy_deck.len(), encode(self.enemy_deck.clone()));
-        enc_push_if_non_empty!(FriendDeck::get_table_name(), self.friend_deck.len(), encode(self.friend_deck.clone()));
-        enc_push_if_non_empty!(AirBaseAirAttack::get_table_name(), self.airbase_airattack.len(), encode(self.airbase_airattack.clone()));
-        enc_push_if_non_empty!(AirBaseAirAttackList::get_table_name(), self.airbase_airattack_list.len(), encode(self.airbase_airattack_list.clone()));
-        enc_push_if_non_empty!(AirBaseAssult::get_table_name(), self.airbase_assult.len(), encode(self.airbase_assult.clone()));
-        enc_push_if_non_empty!(CarrierBaseAssault::get_table_name(), self.carrierbase_assault.len(), encode(self.carrierbase_assault.clone()));
-        enc_push_if_non_empty!(ClosingRaigeki::get_table_name(), self.closing_raigeki.len(), encode(self.closing_raigeki.clone()));
-        enc_push_if_non_empty!(FriendlySupportHourai::get_table_name(), self.friendly_support_hourai.len(), encode(self.friendly_support_hourai.clone()));
-        enc_push_if_non_empty!(FriendlySupportHouraiList::get_table_name(), self.friendly_support_hourai_list.len(), encode(self.friendly_support_hourai_list.clone()));
-        enc_push_if_non_empty!(Hougeki::get_table_name(), self.hougeki.len(), encode(self.hougeki.clone()));
-        enc_push_if_non_empty!(HougekiList::get_table_name(), self.hougeki_list.len(), encode(self.hougeki_list.clone()));
-        enc_push_if_non_empty!(MidnightHougeki::get_table_name(), self.midnight_hougeki.len(), encode(self.midnight_hougeki.clone()));
-        enc_push_if_non_empty!(MidnightHougekiList::get_table_name(), self.midnight_hougeki_list.len(), encode(self.midnight_hougeki_list.clone()));
-        enc_push_if_non_empty!(OpeningAirAttack::get_table_name(), self.opening_airattack.len(), encode(self.opening_airattack.clone()));
-        enc_push_if_non_empty!(OpeningAirAttackList::get_table_name(), self.opening_airattack_list.len(), encode(self.opening_airattack_list.clone()));
-        enc_push_if_non_empty!(OpeningRaigeki::get_table_name(), self.opening_raigeki.len(), encode(self.opening_raigeki.clone()));
-        enc_push_if_non_empty!(OpeningTaisen::get_table_name(), self.opening_taisen.len(), encode(self.opening_taisen.clone()));
-        enc_push_if_non_empty!(OpeningTaisenList::get_table_name(), self.opening_taisen_list.len(), encode(self.opening_taisen_list.clone()));
-        enc_push_if_non_empty!(SupportAirattack::get_table_name(), self.support_airattack.len(), encode(self.support_airattack.clone()));
-        enc_push_if_non_empty!(SupportHourai::get_table_name(), self.support_hourai.len(), encode(self.support_hourai.clone()));
-        enc_push_if_non_empty!(Battle::get_table_name(), self.battle.len(), encode(self.battle.clone()));
+        enc_push_if_non_empty!(
+            EnvInfo::get_table_name(),
+            self.env_info.len(),
+            encode(self.env_info.clone())
+        );
+        enc_push_if_non_empty!(
+            Cells::get_table_name(),
+            self.cells.len(),
+            encode(self.cells.clone())
+        );
+        enc_push_if_non_empty!(
+            AirBase::get_table_name(),
+            self.airbase.len(),
+            encode(self.airbase.clone())
+        );
+        enc_push_if_non_empty!(
+            PlaneInfo::get_table_name(),
+            self.plane_info.len(),
+            encode(self.plane_info.clone())
+        );
+        enc_push_if_non_empty!(
+            OwnSlotItem::get_table_name(),
+            self.own_slotitem.len(),
+            encode(self.own_slotitem.clone())
+        );
+        enc_push_if_non_empty!(
+            EnemySlotItem::get_table_name(),
+            self.enemy_slotitem.len(),
+            encode(self.enemy_slotitem.clone())
+        );
+        enc_push_if_non_empty!(
+            FriendSlotItem::get_table_name(),
+            self.friend_slotitem.len(),
+            encode(self.friend_slotitem.clone())
+        );
+        enc_push_if_non_empty!(
+            OwnShip::get_table_name(),
+            self.own_ship.len(),
+            encode(self.own_ship.clone())
+        );
+        enc_push_if_non_empty!(
+            EnemyShip::get_table_name(),
+            self.enemy_ship.len(),
+            encode(self.enemy_ship.clone())
+        );
+        enc_push_if_non_empty!(
+            FriendShip::get_table_name(),
+            self.friend_ship.len(),
+            encode(self.friend_ship.clone())
+        );
+        enc_push_if_non_empty!(
+            OwnDeck::get_table_name(),
+            self.own_deck.len(),
+            encode(self.own_deck.clone())
+        );
+        enc_push_if_non_empty!(
+            SupportDeck::get_table_name(),
+            self.support_deck.len(),
+            encode(self.support_deck.clone())
+        );
+        enc_push_if_non_empty!(
+            EnemyDeck::get_table_name(),
+            self.enemy_deck.len(),
+            encode(self.enemy_deck.clone())
+        );
+        enc_push_if_non_empty!(
+            FriendDeck::get_table_name(),
+            self.friend_deck.len(),
+            encode(self.friend_deck.clone())
+        );
+        enc_push_if_non_empty!(
+            AirBaseAirAttack::get_table_name(),
+            self.airbase_airattack.len(),
+            encode(self.airbase_airattack.clone())
+        );
+        enc_push_if_non_empty!(
+            AirBaseAirAttackList::get_table_name(),
+            self.airbase_airattack_list.len(),
+            encode(self.airbase_airattack_list.clone())
+        );
+        enc_push_if_non_empty!(
+            AirBaseAssult::get_table_name(),
+            self.airbase_assult.len(),
+            encode(self.airbase_assult.clone())
+        );
+        enc_push_if_non_empty!(
+            CarrierBaseAssault::get_table_name(),
+            self.carrierbase_assault.len(),
+            encode(self.carrierbase_assault.clone())
+        );
+        enc_push_if_non_empty!(
+            ClosingRaigeki::get_table_name(),
+            self.closing_raigeki.len(),
+            encode(self.closing_raigeki.clone())
+        );
+        enc_push_if_non_empty!(
+            FriendlySupportHourai::get_table_name(),
+            self.friendly_support_hourai.len(),
+            encode(self.friendly_support_hourai.clone())
+        );
+        enc_push_if_non_empty!(
+            FriendlySupportHouraiList::get_table_name(),
+            self.friendly_support_hourai_list.len(),
+            encode(self.friendly_support_hourai_list.clone())
+        );
+        enc_push_if_non_empty!(
+            Hougeki::get_table_name(),
+            self.hougeki.len(),
+            encode(self.hougeki.clone())
+        );
+        enc_push_if_non_empty!(
+            HougekiList::get_table_name(),
+            self.hougeki_list.len(),
+            encode(self.hougeki_list.clone())
+        );
+        enc_push_if_non_empty!(
+            MidnightHougeki::get_table_name(),
+            self.midnight_hougeki.len(),
+            encode(self.midnight_hougeki.clone())
+        );
+        enc_push_if_non_empty!(
+            MidnightHougekiList::get_table_name(),
+            self.midnight_hougeki_list.len(),
+            encode(self.midnight_hougeki_list.clone())
+        );
+        enc_push_if_non_empty!(
+            OpeningAirAttack::get_table_name(),
+            self.opening_airattack.len(),
+            encode(self.opening_airattack.clone())
+        );
+        enc_push_if_non_empty!(
+            OpeningAirAttackList::get_table_name(),
+            self.opening_airattack_list.len(),
+            encode(self.opening_airattack_list.clone())
+        );
+        enc_push_if_non_empty!(
+            OpeningRaigeki::get_table_name(),
+            self.opening_raigeki.len(),
+            encode(self.opening_raigeki.clone())
+        );
+        enc_push_if_non_empty!(
+            OpeningTaisen::get_table_name(),
+            self.opening_taisen.len(),
+            encode(self.opening_taisen.clone())
+        );
+        enc_push_if_non_empty!(
+            OpeningTaisenList::get_table_name(),
+            self.opening_taisen_list.len(),
+            encode(self.opening_taisen_list.clone())
+        );
+        enc_push_if_non_empty!(
+            SupportAirattack::get_table_name(),
+            self.support_airattack.len(),
+            encode(self.support_airattack.clone())
+        );
+        enc_push_if_non_empty!(
+            SupportHourai::get_table_name(),
+            self.support_hourai.len(),
+            encode(self.support_hourai.clone())
+        );
+        enc_push_if_non_empty!(
+            Battle::get_table_name(),
+            self.battle.len(),
+            encode(self.battle.clone())
+        );
 
         Ok(tables)
     }

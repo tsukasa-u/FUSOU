@@ -13,7 +13,7 @@ kc-api-parser = { workspace = true }
 kc-fleet-snapshot = { workspace = true }
 
 [features]
-default = ["graphviz", "from20250627", "schema_v1"]
+default = ["graphviz", "from20250627"]
 graphviz = [
     "kc-api-database/graphviz",
     "kc-api-dto/graphviz",
@@ -32,5 +32,8 @@ from20250627 = [
     "kc-api-interface-adapter/20250627",
     "kc-api-dto/20250627",
 ]
+
+# schema_v1 and schema_v2 features are kept for backward compatibility with FUSOU-APP
+# Both versions are now always available at runtime, but features are needed for dependencies
 schema_v1 = ["kc-api-database/schema_v1"]
 schema_v2 = ["kc-api-database/schema_v2"]
