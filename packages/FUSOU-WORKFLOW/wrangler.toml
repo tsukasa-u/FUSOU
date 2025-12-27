@@ -12,7 +12,8 @@ command = "pnpm run build"
 watch_dir = "src"
 
 # Run scheduled compaction hourly (UTC). Adjust as needed.
-triggers = { crons = ["0 * * * *"] }
+[triggers]
+crons = ["0 * * * *"]
 
 # ===== Environment Variables =====
 # All configuration is now via D1 database
