@@ -25,8 +25,33 @@ fi
 echo "📦 Building avro-wasm with --features $FEATURE"
 cd "$AVRO_WASM_DIR"
 
+# Check for Rust toolchain
+if ! command -v cargo &> /dev/null; then
+    echo "⚠️  Cargo not found. Installing Rust..."
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+    source "$HOME/.cargo/env"
+else
+    echo "✅ Rust toolchain found."
+fi
+
+# Check for wasm-pack
+WASM_PACK="wasm-pack"
+if ! command -v wasm-pack &> /dev/null; then
+    # Helper to find node_modules bin
+    if [ -f "./node_modules/.bin/wasm-pack" ]; then
+        WASM_PACK="./node_modules/.bin/wasm-pack"
+        echo "✅ Using local wasm-pack from node_modules."
+    elif [ -f "../../node_modules/.bin/wasm-pack" ]; then
+        WASM_PACK="../../node_modules/.bin/wasm-pack"
+        echo "✅ Using root wasm-pack from node_modules."
+    else
+        echo "⚠️  wasm-pack not found. Installing via curl..."
+        curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+    fi
+fi
+
 # Build for wasm-pack
-wasm-pack build --target bundler --release --no-default-features --features "$FEATURE" 2>&1 | head -100
+$WASM_PACK build --target bundler --release --no-default-features --features "$FEATURE" 2>&1 | head -100
 
 # Check if build succeeded
 if [ -f "pkg/avro_wasm.js" ]; then
