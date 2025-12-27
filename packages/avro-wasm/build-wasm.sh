@@ -29,7 +29,8 @@ cd "$AVRO_WASM_DIR"
 if ! command -v cargo &> /dev/null; then
     echo "⚠️  Cargo not found. Installing Rust..."
     curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-    source "$HOME/.cargo/env"
+    export PATH="$HOME/.cargo/bin:$PATH"
+    echo "✅ Rust installed. Path updated."
 else
     echo "✅ Rust toolchain found."
 fi
