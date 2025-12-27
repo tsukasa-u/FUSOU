@@ -8,7 +8,7 @@ import icon from "astro-icon";
 import react from "@astrojs/react";
 import remarkCallout from "@r4ai/remark-callout";
 import { fileURLToPath, URL } from "node:url";
-import { nodePolyfills } from 'vite-plugin-node-polyfills';
+// import { nodePolyfills } from 'vite-plugin-node-polyfills';
 
 import wasm from 'vite-plugin-wasm';
 import topLevelAwait from 'vite-plugin-top-level-await';
@@ -39,12 +39,14 @@ export default defineConfig({
     // @ts-ignore
     plugins: [
       tailwindcss(),
+      /*
       nodePolyfills({
         include: ['buffer', 'util'],
         globals: {
           Buffer: true,
         },
       }),
+      */
       wasm(),
       topLevelAwait(),
     ],
