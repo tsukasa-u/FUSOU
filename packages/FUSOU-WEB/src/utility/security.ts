@@ -1,6 +1,7 @@
 /**
  * Security utility functions for OAuth flow
  */
+import { URL } from "node:url";
 
 /**
  * Validates if a redirect URL is safe to use

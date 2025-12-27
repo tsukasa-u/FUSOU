@@ -1,5 +1,6 @@
 // R2 SigV4 Signing utilities
 import { createHmac, createHash, type BinaryLike } from 'crypto';
+import { URLSearchParams } from "node:url";
 
 function hmac(key: BinaryLike, data: string) {
   return createHmac('sha256', key).update(data, 'utf8').digest();

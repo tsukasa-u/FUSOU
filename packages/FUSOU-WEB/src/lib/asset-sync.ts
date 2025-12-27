@@ -1,4 +1,4 @@
-import type { SupabaseClient } from '@supabase/supabase-js';
+import { URL } from "node:url";
 
 /**
  * Fetch asset keys with metadata (including contentHash) from /asset-sync/keys.
