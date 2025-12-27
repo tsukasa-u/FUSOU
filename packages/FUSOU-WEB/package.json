@@ -16,6 +16,7 @@
     "@astrojs/cloudflare": "^12.6.12",
     "@duckdb/duckdb-wasm": "1.29.1-dev132.0",
     "@duckdb/node-api": "1.2.2-alpha.18",
+    "@fusou/avro-wasm": "workspace:*",
     "@nanostores/persistent": "^1.2.0",
     "@nanostores/solid": "^1.1.1",
     "@supabase/supabase-js": "2.86.0",
@@ -48,10 +49,11 @@
     "@types/react-dom": "^19.2.3",
     "astro": "^5.16.2",
     "astro-icon": "^1.1.5",
-    "avro-js": "^1.11.3",
     "tailwindcss": "^4.1.17",
     "typescript": "^5.9.3",
     "vite-plugin-node-polyfills": "^0.24.0",
+    "vite-plugin-top-level-await": "^1.6.0",
+    "vite-plugin-wasm": "^3.5.0",
     "wrangler": "^4.51.0"
   }
 }

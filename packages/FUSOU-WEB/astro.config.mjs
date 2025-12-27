@@ -10,6 +10,9 @@ import remarkCallout from "@r4ai/remark-callout";
 import { fileURLToPath, URL } from "node:url";
 import { nodePolyfills } from 'vite-plugin-node-polyfills';
 
+import wasm from 'vite-plugin-wasm';
+import topLevelAwait from 'vite-plugin-top-level-await';
+
 // https://astro.build/config
 // @ts-ignore
 export default defineConfig({
@@ -26,7 +29,9 @@ export default defineConfig({
     }),
   ],
   output: "server",
-  adapter: cloudflare({ imageService: "cloudflare" }),
+  adapter: cloudflare({ 
+    imageService: "cloudflare",
+  }),
   vite: {
     ssr: {
       external: ["node:fs/promises", "node:path", "node:url", "node:crypto"],
@@ -40,6 +45,8 @@ export default defineConfig({
           Buffer: true,
         },
       }),
+      wasm(),
+      topLevelAwait(),
     ],
     define: {
       "process.env.PUBLIC_SUPABASE_URL": JSON.stringify(
@@ -66,7 +73,6 @@ export default defineConfig({
       "process.env.BATTLE_DATA_SIGNING_SECRET": JSON.stringify(
         process.env.BATTLE_DATA_SIGNING_SECRET
       ),
-      // Additional secrets/envs required by server code
       "process.env.BATTLE_DATA_SIGNED_URL_SECRET": JSON.stringify(
         process.env.BATTLE_DATA_SIGNED_URL_SECRET
       ),
@@ -85,6 +91,7 @@ export default defineConfig({
         }),
         "@": fileURLToPath(new URL("./src", import.meta.url)),
         "@docs": fileURLToPath(new URL("../../docs/contents", import.meta.url)),
+        "@fusou/avro-wasm": fileURLToPath(new URL("../avro-wasm/index.ts", import.meta.url)),
       },
     },
   },
