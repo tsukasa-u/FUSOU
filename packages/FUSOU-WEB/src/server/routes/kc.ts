@@ -1,3 +1,4 @@
+import "@/shim";
 import { Hono } from "hono";
 import type { Bindings } from "../types";
 import { CORS_HEADERS, CACHE_TTL_MS } from "../constants";

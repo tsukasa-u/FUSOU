@@ -1,3 +1,4 @@
+import "@/shim";
 import { createRemoteJWKSet, SignJWT, jwtVerify } from "jose";
 import { URL } from "node:url";
 import type { Context } from "hono";
