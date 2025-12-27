@@ -274,9 +274,21 @@ if (import.meta.env.DEV) {
   console.log(`[JWKS Init] SUPABASE_URL: ${SUPABASE_URL || "<not set>"}`);
 }
 
-const JWKS = SUPABASE_URL
-  ? createRemoteJWKSet(new URL(`${SUPABASE_URL}/auth/v1/.well-known/jwks.json`))
-  : undefined;
+let JWKS: ReturnType<typeof createRemoteJWKSet> | undefined;
+
+function getJWKS() {
+  if (JWKS) return JWKS;
+  if (!SUPABASE_URL) return undefined;
+  
+  try {
+    const jwksUrl = new URL(`${SUPABASE_URL}/auth/v1/.well-known/jwks.json`);
+    JWKS = createRemoteJWKSet(jwksUrl);
+    return JWKS;
+  } catch (e) {
+    console.warn("Invalid Supabase URL for JWKS:", e);
+    return undefined;
+  }
+}
 
 export async function validateJWT(token: string): Promise<{
   id?: string;
@@ -284,12 +296,13 @@ export async function validateJWT(token: string): Promise<{
   payload?: Record<string, any>;
 } | null> {
   try {
-    if (!SUPABASE_URL || !JWKS) {
+    const jwks = getJWKS();
+    if (!SUPABASE_URL || !jwks) {
       console.error("validateJWT: PUBLIC_SUPABASE_URL not configured or JWKS not initialized");
       return null;
     }
 
-    const { payload } = await jwtVerify(token, JWKS, {
+    const { payload } = await jwtVerify(token, jwks, {
       issuer: `${SUPABASE_URL}/auth/v1`,
       audience: "authenticated",
     });
