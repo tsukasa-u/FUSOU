@@ -11,6 +11,7 @@ export default {
   output: {
     filename: 'worker.js',
     path: path.join(__dirname, 'dist'),
+    publicPath: '/', // Fix "Automatic publicPath is not supported" error
     module: true, // Output as ES module (Cloudflare Workers support this)
     chunkFormat: 'module',
     library: {
