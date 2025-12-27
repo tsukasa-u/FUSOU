@@ -4,6 +4,9 @@
   "description": "WebAssembly Avro OCF validator for Cloudflare Workers",
   "type": "module",
   "main": "./index.ts",
+  "scripts": {
+    "build": "./build-wasm.sh all"
+  },
   "types": "./index.ts",
   "exports": {
     ".": "./index.ts",

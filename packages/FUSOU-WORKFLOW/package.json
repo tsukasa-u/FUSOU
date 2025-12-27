@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "pnpm run build && wrangler deploy",
-    "build": "webpack",
+    "build": "pnpm --filter @fusou/avro-wasm run build && webpack",
     "types": "wrangler types",
     "tail": "wrangler tail",
     "test": "npx tsc --outDir dist && node test/avro-smoke.mjs",
