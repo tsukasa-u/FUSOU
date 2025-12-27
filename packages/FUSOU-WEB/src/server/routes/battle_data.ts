@@ -4,7 +4,7 @@ import { CORS_HEADERS } from "../constants";
 import { createEnvContext, getEnv } from "../utils";
 import { handleTwoStageUpload } from "../utils/upload";
 import { validateOffsetMetadata } from "../validators/offsets";
-import { validateAvroOCF, extractSchemaFromOCF } from "../utils/avro-validator";
+import { validateAvroOCFSmart, extractSchemaFromOCF, validateAvroHeader } from "../utils/avro-validator";
 
 const app = new Hono<{ Bindings: Bindings }>();
 
@@ -22,35 +22,7 @@ function arrayBufferToBase64(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
-/**
- * Lightweight Avro header validation (DoS prevention)
- * Checks magic bytes, codec, and size limit before expensive decode
- */
-function validateAvroHeader(data: Uint8Array, maxBytes: number = 65536): { valid: boolean; error?: string } {
-  // Size limit (default 64KB)
-  if (data.byteLength > maxBytes) {
-    return { valid: false, error: `File too large: ${data.byteLength} bytes (max: ${maxBytes})` };
-  }
-  
-  // Magic bytes: "Obj\x01" (4 bytes)
-  if (data.byteLength < 4 || data[0] !== 0x4F || data[1] !== 0x62 || data[2] !== 0x6A || data[3] !== 0x01) {
-    return { valid: false, error: 'Invalid Avro magic bytes' };
-  }
-  
-  // Extract codec from header (search for "avro.codec")
-  const headerSlice = data.slice(0, Math.min(data.byteLength, 512));
-  const text = new TextDecoder().decode(headerSlice);
-  const codecIdx = text.indexOf('avro.codec');
-  if (codecIdx !== -1) {
-    const codecSlice = text.slice(codecIdx, codecIdx + 50);
-    // Reject compressed codecs (deflate/snappy) - potential decompression bombs
-    if (codecSlice.includes('deflate') || codecSlice.includes('snappy')) {
-      return { valid: false, error: 'Compressed Avro not supported (codec must be null)' };
-    }
-  }
-  
-  return { valid: true };
-}
+// validateAvroHeader is now imported from avro-validator
 
 /**
  * Battle data server-side upload routes
@@ -217,34 +189,34 @@ app.post("/upload", async (c) => {
             const len = Number(entry.byte_length ?? 0);
             const tname = String(entry.table_name ?? table);
             if (len <= 0) continue;
-            
+
             const slice = data.subarray(start, start + len);
-            
+
             // Lightweight header validation (DoS prevention)
             const headerCheck = validateAvroHeader(slice, maxBytes);
             if (!headerCheck.valid) {
               console.error(`[battle-data] Invalid Avro header for ${tname}:`, headerCheck.error);
               return c.json({ error: `Invalid Avro data: ${headerCheck.error}` }, 400);
             }
-            
+
             // Extract schema and validate via full decode
             const schemaJson = extractSchemaFromOCF(slice);
             if (!schemaJson) {
               console.error(`[battle-data] Failed to extract schema from ${tname}`);
               return c.json({ error: 'Invalid Avro: schema not found in header' }, 400);
             }
-            
-            const decodeResult = await validateAvroOCF(slice, schemaJson);
+
+            const decodeResult = await validateAvroOCFSmart(slice);
             if (!decodeResult.valid) {
-              console.error(`[battle-data] Decode validation failed for ${tname}:`, decodeResult.error);
-              return c.json({ 
-                error: 'Schema validation failed', 
-                details: decodeResult.error 
+              console.error(`[battle-data] Decode validation failed for ${tname}:`, decodeResult.errorMessage);
+              return c.json({
+                error: 'Schema validation failed',
+                details: decodeResult.errorMessage
               }, 400);
             }
-            
+
             console.info(`[battle-data] Validated ${tname}: ${decodeResult.recordCount} records`);
-            
+
             const b64 = arrayBufferToBase64(slice);
             messages.push({
               body: {
@@ -260,32 +232,32 @@ app.post("/upload", async (c) => {
           }
         } else {
           // No offsets: treat entire payload as single table slice
-          
+
           // Lightweight header validation
           const headerCheck = validateAvroHeader(data, maxBytes);
           if (!headerCheck.valid) {
             console.error('[battle-data] Invalid Avro header:', headerCheck.error);
             return c.json({ error: `Invalid Avro data: ${headerCheck.error}` }, 400);
           }
-          
+
           // Extract schema and validate via full decode
           const schemaJson = extractSchemaFromOCF(data);
           if (!schemaJson) {
             console.error('[battle-data] Failed to extract schema from payload');
             return c.json({ error: 'Invalid Avro: schema not found in header' }, 400);
           }
-          
-          const decodeResult = await validateAvroOCF(data, schemaJson);
+
+          const decodeResult = await validateAvroOCFSmart(data);
           if (!decodeResult.valid) {
-            console.error('[battle-data] Decode validation failed:', decodeResult.error);
-            return c.json({ 
-              error: 'Schema validation failed', 
-              details: decodeResult.error 
+            console.error('[battle-data] Decode validation failed:', decodeResult.errorMessage);
+            return c.json({
+              error: 'Schema validation failed',
+              details: decodeResult.errorMessage
             }, 400);
           }
-          
+
           console.info(`[battle-data] Validated ${table}: ${decodeResult.recordCount} records`);
-          
+
           const b64 = arrayBufferToBase64(data);
           messages.push({
             body: {

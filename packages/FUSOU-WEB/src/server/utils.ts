@@ -373,6 +373,16 @@ export async function generateTimeBasedSignedUrl(
   key: string,
   expiresInSeconds: number = 3600
 ): Promise<string> {
+  const secret = process.env.BATTLE_DATA_SIGNED_URL_SECRET;
+  if (!secret) {
+    throw new Error('BATTLE_DATA_SIGNED_URL_SECRET environment variable is required');
+  }
+
+  const baseUrl = process.env.R2_PUBLIC_URL;
+  if (!baseUrl) {
+    throw new Error('R2_PUBLIC_URL environment variable is required');
+  }
+
   const now = Math.floor(Date.now() / 1000);
   const expiresAt = now + expiresInSeconds;
   
@@ -383,13 +393,12 @@ export async function generateTimeBasedSignedUrl(
       action: 'read',
       exp: expiresAt,
     },
-    process.env.BATTLE_DATA_SIGNED_URL_SECRET || 'fallback-secret',
+    secret,
     expiresInSeconds
   );
   
   // URL に token をパラメータとして含める
   // WASM または外部クライアントが token を使用してアクセス
-  const baseUrl = process.env.R2_PUBLIC_URL || 'https://r2.example.com';
   return `${baseUrl}/${key}?token=${encodeURIComponent(token)}&expires=${expiresAt}`;
 }
 
@@ -402,10 +411,13 @@ export async function verifyR2SignedUrl(
   key: string
 ): Promise<boolean> {
   try {
-    const payload = await verifySignedToken(
-      token,
-      process.env.BATTLE_DATA_SIGNED_URL_SECRET || 'fallback-secret'
-    );
+    const secret = process.env.BATTLE_DATA_SIGNED_URL_SECRET;
+    if (!secret) {
+      console.error('verifyR2SignedUrl: BATTLE_DATA_SIGNED_URL_SECRET not configured');
+      return false;
+    }
+
+    const payload = await verifySignedToken(token, secret);
     
     if (!payload) return false;
     

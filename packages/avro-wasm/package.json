@@ -1,0 +1,24 @@
+{
+  "name": "@fusou/avro-wasm",
+  "version": "0.1.0",
+  "description": "WebAssembly Avro OCF validator for Cloudflare Workers",
+  "type": "module",
+  "main": "./index.ts",
+  "types": "./index.ts",
+  "exports": {
+    ".": "./index.ts",
+    "./pkg/avro_wasm": "./pkg/avro_wasm.js",
+    "./pkg/avro_wasm_bg.wasm": "./pkg/avro_wasm_bg.wasm"
+  },
+  "files": [
+    "index.ts",
+    "pkg/"
+  ],
+  "keywords": [
+    "avro",
+    "wasm",
+    "cloudflare-workers",
+    "validation"
+  ],
+  "license": "MIT OR Apache-2.0"
+}

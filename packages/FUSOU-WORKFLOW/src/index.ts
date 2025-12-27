@@ -1,6 +1,6 @@
-import { handleRead as handleHybridRead } from './reader.js';
-import { handleCron } from './cron.js';
-import { handleBufferConsumerChunked } from './buffer-consumer.js';
+import { handleRead as handleHybridRead } from './reader';
+import { handleCron } from './cron';
+import { handleBufferConsumerChunked } from './buffer-consumer';
 
 interface Env {
   BATTLE_DATA_BUCKET: R2Bucket;

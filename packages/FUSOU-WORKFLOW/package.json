@@ -6,13 +6,14 @@
   "main": "src/index.ts",
   "scripts": {
     "dev": "wrangler dev",
-    "deploy": "wrangler deploy",
+    "deploy": "pnpm run build && wrangler deploy",
+    "build": "webpack",
     "types": "wrangler types",
     "tail": "wrangler tail",
     "test": "npx tsc --outDir dist && node test/avro-smoke.mjs",
-    "schema:local": "wrangler d1 execute dev_kc_battle_index --local --file db/schema.sql",
+    "schema:local": "wrangler d1 execute dev_kc_battle_index --local --file ../../docs/sql/workflow/schema.sql",
     "schema:list:local": "wrangler d1 execute dev_kc_battle_index --local --command 'SELECT name FROM sqlite_master WHERE type=\"table\"'",
-    "schema:remote": "wrangler d1 execute dev_kc_battle_index --remote --file db/schema.sql",
+    "schema:remote": "wrangler d1 execute dev_kc_battle_index --remote --file ../../docs/sql/workflow/schema.sql",
     "schema:list:remote": "wrangler d1 execute dev_kc_battle_index --remote --command 'SELECT name FROM sqlite_master WHERE type=\"table\"'"
   },
   "keywords": [
@@ -24,11 +25,15 @@
   "license": "MIT",
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20251128.0",
+    "copy-webpack-plugin": "^11.0.0",
+    "ts-loader": "^9.5.1",
     "typescript": "^5.9.3",
+    "webpack": "^5.89.0",
+    "webpack-cli": "^5.1.4",
     "wrangler": "^4.51.0"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.86.0",
-    "avro-js": "^1.11.3"
+    "@fusou/avro-wasm": "workspace:*",
+    "@supabase/supabase-js": "^2.86.0"
   }
 }
