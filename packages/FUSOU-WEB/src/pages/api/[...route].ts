@@ -1,5 +1,6 @@
 // Thin adapter forwarding Astro API routes to the composed Hono app.
 import app from "@/server/app";
+import { URL } from "node:url";
 
 export const prerender = false;
 
