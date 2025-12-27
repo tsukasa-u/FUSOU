@@ -1,4 +1,5 @@
 import type { R2BucketBinding } from "../types";
+import { URL } from "node:url";
 import { SIGNED_URL_TTL_SECONDS } from "../constants";
 
 /**

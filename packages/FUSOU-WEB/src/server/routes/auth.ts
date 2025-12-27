@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { URLSearchParams } from "node:url";
 import { createClient } from "@supabase/supabase-js";
 import type { Bindings } from "../types";
 import { CORS_HEADERS } from "../constants";

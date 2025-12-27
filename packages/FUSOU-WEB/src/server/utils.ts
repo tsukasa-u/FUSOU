@@ -1,4 +1,5 @@
 import { createRemoteJWKSet, SignJWT, jwtVerify } from "jose";
+import { URL } from "node:url";
 import type { Context } from "hono";
 import { DEFAULT_ALLOWED_EXTENSIONS } from "./constants";
 import type { Bindings } from "./types";
