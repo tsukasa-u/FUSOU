@@ -1,19 +1,19 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "module": "ES2022",
     "lib": ["ES2022"],
-    "moduleResolution": "node",
+    "module": "ES2022",
+    "moduleResolution": "bundler",
     "resolveJsonModule": true,
     "allowSyntheticDefaultImports": true,
     "strict": true,
     "skipLibCheck": true,
     "esModuleInterop": true,
-    "forceConsistentCasingInFileNames": true,
-    "types": [
-      "@cloudflare/workers-types/experimental"
-    ]
+    "types": ["@cloudflare/workers-types"],
+    "paths": {
+      "../../avro-wasm/*": ["../avro-wasm/*"]
+    }
   },
-  "include": ["src/**/*", "node-compat.d.ts", "avro-js.d.ts"],
-  "exclude": ["node_modules"]
+  "include": ["src/**/*", "../avro-wasm/**/*"],
+  "exclude": ["node_modules", "dist"]
 }

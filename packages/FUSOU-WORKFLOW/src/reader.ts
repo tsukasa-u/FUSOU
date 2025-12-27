@@ -15,9 +15,9 @@
  * - Hot + Cold (multi-block, parallel): < 500ms
  */
 
-import { detectCompressionCodec } from './utils/compression.js';
-import { parseDeflateAvroBlock, getAvroHeaderLengthFromPrefix, parseNullAvroBlock } from './avro-manual.js';
-import { computeSchemaFingerprint } from './avro-manual.js';
+import { detectCompressionCodec } from './utils/compression';
+import { parseDeflateAvroBlock, getAvroHeaderLengthFromPrefix, parseNullAvroBlock } from './avro-manual';
+import { computeSchemaFingerprint } from './avro-manual';
 
 interface Env {
   BATTLE_DATA_BUCKET: R2Bucket;

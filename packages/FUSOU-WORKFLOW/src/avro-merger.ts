@@ -223,5 +223,13 @@ export function mergeAvroOCF(ocfDataArray: Uint8Array[]): Uint8Array {
  */
 export function mergeAvroOCFBuffers(bufferArray: ArrayBuffer[]): ArrayBuffer {
   const uint8Array = mergeAvroOCF(bufferArray.map(b => new Uint8Array(b)));
-  return uint8Array.buffer.slice(uint8Array.byteOffset, uint8Array.byteOffset + uint8Array.byteLength);
+  // Handle both ArrayBuffer and SharedArrayBuffer
+  const buffer = uint8Array.buffer;
+  if (buffer instanceof SharedArrayBuffer) {
+    // Convert SharedArrayBuffer to ArrayBuffer
+    const ab = new ArrayBuffer(uint8Array.byteLength);
+    new Uint8Array(ab).set(uint8Array);
+    return ab;
+  }
+  return buffer.slice(uint8Array.byteOffset, uint8Array.byteOffset + uint8Array.byteLength);
 }

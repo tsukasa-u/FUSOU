@@ -4,21 +4,7 @@
  * Implements a subset of Avro sufficient for battle data
  */
 
-// Avro primitive type encoders (variable-length zigzag encoding for integers)
-function encodeZigzag(n: number): number {
-  return (n << 1) ^ (n >> 31);
-}
-
-function encodeLong(value: number): Uint8Array {
-  const buf: number[] = [];
-  let n = encodeZigzag(value);
-  while ((n & ~0x7f) !== 0) {
-    buf.push((n & 0x7f) | 0x80);
-    n >>>= 7;
-  }
-  buf.push(n & 0x7f);
-  return new Uint8Array(buf);
-}
+// Avro primitive type encoders removed (unused)
 
 function decodeZigzag(n: number): number {
   return (n >>> 1) ^ -(n & 1);
@@ -37,81 +23,8 @@ function decodeLong(buffer: Uint8Array, offset: number): { value: number; offset
   return { value: decodeZigzag(n), offset: pos };
 }
 
-function encodeString(str: string): Uint8Array {
-  const bytes = new TextEncoder().encode(str);
-  const len = encodeLong(bytes.length);
-  const result = new Uint8Array(len.length + bytes.length);
-  result.set(len, 0);
-  result.set(bytes, len.length);
-  return result;
-}
-
-function encodeBytes(bytes: Uint8Array): Uint8Array {
-  const len = encodeLong(bytes.length);
-  const result = new Uint8Array(len.length + bytes.length);
-  result.set(len, 0);
-  result.set(bytes, len.length);
-  return result;
-}
-
-function encodeBoolean(value: boolean): Uint8Array {
-  return new Uint8Array([value ? 1 : 0]);
-}
-
-function encodeDouble(value: number): Uint8Array {
-  const buf = new ArrayBuffer(8);
-  new DataView(buf).setFloat64(0, value, true); // little-endian
-  return new Uint8Array(buf);
-}
-
-// Simple schema inference from JS object
-interface AvroField {
-  name: string;
-  // Avro type can be a primitive string, a union (array), or a complex object
-  type: any;
-}
-
-interface AvroSchema {
-  type: 'record';
-  name: string;
-  fields: AvroField[];
-  namespace?: string;
-}
-
-function inferSchema(record: any): AvroSchema {
-  const fields: AvroField[] = [];
-  for (const key of Object.keys(record)) {
-    const value = record[key];
-    let type: string | string[];
-    
-    if (value === null || value === undefined) {
-      type = ['null', 'string']; // union type
-    } else if (typeof value === 'boolean') {
-      type = 'boolean';
-    } else if (typeof value === 'number') {
-      type = Number.isInteger(value) ? 'long' : 'double';
-    } else if (typeof value === 'string') {
-      type = 'string';
-    } else if (Array.isArray(value)) {
-      type = 'string'; // fallback: serialize arrays as JSON strings
-    } else if (typeof value === 'object') {
-      type = 'string'; // fallback: serialize objects as JSON strings
-    } else {
-      type = 'string';
-    }
-    
-    fields.push({ name: key, type });
-  }
-  
-  return {
-    type: 'record',
-    name: 'Record',
-    fields
-  };
-}
-
 // Ensure namespace embeds schema_version for downstream validation
-export function ensureSchemaNamespace(schema: AvroSchema, schemaVersion: string = 'v1'): AvroSchema {
+export function ensureSchemaNamespace(schema: any, schemaVersion: string = 'v1'): any {
   if (schema.namespace && schema.namespace.includes(schemaVersion)) {
     return schema;
   }
@@ -127,305 +40,6 @@ export async function computeSchemaFingerprint(schemaJson: string): Promise<stri
   return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-// Encode a record according to schema
-function encodeRecord(record: any, schema: AvroSchema): Uint8Array {
-  const parts: Uint8Array[] = [];
-
-  for (const field of schema.fields) {
-    const value = record[field.name];
-    const fieldType = field.type;
-
-    if (Array.isArray(fieldType)) {
-      // Generic union handling; assume first branch may be 'null'
-      if (value === null || value === undefined) {
-        parts.push(encodeLong(0));
-      } else {
-        // Find first non-null branch; prefer index 1 for ['null', T]
-        let branchIndex = 0;
-        for (let i = 0; i < fieldType.length; i++) {
-          if (fieldType[i] !== 'null') { branchIndex = i; break; }
-        }
-        parts.push(encodeLong(branchIndex));
-        parts.push(encodeComplexValue(value, fieldType[branchIndex]));
-      }
-    } else {
-      parts.push(encodeComplexValue(value, fieldType));
-    }
-  }
-
-  const totalLen = parts.reduce((sum, p) => sum + p.length, 0);
-  const result = new Uint8Array(totalLen);
-  let offset = 0;
-  for (const part of parts) { result.set(part, offset); offset += part.length; }
-  return result;
-}
-
-// Exported helper to encode a record according to a provided schema
-export function encodeRecordWithSchema(record: any, schema: AvroSchema): Uint8Array {
-  return encodeRecord(record, schema);
-}
-
-function encodeArray(arr: any[], itemsType: any): Uint8Array {
-  // Avro array encoding: one or more blocks
-  // For simplicity, encode all items in a single block: [count][items...][0]
-  const parts: Uint8Array[] = [];
-  parts.push(encodeLong(arr.length));
-  for (const item of arr) {
-    if (Array.isArray(itemsType)) {
-      // union per item
-      if (item === null || item === undefined) {
-        parts.push(encodeLong(0));
-      } else {
-        let branchIndex = 0;
-        for (let i = 0; i < itemsType.length; i++) {
-          if (itemsType[i] !== 'null') { branchIndex = i; break; }
-        }
-        parts.push(encodeLong(branchIndex));
-        parts.push(encodeComplexValue(item, itemsType[branchIndex]));
-      }
-    } else {
-      parts.push(encodeComplexValue(item, itemsType));
-    }
-  }
-  parts.push(encodeLong(0)); // end of blocks
-  const total = parts.reduce((s, p) => s + p.length, 0);
-  const out = new Uint8Array(total);
-  let off = 0;
-  for (const p of parts) { out.set(p, off); off += p.length; }
-  return out;
-}
-
-function encodeComplexValue(value: any, type: any): Uint8Array {
-  if (value === null || value === undefined) {
-    return new Uint8Array(0);
-  }
-  if (typeof type === 'string') {
-    return encodeValue(value, type);
-  }
-  if (typeof type === 'object') {
-    if (type.type === 'array') {
-      return encodeArray(Array.isArray(value) ? value : [], type.items);
-    }
-    if (type.type === 'string') {
-      // handle logicalType like uuid
-      return encodeValue(value, 'string');
-    }
-    // Fallback to string
-    return encodeValue(value, 'string');
-  }
-  return encodeValue(value, 'string');
-}
-
-function encodeValue(value: any, type: string): Uint8Array {
-  if (value === null || value === undefined) {
-    return new Uint8Array(0); // null encoding
-  }
-  
-  switch (type) {
-    case 'boolean':
-      return encodeBoolean(!!value);
-    case 'long':
-    case 'int':
-      return encodeLong(typeof value === 'number' ? value : 0);
-    case 'double':
-    case 'float':
-      return encodeDouble(typeof value === 'number' ? value : 0);
-    case 'string':
-      if (typeof value === 'string') {
-        return encodeString(value);
-      } else {
-        // Serialize non-strings as JSON
-        return encodeString(JSON.stringify(value));
-      }
-    case 'bytes':
-      if (value instanceof Uint8Array) {
-        return encodeBytes(value);
-      } else if (typeof value === 'string') {
-        return encodeBytes(new TextEncoder().encode(value));
-      } else {
-        return encodeBytes(new Uint8Array(0));
-      }
-    default:
-      return encodeString(String(value));
-  }
-}
-
-// Encode map<string, bytes> for metadata
-function encodeMap(map: Record<string, Uint8Array>): Uint8Array {
-  const parts: Uint8Array[] = [];
-  const keys = Object.keys(map);
-  
-  if (keys.length === 0) {
-    parts.push(encodeLong(0)); // empty map
-  } else {
-    parts.push(encodeLong(keys.length)); // block count
-    for (const key of keys) {
-      parts.push(encodeString(key));
-      parts.push(encodeBytes(map[key]));
-    }
-    parts.push(encodeLong(0)); // end marker
-  }
-  
-  const totalLen = parts.reduce((sum, p) => sum + p.length, 0);
-  const result = new Uint8Array(totalLen);
-  let offset = 0;
-  for (const part of parts) {
-    result.set(part, offset);
-    offset += part.length;
-  }
-  return result;
-}
-
-/**
- * Build Avro OCF container from records
- */
-export function buildAvroContainer(records: any[]): Uint8Array {
-  if (!records || records.length === 0) {
-    throw new Error('Cannot build Avro container without records');
-  }
-  
-  const schema = inferSchema(records[0]);
-  const chunks: Uint8Array[] = [];
-  
-  // 1. Magic bytes: "Obj\x01"
-  chunks.push(new Uint8Array([0x4f, 0x62, 0x6a, 0x01]));
-  
-  // 2. Metadata map
-  const schemaJson = JSON.stringify(schema);
-  const metadata: Record<string, Uint8Array> = {
-    'avro.schema': new TextEncoder().encode(schemaJson),
-    'avro.codec': new TextEncoder().encode('null'),
-  };
-  chunks.push(encodeMap(metadata));
-  
-  // 3. Sync marker (16 random bytes)
-  const syncMarker = new Uint8Array(16);
-  crypto.getRandomValues(syncMarker);
-  chunks.push(syncMarker);
-  
-  // 4. Data block
-  const recordBufs: Uint8Array[] = [];
-  let totalSize = 0;
-  
-  for (const record of records) {
-    const buf = encodeRecord(record, schema);
-    recordBufs.push(buf);
-    totalSize += buf.length;
-  }
-  
-  // Block count
-  chunks.push(encodeLong(records.length));
-  // Block size in bytes
-  chunks.push(encodeLong(totalSize));
-  // Records
-  chunks.push(...recordBufs);
-  // Sync marker
-  chunks.push(syncMarker);
-  
-  // 5. Combine all chunks
-  const totalLen = chunks.reduce((sum, c) => sum + c.length, 0);
-  const result = new Uint8Array(totalLen);
-  let offset = 0;
-  for (const chunk of chunks) {
-    result.set(chunk, offset);
-    offset += chunk.length;
-  }
-  
-  return result;
-}
-
-export async function buildOCFWithSchema(schema: AvroSchema, records: any[], codec: 'null' | 'deflate' = 'null', schemaVersion: string = 'v1'): Promise<Uint8Array> {
-  if (!records || records.length === 0) {
-    throw new Error('Cannot build Avro container without records');
-  }
-
-  const schemaWithNs = ensureSchemaNamespace(schema, schemaVersion);
-  const chunks: Uint8Array[] = [];
-
-  // Magic
-  chunks.push(new Uint8Array([0x4f, 0x62, 0x6a, 0x01]));
-
-  // Metadata
-  const schemaJson = JSON.stringify(schemaWithNs);
-  const metadata: Record<string, Uint8Array> = {
-    'avro.schema': new TextEncoder().encode(schemaJson),
-    'avro.codec': new TextEncoder().encode(codec),
-  };
-  chunks.push(encodeMap(metadata));
-
-  // Sync
-  const syncMarker = new Uint8Array(16);
-  crypto.getRandomValues(syncMarker);
-  chunks.push(syncMarker);
-
-  // Records payload
-  const recordBufs: Uint8Array[] = records.map(r => encodeRecord(r, schema));
-  const uncompressedPayloadSize = recordBufs.reduce((s, b) => s + b.length, 0);
-  // Concatenate uncompressed payload
-  const uncompressedPayload = new Uint8Array(uncompressedPayloadSize);
-  let upOff = 0;
-  for (const b of recordBufs) { uncompressedPayload.set(b, upOff); upOff += b.length; }
-
-  let blockPayload: Uint8Array = uncompressedPayload;
-  if (codec === 'deflate') {
-    // Compress payload using raw deflate to match Avro OCF expectations
-    // @ts-ignore
-    const { deflateRaw } = await import('node:zlib');
-    // @ts-ignore
-    const { promisify } = await import('node:util');
-    const deflateRawAsync = promisify(deflateRaw);
-    const comp = await deflateRawAsync(uncompressedPayload);
-    blockPayload = new Uint8Array(comp);
-  }
-
-  // count
-  chunks.push(encodeLong(records.length));
-  // size (size of block payload in bytes; for deflate, compressed size)
-  chunks.push(encodeLong(blockPayload.length));
-  // payload
-  chunks.push(blockPayload);
-  // sync
-  chunks.push(syncMarker);
-
-  const totalLen = chunks.reduce((s, c) => s + c.length, 0);
-  const out = new Uint8Array(totalLen);
-  let off = 0;
-  for (const c of chunks) { out.set(c, off); off += c.length; }
-  return out;
-}
-
-export function buildHeaderWithSchema(schema: AvroSchema, codec: 'null' | 'deflate', syncMarker: Uint8Array): Uint8Array {
-  const chunks: Uint8Array[] = [];
-  chunks.push(new Uint8Array([0x4f, 0x62, 0x6a, 0x01]));
-  const schemaJson = JSON.stringify(schema);
-  const metadata: Record<string, Uint8Array> = {
-    'avro.schema': new TextEncoder().encode(schemaJson),
-    'avro.codec': new TextEncoder().encode(codec),
-  };
-  chunks.push(encodeMap(metadata));
-  chunks.push(syncMarker);
-  const total = chunks.reduce((s, c) => s + c.length, 0);
-  const out = new Uint8Array(total);
-  let off = 0;
-  for (const c of chunks) { out.set(c, off); off += c.length; }
-  return out;
-}
-
-export function buildNullBlock(schema: AvroSchema, records: any[], syncMarker: Uint8Array): Uint8Array {
-  if (!records.length) return new Uint8Array(0);
-  const encoded = records.map(r => encodeRecord(r, schema));
-  const payloadSize = encoded.reduce((s, b) => s + b.length, 0);
-  const parts: Uint8Array[] = [];
-  const count = encodeLong(records.length);
-  const size = encodeLong(payloadSize);
-  parts.push(count, size, ...encoded, syncMarker);
-  const total = parts.reduce((s, p) => s + p.length, 0);
-  const out = new Uint8Array(total);
-  let off = 0;
-  for (const p of parts) { out.set(p, off); off += p.length; }
-  return out;
-}
-
 /**
  * Parse Avro header length from buffer prefix
  */
@@ -437,18 +51,18 @@ export function getAvroHeaderLengthFromPrefix(buffer: Uint8Array): number {
   if (buffer[0] !== 0x4f || buffer[1] !== 0x62 || buffer[2] !== 0x6a || buffer[3] !== 0x01) {
     throw new Error('Invalid Avro magic bytes');
   }
-  
+
   let offset = 4;
-  
+
   // Decode metadata map
   const blockCount = decodeLong(buffer, offset);
   offset = blockCount.offset;
-  
+
   if (blockCount.value === 0) {
     // Empty map, header ends after sync marker
     return offset + 16;
   }
-  
+
   // Skip map entries
   let remaining = blockCount.value;
   while (remaining > 0) {
@@ -457,20 +71,20 @@ export function getAvroHeaderLengthFromPrefix(buffer: Uint8Array): number {
     const keyBytesLen = keyLen.value;
     offset = keyLen.offset;
     offset += keyBytesLen;
-    
+
     // Value (bytes)
     const valLen = decodeLong(buffer, offset);
     const valBytesLen = valLen.value;
     offset = valLen.offset;
     offset += valBytesLen;
-    
+
     remaining--;
   }
-  
+
   // Skip end marker (0)
   const endMarker = decodeLong(buffer, offset);
   offset = endMarker.offset;
-  
+
   // Header ends after 16-byte sync marker
   return offset + 16;
 }
@@ -492,7 +106,7 @@ export function parseAvroDataBlock(
     // For Hot/Cold architecture, data blocks contain JSON-serialized records
     // This is because buffer_logs stores data as JSON BLOB
     const decoded = new TextDecoder().decode(dataBlock);
-    
+
     // Try to parse as JSON array first
     try {
       const parsed = JSON.parse(decoded);
@@ -509,11 +123,43 @@ export function parseAvroDataBlock(
 }
 
 // ------- Additional support: parse deflate OCF blocks -------
-// @ts-ignore
-import { inflateRaw } from 'node:zlib';
-// @ts-ignore
-import { promisify } from 'node:util';
-const inflateRawAsync = promisify(inflateRaw);
+// Web Streams API for deflate decompression (Cloudflare Workers compatible)
+// Note: 'deflate-raw' is supported in Cloudflare Workers
+
+/**
+ * Decompress deflate-raw data using Web Streams API
+ * Works in Cloudflare Workers without node:zlib
+ */
+async function inflateRawAsync(compressed: Uint8Array): Promise<Uint8Array> {
+  const stream = new DecompressionStream('deflate-raw');
+  const writer = stream.writable.getWriter();
+  const reader = stream.readable.getReader();
+
+  // Write compressed data
+  writer.write(compressed);
+  writer.close();
+
+  // Read decompressed chunks
+  const chunks: Uint8Array[] = [];
+  let totalLength = 0;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    totalLength += value.length;
+  }
+
+  // Concatenate chunks
+  const result = new Uint8Array(totalLength);
+  let offset = 0;
+  for (const chunk of chunks) {
+    result.set(chunk, offset);
+    offset += chunk.length;
+  }
+
+  return result;
+}
 
 function decodeString(buffer: Uint8Array, offset: number): { value: string; offset: number } {
   const lenInfo = decodeLong(buffer, offset);

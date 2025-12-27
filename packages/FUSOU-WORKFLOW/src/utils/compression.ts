@@ -5,33 +5,50 @@
  * - deflate: zlib compression (standard, good compression ratio)
  * - snappy: Fast compression (lower ratio, higher speed)
  * 
- * Requirements:
- * - wrangler.toml: compatibility_flags = ["nodejs_compat"]
- * - Node.js zlib module available in Workers runtime
+ * Implementation:
+ * - Uses Web Streams API (CompressionStream/DecompressionStream)
+ * - Works in Cloudflare Workers without nodejs_compat
+ * - No Node.js dependencies
  */
 
-// Type-safe imports for Workers with nodejs_compat
-// @ts-ignore - Node.js modules available via nodejs_compat flag
-import { deflate, inflate } from 'node:zlib';
-// @ts-ignore
-import { promisify } from 'node:util';
-
-const deflateAsync = promisify(deflate);
-const inflateAsync = promisify(inflate);
-
 /**
- * Compress data using deflate (zlib)
+ * Compress data using deflate (Web Streams API)
  * Returns null if compression fails or increases size
  */
 export async function compressDeflate(data: Uint8Array): Promise<Uint8Array | null> {
   try {
-    const compressed = await deflateAsync(data);
-    
+    const stream = new CompressionStream('deflate');
+    const writer = stream.writable.getWriter();
+    const reader = stream.readable.getReader();
+
+    // Write data
+    writer.write(data);
+    writer.close();
+
+    // Read compressed chunks
+    const chunks: Uint8Array[] = [];
+    let totalLength = 0;
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+      totalLength += value.length;
+    }
+
+    // Concatenate chunks
+    const compressed = new Uint8Array(totalLength);
+    let offset = 0;
+    for (const chunk of chunks) {
+      compressed.set(chunk, offset);
+      offset += chunk.length;
+    }
+
     // Only return compressed if it's actually smaller
     if (compressed.byteLength < data.byteLength) {
-      return new Uint8Array(compressed);
+      return compressed;
     }
-    
+
     return null;  // Compression didn't help
   } catch (err) {
     console.error('Deflate compression failed:', err);
@@ -40,12 +57,38 @@ export async function compressDeflate(data: Uint8Array): Promise<Uint8Array | nu
 }
 
 /**
- * Decompress deflate data
+ * Decompress deflate data (Web Streams API)
  */
 export async function decompressDeflate(data: Uint8Array): Promise<Uint8Array> {
   try {
-    const decompressed = await inflateAsync(data);
-    return new Uint8Array(decompressed);
+    const stream = new DecompressionStream('deflate');
+    const writer = stream.writable.getWriter();
+    const reader = stream.readable.getReader();
+
+    // Write compressed data
+    writer.write(data);
+    writer.close();
+
+    // Read decompressed chunks
+    const chunks: Uint8Array[] = [];
+    let totalLength = 0;
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+      totalLength += value.length;
+    }
+
+    // Concatenate chunks
+    const decompressed = new Uint8Array(totalLength);
+    let offset = 0;
+    for (const chunk of chunks) {
+      decompressed.set(chunk, offset);
+      offset += chunk.length;
+    }
+
+    return decompressed;
   } catch (err) {
     console.error('Deflate decompression failed:', err);
     throw new Error('Failed to decompress deflate data');
@@ -77,10 +120,10 @@ export function detectCompressionCodec(avroHeader: Uint8Array): string | null {
   try {
     // Simplified detection: look for "deflate" or "snappy" in header bytes
     const headerText = new TextDecoder().decode(avroHeader.slice(0, 512));
-    
+
     if (headerText.includes('deflate')) return 'deflate';
     if (headerText.includes('snappy')) return 'snappy';
-    
+
     return null;  // No compression
   } catch (err) {
     console.error('Failed to detect compression codec:', err);
@@ -118,7 +161,7 @@ export function calculateCompressionStats(
 ): CompressionStats {
   const ratio = estimateCompressionRatio(original.byteLength, compressed.byteLength);
   const savingsPercent = Math.round((1 - compressed.byteLength / original.byteLength) * 100);
-  
+
   return {
     originalSize: original.byteLength,
     compressedSize: compressed.byteLength,
@@ -139,17 +182,17 @@ export async function autoDecompress(
   if (!codec || codec === 'null' || codec === 'none') {
     return data;  // No compression
   }
-  
+
   switch (codec) {
     case 'deflate':
       return await decompressDeflate(data);
-    
+
     case 'snappy':
       // Explicitly unsupported for now to avoid silent corruption.
       // Avro Snappy requires appending a 4-byte CRC32 of the uncompressed data.
       // Implementing correct framed Snappy + CRC verification will be added when needed.
       throw new Error('Snappy codec unsupported: requires Avro Snappy CRC32 handling');
-    
+
     default:
       throw new Error(`Unsupported compression codec: ${codec}`);
   }

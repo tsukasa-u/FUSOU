@@ -6,7 +6,17 @@
  * - Records byte offsets in block_indexes for Range reads
  */
 
-import { mergeAvroOCF } from './avro-merger.js';
+import { mergeAvroOCF } from './avro-merger';
+import { initWasm, validateAvroOCFSmart } from '@fusou/avro-wasm';
+
+// Initialize WASM on first usage
+let wasmReady: Promise<void> | null = null;
+async function ensureWasm(): Promise<void> {
+  if (!wasmReady) {
+    wasmReady = initWasm();
+  }
+  await wasmReady;
+}
 
 interface Env {
   BATTLE_DATA_BUCKET: R2Bucket;
@@ -71,7 +81,7 @@ async function fetchBufferedData(db: D1Database): Promise<BufferRow[]> {
  */
 function groupByDataset(rows: BufferRow[]): ArchiveGroup[] {
   const groupMap = new Map<string, Map<string, BufferRow[]>>();
-  
+
   // Group by (schema_version::table_name::period_tag) -> dataset_id -> rows[]
   for (const row of rows) {
     const groupKey = `${row.schema_version}::${row.table_name}::${row.period_tag}`;
@@ -84,7 +94,7 @@ function groupByDataset(rows: BufferRow[]): ArchiveGroup[] {
     }
     datasetMap.get(row.dataset_id)!.push(row);
   }
-  
+
   // Convert to ArchiveGroup[]
   const groups: ArchiveGroup[] = [];
   for (const [groupKey, datasetMap] of groupMap.entries()) {
@@ -94,7 +104,7 @@ function groupByDataset(rows: BufferRow[]): ArchiveGroup[] {
     }
     const [schema_version, table_name, period_tag] = parts;
     const blocks: DatasetBlock[] = [];
-    
+
     for (const [dataset_id, rows] of datasetMap.entries()) {
       // Convert all Avro OCF binaries to Uint8Array
       // D1 might return BLOB as Uint8Array or ArrayBuffer depending on driver
@@ -104,14 +114,14 @@ function groupByDataset(rows: BufferRow[]): ArchiveGroup[] {
         // Fallback: treat as any and attempt conversion
         return new Uint8Array((r.data as any).buffer || r.data);
       });
-      
+
       // Merge multiple Avro OCF files into a single valid OCF
       // This preserves the header (magic, metadata, sync marker) from the first file
       // and properly concatenates data blocks from all files
       if (ocfFiles.length === 0) {
         throw new Error(`No OCF files to merge for dataset ${dataset_id}`);
       }
-      
+
       let mergedAvro: Uint8Array;
       try {
         mergedAvro = mergeAvroOCF(ocfFiles);
@@ -119,7 +129,7 @@ function groupByDataset(rows: BufferRow[]): ArchiveGroup[] {
         console.error(`[Archiver] Failed to merge ${ocfFiles.length} OCF files for dataset ${dataset_id} (total ${ocfFiles.reduce((s, o) => s + o.byteLength, 0)}B):`, err);
         throw new Error(`OCF merge failed: ${err instanceof Error ? err.message : String(err)}`);
       }
-      
+
       const timestamps = rows.map(r => r.timestamp);
       blocks.push({
         dataset_id,
@@ -129,13 +139,13 @@ function groupByDataset(rows: BufferRow[]): ArchiveGroup[] {
         endTimestamp: Math.max(...timestamps)
       });
     }
-    
+
     groups.push({
       key: { schema_version, table_name, period_tag },
       blocks
     });
   }
-  
+
   return groups;
 }
 
@@ -152,7 +162,7 @@ async function registerArchivedFile(db: D1Database, filePath: string, schemaVers
   // Use INSERT OR REPLACE to handle duplicate file_path (idempotent)
   // This allows cron to safely retry without UNIQUE constraint failures
   const now = Date.now();
-  
+
   // Validate inputs
   if (!filePath || filePath.length === 0) {
     throw new Error('filePath cannot be empty');
@@ -160,12 +170,12 @@ async function registerArchivedFile(db: D1Database, filePath: string, schemaVers
   if (fileSize < 0 || !Number.isFinite(fileSize)) {
     throw new Error(`Invalid fileSize: ${fileSize}`);
   }
-  
+
   // First check if file already exists
   const existing = await db.prepare(`
     SELECT id FROM archived_files WHERE file_path = ?
   `).bind(filePath).first<{ id: number }>();
-  
+
   if (existing?.id) {
     // Update file metadata for existing entry (idempotent)
     // CRITICAL: Include schema_version in UPDATE to ensure consistency
@@ -176,20 +186,20 @@ async function registerArchivedFile(db: D1Database, filePath: string, schemaVers
     `).bind(fileSize, codec, schemaVersion, now, existing.id).run();
     return existing.id;
   }
-  
+
   // New file: INSERT
   await db.prepare(`
     INSERT INTO archived_files (file_path, schema_version, file_size, compression_codec, created_at, last_modified_at)
     VALUES (?, ?, ?, ?, ?, ?)
   `).bind(filePath, schemaVersion, fileSize, codec, now, now).run();
-  
+
   const row = await db.prepare('SELECT last_insert_rowid() AS id').first<{ id: number }>();
   return row?.id ?? 0;
 }
 
 async function insertBlockIndexes(db: D1Database, rows: BlockIndexRow[]): Promise<void> {
   if (!rows.length) return;
-  
+
   // Delete existing indexes for these file_ids to handle retries
   const fileIds = [...new Set(rows.map(r => r.file_id))];
   if (fileIds.length > 0) {
@@ -198,7 +208,7 @@ async function insertBlockIndexes(db: D1Database, rows: BlockIndexRow[]): Promis
       DELETE FROM block_indexes WHERE file_id IN (${placeholders})
     `).bind(...fileIds).run();
   }
-  
+
   // Insert new indexes
   const sql = `
     INSERT INTO block_indexes (dataset_id, table_name, schema_version, period_tag, file_id, start_byte, length, record_count, start_timestamp, end_timestamp)
@@ -249,7 +259,7 @@ export async function handleCron(env: Env): Promise<void> {
         currentChunk.push(block);
         currentSize += block.avroData.byteLength;
       }
-      
+
       // Add last chunk
       if (currentChunk.length > 0) {
         fileChunks.push({ blocks: currentChunk, size: currentSize });
@@ -268,7 +278,7 @@ export async function handleCron(env: Env): Promise<void> {
 
         // Merge blocks for this file (if multiple blocks in same file chunk)
         const blocksList: Uint8Array[] = chunk.blocks.map(b => b.avroData);
-        
+
         let combined: Uint8Array;
         if (blocksList.length === 0) {
           throw new Error('Empty block list for file chunk');
@@ -285,6 +295,25 @@ export async function handleCron(env: Env): Promise<void> {
             console.error(`[Archiver] Failed to merge ${blocksList.length} blocks (total ${blocksList.reduce((s, b) => s + b.byteLength, 0)}B):`, err);
             throw new Error(`Block merge failed: ${err instanceof Error ? err.message : String(err)}`);
           }
+        }
+
+        // Validate merged OCF using WASM before upload
+        // This ensures that the merged file creates a valid Avro OCF
+        try {
+          await ensureWasm();
+          const validation = await validateAvroOCFSmart(combined);
+          if (!validation.valid) {
+            throw new Error(`Merged block validation failed: ${validation.errorMessage}`);
+          }
+          // Verify record count sums up (sanity check)
+          const expectedCount = chunk.blocks.reduce((s, b) => s + b.recordCount, 0);
+          if (validation.recordCount !== expectedCount) {
+            console.warn(`[Archiver] Warning: Record count mismatch. Expected ${expectedCount}, got ${validation.recordCount}`);
+            // Note: Not throwing here as recount might differ if logic differs, but worth logging
+          }
+        } catch (err) {
+          console.error(`[Archiver] Critical: Generated invalid OCF for ${filePath}`, err);
+          throw new Error(`Merged OCF validation failed: ${err instanceof Error ? err.message : String(err)}`);
         }
 
         // Upload to R2
@@ -307,7 +336,7 @@ export async function handleCron(env: Env): Promise<void> {
         // CRITICAL: Use actual combined size, not chunk.size (which may be estimate)
         const actualSize = combined.byteLength;
         const fileId = await registerArchivedFile(env.BATTLE_INDEX_DB, filePath, group.key.schema_version, actualSize, 'deflate');
-        
+
         // Create block indexes for each dataset in this file
         const blockIndexes: BlockIndexRow[] = [];
         let currentOffset = 0;
@@ -327,7 +356,7 @@ export async function handleCron(env: Env): Promise<void> {
           currentOffset += block.avroData.byteLength;
         }
         await insertBlockIndexes(env.BATTLE_INDEX_DB, blockIndexes);
-        
+
         totalFiles++;
         totalBytes += chunk.size;
         totalDatasets += chunk.blocks.length;
@@ -335,12 +364,12 @@ export async function handleCron(env: Env): Promise<void> {
     }
 
     await cleanupBuffer(env.BATTLE_INDEX_DB, maxId);
-    
+
     // Summary log
     console.log(`[Archival] ${totalFiles} files, ${totalDatasets} datasets, ${(totalBytes / 1024).toFixed(1)}KB archived from ${rows.length} buffer rows`);
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
-    
+
     // Handle UNIQUE constraint errors gracefully
     if (errorMsg.includes('UNIQUE constraint failed')) {
       console.error('[Archival Error] UNIQUE constraint violation - likely duplicate file_path from retry', errorMsg);
@@ -348,7 +377,7 @@ export async function handleCron(env: Env): Promise<void> {
       // Don't throw - allow graceful degradation for idempotent cron jobs
       return;
     }
-    
+
     // Other errors should be thrown
     console.error('[Archival Error]', errorMsg);
     throw error;
