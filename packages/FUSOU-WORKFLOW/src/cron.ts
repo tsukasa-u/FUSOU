@@ -1,19 +1,30 @@
 /**
  * Archiver Cron Worker for Avro OCF merging
- * - Reads Avro OCF files from D1 buffer_logs
+ * - Reads Avro OCF files from TiDB buffer_logs (or D1 fallback)
  * - Groups by table_name + period_tag + dataset_id
  * - Merges Avro OCF files into single valid OCF (preserves header, concatenates blocks)
- * - Records byte offsets in block_indexes for Range reads
+ * - Records byte offsets in D1 block_indexes for Range reads
  * 
- * Note: Avro validation is performed at FUSOU-WEB upload endpoint.
- * Data in buffer_logs is already validated.
+ * Hybrid Architecture:
+ * - TiDB: buffer_logs (high-volume writes)
+ * - D1: archived_files, block_indexes (metadata)
+ * - R2: Avro OCF archives (long-term storage)
  */
 
 import { mergeAvroOCF } from './avro-merger';
+import { 
+  createTiDBClientFromUrl, 
+  TiDBConnection,
+  fetchBufferedData as fetchBufferedDataFromTiDB,
+  cleanupBuffer as cleanupBufferFromTiDB,
+  BufferLogRow as TiDBBufferRow
+} from './tidb-client';
 
 interface Env {
   BATTLE_DATA_BUCKET: R2Bucket;
   BATTLE_INDEX_DB: D1Database;
+  // TiDB Cloud Serverless connection URL (optional - falls back to D1 if not set)
+  TIDB_KC_DB_URL?: string;
 }
 
 interface BufferRow {
@@ -59,13 +70,33 @@ interface BlockIndexRow {
   end_timestamp: number;
 }
 
-async function fetchBufferedData(db: D1Database): Promise<BufferRow[]> {
+// D1 fallback: fetch buffered data
+async function fetchBufferedDataD1(db: D1Database): Promise<BufferRow[]> {
   const res = await db.prepare(`
     SELECT id, dataset_id, table_name, period_tag, schema_version, timestamp, data, uploaded_by
     FROM buffer_logs
     ORDER BY schema_version, table_name, period_tag, dataset_id, id ASC
   `).all<BufferRow>();
   return res.results ?? [];
+}
+
+// D1 fallback: cleanup buffer
+async function cleanupBufferD1(db: D1Database, maxId: number): Promise<void> {
+  await db.prepare('DELETE FROM buffer_logs WHERE id <= ?').bind(maxId).run();
+}
+
+// Convert TiDB row format to local BufferRow format
+function convertTiDBRowToBufferRow(tidbRow: TiDBBufferRow): BufferRow {
+  return {
+    id: tidbRow.id,
+    dataset_id: tidbRow.dataset_id,
+    table_name: tidbRow.table_name,
+    period_tag: tidbRow.period_tag,
+    schema_version: tidbRow.schema_version,
+    timestamp: tidbRow.timestamp,
+    data: tidbRow.data.buffer as ArrayBuffer,
+    uploaded_by: tidbRow.uploaded_by,
+  };
 }
 
 /**
@@ -214,14 +245,28 @@ async function insertBlockIndexes(db: D1Database, rows: BlockIndexRow[]): Promis
   await db.prepare(sql).bind(...params).run();
 }
 
-async function cleanupBuffer(db: D1Database, maxId: number): Promise<void> {
-  await db.prepare('DELETE FROM buffer_logs WHERE id <= ?').bind(maxId).run();
-}
+// Note: cleanupBuffer moved to cleanupBufferD1 above for D1 fallback
+// TiDB cleanup uses cleanupBufferFromTiDB from tidb-client.ts
 
 export async function handleCron(env: Env): Promise<void> {
   try {
     const runTimestamp = Date.now();
-    const rows = await fetchBufferedData(env.BATTLE_INDEX_DB);
+    
+    // Determine which storage to use: TiDB (preferred) or D1 (fallback)
+    const useTiDB = !!env.TIDB_KC_DB_URL;
+    let tidbConn: TiDBConnection | null = null;
+    let rows: BufferRow[];
+    
+    if (useTiDB) {
+      console.log('[Archival] Using TiDB for buffer_logs');
+      tidbConn = createTiDBClientFromUrl(env.TIDB_KC_DB_URL!);
+      const tidbRows = await fetchBufferedDataFromTiDB(tidbConn);
+      rows = tidbRows.map(convertTiDBRowToBufferRow);
+    } else {
+      console.log('[Archival] Using D1 for buffer_logs (TiDB not configured)');
+      rows = await fetchBufferedDataD1(env.BATTLE_INDEX_DB);
+    }
+    
     if (!rows.length) {
       return; // Silent: no data to archive
     }
@@ -343,7 +388,14 @@ export async function handleCron(env: Env): Promise<void> {
       }
     }
 
-    await cleanupBuffer(env.BATTLE_INDEX_DB, maxId);
+    // Cleanup buffer from appropriate storage
+    if (useTiDB && tidbConn) {
+      await cleanupBufferFromTiDB(tidbConn, maxId);
+      console.log(`[Archival] Cleaned up TiDB buffer_logs up to id ${maxId}`);
+    } else {
+      await cleanupBufferD1(env.BATTLE_INDEX_DB, maxId);
+      console.log(`[Archival] Cleaned up D1 buffer_logs up to id ${maxId}`);
+    }
 
     // Summary log
     console.log(`[Archival] ${totalFiles} files, ${totalDatasets} datasets, ${(totalBytes / 1024).toFixed(1)}KB archived from ${rows.length} buffer rows`);

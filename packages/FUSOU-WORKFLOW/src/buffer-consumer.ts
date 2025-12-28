@@ -1,6 +1,11 @@
 // Note: Full Avro validation is performed at FUSOU-WEB upload endpoint
 // Here we only do lightweight header check for defense-in-depth
 
+import {
+  createTiDBClientFromUrl,
+  insertBufferLog,
+  TiDBConnection,
+} from './tidb-client';
 /**
  * Lightweight Avro header validation (DoS prevention)
  */
@@ -18,6 +23,8 @@ interface Env {
   BATTLE_INDEX_DB: D1Database;
   // Optional tuning: chunk size for bulk inserts (<= 500)
   BUFFER_CHUNK_SIZE?: string;
+  // TiDB Cloud Serverless connection URL (optional - falls back to D1 if not set)
+  TIDB_KC_DB_URL?: string;
 }
 
 interface BufferLogRecord {
@@ -266,6 +273,50 @@ export async function handleBufferConsumerChunked(
     return;
   }
 
+  // Determine storage: TiDB (preferred) or D1 (fallback)
+  const useTiDB = !!env.TIDB_KC_DB_URL;
+  
+  if (useTiDB) {
+    // TiDB: insert records one by one (could batch but RU cost is similar)
+    console.log('[Buffer Consumer] Using TiDB for buffer_logs');
+    const tidbConn = createTiDBClientFromUrl(env.TIDB_KC_DB_URL!);
+    
+    let successCount = 0;
+    for (const record of allRecords) {
+      try {
+        await insertBufferLog(tidbConn, {
+          dataset_id: record.dataset_id,
+          table_name: record.table_name,
+          period_tag: record.period_tag,
+          schema_version: record.schema_version,
+          timestamp: record.timestamp,
+          data: new Uint8Array(record.data),
+          uploaded_by: record.uploaded_by,
+        });
+        successCount++;
+      } catch (err) {
+        console.error('[Buffer Consumer] TiDB insert failed:', err instanceof Error ? err.message : String(err));
+        batch.retryAll();
+        return;
+      }
+    }
+    
+    // ACK successful messages
+    batch.messages.forEach(msg => {
+      if (!failedMessages.includes(msg)) {
+        msg.ack();
+      } else {
+        msg.retry();
+      }
+    });
+    
+    console.log(`[Buffer Consumer] ${successCount} records inserted to TiDB (${failedMessages.length} skipped)`);
+    return;
+  }
+  
+  // D1 fallback: chunked bulk insert
+  console.log('[Buffer Consumer] Using D1 for buffer_logs');
+  
   // Chunk records into manageable batches
   // Resolve chunk size from env (safe cap at 500)
   const envChunk = Number(env.BUFFER_CHUNK_SIZE ?? chunkSize);

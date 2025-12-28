@@ -7,6 +7,8 @@ interface Env {
   BATTLE_INDEX_DB: D1Database;
   OUTPUT_KEY_NAME?: string;
   COMPACTION_QUEUE?: Queue<any>;
+  // TiDB Cloud Serverless connection URL
+  TIDB_KC_DB_URL?: string;
 }
 
 const CORS_HEADERS = {
