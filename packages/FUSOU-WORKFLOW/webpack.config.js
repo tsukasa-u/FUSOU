@@ -1,5 +1,4 @@
 import path from 'path';
-import CopyPlugin from 'copy-webpack-plugin';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -25,11 +24,6 @@ export default {
       "buffer": false, // 'buffer/' alias caused issues in some ESM builds, use node:buffer or false if not needed
     }
   },
-  externals: [
-    {
-      './avro_wasm_bg.wasm': './avro_wasm_bg.wasm',
-    },
-  ],
   module: {
     rules: [
       {
@@ -41,13 +35,6 @@ export default {
       },
     ],
   },
-  plugins: [
-    new CopyPlugin({
-      patterns: [
-        { from: '../../packages/avro-wasm/pkg/avro_wasm_bg.wasm', to: 'avro_wasm_bg.wasm' },
-      ],
-    }),
-  ],
   experiments: {
     outputModule: true, // Required for output.module: true
   },

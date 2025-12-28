@@ -4,19 +4,12 @@
  * - Groups by table_name + period_tag + dataset_id
  * - Merges Avro OCF files into single valid OCF (preserves header, concatenates blocks)
  * - Records byte offsets in block_indexes for Range reads
+ * 
+ * Note: Avro validation is performed at FUSOU-WEB upload endpoint.
+ * Data in buffer_logs is already validated.
  */
 
 import { mergeAvroOCF } from './avro-merger';
-import { initWasm, validateAvroOCFSmart } from '@fusou/avro-wasm';
-
-// Initialize WASM on first usage
-let wasmReady: Promise<void> | null = null;
-async function ensureWasm(): Promise<void> {
-  if (!wasmReady) {
-    wasmReady = initWasm();
-  }
-  await wasmReady;
-}
 
 interface Env {
   BATTLE_DATA_BUCKET: R2Bucket;

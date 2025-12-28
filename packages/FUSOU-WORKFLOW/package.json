@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "pnpm run build && wrangler deploy",
-    "build": "pnpm --filter @fusou/avro-wasm run build && webpack",
+    "build": "webpack",
     "types": "wrangler types",
     "tail": "wrangler tail",
     "test": "npx tsc --outDir dist && node test/avro-smoke.mjs",
@@ -33,7 +33,6 @@
     "wrangler": "^4.51.0"
   },
   "dependencies": {
-    "@fusou/avro-wasm": "workspace:*",
     "@supabase/supabase-js": "^2.86.0"
   }
 }

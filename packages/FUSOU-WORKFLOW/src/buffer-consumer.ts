@@ -1,13 +1,5 @@
-import { initWasm, validateAvroOCFSmart, type AvroValidationResult } from '@fusou/avro-wasm';
-
-// Initialize WASM on first use
-let wasmReady: Promise<void> | null = null;
-async function ensureWasm(): Promise<void> {
-  if (!wasmReady) {
-    wasmReady = initWasm();
-  }
-  await wasmReady;
-}
+// Note: Full Avro validation is performed at FUSOU-WEB upload endpoint
+// Here we only do lightweight header check for defense-in-depth
 
 /**
  * Lightweight Avro header validation (DoS prevention)
@@ -90,7 +82,7 @@ function flattenRecords(records: BufferLogRecord[]): (string | number | ArrayBuf
  * Normalize queue message to buffer log record
  * Converts base64 Avro to binary BLOB for storage
  * 
- * Note: Full decode validation is now done at FUSOU-WEB upload endpoint
+ * Note: Full decode validation is done at FUSOU-WEB upload endpoint
  * Here we only do lightweight header check (defense-in-depth)
  */
 async function normalizeMessage(msg: QueueMessage): Promise<BufferLogRecord[]> {
@@ -103,33 +95,23 @@ async function normalizeMessage(msg: QueueMessage): Promise<BufferLogRecord[]> {
     avroBytes[i] = binaryString.charCodeAt(i);
   }
 
-  // Defense-in-depth: lightweight header check
+  // Defense-in-depth: lightweight header check (magic bytes + size)
   const headerCheck = validateAvroHeader(avroBytes, 1048576); // 1MB cap
   if (!headerCheck.valid) {
     throw new Error(`Avro header validation failed: ${headerCheck.error}`);
   }
 
-  // Defense-in-depth: WASM strict validation
-  // Data was already validated at WEB upload, but we re-validate for security
-  await ensureWasm();
-  const validation = await validateAvroOCFSmart(avroBytes);
-  if (!validation.valid) {
-    throw new Error(`Avro validation failed: ${validation.errorMessage}`);
-  }
+  // Schema version and table name come from FUSOU-WEB validated token
+  // These were verified by WASM validation at upload time
+  const schemaVersion = msg.schemaVersion || 'v1';
 
-  console.log(`[Consumer] Validated ${msg.table}: ${validation.recordCount} records, schema=${validation.schemaVersion}`);
-
-  // Use WASM-detected schema version for storage (don't trust client claim)
-  const detectedVersion = validation.schemaVersion || 'v1';
-  if (msg.schemaVersion && msg.schemaVersion !== detectedVersion) {
-    console.warn(`[Consumer] Schema version mismatch: client claimed ${msg.schemaVersion}, detected ${detectedVersion}`);
-  }
+  console.log(`[Consumer] Accepted ${msg.table}: ${avroBytes.length} bytes, schema=${schemaVersion}`);
 
   return [{
     dataset_id: msg.datasetId,
-    table_name: validation.tableName || msg.table,  // Prefer detected table name
+    table_name: msg.table,
     period_tag: msg.periodTag ?? 'latest',
-    schema_version: detectedVersion,  // Use WASM-detected version
+    schema_version: schemaVersion,
     timestamp: msg.triggeredAt ? new Date(msg.triggeredAt).getTime() : now,
     data: avroBytes.buffer,
     uploaded_by: msg.userId
