@@ -5,7 +5,8 @@
  * Optimized for Cloudflare Workers (481KB WASM)
  */
 
-import {
+// For web target, we import the init function and wasm module
+import init, {
   validate_avro_ocf as wasm_validate_avro_ocf,
   validate_avro_ocf_smart as wasm_validate_avro_ocf_smart,
   validate_avro_ocf_by_table as wasm_validate_avro_ocf_by_table,
@@ -16,30 +17,33 @@ import {
   get_available_versions as wasm_get_available_versions,
   get_schema_json as wasm_get_schema_json,
   init_panic_hook,
-  ValidationResult,
-  SchemaMatchResult,
-} from './pkg/avro_wasm';
+} from './pkg/avro_wasm.js';
 
-// @ts-ignore - WASM module provided by bundler (Webpack)
-import * as wasm from './pkg/avro_wasm';
+// Import WASM binary for Cloudflare Workers
+// @ts-ignore - WASM module import
+import wasmModule from './pkg/avro_wasm_bg.wasm';
 
 let wasmInitialized = false;
 
 /**
  * Initialize the WASM module.
- * For bundler target, the module is imported directly.
- * We just ensure panic hook is installed once.
+ * For web target, we must call init() with the WASM module.
  */
 export async function initWasm(): Promise<void> {
   if (wasmInitialized) {
     return;
   }
   
-  // With 'experiments.asyncWebAssembly: true', import await is handled by Webpack's module loader
-  // No manual initialization needed for bundler target usually, 
-  // but we call this to ensure side-effects like panic hook are set.
-  init_panic_hook();
-  wasmInitialized = true;
+  try {
+    // For Cloudflare Workers, wasmModule is a WebAssembly.Module
+    // For browsers, it would be a URL or ArrayBuffer
+    await init(wasmModule);
+    init_panic_hook();
+    wasmInitialized = true;
+  } catch (e) {
+    console.error('[avro-wasm] Failed to initialize WASM:', e);
+    throw e;
+  }
 }
 
 // ==================== Re-export WASM functions ====================

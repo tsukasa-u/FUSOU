@@ -51,8 +51,8 @@ if ! command -v wasm-pack &> /dev/null; then
     fi
 fi
 
-# Build for wasm-pack
-$WASM_PACK build --target bundler --release --no-default-features --features "$FEATURE" 2>&1 | head -100
+# Build for wasm-pack with web target for Cloudflare Workers compatibility
+$WASM_PACK build --target web --release --no-default-features --features "$FEATURE" 2>&1 | head -100
 
 # Check if build succeeded
 if [ -f "pkg/avro_wasm.js" ]; then
