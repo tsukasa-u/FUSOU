@@ -9,6 +9,7 @@ use std::{
 };
 
 use dashmap::DashSet;
+use fusou_auth::{AuthManager, FileStorage};
 use once_cell::sync::Lazy;
 use rand::{thread_rng, Rng};
 use reqwest::{Client, Url};
@@ -21,12 +22,11 @@ use tokio::{
     time,
 };
 use tracing;
-use fusou_auth::{FileStorage, AuthManager};
 
 use chrono::{DateTime, Utc};
 use configs::ConfigsAppAssetSync;
 
-use fusou_upload::{PendingStore, Uploader, UploadRequest, UploadContext, UploadResult};
+use fusou_upload::{PendingStore, UploadContext, UploadRequest, UploadResult, Uploader};
 use reqwest::StatusCode;
 
 static ASSET_SYNC_HANDLE: OnceLock<JoinHandle<()>> = OnceLock::new();
@@ -58,11 +58,17 @@ struct ExistingKeysError {
 
 impl ExistingKeysError {
     fn transport(msg: impl Into<String>) -> Self {
-        Self { status: None, message: msg.into() }
+        Self {
+            status: None,
+            message: msg.into(),
+        }
     }
 
     fn http(status: StatusCode, body: String) -> Self {
-        Self { status: Some(status), message: body }
+        Self {
+            status: Some(status),
+            message: body,
+        }
     }
 }
 
@@ -92,8 +98,6 @@ struct UploadHandshakeRequest {
     content_type: String,
 }
 
-
-
 #[derive(Deserialize)]
 struct PeriodApiResponse {
     tag: Option<String>,
@@ -104,6 +108,15 @@ struct RemoteKeyCache {
     keys: HashSet<String>,
     hashes: HashMap<String, Option<String>>, // key -> content_hash
     expires_at: Instant,
+    last_sync_timestamp: Option<u64>, // ms since epoch from server's refreshedAt
+}
+
+/// Persistent cache format for storing asset keys to disk
+#[derive(Serialize, Deserialize, Default)]
+struct PersistentAssetCache {
+    keys: Vec<String>,
+    hashes: HashMap<String, Option<String>>,
+    last_sync_timestamp: Option<u64>,
 }
 
 #[derive(Deserialize)]
@@ -123,6 +136,10 @@ struct ExistingKeysResponse {
     #[serde(default)]
     items: Vec<ExistingKeyItem>,
     cache_expires_at: Option<String>,
+    #[serde(default, rename = "refreshedAt")]
+    refreshed_at: Option<String>,
+    #[serde(default)]
+    incremental: Option<bool>,
 }
 
 #[derive(Debug, Clone)]
@@ -290,7 +307,9 @@ async fn run_worker(
         if let Some(path) = rx.recv().await {
             if check_auth_ready(&settings, &auth_manager).await {
                 tracing::info!(file = %path.display(), "received new asset notification, processing...");
-                if let Err(err) = process_path(&client, &settings, &path, &auth_manager, &pending_store).await {
+                if let Err(err) =
+                    process_path(&client, &settings, &path, &auth_manager, &pending_store).await
+                {
                     tracing::warn!(error = %err, file = %path.display(), "asset upload failed");
                 }
             }
@@ -415,15 +434,28 @@ async fn process_path(
             // Remote has hash - compare with local
             if remote_hash == local_hash {
                 PROCESSED_KEYS.insert(key.clone());
-                tracing::info!(key, local_hash, "skipping upload; remote content hash matches local");
+                tracing::info!(
+                    key,
+                    local_hash,
+                    "skipping upload; remote content hash matches local"
+                );
                 return Ok(());
             } else {
                 // Hash differs - need to upload updated version
-                tracing::info!(key, local_hash, remote_hash, "content changed, uploading updated version");
+                tracing::info!(
+                    key,
+                    local_hash,
+                    remote_hash,
+                    "content changed, uploading updated version"
+                );
             }
         } else {
             // Remote key exists but no hash - upload to populate hash
-            tracing::info!(key, local_hash, "remote exists but hash unknown, uploading to update");
+            tracing::info!(
+                key,
+                local_hash,
+                "remote exists but hash unknown, uploading to update"
+            );
         }
     } else {
         // Key doesn't exist remotely - upload
@@ -446,8 +478,6 @@ async fn process_path(
     PROCESSED_KEYS.insert(key);
     Ok(())
 }
-
-
 
 fn is_kcsapi(relative: &Path) -> bool {
     match relative.components().next() {
@@ -493,8 +523,8 @@ fn now_epoch_secs() -> u64 {
 }
 
 fn derive_origin(endpoint: &str) -> Result<String, String> {
-    let url =
-        Url::parse(endpoint).map_err(|err| format!("invalid asset_sync.asset_sync_api_endpoint: {err}"))?;
+    let url = Url::parse(endpoint)
+        .map_err(|err| format!("invalid asset_sync.asset_sync_api_endpoint: {err}"))?;
     let scheme = url.scheme();
     let host = url
         .host_str()
@@ -556,12 +586,12 @@ pub async fn upload_via_api(
             // Reset auth failure flag on successful upload
             SUPABASE_AUTH_FAILED.store(false, Ordering::Relaxed);
             Ok(())
-        },
+        }
         Ok(UploadResult::Skipped) => {
             tracing::info!(key, "asset already existed upstream (409)");
             register_remote_key(key, Some(file_hash));
             Ok(())
-        },
+        }
         Err(e) => {
             // Improved error detection: Check if error contains "Authentication error" prefix
             // This is safer than pattern matching against fixed strings like "401" or "RequireReauth"
@@ -575,7 +605,7 @@ pub async fn upload_via_api(
                 SUPABASE_WAITING_LOGGED.store(false, Ordering::Relaxed);
             }
             Err(e)
-        },
+        }
     }
 }
 
@@ -686,50 +716,81 @@ async fn maybe_refresh_existing_keys(
     let endpoint = match settings.existing_keys_endpoint.as_deref() {
         Some(value) => value,
         None => {
-            tracing::warn!("existing_keys_endpoint is not configured; remote key cache is disabled");
+            tracing::warn!(
+                "existing_keys_endpoint is not configured; remote key cache is disabled"
+            );
             return Ok(());
         }
     };
+
+    // On first run, try to load persistent cache from disk
+    if !remote_cache_is_fresh() {
+        load_persistent_cache(&settings.save_root);
+    }
 
     if remote_cache_is_fresh() {
         tracing::info!("remote key cache is still fresh; skipping refresh");
         return Ok(());
     }
 
-    tracing::info!("remote key cache is stale or missing; refreshing from API: {}", endpoint);
+    tracing::info!(
+        "remote key cache is stale or missing; refreshing from API: {}",
+        endpoint
+    );
 
     wait_for_remote_cache_jitter().await;
 
     // Get access token for Authorization header
     tracing::info!("maybe_refresh_existing_keys: requesting access token from auth_manager");
-    let access_token = auth_manager
-        .get_access_token()
-        .await
-        .map_err(|err| ExistingKeysError::transport(format!(
+    let access_token = auth_manager.get_access_token().await.map_err(|err| {
+        ExistingKeysError::transport(format!(
             "failed to get access token for existing keys API: {err}"
-        )))?;
-    
+        ))
+    })?;
+
     let token_preview = if access_token.len() > 20 {
-        format!("{}...{}", &access_token[..10], &access_token[access_token.len()-10..])
+        format!(
+            "{}...{}",
+            &access_token[..10],
+            &access_token[access_token.len() - 10..]
+        )
     } else {
         "<short-token>".to_string()
     };
-    tracing::info!("maybe_refresh_existing_keys: got access token, preview: {}, calling API: {}", token_preview, endpoint);
+
+    // Get last sync timestamp for incremental sync
+    let last_sync_ts = get_last_sync_timestamp();
+    let url = if let Some(ts) = last_sync_ts {
+        tracing::info!(
+            "maybe_refresh_existing_keys: incremental sync, since={}",
+            ts
+        );
+        format!("{}?since={}", endpoint, ts)
+    } else {
+        tracing::info!("maybe_refresh_existing_keys: full sync (no previous timestamp)");
+        endpoint.to_string()
+    };
+
+    tracing::info!(
+        "maybe_refresh_existing_keys: got access token, preview: {}, calling API: {}",
+        token_preview,
+        url
+    );
 
     let response = client
-        .get(endpoint)
+        .get(&url)
         .header("Accept", "application/json")
         .header("Authorization", format!("Bearer {}", access_token))
         .send()
         .await
-        .map_err(|err| ExistingKeysError::transport(format!(
-            "failed to query existing keys endpoint: {err}"
-        )))?;
+        .map_err(|err| {
+            ExistingKeysError::transport(format!("failed to query existing keys endpoint: {err}"))
+        })?;
 
     if !response.status().is_success() {
         let status = response.status();
         let body = response.text().await.unwrap_or_default();
-        
+
         // Check if it's a 401 (Unauthorized) error - indicates token expiry
         if status == StatusCode::UNAUTHORIZED {
             SUPABASE_AUTH_FAILED.store(true, Ordering::Relaxed);
@@ -742,14 +803,12 @@ async fn maybe_refresh_existing_keys(
         return Err(ExistingKeysError::http(status, body.trim().to_string()));
     }
 
-    let payload: ExistingKeysResponse = response
-        .json()
-        .await
-        .map_err(|err| ExistingKeysError::transport(format!(
-            "failed to decode existing keys payload: {err}"
-        )))?;
+    let payload: ExistingKeysResponse = response.json().await.map_err(|err| {
+        ExistingKeysError::transport(format!("failed to decode existing keys payload: {err}"))
+    })?;
 
-    cache_remote_keys(payload);
+    let is_incremental = payload.incremental.unwrap_or(false);
+    cache_remote_keys(payload, is_incremental, &settings.save_root);
     Ok(())
 }
 
@@ -775,7 +834,7 @@ fn remote_cache_is_fresh() -> bool {
     }
 }
 
-fn cache_remote_keys(payload: ExistingKeysResponse) {
+fn cache_remote_keys(payload: ExistingKeysResponse, is_incremental: bool, save_root: &Path) {
     let ttl = payload
         .cache_expires_at
         .as_deref()
@@ -784,30 +843,88 @@ fn cache_remote_keys(payload: ExistingKeysResponse) {
         .unwrap_or_else(|| Duration::from_secs(REMOTE_KEYS_CACHE_FALLBACK_SECS));
 
     let expires_at = Instant::now() + ttl;
-    let keys: HashSet<String> = payload.keys.iter().cloned().collect();
-    let mut hashes: HashMap<String, Option<String>> = HashMap::new();
+
+    // Parse refreshedAt to get new sync timestamp
+    let new_sync_ts = payload
+        .refreshed_at
+        .as_deref()
+        .and_then(parse_iso_to_millis);
+
+    // Build new keys and hashes from payload
+    let new_keys: HashSet<String> = payload.keys.iter().cloned().collect();
+    let mut new_hashes: HashMap<String, Option<String>> = HashMap::new();
     for item in payload.items.into_iter() {
-        hashes.insert(item.key.clone(), item.content_hash);
+        new_hashes.insert(item.key.clone(), item.content_hash);
     }
     // Ensure keys from legacy `keys` field are present in hash map (with None if absent)
-    for k in &keys {
-        hashes.entry(k.clone()).or_insert(None);
+    for k in &new_keys {
+        new_hashes.entry(k.clone()).or_insert(None);
     }
-    let count = keys.len();
+
+    let (final_keys, final_hashes, final_sync_ts) = if is_incremental {
+        // Merge with existing cache
+        let existing_guard = EXISTING_KEYS_CACHE
+            .read()
+            .expect("existing keys cache lock poisoned");
+
+        let (mut merged_keys, mut merged_hashes, _old_ts) = match existing_guard.as_ref() {
+            Some(cache) => (
+                cache.keys.clone(),
+                cache.hashes.clone(),
+                cache.last_sync_timestamp,
+            ),
+            None => (HashSet::new(), HashMap::new(), None),
+        };
+        drop(existing_guard);
+
+        // Merge new keys into existing
+        merged_keys.extend(new_keys.clone());
+        for (k, v) in new_hashes {
+            merged_hashes.insert(k, v);
+        }
+
+        tracing::info!(
+            new_count = new_keys.len(),
+            total_count = merged_keys.len(),
+            "incremental sync: merged {} new keys into cache",
+            new_keys.len()
+        );
+
+        (merged_keys, merged_hashes, new_sync_ts)
+    } else {
+        // Full sync - replace entire cache
+        tracing::info!(
+            count = new_keys.len(),
+            "full sync: replacing entire cache with {} keys",
+            new_keys.len()
+        );
+        (new_keys, new_hashes, new_sync_ts)
+    };
+
+    let count = final_keys.len();
 
     tracing::info!(
         count = count,
         expires_in_secs = ttl.as_secs(),
+        last_sync_ts = ?final_sync_ts,
         "caching remote keys. sample: {:?}",
-        keys.iter().take(5).collect::<Vec<_>>()
+        final_keys.iter().take(5).collect::<Vec<_>>()
     );
 
     {
         let mut guard = EXISTING_KEYS_CACHE
             .write()
             .expect("existing keys cache lock poisoned");
-        *guard = Some(RemoteKeyCache { keys, hashes, expires_at });
+        *guard = Some(RemoteKeyCache {
+            keys: final_keys.clone(),
+            hashes: final_hashes.clone(),
+            expires_at,
+            last_sync_timestamp: final_sync_ts,
+        });
     }
+
+    // Persist to disk for recovery after restart
+    save_persistent_cache(save_root, &final_keys, &final_hashes, final_sync_ts);
 
     tracing::debug!(count = count, "existing remote asset key cache refreshed");
 }
@@ -849,6 +966,7 @@ fn register_remote_key(key: &str, hash: Option<&str>) {
                 keys,
                 hashes,
                 expires_at: Instant::now() + Duration::from_secs(REMOTE_KEYS_CACHE_FALLBACK_SECS),
+                last_sync_timestamp: None,
             });
         }
     }
@@ -869,3 +987,102 @@ fn remote_content_hash(key: &str) -> Option<Option<String>> {
         .and_then(|cache| cache.hashes.get(key).cloned())
 }
 
+// ==================== Persistent Cache Helpers ====================
+
+const PERSISTENT_CACHE_FILENAME: &str = ".asset_sync_cache.json";
+
+/// Parse ISO8601 datetime string to milliseconds since epoch
+fn parse_iso_to_millis(iso: &str) -> Option<u64> {
+    DateTime::parse_from_rfc3339(iso)
+        .ok()
+        .map(|dt| dt.timestamp_millis() as u64)
+}
+
+/// Get last sync timestamp from in-memory cache
+fn get_last_sync_timestamp() -> Option<u64> {
+    EXISTING_KEYS_CACHE
+        .read()
+        .expect("existing keys cache lock poisoned")
+        .as_ref()
+        .and_then(|cache| cache.last_sync_timestamp)
+}
+
+/// Load persistent cache from disk into memory
+fn load_persistent_cache(save_root: &Path) {
+    let cache_path = save_root.join(PERSISTENT_CACHE_FILENAME);
+
+    if !cache_path.exists() {
+        tracing::debug!("No persistent asset cache found at {:?}", cache_path);
+        return;
+    }
+
+    match std::fs::read_to_string(&cache_path) {
+        Ok(content) => {
+            match serde_json::from_str::<PersistentAssetCache>(&content) {
+                Ok(persisted) => {
+                    let keys: HashSet<String> = persisted.keys.into_iter().collect();
+                    let count = keys.len();
+
+                    tracing::info!(
+                        count = count,
+                        last_sync_ts = ?persisted.last_sync_timestamp,
+                        "Loaded persistent asset cache from disk"
+                    );
+
+                    let mut guard = EXISTING_KEYS_CACHE
+                        .write()
+                        .expect("existing keys cache lock poisoned");
+
+                    // Only load if cache is empty (not already populated)
+                    if guard.is_none() {
+                        *guard = Some(RemoteKeyCache {
+                            keys,
+                            hashes: persisted.hashes,
+                            expires_at: Instant::now(), // Mark as expired to trigger refresh
+                            last_sync_timestamp: persisted.last_sync_timestamp,
+                        });
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to parse persistent asset cache: {}", e);
+                }
+            }
+        }
+        Err(e) => {
+            tracing::warn!("Failed to read persistent asset cache: {}", e);
+        }
+    }
+}
+
+/// Save current cache to disk for persistence
+fn save_persistent_cache(
+    save_root: &Path,
+    keys: &HashSet<String>,
+    hashes: &HashMap<String, Option<String>>,
+    last_sync_ts: Option<u64>,
+) {
+    let cache_path = save_root.join(PERSISTENT_CACHE_FILENAME);
+
+    let persisted = PersistentAssetCache {
+        keys: keys.iter().cloned().collect(),
+        hashes: hashes.clone(),
+        last_sync_timestamp: last_sync_ts,
+    };
+
+    match serde_json::to_string_pretty(&persisted) {
+        Ok(json) => {
+            if let Err(e) = std::fs::write(&cache_path, json) {
+                tracing::warn!("Failed to write persistent asset cache: {}", e);
+            } else {
+                tracing::debug!(
+                    count = keys.len(),
+                    "Saved persistent asset cache to {:?}",
+                    cache_path
+                );
+            }
+        }
+        Err(e) => {
+            tracing::warn!("Failed to serialize persistent asset cache: {}", e);
+        }
+    }
+}
