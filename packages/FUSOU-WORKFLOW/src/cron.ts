@@ -1,29 +1,23 @@
 /**
  * Archiver Cron Worker for Avro OCF merging
- * - Reads Avro OCF files from TiDB buffer_logs (or D1 fallback)
+ * - Reads Avro OCF files from TiDB buffer_logs (or D1 fallback on error)
  * - Groups by table_name + period_tag + dataset_id
  * - Merges Avro OCF files into single valid OCF (preserves header, concatenates blocks)
  * - Records byte offsets in D1 block_indexes for Range reads
  * 
  * Hybrid Architecture:
- * - TiDB: buffer_logs (high-volume writes)
- * - D1: buffer_logs (fallback), archived_files, block_indexes (metadata)
+ * - TiDB: buffer_logs (high-volume writes) - primary
+ * - D1: buffer_logs (fallback on TiDB error), archived_files, block_indexes (metadata)
  * - R2: Avro OCF archives (long-term storage)
  */
 
 import { mergeAvroOCF } from './avro-merger';
 import { 
-  createTiDBClientFromUrl, 
-  TiDBConnection,
-  fetchBufferedData as fetchBufferedDataFromTiDB,
-  cleanupBuffer as cleanupBufferFromTiDB,
-  BufferLogRow as TiDBBufferRow
-} from './tidb-client';
-import {
-  fetchBufferedData as fetchBufferedDataFromD1,
-  cleanupBuffer as cleanupBufferFromD1,
-  BufferLogRow as D1BufferRow
-} from './d1-client';
+  fetchBufferedDataWithFallback,
+  cleanupBufferWithFallback,
+  BufferLogRecord,
+  UnifiedDbEnv,
+} from './db';
 
 interface Env {
   BATTLE_DATA_BUCKET: R2Bucket;
@@ -76,23 +70,18 @@ interface BlockIndexRow {
   end_timestamp: number;
 }
 
-// Convert TiDB row format to local BufferRow format
-function convertTiDBRowToBufferRow(tidbRow: TiDBBufferRow): BufferRow {
+// Convert BufferLogRecord to internal BufferRow format
+function convertToBufferRow(record: BufferLogRecord): BufferRow {
   return {
-    id: tidbRow.id,
-    dataset_id: tidbRow.dataset_id,
-    table_name: tidbRow.table_name,
-    period_tag: tidbRow.period_tag,
-    schema_version: tidbRow.schema_version,
-    timestamp: tidbRow.timestamp,
-    data: tidbRow.data.buffer as ArrayBuffer,
-    uploaded_by: tidbRow.uploaded_by,
+    id: record.id,
+    dataset_id: record.dataset_id,
+    table_name: record.table_name,
+    period_tag: record.period_tag,
+    schema_version: record.schema_version,
+    timestamp: record.timestamp,
+    data: record.data instanceof ArrayBuffer ? record.data : (record.data as Uint8Array).buffer as ArrayBuffer,
+    uploaded_by: record.uploaded_by,
   };
-}
-
-// Convert D1 row format to local BufferRow format (same structure, just type cast)
-function convertD1RowToBufferRow(d1Row: D1BufferRow): BufferRow {
-  return d1Row as BufferRow;
 }
 
 /**
@@ -248,21 +237,9 @@ export async function handleCron(env: Env): Promise<void> {
   try {
     const runTimestamp = Date.now();
     
-    // Determine which storage to use: TiDB (preferred) or D1 (fallback)
-    const useTiDB = !!env.TIDB_KC_DB_URL;
-    let tidbConn: TiDBConnection | null = null;
-    let rows: BufferRow[];
-    
-    if (useTiDB) {
-      console.log('[Archival] Using TiDB for buffer_logs');
-      tidbConn = createTiDBClientFromUrl(env.TIDB_KC_DB_URL!);
-      const tidbRows = await fetchBufferedDataFromTiDB(tidbConn);
-      rows = tidbRows.map(convertTiDBRowToBufferRow);
-    } else {
-      console.log('[Archival] Using D1 for buffer_logs (TiDB not configured)');
-      const d1Rows = await fetchBufferedDataFromD1(env.BATTLE_INDEX_DB);
-      rows = d1Rows.map(convertD1RowToBufferRow);
-    }
+    // Fetch buffered data with automatic TiDB -> D1 fallback on error
+    const { rows: fetchedRows, source: fetchSource } = await fetchBufferedDataWithFallback(env);
+    const rows: BufferRow[] = fetchedRows.map(convertToBufferRow);
     
     if (!rows.length) {
       return; // Silent: no data to archive
@@ -385,14 +362,9 @@ export async function handleCron(env: Env): Promise<void> {
       }
     }
 
-    // Cleanup buffer from appropriate storage
-    if (useTiDB && tidbConn) {
-      await cleanupBufferFromTiDB(tidbConn, maxId);
-      console.log(`[Archival] Cleaned up TiDB buffer_logs up to id ${maxId}`);
-    } else {
-      await cleanupBufferFromD1(env.BATTLE_INDEX_DB, maxId);
-      console.log(`[Archival] Cleaned up D1 buffer_logs up to id ${maxId}`);
-    }
+    // Cleanup buffer from same source that was fetched (with fallback on error)
+    const { source: cleanupSource } = await cleanupBufferWithFallback(env, maxId, fetchSource);
+    console.log(`[Archival] Cleaned up ${cleanupSource} buffer_logs up to id ${maxId}`);
 
     // Summary log
     console.log(`[Archival] ${totalFiles} files, ${totalDatasets} datasets, ${(totalBytes / 1024).toFixed(1)}KB archived from ${rows.length} buffer rows`);

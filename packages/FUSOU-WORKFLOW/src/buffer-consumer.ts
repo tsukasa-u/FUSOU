@@ -2,14 +2,9 @@
 // Here we only do lightweight header check for defense-in-depth
 
 import {
-  createTiDBClientFromUrl,
-  insertBufferLog as tidbInsertBufferLog,
-  TiDBConnection,
-} from './tidb-client';
-import {
-  bulkInsertBufferLogs as d1BulkInsertBufferLogs,
-  InsertBufferLogParams as D1InsertParams,
-} from './d1-client';
+  insertBufferLogsWithFallback,
+  UnifiedDbEnv,
+} from './db';
 /**
  * Lightweight Avro header validation (DoS prevention)
  */
@@ -277,33 +272,19 @@ export async function handleBufferConsumerChunked(
     return;
   }
 
-  // Determine storage: TiDB (preferred) or D1 (fallback)
-  const useTiDB = !!env.TIDB_KC_DB_URL;
-  
-  if (useTiDB) {
-    // TiDB: insert records one by one (could batch but RU cost is similar)
-    console.log('[Buffer Consumer] Using TiDB for buffer_logs');
-    const tidbConn = createTiDBClientFromUrl(env.TIDB_KC_DB_URL!);
+  // Insert with automatic TiDB -> D1 fallback on error
+  try {
+    const recordsForInsert = allRecords.map(r => ({
+      dataset_id: r.dataset_id,
+      table_name: r.table_name,
+      period_tag: r.period_tag,
+      schema_version: r.schema_version,
+      timestamp: r.timestamp,
+      data: r.data,
+      uploaded_by: r.uploaded_by,
+    }));
     
-    let successCount = 0;
-    for (const record of allRecords) {
-      try {
-        await tidbInsertBufferLog(tidbConn, {
-          dataset_id: record.dataset_id,
-          table_name: record.table_name,
-          period_tag: record.period_tag,
-          schema_version: record.schema_version,
-          timestamp: record.timestamp,
-          data: new Uint8Array(record.data),
-          uploaded_by: record.uploaded_by,
-        });
-        successCount++;
-      } catch (err) {
-        console.error('[Buffer Consumer] TiDB insert failed:', err instanceof Error ? err.message : String(err));
-        batch.retryAll();
-        return;
-      }
-    }
+    const { source, insertedCount } = await insertBufferLogsWithFallback(env, recordsForInsert);
     
     // ACK successful messages
     batch.messages.forEach(msg => {
@@ -314,53 +295,11 @@ export async function handleBufferConsumerChunked(
       }
     });
     
-    console.log(`[Buffer Consumer] ${successCount} records inserted to TiDB (${failedMessages.length} skipped)`);
-    return;
+    console.log(`[Buffer Consumer] ${insertedCount} records inserted to ${source} (${failedMessages.length} skipped)`);
+  } catch (err) {
+    console.error('[Buffer Consumer] Insert failed (both TiDB and D1):', err instanceof Error ? err.message : String(err));
+    batch.retryAll();
   }
-  
-  // D1 fallback: chunked bulk insert
-  console.log('[Buffer Consumer] Using D1 for buffer_logs');
-  
-  // Chunk records into manageable batches
-  // Resolve chunk size from env (safe cap at 500)
-  const envChunk = Number(env.BUFFER_CHUNK_SIZE ?? chunkSize);
-  const safeChunk = Math.min(Number.isFinite(envChunk) && envChunk > 0 ? envChunk : chunkSize, 500);
-  const chunks: BufferLogRecord[][] = [];
-  for (let i = 0; i < allRecords.length; i += safeChunk) {
-    chunks.push(allRecords.slice(i, i + safeChunk));
-  }
-
-  // Insert each chunk sequentially (D1 doesn't support parallel writes well)
-  let successCount = 0;
-  for (let i = 0; i < chunks.length; i++) {
-    const chunk = chunks[i];
-    const sql = buildBulkInsertSQL(chunk.length);
-    const params = flattenRecords(chunk);
-
-    try {
-      await env.BATTLE_INDEX_DB.prepare(sql)
-        .bind(...params)
-        .run();
-      successCount += chunk.length;
-    } catch (err) {
-      console.error(`[Buffer Consumer] Chunk ${i + 1}/${chunks.length} failed:`, err instanceof Error ? err.message : String(err));
-      // Retry entire batch if any chunk fails (atomic operation)
-      batch.retryAll();
-      return;
-    }
-  }
-
-  // All chunks succeeded - ACK successful messages
-  batch.messages.forEach(msg => {
-    if (!failedMessages.includes(msg)) {
-      msg.ack();
-    } else {
-      msg.retry();
-    }
-  });
-
-  // Summary log
-  console.log(`[Buffer Consumer] ${successCount} records inserted (${chunks.length} chunks, ${failedMessages.length} skipped)`);
 }
 
 /**
