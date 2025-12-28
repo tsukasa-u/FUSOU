@@ -176,14 +176,15 @@ app.post("/upload", async (c) => {
           }
         }
 
-        // Get size limit from env (default 64KB)
+        // Get size limit from env (default 64KB per table slice)
         const maxBytes = env.buildtime.MAX_BATTLE_SLICE_BYTES
           ? parseInt(env.buildtime.MAX_BATTLE_SLICE_BYTES, 10)
           : 65536;
 
-        const messages: any[] = [];
+        // Validate each table slice before batching
+        // This is strict validation - all tables must pass before any are queued
+        const validatedOffsets: any[] = [];
         if (Array.isArray(offsets) && offsets.length) {
-          // Split by provided offsets and validate each slice
           for (const entry of offsets) {
             const start = Number(entry.start_byte ?? 0);
             const len = Number(entry.byte_length ?? 0);
@@ -216,31 +217,21 @@ app.post("/upload", async (c) => {
             }
 
             console.info(`[battle-data] Validated ${tname}: ${decodeResult.recordCount} records`);
-
-            const b64 = arrayBufferToBase64(slice);
-            messages.push({
-              body: {
-                table: tname,
-                avro_base64: b64,
-                datasetId,
-                periodTag,
-                schemaVersion,
-                triggeredAt,
-                userId: user.id,
-              },
+            validatedOffsets.push({
+              table_name: tname,
+              start_byte: start,
+              byte_length: len,
+              record_count: decodeResult.recordCount,
             });
           }
         } else {
           // No offsets: treat entire payload as single table slice
-
-          // Lightweight header validation
           const headerCheck = validateAvroHeader(data, maxBytes);
           if (!headerCheck.valid) {
             console.error('[battle-data] Invalid Avro header:', headerCheck.error);
             return c.json({ error: `Invalid Avro data: ${headerCheck.error}` }, 400);
           }
 
-          // Extract schema and validate via full decode
           const schemaJson = extractSchemaFromOCF(data);
           if (!schemaJson) {
             console.error('[battle-data] Failed to extract schema from payload');
@@ -257,37 +248,47 @@ app.post("/upload", async (c) => {
           }
 
           console.info(`[battle-data] Validated ${table}: ${decodeResult.recordCount} records`);
+          validatedOffsets.push({
+            table_name: table,
+            start_byte: 0,
+            byte_length: data.byteLength,
+            record_count: decodeResult.recordCount,
+          });
+        }
 
-          const b64 = arrayBufferToBase64(data);
-          messages.push({
-            body: {
-              table,
-              avro_base64: b64,
+        // Send a SINGLE queue message with all tables batched
+        // This reduces queue message consumption (15 tables = 1 message instead of 15)
+        if (validatedOffsets.length) {
+          try {
+            const b64 = arrayBufferToBase64(data);
+            // Note: Queue.send() takes the body directly (not wrapped in { body })
+            // sendBatch() takes array of { body } objects
+            const messageBody = {
+              // Batch metadata
+              batched: true,
               datasetId,
               periodTag,
               schemaVersion,
               triggeredAt,
               userId: user.id,
-            },
-          });
-        }
+              // Full payload (base64 encoded)
+              payload_base64: b64,
+              // Table offsets for splitting at consumer
+              table_offsets: validatedOffsets,
+            };
 
-        if (messages.length) {
-          try {
-            console.info('[battle-data] Sending', messages.length, 'messages to COMPACTION_QUEUE');
-            await env.runtime.COMPACTION_QUEUE.sendBatch(messages);
-            console.info('[battle-data] Successfully enqueued', messages.length, 'Avro slices to COMPACTION_QUEUE');
-          } catch (sendBatchErr) {
-            console.error('[battle-data] FAILED at sendBatch', {
-              error: String(sendBatchErr),
-              messageCount: messages.length,
-              firstMessageKeys: messages[0] ? Object.keys(messages[0]) : null,
-              firstMessageBodyKeys: messages[0]?.body ? Object.keys(messages[0].body) : null,
+            console.info('[battle-data] Sending 1 batched message to COMPACTION_QUEUE with', validatedOffsets.length, 'tables');
+            await env.runtime.COMPACTION_QUEUE.send(messageBody);
+            console.info('[battle-data] Successfully enqueued batched message with', validatedOffsets.length, 'tables');
+          } catch (sendErr) {
+            console.error('[battle-data] FAILED at send', {
+              error: String(sendErr),
+              tableCount: validatedOffsets.length,
             });
-            throw sendBatchErr;
+            throw sendErr;
           }
         } else {
-          console.warn('[battle-data] No messages to enqueue');
+          console.warn('[battle-data] No valid tables to enqueue');
         }
       } catch (queueErr) {
         console.error('[battle-data] FAILED to enqueue to COMPACTION_QUEUE', { error: String(queueErr), stack: String(queueErr) });

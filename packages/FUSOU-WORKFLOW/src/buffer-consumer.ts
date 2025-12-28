@@ -30,8 +30,9 @@ interface BufferLogRecord {
   uploaded_by?: string;
 }
 
-// Queue message format (from /api/battle-data/upload)
-interface QueueMessage {
+// Legacy queue message format (single table per message)
+interface LegacyQueueMessage {
+  batched?: false;
   table: string;
   avro_base64: string;
   datasetId: string;
@@ -40,6 +41,29 @@ interface QueueMessage {
   triggeredAt?: string;
   userId?: string;
 }
+
+// Table offset info for batched messages
+interface TableOffset {
+  table_name: string;
+  start_byte: number;
+  byte_length: number;
+  record_count?: number;
+}
+
+// New batched message format (all tables in single message)
+interface BatchedQueueMessage {
+  batched: true;
+  datasetId: string;
+  periodTag: string;
+  schemaVersion?: string;
+  triggeredAt?: string;
+  userId?: string;
+  payload_base64: string;  // Full concatenated payload
+  table_offsets: TableOffset[];  // Offsets for each table
+}
+
+// Union type for queue messages
+type QueueMessage = LegacyQueueMessage | BatchedQueueMessage;
 
 /**
  * Generate bulk INSERT SQL with placeholders
@@ -79,21 +103,53 @@ function flattenRecords(records: BufferLogRecord[]): (string | number | ArrayBuf
 }
 
 /**
- * Normalize queue message to buffer log record
- * Converts base64 Avro to binary BLOB for storage
+ * Normalize queue message to buffer log records
+ * Supports both legacy (single table) and batched (all tables) message formats
  * 
  * Note: Full decode validation is done at FUSOU-WEB upload endpoint
  * Here we only do lightweight header check (defense-in-depth)
  */
 async function normalizeMessage(msg: QueueMessage): Promise<BufferLogRecord[]> {
   const now = Date.now();
+  const schemaVersion = msg.schemaVersion || 'v1';
+  const timestamp = msg.triggeredAt ? new Date(msg.triggeredAt).getTime() : now;
 
-  // Decode base64 to binary (efficient O(n) instead of O(n²) loop)
-  const binaryString = atob(msg.avro_base64);
-  const avroBytes = new Uint8Array(binaryString.length);
-  for (let i = 0; i < binaryString.length; i++) {
-    avroBytes[i] = binaryString.charCodeAt(i);
+  // Check if this is a batched message (all tables in one)
+  if ('batched' in msg && msg.batched === true) {
+    // New batched format: split payload by offsets
+    const payload = decodeBase64ToBytes(msg.payload_base64);
+    const records: BufferLogRecord[] = [];
+
+    for (const offset of msg.table_offsets) {
+      const slice = payload.subarray(offset.start_byte, offset.start_byte + offset.byte_length);
+
+      // Defense-in-depth: lightweight header check per table
+      const headerCheck = validateAvroHeader(slice, 1048576); // 1MB cap
+      if (!headerCheck.valid) {
+        console.error(`[Consumer] Avro header validation failed for ${offset.table_name}: ${headerCheck.error}`);
+        throw new Error(`Avro header validation failed for ${offset.table_name}: ${headerCheck.error}`);
+      }
+
+      console.log(`[Consumer] Accepted ${offset.table_name}: ${slice.length} bytes, schema=${schemaVersion}`);
+
+      records.push({
+        dataset_id: msg.datasetId,
+        table_name: offset.table_name,
+        period_tag: msg.periodTag ?? 'latest',
+        schema_version: schemaVersion,
+        timestamp,
+        data: slice.buffer.slice(slice.byteOffset, slice.byteOffset + slice.byteLength),
+        uploaded_by: msg.userId
+      });
+    }
+
+    console.log(`[Consumer] Processed batched message with ${records.length} tables`);
+    return records;
   }
+
+  // Legacy format: single table per message
+  const legacyMsg = msg as LegacyQueueMessage;
+  const avroBytes = decodeBase64ToBytes(legacyMsg.avro_base64);
 
   // Defense-in-depth: lightweight header check (magic bytes + size)
   const headerCheck = validateAvroHeader(avroBytes, 1048576); // 1MB cap
@@ -101,21 +157,29 @@ async function normalizeMessage(msg: QueueMessage): Promise<BufferLogRecord[]> {
     throw new Error(`Avro header validation failed: ${headerCheck.error}`);
   }
 
-  // Schema version and table name come from FUSOU-WEB validated token
-  // These were verified by WASM validation at upload time
-  const schemaVersion = msg.schemaVersion || 'v1';
-
-  console.log(`[Consumer] Accepted ${msg.table}: ${avroBytes.length} bytes, schema=${schemaVersion}`);
+  console.log(`[Consumer] Accepted ${legacyMsg.table}: ${avroBytes.length} bytes, schema=${schemaVersion}`);
 
   return [{
-    dataset_id: msg.datasetId,
-    table_name: msg.table,
-    period_tag: msg.periodTag ?? 'latest',
+    dataset_id: legacyMsg.datasetId,
+    table_name: legacyMsg.table,
+    period_tag: legacyMsg.periodTag ?? 'latest',
     schema_version: schemaVersion,
-    timestamp: msg.triggeredAt ? new Date(msg.triggeredAt).getTime() : now,
+    timestamp,
     data: avroBytes.buffer,
-    uploaded_by: msg.userId
+    uploaded_by: legacyMsg.userId
   }];
+}
+
+/**
+ * Decode base64 string to Uint8Array
+ */
+function decodeBase64ToBytes(base64: string): Uint8Array {
+  const binaryString = atob(base64);
+  const bytes = new Uint8Array(binaryString.length);
+  for (let i = 0; i < binaryString.length; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  return bytes;
 }
 
 /**
