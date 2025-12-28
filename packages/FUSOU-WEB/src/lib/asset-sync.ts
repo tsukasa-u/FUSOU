@@ -1,22 +1,49 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 
+export interface AssetIndexItem {
+  key: string;
+  contentHash: string | null;
+  size: number;
+  uploadedAt: number | null;
+}
+
+export interface AssetIndexResponse {
+  keys: string[];
+  items: AssetIndexItem[];
+  total: number;
+  refreshedAt: string;
+  cacheExpiresAt: string;
+  cached: boolean;
+  incremental: boolean;  // true if this is a partial sync (since was provided)
+}
+
 /**
  * Fetch asset keys with metadata (including contentHash) from /asset-sync/keys.
  * Requires Authorization bearer token (Supabase access token).
+ * 
+ * @param baseUrl - Base URL for the API
+ * @param accessToken - Supabase access token
+ * @param since - Optional timestamp (ms since epoch) to fetch only files updated since then
+ * @returns Asset index response with keys, items, and metadata
  */
-export async function fetchAssetIndex(baseUrl: string, accessToken: string) {
-  const res = await fetch(new URL('/asset-sync/keys', baseUrl).toString(), {
+export async function fetchAssetIndex(
+  baseUrl: string,
+  accessToken: string,
+  since?: number
+): Promise<AssetIndexResponse> {
+  const url = new URL('/asset-sync/keys', baseUrl);
+  if (since && since > 0) {
+    url.searchParams.set('since', String(since));
+  }
+  
+  const res = await fetch(url.toString(), {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
   if (!res.ok) {
     throw new Error(`Failed to fetch asset keys: ${res.status}`);
   }
   const data = await res.json();
-  return data as {
-    keys: string[];
-    items: { key: string; contentHash: string | null; size: number; uploadedAt: number | null }[];
-    total: number;
-  };
+  return data as AssetIndexResponse;
 }
 
 /**

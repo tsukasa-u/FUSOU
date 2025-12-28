@@ -175,6 +175,8 @@ app.post("/upload", async (c) => {
 });
 
 // GET /keys
+// Supports incremental sync via optional 'since' query parameter (ms since epoch)
+// When 'since' is provided, returns only files with uploaded_at > since
 app.get("/keys", async (c) => {
   console.log("GET /keys: request received");
 
@@ -209,6 +211,17 @@ app.get("/keys", async (c) => {
     return c.json({ error: "ASSET_INDEX_DB is not configured" }, 503);
   }
 
+  // Parse optional 'since' parameter for incremental sync
+  const sinceParam = c.req.query("since");
+  let sinceMs: number | null = null;
+  if (sinceParam) {
+    const parsed = parseInt(sinceParam, 10);
+    if (!Number.isNaN(parsed) && parsed > 0) {
+      sinceMs = parsed;
+      console.log(`GET /keys: incremental sync requested, since=${sinceMs}`);
+    }
+  }
+
   try {
     const keys: string[] = [];
     const items: {
@@ -221,11 +234,21 @@ app.get("/keys", async (c) => {
     const BATCH_SIZE = 1000;
 
     while (true) {
-      const stmt = db
-        .prepare(
-          "SELECT key, content_hash, size, uploaded_at FROM files ORDER BY uploaded_at DESC LIMIT ? OFFSET ?",
-        )
-        .bind(BATCH_SIZE, cursor);
+      // Use conditional query based on whether 'since' is provided
+      let stmt;
+      if (sinceMs) {
+        stmt = db
+          .prepare(
+            "SELECT key, content_hash, size, uploaded_at FROM files WHERE uploaded_at > ? ORDER BY uploaded_at DESC LIMIT ? OFFSET ?",
+          )
+          .bind(sinceMs, BATCH_SIZE, cursor);
+      } else {
+        stmt = db
+          .prepare(
+            "SELECT key, content_hash, size, uploaded_at FROM files ORDER BY uploaded_at DESC LIMIT ? OFFSET ?",
+          )
+          .bind(BATCH_SIZE, cursor);
+      }
 
       const res = await stmt.all?.();
       const batch = (res?.results || []) as Array<{
@@ -257,6 +280,8 @@ app.get("/keys", async (c) => {
     const refreshedAt = Date.now();
     const expiresAt = refreshedAt + CACHE_TTL_SECONDS * 1000;
 
+    console.log(`GET /keys: returning ${items.length} items (incremental=${!!sinceMs})`);
+
     return c.json({
       keys,
       items,
@@ -264,8 +289,10 @@ app.get("/keys", async (c) => {
       refreshedAt: new Date(refreshedAt).toISOString(),
       cacheExpiresAt: new Date(expiresAt).toISOString(),
       cached: false,
+      incremental: !!sinceMs,  // Indicates whether this is a partial or full sync
     });
   } catch (e) {
+    console.error("GET /keys: error", e);
     return c.json({ error: "Failed to list assets" }, 502);
   }
 });
