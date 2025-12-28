@@ -288,9 +288,6 @@ importers:
 
   packages/FUSOU-WORKFLOW:
     dependencies:
-      '@fusou/avro-wasm':
-        specifier: workspace:*
-        version: link:../avro-wasm
       '@supabase/supabase-js':
         specifier: ^2.86.0
         version: 2.86.0
