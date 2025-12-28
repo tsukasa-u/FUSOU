@@ -7,7 +7,7 @@
  * 
  * Hybrid Architecture:
  * - TiDB: buffer_logs (high-volume writes)
- * - D1: archived_files, block_indexes (metadata)
+ * - D1: buffer_logs (fallback), archived_files, block_indexes (metadata)
  * - R2: Avro OCF archives (long-term storage)
  */
 
@@ -19,6 +19,11 @@ import {
   cleanupBuffer as cleanupBufferFromTiDB,
   BufferLogRow as TiDBBufferRow
 } from './tidb-client';
+import {
+  fetchBufferedData as fetchBufferedDataFromD1,
+  cleanupBuffer as cleanupBufferFromD1,
+  BufferLogRow as D1BufferRow
+} from './d1-client';
 
 interface Env {
   BATTLE_DATA_BUCKET: R2Bucket;
@@ -27,6 +32,7 @@ interface Env {
   TIDB_KC_DB_URL?: string;
 }
 
+// Unified BufferRow interface (used internally in cron.ts)
 interface BufferRow {
   id: number;
   dataset_id: string;
@@ -70,21 +76,6 @@ interface BlockIndexRow {
   end_timestamp: number;
 }
 
-// D1 fallback: fetch buffered data
-async function fetchBufferedDataD1(db: D1Database): Promise<BufferRow[]> {
-  const res = await db.prepare(`
-    SELECT id, dataset_id, table_name, period_tag, schema_version, timestamp, data, uploaded_by
-    FROM buffer_logs
-    ORDER BY schema_version, table_name, period_tag, dataset_id, id ASC
-  `).all<BufferRow>();
-  return res.results ?? [];
-}
-
-// D1 fallback: cleanup buffer
-async function cleanupBufferD1(db: D1Database, maxId: number): Promise<void> {
-  await db.prepare('DELETE FROM buffer_logs WHERE id <= ?').bind(maxId).run();
-}
-
 // Convert TiDB row format to local BufferRow format
 function convertTiDBRowToBufferRow(tidbRow: TiDBBufferRow): BufferRow {
   return {
@@ -97,6 +88,11 @@ function convertTiDBRowToBufferRow(tidbRow: TiDBBufferRow): BufferRow {
     data: tidbRow.data.buffer as ArrayBuffer,
     uploaded_by: tidbRow.uploaded_by,
   };
+}
+
+// Convert D1 row format to local BufferRow format (same structure, just type cast)
+function convertD1RowToBufferRow(d1Row: D1BufferRow): BufferRow {
+  return d1Row as BufferRow;
 }
 
 /**
@@ -264,7 +260,8 @@ export async function handleCron(env: Env): Promise<void> {
       rows = tidbRows.map(convertTiDBRowToBufferRow);
     } else {
       console.log('[Archival] Using D1 for buffer_logs (TiDB not configured)');
-      rows = await fetchBufferedDataD1(env.BATTLE_INDEX_DB);
+      const d1Rows = await fetchBufferedDataFromD1(env.BATTLE_INDEX_DB);
+      rows = d1Rows.map(convertD1RowToBufferRow);
     }
     
     if (!rows.length) {
@@ -393,7 +390,7 @@ export async function handleCron(env: Env): Promise<void> {
       await cleanupBufferFromTiDB(tidbConn, maxId);
       console.log(`[Archival] Cleaned up TiDB buffer_logs up to id ${maxId}`);
     } else {
-      await cleanupBufferD1(env.BATTLE_INDEX_DB, maxId);
+      await cleanupBufferFromD1(env.BATTLE_INDEX_DB, maxId);
       console.log(`[Archival] Cleaned up D1 buffer_logs up to id ${maxId}`);
     }
 

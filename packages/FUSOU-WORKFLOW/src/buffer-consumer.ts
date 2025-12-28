@@ -3,9 +3,13 @@
 
 import {
   createTiDBClientFromUrl,
-  insertBufferLog,
+  insertBufferLog as tidbInsertBufferLog,
   TiDBConnection,
 } from './tidb-client';
+import {
+  bulkInsertBufferLogs as d1BulkInsertBufferLogs,
+  InsertBufferLogParams as D1InsertParams,
+} from './d1-client';
 /**
  * Lightweight Avro header validation (DoS prevention)
  */
@@ -284,7 +288,7 @@ export async function handleBufferConsumerChunked(
     let successCount = 0;
     for (const record of allRecords) {
       try {
-        await insertBufferLog(tidbConn, {
+        await tidbInsertBufferLog(tidbConn, {
           dataset_id: record.dataset_id,
           table_name: record.table_name,
           period_tag: record.period_tag,
