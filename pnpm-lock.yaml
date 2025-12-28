@@ -291,6 +291,9 @@ importers:
       '@supabase/supabase-js':
         specifier: ^2.86.0
         version: 2.86.0
+      '@tidbcloud/serverless':
+        specifier: ^0.2.0
+        version: 0.2.0
     devDependencies:
       '@cloudflare/workers-types':
         specifier: ^4.20251128.0
@@ -2184,6 +2187,10 @@ packages:
     engines: {node: '>=12', npm: '>=6'}
     peerDependencies:
       '@testing-library/dom': '>=7.21.4'
+
+  '@tidbcloud/serverless@0.2.0':
+    resolution: {integrity: sha512-UGmMa9hYeRVcmDjsUE/vNYbsiS4PGHU2M9Y+DFyMUu6gRMxXOfda6rTTnuHQ5OzUsbk6AfV4gtJoEUWvmpBpJw==}
+    engines: {node: '>=16'}
 
   '@trysound/sax@0.2.0':
     resolution: {integrity: sha512-L7z9BgrNEcYyUYtF+HaEfiS5ebkh9jXqbszz7pC0hRBPaatV0XjSD3+eHrpqFemQfgwiFF0QPIarnIihIDn7OA==}
@@ -7597,6 +7604,8 @@ snapshots:
   '@testing-library/user-event@14.6.1(@testing-library/dom@10.4.1)':
     dependencies:
       '@testing-library/dom': 10.4.1
+
+  '@tidbcloud/serverless@0.2.0': {}
 
   '@trysound/sax@0.2.0': {}
 
