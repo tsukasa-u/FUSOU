@@ -280,8 +280,10 @@ export async function handleCron(env: Env): Promise<void> {
           combined = blocksList[0];
         } else {
           // Multiple blocks from different datasets in same chunk
-          // WARNING: Merging blocks from different datasets assumes compatible schema
-          // In production, ensure that datasets in same file chunk have identical schemas
+          // mergeAvroOCF now handles files with different sync markers by:
+          // 1. Using the first file's header (magic, metadata, sync marker)
+          // 2. Rewriting embedded sync markers in all data blocks to match
+          // This produces a single valid Avro OCF file
           try {
             combined = mergeAvroOCF(blocksList);
           } catch (err) {
