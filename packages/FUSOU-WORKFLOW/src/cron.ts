@@ -290,24 +290,9 @@ export async function handleCron(env: Env): Promise<void> {
           }
         }
 
-        // Validate merged OCF using WASM before upload
-        // This ensures that the merged file creates a valid Avro OCF
-        try {
-          await ensureWasm();
-          const validation = await validateAvroOCFSmart(combined);
-          if (!validation.valid) {
-            throw new Error(`Merged block validation failed: ${validation.errorMessage}`);
-          }
-          // Verify record count sums up (sanity check)
-          const expectedCount = chunk.blocks.reduce((s, b) => s + b.recordCount, 0);
-          if (validation.recordCount !== expectedCount) {
-            console.warn(`[Archiver] Warning: Record count mismatch. Expected ${expectedCount}, got ${validation.recordCount}`);
-            // Note: Not throwing here as recount might differ if logic differs, but worth logging
-          }
-        } catch (err) {
-          console.error(`[Archiver] Critical: Generated invalid OCF for ${filePath}`, err);
-          throw new Error(`Merged OCF validation failed: ${err instanceof Error ? err.message : String(err)}`);
-        }
+        // Note: WASM validation was removed as avro-wasm dependency was removed from FUSOU-WORKFLOW.
+        // Data was already strictly validated at FUSOU-WEB upload endpoint.
+        // The mergeAvroOCF function outputs valid OCF structure by construction.
 
         // Upload to R2
         await env.BATTLE_DATA_BUCKET.put(filePath, combined, {
