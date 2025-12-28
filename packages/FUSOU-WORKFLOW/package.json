@@ -33,6 +33,7 @@
     "wrangler": "^4.51.0"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.86.0"
+    "@supabase/supabase-js": "^2.86.0",
+    "@tidbcloud/serverless": "^0.2.0"
   }
 }

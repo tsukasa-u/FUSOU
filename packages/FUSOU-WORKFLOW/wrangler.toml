@@ -86,3 +86,12 @@ database_id = "700f4191-f93c-4db4-873d-d5fee9a901e3"
 type = "CompiledWasm"
 globs = ["**/*.wasm"]
 fallthrough = true
+
+# ===== TiDB Cloud Configuration =====
+# TiDB Cloud Serverless for buffer_logs (high-volume writes)
+# Official integration guide: https://docs.pingcap.com/tidbcloud/integrate-tidbcloud-with-cloudflare/
+#
+# Secret configured as TIDB_KC_DB_URL:
+#   wrangler secret put TIDB_KC_DB_URL
+#
+# Format: mysql://username:password@host:4000/database
