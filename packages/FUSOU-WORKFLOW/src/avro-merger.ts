@@ -119,24 +119,17 @@ function readVarInt(data: Uint8Array, offset: number): { value: number; bytesRea
  * Returns: Uint8Array containing all data blocks
  * This includes: [BlockCount][BlockData][SyncMarker] repeated
  * 
- * Validates:
- * - Sync marker is present and matches expected marker
- * - Data section is properly aligned
+ * For files with different sync markers (same schema, different upload sessions):
+ * - Extracts data blocks using the file's own sync marker
+ * - Returns raw data blocks (caller must handle sync marker rewriting if needed)
  */
-function extractDataBlocks(ocfData: Uint8Array, header: OCFHeader): Uint8Array {
-  const dataStart = header.metadataEnd + 16; // Skip sync marker
+function extractDataBlocksRaw(ocfData: Uint8Array, header: OCFHeader): Uint8Array {
+  const dataStart = header.metadataEnd + 16; // Skip sync marker after metadata
   const dataEnd = ocfData.byteLength;
 
-  // Validate sync marker at metadata boundary
+  // Validate sync marker is present
   if (header.metadataEnd + 16 > ocfData.byteLength) {
     throw new Error(`OCF too small: metadata_end=${header.metadataEnd}, need 16B sync marker, have ${ocfData.byteLength}B total`);
-  }
-
-  // Verify sync marker matches (all OCFs being merged should have same metadata/marker)
-  const actualMarker = ocfData.slice(header.metadataEnd, header.metadataEnd + 16);
-  const markersMatch = actualMarker.every((byte, i) => byte === header.syncMarker[i]);
-  if (!markersMatch) {
-    throw new Error('OCF sync marker mismatch: cannot merge files with different schemas');
   }
 
   if (dataEnd <= dataStart) {
@@ -145,6 +138,64 @@ function extractDataBlocks(ocfData: Uint8Array, header: OCFHeader): Uint8Array {
   }
 
   return new Uint8Array(ocfData.slice(dataStart, dataEnd));
+}
+
+/**
+ * Rewrite sync markers embedded in data blocks
+ * Each data block ends with a 16-byte sync marker. This function replaces
+ * the original sync marker with a new unified sync marker.
+ * 
+ * @param dataBlocks - Raw data blocks from OCF
+ * @param originalMarker - The sync marker used in the source file
+ * @param newMarker - The unified sync marker to use
+ * @returns Data blocks with sync markers replaced
+ */
+function rewriteSyncMarkers(dataBlocks: Uint8Array, originalMarker: Uint8Array, newMarker: Uint8Array): Uint8Array {
+  if (dataBlocks.byteLength === 0) {
+    return dataBlocks;
+  }
+
+  // If markers are the same, no rewrite needed
+  const markersMatch = originalMarker.every((byte, i) => byte === newMarker[i]);
+  if (markersMatch) {
+    return dataBlocks;
+  }
+
+  // Create a copy to avoid modifying the original
+  const result = new Uint8Array(dataBlocks);
+  
+  // Find and replace all occurrEnd of sync marker patterns in data blocks
+  // Data blocks format: [varint count][varint size][compressed data][16-byte sync marker]...
+  // We scan for the original marker and replace with new marker
+  let pos = 0;
+  let replacements = 0;
+  
+  while (pos <= result.byteLength - 16) {
+    // Check if we found the original marker at this position
+    let isMatch = true;
+    for (let i = 0; i < 16 && isMatch; i++) {
+      if (result[pos + i] !== originalMarker[i]) {
+        isMatch = false;
+      }
+    }
+    
+    if (isMatch) {
+      // Replace with new marker
+      for (let i = 0; i < 16; i++) {
+        result[pos + i] = newMarker[i];
+      }
+      replacements++;
+      pos += 16; // Skip past the marker we just replaced
+    } else {
+      pos++;
+    }
+  }
+
+  if (replacements > 0) {
+    console.log(`[Merger] Rewrote ${replacements} sync markers in data blocks`);
+  }
+
+  return result;
 }
 
 /**
@@ -161,22 +212,28 @@ export function mergeAvroOCF(ocfDataArray: Uint8Array[]): Uint8Array {
     throw new Error('Cannot merge empty OCF array');
   }
 
-  // Parse first OCF to get header
+  // Parse first OCF to get the unified header (will use its sync marker for all)
   const firstOCF = ocfDataArray[0];
-  const header = parseOCFHeader(firstOCF);
+  const unifiedHeader = parseOCFHeader(firstOCF);
 
-  // Collect all data blocks
+  // Collect all data blocks, rewriting sync markers as needed
   const dataBlocksList: Uint8Array[] = [];
 
   for (const ocfData of ocfDataArray) {
-    const blocks = extractDataBlocks(ocfData, header);
-    if (blocks.byteLength > 0) {
-      dataBlocksList.push(blocks);
+    // Parse this file's header to get its own sync marker
+    const fileHeader = parseOCFHeader(ocfData);
+    
+    // Extract raw data blocks from this file
+    const rawBlocks = extractDataBlocksRaw(ocfData, fileHeader);
+    if (rawBlocks.byteLength > 0) {
+      // Rewrite sync markers in data blocks to match the unified header's marker
+      const rewrittenBlocks = rewriteSyncMarkers(rawBlocks, fileHeader.syncMarker, unifiedHeader.syncMarker);
+      dataBlocksList.push(rewrittenBlocks);
     }
   }
 
   // Calculate final size with overflow check
-  const headerSize = header.metadataEnd + 16; // magic + metadata + sync marker
+  const headerSize = unifiedHeader.metadataEnd + 16; // magic + metadata + sync marker
   const dataSize = dataBlocksList.reduce((sum, b) => {
     // Detect integer overflow during summation
     if (sum > Number.MAX_SAFE_INTEGER - b.byteLength) {
@@ -209,8 +266,8 @@ export function mergeAvroOCF(ocfDataArray: Uint8Array[]): Uint8Array {
     offset += blocks.byteLength;
   }
 
-  // Append final sync marker (same as header's sync marker)
-  merged.set(header.syncMarker, offset);
+  // Append final sync marker (same as unified header's sync marker)
+  merged.set(unifiedHeader.syncMarker, offset);
   offset += 16;
 
   console.log(`[Merger] Merged ${ocfDataArray.length} OCF files: ${headerSize}B header + ${dataSize}B data + 16B final sync = ${totalSize}B`);
