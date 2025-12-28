@@ -47,18 +47,9 @@ fn load_schema_set(json_str: &str, version: &str) -> SchemaSet {
         .iter()
         .map(|e| TableSchema {
             table_name: e.table_name.clone(),
-            // Canonicalize the schema string for consistent comparison
-            schema: match parse_schema_to_canonical(&e.schema) {
-                Ok(c) => c,
-                Err(err) => {
-                    // In case of parse error (should not happen with valid generated files),
-                    // fallback to original or panic. Panicking is safer for integrity.
-                    panic!(
-                        "Invalid schema in generated file for table {}: {}",
-                        e.table_name, err
-                    );
-                }
-            },
+            // Store the raw schema JSON as-is (includes logicalType)
+            // Both client and server schemas should be canonicalized during comparison
+            schema: e.schema.clone(),
         })
         .collect();
 
@@ -138,9 +129,9 @@ impl SchemaMatchResult {
 /// in a single binary.
 #[wasm_bindgen]
 pub fn match_client_schema(schema_json: &str) -> SchemaMatchResult {
-    // Normalize the schema for comparison (canonical form)
-    let canonical_client = match parse_schema_to_canonical(schema_json) {
-        Ok(c) => c,
+    // Parse the client schema
+    let client_schema = match Schema::parse_str(schema_json) {
+        Ok(s) => s,
         Err(e) => {
             return SchemaMatchResult {
                 matched: false,
@@ -150,6 +141,7 @@ pub fn match_client_schema(schema_json: &str) -> SchemaMatchResult {
             };
         }
     };
+    let canonical_client = client_schema.canonical_form();
 
     // Get all available schema sets (v1, v2, etc.)
     let all_schemas = get_all_schema_sets_internal();
@@ -157,13 +149,17 @@ pub fn match_client_schema(schema_json: &str) -> SchemaMatchResult {
     // Try to find a matching schema across all versions
     for schema_set in all_schemas {
         for table_schema in &schema_set.schemas {
-            if table_schema.schema == canonical_client {
-                return SchemaMatchResult {
-                    matched: true,
-                    version: Some(schema_set.version.clone()),
-                    table_name: Some(table_schema.table_name.clone()),
-                    error: None,
-                };
+            // Parse the server schema and get its canonical form
+            if let Ok(server_schema) = Schema::parse_str(&table_schema.schema) {
+                let canonical_server = server_schema.canonical_form();
+                if canonical_server == canonical_client {
+                    return SchemaMatchResult {
+                        matched: true,
+                        version: Some(schema_set.version.clone()),
+                        table_name: Some(table_schema.table_name.clone()),
+                        error: None,
+                    };
+                }
             }
         }
     }

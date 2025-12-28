@@ -1,11 +1,10 @@
 use apache_avro::AvroSchema;
 use kc_api_database::models::airbase::{AirBase, PlaneInfo};
 use kc_api_database::models::battle::{
-    AirBaseAirAttack, AirBaseAirAttackList, AirBaseAssult, Battle,
-    CarrierBaseAssault, ClosingRaigeki, FriendlySupportHourai, FriendlySupportHouraiList,
-    Hougeki, HougekiList, MidnightHougeki, MidnightHougekiList, OpeningAirAttack,
-    OpeningAirAttackList, OpeningRaigeki, OpeningTaisen, OpeningTaisenList, SupportAirattack,
-    SupportHourai,
+    AirBaseAirAttack, AirBaseAirAttackList, AirBaseAssult, Battle, CarrierBaseAssault,
+    ClosingRaigeki, FriendlySupportHourai, FriendlySupportHouraiList, Hougeki, HougekiList,
+    MidnightHougeki, MidnightHougekiList, OpeningAirAttack, OpeningAirAttackList, OpeningRaigeki,
+    OpeningTaisen, OpeningTaisenList, SupportAirattack, SupportHourai,
 };
 use kc_api_database::models::cell::Cells;
 use kc_api_database::models::deck::{EnemyDeck, FriendDeck, OwnDeck, SupportDeck};
@@ -17,10 +16,13 @@ use serde_json::json;
 
 fn get_schema_json<T: AvroSchema>(name: &str) -> serde_json::Value {
     let schema = T::get_schema();
-    let canonical = schema.canonical_form();
+    // Serialize the schema to JSON using serde_json to preserve logicalType annotations
+    // The canonical_form() strips logicalType, but OCF writers include it.
+    // We use serde_json::to_string which should preserve the full schema structure.
+    let schema_str = serde_json::to_string(&schema).expect("Failed to serialize schema");
     json!({
         "table_name": name,
-        "schema": canonical
+        "schema": schema_str
     })
 }
 
@@ -53,18 +55,28 @@ fn main() {
 
     // Battle components
     schemas.push(get_schema_json::<AirBaseAirAttack>("airbase_airattack"));
-    schemas.push(get_schema_json::<AirBaseAirAttackList>("airbase_airattack_list"));
+    schemas.push(get_schema_json::<AirBaseAirAttackList>(
+        "airbase_airattack_list",
+    ));
     schemas.push(get_schema_json::<AirBaseAssult>("airbase_assult"));
     schemas.push(get_schema_json::<CarrierBaseAssault>("carrierbase_assault"));
     schemas.push(get_schema_json::<ClosingRaigeki>("closing_raigeki"));
-    schemas.push(get_schema_json::<FriendlySupportHourai>("friendly_support_hourai"));
-    schemas.push(get_schema_json::<FriendlySupportHouraiList>("friendly_support_hourai_list"));
+    schemas.push(get_schema_json::<FriendlySupportHourai>(
+        "friendly_support_hourai",
+    ));
+    schemas.push(get_schema_json::<FriendlySupportHouraiList>(
+        "friendly_support_hourai_list",
+    ));
     schemas.push(get_schema_json::<Hougeki>("hougeki"));
     schemas.push(get_schema_json::<HougekiList>("hougeki_list"));
     schemas.push(get_schema_json::<MidnightHougeki>("midnight_hougeki"));
-    schemas.push(get_schema_json::<MidnightHougekiList>("midnight_hougeki_list"));
+    schemas.push(get_schema_json::<MidnightHougekiList>(
+        "midnight_hougeki_list",
+    ));
     schemas.push(get_schema_json::<OpeningAirAttack>("opening_airattack"));
-    schemas.push(get_schema_json::<OpeningAirAttackList>("opening_airattack_list"));
+    schemas.push(get_schema_json::<OpeningAirAttackList>(
+        "opening_airattack_list",
+    ));
     schemas.push(get_schema_json::<OpeningRaigeki>("opening_raigeki"));
     schemas.push(get_schema_json::<OpeningTaisen>("opening_taisen"));
     schemas.push(get_schema_json::<OpeningTaisenList>("opening_taisen_list"));
