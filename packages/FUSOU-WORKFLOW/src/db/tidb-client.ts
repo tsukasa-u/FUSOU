@@ -131,7 +131,9 @@ export async function insertBufferLog(
     ]
   );
   
-  return { insertId: result.insertId as number };
+  // TiDB SDK returns FullResult for INSERT with insertId
+  const insertId = (result as { insertId?: number }).insertId ?? 0;
+  return { insertId };
 }
 
 /**
@@ -146,7 +148,9 @@ export async function fetchBufferedData(
      ORDER BY timestamp ASC`
   );
   
-  return (result.rows ?? []) as BufferLogRow[];
+  // TiDB SDK returns FullResult with rows property for SELECT
+  const rows = (result as { rows?: unknown[] }).rows ?? [];
+  return rows as BufferLogRow[];
 }
 
 /**
@@ -183,7 +187,9 @@ export async function fetchHotData(
   
   const result = await conn.execute(sql, bindings);
   
-  return (result.rows ?? []) as BufferLogRow[];
+  // TiDB SDK returns FullResult with rows property for SELECT
+  const rows = (result as { rows?: unknown[] }).rows ?? [];
+  return rows as BufferLogRow[];
 }
 
 /**
@@ -198,7 +204,9 @@ export async function cleanupBuffer(
     [maxId]
   );
   
-  return { rowsAffected: result.rowsAffected as number };
+  // TiDB SDK returns FullResult with rowsAffected for DELETE
+  const rowsAffected = (result as { rowsAffected?: number }).rowsAffected ?? 0;
+  return { rowsAffected };
 }
 
 /**

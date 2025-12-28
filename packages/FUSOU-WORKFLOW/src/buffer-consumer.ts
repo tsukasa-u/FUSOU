@@ -71,42 +71,8 @@ interface BatchedQueueMessage {
 // Union type for queue messages
 type QueueMessage = LegacyQueueMessage | BatchedQueueMessage;
 
-/**
- * Generate bulk INSERT SQL with placeholders
- * Single record per message (1 Avro binary per row)
- */
-function buildBulkInsertSQL(recordCount: number): string {
-  const MAX_SAFE_RECORDS = 500;
-  if (recordCount > MAX_SAFE_RECORDS) {
-    throw new Error(`Bulk insert too large: ${recordCount} records (max: ${MAX_SAFE_RECORDS})`);
-  }
-
-  const placeholder = '(?,?,?,?,?,?,?)';
-  const placeholders = Array(recordCount).fill(placeholder).join(',');
-  return `INSERT INTO buffer_logs (dataset_id, table_name, period_tag, schema_version, timestamp, data, uploaded_by) VALUES ${placeholders}`;
-}
-
-/**
- * Flatten records into bind parameter array
- * Order: [dataset_id, table_name, period_tag, schema_version, timestamp, avro_blob, uploaded_by, ...]
- */
-function flattenRecords(records: BufferLogRecord[]): (string | number | ArrayBuffer | null)[] {
-  const params: (string | number | ArrayBuffer | null)[] = [];
-
-  for (const record of records) {
-    params.push(
-      record.dataset_id,
-      record.table_name,
-      record.period_tag,
-      record.schema_version,
-      record.timestamp,
-      record.data,  // Already ArrayBuffer (Avro binary)
-      record.uploaded_by ?? null
-    );
-  }
-
-  return params;
-}
+// Note: buildBulkInsertSQL and flattenRecords have been removed.
+// buffer_logs inserts now use insertBufferLogsWithFallback from ./db
 
 /**
  * Normalize queue message to buffer log records
