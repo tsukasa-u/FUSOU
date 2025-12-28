@@ -164,3 +164,47 @@ export async function insertBufferLogsWithFallback(
   console.log(`[DB] Inserted ${result.insertedCount} records to D1`);
   return { source: 'd1', insertedCount: result.insertedCount };
 }
+
+/**
+ * Unified fetch hot data (recent buffer_logs for specific dataset/table) with TiDB -> D1 fallback
+ * 
+ * This is critical for data consistency: if data is in TiDB, we must query TiDB.
+ * D1 fallback only happens if TiDB query fails, not based on configuration alone.
+ */
+export async function fetchHotDataWithFallback(
+  env: UnifiedDbEnv,
+  params: {
+    dataset_id: string;
+    table_name: string;
+    from?: number;
+    to?: number;
+  }
+): Promise<{ rows: BufferLogRecord[]; source: 'tidb' | 'd1' }> {
+  const { fetchHotData: d1FetchHot } = await import('./d1-client');
+  
+  if (env.TIDB_KC_DB_URL) {
+    try {
+      const { createTiDBClientFromUrl, fetchHotData: tidbFetchHot } = await import('./tidb-client');
+      const conn = createTiDBClientFromUrl(env.TIDB_KC_DB_URL);
+      const tidbRows = await tidbFetchHot(conn, params);
+      console.log(`[DB] Fetched ${tidbRows.length} hot rows from TiDB`);
+      return {
+        rows: tidbRows.map(r => ({
+          ...r,
+          data: r.data.buffer as ArrayBuffer,
+        })),
+        source: 'tidb',
+      };
+    } catch (err) {
+      console.error('[DB] TiDB fetchHotData failed, falling back to D1:', err instanceof Error ? err.message : String(err));
+    }
+  }
+  
+  // D1 fallback
+  const d1Rows = await d1FetchHot(env.BATTLE_INDEX_DB, params);
+  console.log(`[DB] Fetched ${d1Rows.length} hot rows from D1`);
+  return {
+    rows: d1Rows as BufferLogRecord[],
+    source: 'd1',
+  };
+}

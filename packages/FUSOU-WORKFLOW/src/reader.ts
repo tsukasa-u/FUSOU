@@ -4,10 +4,14 @@
  * Role: Unified query interface for recent (Hot) and historical (Cold) data
  * 
  * Access Pattern:
- * 1. Query Hot: D1 buffer_logs (fast, recent 1 hour)
+ * 1. Query Hot: TiDB buffer_logs (or D1 fallback on error)
  * 2. Query Cold: D1 block_indexes → R2 Range Request (efficient, historical)
  * 3. Merge: Combine and deduplicate results
  * 4. Cache: Aggressive caching for Cold data (immutable)
+ * 
+ * Data Consistency:
+ * - Hot data is stored in TiDB (primary) or D1 (fallback)
+ * - Must query TiDB if configured, otherwise data won't be found
  * 
  * Performance Target:
  * - Hot only: < 50ms
@@ -18,11 +22,14 @@
 import { detectCompressionCodec } from './utils/compression';
 import { parseDeflateAvroBlock, getAvroHeaderLengthFromPrefix, parseNullAvroBlock } from './avro-manual';
 import { computeSchemaFingerprint } from './avro-manual';
+import { fetchHotDataWithFallback, BufferLogRecord } from './db';
 
 interface Env {
   BATTLE_DATA_BUCKET: R2Bucket;
   BATTLE_INDEX_DB: D1Database;
   SCHEMA_FINGERPRINTS_JSON?: string; // map: { "v1": { "table": ["<sha256>", ...] }, ... }
+  // TiDB Cloud Serverless connection URL (required for hot data queries)
+  TIDB_KC_DB_URL?: string;
 }
 
 interface QueryParams {
@@ -58,39 +65,26 @@ interface BlockIndex {
 }
 
 /**
- * Fetch Hot data from D1 buffer_logs
+ * Fetch Hot data from TiDB buffer_logs (or D1 fallback on error)
+ * 
+ * CRITICAL: Data is stored in TiDB if TIDB_KC_DB_URL is configured.
+ * D1 fallback only happens on TiDB connection/query error.
  */
 async function fetchHotData(
-  db: D1Database,
+  env: Env,
   params: QueryParams
 ): Promise<any[]> {
-  const { dataset_id, table_name, from, to } = params;
-  
-  let sql = `
-    SELECT id, dataset_id, table_name, timestamp, data
-    FROM buffer_logs
-    WHERE dataset_id = ? AND table_name = ?
-  `;
-  
-  const bindings: any[] = [dataset_id, table_name];
-  
-  if (from !== undefined) {
-    sql += ' AND timestamp >= ?';
-    bindings.push(from);
-  }
-  
-  if (to !== undefined) {
-    sql += ' AND timestamp <= ?';
-    bindings.push(to);
-  }
-  
-  sql += ' ORDER BY timestamp ASC';
-  
-  const result = await db.prepare(sql).bind(...bindings).all<HotRecord>();
+  const { rows } = await fetchHotDataWithFallback(env, {
+    dataset_id: params.dataset_id,
+    table_name: params.table_name,
+    from: params.from,
+    to: params.to,
+  });
   
   // Deserialize BLOB to JSON
-  return (result.results ?? []).map(row => {
-    const decoded = new TextDecoder().decode(row.data);
+  return rows.map(row => {
+    const data = row.data instanceof ArrayBuffer ? row.data : (row.data as Uint8Array).buffer;
+    const decoded = new TextDecoder().decode(data);
     return JSON.parse(decoded);
   });
 }
@@ -419,7 +413,7 @@ export async function handleRead(
     }
 
     // Step 1: Fetch Hot data (fast, always fresh)
-    const hotRecords = await fetchHotData(env.BATTLE_INDEX_DB, params);
+    const hotRecords = await fetchHotData(env, params);
     console.log(`Hot records: ${hotRecords.length}`);
     
     // Step 2: Fetch Cold indexes (fast D1 query)

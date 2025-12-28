@@ -217,16 +217,21 @@ export async function handleBufferConsumer(
     return;
   }
 
-  // Step 2: Bulk Insert (D1 optimization)
+  // Step 2: Insert with TiDB -> D1 fallback
   try {
-    const sql = buildBulkInsertSQL(allRecords.length);
-    const params = flattenRecords(allRecords);
+    const recordsForInsert = allRecords.map(r => ({
+      dataset_id: r.dataset_id,
+      table_name: r.table_name,
+      period_tag: r.period_tag,
+      schema_version: r.schema_version,
+      timestamp: r.timestamp,
+      data: r.data,
+      uploaded_by: r.uploaded_by,
+    }));
+    
+    const { source, insertedCount } = await insertBufferLogsWithFallback(env, recordsForInsert);
 
-    const result = await env.BATTLE_INDEX_DB.prepare(sql)
-      .bind(...params)
-      .run();
-
-    console.log(`✅ Buffered ${allRecords.length} records (success: ${result.success})`);
+    console.log(`✅ Buffered ${insertedCount} records to ${source}`);
 
     // Step 3: ACK successful messages only
     batch.messages.forEach(msg => {
@@ -238,7 +243,7 @@ export async function handleBufferConsumer(
     });
 
   } catch (err) {
-    console.error('❌ Bulk insert failed:', err);
+    console.error('❌ Insert failed (both TiDB and D1):', err);
     // Retry entire batch (Queue will re-deliver)
     batch.retryAll();
   }
