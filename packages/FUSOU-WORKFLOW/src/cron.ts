@@ -17,6 +17,9 @@ import {
   cleanupBufferWithFallback,
   BufferLogRecord,
   UnifiedDbEnv,
+  checkTiDBHealthCached,
+  createTiDBClientFromUrl,
+  clearHealthCache,
 } from './db';
 
 interface Env {
@@ -240,10 +243,29 @@ export async function handleCron(env: Env): Promise<void> {
   try {
     const runTimestamp = Date.now();
     
+    // Pre-flight health check: verify TiDB is accessible before processing
+    if (env.TIDB_KC_DB_URL) {
+      const conn = createTiDBClientFromUrl(env.TIDB_KC_DB_URL);
+      const health = await checkTiDBHealthCached(conn);
+      
+      if (health.rateLimited) {
+        console.warn('[Archival] TiDB RU limit detected, will use D1 fallback');
+      } else if (!health.healthy) {
+        console.warn('[Archival] TiDB unhealthy, will use D1 fallback');
+      } else {
+        console.log(`[Archival] TiDB health check passed${health.cached ? ' (cached)' : ''}`);
+      }
+    }
+    
     // Fetch buffered data with automatic TiDB -> D1 fallback on error
     const { rows: fetchedRows, source } = await fetchBufferedDataWithFallback(env);
     fetchSource = source;
     const rows: BufferRow[] = fetchedRows.map(convertToBufferRow);
+    
+    // Clear health cache on successful fetch (TiDB is working)
+    if (fetchSource === 'tidb') {
+      clearHealthCache();
+    }
     
     if (!rows.length) {
       return; // Silent: no data to archive
