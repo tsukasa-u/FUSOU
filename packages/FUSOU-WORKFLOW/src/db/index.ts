@@ -6,39 +6,68 @@
  * - tidb-client.ts: TiDB Cloud Serverless operations
  * 
  * Both modules have the same interface for easy switching/fallback.
+ * 
+ * IMPORTANT: All imports are static (not dynamic) to prevent webpack code splitting.
+ * Cloudflare Workers cannot load dynamically split chunks at runtime.
  */
 
-// Re-export D1 client functions (types excluded to avoid webpack warnings)
-export {
-  insertBufferLog as d1InsertBufferLog,
-  fetchBufferedData as d1FetchBufferedData,
-  fetchHotData as d1FetchHotData,
-  cleanupBuffer as d1CleanupBuffer,
-  bulkInsertBufferLogs as d1BulkInsertBufferLogs,
-  getBufferedCount as d1GetBufferedCount,
+// Static imports for D1 client
+import {
+  insertBufferLog as _d1InsertBufferLog,
+  fetchBufferedData as _d1FetchBufferedData,
+  fetchHotData as _d1FetchHotData,
+  cleanupBuffer as _d1CleanupBuffer,
+  bulkInsertBufferLogs as _d1BulkInsertBufferLogs,
+  getBufferedCount as _d1GetBufferedCount,
 } from './d1-client';
 
-// Re-export TiDB client functions (types excluded to avoid webpack warnings)
-export {
-  createTiDBClientFromUrl,
-  createTiDBClient,
-  createTiDBClientFromEnv,
-  insertBufferLog as tidbInsertBufferLog,
-  fetchBufferedData as tidbFetchBufferedData,
-  fetchHotData as tidbFetchHotData,
-  cleanupBuffer as tidbCleanupBuffer,
-  executeWithRetry as tidbExecuteWithRetry,
+// Static imports for TiDB client
+import {
+  createTiDBClientFromUrl as _createTiDBClientFromUrl,
+  createTiDBClient as _createTiDBClient,
+  createTiDBClientFromEnv as _createTiDBClientFromEnv,
+  insertBufferLog as _tidbInsertBufferLog,
+  fetchBufferedData as _tidbFetchBufferedData,
+  fetchHotData as _tidbFetchHotData,
+  cleanupBuffer as _tidbCleanupBuffer,
+  executeWithRetry as _tidbExecuteWithRetry,
 } from './tidb-client';
 
-// Re-export TiDB health check utilities
-export {
-  isRateLimitError,
-  checkTiDBHealth,
-  checkTiDBHealthCached,
-  executeWithRateLimitDetection,
-  clearHealthCache,
-  TIDB_SKIP_ERROR_PATTERNS,
+// Static imports for TiDB health check
+import {
+  isRateLimitError as _isRateLimitError,
+  checkTiDBHealth as _checkTiDBHealth,
+  checkTiDBHealthCached as _checkTiDBHealthCached,
+  executeWithRateLimitDetection as _executeWithRateLimitDetection,
+  clearHealthCache as _clearHealthCache,
+  TIDB_SKIP_ERROR_PATTERNS as _TIDB_SKIP_ERROR_PATTERNS,
 } from './tidb-health';
+
+// Re-export D1 client functions
+export const d1InsertBufferLog = _d1InsertBufferLog;
+export const d1FetchBufferedData = _d1FetchBufferedData;
+export const d1FetchHotData = _d1FetchHotData;
+export const d1CleanupBuffer = _d1CleanupBuffer;
+export const d1BulkInsertBufferLogs = _d1BulkInsertBufferLogs;
+export const d1GetBufferedCount = _d1GetBufferedCount;
+
+// Re-export TiDB client functions
+export const createTiDBClientFromUrl = _createTiDBClientFromUrl;
+export const createTiDBClient = _createTiDBClient;
+export const createTiDBClientFromEnv = _createTiDBClientFromEnv;
+export const tidbInsertBufferLog = _tidbInsertBufferLog;
+export const tidbFetchBufferedData = _tidbFetchBufferedData;
+export const tidbFetchHotData = _tidbFetchHotData;
+export const tidbCleanupBuffer = _tidbCleanupBuffer;
+export const tidbExecuteWithRetry = _tidbExecuteWithRetry;
+
+// Re-export TiDB health check utilities
+export const isRateLimitError = _isRateLimitError;
+export const checkTiDBHealth = _checkTiDBHealth;
+export const checkTiDBHealthCached = _checkTiDBHealthCached;
+export const executeWithRateLimitDetection = _executeWithRateLimitDetection;
+export const clearHealthCache = _clearHealthCache;
+export const TIDB_SKIP_ERROR_PATTERNS = _TIDB_SKIP_ERROR_PATTERNS;
 
 // ============================================================
 // Unified Interface with TiDB -> D1 Fallback
@@ -70,14 +99,10 @@ export interface BufferLogRecord {
 export async function fetchBufferedDataWithFallback(
   env: UnifiedDbEnv
 ): Promise<{ rows: BufferLogRecord[]; source: 'tidb' | 'd1'; rateLimited?: boolean }> {
-  const { fetchBufferedData: d1Fetch } = await import('./d1-client');
-  const { isRateLimitError } = await import('./tidb-health');
-  
   if (env.TIDB_KC_DB_URL) {
     try {
-      const { createTiDBClientFromUrl, fetchBufferedData: tidbFetch } = await import('./tidb-client');
-      const conn = createTiDBClientFromUrl(env.TIDB_KC_DB_URL);
-      const tidbRows = await tidbFetch(conn);
+      const conn = _createTiDBClientFromUrl(env.TIDB_KC_DB_URL);
+      const tidbRows = await _tidbFetchBufferedData(conn);
       console.log(`[DB] Fetched ${tidbRows.length} rows from TiDB`);
       return {
         rows: tidbRows.map(r => ({
@@ -87,8 +112,7 @@ export async function fetchBufferedDataWithFallback(
         source: 'tidb',
       };
     } catch (err) {
-      const isRL = isRateLimitError(err);
-      if (isRL) {
+      if (_isRateLimitError(err)) {
         console.warn('[DB] TiDB RU limit reached, falling back to D1');
       } else {
         console.error('[DB] TiDB fetch failed, falling back to D1:', err instanceof Error ? err.message : String(err));
@@ -98,7 +122,7 @@ export async function fetchBufferedDataWithFallback(
   }
   
   // D1 fallback
-  const d1Rows = await d1Fetch(env.BATTLE_INDEX_DB);
+  const d1Rows = await _d1FetchBufferedData(env.BATTLE_INDEX_DB);
   console.log(`[DB] Fetched ${d1Rows.length} rows from D1`);
   return {
     rows: d1Rows as BufferLogRecord[],
@@ -114,18 +138,14 @@ export async function cleanupBufferWithFallback(
   maxId: number,
   preferredSource: 'tidb' | 'd1'
 ): Promise<{ source: 'tidb' | 'd1'; rowsAffected: number }> {
-  const { cleanupBuffer: d1Cleanup } = await import('./d1-client');
-  const { isRateLimitError } = await import('./tidb-health');
-  
   if (preferredSource === 'tidb' && env.TIDB_KC_DB_URL) {
     try {
-      const { createTiDBClientFromUrl, cleanupBuffer: tidbCleanup } = await import('./tidb-client');
-      const conn = createTiDBClientFromUrl(env.TIDB_KC_DB_URL);
-      const result = await tidbCleanup(conn, maxId);
+      const conn = _createTiDBClientFromUrl(env.TIDB_KC_DB_URL);
+      const result = await _tidbCleanupBuffer(conn, maxId);
       console.log(`[DB] Cleaned up ${result.rowsAffected} rows from TiDB`);
       return { source: 'tidb', rowsAffected: result.rowsAffected };
     } catch (err) {
-      if (isRateLimitError(err)) {
+      if (_isRateLimitError(err)) {
         console.warn('[DB] TiDB RU limit reached during cleanup, falling back to D1');
       } else {
         console.error('[DB] TiDB cleanup failed, falling back to D1:', err instanceof Error ? err.message : String(err));
@@ -134,7 +154,7 @@ export async function cleanupBufferWithFallback(
   }
   
   // D1 fallback
-  const result = await d1Cleanup(env.BATTLE_INDEX_DB, maxId);
+  const result = await _d1CleanupBuffer(env.BATTLE_INDEX_DB, maxId);
   console.log(`[DB] Cleaned up ${result.rowsAffected} rows from D1`);
   return { source: 'd1', rowsAffected: result.rowsAffected };
 }
@@ -154,17 +174,13 @@ export async function insertBufferLogsWithFallback(
     uploaded_by?: string;
   }>
 ): Promise<{ source: 'tidb' | 'd1'; insertedCount: number }> {
-  const { bulkInsertBufferLogs: d1BulkInsert } = await import('./d1-client');
-  const { isRateLimitError } = await import('./tidb-health');
-  
   if (env.TIDB_KC_DB_URL) {
     try {
-      const { createTiDBClientFromUrl, insertBufferLog: tidbInsert } = await import('./tidb-client');
-      const conn = createTiDBClientFromUrl(env.TIDB_KC_DB_URL);
+      const conn = _createTiDBClientFromUrl(env.TIDB_KC_DB_URL);
       
       let insertedCount = 0;
       for (const record of records) {
-        await tidbInsert(conn, {
+        await _tidbInsertBufferLog(conn, {
           ...record,
           data: record.data instanceof Uint8Array ? record.data : new Uint8Array(record.data),
         });
@@ -174,7 +190,7 @@ export async function insertBufferLogsWithFallback(
       console.log(`[DB] Inserted ${insertedCount} records to TiDB`);
       return { source: 'tidb', insertedCount };
     } catch (err) {
-      if (isRateLimitError(err)) {
+      if (_isRateLimitError(err)) {
         console.warn('[DB] TiDB RU limit reached during insert, falling back to D1');
       } else {
         console.error('[DB] TiDB insert failed, falling back to D1:', err instanceof Error ? err.message : String(err));
@@ -187,7 +203,7 @@ export async function insertBufferLogsWithFallback(
     ...r,
     data: r.data instanceof ArrayBuffer ? r.data : r.data.buffer as ArrayBuffer,
   }));
-  const result = await d1BulkInsert(env.BATTLE_INDEX_DB, d1Records);
+  const result = await _d1BulkInsertBufferLogs(env.BATTLE_INDEX_DB, d1Records);
   console.log(`[DB] Inserted ${result.insertedCount} records to D1`);
   return { source: 'd1', insertedCount: result.insertedCount };
 }
@@ -207,14 +223,10 @@ export async function fetchHotDataWithFallback(
     to?: number;
   }
 ): Promise<{ rows: BufferLogRecord[]; source: 'tidb' | 'd1' }> {
-  const { fetchHotData: d1FetchHot } = await import('./d1-client');
-  const { isRateLimitError } = await import('./tidb-health');
-  
   if (env.TIDB_KC_DB_URL) {
     try {
-      const { createTiDBClientFromUrl, fetchHotData: tidbFetchHot } = await import('./tidb-client');
-      const conn = createTiDBClientFromUrl(env.TIDB_KC_DB_URL);
-      const tidbRows = await tidbFetchHot(conn, params);
+      const conn = _createTiDBClientFromUrl(env.TIDB_KC_DB_URL);
+      const tidbRows = await _tidbFetchHotData(conn, params);
       console.log(`[DB] Fetched ${tidbRows.length} hot rows from TiDB`);
       return {
         rows: tidbRows.map(r => ({
@@ -224,7 +236,7 @@ export async function fetchHotDataWithFallback(
         source: 'tidb',
       };
     } catch (err) {
-      if (isRateLimitError(err)) {
+      if (_isRateLimitError(err)) {
         console.warn('[DB] TiDB RU limit reached during fetchHotData, falling back to D1');
       } else {
         console.error('[DB] TiDB fetchHotData failed, falling back to D1:', err instanceof Error ? err.message : String(err));
@@ -233,7 +245,7 @@ export async function fetchHotDataWithFallback(
   }
   
   // D1 fallback
-  const d1Rows = await d1FetchHot(env.BATTLE_INDEX_DB, params);
+  const d1Rows = await _d1FetchHotData(env.BATTLE_INDEX_DB, params);
   console.log(`[DB] Fetched ${d1Rows.length} hot rows from D1`);
   return {
     rows: d1Rows as BufferLogRecord[],
