@@ -234,23 +234,29 @@ async function insertBlockIndexes(db: D1Database, rows: BlockIndexRow[]): Promis
 // TiDB cleanup uses cleanupBufferFromTiDB from tidb-client.ts
 
 export async function handleCron(env: Env): Promise<void> {
+  let maxId: number | null = null;
+  let fetchSource: 'tidb' | 'd1' = 'd1';
+  
   try {
     const runTimestamp = Date.now();
     
     // Fetch buffered data with automatic TiDB -> D1 fallback on error
-    const { rows: fetchedRows, source: fetchSource } = await fetchBufferedDataWithFallback(env);
+    const { rows: fetchedRows, source } = await fetchBufferedDataWithFallback(env);
+    fetchSource = source;
     const rows: BufferRow[] = fetchedRows.map(convertToBufferRow);
     
     if (!rows.length) {
       return; // Silent: no data to archive
     }
 
-    const maxId = Math.max(...rows.map(r => r.id));
+    // IMPORTANT: Track maxId early so cleanup can happen even if later steps fail
+    maxId = Math.max(...rows.map(r => r.id));
     const groups = groupByDataset(rows);
 
     let totalFiles = 0;
     let totalBytes = 0;
     let totalDatasets = 0;
+    let hasError = false;
 
     // Process each table_name + period_tag group
     for (const group of groups) {
@@ -334,27 +340,40 @@ export async function handleCron(env: Env): Promise<void> {
         // Register file in D1
         // CRITICAL: Use actual combined size, not chunk.size (which may be estimate)
         const actualSize = combined.byteLength;
-        const fileId = await registerArchivedFile(env.BATTLE_INDEX_DB, filePath, group.key.schema_version, actualSize, 'deflate');
+        
+        try {
+          const fileId = await registerArchivedFile(env.BATTLE_INDEX_DB, filePath, group.key.schema_version, actualSize, 'deflate');
 
-        // Create block indexes for each dataset in this file
-        const blockIndexes: BlockIndexRow[] = [];
-        let currentOffset = 0;
-        for (const block of chunk.blocks) {
-          blockIndexes.push({
-            dataset_id: block.dataset_id,
-            table_name: group.key.table_name,
-            schema_version: group.key.schema_version,
-            period_tag: group.key.period_tag,
-            file_id: fileId,
-            start_byte: currentOffset,
-            length: block.avroData.byteLength,
-            record_count: block.recordCount,
-            start_timestamp: block.startTimestamp,
-            end_timestamp: block.endTimestamp,
-          });
-          currentOffset += block.avroData.byteLength;
+          // Create block indexes for each dataset in this file
+          const blockIndexes: BlockIndexRow[] = [];
+          let currentOffset = 0;
+          for (const block of chunk.blocks) {
+            blockIndexes.push({
+              dataset_id: block.dataset_id,
+              table_name: group.key.table_name,
+              schema_version: group.key.schema_version,
+              period_tag: group.key.period_tag,
+              file_id: fileId,
+              start_byte: currentOffset,
+              length: block.avroData.byteLength,
+              record_count: block.recordCount,
+              start_timestamp: block.startTimestamp,
+              end_timestamp: block.endTimestamp,
+            });
+            currentOffset += block.avroData.byteLength;
+          }
+          await insertBlockIndexes(env.BATTLE_INDEX_DB, blockIndexes);
+        } catch (err) {
+          const errorMsg = err instanceof Error ? err.message : String(err);
+          if (errorMsg.includes('UNIQUE constraint failed')) {
+            // UNIQUE constraint error on file registration - file already exists from previous run
+            // This is expected for idempotent retries. Log and continue processing.
+            console.warn(`[Archival] File already registered (duplicate): ${filePath}`);
+            hasError = true;
+            continue; // Skip to next file, but don't stop processing
+          }
+          throw err; // Re-throw other errors
         }
-        await insertBlockIndexes(env.BATTLE_INDEX_DB, blockIndexes);
 
         totalFiles++;
         totalBytes += chunk.size;
@@ -362,25 +381,27 @@ export async function handleCron(env: Env): Promise<void> {
       }
     }
 
-    // Cleanup buffer from same source that was fetched (with fallback on error)
-    const { source: cleanupSource } = await cleanupBufferWithFallback(env, maxId, fetchSource);
-    console.log(`[Archival] Cleaned up ${cleanupSource} buffer_logs up to id ${maxId}`);
-
     // Summary log
-    console.log(`[Archival] ${totalFiles} files, ${totalDatasets} datasets, ${(totalBytes / 1024).toFixed(1)}KB archived from ${rows.length} buffer rows`);
+    if (hasError) {
+      console.log(`[Archival] ${totalFiles} files, ${totalDatasets} datasets, ${(totalBytes / 1024).toFixed(1)}KB archived from ${rows.length} buffer rows (some duplicates skipped)`);
+    } else {
+      console.log(`[Archival] ${totalFiles} files, ${totalDatasets} datasets, ${(totalBytes / 1024).toFixed(1)}KB archived from ${rows.length} buffer rows`);
+    }
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
-
-    // Handle UNIQUE constraint errors gracefully
-    if (errorMsg.includes('UNIQUE constraint failed')) {
-      console.error('[Archival Error] UNIQUE constraint violation - likely duplicate file_path from retry', errorMsg);
-      console.error('[Archival Info] This is expected if cron is retrying. Existing files will be reused.');
-      // Don't throw - allow graceful degradation for idempotent cron jobs
-      return;
-    }
-
-    // Other errors should be thrown
     console.error('[Archival Error]', errorMsg);
-    throw error;
+    // Don't throw - we still need to cleanup in finally block
+  } finally {
+    // CRITICAL: Always cleanup buffer_logs if we fetched any data
+    // This ensures records are deleted even if archival partially failed
+    if (maxId !== null) {
+      try {
+        const { source: cleanupSource, rowsAffected } = await cleanupBufferWithFallback(env, maxId, fetchSource);
+        console.log(`[Archival] Cleaned up ${rowsAffected} ${cleanupSource} buffer_logs up to id ${maxId}`);
+      } catch (cleanupErr) {
+        console.error('[Archival] Cleanup failed:', cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr));
+      }
+    }
   }
 }
+
