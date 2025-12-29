@@ -148,7 +148,12 @@ export async function fetchBufferedData(
      ORDER BY timestamp ASC`
   );
   
-  // TiDB SDK returns FullResult with rows property for SELECT
+  // TiDB SDK: default returns array directly, fullResult:true returns object with rows
+  // Handle both cases for safety
+  if (Array.isArray(result)) {
+    return result as BufferLogRow[];
+  }
+  // Fallback for fullResult mode (shouldn't happen with default config)
   const rows = (result as { rows?: unknown[] }).rows ?? [];
   return rows as BufferLogRow[];
 }
@@ -187,7 +192,10 @@ export async function fetchHotData(
   
   const result = await conn.execute(sql, bindings);
   
-  // TiDB SDK returns FullResult with rows property for SELECT
+  // TiDB SDK: default returns array directly, fullResult:true returns object with rows
+  if (Array.isArray(result)) {
+    return result as BufferLogRow[];
+  }
   const rows = (result as { rows?: unknown[] }).rows ?? [];
   return rows as BufferLogRow[];
 }
