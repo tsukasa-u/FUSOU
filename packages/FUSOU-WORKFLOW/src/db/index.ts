@@ -30,6 +30,16 @@ export {
   executeWithRetry as tidbExecuteWithRetry,
 } from './tidb-client';
 
+// Re-export TiDB health check utilities
+export {
+  isRateLimitError,
+  checkTiDBHealth,
+  checkTiDBHealthCached,
+  executeWithRateLimitDetection,
+  clearHealthCache,
+  TIDB_SKIP_ERROR_PATTERNS,
+} from './tidb-health';
+
 // ============================================================
 // Unified Interface with TiDB -> D1 Fallback
 // ============================================================
@@ -54,13 +64,14 @@ export interface BufferLogRecord {
  * Unified fetch buffered data with TiDB -> D1 fallback on error
  * 
  * 1. If TIDB_KC_DB_URL is set, try TiDB first
- * 2. If TiDB fails, fallback to D1
+ * 2. If TiDB fails (including rate limit), fallback to D1
  * 3. If no TIDB_KC_DB_URL, use D1 directly
  */
 export async function fetchBufferedDataWithFallback(
   env: UnifiedDbEnv
-): Promise<{ rows: BufferLogRecord[]; source: 'tidb' | 'd1' }> {
+): Promise<{ rows: BufferLogRecord[]; source: 'tidb' | 'd1'; rateLimited?: boolean }> {
   const { fetchBufferedData: d1Fetch } = await import('./d1-client');
+  const { isRateLimitError } = await import('./tidb-health');
   
   if (env.TIDB_KC_DB_URL) {
     try {
@@ -76,7 +87,13 @@ export async function fetchBufferedDataWithFallback(
         source: 'tidb',
       };
     } catch (err) {
-      console.error('[DB] TiDB fetch failed, falling back to D1:', err instanceof Error ? err.message : String(err));
+      const isRL = isRateLimitError(err);
+      if (isRL) {
+        console.warn('[DB] TiDB RU limit reached, falling back to D1');
+      } else {
+        console.error('[DB] TiDB fetch failed, falling back to D1:', err instanceof Error ? err.message : String(err));
+      }
+      // Fall through to D1
     }
   }
   
@@ -98,6 +115,7 @@ export async function cleanupBufferWithFallback(
   preferredSource: 'tidb' | 'd1'
 ): Promise<{ source: 'tidb' | 'd1'; rowsAffected: number }> {
   const { cleanupBuffer: d1Cleanup } = await import('./d1-client');
+  const { isRateLimitError } = await import('./tidb-health');
   
   if (preferredSource === 'tidb' && env.TIDB_KC_DB_URL) {
     try {
@@ -107,7 +125,11 @@ export async function cleanupBufferWithFallback(
       console.log(`[DB] Cleaned up ${result.rowsAffected} rows from TiDB`);
       return { source: 'tidb', rowsAffected: result.rowsAffected };
     } catch (err) {
-      console.error('[DB] TiDB cleanup failed, falling back to D1:', err instanceof Error ? err.message : String(err));
+      if (isRateLimitError(err)) {
+        console.warn('[DB] TiDB RU limit reached during cleanup, falling back to D1');
+      } else {
+        console.error('[DB] TiDB cleanup failed, falling back to D1:', err instanceof Error ? err.message : String(err));
+      }
     }
   }
   
@@ -133,6 +155,7 @@ export async function insertBufferLogsWithFallback(
   }>
 ): Promise<{ source: 'tidb' | 'd1'; insertedCount: number }> {
   const { bulkInsertBufferLogs: d1BulkInsert } = await import('./d1-client');
+  const { isRateLimitError } = await import('./tidb-health');
   
   if (env.TIDB_KC_DB_URL) {
     try {
@@ -151,7 +174,11 @@ export async function insertBufferLogsWithFallback(
       console.log(`[DB] Inserted ${insertedCount} records to TiDB`);
       return { source: 'tidb', insertedCount };
     } catch (err) {
-      console.error('[DB] TiDB insert failed, falling back to D1:', err instanceof Error ? err.message : String(err));
+      if (isRateLimitError(err)) {
+        console.warn('[DB] TiDB RU limit reached during insert, falling back to D1');
+      } else {
+        console.error('[DB] TiDB insert failed, falling back to D1:', err instanceof Error ? err.message : String(err));
+      }
     }
   }
   
@@ -181,6 +208,7 @@ export async function fetchHotDataWithFallback(
   }
 ): Promise<{ rows: BufferLogRecord[]; source: 'tidb' | 'd1' }> {
   const { fetchHotData: d1FetchHot } = await import('./d1-client');
+  const { isRateLimitError } = await import('./tidb-health');
   
   if (env.TIDB_KC_DB_URL) {
     try {
@@ -196,7 +224,11 @@ export async function fetchHotDataWithFallback(
         source: 'tidb',
       };
     } catch (err) {
-      console.error('[DB] TiDB fetchHotData failed, falling back to D1:', err instanceof Error ? err.message : String(err));
+      if (isRateLimitError(err)) {
+        console.warn('[DB] TiDB RU limit reached during fetchHotData, falling back to D1');
+      } else {
+        console.error('[DB] TiDB fetchHotData failed, falling back to D1:', err instanceof Error ? err.message : String(err));
+      }
     }
   }
   
