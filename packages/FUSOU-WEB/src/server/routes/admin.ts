@@ -70,12 +70,16 @@ async function sha256(data: ArrayBuffer): Promise<string> {
  * Query Parameters:
  *   - dryRun: 'true' (default) to preview, 'false' to apply
  *   - prefix: filter objects by prefix
- *   - limit: max objects to process (default: 1000)
+ *   - limit: max objects to process per request (default: 100)
+ *   - cursor: pagination cursor from previous request
+ * 
+ * Response includes nextCursor - use it in next request to continue from where you left off
  */
 adminApp.get('/fix-mime-types', async (c) => {
   const dryRun = c.req.query('dryRun') !== 'false';
   const prefix = c.req.query('prefix') || '';
-  const limit = parseInt(c.req.query('limit') || '1000', 10);
+  const limit = parseInt(c.req.query('limit') || '100', 10);
+  const inputCursor = c.req.query('cursor') || undefined;
   
   // Use createEnvContext for reliable binding access (same as battle_data.ts)
   const env = createEnvContext(c);
@@ -91,59 +95,62 @@ adminApp.get('/fix-mime-types', async (c) => {
     fixed: 0,
     skipped: 0,
     errors: [] as { key: string; error: string }[],
-    details: [] as { key: string; from: string; to: string }[]
+    details: [] as { key: string; from: string; to: string }[],
+    nextCursor: null as string | null,
+    hasMore: false,
   };
   
-  let cursor: string | undefined = undefined;
+  let cursor: string | undefined = inputCursor;
   let processed = 0;
   
-  do {
-    const listResult = await bucket.list({ cursor, prefix });
+  // Single list call per request - no internal looping to avoid timeout
+  const listResult = await bucket.list({ cursor, prefix, limit });
+  
+  for (const obj of listResult.objects) {
+    results.total++;
+    processed++;
     
-    for (const obj of listResult.objects) {
-      if (processed >= limit) break;
-      
-      results.total++;
-      processed++;
-      
-      const expectedMime = detectMimeType(obj.key);
-      
-      // need to get the object to check current MIME type
-      const objData = await bucket.get(obj.key);
-      if (!objData) {
-        results.skipped++;
-        continue;
-      }
-      
-      const currentMime = (objData as any).httpMetadata?.contentType || 'application/octet-stream';
-      
-      // Skip if already correct or supposed to be octet-stream
-      if (currentMime === expectedMime || expectedMime === 'application/octet-stream') {
-        results.skipped++;
-        continue;
-      }
-      
-      results.details.push({ key: obj.key, from: currentMime, to: expectedMime });
-      
-      if (!dryRun) {
-        try {
-          const body = await objData.arrayBuffer();
-          
-          await bucket.put(obj.key, body, {
-            httpMetadata: { contentType: expectedMime },
-          });
-          
-          results.fixed++;
-        } catch (err) {
-          results.errors.push({ key: obj.key, error: err instanceof Error ? err.message : String(err) });
-        }
-      } else {
-        results.fixed++;
-      }
+    const expectedMime = detectMimeType(obj.key);
+    
+    // need to get the object to check current MIME type
+    const objData = await bucket.get(obj.key);
+    if (!objData) {
+      results.skipped++;
+      continue;
     }
     
-    cursor = listResult.truncated ? listResult.cursor : undefined;
-  } while (cursor && processed < limit);
+    const currentMime = (objData as any).httpMetadata?.contentType || 'application/octet-stream';
+    
+    // Skip if already correct or supposed to be octet-stream
+    if (currentMime === expectedMime || expectedMime === 'application/octet-stream') {
+      results.skipped++;
+      continue;
+    }
+    
+    results.details.push({ key: obj.key, from: currentMime, to: expectedMime });
+    
+    if (!dryRun) {
+      try {
+        const body = await objData.arrayBuffer();
+        
+        await bucket.put(obj.key, body, {
+          httpMetadata: { contentType: expectedMime },
+        });
+        
+        results.fixed++;
+      } catch (err) {
+        results.errors.push({ key: obj.key, error: err instanceof Error ? err.message : String(err) });
+      }
+    } else {
+      results.fixed++;
+    }
+  }
+  
+  // Return cursor for next request
+  if (listResult.truncated && listResult.cursor) {
+    results.nextCursor = listResult.cursor;
+    results.hasMore = true;
+  }
   
   return c.json(results);
 });
