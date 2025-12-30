@@ -7,6 +7,7 @@
 
 import { Hono } from 'hono';
 import type { Bindings } from '../types';
+import { createEnvContext } from '../utils';
 
 const adminApp = new Hono<{ Bindings: Bindings }>();
 
@@ -76,7 +77,10 @@ adminApp.get('/fix-mime-types', async (c) => {
   const prefix = c.req.query('prefix') || '';
   const limit = parseInt(c.req.query('limit') || '1000', 10);
   
-  const bucket = c.env.ASSET_SYNC_BUCKET;
+  // Use createEnvContext for reliable binding access (same as battle_data.ts)
+  const env = createEnvContext(c);
+  const bucket = env.runtime.ASSET_SYNC_BUCKET;
+  
   if (!bucket) {
     return c.json({ error: 'ASSET_SYNC_BUCKET not bound' }, 500);
   }
@@ -94,8 +98,7 @@ adminApp.get('/fix-mime-types', async (c) => {
   let processed = 0;
   
   do {
-    // Note: 'include' option may not be available in all R2 type definitions
-    const listResult = await bucket.list({ cursor, prefix } as any);
+    const listResult = await bucket.list({ cursor, prefix });
     
     for (const obj of listResult.objects) {
       if (processed >= limit) break;
@@ -154,15 +157,14 @@ adminApp.get('/fix-mime-types', async (c) => {
  *   - dry_run: boolean (default: false) - If true, compute hashes but don't update D1
  */
 adminApp.get('/backfill-asset-index', async (c) => {
-  const bucket = c.env.ASSET_SYNC_BUCKET;
-  const db = c.env.ASSET_INDEX_DB;
+  // Use createEnvContext for reliable binding access (same as battle_data.ts)
+  const env = createEnvContext(c);
+  const bucket = env.runtime.ASSET_SYNC_BUCKET;
+  const db = env.runtime.ASSET_INDEX_DB;
   
   if (!bucket || !db) {
     return c.json({ error: 'Missing R2 or D1 bindings' }, 500);
   }
-  
-  // TypeScript needs explicit non-null assertion after check
-  const database = db as D1Database;
   
   const limit = parseInt(c.req.query('limit') || '100', 10);
   const dryRun = c.req.query('dry_run') === 'true';
@@ -194,7 +196,7 @@ adminApp.get('/backfill-asset-index', async (c) => {
         const arrayBuffer = await r2Object.arrayBuffer();
         const contentHash = await sha256(arrayBuffer);
         
-        const stmt = database.prepare('SELECT content_hash FROM files WHERE key = ?');
+        const stmt = db.prepare('SELECT content_hash FROM files WHERE key = ?');
         const existing = await stmt.bind(key).first() as { content_hash: string } | null;
         
         if (existing && existing.content_hash === contentHash) {
@@ -205,7 +207,7 @@ adminApp.get('/backfill-asset-index', async (c) => {
         const contentType = (r2Object as any).httpMetadata?.contentType || 'application/octet-stream';
         
         if (!dryRun) {
-          await database.prepare(
+          await db.prepare(
             `INSERT INTO files (key, size, uploaded_at, content_type, uploader_id, content_hash, created_at)
              VALUES (?, ?, ?, ?, ?, ?, ?)
              ON CONFLICT(key) DO UPDATE SET
