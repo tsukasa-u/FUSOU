@@ -133,8 +133,16 @@ adminApp.get('/fix-mime-types', async (c) => {
       try {
         const body = await objData.arrayBuffer();
         
+        // Preserve existing metadata when re-uploading
+        const existingHttpMeta = (objData as any).httpMetadata || {};
+        const existingCustomMeta = (objData as any).customMetadata || {};
+        
         await bucket.put(obj.key, body, {
-          httpMetadata: { contentType: expectedMime },
+          httpMetadata: {
+            ...existingHttpMeta,
+            contentType: expectedMime,  // Only update contentType
+          },
+          customMetadata: existingCustomMeta,  // Preserve all custom metadata
         });
         
         results.fixed++;
