@@ -1,9 +1,9 @@
-use std::collections::HashMap;
+use crate::pending_store::PendingStore;
+use fusou_auth::{AuthManager, FileStorage};
 use reqwest::{Client, StatusCode};
 use serde::{Deserialize, Serialize};
-use fusou_auth::{AuthManager, FileStorage};
-use crate::pending_store::PendingStore;
 use sha2::{Digest, Sha256};
+use std::collections::HashMap;
 
 #[derive(Deserialize)]
 struct HandshakeResponse {
@@ -36,13 +36,22 @@ impl UploadError {
 impl std::fmt::Display for UploadError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            UploadError::AuthenticationError { status_code, message } => {
+            UploadError::AuthenticationError {
+                status_code,
+                message,
+            } => {
                 write!(f, "Authentication error ({}): {}", status_code, message)
             }
-            UploadError::ClientError { status_code, message } => {
+            UploadError::ClientError {
+                status_code,
+                message,
+            } => {
                 write!(f, "Client error ({}): {}", status_code, message)
             }
-            UploadError::ServerError { status_code, message } => {
+            UploadError::ServerError {
+                status_code,
+                message,
+            } => {
                 write!(f, "Server error ({}): {}", status_code, message)
             }
             UploadError::TransportError(msg) => write!(f, "{}", msg),
@@ -63,6 +72,7 @@ pub enum UploadContext {
         relative_path: String,
         key: String,
         file_size: u64,
+        content_type: Option<String>,
     },
     Snapshot {
         is_snapshot: bool,
@@ -87,7 +97,7 @@ pub struct Uploader;
 
 impl Uploader {
     /// Helper: build handshake body for battle-data upload
-    /// 
+    ///
     /// # Arguments
     /// * `path_tag` - Format: "{period_tag}-port-{maparea_id}-{mapinfo_no}"
     /// * `dataset_id` - User-scoped dataset identifier (hashed member_id)
@@ -140,7 +150,12 @@ impl Uploader {
             "file_size": declared_size.to_string(),
         });
         if let Some(name) = file_name {
-            if let Some(map) = obj.as_object_mut() { map.insert("file_name".to_string(), serde_json::Value::String(name.to_string())); }
+            if let Some(map) = obj.as_object_mut() {
+                map.insert(
+                    "file_name".to_string(),
+                    serde_json::Value::String(name.to_string()),
+                );
+            }
         }
         obj
     }
@@ -155,7 +170,7 @@ impl Uploader {
         if let Err(err) = &result {
             // Convert to string for compatibility with existing code
             let err_str = String::from(err.clone());
-            
+
             if let Some(store) = pending_store {
                 let context_json = serde_json::to_string(&request.context).unwrap_or_default();
                 if let Err(e) = store.save_pending(
@@ -188,14 +203,18 @@ impl Uploader {
         // Merge content_hash into handshake_body
         let mut handshake_body = request.handshake_body.clone();
         if let Some(obj) = handshake_body.as_object_mut() {
-            obj.insert("content_hash".to_string(), serde_json::Value::String(content_hash));
+            obj.insert(
+                "content_hash".to_string(),
+                serde_json::Value::String(content_hash),
+            );
         }
 
         // 1. Handshake (JSON body)
         // Serialize JSON manually to avoid automatic Content-Type header from .json()
-        let handshake_json = serde_json::to_vec(&handshake_body)
-            .map_err(|e| UploadError::TransportError(format!("Failed to serialize handshake: {}", e)))?;
-        
+        let handshake_json = serde_json::to_vec(&handshake_body).map_err(|e| {
+            UploadError::TransportError(format!("Failed to serialize handshake: {}", e))
+        })?;
+
         let mut handshake_req = client
             .post(request.endpoint)
             .body(handshake_json)
@@ -217,9 +236,11 @@ impl Uploader {
             });
         }
 
-        let resp = handshake_req.send().await
+        let resp = handshake_req
+            .send()
+            .await
             .map_err(|e| UploadError::TransportError(format!("Handshake network error: {}", e)))?;
-        
+
         if resp.status() == StatusCode::CONFLICT {
             return Ok(UploadResult::Skipped);
         }
@@ -243,8 +264,9 @@ impl Uploader {
             });
         }
 
-        let handshake_res: HandshakeResponse = resp.json().await
-            .map_err(|e| UploadError::TransportError(format!("Invalid handshake response: {}", e)))?;
+        let handshake_res: HandshakeResponse = resp.json().await.map_err(|e| {
+            UploadError::TransportError(format!("Invalid handshake response: {}", e))
+        })?;
 
         // 2. Upload (binary body)
         let mut upload_req = client
@@ -257,15 +279,23 @@ impl Uploader {
                 upload_req = upload_req.header(k, v);
             }
         }
-        
-        // Force Content-Type to application/octet-stream
-        upload_req = upload_req.header("Content-Type", "application/octet-stream");
-        
+
+        // Determine Content-Type based on context or fall back to application/octet-stream
+        let content_type = match &request.context {
+            UploadContext::Asset { content_type, .. } => content_type
+                .clone()
+                .unwrap_or_else(|| "application/octet-stream".to_string()),
+            _ => "application/octet-stream".to_string(),
+        };
+        upload_req = upload_req.header("Content-Type", &content_type);
+
         if let Ok(token) = auth_manager.get_access_token().await {
             upload_req = upload_req.bearer_auth(token);
         }
 
-        let upload_resp = upload_req.send().await
+        let upload_resp = upload_req
+            .send()
+            .await
             .map_err(|e| UploadError::TransportError(format!("Upload network error: {}", e)))?;
 
         if upload_resp.status() == StatusCode::CONFLICT {

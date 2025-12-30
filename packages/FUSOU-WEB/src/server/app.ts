@@ -11,6 +11,7 @@ import compactApp from './routes/compact';
 import battleDataApp from './routes/battle_data';
 import userApp from './routes/user';
 import analyticsApp from './routes/analytics';
+import adminApp from './routes/admin';
 
 const app = new Hono<{ Bindings: Bindings }>();
 
@@ -51,6 +52,7 @@ app.route('/compaction', compactApp); // compactApp declares /compact, /compact/
 app.route('/battle-data', battleDataApp); // battleDataApp declares /upload, /health
 app.route('/user', userApp); // userApp declares /member-map/upsert, /member-map
 app.route('/analytics', analyticsApp); // analytics app declares /compaction-metrics
+app.route('/admin', adminApp); // adminApp declares /fix-mime-types, /backfill-asset-index
 
 // Catch-all 404
 app.all('*', (c) => {

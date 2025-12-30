@@ -511,6 +511,54 @@ fn has_blocked_extension(path: &Path, blocked: &[String]) -> bool {
         None => false,
     }
 }
+
+/// Detect MIME type based on file extension
+fn detect_mime_type(path: &Path) -> String {
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_ascii_lowercase())
+        .unwrap_or_default();
+
+    match ext.as_str() {
+        // Images
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "svg" => "image/svg+xml",
+        "ico" => "image/x-icon",
+        "bmp" => "image/bmp",
+        // Audio
+        "mp3" => "audio/mpeg",
+        "ogg" => "audio/ogg",
+        "wav" => "audio/wav",
+        "aac" => "audio/aac",
+        // Video
+        "mp4" => "video/mp4",
+        "webm" => "video/webm",
+        // Web
+        "html" | "htm" => "text/html",
+        "css" => "text/css",
+        "js" => "application/javascript",
+        "json" => "application/json",
+        "xml" => "application/xml",
+        "wasm" => "application/wasm",
+        // Fonts
+        "woff" => "font/woff",
+        "woff2" => "font/woff2",
+        "ttf" => "font/ttf",
+        "otf" => "font/otf",
+        // Other
+        "txt" => "text/plain",
+        "csv" => "text/csv",
+        "pdf" => "application/pdf",
+        "zip" => "application/zip",
+        "swf" => "application/x-shockwave-flash",
+        _ => "application/octet-stream",
+    }
+    .to_string()
+}
 fn build_client() -> Result<Client, reqwest::Error> {
     reqwest::Client::builder().build()
 }
@@ -567,6 +615,9 @@ pub async fn upload_via_api(
     let mut headers = std::collections::HashMap::new();
     headers.insert("Origin".to_string(), settings.api_origin.clone());
 
+    // Detect MIME type based on file extension
+    let content_type = detect_mime_type(path);
+
     let request = UploadRequest {
         endpoint: &settings.api_endpoint,
         handshake_body,
@@ -576,6 +627,7 @@ pub async fn upload_via_api(
             relative_path: relative.to_string_lossy().to_string(),
             key: key.to_string(),
             file_size,
+            content_type: Some(content_type),
         },
     };
 
