@@ -11,15 +11,13 @@
  * - R2: Avro OCF archives (long-term storage)
  */
 
-import { mergeAvroOCF } from './avro-merger';
+import { mergeAvroOCF, mergeAvroOCFWithBoundaries, MergeResult } from './avro-merger';
+import { getAvroHeaderLengthFromPrefix } from './avro-manual';
 import { 
   fetchBufferedDataWithFallback,
   cleanupBufferWithFallback,
   BufferLogRecord,
   UnifiedDbEnv,
-  checkTiDBHealthCached,
-  createTiDBClientFromUrl,
-  clearHealthCache,
 } from './db';
 
 interface Env {
@@ -82,7 +80,10 @@ function convertToBufferRow(record: BufferLogRecord): BufferRow {
     period_tag: record.period_tag,
     schema_version: record.schema_version,
     timestamp: record.timestamp,
-    data: record.data instanceof ArrayBuffer ? record.data : (record.data as Uint8Array).buffer as ArrayBuffer,
+    // FIXED: Use proper slice to avoid byteOffset issues when data is a Uint8Array view
+    data: record.data instanceof ArrayBuffer 
+      ? record.data 
+      : record.data.buffer.slice(record.data.byteOffset, record.data.byteOffset + record.data.byteLength) as ArrayBuffer,
     uploaded_by: record.uploaded_by,
   };
 }
@@ -120,11 +121,17 @@ function groupByDataset(rows: BufferRow[]): ArchiveGroup[] {
     for (const [dataset_id, rows] of datasetMap.entries()) {
       // Convert all Avro OCF binaries to Uint8Array
       // D1 might return BLOB as Uint8Array or ArrayBuffer depending on driver
+      // FIXED: Properly handle all cases including Uint8Array views with byteOffset
       const ocfFiles: Uint8Array[] = rows.map(r => {
         if (r.data instanceof Uint8Array) return r.data;
         if (r.data instanceof ArrayBuffer) return new Uint8Array(r.data);
-        // Fallback: treat as any and attempt conversion
-        return new Uint8Array((r.data as any).buffer || r.data);
+        // Fallback: try to get underlying buffer with proper offset handling
+        const anyData = r.data as any;
+        if (anyData.buffer && typeof anyData.byteOffset === 'number' && typeof anyData.byteLength === 'number') {
+          // It's a typed array view - copy to avoid offset issues
+          return new Uint8Array(anyData.buffer.slice(anyData.byteOffset, anyData.byteOffset + anyData.byteLength));
+        }
+        return new Uint8Array(anyData.buffer || anyData);
       });
 
       // Merge multiple Avro OCF files into a single valid OCF
@@ -161,12 +168,14 @@ function groupByDataset(rows: BufferRow[]): ArchiveGroup[] {
   return groups;
 }
 
+
 // File size limit: 128MB (2^27 bytes)
+// Multiple datasets are merged into single files up to this limit for efficient storage
 const MAX_FILE_SIZE = 128 * 1024 * 1024;
 
-function generateFilePath(schemaVersion: string, periodTag: string, tableName: string, index: number, runTimestamp: number): string {
-  const indexStr = String(index).padStart(3, '0');
-  // Ensure uniqueness per cron run by embedding runTimestamp in the path
+function generateFilePath(schemaVersion: string, periodTag: string, tableName: string, fileIndex: number, runTimestamp: number): string {
+  // Generate file path with index for multi-dataset files
+  const indexStr = String(fileIndex).padStart(3, '0');
   return `${schemaVersion}/${periodTag}/${runTimestamp}/${tableName}-${indexStr}.avro`;
 }
 
@@ -239,33 +248,15 @@ async function insertBlockIndexes(db: D1Database, rows: BlockIndexRow[]): Promis
 export async function handleCron(env: Env): Promise<void> {
   let maxId: number | null = null;
   let fetchSource: 'tidb' | 'd1' = 'd1';
+  let archiveSuccess = false;  // FIXED: Track success to prevent data loss on error
   
   try {
     const runTimestamp = Date.now();
-    
-    // Pre-flight health check: verify TiDB is accessible before processing
-    if (env.TIDB_KC_DB_URL) {
-      const conn = createTiDBClientFromUrl(env.TIDB_KC_DB_URL);
-      const health = await checkTiDBHealthCached(conn);
-      
-      if (health.rateLimited) {
-        console.warn('[Archival] TiDB RU limit detected, will use D1 fallback');
-      } else if (!health.healthy) {
-        console.warn('[Archival] TiDB unhealthy, will use D1 fallback');
-      } else {
-        console.log(`[Archival] TiDB health check passed${health.cached ? ' (cached)' : ''}`);
-      }
-    }
     
     // Fetch buffered data with automatic TiDB -> D1 fallback on error
     const { rows: fetchedRows, source } = await fetchBufferedDataWithFallback(env);
     fetchSource = source;
     const rows: BufferRow[] = fetchedRows.map(convertToBufferRow);
-    
-    // Clear health cache on successful fetch (TiDB is working)
-    if (fetchSource === 'tidb') {
-      clearHealthCache();
-    }
     
     if (!rows.length) {
       return; // Silent: no data to archive
@@ -284,14 +275,15 @@ export async function handleCron(env: Env): Promise<void> {
     for (const group of groups) {
       if (!group.blocks.length) continue;
 
-      // Split blocks into files with 128MB limit
+      // Chunk blocks into files up to MAX_FILE_SIZE
+      // Multiple datasets can be merged into a single file for storage efficiency
       const fileChunks: { blocks: DatasetBlock[]; size: number }[] = [];
       let currentChunk: DatasetBlock[] = [];
       let currentSize = 0;
 
       for (const block of group.blocks) {
         if (currentSize + block.avroData.byteLength > MAX_FILE_SIZE && currentChunk.length > 0) {
-          // Start new file
+          // Start new file chunk
           fileChunks.push({ blocks: currentChunk, size: currentSize });
           currentChunk = [];
           currentSize = 0;
@@ -300,12 +292,12 @@ export async function handleCron(env: Env): Promise<void> {
         currentSize += block.avroData.byteLength;
       }
 
-      // Add last chunk
+      // Add final chunk
       if (currentChunk.length > 0) {
         fileChunks.push({ blocks: currentChunk, size: currentSize });
       }
 
-      // Upload each file chunk with index
+      // Process each file chunk
       for (let fileIndex = 0; fileIndex < fileChunks.length; fileIndex++) {
         const chunk = fileChunks[fileIndex];
         const filePath = generateFilePath(
@@ -316,32 +308,48 @@ export async function handleCron(env: Env): Promise<void> {
           runTimestamp
         );
 
-        // Merge blocks for this file (if multiple blocks in same file chunk)
+        // Merge all dataset blocks in this chunk into a single file
+        // Use mergeAvroOCFWithBoundaries to get accurate byte offsets for each dataset
         const blocksList: Uint8Array[] = chunk.blocks.map(b => b.avroData);
-
-        let combined: Uint8Array;
-        if (blocksList.length === 0) {
-          throw new Error('Empty block list for file chunk');
-        } else if (blocksList.length === 1) {
-          // Single block, use as-is (already merged from OCF files within dataset)
-          combined = blocksList[0];
-        } else {
-          // Multiple blocks from different datasets in same chunk
-          // mergeAvroOCF now handles files with different sync markers by:
-          // 1. Using the first file's header (magic, metadata, sync marker)
-          // 2. Rewriting embedded sync markers in all data blocks to match
-          // This produces a single valid Avro OCF file
+        
+        let mergeResult: MergeResult;
+        if (blocksList.length === 1) {
+          // Single block - calculate header size to get correct data block offset
+          // The file IS the singleBlock, so we need to find where data blocks start
+          const singleBlock = blocksList[0];
           try {
-            combined = mergeAvroOCF(blocksList);
+            // Parse header to find data block start position
+            const headerSize = getAvroHeaderLengthFromPrefix(singleBlock);
+            mergeResult = {
+              merged: singleBlock,
+              boundaries: [{ 
+                sourceIndex: 0, 
+                startByte: headerSize,  // FIXED: Data starts after header
+                length: singleBlock.byteLength - headerSize  // FIXED: Only data block portion
+              }],
+              headerSize: headerSize,
+            };
           } catch (err) {
-            console.error(`[Archiver] Failed to merge ${blocksList.length} blocks (total ${blocksList.reduce((s, b) => s + b.byteLength, 0)}B):`, err);
+            // Fallback if header parsing fails - use whole file
+            console.warn(`[Archiver] Failed to parse header for single block, using whole file offset: ${err instanceof Error ? err.message : String(err)}`);
+            mergeResult = {
+              merged: singleBlock,
+              boundaries: [{ sourceIndex: 0, startByte: 0, length: singleBlock.byteLength }],
+              headerSize: 0,
+            };
+          }
+        } else {
+          // Multiple blocks - merge with boundary tracking
+          try {
+            mergeResult = mergeAvroOCFWithBoundaries(blocksList);
+          } catch (err) {
+            console.error(`[Archiver] Failed to merge ${blocksList.length} blocks:`, err);
             throw new Error(`Block merge failed: ${err instanceof Error ? err.message : String(err)}`);
           }
         }
 
-        // Note: WASM validation was removed as avro-wasm dependency was removed from FUSOU-WORKFLOW.
-        // Data was already strictly validated at FUSOU-WEB upload endpoint.
-        // The mergeAvroOCF function outputs valid OCF structure by construction.
+        const combined = mergeResult.merged;
+        const actualSize = combined.byteLength;
 
         // Upload to R2
         await env.BATTLE_DATA_BUCKET.put(filePath, combined, {
@@ -360,45 +368,44 @@ export async function handleCron(env: Env): Promise<void> {
         });
 
         // Register file in D1
-        // CRITICAL: Use actual combined size, not chunk.size (which may be estimate)
-        const actualSize = combined.byteLength;
-        
         try {
           const fileId = await registerArchivedFile(env.BATTLE_INDEX_DB, filePath, group.key.schema_version, actualSize, 'deflate');
 
-          // Create block indexes for each dataset in this file
+          // FIXED: Create block indexes using accurate boundaries from merge result
+          // Each dataset's data is at the exact byte position returned by mergeAvroOCFWithBoundaries
           const blockIndexes: BlockIndexRow[] = [];
-          let currentOffset = 0;
-          for (const block of chunk.blocks) {
+          
+          for (let i = 0; i < chunk.blocks.length; i++) {
+            const block = chunk.blocks[i];
+            const boundary = mergeResult.boundaries[i];
+            
             blockIndexes.push({
               dataset_id: block.dataset_id,
               table_name: group.key.table_name,
               schema_version: group.key.schema_version,
               period_tag: group.key.period_tag,
               file_id: fileId,
-              start_byte: currentOffset,
-              length: block.avroData.byteLength,
+              start_byte: boundary.startByte,  // Accurate offset from merge result
+              length: boundary.length,          // Accurate length from merge result
               record_count: block.recordCount,
               start_timestamp: block.startTimestamp,
               end_timestamp: block.endTimestamp,
             });
-            currentOffset += block.avroData.byteLength;
           }
+          
           await insertBlockIndexes(env.BATTLE_INDEX_DB, blockIndexes);
         } catch (err) {
           const errorMsg = err instanceof Error ? err.message : String(err);
           if (errorMsg.includes('UNIQUE constraint failed')) {
-            // UNIQUE constraint error on file registration - file already exists from previous run
-            // This is expected for idempotent retries. Log and continue processing.
             console.warn(`[Archival] File already registered (duplicate): ${filePath}`);
             hasError = true;
-            continue; // Skip to next file, but don't stop processing
+            continue;
           }
-          throw err; // Re-throw other errors
+          throw err;
         }
 
         totalFiles++;
-        totalBytes += chunk.size;
+        totalBytes += actualSize;
         totalDatasets += chunk.blocks.length;
       }
     }
@@ -409,20 +416,25 @@ export async function handleCron(env: Env): Promise<void> {
     } else {
       console.log(`[Archival] ${totalFiles} files, ${totalDatasets} datasets, ${(totalBytes / 1024).toFixed(1)}KB archived from ${rows.length} buffer rows`);
     }
+    
+    // Mark archival as successful - safe to cleanup
+    archiveSuccess = true;
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
     console.error('[Archival Error]', errorMsg);
-    // Don't throw - we still need to cleanup in finally block
+    // archiveSuccess remains false - DO NOT cleanup to prevent data loss
   } finally {
-    // CRITICAL: Always cleanup buffer_logs if we fetched any data
-    // This ensures records are deleted even if archival partially failed
-    if (maxId !== null) {
+    // FIXED: Only cleanup buffer_logs if archival was successful
+    // This prevents data loss when R2 upload or index registration fails
+    if (maxId !== null && archiveSuccess) {
       try {
         const { source: cleanupSource, rowsAffected } = await cleanupBufferWithFallback(env, maxId, fetchSource);
         console.log(`[Archival] Cleaned up ${rowsAffected} ${cleanupSource} buffer_logs up to id ${maxId}`);
       } catch (cleanupErr) {
         console.error('[Archival] Cleanup failed:', cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr));
       }
+    } else if (maxId !== null && !archiveSuccess) {
+      console.warn(`[Archival] Skipped cleanup due to archival error - ${maxId} records preserved for retry`);
     }
   }
 }

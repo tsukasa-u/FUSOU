@@ -137,7 +137,8 @@ async function normalizeMessage(msg: QueueMessage): Promise<BufferLogRecord[]> {
     period_tag: legacyMsg.periodTag ?? 'latest',
     schema_version: schemaVersion,
     timestamp,
-    data: avroBytes.buffer,
+    // FIXED: Use proper slice to handle Uint8Array buffer offset correctly
+    data: avroBytes.buffer.slice(avroBytes.byteOffset, avroBytes.byteOffset + avroBytes.byteLength),
     uploaded_by: legacyMsg.userId
   }];
 }

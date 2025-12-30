@@ -20,7 +20,7 @@
  */
 
 import { detectCompressionCodec } from './utils/compression';
-import { parseDeflateAvroBlock, getAvroHeaderLengthFromPrefix, parseNullAvroBlock } from './avro-manual';
+import { parseAllDeflateAvroBlocks, parseAllNullAvroBlocks, getAvroHeaderLengthFromPrefix, parseDeflateAvroBlock, parseNullAvroBlock } from './avro-manual';
 import { computeSchemaFingerprint } from './avro-manual';
 import { fetchHotDataWithFallback, BufferLogRecord } from './db';
 
@@ -69,6 +69,9 @@ interface BlockIndex {
  * 
  * CRITICAL: Data is stored in TiDB if TIDB_KC_DB_URL is configured.
  * D1 fallback only happens on TiDB connection/query error.
+ * 
+ * FIXED: Hot data contains Avro OCF binary, not JSON text.
+ * Must deserialize using Avro parser.
  */
 async function fetchHotData(
   env: Env,
@@ -81,12 +84,58 @@ async function fetchHotData(
     to: params.to,
   });
   
-  // Deserialize BLOB to JSON
-  return rows.map(row => {
-    const data = row.data instanceof ArrayBuffer ? row.data : (row.data as Uint8Array).buffer;
-    const decoded = new TextDecoder().decode(data);
-    return JSON.parse(decoded);
-  });
+  // FIXED: Deserialize Avro OCF binary data (not JSON text)
+  const allRecords: any[] = [];
+  
+  for (const row of rows) {
+    // Convert to Uint8Array for Avro parsing
+    // FIXED: Properly handle all cases including Uint8Array views with byteOffset
+    let data: Uint8Array;
+    if (row.data instanceof ArrayBuffer) {
+      data = new Uint8Array(row.data);
+    } else if (row.data instanceof Uint8Array) {
+      data = row.data;
+    } else {
+      // Fallback: try to get underlying buffer with proper offset handling
+      const anyData = row.data as any;
+      if (anyData.buffer && typeof anyData.byteOffset === 'number' && typeof anyData.byteLength === 'number') {
+        // It's a typed array view - copy to avoid offset issues
+        data = new Uint8Array(anyData.buffer.slice(anyData.byteOffset, anyData.byteOffset + anyData.byteLength));
+      } else {
+        data = new Uint8Array(anyData.buffer || anyData);
+      }
+    }
+    
+    try {
+      // Parse Avro OCF header to get schema and codec info
+      const headerLen = getAvroHeaderLengthFromPrefix(data);
+      const header = data.slice(0, headerLen);
+      const body = data.slice(headerLen);
+      
+      // Detect codec and deserialize accordingly
+      const codec = detectCompressionCodec(header);
+      
+      if (body.length === 0) {
+        // Empty OCF (no data blocks)
+        continue;
+      }
+      
+      if (codec === 'deflate') {
+        // FIXED: Parse ALL deflate-compressed blocks (not just the first one)
+        const records = await parseAllDeflateAvroBlocks(header, body);
+        allRecords.push(...records);
+      } else {
+        // FIXED: Parse ALL uncompressed blocks (not just the first one)
+        const records = parseAllNullAvroBlocks(header, body);
+        allRecords.push(...records);
+      }
+    } catch (err) {
+      console.error(`[Reader] Failed to parse Hot data row ${row.id}:`, err instanceof Error ? err.message : String(err));
+      // Continue processing other rows
+    }
+  }
+  
+  return allRecords;
 }
 
 /**
@@ -261,8 +310,9 @@ async function validateHeaderSchemaVersion(
 }
 
 /**
- * Deserialize Avro data block to JSON records
- * Uses parseAvroDataBlock from avro-manual
+ * Deserialize Avro data block(s) to JSON records
+ * FIXED: Uses multi-block parsers to handle OCF files with multiple data blocks.
+ * Previously only parsed the first block, silently dropping records from subsequent blocks.
  */
 async function deserializeAvroBlock(
   header: Uint8Array,
@@ -270,11 +320,11 @@ async function deserializeAvroBlock(
 ): Promise<any[]> {
   const codec = detectCompressionCodec(header);
   if (codec === 'deflate') {
-    // dataBlock is still compressed (we did not auto-decompress in fetchColdBlock)
-    return await parseDeflateAvroBlock(header, dataBlock);
+    // FIXED: Use multi-block parser for deflate codec
+    return await parseAllDeflateAvroBlocks(header, dataBlock);
   }
-  // null/none: decode without decompression
-  return parseNullAvroBlock(header, dataBlock);
+  // FIXED: Use multi-block parser for null/none codec
+  return parseAllNullAvroBlocks(header, dataBlock);
 }
 
 /**

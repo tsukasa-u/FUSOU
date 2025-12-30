@@ -135,6 +135,7 @@ export async function cleanupBuffer(
 
 /**
  * Bulk insert buffer logs (used by queue consumer)
+ * FIXED: Chunks large batches to avoid D1 SQL statement size limits
  */
 export async function bulkInsertBufferLogs(
   db: D1Database,
@@ -144,30 +145,40 @@ export async function bulkInsertBufferLogs(
     return { insertedCount: 0 };
   }
   
-  // Build bulk insert SQL
-  const placeholders = records.map(() => '(?, ?, ?, ?, ?, ?, ?)').join(',');
-  const sql = `
-    INSERT INTO buffer_logs 
-    (dataset_id, table_name, period_tag, schema_version, timestamp, data, uploaded_by)
-    VALUES ${placeholders}
-  `;
+  // D1 has limits on SQL statement size and parameter count
+  // Chunk into smaller batches to avoid exceeding limits
+  const CHUNK_SIZE = 100;  // 100 records * 7 params = 700 params per statement (well under limit)
+  let totalInserted = 0;
   
-  const params: (string | number | ArrayBuffer | null)[] = [];
-  for (const record of records) {
-    params.push(
-      record.dataset_id,
-      record.table_name,
-      record.period_tag,
-      record.schema_version,
-      record.timestamp,
-      record.data,
-      record.uploaded_by || null
-    );
+  for (let i = 0; i < records.length; i += CHUNK_SIZE) {
+    const chunk = records.slice(i, i + CHUNK_SIZE);
+    
+    // Build bulk insert SQL for this chunk
+    const placeholders = chunk.map(() => '(?, ?, ?, ?, ?, ?, ?)').join(',');
+    const sql = `
+      INSERT INTO buffer_logs 
+      (dataset_id, table_name, period_tag, schema_version, timestamp, data, uploaded_by)
+      VALUES ${placeholders}
+    `;
+    
+    const params: (string | number | ArrayBuffer | null)[] = [];
+    for (const record of chunk) {
+      params.push(
+        record.dataset_id,
+        record.table_name,
+        record.period_tag,
+        record.schema_version,
+        record.timestamp,
+        record.data,
+        record.uploaded_by || null
+      );
+    }
+    
+    await db.prepare(sql).bind(...params).run();
+    totalInserted += chunk.length;
   }
   
-  await db.prepare(sql).bind(...params).run();
-  
-  return { insertedCount: records.length };
+  return { insertedCount: totalInserted };
 }
 
 /**

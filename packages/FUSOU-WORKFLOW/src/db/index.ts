@@ -33,15 +33,7 @@ import {
   executeWithRetry as _tidbExecuteWithRetry,
 } from './tidb-client';
 
-// Static imports for TiDB health check
-import {
-  isRateLimitError as _isRateLimitError,
-  checkTiDBHealth as _checkTiDBHealth,
-  checkTiDBHealthCached as _checkTiDBHealthCached,
-  executeWithRateLimitDetection as _executeWithRateLimitDetection,
-  clearHealthCache as _clearHealthCache,
-  TIDB_SKIP_ERROR_PATTERNS as _TIDB_SKIP_ERROR_PATTERNS,
-} from './tidb-health';
+
 
 // Re-export D1 client functions
 export const d1InsertBufferLog = _d1InsertBufferLog;
@@ -61,13 +53,7 @@ export const tidbFetchHotData = _tidbFetchHotData;
 export const tidbCleanupBuffer = _tidbCleanupBuffer;
 export const tidbExecuteWithRetry = _tidbExecuteWithRetry;
 
-// Re-export TiDB health check utilities
-export const isRateLimitError = _isRateLimitError;
-export const checkTiDBHealth = _checkTiDBHealth;
-export const checkTiDBHealthCached = _checkTiDBHealthCached;
-export const executeWithRateLimitDetection = _executeWithRateLimitDetection;
-export const clearHealthCache = _clearHealthCache;
-export const TIDB_SKIP_ERROR_PATTERNS = _TIDB_SKIP_ERROR_PATTERNS;
+
 
 // ============================================================
 // Unified Interface with TiDB -> D1 Fallback
@@ -107,16 +93,13 @@ export async function fetchBufferedDataWithFallback(
       return {
         rows: tidbRows.map(r => ({
           ...r,
-          data: r.data.buffer as ArrayBuffer,
+          // FIXED: Use proper slice to avoid byteOffset issues when Uint8Array is a view
+          data: r.data.buffer.slice(r.data.byteOffset, r.data.byteOffset + r.data.byteLength) as ArrayBuffer,
         })),
         source: 'tidb',
       };
     } catch (err) {
-      if (_isRateLimitError(err)) {
-        console.warn('[DB] TiDB RU limit reached, falling back to D1');
-      } else {
-        console.error('[DB] TiDB fetch failed, falling back to D1:', err instanceof Error ? err.message : String(err));
-      }
+      console.error('[DB] TiDB fetch failed, falling back to D1:', err instanceof Error ? err.message : String(err));
       // Fall through to D1
     }
   }
@@ -145,11 +128,7 @@ export async function cleanupBufferWithFallback(
       console.log(`[DB] Cleaned up ${result.rowsAffected} rows from TiDB`);
       return { source: 'tidb', rowsAffected: result.rowsAffected };
     } catch (err) {
-      if (_isRateLimitError(err)) {
-        console.warn('[DB] TiDB RU limit reached during cleanup, falling back to D1');
-      } else {
-        console.error('[DB] TiDB cleanup failed, falling back to D1:', err instanceof Error ? err.message : String(err));
-      }
+      console.error('[DB] TiDB cleanup failed, falling back to D1:', err instanceof Error ? err.message : String(err));
     }
   }
   
@@ -190,18 +169,17 @@ export async function insertBufferLogsWithFallback(
       console.log(`[DB] Inserted ${insertedCount} records to TiDB`);
       return { source: 'tidb', insertedCount };
     } catch (err) {
-      if (_isRateLimitError(err)) {
-        console.warn('[DB] TiDB RU limit reached during insert, falling back to D1');
-      } else {
-        console.error('[DB] TiDB insert failed, falling back to D1:', err instanceof Error ? err.message : String(err));
-      }
+      console.error('[DB] TiDB insert failed, falling back to D1:', err instanceof Error ? err.message : String(err));
     }
   }
   
   // D1 fallback
+  // FIXED: Use proper slice to avoid byteOffset issues when Uint8Array is a view
   const d1Records = records.map(r => ({
     ...r,
-    data: r.data instanceof ArrayBuffer ? r.data : r.data.buffer as ArrayBuffer,
+    data: r.data instanceof ArrayBuffer 
+      ? r.data 
+      : r.data.buffer.slice(r.data.byteOffset, r.data.byteOffset + r.data.byteLength) as ArrayBuffer,
   }));
   const result = await _d1BulkInsertBufferLogs(env.BATTLE_INDEX_DB, d1Records);
   console.log(`[DB] Inserted ${result.insertedCount} records to D1`);
@@ -231,16 +209,13 @@ export async function fetchHotDataWithFallback(
       return {
         rows: tidbRows.map(r => ({
           ...r,
-          data: r.data.buffer as ArrayBuffer,
+          // FIXED: Use proper slice to avoid byteOffset issues when Uint8Array is a view
+          data: r.data.buffer.slice(r.data.byteOffset, r.data.byteOffset + r.data.byteLength) as ArrayBuffer,
         })),
         source: 'tidb',
       };
     } catch (err) {
-      if (_isRateLimitError(err)) {
-        console.warn('[DB] TiDB RU limit reached during fetchHotData, falling back to D1');
-      } else {
-        console.error('[DB] TiDB fetchHotData failed, falling back to D1:', err instanceof Error ? err.message : String(err));
-      }
+      console.error('[DB] TiDB fetchHotData failed, falling back to D1:', err instanceof Error ? err.message : String(err));
     }
   }
   

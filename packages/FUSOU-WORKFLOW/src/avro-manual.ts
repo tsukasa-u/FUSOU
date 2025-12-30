@@ -321,11 +321,16 @@ function decodeValue(buffer: Uint8Array, offset: number, type: string): { value:
       const info = decodeLong(buffer, offset);
       return { value: info.value, offset: info.offset };
     }
-    case 'double':
-    case 'float': {
+    case 'double': {
       const dv = new DataView(buffer.buffer, buffer.byteOffset + offset, 8);
       const value = dv.getFloat64(0, true);
       return { value, offset: offset + 8 };
+    }
+    case 'float': {
+      // Avro float is 4 bytes (IEEE 754 single-precision)
+      const dv = new DataView(buffer.buffer, buffer.byteOffset + offset, 4);
+      const value = dv.getFloat32(0, true);
+      return { value, offset: offset + 4 };
     }
     case 'string': {
       const info = decodeString(buffer, offset);
@@ -448,5 +453,67 @@ export async function parseDeflateAvroBlock(header: Uint8Array, dataBlock: Uint8
     console.error('Deflate block parse failed:', err);
     return [];
   }
+}
+
+/**
+ * Parse all blocks from Avro OCF file body with deflate codec (handles multiple blocks concatenated)
+ * Returns all records from all blocks
+ */
+export async function parseAllDeflateAvroBlocks(header: Uint8Array, body: Uint8Array): Promise<any[]> {
+  const { schema, codec } = parseHeaderSchemaAndCodec(header);
+  if (!schema || codec !== 'deflate') {
+    return [];
+  }
+
+  const allRecords: any[] = [];
+  const syncMarkerLength = 16;
+  let offset = 0;
+
+  while (offset < body.length) {
+    try {
+      // Parse block count
+      const countInfo = decodeLong(body, offset);
+      offset = countInfo.offset;
+      const recordCount = countInfo.value;
+
+      if (recordCount === 0) break;
+
+      // Parse block size (compressed size)
+      const sizeInfo = decodeLong(body, offset);
+      offset = sizeInfo.offset;
+      const compSize = sizeInfo.value;
+
+      // Extract compressed payload
+      const compStart = offset;
+      const compEnd = offset + compSize;
+      const syncStart = compEnd;
+      const syncEnd = syncStart + syncMarkerLength;
+
+      if (syncEnd > body.length) break;
+
+      const compBuf = body.slice(compStart, compEnd);
+
+      // Decompress and decode all records in this block
+      try {
+        const inflated = await inflateRawAsync(compBuf);
+        let cur = 0;
+        for (let i = 0; i < recordCount; i++) {
+          const rec = decodeRecord(inflated, cur, schema);
+          allRecords.push(rec.record);
+          cur = rec.offset;
+        }
+      } catch (err) {
+        console.error('Deflate block decompression failed, skipping block:', err);
+      }
+
+      // Move to next block
+      offset = syncEnd;
+    } catch (err) {
+      // End of blocks or parse error
+      break;
+    }
+  }
+
+  return allRecords;
 }
 

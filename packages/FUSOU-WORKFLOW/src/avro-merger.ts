@@ -221,15 +221,35 @@ function rewriteSyncMarkers(dataBlocks: Uint8Array, originalMarker: Uint8Array, 
 }
 
 /**
- * Merge multiple Avro OCF files into single valid OCF
+ * Result of merging OCF files with boundary tracking
+ */
+export interface MergeResult {
+  /** Merged OCF data */
+  merged: Uint8Array;
+  /** Byte boundaries for each source file within the merged result */
+  boundaries: Array<{
+    /** Index of the source file in the input array */
+    sourceIndex: number;
+    /** Start byte offset within the merged file (after header) */
+    startByte: number;
+    /** Length of this source's data blocks in the merged file */
+    length: number;
+  }>;
+  /** Size of the unified header (for calculating data offsets) */
+  headerSize: number;
+}
+
+/**
+ * Merge multiple Avro OCF files into single valid OCF with boundary tracking
  * - Uses header (magic, metadata, sync marker) from first OCF
  * - Concatenates data blocks from all OCFs
  * - Appends final sync marker
+ * - Returns boundaries for each source file for accurate offset calculation
  * 
  * @param ocfDataArray - Array of OCF file contents
- * @returns Merged OCF as Uint8Array
+ * @returns MergeResult with merged data and boundaries
  */
-export function mergeAvroOCF(ocfDataArray: Uint8Array[]): Uint8Array {
+export function mergeAvroOCFWithBoundaries(ocfDataArray: Uint8Array[]): MergeResult {
   if (ocfDataArray.length === 0) {
     throw new Error('Cannot merge empty OCF array');
   }
@@ -239,9 +259,12 @@ export function mergeAvroOCF(ocfDataArray: Uint8Array[]): Uint8Array {
   const unifiedHeader = parseOCFHeader(firstOCF);
 
   // Collect all data blocks, rewriting sync markers as needed
+  // Track boundaries for each source file
   const dataBlocksList: Uint8Array[] = [];
+  const boundaries: MergeResult['boundaries'] = [];
 
-  for (const ocfData of ocfDataArray) {
+  for (let i = 0; i < ocfDataArray.length; i++) {
+    const ocfData = ocfDataArray[i];
     // Parse this file's header to get its own sync marker
     const fileHeader = parseOCFHeader(ocfData);
     
@@ -250,7 +273,25 @@ export function mergeAvroOCF(ocfDataArray: Uint8Array[]): Uint8Array {
     if (rawBlocks.byteLength > 0) {
       // Rewrite sync markers in data blocks to match the unified header's marker
       const rewrittenBlocks = rewriteSyncMarkers(rawBlocks, fileHeader.syncMarker, unifiedHeader.syncMarker);
+      
+      // Calculate start byte: header size + sum of previous data blocks
+      const startByte = dataBlocksList.reduce((sum, b) => sum + b.byteLength, 0);
+      
+      boundaries.push({
+        sourceIndex: i,
+        startByte: startByte,
+        length: rewrittenBlocks.byteLength,
+      });
+      
       dataBlocksList.push(rewrittenBlocks);
+    } else {
+      // Empty file - still track with zero length
+      const startByte = dataBlocksList.reduce((sum, b) => sum + b.byteLength, 0);
+      boundaries.push({
+        sourceIndex: i,
+        startByte: startByte,
+        length: 0,
+      });
     }
   }
 
@@ -292,9 +333,32 @@ export function mergeAvroOCF(ocfDataArray: Uint8Array[]): Uint8Array {
   merged.set(unifiedHeader.syncMarker, offset);
   offset += 16;
 
+  // Adjust boundaries to be absolute offsets from file start (add header size)
+  const absoluteBoundaries = boundaries.map(b => ({
+    ...b,
+    startByte: headerSize + b.startByte,
+  }));
+
   console.log(`[Merger] Merged ${ocfDataArray.length} OCF files: ${headerSize}B header + ${dataSize}B data + 16B final sync = ${totalSize}B`);
 
-  return merged;
+  return {
+    merged,
+    boundaries: absoluteBoundaries,
+    headerSize,
+  };
+}
+
+/**
+ * Merge multiple Avro OCF files into single valid OCF (simple version)
+ * - Uses header (magic, metadata, sync marker) from first OCF
+ * - Concatenates data blocks from all OCFs
+ * - Appends final sync marker
+ * 
+ * @param ocfDataArray - Array of OCF file contents
+ * @returns Merged OCF as Uint8Array
+ */
+export function mergeAvroOCF(ocfDataArray: Uint8Array[]): Uint8Array {
+  return mergeAvroOCFWithBoundaries(ocfDataArray).merged;
 }
 
 /**
