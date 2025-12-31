@@ -22,6 +22,7 @@ export type Bindings = {
   FLEET_SNAPSHOT_SIGNING_SECRET: string;
   BATTLE_DATA_SIGNING_SECRET: string;
   BATTLE_DATA_SIGNED_URL_SECRET?: string; // For battle data signed URL generation
+  RESEND_API_KEY?: string; // For sending verification emails
   
   // Queues
   COMPACTION_QUEUE: Queue;
@@ -80,6 +81,7 @@ export type R2ObjectLike = {
 export type R2ObjectBody = {
   size: number;
   etag?: string;
+  body: ReadableStream;
   arrayBuffer(): Promise<ArrayBuffer>;
 };
 

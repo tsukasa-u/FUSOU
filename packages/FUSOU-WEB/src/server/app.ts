@@ -12,6 +12,7 @@ import battleDataApp from './routes/battle_data';
 import userApp from './routes/user';
 import analyticsApp from './routes/analytics';
 import adminApp from './routes/admin';
+import dataLoaderApp from './routes/data_loader';
 
 const app = new Hono<{ Bindings: Bindings }>();
 
@@ -53,6 +54,7 @@ app.route('/battle-data', battleDataApp); // battleDataApp declares /upload, /he
 app.route('/user', userApp); // userApp declares /member-map/upsert, /member-map
 app.route('/analytics', analyticsApp); // analytics app declares /compaction-metrics
 app.route('/admin', adminApp); // adminApp declares /fix-mime-types, /backfill-asset-index
+app.route('/data-loader', dataLoaderApp); // dataLoaderApp declares /data/:dataset, /verify, /download/:dataset
 
 // Catch-all 404
 app.all('*', (c) => {

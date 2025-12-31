@@ -309,7 +309,8 @@ app.post("/upload", async (c) => {
  * Cache: 60s max-age, 300s stale-while-revalidate
  */
 app.get("/chunks", async (c) => {
-  const indexDb = c.env.BATTLE_INDEX_DB;
+  const env = createEnvContext(c);
+  const indexDb = env.runtime.BATTLE_INDEX_DB;
 
   if (!indexDb) {
     return c.json({ error: "D1 database not configured" }, 500);
@@ -382,7 +383,8 @@ app.get("/chunks", async (c) => {
  * Cache: 60s max-age, 300s stale-while-revalidate
  */
 app.get("/latest", async (c) => {
-  const indexDb = c.env.BATTLE_INDEX_DB;
+  const env = createEnvContext(c);
+  const indexDb = env.runtime.BATTLE_INDEX_DB;
 
   if (!indexDb) {
     return c.json({ error: "D1 database not configured" }, 500);
@@ -444,7 +446,8 @@ app.get("/health", (c) => {
  * Response: array of fragment metadata sorted by uploaded_at DESC
  */
 app.get("/global/chunks", async (c) => {
-  const indexDb = c.env.BATTLE_INDEX_DB;
+  const env = createEnvContext(c);
+  const indexDb = env.runtime.BATTLE_INDEX_DB;
   if (!indexDb) {
     return c.json({ error: "D1 database not configured" }, 500);
   }
@@ -510,7 +513,8 @@ app.get("/global/chunks", async (c) => {
  * Query params: table, period_tag
  */
 app.get("/global/latest", async (c) => {
-  const indexDb = c.env.BATTLE_INDEX_DB;
+  const env = createEnvContext(c);
+  const indexDb = env.runtime.BATTLE_INDEX_DB;
   if (!indexDb) {
     return c.json({ error: "D1 database not configured" }, 500);
   }
