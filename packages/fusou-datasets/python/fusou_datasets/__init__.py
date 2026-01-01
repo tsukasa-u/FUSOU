@@ -76,9 +76,9 @@ _TERMS = """
 Fusou Datasets v{version}
 ================================================================================
 [EN] By using this library, you agree to use data for research purposes only.
-     Redistribution of raw data is prohibited. Visit: https://fusou.app/terms
+     Redistribution of raw data is prohibited. Visit: https://fusou.dev/terms
 [JP] このライブラリを使用することで、データを研究目的のみに使用することに同意します。
-     生データの再配布は禁止です。詳細: https://fusou.app/terms
+     生データの再配布は禁止です。詳細: https://fusou.dev/terms
 ================================================================================
 """
 if not os.getenv("FUSOU_DATASETS_SILENT"):

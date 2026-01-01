@@ -306,7 +306,7 @@ async function sendVerificationEmail(
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      from: "FUSOU Data Loader <noreply@fusou.app>",
+      from: "FUSOU Data Loader <noreply@fusou.dev>",
       to: [email],
       subject: "[FUSOU] Device Verification Code / デバイス認証コード",
       html: `
