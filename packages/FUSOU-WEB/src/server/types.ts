@@ -23,6 +23,7 @@ export type Bindings = {
   BATTLE_DATA_SIGNING_SECRET: string;
   BATTLE_DATA_SIGNED_URL_SECRET?: string; // For battle data signed URL generation
   RESEND_API_KEY?: string; // For sending verification emails
+  ADMIN_TOKEN?: string; // For securing admin endpoints
   
   // Queues
   COMPACTION_QUEUE: Queue;

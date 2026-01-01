@@ -370,8 +370,17 @@ export async function generateR2SignedUrl(
     // 現状の実装では、バケットの特定キーに対して
     // 時限付きアクセスを提供するため、別方法を採用：
     
-    const signedUrl = await generateTimeBasedSignedUrl(key, expiresInSeconds);
-    return signedUrl;
+    // 現状の実装では、バケットの特定キーに対して
+    // 時限付きアクセスを提供するため、別方法を採用：
+    
+    // バケットバインディングオブジェクトからenvを取得するのは難しいため、
+    // 呼び出し元で generateR2SignedUrl を呼ぶ前に必要なコンテキストを解決するか、
+    // この関数自体を非推奨にして generateTimeBasedSignedUrl を直接使うべきですが、
+    // とりあえずここでは後方互換性のために generateTimeBasedSignedUrl のシグネチャ変更に合わせて修正します。
+    // ただし、ここからは secret と baseUrl が取れないので、この関数は実質的に使えなくなります。
+    // 呼び出し元を修正する必要があります。
+    
+    throw new Error("generateR2SignedUrl is deprecated. Use generateTimeBasedSignedUrl with explicit secrets instead.");
   } catch (error) {
     console.error(`Failed to generate R2 signed URL for key: ${key}`, error);
     throw error;
@@ -384,16 +393,16 @@ export async function generateR2SignedUrl(
  */
 export async function generateTimeBasedSignedUrl(
   key: string,
+  secret: string,
+  baseUrl: string,
   expiresInSeconds: number = 3600
 ): Promise<string> {
-  const secret = process.env.BATTLE_DATA_SIGNED_URL_SECRET;
   if (!secret) {
-    throw new Error('BATTLE_DATA_SIGNED_URL_SECRET environment variable is required');
+    throw new Error('Secret is required for signed URL generation');
   }
 
-  const baseUrl = process.env.R2_PUBLIC_URL;
   if (!baseUrl) {
-    throw new Error('R2_PUBLIC_URL environment variable is required');
+    throw new Error('Base URL is required for signed URL generation');
   }
 
   const now = Math.floor(Date.now() / 1000);
@@ -421,12 +430,12 @@ export async function generateTimeBasedSignedUrl(
  */
 export async function verifyR2SignedUrl(
   token: string,
-  key: string
+  key: string,
+  secret: string
 ): Promise<boolean> {
   try {
-    const secret = process.env.BATTLE_DATA_SIGNED_URL_SECRET;
     if (!secret) {
-      console.error('verifyR2SignedUrl: BATTLE_DATA_SIGNED_URL_SECRET not configured');
+      console.error('verifyR2SignedUrl: Secret not provided');
       return false;
     }
 

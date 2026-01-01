@@ -7,6 +7,8 @@ slug: guide/asset_sync
 tags: [guide, storage]
 ---
 
+# Asset Sync Pipeline
+
 FUSOU v0.4 では、艦これの非 kcsapi アセットを Cloudflare R2 に保存する際に、デスクトップアプリから直接 R2 API を叩くのではなく、FUSOU-WEB が提供する HTTPS API を経由するように変更しました。これにより、ユーザー環境に Cloudflare のシークレットを配置する必要がなくなり、アップロード処理に Supabase 認証を必須化できます。
 
 ## 全体像

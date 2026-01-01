@@ -675,10 +675,15 @@ app.post("/verify-google", async (c) => {
         if (tokenInfoResp.ok) {
           const tokenInfo = await tokenInfoResp.json() as { email?: string };
           verifiedEmail = tokenInfo.email || email;
+        } else {
+             throw new Error(`Google token validation failed: ${tokenInfoResp.status}`);
         }
       } catch (e) {
         console.error("Failed to verify Google token:", e);
-        // Fall back to provided email
+        return jsonResponse({ 
+          error: "INVALID_TOKEN", 
+          message: "Failed to verify Google account token" 
+        }, 401);
       }
     }
 
