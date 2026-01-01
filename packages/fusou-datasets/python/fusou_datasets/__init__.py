@@ -30,6 +30,8 @@ import json
 import os
 import sys
 import uuid
+import re
+from importlib.metadata import version, PackageNotFoundError
 from io import BytesIO
 from pathlib import Path
 from typing import Optional, List, Dict, Any
@@ -44,7 +46,18 @@ from tqdm import tqdm
 # Configuration
 # =============================================================================
 
-__version__ = "1.0.0"
+try:
+    __version__ = version("fusou-datasets")
+except PackageNotFoundError:
+    # If package is not installed (e.g. dev mode), read from pyproject.toml
+    try:
+        _pyproject = Path(__file__).resolve().parent.parent / "pyproject.toml"
+        with open(_pyproject, "r", encoding="utf-8") as _f:
+            # Simple regex to find version = "x.y.z"
+            _match = re.search(r'^version\s*=\s*"(.*?)"', _f.read(), re.MULTILINE)
+            __version__ = _match.group(1) if _match else "0.0.0"
+    except Exception:
+        __version__ = "0.0.0"
 __author__ = "FUSOU Team"
 __all__ = [
     "configure",
