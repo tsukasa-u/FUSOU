@@ -9,7 +9,7 @@ description = "Secure data loader for FUSOU research datasets with Device Trust 
 readme = "README.md"
 license = {text = "MIT"}
 authors = [
-    {name = "FUSOU Team", email = "dev@fusou.app"}
+    {name = "FUSOU Team", email = "dev@fusou.dev"}
 ]
 requires-python = ">=3.8"
 classifiers = [

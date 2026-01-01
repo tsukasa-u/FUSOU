@@ -33,6 +33,7 @@ import uuid
 from io import BytesIO
 from pathlib import Path
 from typing import Optional, List, Dict, Any
+from urllib.parse import urljoin
 
 import fastavro
 import pandas as pd
@@ -75,12 +76,14 @@ _TERMS = """
 Fusou Datasets v{version}
 ================================================================================
 [EN] By using this library, you agree to use data for research purposes only.
-     Redistribution of raw data is prohibited. Visit: https://fusou.app/terms
+     Redistribution of raw data is prohibited. Visit: https://fusou.dev/terms
 [JP] このライブラリを使用することで、データを研究目的のみに使用することに同意します。
-     生データの再配布は禁止です。詳細: https://fusou.app/terms
+     生データの再配布は禁止です。詳細: https://fusou.dev/terms
 ================================================================================
 """
-print(_TERMS.format(version=__version__), file=sys.stderr)
+if not os.getenv("FUSOU_DATASETS_SILENT"):
+    print(_TERMS.format(version=__version__), file=sys.stderr)
+
 
 
 # =============================================================================
@@ -290,6 +293,7 @@ def _verify_device_colab() -> bool:
                 )
                 print("  Falling back to code verification...", file=sys.stderr)
         except json.JSONDecodeError:
+            # Non-JSON error response; ignore structured parsing and fall back to generic failure.
             pass
     except Exception as e:
         print(f"[fusou_datasets] Colab verification failed: {e}", file=sys.stderr)
@@ -345,18 +349,20 @@ def _handle_403(response: requests.Response, retry_func, *args, **kwargs):
         elif data.get("error") == "INVALID_API_KEY":
             raise AuthenticationError("Invalid API key")
     except json.JSONDecodeError:
+        # If the response body is not valid JSON, treat it as a generic access denial.
         pass
     raise AuthenticationError("Access denied")
 
 
-def _download_avro(url: str) -> pd.DataFrame:
+def _download_avro(url: str, _retry: bool = True) -> pd.DataFrame:
     api_key = _get_api_key()
     client_id = _get_client_id()
     api_url = _config.get("api_url", DEFAULT_API_URL)
     
     if url.startswith("/"):
-        base_url = api_url.rsplit("/api/", 1)[0]
-        url = f"{base_url}{url}"
+        # Use urljoin for robust URL construction
+        base_url = api_url.rsplit("/api/", 1)[0] if "/api/" in api_url else api_url
+        url = urljoin(base_url + "/", url.lstrip("/"))
     
     try:
         resp = requests.get(
@@ -364,6 +370,11 @@ def _download_avro(url: str) -> pd.DataFrame:
             headers={"X-API-KEY": api_key, "X-CLIENT-ID": client_id},
             timeout=DOWNLOAD_TIMEOUT,
         )
+        
+        # Handle device verification required
+        if resp.status_code == 403 and _retry:
+            return _handle_403(resp, lambda: _download_avro(url, _retry=False))
+        
         resp.raise_for_status()
         return pd.DataFrame.from_records(list(fastavro.reader(BytesIO(resp.content))))
     except Exception as e:
@@ -400,26 +411,15 @@ def list_period_tags(_retry: bool = True) -> Dict[str, Any]:
     return {"period_tags": data.get("period_tags", []), "latest": data.get("latest")}
 
 
-def load(table: str, period_tag: str = "latest", limit: int = 100, show_progress: bool = True, _retry: bool = True) -> pd.DataFrame:
-    """
-    Load data for a table.
-    
-    Args:
-        table: Table name (use list_tables() to see options)
-        period_tag: "latest", "all", or specific tag
-        limit: Max files to load
-        show_progress: Show download progress bar
-        
-    Returns:
-        pd.DataFrame: Combined data from all matching files
-    """
+def _load_impl(table: str, period_tag: str = "latest", limit: int = 100, show_progress: bool = True, _retry: bool = True) -> pd.DataFrame:
+    """Internal implementation of load() with retry parameter."""
     if not table:
         raise ValueError("Table name required")
     
     resp = _request("GET", f"/data/{table}?period_tag={period_tag}&limit={limit}")
     
     if resp.status_code == 403 and _retry:
-        return _handle_403(resp, load, table, period_tag, limit)
+        return _handle_403(resp, lambda: _load_impl(table, period_tag, limit, show_progress, _retry=False))
     if resp.status_code == 404:
         raise DatasetNotFoundError(f"No data for '{table}' with period_tag='{period_tag}'")
     if resp.status_code != 200:
@@ -444,6 +444,22 @@ def load(table: str, period_tag: str = "latest", limit: int = 100, show_progress
     return pd.concat(dfs, ignore_index=True)
 
 
+def load(table: str, period_tag: str = "latest", limit: int = 100, show_progress: bool = True) -> pd.DataFrame:
+    """
+    Load data for a table.
+    
+    Args:
+        table: Table name (use list_tables() to see options)
+        period_tag: "latest", "all", or specific tag
+        limit: Max files to load
+        show_progress: Show download progress bar
+        
+    Returns:
+        pd.DataFrame: Combined data from all matching files
+    """
+    return _load_impl(table, period_tag, limit, show_progress, _retry=True)
+
+
 # =============================================================================
 # CLI
 # =============================================================================
@@ -464,7 +480,17 @@ def main():
             print(t)
     elif args.period_tags:
         info = list_period_tags()
-        print(f"Latest: {info['latest']}")
+        period_tags = info.get("period_tags") or []
+        latest = info.get("latest")
+        if period_tags:
+            print("Available period tags:")
+            for tag in period_tags:
+                marker = " (latest)" if latest is not None and tag == latest else ""
+                print(f"  {tag}{marker}")
+        elif latest:
+            print(f"Latest period tag: {latest}")
+        else:
+            print("No period tags available")
     else:
         parser.print_help()
 

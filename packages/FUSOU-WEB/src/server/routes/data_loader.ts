@@ -22,6 +22,7 @@ const app = new Hono<{ Bindings: Bindings }>();
 // =============================================================================
 
 const VERIFICATION_CODE_EXPIRY_MINUTES = 10;
+const LAST_USED_UPDATE_BATCH_HOURS = 1; // Only update last_used_at if older than this
 
 // CORS headers for Python client access
 const DATA_LOADER_CORS_HEADERS = {
@@ -35,9 +36,46 @@ const DATA_LOADER_CORS_HEADERS = {
 
 /**
  * Generate a 6-digit random verification code
+ * using a cryptographically secure random number generator.
  */
 function generateVerificationCode(): string {
-  return String(Math.floor(100000 + Math.random() * 900000));
+  const array = new Uint32Array(1);
+  crypto.getRandomValues(array);
+  const code = (array[0] % 900000) + 100000;
+  return String(code);
+}
+
+/**
+ * Check and enforce rate limiting for verification attempts
+ * Returns true if rate limit is exceeded, false otherwise
+ */
+async function checkRateLimit(
+  kv: KVNamespace,
+  key: string,
+  maxAttempts: number,
+  windowSeconds: number
+): Promise<boolean> {
+  const rateLimitKey = `ratelimit:${key}`;
+  const now = Date.now();
+  
+  const data = await kv.get(rateLimitKey);
+  let attempts: number[] = data ? JSON.parse(data) : [];
+  
+  // Remove attempts outside the time window
+  attempts = attempts.filter(timestamp => now - timestamp < windowSeconds * 1000);
+  
+  // Check if limit exceeded
+  if (attempts.length >= maxAttempts) {
+    return true;
+  }
+  
+  // Add current attempt
+  attempts.push(now);
+  await kv.put(rateLimitKey, JSON.stringify(attempts), {
+    expirationTtl: windowSeconds,
+  });
+  
+  return false;
 }
 
 /**
@@ -132,22 +170,49 @@ async function validateApiKey(
 
 /**
  * Check if device is trusted for user
+ * Updates last_used_at with batching (only if older than 1 hour)
  */
 async function isDeviceTrusted(
   config: SupabaseConfig,
   userId: string,
-  clientId: string
+  clientId: string,
+  kv?: KVNamespace
 ): Promise<boolean> {
-  const results = await supabaseRequest<{ id: string }[]>(config, "trusted_devices", {
-    query: `?user_id=eq.${userId}&client_id=eq.${encodeURIComponent(clientId)}&select=id`,
+  const results = await supabaseRequest<{ id: string; last_used_at: string }[]>(config, "trusted_devices", {
+    query: `?user_id=eq.${userId}&client_id=eq.${encodeURIComponent(clientId)}&select=id,last_used_at`,
   });
 
   if (results && results.length > 0) {
-    await supabaseRequest(config, "trusted_devices", {
-      method: "PATCH",
-      query: `?user_id=eq.${userId}&client_id=eq.${encodeURIComponent(clientId)}`,
-      body: { last_used_at: new Date().toISOString() },
-    });
+    const device = results[0];
+    const now = new Date();
+    const lastUsed = new Date(device.last_used_at);
+    const hoursSinceLastUpdate = (now.getTime() - lastUsed.getTime()) / (1000 * 60 * 60);
+    
+    // Only update if last_used_at is older than configured hours to reduce write amplification
+    if (hoursSinceLastUpdate >= LAST_USED_UPDATE_BATCH_HOURS) {
+      // Use KV to track pending updates to avoid race conditions
+      const kvKey = `last_used_pending:${userId}:${clientId}`;
+      let shouldUpdate = true;
+      
+      if (kv) {
+        const pending = await kv.get(kvKey);
+        if (pending) {
+          shouldUpdate = false; // Update already pending
+        } else {
+          await kv.put(kvKey, now.toISOString(), { 
+            expirationTtl: LAST_USED_UPDATE_BATCH_HOURS * 3600 
+          });
+        }
+      }
+      
+      if (shouldUpdate) {
+        await supabaseRequest(config, "trusted_devices", {
+          method: "PATCH",
+          query: `?user_id=eq.${userId}&client_id=eq.${encodeURIComponent(clientId)}`,
+          body: { last_used_at: now.toISOString() },
+        });
+      }
+    }
     return true;
   }
 
@@ -241,7 +306,7 @@ async function sendVerificationEmail(
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      from: "FUSOU Data Loader <noreply@fusou.app>",
+      from: "FUSOU Data Loader <noreply@fusou.dev>",
       to: [email],
       subject: "[FUSOU] Device Verification Code / デバイス認証コード",
       html: `
@@ -350,23 +415,22 @@ app.get("/tables", async (c) => {
   }
 
   try {
+    const env = createEnvContext(c);
     const apiKeyData = await validateApiKey(getSupabaseConfig(c), apiKey);
     if (!apiKeyData) {
       return jsonResponse({ error: "INVALID_API_KEY", message: "Invalid API key" }, 403);
     }
 
-    const trusted = await isDeviceTrusted(getSupabaseConfig(c), apiKeyData.user_id, clientId);
+    const trusted = await isDeviceTrusted(getSupabaseConfig(c), apiKeyData.user_id, clientId, env.runtime.DATA_LOADER_CACHE_KV);
     if (!trusted) {
       const code = generateVerificationCode();
       await saveVerificationCode(getSupabaseConfig(c), apiKeyData.user_id, clientId, code);
-      await sendVerificationEmail(createEnvContext(c), apiKeyData.email, code);
+      await sendVerificationEmail(env, apiKeyData.email, code);
       return jsonResponse({
         error: "DEVICE_UNVERIFIED",
         message: "New device detected. Verification code sent to your email.",
       }, 403);
     }
-
-    const env = createEnvContext(c);
     const indexDb = env.runtime.BATTLE_INDEX_DB;
     if (!indexDb) {
       return jsonResponse({ error: "D1 database not configured" }, 500);
@@ -401,16 +465,17 @@ app.get("/period-tags", async (c) => {
   }
 
   try {
+    const env = createEnvContext(c);
     const apiKeyData = await validateApiKey(getSupabaseConfig(c), apiKey);
     if (!apiKeyData) {
       return jsonResponse({ error: "INVALID_API_KEY", message: "Invalid API key" }, 403);
     }
 
-    const trusted = await isDeviceTrusted(getSupabaseConfig(c), apiKeyData.user_id, clientId);
+    const trusted = await isDeviceTrusted(getSupabaseConfig(c), apiKeyData.user_id, clientId, env.runtime.DATA_LOADER_CACHE_KV);
     if (!trusted) {
       const code = generateVerificationCode();
       await saveVerificationCode(getSupabaseConfig(c), apiKeyData.user_id, clientId, code);
-      await sendVerificationEmail(createEnvContext(c), apiKeyData.email, code);
+      await sendVerificationEmail(env, apiKeyData.email, code);
       return jsonResponse({
         error: "DEVICE_UNVERIFIED",
         message: "New device detected. Verification code sent to your email.",
@@ -478,23 +543,23 @@ app.get("/data/:table", async (c) => {
   }
 
   try {
+    const env = createEnvContext(c);
     const apiKeyData = await validateApiKey(getSupabaseConfig(c), apiKey);
     if (!apiKeyData) {
       return jsonResponse({ error: "INVALID_API_KEY", message: "Invalid or inactive API key" }, 403);
     }
 
-    const trusted = await isDeviceTrusted(getSupabaseConfig(c), apiKeyData.user_id, clientId);
+    const trusted = await isDeviceTrusted(getSupabaseConfig(c), apiKeyData.user_id, clientId, env.runtime.DATA_LOADER_CACHE_KV);
     if (!trusted) {
       const code = generateVerificationCode();
       await saveVerificationCode(getSupabaseConfig(c), apiKeyData.user_id, clientId, code);
-      await sendVerificationEmail(createEnvContext(c), apiKeyData.email, code);
+      await sendVerificationEmail(env, apiKeyData.email, code);
       return jsonResponse({
         error: "DEVICE_UNVERIFIED",
         message: "New device detected. A verification code has been sent to your email.",
       }, 403);
     }
 
-    const env = createEnvContext(c);
     const indexDb = env.runtime.BATTLE_INDEX_DB;
     if (!indexDb) {
       return jsonResponse({ error: "D1 database not configured" }, 500);
@@ -583,6 +648,19 @@ app.post("/verify", async (c) => {
     }, 400);
   }
 
+  // Rate limiting: 5 attempts per client per 5 minutes
+  const env = createEnvContext(c);
+  const kv = env.runtime.DATA_LOADER_CACHE_KV;
+  if (kv) {
+    const isRateLimited = await checkRateLimit(kv, `verify:${clientId}`, 5, 300);
+    if (isRateLimited) {
+      return jsonResponse({
+        error: "RATE_LIMITED",
+        message: "Too many verification attempts. Please try again later.",
+      }, 429);
+    }
+  }
+
   let body: { code?: string };
   try {
     body = await c.req.json();
@@ -643,6 +721,19 @@ app.post("/verify-google", async (c) => {
     }, 400);
   }
 
+  // Rate limiting: 5 attempts per client per 5 minutes
+  const env = createEnvContext(c);
+  const kv = env.runtime.DATA_LOADER_CACHE_KV;
+  if (kv) {
+    const isRateLimited = await checkRateLimit(kv, `verify-google:${clientId}`, 5, 300);
+    if (isRateLimited) {
+      return jsonResponse({
+        error: "RATE_LIMITED",
+        message: "Too many verification attempts. Please try again later.",
+      }, 429);
+    }
+  }
+
   let body: { email?: string; google_token?: string };
   try {
     body = await c.req.json();
@@ -669,8 +760,14 @@ app.post("/verify-google", async (c) => {
     let verifiedEmail = email;
     if (google_token) {
       try {
+        // Use POST to avoid token appearing in Google's server logs
         const tokenInfoResp = await fetch(
-          `https://www.googleapis.com/oauth2/v1/tokeninfo?access_token=${google_token}`
+          `https://www.googleapis.com/oauth2/v3/tokeninfo`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: `access_token=${encodeURIComponent(google_token)}`
+          }
         );
         if (tokenInfoResp.ok) {
           const tokenInfo = await tokenInfoResp.json() as { email?: string };
@@ -704,7 +801,7 @@ app.post("/verify-google", async (c) => {
     }
 
     // Email matches - register device as trusted
-    const alreadyTrusted = await isDeviceTrusted(getSupabaseConfig(c), apiKeyData.user_id, clientId);
+    const alreadyTrusted = await isDeviceTrusted(getSupabaseConfig(c), apiKeyData.user_id, clientId, env.runtime.DATA_LOADER_CACHE_KV);
     if (!alreadyTrusted) {
       await supabaseRequest(getSupabaseConfig(c), "trusted_devices", {
         method: "POST",
@@ -748,17 +845,17 @@ app.get("/download", async (c) => {
   }
 
   try {
+    const env = createEnvContext(c);
     const apiKeyData = await validateApiKey(getSupabaseConfig(c), apiKey);
     if (!apiKeyData) {
       return jsonResponse({ error: "INVALID_API_KEY", message: "Invalid API key" }, 403);
     }
 
-    const trusted = await isDeviceTrusted(getSupabaseConfig(c), apiKeyData.user_id, clientId);
+    const trusted = await isDeviceTrusted(getSupabaseConfig(c), apiKeyData.user_id, clientId, env.runtime.DATA_LOADER_CACHE_KV);
     if (!trusted) {
       return jsonResponse({ error: "DEVICE_UNVERIFIED", message: "Device not verified" }, 403);
     }
 
-    const env = createEnvContext(c);
     const bucket = env.runtime.BATTLE_DATA_BUCKET;
     const object = await bucket.get(filePath);
 

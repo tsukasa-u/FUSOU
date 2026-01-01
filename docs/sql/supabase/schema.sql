@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS api_keys (
 
 CREATE INDEX IF NOT EXISTS idx_api_keys_key ON api_keys(key);
 CREATE INDEX IF NOT EXISTS idx_api_keys_user_id ON api_keys(user_id);
+CREATE INDEX IF NOT EXISTS idx_api_keys_email ON api_keys(LOWER(email));
 
 CREATE OR REPLACE FUNCTION update_updated_at_column()
 RETURNS TRIGGER AS $$
@@ -87,8 +88,9 @@ CREATE POLICY "Users can view own verification_codes" ON verification_codes FOR 
 CREATE OR REPLACE FUNCTION cleanup_expired_verification_codes()
 RETURNS void AS $$
 BEGIN
-    DELETE FROM verification_codes 
-    WHERE expires_at < NOW() OR is_used = true;
+    DELETE FROM verification_codes
+    WHERE (expires_at < NOW() - INTERVAL '30 days')
+       OR (is_used = true AND created_at < NOW() - INTERVAL '30 days');
 END;
 $$ LANGUAGE plpgsql;
 
