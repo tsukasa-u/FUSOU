@@ -1,4 +1,4 @@
-name: Publish fusou-datasets to PyPI
+name: "Publish fusou-datasets to PyPI"
 
 on:
   release:
@@ -6,26 +6,46 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version to publish (leave empty to use pyproject.toml version)'
+        description: "Version to publish (leave empty to use pyproject.toml version)"
         required: false
         type: string
 
 jobs:
   build-and-publish:
+    outputs:
+      package-version: ${{ steps.read-version.outputs.package_version }}
     runs-on: ubuntu-latest
-    environment: pypi
     permissions:
-      id-token: write  # Required for trusted publishing
+      id-token: write # Required for trusted publishing
       contents: read
-    
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: "3.11"
+
+      - name: Read package version
+        id: read-version
+        shell: bash
+        run: |
+          python -c "import os, pathlib, tomllib; data = pathlib.Path('packages/fusou-datasets/python/pyproject.toml').read_text(); version = tomllib.loads(data)['project']['version']; open(os.environ['GITHUB_OUTPUT'],'a',encoding='utf-8').write(f'package_version={version}\n'); open(os.environ['GITHUB_ENV'],'a',encoding='utf-8').write(f'PACKAGE_VERSION={version}\n')"
+
+      - name: Validate release tag matches package version
+        if: github.event_name == 'release'
+        shell: bash
+        run: |
+          TAG="${GITHUB_REF##*/}"
+          EXPECTED="v${PACKAGE_VERSION}"
+          if [ "$TAG" != "$EXPECTED" ]; then
+            echo "Release tag $TAG does not match package version $EXPECTED" >&2
+            exit 1
+          fi
 
       - name: Install build dependencies
         run: |
@@ -44,13 +64,16 @@ jobs:
   test-install:
     needs: build-and-publish
     runs-on: ubuntu-latest
+    env:
+      PACKAGE_VERSION: ${{ needs.build-and-publish.outputs.package-version }}
     steps:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: "3.11"
 
       - name: Wait for PyPI with retry
+        shell: bash
         run: |
           PACKAGE="fusou-datasets"
           MAX_ATTEMPTS=10
@@ -77,6 +100,7 @@ jobs:
           exit 1
 
       - name: Test install from PyPI
+        shell: bash
         run: |
-          pip install fusou-datasets
+          pip install "fusou-datasets==${PACKAGE_VERSION}"
           python -c "import fusou_datasets; print(f'Installed version: {fusou_datasets.__version__}')"
