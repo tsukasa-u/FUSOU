@@ -35,9 +35,13 @@ const DATA_LOADER_CORS_HEADERS = {
 
 /**
  * Generate a 6-digit random verification code
+ * using a cryptographically secure random number generator.
  */
 function generateVerificationCode(): string {
-  return String(Math.floor(100000 + Math.random() * 900000));
+  const array = new Uint32Array(1);
+  crypto.getRandomValues(array);
+  const code = (array[0] % 900000) + 100000;
+  return String(code);
 }
 
 /**
@@ -670,7 +674,7 @@ app.post("/verify-google", async (c) => {
     if (google_token) {
       try {
         const tokenInfoResp = await fetch(
-          `https://www.googleapis.com/oauth2/v1/tokeninfo?access_token=${google_token}`
+          `https://www.googleapis.com/oauth2/v3/tokeninfo?access_token=${google_token}`
         );
         if (tokenInfoResp.ok) {
           const tokenInfo = await tokenInfoResp.json() as { email?: string };
