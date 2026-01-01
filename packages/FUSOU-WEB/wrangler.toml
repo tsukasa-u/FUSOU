@@ -42,6 +42,11 @@ binding = "BATTLE_INDEX_DB"
 database_name = "dev_kc_battle_index"
 database_id = "700f4191-f93c-4db4-873d-d5fee9a901e3"
 
+# ===== KV Namespace Bindings =====
+[[kv_namespaces]]
+binding = "DATA_LOADER_CACHE_KV"
+id = "e1073037618c4cfba9c7e082e23db959"
+
 # ===== Queue Bindings =====
 # Producer binding (send messages from Pages)
 [[queues.producers]]

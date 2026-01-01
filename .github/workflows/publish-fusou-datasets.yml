@@ -1,0 +1,82 @@
+name: Publish fusou-datasets to PyPI
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to publish (leave empty to use pyproject.toml version)'
+        required: false
+        type: string
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write  # Required for trusted publishing
+      contents: read
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install build dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install build
+
+      - name: Build package
+        working-directory: packages/fusou-datasets/python
+        run: python -m build
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: packages/fusou-datasets/python/dist/
+
+  test-install:
+    needs: build-and-publish
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Wait for PyPI with retry
+        run: |
+          PACKAGE="fusou-datasets"
+          MAX_ATTEMPTS=10
+          SLEEP_SECONDS=5
+
+          for attempt in $(seq 1 "$MAX_ATTEMPTS"); do
+            echo "Checking PyPI for ${PACKAGE} (attempt ${attempt}/${MAX_ATTEMPTS})..."
+            if curl -fsS "https://pypi.org/pypi/${PACKAGE}/json" > /dev/null; then
+              echo "Package ${PACKAGE} is available on PyPI."
+              exit 0
+            fi
+
+            if [ "$attempt" -lt "$MAX_ATTEMPTS" ]; then
+              echo "Package not yet available. Sleeping for ${SLEEP_SECONDS} seconds before retry..."
+              sleep "$SLEEP_SECONDS"
+              SLEEP_SECONDS=$((SLEEP_SECONDS * 2))
+              if [ "$SLEEP_SECONDS" -gt 60 ]; then
+                SLEEP_SECONDS=60
+              fi
+            fi
+          done
+
+          echo "Timed out waiting for ${PACKAGE} to become available on PyPI." >&2
+          exit 1
+
+      - name: Test install from PyPI
+        run: |
+          pip install fusou-datasets
+          python -c "import fusou_datasets; print(f'Installed version: {fusou_datasets.__version__}')"

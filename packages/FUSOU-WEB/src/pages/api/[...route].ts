@@ -28,3 +28,5 @@ export const DELETE = async ({ request, locals }: any) =>
   app.fetch(stripApiPrefix(request), { env: locals?.runtime?.env || {} });
 export const PATCH = async ({ request, locals }: any) =>
   app.fetch(stripApiPrefix(request), { env: locals?.runtime?.env || {} });
+export const OPTIONS = async ({ request, locals }: any) =>
+  app.fetch(stripApiPrefix(request), { env: locals?.runtime?.env || {} });

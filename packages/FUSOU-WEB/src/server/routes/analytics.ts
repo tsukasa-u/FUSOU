@@ -1,10 +1,12 @@
 import { Hono } from 'hono';
 import type { Bindings } from '../types';
+import { createEnvContext } from '../utils';
 
 const app = new Hono<{ Bindings: Bindings }>();
 
 app.get('/compaction-metrics', async (c) => {
-  const db = c.env.BATTLE_INDEX_DB;
+  const env = createEnvContext(c);
+  const db = env.runtime.BATTLE_INDEX_DB;
   if (!db) {
     return c.json({ error: 'Server misconfiguration: BATTLE_INDEX_DB binding missing' }, 500);
   }

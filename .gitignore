@@ -47,7 +47,7 @@ packages/shared-ui/custom-elements.json
 
 packages/.env.keys
 
-*.py
+# *.py
 
 # Supabase temporary files
 supabase/.temp/
@@ -56,3 +56,25 @@ supabase/.branches/
 packages/FUSOU-WORKFLOW/worker-configuration.d.ts
 
 packages/FUSOU-WORKFLOW/test/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
