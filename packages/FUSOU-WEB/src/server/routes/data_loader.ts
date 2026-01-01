@@ -22,6 +22,7 @@ const app = new Hono<{ Bindings: Bindings }>();
 // =============================================================================
 
 const VERIFICATION_CODE_EXPIRY_MINUTES = 10;
+const LAST_USED_UPDATE_BATCH_HOURS = 1; // Only update last_used_at if older than this
 
 // CORS headers for Python client access
 const DATA_LOADER_CORS_HEADERS = {
@@ -187,8 +188,8 @@ async function isDeviceTrusted(
     const lastUsed = new Date(device.last_used_at);
     const hoursSinceLastUpdate = (now.getTime() - lastUsed.getTime()) / (1000 * 60 * 60);
     
-    // Only update if last_used_at is older than 1 hour to reduce write amplification
-    if (hoursSinceLastUpdate >= 1) {
+    // Only update if last_used_at is older than configured hours to reduce write amplification
+    if (hoursSinceLastUpdate >= LAST_USED_UPDATE_BATCH_HOURS) {
       // Use KV to track pending updates to avoid race conditions
       const kvKey = `last_used_pending:${userId}:${clientId}`;
       let shouldUpdate = true;
@@ -198,7 +199,9 @@ async function isDeviceTrusted(
         if (pending) {
           shouldUpdate = false; // Update already pending
         } else {
-          await kv.put(kvKey, now.toISOString(), { expirationTtl: 3600 });
+          await kv.put(kvKey, now.toISOString(), { 
+            expirationTtl: LAST_USED_UPDATE_BATCH_HOURS * 3600 
+          });
         }
       }
       
@@ -755,8 +758,14 @@ app.post("/verify-google", async (c) => {
     let verifiedEmail = email;
     if (google_token) {
       try {
+        // Use POST to avoid token appearing in Google's server logs
         const tokenInfoResp = await fetch(
-          `https://www.googleapis.com/oauth2/v3/tokeninfo?access_token=${google_token}`
+          `https://www.googleapis.com/oauth2/v3/tokeninfo`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: `access_token=${encodeURIComponent(google_token)}`
+          }
         );
         if (tokenInfoResp.ok) {
           const tokenInfo = await tokenInfoResp.json() as { email?: string };
