@@ -276,3 +276,204 @@ cp .env.example .env
 2. GitHub Issues で既存の問題を検索
 3. GitHub Issues で新しい問題を作成
 4. プロジェクトメンテナーに連絡
+
+
+# Environment Setup Reference
+
+# 環境設定 - FUSOU-WEB
+
+このドキュメントは、Cloudflare Pages/Workers と Supabase の環境変数設定、および主要な API エンドポイントのテスト方法を説明します。
+
+## 必須環境変数・バインディング
+
+### Cloudflare Pages（Dashboard での設定）
+
+以下の R2 バケットバインディングと環境変数を設定してください：
+
+**R2 バケットバインディング:**
+- `ASSETS_BUCKET` → `dev-kc-assets` (静的アセット保存)
+- `FLEET_SNAPSHOT_BUCKET` → `dev-kc-fleets` (艦隊スナップショット)
+- `BATTLE_DATA_BUCKET` → `dev-kc-battle-data` (ゲームデータ)
+
+**D1 データベースバインディング:**
+- `ASSET_INDEX_DB` → `dev_kc_asset_index` (アセットインデックス)
+
+**Service バインディング:**
+- `COMPACTION_WORKFLOW` → `fusou-workflow` (コンパクション Workflow)
+
+**環境変数:**
+- `PUBLIC_SUPABASE_URL` - 例: `https://xyz.supabase.co`
+- `PUBLIC_SUPABASE_PUBLISHABLE_KEY` - Supabase 公開キー
+
+**Secrets（Cloudflare Dashboard から設定）:**
+- `SUPABASE_SECRET_KEY` - Supabase service_role キー（秘密保持）
+- `ASSET_UPLOAD_SIGNING_SECRET` - アセットアップロード署名用秘密鍵
+- `FLEET_SNAPSHOT_SIGNING_SECRET` - スナップショット署名用秘密鍵
+- `BATTLE_DATA_SIGNING_SECRET` - バトルデータ署名用秘密鍵
+
+### 設定方法
+
+**Dashboard 経由:**
+1. Cloudflare Pages プロジェクトを開く
+2. `Settings` → `Environment variables`
+3. 上記の環境変数を `Production` / `Preview` 環境に追加
+
+**wrangler CLI 経由（Secrets 設定例）:**
+```bash
+wrangler login
+wrangler secret put SUPABASE_SECRET_KEY --account-id <account-id>
+```
+
+## 主要 API エンドポイント
+
+### POST `/api/compact`
+- 役割: Parquet コンパクション Workflow をトリガー
+- リクエスト: `{ "datasetId": "<uuid>" }`
+- レスポンス: `{ "status": "accepted", "instanceId": "..." }`
+
+### GET `/api/compact/status/:instanceId`
+- 役割: Workflow 進捗確認
+- レスポンス: `{ "status": "running|success|error", "output": {...} }`
+
+### POST `/api/fleet/snapshot`
+- 役割: 艦隊スナップショット保存
+- リクエスト: JSON ペイロード + `Idempotency-Key` ヘッダ
+- レスポンス: `{ "ok": true, "r2_key": "..." }`
+
+### GET `/api/assets`
+- 役割: アセット情報取得
+- レスポンス: アセットリスト
+
+## Supabase テーブルセットアップ
+
+必要なテーブル（SQL）:
+- `datasets` - コンパクション対象データセット管理
+- `fleet_snapshots` - 艦隊スナップショット履歴
+- `processing_metrics` - 処理メトリクス記録
+
+詳細は [docs/SUPABASE_DATA_SCHEMA.md](../SUPABASE_DATA_SCHEMA.md) を参照。
+
+## セキュリティに関する注意
+
+- `SUPABASE_SECRET_KEY` は絶対にクライアント側に露出させない
+- JWT 検証と RLS（Row-Level Security）ポリシーを設定
+- 署名付き URL は時間制限付きで発行
+
+
+# Dotenvx Specifics
+
+<!-- markdownlint-disable MD032 MD040 MD025 MD022 MD007 MD010 MD031 MD024 MD029 MD036 MD041 MD003 MD034 -->
+# dotenvx Configuration for FUSOU
+
+## Overview
+FUSOU uses [dotenvx](https://dotenvx.com/) for secure environment variable management with encryption support.
+
+## Required Environment Variables
+
+### FUSOU-WORKFLOW
+- `PUBLIC_SUPABASE_URL`: Your Supabase project URL (e.g., https://xxxxx.supabase.co)
+- `SUPABASE_SECRET_KEY`: Supabase service role key (secret)
+
+### FUSOU-WEB
+- `PUBLIC_SUPABASE_URL`: Your Supabase project URL (e.g., https://xxxxx.supabase.co)
+- `SUPABASE_SECRET_KEY`: Supabase service role key (secret)
+
+**Note:** Other variables in FUSOU-WEB/.env (Google OAuth, Signing Secrets, etc.) are optional and project-specific.
+
+## Setup
+
+### FUSOU-WORKFLOW (Cloudflare Workers)
+
+1. **Create `.env` file:**
+```bash
+cd packages/FUSOU-WORKFLOW
+cp .env.example .env
+# Edit .env with your actual values
+```
+
+2. **Encrypt the `.env` file:**
+```bash
+npx dotenvx encrypt
+```
+This creates `.env.keys` with encryption keys.
+
+3. **Set the private key as Worker secret:**
+```bash
+wrangler secret put DOTENV_PRIVATE_KEY
+# Paste the private key from .env.keys when prompted
+```
+
+4. **Deploy:**
+```bash
+wrangler deploy
+```
+
+### FUSOU-WEB (Cloudflare Pages)
+
+1. **Create `.env.production` for production:**
+```bash
+cd packages/FUSOU-WEB
+# Create .env.production with production values
+```
+
+2. **Encrypt production environment:**
+```bash
+npx dotenvx encrypt -f .env.production
+```
+
+3. **Set `DOTENV_PRIVATE_KEY` in Cloudflare Dashboard:**
+- Go to Cloudflare Pages → Your Project → Settings → Environment Variables
+- Select "Production" environment
+- Add variable: `DOTENV_PRIVATE_KEY` = (value from `.env.production.keys`)
+
+4. **Build and deploy:**
+```bash
+npm run build
+npx wrangler pages deploy dist
+```
+
+## How It Works
+
+### Cloudflare Workers (FUSOU-WORKFLOW)
+- `import '@dotenvx/dotenvx/config'` at the top of `src/index.ts` automatically loads environment variables
+- Local: reads from `.env` → `process.env`
+- Production: decrypts `.env` using `DOTENV_PRIVATE_KEY` secret
+
+### Cloudflare Pages (FUSOU-WEB)
+- Build scripts use `dotenvx run` to load `.env` during development
+- Production: Cloudflare Pages injects `DOTENV_PRIVATE_KEY` to decrypt `.env.production`
+- Runtime access via `locals.runtime.env` or `env` parameter
+
+## Security Benefits
+
+1. **Encrypted storage**: `.env` files can be safely committed to git (encrypted)
+2. **Key separation**: Only `DOTENV_PRIVATE_KEY` needs to be kept secret
+3. **Environment isolation**: Different keys for dev/staging/production
+4. **Version control**: Track environment variable changes in git
+
+## Required Variables
+
+### FUSOU-WORKFLOW
+- `PUBLIC_SUPABASE_URL`: Your Supabase project URL
+- `SUPABASE_SECRET_KEY`: Supabase service role key
+
+### FUSOU-WEB
+- `PUBLIC_SUPABASE_URL`: Your Supabase project URL
+- `SUPABASE_SECRET_KEY`: Supabase service role key
+
+## Troubleshooting
+
+### "Cannot find DOTENV_PRIVATE_KEY"
+- Ensure you ran `npx dotenvx encrypt`
+- Check that `DOTENV_PRIVATE_KEY` is set as Worker/Pages secret
+- Verify the key matches the one in `.env.keys`
+
+### "Environment variables not loading"
+- Verify `import '@dotenvx/dotenvx/config'` is at the top of entry file
+- Check `.env` file exists and is properly formatted
+- Ensure dotenvx is installed in package.json dependencies
+
+## References
+- [dotenvx Documentation](https://dotenvx.com/docs)
+- [dotenvx with Cloudflare Workers](https://dotenvx.com/docs/platforms/cloudflare#cloudflare-workers)
+- [dotenvx with Cloudflare Pages](https://dotenvx.com/docs/platforms/cloudflare#cloudflare-pages)

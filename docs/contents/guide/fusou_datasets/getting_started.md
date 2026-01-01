@@ -33,7 +33,7 @@ export FUSOU_API_KEY="your_api_key_here"
 ```
 
 > [!TIP]
-> API キーは [FUSOU ウェブサイト](https://fusou.dev) で取得できます。
+> API キーは [FUSOU ウェブサイト](https://fusou.dev) で取得できます。取得方法は [API キー管理ガイド](../dashboard/api_keys) を参照してください。
 
 ### 3. データを取得
 

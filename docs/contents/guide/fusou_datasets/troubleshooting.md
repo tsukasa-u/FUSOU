@@ -40,8 +40,9 @@ fusou_datasets.save_api_key("your_api_key")
 
 **解決方法**:
 
-1. [FUSOU ウェブサイト](https://fusou.dev) で API キーを確認
-2. 新しいキーを発行し直す
+1. [API キー管理ページ](/dashboard/api-keys) で有効なキーを確認
+   - 管理方法は [API キー管理ガイド](../dashboard/api_keys) を参照
+2. 必要に応じて新しいキーを発行
 3. 正しいキーを設定する
 
 ```python
