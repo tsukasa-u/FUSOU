@@ -45,7 +45,7 @@ database_id = "700f4191-f93c-4db4-873d-d5fee9a901e3"
 # ===== KV Namespace Bindings =====
 [[kv_namespaces]]
 binding = "DATA_LOADER_CACHE_KV"
-id = "DATA_LOADER_CACHE"  # Replace with actual KV namespace ID after creation
+id = "e1073037618c4cfba9c7e082e23db959"
 
 # ===== Queue Bindings =====
 # Producer binding (send messages from Pages)
