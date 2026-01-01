@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "fusou-datasets"
-version = "1.0.0"
+version = "0.1.0"
 description = "Secure data loader for FUSOU research datasets with Device Trust authentication"
 readme = "README.md"
 license = {text = "MIT"}
