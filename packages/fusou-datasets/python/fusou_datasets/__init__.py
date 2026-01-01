@@ -37,6 +37,7 @@ from typing import Optional, List, Dict, Any
 import fastavro
 import pandas as pd
 import requests
+from tqdm import tqdm
 
 # =============================================================================
 # Configuration
@@ -399,7 +400,7 @@ def list_period_tags(_retry: bool = True) -> Dict[str, Any]:
     return {"period_tags": data.get("period_tags", []), "latest": data.get("latest")}
 
 
-def load(table: str, period_tag: str = "latest", limit: int = 100, _retry: bool = True) -> pd.DataFrame:
+def load(table: str, period_tag: str = "latest", limit: int = 100, show_progress: bool = True, _retry: bool = True) -> pd.DataFrame:
     """
     Load data for a table.
     
@@ -407,6 +408,7 @@ def load(table: str, period_tag: str = "latest", limit: int = 100, _retry: bool 
         table: Table name (use list_tables() to see options)
         period_tag: "latest", "all", or specific tag
         limit: Max files to load
+        show_progress: Show download progress bar
         
     Returns:
         pd.DataFrame: Combined data from all matching files
@@ -428,7 +430,8 @@ def load(table: str, period_tag: str = "latest", limit: int = 100, _retry: bool 
         raise DatasetNotFoundError(f"No files for '{table}'")
     
     dfs = []
-    for f in files:
+    file_iter = tqdm(files, desc=f"Loading {table}", unit="file", disable=not show_progress)
+    for f in file_iter:
         url = f.get("download_url")
         if url:
             try:

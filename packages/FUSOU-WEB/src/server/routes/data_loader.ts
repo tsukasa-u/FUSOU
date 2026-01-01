@@ -270,9 +270,28 @@ async function sendVerificationEmail(
 }
 
 /**
- * Get latest period tag from Supabase
+ * Get latest period tag from Supabase with optional KV caching
+ * Cache TTL: 5 minutes
  */
-async function getLatestPeriodTag(config: SupabaseConfig): Promise<string | null> {
+const PERIOD_TAG_CACHE_KEY = "data_loader:latest_period_tag";
+const PERIOD_TAG_CACHE_TTL = 300; // 5 minutes
+
+async function getLatestPeriodTag(
+  config: SupabaseConfig,
+  cacheKV?: KVNamespace
+): Promise<string | null> {
+  // Try cache first
+  if (cacheKV) {
+    try {
+      const cached = await cacheKV.get(PERIOD_TAG_CACHE_KEY);
+      if (cached) {
+        return cached;
+      }
+    } catch (e) {
+      console.warn("[data_loader] KV cache read failed:", e);
+    }
+  }
+
   const { url, key } = config;
 
   if (!url || !key) {
@@ -295,7 +314,20 @@ async function getLatestPeriodTag(config: SupabaseConfig): Promise<string | null
   }
 
   const rows = (await response.json()) as Array<{ tag: string | null }>;
-  return Array.isArray(rows) && rows.length > 0 ? rows[0].tag ?? null : null;
+  const latestTag = Array.isArray(rows) && rows.length > 0 ? rows[0].tag ?? null : null;
+
+  // Store in cache
+  if (cacheKV && latestTag) {
+    try {
+      await cacheKV.put(PERIOD_TAG_CACHE_KEY, latestTag, {
+        expirationTtl: PERIOD_TAG_CACHE_TTL,
+      });
+    } catch (e) {
+      console.warn("[data_loader] KV cache write failed:", e);
+    }
+  }
+
+  return latestTag;
 }
 
 // =============================================================================
@@ -471,7 +503,7 @@ app.get("/data/:table", async (c) => {
     // Resolve period tag
     let periodTag: string | null = null;
     if (periodTagParam === "latest") {
-      periodTag = await getLatestPeriodTag(getSupabaseConfig(c));
+      periodTag = await getLatestPeriodTag(getSupabaseConfig(c), env.runtime.DATA_LOADER_CACHE_KV);
     } else if (periodTagParam !== "all") {
       periodTag = periodTagParam;
     }

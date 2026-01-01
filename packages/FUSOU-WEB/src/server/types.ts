@@ -30,6 +30,9 @@ export type Bindings = {
   
   // Service binding to Workflow Worker
   COMPACTION_WORKFLOW: Fetcher;
+  
+  // KV for caching (optional)
+  DATA_LOADER_CACHE_KV?: KVNamespace;
 };
 
 export type R2BucketBinding = {
