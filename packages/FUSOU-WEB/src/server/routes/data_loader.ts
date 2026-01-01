@@ -45,6 +45,39 @@ function generateVerificationCode(): string {
 }
 
 /**
+ * Check and enforce rate limiting for verification attempts
+ * Returns true if rate limit is exceeded, false otherwise
+ */
+async function checkRateLimit(
+  kv: KVNamespace,
+  key: string,
+  maxAttempts: number,
+  windowSeconds: number
+): Promise<boolean> {
+  const rateLimitKey = `ratelimit:${key}`;
+  const now = Date.now();
+  
+  const data = await kv.get(rateLimitKey);
+  let attempts: number[] = data ? JSON.parse(data) : [];
+  
+  // Remove attempts outside the time window
+  attempts = attempts.filter(timestamp => now - timestamp < windowSeconds * 1000);
+  
+  // Check if limit exceeded
+  if (attempts.length >= maxAttempts) {
+    return true;
+  }
+  
+  // Add current attempt
+  attempts.push(now);
+  await kv.put(rateLimitKey, JSON.stringify(attempts), {
+    expirationTtl: windowSeconds,
+  });
+  
+  return false;
+}
+
+/**
  * Create JSON response with CORS headers
  */
 function jsonResponse(data: object, status = 200): Response {
@@ -136,22 +169,47 @@ async function validateApiKey(
 
 /**
  * Check if device is trusted for user
+ * Updates last_used_at with batching (only if older than 1 hour)
  */
 async function isDeviceTrusted(
   config: SupabaseConfig,
   userId: string,
-  clientId: string
+  clientId: string,
+  kv?: KVNamespace
 ): Promise<boolean> {
-  const results = await supabaseRequest<{ id: string }[]>(config, "trusted_devices", {
-    query: `?user_id=eq.${userId}&client_id=eq.${encodeURIComponent(clientId)}&select=id`,
+  const results = await supabaseRequest<{ id: string; last_used_at: string }[]>(config, "trusted_devices", {
+    query: `?user_id=eq.${userId}&client_id=eq.${encodeURIComponent(clientId)}&select=id,last_used_at`,
   });
 
   if (results && results.length > 0) {
-    await supabaseRequest(config, "trusted_devices", {
-      method: "PATCH",
-      query: `?user_id=eq.${userId}&client_id=eq.${encodeURIComponent(clientId)}`,
-      body: { last_used_at: new Date().toISOString() },
-    });
+    const device = results[0];
+    const now = new Date();
+    const lastUsed = new Date(device.last_used_at);
+    const hoursSinceLastUpdate = (now.getTime() - lastUsed.getTime()) / (1000 * 60 * 60);
+    
+    // Only update if last_used_at is older than 1 hour to reduce write amplification
+    if (hoursSinceLastUpdate >= 1) {
+      // Use KV to track pending updates to avoid race conditions
+      const kvKey = `last_used_pending:${userId}:${clientId}`;
+      let shouldUpdate = true;
+      
+      if (kv) {
+        const pending = await kv.get(kvKey);
+        if (pending) {
+          shouldUpdate = false; // Update already pending
+        } else {
+          await kv.put(kvKey, now.toISOString(), { expirationTtl: 3600 });
+        }
+      }
+      
+      if (shouldUpdate) {
+        await supabaseRequest(config, "trusted_devices", {
+          method: "PATCH",
+          query: `?user_id=eq.${userId}&client_id=eq.${encodeURIComponent(clientId)}`,
+          body: { last_used_at: now.toISOString() },
+        });
+      }
+    }
     return true;
   }
 
@@ -359,7 +417,7 @@ app.get("/tables", async (c) => {
       return jsonResponse({ error: "INVALID_API_KEY", message: "Invalid API key" }, 403);
     }
 
-    const trusted = await isDeviceTrusted(getSupabaseConfig(c), apiKeyData.user_id, clientId);
+    const trusted = await isDeviceTrusted(getSupabaseConfig(c), apiKeyData.user_id, clientId, c.env.DATA_LOADER_CACHE_KV);
     if (!trusted) {
       const code = generateVerificationCode();
       await saveVerificationCode(getSupabaseConfig(c), apiKeyData.user_id, clientId, code);
@@ -410,7 +468,7 @@ app.get("/period-tags", async (c) => {
       return jsonResponse({ error: "INVALID_API_KEY", message: "Invalid API key" }, 403);
     }
 
-    const trusted = await isDeviceTrusted(getSupabaseConfig(c), apiKeyData.user_id, clientId);
+    const trusted = await isDeviceTrusted(getSupabaseConfig(c), apiKeyData.user_id, clientId, c.env.DATA_LOADER_CACHE_KV);
     if (!trusted) {
       const code = generateVerificationCode();
       await saveVerificationCode(getSupabaseConfig(c), apiKeyData.user_id, clientId, code);
@@ -487,7 +545,7 @@ app.get("/data/:table", async (c) => {
       return jsonResponse({ error: "INVALID_API_KEY", message: "Invalid or inactive API key" }, 403);
     }
 
-    const trusted = await isDeviceTrusted(getSupabaseConfig(c), apiKeyData.user_id, clientId);
+    const trusted = await isDeviceTrusted(getSupabaseConfig(c), apiKeyData.user_id, clientId, c.env.DATA_LOADER_CACHE_KV);
     if (!trusted) {
       const code = generateVerificationCode();
       await saveVerificationCode(getSupabaseConfig(c), apiKeyData.user_id, clientId, code);
@@ -587,6 +645,18 @@ app.post("/verify", async (c) => {
     }, 400);
   }
 
+  // Rate limiting: 5 attempts per client per 5 minutes
+  const kv = c.env.DATA_LOADER_CACHE_KV;
+  if (kv) {
+    const isRateLimited = await checkRateLimit(kv, `verify:${clientId}`, 5, 300);
+    if (isRateLimited) {
+      return jsonResponse({
+        error: "RATE_LIMITED",
+        message: "Too many verification attempts. Please try again later.",
+      }, 429);
+    }
+  }
+
   let body: { code?: string };
   try {
     body = await c.req.json();
@@ -645,6 +715,18 @@ app.post("/verify-google", async (c) => {
       error: "MISSING_HEADERS",
       message: "X-API-KEY and X-CLIENT-ID headers are required",
     }, 400);
+  }
+
+  // Rate limiting: 5 attempts per client per 5 minutes
+  const kv = c.env.DATA_LOADER_CACHE_KV;
+  if (kv) {
+    const isRateLimited = await checkRateLimit(kv, `verify-google:${clientId}`, 5, 300);
+    if (isRateLimited) {
+      return jsonResponse({
+        error: "RATE_LIMITED",
+        message: "Too many verification attempts. Please try again later.",
+      }, 429);
+    }
   }
 
   let body: { email?: string; google_token?: string };
@@ -708,7 +790,7 @@ app.post("/verify-google", async (c) => {
     }
 
     // Email matches - register device as trusted
-    const alreadyTrusted = await isDeviceTrusted(getSupabaseConfig(c), apiKeyData.user_id, clientId);
+    const alreadyTrusted = await isDeviceTrusted(getSupabaseConfig(c), apiKeyData.user_id, clientId, c.env.DATA_LOADER_CACHE_KV);
     if (!alreadyTrusted) {
       await supabaseRequest(getSupabaseConfig(c), "trusted_devices", {
         method: "POST",
@@ -757,7 +839,7 @@ app.get("/download", async (c) => {
       return jsonResponse({ error: "INVALID_API_KEY", message: "Invalid API key" }, 403);
     }
 
-    const trusted = await isDeviceTrusted(getSupabaseConfig(c), apiKeyData.user_id, clientId);
+    const trusted = await isDeviceTrusted(getSupabaseConfig(c), apiKeyData.user_id, clientId, c.env.DATA_LOADER_CACHE_KV);
     if (!trusted) {
       return jsonResponse({ error: "DEVICE_UNVERIFIED", message: "Device not verified" }, 403);
     }
