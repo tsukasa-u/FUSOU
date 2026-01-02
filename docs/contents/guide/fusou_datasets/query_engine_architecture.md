@@ -1,3 +1,13 @@
+---
+title: Query Engine Architecture (Internal)
+contributors: ["tsukasa-u"]
+description: >-
+  fusou-datasets 自動結合クエリエンジンの内部構造、スキーマ生成、グラフ探索、マージ戦略に関する詳細な技術ドキュメント。
+date: 2026-01-02
+slug: guide/fusou_datasets/query_engine_architecture
+tags: [guide, fusou_datasets, internal, architecture]
+---
+
 # Fusou Datasets Query Engine 内部構造と仕様
 
 このドキュメントでは、`fusou-datasets` Python SDK に実装されている「自動結合エンジン (Auto-Join Query Engine)」の内部構造、アルゴリズム、およびデータハンドリングの詳細について解説します。
