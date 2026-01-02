@@ -70,8 +70,6 @@ __all__ = [
     "AuthenticationError",
     "DeviceUnverifiedError",
     "DatasetNotFoundError",
-    "DatasetNotFoundError",
-    "DatasetNotFoundError",
     "Tables",
     "query",
     "register_relationship",
