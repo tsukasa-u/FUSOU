@@ -17,7 +17,7 @@ const authorsCollection = defineCollection({
   type: "data",
   schema: z.object({
     github_username: z.string(),
-    github_avatar: z.string().url().optional(),
+    github_avatar: z.string().optional(),
     github_url: z.string().url().optional(),
   }),
 });
