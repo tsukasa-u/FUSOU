@@ -10,6 +10,18 @@ class JoinGraph:
         self.adj: Dict[str, List[Tuple[str, str, str]]] = {}
 
     def add(self, table1: str, col1: str, table2: str, col2: str) -> None:
+        """
+        Register a join condition between two tables (bi-directional).
+        
+        Args:
+            table1: Name of the first table (e.g. Tables.Battle.TABLE)
+            col1: Join column in first table (e.g. Tables.Battle.F_DECK_ID)
+            table2: Name of the second table
+            col2: Join column in second table
+            
+        Example:
+            graph.add(Tables.Battle.TABLE, "f_deck_id", Tables.OwnDeck.TABLE, "uuid")
+        """
         if table1 not in self.adj: self.adj[table1] = []
         if table2 not in self.adj: self.adj[table2] = []
         
