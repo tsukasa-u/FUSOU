@@ -44,20 +44,6 @@ source ~/.bashrc
 $env:FUSOU_API_KEY = "your_api_key_here"
 ```
 
-永続化する場合:
-
-```powershell
-[System.Environment]::SetEnvironmentVariable("FUSOU_API_KEY", "your_api_key_here", "User")
-```
-
-**Windows (GUI 設定 - 初心者向け):**
-
-1. スタートメニューで「環境変数」を検索し、「システム環境変数の編集」を開く。
-2. 「環境変数」ボタンをクリック。
-3. 「ユーザー環境変数」の「新規」をクリック。
-4. 変数名: `FUSOU_API_KEY`、変数値: `your_api_key_here` を入力して OK。
-5. 開いているターミナルや VSCode を再起動して反映。
-
 ### 方法 2: 設定ファイルに保存
 
 API キーをローカルに永続保存する場合:
