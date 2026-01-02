@@ -143,8 +143,11 @@ Google Colab では、Google アカウントを使用した自動認証がサポ
 ```python
 import fusou_datasets
 
-# API キーを設定
-fusou_datasets.configure(api_key="your_api_key")
+import fusou_datasets
+from google.colab import userdata
+
+# 推奨: Secrets (鍵アイコン) に "FUSOU_API_KEY" を登録して読み込む
+fusou_datasets.configure(api_key=userdata.get('FUSOU_API_KEY'))
 
 # データを取得 - Google認証が自動で行われる
 df = fusou_datasets.load("ship_type")
