@@ -42,6 +42,10 @@ class JoinGraph:
 # initialize Registry
 REGISTRY = JoinGraph()
 
+# Load Core Relationships
+from .relationships import define_core_relationships
+define_core_relationships(REGISTRY)
+
 def register_relationship(table1, col1, table2, col2):
     """
     Register a relationship between two tables.
@@ -49,13 +53,6 @@ def register_relationship(table1, col1, table2, col2):
         register_relationship(Tables.Battle.TABLE, Tables.Battle.F_DECK_ID, Tables.OwnDeck.TABLE, Tables.OwnDeck.UUID)
     """
     REGISTRY.add(table1, col1, table2, col2)
-
-# Define Core Relationships
-REGISTRY.add(Tables.Battle.TABLE, Tables.Battle.F_DECK_ID, Tables.OwnDeck.TABLE, Tables.OwnDeck.UUID)
-REGISTRY.add(Tables.Battle.TABLE, Tables.Battle.CELL_ID, Tables.Cells.TABLE, Tables.Cells.BATTLES)
-REGISTRY.add(Tables.Battle.TABLE, Tables.Battle.ENV_UUID, Tables.EnvInfo.TABLE, Tables.EnvInfo.UUID)
-REGISTRY.add(Tables.OwnShip.TABLE, Tables.OwnShip.SHIP_ID, Tables.ShipMaster.TABLE, Tables.ShipMaster.ID)
-REGISTRY.add(Tables.OwnSlotitem.TABLE, Tables.OwnSlotitem.MST_SLOTITEM_ID, Tables.SlotItemMaster.TABLE, Tables.SlotItemMaster.ID)
 
 
 def query(columns, period_tag="latest"):
