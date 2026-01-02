@@ -130,58 +130,7 @@ class VerificationError(FusouDatasetsError):
 # Constants
 # =============================================================================
 
-class Tables:
-    """
-    Constants for table names.
-    Using these constants helps prevent typos in table names.
-    
-    Usage:
-        import fusou_datasets
-        df = fusou_datasets.load(fusou_datasets.Tables.SHIP_TYPE)
-    """
-    # Master Data
-    SHIP_TYPE = "ship_type"
-    SHIP_MASTER = "ship_master"
-    SLOT_ITEM_MASTER = "slot_item_master"
-    USE_ITEM_MASTER = "use_item_master"
-    MAP_AREA_MASTER = "map_area_master"
-    MAP_INFO_MASTER = "map_info_master"
-    MISSION_MASTER = "mission_master"
-
-    # Battle Data (Log)
-    ENV_INFO = "env_info"
-    CELLS = "cells"
-    AIRBASE = "airbase"
-    PLANE_INFO = "plane_info"
-    OWN_SLOTITEM = "own_slotitem"
-    ENEMY_SLOTITEM = "enemy_slotitem"
-    FRIEND_SLOTITEM = "friend_slotitem"
-    OWN_SHIP = "own_ship"
-    ENEMY_SHIP = "enemy_ship"
-    FRIEND_SHIP = "friend_ship"
-    OWN_DECK = "own_deck"
-    SUPPORT_DECK = "support_deck"
-    ENEMY_DECK = "enemy_deck"
-    FRIEND_DECK = "friend_deck"
-    AIRBASE_AIRATTACK = "airbase_airattack"
-    AIRBASE_AIRATTACK_LIST = "airbase_airattack_list"
-    AIRBASE_ASSULT = "airbase_assult"
-    CARRIERBASE_ASSAULT = "carrierbase_assault"
-    CLOSING_RAIGEKI = "closing_raigeki"
-    FRIENDLY_SUPPORT_HOURAI = "friendly_support_hourai"
-    FRIENDLY_SUPPORT_HOURAI_LIST = "friendly_support_hourai_list"
-    HOUGEKI = "hougeki"
-    HOUGEKI_LIST = "hougeki_list"
-    MIDNIGHT_HOUGEKI = "midnight_hougeki"
-    MIDNIGHT_HOUGEKI_LIST = "midnight_hougeki_list"
-    OPENING_AIRATTACK = "opening_airattack"
-    OPENING_AIRATTACK_LIST = "opening_airattack_list"
-    OPENING_RAIGEKI = "opening_raigeki"
-    OPENING_TAISEN = "opening_taisen"
-    OPENING_TAISEN_LIST = "opening_taisen_list"
-    SUPPORT_AIRATTACK = "support_airattack"
-    SUPPORT_HOURAI = "support_hourai"
-    BATTLE = "battle"
+from .schema import Tables
 
 
 
