@@ -1,6 +1,6 @@
 ---
 title: fusou-datasets Installation
-contributors: ["tsukasa-u"]
+contributors: ["antigravity-ai"]
 description: >-
   fusou-datasetsライブラリのインストール方法。pip、conda、ソースからのインストール手順と依存関係、動作確認方法を解説。
 date: 2026-01-01

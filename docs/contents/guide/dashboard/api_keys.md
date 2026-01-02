@@ -1,6 +1,6 @@
 ---
 title: API Keys
-contributors: ["tsukasa-u"]
+contributors: ["antigravity-ai"]
 description: FUSOU Web Dashboard での API キーの作成、管理、および信頼済みデバイスの管理方法について説明します。
 date: 2026-01-01
 slug: guide/dashboard/api_keys

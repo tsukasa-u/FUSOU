@@ -1,6 +1,6 @@
 ---
 title: fusou-datasets Examples
-contributors: ["tsukasa-u"]
+contributors: ["antigravity-ai"]
 description: >-
   fusou-datasetsを使ったデータ分析の実践的なサンプルコード。pandas、matplotlibを使った艦種データの可視化、期間別比較分析の例。
 date: 2026-01-01

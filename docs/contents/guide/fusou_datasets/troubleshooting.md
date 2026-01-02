@@ -1,6 +1,6 @@
 ---
 title: fusou-datasets Troubleshooting
-contributors: ["tsukasa-u"]
+contributors: ["antigravity-ai"]
 description: >-
   fusou-datasetsライブラリのトラブルシューティングガイド。認証エラー、ネットワークエラー、データが見つからない場合の解決方法とFAQ。
 date: 2026-01-01

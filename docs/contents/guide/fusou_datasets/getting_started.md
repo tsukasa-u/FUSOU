@@ -1,6 +1,6 @@
 ---
 title: fusou-datasets Getting Started
-contributors: ["tsukasa-u"]
+contributors: ["antigravity-ai"]
 description: >-
   fusou-datasetsライブラリを使って艦これ研究データを取得するための初心者向けクイックスタートガイド。3分で始められるシンプルな手順を紹介。
 date: 2026-01-01

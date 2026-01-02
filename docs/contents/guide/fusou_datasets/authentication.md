@@ -1,6 +1,6 @@
 ---
 title: fusou-datasets Authentication
-contributors: ["tsukasa-u"]
+contributors: ["antigravity-ai"]
 description: >-
   fusou-datasetsのAPI キー設定とDevice Trust認証の仕組みを解説。環境変数、プログラムからの設定、Google Colab での自動認証について。
 date: 2026-01-01

@@ -1,6 +1,6 @@
 ---
 title: fusou-datasets API Reference
-contributors: ["tsukasa-u"]
+contributors: ["antigravity-ai"]
 description: >-
   fusou-datasetsライブラリの完全APIリファレンス。全関数、パラメータ、戻り値、例外クラス、CLIコマンドの詳細仕様。
 date: 2026-01-01
