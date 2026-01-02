@@ -70,7 +70,9 @@ __all__ = [
     "AuthenticationError",
     "DeviceUnverifiedError",
     "DatasetNotFoundError",
+    "DatasetNotFoundError",
     "Tables",
+    "query",
 ]
 
 DEFAULT_API_URL = "https://fusou.pages.dev/api/data-loader"
@@ -131,6 +133,7 @@ class VerificationError(FusouDatasetsError):
 # =============================================================================
 
 from .schema import Tables
+from .query_engine import query
 
 
 
