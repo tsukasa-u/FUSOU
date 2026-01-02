@@ -70,6 +70,7 @@ __all__ = [
     "AuthenticationError",
     "DeviceUnverifiedError",
     "DatasetNotFoundError",
+    "Tables",
 ]
 
 DEFAULT_API_URL = "https://fusou.pages.dev/api/data-loader"
@@ -119,9 +120,30 @@ class DatasetNotFoundError(FusouDatasetsError):
     """Dataset not found."""
     pass
 
+
 class VerificationError(FusouDatasetsError):
     """Verification failed."""
     pass
+
+
+# =============================================================================
+# Constants
+# =============================================================================
+
+class Tables:
+    """
+    Constants for table names.
+    Using these constants helps prevent typos in table names.
+    
+    Usage:
+        import fusou_datasets
+        df = fusou_datasets.load(fusou_datasets.Tables.SHIP_TYPE)
+    """
+    SHIP_TYPE = "ship_type"
+    SHIP_MASTER = "ship_master"
+    SLOT_ITEM_MASTER = "slot_item_master"
+    # Add other common tables here as needed
+
 
 
 # =============================================================================
