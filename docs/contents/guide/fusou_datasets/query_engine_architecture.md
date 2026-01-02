@@ -1,6 +1,6 @@
 ---
 title: Query Engine Architecture (Internal)
-contributors: ["tsukasa-u"]
+contributors: ["Antigravity AI"]
 description: >-
   fusou-datasets 自動結合クエリエンジンの内部構造、スキーマ生成、グラフ探索、マージ戦略に関する詳細な技術ドキュメント。
 date: 2026-01-02
