@@ -1,14 +1,15 @@
 
 import pandas as pd
 from collections import deque
-from .schema import Tables
+from typing import List, Dict, Tuple, Optional
+from .schema import Tables, Column
 
 class JoinGraph:
     def __init__(self):
         # Adjacency: table -> list of (neighbor_table, my_col, neighbor_col)
-        self.adj = {}
+        self.adj: Dict[str, List[Tuple[str, str, str]]] = {}
 
-    def add(self, table1, col1, table2, col2):
+    def add(self, table1: str, col1: str, table2: str, col2: str) -> None:
         if table1 not in self.adj: self.adj[table1] = []
         if table2 not in self.adj: self.adj[table2] = []
         
@@ -16,7 +17,7 @@ class JoinGraph:
         self.adj[table1].append((table2, col1, col2))
         self.adj[table2].append((table1, col2, col1))
 
-    def find_path(self, start_table, end_table):
+    def find_path(self, start_table: str, end_table: str) -> Optional[List[Tuple[str, str, str, str]]]:
         """BFS to find shortest path between tables."""
         if start_table == end_table:
             return []
@@ -46,7 +47,7 @@ REGISTRY = JoinGraph()
 from .relationships import define_core_relationships
 define_core_relationships(REGISTRY)
 
-def register_relationship(table1, col1, table2, col2):
+def register_relationship(table1: str, col1: str, table2: str, col2: str) -> None:
     """
     Register a relationship between two tables.
     Example:
@@ -55,7 +56,7 @@ def register_relationship(table1, col1, table2, col2):
     REGISTRY.add(table1, col1, table2, col2)
 
 
-def query(columns, period_tag="latest"):
+def query(columns: List[Column], period_tag: str = "latest") -> pd.DataFrame:
     """
     Auto-join query engine.
     columns: List of Column objects (e.g. Tables.Battle.TIMESTAMP)

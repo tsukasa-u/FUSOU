@@ -1,7 +1,12 @@
 
+from __future__ import annotations
+from typing import TYPE_CHECKING
 from .schema import Tables
 
-def define_core_relationships(graph):
+if TYPE_CHECKING:
+    from .query_engine import JoinGraph
+
+def define_core_relationships(graph: JoinGraph) -> None:
     """
     Define the core table relationships for the auto-join engine.
     Developers should edit this file to add or modify supported joins.
