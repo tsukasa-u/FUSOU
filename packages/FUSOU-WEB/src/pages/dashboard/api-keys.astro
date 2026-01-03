@@ -47,6 +47,30 @@ if (!user) {
             Manage your API keys for fusou-datasets
           </p>
 
+          <!-- Usage Status Section (New) -->
+          <div
+            class="mb-8 p-4 bg-base-200/50 rounded-lg border border-base-300"
+          >
+            <div class="flex justify-between items-center mb-2">
+              <h2
+                class="text-sm font-semibold uppercase tracking-wider text-base-content/70"
+              >
+                Resource Units (RU)
+              </h2>
+              <span id="ru-status-text" class="text-xs font-mono font-bold"
+                >Checking...</span
+              >
+            </div>
+            <progress
+              id="ru-progress"
+              class="progress progress-primary w-full"
+              value="0"
+              max="1000"></progress>
+            <p class="text-xs text-base-content/50 mt-2 text-right">
+              Refills automatically at 10 RU/sec. Max 1000.
+            </p>
+          </div>
+
           <!-- API Keys Section -->
           <div class="mb-8">
             <div class="flex justify-between items-center mb-4">
@@ -248,6 +272,32 @@ if (!user) {
     }
   }
 
+  async function fetchUsage() {
+    try {
+      const response = await fetch(`${API_BASE}/usage`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      const data = await response.json();
+      if (data.success && data.usage) {
+        const { remaining } = data.usage;
+        const progress = document.getElementById("ru-progress");
+        const text = document.getElementById("ru-status-text");
+
+        progress.value = remaining;
+        text.textContent = `${remaining} / 1000`;
+
+        // Color logic
+        if (remaining < 200) {
+          progress.classList.remove("progress-primary");
+          progress.classList.add("progress-error");
+          text.classList.add("text-error");
+        }
+      }
+    } catch (e) {
+      console.error("Failed to fetch RU usage", e);
+    }
+  }
+
   function renderApiKeys(keys) {
     const container = document.getElementById("api-keys-list");
     if (keys.length === 0) {
@@ -424,6 +474,7 @@ if (!user) {
   document.addEventListener("DOMContentLoaded", () => {
     fetchApiKeys();
     fetchDevices();
+    fetchUsage();
 
     // Create key button
     document

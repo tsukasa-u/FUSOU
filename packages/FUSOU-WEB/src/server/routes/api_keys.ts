@@ -8,6 +8,7 @@ import { Hono } from 'hono';
 import type { Bindings } from '../types';
 import { CORS_HEADERS } from '../constants';
 import { createEnvContext, resolveSupabaseConfig } from '../utils';
+import { checkAndDeductRU } from '../utils/ru';
 
 const app = new Hono<{ Bindings: Bindings }>();
 
@@ -136,6 +137,48 @@ async function verifyAccessToken(
 
 // OPTIONS (CORS)
 app.options('*', () => new Response(null, { status: 204, headers: CORS_HEADERS }));
+
+/**
+ * GET /api-keys/usage - Get current usage status for the authenticated user
+ */
+app.get('/usage', async (c) => {
+  const authHeader = c.req.header('Authorization');
+  if (!authHeader?.startsWith('Bearer ')) {
+    return jsonResponse({ error: 'Unauthorized' }, 401);
+  }
+
+  const accessToken = authHeader.slice(7);
+  const config = getSupabaseConfig(c);
+
+  try {
+    const user = await verifyAccessToken(config, accessToken);
+    if (!user) {
+      return jsonResponse({ error: 'Invalid token' }, 401);
+    }
+    
+    // Get RU Status
+    const env = createEnvContext(c);
+    const kv = env.runtime.DATA_LOADER_CACHE_KV;
+    let usage = {
+      remaining: 1000,
+      consumed: 0,
+      reset_at: null as number | null,
+    };
+    
+    if (kv) {
+       // Check with 0 cost to peek status
+       const result = await checkAndDeductRU(kv, user.id, 0);
+       usage.remaining = result.remaining;
+       // Note: actual consumed isn't tracked in bucket logic (only remaining is), 
+       // but we can infer or leave consumed as 0 if we don't have historical data.
+    }
+    
+    return jsonResponse({ success: true, usage });
+  } catch (error) {
+    console.error('Usage check error:', error);
+    return jsonResponse({ error: 'Internal error' }, 500);
+  }
+});
 
 /**
  * GET /api-keys - List user's API keys

@@ -29,6 +29,7 @@ Google Colab:
 import json
 import os
 import sys
+import time
 import uuid
 import re
 from importlib.metadata import version, PackageNotFoundError
@@ -275,21 +276,51 @@ def _request(method: str, endpoint: str, json_data: Optional[dict] = None, timeo
     api_url = _config.get("api_url", DEFAULT_API_URL)
     url = f"{api_url.rstrip('/')}/{endpoint.lstrip('/')}"
     
-    try:
-        return requests.request(
-            method=method,
-            url=url,
-            headers={
-                "X-API-KEY": api_key,
-                "X-CLIENT-ID": client_id,
-                "Content-Type": "application/json",
-                "User-Agent": f"FusouDatasets/{__version__}",
-            },
-            json=json_data,
-            timeout=timeout,
-        )
-    except requests.exceptions.RequestException as e:
-        raise FusouDatasetsError(f"Request failed: {e}")
+    max_retries = 3
+    for attempt in range(max_retries + 1):
+        try:
+            resp = requests.request(
+                method=method,
+                url=url,
+                headers={
+                    "X-API-KEY": api_key,
+                    "X-CLIENT-ID": client_id,
+                    "Content-Type": "application/json",
+                    "User-Agent": f"FusouDatasets/{__version__}",
+                },
+                json=json_data,
+                timeout=timeout,
+            )
+            
+            # Rate Limit Retry Logic
+            if resp.status_code == 429:
+                retry_after_val = resp.headers.get("Retry-After")
+                wait_time = 1  # default
+                if retry_after_val:
+                    try:
+                        wait_time = int(retry_after_val) + 1 # Add buffer
+                    except ValueError:
+                        pass
+                
+                if attempt < max_retries:
+                    print(f"Rate limit exceeded. Waiting {wait_time}s... (Attempt {attempt+1}/{max_retries})", file=sys.stderr)
+                    time.sleep(wait_time)
+                    continue
+                else:
+                    print("Max retries exceeded for rate limit.", file=sys.stderr)
+            
+            return resp
+
+        except requests.exceptions.RequestException as e:
+            # Maybe retry on connection error too?
+            if attempt < max_retries:
+                 print(f"Connection error: {e}. Retrying...", file=sys.stderr)
+                 time.sleep(2)
+                 continue
+            raise FusouDatasetsError(f"Request failed: {e}")
+
+    # Should not reach here
+    raise FusouDatasetsError("Request failed after retries")
 
 
 def _verify_device_colab() -> bool:
@@ -390,21 +421,46 @@ def _download_avro(url: str, _retry: bool = True) -> pd.DataFrame:
         base_url = api_url.rsplit("/api/", 1)[0] if "/api/" in api_url else api_url
         url = urljoin(base_url + "/", url.lstrip("/"))
     
-    try:
-        resp = requests.get(
-            url,
-            headers={"X-API-KEY": api_key, "X-CLIENT-ID": client_id},
-            timeout=DOWNLOAD_TIMEOUT,
-        )
-        
-        # Handle device verification required
-        if resp.status_code == 403 and _retry:
-            return _handle_403(resp, lambda: _download_avro(url, _retry=False))
-        
-        resp.raise_for_status()
-        return pd.DataFrame.from_records(list(fastavro.reader(BytesIO(resp.content))))
-    except Exception as e:
-        raise FusouDatasetsError(f"Download failed: {e}")
+    max_retries = 3
+    for attempt in range(max_retries + 1):
+        try:
+            resp = requests.get(
+                url,
+                headers={"X-API-KEY": api_key, "X-CLIENT-ID": client_id},
+                timeout=DOWNLOAD_TIMEOUT,
+            )
+            
+            # Rate Limit Retry Logic
+            if resp.status_code == 429:
+                retry_after_val = resp.headers.get("Retry-After")
+                wait_time = 1  # default
+                if retry_after_val:
+                    try:
+                        wait_time = int(retry_after_val) + 1 # Add buffer
+                    except ValueError:
+                        pass
+                
+                if attempt < max_retries:
+                    print(f"Rate limit exceeded (download). Waiting {wait_time}s... ({attempt+1}/{max_retries})", file=sys.stderr)
+                    time.sleep(wait_time)
+                    continue
+            
+            # Handle device verification required
+            if resp.status_code == 403 and _retry:
+                return _handle_403(resp, lambda: _download_avro(url, _retry=False))
+            
+            resp.raise_for_status()
+            return pd.DataFrame.from_records(list(fastavro.reader(BytesIO(resp.content))))
+
+        except requests.exceptions.RequestException as e:
+            # Maybe retry on connection error too?
+            if attempt < max_retries:
+                 print(f"Download connection error: {e}. Retrying...", file=sys.stderr)
+                 time.sleep(2)
+                 continue
+            raise FusouDatasetsError(f"Download failed: {e}")
+
+    raise FusouDatasetsError("Download failed after retries")
 
 
 # =============================================================================

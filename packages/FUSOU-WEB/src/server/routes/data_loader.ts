@@ -13,22 +13,451 @@
 import { Hono } from "hono";
 import type { Bindings } from "../types";
 import { CORS_HEADERS } from "../constants";
+import { checkAndDeductRU, RU_COSTS } from "../utils/ru";
+
 import { createEnvContext, resolveSupabaseConfig, getEnv, type EnvContext } from "../utils";
-
-const app = new Hono<{ Bindings: Bindings }>();
-
-// =============================================================================
-// Constants
-// =============================================================================
-
-const VERIFICATION_CODE_EXPIRY_MINUTES = 10;
-const LAST_USED_UPDATE_BATCH_HOURS = 1; // Only update last_used_at if older than this
 
 // CORS headers for Python client access
 const DATA_LOADER_CORS_HEADERS = {
   ...CORS_HEADERS,
   "Access-Control-Allow-Headers": "Content-Type, X-API-KEY, X-CLIENT-ID",
 };
+
+// Helper to add RU headers
+function jsonResponse(data: object, status = 200, ruStatus?: { remaining: number; consumed: number; resetAt?: number }): Response {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    ...DATA_LOADER_CORS_HEADERS,
+  };
+  if (ruStatus) {
+    if (ruStatus.consumed !== undefined) headers["X-Consumed-RU"] = String(ruStatus.consumed);
+    if (ruStatus.remaining !== undefined) headers["X-Remaining-RU"] = String(ruStatus.remaining);
+    // If rate limited, add Retry-After
+    if (status === 429 && ruStatus.resetAt) {
+        const retryAfter = Math.ceil((ruStatus.resetAt - Date.now()) / 1000);
+        headers["Retry-After"] = String(Math.max(1, retryAfter));
+    }
+  }
+  return new Response(JSON.stringify(data), {
+    status,
+    headers,
+  });
+}
+
+const app = new Hono<{ Bindings: Bindings }>();
+
+// ...
+
+/**
+ * GET /data-loader/tables - List available tables
+ * Returns list of distinct table names from archive index
+ */
+app.get("/tables", async (c) => {
+  const apiKey = c.req.header("X-API-KEY");
+  const clientId = c.req.header("X-CLIENT-ID");
+
+  if (!apiKey || !clientId) {
+    return jsonResponse({ error: "MISSING_HEADERS", message: "Authentication required" }, 401);
+  }
+
+  try {
+    const env = createEnvContext(c);
+    const apiKeyData = await validateApiKey(getSupabaseConfig(c), apiKey);
+    if (!apiKeyData) {
+      return jsonResponse({ error: "INVALID_API_KEY", message: "Invalid API key" }, 403);
+    }
+
+    // RU Check
+    const kv = env.runtime.DATA_LOADER_CACHE_KV;
+    let ruStatus;
+    if (kv) {
+      ruStatus = await checkAndDeductRU(kv, apiKeyData.user_id, RU_COSTS.LIST);
+      if (!ruStatus.allowed) {
+        return jsonResponse({
+          error: "RATE_LIMITED", 
+          message: `RU limit exceeded. Reset in ${Math.ceil((ruStatus.resetAt! - Date.now())/1000)}s`
+        }, 429, ruStatus);
+      }
+    }
+
+    const trusted = await isDeviceTrusted(getSupabaseConfig(c), apiKeyData.user_id, clientId, env.runtime.DATA_LOADER_CACHE_KV);
+    if (!trusted) {
+      const code = generateVerificationCode();
+      await saveVerificationCode(getSupabaseConfig(c), apiKeyData.user_id, clientId, code);
+      await sendVerificationEmail(env, apiKeyData.email, code);
+      return jsonResponse({
+        error: "DEVICE_UNVERIFIED",
+        message: "New device detected. Verification code sent to your email.",
+      }, 403, ruStatus);
+    }
+    const indexDb = env.runtime.BATTLE_INDEX_DB;
+    if (!indexDb) {
+      return jsonResponse({ error: "D1 database not configured" }, 500);
+    }
+
+    const stmt = indexDb.prepare(
+      `SELECT DISTINCT table_name FROM block_indexes ORDER BY table_name`
+    );
+    const result = await stmt.all?.();
+    const tables = (result?.results || []).map((r: any) => r.table_name);
+
+    return jsonResponse({
+      success: true,
+      tables,
+    }, 200, ruStatus);
+  } catch (error) {
+    console.error("Tables list error:", error);
+    return jsonResponse({ error: "INTERNAL_ERROR", message: "An internal error occurred" }, 500);
+  }
+});
+
+/**
+ * GET /data-loader/period-tags - List available period tags
+ * Returns list of distinct period tags
+ */
+app.get("/period-tags", async (c) => {
+  const apiKey = c.req.header("X-API-KEY");
+  const clientId = c.req.header("X-CLIENT-ID");
+
+  if (!apiKey || !clientId) {
+    return jsonResponse({ error: "MISSING_HEADERS", message: "Authentication required" }, 401);
+  }
+
+  try {
+    const env = createEnvContext(c);
+    const apiKeyData = await validateApiKey(getSupabaseConfig(c), apiKey);
+    if (!apiKeyData) {
+      return jsonResponse({ error: "INVALID_API_KEY", message: "Invalid API key" }, 403);
+    }
+
+    // RU Check
+    const kv = env.runtime.DATA_LOADER_CACHE_KV;
+    let ruStatus;
+    if (kv) {
+      ruStatus = await checkAndDeductRU(kv, apiKeyData.user_id, RU_COSTS.LIST);
+      if (!ruStatus.allowed) {
+        return jsonResponse({
+          error: "RATE_LIMITED", 
+          message: `RU limit exceeded. Reset in ${Math.ceil((ruStatus.resetAt! - Date.now())/1000)}s`
+        }, 429, ruStatus);
+      }
+    }
+
+    const trusted = await isDeviceTrusted(getSupabaseConfig(c), apiKeyData.user_id, clientId, env.runtime.DATA_LOADER_CACHE_KV);
+    if (!trusted) {
+      const code = generateVerificationCode();
+      await saveVerificationCode(getSupabaseConfig(c), apiKeyData.user_id, clientId, code);
+      await sendVerificationEmail(env, apiKeyData.email, code);
+      return jsonResponse({
+        error: "DEVICE_UNVERIFIED",
+        message: "New device detected. Verification code sent to your email.",
+      }, 403, ruStatus);
+    }
+
+    // Get period tags from Supabase
+    const { url, key } = getSupabaseConfig(c);
+
+    if (!url || !key) {
+      return jsonResponse({ error: "Supabase configuration missing" }, 500);
+    }
+
+    const response = await fetch(
+      `${url}/rest/v1/kc_period_tag?select=tag&order=tag.desc&limit=100`,
+      {
+        headers: {
+          apikey: key,
+          Authorization: `Bearer ${key}`,
+          Accept: "application/json",
+        },
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error("Failed to fetch period tags");
+    }
+
+    const rows = (await response.json()) as Array<{ tag: string }>;
+    const periodTags = rows.map((r) => r.tag);
+
+    // Get latest period tag
+    const latest = periodTags.length > 0 ? periodTags[0] : null;
+
+    return jsonResponse({
+        success: true,
+        period_tags: periodTags,
+        latest,
+    }, 200, ruStatus);
+  } catch (error) {
+    console.error("Period tags list error:", error);
+    return jsonResponse({ error: "INTERNAL_ERROR", message: "An internal error occurred" }, 500);
+  }
+});
+
+/**
+ * GET /data-loader/data/:table - Get data access for a table
+ * Query params:
+ *   - period_tag: specific period tag, "latest", or "all" (default: "latest")
+ *   - limit: max number of files (default: 100)
+ */
+app.get("/data/:table", async (c) => {
+  const tableName = c.req.param("table");
+  const apiKey = c.req.header("X-API-KEY");
+  const clientId = c.req.header("X-CLIENT-ID");
+  const periodTagParam = c.req.query("period_tag") || "latest";
+  const limit = Math.min(parseInt(c.req.query("limit") || "100", 10), 1000);
+
+  if (!apiKey) {
+    return jsonResponse({ error: "MISSING_API_KEY", message: "X-API-KEY header is required" }, 401);
+  }
+
+  if (!clientId) {
+    return jsonResponse({ error: "MISSING_CLIENT_ID", message: "X-CLIENT-ID header is required" }, 400);
+  }
+
+  try {
+    const env = createEnvContext(c);
+    const apiKeyData = await validateApiKey(getSupabaseConfig(c), apiKey);
+    if (!apiKeyData) {
+      return jsonResponse({ error: "INVALID_API_KEY", message: "Invalid or inactive API key" }, 403);
+    }
+
+    // Determine Base Cost
+    let cost = RU_COSTS.LATEST;
+    if (periodTagParam === "all" || periodTagParam !== "latest") {
+      cost = RU_COSTS.ARCHIVE_BASE;
+    }
+
+    // Pre-check RU (Base cost)
+    const kv = env.runtime.DATA_LOADER_CACHE_KV;
+    let ruStatus;
+    if (kv) {
+      ruStatus = await checkAndDeductRU(kv, apiKeyData.user_id, cost);
+      if (!ruStatus.allowed) {
+        return jsonResponse({
+          error: "RATE_LIMITED",
+          message: `RU limit exceeded. Cost: ${cost}. Remaining: ${ruStatus.remaining}.`
+        }, 429, ruStatus);
+      }
+    }
+
+    const trusted = await isDeviceTrusted(getSupabaseConfig(c), apiKeyData.user_id, clientId, env.runtime.DATA_LOADER_CACHE_KV);
+    if (!trusted) {
+      const code = generateVerificationCode();
+      await saveVerificationCode(getSupabaseConfig(c), apiKeyData.user_id, clientId, code);
+      await sendVerificationEmail(env, apiKeyData.email, code);
+      return jsonResponse({
+        error: "DEVICE_UNVERIFIED",
+        message: "New device detected. A verification code has been sent to your email.",
+      }, 403, ruStatus);
+    }
+
+    const indexDb = env.runtime.BATTLE_INDEX_DB;
+    if (!indexDb) {
+      return jsonResponse({ error: "D1 database not configured" }, 500);
+    }
+
+    // Resolve period tag
+    let periodTag: string | null = null;
+    if (periodTagParam === "latest") {
+      periodTag = await getLatestPeriodTag(getSupabaseConfig(c), env.runtime.DATA_LOADER_CACHE_KV);
+    } else if (periodTagParam !== "all") {
+      periodTag = periodTagParam;
+    }
+
+    // Query D1 for file paths
+    let sql = `SELECT 
+         bi.id,
+         bi.dataset_id,
+         bi.table_name,
+         bi.length AS size,
+         bi.record_count,
+         bi.start_timestamp,
+         bi.end_timestamp,
+         af.file_path,
+         af.period_tag
+       FROM block_indexes bi
+       JOIN archived_files af ON af.id = bi.file_id
+       WHERE bi.table_name = ?`;
+    const params: unknown[] = [tableName];
+
+    if (periodTag && periodTagParam !== "all") {
+        sql += ` AND af.period_tag = ?`;
+        params.push(periodTag);
+    }
+
+    sql += ` ORDER BY bi.start_timestamp DESC LIMIT ?`;
+    params.push(limit);
+
+    const stmt = indexDb.prepare(sql);
+    const result = await stmt.bind(...params).all?.();
+
+    if (!result || !result.results || result.results.length === 0) {
+      return jsonResponse({
+        error: "DATASET_NOT_FOUND",
+        message: `No data found for table '${tableName}'`,
+      }, 404, ruStatus);
+    }
+
+    const files = (result.results as any[]).map((r) => ({
+      id: r.id,
+      file_path: r.file_path,
+      period_tag: r.period_tag,
+      size: r.size,
+      record_count: r.record_count,
+      start_timestamp: r.start_timestamp,
+      end_timestamp: r.end_timestamp,
+      download_url: `/api/data-loader/download?file=${encodeURIComponent(r.file_path)}`,
+    }));
+
+    return jsonResponse({
+        success: true,
+        table: tableName,
+        period_tag: periodTag || "all",
+        count: files.length,
+        files,
+    }, 200, ruStatus);
+  } catch (error) {
+    console.error("Data loader error:", error);
+    return jsonResponse({
+      error: "INTERNAL_ERROR",
+      message: "An internal error occurred",
+    }, 500);
+  }
+});
+
+/**
+ * GET /data-loader/usage - Get current usage status
+ */
+app.get("/usage", async (c) => {
+  const apiKey = c.req.header("X-API-KEY");
+  
+  if (!apiKey) {
+    return jsonResponse({ error: "MISSING_API_KEY", message: "X-API-KEY header is required" }, 401);
+  }
+
+  try {
+    const env = createEnvContext(c);
+    const apiKeyData = await validateApiKey(getSupabaseConfig(c), apiKey);
+    if (!apiKeyData) {
+      return jsonResponse({ error: "INVALID_API_KEY", message: "Invalid or inactive API key" }, 403);
+    }
+
+    const kv = env.runtime.DATA_LOADER_CACHE_KV;
+    let usage = {
+      remaining: 1000, // Default Default Max
+      consumed: 0,
+      reset_at: null as number | null,
+    };
+
+    if (kv) {
+        // Reuse checkAndDeductRU with 0 cost to get status
+        // But checkAndDeductRU modifies KV if refilled? Yes.
+        // We can just peek?
+        // Or just call checkAndDeductRU(..., 0).
+        const result = await checkAndDeductRU(kv, apiKeyData.user_id, 0);
+        usage.remaining = result.remaining;
+        usage.consumed = 0; // Usage endpoint itself is free? Or cost 0.
+        // If we want "Total Consumed Today", we need a separate counter.
+        // The bucket only tracks "Remaining Capacity".
+        // Use "remaining" as primary metric.
+    }
+
+    return jsonResponse({
+      success: true,
+      usage,
+    });
+  } catch (error) {
+    console.error("Usage check error:", error);
+    return jsonResponse({ error: "INTERNAL_ERROR", message: "An internal error occurred" }, 500);
+  }
+});
+
+/**
+ * GET /data-loader/download - Download file from R2
+ * Redirects to signed R2 URL for direct download
+ */
+app.get("/download", async (c) => {
+  const apiKey = c.req.header("X-API-KEY");
+  const clientId = c.req.header("X-CLIENT-ID");
+  const filePath = c.req.query("file");
+  
+  if (!apiKey || !clientId) {
+    return jsonResponse({ error: "MISSING_HEADERS", message: "Authentication required" }, 401);
+  }
+  
+  if (!filePath) {
+    return jsonResponse({ error: "MISSING_FILE", message: "file parameter is required" }, 400);
+  }
+
+  try {
+    const env = createEnvContext(c);
+    const apiKeyData = await validateApiKey(getSupabaseConfig(c), apiKey);
+    if (!apiKeyData) {
+      return jsonResponse({ error: "INVALID_API_KEY", message: "Invalid or inactive API key" }, 403);
+    }
+    
+    // RU Check: Download is FREE (0 RU)
+    // We still check just to ensure they aren't "banned" (remaining > -100 etc)
+    // but effectively it's free.
+    
+    const trusted = await isDeviceTrusted(getSupabaseConfig(c), apiKeyData.user_id, clientId, env.runtime.DATA_LOADER_CACHE_KV);
+    if (!trusted) {
+        // For download, if unreachable, just error? Or 403.
+        return jsonResponse({ error: "DEVICE_UNVERIFIED", message: "Device not verified" }, 403);
+    }
+
+    const bucket = env.runtime.BUCKET;
+    const indexDb = env.runtime.BATTLE_INDEX_DB;
+    if (!bucket || !indexDb) {
+      return jsonResponse({ error: "Configuration Error", message: "R2 bucket or D1 database not configured" }, 500);
+    }
+
+    // Security Check: Validate file exists in our registry (D1)
+    // This prevents IDOR where user requests random key from bucket
+    const fileRecord = await indexDb.prepare(
+      "SELECT 1 FROM archived_files WHERE file_path = ? LIMIT 1"
+    ).bind(filePath).first();
+
+    if (!fileRecord) {
+        console.warn(`[Security] IDOR attempt or Invalid File? User=${apiKeyData.user_id} File=${filePath}`);
+        return jsonResponse({ error: "FORBIDDEN", message: "Access to this file is not authorized" }, 403);
+    }
+
+    // Generate Signed URL?
+    // Cloudflare Workers R2 binding doesn't support 'getSignedUrl' easily without aws4fetch.
+    // However, if the bucket is PRIVATE, we must Proxy or use Presigned.
+    // Since we don't have aws4fetch installed in this file's context easily...
+    // We will Proxy the body for now, but NOT charge RU.
+    // Proxying consumes Worker CPU time but for small files it's ok.
+    // If files are large, this might hit CPU limits.
+    // Given the constraints and libraries available:
+    // We will stream the object.
+    
+    const object = await bucket.get(filePath);
+
+    if (!object) {
+      return jsonResponse({ error: "FILE_NOT_FOUND", message: "File not found in storage" }, 404);
+    }
+    
+    const headers = new Headers();
+    object.writeHttpMetadata(headers);
+    headers.set("etag", object.httpEtag);
+    headers.set("Content-Disposition", `attachment; filename="${filePath.split('/').pop()}"`);
+    
+    return new Response(object.body, {
+      headers,
+    });
+    
+  } catch (error) {
+    console.error("Download error:", error);
+    return jsonResponse({ error: "INTERNAL_ERROR", message: "An internal error occurred" }, 500);
+  }
+});
+
+const VERIFICATION_CODE_EXPIRY_MINUTES = 10;
+const LAST_USED_UPDATE_BATCH_HOURS = 1; // Only update last_used_at if older than this
+
+
 
 // =============================================================================
 // Helper Functions
@@ -78,18 +507,7 @@ async function checkRateLimit(
   return false;
 }
 
-/**
- * Create JSON response with CORS headers
- */
-function jsonResponse(data: object, status = 200): Response {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: {
-      "Content-Type": "application/json",
-      ...DATA_LOADER_CORS_HEADERS,
-    },
-  });
-}
+
 
 // =============================================================================
 // Supabase Client Functions
@@ -395,244 +813,7 @@ async function getLatestPeriodTag(
   return latestTag;
 }
 
-// =============================================================================
-// Routes
-// =============================================================================
 
-// OPTIONS (CORS)
-app.options("*", () => new Response(null, { status: 204, headers: DATA_LOADER_CORS_HEADERS }));
-
-/**
- * GET /data-loader/tables - List available tables
- * Returns list of distinct table names from archive index
- */
-app.get("/tables", async (c) => {
-  const apiKey = c.req.header("X-API-KEY");
-  const clientId = c.req.header("X-CLIENT-ID");
-
-  if (!apiKey || !clientId) {
-    return jsonResponse({ error: "MISSING_HEADERS", message: "Authentication required" }, 401);
-  }
-
-  try {
-    const env = createEnvContext(c);
-    const apiKeyData = await validateApiKey(getSupabaseConfig(c), apiKey);
-    if (!apiKeyData) {
-      return jsonResponse({ error: "INVALID_API_KEY", message: "Invalid API key" }, 403);
-    }
-
-    const trusted = await isDeviceTrusted(getSupabaseConfig(c), apiKeyData.user_id, clientId, env.runtime.DATA_LOADER_CACHE_KV);
-    if (!trusted) {
-      const code = generateVerificationCode();
-      await saveVerificationCode(getSupabaseConfig(c), apiKeyData.user_id, clientId, code);
-      await sendVerificationEmail(env, apiKeyData.email, code);
-      return jsonResponse({
-        error: "DEVICE_UNVERIFIED",
-        message: "New device detected. Verification code sent to your email.",
-      }, 403);
-    }
-    const indexDb = env.runtime.BATTLE_INDEX_DB;
-    if (!indexDb) {
-      return jsonResponse({ error: "D1 database not configured" }, 500);
-    }
-
-    const stmt = indexDb.prepare(
-      `SELECT DISTINCT table_name FROM block_indexes ORDER BY table_name`
-    );
-    const result = await stmt.all?.();
-    const tables = (result?.results || []).map((r: any) => r.table_name);
-
-    return jsonResponse({
-      success: true,
-      tables,
-    });
-  } catch (error) {
-    console.error("Tables list error:", error);
-    return jsonResponse({ error: "INTERNAL_ERROR", message: "An internal error occurred" }, 500);
-  }
-});
-
-/**
- * GET /data-loader/period-tags - List available period tags
- * Returns list of distinct period tags
- */
-app.get("/period-tags", async (c) => {
-  const apiKey = c.req.header("X-API-KEY");
-  const clientId = c.req.header("X-CLIENT-ID");
-
-  if (!apiKey || !clientId) {
-    return jsonResponse({ error: "MISSING_HEADERS", message: "Authentication required" }, 401);
-  }
-
-  try {
-    const env = createEnvContext(c);
-    const apiKeyData = await validateApiKey(getSupabaseConfig(c), apiKey);
-    if (!apiKeyData) {
-      return jsonResponse({ error: "INVALID_API_KEY", message: "Invalid API key" }, 403);
-    }
-
-    const trusted = await isDeviceTrusted(getSupabaseConfig(c), apiKeyData.user_id, clientId, env.runtime.DATA_LOADER_CACHE_KV);
-    if (!trusted) {
-      const code = generateVerificationCode();
-      await saveVerificationCode(getSupabaseConfig(c), apiKeyData.user_id, clientId, code);
-      await sendVerificationEmail(env, apiKeyData.email, code);
-      return jsonResponse({
-        error: "DEVICE_UNVERIFIED",
-        message: "New device detected. Verification code sent to your email.",
-      }, 403);
-    }
-
-    // Get period tags from Supabase
-    const { url, key } = getSupabaseConfig(c);
-
-    if (!url || !key) {
-      return jsonResponse({ error: "Supabase configuration missing" }, 500);
-    }
-
-    const response = await fetch(
-      `${url}/rest/v1/kc_period_tag?select=tag&order=tag.desc&limit=100`,
-      {
-        headers: {
-          apikey: key,
-          Authorization: `Bearer ${key}`,
-          Accept: "application/json",
-        },
-      }
-    );
-
-    if (!response.ok) {
-      throw new Error("Failed to fetch period tags");
-    }
-
-    const rows = (await response.json()) as Array<{ tag: string }>;
-    const periodTags = rows.map((r) => r.tag);
-
-    // Get latest period tag
-    const latest = periodTags.length > 0 ? periodTags[0] : null;
-
-    return jsonResponse({
-      success: true,
-      period_tags: periodTags,
-      latest,
-    });
-  } catch (error) {
-    console.error("Period tags list error:", error);
-    return jsonResponse({ error: "INTERNAL_ERROR", message: "An internal error occurred" }, 500);
-  }
-});
-
-/**
- * GET /data-loader/data/:table - Get data access for a table
- * Query params:
- *   - period_tag: specific period tag, "latest", or "all" (default: "latest")
- *   - limit: max number of files (default: 100)
- */
-app.get("/data/:table", async (c) => {
-  const tableName = c.req.param("table");
-  const apiKey = c.req.header("X-API-KEY");
-  const clientId = c.req.header("X-CLIENT-ID");
-  const periodTagParam = c.req.query("period_tag") || "latest";
-  const limit = Math.min(parseInt(c.req.query("limit") || "100", 10), 1000);
-
-  if (!apiKey) {
-    return jsonResponse({ error: "MISSING_API_KEY", message: "X-API-KEY header is required" }, 401);
-  }
-
-  if (!clientId) {
-    return jsonResponse({ error: "MISSING_CLIENT_ID", message: "X-CLIENT-ID header is required" }, 400);
-  }
-
-  try {
-    const env = createEnvContext(c);
-    const apiKeyData = await validateApiKey(getSupabaseConfig(c), apiKey);
-    if (!apiKeyData) {
-      return jsonResponse({ error: "INVALID_API_KEY", message: "Invalid or inactive API key" }, 403);
-    }
-
-    const trusted = await isDeviceTrusted(getSupabaseConfig(c), apiKeyData.user_id, clientId, env.runtime.DATA_LOADER_CACHE_KV);
-    if (!trusted) {
-      const code = generateVerificationCode();
-      await saveVerificationCode(getSupabaseConfig(c), apiKeyData.user_id, clientId, code);
-      await sendVerificationEmail(env, apiKeyData.email, code);
-      return jsonResponse({
-        error: "DEVICE_UNVERIFIED",
-        message: "New device detected. A verification code has been sent to your email.",
-      }, 403);
-    }
-
-    const indexDb = env.runtime.BATTLE_INDEX_DB;
-    if (!indexDb) {
-      return jsonResponse({ error: "D1 database not configured" }, 500);
-    }
-
-    // Resolve period tag
-    let periodTag: string | null = null;
-    if (periodTagParam === "latest") {
-      periodTag = await getLatestPeriodTag(getSupabaseConfig(c), env.runtime.DATA_LOADER_CACHE_KV);
-    } else if (periodTagParam !== "all") {
-      periodTag = periodTagParam;
-    }
-
-    // Query D1 for file paths
-    let sql = `SELECT 
-         bi.id,
-         bi.dataset_id,
-         bi.table_name,
-         bi.length AS size,
-         bi.record_count,
-         bi.start_timestamp,
-         bi.end_timestamp,
-         af.file_path,
-         af.period_tag
-       FROM block_indexes bi
-       JOIN archived_files af ON af.id = bi.file_id
-       WHERE bi.table_name = ?`;
-    const params: unknown[] = [tableName];
-
-    if (periodTag && periodTagParam !== "all") {
-      sql += ` AND af.period_tag = ?`;
-      params.push(periodTag);
-    }
-
-    sql += ` ORDER BY bi.start_timestamp DESC LIMIT ?`;
-    params.push(limit);
-
-    const stmt = indexDb.prepare(sql);
-    const result = await stmt.bind(...params).all?.();
-
-    if (!result || !result.results || result.results.length === 0) {
-      return jsonResponse({
-        error: "DATASET_NOT_FOUND",
-        message: `No data found for table '${tableName}'`,
-      }, 404);
-    }
-
-    const files = (result.results as any[]).map((r) => ({
-      id: r.id,
-      file_path: r.file_path,
-      period_tag: r.period_tag,
-      size: r.size,
-      record_count: r.record_count,
-      start_timestamp: r.start_timestamp,
-      end_timestamp: r.end_timestamp,
-      download_url: `/api/data-loader/download?file=${encodeURIComponent(r.file_path)}`,
-    }));
-
-    return jsonResponse({
-      success: true,
-      table: tableName,
-      period_tag: periodTag || "all",
-      count: files.length,
-      files,
-    });
-  } catch (error) {
-    console.error("Data loader error:", error);
-    return jsonResponse({
-      error: "INTERNAL_ERROR",
-      message: "An internal error occurred",
-    }, 500);
-  }
-});
 
 /**
  * POST /data-loader/verify - Verify OTP and register device
