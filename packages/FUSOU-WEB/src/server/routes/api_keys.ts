@@ -100,7 +100,7 @@ async function supabaseRequest<T = unknown[]>(
     throw new Error(`Supabase error: ${response.status} - ${error}`);
   }
 
-  if (method === 'GET' || headers.Prefer?.includes('return=representation')) {
+  if (method === 'GET' || (headers.Prefer || (method === 'POST' ? 'return=representation' : '')).includes('return=representation')) {
     return response.json() as Promise<T>;
   }
 
@@ -176,7 +176,7 @@ app.get('/usage', async (c) => {
     return jsonResponse({ success: true, usage });
   } catch (error) {
     console.error('Usage check error:', error);
-    return jsonResponse({ error: 'Internal error' }, 500);
+    return jsonResponse({ error: 'Internal error', details: error instanceof Error ? error.message : String(error) }, 500);
   }
 });
 
@@ -267,11 +267,22 @@ app.post('/', async (c) => {
         {
           method: 'POST', // RPC calls are POST
           body: {},       // No args needed for this RPC
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
         }
       );
       
-      // If RPC returns null or empty, user is not linked
-      if (!memberMap) {
+      // If RPC returns null or empty, or returns an object with null member_id_hash, user is not linked
+      // Handle both object (single) and array (if returns setof) cases
+      let isLinked = false;
+      if (Array.isArray(memberMap)) {
+         isLinked = memberMap.length > 0 && !!memberMap[0].member_id_hash;
+      } else {
+         isLinked = !!memberMap && !!memberMap.member_id_hash;
+      }
+      
+      if (!isLinked) {
          return jsonResponse({ 
            error: 'Game account verification required', 
            message: 'You must link your KanColle game account (Member ID) before creating API keys.' 
@@ -284,6 +295,7 @@ app.post('/', async (c) => {
        return jsonResponse({ error: 'Verification check failed' }, 500);
     }
 
+    const newKey = generateApiKey();
     const result = await supabaseRequest<{ id: string; key: string }[]>(config, 'api_keys', {
       method: 'POST',
       body: {
@@ -463,7 +475,7 @@ app.delete('/devices/:id', async (c) => {
     return jsonResponse({ success: true, message: 'Device revoked' });
   } catch (error) {
     console.error('Device revoke error:', error);
-    return jsonResponse({ error: 'Internal error' }, 500);
+    return jsonResponse({ error: 'Internal error', details: error instanceof Error ? error.message : String(error) }, 500);
   }
 });
 
