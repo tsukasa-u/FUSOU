@@ -250,8 +250,39 @@ app.post('/', async (c) => {
       return jsonResponse({ error: 'Invalid token' }, 401);
     }
 
-    // Generate new API key
-    const newKey = generateApiKey();
+
+    const currentKeys = await supabaseRequest<{ id: string }[]>(config, 'api_keys', {
+      query: `?user_id=eq.${user.id}&select=id`,
+    });
+    
+    if (currentKeys && currentKeys.length >= 5) {
+      return jsonResponse({ error: 'Limit exceeded', message: 'You can create up to 5 API keys.' }, 403);
+    }
+
+    // Verify Member ID linkage (Anti-Sybil)
+    try {
+      const memberMap = await supabaseRequest<{ member_id_hash: string } | null>(
+        config,
+        'rpc/rpc_get_current_user_member_map',
+        {
+          method: 'POST', // RPC calls are POST
+          body: {},       // No args needed for this RPC
+        }
+      );
+      
+      // If RPC returns null or empty, user is not linked
+      if (!memberMap) {
+         return jsonResponse({ 
+           error: 'Game account verification required', 
+           message: 'You must link your KanColle game account (Member ID) before creating API keys.' 
+         }, 403);
+      }
+    } catch (error) {
+       // If RPC fails (e.g. function not found or error), log specific warning but maybe allow fail-open or fail-closed?
+       // Safe bet is fail-closed for security features.
+       console.error('Member verification failed:', error);
+       return jsonResponse({ error: 'Verification check failed' }, 500);
+    }
 
     const result = await supabaseRequest<{ id: string; key: string }[]>(config, 'api_keys', {
       method: 'POST',

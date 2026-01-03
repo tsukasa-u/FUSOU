@@ -98,6 +98,13 @@ if (!user) {
                 Loading...
               </div>
             </div>
+
+            <!-- Error Alert -->
+            <div
+              id="api-key-error"
+              class="hidden mb-4 p-4 text-sm text-error bg-error/10 border border-error rounded-md text-center"
+            >
+            </div>
           </div>
 
           <!-- New Key Display (hidden by default) -->
@@ -410,12 +417,22 @@ if (!user) {
         const keyValue = document.getElementById("new-key-value");
         keyValue.textContent = data.api_key.key;
         display.classList.remove("hidden");
+        document.getElementById("api-key-error").classList.add("hidden");
 
         // Refresh the list
         await fetchApiKeys();
+      } else {
+        // Show error
+        const errorDiv = document.getElementById("api-key-error");
+        errorDiv.textContent =
+          data.message || data.error || "Failed to create key";
+        errorDiv.classList.remove("hidden");
       }
     } catch (error) {
       console.error("Failed to create API key", error);
+      const errorDiv = document.getElementById("api-key-error");
+      errorDiv.textContent = "Network error or server unavailable";
+      errorDiv.classList.remove("hidden");
     }
   }
 
