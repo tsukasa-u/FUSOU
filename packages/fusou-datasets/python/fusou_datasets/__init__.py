@@ -9,7 +9,7 @@ Usage:
     
     # API key is loaded automatically from:
     # 1. Environment variable: FUSOU_API_KEY
-    # 2. Config file: ~/.fusou_loader/settings.json
+    # 2. Config file: ~/.fusou-datasets/settings.json
     
     # List available tables
     tables = fusou_datasets.list_tables()
@@ -77,7 +77,7 @@ __all__ = [
 ]
 
 DEFAULT_API_URL = "https://fusou.pages.dev/api/data-loader"
-SETTINGS_DIR = Path.home() / ".fusou_loader"
+SETTINGS_DIR = Path.home() / ".fusou-datasets"
 SETTINGS_FILE = SETTINGS_DIR / "settings.json"
 REQUEST_TIMEOUT = 30
 DOWNLOAD_TIMEOUT = 300

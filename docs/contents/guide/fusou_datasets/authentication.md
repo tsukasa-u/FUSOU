@@ -54,7 +54,7 @@ API キーをローカルに永続保存する場合:
 ```python
 import fusou_datasets
 
-# API キーを保存（~/.fusou_loader/settings.json に保存）
+# API キーを保存（~/.fusou-datasets/settings.json に保存）
 fusou_datasets.save_api_key("your_api_key_here")
 ```
 
@@ -86,7 +86,7 @@ API キーは以下の順序で検索されます:
 
 1. `configure()` で設定した値
 2. 環境変数 `FUSOU_API_KEY`
-3. 設定ファイル `~/.fusou_loader/settings.json`
+3. 設定ファイル `~/.fusou-datasets/settings.json`
 
 ## Device Trust 認証
 
@@ -185,7 +185,7 @@ fusou-datasets --client-id
 
 ### 保存場所
 
-クライアント ID は `~/.fusou_loader/settings.json` に保存されます:
+クライアント ID は `~/.fusou-datasets/settings.json` に保存されます:
 
 ```json
 {
