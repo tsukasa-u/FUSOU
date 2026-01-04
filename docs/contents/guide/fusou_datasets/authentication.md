@@ -194,7 +194,9 @@ fusou-datasets --client-id
 }
 ```
 
-> [!WARNING] > `settings.json` を削除すると新しいクライアント ID が生成され、再度デバイス認証が必要になります。
+> [!WARNING]
+>
+> `settings.json` を削除すると新しいクライアント ID が生成され、再度デバイス認証が必要になります。
 
 ## トラブルシューティング
 

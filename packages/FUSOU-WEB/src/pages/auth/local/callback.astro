@@ -119,16 +119,16 @@ cookies.delete("sb-local-provider", { path: "/" });
         <div id="set_session_error" class="hidden">
           <div class="h-6"></div>
           <div
-            class="alert alert-error bg-base-200 border border-base-300 text-sm text-base-content/80 flex items-start gap-3"
+            class="mb-6 p-4 bg-error/10 border border-error rounded-md text-sm"
           >
-            <WarningIcon class="w-6 h-6 text-error" />
+            <div class="flex items-center gap-2 mb-2 text-error font-bold">
+              <WarningIcon class="w-6 h-6" />
+              <span>We couldn't finish signing you in</span>
+            </div>
             <div>
-              <div class="font-semibold">We couldn't finish signing you in</div>
               {
                 error_message && (
-                  <p class="mt-2 text-xs text-base-content/70">
-                    Details: {error_message}
-                  </p>
+                  <p class="text-base-content/70">Details: {error_message}</p>
                 )
               }
             </div>
@@ -147,7 +147,7 @@ cookies.delete("sb-local-provider", { path: "/" });
           <div class="flex flex-col gap-3">
             <a
               href="/auth/local/signin"
-              class="btn btn-error border border-error-content text-white w-full"
+              class="btn btn-primary w-full border border-primary-content"
               >Retry sign-in</a
             >
             <div class="divider">OR</div>
@@ -157,34 +157,49 @@ cookies.delete("sb-local-provider", { path: "/" });
           </div>
         </div>
 
+        <div id="heading_success" class="hidden">
+          <div
+            class="flex items-center gap-2 text-success text-2xl font-semibold"
+          >
+            <span class="flex-1 flex justify-end"
+              ><CheckIcon class="w-6 h-6" /></span
+            >
+            <span class="text-center">Authentication successful</span>
+            <span class="flex-1"><div class="h-6 w-6"></div></span>
+          </div>
+        </div>
+
         <div id="set_session_success" class="hidden">
           <div class="flex flex-col items-center gap-2">
-            <div
-              class="flex items-center gap-2 text-success text-2xl font-semibold"
-            >
-              <span class="flex-1 flex justify-end"
-                ><CheckIcon class="w-6 h-6" /></span
-              >
-              <span class="text-center">Authentication successful</span>
-              <span class="flex-1"><div class="h-6 w-6"></div></span>
-            </div>
             <div class="text-sm text-base-content/70">
               You may now return to the app.
             </div>
           </div>
           <div class="h-6"></div>
           <div>
-            <AlertBox type="info" title="Tip">
-              <p>
+            <div
+              class="mb-6 p-4 bg-info/10 border border-info rounded-md text-sm"
+            >
+              <div class="flex items-center gap-2 mb-2 text-info font-bold">
+                <span>Tip</span>
+              </div>
+              <p class="text-base-content/70">
                 Refresh tokens have been securely stored. No further action is
                 needed on the web side.
               </p>
-            </AlertBox>
+            </div>
           </div>
           <div id="return_href_missing" class="hidden">
             <div class="h-6"></div>
-            <AlertBox type="warning" title="Return URL is invalid">
-              <p>Copy the tokens below and paste them in the app manually.</p>
+            <div
+              class="mb-6 p-4 bg-warning/10 border border-warning rounded-md text-sm"
+            >
+              <div class="flex items-center gap-2 mb-2 text-warning font-bold">
+                <span>Return URL is invalid</span>
+              </div>
+              <p class="text-base-content/70">
+                Copy the tokens below and paste them in the app manually.
+              </p>
               {
                 error_message && (
                   <p class="mt-2 text-xs text-base-content/70">
@@ -192,7 +207,7 @@ cookies.delete("sb-local-provider", { path: "/" });
                   </p>
                 )
               }
-            </AlertBox>
+            </div>
           </div>
           <div>
             <div class="h-4"></div>
