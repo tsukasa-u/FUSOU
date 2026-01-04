@@ -9,7 +9,7 @@ import react from "@astrojs/react";
 import remarkCallout from "@r4ai/remark-callout";
 import { fileURLToPath, URL } from "node:url";
 // import { nodePolyfills } from 'vite-plugin-node-polyfills';
-
+import rehypeMermaid from 'rehype-mermaid';
 import wasm from 'vite-plugin-wasm';
 import topLevelAwait from 'vite-plugin-top-level-await';
 
@@ -104,5 +104,10 @@ export default defineConfig({
   },
   markdown: {
     remarkPlugins: [remarkCallout],
+    syntaxHighlight: {
+      type: 'shiki',
+      excludeLangs: ['mermaid', 'js'],
+    },
+    rehypePlugins: [[rehypeMermaid, { strategy: 'img-svg' }]],
   },
 });
