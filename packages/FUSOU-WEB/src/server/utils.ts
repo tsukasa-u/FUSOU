@@ -350,9 +350,9 @@ export function parseSize(value: string | undefined): number | null {
  * Cloudflare R2 は S3 互換なので、S3署名でアクセス可能
  */
 export async function generateR2SignedUrl(
-  bucket: any, // R2BucketBinding
+  _bucket: any, // R2BucketBinding
   key: string,
-  expiresInSeconds: number = 3600 // デフォルト1時間
+  _expiresInSeconds: number = 3600 // デフォルト1時間
 ): Promise<string> {
   // Cloudflare R2 の GetObject に対する署名URL を生成
   // Workers 環境では bucket.createSignedUrl() を使用（利用可能な場合）

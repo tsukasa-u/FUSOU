@@ -45,7 +45,7 @@ async function enqueueDataset(
   }
 }
 
-export const scheduled: ScheduledHandler = async (event, env, ctx) => {
+export const scheduled: ScheduledHandler = async (_event, env, _ctx) => {
   const db = env.BATTLE_INDEX_DB as unknown as D1Database | undefined;
   const compactionQueue = env.COMPACTION_QUEUE as any;
 

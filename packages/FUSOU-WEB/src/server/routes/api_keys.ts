@@ -237,13 +237,6 @@ app.post('/', async (c) => {
   const accessToken = authHeader.slice(7);
   const config = getSupabaseConfig(c);
 
-  let body: { name?: string } = {};
-  try {
-    body = await c.req.json();
-  } catch {
-    // Empty body is allowed
-  }
-
   try {
     const user = await verifyAccessToken(config, accessToken);
     if (!user) {

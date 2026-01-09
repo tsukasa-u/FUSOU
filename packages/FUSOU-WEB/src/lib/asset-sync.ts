@@ -1,5 +1,3 @@
-import type { SupabaseClient } from '@supabase/supabase-js';
-
 export interface AssetIndexItem {
   key: string;
   contentHash: string | null;

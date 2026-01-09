@@ -69,7 +69,7 @@ app.get("/tables", async (c) => {
 
     // RU Check
     const kv = env.runtime.DATA_LOADER_CACHE_KV;
-    let ruStatus;
+    let ruStatus: { allowed: boolean; remaining: number; consumed: number; resetAt?: number } | undefined;
     if (kv) {
       ruStatus = await checkAndDeductRU(kv, apiKeyData.user_id, RU_COSTS.LIST);
       if (!ruStatus.allowed) {
@@ -132,7 +132,7 @@ app.get("/period-tags", async (c) => {
 
     // RU Check
     const kv = env.runtime.DATA_LOADER_CACHE_KV;
-    let ruStatus;
+    let ruStatus: { allowed: boolean; remaining: number; consumed: number; resetAt?: number } | undefined;
     if (kv) {
       ruStatus = await checkAndDeductRU(kv, apiKeyData.user_id, RU_COSTS.LIST);
       if (!ruStatus.allowed) {
@@ -229,7 +229,7 @@ app.get("/data/:table", async (c) => {
 
     // Pre-check RU (Base cost)
     const kv = env.runtime.DATA_LOADER_CACHE_KV;
-    let ruStatus;
+    let ruStatus: { allowed: boolean; remaining: number; consumed: number; resetAt?: number } | undefined;
     if (kv) {
       ruStatus = await checkAndDeductRU(kv, apiKeyData.user_id, cost);
       if (!ruStatus.allowed) {

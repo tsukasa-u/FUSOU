@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import type { Bindings } from '../types';
-import { CORS_HEADERS, MAX_UPLOAD_BYTES } from '../constants';
+import { CORS_HEADERS } from '../constants';
 import { validateJWT, createEnvContext } from '../utils';
 import { runCompactionJob } from '../compaction/job';
 
@@ -104,7 +104,7 @@ app.post('/sanitize-state', async (c) => {
       return c.json({ error: 'Invalid or expired JWT token' }, 401);
     }
 
-    let body;
+    let body: { datasetId?: string };
     try {
       body = await c.req.json();
     } catch (error) {

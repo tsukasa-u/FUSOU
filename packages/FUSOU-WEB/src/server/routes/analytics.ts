@@ -38,11 +38,11 @@ app.get('/compaction-metrics', async (c) => {
       'SELECT dataset_id, error_step, error_message, created_at FROM compaction_metrics WHERE status = "failure" ORDER BY created_at DESC LIMIT 10'
     )
     .all?.();
-  const dlqFailures = (dlqRows?.results ?? []).map((r) => ({
-    dataset_id: String((r as any).dataset_id ?? ''),
-    error_step: (r as any).error_step ?? null,
-    error_message: (r as any).error_message ?? null,
-    created_at: (r as any).created_at,
+  const dlqFailures = (dlqRows?.results ?? []).map((r: any) => ({
+    dataset_id: String(r.dataset_id ?? ''),
+    error_step: r.error_step ?? null,
+    error_message: r.error_message ?? null,
+    created_at: r.created_at,
   }));
   const dlqCount = dlqFailures.length;
 
@@ -52,10 +52,10 @@ app.get('/compaction-metrics', async (c) => {
       "SELECT strftime('%Y-%m-%dT%H:00:00Z', created_at) AS hour, SUM(CASE WHEN status='success' THEN 1 ELSE 0 END) AS success_count, SUM(CASE WHEN status='failure' THEN 1 ELSE 0 END) AS failure_count FROM compaction_metrics WHERE created_at >= datetime('now','-1 day') GROUP BY hour ORDER BY hour DESC LIMIT 12"
     )
     .all?.();
-  const hourlyPerformance = (perfRows?.results ?? []).map((r) => ({
-    hour: (r as any).hour,
-    success_count: Number((r as any).success_count ?? 0),
-    failure_count: Number((r as any).failure_count ?? 0),
+  const hourlyPerformance = (perfRows?.results ?? []).map((r: any) => ({
+    hour: r.hour,
+    success_count: Number(r.success_count ?? 0),
+    failure_count: Number(r.failure_count ?? 0),
   }));
 
   // Error analysis: top steps causing failures
@@ -64,10 +64,10 @@ app.get('/compaction-metrics', async (c) => {
       "SELECT error_step, COUNT(1) AS error_count, MAX(created_at) AS latest_error_at FROM compaction_metrics WHERE status = 'failure' AND error_step IS NOT NULL GROUP BY error_step ORDER BY error_count DESC LIMIT 10"
     )
     .all?.();
-  const errorAnalysis = (errRows?.results ?? []).map((r) => ({
-    error_step: (r as any).error_step,
-    error_count: Number((r as any).error_count ?? 0),
-    latest_error_at: (r as any).latest_error_at,
+  const errorAnalysis = (errRows?.results ?? []).map((r: any) => ({
+    error_step: r.error_step,
+    error_count: Number(r.error_count ?? 0),
+    latest_error_at: r.latest_error_at,
   }));
 
   const statusDistribution = [

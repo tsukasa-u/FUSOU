@@ -52,8 +52,6 @@
     "astro-icon": "^1.1.5",
     "tailwindcss": "^4.1.17",
     "typescript": "^5.9.3",
-    "vite-plugin-top-level-await": "^1.6.0",
-    "vite-plugin-wasm": "^3.5.0",
     "wrangler": "^4.51.0"
   }
 }

@@ -235,7 +235,7 @@ app.get("/keys", async (c) => {
 
     while (true) {
       // Use conditional query based on whether 'since' is provided
-      let stmt;
+      let stmt: D1PreparedStatement;
       if (sinceMs) {
         stmt = db
           .prepare(

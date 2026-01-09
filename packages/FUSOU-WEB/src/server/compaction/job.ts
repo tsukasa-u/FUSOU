@@ -1,4 +1,3 @@
-import { createClient } from "@supabase/supabase-js";
 import type { Bindings } from "../types";
 // Note: We'll dynamically import workflow module later once pathing is finalized
 
