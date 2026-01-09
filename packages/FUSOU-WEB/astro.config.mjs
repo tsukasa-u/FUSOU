@@ -108,6 +108,6 @@ export default defineConfig({
       type: 'shiki',
       excludeLangs: ['mermaid', 'js'],
     },
-    rehypePlugins: [[rehypeMermaid, { strategy: 'img-svg' }]],
+    rehypePlugins: [[rehypeMermaid, { strategy: 'pre-mermaid' }]],
   },
 });

@@ -74,9 +74,10 @@ __all__ = [
     "Tables",
     "query",
     "register_relationship",
+    "show_welcome_message",
 ]
 
-DEFAULT_API_URL = "https://fusou.pages.dev/api/data-loader"
+DEFAULT_API_URL = os.getenv("FUSOU_API_URL", "https://r2-parquet.fusou.pages.dev/api/data-loader")
 SETTINGS_DIR = Path.home() / ".fusou-datasets"
 SETTINGS_FILE = SETTINGS_DIR / "settings.json"
 REQUEST_TIMEOUT = 30
@@ -96,10 +97,17 @@ Fusou Datasets v{version}
      Redistribution of raw data is prohibited. Visit: https://fusou.dev/terms
 [JP] このライブラリを使用することで、データを研究目的のみに使用することに同意します。
      生データの再配布は禁止です。詳細: https://fusou.dev/terms
+--------------------------------------------------------------------------------
+Get your API Key at: https://fusou.dev/dashboard/api-keys
 ================================================================================
 """
-if not os.getenv("FUSOU_DATASETS_SILENT"):
-    print(_TERMS.format(version=__version__), file=sys.stderr)
+def show_welcome_message():
+    """Show the welcome message and license information."""
+    if not os.getenv("FUSOU_DATASETS_SILENT"):
+        print(_TERMS.format(version=__version__), file=sys.stderr)
+
+# Show welcome message on import
+show_welcome_message()
 
 
 
