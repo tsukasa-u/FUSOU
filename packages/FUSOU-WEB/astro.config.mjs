@@ -53,7 +53,7 @@ export default defineConfig({
       // topLevelAwait(),
     ],
     define: {
-      // PUBLIC_ prefixed variables (for client-side access)
+      // PUBLIC_ prefixed variables (for client-side access via process.env)
       "process.env.PUBLIC_SUPABASE_URL": JSON.stringify(
         process.env.PUBLIC_SUPABASE_URL
       ),
@@ -66,8 +66,14 @@ export default defineConfig({
       "process.env.PUBLIC_CLOUDFLARE_ANALYTICS_TOKEN": JSON.stringify(
         process.env.PUBLIC_CLOUDFLARE_ANALYTICS_TOKEN
       ),
-      // Server-side secrets: inject into import.meta.env for getEnv() access
+      // Server-side: inject into import.meta.env for getEnv() access via ctx.buildtime
       // dotenvx decrypts .env values into process.env before Astro build
+      "import.meta.env.PUBLIC_SUPABASE_URL": JSON.stringify(
+        process.env.PUBLIC_SUPABASE_URL
+      ),
+      "import.meta.env.PUBLIC_SUPABASE_PUBLISHABLE_KEY": JSON.stringify(
+        process.env.PUBLIC_SUPABASE_PUBLISHABLE_KEY
+      ),
       "import.meta.env.SUPABASE_SECRET_KEY": JSON.stringify(
         process.env.SUPABASE_SECRET_KEY
       ),
