@@ -53,12 +53,14 @@ export default defineConfig({
       // topLevelAwait(),
     ],
     define: {
-      // PUBLIC_ prefixed variables (for client-side access via process.env)
       "process.env.PUBLIC_SUPABASE_URL": JSON.stringify(
         process.env.PUBLIC_SUPABASE_URL
       ),
       "process.env.PUBLIC_SUPABASE_PUBLISHABLE_KEY": JSON.stringify(
         process.env.PUBLIC_SUPABASE_PUBLISHABLE_KEY
+      ),
+      "process.env.SUPABASE_SECRET_KEY": JSON.stringify(
+        process.env.SUPABASE_SECRET_KEY
       ),
       "process.env.PUBLIC_SITE_URL": JSON.stringify(
         process.env.PUBLIC_SITE_URL
@@ -66,37 +68,23 @@ export default defineConfig({
       "process.env.PUBLIC_CLOUDFLARE_ANALYTICS_TOKEN": JSON.stringify(
         process.env.PUBLIC_CLOUDFLARE_ANALYTICS_TOKEN
       ),
-      // Server-side: inject into import.meta.env for getEnv() access via ctx.buildtime
-      // dotenvx decrypts .env values into process.env before Astro build
-      "import.meta.env.PUBLIC_SUPABASE_URL": JSON.stringify(
-        process.env.PUBLIC_SUPABASE_URL
-      ),
-      "import.meta.env.PUBLIC_SUPABASE_PUBLISHABLE_KEY": JSON.stringify(
-        process.env.PUBLIC_SUPABASE_PUBLISHABLE_KEY
-      ),
-      "import.meta.env.SUPABASE_SECRET_KEY": JSON.stringify(
-        process.env.SUPABASE_SECRET_KEY
-      ),
-      "import.meta.env.ASSET_UPLOAD_SIGNING_SECRET": JSON.stringify(
+      "process.env.ASSET_UPLOAD_SIGNING_SECRET": JSON.stringify(
         process.env.ASSET_UPLOAD_SIGNING_SECRET
       ),
-      "import.meta.env.FLEET_SNAPSHOT_SIGNING_SECRET": JSON.stringify(
+      "process.env.FLEET_SNAPSHOT_SIGNING_SECRET": JSON.stringify(
         process.env.FLEET_SNAPSHOT_SIGNING_SECRET
       ),
-      "import.meta.env.BATTLE_DATA_SIGNING_SECRET": JSON.stringify(
+      "process.env.BATTLE_DATA_SIGNING_SECRET": JSON.stringify(
         process.env.BATTLE_DATA_SIGNING_SECRET
       ),
-      "import.meta.env.BATTLE_DATA_SIGNED_URL_SECRET": JSON.stringify(
+      "process.env.BATTLE_DATA_SIGNED_URL_SECRET": JSON.stringify(
         process.env.BATTLE_DATA_SIGNED_URL_SECRET
       ),
-      "import.meta.env.GOOGLE_CLIENT_ID": JSON.stringify(
+      "process.env.GOOGLE_CLIENT_ID": JSON.stringify(
         process.env.GOOGLE_CLIENT_ID
       ),
-      "import.meta.env.GOOGLE_CLIENT_SECRET": JSON.stringify(
+      "process.env.GOOGLE_CLIENT_SECRET": JSON.stringify(
         process.env.GOOGLE_CLIENT_SECRET
-      ),
-      "import.meta.env.RESEND_API_KEY": JSON.stringify(
-        process.env.RESEND_API_KEY
       ),
     },
     resolve: {
