@@ -86,6 +86,9 @@ export default defineConfig({
       "process.env.GOOGLE_CLIENT_SECRET": JSON.stringify(
         process.env.GOOGLE_CLIENT_SECRET
       ),
+      "process.env.RESEND_API_KEY": JSON.stringify(
+        process.env.RESEND_API_KEY
+      ),
     },
     resolve: {
       // @ts-ignore
