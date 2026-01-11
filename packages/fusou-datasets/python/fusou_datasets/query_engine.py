@@ -68,17 +68,54 @@ def register_relationship(table1: str, col1: str, table2: str, col2: str) -> Non
     REGISTRY.add(table1, col1, table2, col2)
 
 
-def query(columns: List[Column], period_tag: str = "latest") -> pd.DataFrame:
+def query(
+    columns: List[Column],
+    period_tag: str = "latest"
+) -> pd.DataFrame:
     """
-    Auto-join query engine.
-    columns: List of Column objects (e.g. Tables.Battle.TIMESTAMP)
+    Query cached data with auto-join.
+    
+    This function only works with cached data. Use load() to download 
+    and cache required tables before querying.
+    
+    Args:
+        columns: List of Column objects (e.g. Tables.Battle.TIMESTAMP)
+        period_tag: "latest", "all", or specific tag
+        
+    Returns:
+        pd.DataFrame: Merged DataFrame with requested columns
+        
+    Raises:
+        DatasetNotFoundError: If required tables are not cached
+        
+    Example:
+        # Step 1: Load required tables
+        fusou_datasets.load("battle")
+        fusou_datasets.load("own_deck")
+        
+        # Step 2: Query
+        from fusou_datasets import Tables, query
+        result = query([Tables.Battle.TIMESTAMP, Tables.OwnDeck.UUID])
     """
-    from . import load # Avoid circular import
+    from . import _config, DatasetNotFoundError
+    from pathlib import Path
+    import pandas as pd
 
     if not columns:
         return pd.DataFrame()
 
-    # 1. Identify Tables
+    # Check cache configuration
+    cache_dir = _config.get("cache_dir")
+    if not cache_dir:
+        raise DatasetNotFoundError(
+            "❌ Query requires cache configuration\n\n"
+            "To use query():\n"
+            "  1. Configure cache: fusou_datasets.configure(cache_dir='~/.fusou_datasets/cache')\n"
+            "  2. Load tables: fusou_datasets.load('table_name')\n"
+            "  3. Then query: query([Tables.X.Y, ...])"
+        )
+
+    # 1. Identify required tables
     target_tables = set()
     col_map = {} 
     
@@ -94,63 +131,76 @@ def query(columns: List[Column], period_tag: str = "latest") -> pd.DataFrame:
     if not target_tables_list:
         return pd.DataFrame()
 
-    # 2. Find Spanning Strategy
+    # 2. Find all required tables (including intermediate tables for joins)
     base_table = target_tables_list[0]
-    print(f"Loading base table: {base_table}")
+    all_required_tables = {base_table}
     
-    main_df = load(base_table, period_tag=period_tag)
-    
-    merged_tables = {base_table}
-    
-    # 3. Calculate Edges needed
-    edges_to_merge = []
     targets = list(set(target_tables_list) - {base_table})
+    edges_to_merge = []
     for t in targets:
         path = REGISTRY.find_path(base_table, t)
-        if not path: raise ValueError(f"No path defined between {base_table} and {t}")
+        if not path:
+            raise ValueError(f"No relationship defined between {base_table} and {t}")
         for edge in path:
+            # Add intermediate tables
+            all_required_tables.add(edge[0])
+            all_required_tables.add(edge[2])
             if edge not in edges_to_merge:
-                # check reverse
                 rev = (edge[2], edge[3], edge[0], edge[1])
                 if rev not in edges_to_merge:
                     edges_to_merge.append(edge)
+
+    # 3. Check which tables are missing from cache
+    missing_tables = []
+    cached_data = {}
+    cache_path = Path(cache_dir)
     
-    # 4. Execute Merge
-    # Iterative expansion
-    while len(merged_tables) < len(target_tables) or edges_to_merge:
+    for table in all_required_tables:
+        data_file = cache_path / table / period_tag / "data.parquet"
+        if data_file.exists():
+            cached_data[table] = pd.read_parquet(data_file)
+        else:
+            missing_tables.append(table)
+    
+    if missing_tables:
+        missing_list = "\n".join(f"  - fusou_datasets.load('{t}', period_tag='{period_tag}')" for t in sorted(missing_tables))
+        raise DatasetNotFoundError(
+            f"❌ Missing cached data for query\n\n"
+            f"The following tables need to be loaded first:\n{missing_list}\n\n"
+            "💡 After loading, run your query again."
+        )
+
+    # 4. Execute joins using cached data
+    print(f"Querying from cache: {base_table}")
+    main_df = cached_data[base_table]
+    merged_tables = {base_table}
+    
+    while len(merged_tables) < len(all_required_tables) or edges_to_merge:
         progress = False
         remaining_edges = []
         for (t1, c1, t2, c2) in edges_to_merge:
             if t1 in merged_tables and t2 not in merged_tables:
-                print(f"Merging {t2} on {c1}={c2}...")
-                df2 = load(t2, period_tag=period_tag)
-                # Ensure join key exists
-                if c1 not in main_df.columns:
-                     # Attempt to find suffixed column?
-                     # For now assume base table cols are pure, others suffixed.
-                     pass 
-                
+                print(f"Joining {t2} on {c1}={c2}...")
+                df2 = cached_data[t2]
                 main_df = pd.merge(main_df, df2, left_on=c1, right_on=c2, how="inner", suffixes=("", f"_{t2}"))
                 merged_tables.add(t2)
                 progress = True
             elif t2 in merged_tables and t1 not in merged_tables:
-                print(f"Merging {t1} on {c2}={c1}...")
-                df1 = load(t1, period_tag=period_tag)
+                print(f"Joining {t1} on {c2}={c1}...")
+                df1 = cached_data[t1]
                 main_df = pd.merge(main_df, df1, left_on=c2, right_on=c1, how="inner", suffixes=("", f"_{t1}"))
                 merged_tables.add(t1)
                 progress = True
             elif t1 in merged_tables and t2 in merged_tables:
-                # Already merged
                 pass
             else:
-                remaining_edges.append((t1,c1,t2,c2))
+                remaining_edges.append((t1, c1, t2, c2))
         
         edges_to_merge = remaining_edges
         if not progress and edges_to_merge:
-             # If we still have edges but made no progress, we might be stuck or disjoint?
-             # But find_path verified connectivity.
-             break 
-        if not edges_to_merge: break
+            break
+        if not edges_to_merge:
+            break
 
     return main_df
 

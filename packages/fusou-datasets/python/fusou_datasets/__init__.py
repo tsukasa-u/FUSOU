@@ -7,19 +7,21 @@ Secure data loader for FUSOU research datasets with Device Trust authentication.
 Usage:
     import fusou_datasets
     
+    # Show usage guide
+    fusou_datasets.help()
+    
     # API key is loaded automatically from:
     # 1. Environment variable: FUSOU_API_KEY
     # 2. Config file: ~/.fusou-datasets/settings.json
     
-    # List available tables
+    # List and load data
     tables = fusou_datasets.list_tables()
+    df = fusou_datasets.load("ship_type")
     
-    # List period tags
-    tags = fusou_datasets.list_period_tags()
-    
-    # Load data
-    df = fusou_datasets.load("ship_type")  # latest period
-    df = fusou_datasets.load("ship_type", period_tag="all")  # all periods
+    # Enable caching (optional)
+    fusou_datasets.configure(cache_dir="~/.fusou_datasets/cache")
+    df = fusou_datasets.load("ship_type")  # Cached locally
+    df = fusou_datasets.load("ship_type", offline=True)  # Use cache without server check
 
 Google Colab:
     In Google Colab, if your Google account email matches the API key email,
@@ -66,6 +68,7 @@ __all__ = [
     "list_tables",
     "list_period_tags",
     "load",
+    "clear_cache",
     "get_client_id",
     "FusouDatasetsError",
     "AuthenticationError",
@@ -75,6 +78,7 @@ __all__ = [
     "query",
     "register_relationship",
     "show_welcome_message",
+    "help",
 ]
 
 DEFAULT_API_URL = os.getenv("FUSOU_API_URL", "https://r2-parquet.fusou.pages.dev/api/data-loader")
@@ -203,12 +207,26 @@ def _get_colab_credentials() -> Optional[Dict[str, str]]:
 # Configuration
 # =============================================================================
 
-def configure(api_key: Optional[str] = None, api_url: Optional[str] = None) -> None:
-    """Configure API credentials."""
+def configure(
+    api_key: Optional[str] = None,
+    api_url: Optional[str] = None,
+    cache_dir: Optional[str] = None
+) -> None:
+    """
+    Configure API credentials and caching.
+    
+    Args:
+        api_key: API key for authentication
+        api_url: Custom API URL (optional)
+        cache_dir: Directory for local data caching (enables caching when set)
+    """
     if api_key:
         _config["api_key"] = api_key
     if api_url:
         _config["api_url"] = api_url
+    if cache_dir is not None:
+        # Expand ~ and resolve path
+        _config["cache_dir"] = str(Path(cache_dir).expanduser().resolve())
 
 
 def save_api_key(api_key: str) -> None:
@@ -253,8 +271,12 @@ def _get_api_key() -> str:
         return settings["api_key"]
     
     raise AuthenticationError(
-        "API key not configured. Set FUSOU_API_KEY environment variable "
-        "or call fusou_datasets.save_api_key('your_key')"
+        "❌ API key not configured / APIキーが設定されていません\n\n"
+        "To fix this, do ONE of the following:\n"
+        "  1. Set environment variable: export FUSOU_API_KEY='your_key'\n"
+        "  2. Save it permanently: fusou_datasets.save_api_key('your_key')\n"
+        "  3. Configure in code: fusou_datasets.configure(api_key='your_key')\n\n"
+        "📝 Get your API key at: https://fusou.dev/dashboard/api-keys"
     )
 
 
@@ -368,17 +390,34 @@ def _verify_device_colab() -> bool:
 
 def _verify_device_code() -> bool:
     """Verify device using email code (interactive)."""
-    print("\n" + "=" * 50, file=sys.stderr)
-    print("DEVICE VERIFICATION / デバイス認証", file=sys.stderr)
-    print("Check your email for the verification code.", file=sys.stderr)
-    print("メールで認証コードを確認してください。", file=sys.stderr)
-    print("=" * 50, file=sys.stderr)
+    print("\n" + "=" * 60, file=sys.stderr)
+    print("🔐 DEVICE VERIFICATION REQUIRED / デバイス認証が必要です", file=sys.stderr)
+    print("=" * 60, file=sys.stderr)
+    print("", file=sys.stderr)
+    print("[EN] This is a new device. A 6-digit verification code has been", file=sys.stderr)
+    print("     sent to your email address registered with your API key.", file=sys.stderr)
+    print("", file=sys.stderr)
+    print("[JP] 新しいデバイスからのアクセスです。APIキーに登録された", file=sys.stderr)
+    print("     メールアドレスに6桁の認証コードを送信しました。", file=sys.stderr)
+    print("", file=sys.stderr)
+    print("📧 Check your email from: noreply@fusou.dev", file=sys.stderr)
+    print("   Subject: [FUSOU] Device Verification Code", file=sys.stderr)
+    print("", file=sys.stderr)
+    print("💡 Tips / ヒント:", file=sys.stderr)
+    print("   - Check spam/junk folder / 迷惑メールフォルダを確認", file=sys.stderr)
+    print("   - Code expires in 10 minutes / コードは10分で有効期限切れ", file=sys.stderr)
+    print("   - Get API key: https://fusou.dev/dashboard/api-keys", file=sys.stderr)
+    print("=" * 60, file=sys.stderr)
     
     for attempt in range(3):
         try:
             code = input(f"Code ({attempt+1}/3): ").strip()
         except (EOFError, KeyboardInterrupt):
-            raise VerificationError("Verification cancelled")
+            raise VerificationError(
+                "\n\nℹ️ Verification cancelled / 認証がキャンセルされました\n\n"
+                "To continue, call any API function again (e.g., fusou_datasets.list_tables())\n"
+                "A new verification code will be sent to your email."
+            )
         
         if not code:
             continue
@@ -389,7 +428,13 @@ def _verify_device_code() -> bool:
             return True
         print("✗ Invalid code", file=sys.stderr)
     
-    raise VerificationError("Max attempts exceeded")
+    raise VerificationError(
+        "❌ Max verification attempts exceeded / 認証試行回数を超えました\n\n"
+        "You can:\n"
+        "  1. Restart and try again: fusou_datasets.list_tables()\n"
+        "  2. Request a new code (automatically sent on next API call)\n"
+        "  3. Check your email for the latest code from noreply@fusou.dev"
+    )
 
 
 def _verify_device() -> bool:
@@ -412,11 +457,24 @@ def _handle_403(response: requests.Response, retry_func, *args, **kwargs):
             _verify_device()
             return retry_func(*args, **kwargs, _retry=False)
         elif data.get("error") == "INVALID_API_KEY":
-            raise AuthenticationError("Invalid API key")
+            raise AuthenticationError(
+                "❌ Invalid or inactive API key / 無効なAPIキーです\n\n"
+                "Possible causes:\n"
+                "  - API key was revoked or deleted\n"
+                "  - API key is incorrect (copy-paste error)\n\n"
+                "To fix:\n"
+                "  1. Check your API key at: https://fusou.dev/dashboard/api-keys\n"
+                "  2. Update it: fusou_datasets.save_api_key('your_new_key')"
+            )
     except json.JSONDecodeError:
-        # If the response body is not valid JSON, treat it as a generic access denial.
         pass
-    raise AuthenticationError("Access denied")
+    raise AuthenticationError(
+        "❌ Access denied / アクセスが拒否されました\n\n"
+        "Please check:\n"
+        "  1. Your API key is valid: https://fusou.dev/dashboard/api-keys\n"
+        "  2. Your account is active\n"
+        "  3. You have the required permissions"
+    )
 
 
 def _download_avro(url: str, _retry: bool = True) -> pd.DataFrame:
@@ -475,13 +533,47 @@ def _download_avro(url: str, _retry: bool = True) -> pd.DataFrame:
 # Public API
 # =============================================================================
 
+def _parse_error_response(resp: requests.Response) -> str:
+    """Parse error response and return a helpful error message."""
+    try:
+        data = resp.json()
+        error_code = data.get("error", "UNKNOWN")
+        message = data.get("message", "")
+        if message:
+            return f"{error_code}: {message}"
+        return error_code
+    except (json.JSONDecodeError, ValueError):
+        return resp.text[:200] if resp.text else f"HTTP {resp.status_code}"
+
+
+def _raise_api_error(resp: requests.Response, context: str = "") -> None:
+    """Raise appropriate exception based on response status."""
+    error_detail = _parse_error_response(resp)
+    
+    if resp.status_code == 500:
+        raise FusouDatasetsError(
+            f"Server error ({context}): {error_detail}\n"
+            "This may be a temporary issue. Please try again later.\n"
+            "If the problem persists, contact support: https://fusou.dev/support"
+        )
+    elif resp.status_code == 401:
+        raise AuthenticationError(
+            f"Authentication failed: {error_detail}\n"
+            "Make sure your API key is valid. Get one at: https://fusou.dev/dashboard/api-keys"
+        )
+    elif resp.status_code == 404:
+        raise DatasetNotFoundError(f"Not found: {error_detail}")
+    else:
+        raise FusouDatasetsError(f"Request failed ({context}): HTTP {resp.status_code} - {error_detail}")
+
+
 def list_tables(_retry: bool = True) -> List[str]:
     """List available tables."""
     resp = _request("GET", "/tables")
     if resp.status_code == 403 and _retry:
         return _handle_403(resp, list_tables)
     if resp.status_code != 200:
-        raise FusouDatasetsError(f"Failed (HTTP {resp.status_code})")
+        _raise_api_error(resp, "list_tables")
     return resp.json().get("tables", [])
 
 
@@ -496,7 +588,7 @@ def list_period_tags(_retry: bool = True) -> Dict[str, Any]:
     if resp.status_code == 403 and _retry:
         return _handle_403(resp, list_period_tags)
     if resp.status_code != 200:
-        raise FusouDatasetsError(f"Failed (HTTP {resp.status_code})")
+        _raise_api_error(resp, "list_period_tags")
     data = resp.json()
     return {"period_tags": data.get("period_tags", []), "latest": data.get("latest")}
 
@@ -511,13 +603,23 @@ def _load_impl(table: str, period_tag: str = "latest", limit: int = 100, show_pr
     if resp.status_code == 403 and _retry:
         return _handle_403(resp, lambda: _load_impl(table, period_tag, limit, show_progress, _retry=False))
     if resp.status_code == 404:
-        raise DatasetNotFoundError(f"No data for '{table}' with period_tag='{period_tag}'")
+        raise DatasetNotFoundError(
+            f"❌ No data found for table '{table}' with period_tag='{period_tag}'\n\n"
+            "Tips:\n"
+            "  1. Check available tables: fusou_datasets.list_tables()\n"
+            "  2. Check available periods: fusou_datasets.list_period_tags()\n"
+            "  3. Try: fusou_datasets.load(table, period_tag='all')"
+        )
     if resp.status_code != 200:
-        raise FusouDatasetsError(f"Failed (HTTP {resp.status_code})")
+        _raise_api_error(resp, f"load/{table}")
     
     files = resp.json().get("files", [])
     if not files:
-        raise DatasetNotFoundError(f"No files for '{table}'")
+        raise DatasetNotFoundError(
+            f"❌ No files found for table '{table}'\n\n"
+            "The table exists but has no data files yet.\n"
+            "Check available tables: fusou_datasets.list_tables()"
+        )
     
     dfs = []
     file_iter = tqdm(files, desc=f"Loading {table}", unit="file", disable=not show_progress)
@@ -534,7 +636,90 @@ def _load_impl(table: str, period_tag: str = "latest", limit: int = 100, show_pr
     return pd.concat(dfs, ignore_index=True)
 
 
-def load(table: str, period_tag: str = "latest", limit: int = 100, show_progress: bool = True) -> pd.DataFrame:
+def _download_files(files: list, table: str, show_progress: bool = True) -> pd.DataFrame:
+    """Download files and return combined DataFrame."""
+    if not files:
+        raise DatasetNotFoundError(f"No files to download for table '{table}'")
+    
+    dfs = []
+    api_url = _config.get("api_url", DEFAULT_API_URL)
+    # Parse base URL from api_url (e.g. https://domain.com/api -> https://domain.com)
+    import urllib.parse
+    parsed = urllib.parse.urlparse(api_url)
+    base_url = f"{parsed.scheme}://{parsed.netloc}"
+
+    file_iter = tqdm(files, desc=f"Loading {table}", unit="file", disable=not show_progress)
+    for f in file_iter:
+        url = f.get("download_url")
+        if url and url.startswith("/"):
+            url = f"{base_url}{url}"
+            
+        if url:
+            try:
+                dfs.append(_download_avro(url))
+            except Exception as e:
+                msg = f"Warning: Failed to download {f.get('file_path')}\n  URL: {url}\n  Error: {str(e)}"
+                if hasattr(e, 'response') and e.response:
+                     msg += f"\n  Status: {e.response.status_code}\n  Response: {e.response.text[:200]}"
+                print(msg, file=sys.stderr)
+    
+    if not dfs:
+        raise FusouDatasetsError(
+            f"No files downloaded (out of {len(files)} files).\n"
+            "This usually indicates a network issue, permission problem, or server-side error.\n"
+            "Check the warnings above for specific details."
+        )
+    return pd.concat(dfs, ignore_index=True)
+
+
+def _load_impl_with_files(
+    table: str,
+    period_tag: str,
+    limit: int,
+    show_progress: bool,
+    scope: str,
+    _retry: bool
+) -> tuple:
+    """Load implementation that returns (DataFrame, files_list) tuple."""
+    if not table:
+        raise ValueError("Table name required")
+    
+    resp = _request("GET", f"/data/{table}?period_tag={period_tag}&limit={limit}&scope={scope}")
+    
+    if resp.status_code == 403 and _retry:
+        return _handle_403(resp, lambda: _load_impl_with_files(table, period_tag, limit, show_progress, scope, _retry=False))
+    if resp.status_code == 404:
+        raise DatasetNotFoundError(
+            f"❌ No data found for table '{table}' with period_tag='{period_tag}'\n\n"
+            "Tips:\n"
+            "  1. Check available tables: fusou_datasets.list_tables()\n"
+            "  2. Check available periods: fusou_datasets.list_period_tags()\n"
+            "  3. Try: fusou_datasets.load(table, period_tag='all')"
+        )
+    if resp.status_code != 200:
+        _raise_api_error(resp, f"load/{table}")
+    
+    files = resp.json().get("files", [])
+    if not files:
+        raise DatasetNotFoundError(
+            f"❌ No files found for table '{table}'\n\n"
+            "The table exists but has no data files yet.\n"
+            "Check available tables: fusou_datasets.list_tables()"
+        )
+    
+    df = _download_files(files, table, show_progress)
+    return df, files
+
+
+def load(
+    table: str,
+    period_tag: str = "latest",
+    limit: int = 100,
+    show_progress: bool = True,
+    force_download: bool = False,
+    offline: bool = False,
+    scope: str = "all"
+) -> pd.DataFrame:
     """
     Load data for a table.
     
@@ -543,16 +728,231 @@ def load(table: str, period_tag: str = "latest", limit: int = 100, show_progress
         period_tag: "latest", "all", or specific tag
         limit: Max files to load
         show_progress: Show download progress bar
+        force_download: Force re-download even if cached
+        offline: Use cached data without server validation
+        scope: "all" (all users' data, default) or "own" (your uploads only)
         
     Returns:
         pd.DataFrame: Combined data from all matching files
     """
-    return _load_impl(table, period_tag, limit, show_progress, _retry=True)
+    cache_dir = _config.get("cache_dir")
+    
+    # Validate scope parameter
+    if scope not in ("own", "all"):
+        raise ValueError(f"scope must be 'own' or 'all', got '{scope}'")
+    
+    # If caching enabled and not forcing download
+    if cache_dir and not force_download:
+        cache_path = Path(cache_dir) / table / period_tag
+        manifest_path = cache_path / "manifest.json"
+        data_path = cache_path / "data.parquet"
+        
+        if data_path.exists() and manifest_path.exists():
+            if offline:
+                # Offline mode: use cache without validation
+                print(f"[Cache] Loading {table} from cache (offline)", file=sys.stderr)
+                return pd.read_parquet(data_path)
+            
+            # Online mode: validate cache with server
+            try:
+                # Cache validation
+                resp = _request("GET", f"/data/{table}?period_tag={period_tag}&limit={limit}&scope={scope}")
+                if resp.status_code == 200:
+                    files = resp.json().get("files", [])
+                    current_hash = _compute_files_hash(files)
+                    
+                    with open(manifest_path, "r") as f:
+                        manifest = json.load(f)
+                    
+                    if manifest.get("hash") == current_hash:
+                        print(f"[Cache] Loading {table} from cache (valid)", file=sys.stderr)
+                        return pd.read_parquet(data_path)
+                    else:
+                        print(f"[Cache] Data updated, re-downloading {table}", file=sys.stderr)
+                        # Use existing files list for download and cache
+                        df = _download_files(files, table, show_progress)
+                        _save_to_cache(table, period_tag, df, files)
+                        return df
+            except Exception as e:
+                print(f"[Cache] Validation failed, re-downloading: {e}", file=sys.stderr)
+        elif offline:
+            # Offline mode but no cache exists
+            raise DatasetNotFoundError(
+                f"❌ No cached data for '{table}' (period_tag='{period_tag}')\n\n"
+                "Offline mode requires cached data. To fix:\n"
+                f"  1. Run: fusou_datasets.load('{table}', period_tag='{period_tag}')\n"
+                "  2. Then use: fusou_datasets.load(..., offline=True)\n\n"
+                "💡 Tip: Make sure cache_dir is configured:\n"
+                "   fusou_datasets.configure(cache_dir='~/.fusou_datasets/cache')"
+            )
+    elif offline:
+        # Offline mode but cache_dir not configured
+        raise DatasetNotFoundError(
+            "❌ Offline mode requires cache configuration\n\n"
+            "To use offline mode:\n"
+            "  1. Configure cache: fusou_datasets.configure(cache_dir='~/.fusou_datasets/cache')\n"
+            f"  2. Load data once: fusou_datasets.load('{table}')\n"
+            "  3. Then use: fusou_datasets.load(..., offline=True)"
+        )
+    
+    # Download data (no cache or cache miss)
+    df, files = _load_impl_with_files(table, period_tag, limit, show_progress, scope, _retry=True)
+    
+    # Save to cache if enabled
+    if cache_dir:
+        _save_to_cache(table, period_tag, df, files)
+    
+    return df
+
+
+def _compute_files_hash(files: list) -> str:
+    """Compute hash from file metadata for cache validation."""
+    import hashlib
+    # Sort by id to ensure consistent ordering
+    sorted_files = sorted(files, key=lambda f: f.get("id", ""))
+    # Create hash from id, size, record_count
+    hash_input = "|".join(
+        f"{f.get('id')}:{f.get('size')}:{f.get('record_count')}"
+        for f in sorted_files
+    )
+    return hashlib.sha256(hash_input.encode()).hexdigest()[:16]
+
+
+def _save_to_cache(table: str, period_tag: str, df: pd.DataFrame, files: list) -> None:
+    """Save DataFrame to local cache."""
+    cache_dir = _config.get("cache_dir")
+    if not cache_dir:
+        return
+    
+    try:
+        cache_path = Path(cache_dir) / table / period_tag
+        cache_path.mkdir(parents=True, exist_ok=True)
+        
+        # Compute hash from files list
+        current_hash = _compute_files_hash(files)
+        
+        # Save data
+        data_path = cache_path / "data.parquet"
+        df.to_parquet(data_path, index=False)
+        
+        # Save manifest
+        manifest = {
+            "hash": current_hash,
+            "period_tag": period_tag,
+            "cached_at": pd.Timestamp.now().isoformat(),
+            "record_count": len(df)
+        }
+        with open(cache_path / "manifest.json", "w") as f:
+            json.dump(manifest, f, indent=2)
+        
+        print(f"[Cache] Saved {table} to cache ({len(df)} records)", file=sys.stderr)
+    except Exception as e:
+        print(f"[Cache] Failed to save: {e}", file=sys.stderr)
+
+
+def clear_cache(table: Optional[str] = None) -> None:
+    """
+    Clear cached data.
+    
+    Args:
+        table: Specific table to clear, or None to clear all
+    """
+    cache_dir = _config.get("cache_dir")
+    if not cache_dir:
+        print("Cache not configured", file=sys.stderr)
+        return
+    
+    import shutil
+    cache_path = Path(cache_dir)
+    
+    if table:
+        table_path = cache_path / table
+        if table_path.exists():
+            shutil.rmtree(table_path)
+            print(f"Cleared cache for {table}", file=sys.stderr)
+        else:
+            print(f"No cache found for {table}", file=sys.stderr)
+    else:
+        if cache_path.exists():
+            shutil.rmtree(cache_path)
+            cache_path.mkdir(parents=True, exist_ok=True)
+            print("Cleared all cache", file=sys.stderr)
+        else:
+            print("No cache to clear", file=sys.stderr)
 
 
 # =============================================================================
 # CLI
 # =============================================================================
+
+def help() -> None:
+    """
+    Display usage information for fusou-datasets library.
+    """
+    help_text = f"""
+================================================================================
+Fusou Datasets v{__version__} - Usage Guide
+================================================================================
+
+🔧 SETUP
+--------------------------------------------------------------------------------
+  fusou_datasets.save_api_key("your_api_key")
+      Save API key for persistent use.
+      Get your key at: https://fusou.dev/dashboard/api-keys
+
+  fusou_datasets.configure(api_key="...", cache_dir="~/.fusou_datasets/cache")
+      Configure API credentials and caching.
+
+📋 LIST DATA
+--------------------------------------------------------------------------------
+  fusou_datasets.list_tables()
+      List all available tables. Returns: List[str]
+
+  fusou_datasets.list_period_tags()
+      List available period tags. Returns: Dict
+
+📊 LOAD DATA
+--------------------------------------------------------------------------------
+  df = fusou_datasets.load("table_name")
+      Load table data as pandas DataFrame.
+      
+  df = fusou_datasets.load("table_name", period_tag="2024-01")
+      Load specific period's data.
+
+💾 CACHING (requires cache_dir configuration)
+--------------------------------------------------------------------------------
+  df = fusou_datasets.load("table_name")
+      Uses cache if available and data unchanged.
+      
+  df = fusou_datasets.load("table_name", offline=True)
+      Use cache without server validation.
+      
+  df = fusou_datasets.load("table_name", force_download=True)
+      Force re-download ignoring cache.
+      
+  fusou_datasets.clear_cache()
+      Clear all cached data.
+
+🔍 QUERY DATA (Cached Data Only)
+--------------------------------------------------------------------------------
+  # Step 1: Load required tables first
+  fusou_datasets.load("battle")
+  fusou_datasets.load("own_deck")
+  
+  # Step 2: Query cached data
+  from fusou_datasets import Tables, query
+  result = query([Tables.Battle.TIMESTAMP, Tables.OwnDeck.UUID])
+
+🔑 DEVICE INFO
+--------------------------------------------------------------------------------
+  fusou_datasets.get_client_id()
+      Get current device's client ID.
+
+📚 MORE INFO: https://fusou.dev/docs/fusou-datasets
+================================================================================
+"""
+    print(help_text)
+
 
 def main():
     import argparse
