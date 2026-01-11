@@ -411,7 +411,7 @@ app.get("/download", async (c) => {
         return jsonResponse({ error: "DEVICE_UNVERIFIED", message: "Device not verified" }, 403);
     }
 
-    const bucket = env.runtime.BUCKET;
+    const bucket = env.runtime.BATTLE_DATA_BUCKET;
     const indexDb = env.runtime.BATTLE_INDEX_DB;
     if (!bucket || !indexDb) {
       return jsonResponse({ error: "Configuration Error", message: "R2 bucket or D1 database not configured" }, 500);
