@@ -1021,59 +1021,6 @@ app.post("/verify-google", async (c) => {
     }, 500);
   }
 });
-
-/**
- * GET /data-loader/download - Download a specific file
- * Query params: file (file path from R2)
- */
-app.get("/download", async (c) => {
-  const filePath = c.req.query("file");
-  const apiKey = c.req.header("X-API-KEY");
-  const clientId = c.req.header("X-CLIENT-ID");
-
-  if (!apiKey || !clientId) {
-    return jsonResponse({ error: "MISSING_HEADERS", message: "Authentication required" }, 401);
-  }
-
-  if (!filePath) {
-    return jsonResponse({ error: "MISSING_FILE", message: "file parameter is required" }, 400);
-  }
-
-  try {
-    const env = createEnvContext(c);
-    const apiKeyData = await validateApiKey(getSupabaseConfig(c), apiKey);
-    if (!apiKeyData) {
-      return jsonResponse({ error: "INVALID_API_KEY", message: "Invalid API key" }, 403);
-    }
-
-    const trusted = await isDeviceTrusted(getSupabaseConfig(c), apiKeyData.user_id, clientId, env.runtime.DATA_LOADER_CACHE_KV);
-    if (!trusted) {
-      return jsonResponse({ error: "DEVICE_UNVERIFIED", message: "Device not verified" }, 403);
-    }
-
-    const bucket = env.runtime.BATTLE_DATA_BUCKET;
-    const object = await bucket.get(filePath);
-
-    if (!object) {
-      return jsonResponse({ error: "NOT_FOUND", message: "File not found" }, 404);
-    }
-
-    const fileName = filePath.split("/").pop() || "data.avro";
-    return new Response(object.body, {
-      headers: {
-        "Content-Type": "application/avro",
-        "Content-Length": String(object.size),
-        "Content-Disposition": `attachment; filename="${fileName}"`,
-        ETag: object.etag || "",
-        ...DATA_LOADER_CORS_HEADERS,
-      },
-    });
-  } catch (error) {
-    console.error("Download error:", error);
-    return jsonResponse({ error: "INTERNAL_ERROR", message: "An internal error occurred" }, 500);
-  }
-});
-
 /**
  * GET /data-loader/health - Health check
  */
