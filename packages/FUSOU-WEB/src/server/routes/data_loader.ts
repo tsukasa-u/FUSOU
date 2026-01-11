@@ -273,15 +273,15 @@ app.get("/data/:table", async (c) => {
          bi.record_count,
          bi.start_timestamp,
          bi.end_timestamp,
-         af.file_path,
-         af.period_tag
+         bi.period_tag,
+         af.file_path
        FROM block_indexes bi
        JOIN archived_files af ON af.id = bi.file_id
        WHERE bi.table_name = ?`;
     const params: unknown[] = [tableName];
 
     if (periodTag && periodTagParam !== "all") {
-        sql += ` AND af.period_tag = ?`;
+        sql += ` AND bi.period_tag = ?`;
         params.push(periodTag);
     }
 
