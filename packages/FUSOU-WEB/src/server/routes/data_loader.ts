@@ -203,12 +203,14 @@ app.get("/period-tags", async (c) => {
  * Query params:
  *   - period_tag: specific period tag, "latest", or "all" (default: "latest")
  *   - limit: max number of files (default: 100)
+ *   - scope: "own" (user's data only) or "all" (all users' data, default)
  */
 app.get("/data/:table", async (c) => {
   const tableName = c.req.param("table");
   const apiKey = c.req.header("X-API-KEY");
   const clientId = c.req.header("X-CLIENT-ID");
   const periodTagParam = c.req.query("period_tag") || "latest";
+  const scopeParam = c.req.query("scope") || "all";
   const limit = Math.min(parseInt(c.req.query("limit") || "100", 10), 1000);
 
   if (!apiKey) {
@@ -217,6 +219,11 @@ app.get("/data/:table", async (c) => {
 
   if (!clientId) {
     return jsonResponse({ error: "MISSING_CLIENT_ID", message: "X-CLIENT-ID header is required" }, 400);
+  }
+
+  // Validate scope parameter
+  if (scopeParam !== "own" && scopeParam !== "all") {
+    return jsonResponse({ error: "INVALID_SCOPE", message: "scope must be 'own' or 'all'" }, 400);
   }
 
   try {
@@ -269,6 +276,24 @@ app.get("/data/:table", async (c) => {
       periodTag = periodTagParam;
     }
 
+    // For scope=own, get user's dataset_id (member_id_hash) from Supabase
+    let userDatasetId: string | null = null;
+    if (scopeParam === "own") {
+      const memberResult = await supabaseRequest<{ member_id_hash: string }[]>(
+        getSupabaseConfig(c),
+        "app_user_members",
+        { query: `?select=member_id_hash&user_id=eq.${apiKeyData.user_id}&limit=1` }
+      );
+      if (memberResult && memberResult.length > 0 && memberResult[0].member_id_hash) {
+        userDatasetId = memberResult[0].member_id_hash;
+      } else {
+        return jsonResponse({
+          error: "NO_LINKED_MEMBER",
+          message: "No member account linked. Please link your game account first.",
+        }, 400, ruStatus);
+      }
+    }
+
     // Query D1 for file paths
     let sql = `SELECT 
          bi.id,
@@ -279,11 +304,18 @@ app.get("/data/:table", async (c) => {
          bi.start_timestamp,
          bi.end_timestamp,
          bi.period_tag,
+         bi.start_byte,
          af.file_path
        FROM block_indexes bi
        JOIN archived_files af ON af.id = bi.file_id
        WHERE bi.table_name = ?`;
     const params: unknown[] = [tableName];
+
+    // Filter by dataset_id for scope=own
+    if (scopeParam === "own" && userDatasetId) {
+      sql += ` AND bi.dataset_id = ?`;
+      params.push(userDatasetId);
+    }
 
     if (periodTag && periodTagParam !== "all") {
         sql += ` AND bi.period_tag = ?`;
@@ -299,7 +331,7 @@ app.get("/data/:table", async (c) => {
     if (!result || !result.results || result.results.length === 0) {
       return jsonResponse({
         error: "DATASET_NOT_FOUND",
-        message: `No data found for table '${tableName}'`,
+        message: `No data found for table '${tableName}'${scopeParam === "own" ? " (your uploads only)" : ""}`,
       }, 404, ruStatus);
     }
 
@@ -311,13 +343,16 @@ app.get("/data/:table", async (c) => {
       record_count: r.record_count,
       start_timestamp: r.start_timestamp,
       end_timestamp: r.end_timestamp,
-      download_url: `/api/data-loader/download?file=${encodeURIComponent(r.file_path)}`,
+      // Always use block_id for download, as files may contain multiple merged datasets
+      // Range Read extracts Header + specific data block for a valid single-dataset Avro
+      download_url: `/api/data-loader/download?block_id=${r.id}`,
     }));
 
     return jsonResponse({
         success: true,
         table: tableName,
         period_tag: periodTag || "all",
+        scope: scopeParam,
         count: files.length,
         files,
     }, 200, ruStatus);
@@ -379,19 +414,22 @@ app.get("/usage", async (c) => {
 
 /**
  * GET /data-loader/download - Download file from R2
- * Redirects to signed R2 URL for direct download
+ * Query params:
+ *   - file: Full file path (for scope=all, downloads entire file)
+ *   - block_id: Block index ID (for scope=own, downloads Header + specific data block)
  */
 app.get("/download", async (c) => {
   const apiKey = c.req.header("X-API-KEY");
   const clientId = c.req.header("X-CLIENT-ID");
   const filePath = c.req.query("file");
+  const blockIdParam = c.req.query("block_id");
   
   if (!apiKey || !clientId) {
     return jsonResponse({ error: "MISSING_HEADERS", message: "Authentication required" }, 401);
   }
   
-  if (!filePath) {
-    return jsonResponse({ error: "MISSING_FILE", message: "file parameter is required" }, 400);
+  if (!filePath && !blockIdParam) {
+    return jsonResponse({ error: "MISSING_PARAMS", message: "Either file or block_id parameter is required" }, 400);
   }
 
   try {
@@ -417,6 +455,77 @@ app.get("/download", async (c) => {
       return jsonResponse({ error: "Configuration Error", message: "R2 bucket or D1 database not configured" }, 500);
     }
 
+    // Block-based download (for scope=own)
+    if (blockIdParam) {
+      const blockId = parseInt(blockIdParam, 10);
+      if (isNaN(blockId)) {
+        return jsonResponse({ error: "INVALID_BLOCK_ID", message: "block_id must be a number" }, 400);
+      }
+
+      // Get block info from D1
+      const blockInfo = await indexDb.prepare(`
+        SELECT bi.id, bi.start_byte, bi.length, bi.dataset_id, af.file_path
+        FROM block_indexes bi
+        JOIN archived_files af ON af.id = bi.file_id
+        WHERE bi.id = ?
+      `).bind(blockId).first() as {
+        id: number;
+        start_byte: number;
+        length: number;
+        dataset_id: string;
+        file_path: string;
+      } | null;
+
+      if (!blockInfo) {
+        return jsonResponse({ error: "BLOCK_NOT_FOUND", message: "Block not found" }, 404);
+      }
+
+      // Note: No ownership check - all uploaded data is public (shared dataset)
+      // Security is ensured by: valid API key + verified device + block exists in registry
+
+      // Fetch Header (0 to start_byte-1) and Data block (start_byte to start_byte+length-1)
+      // We need to make two Range requests and concatenate them
+      const headerEnd = blockInfo.start_byte - 1;
+      const dataStart = blockInfo.start_byte;
+      const dataEnd = blockInfo.start_byte + blockInfo.length - 1;
+
+      // Fetch header
+      const headerObject = await bucket.get(blockInfo.file_path, {
+        range: { offset: 0, length: blockInfo.start_byte }
+      });
+
+      if (!headerObject?.body) {
+        return jsonResponse({ error: "FILE_NOT_FOUND", message: "File not found in storage" }, 404);
+      }
+
+      // Fetch data block
+      const dataObject = await bucket.get(blockInfo.file_path, {
+        range: { offset: blockInfo.start_byte, length: blockInfo.length }
+      });
+
+      if (!dataObject?.body) {
+        return jsonResponse({ error: "DATA_NOT_FOUND", message: "Data block not found" }, 404);
+      }
+
+      // Read both streams and concatenate
+      const headerBytes = await headerObject.arrayBuffer();
+      const dataBytes = await dataObject.arrayBuffer();
+      
+      const combined = new Uint8Array(headerBytes.byteLength + dataBytes.byteLength);
+      combined.set(new Uint8Array(headerBytes), 0);
+      combined.set(new Uint8Array(dataBytes), headerBytes.byteLength);
+
+      const fileName = blockInfo.file_path.split('/').pop() || 'data.avro';
+      return new Response(combined, {
+        headers: {
+          "Content-Type": "application/avro",
+          "Content-Length": String(combined.byteLength),
+          "Content-Disposition": `attachment; filename="${fileName}"`,
+        },
+      });
+    }
+
+    // File-based download (for scope=all)
     // Security Check: Validate file exists in our registry (D1)
     // This prevents IDOR where user requests random key from bucket
     const fileRecord = await indexDb.prepare(
@@ -438,7 +547,7 @@ app.get("/download", async (c) => {
     // Given the constraints and libraries available:
     // We will stream the object.
     
-    const object = await bucket.get(filePath);
+    const object = await bucket.get(filePath!);
 
     if (!object) {
       return jsonResponse({ error: "FILE_NOT_FOUND", message: "File not found in storage" }, 404);
@@ -447,7 +556,7 @@ app.get("/download", async (c) => {
     const headers = new Headers();
     object.writeHttpMetadata(headers);
     headers.set("etag", object.httpEtag);
-    headers.set("Content-Disposition", `attachment; filename="${filePath.split('/').pop()}"`);
+    headers.set("Content-Disposition", `attachment; filename="${filePath!.split('/').pop()}"`);
     
     return new Response(object.body, {
       headers,
