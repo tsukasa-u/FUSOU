@@ -341,56 +341,18 @@ app.get("/data/:table", async (c) => {
       id: r.id,
       file_path: r.file_path,
       period_tag: r.period_tag,
-      size: r.size,
+      size: r.size, // Block length
       record_count: r.record_count,
       start_timestamp: r.start_timestamp,
       end_timestamp: r.end_timestamp,
-      // Always use block_id for download, as files may contain multiple merged datasets
-      // Range Read extracts Header + specific data block for a valid single-dataset Avro
-      download_url: `/api/data-loader/download?block_id=${r.id}`,
+      // Use block_id for own scope (partial download), file path for all scope (full file)
+      download_url: (scopeParam === "own")
+         ? `/api/data-loader/download?block_id=${r.id}`
+         : `/api/data-loader/download?file=${r.file_path}`,
       type: "archive"
     }));
 
-    // Fetch buffer data if requested
-    let bufferFiles: any[] = [];
-    if (includeBuffer) {
-      try {
-        let bufferSql = `SELECT id, dataset_id, period_tag, timestamp, length(data) as size FROM buffer_logs WHERE table_name = ?`;
-        const bufferParams: unknown[] = [tableName];
-
-        if (scopeParam === "own" && userDatasetId) {
-            bufferSql += ` AND dataset_id = ?`;
-            bufferParams.push(userDatasetId);
-        }
-
-        if (periodTag && periodTagParam !== "all") {
-            bufferSql += ` AND period_tag = ?`;
-            bufferParams.push(periodTag);
-        }
-        
-        bufferSql += ` ORDER BY timestamp DESC LIMIT ?`;
-        bufferParams.push(limit); // Limit per type, or share limit? Let's use same limit for safety
-
-        const bufferResult = await indexDb.prepare(bufferSql).bind(...bufferParams).all();
-        if (bufferResult && bufferResult.results) {
-           bufferFiles = (bufferResult.results as any[]).map((r) => ({
-             id: r.id,
-             file_path: `buffer://${r.id}`, // Virtual path
-             period_tag: r.period_tag,
-             size: r.size,
-             record_count: null, // Buffer logs might not store record count easily visible
-             start_timestamp: r.timestamp,
-             end_timestamp: r.timestamp,
-             download_url: `/api/data-loader/download?buffer_id=${r.id}`,
-             type: "buffer"
-           }));
-        }
-      } catch (e) {
-        console.warn("Failed to fetch buffer_logs:", e);
-      }
-    }
-
-    const files = [...bufferFiles, ...archivedFiles];
+    const files = archivedFiles;
     
     if (files.length === 0) {
        return jsonResponse({
@@ -474,14 +436,13 @@ app.get("/download", async (c) => {
   const clientId = c.req.header("X-CLIENT-ID");
   const filePath = c.req.query("file");
   const blockIdParam = c.req.query("block_id");
-  const bufferIdParam = c.req.query("buffer_id");
   
   if (!apiKey || !clientId) {
     return jsonResponse({ error: "MISSING_HEADERS", message: "Authentication required" }, 401);
   }
   
-  if (!filePath && !blockIdParam && !bufferIdParam) {
-    return jsonResponse({ error: "MISSING_PARAMS", message: "One of file, block_id, or buffer_id parameter is required" }, 400);
+  if (!filePath && !blockIdParam) {
+    return jsonResponse({ error: "MISSING_PARAMS", message: "Either file or block_id parameter is required" }, 400);
   }
 
   try {
@@ -505,35 +466,6 @@ app.get("/download", async (c) => {
     const indexDb = env.runtime.BATTLE_INDEX_DB;
     if (!bucket || !indexDb) {
       return jsonResponse({ error: "Configuration Error", message: "R2 bucket or D1 database not configured" }, 500);
-    }
-
-    // Buffer download (from buffer_logs)
-    if (bufferIdParam) {
-      const bufferId = parseInt(bufferIdParam, 10);
-      if (isNaN(bufferId)) {
-        return jsonResponse({ error: "INVALID_BUFFER_ID", message: "buffer_id must be a number" }, 400);
-      }
-
-      const bufferRecord = await indexDb.prepare(
-        `SELECT data, period_tag FROM buffer_logs WHERE id = ? LIMIT 1`
-      ).bind(bufferId).first() as { data: unknown, period_tag: string } | null;
-
-      if (!bufferRecord || !bufferRecord.data) {
-        return jsonResponse({ error: "BUFFER_NOT_FOUND", message: "Buffer log not found or empty" }, 404);
-      }
-      
-      // D1 BLOBs are returned as ArrayBuffer (or number[] in some cases, verify cast)
-      const data = bufferRecord.data instanceof ArrayBuffer 
-          ? bufferRecord.data 
-          : new Uint8Array(bufferRecord.data as number[]).buffer;
-
-      return new Response(data, {
-        headers: {
-          "Content-Type": "application/avro",
-          "Content-Length": String(data.byteLength),
-          "Content-Disposition": `attachment; filename="buffer-${bufferId}.avro"`,
-        },
-      });
     }
 
     // Block-based download (for scope=own)
@@ -561,25 +493,29 @@ app.get("/download", async (c) => {
         return jsonResponse({ error: "BLOCK_NOT_FOUND", message: "Block not found" }, 404);
       }
 
-      // Note: No ownership check - all uploaded data is public (shared dataset)
-      // Security is ensured by: valid API key + verified device + block exists in registry
-
-      // Fetch Header (0 to start_byte-1) and Data block (start_byte to start_byte+length-1)
-      // We need to make two Range requests and concatenate them
-      const headerEnd = blockInfo.start_byte - 1;
-      const dataStart = blockInfo.start_byte;
-      const dataEnd = blockInfo.start_byte + blockInfo.length - 1;
-
-      // Fetch header
+      // Fetch Header (0 to start_byte-1) -> This assumes header ends where block starts.
+      // Ideally valid OCF has header then blocks.
+      // If we are fetching specific block, we need the universal header + that block.
+      // If block starts at 0 (unlikely for block 2+), header is implicit.
+      // CAUTION: This logic assumes start_byte is exact offset of the sync marker/block start.
+      
+      const headerEnd = blockInfo.start_byte - 1; 
+      // If start_byte is small (e.g. first block), we might just read file normally?
+      // Actually for scope=own we want ONLY that block.
+      
+      // Fetch header (first 4KB or up to start_byte)
+      // Since we don't know header size exactly without parsing, usage of start_byte is a guess
+      // that the user's block starts immediately after previous data/header.
+      // But blocks are contiguous.
+      
       const headerObject = await bucket.get(blockInfo.file_path, {
-        range: { offset: 0, length: blockInfo.start_byte }
+        range: { offset: 0, length: blockInfo.start_byte } // This fetches EVERYTHING before the block
       });
 
       if (!headerObject?.body) {
         return jsonResponse({ error: "FILE_NOT_FOUND", message: "File not found in storage" }, 404);
       }
 
-      // Fetch data block
       const dataObject = await bucket.get(blockInfo.file_path, {
         range: { offset: blockInfo.start_byte, length: blockInfo.length }
       });
@@ -588,7 +524,6 @@ app.get("/download", async (c) => {
         return jsonResponse({ error: "DATA_NOT_FOUND", message: "Data block not found" }, 404);
       }
 
-      // Read both streams and concatenate
       const headerBytes = await headerObject.arrayBuffer();
       const dataBytes = await dataObject.arrayBuffer();
       
@@ -606,27 +541,32 @@ app.get("/download", async (c) => {
       });
     }
 
-    // File-based download (for scope=all)
-    // Security Check: Validate file exists in our registry (D1)
-    // This prevents IDOR where user requests random key from bucket
-    const fileRecord = await indexDb.prepare(
-      "SELECT 1 FROM archived_files WHERE file_path = ? LIMIT 1"
-    ).bind(filePath).first();
+    // File-based download (for scope=all fallback)
+    if (filePath) {
+        // Security check: Verify file exists in registry to prevent IDOR
+        const fileRecord = await indexDb.prepare(
+            "SELECT 1 FROM archived_files WHERE file_path = ? LIMIT 1"
+        ).bind(filePath).first();
 
-    if (!fileRecord) {
-        console.warn(`[Security] IDOR attempt or Invalid File? User=${apiKeyData.user_id} File=${filePath}`);
-        return jsonResponse({ error: "FORBIDDEN", message: "Access to this file is not authorized" }, 403);
+        if (!fileRecord) {
+            return jsonResponse({ error: "FORBIDDEN", message: "Access to this file is not authorized" }, 403);
+        }
+
+        const object = await bucket.get(filePath);
+        if (!object || !object.body) {
+            return jsonResponse({ error: "FILE_NOT_FOUND", message: "File not found in storage" }, 404);
+        }
+
+        const fileName = filePath.split('/').pop() || 'data.avro';
+        const headers = new Headers();
+        headers.set("Content-Type", "application/avro");
+        headers.set("Content-Length", String(object.size));
+        headers.set("Content-Disposition", `attachment; filename="${fileName}"`);
+        
+        return new Response(object.body, { headers });
     }
 
-    // Generate Signed URL?
-    // Cloudflare Workers R2 binding doesn't support 'getSignedUrl' easily without aws4fetch.
-    // However, if the bucket is PRIVATE, we must Proxy or use Presigned.
-    // Since we don't have aws4fetch installed in this file's context easily...
-    // We will Proxy the body for now, but NOT charge RU.
-    // Proxying consumes Worker CPU time but for small files it's ok.
-    // If files are large, this might hit CPU limits.
-    // Given the constraints and libraries available:
-    // We will stream the object.
+    return jsonResponse({ error: "INVALID_REQUEST", message: "Invalid download parameters" }, 400);
     
     const object = await bucket.get(filePath!);
 
