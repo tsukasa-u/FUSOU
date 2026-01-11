@@ -294,7 +294,9 @@ app.get("/data/:table", async (c) => {
       }
     }
 
-    // Query D1 for file paths
+    const includeBuffer = c.req.query("include_buffer") === "true";
+    
+    // Query D1 for archived files
     let sql = `SELECT 
          bi.id,
          bi.dataset_id,
@@ -328,14 +330,14 @@ app.get("/data/:table", async (c) => {
     const stmt = indexDb.prepare(sql);
     const result = await stmt.bind(...params).all?.();
 
-    if (!result || !result.results || result.results.length === 0) {
+    if ((!result || !result.results || result.results.length === 0) && !includeBuffer) {
       return jsonResponse({
         error: "DATASET_NOT_FOUND",
         message: `No data found for table '${tableName}'${scopeParam === "own" ? " (your uploads only)" : ""}`,
       }, 404, ruStatus);
     }
 
-    const files = (result.results as any[]).map((r) => ({
+    const archivedFiles = (result?.results as any[] || []).map((r) => ({
       id: r.id,
       file_path: r.file_path,
       period_tag: r.period_tag,
@@ -346,7 +348,56 @@ app.get("/data/:table", async (c) => {
       // Always use block_id for download, as files may contain multiple merged datasets
       // Range Read extracts Header + specific data block for a valid single-dataset Avro
       download_url: `/api/data-loader/download?block_id=${r.id}`,
+      type: "archive"
     }));
+
+    // Fetch buffer data if requested
+    let bufferFiles: any[] = [];
+    if (includeBuffer) {
+      try {
+        let bufferSql = `SELECT id, dataset_id, period_tag, timestamp, length(data) as size FROM buffer_logs WHERE table_name = ?`;
+        const bufferParams: unknown[] = [tableName];
+
+        if (scopeParam === "own" && userDatasetId) {
+            bufferSql += ` AND dataset_id = ?`;
+            bufferParams.push(userDatasetId);
+        }
+
+        if (periodTag && periodTagParam !== "all") {
+            bufferSql += ` AND period_tag = ?`;
+            bufferParams.push(periodTag);
+        }
+        
+        bufferSql += ` ORDER BY timestamp DESC LIMIT ?`;
+        bufferParams.push(limit); // Limit per type, or share limit? Let's use same limit for safety
+
+        const bufferResult = await indexDb.prepare(bufferSql).bind(...bufferParams).all();
+        if (bufferResult && bufferResult.results) {
+           bufferFiles = (bufferResult.results as any[]).map((r) => ({
+             id: r.id,
+             file_path: `buffer://${r.id}`, // Virtual path
+             period_tag: r.period_tag,
+             size: r.size,
+             record_count: null, // Buffer logs might not store record count easily visible
+             start_timestamp: r.timestamp,
+             end_timestamp: r.timestamp,
+             download_url: `/api/data-loader/download?buffer_id=${r.id}`,
+             type: "buffer"
+           }));
+        }
+      } catch (e) {
+        console.warn("Failed to fetch buffer_logs:", e);
+      }
+    }
+
+    const files = [...bufferFiles, ...archivedFiles];
+    
+    if (files.length === 0) {
+       return jsonResponse({
+        error: "DATASET_NOT_FOUND",
+        message: `No data found for table '${tableName}'${scopeParam === "own" ? " (your uploads only)" : ""}`,
+      }, 404, ruStatus);
+    }
 
     return jsonResponse({
         success: true,
@@ -423,13 +474,14 @@ app.get("/download", async (c) => {
   const clientId = c.req.header("X-CLIENT-ID");
   const filePath = c.req.query("file");
   const blockIdParam = c.req.query("block_id");
+  const bufferIdParam = c.req.query("buffer_id");
   
   if (!apiKey || !clientId) {
     return jsonResponse({ error: "MISSING_HEADERS", message: "Authentication required" }, 401);
   }
   
-  if (!filePath && !blockIdParam) {
-    return jsonResponse({ error: "MISSING_PARAMS", message: "Either file or block_id parameter is required" }, 400);
+  if (!filePath && !blockIdParam && !bufferIdParam) {
+    return jsonResponse({ error: "MISSING_PARAMS", message: "One of file, block_id, or buffer_id parameter is required" }, 400);
   }
 
   try {
@@ -453,6 +505,35 @@ app.get("/download", async (c) => {
     const indexDb = env.runtime.BATTLE_INDEX_DB;
     if (!bucket || !indexDb) {
       return jsonResponse({ error: "Configuration Error", message: "R2 bucket or D1 database not configured" }, 500);
+    }
+
+    // Buffer download (from buffer_logs)
+    if (bufferIdParam) {
+      const bufferId = parseInt(bufferIdParam, 10);
+      if (isNaN(bufferId)) {
+        return jsonResponse({ error: "INVALID_BUFFER_ID", message: "buffer_id must be a number" }, 400);
+      }
+
+      const bufferRecord = await indexDb.prepare(
+        `SELECT data, period_tag FROM buffer_logs WHERE id = ? LIMIT 1`
+      ).bind(bufferId).first() as { data: unknown, period_tag: string } | null;
+
+      if (!bufferRecord || !bufferRecord.data) {
+        return jsonResponse({ error: "BUFFER_NOT_FOUND", message: "Buffer log not found or empty" }, 404);
+      }
+      
+      // D1 BLOBs are returned as ArrayBuffer (or number[] in some cases, verify cast)
+      const data = bufferRecord.data instanceof ArrayBuffer 
+          ? bufferRecord.data 
+          : new Uint8Array(bufferRecord.data as number[]).buffer;
+
+      return new Response(data, {
+        headers: {
+          "Content-Type": "application/avro",
+          "Content-Length": String(data.byteLength),
+          "Content-Disposition": `attachment; filename="buffer-${bufferId}.avro"`,
+        },
+      });
     }
 
     // Block-based download (for scope=own)
