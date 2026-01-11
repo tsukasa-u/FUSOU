@@ -2,7 +2,6 @@ import { Hono } from 'hono';
 import type { Bindings } from '../types';
 import { CORS_HEADERS } from '../constants';
 import { validateJWT, createEnvContext } from '../utils';
-import { runCompactionJob } from '../compaction/job';
 
 const app = new Hono<{ Bindings: Bindings }>();
 
@@ -291,69 +290,8 @@ app.post('/trigger-scheduled', async (c) => {
   }
 });
 
-/**
- * POST /run-now
- * Synchronous compaction runner (fallback when Queue consumer is unavailable)
- * Body: { datasetId: string, table?: string, periodTag?: string }
- */
-app.post('/run-now', async (c) => {
-  try {
-    const authHeader = c.req.header('Authorization');
-    const bearer = authHeader?.startsWith('Bearer ')
-      ? authHeader.slice(7).trim()
-      : null;
-    if (!bearer) {
-      return c.json({ error: 'Unauthorized' }, 401);
-    }
-
-    const supabaseUser = await validateJWT(bearer);
-    if (!supabaseUser) {
-      return c.json({ error: 'Invalid or expired JWT token' }, 401);
-    }
-
-    let body: any;
-    try {
-      body = await c.req.json();
-    } catch (error) {
-      return c.json({ error: 'Invalid JSON format' }, 400);
-    }
-
-    const datasetId = body?.datasetId as string | undefined;
-    const table = body?.table as string | undefined;
-    const periodTag = body?.periodTag as string | undefined;
-
-    if (!datasetId) {
-      return c.json({ error: 'datasetId is required' }, 400);
-    }
-
-    // Optional ownership check: ensure dataset belongs to caller
-    const env = createEnvContext(c);
-    const db = env.runtime.BATTLE_INDEX_DB;
-
-    if (!db) {
-      return c.json({ error: 'Server misconfiguration: BATTLE_INDEX_DB binding missing' }, 500);
-    }
-
-    const queryResult = await db.prepare(
-      'SELECT id, user_id FROM datasets WHERE id = ?'
-    ).bind(datasetId).first();
-    
-    if (!queryResult) {
-      return c.json({ error: 'Dataset not found' }, 404);
-    }
-    
-    const ds = queryResult as { id: string; user_id: string };
-    if (ds.user_id !== supabaseUser.id) {
-      return c.json({ error: 'Forbidden' }, 403);
-    }
-
-    const result = await runCompactionJob(c.env, datasetId, table, periodTag, supabaseUser.id);
-
-    return c.json({ success: true, datasetId, table, periodTag, result });
-  } catch (error) {
-    console.error('[Run Now API] Unexpected error', { error });
-    return c.json({ error: 'Internal server error' }, 500);
-  }
-});
+// Note: /run-now endpoint was removed.
+// Compaction is now handled exclusively by FUSOU-WORKFLOW (cron.ts / DataCompactionWorkflow)
 
 export default app;
+

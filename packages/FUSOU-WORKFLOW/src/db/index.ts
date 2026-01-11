@@ -31,6 +31,11 @@ import {
   fetchHotData as _tidbFetchHotData,
   cleanupBuffer as _tidbCleanupBuffer,
   executeWithRetry as _tidbExecuteWithRetry,
+  // Rate limit detection
+  isRateLimitError as _isRateLimitError,
+  recordRateLimitEvent as _recordRateLimitEvent,
+  getLastRateLimitEvent as _getLastRateLimitEvent,
+  RateLimitInfo,
 } from './tidb-client';
 
 
@@ -52,6 +57,12 @@ export const tidbFetchBufferedData = _tidbFetchBufferedData;
 export const tidbFetchHotData = _tidbFetchHotData;
 export const tidbCleanupBuffer = _tidbCleanupBuffer;
 export const tidbExecuteWithRetry = _tidbExecuteWithRetry;
+
+// Re-export rate limit detection functions
+export const isRateLimitError = _isRateLimitError;
+export const recordRateLimitEvent = _recordRateLimitEvent;
+export const getLastRateLimitEvent = _getLastRateLimitEvent;
+export type { RateLimitInfo };
 
 
 
@@ -81,10 +92,15 @@ export interface BufferLogRecord {
  * 1. If TIDB_KC_DB_URL is set, try TiDB first
  * 2. If TiDB fails (including rate limit), fallback to D1
  * 3. If no TIDB_KC_DB_URL, use D1 directly
+ * 
+ * Returns rateLimited: true if the fallback was due to a rate limit error
  */
 export async function fetchBufferedDataWithFallback(
   env: UnifiedDbEnv
-): Promise<{ rows: BufferLogRecord[]; source: 'tidb' | 'd1'; rateLimited?: boolean }> {
+): Promise<{ rows: BufferLogRecord[]; source: 'tidb' | 'd1'; rateLimited?: boolean; rateLimitInfo?: RateLimitInfo }> {
+  let rateLimitDetected = false;
+  let rateLimitInfo: RateLimitInfo | undefined;
+  
   if (env.TIDB_KC_DB_URL) {
     try {
       const conn = _createTiDBClientFromUrl(env.TIDB_KC_DB_URL);
@@ -97,49 +113,79 @@ export async function fetchBufferedDataWithFallback(
           data: r.data.buffer.slice(r.data.byteOffset, r.data.byteOffset + r.data.byteLength) as ArrayBuffer,
         })),
         source: 'tidb',
+        rateLimited: false,
       };
     } catch (err) {
-      console.error('[DB] TiDB fetch failed, falling back to D1:', err instanceof Error ? err.message : String(err));
+      // Check if this is a rate limit error
+      rateLimitInfo = _isRateLimitError(err);
+      rateLimitDetected = rateLimitInfo.isRateLimited;
+      
+      if (rateLimitDetected) {
+        // Record for tracking and warn
+        _recordRateLimitEvent(rateLimitInfo);
+        console.warn(`[DB] TiDB rate limit detected (${rateLimitInfo.limitType}), falling back to D1`);
+      } else {
+        console.error('[DB] TiDB fetch failed, falling back to D1:', err instanceof Error ? err.message : String(err));
+      }
       // Fall through to D1
     }
   }
   
   // D1 fallback
   const d1Rows = await _d1FetchBufferedData(env.BATTLE_INDEX_DB);
-  console.log(`[DB] Fetched ${d1Rows.length} rows from D1`);
+  console.log(`[DB] Fetched ${d1Rows.length} rows from D1${rateLimitDetected ? ' (TiDB rate limited)' : ''}`);
   return {
     rows: d1Rows as BufferLogRecord[],
     source: 'd1',
+    rateLimited: rateLimitDetected,
+    rateLimitInfo,
   };
 }
 
 /**
  * Unified cleanup buffer with TiDB -> D1 fallback on error
+ * 
+ * Returns rateLimited: true if the fallback was due to a rate limit error
  */
 export async function cleanupBufferWithFallback(
   env: UnifiedDbEnv,
   maxId: number,
   preferredSource: 'tidb' | 'd1'
-): Promise<{ source: 'tidb' | 'd1'; rowsAffected: number }> {
+): Promise<{ source: 'tidb' | 'd1'; rowsAffected: number; rateLimited?: boolean }> {
   if (preferredSource === 'tidb' && env.TIDB_KC_DB_URL) {
     try {
       const conn = _createTiDBClientFromUrl(env.TIDB_KC_DB_URL);
       const result = await _tidbCleanupBuffer(conn, maxId);
       console.log(`[DB] Cleaned up ${result.rowsAffected} rows from TiDB`);
-      return { source: 'tidb', rowsAffected: result.rowsAffected };
+      return { source: 'tidb', rowsAffected: result.rowsAffected, rateLimited: false };
     } catch (err) {
-      console.error('[DB] TiDB cleanup failed, falling back to D1:', err instanceof Error ? err.message : String(err));
+      // Check if this is a rate limit error
+      const rateLimitInfo = _isRateLimitError(err);
+      
+      if (rateLimitInfo.isRateLimited) {
+        _recordRateLimitEvent(rateLimitInfo);
+        console.warn(`[DB] TiDB cleanup rate limit detected (${rateLimitInfo.limitType}), falling back to D1`);
+      } else {
+        console.error('[DB] TiDB cleanup failed, falling back to D1:', err instanceof Error ? err.message : String(err));
+      }
+      
+      // D1 fallback
+      const result = await _d1CleanupBuffer(env.BATTLE_INDEX_DB, maxId);
+      console.log(`[DB] Cleaned up ${result.rowsAffected} rows from D1${rateLimitInfo.isRateLimited ? ' (TiDB rate limited)' : ''}`);
+      return { source: 'd1', rowsAffected: result.rowsAffected, rateLimited: rateLimitInfo.isRateLimited };
     }
   }
   
-  // D1 fallback
+  // D1 directly (no TiDB configured or preferredSource is D1)
   const result = await _d1CleanupBuffer(env.BATTLE_INDEX_DB, maxId);
   console.log(`[DB] Cleaned up ${result.rowsAffected} rows from D1`);
-  return { source: 'd1', rowsAffected: result.rowsAffected };
+  return { source: 'd1', rowsAffected: result.rowsAffected, rateLimited: false };
 }
 
 /**
  * Unified insert with TiDB -> D1 fallback on error
+ * 
+ * Returns rateLimited: true if the fallback was due to a rate limit error
  */
 export async function insertBufferLogsWithFallback(
   env: UnifiedDbEnv,
@@ -152,7 +198,7 @@ export async function insertBufferLogsWithFallback(
     data: ArrayBuffer | Uint8Array;
     uploaded_by?: string;
   }>
-): Promise<{ source: 'tidb' | 'd1'; insertedCount: number }> {
+): Promise<{ source: 'tidb' | 'd1'; insertedCount: number; rateLimited?: boolean }> {
   if (env.TIDB_KC_DB_URL) {
     try {
       const conn = _createTiDBClientFromUrl(env.TIDB_KC_DB_URL);
@@ -167,14 +213,32 @@ export async function insertBufferLogsWithFallback(
       }
       
       console.log(`[DB] Inserted ${insertedCount} records to TiDB`);
-      return { source: 'tidb', insertedCount };
+      return { source: 'tidb', insertedCount, rateLimited: false };
     } catch (err) {
-      console.error('[DB] TiDB insert failed, falling back to D1:', err instanceof Error ? err.message : String(err));
+      // Check if this is a rate limit error
+      const rateLimitInfo = _isRateLimitError(err);
+      
+      if (rateLimitInfo.isRateLimited) {
+        _recordRateLimitEvent(rateLimitInfo);
+        console.warn(`[DB] TiDB insert rate limit detected (${rateLimitInfo.limitType}), falling back to D1`);
+      } else {
+        console.error('[DB] TiDB insert failed, falling back to D1:', err instanceof Error ? err.message : String(err));
+      }
+      
+      // D1 fallback
+      const d1Records = records.map(r => ({
+        ...r,
+        data: r.data instanceof ArrayBuffer 
+          ? r.data 
+          : r.data.buffer.slice(r.data.byteOffset, r.data.byteOffset + r.data.byteLength) as ArrayBuffer,
+      }));
+      const result = await _d1BulkInsertBufferLogs(env.BATTLE_INDEX_DB, d1Records);
+      console.log(`[DB] Inserted ${result.insertedCount} records to D1${rateLimitInfo.isRateLimited ? ' (TiDB rate limited)' : ''}`);
+      return { source: 'd1', insertedCount: result.insertedCount, rateLimited: rateLimitInfo.isRateLimited };
     }
   }
   
-  // D1 fallback
-  // FIXED: Use proper slice to avoid byteOffset issues when Uint8Array is a view
+  // D1 directly (no TiDB configured)
   const d1Records = records.map(r => ({
     ...r,
     data: r.data instanceof ArrayBuffer 
@@ -183,7 +247,7 @@ export async function insertBufferLogsWithFallback(
   }));
   const result = await _d1BulkInsertBufferLogs(env.BATTLE_INDEX_DB, d1Records);
   console.log(`[DB] Inserted ${result.insertedCount} records to D1`);
-  return { source: 'd1', insertedCount: result.insertedCount };
+  return { source: 'd1', insertedCount: result.insertedCount, rateLimited: false };
 }
 
 /**
@@ -191,6 +255,8 @@ export async function insertBufferLogsWithFallback(
  * 
  * This is critical for data consistency: if data is in TiDB, we must query TiDB.
  * D1 fallback only happens if TiDB query fails, not based on configuration alone.
+ * 
+ * Returns rateLimited: true if the fallback was due to a rate limit error
  */
 export async function fetchHotDataWithFallback(
   env: UnifiedDbEnv,
@@ -200,7 +266,7 @@ export async function fetchHotDataWithFallback(
     from?: number;
     to?: number;
   }
-): Promise<{ rows: BufferLogRecord[]; source: 'tidb' | 'd1' }> {
+): Promise<{ rows: BufferLogRecord[]; source: 'tidb' | 'd1'; rateLimited?: boolean }> {
   if (env.TIDB_KC_DB_URL) {
     try {
       const conn = _createTiDBClientFromUrl(env.TIDB_KC_DB_URL);
@@ -209,21 +275,40 @@ export async function fetchHotDataWithFallback(
       return {
         rows: tidbRows.map(r => ({
           ...r,
-          // FIXED: Use proper slice to avoid byteOffset issues when Uint8Array is a view
+          // Use proper slice to avoid byteOffset issues when Uint8Array is a view
           data: r.data.buffer.slice(r.data.byteOffset, r.data.byteOffset + r.data.byteLength) as ArrayBuffer,
         })),
         source: 'tidb',
+        rateLimited: false,
       };
     } catch (err) {
-      console.error('[DB] TiDB fetchHotData failed, falling back to D1:', err instanceof Error ? err.message : String(err));
+      // Check if this is a rate limit error
+      const rateLimitInfo = _isRateLimitError(err);
+      
+      if (rateLimitInfo.isRateLimited) {
+        _recordRateLimitEvent(rateLimitInfo);
+        console.warn(`[DB] TiDB fetchHotData rate limit detected (${rateLimitInfo.limitType}), falling back to D1`);
+      } else {
+        console.error('[DB] TiDB fetchHotData failed, falling back to D1:', err instanceof Error ? err.message : String(err));
+      }
+      
+      // D1 fallback
+      const d1Rows = await _d1FetchHotData(env.BATTLE_INDEX_DB, params);
+      console.log(`[DB] Fetched ${d1Rows.length} hot rows from D1${rateLimitInfo.isRateLimited ? ' (TiDB rate limited)' : ''}`);
+      return {
+        rows: d1Rows as BufferLogRecord[],
+        source: 'd1',
+        rateLimited: rateLimitInfo.isRateLimited,
+      };
     }
   }
   
-  // D1 fallback
+  // D1 directly (no TiDB configured)
   const d1Rows = await _d1FetchHotData(env.BATTLE_INDEX_DB, params);
   console.log(`[DB] Fetched ${d1Rows.length} hot rows from D1`);
   return {
     rows: d1Rows as BufferLogRecord[],
     source: 'd1',
+    rateLimited: false,
   };
 }

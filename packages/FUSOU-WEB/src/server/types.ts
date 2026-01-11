@@ -101,8 +101,8 @@ export type D1Database = {
 export type D1Statement = {
   bind(...args: unknown[]): D1Statement;
   run(): Promise<D1ExecResult>;
-  all?(): Promise<D1AllResult>;
-  first?(): Promise<D1Result | undefined>;
+  all<T = D1Row>(): Promise<{ results?: T[] }>;
+  first<T = D1Result>(): Promise<T | null>;
 };
 
 export type D1ExecResult = {

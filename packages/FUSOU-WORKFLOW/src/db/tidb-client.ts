@@ -17,6 +17,98 @@
 
 import { connect, Connection } from '@tidbcloud/serverless';
 
+// ============================================================
+// Rate Limit Detection
+// ============================================================
+
+/**
+ * TiDB Cloud rate limit error detection patterns
+ * - HTTP 429: Too Many Requests
+ * - RU quota exceeded: Request Units exhausted
+ * - Throttling messages
+ */
+const RATE_LIMIT_PATTERNS = [
+  /\b429\b/,                    // HTTP 429 status code (word boundary)
+  /too many requests/i,
+  /rate.?limit/i,
+  /throttl/i,
+  /quota.?exceed/i,
+  /request.?units?.?exhaust/i,
+  /ru.?limit/i,
+];
+
+export interface RateLimitInfo {
+  /** Whether the error is a rate limit error */
+  isRateLimited: boolean;
+  /** Detected rate limit type (if known) */
+  limitType?: 'api' | 'ru' | 'unknown';
+  /** Original error message */
+  message: string;
+}
+
+/**
+ * Check if an error is a TiDB Cloud rate limit error
+ * 
+ * TiDB Cloud has two types of limits:
+ * 1. API rate limit: 100 requests/minute per API key (HTTP 429)
+ * 2. RU (Request Units) quota: Monthly compute budget for Serverless
+ */
+export function isRateLimitError(error: unknown): RateLimitInfo {
+  const message = error instanceof Error ? error.message : String(error);
+  const code = (error as { code?: string | number })?.code;
+  const status = (error as { status?: number })?.status;
+  
+  // Check HTTP status code
+  if (status === 429 || code === 429 || code === '429') {
+    return { isRateLimited: true, limitType: 'api', message };
+  }
+  
+  // Check error message patterns
+  for (const pattern of RATE_LIMIT_PATTERNS) {
+    if (pattern.test(message)) {
+      // Determine limit type from message
+      const limitType = /ru|request.?unit/i.test(message) ? 'ru' : 
+                       /429|api|request/i.test(message) ? 'api' : 'unknown';
+      return { isRateLimited: true, limitType, message };
+    }
+  }
+  
+  return { isRateLimited: false, message };
+}
+
+/**
+ * Last known rate limit status (in-memory tracking)
+ * This provides visibility into recent rate limit events
+ */
+let lastRateLimitEvent: {
+  timestamp: number;
+  info: RateLimitInfo;
+} | null = null;
+
+/**
+ * Record a rate limit event for tracking
+ */
+export function recordRateLimitEvent(info: RateLimitInfo): void {
+  if (info.isRateLimited) {
+    lastRateLimitEvent = {
+      timestamp: Date.now(),
+      info,
+    };
+    console.warn(`[TiDB] Rate limit detected: ${info.limitType} - ${info.message}`);
+  }
+}
+
+/**
+ * Get the last rate limit event (if any, within last 5 minutes)
+ */
+export function getLastRateLimitEvent(): typeof lastRateLimitEvent {
+  if (lastRateLimitEvent && Date.now() - lastRateLimitEvent.timestamp < 5 * 60 * 1000) {
+    return lastRateLimitEvent;
+  }
+  return null;
+}
+
+
 export interface TiDBConfig {
   host: string;
   username: string;

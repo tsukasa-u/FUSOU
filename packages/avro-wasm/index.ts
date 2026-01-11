@@ -17,6 +17,8 @@ import init, {
   get_available_versions as wasm_get_available_versions,
   get_schema_json as wasm_get_schema_json,
   init_panic_hook,
+  type ValidationResult,
+  type SchemaMatchResult,
 } from './pkg/avro_wasm.js';
 
 // Import WASM binary for Cloudflare Workers

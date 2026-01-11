@@ -2,14 +2,8 @@ name = "fusou-workflow"
 compatibility_date = "2024-10-22"
 compatibility_flags = ["nodejs_compat"]
 
-# Main entry point
-# Main entry point
-main = "dist/worker.js"
-
-# Integrated build configuration
-[build]
-command = "pnpm run build"
-watch_dir = "src"
+# Main entry point - wrangler will build with esbuild automatically
+main = "src/index.ts"
 
 # Run scheduled compaction hourly (UTC). Adjust as needed.
 [triggers]
@@ -18,12 +12,6 @@ crons = ["0 * * * *"]
 # ===== Environment Variables =====
 # All configuration is now via D1 database
 # Previous Supabase credentials have been removed
-
-# ===== Workflow definitions =====
-[[workflows]]
-name = "data-compaction-workflow"
-binding = "DATA_COMPACTION"
-class_name = "DataCompactionWorkflow"
 
 # ===== R2 bucket bindings =====
 [[r2_buckets]]

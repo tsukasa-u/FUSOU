@@ -493,23 +493,22 @@ app.get("/download", async (c) => {
         return jsonResponse({ error: "BLOCK_NOT_FOUND", message: "Block not found" }, 404);
       }
 
-      // Fetch Header (0 to start_byte-1) -> This assumes header ends where block starts.
-      // Ideally valid OCF has header then blocks.
-      // If we are fetching specific block, we need the universal header + that block.
-      // If block starts at 0 (unlikely for block 2+), header is implicit.
-      // CAUTION: This logic assumes start_byte is exact offset of the sync marker/block start.
-      
-      const headerEnd = blockInfo.start_byte - 1; 
-      // If start_byte is small (e.g. first block), we might just read file normally?
-      // Actually for scope=own we want ONLY that block.
-      
-      // Fetch header (first 4KB or up to start_byte)
-      // Since we don't know header size exactly without parsing, usage of start_byte is a guess
-      // that the user's block starts immediately after previous data/header.
-      // But blocks are contiguous.
+      // IMPORTANT LIMITATION:
+      // This logic assumes that `start_byte` represents where the data blocks START
+      // (i.e., immediately after the Avro header). This works correctly when:
+      // - Each file contains only ONE dataset's data block
+      // - start_byte = header_size (the position after magic + metadata + sync marker)
+      //
+      // If multiple datasets are stored in a single file (which is supported by cron.ts),
+      // the second dataset's start_byte would be AFTER the first dataset's block, not at
+      // the header end. In that case, this logic would fetch [Header + Dataset1 Block]
+      // and combine it with [Dataset2 Block], producing invalid Avro OCF.
+      //
+      // TODO: To properly support multi-dataset files, store header_size in archived_files
+      // or block_indexes, and use that instead of start_byte for header extraction.
       
       const headerObject = await bucket.get(blockInfo.file_path, {
-        range: { offset: 0, length: blockInfo.start_byte } // This fetches EVERYTHING before the block
+        range: { offset: 0, length: blockInfo.start_byte } // Fetches everything before this block
       });
 
       if (!headerObject?.body) {
@@ -567,21 +566,6 @@ app.get("/download", async (c) => {
     }
 
     return jsonResponse({ error: "INVALID_REQUEST", message: "Invalid download parameters" }, 400);
-    
-    const object = await bucket.get(filePath!);
-
-    if (!object) {
-      return jsonResponse({ error: "FILE_NOT_FOUND", message: "File not found in storage" }, 404);
-    }
-    
-    const headers = new Headers();
-    object.writeHttpMetadata(headers);
-    headers.set("etag", object.httpEtag);
-    headers.set("Content-Disposition", `attachment; filename="${filePath!.split('/').pop()}"`);
-    
-    return new Response(object.body, {
-      headers,
-    });
     
   } catch (error) {
     console.error("Download error:", error);

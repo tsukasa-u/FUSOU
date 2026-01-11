@@ -2,15 +2,15 @@
  * Avro OCF Merger - Combines multiple Avro OCF files into a single valid OCF
  * 
  * OCF Format:
- * [Magic(4)] [Metadata] [SyncMarker(16)] [DataBlocks...] [SyncMarker(16)]
+ * [Magic(4)] [Metadata] [SyncMarker(16)] [DataBlocks...]
  * 
  * Each DataBlock:
  * [BlockCount(long)] [BlockData(bytes)] [SyncMarker(16)]
  * 
  * Merging Strategy:
  * 1. Parse first OCF completely (magic, metadata, sync marker)
- * 2. Extract all data blocks from all OCFs (skip magic/metadata/final sync)
- * 3. Concatenate blocks with a new final sync marker
+ * 2. Extract all data blocks from all OCFs (each block includes trailing sync marker)
+ * 3. Concatenate header + data blocks (no additional sync marker needed)
  */
 
 interface OCFHeader {
@@ -242,9 +242,11 @@ export interface MergeResult {
 /**
  * Merge multiple Avro OCF files into single valid OCF with boundary tracking
  * - Uses header (magic, metadata, sync marker) from first OCF
- * - Concatenates data blocks from all OCFs
- * - Appends final sync marker
+ * - Concatenates data blocks from all OCFs (each block includes trailing sync marker)
  * - Returns boundaries for each source file for accurate offset calculation
+ * 
+ * Note: No additional final sync marker is appended because extractDataBlocksRaw
+ * already includes the trailing sync marker from each data block.
  * 
  * @param ocfDataArray - Array of OCF file contents
  * @returns MergeResult with merged data and boundaries
@@ -296,6 +298,8 @@ export function mergeAvroOCFWithBoundaries(ocfDataArray: Uint8Array[]): MergeRes
   }
 
   // Calculate final size with overflow check
+  // Note: Data blocks already include their trailing sync markers from extractDataBlocksRaw
+  // We should NOT add an additional final sync marker, as that would cause duplicate sync markers
   const headerSize = unifiedHeader.metadataEnd + 16; // magic + metadata + sync marker
   const dataSize = dataBlocksList.reduce((sum, b) => {
     // Detect integer overflow during summation
@@ -304,8 +308,8 @@ export function mergeAvroOCFWithBoundaries(ocfDataArray: Uint8Array[]): MergeRes
     }
     return sum + b.byteLength;
   }, 0);
-  const finalSyncSize = 16; // Final sync marker
-  const totalSize = headerSize + dataSize + finalSyncSize;
+  // FIXED: Removed finalSyncSize - data blocks already end with sync markers
+  const totalSize = headerSize + dataSize;
   
   if (totalSize > Number.MAX_SAFE_INTEGER || totalSize < 0) {
     throw new Error(`OCF merge total size invalid: ${totalSize}`);
@@ -323,15 +327,14 @@ export function mergeAvroOCFWithBoundaries(ocfDataArray: Uint8Array[]): MergeRes
   merged.set(headerSlice, offset);
   offset += headerSize;
 
-  // Copy all data blocks
+  // Copy all data blocks (each block already ends with sync marker)
   for (const blocks of dataBlocksList) {
     merged.set(blocks, offset);
     offset += blocks.byteLength;
   }
 
-  // Append final sync marker (same as unified header's sync marker)
-  merged.set(unifiedHeader.syncMarker, offset);
-  offset += 16;
+  // FIXED: Removed duplicate final sync marker append
+  // Data blocks from extractDataBlocksRaw already include trailing sync markers
 
   // Adjust boundaries to be absolute offsets from file start (add header size)
   const absoluteBoundaries = boundaries.map(b => ({
@@ -339,7 +342,7 @@ export function mergeAvroOCFWithBoundaries(ocfDataArray: Uint8Array[]): MergeRes
     startByte: headerSize + b.startByte,
   }));
 
-  console.log(`[Merger] Merged ${ocfDataArray.length} OCF files: ${headerSize}B header + ${dataSize}B data + 16B final sync = ${totalSize}B`);
+  console.log(`[Merger] Merged ${ocfDataArray.length} OCF files: ${headerSize}B header + ${dataSize}B data = ${totalSize}B`);
 
   return {
     merged,
@@ -351,8 +354,7 @@ export function mergeAvroOCFWithBoundaries(ocfDataArray: Uint8Array[]): MergeRes
 /**
  * Merge multiple Avro OCF files into single valid OCF (simple version)
  * - Uses header (magic, metadata, sync marker) from first OCF
- * - Concatenates data blocks from all OCFs
- * - Appends final sync marker
+ * - Concatenates data blocks from all OCFs (each block includes trailing sync marker)
  * 
  * @param ocfDataArray - Array of OCF file contents
  * @returns Merged OCF as Uint8Array
