@@ -177,9 +177,14 @@ app.get("/period-tags", async (c) => {
     }
 
     const rows = (await response.json()) as Array<{ tag: string }>;
-    const periodTags = rows.map((r) => r.tag);
+    
+    // Convert ISO8601 to YYYY-MM-DD in Tokyo timezone (matching Rust/D1 format)
+    const periodTags = rows.map((r) => {
+      const parsed = new Date(r.tag);
+      return parsed.toLocaleDateString("sv-SE", { timeZone: "Asia/Tokyo" });
+    });
 
-    // Get latest period tag
+    // Get latest period tag (already converted to YYYY-MM-DD)
     const latest = periodTags.length > 0 ? periodTags[0] : null;
 
     return jsonResponse({
@@ -763,7 +768,7 @@ async function getLatestPeriodTag(
   config: SupabaseConfig,
   cacheKV?: KVNamespace
 ): Promise<string | null> {
-  // Try cache first
+  // Try cache first (cache stores already-converted YYYY-MM-DD format)
   if (cacheKV) {
     try {
       const cached = await cacheKV.get(PERIOD_TAG_CACHE_KEY);
@@ -797,12 +802,21 @@ async function getLatestPeriodTag(
   }
 
   const rows = (await response.json()) as Array<{ tag: string | null }>;
-  const latestTag = Array.isArray(rows) && rows.length > 0 ? rows[0].tag ?? null : null;
+  const rawTag = Array.isArray(rows) && rows.length > 0 ? rows[0].tag ?? null : null;
 
-  // Store in cache
-  if (cacheKV && latestTag) {
+  if (!rawTag) {
+    return null;
+  }
+
+  // Convert ISO8601 to YYYY-MM-DD in Tokyo timezone (matching Rust behavior)
+  // Rust: parsed_tag.with_timezone(&chrono_tz::Asia::Tokyo).date_naive().to_string()
+  const parsedDate = new Date(rawTag);
+  const tokyoDate = parsedDate.toLocaleDateString("sv-SE", { timeZone: "Asia/Tokyo" }); // "sv-SE" locale gives YYYY-MM-DD format
+
+  // Store in cache (store converted format)
+  if (cacheKV && tokyoDate) {
     try {
-      await cacheKV.put(PERIOD_TAG_CACHE_KEY, latestTag, {
+      await cacheKV.put(PERIOD_TAG_CACHE_KEY, tokyoDate, {
         expirationTtl: PERIOD_TAG_CACHE_TTL,
       });
     } catch (e) {
@@ -810,7 +824,7 @@ async function getLatestPeriodTag(
     }
   }
 
-  return latestTag;
+  return tokyoDate;
 }
 
 
