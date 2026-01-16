@@ -316,25 +316,37 @@ impl ConfigsAppDiscord {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[cfg(feature = "gdrive")]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[deprecated(since = "0.2.0", note = "Google Drive authentication is deprecated. Use anonymous authentication instead.")]
 pub struct ConfigsAppDatabaseGoogleDrive {
     schedule_cron: Option<String>,
     page_size: Option<i64>,
 }
 
+#[cfg(feature = "gdrive")]
+#[allow(deprecated)]
 impl ConfigsAppDatabaseGoogleDrive {
+    #[deprecated(since = "0.2.0", note = "Google Drive authentication is deprecated. Use anonymous authentication instead.")]
     pub fn get_schedule_cron(&self) -> String {
         self.schedule_cron
             .clone()
-            .unwrap_or_else(|| get_default_configs().app.database.google_drive.schedule_cron.clone().unwrap())
+            .unwrap_or_else(|| {
+                #[allow(deprecated)]
+                get_default_configs().app.database.google_drive.schedule_cron.clone().unwrap_or_default()
+            })
     }
 
+    #[deprecated(since = "0.2.0", note = "Google Drive authentication is deprecated. Use anonymous authentication instead.")]
     pub fn get_page_size(&self) -> i64 {
         match self.page_size {
             Some(v) if v <= 0 => 100,
             Some(v) if v > 100 => 100,
             Some(v) => v,
-            None => get_default_configs().app.database.google_drive.page_size.unwrap(),
+            None => {
+                #[allow(deprecated)]
+                get_default_configs().app.database.google_drive.page_size.unwrap_or(100)
+            }
         }
     }
 }
@@ -373,6 +385,8 @@ pub struct ConfigsAppDatabase {
     allow_data_to_shared_cloud: Option<bool>,
     allow_data_to_local: Option<bool>,
     pub local: ConfigsAppDatabaseLocal,
+    #[cfg(feature = "gdrive")]
+    #[serde(default)]
     pub google_drive: ConfigsAppDatabaseGoogleDrive,
     pub r2: ConfigsAppDatabaseR2,
 }
@@ -590,7 +604,7 @@ pub struct ConfigsAppAuth {
     deny_auth: Option<bool>,
     auth_page_url: Option<String>,
     member_map_endpoint: Option<String>,
-    conflict_page_url: Option<String>,
+    anonymous_sync_endpoint: Option<String>,
 }
 
 impl ConfigsAppAuth {
@@ -617,13 +631,13 @@ impl ConfigsAppAuth {
         }
     }
 
-    pub fn get_conflict_page_url(&self) -> Option<String> {
-        match &self.conflict_page_url {
+    pub fn get_anonymous_sync_endpoint(&self) -> Option<String> {
+        match &self.anonymous_sync_endpoint {
             Some(v) if !v.trim().is_empty() => Some(v.trim().to_string()),
             _ => get_default_configs()
                 .app
                 .auth
-                .conflict_page_url
+                .anonymous_sync_endpoint
                 .as_ref()
                 .map(|s| s.trim().to_string()),
         }
@@ -1110,6 +1124,7 @@ mod tests {
             allow_data_to_shared_cloud: None,
             allow_data_to_local: None,
             local: default_configs.app.database.local.clone(),
+            #[cfg(feature = "gdrive")]
             google_drive: default_configs.app.database.google_drive.clone(),
             r2: default_configs.app.database.r2.clone(),
         };
@@ -1126,21 +1141,28 @@ mod tests {
         );
         
         // Test App Database Google Drive defaults
-        let empty_google_drive = ConfigsAppDatabaseGoogleDrive {
-            schedule_cron: None,
-            page_size: None,
-        };
-        
-        assert_eq!(
-            empty_google_drive.get_schedule_cron(),
-            default_configs.app.database.google_drive.get_schedule_cron(),
-            "google_drive schedule_cron getter should return configs.toml default"
-        );
-        assert_eq!(
-            empty_google_drive.get_page_size(),
-            default_configs.app.database.google_drive.get_page_size(),
-            "google_drive page_size getter should return configs.toml default"
-        );
+        #[cfg(feature = "gdrive")]
+        {
+            #[allow(deprecated)]
+            let empty_google_drive = ConfigsAppDatabaseGoogleDrive {
+                schedule_cron: None,
+                page_size: None,
+            };
+            
+            #[allow(deprecated)]
+            {
+                assert_eq!(
+                    empty_google_drive.get_schedule_cron(),
+                    default_configs.app.database.google_drive.get_schedule_cron(),
+                    "google_drive schedule_cron getter should return configs.toml default"
+                );
+                assert_eq!(
+                    empty_google_drive.get_page_size(),
+                    default_configs.app.database.google_drive.get_page_size(),
+                    "google_drive page_size getter should return configs.toml default"
+                );
+            }
+        }
         
         // Test App Asset Sync defaults
         let empty_asset_sync = ConfigsAppAssetSync {
@@ -1207,7 +1229,7 @@ mod tests {
             deny_auth: None,
             auth_page_url: None,
             member_map_endpoint: None,
-            conflict_page_url: None,
+            anonymous_sync_endpoint: None,
         };
         
         assert_eq!(
