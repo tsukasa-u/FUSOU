@@ -1,5 +1,5 @@
 #!/bin/bash
-# ローカル診断用：抽出済みフラグメントをR2からダウンロードして検証
+# Local diagnostic: Download extracted fragments from R2 and validate
 
 set -e
 

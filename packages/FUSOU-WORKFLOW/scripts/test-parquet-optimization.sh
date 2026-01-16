@@ -1,5 +1,5 @@
 #!/bin/bash
-# Parquet最適化機能の統合テストスクリプト
+# Parquet optimization integration test script
 
 set -e
 
@@ -13,18 +13,18 @@ echo "WORKFLOW_URL: $WORKFLOW_URL"
 echo "DATASET_ID: $DATASET_ID"
 echo ""
 
-# 1. ヘルスチェック
+# 1. Health check
 echo "1. Health check..."
 curl -sS "$WORKFLOW_URL/" | jq
 echo ""
 
-# 2. 単一ファイル検証（存在しない場合はスキップ）
+# 2. Single file validation (skip if file doesn't exist)
 echo "2. Single file validation (may fail if file doesn't exist)..."
 TEST_KEY="battle_compacted/$PERIOD_TAG/$DATASET_ID/$TABLE/0.parquet"
 curl -sS "$WORKFLOW_URL/validate/$(echo $TEST_KEY | sed 's|/|%2F|g')" | jq || echo "File not found (OK for initial test)"
 echo ""
 
-# 3. バッチ検証
+# 3. Batch validation
 echo "3. Batch validation..."
 cat > /tmp/validate-request.json <<EOF
 {
@@ -40,7 +40,7 @@ curl -sS -X POST "$WORKFLOW_URL/validate" \
   -d @/tmp/validate-request.json | jq
 echo ""
 
-# 4. コンパクション実行（実際のデータが必要）
+# 4. Run compaction (requires actual data)
 echo "4. Trigger compaction workflow..."
 cat > /tmp/run-request.json <<EOF
 {
@@ -55,7 +55,7 @@ curl -sS -X POST "$WORKFLOW_URL/run" \
   -d @/tmp/run-request.json | jq
 echo ""
 
-# 5. ステータス確認（instance IDが必要な場合）
+# 5. Check status (requires instance ID)
 # echo "5. Check workflow status..."
 # INSTANCE_ID="<from-step-4>"
 # curl -sS "$WORKFLOW_URL/status/$INSTANCE_ID" | jq
