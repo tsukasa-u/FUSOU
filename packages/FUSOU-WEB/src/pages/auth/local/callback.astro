@@ -38,7 +38,7 @@ let return_params: string | null = null;
 let return_href: string | null = null;
 let set_session_error_flag: boolean = false;
 let return_href_missing_flag: boolean = false;
-let isDesktopApp: boolean = false; // Flag to detect desktop app flow
+let isDesktopApp: boolean = isFromTauriApp; // Flag to detect desktop app flow
 let app_return_url: string | null = null; // URL to return to app
 
 const providerValue = provider?.value ?? "google";
@@ -266,7 +266,7 @@ cookies.delete("sb-local-provider", { path: "/" });
 
           <div class="flex flex-col gap-3">
             <a
-              href="/auth/local/signin"
+              href={`/auth/local/signin${appOriginParam ? `?app_origin=${appOriginParam}` : ''}`}
               class="btn btn-primary w-full border border-primary-content"
             >
               ← Retry Sign-in
@@ -311,7 +311,7 @@ cookies.delete("sb-local-provider", { path: "/" });
               href="tauri://auth-complete?status=success"
               class="btn btn-ghost w-full border border-base-300"
             >
-              ↩ Return to App
+              ← Return to App
             </a>
           </div>
         </div>
@@ -391,7 +391,7 @@ cookies.delete("sb-local-provider", { path: "/" });
           // Set manual return-to-app link even when app detection is missing
           const appReturnLink = document.getElementById("app-return-link");
           if (appReturnLink) {
-            const base = appReturnUrl || "tauri://auth-complete";
+            const base = appReturnUrl || "fusou://auth-complete";
             const href = base + (base.includes('?') ? '&' : '?') + 'status=success';
             appReturnLink.setAttribute("href", href);
           }

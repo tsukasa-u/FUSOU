@@ -200,9 +200,17 @@ async fn handle_realtime_sync_async(
     token: &str,
     app_instance_id: &str,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    // 1. Load member_id_hash from game data
-    let basic = Basic::load();
-    let member_id_hash = basic.member_id;
+    // 1. Load member_id_hash from game data or cache
+    use crate::auth::member_id_cache::MemberIdCache;
+    
+    // Try cache first
+    let member_id_hash = MemberIdCache::load()
+        .map(|cache| cache.member_id_hash)
+        .unwrap_or_else(|| {
+            // Fall back to loading from game data
+            let basic = Basic::load();
+            basic.member_id
+        });
 
     if member_id_hash.is_empty() {
         return Err(
@@ -216,7 +224,6 @@ async fn handle_realtime_sync_async(
     );
 
     // Save to cache for future use
-    use crate::auth::member_id_cache::MemberIdCache;
     if let Err(e) = MemberIdCache::save(&member_id_hash) {
         tracing::warn!("[Realtime Sync] Failed to cache member_id_hash: {}", e);
     }
