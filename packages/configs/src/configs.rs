@@ -624,6 +624,9 @@ pub struct ConfigsAppAuth {
     auth_page_url: Option<String>,
     member_map_endpoint: Option<String>,
     anonymous_sync_endpoint: Option<String>,
+    /// Deprecated: This field is no longer used. Use `anonymous_sync_endpoint` instead.
+    #[deprecated(since = "0.2.0", note = "Use anonymous_sync_endpoint instead")]
+    conflict_page_url: Option<String>,
 }
 
 impl ConfigsAppAuth {
@@ -651,15 +654,26 @@ impl ConfigsAppAuth {
     }
 
     pub fn get_anonymous_sync_endpoint(&self) -> Option<String> {
+        // First try anonymous_sync_endpoint
         match &self.anonymous_sync_endpoint {
-            Some(v) if !v.trim().is_empty() => Some(v.trim().to_string()),
-            _ => get_default_configs()
-                .app
-                .auth
-                .anonymous_sync_endpoint
-                .as_ref()
-                .map(|s| s.trim().to_string()),
+            Some(v) if !v.trim().is_empty() => return Some(v.trim().to_string()),
+            _ => {}
         }
+        
+        // Fall back to deprecated conflict_page_url for backward compatibility
+        #[allow(deprecated)]
+        match &self.conflict_page_url {
+            Some(v) if !v.trim().is_empty() => return Some(v.trim().to_string()),
+            _ => {}
+        }
+        
+        // Finally check defaults
+        get_default_configs()
+            .app
+            .auth
+            .anonymous_sync_endpoint
+            .as_ref()
+            .map(|s| s.trim().to_string())
     }
 }
 
@@ -1250,6 +1264,8 @@ mod tests {
             auth_page_url: None,
             member_map_endpoint: None,
             anonymous_sync_endpoint: None,
+            #[allow(deprecated)]
+            conflict_page_url: None,
         };
         
         assert_eq!(
