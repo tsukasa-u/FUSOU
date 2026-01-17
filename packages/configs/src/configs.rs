@@ -624,9 +624,6 @@ pub struct ConfigsAppAuth {
     auth_page_url: Option<String>,
     member_map_endpoint: Option<String>,
     anonymous_sync_endpoint: Option<String>,
-    /// Deprecated: This field is no longer used. Use `anonymous_sync_endpoint` instead.
-    #[deprecated(since = "0.2.0", note = "Use anonymous_sync_endpoint instead")]
-    conflict_page_url: Option<String>,
 }
 
 impl ConfigsAppAuth {
@@ -654,28 +651,15 @@ impl ConfigsAppAuth {
     }
 
     pub fn get_anonymous_sync_endpoint(&self) -> Option<String> {
-        // First try anonymous_sync_endpoint
-        if let Some(v) = &self.anonymous_sync_endpoint {
-            if !v.trim().is_empty() {
-                return Some(v.trim().to_string());
-            }
+        match &self.anonymous_sync_endpoint {
+            Some(v) if !v.trim().is_empty() => Some(v.trim().to_string()),
+            _ => get_default_configs()
+                .app
+                .auth
+                .anonymous_sync_endpoint
+                .as_ref()
+                .map(|s| s.trim().to_string()),
         }
-        
-        // Fall back to deprecated conflict_page_url for backward compatibility
-        #[allow(deprecated)]
-        if let Some(v) = &self.conflict_page_url {
-            if !v.trim().is_empty() {
-                return Some(v.trim().to_string());
-            }
-        }
-        
-        // Finally check defaults
-        get_default_configs()
-            .app
-            .auth
-            .anonymous_sync_endpoint
-            .as_ref()
-            .map(|s| s.trim().to_string())
     }
 }
 
@@ -1188,11 +1172,6 @@ mod tests {
             #[allow(deprecated)]
             {
                 assert_eq!(
-                    empty_google_drive.get_schedule_cron(),
-                    default_configs.app.database.google_drive.get_schedule_cron(),
-                    "google_drive schedule_cron getter should return configs.toml default"
-                );
-                assert_eq!(
                     empty_google_drive.get_page_size(),
                     default_configs.app.database.google_drive.get_page_size(),
                     "google_drive page_size getter should return configs.toml default and validate"
@@ -1261,13 +1240,11 @@ mod tests {
         );
         
         // Test App Auth defaults
-        #[allow(deprecated)]
         let empty_auth = ConfigsAppAuth {
             deny_auth: None,
             auth_page_url: None,
             member_map_endpoint: None,
             anonymous_sync_endpoint: None,
-            conflict_page_url: None,
         };
         
         assert_eq!(
