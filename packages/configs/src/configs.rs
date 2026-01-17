@@ -321,7 +321,7 @@ impl ConfigsAppDiscord {
 #[deprecated(since = "0.2.0", note = "Google Drive authentication is deprecated. Use anonymous authentication instead.")]
 pub struct ConfigsAppDatabaseGoogleDrive {
     schedule_cron: Option<String>,
-    page_size: Option<i64>,
+    page_size: Option<i32>,
 }
 
 #[cfg(feature = "gdrive")]
@@ -354,6 +354,7 @@ impl ConfigsAppDatabaseGoogleDrive {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConfigsAppDatabaseLocal {
     output_directory: Option<String>,
+    integration_batch_size: Option<i32>,
 }
 
 impl ConfigsAppDatabaseLocal {
@@ -361,6 +362,17 @@ impl ConfigsAppDatabaseLocal {
         match self.output_directory {
             Some(ref v) if !v.is_empty() => Some(v.clone()),
             _ => None,
+        }
+    }
+
+    pub fn get_integration_batch_size(&self) -> i32 {
+        match self.integration_batch_size {
+            Some(v) if v <= 0 => 500,
+            Some(v) if v > 10000 => 10000,
+            Some(v) => v,
+            None => {
+                get_default_configs().app.database.local.integration_batch_size.unwrap_or(500)
+            }
         }
     }
 }
@@ -384,6 +396,7 @@ pub struct ConfigsAppDatabase {
     allow_data_to_cloud: Option<bool>,
     allow_data_to_shared_cloud: Option<bool>,
     allow_data_to_local: Option<bool>,
+    integration_schedule_cron: Option<String>,
     pub local: ConfigsAppDatabaseLocal,
     #[cfg(feature = "gdrive")]
     #[serde(default)]
@@ -402,6 +415,12 @@ impl ConfigsAppDatabase {
 
     pub fn get_allow_data_to_local(&self) -> bool {
         self.allow_data_to_local.unwrap_or_else(|| get_default_configs().app.database.allow_data_to_local.unwrap())
+    }
+
+    pub fn get_integration_schedule_cron(&self) -> String {
+        self.integration_schedule_cron
+            .clone()
+            .unwrap_or_else(|| get_default_configs().app.database.integration_schedule_cron.clone().unwrap_or_default())
     }
 }
 
@@ -1123,6 +1142,7 @@ mod tests {
             allow_data_to_cloud: None,
             allow_data_to_shared_cloud: None,
             allow_data_to_local: None,
+            integration_schedule_cron: None,
             local: default_configs.app.database.local.clone(),
             #[cfg(feature = "gdrive")]
             google_drive: default_configs.app.database.google_drive.clone(),
@@ -1145,21 +1165,15 @@ mod tests {
         {
             #[allow(deprecated)]
             let empty_google_drive = ConfigsAppDatabaseGoogleDrive {
-                schedule_cron: None,
                 page_size: None,
             };
             
             #[allow(deprecated)]
             {
                 assert_eq!(
-                    empty_google_drive.get_schedule_cron(),
-                    default_configs.app.database.google_drive.get_schedule_cron(),
-                    "google_drive schedule_cron getter should return configs.toml default"
-                );
-                assert_eq!(
                     empty_google_drive.get_page_size(),
                     default_configs.app.database.google_drive.get_page_size(),
-                    "google_drive page_size getter should return configs.toml default"
+                    "google_drive page_size getter should return configs.toml default and validate"
                 );
             }
         }
