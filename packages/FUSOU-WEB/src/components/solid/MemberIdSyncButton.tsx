@@ -9,7 +9,7 @@
  */
 
 import { createSignal, onCleanup, onMount } from "solid-js";
-import { syncMemberIdHashWithApp, cleanupAllRealtimeSessions } from "../../lib/realtime-sync";
+import { syncMemberIdHashWithApp, cleanupAllRealtimeSessions } from "../../utils/realtime-sync";
 
 interface MemberIdSyncButtonProps {
   onSuccess?: (memberIdHash: string) => void;

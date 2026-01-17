@@ -82,7 +82,7 @@ app.post("/member-map/upsert", async (c) => {
 
   try {
     // Get the authenticated user's ID from the JWT token
-    const currentUserId = supabaseUser.sub;
+    const currentUserId = supabaseUser.id;
 
     // Check if this member_id_hash already exists
     const { data: existingMapping, error: lookupError } = await supabaseAdmin
