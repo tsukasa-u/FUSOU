@@ -89,6 +89,9 @@ export default defineConfig({
       "process.env.RESEND_API_KEY": JSON.stringify(
         process.env.RESEND_API_KEY
       ),
+      "process.env.DATASET_TOKEN_SECRET": JSON.stringify(
+        process.env.DATASET_TOKEN_SECRET
+      ),
     },
     resolve: {
       // @ts-ignore

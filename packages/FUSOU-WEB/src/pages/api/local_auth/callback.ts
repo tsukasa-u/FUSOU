@@ -17,6 +17,7 @@ const COOKIE_OPTIONS = { ...SECURE_COOKIE_OPTIONS, sameSite: "lax" as const };
 
 export const GET: APIRoute = async ({ url, cookies, redirect, locals }) => {
   const authCode = url.searchParams.get("code");
+  const appOriginParam = url.searchParams.get("app_origin");
   const provider = cookies.get("sb-local-provider")?.value;
   const runtimeEnv = (locals as any)?.runtime?.env || {};
 
@@ -104,5 +105,9 @@ export const GET: APIRoute = async ({ url, cookies, redirect, locals }) => {
   }
 
   console.log("Redirecting to /auth/local/callback");
-  return redirect("/auth/local/callback");
+  const target = new URL("/auth/local/callback", url.origin);
+  if (appOriginParam) {
+    target.searchParams.set("app_origin", appOriginParam);
+  }
+  return redirect(target.toString());
 };

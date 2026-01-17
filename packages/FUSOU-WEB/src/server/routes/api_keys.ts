@@ -253,31 +253,25 @@ app.post('/', async (c) => {
     }
 
     // Verify Member ID linkage (Anti-Sybil)
+    // Changed from RPC call to direct table query
     try {
-      const memberMap = await supabaseRequest<{ member_id_hash: string } | null>(
+      const memberMapResponse = await supabaseRequest<{ member_id_hash: string } | null>(
         config,
-        'rpc/rpc_get_current_user_member_map',
+        'user_member_map',
         {
-          method: 'POST', // RPC calls are POST
-          body: {},       // No args needed for this RPC
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-          },
+          query: `?user_id=eq.${user.id}&select=member_id_hash&limit=1`,
         }
       );
       
-      // If RPC returns null or empty, or returns an object with null member_id_hash, user is not linked
-      // Handle both object (single) and array (if returns setof) cases
+      // Check if user has a member_id_hash mapping
       let isLinked = false;
-      if (Array.isArray(memberMap)) {
-         isLinked = memberMap.length > 0 && !!memberMap[0].member_id_hash;
-      } else {
-         isLinked = !!memberMap && !!memberMap.member_id_hash;
+      if (Array.isArray(memberMapResponse) && memberMapResponse.length > 0) {
+        isLinked = !!memberMapResponse[0].member_id_hash;
       }
       
       if (!isLinked) {
-         return jsonResponse({ 
-           error: 'Game account verification required', 
+        return jsonResponse({ 
+          error: 'Game account verification required',
            message: 'You must link your KanColle game account (Member ID) before creating API keys.' 
          }, 403);
       }

@@ -16,78 +16,533 @@ import KeyIcon from "../../../components/icons/KeyIcon.astro";
 // }
 ---
 
-<Layout title="Sign in to local storage">
-  <div class="min-h-screen flex items-center justify-center">
-    <div class="w-full max-w-md">
-      <div class="bg-base-100 rounded-md p-6">
+<Layout title="Account Setup - Link Game to Social Account">
+  <div class="min-h-screen flex items-center justify-center px-4 py-8">
+    <div class="w-full max-w-2xl">
+      <!-- Header -->
+      <div class="bg-base-100 rounded-md p-6 mb-6">
         <div class="flex items-center gap-2">
-          <span class="flex-1 flex justify-end"
-            ><KeyIcon class="w-8 h-8" /></span
-          >
-          <span class="text-center text-2xl font-semibold">Sign in</span>
+          <span class="flex-1 flex justify-end">
+            <KeyIcon class="w-8 h-8" />
+          </span>
+          <h1 class="text-center text-2xl font-semibold">Account Setup</h1>
           <span class="flex-1"><div class="h-8 w-8"></div></span>
         </div>
-        <form action="/api/local_auth/signin" method="post" class="max-w-md">
-          <ul class="mt-8 flex flex-col gap-3 text-sm">
-            <li>
-              <button
-                class="btn w-full btn-ghost border border-base-300 rounded-sm flex items-center gap-2 bg-white text-black"
-                value="google"
-                name="provider"
-                type="submit"
-              >
-                <svg
-                  aria-label="Google logo"
-                  width="16"
-                  height="16"
-                  xmlns="http://www.w3.org/2000/svg"
-                  viewBox="0 0 512 512"
-                  ><g
-                    ><path d="m0 0H512V512H0" fill="#fff"></path><path
-                      fill="#34a853"
-                      d="M153 292c30 82 118 95 171 60h62v48A192 192 0 0190 341"
-                    ></path><path
-                      fill="#4285f4"
-                      d="m386 400a140 175 0 0053-179H260v74h102q-7 37-38 57"
-                    ></path><path
-                      fill="#fbbc02"
-                      d="m90 341a208 200 0 010-171l63 49q-12 37 0 73"
-                    ></path><path
-                      fill="#ea4335"
-                      d="m153 219c22-69 116-109 179-50l55-54c-78-75-230-72-297 55"
-                    ></path></g
-                  ></svg
-                >
-                <span class="text-start">Sign in with Google</span>
-              </button>
-            </li>
-            <div class="divider">OR</div>
-            <li>
-              <button
-                class="btn w-full btn-ghost border border-base-300 rounded-sm bg-white text-black"
-                id="skip_sign_in"
-              >
-                <div class="text-center">Skip Sign In</div>
-              </button>
-            </li>
-          </ul>
-        </form>
       </div>
+
+      <!-- Step Indicator -->
+      <div class="bg-base-100 rounded-md p-6 mb-6">
+        <div class="flex flex-col sm:flex-row items-center justify-between gap-4 sm:gap-2">
+          <!-- Step 1 -->
+          <button
+            class="step-indicator flex-1 w-full sm:w-auto"
+            data-step="1"
+          >
+            <div class="flex items-center gap-3 p-3 rounded-lg border-2 transition-all duration-200 step-1-box">
+              <div class="shrink-0 w-8 h-8 rounded-full flex items-center justify-center font-bold step-1-circle">
+                1
+              </div>
+              <div class="flex-1 text-left">
+                <div class="font-semibold text-sm">Sync Game</div>
+                <div class="text-xs opacity-70">Connect account</div>
+              </div>
+            </div>
+          </button>
+
+          <!-- Arrow -->
+          <div class="hidden sm:block text-base-content/30">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+            </svg>
+          </div>
+
+          <!-- Step 2 -->
+          <button
+            class="step-indicator flex-1 w-full sm:w-auto"
+            data-step="2"
+            disabled
+          >
+            <div class="flex items-center gap-3 p-3 rounded-lg border-2 transition-all duration-200 step-2-box">
+              <div class="shrink-0 w-8 h-8 rounded-full flex items-center justify-center font-bold step-2-circle">
+                2
+              </div>
+              <div class="flex-1 text-left">
+                <div class="font-semibold text-sm">Link Social</div>
+                <div class="text-xs opacity-70">Social account</div>
+              </div>
+            </div>
+          </button>
+
+          <!-- Arrow -->
+          <div class="hidden sm:block text-base-content/30">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+            </svg>
+          </div>
+
+          <!-- Step 3 -->
+          <button
+            class="step-indicator flex-1 w-full sm:w-auto"
+            data-step="3"
+            disabled
+          >
+            <div class="flex items-center gap-3 p-3 rounded-lg border-2 transition-all duration-200 step-3-box">
+              <div class="shrink-0 w-8 h-8 rounded-full flex items-center justify-center font-bold step-3-circle">
+                3
+              </div>
+              <div class="flex-1 text-left">
+                <div class="font-semibold text-sm">Complete</div>
+                <div class="text-xs opacity-70">Ready to use</div>
+              </div>
+            </div>
+          </button>
+        </div>
+      </div>
+
+      <!-- Step Content -->
+      <div class="bg-base-100 rounded-md p-6">
+        <!-- Step 1: Sync Game Account -->
+        <div id="step-1-content" class="step-content">
+          <h2 class="text-xl font-bold mb-3">Sync Your Game Account</h2>
+          <p class="text-sm text-base-content/70 mb-4">
+            Connect your game account to this web account using the FUSOU app. 
+            This will retrieve your unique game account identifier.
+          </p>
+
+          <div class="alert bg-info/10 border border-info text-sm mb-4">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" class="w-6 h-6 shrink-0 text-info stroke-current">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+            </svg>
+            <span class="text-base-content">Click the button to open the FUSOU app. The app will automatically detect your game account.</span>
+          </div>
+
+          <button
+            id="sync_member_id_button"
+            class="btn btn-primary w-full mb-4 border border-primary-content"
+          >
+            <svg class="w-5 h-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+            Sync with Game App
+          </button>
+
+          <div id="sync_success" class="hidden alert bg-success/10 border border-success text-sm mb-4">
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6 shrink-0 text-success" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <div>
+              <div class="font-semibold text-success">Sync Successful</div>
+              <div class="leading-snug text-base-content">Game account synced successfully!</div>
+              <div id="member_id_display" class="text-xs opacity-70 mt-1 font-mono"></div>
+            </div>
+          </div>
+
+          <div id="sync_error" class="hidden alert bg-error/10 border border-error text-sm mb-4">
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6 shrink-0 text-error" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+            <div>
+              <div class="font-semibold text-error">Sync Failed</div>
+              <div class="leading-snug text-base-content" id="error_message"></div>
+            </div>
+          </div>
+
+          <div class="divider">OR</div>
+
+          <button
+            id="skip_step_1"
+            class="btn btn-ghost w-full border border-base-300"
+          >
+            Skip This Step
+          </button>
+        </div>
+
+        <!-- Step 2: Link Social Account -->
+        <div id="step-2-content" class="step-content hidden">
+          <h2 class="text-xl font-bold mb-3">Link Your Social Account</h2>
+          <p class="text-sm text-base-content/70 mb-4">
+            Sign in with Google to link your game account with your social account. 
+            This allows you to sync your progress across devices.
+          </p>
+
+          <div class="alert bg-info/10 border border-info text-sm mb-4">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" class="w-6 h-6 shrink-0 text-info stroke-current">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+            </svg>
+            <span class="text-base-content">Click the button below to authenticate with Google. Your accounts will be linked automatically.</span>
+          </div>
+
+          <form action="/api/local_auth/signin" method="post" class="mb-4">
+            <button
+              type="submit"
+              name="provider"
+              value="google"
+              class="btn btn-ghost border border-base-300 w-full flex items-center gap-2 bg-white text-black hover:bg-gray-50"
+            >
+              <svg
+                aria-label="Google logo"
+                width="20"
+                height="20"
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 512 512"
+              >
+                <g>
+                  <path d="m0 0H512V512H0" fill="#fff"></path>
+                  <path fill="#34a853" d="M153 292c30 82 118 95 171 60h62v48A192 192 0 0190 341"></path>
+                  <path fill="#4285f4" d="m386 400a140 175 0 0053-179H260v74h102q-7 37-38 57"></path>
+                  <path fill="#fbbc02" d="m90 341a208 200 0 010-171l63 49q-12 37 0 73"></path>
+                  <path fill="#ea4335" d="m153 219c22-69 116-109 179-50l55-54c-78-75-230-72-297 55"></path>
+                </g>
+              </svg>
+              <span>Sign in with Google</span>
+            </button>
+          </form>
+
+          <button
+            id="back_to_step_1"
+            class="btn btn-ghost w-full border border-base-300"
+          >
+            ← Back to Step 1
+          </button>
+        </div>
+
+        <!-- Step 3: Complete -->
+        <div id="step-3-content" class="step-content hidden">
+          <h2 class="text-xl font-bold mb-3">Setup Complete</h2>
+          <p class="text-sm text-base-content/70 mb-4">
+            Your game account has been successfully linked to your social account. 
+            You can now access your account from any device.
+          </p>
+
+          <div class="alert bg-success/10 border border-success text-sm mb-4">
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6 shrink-0 text-success" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <div>
+              <div class="font-semibold text-success">Account Linked</div>
+              <div class="leading-snug text-base-content">Your account is ready to use!</div>
+            </div>
+          </div>
+
+          <button
+            onclick="window.location.href = '/'"
+            class="btn btn-primary w-full border border-primary-content"
+          >
+            → Continue to Dashboard
+          </button>
+        </div>
+      </div>
+
+      <!-- Skip Option -->
+      <div class="p-6">
+        <p class="text-sm text-base-content/70 mb-3 text-center">
+          Want to skip account setup for now?
+        </p>
+        <button
+          id="skip_all"
+          class="btn btn-ghost w-full border border-base-300"
+        >
+          Continue as Guest
+        </button>
+      </div>
+
       <div class="my-6 text-center text-sm text-base-content/70">
-        Sign in with your cloud storage provider to sync files across devices.
+        Your game account and social profile will be securely linked
       </div>
     </div>
   </div>
 
-  <Navigation />
-
   <script>
+    import { syncMemberIdHashWithApp } from "../../../lib/realtime-sync";
+
+    // Type declaration for window.showStep
+    declare global {
+      interface Window {
+        showStep: (step: string) => void;
+      }
+    }
+
+    const steps = ["1", "2", "3"];
+    let currentStep = "1";
+    let memberIdHashSynced = false;
+
+    // Helper function to mask member_id_hash
+    function maskMemberIdHash(hash) {
+      if (!hash || hash.length < 8) return hash;
+      return hash.substring(0, 6) + '...' + hash.substring(hash.length - 4);
+    }
+
+    // Check URL query for member_id_hash
+    function checkUrlForMemberIdHash() {
+      const urlParams = new URLSearchParams(window.location.search);
+      const memberIdHash = urlParams.get('member_id_hash');
+      
+      if (memberIdHash) {
+        console.log('[signin] Found member_id_hash in URL:', memberIdHash);
+        memberIdHashSynced = true;
+        sessionStorage.setItem('memberIdHash', memberIdHash);
+        
+        // Update UI
+        const syncButton = document.getElementById('sync_member_id_button');
+        const syncSuccess = document.getElementById('sync_success');
+        const memberIdDisplay = document.getElementById('member_id_display');
+        
+        if (syncButton instanceof HTMLButtonElement) {
+          syncButton.classList.remove('btn-primary');
+          syncButton.classList.add('btn-success');
+          syncButton.textContent = '✓ Game Account Synced';
+          syncButton.disabled = true;
+        }
+        
+        if (syncSuccess) {
+          syncSuccess.classList.remove('hidden');
+        }
+        
+        if (memberIdDisplay) {
+          memberIdDisplay.textContent = 'Member ID: ' + maskMemberIdHash(memberIdHash);
+        }
+        
+        // Auto-advance to step 2
+        setTimeout(() => {
+          window.showStep('2');
+        }, 1000);
+        
+        return true;
+      }
+      return false;
+    }
+
+    function updateStepIndicators(step) {
+      const stepNum = parseInt(step);
+
+      // Update step 1
+      const step1Box = document.querySelector('.step-1-box');
+      const step1Circle = document.querySelector('.step-1-circle');
+      if (step1Box && step1Circle) {
+        if (stepNum === 1) {
+          step1Box.className = 'flex items-center gap-3 p-3 rounded-lg border-2 transition-all duration-200 step-1-box border-primary bg-primary/10';
+          step1Circle.className = 'shrink-0 w-8 h-8 rounded-full flex items-center justify-center font-bold step-1-circle bg-primary text-primary-content';
+        } else if (stepNum > 1) {
+          step1Box.className = 'flex items-center gap-3 p-3 rounded-lg border-2 transition-all duration-200 step-1-box border-success bg-success/10';
+          step1Circle.className = 'shrink-0 w-8 h-8 rounded-full flex items-center justify-center font-bold step-1-circle bg-success text-success-content';
+          step1Circle.innerHTML = '<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"/></svg>';
+        }
+      }
+
+      // Update step 2
+      const step2Box = document.querySelector('.step-2-box');
+      const step2Circle = document.querySelector('.step-2-circle');
+      if (step2Box && step2Circle) {
+        if (stepNum === 2) {
+          step2Box.className = 'flex items-center gap-3 p-3 rounded-lg border-2 transition-all duration-200 step-2-box border-primary bg-primary/10';
+          step2Circle.className = 'shrink-0 w-8 h-8 rounded-full flex items-center justify-center font-bold step-2-circle bg-primary text-primary-content';
+        } else if (stepNum > 2) {
+          step2Box.className = 'flex items-center gap-3 p-3 rounded-lg border-2 transition-all duration-200 step-2-box border-success bg-success/10';
+          step2Circle.className = 'shrink-0 w-8 h-8 rounded-full flex items-center justify-center font-bold step-2-circle bg-success text-success-content';
+          step2Circle.innerHTML = '<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"/></svg>';
+        } else {
+          step2Box.className = 'flex items-center gap-3 p-3 rounded-lg border-2 transition-all duration-200 step-2-box border-base-300 bg-base-200 opacity-50';
+          step2Circle.className = 'shrink-0 w-8 h-8 rounded-full flex items-center justify-center font-bold step-2-circle bg-base-300 text-base-content';
+          step2Circle.innerHTML = '2';
+        }
+      }
+
+      // Update step 3
+      const step3Box = document.querySelector('.step-3-box');
+      const step3Circle = document.querySelector('.step-3-circle');
+      if (step3Box && step3Circle) {
+        if (stepNum === 3) {
+          step3Box.className = 'flex items-center gap-3 p-3 rounded-lg border-2 transition-all duration-200 step-3-box border-success bg-success/10';
+          step3Circle.className = 'shrink-0 w-8 h-8 rounded-full flex items-center justify-center font-bold step-3-circle bg-success text-success-content';
+          step3Circle.innerHTML = '<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"/></svg>';
+        } else {
+          step3Box.className = 'flex items-center gap-3 p-3 rounded-lg border-2 transition-all duration-200 step-3-box border-base-300 bg-base-200 opacity-50';
+          step3Circle.className = 'shrink-0 w-8 h-8 rounded-full flex items-center justify-center font-bold step-3-circle bg-base-300 text-base-content';
+          step3Circle.innerHTML = '3';
+        }
+      }
+    }
+
+    // Make showStep globally accessible
+    window.showStep = function(step) {
+      if (steps.includes(step)) {
+        currentStep = step;
+
+        // Hide all step contents
+        document.querySelectorAll(".step-content").forEach((el) => {
+          el.classList.add("hidden");
+        });
+
+        // Show selected step content
+        const stepContent = document.getElementById(`step-${step}-content`);
+        if (stepContent) {
+          stepContent.classList.remove("hidden");
+        }
+
+        // Update step indicators
+        updateStepIndicators(step);
+
+        // Update step buttons state
+        document.querySelectorAll(".step-indicator").forEach((btn) => {
+          const btnStep = btn.getAttribute("data-step");
+          if (!btnStep) return;
+          const stepNum = parseInt(btnStep);
+          const currentNum = parseInt(step);
+
+          if (stepNum < currentNum) {
+            btn.removeAttribute("disabled");
+          } else if (stepNum === currentNum) {
+            btn.setAttribute("disabled", "");
+          } else {
+            btn.setAttribute("disabled", "");
+          }
+        });
+
+        // Scroll to top
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      }
+    }
+
+    function nextStep() {
+      if (currentStep === "1") {
+        window.showStep("2");
+      } else if (currentStep === "2") {
+        window.showStep("3");
+      }
+    }
+
     document.addEventListener("DOMContentLoaded", () => {
-      const skipSignInButton = document.getElementById("skip_sign_in");
-      if (skipSignInButton) {
-        skipSignInButton.addEventListener("click", () => {
+      // Step buttons - prevent default click on disabled items
+      document.querySelectorAll(".step-indicator").forEach((btn) => {
+        btn.addEventListener("click", (e) => {
+          const step = btn.getAttribute("data-step");
+          const isDisabled = btn.getAttribute("disabled") !== null;
+          
+          if (!isDisabled && step) {
+            window.showStep(step);
+          }
+        });
+      });
+
+      // Sync Member ID
+      const syncButton = document.getElementById("sync_member_id_button") as HTMLButtonElement | null;
+      const syncSuccess = document.getElementById("sync_success");
+      const syncError = document.getElementById("sync_error");
+      const errorMessage = document.getElementById("error_message");
+
+      if (syncButton) {
+        syncButton.addEventListener("click", async () => {
+          // Clear any previous loading state
+          syncButton.classList.remove("loading", "btn-success");
+          if (syncButton instanceof HTMLButtonElement) {
+            syncButton.disabled = true;
+          }
+          syncSuccess?.classList.add("hidden");
+          syncError?.classList.add("hidden");
+          
+          // Store original content
+          const originalHTML = syncButton.innerHTML;
+          
+          // Update button to show loading state
+          syncButton.innerHTML = `
+            <span class="loading loading-spinner loading-sm"></span>
+            Syncing...
+          `;
+
+          try {
+            console.log("[signin] Starting member ID sync...");
+            const result = await syncMemberIdHashWithApp(10000);
+
+            if (result.success && result.memberIdHash) {
+              console.log(
+                "[signin] Sync successful:",
+                result.memberIdHash
+              );
+              memberIdHashSynced = true;
+
+              syncSuccess?.classList.remove("hidden");
+              syncButton.classList.remove("btn-primary");
+              syncButton.classList.add("btn-success");
+              syncButton.innerHTML = `
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                </svg>
+                Game Account Synced
+              `;
+              if (syncButton instanceof HTMLButtonElement) {
+                syncButton.disabled = true;
+              }
+
+              sessionStorage.setItem("memberIdHash", result.memberIdHash);
+              
+              // Display masked member_id_hash
+              const memberIdDisplay = document.getElementById("member_id_display");
+              if (memberIdDisplay) {
+                memberIdDisplay.textContent = "Member ID: " + maskMemberIdHash(result.memberIdHash);
+              }
+
+              // Auto-advance to step 2 after 2 seconds
+              setTimeout(() => {
+                nextStep();
+              }, 2000);
+            } else {
+              memberIdHashSynced = false;
+              const msg =
+                result.error ||
+                "Failed to sync with game. Please try again.";
+              if (errorMessage) errorMessage.textContent = msg;
+              if (syncError) syncError.classList.remove("hidden");
+              
+              // Restore original button
+              syncButton.innerHTML = originalHTML;
+              syncButton.classList.add("btn-primary");
+              syncButton.disabled = false;
+            }
+          } catch (err) {
+            memberIdHashSynced = false;
+            const msg =
+              err instanceof Error ? err.message : "An unexpected error occurred";
+            if (errorMessage) errorMessage.textContent = msg;
+            if (syncError) syncError.classList.remove("hidden");
+            
+            // Restore original button
+            syncButton.innerHTML = originalHTML;
+            syncButton.classList.add("btn-primary");
+            syncButton.disabled = false;
+          }
+        });
+      }
+
+      // Skip Step 1
+      const skipStep1 = document.getElementById("skip_step_1");
+      if (skipStep1) {
+        skipStep1.addEventListener("click", () => {
+          memberIdHashSynced = true;
+          nextStep();
+        });
+      }
+
+      // Back to Step 1
+      const backToStep1 = document.getElementById("back_to_step_1");
+      if (backToStep1) {
+        backToStep1.addEventListener("click", () => {
+          window.showStep("1");
+        });
+      }
+
+      // Skip All
+      const skipAll = document.getElementById("skip_all");
+      if (skipAll) {
+        skipAll.addEventListener("click", () => {
           window.location.href = "/";
         });
+      }
+
+      // Initialize
+      const hasUrlMemberIdHash = checkUrlForMemberIdHash();
+      
+      if (!hasUrlMemberIdHash) {
+        window.showStep("1");
       }
     });
   </script>

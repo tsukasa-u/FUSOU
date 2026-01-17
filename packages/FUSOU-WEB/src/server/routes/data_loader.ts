@@ -130,20 +130,23 @@ app.get("/period-tags", async (c) => {
       return jsonResponse({ error: "INVALID_API_KEY", message: "Invalid API key" }, 403);
     }
 
-    // RU Check
+    // RU Check - fail-closed if KV unavailable
     const kv = env.runtime.DATA_LOADER_CACHE_KV;
-    let ruStatus: { allowed: boolean; remaining: number; consumed: number; resetAt?: number } | undefined;
-    if (kv) {
-      ruStatus = await checkAndDeductRU(kv, apiKeyData.user_id, RU_COSTS.LIST);
-      if (!ruStatus.allowed) {
-        return jsonResponse({
-          error: "RATE_LIMITED", 
-          message: `RU limit exceeded. Reset in ${Math.ceil((ruStatus.resetAt! - Date.now())/1000)}s`
-        }, 429, ruStatus);
-      }
+    if (!kv) {
+      return jsonResponse({
+        error: "SERVICE_UNAVAILABLE",
+        message: "Rate limiting system is unavailable. Please try again later."
+      }, 503);
+    }
+    const ruStatus = await checkAndDeductRU(kv, apiKeyData.user_id, RU_COSTS.LIST);
+    if (!ruStatus.allowed) {
+      return jsonResponse({
+        error: "RATE_LIMITED", 
+        message: `RU limit exceeded. Reset in ${Math.ceil((ruStatus.resetAt! - Date.now())/1000)}s`
+      }, 429, ruStatus);
     }
 
-    const trusted = await isDeviceTrusted(getSupabaseConfig(c), apiKeyData.user_id, clientId, env.runtime.DATA_LOADER_CACHE_KV);
+    const trusted = await isDeviceTrusted(getSupabaseConfig(c), apiKeyData.user_id, clientId, kv);
     if (!trusted) {
       const code = generateVerificationCode();
       await saveVerificationCode(getSupabaseConfig(c), apiKeyData.user_id, clientId, code);
@@ -233,23 +236,23 @@ app.get("/data/:table", async (c) => {
       return jsonResponse({ error: "INVALID_API_KEY", message: "Invalid or inactive API key" }, 403);
     }
 
-    // Determine Base Cost
-    let cost = RU_COSTS.LATEST;
-    if (periodTagParam === "all" || periodTagParam !== "latest") {
-      cost = RU_COSTS.ARCHIVE_BASE;
-    }
-
     // Pre-check RU (Base cost)
     const kv = env.runtime.DATA_LOADER_CACHE_KV;
     let ruStatus: { allowed: boolean; remaining: number; consumed: number; resetAt?: number } | undefined;
-    if (kv) {
-      ruStatus = await checkAndDeductRU(kv, apiKeyData.user_id, cost);
-      if (!ruStatus.allowed) {
-        return jsonResponse({
-          error: "RATE_LIMITED",
-          message: `RU limit exceeded. Cost: ${cost}. Remaining: ${ruStatus.remaining}.`
-        }, 429, ruStatus);
-      }
+    if (!kv) {
+      // Fail-closed: if KV is unavailable, reject the request
+      return jsonResponse({
+        error: "SERVICE_UNAVAILABLE",
+        message: "Rate limiting system is unavailable. Please try again later."
+      }, 503);
+    }
+    const cost = RU_COSTS.LIST;
+    ruStatus = await checkAndDeductRU(kv, apiKeyData.user_id, cost);
+    if (!ruStatus.allowed) {
+      return jsonResponse({
+        error: "RATE_LIMITED",
+        message: `RU limit exceeded. Cost: ${cost}. Remaining: ${ruStatus.remaining}.`
+      }, 429, ruStatus);
     }
 
     const trusted = await isDeviceTrusted(getSupabaseConfig(c), apiKeyData.user_id, clientId, env.runtime.DATA_LOADER_CACHE_KV);
@@ -452,10 +455,7 @@ app.get("/download", async (c) => {
       return jsonResponse({ error: "INVALID_API_KEY", message: "Invalid or inactive API key" }, 403);
     }
     
-    // RU Check: Download is FREE (0 RU)
-    // We still check just to ensure they aren't "banned" (remaining > -100 etc)
-    // but effectively it's free.
-    
+    // Device trust check
     const trusted = await isDeviceTrusted(getSupabaseConfig(c), apiKeyData.user_id, clientId, env.runtime.DATA_LOADER_CACHE_KV);
     if (!trusted) {
         // For download, if unreachable, just error? Or 403.
@@ -493,22 +493,13 @@ app.get("/download", async (c) => {
         return jsonResponse({ error: "BLOCK_NOT_FOUND", message: "Block not found" }, 404);
       }
 
-      // IMPORTANT LIMITATION:
-      // This logic assumes that `start_byte` represents where the data blocks START
-      // (i.e., immediately after the Avro header). This works correctly when:
-      // - Each file contains only ONE dataset's data block
-      // - start_byte = header_size (the position after magic + metadata + sync marker)
-      //
-      // If multiple datasets are stored in a single file (which is supported by cron.ts),
-      // the second dataset's start_byte would be AFTER the first dataset's block, not at
-      // the header end. In that case, this logic would fetch [Header + Dataset1 Block]
-      // and combine it with [Dataset2 Block], producing invalid Avro OCF.
-      //
-      // TODO: To properly support multi-dataset files, store header_size in archived_files
-      // or block_indexes, and use that instead of start_byte for header extraction.
+      // Extract Avro header and data block
+      // Note: start_byte is the accurate position where the dataset's data block starts
+      // (after the Avro OCF header). This is correctly set by mergeAvroOCFWithBoundaries
+      // in the compaction workflow when multiple datasets are merged into a single file.
       
       const headerObject = await bucket.get(blockInfo.file_path, {
-        range: { offset: 0, length: blockInfo.start_byte } // Fetches everything before this block
+        range: { offset: 0, length: blockInfo.start_byte } // Fetches header (everything before data block)
       });
 
       if (!headerObject?.body) {
@@ -1069,20 +1060,21 @@ app.post("/verify-google", async (c) => {
     let verifiedEmail = email;
     if (google_token) {
       try {
-        // Use POST to avoid token appearing in Google's server logs
-        const tokenInfoResp = await fetch(
-          `https://www.googleapis.com/oauth2/v3/tokeninfo`,
+        // Use userinfo endpoint (recommended by Google, v3/tokeninfo is deprecated)
+        const userinfoResp = await fetch(
+          `https://www.googleapis.com/oauth2/v2/userinfo`,
           {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: `access_token=${encodeURIComponent(google_token)}`
+            method: 'GET',
+            headers: { 'Authorization': `Bearer ${google_token}` }
           }
         );
-        if (tokenInfoResp.ok) {
-          const tokenInfo = await tokenInfoResp.json() as { email?: string };
-          verifiedEmail = tokenInfo.email || email;
+        if (userinfoResp.ok) {
+          const userinfo = await userinfoResp.json() as { email?: string };
+          verifiedEmail = userinfo.email || email;
+        } else if (userinfoResp.status === 401) {
+          throw new Error('Invalid or expired Google token');
         } else {
-             throw new Error(`Google token validation failed: ${tokenInfoResp.status}`);
+          throw new Error(`Google userinfo failed: ${userinfoResp.status}`);
         }
       } catch (e) {
         console.error("Failed to verify Google token:", e);

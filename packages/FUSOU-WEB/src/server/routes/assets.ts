@@ -11,6 +11,7 @@ import {
 import {
   extractBearer,
   validateJWT,
+  validateDatasetToken,
   resolveAllowedExtensions,
   sanitizeKey,
   sanitizeFileName,
@@ -58,6 +59,27 @@ app.post("/upload", async (c) => {
 
     // Preparation validation - check extension, size, hash, uniqueness
     preparationValidator: async (body, _user) => {
+      // Validate dataset_token if provided
+      const datasetTokenHeader = c.req.header('X-Dataset-Token');
+      const datasetTokenBody = typeof body?.dataset_token === 'string' ? body.dataset_token.trim() : '';
+      const datasetToken = datasetTokenHeader || datasetTokenBody;
+
+      if (datasetToken) {
+        const datasetTokenSecret = getEnv(envCtx, 'DATASET_TOKEN_SECRET');
+        if (!datasetTokenSecret) {
+          console.error('[asset-sync] DATASET_TOKEN_SECRET not configured');
+          return c.json({ error: 'Server configuration error' }, 500);
+        }
+
+        const validatedToken = await validateDatasetToken(datasetToken, datasetTokenSecret);
+        if (!validatedToken) {
+          console.warn('[asset-sync] Invalid or expired dataset_token');
+          return c.json({ error: 'Invalid or expired dataset_token' }, 401);
+        }
+
+        console.log(`[asset-sync] dataset_token validated successfully`);
+      }
+
       const key = sanitizeKey(typeof body.key === "string" ? body.key : null);
       if (!key) {
         return c.json({ error: "Invalid or empty key" }, 400);

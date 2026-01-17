@@ -14,6 +14,8 @@ import analyticsApp from './routes/analytics';
 import adminApp from './routes/admin';
 import dataLoaderApp from './routes/data_loader';
 import apiKeysApp from './routes/api_keys';
+import memberLookupApp from './routes/member-lookup';
+import anonymousSyncApp from './routes/anonymous-sync';
 
 const app = new Hono<{ Bindings: Bindings }>();
 
@@ -57,6 +59,8 @@ app.route('/analytics', analyticsApp); // analytics app declares /compaction-met
 app.route('/admin', adminApp); // adminApp declares /fix-mime-types, /backfill-asset-index
 app.route('/data-loader', dataLoaderApp); // dataLoaderApp declares /data/:dataset, /verify, /download/:dataset
 app.route('/api-keys', apiKeysApp); // apiKeysApp declares /, /:id, /devices, /devices/:id
+app.route('/member-lookup', memberLookupApp); // memberLookupApp declares /check-hash, /verify-ownership
+app.route('/auth', anonymousSyncApp); // anonymousSyncApp declares /anonymous-sync
 
 // Catch-all 404
 app.all('*', (c) => {

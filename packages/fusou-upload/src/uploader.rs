@@ -227,6 +227,11 @@ impl Uploader {
             }
         }
 
+        // Add X-Dataset-Token header if available
+        if let Ok(Some(dataset_token)) = auth_manager.load_dataset_token().await {
+            handshake_req = handshake_req.header("X-Dataset-Token", &dataset_token.token);
+        }
+
         if let Ok(token) = auth_manager.get_access_token().await {
             handshake_req = handshake_req.bearer_auth(token);
         } else {
