@@ -655,16 +655,18 @@ impl ConfigsAppAuth {
 
     pub fn get_anonymous_sync_endpoint(&self) -> Option<String> {
         // First try anonymous_sync_endpoint
-        match &self.anonymous_sync_endpoint {
-            Some(v) if !v.trim().is_empty() => return Some(v.trim().to_string()),
-            _ => {}
+        if let Some(v) = &self.anonymous_sync_endpoint {
+            if !v.trim().is_empty() {
+                return Some(v.trim().to_string());
+            }
         }
         
         // Fall back to deprecated conflict_page_url for backward compatibility
         #[allow(deprecated)]
-        match &self.conflict_page_url {
-            Some(v) if !v.trim().is_empty() => return Some(v.trim().to_string()),
-            _ => {}
+        if let Some(v) = &self.conflict_page_url {
+            if !v.trim().is_empty() {
+                return Some(v.trim().to_string());
+            }
         }
         
         // Finally check defaults
@@ -1259,12 +1261,12 @@ mod tests {
         );
         
         // Test App Auth defaults
+        #[allow(deprecated)]
         let empty_auth = ConfigsAppAuth {
             deny_auth: None,
             auth_page_url: None,
             member_map_endpoint: None,
             anonymous_sync_endpoint: None,
-            #[allow(deprecated)]
             conflict_page_url: None,
         };
         
