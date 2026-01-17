@@ -1,4 +1,5 @@
 // Google Drive authentication and client management
+// DEPRECATED: Google Drive support is deprecated since 0.4.0. Use anonymous authentication instead.
 
 use google_drive3::{
     hyper_rustls, hyper_util, yup_oauth2, yup_oauth2::authenticator::Authenticator, DriveHub,
@@ -13,6 +14,7 @@ use crate::auth::auth_server;
 pub type DriveClient =
     DriveHub<hyper_rustls::HttpsConnector<hyper_util::client::legacy::connect::HttpConnector>>;
 
+#[deprecated(since = "0.4.0", note = "Google Drive support is deprecated. Use anonymous authentication instead.")]
 #[derive(Debug, Clone)]
 pub struct UserAccessTokenInfo {
     pub refresh_token: String,
@@ -22,6 +24,7 @@ pub struct UserAccessTokenInfo {
 const SCOPES: &[&str; 1] = &["https://www.googleapis.com/auth/drive.file"];
 
 // Support multiple cloud providers with HashMap
+#[deprecated(since = "0.4.0", note = "Google Drive support is deprecated. Use anonymous authentication instead.")]
 pub static CLOUD_PROVIDER_TOKENS: Lazy<Mutex<HashMap<String, UserAccessTokenInfo>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 
@@ -30,6 +33,7 @@ pub static USER_GOOGLE_AUTH: OnceCell<
 > = OnceCell::const_new();
 
 /// Set refresh token for a specific provider (google, dropbox, icloud, etc.)
+#[deprecated(since = "0.4.0", note = "Google Drive support is deprecated. Use anonymous authentication instead.")]
 pub fn set_refresh_token(refresh_token: String, provider_name: String) -> Result<(), ()> {
     if refresh_token.is_empty() || provider_name.is_empty() {
         return Err(());
@@ -67,6 +71,7 @@ pub fn set_refresh_token(refresh_token: String, provider_name: String) -> Result
 }
 
 /// Get refresh token for a specific provider
+#[deprecated(since = "0.4.0", note = "Google Drive support is deprecated. Use anonymous authentication instead.")]
 pub fn get_refresh_token(provider_name: &str) -> Option<UserAccessTokenInfo> {
     let tokens = match CLOUD_PROVIDER_TOKENS.lock() {
         Ok(guard) => guard,
@@ -79,6 +84,7 @@ pub fn get_refresh_token(provider_name: &str) -> Option<UserAccessTokenInfo> {
     tokens.get(provider_name).cloned()
 }
 
+#[deprecated(since = "0.4.0", note = "Google Drive support is deprecated. Use anonymous authentication instead.")]
 pub async fn create_auth() -> Option<
     Authenticator<hyper_rustls::HttpsConnector<hyper_util::client::legacy::connect::HttpConnector>>,
 > {
@@ -134,6 +140,7 @@ pub async fn create_auth() -> Option<
     return Some(auth);
 }
 
+#[deprecated(since = "0.4.0", note = "Google Drive support is deprecated. Use anonymous authentication instead.")]
 pub async fn create_client() -> Option<DriveClient> {
     let auth = USER_GOOGLE_AUTH
         .get_or_init(|| async {

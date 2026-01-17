@@ -33,6 +33,12 @@ impl R2StorageProvider {
         }
     }
 
+    /// Get the integration batch size for R2
+    /// R2 integration is handled server-side, so batch size is not applicable
+    pub fn get_integration_batch_size(&self) -> i32 {
+        100 // Default, not used for R2
+    }
+
     /// Upload a single .bin file with tag-based identification using common Uploader
     async fn upload_to_r2(
         &self,
@@ -123,6 +129,11 @@ impl R2StorageProvider {
 impl StorageProvider for R2StorageProvider {
     fn name(&self) -> &'static str {
         R2_STORAGE_PROVIDER_NAME
+    }
+
+    fn supports_integration(&self) -> bool {
+        // R2 integration is handled server-side; client does not run integration here
+        false
     }
 
     fn write_get_data_table<'a>(
@@ -272,7 +283,6 @@ impl StorageProvider for R2StorageProvider {
     fn integrate_port_table<'a>(
         &'a self,
         period_tag: &'a str,
-        _page_size: i32,
     ) -> StorageFuture<'a, Result<(), StorageError>> {
         Box::pin(async move {
             // For R2, integration happens via server-side scheduled jobs

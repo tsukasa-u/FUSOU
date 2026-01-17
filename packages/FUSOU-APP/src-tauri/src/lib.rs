@@ -37,7 +37,7 @@ static ROAMING_DIR: OnceCell<Mutex<PathBuf>> = OnceCell::new();
 
 async fn bootstrap_tokens_on_startup(
     app_handle: AppHandle,
-    app_handle_for_notification: AppHandle,
+    _app_handle_for_notification: AppHandle,
     storage: Arc<FileStorage>,
     auth_manager: AuthManager<FileStorage>,
 ) {
@@ -56,11 +56,9 @@ async fn bootstrap_tokens_on_startup(
                     .flatten()
                     .unwrap_or(session);
                 
-                let _ = app_handle.emit_to(
-                    "main",
-                    "set-supabase-tokens",
-                    vec![access_token, updated_session.refresh_token.clone()],
-                );
+                // Note: No need to emit tokens to frontend
+                // Frontend doesn't use Supabase tokens directly
+                // All auth operations handled by Rust AuthManager
 
                 // Fetch all cloud provider tokens from Supabase
                 // This supports multiple providers: google, dropbox, icloud, onedrive, etc.
@@ -90,27 +88,17 @@ async fn bootstrap_tokens_on_startup(
                 }
             }
             Err(e) => {
-                tracing::warn!("startup: token validation/refresh failed: {} - authentication required", e);
+                tracing::warn!("startup: token validation/refresh failed: {} - will attempt background anonymous auth when game starts", e);
                 
-                // Send notification to user
-                notify::show(&app_handle_for_notification, "Authentication Expired", "Your session has expired. Please sign in again to use FUSOU.");
-
-                // Open authentication page
-                if let Err(e) = auth::auth_server::open_auth_page() {
-                    tracing::error!("Failed to open auth page: {}", e);
-                }
+                // Do NOT open auth page here - wait for game to start
+                // Background anonymous auth will be attempted from try_anonymous_auth() after Set::Basic
             }
         }
     } else {
-        tracing::warn!("startup: no existing session found - authentication required");
+        tracing::warn!("startup: no existing session found - will attempt background anonymous auth when game starts");
 
-        // Send notification to user
-        notify::show(&app_handle_for_notification, "Authentication Required", "Please sign in with your Supabase account to use FUSOU");
-
-        // Open authentication page using existing auth module function
-        if let Err(e) = auth::auth_server::open_auth_page() {
-            tracing::error!("Failed to open auth page: {}", e);
-        }
+        // Do NOT open auth page here - wait for game to start
+        // Background anonymous auth will be attempted from try_anonymous_auth() after Set::Basic
     }
 }
 
@@ -168,6 +156,7 @@ pub async fn run() {
             cmd::tauri_cmd::launch_with_options,
             cmd::tauri_cmd::check_pac_server_health,
             cmd::tauri_cmd::check_proxy_server_health,
+            #[cfg(feature = "gdrive")]
             cmd::tauri_cmd::set_refresh_token,
             cmd::tauri_cmd::check_open_window,
             cmd::tauri_cmd::get_app_theme,

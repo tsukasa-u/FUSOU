@@ -1,3 +1,7 @@
+/**
+ * @deprecated Google Drive authentication is deprecated and will be removed in a future version.
+ * Please use anonymous authentication instead.
+ */
 interface GoogleDriveFile {
   id: string;
   name: string;
@@ -5,10 +9,18 @@ interface GoogleDriveFile {
   [key: string]: unknown;
 }
 
+/**
+ * @deprecated Google Drive authentication is deprecated and will be removed in a future version.
+ * Please use anonymous authentication instead.
+ */
 interface GoogleDriveResponse {
   files: GoogleDriveFile[];
 }
 
+/**
+ * @deprecated Google Drive authentication is deprecated and will be removed in a future version.
+ * Please use anonymous authentication instead.
+ */
 export async function listGoogleDriveFilesWebClient(accessToken: string) {
   try {
     const response = await fetch("https://www.googleapis.com/drive/v3/files", {
@@ -37,11 +49,19 @@ export async function listGoogleDriveFilesWebClient(accessToken: string) {
   }
 }
 
+/**
+ * @deprecated Google Drive authentication is deprecated and will be removed in a future version.
+ * Please use anonymous authentication instead.
+ */
 export interface RefreshTokenResponse {
   accessToken: string;
   newRefreshToken?: string;
 }
 
+/**
+ * @deprecated Google Drive authentication is deprecated and will be removed in a future version.
+ * Please use anonymous authentication instead.
+ */
 export async function refreshToken(refreshToken: string): Promise<RefreshTokenResponse> {
   const url_origin = import.meta.env.PUBLIC_SITE_URL;
   // const url_origin = process.env.PUBLIC_SITE_URL;
@@ -56,6 +76,10 @@ export async function refreshToken(refreshToken: string): Promise<RefreshTokenRe
   return response;
 }
 
+/**
+ * @deprecated Google Drive authentication is deprecated and will be removed in a future version.
+ * Please use anonymous authentication instead.
+ */
 export async function listGoogleDriveFoldersWebClient(accessToken: string) {
   try {
     const response = await fetch(
@@ -86,6 +110,10 @@ export async function listGoogleDriveFoldersWebClient(accessToken: string) {
   }
 }
 
+/**
+ * @deprecated Google Drive authentication is deprecated and will be removed in a future version.
+ * Please use anonymous authentication instead.
+ */
 export async function check_file(
   accessToken: string,
   folder_name: string,
@@ -125,6 +153,10 @@ export async function check_file(
   }
 }
 
+/**
+ * @deprecated Google Drive authentication is deprecated and will be removed in a future version.
+ * Please use anonymous authentication instead.
+ */
 export async function check_period(
   accessToken: string,
   folder_name: string,

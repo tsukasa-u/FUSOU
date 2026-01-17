@@ -179,6 +179,7 @@ export function injectEnv(locals: any): Bindings {
     FLEET_SNAPSHOT_SIGNING_SECRET: getEnv(ctx, "FLEET_SNAPSHOT_SIGNING_SECRET")!,
     BATTLE_DATA_SIGNING_SECRET: getEnv(ctx, "BATTLE_DATA_SIGNING_SECRET")!,
     BATTLE_DATA_SIGNED_URL_SECRET: getEnv(ctx, "BATTLE_DATA_SIGNED_URL_SECRET"),
+    DATASET_TOKEN_SECRET: getEnv(ctx, "DATASET_TOKEN_SECRET"),
     RESEND_API_KEY: getEnv(ctx, "RESEND_API_KEY"),
     COMPACTION_QUEUE: ctx.runtime.COMPACTION_QUEUE!,
     COMPACTION_DLQ: ctx.runtime.COMPACTION_DLQ!,
@@ -315,6 +316,44 @@ export async function validateJWT(token: string): Promise<{
     };
   } catch (error) {
     console.error("validateJWT: JWT verification failed:", error);
+    return null;
+  }
+}
+
+/**
+ * dataset_token を検証（匿名認証で発行された署名付きトークン）
+ * 
+ * @param token dataset_token文字列
+ * @param secret DATASET_TOKEN_SECRET
+ * @returns 検証成功時は { dataset_id } を返す。失敗時はnull
+ */
+export async function validateDatasetToken(
+  token: string,
+  secret: string
+): Promise<{
+  dataset_id: string;
+} | null> {
+  try {
+    if (!secret) {
+      console.error("validateDatasetToken: DATASET_TOKEN_SECRET not configured");
+      return null;
+    }
+
+    const payload = await verifySignedToken(token, secret);
+    if (!payload) return null;
+
+    // 必須フィールド検証
+    if (payload.typ !== 'dataset') return null;
+    if (typeof payload.sub !== 'string') return null;
+    if (typeof payload.dataset_id !== 'string') return null;
+    if (payload.aud !== 'fusou-upload') return null;
+
+    // 有効期限確認（jose の verifySignedToken で exp は自動チェック済み）
+    return {
+      dataset_id: payload.dataset_id,
+    };
+  } catch (error) {
+    console.error("validateDatasetToken: Token verification failed:", error);
     return null;
   }
 }
@@ -523,4 +562,3 @@ export async function getR2ObjectMetadata(
     return null;
   }
 }
-

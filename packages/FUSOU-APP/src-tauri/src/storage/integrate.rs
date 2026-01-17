@@ -37,14 +37,9 @@ pub fn integrate_port_table(
         tracing::info!("Start to integrate port table in cloud storage");
 
         let pariod_tag = supabase::get_period_tag().await;
-        let page_size = configs::get_user_configs_for_app()
-            .database
-            .google_drive
-            .get_page_size() as i32;
-        
         match tokio::time::timeout(
             tokio::time::Duration::from_secs(3600), // 1 hour timeout
-            storage_service.integrate_port_table(&pariod_tag, page_size)
+            storage_service.integrate_port_table(&pariod_tag)
         ).await {
             Ok(_) => {
                 tracing::info!("Finished integrate port table tasks");

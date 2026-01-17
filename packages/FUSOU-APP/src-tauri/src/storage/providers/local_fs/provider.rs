@@ -36,6 +36,15 @@ impl LocalFileSystemProvider {
             .to_path_buf()
     }
 
+    /// Get the integration batch size for LocalFS
+    /// LocalFS uses integration_batch_size from config (default 500)
+    pub fn get_integration_batch_size(&self) -> i32 {
+        configs::get_user_configs_for_app()
+            .database
+            .local
+            .get_integration_batch_size()
+    }
+
     async fn ensure_dir(path: &Path) -> Result<(), StorageError> {
         fs::create_dir_all(path).await?;
         Ok(())
@@ -73,6 +82,11 @@ use kc_api::database::table::{GetDataTableEncode, PortTableEncode};
 impl StorageProvider for LocalFileSystemProvider {
     fn name(&self) -> &'static str {
         LOCAL_STORAGE_PROVIDER_NAME
+    }
+
+    fn supports_integration(&self) -> bool {
+        // Local FS integrates when user enabled local storage in config
+        configs::get_user_configs_for_app().database.get_allow_data_to_local()
     }
 
     fn write_get_data_table<'a>(
@@ -137,9 +151,11 @@ impl StorageProvider for LocalFileSystemProvider {
     fn integrate_port_table<'a>(
         &'a self,
         period_tag: &'a str,
-        page_size: i32,
     ) -> StorageFuture<'a, Result<(), StorageError>> {
         Box::pin(async move {
+            // LocalFS: use provider's batch size configuration
+            let batch_size = self.get_integration_batch_size();
+
             let transaction_dir = path_layout::transaction_root_dir(&self.root, period_tag);
 
             // Check if transaction_dir exists
@@ -202,7 +218,7 @@ impl StorageProvider for LocalFileSystemProvider {
                     // Limit files per integration batch (align with cloud provider)
                     let files_to_process: Vec<_> = file_paths
                         .into_iter()
-                        .take(page_size as usize)
+                        .take(batch_size as usize)
                         .collect();
 
                     if files_to_process.len() < 2 {

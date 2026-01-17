@@ -22,6 +22,7 @@ export type Bindings = {
   FLEET_SNAPSHOT_SIGNING_SECRET: string;
   BATTLE_DATA_SIGNING_SECRET: string;
   BATTLE_DATA_SIGNED_URL_SECRET?: string; // For battle data signed URL generation
+  DATASET_TOKEN_SECRET?: string; // For dataset token signing (anonymous sync)
   RESEND_API_KEY?: string; // For sending verification emails
   ADMIN_TOKEN?: string; // For securing admin endpoints
   

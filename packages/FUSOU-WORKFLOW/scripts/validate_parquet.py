@@ -1,10 +1,10 @@
 """
-Parquet出力ファイルの検証スクリプト (PyArrow版)
+Parquet output file validation script (PyArrow version)
 
-必要なライブラリ:
+Required libraries:
   pip install pyarrow boto3
 
-環境変数:
+Environment variables:
   R2_ENDPOINT=https://<account-id>.r2.cloudflarestorage.com
   R2_ACCESS_KEY=<your-access-key>
   R2_SECRET_KEY=<your-secret-key>
@@ -18,7 +18,7 @@ import boto3
 from io import BytesIO
 
 def setup_r2_client():
-    """R2クライアント初期化"""
+    """Initialize R2 client"""
     endpoint = os.getenv('R2_ENDPOINT')
     access_key = os.getenv('R2_ACCESS_KEY')
     secret_key = os.getenv('R2_SECRET_KEY')
@@ -35,27 +35,27 @@ def setup_r2_client():
     )
 
 def validate_parquet_file(s3_client, bucket, key):
-    """Parquetファイル検証"""
+    """Validate Parquet file"""
     print(f"\n=== Validating: {key} ===")
     
     try:
-        # R2からダウンロード
+        # Download from R2
         obj = s3_client.get_object(Bucket=bucket, Key=key)
         data = obj['Body'].read()
         
-        # Parquet読み込み
+        # Load Parquet
         buffer = BytesIO(data)
         table = pq.read_table(buffer)
         metadata = pq.read_metadata(buffer)
         
-        # 基本情報
+        # Basic info
         print(f"✓ File size: {len(data):,} bytes")
         print(f"✓ Schema: {table.schema}")
         print(f"✓ Rows: {len(table):,}")
         print(f"✓ Columns: {table.num_columns}")
         print(f"✓ Row Groups: {metadata.num_row_groups}")
         
-        # Row Group詳細
+        # Row Group details
         print("\nRow Groups Detail:")
         total_rows = 0
         for i in range(metadata.num_row_groups):
@@ -63,13 +63,13 @@ def validate_parquet_file(s3_client, bucket, key):
             total_rows += rg.num_rows
             print(f"  RG{i}: {rg.num_rows:,} rows, {rg.total_byte_size:,} bytes")
         
-        # 整合性チェック
+        # Integrity check
         if total_rows != len(table):
             print(f"✗ WARNING: Row count mismatch (RG total: {total_rows}, table: {len(table)})")
         else:
             print(f"✓ Row count consistent: {total_rows:,}")
         
-        # サンプルデータ
+        # Sample data
         print("\nSample data (first 5 rows):")
         print(table.to_pandas().head())
         
@@ -80,7 +80,7 @@ def validate_parquet_file(s3_client, bucket, key):
         return False
 
 def main():
-    """メイン処理"""
+    """Main processing"""
     if len(sys.argv) < 2:
         print("Usage: python validate_parquet.py <key1> [key2] [key3] ...")
         print("Example: python validate_parquet.py battle_compacted/2024Q4/dataset-123/battle/0.parquet")
@@ -99,7 +99,7 @@ def main():
         result = validate_parquet_file(s3_client, bucket, key)
         results.append((key, result))
     
-    # サマリー
+    # Summary
     print("\n=== Validation Summary ===")
     success = sum(1 for _, r in results if r)
     print(f"Total: {len(results)}")

@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import type { Bindings } from "../types";
-import { createEnvContext, getEnv } from "../utils";
+import { createEnvContext, getEnv, validateDatasetToken } from "../utils";
 import {
   CORS_HEADERS,
   SNAPSHOT_TOKEN_TTL_SECONDS,
@@ -32,6 +32,34 @@ app.post("/snapshot", async (c) => {
     signingSecret,
     tokenTTL: SNAPSHOT_TOKEN_TTL_SECONDS,
     preparationValidator: async (body, _userId) => {
+      // Validate dataset_token if provided
+      const datasetTokenHeader = c.req.header('X-Dataset-Token');
+      const datasetTokenBody = typeof body?.dataset_token === 'string' ? body.dataset_token.trim() : '';
+      const datasetToken = datasetTokenHeader || datasetTokenBody;
+
+      if (datasetToken) {
+        const datasetTokenSecret = getEnv(env, 'DATASET_TOKEN_SECRET');
+        if (!datasetTokenSecret) {
+          console.error('[fleet-snapshot] DATASET_TOKEN_SECRET not configured');
+          return c.json({ error: 'Server configuration error' }, 500);
+        }
+
+        const validatedToken = await validateDatasetToken(datasetToken, datasetTokenSecret);
+        if (!validatedToken) {
+          console.warn('[fleet-snapshot] Invalid or expired dataset_token');
+          return c.json({ error: 'Invalid or expired dataset_token' }, 401);
+        }
+
+        // Verify dataset_id matches token
+        const requestedDatasetId = typeof body?.dataset_id === 'string' ? body.dataset_id.trim() : '';
+        if (requestedDatasetId !== validatedToken.dataset_id) {
+          console.warn(`[fleet-snapshot] dataset_id mismatch detected`);
+          return c.json({ error: 'dataset_id does not match token' }, 403);
+        }
+
+        console.log(`[fleet-snapshot] dataset_token validated successfully`);
+      }
+
       const rawTag = typeof body?.tag === "string" ? body.tag.trim() : "";
       const datasetId = typeof body?.dataset_id === "string" ? body.dataset_id.trim() : "";
       const contentHash = typeof body?.content_hash === "string" ? body.content_hash.trim() : "";

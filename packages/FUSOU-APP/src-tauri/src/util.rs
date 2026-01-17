@@ -3,11 +3,14 @@ use std::io::Read;
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::LazyLock;
 use tokio::sync::OnceCell;
 use tracing_unwrap::{OptionExt, ResultExt};
 use uuid::Uuid;
 use kc_api::interface::deck_port::Basic;
 use tauri::Manager;
+use tauri::Emitter;
+use fusou_auth::types;
 
 use crate::RESOURCES_DIR;
 use crate::ROAMING_DIR;
@@ -19,12 +22,13 @@ use crate::notify;
 #[deprecated(since = "0.4.0", note = "Environment-scoped ID cache. Do not use for user identification. Use get_user_member_id() instead.")]
 static KC_USER_ENV_UNIQUE_ID: OnceCell<String> = OnceCell::const_new();
 
-/// Flag to ensure member_id upsert is called only once per session
+/// Flag to ensure member_id upsert is called only once per unique member_id_hash
 static MEMBER_ID_UPSERTED: AtomicBool = AtomicBool::new(false);
+static LAST_UPSERTED_MEMBER_ID: LazyLock<OnceCell<String>> = LazyLock::new(|| OnceCell::new());
 
-/// Flag to indicate if there's a member_id conflict (409 error)
-/// When true, upload operations should be skipped
-static MEMBER_ID_CONFLICT: AtomicBool = AtomicBool::new(false);
+/// Flag to track if anonymous auth has been attempted (to avoid redundant attempts)
+static ANONYMOUS_AUTH_ATTEMPTED: AtomicBool = AtomicBool::new(false);
+static LAST_AUTHENTICATED_MEMBER_ID: LazyLock<OnceCell<String>> = LazyLock::new(|| OnceCell::new());
 
 #[allow(non_snake_case)]
 pub fn get_ROAMING_DIR() -> PathBuf {
@@ -90,22 +94,31 @@ pub async fn get_user_member_id() -> String {
 }
 
 /// Upsert member_id_hash to Supabase user mapping.
-/// Called once per session when Basic is first updated after game launch.
+/// Called once per unique member_id_hash when Basic is updated after game launch.
 pub async fn try_upsert_member_id(app: &tauri::AppHandle) {
-    // Check if already upserted this session
-    if MEMBER_ID_UPSERTED.swap(true, Ordering::SeqCst) {
-        tracing::debug!("member_id upsert already done this session, skipping");
-        return;
-    }
-
     let member_id_hash = get_user_member_id().await;
     if member_id_hash.is_empty() {
         tracing::warn!("member_id is empty, skipping upsert");
-        MEMBER_ID_UPSERTED.store(false, Ordering::SeqCst); // Reset flag to retry later
         return;
     }
 
-    tracing::info!("Upserting member_id_hash to Supabase");
+    // Check if we already attempted upsert for THIS member_id_hash
+    // If member_id changed (game switch), reset flag and allow retry
+    let last_member_id = LAST_UPSERTED_MEMBER_ID.get();
+    if MEMBER_ID_UPSERTED.load(Ordering::SeqCst) {
+        if let Some(last_id) = last_member_id {
+            if last_id == &member_id_hash {
+                tracing::debug!("member_id upsert already completed for this member_id_hash, skipping");
+                return;
+            } else {
+                tracing::info!("member_id changed ({} -> {}), resetting upsert flag for new game", last_id, member_id_hash);
+                MEMBER_ID_UPSERTED.store(false, Ordering::SeqCst);
+            }
+        } else {
+            // Flag is true but last_member_id not set, shouldn't happen but be safe
+            return;
+        }
+    }
 
     // Get auth manager from app state
     let auth_manager_state = app.try_state::<std::sync::Arc<std::sync::Mutex<fusou_auth::AuthManager<fusou_auth::FileStorage>>>>();
@@ -128,7 +141,12 @@ pub async fn try_upsert_member_id(app: &tauri::AppHandle) {
     let token = match access_token {
         Ok(t) => t,
         Err(e) => {
-            tracing::warn!("Failed to get access token for member_id upsert: {}", e);
+            // Session is invalid - try background anonymous auth instead of opening browser
+            tracing::warn!("Failed to get access token for member_id upsert (session likely expired): {} - will retry after anonymous auth", e);
+            
+            // Background anonymous auth will be attempted by try_anonymous_auth (spawned from Set::Basic)
+            // Do not open browser to avoid interrupting user
+            
             MEMBER_ID_UPSERTED.store(false, Ordering::SeqCst);
             return;
         }
@@ -163,27 +181,12 @@ pub async fn try_upsert_member_id(app: &tauri::AppHandle) {
         Ok(resp) => {
             let status = resp.status();
             if status.is_success() {
-                tracing::info!("member_id upsert successful");
-            } else if status.as_u16() == 409 {
-                // Conflict: member_id already mapped to another account
-                let body_text = resp.text().await.unwrap_or_default();
-                tracing::error!("member_id conflict detected (409): {}", body_text);
-                
-                // Set conflict flag to block uploads
-                MEMBER_ID_CONFLICT.store(true, Ordering::SeqCst);
-                
-                // Get conflict page URL from config and replace {hash} placeholder
-                if let Some(url_template) = app_configs.auth.get_conflict_page_url() {
-                    let conflict_url = url_template.replace("{hash}", &member_id_hash);
-                    tracing::warn!("Opening conflict resolution page: {}", conflict_url);
-                    let _ = webbrowser::open(&conflict_url);
-                } else {
-                    tracing::warn!("conflict_page_url not configured in app.auth, skipping browser open");
-                }
-                
-                notify::show(app, "Account Conflict Detected", "This game account is already linked to another FUSOU account. Please switch to the correct account.");
-                
-                MEMBER_ID_UPSERTED.store(false, Ordering::SeqCst); // Retry next session
+                tracing::info!("member_id upsert successful (may be existing or new mapping)");
+                // Server returns 200 OK for both new upserts and already-existing mappings
+                // This is idempotent by design
+                // Mark as completed for this member_id
+                let _ = LAST_UPSERTED_MEMBER_ID.set(member_id_hash.clone());
+                MEMBER_ID_UPSERTED.store(true, Ordering::SeqCst);
             } else {
                 let body_text = resp.text().await.unwrap_or_default();
                 tracing::error!("member_id upsert failed: status={}, body={}", status, body_text);
@@ -197,16 +200,124 @@ pub async fn try_upsert_member_id(app: &tauri::AppHandle) {
     }
 }
 
-/// Check if there's a member_id conflict (409 error detected)
-/// Upload operations should be skipped when this returns true
-pub fn has_member_id_conflict() -> bool {
-    MEMBER_ID_CONFLICT.load(Ordering::SeqCst)
-}
+/// Execute anonymous authentication in background and save session and dataset_token
+/// Called multiple times after Set::Basic, but only executes on first call
+pub async fn try_anonymous_auth(app: &tauri::AppHandle) {
+    // member_id_hashを取得
+    let member_id_hash = get_user_member_id().await;
+    if member_id_hash.is_empty() {
+        tracing::warn!("member_id is empty, skipping anonymous auth");
+        return;
+    }
 
-/// Reset the member_id conflict flag (call after user switches to correct account)
-pub fn reset_member_id_conflict() {
-    MEMBER_ID_CONFLICT.store(false, Ordering::SeqCst);
-    MEMBER_ID_UPSERTED.store(false, Ordering::SeqCst);
+    // Check if already attempted for THIS member_id_hash
+    // If member_id changed (game switch), reset flag and allow retry
+    let last_member_id = LAST_AUTHENTICATED_MEMBER_ID.get();
+    if ANONYMOUS_AUTH_ATTEMPTED.load(Ordering::SeqCst) {
+        if let Some(last_id) = last_member_id {
+            if last_id == &member_id_hash {
+                tracing::debug!("anonymous auth already attempted for this member_id_hash, skipping");
+                return;
+            } else {
+                tracing::info!("member_id changed ({} -> {}), resetting anonymous auth flag for new game", last_id, member_id_hash);
+                ANONYMOUS_AUTH_ATTEMPTED.store(false, Ordering::SeqCst);
+            }
+        } else {
+            // Flag is true but last_member_id not set, shouldn't happen but be safe
+            return;
+        }
+    }
+
+    // Mark as attempted (will update member_id if successful)
+    if ANONYMOUS_AUTH_ATTEMPTED.swap(true, Ordering::SeqCst) {
+        tracing::debug!("anonymous auth already in progress for this member_id_hash, skipping");
+        return;
+    }
+
+    tracing::info!("Starting background anonymous authentication");
+
+    // fusou-authのAuthManagerを取得
+    let auth_manager_state = app.try_state::<std::sync::Arc<std::sync::Mutex<fusou_auth::AuthManager<fusou_auth::FileStorage>>>>();
+    if auth_manager_state.is_none() {
+        tracing::warn!("AuthManager not available, skipping anonymous auth");
+        return;
+    }
+
+    let auth_manager = auth_manager_state.unwrap();
+    
+    // Clone to avoid holding lock across await
+    let auth_manager_clone = {
+        let manager = auth_manager.lock().unwrap();
+        manager.clone()
+    };
+
+    // 匿名認証を実行してセッションとdataset_tokenを取得
+    match auth_manager_clone.get_or_refresh_anonymous_session(&member_id_hash).await {
+        Ok((anon_session, dataset_token_str)) => {
+            tracing::info!("Anonymous authentication successful");
+            
+            // Check if we already have a session (e.g., from bootstrap social auth)
+            // Only save anonymous session if there's no existing session
+            let has_existing_session = match auth_manager_clone.peek_session().await {
+                Ok(Some(existing)) => {
+                    // Check if existing session is social auth (has non-empty refresh_token from social provider)
+                    let is_social_auth = !existing.refresh_token.is_empty();
+                    if is_social_auth {
+                        tracing::info!("Keeping existing social auth session, not overwriting with anonymous session");
+                    } else {
+                        tracing::info!("No valid social auth session found, proceeding with anonymous session");
+                    }
+                    is_social_auth
+                }
+                _ => false,
+            };
+            
+            // Only save anonymous session if no existing social auth session
+            if !has_existing_session {
+                // セッションを保存
+                if let Err(e) = auth_manager_clone.save_session(&anon_session).await {
+                    tracing::error!("Failed to save anonymous session: {}", e);
+                    // Mark as not attempted for retry on failure
+                    ANONYMOUS_AUTH_ATTEMPTED.store(false, Ordering::SeqCst);
+                    return;
+                } else {
+                    // Success: record member_id and mark as attempted
+                    let _ = LAST_AUTHENTICATED_MEMBER_ID.set(member_id_hash.clone());
+                    // Note: No need to emit tokens to frontend
+                    // Session saved to FileStorage and managed by AuthManager
+                }
+            } else {
+                tracing::info!("Skipping anonymous session save to preserve social auth session");
+                // Still record member_id for this attempt
+                let _ = LAST_AUTHENTICATED_MEMBER_ID.set(member_id_hash.clone());
+            }
+            
+            // dataset_tokenを保存（7日間有効期限）
+            let dataset_token = types::DatasetToken {
+                token: dataset_token_str,
+                expires_at: chrono::Utc::now() + chrono::Duration::days(7),
+            };
+            
+            if let Err(e) = auth_manager_clone.save_dataset_token(&dataset_token).await {
+                tracing::error!("Failed to save dataset_token: {}", e);
+            } else {
+                tracing::info!("dataset_token obtained and stored (expires in 7 days)");
+            }
+        }
+        Err(e) => {
+            tracing::error!("Anonymous authentication failed: {}", e);
+            
+            // Reset flag on failure to allow future attempts (e.g., when network becomes available)
+            ANONYMOUS_AUTH_ATTEMPTED.store(false, Ordering::SeqCst);
+            
+            // Notify user that they can manually trigger social auth
+            crate::notify::show(
+                app,
+                "Background Authentication Failed",
+                "Some features may be limited. Use 'Open Auth Page' from system tray to link a social account."
+            );
+        }
+    }
 }
 
 #[allow(dead_code)]

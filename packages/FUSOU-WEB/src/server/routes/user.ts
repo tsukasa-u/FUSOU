@@ -78,65 +78,198 @@ app.post("/member-map/upsert", async (c) => {
   }
 
   // Create service role client to call RPC securely
-  const supabaseAdmin = createClient(url, serviceRoleKey, {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false,
-    },
-    // Forward the user's JWT so PostgREST uses it for auth.uid()
-    global: {
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-      },
-    },
-  });
+  const supabaseAdmin = createClient(url, serviceRoleKey);
 
   try {
-    // Call the RPC function with the authenticated user's JWT
-    // The RPC will use auth.uid() from the JWT to ensure user_id matches
-    const { data, error } = await supabaseAdmin.rpc(
-      "rpc_upsert_user_member_map",
-      {
-        member_id_hash: memberIdHash,
-        client_version: clientVersion,
-      }
-    );
+    // Get the authenticated user's ID from the JWT token
+    const currentUserId = supabaseUser.id;
 
-    if (error) {
-      console.error("RPC rpc_upsert_user_member_map failed:", error);
-      
-      // Check for specific errors
-      if (error.message?.includes("already mapped to another user")) {
-        return c.json(
-          {
-            error: "member_id_already_mapped",
-            message: "This game account is already linked to another FUSOU account",
-            resolution_options: {
-              switch_account: "Switch to the original account",
-              transfer_ownership: "Transfer ownership (Generate code in old account → Enter in new account)",
-              contact_support: "Contact support if you cannot access the old account"
-            },
-            member_id_hash: memberIdHash
-          },
-          409
-        );
-      }
-      
-      if (error.message?.includes("not authenticated")) {
-        return c.json({ error: "Authentication required" }, 401);
-      }
+    // Check if this member_id_hash already exists
+    const { data: existingMapping, error: lookupError } = await supabaseAdmin
+      .from('user_member_map')
+      .select('user_id')
+      .eq('member_id_hash', memberIdHash)
+      .maybeSingle();
 
-      return c.json({ error: error.message || "Failed to upsert mapping" }, 400);
+    if (lookupError) {
+      console.error('[/user/member-map/upsert] Database lookup error:', lookupError);
+      return c.json({
+        error: 'DATABASE_ERROR',
+        message: 'Failed to check existing mapping',
+        details: lookupError.message,
+      }, 500);
     }
+
+    if (existingMapping) {
+      const existingUserId = existingMapping.user_id;
+
+      // Case 1: Already owned by the same user
+      if (existingUserId === currentUserId) {
+        console.log('[/user/member-map/upsert] Mapping already exists for current user:', {
+          user_id: currentUserId,
+          member_id_hash: memberIdHash,
+          client_version: clientVersion,
+        });
+        return c.json({
+          ok: true,
+          action: 'already_owned',
+          message: 'This member ID is already linked to your account.',
+        }, 200);
+      }
+
+      // Case 2: Owned by a different user - check if it's an anonymous user
+      let existingUser;
+      try {
+        const { data: existingUserData, error: userError } = await supabaseAdmin.auth.admin.getUserById(existingUserId);
+        
+        if (userError) {
+          console.error('[/user/member-map/upsert] Failed to fetch existing user:', {
+            user_id: existingUserId,
+            error: userError.message,
+            code: userError.code
+          });
+          return c.json({
+            error: 'USER_FETCH_FAILED',
+            message: 'Failed to verify existing member ID ownership',
+            details: userError.message,
+          }, 500);
+        }
+
+        if (!existingUserData?.user) {
+          // User was deleted - allow remapping to prevent stranded mappings
+          console.warn('[/user/member-map/upsert] Existing user not found (deleted?):', {
+            user_id: existingUserId,
+            member_id_hash: memberIdHash
+          });
+
+          const { error: updateError } = await supabaseAdmin
+            .from('user_member_map')
+            .update({ user_id: currentUserId })
+            .eq('member_id_hash', memberIdHash);
+
+          if (updateError) {
+            console.error('[/user/member-map/upsert] Failed to remap from deleted user:', updateError);
+            return c.json({
+              error: 'UPDATE_FAILED',
+              message: 'Failed to update member ID mapping',
+              details: updateError.message,
+            }, 500);
+          }
+
+          console.log('[/user/member-map/upsert] Remapped member_id_hash from deleted user:', {
+            from_user_id: existingUserId,
+            to_user_id: currentUserId,
+            member_id_hash: memberIdHash,
+          });
+
+          return c.json({
+            ok: true,
+            action: 'remapped_from_deleted',
+            message: 'Successfully remapped member ID from deleted account to your account.',
+          }, 200);
+        }
+
+        existingUser = existingUserData.user;
+      } catch (e) {
+        console.error('[/user/member-map/upsert] Unexpected error fetching user:', e);
+        return c.json({
+          error: 'USER_FETCH_ERROR',
+          message: 'Failed to verify existing member ID ownership',
+          details: e instanceof Error ? e.message : 'Unknown error',
+        }, 500);
+      }
+      
+      const isAnonymousUser = existingUser && !existingUser.email && existingUser.is_anonymous;
+
+      if (isAnonymousUser) {
+        // Allow overwrite from anonymous to social user
+        console.log('[/user/member-map/upsert] Migrating from anonymous to social user:', {
+          from_user_id: existingUserId,
+          to_user_id: currentUserId,
+          to_user_email: supabaseUser.email || 'unknown',
+          member_id_hash: memberIdHash,
+        });
+
+        const { error: updateError } = await supabaseAdmin
+          .from('user_member_map')
+          .update({ user_id: currentUserId })
+          .eq('member_id_hash', memberIdHash);
+
+        if (updateError) {
+          console.error('[/user/member-map/upsert] Failed to migrate mapping:', updateError);
+          return c.json({
+            error: 'UPDATE_FAILED',
+            message: 'Failed to migrate member ID to your account',
+            details: updateError.message,
+          }, 500);
+        }
+
+        return c.json({
+          ok: true,
+          action: 'updated',
+          message: 'Successfully migrated member ID from anonymous to your social account.',
+        }, 200);
+      }
+
+      // Case 3: Owned by a different SOCIAL user - conflict!
+      const existingEmail = existingUser?.email || 'unknown';
+      
+      console.warn('[/user/member-map/upsert] CONFLICT: member_id_hash already owned by different social user:', {
+        member_id_hash: memberIdHash,
+        current_user: currentUserId,
+        current_email: supabaseUser.email || 'unknown',
+        existing_user: existingUserId,
+        existing_email: existingEmail,
+      });
+
+      return c.json({
+        error: 'member_id_already_mapped',
+        message: 'This game account is already linked to another FUSOU account',
+        resolution_options: {
+          switch_account: 'Switch to the original account',
+          transfer_ownership: 'Transfer ownership (Generate code in old account → Enter in new account)',
+          contact_support: 'Contact support if you cannot access the old account',
+        },
+        member_id_hash: memberIdHash,
+        existing_email: existingEmail,
+      }, 409);
+    }
+
+    // No existing mapping - create new one
+    const { error: insertError } = await supabaseAdmin
+      .from('user_member_map')
+      .insert({
+        user_id: currentUserId,
+        member_id_hash: memberIdHash,
+      });
+
+    if (insertError) {
+      console.error('[/user/member-map/upsert] Failed to create mapping:', insertError);
+      return c.json({
+        error: 'INSERT_FAILED',
+        message: 'Failed to create member ID mapping',
+        details: insertError.message,
+      }, 500);
+    }
+
+    console.log('[/user/member-map/upsert] New mapping created:', {
+      user_id: currentUserId,
+      user_email: supabaseUser.email || 'unknown',
+      member_id_hash: memberIdHash,
+      client_version: clientVersion,
+    });
 
     return c.json({
       ok: true,
-      map: data,
-      message: "Member ID mapping updated successfully",
-    });
+      action: 'created',
+      message: 'Successfully linked member ID to your account.',
+    }, 200);
   } catch (err) {
-    console.error("Unexpected error in member-map upsert:", err);
-    return c.json({ error: "Internal server error" }, 500);
+    console.error('[/user/member-map/upsert] Unexpected error:', err);
+    return c.json({
+      error: 'INTERNAL_ERROR',
+      message: err instanceof Error ? err.message : 'An unexpected error occurred',
+    }, 500);
   }
 });
 
@@ -174,36 +307,38 @@ app.get("/member-map", async (c) => {
   }
 
   // Create service role client
-  const supabaseAdmin = createClient(url, serviceRoleKey, {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false,
-    },
-    global: {
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-      },
-    },
-  });
+  const supabaseAdmin = createClient(url, serviceRoleKey);
 
   try {
-    const { data, error } = await supabaseAdmin.rpc(
-      "rpc_get_current_user_member_map",
-      {}
-    );
+    // Get the authenticated user's ID from the JWT token
+    const currentUserId = supabaseUser.id;
+
+    // Retrieve the current user's member_id mapping
+    const { data: mapping, error } = await supabaseAdmin
+      .from('user_member_map')
+      .select('member_id_hash, user_id, created_at')
+      .eq('user_id', currentUserId)
+      .maybeSingle();
 
     if (error) {
-      console.error("RPC rpc_get_current_user_member_map failed:", error);
-      return c.json({ error: error.message || "Failed to retrieve mapping" }, 400);
+      console.error('[/user/member-map] Database query error:', error);
+      return c.json({
+        error: 'DATABASE_ERROR',
+        message: 'Failed to retrieve member ID mapping',
+        details: error.message,
+      }, 500);
     }
 
     return c.json({
       ok: true,
-      map: data,
+      map: mapping || null,
     });
   } catch (err) {
-    console.error("Unexpected error in member-map get:", err);
-    return c.json({ error: "Internal server error" }, 500);
+    console.error('[/user/member-map] Unexpected error:', err);
+    return c.json({
+      error: 'INTERNAL_ERROR',
+      message: err instanceof Error ? err.message : 'An unexpected error occurred',
+    }, 500);
   }
 });
 

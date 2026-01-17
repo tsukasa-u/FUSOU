@@ -15,6 +15,10 @@ export const POST: APIRoute = async ({
   redirect,
   locals,
 }) => {
+  // Detect app origin hint passed from initial signin page (e.g., /auth/local/signin?app_origin=tauri)
+  const currentUrl = new URL(request.url);
+  const appOriginParam = currentUrl.searchParams.get("app_origin");
+
   const envCtx = createEnvContext({ env: locals?.runtime?.env || {} });
   const providedOrigin = getEnv(envCtx, "PUBLIC_SITE_URL")?.trim();
   if (!providedOrigin) {
@@ -32,6 +36,8 @@ export const POST: APIRoute = async ({
   const url_origin = providedOrigin;
 
   const provider = formData.get("provider")?.toString();
+  // Get app_origin from form data (passed from signin page)
+  const appOriginFormParam = formData.get("app_origin")?.toString() || appOriginParam;
 
   const validProviders = ["google"];
 
@@ -47,6 +53,9 @@ export const POST: APIRoute = async ({
 
   // Construct callback URL without custom state - Supabase will add its own state
   const callbackUrl = new URL(`${url_origin}/api/local_auth/callback`);
+  if (appOriginFormParam) {
+    callbackUrl.searchParams.set("app_origin", appOriginFormParam);
+  }
 
   // Open Redirect protection: Validate callback URL
   if (!validateRedirectUrl(callbackUrl.toString(), providedOrigin)) {
