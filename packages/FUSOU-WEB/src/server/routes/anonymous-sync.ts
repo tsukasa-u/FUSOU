@@ -130,7 +130,7 @@ app.post('/anonymous-sync', async (c) => {
     let userId: string;
     let accessToken: string;
     let refreshToken: string;
-    let status: 'created' | 'restored';
+    let status: 'created' | 'restored' | 'recreated';
 
     // Anon client for session creation
     const anonKey = supabaseConfig.publishableKey;

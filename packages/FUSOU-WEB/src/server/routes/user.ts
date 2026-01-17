@@ -311,7 +311,7 @@ app.get("/member-map", async (c) => {
 
   try {
     // Get the authenticated user's ID from the JWT token
-    const currentUserId = supabaseUser.sub;
+    const currentUserId = supabaseUser.id;
 
     // Retrieve the current user's member_id mapping
     const { data: mapping, error } = await supabaseAdmin
