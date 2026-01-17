@@ -11,6 +11,8 @@ use super::api::{check_folder, check_or_create_folder, delete_file_raw, get_file
 use super::client::{create_auth, DriveClient, set_refresh_token};
 
 /// Minimal Google Drive adapter that satisfies CloudStorageProvider.
+/// DEPRECATED: Google Drive support is deprecated since 0.2.0. Use anonymous authentication instead.
+#[deprecated(since = "0.4.0", note = "Google Drive support is deprecated. Use anonymous authentication instead.")]
 #[derive(Default, Clone)]
 pub struct GoogleDriveCloudStorageProvider;
 

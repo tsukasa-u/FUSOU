@@ -70,7 +70,8 @@ impl RetryHandler for AppUploadRetryHandler {
                 }
             } else if let Some(op) = context.get("operation").and_then(|v| v.as_str()) {
                 match op {
-                    // Google Drive re-upload
+                    // Google Drive re-upload (only available with gdrive feature)
+                    #[cfg(feature = "gdrive")]
                     "upload" => {
                         let remote_path = context.get("remote_path").and_then(|v| v.as_str()).ok_or("missing remote_path")?;
 

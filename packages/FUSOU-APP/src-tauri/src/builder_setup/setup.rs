@@ -19,7 +19,7 @@ use crate::{
             get_scheduler_integrate_bidirectional_channel,
         },
         cli, logger,
-    }, storage::integrate, cmd::{native_cmd, tauri_cmd}, integration::discord, scheduler, util::{get_RESOURCES_DIR, get_ROAMING_DIR}, window::{app, external}
+    }, notify, storage::integrate, cmd::{native_cmd, tauri_cmd}, integration::discord, scheduler, util::{get_RESOURCES_DIR, get_ROAMING_DIR, try_anonymous_auth}, window::{app, external}
 };
 use proxy_https::bidirectional_channel::request_shutdown;
 
@@ -454,21 +454,22 @@ fn setup_tray(
 
                         tauri::async_runtime::spawn(async move {
                             if !manager.is_authenticated().await {
-                                tracing::warn!("Snapshot sync requires authentication, but no token is available.");
-                                let _ = app_handle_clone
-                                    .notification()
-                                    .builder()
-                                    .title("Authentication Required")
-                                    .body("Please sign in to sync your snapshot.")
-                                    .show();
-                    
-                                
-                                    let _ = auth_server::open_auth_page();
-                            } else {
-                                match crate::storage::snapshot::perform_snapshot_sync_app(&app_handle_clone, auth_manager_clone).await {
-                                    Ok(_) => tracing::info!("Snapshot sync completed (tray-trigger)"),
-                                    Err(e) => tracing::error!("Snapshot sync failed (tray-trigger): {}", e),
+                                tracing::warn!("Snapshot sync requires authentication; trying background anonymous auth instead of opening browser.");
+                                try_anonymous_auth(&app_handle_clone).await;
+
+                                if !manager.is_authenticated().await {
+                                    notify::show(
+                                        &app_handle_clone,
+                                        "Snapshot Sync Skipped",
+                                        "Session not available. Background anonymous sign-in did not succeed."
+                                    );
+                                    return;
                                 }
+                            }
+
+                            match crate::storage::snapshot::perform_snapshot_sync_app(&app_handle_clone, auth_manager_clone).await {
+                                Ok(_) => tracing::info!("Snapshot sync completed (tray-trigger)"),
+                                Err(e) => tracing::error!("Snapshot sync failed (tray-trigger): {}", e),
                             }
                         });
                     }
@@ -502,33 +503,41 @@ fn setup_tray(
                         tauri::async_runtime::spawn(async move {
                             match manager.peek_session().await {
                                 Ok(Some(_session)) => {
-                                    let _ = app_handle
-                                        .notification()
-                                        .builder()
-                                        .title("Session Check")
-                                        .body("Session is valid")
-                                        .show();
+                                    notify::show(
+                                        &app_handle,
+                                        "Session Check",
+                                        "Session is valid"
+                                    );
                                 }
                                 Ok(None) => {
-                                    let _ = app_handle
-                                        .notification()
-                                        .builder()
-                                        .title("Authentication Required")
-                                        .body("Please sign in")
-                                        .show();
-                                    
-                                    // Open auth page using existing auth module function
-                                    if let Err(e) = crate::auth::auth_server::open_auth_page() {
-                                        tracing::error!("Failed to open auth page: {}", e);
+                                    notify::show(
+                                        &app_handle,
+                                        "Session Missing",
+                                        "Attempting background anonymous sign-in..."
+                                    );
+
+                                    try_anonymous_auth(&app_handle).await;
+
+                                    if manager.is_authenticated().await {
+                                        notify::show(
+                                            &app_handle,
+                                            "Session Recovered",
+                                            "Background anonymous sign-in succeeded."
+                                        );
+                                    } else {
+                                        notify::show(
+                                            &app_handle,
+                                            "Session Unavailable",
+                                            "Background sign-in failed. Use 'Open Auth Page' when you want to link a social account."
+                                        );
                                     }
                                 }
                                 Err(e) => {
-                                    let _ = app_handle
-                                        .notification()
-                                        .builder()
-                                        .title("Session Check Error")
-                                        .body(format!("Failed to check session: {}", e))
-                                        .show();
+                                    notify::show(
+                                        &app_handle,
+                                        "Session Check Error",
+                                        &format!("Failed to check session: {}", e)
+                                    );
                                 }
                             }
                         });
@@ -541,47 +550,52 @@ fn setup_tray(
                         tauri::async_runtime::spawn(async move {
                             match manager.clear().await {
                                 Ok(_) => {
-                                    let _ = app_handle
-                                        .notification()
-                                        .builder()
-                                        .title("Local Sign Out")
-                                        .body("Local session cleared. Please sign in again.")
-                                        .show();
+                                    notify::show(
+                                        &app_handle,
+                                        "Local Sign Out",
+                                        "Local tokens cleared (cloud session not revoked). Re-auth when needed from 'Open Auth Page'."
+                                    );
                                     let main_window = app_handle.get_webview_window("main");
                                     if let Some(window) = main_window {
                                         let _ = window.emit_to("main", "set-supabase-tokens", vec![String::new(), String::new()]);
                                     }
                                 }
                                 Err(e) => {
-                                    let _ = app_handle
-                                        .notification()
-                                        .builder()
-                                        .title("Sign Out Error")
-                                        .body(format!("Failed to clear session: {}", e))
-                                        .show();
+                                    notify::show(
+                                        &app_handle,
+                                        "Sign Out Error",
+                                        &format!("Failed to clear session: {}", e)
+                                    );
                                 }
                             }
                         });
                     }
                     "open-auth-page" => {
-                        match auth_server::open_auth_page() {
-                            Ok(_) => {
-                                let _ = tray.app_handle()
-                                    .notification()
-                                    .builder()
-                                    .title("Auth Page")
-                                    .body("Opening authentication page in your browser...")
-                                    .show();
+                        let app_handle = tray.app_handle().clone();
+                        let auth_manager = app_handle.state::<Arc<Mutex<AuthManager<FileStorage>>>>();
+                        let manager = { auth_manager.lock().unwrap().clone() };
+
+                        tauri::async_runtime::spawn(async move {
+                            // Use as an explicit trigger to switch anonymous → social login
+                            let _already_has_session = manager.is_authenticated().await;
+
+                            match auth_server::open_auth_page_with_current_member_id() {
+                                Ok(_) => {
+                                    notify::show(
+                                        &app_handle,
+                                        "Auth Page",
+                                        "Opening auth page to link your account (switch from anonymous to social)."
+                                    );
+                                }
+                                Err(e) => {
+                                    notify::show(
+                                        &app_handle,
+                                        "Auth Page Error",
+                                        &format!("Failed to open auth page: {}", e)
+                                    );
+                                }
                             }
-                            Err(e) => {
-                                let _ = tray.app_handle()
-                                    .notification()
-                                    .builder()
-                                    .title("Auth Page Error")
-                                    .body(format!("Failed to open auth page: {}", e))
-                                    .show();
-                            }
-                        }
+                        });
                     }
                     "main-open/close" => {
                         let window = tray.get_webview_window("main");

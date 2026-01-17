@@ -39,6 +39,13 @@ impl From<std::io::Error> for StorageError {
 pub trait StorageProvider: Send + Sync {
     fn name(&self) -> &'static str;
 
+    /// Whether this provider participates in integration jobs.
+    /// Providers should consider both their own capabilities (feature flags)
+    /// and user config (e.g., allow_* gates) when deciding.
+    fn supports_integration(&self) -> bool {
+        true
+    }
+
     fn write_get_data_table<'a>(
         &'a self,
         period_tag: &'a str,
@@ -56,7 +63,6 @@ pub trait StorageProvider: Send + Sync {
     fn integrate_port_table<'a>(
         &'a self,
         period_tag: &'a str,
-        page_size: i32,
     ) -> StorageFuture<'a, Result<(), StorageError>>;
 }
 
@@ -106,13 +112,16 @@ impl StorageService {
         );
 
         if database_config.get_allow_data_to_cloud() {
-            tracing::debug!("Attempting to initialize Google Drive storage provider");
-            match CloudTableStorageProvider::try_new_google(pending_store.clone(), retry_service.clone()) {
-                Ok(provider) => {
-                    tracing::info!("Google Drive storage provider initialized");
-                    providers.push(Arc::new(provider));
-                },
-                Err(err) => tracing::error!("Failed to initialize cloud storage provider (google): {err}"),
+            #[cfg(feature = "gdrive")]
+            {
+                tracing::debug!("Attempting to initialize Google Drive storage provider");
+                match CloudTableStorageProvider::try_new_google(pending_store.clone(), retry_service.clone()) {
+                    Ok(provider) => {
+                        tracing::info!("Google Drive storage provider initialized");
+                        providers.push(Arc::new(provider));
+                    },
+                    Err(err) => tracing::error!("Failed to initialize cloud storage provider (google): {err}"),
+                }
             }
         }
 
@@ -154,6 +163,11 @@ impl StorageService {
         retry_service: Arc<UploadRetryService>
     ) -> Option<StorageService> {
         Self::initialize(pending_store, retry_service)
+    }
+
+    /// Returns true if at least one initialized provider supports integration jobs.
+    pub fn any_provider_supports_integration(&self) -> bool {
+        self.providers.iter().any(|p| p.supports_integration())
     }
 
     pub async fn write_get_data_table(&self, period_tag: &str, table: GetDataTableEncode) {
@@ -228,14 +242,25 @@ impl StorageService {
         }
     }
 
-    pub async fn integrate_port_table(&self, period_tag: &str, page_size: i32) {
+    pub async fn integrate_port_table(&self, period_tag: &str) {
         let mut handles = Vec::new();
         for provider in self.providers.iter().cloned() {
             let period_clone = period_tag.to_string();
             let provider_name = provider.name().to_string();
+
+            // Enable integration only when the provider indicates support
+            // (provider internally considers feature flags and config gates).
+            if !provider.supports_integration() {
+                tracing::debug!(
+                    "Skipping integration for provider {} (supports_integration=false)",
+                    provider_name,
+                );
+                continue;
+            }
+
             let handle = tokio::spawn(async move {
                 if let Err(err) = provider
-                    .integrate_port_table(&period_clone, page_size)
+                    .integrate_port_table(&period_clone)
                     .await
                 {
                     tracing::warn!(

@@ -7,7 +7,11 @@ pub(crate) const TRANSACTION_DATA_FOLDER_NAME: &str = "transaction_data";
 pub(crate) const PORT_TABLE_FILE_NAME_SEPARATOR: &str = "_";
 pub(crate) const AVRO_FILE_EXTENSION: &str = ".avro";
 pub(crate) const LOCAL_STORAGE_PROVIDER_NAME: &str = "local";
+#[cfg(feature = "gdrive")]
 pub(crate) const GOOGLE_DRIVE_PROVIDER_NAME: &str = "google_drive";
+#[cfg(feature = "gdrive")]
 pub(crate) const GOOGLE_DRIVE_ROOT_FOLDER_ID: &str = "root";
+#[cfg(feature = "gdrive")]
 pub(crate) const GOOGLE_DRIVE_FOLDER_MIME_TYPE: &str = "application/vnd.google-apps.folder";
+#[cfg(feature = "gdrive")]
 pub(crate) const GOOGLE_DRIVE_TRASHED_FILTER: &str = "trashed = false";

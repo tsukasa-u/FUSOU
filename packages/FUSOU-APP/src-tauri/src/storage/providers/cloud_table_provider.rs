@@ -13,6 +13,7 @@ use crate::storage::common::{
     master_folder,
     transaction_root,
 };
+#[cfg(feature = "gdrive")]
 use crate::storage::constants::GOOGLE_DRIVE_PROVIDER_NAME;
 use crate::storage::service::{StorageError, StorageFuture, StorageProvider};
 use fusou_upload::{PendingStore, UploadContext, UploadRetryService};
@@ -25,20 +26,27 @@ pub struct CloudTableStorageProvider {
     cloud: Arc<dyn CloudStorageProvider>,
     pending_store: Arc<PendingStore>,
     retry_service: Arc<UploadRetryService>,
+    batch_size: i32,
 }
 
 impl CloudTableStorageProvider {
+    #[cfg(feature = "gdrive")]
     pub fn try_new_google(
         pending_store: Arc<PendingStore>,
         retry_service: Arc<UploadRetryService>,
     ) -> Result<Self, String> {
         // Google is the only concrete cloud target today; factory keeps tokens set at startup.
         let cloud = CloudProviderFactory::create("google")?;
+        let batch_size = configs::get_user_configs_for_app()
+            .database
+            .google_drive
+            .get_page_size();
         Ok(Self {
             provider_name: GOOGLE_DRIVE_PROVIDER_NAME,
             cloud: Arc::from(cloud),
             pending_store,
             retry_service,
+            batch_size,
         })
     }
 
@@ -158,6 +166,7 @@ impl CloudTableStorageProvider {
         base_path: &str,
         tables: HashMap<String, Vec<u8>>,
     ) -> Result<usize, StorageError> {
+        let provider = self.provider_name;
         if tables.is_empty() {
             return Err(StorageError::Operation("No tables to upload".to_string()));
         }
@@ -172,8 +181,9 @@ impl CloudTableStorageProvider {
                 // Check if file already exists to avoid duplicates
                 if let Ok(true) = self_clone.cloud.file_exists(&file_path).await {
                     tracing::info!(
-                        "Skipping {} table (already exists in Google Drive): {}",
+                        "Skipping {} table (already exists in {}): {}",
                         table_name_clone,
+                        provider,
                         file_path
                     );
                     return Ok(());
@@ -183,8 +193,9 @@ impl CloudTableStorageProvider {
                 match self_clone.upload_bytes(&file_path, &avro_data).await {
                     Ok(_) => {
                         tracing::info!(
-                            "Saved {} table to Google Drive: {} ({} bytes)",
+                            "Saved {} table to {}: {} ({} bytes)",
                             table_name_clone,
+                            provider,
                             file_path,
                             avro_data.len()
                         );
@@ -192,8 +203,9 @@ impl CloudTableStorageProvider {
                     }
                     Err(e) => {
                         tracing::warn!(
-                            "Failed to upload {} table to Google Drive: {}",
+                            "Failed to upload {} table to {}: {}",
                             table_name_clone,
+                            provider,
                             e
                         );
                         Err(e)
@@ -214,6 +226,17 @@ impl CloudTableStorageProvider {
 impl StorageProvider for CloudTableStorageProvider {
     fn name(&self) -> &'static str {
         self.provider_name
+    }
+
+    #[cfg(feature = "gdrive")]
+    fn supports_integration(&self) -> bool {
+        // CloudTable integrates only when feature is enabled and user config allows cloud sync
+        configs::get_user_configs_for_app().database.get_allow_data_to_cloud()
+    }
+
+    #[cfg(not(feature = "gdrive"))]
+    fn supports_integration(&self) -> bool {
+        false
     }
 
     fn write_get_data_table<'a>(
@@ -239,13 +262,14 @@ impl StorageProvider for CloudTableStorageProvider {
                 return Ok(());
             }
 
-            // Upload Avro files directly (no Parquet conversion for Google Drive)
+            // Upload Avro files directly (no Parquet conversion for this cloud provider)
             // Parallel uploads with deduplication check
             match self.upload_avro_tables(&master_dir, tables).await {
                 Ok(count) => {
                     tracing::info!(
-                        "Uploaded {} get_data_table files to Google Drive for period {}",
+                        "Uploaded {} get_data_table files to {} for period {}",
                         count,
+                        self.provider_name,
                         period_tag
                     );
                     Ok(())
@@ -272,7 +296,7 @@ impl StorageProvider for CloudTableStorageProvider {
             let map_folder = format!("{}/{}-{}", txn_root, maparea_id, mapinfo_no);
             self.ensure_folder(&map_folder).await?;
 
-            // Google Drive: mirror Local FS layout
+            // Mirror Local FS layout for cloud storage
             // map_folder/{table_name}/{timestamp_uuid}.avro
             let mut uploaded = 0usize;
             for (table_name, bytes) in get_all_port_tables(table) {
@@ -293,8 +317,9 @@ impl StorageProvider for CloudTableStorageProvider {
 
                 self.upload_bytes(&file_path, &bytes).await?;
                 tracing::info!(
-                    "Saved {} table to Google Drive: {} ({} bytes)",
+                    "Saved {} table to {}: {} ({} bytes)",
                     table_name,
+                    self.provider_name,
                     file_path,
                     bytes.len()
                 );
@@ -312,15 +337,16 @@ impl StorageProvider for CloudTableStorageProvider {
     fn integrate_port_table<'a>(
         &'a self,
         period_tag: &'a str,
-        page_size: i32,
     ) -> StorageFuture<'a, Result<(), StorageError>> {
         Box::pin(async move {
             use kc_api::database::table::PORT_TABLE_NAMES;
             use crate::storage::common::integrate_by_table_name;
+            let batch_size = self.batch_size;
 
             tracing::info!(
-                "CloudTableStorageProvider: Starting port table integration for period {}",
-                period_tag
+                "CloudTableStorageProvider: Starting port table integration for period {} (batch_size={})",
+                period_tag,
+                batch_size
             );
 
             let txn_root = transaction_root(period_tag);
@@ -372,7 +398,7 @@ impl StorageProvider for CloudTableStorageProvider {
                     // Limit files per integration batch
                     let files_to_process: Vec<_> = avro_files
                         .into_iter()
-                        .take(page_size as usize)
+                        .take(batch_size as usize)
                         .collect();
 
                     if files_to_process.len() < 2 {
