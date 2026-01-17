@@ -338,7 +338,7 @@ impl ConfigsAppDatabaseGoogleDrive {
     }
 
     #[deprecated(since = "0.2.0", note = "Google Drive authentication is deprecated. Use anonymous authentication instead.")]
-    pub fn get_page_size(&self) -> i64 {
+    pub fn get_page_size(&self) -> i32 {
         match self.page_size {
             Some(v) if v <= 0 => 100,
             Some(v) if v > 100 => 100,
@@ -1165,6 +1165,7 @@ mod tests {
         {
             #[allow(deprecated)]
             let empty_google_drive = ConfigsAppDatabaseGoogleDrive {
+                schedule_cron: None,
                 page_size: None,
             };
             
