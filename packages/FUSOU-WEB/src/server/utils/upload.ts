@@ -120,9 +120,9 @@ async function handlePreparation(
   //   - 100 MB file: 3600s (1 hour)
   let effectiveTTL = tokenTTL ?? SIGNED_URL_TTL_SECONDS;
   
-  // If expectedFileSize is provided in validationResult, calculate dynamic TTL
-  if (tokenPayload.expectedFileSize && typeof tokenPayload.expectedFileSize === 'number') {
-    const expectedSizeMB = tokenPayload.expectedFileSize / (1024 * 1024);
+  // If declared_size is provided in tokenPayload, calculate dynamic TTL
+  if (tokenPayload.declared_size && typeof tokenPayload.declared_size === 'number') {
+    const expectedSizeMB = tokenPayload.declared_size / (1024 * 1024);
     const estimatedSeconds = Math.ceil(expectedSizeMB * 30) + 300;
     effectiveTTL = Math.min(
       3600, // max 1 hour
@@ -177,39 +177,53 @@ async function handleExecution(
 ): Promise<Response> {
   const { signingSecret, executionProcessor } = config;
 
-  // [Issue #17] UPDATED: Accept token from multiple sources
-  // Priority: Authorization header > X-Upload-Token header > URL query parameter
-  // (URL query is fallback for backward compatibility)
-  let token: string | null = null;
+  const { verifySignedToken, validateJWT } = await import("../utils");
   
-  // Try Authorization header first (Bearer <token>)
+  // [Issue #17] CORRECTED: Separate JWT and upload token
+  // - Authorization header: Bearer <JWT> (for user validation)
+  // - X-Upload-Token header: <signed-upload-token> (for file validation)
+  // - URL query: ?token=<signed-upload-token> (backward compatibility)
+  
+  // Extract JWT from Authorization header for user validation
   const authHeader = request.headers.get("Authorization");
-  if (authHeader?.startsWith("Bearer ")) {
-    token = authHeader.slice(7).trim();
-  }
-  
-  // Fall back to X-Upload-Token header
-  if (!token) {
-    token = request.headers.get("X-Upload-Token");
-  }
-  
-  // Fall back to URL query parameter (backward compatibility)
-  if (!token) {
-    token = url.searchParams.get("token");
-  }
-  
-  if (!token) {
+  const jwtToken = authHeader?.startsWith("Bearer ")
+    ? authHeader.slice(7).trim()
+    : null;
+
+  if (!jwtToken) {
     return c.json({ 
-      error: "Missing upload token in Authorization/X-Upload-Token header or query parameter",
+      error: "Missing Authorization bearer token",
       code: "AUTH_MISSING"
+    }, 401);
+  }
+  
+  // Validate JWT to get user info
+  const supabaseUser = await validateJWT(jwtToken);
+  if (!supabaseUser) {
+    console.warn(`[Upload] JWT validation failed: token=${jwtToken.substring(0, 20)}...`);
+    return c.json({ 
+      error: "Invalid or expired JWT token. Please refresh your session.",
+      code: "AUTH_EXPIRED"
+    }, 401);
+  }
+
+  // Extract upload token from X-Upload-Token header or URL query parameter
+  let uploadToken: string | null = request.headers.get("X-Upload-Token");
+  if (!uploadToken) {
+    uploadToken = url.searchParams.get("token");
+  }
+  
+  if (!uploadToken) {
+    return c.json({ 
+      error: "Missing upload token in X-Upload-Token header or query parameter",
+      code: "UPLOAD_TOKEN_MISSING"
     }, 400);
   }
 
-  // Verify signed token
-  const { verifySignedToken, validateJWT } = await import("../utils");
-  const tokenPayload = await verifySignedToken(token, signingSecret);
+  // Verify signed upload token
+  const tokenPayload = await verifySignedToken(uploadToken, signingSecret);
   if (!tokenPayload) {
-    return c.json({ error: "Invalid or expired token" }, 401);
+    return c.json({ error: "Invalid or expired upload token" }, 401);
   }
 
   const expectedHash = tokenPayload.content_hash;
@@ -218,32 +232,8 @@ async function handleExecution(
   if (!expectedHash) {
     return c.json({ error: "Invalid token payload" }, 400);
   }
-
-  // Validate JWT from request to ensure same user is uploading
-  // [Bug Fix #7] Extract Bearer token from Authorization header
-  // (Note: authHeader variable name reused from handlePreparation, so we use a different name here)
-  const authHeaderExecution = request.headers.get("Authorization");
-  const bearerToken = authHeaderExecution?.startsWith("Bearer ")
-    ? authHeaderExecution.slice(7).trim()
-    : null;
-
-  if (!bearerToken) {
-    return c.json({ 
-      error: "Missing Authorization bearer token",
-      code: "AUTH_MISSING"
-    }, 401);
-  }
-
-  // [Issue #13] JWT 有効期限検証の詳細化
-  const supabaseUser = await validateJWT(bearerToken);
-  if (!supabaseUser) {
-    console.warn(`[Upload] JWT validation failed: token=${bearerToken.substring(0, 20)}...`);
-    return c.json({ 
-      error: "Invalid or expired JWT token. Please refresh your session.",
-      code: "AUTH_EXPIRED"
-    }, 401);
-  }
-
+  
+  // Verify user matches token
   if (tokenUserId !== supabaseUser.id) {
     console.error(`[Upload] User mismatch: token=${tokenUserId}, jwt=${supabaseUser.id}`);
     return c.json(

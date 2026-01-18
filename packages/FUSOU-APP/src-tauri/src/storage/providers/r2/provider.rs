@@ -477,8 +477,10 @@ impl R2StorageProvider {
 
                 let upload_status = upload_response.status();
                 if !upload_status.is_success() {
+                    let error_body = upload_response.text().await.unwrap_or_default();
                     tracing::error!("Master data upload failed: status={}", upload_status);
-                    return Err(StorageError::Operation(format!("Upload failed with status {}", upload_status)));
+                    tracing::error!("Response body: {}", error_body);
+                    return Err(StorageError::Operation(format!("Upload failed with status {}: {}", upload_status, error_body)));
                 }
 
                 tracing::info!("Master data upload+finalize completed for period={}", period_tag);
