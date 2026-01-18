@@ -123,12 +123,26 @@ app.post("/upload", async (c) => {
       }
 
       // Validate file size
-      // [Bug Fix #6] Allow 0-byte files (all tables may be empty, but still valid metadata)
-      const declaredSize = parseInt(typeof body?.file_size === "string" ? body.file_size : "0", 10);
-      if (declaredSize < 0 || declaredSize > MAX_UPLOAD_BYTES) {
-        return c.json({ error: `Invalid file size. Max: ${MAX_UPLOAD_BYTES} bytes` }, 400);
-      }
 
+      // Handle both number and string types (Rust sends as number, other clients may send as string)
+      let declaredSize: number;
+      const fileSizeRaw = body?.file_size;
+      
+      if (typeof fileSizeRaw === "number") {
+        declaredSize = fileSizeRaw;
+      } else if (typeof fileSizeRaw === "string") {
+        const parsed = parseInt(fileSizeRaw.trim(), 10);
+        if (isNaN(parsed)) {
+          return c.json({ error: "file_size must be a valid number" }, 400);
+        }
+        declaredSize = parsed;
+      } else {
+        return c.json({ error: "file_size is required" }, 400);
+      }
+      
+      if (declaredSize <= 0 || declaredSize > MAX_UPLOAD_BYTES) {
+        return c.json({ error: `Invalid file size. Must be > 0 and <= ${MAX_UPLOAD_BYTES} bytes` }, 400);
+      }
       // Parse and validate table_offsets
       if (!tableOffsetsStr) {
         return c.json({ error: "table_offsets is required for bulk upload" }, 400);

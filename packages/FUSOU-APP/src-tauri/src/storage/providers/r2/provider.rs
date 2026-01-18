@@ -467,6 +467,9 @@ impl R2StorageProvider {
                 let upload_response = client
                     .post(upload_url)
                     .header("Content-Type", "application/octet-stream")
+                    // Use Authorization for user JWT and X-Upload-Token for upload token (raw token)
+                    .header("Authorization", format!("Bearer {}", access_token))
+                    .header("X-Upload-Token", token)
                     .body(concatenated_data.clone())
                     .send()
                     .await
@@ -478,39 +481,11 @@ impl R2StorageProvider {
                     return Err(StorageError::Operation(format!("Upload failed with status {}", upload_status)));
                 }
 
-                tracing::info!("Master data uploaded to R2 for period={}", period_tag);
+                tracing::info!("Master data upload+finalize completed for period={}", period_tag);
 
-                // Stage 3: Finalize - tell server to update D1 with R2 key
-                // CRITICAL: token must be in URL query parameter (?token=...)
-                // Server's handleTwoStageUpload checks: url.searchParams.has("token")
-                // - If no token param: handlePreparation (Stage 1)
-                // - If has token param: handleExecution (Stage 3)
-                let execution_url = format!("{}?token={}", endpoint, token);
-
-                tracing::debug!("Stage 3 Execution URL: {}", execution_url);
-
-                let execution_response = client
-                    .post(&execution_url)
-                    .header("Authorization", format!("Bearer {}", access_token))
-                    .send()
-                    .await
-                    .map_err(|e| StorageError::Operation(format!("Execution request failed: {}", e)))?;
-
-                match execution_response.status().as_u16() {
-                    200..=299 => {
-                        tracing::info!("Master data finalized for period={}", period_tag);
-                        Ok(())
-                    }
-                    500..=599 => {
-                        // Server error - might be transient, let retry service handle it
-                        tracing::warn!("Master data execution failed with server error: status={}", execution_response.status());
-                        Err(StorageError::Operation(format!("Server error during finalization: {}", execution_response.status())))
-                    }
-                    _ => {
-                        tracing::error!("Master data execution failed: status={}", execution_response.status());
-                        Err(StorageError::Operation(format!("Execution failed with status {}", execution_response.status())))
-                    }
-                }
+                // No additional stage needed: handleTwoStageUpload execution step already performs
+                // hash verification, R2 upload, and D1 finalization in a single call.
+                Ok(())
             }
             409 => {
                 // Another user already uploaded this master data - that's fine
