@@ -309,9 +309,10 @@ app.get("/data/:table", async (c) => {
       if (periodTagParam === "latest") {
         // Get latest period_tag from master_data_index
         const latestStmt = masterDb.prepare(
-          `SELECT period_tag FROM master_data_index 
-           WHERE table_name = ? AND upload_status = 'completed' 
-           ORDER BY created_at DESC LIMIT 1`
+          `SELECT mdi.period_tag FROM master_data_tables mdt
+           JOIN master_data_index mdi ON mdt.master_data_id = mdi.id
+           WHERE mdt.table_name = ? AND mdi.upload_status = 'completed'
+           ORDER BY mdi.created_at DESC LIMIT 1`
         );
         const latestResult = await latestStmt.bind(tableName).first();
         const latestPeriodTag = (latestResult as { period_tag?: string } | null)?.period_tag;
@@ -327,19 +328,20 @@ app.get("/data/:table", async (c) => {
         periodTag = periodTagParam;
       }
 
-      // Query master_data_index
+      // Query master_data tables via join
       let masterSql = `SELECT 
-           id,
-           period_tag,
-           table_name,
-           r2_key,
-           created_at
-         FROM master_data_index
-         WHERE table_name = ? AND upload_status = 'completed'`;
+           mdt.id AS id,
+           mdi.period_tag AS period_tag,
+           mdt.table_name AS table_name,
+           mdt.r2_key AS r2_key,
+           mdi.created_at AS created_at
+         FROM master_data_tables mdt
+         JOIN master_data_index mdi ON mdt.master_data_id = mdi.id
+         WHERE mdt.table_name = ? AND mdi.upload_status = 'completed'`;
       const masterParams: unknown[] = [tableName];
 
       if (periodTag && periodTagParam !== "all") {
-        masterSql += ` AND period_tag = ?`;
+        masterSql += ` AND mdi.period_tag = ?`;
         masterParams.push(periodTag);
       }
 
@@ -1094,9 +1096,10 @@ app.get("/download-master", async (c) => {
 
     // Get r2_key from master_data_index
     const stmt = masterDb.prepare(
-      `SELECT r2_key FROM master_data_index 
-       WHERE period_tag = ? AND table_name = ? AND upload_status = 'completed'
-       ORDER BY created_at DESC LIMIT 1`
+      `SELECT mdt.r2_key FROM master_data_tables mdt
+       JOIN master_data_index mdi ON mdt.master_data_id = mdi.id
+       WHERE mdi.period_tag = ? AND mdt.table_name = ? AND mdi.upload_status = 'completed'
+       ORDER BY mdi.created_at DESC LIMIT 1`
     );
     const row = await stmt.bind(periodTag, tableName).first();
     const r2Key = (row as { r2_key?: string } | null)?.r2_key;
