@@ -9,6 +9,7 @@ const RU_COSTS = {
   ARCHIVE_PER_FILE: 1,
   LIST: 1,
   VERIFY: 0,
+  DOWNLOAD: 10,
 };
 
 interface RUStatus {

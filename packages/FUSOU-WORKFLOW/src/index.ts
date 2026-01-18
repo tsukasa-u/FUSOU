@@ -1,14 +1,19 @@
 import { handleRead as handleHybridRead } from './reader';
 import { handleCron } from './cron';
 import { handleBufferConsumerChunked } from './buffer-consumer';
+import { cleanupOrphanedMasterData, handleCleanupRequest } from './master_data_cleanup';
 
 interface Env {
   BATTLE_DATA_BUCKET: R2Bucket;
   BATTLE_INDEX_DB: D1Database;
+  MASTER_DATA_BUCKET?: R2Bucket;
+  MASTER_DATA_INDEX_DB?: D1Database;
   OUTPUT_KEY_NAME?: string;
   COMPACTION_QUEUE?: Queue<any>;
   // TiDB Cloud Serverless connection URL
   TIDB_KC_DB_URL?: string;
+  // Cleanup job auth token
+  MASTER_DATA_CLEANUP_TOKEN?: string;
 }
 
 const CORS_HEADERS = {
@@ -95,6 +100,20 @@ export default {
       return handleRead(request, env, ctx);
     }
 
+    if (path === '/master-data/cleanup' && request.method === 'POST') {
+      // Manual cleanup trigger endpoint
+      if (!env.MASTER_DATA_INDEX_DB || !env.MASTER_DATA_BUCKET) {
+        return new Response(JSON.stringify({ error: 'Master data storage not configured' }), {
+          status: 503,
+          headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
+        });
+      }
+      return handleCleanupRequest(request, {
+        MASTER_DATA_BUCKET: env.MASTER_DATA_BUCKET,
+        MASTER_DATA_INDEX_DB: env.MASTER_DATA_INDEX_DB,
+      });
+    }
+
     if (path === '/' && request.method === 'GET') {
       return new Response(JSON.stringify({ status: 'ok', service: 'fusou-ingest' }), {
         status: 200,
@@ -115,5 +134,17 @@ export default {
   async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
     // Delegate scheduled archiving to cron.ts
     ctx.waitUntil(handleCron(env));
+
+    // Also run master data cleanup during scheduled cron
+    if (env.MASTER_DATA_INDEX_DB && env.MASTER_DATA_BUCKET) {
+      ctx.waitUntil(
+        cleanupOrphanedMasterData({
+          MASTER_DATA_BUCKET: env.MASTER_DATA_BUCKET,
+          MASTER_DATA_INDEX_DB: env.MASTER_DATA_INDEX_DB,
+        }).catch((err) => {
+          console.error('[scheduled] Master data cleanup error:', err);
+        })
+      );
+    }
   },
 };

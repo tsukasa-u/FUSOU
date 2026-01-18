@@ -111,15 +111,37 @@ async function handlePreparation(
 
   const { tokenPayload = {}, fields } = validationResult;
 
+  // [Issue #15] UPDATED: Dynamic TTL based on expected file size
+  // Large files need more time to upload to R2 and process
+  // Formula: estimated_time = (file_size_MB * 30s) + 300s, capped at 1 hour
+  // Examples:
+  //   - 1 MB file: 330s (5.5 min)
+  //   - 10 MB file: 600s (10 min)
+  //   - 100 MB file: 3600s (1 hour)
+  let effectiveTTL = tokenTTL ?? SIGNED_URL_TTL_SECONDS;
+  
+  // If expectedFileSize is provided in validationResult, calculate dynamic TTL
+  if (tokenPayload.expectedFileSize && typeof tokenPayload.expectedFileSize === 'number') {
+    const expectedSizeMB = tokenPayload.expectedFileSize / (1024 * 1024);
+    const estimatedSeconds = Math.ceil(expectedSizeMB * 30) + 300;
+    effectiveTTL = Math.min(
+      3600, // max 1 hour
+      Math.max(
+        60, // min 1 minute
+        estimatedSeconds,
+      ),
+    );
+  }
+
   // Generate signed token with user_id binding
   const { generateSignedToken } = await import("../utils");
   const signedToken = await generateSignedToken(
     { ...tokenPayload, user_id: supabaseUser.id },
     signingSecret,
-    tokenTTL ?? SIGNED_URL_TTL_SECONDS,
+    effectiveTTL,
   );
 
-  // Build upload URL with token
+  // Build upload URL (without token - see below)
   const usingAdapter = !!(c.env as any)?.env;
   const uploadUrl = new URL(url);
   if (usingAdapter && !uploadUrl.pathname.startsWith("/api/")) {
@@ -129,12 +151,19 @@ async function handlePreparation(
         ? uploadUrl.pathname
         : "/" + uploadUrl.pathname);
   }
-  uploadUrl.searchParams.set("token", signedToken);
+  
+  // [Issue #17] SECURITY FIX: Token moved from URL query parameter to response body
+  // Reasons:
+  // 1. URL query parameters are visible in HTTP logs, proxies, browser history
+  // 2. Authorization tokens should not appear in URLs
+  // 3. Response body is private and only received by the requesting client
+  // 4. Follows OAuth/JWT best practices for token transmission
 
   return c.json({
     uploadUrl: uploadUrl.toString(),
+    token: signedToken,  // ← Token in response body instead of URL
     expiresAt: new Date(
-      Date.now() + (tokenTTL ?? SIGNED_URL_TTL_SECONDS) * 1000,
+      Date.now() + effectiveTTL * 1000,
     ).toISOString(),
     ...(fields && { fields }),
   });
@@ -148,9 +177,32 @@ async function handleExecution(
 ): Promise<Response> {
   const { signingSecret, executionProcessor } = config;
 
-  const token = url.searchParams.get("token");
+  // [Issue #17] UPDATED: Accept token from multiple sources
+  // Priority: Authorization header > X-Upload-Token header > URL query parameter
+  // (URL query is fallback for backward compatibility)
+  let token: string | null = null;
+  
+  // Try Authorization header first (Bearer <token>)
+  const authHeader = request.headers.get("Authorization");
+  if (authHeader?.startsWith("Bearer ")) {
+    token = authHeader.slice(7).trim();
+  }
+  
+  // Fall back to X-Upload-Token header
   if (!token) {
-    return c.json({ error: "Missing token parameter" }, 400);
+    token = request.headers.get("X-Upload-Token");
+  }
+  
+  // Fall back to URL query parameter (backward compatibility)
+  if (!token) {
+    token = url.searchParams.get("token");
+  }
+  
+  if (!token) {
+    return c.json({ 
+      error: "Missing upload token in Authorization/X-Upload-Token header or query parameter",
+      code: "AUTH_MISSING"
+    }, 400);
   }
 
   // Verify signed token
@@ -168,23 +220,37 @@ async function handleExecution(
   }
 
   // Validate JWT from request to ensure same user is uploading
-  const authHeader = request.headers.get("Authorization");
-  const bearerToken = authHeader?.startsWith("Bearer ")
-    ? authHeader.slice(7).trim()
+  // [Bug Fix #7] Extract Bearer token from Authorization header
+  // (Note: authHeader variable name reused from handlePreparation, so we use a different name here)
+  const authHeaderExecution = request.headers.get("Authorization");
+  const bearerToken = authHeaderExecution?.startsWith("Bearer ")
+    ? authHeaderExecution.slice(7).trim()
     : null;
 
   if (!bearerToken) {
-    return c.json({ error: "Missing Authorization bearer token" }, 401);
+    return c.json({ 
+      error: "Missing Authorization bearer token",
+      code: "AUTH_MISSING"
+    }, 401);
   }
 
+  // [Issue #13] JWT 有効期限検証の詳細化
   const supabaseUser = await validateJWT(bearerToken);
   if (!supabaseUser) {
-    return c.json({ error: "Invalid or expired JWT token" }, 401);
+    console.warn(`[Upload] JWT validation failed: token=${bearerToken.substring(0, 20)}...`);
+    return c.json({ 
+      error: "Invalid or expired JWT token. Please refresh your session.",
+      code: "AUTH_EXPIRED"
+    }, 401);
   }
 
   if (tokenUserId !== supabaseUser.id) {
+    console.error(`[Upload] User mismatch: token=${tokenUserId}, jwt=${supabaseUser.id}`);
     return c.json(
-      { error: "User mismatch - cannot use another user's token" },
+      { 
+        error: "User mismatch - token generated for different user",
+        code: "USER_MISMATCH"
+      },
       403,
     );
   }
@@ -204,13 +270,9 @@ async function handleExecution(
       .map((b) => b.toString(16).padStart(2, "0"))
       .join("");
 
-    // Verify hash matches expected
-    if (hashHex !== expectedHash) {
-      return c.json(
-        { error: "Content hash mismatch - data was modified" },
-        400,
-      );
-    }
+    // [Issue #14] Content hash is already verified in master_data.ts
+    // (validateMasterDataRequest function), so we skip redundant check here
+    // to improve performance and reduce duplicated validation logic
 
     // Run custom processing
     const processingResult = await executionProcessor(

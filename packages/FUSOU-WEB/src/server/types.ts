@@ -13,6 +13,8 @@ export type Bindings = {
   BATTLE_INDEX_DB: D1Database;
   FLEET_SNAPSHOT_BUCKET: R2BucketBinding;
   BATTLE_DATA_BUCKET: R2BucketBinding;
+  MASTER_DATA_BUCKET: R2BucketBinding;
+  MASTER_DATA_INDEX_DB: D1Database;
   
   // Supabase config (JWKS verification requires URL)
   PUBLIC_SUPABASE_URL: string; // required for JWKS
@@ -21,6 +23,7 @@ export type Bindings = {
   ASSET_UPLOAD_SIGNING_SECRET: string;
   FLEET_SNAPSHOT_SIGNING_SECRET: string;
   BATTLE_DATA_SIGNING_SECRET: string;
+  MASTER_DATA_SIGNING_SECRET: string;
   BATTLE_DATA_SIGNED_URL_SECRET?: string; // For battle data signed URL generation
   DATASET_TOKEN_SECRET?: string; // For dataset token signing (anonymous sync)
   RESEND_API_KEY?: string; // For sending verification emails

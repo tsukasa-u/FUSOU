@@ -188,11 +188,13 @@ save_file_location = ""
     # Cron schedule for integration jobs (e.g., local FS or cloud storage integration)
     # Format: "sec min hour day month day_of_week"
     # Example: "0 0 * * * *" runs every hour
-    integration_schedule_cron = "0 0/5 * * * *"
+    integration_schedule_cron = "0 0 * * * *"
 
     [app.database.r2]
     # HTTPS endpoint provided by FUSOU-WEB that mediates Cloudflare R2 uploads
     upload_endpoint = "https://r2-parquet.fusou.pages.dev/api/battle-data/upload"
+    # Master-data upload endpoint
+    master_data_upload_endpoint = "https://r2-parquet.fusou.pages.dev/api/master-data/upload"
 
     [app.database.local]
     # Base directory used when writing KanColle data locally
@@ -265,13 +267,13 @@ save_file_location = ""
 
     # Authentication page URL
     # The URL to open when authentication is required
-    auth_page_url = "http://localhost:4321/auth/local/signin"
+    auth_page_url = "https://r2-parquet.fusou.pages.dev/auth/local/signin"
 
     # Endpoint for user/member_id hash mapping upsert (optional; if empty, falls back to asset_upload_endpoint origin)
-    member_map_endpoint = "http://localhost:4321/api/user/member-map/upsert"
+    member_map_endpoint = "https://r2-parquet.fusou.pages.dev/api/user/member-map/upsert"
 
     # Endpoint for anonymous authentication sync (acquires Supabase session + dataset_token)
-    anonymous_sync_endpoint = "http://localhost:4321/api/auth/anonymous-sync"
+    anonymous_sync_endpoint = "https://r2-parquet.fusou.pages.dev/api/auth/anonymous-sync"
 
     [app.kc_window]
     # The debounce time (in milliseconds) for window resize events

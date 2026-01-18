@@ -172,12 +172,15 @@ export function injectEnv(locals: any): Bindings {
     BATTLE_INDEX_DB: ctx.runtime.BATTLE_INDEX_DB!,
     FLEET_SNAPSHOT_BUCKET: ctx.runtime.FLEET_SNAPSHOT_BUCKET!,
     BATTLE_DATA_BUCKET: ctx.runtime.BATTLE_DATA_BUCKET!,
+    MASTER_DATA_BUCKET: ctx.runtime.MASTER_DATA_BUCKET!,
+    MASTER_DATA_INDEX_DB: ctx.runtime.MASTER_DATA_INDEX_DB!,
     PUBLIC_SUPABASE_URL: getEnv(ctx, "PUBLIC_SUPABASE_URL")!,
     SUPABASE_SECRET_KEY: getEnv(ctx, "SUPABASE_SECRET_KEY")!,
     PUBLIC_SUPABASE_PUBLISHABLE_KEY: getEnv(ctx, "PUBLIC_SUPABASE_PUBLISHABLE_KEY")!,
     ASSET_UPLOAD_SIGNING_SECRET: getEnv(ctx, "ASSET_UPLOAD_SIGNING_SECRET")!,
     FLEET_SNAPSHOT_SIGNING_SECRET: getEnv(ctx, "FLEET_SNAPSHOT_SIGNING_SECRET")!,
     BATTLE_DATA_SIGNING_SECRET: getEnv(ctx, "BATTLE_DATA_SIGNING_SECRET")!,
+    MASTER_DATA_SIGNING_SECRET: getEnv(ctx, "MASTER_DATA_SIGNING_SECRET")!,
     BATTLE_DATA_SIGNED_URL_SECRET: getEnv(ctx, "BATTLE_DATA_SIGNED_URL_SECRET"),
     DATASET_TOKEN_SECRET: getEnv(ctx, "DATASET_TOKEN_SECRET"),
     RESEND_API_KEY: getEnv(ctx, "RESEND_API_KEY"),
@@ -561,4 +564,55 @@ export async function getR2ObjectMetadata(
     console.error(`Failed to get R2 metadata for ${key}:`, error);
     return null;
   }
+}
+/**
+ * [Issue #19] トークンペイロードの型安全性を確保
+ * Payload から required fields を検証して必須フィールドがすべて存在することを確認
+ * 
+ * @param payload トークンペイロード
+ * @param requiredFields 必須フィールド名のリスト
+ * @returns { valid: boolean, error?: string, data?: any }
+ */
+export function validateTokenPayload(
+  payload: any,
+  requiredFields: string[] = []
+): { valid: boolean; error?: string; data?: any } {
+  if (!payload || typeof payload !== 'object') {
+    return {
+      valid: false,
+      error: 'Token payload must be a non-null object',
+    };
+  }
+
+  // Check for required fields
+  const missingFields = requiredFields.filter(field => !(field in payload));
+  if (missingFields.length > 0) {
+    return {
+      valid: false,
+      error: `Missing required fields in token payload: ${missingFields.join(', ')}`,
+    };
+  }
+
+  // Validate user_id is present and is string
+  if (!payload.user_id || typeof payload.user_id !== 'string') {
+    return {
+      valid: false,
+      error: 'Token payload must have user_id as string',
+    };
+  }
+
+  // Validate expectedFileSize if present (should be number)
+  if ('expectedFileSize' in payload && payload.expectedFileSize !== null) {
+    if (typeof payload.expectedFileSize !== 'number' || payload.expectedFileSize <= 0) {
+      return {
+        valid: false,
+        error: 'expectedFileSize must be a positive number if provided',
+      };
+    }
+  }
+
+  return {
+    valid: true,
+    data: payload,
+  };
 }

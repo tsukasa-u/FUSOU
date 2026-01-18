@@ -91,6 +91,7 @@ app.get("/tables", async (c) => {
       }, 403, ruStatus);
     }
     const indexDb = env.runtime.BATTLE_INDEX_DB;
+    const masterDb = env.runtime.MASTER_DATA_INDEX_DB;
     if (!indexDb) {
       return jsonResponse({ error: "D1 database not configured" }, 500);
     }
@@ -99,7 +100,21 @@ app.get("/tables", async (c) => {
       `SELECT DISTINCT table_name FROM block_indexes ORDER BY table_name`
     );
     const result = await stmt.all?.();
-    const tables = (result?.results || []).map((r: any) => r.table_name);
+    const battleTables = (result?.results || []).map((r: any) => r.table_name);
+
+    // Add master-data tables if available
+    const masterTables: string[] = [];
+    if (masterDb) {
+      const masterStmt = masterDb.prepare(
+        `SELECT DISTINCT table_name FROM master_data_index WHERE upload_status = 'completed' ORDER BY table_name`
+      );
+      const masterResult = await masterStmt.all?.();
+      if (masterResult?.results) {
+        masterTables.push(...(masterResult.results as any[]).map((r: any) => r.table_name));
+      }
+    }
+
+    const tables = [...battleTables, ...masterTables];
 
     return jsonResponse({
       success: true,
@@ -267,10 +282,97 @@ app.get("/data/:table", async (c) => {
     }
 
     const indexDb = env.runtime.BATTLE_INDEX_DB;
+    const masterDb = env.runtime.MASTER_DATA_INDEX_DB;
+    const bucket = env.runtime.MASTER_DATA_BUCKET;
     if (!indexDb) {
       return jsonResponse({ error: "D1 database not configured" }, 500);
     }
 
+    // Detect if this is a master-data table (starts with "mst_")
+    const isMasterTable = tableName.startsWith("mst_");
+
+    // Handle master-data tables differently
+    if (isMasterTable) {
+      if (!masterDb || !bucket) {
+        return jsonResponse({
+          error: "MASTER_DATA_UNAVAILABLE",
+          message: "Master data endpoints are not configured",
+        }, 503, ruStatus);
+      }
+
+      // For master-data, ignore scope parameter (always "all")
+      let periodTag: string | null = null;
+      if (periodTagParam === "latest") {
+        // Get latest period_tag from master_data_index
+        const latestStmt = masterDb.prepare(
+          `SELECT period_tag FROM master_data_index 
+           WHERE table_name = ? AND upload_status = 'completed' 
+           ORDER BY created_at DESC LIMIT 1`
+        );
+        const latestResult = await latestStmt.bind(tableName).first();
+        const latestPeriodTag = (latestResult as { period_tag?: string } | null)?.period_tag;
+        if (latestPeriodTag) {
+          periodTag = latestPeriodTag;
+        } else {
+          return jsonResponse({
+            error: "DATASET_NOT_FOUND",
+            message: `No master data found for table '${tableName}'`,
+          }, 404, ruStatus);
+        }
+      } else if (periodTagParam !== "all") {
+        periodTag = periodTagParam;
+      }
+
+      // Query master_data_index
+      let masterSql = `SELECT 
+           id,
+           period_tag,
+           table_name,
+           r2_key,
+           created_at
+         FROM master_data_index
+         WHERE table_name = ? AND upload_status = 'completed'`;
+      const masterParams: unknown[] = [tableName];
+
+      if (periodTag && periodTagParam !== "all") {
+        masterSql += ` AND period_tag = ?`;
+        masterParams.push(periodTag);
+      }
+
+      masterSql += ` ORDER BY created_at DESC LIMIT ?`;
+      masterParams.push(limit);
+
+      const masterStmt = masterDb.prepare(masterSql);
+      const masterResult = await masterStmt.bind(...masterParams).all?.();
+
+      if (!masterResult || !masterResult.results || masterResult.results.length === 0) {
+        return jsonResponse({
+          error: "DATASET_NOT_FOUND",
+          message: `No master data found for table '${tableName}'`,
+        }, 404, ruStatus);
+      }
+
+      const files = (masterResult.results as any[]).map((r) => ({
+        id: r.id,
+        period_tag: r.period_tag,
+        table_name: r.table_name,
+        r2_key: r.r2_key,
+        created_at: r.created_at,
+        download_url: `/api/data-loader/download-master?period_tag=${encodeURIComponent(r.period_tag)}&table_name=${encodeURIComponent(r.table_name)}`,
+        type: "master",
+      }));
+
+      return jsonResponse({
+        success: true,
+        table: tableName,
+        period_tag: periodTag || "all",
+        scope: "all",
+        count: files.length,
+        files,
+      }, 200, ruStatus);
+    }
+
+    // Original battle-data logic below
     // Resolve period tag
     let periodTag: string | null = null;
     if (periodTagParam === "latest") {
@@ -933,6 +1035,90 @@ async function getLatestPeriodTag(
 }
 
 
+
+/**
+ * GET /data-loader/download-master - Download master-data from R2
+ * Query params:
+ *   - period_tag: Period tag
+ *   - table_name: Table name
+ */
+app.get("/download-master", async (c) => {
+  const apiKey = c.req.header("X-API-KEY");
+  const clientId = c.req.header("X-CLIENT-ID");
+  const periodTag = c.req.query("period_tag");
+  const tableName = c.req.query("table_name");
+
+  if (!apiKey || !clientId) {
+    return new Response("Authentication required", { status: 401 });
+  }
+
+  if (!periodTag || !tableName) {
+    return new Response("period_tag and table_name parameters are required", { status: 400 });
+  }
+
+  try {
+    const env = createEnvContext(c);
+    const apiKeyData = await validateApiKey(getSupabaseConfig(c), apiKey);
+    if (!apiKeyData) {
+      return new Response("Invalid API key", { status: 403 });
+    }
+
+    const kv = env.runtime.DATA_LOADER_CACHE_KV;
+    if (!kv) {
+      return new Response("Service unavailable", { status: 503 });
+    }
+
+    const ruStatus = await checkAndDeductRU(kv, apiKeyData.user_id, RU_COSTS.DOWNLOAD);
+    if (!ruStatus.allowed) {
+      return new Response("RU limit exceeded", { status: 429 });
+    }
+
+    const trusted = await isDeviceTrusted(getSupabaseConfig(c), apiKeyData.user_id, clientId, kv);
+    if (!trusted) {
+      const code = generateVerificationCode();
+      await saveVerificationCode(getSupabaseConfig(c), apiKeyData.user_id, clientId, code);
+      await sendVerificationEmail(env, apiKeyData.email, code);
+      return new Response("Device unverified", { status: 403 });
+    }
+
+    const masterDb = env.runtime.MASTER_DATA_INDEX_DB;
+    const bucket = env.runtime.MASTER_DATA_BUCKET;
+
+    if (!masterDb || !bucket) {
+      return new Response("Master data service not configured", { status: 503 });
+    }
+
+    // Get r2_key from master_data_index
+    const stmt = masterDb.prepare(
+      `SELECT r2_key FROM master_data_index 
+       WHERE period_tag = ? AND table_name = ? AND upload_status = 'completed'
+       ORDER BY created_at DESC LIMIT 1`
+    );
+    const row = await stmt.bind(periodTag, tableName).first();
+    const r2Key = (row as { r2_key?: string } | null)?.r2_key;
+
+    if (!r2Key) {
+      return new Response("Master data not found", { status: 404 });
+    }
+
+    // Fetch from R2
+    const object = await bucket.get(r2Key);
+    if (!object) {
+      return new Response("R2 object not found", { status: 404 });
+    }
+
+    return new Response(object.body, {
+      headers: {
+        "Content-Type": "application/octet-stream",
+        "Content-Disposition": `attachment; filename="${tableName}.avro"`,
+        ...DATA_LOADER_CORS_HEADERS,
+      },
+    });
+  } catch (error) {
+    console.error("Master data download error:", error);
+    return new Response("Internal error", { status: 500 });
+  }
+});
 
 /**
  * POST /data-loader/verify - Verify OTP and register device
