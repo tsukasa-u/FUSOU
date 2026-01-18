@@ -71,6 +71,9 @@ export default defineConfig({
       "process.env.ASSET_UPLOAD_SIGNING_SECRET": JSON.stringify(
         process.env.ASSET_UPLOAD_SIGNING_SECRET
       ),
+      "process.env.MASTER_DATA_SIGNING_SECRET": JSON.stringify(
+        process.env.MASTER_DATA_SIGNING_SECRET
+      ),
       "process.env.FLEET_SNAPSHOT_SIGNING_SECRET": JSON.stringify(
         process.env.FLEET_SNAPSHOT_SIGNING_SECRET
       ),
