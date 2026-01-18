@@ -64,7 +64,13 @@ export async function handleTwoStageUpload(
   const url = new URL(c.req.url);
   const request = c.req.raw;
 
-  if (!url.searchParams.has("token")) {
+  // Route to execution phase if token is present in either:
+  // - X-Upload-Token header (preferred, used by Rust uploader)
+  // - URL query parameter (legacy, backward compatibility)
+  const hasTokenHeader = !!request.headers.get("X-Upload-Token");
+  const hasTokenQuery = url.searchParams.has("token");
+
+  if (!hasTokenHeader && !hasTokenQuery) {
     return await handlePreparation(c, request, url, config);
   }
 
