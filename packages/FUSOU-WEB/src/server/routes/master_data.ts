@@ -376,6 +376,12 @@ app.post("/upload", async (c) => {
           console.info(`[master-data] Uploading ${offset.table_name}: ${r2Key} (${tableData.byteLength} bytes)`);
 
           try {
+            // Compute hash for this individual table for integrity verification
+            const tableHashBuf = await crypto.subtle.digest('SHA-256', tableData);
+            const tableContentHash = Array.from(new Uint8Array(tableHashBuf))
+              .map(b => b.toString(16).padStart(2, '0'))
+              .join('');
+
             const r2Result = await bucket.put(r2Key, tableData, {
               httpMetadata: {
                 contentType: "application/octet-stream",
@@ -384,10 +390,9 @@ app.post("/upload", async (c) => {
               customMetadata: {
                 table_name: offset.table_name,
                 period_tag: periodTag,
+                table_hash: tableContentHash, // Hash of individual table
                 uploaded_by: user.id,
-                batch_content_hash: expectedContentHash,
-                schema_version: "1.0.0",
-                table_count: tableCount.toString(),
+                batch_hash: expectedContentHash, // Hash of entire batch for reference
                 uploaded_at: new Date().toISOString(),
               },
             });
