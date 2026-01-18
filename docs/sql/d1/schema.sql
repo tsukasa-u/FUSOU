@@ -99,3 +99,26 @@ CREATE TABLE IF NOT EXISTS files (
 CREATE INDEX IF NOT EXISTS idx_files_key ON files(key);
 CREATE INDEX IF NOT EXISTS idx_files_uploader ON files(uploader_id, uploaded_at DESC);
 CREATE INDEX IF NOT EXISTS idx_files_finder_tag ON files(finder_tag);
+
+-- ============================================================================
+-- 5. Master Data Index
+-- ============================================================================
+CREATE TABLE master_data_index (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  period_tag TEXT NOT NULL,
+  content_hash TEXT NOT NULL,
+  table_count INTEGER NOT NULL,  -- Number of tables (13)
+  table_offsets TEXT NOT NULL,   -- JSON: [{"table_name": "...", "start": 0, "end": 100}]
+  r2_keys TEXT,                  -- JSON: ["master_data/period/table1.avro", ...]
+  upload_status TEXT DEFAULT 'pending', -- 'pending', 'completed', 'failed'
+  uploaded_by TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  completed_at INTEGER,
+  UNIQUE(period_tag)
+);
+
+CREATE INDEX idx_master_data_by_period 
+  ON master_data_index(period_tag);
+
+CREATE INDEX idx_master_data_by_status_created 
+  ON master_data_index(upload_status, created_at);
