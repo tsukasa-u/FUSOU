@@ -285,13 +285,13 @@ app.post("/upload", async (c) => {
       
       if (!payloadValidation.valid) {
         console.error(`[master-data] Invalid token payload: ${payloadValidation.error}`);
-        return {
-          response: {
-            error: `Invalid upload token: ${payloadValidation.error}`,
-            code: "INVALID_TOKEN_PAYLOAD",
-          },
-          statusCode: 400,
-        };
+        return new Response(JSON.stringify({
+          error: `Invalid upload token: ${payloadValidation.error}`,
+          code: "INVALID_TOKEN_PAYLOAD",
+        }), {
+          status: 400,
+          headers: { "Content-Type": "application/json" },
+        });
       }
 
       const recordId = tokenPayload.record_id as number;
@@ -302,14 +302,14 @@ app.post("/upload", async (c) => {
 
       // [Bug Fix #2] Verify uploaded data size matches declared size
       if (data.byteLength !== tokenPayload.declared_size) {
-        return {
-          response: { 
-            error: "Data size mismatch",
-            expected: tokenPayload.declared_size,
-            actual: data.byteLength
-          },
-          statusCode: 400,
-        };
+        return new Response(JSON.stringify({ 
+          error: "Data size mismatch",
+          expected: tokenPayload.declared_size,
+          actual: data.byteLength
+        }), {
+          status: 400,
+          headers: { "Content-Type": "application/json" },
+        });
       }
 
       try {
@@ -341,14 +341,14 @@ app.post("/upload", async (c) => {
             console.error(`[master-data] Failed to mark hash mismatch: ${String(updateErr)}`);
           }
 
-          return {
-            response: {
-              error: "Content hash mismatch - data may be corrupted",
-              expected: expectedContentHash,
-              actual: actualContentHash,
-            },
-            statusCode: 400,
-          };
+          return new Response(JSON.stringify({
+            error: "Content hash mismatch - data may be corrupted",
+            expected: expectedContentHash,
+            actual: actualContentHash,
+          }), {
+            status: 400,
+            headers: { "Content-Type": "application/json" },
+          });
         }
 
         // Parse table_offsets and split data
@@ -357,10 +357,10 @@ app.post("/upload", async (c) => {
           tableOffsets = JSON.parse(tableOffsetsStr);
         } catch (e) {
           console.error(`[master-data] Failed to parse table_offsets: ${String(e)}`);
-          return {
-            response: { error: "Invalid table_offsets in token" },
-            statusCode: 500,
-          };
+          return new Response(JSON.stringify({ error: "Invalid table_offsets in token" }), {
+            status: 500,
+            headers: { "Content-Type": "application/json" },
+          });
         }
 
         console.info(`[master-data] Splitting data into ${tableOffsets.length} tables for period ${periodTag}`);
@@ -434,13 +434,13 @@ app.post("/upload", async (c) => {
               console.error(`[CRITICAL] Failed to mark record as failed after R2 error: ${String(markErr)}`);
             }
 
-            return {
-              response: {
-                error: `Failed to upload table ${offset.table_name} to R2`,
-                failed_table: offset.table_name,
-              },
-              statusCode: 500,
-            };
+            return new Response(JSON.stringify({
+              error: `Failed to upload table ${offset.table_name} to R2`,
+              failed_table: offset.table_name,
+            }), {
+              status: 500,
+              headers: { "Content-Type": "application/json" },
+            });
           }
         }
 
@@ -485,12 +485,12 @@ app.post("/upload", async (c) => {
             // For now, ensure it's logged for manual recovery
           }
 
-          return {
-            response: {
-              error: "Completed R2 upload but failed to update metadata. Upload will be cleaned up by system.",
-            },
-            statusCode: 503,
-          };
+          return new Response(JSON.stringify({
+            error: "Completed R2 upload but failed to update metadata. Upload will be cleaned up by system.",
+          }), {
+            status: 503,
+            headers: { "Content-Type": "application/json" },
+          });
         }
 
         return {
@@ -520,10 +520,10 @@ app.post("/upload", async (c) => {
           );
         }
 
-        return {
-          response: { error: "Failed to upload master data" },
-          statusCode: 500,
-        };
+        return new Response(JSON.stringify({ error: "Failed to upload master data" }), {
+          status: 500,
+          headers: { "Content-Type": "application/json" },
+        });
       }
     },
   });

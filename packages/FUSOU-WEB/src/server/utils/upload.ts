@@ -64,13 +64,10 @@ export async function handleTwoStageUpload(
   const url = new URL(c.req.url);
   const request = c.req.raw;
 
-  // Route to execution phase if token is present in either:
-  // - X-Upload-Token header (preferred, used by Rust uploader)
-  // - URL query parameter (legacy, backward compatibility)
+  // Route to execution phase if X-Upload-Token header is present
   const hasTokenHeader = !!request.headers.get("X-Upload-Token");
-  const hasTokenQuery = url.searchParams.has("token");
 
-  if (!hasTokenHeader && !hasTokenQuery) {
+  if (!hasTokenHeader) {
     return await handlePreparation(c, request, url, config);
   }
 
@@ -158,16 +155,11 @@ async function handlePreparation(
         : "/" + uploadUrl.pathname);
   }
   
-  // [Issue #17] SECURITY FIX: Token moved from URL query parameter to response body
-  // Reasons:
-  // 1. URL query parameters are visible in HTTP logs, proxies, browser history
-  // 2. Authorization tokens should not appear in URLs
-  // 3. Response body is private and only received by the requesting client
-  // 4. Follows OAuth/JWT best practices for token transmission
-
+  // Token is returned in response body only (not in URL)
+  // Clients must send it via X-Upload-Token header in Stage 2
   return c.json({
     uploadUrl: uploadUrl.toString(),
-    token: signedToken,  // ← Token in response body instead of URL
+    token: signedToken,
     expiresAt: new Date(
       Date.now() + effectiveTTL * 1000,
     ).toISOString(),
@@ -185,10 +177,9 @@ async function handleExecution(
 
   const { verifySignedToken, validateJWT } = await import("../utils");
   
-  // [Issue #17] CORRECTED: Separate JWT and upload token
+  // Separate JWT and upload token:
   // - Authorization header: Bearer <JWT> (for user validation)
   // - X-Upload-Token header: <signed-upload-token> (for file validation)
-  // - URL query: ?token=<signed-upload-token> (backward compatibility)
   
   // Extract JWT from Authorization header for user validation
   const authHeader = request.headers.get("Authorization");
@@ -213,15 +204,12 @@ async function handleExecution(
     }, 401);
   }
 
-  // Extract upload token from X-Upload-Token header or URL query parameter
-  let uploadToken: string | null = request.headers.get("X-Upload-Token");
-  if (!uploadToken) {
-    uploadToken = url.searchParams.get("token");
-  }
+  // Extract upload token from X-Upload-Token header
+  const uploadToken = request.headers.get("X-Upload-Token");
   
   if (!uploadToken) {
     return c.json({ 
-      error: "Missing upload token in X-Upload-Token header or query parameter",
+      error: "Missing upload token in X-Upload-Token header",
       code: "UPLOAD_TOKEN_MISSING"
     }, 400);
   }

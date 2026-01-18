@@ -9,6 +9,7 @@ use std::collections::HashMap;
 struct HandshakeResponse {
     #[serde(rename = "uploadUrl")]
     upload_url: String,
+    token: String,
 }
 
 /// Structured error type for upload failures
@@ -277,6 +278,9 @@ impl Uploader {
         let mut upload_req = client
             .post(&handshake_res.upload_url)
             .body(request.data.clone());
+
+        // Add X-Upload-Token header from handshake response
+        upload_req = upload_req.header("X-Upload-Token", &handshake_res.token);
 
         // Add custom headers first (excluding Content-Type)
         for (k, v) in &request.headers {
