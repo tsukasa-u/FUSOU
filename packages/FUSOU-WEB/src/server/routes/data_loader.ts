@@ -106,7 +106,11 @@ app.get("/tables", async (c) => {
     const masterTables: string[] = [];
     if (masterDb) {
       const masterStmt = masterDb.prepare(
-        `SELECT DISTINCT table_name FROM master_data_index WHERE upload_status = 'completed' ORDER BY table_name`
+        `SELECT DISTINCT mdt.table_name 
+         FROM master_data_tables mdt
+         JOIN master_data_index mdi ON mdt.master_data_id = mdi.id
+         WHERE mdi.upload_status = 'completed'
+         ORDER BY mdt.table_name`
       );
       const masterResult = await masterStmt.all?.();
       if (masterResult?.results) {

@@ -223,8 +223,8 @@ app.post("/upload", async (c) => {
       try {
         const stmt = db.prepare(`
           INSERT INTO master_data_index 
-            (period_tag, content_hash, table_count, table_offsets, upload_status, uploaded_by, created_at)
-          VALUES (?, ?, ?, ?, 'pending', ?, ?)
+            (period_tag, content_hash, upload_status, uploaded_by, created_at)
+          VALUES (?, ?, 'pending', ?, ?)
           ON CONFLICT(period_tag) DO NOTHING
           RETURNING id
         `);
@@ -233,8 +233,6 @@ app.post("/upload", async (c) => {
         const result = await stmt.bind(
           periodTag, 
           contentHash, 
-          tableOffsets.length,
-          tableOffsetsStr,
           user.id, 
           now
         ).first() as { id?: number } | null;
@@ -265,8 +263,17 @@ app.post("/upload", async (c) => {
           },
         };
       } catch (err) {
-        console.error(`[master-data] Error claiming ownership: ${String(err)}`);
-        return c.json({ error: "Failed to process upload request" }, 500);
+        console.error(`[master-data] Error claiming ownership:`, err);
+        console.error(`[master-data] Error details:`, {
+          message: err instanceof Error ? err.message : String(err),
+          periodTag,
+          contentHashLength: contentHash.length,
+          tableOffsetsLength: tableOffsetsStr.length,
+        });
+        return c.json({ 
+          error: "Failed to process upload request",
+          details: err instanceof Error ? err.message : String(err)
+        }, 500);
       }
     },
 
@@ -453,6 +460,38 @@ app.post("/upload", async (c) => {
         console.info(`[master-data] All ${r2Keys.length} tables uploaded successfully for period ${periodTag}`);
 
         try {
+          // Insert master_data_tables records for querying by data-loader
+          for (let i = 0; i < tableOffsets.length; i++) {
+            const offset = tableOffsets[i];
+            const tableStmt = db.prepare(`
+              INSERT INTO master_data_tables 
+                (master_data_id, table_name, table_index, start_byte, end_byte, record_count, r2_key, content_hash, created_at)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `);
+            
+            // Compute hash for this individual table
+            const tableData = data.slice(offset.start, offset.end);
+            const tableHashBuf = await crypto.subtle.digest('SHA-256', tableData);
+            const tableContentHash = Array.from(new Uint8Array(tableHashBuf))
+              .map(b => b.toString(16).padStart(2, '0'))
+              .join('');
+            
+            const r2Key = `master_data/${periodTag}/${offset.table_name}.avro`;
+            const now = Date.now();
+            
+            await tableStmt.bind(
+              recordId,
+              offset.table_name,
+              i,
+              offset.start,
+              offset.end,
+              null,  // record_count will be calculated if needed
+              r2Key,
+              tableContentHash,
+              now
+            ).run();
+          }
+
           const stmt = db.prepare(`
             UPDATE master_data_index
             SET upload_status = 'completed', 
@@ -569,7 +608,7 @@ app.get("/exists", async (c) => {
 
   try {
     const stmt = db.prepare(`
-      SELECT id, period_tag, content_hash, r2_keys, table_count, table_offsets, upload_status, created_at, completed_at
+      SELECT id, period_tag, content_hash, r2_keys, upload_status, created_at, completed_at
       FROM master_data_index
       WHERE period_tag = ? AND upload_status = 'completed'
       LIMIT 1
@@ -628,7 +667,7 @@ app.get("/latest", async (c) => {
 
   try {
     const stmt = db.prepare(`
-      SELECT id, period_tag, content_hash, r2_keys, table_count, table_offsets, upload_status, created_at, completed_at
+      SELECT id, period_tag, content_hash, r2_keys, upload_status, created_at, completed_at
       FROM master_data_index
       WHERE upload_status = 'completed'
       ORDER BY completed_at DESC
