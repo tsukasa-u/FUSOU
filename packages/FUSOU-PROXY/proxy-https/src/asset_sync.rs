@@ -42,6 +42,8 @@ static PERIOD_CACHE: Lazy<RwLock<Option<PeriodCache>>> = Lazy::new(|| RwLock::ne
 static LAST_PERIOD_TAG: Lazy<RwLock<Option<String>>> = Lazy::new(|| RwLock::new(None));
 static EXISTING_KEYS_CACHE: Lazy<RwLock<Option<RemoteKeyCache>>> = Lazy::new(|| RwLock::new(None));
 static PENDING_STORE: OnceLock<Arc<PendingStore>> = OnceLock::new();
+// Counter for monitoring dropped assets due to queue backpressure
+static DROPPED_ASSET_COUNT: AtomicU64 = AtomicU64::new(0);
 
 const MIN_SCAN_INTERVAL_SECS: u64 = 10;
 const PERIOD_CACHE_FALLBACK_SECS: u64 = 24 * 60 * 60;
@@ -270,8 +272,11 @@ pub fn notify_new_asset(path: PathBuf) {
             Err(mpsc::error::TrySendError::Full(_)) => {
                 // Queue is full - backpressure activated
                 // Asset is dropped, HTTP handler continues without blocking
+                let dropped_count = DROPPED_ASSET_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
                 tracing::warn!(
                     path = ?path,
+                    dropped_count = dropped_count,
+                    capacity = ASSET_SYNC_QUEUE_CAPACITY,
                     "asset sync queue full, dropping asset: backpressure activated"
                 );
             }
@@ -281,6 +286,15 @@ pub fn notify_new_asset(path: PathBuf) {
             }
         }
     }
+}
+
+/// Returns the total count of assets dropped due to queue backpressure
+///
+/// This counter can be monitored to determine if ASSET_SYNC_QUEUE_CAPACITY
+/// needs to be adjusted. A high count indicates the sync worker is falling
+/// behind and the queue capacity should be increased.
+pub fn get_dropped_asset_count() -> u64 {
+    DROPPED_ASSET_COUNT.load(Ordering::Relaxed)
 }
 
 async fn run_worker(

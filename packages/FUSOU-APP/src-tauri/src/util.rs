@@ -55,7 +55,9 @@ pub fn get_RESOURCES_DIR() -> PathBuf {
 /// Use [`get_user_member_id()`] instead. It uses the server-provided user ID
 /// hashed with a fixed salt (SHA-256), enabling cross-device data consolidation
 /// and meeting security requirements.
-#[deprecated(since = "0.4.0", note = "Environment-scoped ID. Do not use for user identification. Use get_user_member_id() instead.")]
+///
+/// Tracking issue: <https://github.com/tsukasa-u/FUSOU/issues/TBD>
+#[deprecated(since = "0.4.0", note = "Environment-scoped ID. Do not use for user identification. Use get_user_member_id() instead. See tracking issue: https://github.com/tsukasa-u/FUSOU/issues/TBD")]
 pub async fn get_user_env_id() -> String {
     KC_USER_ENV_UNIQUE_ID
         .get_or_init(|| async {
