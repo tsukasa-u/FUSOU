@@ -202,5 +202,24 @@ def query(
         if not edges_to_merge:
             break
 
-    return main_df
+    # 5. Select only the requested columns
+    selected_cols = []
+    for col in columns:
+        # Column is a str subclass, so the value itself is the column name
+        col_name = str(col)
+        # Handle column name conflicts from joins (e.g. uuid_own_deck)
+        if col_name in main_df.columns:
+            selected_cols.append(col_name)
+        elif f"{col_name}_{col.table}" in main_df.columns:
+            selected_cols.append(f"{col_name}_{col.table}")
+        else:
+            # Try to find the column with any suffix
+            for df_col in main_df.columns:
+                if df_col.startswith(col_name):
+                    selected_cols.append(df_col)
+                    break
+            else:
+                raise ValueError(f"Column '{col_name}' not found in merged result")
+    
+    return main_df[selected_cols]
 

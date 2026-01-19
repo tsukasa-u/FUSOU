@@ -78,3 +78,5 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+
+packages/fusou-datasets/venv/

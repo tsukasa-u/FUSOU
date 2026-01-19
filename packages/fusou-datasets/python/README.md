@@ -19,6 +19,11 @@ fusou_datasets.help()
 # API key loaded automatically from FUSOU_API_KEY env var
 tables = fusou_datasets.list_tables()
 df = fusou_datasets.load("ship_type")
+
+# Master data (via data loader with API key)
+from fusou_datasets import list_master_tables, load_master
+print(list_master_tables())
+mdf = load_master("mst_ship", period_tag="latest")
 ```
 
 ## Configuration
@@ -66,6 +71,9 @@ result = query([Tables.Battle.TIMESTAMP, Tables.OwnDeck.UUID])
 | `list_tables()`                 | Get available table names   |
 | `list_period_tags()`            | Get period tags and latest  |
 | `load(table, ...)`              | Load data as DataFrame      |
+| `list_master_tables()`          | List master-data tables     |
+| `get_master_latest()`           | Get latest master metadata  |
+| `load_master(table, ...)`       | Load master-data as DataFrame |
 | `query(columns)`                | Auto-join tables by columns |
 | `clear_cache(table=None)`       | Clear cached data           |
 | `configure(api_key, cache_dir)` | Configure API and caching   |

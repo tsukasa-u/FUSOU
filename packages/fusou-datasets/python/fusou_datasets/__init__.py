@@ -69,6 +69,10 @@ __all__ = [
     "list_period_tags",
     "load",
     "clear_cache",
+    # Master data helpers
+    "list_master_tables",
+    "get_master_latest",
+    "load_master",
     "get_client_id",
     "FusouDatasetsError",
     "AuthenticationError",
@@ -210,7 +214,7 @@ def _get_colab_credentials() -> Optional[Dict[str, str]]:
 def configure(
     api_key: Optional[str] = None,
     api_url: Optional[str] = None,
-    cache_dir: Optional[str] = None
+    cache_dir: Optional[str] = None,
 ) -> None:
     """
     Configure API credentials and caching.
@@ -278,6 +282,7 @@ def _get_api_key() -> str:
         "  3. Configure in code: fusou_datasets.configure(api_key='your_key')\n\n"
         "📝 Get your API key at: https://fusou.dev/dashboard/api-keys"
     )
+
 
 
 def _get_client_id() -> str:
@@ -351,6 +356,7 @@ def _request(method: str, endpoint: str, json_data: Optional[dict] = None, timeo
 
     # Should not reach here
     raise FusouDatasetsError("Request failed after retries")
+
 
 
 def _verify_device_colab() -> bool:
@@ -529,6 +535,7 @@ def _download_avro(url: str, _retry: bool = True) -> pd.DataFrame:
     raise FusouDatasetsError("Download failed after retries")
 
 
+
 # =============================================================================
 # Public API
 # =============================================================================
@@ -565,6 +572,94 @@ def _raise_api_error(resp: requests.Response, context: str = "") -> None:
         raise DatasetNotFoundError(f"Not found: {error_detail}")
     else:
         raise FusouDatasetsError(f"Request failed ({context}): HTTP {resp.status_code} - {error_detail}")
+
+
+# =============================================================================
+# Master Data (JWT-protected endpoints)
+# =============================================================================
+
+_MASTER_TABLES = [
+    'mst_ship',
+    'mst_shipgraph',
+    'mst_slotitem',
+    'mst_slotitem_equiptype',
+    'mst_payitem',
+    'mst_equip_exslot',
+    'mst_bgm',
+    'mst_furniture',
+    'mst_bgm_season',
+    'mst_mapbgm',
+    'mst_const',
+    'mst_mission',
+]
+
+
+def list_master_tables() -> List[str]:
+    """Return allowed master-data table names."""
+    return list(_MASTER_TABLES)
+
+
+def get_master_latest() -> Dict[str, Any]:
+    """Get latest master-data metadata (period_tag) via data loader.
+
+    Returns dict with keys: period_tag (str or None)
+    """
+    # Use data loader to list available master tables
+    try:
+        resp = _request("GET", "/tables")
+        if resp.status_code != 200:
+            raise FusouDatasetsError(f"Failed to list tables: HTTP {resp.status_code}")
+        data = resp.json()
+        tables = data.get("tables", [])
+        # Filter master tables (mst_*)
+        master_tables = [t for t in tables if t.startswith("mst_")]
+        if not master_tables:
+            return {"exists": False, "period_tag": None}
+        
+        # Get latest period for the first master table
+        first_table = master_tables[0]
+        resp2 = _request("GET", f"/data/{first_table}?period_tag=latest&limit=1")
+        if resp2.status_code == 404:
+            return {"exists": False, "period_tag": None}
+        if resp2.status_code != 200:
+            raise FusouDatasetsError(f"Failed to fetch master data: HTTP {resp2.status_code}")
+        
+        result = resp2.json()
+        period_tag = result.get("period_tag")
+        return {"exists": True, "period_tag": period_tag}
+    except Exception as e:
+        raise FusouDatasetsError(f"Failed to get master latest: {e}")
+
+
+def load_master(table: str, period_tag: str = "latest") -> pd.DataFrame:
+    """Load a master-data table as pandas DataFrame via data loader.
+
+    Args:
+        table: table name (see list_master_tables())
+        period_tag: 'latest' or specific period tag
+    """
+    if table not in _MASTER_TABLES:
+        raise ValueError(f"Unknown master table '{table}'. Use list_master_tables().")
+
+    # Use data loader /data/:table endpoint
+    resp = _request("GET", f"/data/{table}?period_tag={period_tag}&limit=1")
+    
+    if resp.status_code == 404:
+        raise DatasetNotFoundError(f"No master-data available for table '{table}' with period_tag='{period_tag}'")
+    if resp.status_code != 200:
+        _raise_api_error(resp, f"load_master/{table}")
+    
+    data = resp.json()
+    files = data.get("files", [])
+    if not files:
+        raise DatasetNotFoundError(f"No files found for master table '{table}'")
+    
+    # Download the file
+    download_url = files[0].get("download_url")
+    if not download_url:
+        raise FusouDatasetsError("Missing download_url in response")
+    
+    return _download_avro(download_url)
 
 
 def list_tables(_retry: bool = True) -> List[str]:
@@ -831,9 +926,33 @@ def _save_to_cache(table: str, period_tag: str, df: pd.DataFrame, files: list) -
         # Compute hash from files list
         current_hash = _compute_files_hash(files)
         
-        # Save data
+        # Save data - remove existing file first to avoid pyarrow type extension conflicts
         data_path = cache_path / "data.parquet"
-        df.to_parquet(data_path, index=False)
+        if data_path.exists():
+            data_path.unlink()
+        
+        # Convert UUID objects to strings for parquet compatibility
+        df_to_save = df.copy()
+        for col in df_to_save.columns:
+            # Check if column contains UUID objects
+            if df_to_save[col].dtype == 'object':
+                sample = df_to_save[col].dropna().head(1)
+                if len(sample) > 0:
+                    first_val = sample.iloc[0]
+                    # Check for UUID type
+                    if hasattr(first_val, 'hex') and hasattr(first_val, 'int'):
+                        df_to_save[col] = df_to_save[col].apply(
+                            lambda x: str(x) if x is not None else None
+                        )
+        
+        # Use pyarrow engine explicitly with allow_truncated_timestamps for compatibility
+        df_to_save.to_parquet(
+            data_path, 
+            index=False, 
+            engine='pyarrow',
+            coerce_timestamps='ms',
+            allow_truncated_timestamps=True
+        )
         
         # Save manifest
         manifest = {
