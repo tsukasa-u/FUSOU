@@ -6,24 +6,47 @@ import type { Context } from "hono";
 
 // Cloudflare bindings and app environment
 export type Bindings = {
-  ASSET_SYNC_BUCKET: BucketBinding;
+  // R2 Buckets
+  ASSETS_BUCKET: R2BucketBinding;
+  ASSET_SYNC_BUCKET: R2BucketBinding;
   ASSET_INDEX_DB: D1Database;
-  ASSET_PAYLOAD_BUCKET: R2BucketBinding;
+  BATTLE_INDEX_DB: D1Database;
+  FLEET_SNAPSHOT_BUCKET: R2BucketBinding;
+  BATTLE_DATA_BUCKET: R2BucketBinding;
+  MASTER_DATA_BUCKET: R2BucketBinding;
+  MASTER_DATA_INDEX_DB: D1Database;
+  
   // Supabase config (JWKS verification requires URL)
   PUBLIC_SUPABASE_URL: string; // required for JWKS
   SUPABASE_SECRET_KEY: string;
   PUBLIC_SUPABASE_PUBLISHABLE_KEY: string;
-  // Removed SUPABASE_JWT_SECRET (migrated to JWKS public-key verification)
-  ASSET_SYNC_SKIP_EXTENSIONS?: string;
-  ASSET_SYNC_ALLOWED_EXTENSIONS?: string;
   ASSET_UPLOAD_SIGNING_SECRET: string;
   FLEET_SNAPSHOT_SIGNING_SECRET: string;
-  ADMIN_API_SECRET: string;
+  BATTLE_DATA_SIGNING_SECRET: string;
+  MASTER_DATA_SIGNING_SECRET: string;
+  BATTLE_DATA_SIGNED_URL_SECRET?: string; // For battle data signed URL generation
+  DATASET_TOKEN_SECRET?: string; // For dataset token signing (anonymous sync)
+  RESEND_API_KEY?: string; // For sending verification emails
+  ADMIN_TOKEN?: string; // For securing admin endpoints
+  
+  // Queues
+  COMPACTION_QUEUE: Queue;
+  COMPACTION_DLQ: Queue;
+  
+  // Service binding to Workflow Worker
+  COMPACTION_WORKFLOW: Fetcher;
+  
+  // KV for caching (optional)
+  DATA_LOADER_CACHE_KV?: KVNamespace;
 };
 
 export type R2BucketBinding = {
   head(key: string): Promise<R2ObjectLike | null>;
   list(options?: R2ListOptions): Promise<R2ListResponse>;
+  get(
+    key: string,
+    options?: { range?: { offset: number; length?: number } }
+  ): Promise<R2ObjectBody | null>;
   put(
     key: string,
     value:
@@ -63,6 +86,13 @@ export type R2ObjectLike = {
   etag?: string;
 };
 
+export type R2ObjectBody = {
+  size: number;
+  etag?: string;
+  body: ReadableStream;
+  arrayBuffer(): Promise<ArrayBuffer>;
+};
+
 export type BucketPutOptions = {
   httpMetadata?: { contentType?: string; cacheControl?: string };
   customMetadata?: Record<string, string | undefined>;
@@ -75,8 +105,8 @@ export type D1Database = {
 export type D1Statement = {
   bind(...args: unknown[]): D1Statement;
   run(): Promise<D1ExecResult>;
-  all?(): Promise<D1AllResult>;
-  first?(): Promise<D1Result | undefined>;
+  all<T = D1Row>(): Promise<{ results?: T[] }>;
+  first<T = D1Result>(): Promise<T | null>;
 };
 
 export type D1ExecResult = {
@@ -88,8 +118,6 @@ export type D1ExecResult = {
 export type D1AllResult = { results?: D1Row[] };
 export type D1Result = Record<string, unknown>;
 export type D1Row = Record<string, unknown>;
-
-export type BucketBinding = R2BucketBinding;
 
 // Hono Context型
 export type AppContext = Context<{ Bindings: Bindings }>;

@@ -22,7 +22,16 @@
       "path": "packages/fusou-auth"
     },
     {
+      "path": "packages/avro-wasm"
+    },
+    {
       "path": "packages/fusou-upload"
+    },
+    {
+      "path": "packages/FUSOU-WORKFLOW"
+    },
+    {
+      "path": "packages/fusou-datasets"
     },
     {
       "path": "docs"

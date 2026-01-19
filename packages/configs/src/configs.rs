@@ -316,25 +316,37 @@ impl ConfigsAppDiscord {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[cfg(feature = "gdrive")]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[deprecated(since = "0.2.0", note = "Google Drive authentication is deprecated. Use anonymous authentication instead.")]
 pub struct ConfigsAppDatabaseGoogleDrive {
     schedule_cron: Option<String>,
-    page_size: Option<i64>,
+    page_size: Option<i32>,
 }
 
+#[cfg(feature = "gdrive")]
+#[allow(deprecated)]
 impl ConfigsAppDatabaseGoogleDrive {
+    #[deprecated(since = "0.2.0", note = "Google Drive authentication is deprecated. Use anonymous authentication instead.")]
     pub fn get_schedule_cron(&self) -> String {
         self.schedule_cron
             .clone()
-            .unwrap_or_else(|| get_default_configs().app.database.google_drive.schedule_cron.clone().unwrap())
+            .unwrap_or_else(|| {
+                #[allow(deprecated)]
+                get_default_configs().app.database.google_drive.schedule_cron.clone().unwrap_or_default()
+            })
     }
 
-    pub fn get_page_size(&self) -> i64 {
+    #[deprecated(since = "0.2.0", note = "Google Drive authentication is deprecated. Use anonymous authentication instead.")]
+    pub fn get_page_size(&self) -> i32 {
         match self.page_size {
             Some(v) if v <= 0 => 100,
             Some(v) if v > 100 => 100,
             Some(v) => v,
-            None => get_default_configs().app.database.google_drive.page_size.unwrap(),
+            None => {
+                #[allow(deprecated)]
+                get_default_configs().app.database.google_drive.page_size.unwrap_or(100)
+            }
         }
     }
 }
@@ -342,6 +354,7 @@ impl ConfigsAppDatabaseGoogleDrive {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConfigsAppDatabaseLocal {
     output_directory: Option<String>,
+    integration_batch_size: Option<i32>,
 }
 
 impl ConfigsAppDatabaseLocal {
@@ -351,14 +364,52 @@ impl ConfigsAppDatabaseLocal {
             _ => None,
         }
     }
+
+    pub fn get_integration_batch_size(&self) -> i32 {
+        match self.integration_batch_size {
+            Some(v) if v <= 0 => 500,
+            Some(v) if v > 10000 => 10000,
+            Some(v) => v,
+            None => {
+                get_default_configs().app.database.local.integration_batch_size.unwrap_or(500)
+            }
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ConfigsAppDatabaseR2 {
+    upload_endpoint: Option<String>,
+    master_data_upload_endpoint: Option<String>,
+}
+
+impl ConfigsAppDatabaseR2 {
+    pub fn get_upload_endpoint(&self) -> Option<String> {
+        match self.upload_endpoint {
+            Some(ref v) if !v.trim().is_empty() => Some(v.trim().to_string()),
+            _ => None,
+        }
+    }
+
+    pub fn get_master_data_upload_endpoint(&self) -> Option<String> {
+        match self.master_data_upload_endpoint {
+            Some(ref v) if !v.trim().is_empty() => Some(v.trim().to_string()),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConfigsAppDatabase {
     allow_data_to_cloud: Option<bool>,
+    allow_data_to_shared_cloud: Option<bool>,
     allow_data_to_local: Option<bool>,
+    integration_schedule_cron: Option<String>,
     pub local: ConfigsAppDatabaseLocal,
+    #[cfg(feature = "gdrive")]
+    #[serde(default)]
     pub google_drive: ConfigsAppDatabaseGoogleDrive,
+    pub r2: ConfigsAppDatabaseR2,
 }
 
 impl ConfigsAppDatabase {
@@ -366,8 +417,18 @@ impl ConfigsAppDatabase {
         self.allow_data_to_cloud.unwrap_or_else(|| get_default_configs().app.database.allow_data_to_cloud.unwrap())
     }
 
+    pub fn get_allow_data_to_shared_cloud(&self) -> bool {
+        self.allow_data_to_shared_cloud.unwrap_or_else(|| get_default_configs().app.database.allow_data_to_shared_cloud.unwrap())
+    }
+
     pub fn get_allow_data_to_local(&self) -> bool {
         self.allow_data_to_local.unwrap_or_else(|| get_default_configs().app.database.allow_data_to_local.unwrap())
+    }
+
+    pub fn get_integration_schedule_cron(&self) -> String {
+        self.integration_schedule_cron
+            .clone()
+            .unwrap_or_else(|| get_default_configs().app.database.integration_schedule_cron.clone().unwrap_or_default())
     }
 }
 
@@ -377,6 +438,7 @@ pub struct ConfigsAppAssetSync {
     scan_interval_seconds: Option<u64>,
     asset_upload_endpoint: Option<String>,
     fleet_snapshot_endpoint: Option<String>,
+    r2_upload_endpoint: Option<String>,
     asset_key_prefix: Option<String>,
     kc_period_endpoint: Option<String>,
     asset_skip_extensions: Option<Vec<String>>,
@@ -441,6 +503,8 @@ impl ConfigsAppAssetSync {
         }
     }
 
+    // member_map_endpoint moved to app.auth
+
     // Backward-compatible wrappers for older getter names
     pub fn get_asset_sync_api_endpoint(&self) -> Option<String> {
         self.get_asset_upload_endpoint()
@@ -453,6 +517,14 @@ impl ConfigsAppAssetSync {
 
     pub fn get_fleet_snapshot_endpoint(&self) -> Option<String> {
         match self.fleet_snapshot_endpoint {
+            Some(ref v) if !v.trim().is_empty() => Some(v.trim().to_string()),
+            _ => None,
+        }
+    }
+
+    /// New R2 upload endpoint
+    pub fn get_r2_upload_endpoint(&self) -> Option<String> {
+        match self.r2_upload_endpoint {
             Some(ref v) if !v.trim().is_empty() => Some(v.trim().to_string()),
             _ => None,
         }
@@ -558,6 +630,8 @@ impl ConfigsAppAssetSync {
 pub struct ConfigsAppAuth {
     deny_auth: Option<bool>,
     auth_page_url: Option<String>,
+    member_map_endpoint: Option<String>,
+    anonymous_sync_endpoint: Option<String>,
 }
 
 impl ConfigsAppAuth {
@@ -569,6 +643,30 @@ impl ConfigsAppAuth {
         match &self.auth_page_url {
             Some(v) if !v.is_empty() => v.clone(),
             _ => get_default_configs().app.auth.auth_page_url.clone().unwrap(),
+        }
+    }
+
+    pub fn get_member_map_endpoint(&self) -> Option<String> {
+        match &self.member_map_endpoint {
+            Some(v) if !v.trim().is_empty() => Some(v.trim().to_string()),
+            _ => get_default_configs()
+                .app
+                .auth
+                .member_map_endpoint
+                .as_ref()
+                .map(|s| s.trim().to_string()),
+        }
+    }
+
+    pub fn get_anonymous_sync_endpoint(&self) -> Option<String> {
+        match &self.anonymous_sync_endpoint {
+            Some(v) if !v.trim().is_empty() => Some(v.trim().to_string()),
+            _ => get_default_configs()
+                .app
+                .auth
+                .anonymous_sync_endpoint
+                .as_ref()
+                .map(|s| s.trim().to_string()),
         }
     }
 }
@@ -872,8 +970,7 @@ fn merge_table_values(default_table: &mut toml_edit::Table, user_table: &toml_ed
 #[cfg(test)]
 mod tests {
     use super::*;
-    use toml;
-
+    
     #[test]
     fn test_config_toml_is_valid() {
         // Test that config.toml can be successfully parsed into Configs structure
@@ -1051,9 +1148,13 @@ mod tests {
         // Test App Database defaults
         let empty_database_fields = ConfigsAppDatabase {
             allow_data_to_cloud: None,
+            allow_data_to_shared_cloud: None,
             allow_data_to_local: None,
+            integration_schedule_cron: None,
             local: default_configs.app.database.local.clone(),
+            #[cfg(feature = "gdrive")]
             google_drive: default_configs.app.database.google_drive.clone(),
+            r2: default_configs.app.database.r2.clone(),
         };
         
         assert_eq!(
@@ -1068,21 +1169,23 @@ mod tests {
         );
         
         // Test App Database Google Drive defaults
-        let empty_google_drive = ConfigsAppDatabaseGoogleDrive {
-            schedule_cron: None,
-            page_size: None,
-        };
-        
-        assert_eq!(
-            empty_google_drive.get_schedule_cron(),
-            default_configs.app.database.google_drive.get_schedule_cron(),
-            "google_drive schedule_cron getter should return configs.toml default"
-        );
-        assert_eq!(
-            empty_google_drive.get_page_size(),
-            default_configs.app.database.google_drive.get_page_size(),
-            "google_drive page_size getter should return configs.toml default"
-        );
+        #[cfg(feature = "gdrive")]
+        {
+            #[allow(deprecated)]
+            let empty_google_drive = ConfigsAppDatabaseGoogleDrive {
+                schedule_cron: None,
+                page_size: None,
+            };
+            
+            #[allow(deprecated)]
+            {
+                assert_eq!(
+                    empty_google_drive.get_page_size(),
+                    default_configs.app.database.google_drive.get_page_size(),
+                    "google_drive page_size getter should return configs.toml default and validate"
+                );
+            }
+        }
         
         // Test App Asset Sync defaults
         let empty_asset_sync = ConfigsAppAssetSync {
@@ -1090,6 +1193,7 @@ mod tests {
             scan_interval_seconds: None,
             asset_upload_endpoint: None,
             fleet_snapshot_endpoint: None,
+            r2_upload_endpoint: None,
             asset_key_prefix: None,
             kc_period_endpoint: None,
             asset_skip_extensions: None,
@@ -1147,6 +1251,8 @@ mod tests {
         let empty_auth = ConfigsAppAuth {
             deny_auth: None,
             auth_page_url: None,
+            member_map_endpoint: None,
+            anonymous_sync_endpoint: None,
         };
         
         assert_eq!(

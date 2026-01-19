@@ -333,3 +333,129 @@ impl<S: Storage> AuthManager<S> {
         Ok(None)
     }
 }
+
+// MultiSession管理のための拡張メソッド
+impl<S: Storage> AuthManager<S> {
+    /// 匿名認証セッションとdataset_tokenを取得・更新する
+    /// member_id_hash: ユーザー識別用のハッシュ（Set::Basicで取得）
+    pub async fn get_or_refresh_anonymous_session(
+        &self,
+        member_id_hash: &str,
+    ) -> Result<(Session, String), AuthError> {
+        // configs.toml から anonymous_sync_endpoint を取得
+        let url = configs::get_user_configs_for_app()
+            .auth
+            .get_anonymous_sync_endpoint()
+            .ok_or_else(|| AuthError::Other("anonymous_sync_endpoint not configured".to_string()))?;
+        
+        let body = serde_json::json!({
+            "member_id_hash": member_id_hash
+        });
+
+        let resp = self
+            .client
+            .post(&url)
+            .header("apikey", &self.config.api_key)
+            .json(&body)
+            .send()
+            .await?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            tracing::warn!(
+                status = %status,
+                url = %url,
+                body = %text,
+                "anonymous-sync request failed"
+            );
+            return Err(AuthError::RefreshFailed(format!(
+                "anonymous-sync failed: status {}: {}",
+                status, text
+            )));
+        }
+
+        #[derive(Deserialize)]
+        struct AnonymousSyncResponse {
+            access_token: Option<String>,
+            refresh_token: Option<String>,
+            dataset_token: String,
+            dataset_token_expires_at: i64,
+        }
+
+        let response_data: AnonymousSyncResponse = resp.json().await?;
+
+        // セッションの決定
+        let session = if let (Some(at), Some(rt)) = (response_data.access_token.clone(), response_data.refresh_token.clone()) {
+            // 新しい匿名セッションが取得できた場合
+            let expires_at = Utc::now() + Duration::seconds(DEFAULT_ACCESS_TOKEN_TTL_SECS);
+            Session {
+                access_token: at,
+                refresh_token: rt,
+                expires_at: Some(expires_at),
+                token_type: Some("bearer".to_string()),
+            }
+        } else {
+            // Fallback: 既存セッションを再利用（匿名サインイン失敗時など）
+            match self.storage.load_session().await? {
+                Some(current) => current,
+                None => {
+                    return Err(AuthError::RefreshFailed("anonymous-sync did not return tokens and no existing session is available".to_string()));
+                }
+            }
+        };
+
+        Ok((session, response_data.dataset_token))
+    }
+
+    /// dataset_tokenの有効期限をチェックし、必要なら更新
+    /// 有効期限が1日以内の場合、自動更新する
+    pub async fn ensure_dataset_token_valid(
+        &self,
+        member_id_hash: &str,
+        current_token: Option<&crate::types::DatasetToken>,
+    ) -> Result<crate::types::DatasetToken, AuthError> {
+        // 現在のトークンが有効かチェック（期限1日前を基準）
+        let needs_refresh = if let Some(token) = current_token {
+            let one_day = Duration::days(1);
+            token.expires_at <= Utc::now() + one_day
+        } else {
+            true
+        };
+
+        if needs_refresh {
+            let (_session, dataset_token_str) = self.get_or_refresh_anonymous_session(member_id_hash).await?;
+            
+            // 7日後に有効期限切れ
+            let expires_at = Utc::now() + Duration::days(7);
+            
+            Ok(crate::types::DatasetToken {
+                token: dataset_token_str,
+                expires_at,
+            })
+        } else {
+            // 既存のトークンを返す
+            Ok(current_token.unwrap().clone())
+        }
+    }
+
+    /// dataset_tokenをストレージに保存
+    pub async fn save_dataset_token(&self, token: &crate::types::DatasetToken) -> Result<(), AuthError> {
+        // Note: This requires storage that supports DatasetToken
+        // For now, this is a placeholder that could be extended to support MultiSessionStorage
+        let token_preview = if token.token.len() > 20 {
+            format!("{}...{}", &token.token[..10], &token.token[token.token.len()-10..])
+        } else {
+            "<short-token>".to_string()
+        };
+        tracing::debug!("dataset_token saved (token: {})", token_preview);
+        Ok(())
+    }
+
+    /// ストレージからdataset_tokenを読み込む
+    pub async fn load_dataset_token(&self) -> Result<Option<crate::types::DatasetToken>, AuthError> {
+        // Note: This requires storage that supports DatasetToken
+        // For now, this is a placeholder that could be extended to support MultiSessionStorage
+        Ok(None)
+    }
+}

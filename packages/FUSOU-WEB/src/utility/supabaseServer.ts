@@ -1,4 +1,4 @@
-import { getEnvValue } from "@/server/utils";
+import { createEnvContext, getEnv, type EnvContext } from "@/server/utils";
 import { createClient } from "@supabase/supabase-js";
 import type { AstroCookies } from "astro";
 
@@ -28,11 +28,19 @@ export const createSupabaseServerClient = (
   cookies: AstroCookies,
   runtimeEnv?: Record<string, any>
 ) => {
-  // Prefer Cloudflare runtime environment variables
-  const supabaseUrl = getEnvValue("PUBLIC_SUPABASE_URL", runtimeEnv);
+  // Create env context from runtime env or use buildtime env
+  const envCtx: EnvContext = runtimeEnv
+    ? createEnvContext({ env: runtimeEnv })
+    : {
+        runtime: {},
+        buildtime: import.meta.env as Record<string, any>,
+        isDev: import.meta.env.DEV,
+      };
+  
+  const supabaseUrl = getEnv(envCtx, "PUBLIC_SUPABASE_URL");
   const serviceKey =
-    getEnvValue("SUPABASE_SECRET_KEY", runtimeEnv) ||
-    getEnvValue("PUBLIC_SUPABASE_PUBLISHABLE_KEY", runtimeEnv);
+    getEnv(envCtx, "SUPABASE_SECRET_KEY") ||
+    getEnv(envCtx, "PUBLIC_SUPABASE_PUBLISHABLE_KEY");
 
   if (!supabaseUrl) {
     throw new Error("PUBLIC_SUPABASE_URL is not set");

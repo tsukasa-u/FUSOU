@@ -3,7 +3,6 @@
 import {
   createMemo,
   createSignal,
-  createUniqueId,
   For,
   Match,
   Show,
@@ -15,7 +14,11 @@ import { MaterialSymbolsLightStorage } from "../../icons/solid/MaterialSymbolsLi
 import { IconGoogleDrive } from "../../icons/solid/google_drive";
 import { useStore } from "@nanostores/solid";
 // import { Sessions, getSession } from '../states/supabaseSeetionMap';
-import { Sessions, setSession } from "../states/persistentSupabaseSessionAtom";
+import {
+  Sessions,
+  setSession,
+  type SessionInfo,
+} from "../states/persistentSupabaseSessionAtom";
 import { IconGoogle } from "../../icons/solid/google";
 import { check_file, refreshToken } from "../../db/googleDrive";
 import {
@@ -40,26 +43,22 @@ export default function LoadDataComponent() {
   // const [select_account_checkbox, set_select_account_checkbox] = createStore<
   //   boolean[]
   // >(Array($Sessions().length));
+  type SelectionFlag = { id: string; flag: boolean };
+
   const [select_account_checkbox, set_select_account_checkbox] = createStore({
-    check: $Sessions().map((v) => {
-      return { id: v.id, flag: false };
-    }),
+    check: $Sessions().map((v: SessionInfo): SelectionFlag => ({
+      id: v.id,
+      flag: false,
+    })),
     get_check(id: string): boolean {
-      return this.check.find((v) => v.id == id)?.flag!;
+      return (
+        this.check.find((v: SelectionFlag) => v.id === id)?.flag ?? false
+      );
     },
   });
   const [load_data_result, set_load_data_result] = createStore<
     ({ provider: String; email: String; result: boolean; err: string } | null)[]
   >(Array($Sessions().length).fill(null));
-
-  type providerInfo = {
-    id: string;
-    name: string;
-    access_token: string;
-    expire_time: string;
-    email: string;
-  };
-  const [provider_list, set_provider_list] = createStore<providerInfo[]>([]);
 
   const show_modal = (name: string, fn: Setter<boolean>) => {
     fn(true);
@@ -84,7 +83,7 @@ export default function LoadDataComponent() {
     let ret = storage_list.filter(
       (storage) =>
         $Sessions().find(
-          (session, index) =>
+          (session, _index) =>
             session.provider == storage.provider &&
             session.email == storage.email &&
             select_account_checkbox.get_check(session.id)
@@ -213,7 +212,7 @@ export default function LoadDataComponent() {
                           </li>
                           {$Sessions()
                             .filter((s) => s.provider == select_provider())
-                            .map((session, i) => (
+                            .map((session) => (
                               <li
                                 class="list-row"
                                 onClick={() => {
@@ -285,7 +284,7 @@ export default function LoadDataComponent() {
                   </Show>
                 </div>
                 <For each={$Sessions()}>
-                  {(session, idx) => (
+                  {(session) => (
                     <>
                       <Show
                         when={select_account_checkbox.get_check(session.id)}
@@ -399,7 +398,7 @@ export default function LoadDataComponent() {
             <Show when={load_data_result.filter((s) => s != null).length > 0}>
               <div class="border-base-300 border-t-0 border-2 px-8 py-6 w-full join-item">
                 <For each={load_data_result}>
-                  {(load_data, index) => (
+                  {(load_data, _index) => (
                     <>
                       <Show when={load_data !== null}>
                         <Switch>

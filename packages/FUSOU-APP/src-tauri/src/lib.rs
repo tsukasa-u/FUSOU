@@ -5,9 +5,9 @@ use once_cell::sync::OnceCell;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-use kc_api::{database, interface};
+use kc_api::interface;
 use tauri::{Manager, Emitter};
-use tauri_plugin_notification::NotificationExt;
+// use crate::notify; // access via module path since we declare below
 mod json_parser;
 
 use fusou_auth::{AuthManager, FileStorage, Storage};
@@ -24,6 +24,7 @@ mod sequence;
 mod util;
 mod window;
 mod wrap_proxy;
+mod notify;
 
 use fusou_upload::PendingStore;
 use fusou_upload::UploadRetryService;
@@ -36,12 +37,13 @@ static ROAMING_DIR: OnceCell<Mutex<PathBuf>> = OnceCell::new();
 
 async fn bootstrap_tokens_on_startup(
     app_handle: AppHandle,
-    app_handle_for_notification: AppHandle,
+    _app_handle_for_notification: AppHandle,
     storage: Arc<FileStorage>,
     auth_manager: AuthManager<FileStorage>,
 ) {
     // Try to load existing session from storage
     if let Ok(Some(session)) = storage.load_session().await {
+        tracing::info!("startup: session loaded from storage");
         // Verify token validity by attempting to get a valid access token
         // This will automatically refresh if needed, or fail if refresh token is invalid
         match auth_manager.get_access_token().await {
@@ -54,11 +56,9 @@ async fn bootstrap_tokens_on_startup(
                     .flatten()
                     .unwrap_or(session);
                 
-                let _ = app_handle.emit_to(
-                    "main",
-                    "set-supabase-tokens",
-                    vec![access_token, updated_session.refresh_token.clone()],
-                );
+                // Note: No need to emit tokens to frontend
+                // Frontend doesn't use Supabase tokens directly
+                // All auth operations handled by Rust AuthManager
 
                 // Fetch all cloud provider tokens from Supabase
                 // This supports multiple providers: google, dropbox, icloud, onedrive, etc.
@@ -66,16 +66,20 @@ async fn bootstrap_tokens_on_startup(
                 tracing::info!(?supported_providers, "startup: fetching provider refresh tokens");
 
                 for provider in supported_providers {
-                    tracing::debug!(provider, "startup: begin fetch provider token");
+                    tracing::info!(provider, "startup: begin fetch provider token");
                     match auth_manager.fetch_provider_token(provider).await {
                         Ok(Some(token)) => {
-                            if let Err(e) = storage::providers::gdrive::set_refresh_token(
-                                token.to_string(),
-                                provider.to_string(),
-                            ) {
-                                tracing::warn!(provider, error = ?e, "startup: failed to save provider token");
-                            } else {
-                                tracing::info!(provider, "startup: provider refresh token saved");
+                            tracing::info!(provider, "startup: fetched provider token successfully");
+                            match storage::CloudProviderFactory::create(provider) {
+                                Ok(mut p) => {
+                                    tracing::info!(provider, "startup: created provider instance");
+                                    if let Err(e) = p.initialize(token.to_string()).await {
+                                        tracing::warn!(provider, error = ?e, "startup: provider initialize failed");
+                                    } else {
+                                        tracing::info!(provider, "startup: provider initialized successfully");
+                                    }
+                                }
+                                Err(e) => tracing::warn!(provider, error = %e, "startup: provider factory create failed"),
                             }
                         }
                         Ok(None) => tracing::info!(provider, "startup: no provider token for user"),
@@ -84,49 +88,32 @@ async fn bootstrap_tokens_on_startup(
                 }
             }
             Err(e) => {
-                tracing::warn!("startup: token validation/refresh failed: {} - authentication required", e);
+                tracing::warn!("startup: token validation/refresh failed: {} - will attempt background anonymous auth when game starts", e);
                 
-                // Send notification to user
-                if let Err(e) = app_handle_for_notification
-                    .notification()
-                    .builder()
-                    .title("Authentication Expired")
-                    .body("Your session has expired. Please sign in again to use FUSOU.")
-                    .show()
-                {
-                    tracing::error!("Failed to send notification: {}", e);
-                }
-
-                // Open authentication page
-                if let Err(e) = auth::auth_server::open_auth_page() {
-                    tracing::error!("Failed to open auth page: {}", e);
-                }
+                // Do NOT open auth page here - wait for game to start
+                // Background anonymous auth will be attempted from try_anonymous_auth() after Set::Basic
             }
         }
     } else {
-        tracing::info!("startup: no existing session found - authentication required");
+        tracing::warn!("startup: no existing session found - will attempt background anonymous auth when game starts");
 
-        // Send notification to user
-        if let Err(e) = app_handle_for_notification
-            .notification()
-            .builder()
-            .title("Authentication Required")
-            .body("Please sign in with your Supabase account to use FUSOU")
-            .show()
-        {
-            tracing::error!("Failed to send notification: {}", e);
-        }
-
-        // Open authentication page using existing auth module function
-        if let Err(e) = auth::auth_server::open_auth_page() {
-            tracing::error!("Failed to open auth page: {}", e);
-        }
+        // Do NOT open auth page here - wait for game to start
+        // Background anonymous auth will be attempted from try_anonymous_auth() after Set::Basic
     }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 #[tokio::main]
 pub async fn run() {
+    // Load environment variable for MEMBER_ID_SALT at compile time (required)
+    if let Some(salt) = option_env!("FUSOU_MEMBER_ID_SALT") {
+        kc_api::interface_adapter::set_member_id_salt(salt.to_string());
+        tracing::info!("MEMBER_ID_SALT loaded from environment");
+    } else {
+        // セキュリティ上、ソルト未設定は許可しない（早期失敗）
+        panic!("FUSOU_MEMBER_ID_SALT is not set at build-time. Define it in the build environment or .cargo/config.toml.");
+    }
+
     let ctx = tauri::generate_context!();
 
     let mut builder = tauri::Builder::default()
@@ -169,6 +156,7 @@ pub async fn run() {
             cmd::tauri_cmd::launch_with_options,
             cmd::tauri_cmd::check_pac_server_health,
             cmd::tauri_cmd::check_proxy_server_health,
+            #[cfg(feature = "gdrive")]
             cmd::tauri_cmd::set_refresh_token,
             cmd::tauri_cmd::check_open_window,
             cmd::tauri_cmd::get_app_theme,
@@ -202,11 +190,12 @@ pub async fn run() {
             let pending_dir = roaming_dir.join("pending_uploads");
             let pending_store = Arc::new(PendingStore::new(pending_dir));
             
-            let google_drive_handler = Arc::new(storage::providers::gdrive::GoogleDriveRetryHandler);
+            // Register app-level custom retry handler so pending items are retried and deleted on success
+            let retry_handler = Arc::new(crate::storage::retry_handler::AppUploadRetryHandler::new(auth_manager_for_retry.clone()));
             let retry_service = Arc::new(UploadRetryService::new(
                 pending_store.clone(), 
                 auth_manager_for_retry,
-                Some(google_drive_handler)
+                Some(retry_handler)
             ));
             
             app.manage(pending_store.clone());
@@ -229,13 +218,13 @@ pub async fn run() {
             let storage_for_bootstrap = storage.clone();
             let auth_manager_for_bootstrap = auth_manager.clone();
 
-            tokio::task::block_in_place(|| {
-                tokio::runtime::Handle::current().block_on(bootstrap_tokens_on_startup(
+            tauri::async_runtime::spawn(async move {
+                bootstrap_tokens_on_startup(
                     app_handle,
                     app_handle_for_notification,
                     storage_for_bootstrap,
                     auth_manager_for_bootstrap,
-                ))
+                ).await;
             });
             Ok(())
         })

@@ -165,38 +165,65 @@ cookies.set(
               Your accounts
             </li>
             {
-              validSessionList.map((session, idx) => (
-                <li class="list-row">
-                  <div>
-                    <Icon
-                      name={session?.data.session?.user.app_metadata.provider}
-                      class="size-10"
-                    />
-                  </div>
-                  <div>
-                    <div>{session?.data.session?.user.user_metadata.name}</div>
-                    <div class="text-xs font-semibold opacity-60">
-                      {session?.data.user?.email}
+              validSessionList.map((session, idx) => {
+                const isCurrent =
+                  session?.data.session?.user?.email ===
+                  currentSession?.data.user?.email;
+                return (
+                  <li class="list-row flex items-center justify-between gap-4 p-4 border-b border-base-200 last:border-0 hover:bg-base-200/50 transition-colors">
+                    <div class="flex items-center gap-4">
+                      <Icon
+                        name={session?.data.session?.user.app_metadata.provider}
+                        class="size-10"
+                      />
+                      <div>
+                        <div>
+                          {session?.data.session?.user.user_metadata.name}
+                        </div>
+                        <div class="text-xs font-semibold opacity-60">
+                          {session?.data.user?.email}
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                  <astro-data-account-info
-                    data-access-token={session?.data.session?.access_token}
-                    data-refresh-token={session?.data.session?.refresh_token}
-                    data-provider-token={validProviderTokenList[idx]}
-                    data-provider-refresh-token={
-                      validProviderRefreshTokenList[idx]
-                    }
-                    data-provider={
-                      session?.data.session?.user.app_metadata.provider
-                    }
-                    data-username={
-                      session?.data.session?.user.user_metadata.name
-                    }
-                    data-email={session?.data.user?.email}
-                    data-date={Date.now()}
-                  />
-                </li>
-              ))
+                    <div class="w-24 flex justify-end">
+                      {isCurrent ? (
+                        <div class="h-8 flex items-center">
+                          <span class="badge bg-success-content text-success border border-success font-semibold h-8 w-20">
+                            Active
+                          </span>
+                        </div>
+                      ) : (
+                        <form action="/api/auth/switch" method="POST">
+                          <input type="hidden" name="index" value={idx} />
+                          <button
+                            type="submit"
+                            class="btn btn-sm btn-ghost border border-base-300 w-20"
+                          >
+                            Switch
+                          </button>
+                        </form>
+                      )}
+                    </div>
+                    <astro-data-account-info
+                      class="hidden"
+                      data-access-token={session?.data.session?.access_token}
+                      data-refresh-token={session?.data.session?.refresh_token}
+                      data-provider-token={validProviderTokenList[idx]}
+                      data-provider-refresh-token={
+                        validProviderRefreshTokenList[idx]
+                      }
+                      data-provider={
+                        session?.data.session?.user.app_metadata.provider
+                      }
+                      data-username={
+                        session?.data.session?.user.user_metadata.name
+                      }
+                      data-email={session?.data.user?.email}
+                      data-date={Date.now()}
+                    />
+                  </li>
+                );
+              })
             }
           </ul>
 
@@ -204,7 +231,7 @@ cookies.set(
 
           <div class="text-center text-lg">Add another account</div>
           <div class="h-1"></div>
-          <form action="/api/auth/auth/signin" method="post">
+          <form action="/api/auth/signin" method="post">
             <button
               class="btn w-full btn-ghost border border-base-300 rounded-sm flex items-center gap-2 bg-white text-black"
               value="google"

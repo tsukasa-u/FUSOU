@@ -1,3 +1,26 @@
+/**
+ * @deprecated Google Drive authentication is deprecated and will be removed in a future version.
+ * Please use anonymous authentication instead.
+ */
+interface GoogleDriveFile {
+  id: string;
+  name: string;
+  mimeType: string;
+  [key: string]: unknown;
+}
+
+/**
+ * @deprecated Google Drive authentication is deprecated and will be removed in a future version.
+ * Please use anonymous authentication instead.
+ */
+interface GoogleDriveResponse {
+  files: GoogleDriveFile[];
+}
+
+/**
+ * @deprecated Google Drive authentication is deprecated and will be removed in a future version.
+ * Please use anonymous authentication instead.
+ */
 export async function listGoogleDriveFilesWebClient(accessToken: string) {
   try {
     const response = await fetch("https://www.googleapis.com/drive/v3/files", {
@@ -17,7 +40,7 @@ export async function listGoogleDriveFilesWebClient(accessToken: string) {
       return null;
     }
 
-    const data = await response.json();
+    const data = await response.json() as GoogleDriveResponse;
     console.log("Google Drive files:", data.files);
     return data.files;
   } catch (error) {
@@ -26,7 +49,20 @@ export async function listGoogleDriveFilesWebClient(accessToken: string) {
   }
 }
 
-export async function refreshToken(refreshToken: string) {
+/**
+ * @deprecated Google Drive authentication is deprecated and will be removed in a future version.
+ * Please use anonymous authentication instead.
+ */
+export interface RefreshTokenResponse {
+  accessToken: string;
+  newRefreshToken?: string;
+}
+
+/**
+ * @deprecated Google Drive authentication is deprecated and will be removed in a future version.
+ * Please use anonymous authentication instead.
+ */
+export async function refreshToken(refreshToken: string): Promise<RefreshTokenResponse> {
   const url_origin = import.meta.env.PUBLIC_SITE_URL;
   // const url_origin = process.env.PUBLIC_SITE_URL;
   let response = await fetch(url_origin + "/api/auth/google/refresh_token", {
@@ -35,11 +71,15 @@ export async function refreshToken(refreshToken: string) {
     body: JSON.stringify({
       refreshToken: refreshToken,
     }),
-  }).then((response) => response.json());
+  }).then((response) => response.json() as Promise<RefreshTokenResponse>);
 
   return response;
 }
 
+/**
+ * @deprecated Google Drive authentication is deprecated and will be removed in a future version.
+ * Please use anonymous authentication instead.
+ */
 export async function listGoogleDriveFoldersWebClient(accessToken: string) {
   try {
     const response = await fetch(
@@ -61,7 +101,7 @@ export async function listGoogleDriveFoldersWebClient(accessToken: string) {
       return null;
     }
 
-    const data = await response.json();
+    const data = await response.json() as GoogleDriveResponse;
     console.log("Google Drive Folders:", data.files);
     return data.files;
   } catch (error) {
@@ -70,6 +110,10 @@ export async function listGoogleDriveFoldersWebClient(accessToken: string) {
   }
 }
 
+/**
+ * @deprecated Google Drive authentication is deprecated and will be removed in a future version.
+ * Please use anonymous authentication instead.
+ */
 export async function check_file(
   accessToken: string,
   folder_name: string,
@@ -93,7 +137,7 @@ export async function check_file(
       return [null, JSON.parse(res_text).error.message];
     }
 
-    const data = await response.json();
+    const data = await response.json() as GoogleDriveResponse;
     if (data.files.length > 1) {
       // console.error("the file or folder named '${folder_name}' are duplicated");
       return [null, `the file or folder named '${folder_name}' is not found`];
@@ -109,6 +153,10 @@ export async function check_file(
   }
 }
 
+/**
+ * @deprecated Google Drive authentication is deprecated and will be removed in a future version.
+ * Please use anonymous authentication instead.
+ */
 export async function check_period(
   accessToken: string,
   folder_name: string,

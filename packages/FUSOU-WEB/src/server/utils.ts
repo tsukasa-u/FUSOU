@@ -1,15 +1,79 @@
-import { jwtVerify, createRemoteJWKSet, SignJWT } from "jose";
+import { createRemoteJWKSet, SignJWT, jwtVerify } from "jose";
+import type { Context } from "hono";
 import { DEFAULT_ALLOWED_EXTENSIONS } from "./constants";
 import type { Bindings } from "./types";
-import type { Context } from "hono";
+
+// ========================
+// 環境変数コンテキスト
+// ========================
+
+/**
+ * 統一された環境変数コンテキスト
+ * Cloudflare runtime -> process.env -> import.meta.env の優先順位でフォールバック
+ */
+export interface EnvContext {
+  /** ランタイム環境変数（Cloudflare Workers/Pages） */
+  readonly runtime: Record<string, any>;
+  /** ビルド時環境変数 */
+  readonly buildtime: Record<string, any>;
+  /** 開発環境かどうか */
+  readonly isDev: boolean;
+}
+
+/**
+ * Honoコンテキストから統一環境変数コンテキストを生成
+ */
+export function createEnvContext(c: Pick<Context, "env"> | { env?: any }): EnvContext {
+  const runtimeEnv = ((c as any)?.env as any)?.env || (c as any)?.env || {};
+  const isDev = import.meta.env.DEV;
+
+  return {
+    runtime: runtimeEnv,
+    buildtime: import.meta.env as Record<string, any>,
+    isDev,
+  };
+}
+
+/**
+ * 環境変数コンテキストから値を取得
+ * 優先順位: runtime（暗号化されていない） -> process.env (dev) -> buildtime
+ */
+export function getEnv(ctx: EnvContext, key: string): string | undefined {
+  const runtimeValue = ctx.runtime[key];
+  if (runtimeValue && !String(runtimeValue).startsWith("encrypted:")) {
+    return runtimeValue;
+  }
+
+  if (ctx.isDev && typeof process !== "undefined") {
+    const processValue = (process.env as any)[key];
+    if (processValue) return processValue;
+  }
+
+  const buildtimeValue = ctx.buildtime[key];
+  if (
+    buildtimeValue &&
+    typeof buildtimeValue === "string" &&
+    buildtimeValue.startsWith("encrypted:")
+  ) {
+    if (typeof process !== "undefined") {
+      const processValue = (process.env as any)[key];
+      if (processValue) return processValue;
+    }
+  }
+
+  return buildtimeValue;
+}
+
+/** 環境変数が設定されているか確認 */
+export function hasEnv(ctx: EnvContext, key: string): boolean {
+  return getEnv(ctx, key) !== undefined;
+}
 
 // ========================
 // 署名付きトークン（JWT）
 // ========================
 
-/**
- * 署名付きトークンを生成
- */
+/** 署名付きトークンを生成 */
 export async function generateSignedToken(
   payload: Record<string, any>,
   secret: string,
@@ -23,9 +87,7 @@ export async function generateSignedToken(
   return token;
 }
 
-/**
- * 署名付きトークンを検証
- */
+/** 署名付きトークンを検証 */
 export async function verifySignedToken(
   token: string,
   secret: string
@@ -41,35 +103,19 @@ export async function verifySignedToken(
 
 /**
  * 環境変数を取得（暗号化対応）
+ * @deprecated Use createEnvContext() + getEnv() instead
  * runtimeEnv -> process.env -> import.meta.env の優先順位
  */
 export function getEnvValue(
   key: string,
   runtimeEnv: Record<string, any> = {}
 ): string | undefined {
-  // ランタイム環境変数が暗号化されていない場合はそれを使用
-  if (runtimeEnv[key] && !String(runtimeEnv[key]).startsWith("encrypted:")) {
-    return runtimeEnv[key];
-  }
-
-  // 開発モードでは process.env を優先（dotenvxで復号化済み）
-  const isDev = import.meta.env.DEV;
-  if (isDev && typeof process !== "undefined" && (process.env as any)[key]) {
-    return (process.env as any)[key];
-  }
-
-  // import.meta.env が暗号化されている場合は process.env にフォールバック
-  const metaEnvVal = (import.meta.env as any)[key];
-  if (
-    metaEnvVal &&
-    typeof metaEnvVal === "string" &&
-    metaEnvVal.startsWith("encrypted:")
-  ) {
-    if (typeof process !== "undefined" && (process.env as any)[key]) {
-      return (process.env as any)[key];
-    }
-  }
-  return metaEnvVal;
+  const ctx: EnvContext = {
+    runtime: runtimeEnv,
+    buildtime: import.meta.env as Record<string, any>,
+    isDev: import.meta.env.DEV,
+  };
+  return getEnv(ctx, key);
 }
 
 export type SupabaseConfig = {
@@ -78,20 +124,32 @@ export type SupabaseConfig = {
   publishableKey: string | null;
 };
 
-export function resolveSupabaseConfig(
-  runtimeEnv: Record<string, any> = {}
-): SupabaseConfig {
-  const url =
-    getEnvValue("PUBLIC_SUPABASE_URL", runtimeEnv)?.replace(/\/$/, "") ?? null;
-  const serviceRoleKey = getEnvValue("SUPABASE_SECRET_KEY", runtimeEnv) ?? null;
-  const publishableKey =
-    getEnvValue("PUBLIC_SUPABASE_PUBLISHABLE_KEY", runtimeEnv) ?? null;
+/** Supabase設定を環境変数から解決 */
+export function resolveSupabaseConfig(ctx: EnvContext): SupabaseConfig {
+  const url = getEnv(ctx, "PUBLIC_SUPABASE_URL")?.replace(/\/$/, "") ?? null;
+  const serviceRoleKey = getEnv(ctx, "SUPABASE_SECRET_KEY") ?? null;
+  const publishableKey = getEnv(ctx, "PUBLIC_SUPABASE_PUBLISHABLE_KEY") ?? null;
 
   return { url, serviceRoleKey, publishableKey };
 }
 
 /**
+ * @deprecated Use createEnvContext() + resolveSupabaseConfig() instead
+ */
+export function resolveSupabaseConfigLegacy(
+  runtimeEnv: Record<string, any> = {}
+): SupabaseConfig {
+  const ctx: EnvContext = {
+    runtime: runtimeEnv,
+    buildtime: import.meta.env as Record<string, any>,
+    isDev: import.meta.env.DEV,
+  };
+  return resolveSupabaseConfig(ctx);
+}
+
+/**
  * Astro adapter経由でも Workers 直実行でも同じ形で env を取得するヘルパー
+ * @deprecated Use createEnvContext() instead for unified environment access
  */
 export function getRuntimeEnv(
   c: Pick<Context, "env"> | { env?: any }
@@ -99,35 +157,36 @@ export function getRuntimeEnv(
   return ((c as any)?.env as any)?.env || (c as any)?.env || {};
 }
 
-/**
- * Cloudflare runtime環境変数からBindingsオブジェクトを構築
- */
+/** Cloudflare runtime環境変数からBindingsオブジェクトを構築 */
 export function injectEnv(locals: any): Bindings {
-  const runtimeEnv = locals?.runtime?.env || {};
+  const ctx: EnvContext = {
+    runtime: locals?.runtime?.env || {},
+    buildtime: import.meta.env as Record<string, any>,
+    isDev: import.meta.env.DEV,
+  };
 
   return {
-    ASSET_SYNC_BUCKET: runtimeEnv.ASSET_SYNC_BUCKET!,
-    ASSET_INDEX_DB: runtimeEnv.ASSET_INDEX_DB!,
-    ASSET_PAYLOAD_BUCKET: runtimeEnv.ASSET_PAYLOAD_BUCKET!,
-    // Prefer Cloudflare runtime env, fallback to build-time env
-    PUBLIC_SUPABASE_URL:
-      runtimeEnv.PUBLIC_SUPABASE_URL || import.meta.env.PUBLIC_SUPABASE_URL!,
-    SUPABASE_SECRET_KEY:
-      runtimeEnv.SUPABASE_SECRET_KEY || import.meta.env.SUPABASE_SECRET_KEY!,
-    PUBLIC_SUPABASE_PUBLISHABLE_KEY:
-      runtimeEnv.PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
-      import.meta.env.PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
-    ASSET_SYNC_ALLOWED_EXTENSIONS:
-      runtimeEnv.ASSET_SYNC_ALLOWED_EXTENSIONS ||
-      import.meta.env.ASSET_SYNC_ALLOWED_EXTENSIONS!,
-    ASSET_UPLOAD_SIGNING_SECRET:
-      runtimeEnv.ASSET_UPLOAD_SIGNING_SECRET ||
-      import.meta.env.ASSET_UPLOAD_SIGNING_SECRET!,
-    FLEET_SNAPSHOT_SIGNING_SECRET:
-      runtimeEnv.FLEET_SNAPSHOT_SIGNING_SECRET ||
-      import.meta.env.FLEET_SNAPSHOT_SIGNING_SECRET!,
-    ADMIN_API_SECRET:
-      runtimeEnv.ADMIN_API_SECRET || import.meta.env.ADMIN_API_SECRET!,
+    ASSETS_BUCKET: ctx.runtime.ASSETS_BUCKET!,
+    ASSET_SYNC_BUCKET: ctx.runtime.ASSET_SYNC_BUCKET!,
+    ASSET_INDEX_DB: ctx.runtime.ASSET_INDEX_DB!,
+    BATTLE_INDEX_DB: ctx.runtime.BATTLE_INDEX_DB!,
+    FLEET_SNAPSHOT_BUCKET: ctx.runtime.FLEET_SNAPSHOT_BUCKET!,
+    BATTLE_DATA_BUCKET: ctx.runtime.BATTLE_DATA_BUCKET!,
+    MASTER_DATA_BUCKET: ctx.runtime.MASTER_DATA_BUCKET!,
+    MASTER_DATA_INDEX_DB: ctx.runtime.MASTER_DATA_INDEX_DB!,
+    PUBLIC_SUPABASE_URL: getEnv(ctx, "PUBLIC_SUPABASE_URL")!,
+    SUPABASE_SECRET_KEY: getEnv(ctx, "SUPABASE_SECRET_KEY")!,
+    PUBLIC_SUPABASE_PUBLISHABLE_KEY: getEnv(ctx, "PUBLIC_SUPABASE_PUBLISHABLE_KEY")!,
+    ASSET_UPLOAD_SIGNING_SECRET: getEnv(ctx, "ASSET_UPLOAD_SIGNING_SECRET")!,
+    FLEET_SNAPSHOT_SIGNING_SECRET: getEnv(ctx, "FLEET_SNAPSHOT_SIGNING_SECRET")!,
+    BATTLE_DATA_SIGNING_SECRET: getEnv(ctx, "BATTLE_DATA_SIGNING_SECRET")!,
+    MASTER_DATA_SIGNING_SECRET: getEnv(ctx, "MASTER_DATA_SIGNING_SECRET")!,
+    BATTLE_DATA_SIGNED_URL_SECRET: getEnv(ctx, "BATTLE_DATA_SIGNED_URL_SECRET"),
+    DATASET_TOKEN_SECRET: getEnv(ctx, "DATASET_TOKEN_SECRET"),
+    RESEND_API_KEY: getEnv(ctx, "RESEND_API_KEY"),
+    COMPACTION_QUEUE: ctx.runtime.COMPACTION_QUEUE!,
+    COMPACTION_DLQ: ctx.runtime.COMPACTION_DLQ!,
+    COMPACTION_WORKFLOW: ctx.runtime.COMPACTION_WORKFLOW!,
   };
 }
 
@@ -135,21 +194,15 @@ export function injectEnv(locals: any): Bindings {
 // ヘルパー関数
 // ========================
 
-/**
- * Authorization ヘッダーから Bearer トークンを抽出
- */
-export function extractBearer(
-  header: string | null | undefined
-): string | null {
+/** Authorization ヘッダーから Bearer トークンを抽出 */
+export function extractBearer(header: string | null | undefined): string | null {
   if (!header) return null;
   const [scheme, ...rest] = header.trim().split(/\s+/);
   if (!rest.length || scheme.toLowerCase() !== "bearer") return null;
   return rest.join(" ");
 }
 
-/**
- * タイミングセーフな文字列比較
- */
+/** タイミングセーフな文字列比較 */
 export function timingSafeEqual(a: string, b: string): boolean {
   const encoder = new TextEncoder();
   const aBytes = encoder.encode(a);
@@ -164,9 +217,7 @@ export function timingSafeEqual(a: string, b: string): boolean {
   return diff === 0;
 }
 
-/**
- * ファイル名から拡張子を抽出
- */
+/** ファイル名から拡張子を抽出 */
 export function extractExtension(value?: string | null): string | null {
   if (!value) return null;
   const normalized = value.trim().toLowerCase();
@@ -175,12 +226,8 @@ export function extractExtension(value?: string | null): string | null {
   return normalized.substring(last + 1);
 }
 
-/**
- * 許可された拡張子リストを解決
- */
-export function resolveAllowedExtensions(
-  ...sources: (string | undefined)[]
-): Set<string> {
+/** 許可された拡張子リストを解決 */
+export function resolveAllowedExtensions(...sources: (string | undefined)[]): Set<string> {
   for (const source of sources) {
     const entries = parseList(source);
     if (entries.length > 0) return new Set(entries);
@@ -188,9 +235,7 @@ export function resolveAllowedExtensions(
   return new Set(DEFAULT_ALLOWED_EXTENSIONS);
 }
 
-/**
- * カンマ区切りリストをパース
- */
+/** カンマ区切りリストをパース */
 export function parseList(value?: string): string[] {
   if (!value) return [];
   return value
@@ -199,9 +244,7 @@ export function parseList(value?: string): string[] {
     .filter((item) => item.length > 0);
 }
 
-/**
- * オブジェクトキーをサニタイズ（パストラバーサル対策）
- */
+/** オブジェクトキーをサニタイズ（パストラバーサル対策） */
 export function sanitizeKey(input: string | null): string | null {
   if (!input) return null;
   const normalized = input.replace(/\\/g, "/").replace(/^\/+/, "");
@@ -209,9 +252,7 @@ export function sanitizeKey(input: string | null): string | null {
   return normalized;
 }
 
-/**
- * ファイル名をサニタイズ
- */
+/** ファイル名をサニタイズ */
 export function sanitizeFileName(input: string | null): string | null {
   if (!input) return null;
   const normalized = input.replace(/\\/g, "/");
@@ -221,33 +262,38 @@ export function sanitizeFileName(input: string | null): string | null {
   return candidate.replace(/[\0-\x1F]/g, "");
 }
 
-/**
- * JWT トークンを検証し、ユーザー情報を返す
- */
 // ========================
 // JWKS-based JWT validation (Supabase)
 // ========================
 
 // Cache RemoteJWKSet globally to leverage Cloudflare Workers hot-instance caching.
-const { url: SUPABASE_URL } = resolveSupabaseConfig();
+// Use build-time env for initial JWKS setup (runtime env not available at module load)
+const initCtx: EnvContext = {
+  runtime: {},
+  buildtime: import.meta.env as Record<string, any>,
+  isDev: import.meta.env.DEV,
+};
+const { url: SUPABASE_URL } = resolveSupabaseConfig(initCtx);
 
-// Log SUPABASE_URL for debugging (only in development)
 if (import.meta.env.DEV) {
   console.log(`[JWKS Init] SUPABASE_URL: ${SUPABASE_URL || "<not set>"}`);
-  console.log(
-    `[JWKS Init] JWKS URL: ${
-      SUPABASE_URL
-        ? `${SUPABASE_URL}/auth/v1/.well-known/jwks.json`
-        : "<not available>"
-    }`
-  );
 }
 
-// Create RemoteJWKSet for ES256/RS256 tokens (asymmetric signing keys)
-// https://supabase.com/docs/guides/auth/jwts
-const JWKS = SUPABASE_URL
-  ? createRemoteJWKSet(new URL(`${SUPABASE_URL}/auth/v1/.well-known/jwks.json`))
-  : undefined;
+let JWKS: ReturnType<typeof createRemoteJWKSet> | undefined;
+
+function getJWKS() {
+  if (JWKS) return JWKS;
+  if (!SUPABASE_URL) return undefined;
+  
+  try {
+    const jwksUrl = new URL(`${SUPABASE_URL}/auth/v1/.well-known/jwks.json`);
+    JWKS = createRemoteJWKSet(jwksUrl);
+    return JWKS;
+  } catch (e) {
+    console.warn("Invalid Supabase URL for JWKS:", e);
+    return undefined;
+  }
+}
 
 export async function validateJWT(token: string): Promise<{
   id?: string;
@@ -255,56 +301,16 @@ export async function validateJWT(token: string): Promise<{
   payload?: Record<string, any>;
 } | null> {
   try {
-    if (!SUPABASE_URL || !JWKS) {
-      console.error(
-        "validateJWT: PUBLIC_SUPABASE_URL not configured or JWKS not initialized"
-      );
+    const jwks = getJWKS();
+    if (!SUPABASE_URL || !jwks) {
+      console.error("validateJWT: PUBLIC_SUPABASE_URL not configured or JWKS not initialized");
       return null;
     }
 
-    const tokenPreview =
-      token.length > 20
-        ? `${token.substring(0, 10)}...${token.substring(token.length - 10)}`
-        : "<short-token>";
-
-    // Decode JWT header to check algorithm (for debugging)
-    try {
-      const headerB64 = token.split(".")[0];
-      const headerJson = JSON.parse(atob(headerB64));
-      console.log(`validateJWT: JWT header:`, headerJson);
-
-      // Warn if still using legacy HS256
-      if (headerJson.alg === "HS256") {
-        console.warn(
-          "validateJWT: WARNING - Token is still using legacy HS256 algorithm"
-        );
-        console.warn(
-          "validateJWT: Please rotate JWT signing keys in Supabase dashboard to ES256"
-        );
-        return null;
-      }
-    } catch (e) {
-      console.error(`validateJWT: failed to decode JWT header:`, e);
-    }
-
-    console.log(
-      `validateJWT: attempting to verify token (preview: ${tokenPreview})`
-    );
-    console.log(
-      `validateJWT: issuer=${SUPABASE_URL}/auth/v1, audience=authenticated`
-    );
-    console.log(
-      `validateJWT: JWKS endpoint: ${SUPABASE_URL}/auth/v1/.well-known/jwks.json`
-    );
-
-    const { payload } = await jwtVerify(token, JWKS, {
+    const { payload } = await jwtVerify(token, jwks, {
       issuer: `${SUPABASE_URL}/auth/v1`,
       audience: "authenticated",
     });
-
-    console.log(
-      `validateJWT: verification successful, sub=${payload.sub}, email=${payload.email}, exp=${payload.exp}`
-    );
 
     return {
       id: typeof payload.sub === "string" ? payload.sub : undefined,
@@ -313,35 +319,49 @@ export async function validateJWT(token: string): Promise<{
     };
   } catch (error) {
     console.error("validateJWT: JWT verification failed:", error);
-    if (error instanceof Error) {
-      console.error("validateJWT: error details:", {
-        name: error.name,
-        message: error.message,
-        code: (error as any).code,
-        stack: error.stack?.split("\n").slice(0, 5).join("\n"), // First 5 lines only
-      });
-
-      // Check if it's a JWKS endpoint error
-      if (
-        error.message.includes("JSON Web Key Set") ||
-        error.message.includes("200 OK") ||
-        error.message.includes("fetch JWKS")
-      ) {
-        console.error(
-          `validateJWT: JWKS endpoint error - check if ${SUPABASE_URL}/auth/v1/.well-known/jwks.json is accessible`
-        );
-        console.error(
-          "validateJWT: this usually means the Supabase URL is incorrect or the service is unreachable"
-        );
-      }
-    }
     return null;
   }
 }
 
 /**
- * 許可リストに違反するかチェック
+ * dataset_token を検証（匿名認証で発行された署名付きトークン）
+ * 
+ * @param token dataset_token文字列
+ * @param secret DATASET_TOKEN_SECRET
+ * @returns 検証成功時は { dataset_id } を返す。失敗時はnull
  */
+export async function validateDatasetToken(
+  token: string,
+  secret: string
+): Promise<{
+  dataset_id: string;
+} | null> {
+  try {
+    if (!secret) {
+      console.error("validateDatasetToken: DATASET_TOKEN_SECRET not configured");
+      return null;
+    }
+
+    const payload = await verifySignedToken(token, secret);
+    if (!payload) return null;
+
+    // 必須フィールド検証
+    if (payload.typ !== 'dataset') return null;
+    if (typeof payload.sub !== 'string') return null;
+    if (typeof payload.dataset_id !== 'string') return null;
+    if (payload.aud !== 'fusou-upload') return null;
+
+    // 有効期限確認（jose の verifySignedToken で exp は自動チェック済み）
+    return {
+      dataset_id: payload.dataset_id,
+    };
+  } catch (error) {
+    console.error("validateDatasetToken: Token verification failed:", error);
+    return null;
+  }
+}
+
+/** 許可リストに違反するかチェック */
 export function violatesAllowList(
   candidates: Array<string | null | undefined>,
   allowList: Set<string>
@@ -362,4 +382,237 @@ export function parseSize(value: string | undefined): number | null {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return null;
   return parsed;
+}
+
+// ========================
+// R2 署名URL生成（S3 互換）
+// ========================
+
+/**
+ * R2 署名URL を生成（S3 署名 v4）
+ * Cloudflare R2 は S3 互換なので、S3署名でアクセス可能
+ */
+export async function generateR2SignedUrl(
+  _bucket: any, // R2BucketBinding
+  key: string,
+  _expiresInSeconds: number = 3600 // デフォルト1時間
+): Promise<string> {
+  // Cloudflare R2 の GetObject に対する署名URL を生成
+  // Workers 環境では bucket.createSignedUrl() を使用（利用可能な場合）
+  
+  // フォールバック: 公開読み取り前提（署名URL生成APIがない場合）
+  // 本来は AWS SDK の getSignedUrl を使用することが推奨されます
+  
+  try {
+    // Cloudflare Workers Bindings には署名URL生成機能がないため、
+    // 以下のいずれかの方法が必要：
+    // 1. Cloudflare REST API を呼び出す
+    // 2. AWS SDK を使用して署名を手動計算
+    // 3. Workers KV に一時トークンを保存
+    
+    // 現状の実装では、バケットの特定キーに対して
+    // 時限付きアクセスを提供するため、別方法を採用：
+    
+    // 現状の実装では、バケットの特定キーに対して
+    // 時限付きアクセスを提供するため、別方法を採用：
+    
+    // バケットバインディングオブジェクトからenvを取得するのは難しいため、
+    // 呼び出し元で generateR2SignedUrl を呼ぶ前に必要なコンテキストを解決するか、
+    // この関数自体を非推奨にして generateTimeBasedSignedUrl を直接使うべきですが、
+    // とりあえずここでは後方互換性のために generateTimeBasedSignedUrl のシグネチャ変更に合わせて修正します。
+    // ただし、ここからは secret と baseUrl が取れないので、この関数は実質的に使えなくなります。
+    // 呼び出し元を修正する必要があります。
+    
+    throw new Error("generateR2SignedUrl is deprecated. Use generateTimeBasedSignedUrl with explicit secrets instead.");
+  } catch (error) {
+    console.error(`Failed to generate R2 signed URL for key: ${key}`, error);
+    throw error;
+  }
+}
+
+/**
+ * 時間ベースの署名URL生成（Workers 環境用）
+ * JWT形式でアクセストークンを生成し、URLパラメータに含める
+ */
+export async function generateTimeBasedSignedUrl(
+  key: string,
+  secret: string,
+  baseUrl: string,
+  expiresInSeconds: number = 3600
+): Promise<string> {
+  if (!secret) {
+    throw new Error('Secret is required for signed URL generation');
+  }
+
+  if (!baseUrl) {
+    throw new Error('Base URL is required for signed URL generation');
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+  const expiresAt = now + expiresInSeconds;
+  
+  // 署名トークン生成（R2 Presigned URL の代替）
+  const token = await generateSignedToken(
+    {
+      key,
+      action: 'read',
+      exp: expiresAt,
+    },
+    secret,
+    expiresInSeconds
+  );
+  
+  // URL に token をパラメータとして含める
+  // WASM または外部クライアントが token を使用してアクセス
+  return `${baseUrl}/${key}?token=${encodeURIComponent(token)}&expires=${expiresAt}`;
+}
+
+/**
+ * R2 署名URL トークンを検証
+ * WASM からの読み取りリクエストで使用
+ */
+export async function verifyR2SignedUrl(
+  token: string,
+  key: string,
+  secret: string
+): Promise<boolean> {
+  try {
+    if (!secret) {
+      console.error('verifyR2SignedUrl: Secret not provided');
+      return false;
+    }
+
+    const payload = await verifySignedToken(token, secret);
+    
+    if (!payload) return false;
+    
+    // キーの一致確認
+    if (payload.key !== key) return false;
+    
+    // アクション確認
+    if (payload.action !== 'read') return false;
+    
+    // 有効期限確認
+    const now = Math.floor(Date.now() / 1000);
+    if (payload.exp && payload.exp < now) return false;
+    
+    return true;
+  } catch (error) {
+    console.error('R2 signed URL verification failed:', error);
+    return false;
+  }
+}
+
+/**
+ * R2 バケットからバイナリデータを読み込む（署名URL不要）
+ * Worker環境内でのアクセス（env.R2バインディング経由）
+ * 
+ * @param bucket R2BucketBinding
+ * @param key オブジェクトキー
+ * @returns バイナリデータ（ArrayBuffer）
+ */
+export async function readR2Binary(
+  bucket: any,
+  key: string
+): Promise<ArrayBuffer> {
+  const obj = await bucket.get(key);
+  if (!obj) {
+    throw new Error(`R2 object not found: ${key}`);
+  }
+  return obj.arrayBuffer();
+}
+
+/**
+ * R2 バケットにバイナリデータを書き込む
+ * 
+ * @param bucket R2BucketBinding
+ * @param key オブジェクトキー
+ * @param data バイナリデータ
+ * @param metadata オプションのメタデータ
+ */
+export async function writeR2Binary(
+  bucket: any,
+  key: string,
+  data: ArrayBuffer | Uint8Array,
+  metadata?: Record<string, string>
+): Promise<void> {
+  await bucket.put(key, data, {
+    customMetadata: metadata,
+  });
+}
+
+/**
+ * R2 オブジェクトのメタデータを取得（ファイルサイズ確認用）
+ * 
+ * @param bucket R2BucketBinding
+ * @param key オブジェクトキー
+ * @returns メタデータ（size, contentType, lastModified）
+ */
+export async function getR2ObjectMetadata(
+  bucket: any,
+  key: string
+): Promise<{ size: number; contentType: string; lastModified: Date } | null> {
+  try {
+    const obj = await bucket.head(key);
+    if (!obj) return null;
+    return {
+      size: obj.size || 0,
+      contentType: obj.contentType || 'application/octet-stream',
+      lastModified: obj.uploaded || new Date(),
+    };
+  } catch (error) {
+    console.error(`Failed to get R2 metadata for ${key}:`, error);
+    return null;
+  }
+}
+/**
+ * [Issue #19] トークンペイロードの型安全性を確保
+ * Payload から required fields を検証して必須フィールドがすべて存在することを確認
+ * 
+ * @param payload トークンペイロード
+ * @param requiredFields 必須フィールド名のリスト
+ * @returns { valid: boolean, error?: string, data?: any }
+ */
+export function validateTokenPayload(
+  payload: any,
+  requiredFields: string[] = []
+): { valid: boolean; error?: string; data?: any } {
+  if (!payload || typeof payload !== 'object') {
+    return {
+      valid: false,
+      error: 'Token payload must be a non-null object',
+    };
+  }
+
+  // Check for required fields
+  const missingFields = requiredFields.filter(field => !(field in payload));
+  if (missingFields.length > 0) {
+    return {
+      valid: false,
+      error: `Missing required fields in token payload: ${missingFields.join(', ')}`,
+    };
+  }
+
+  // Validate user_id is present and is string
+  if (!payload.user_id || typeof payload.user_id !== 'string') {
+    return {
+      valid: false,
+      error: 'Token payload must have user_id as string',
+    };
+  }
+
+  // Validate expectedFileSize if present (should be number)
+  if ('expectedFileSize' in payload && payload.expectedFileSize !== null) {
+    if (typeof payload.expectedFileSize !== 'number' || payload.expectedFileSize <= 0) {
+      return {
+        valid: false,
+        error: 'expectedFileSize must be a positive number if provided',
+      };
+    }
+  }
+
+  return {
+    valid: true,
+    data: payload,
+  };
 }

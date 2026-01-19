@@ -1,0 +1,24 @@
+=== HougekiList ===
+{"name":"HougekiList","type":"record","fields":[{"name":"env_uuid","type":{"type":"string"}},{"name":"uuid","type":{"type":"string"}},{"name":"hougeki","type":["null",{"type":"string"}]}]}
+=== Hougeki ===
+{"name":"Hougeki","type":"record","fields":[{"name":"env_uuid","type":{"type":"string"}},{"name":"uuid","type":{"type":"string"}},{"name":"index_1","type":"int"},{"name":"index_2","type":"int"},{"name":"at","type":"int"},{"name":"at_type","type":"int"},{"name":"df","type":{"type":"array","items":"int"}},{"name":"cl","type":{"type":"array","items":"int"}},{"name":"damage","type":{"type":"array","items":"int"}},{"name":"at_eflag","type":"int"},{"name":"si","type":{"type":"array","items":["null","int"]}},{"name":"protect_flag","type":{"type":"array","items":"boolean"}},{"name":"f_now_hps","type":{"type":"array","items":"int"}},{"name":"e_now_hps","type":{"type":"array","items":"int"}}]}
+=== MidnightHougekiList ===
+{"name":"MidnightHougekiList","type":"record","fields":[{"name":"env_uuid","type":{"type":"string"}},{"name":"uuid","type":{"type":"string"}},{"name":"f_flare_pos","type":["null","int"]},{"name":"f_touch_plane","type":["null","int"]},{"name":"e_flare_pos","type":["null","int"]},{"name":"e_touch_plane","type":["null","int"]},{"name":"midnight_hougeki","type":["null",{"type":"string"}]}]}
+=== MidnightHougeki ===
+{"name":"MidnightHougeki","type":"record","fields":[{"name":"env_uuid","type":{"type":"string"}},{"name":"uuid","type":{"type":"string"}},{"name":"index","type":"int"},{"name":"at","type":["null","int"]},{"name":"df","type":["null",{"type":"array","items":"int"}]},{"name":"cl","type":["null",{"type":"array","items":"int"}]},{"name":"damage","type":["null",{"type":"array","items":"int"}]},{"name":"at_eflag","type":["null","int"]},{"name":"si","type":["null",{"type":"array","items":["null","int"]}]},{"name":"protect_flag","type":["null",{"type":"array","items":"boolean"}]},{"name":"f_now_hps","type":["null",{"type":"array","items":"int"}]},{"name":"e_now_hps","type":["null",{"type":"array","items":"int"}]}]}
+=== OpeningTaisenList ===
+{"name":"OpeningTaisenList","type":"record","fields":[{"name":"env_uuid","type":{"type":"string"}},{"name":"uuid","type":{"type":"string"}},{"name":"opening_taisen","type":["null",{"type":"string"}]}]}
+=== OpeningTaisen ===
+{"name":"OpeningTaisen","type":"record","fields":[{"name":"env_uuid","type":{"type":"string"}},{"name":"uuid","type":{"type":"string"}},{"name":"index","type":"int"},{"name":"at","type":"int"},{"name":"at_type","type":"int"},{"name":"df","type":{"type":"array","items":"int"}},{"name":"cl","type":{"type":"array","items":"int"}},{"name":"damage","type":{"type":"array","items":"int"}},{"name":"at_eflag","type":"int"},{"name":"si","type":{"type":"array","items":["null","int"]}},{"name":"protect_flag","type":{"type":"array","items":"boolean"}},{"name":"f_now_hps","type":{"type":"array","items":"int"}},{"name":"e_now_hps","type":{"type":"array","items":"int"}}]}
+=== ClosingRaigeki ===
+{"name":"ClosingRaigeki","type":"record","fields":[{"name":"env_uuid","type":{"type":"string"}},{"name":"uuid","type":{"type":"string"}},{"name":"f_dam","type":{"type":"array","items":"int"}},{"name":"e_dam","type":{"type":"array","items":"int"}},{"name":"f_rai","type":{"type":"array","items":"int"}},{"name":"e_rai","type":{"type":"array","items":"int"}},{"name":"f_cl","type":{"type":"array","items":"int"}},{"name":"e_cl","type":{"type":"array","items":"int"}},{"name":"f_protect_flag","type":{"type":"array","items":"boolean"}},{"name":"e_protect_flag","type":{"type":"array","items":"boolean"}},{"name":"f_now_hps","type":{"type":"array","items":"int"}},{"name":"e_now_hps","type":{"type":"array","items":"int"}}]}
+=== EnemyDeck ===
+{"name":"EnemyDeck","type":"record","fields":[{"name":"env_uuid","type":{"type":"string"}},{"name":"uuid","type":{"type":"string"}},{"name":"ship_ids","type":["null",{"type":"string"}]}]}
+=== FriendDeck ===
+{"name":"FriendDeck","type":"record","fields":[{"name":"env_uuid","type":{"type":"string"}},{"name":"uuid","type":{"type":"string"}},{"name":"ship_ids","type":["null",{"type":"string"}]}]}
+=== OwnDeck ===
+{"name":"OwnDeck","type":"record","fields":[{"name":"env_uuid","type":{"type":"string"}},{"name":"uuid","type":{"type":"string"}},{"name":"ship_ids","type":["null",{"type":"string"}]},{"name":"combined_flag","type":["null","int"]}]}
+=== SupportDeck ===
+{"name":"SupportDeck","type":"record","fields":[{"name":"env_uuid","type":{"type":"string"}},{"name":"uuid","type":{"type":"string"}},{"name":"ship_ids","type":["null",{"type":"string"}]}]}
+=== AirBase ===
+{"name":"AirBase","type":"record","fields":[{"name":"env_uuid","type":{"type":"string"}},{"name":"uuid","type":{"type":"string"}},{"name":"action_kind","type":"int"},{"name":"distance","type":"int"},{"name":"plane_info","type":["null",{"type":"string"}]}]}

@@ -1,12 +1,10 @@
 ---
 import Layout from "../../../layouts/Layout.astro";
 import Navigation from "../../../components/Navigation.astro";
-import AlertBox from "../../../components/AlertBox.astro";
-import WarningIcon from "../../../components/icons/WarningIcon.astro";
 import CheckIcon from "../../../components/icons/CheckIcon.astro";
 import { createSupabaseServerClient } from "@/utility/supabaseServer";
 import { validateRedirectUrl } from "@/utility/security";
-import { getEnvValue } from "@/server/utils";
+import { createEnvContext, getEnv } from "@/server/utils";
 
 const cookies = Astro.cookies;
 const runtimeEnv = (Astro.locals as any)?.runtime?.env || {};
@@ -19,14 +17,29 @@ const refreshToken = cookies.get("sb-local-refresh-token");
 const providerRefreshToken = cookies.get("sb-local-provider-refresh-token");
 const provider = cookies.get("sb-local-provider");
 
-// Prefer Cloudflare runtime environment variable, fallback to build-time env
-const allowedOrigin = getEnvValue("PUBLIC_SITE_URL", runtimeEnv)?.trim()!;
+// Get allowed origin using unified env API
+const envCtx = createEnvContext({ env: runtimeEnv });
+const allowedOrigin = getEnv(envCtx, "PUBLIC_SITE_URL")?.trim()!;
+
+// Get member_id_hash from query params (passed by desktop app during auth)
+const memberIdHash = Astro.url.searchParams.get("member_id_hash");
+
+// Detect if request originated from Tauri app
+// Check for: app origin parameter, fusou:// referer, or fusou:// deep link indicator
+const appOriginParam = Astro.url.searchParams.get("app_origin");
+const referer = Astro.request.headers.get("referer") || "";
+const isFromTauriApp =
+  appOriginParam === "tauri" ||
+  referer.includes("fusou://") ||
+  appOriginParam !== null; // Any explicit app parameter indicates app context
 
 let error_message: string | null = null;
 let return_params: string | null = null;
-let return_href: string | null = null; // Initialize as null to detect missing href
+let return_href: string | null = null;
 let set_session_error_flag: boolean = false;
 let return_href_missing_flag: boolean = false;
+let isDesktopApp: boolean = isFromTauriApp; // Flag to detect desktop app flow
+let app_return_url: string | null = null; // URL to return to app
 
 const providerValue = provider?.value ?? "google";
 
@@ -45,6 +58,63 @@ if (refreshToken?.value && accessToken?.value && providerRefreshToken?.value) {
       const userId = sessionResult.data.session?.user.id;
       if (!userId) {
         throw new Error("Supabase session missing user id");
+      }
+
+      // Check for member_id_hash conflict BEFORE returning to app
+      if (memberIdHash) {
+        console.log(
+          "[callback] Checking member_id_hash conflict:",
+          memberIdHash
+        );
+        try {
+          const conflictCheckResponse = await fetch(
+            Astro.url.origin + "/api/member-lookup/verify-ownership",
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${accessToken.value}`,
+              },
+              body: JSON.stringify({
+                member_id_hash: memberIdHash,
+              }),
+            }
+          );
+
+          const conflictCheckData = (await conflictCheckResponse.json()) as any;
+          console.log("[callback] Conflict check response:", {
+            status: conflictCheckResponse.status,
+            data: conflictCheckData,
+          });
+
+          // If conflict detected (member_id_hash already owned by another user)
+          if (
+            !conflictCheckResponse.ok &&
+            conflictCheckResponse.status === 409
+          ) {
+            console.log(
+              "[callback] CONFLICT DETECTED - redirecting to conflict page"
+            );
+            // Redirect to conflict resolution page with member_id_hash
+            return Astro.redirect(
+              `/account/conflict?hash=${encodeURIComponent(memberIdHash)}`
+            );
+          }
+
+          if (!conflictCheckResponse.ok) {
+            console.warn("Member ID conflict check failed:", conflictCheckData);
+            // Proceed anyway - let the app handle any issues
+          } else {
+            console.log("[callback] No conflict - proceeding with auth");
+          }
+        } catch (checkError) {
+          console.error("Error checking member_id_hash conflict:", checkError);
+          // Proceed anyway - let the app handle any issues
+        }
+      } else {
+        console.warn(
+          "[callback] No member_id_hash provided in query params - skipping conflict check"
+        );
       }
 
       // Generate return parameters regardless of DB insert success
@@ -66,7 +136,12 @@ if (refreshToken?.value && accessToken?.value && providerRefreshToken?.value) {
 
       // Validate the Tauri custom protocol URL
       if (validateRedirectUrl(candidateHref, allowedOrigin)) {
-        // console.log("Return href set to:", return_href);
+        // Desktop app detected - set return URL for app redirect
+        if (isFromTauriApp) {
+          isDesktopApp = true;
+          // Return URL to app with auth status and params
+          app_return_url = `tauri://auth-complete?${return_params}`;
+        }
       } else {
         console.error("Invalid return href rejected: ", candidateHref);
         error_message = "Invalid redirect URL";
@@ -98,171 +173,258 @@ cookies.delete("sb-local-provider-refresh-token", { path: "/" });
 cookies.delete("sb-local-provider", { path: "/" });
 ---
 
-<Layout title="Auth Local App">
-  <div class="bg-base-200 min-h-screen flex items-center justify-center p-6">
-    <div class="w-full max-w-md -mt-8">
-      <div class="bg-base-100 rounded-md p-6">
-        <div id="heading_error" class="hidden">
-          <div
-            class="flex items-center gap-2 text-error text-2xl font-semibold"
-          >
-            <span class="flex-1 flex justify-end"
-              ><CheckIcon class="w-6 h-6 text-error" /></span
-            >
-            <span class="text-center">Authentication failed</span>
-            <span class="flex-1"><div class="h-6 w-6"></div></span>
-          </div>
+<Layout title="Account Setup - Link Game to Social Account">
+  <div class="min-h-screen flex items-center justify-center px-4 py-8">
+    <div class="w-full max-w-2xl">
+      <!-- Header -->
+      <div class="bg-base-100 rounded-md p-6 mb-6">
+        <div class="flex items-center gap-2">
+          <span class="flex-1 flex justify-end">
+            <CheckIcon class="w-8 h-8" />
+          </span>
+          <h1 class="text-center text-2xl font-semibold">Account Setup</h1>
+          <span class="flex-1"><div class="h-8 w-8"></div></span>
         </div>
-        <div class="h-4"></div>
+      </div>
 
-        <div id="set_session_error" class="hidden">
-          <div class="h-6"></div>
-          <div
-            class="alert alert-error bg-base-200 border border-base-300 text-sm text-base-content/80 flex items-start gap-3"
+      <!-- Step Indicator -->
+      <div class="bg-base-100 rounded-md p-6 mb-6">
+        <div
+          class="flex flex-col sm:flex-row items-center justify-between gap-4 sm:gap-2"
+        >
+          <!-- Step 1 -->
+          <button
+            class="step-indicator flex-1 w-full sm:w-auto"
+            data-step="1"
+            disabled
           >
-            <WarningIcon class="w-6 h-6 text-error" />
-            <div>
-              <div class="font-semibold">We couldn't finish signing you in</div>
-              {
-                error_message && (
-                  <p class="mt-2 text-xs text-base-content/70">
-                    Details: {error_message}
-                  </p>
-                )
-              }
-            </div>
-          </div>
-          <div class="h-6"></div>
-          <p class="text-sm text-base-content/80">
-            Close this tab and restart sign-in from the app. This page only
-            works right after the app redirects you here.
-          </p>
-          <div class="h-3"></div>
-          <p class="mt-3 text-xs text-base-content/70">
-            Do not open this URL directly. Always launch the sign-in flow from
-            the app.
-          </p>
-          <div class="h-6"></div>
-          <div class="flex flex-col gap-3">
-            <a href="/auth/local/signin" class="btn btn-error text-white w-full"
-              >Retry sign-in</a
-            >
-            <div class="divider">OR</div>
-            <a href="/" class="btn btn-ghost border border-base-300 w-full"
-              >Skip sign-in and return home</a
-            >
-          </div>
-        </div>
-
-        <div id="set_session_success" class="hidden">
-          <div class="flex flex-col items-center gap-2">
             <div
-              class="flex items-center gap-2 text-success text-2xl font-semibold"
+              class="flex items-center gap-3 p-3 rounded-lg border-2 transition-all duration-200 step-1-box border-success bg-success/10"
             >
-              <span class="flex-1 flex justify-end"
-                ><CheckIcon class="w-6 h-6" /></span
+              <div
+                class="shrink-0 w-8 h-8 rounded-full flex items-center justify-center font-bold step-1-circle bg-success text-success-content"
               >
-              <span class="text-center">Authentication successful</span>
-              <span class="flex-1"><div class="h-6 w-6"></div></span>
-            </div>
-            <div class="text-sm text-base-content/70">
-              You may now return to the app.
-            </div>
-          </div>
-          <div class="h-6"></div>
-          <div>
-            <AlertBox type="info" title="Tip">
-              <p>
-                Refresh tokens have been securely stored. No further action is
-                needed on the web side.
-              </p>
-            </AlertBox>
-          </div>
-          <div id="return_href_missing" class="hidden">
-            <div class="h-6"></div>
-            <AlertBox type="warning" title="Return URL is invalid">
-              <p>Copy the tokens below and paste them in the app manually.</p>
-              {
-                error_message && (
-                  <p class="mt-2 text-xs text-base-content/70">
-                    {error_message}
-                  </p>
-                )
-              }
-            </AlertBox>
-          </div>
-          <div>
-            <div class="h-4"></div>
-            <a href={return_href} class="btn btn-primary w-full"
-              >Return to app</a
-            >
-            <div class="divider">OR</div>
-            <div class="text-base text-center">Copy tokens</div>
-            <fieldset class="fieldset mt-3">
-              <legend class="fieldset-legend text-sm"
-                >Provider refresh token, access token & refresh token</legend
-              >
-              <div class="flex items-start gap-2">
-                <div class="flex-1 rounded-md border border-base-300">
-                  <input
-                    id="tokens"
-                    type="text"
-                    style="cursor: text"
-                    class="input input-bordered font-mono w-full"
-                    value={return_params ?? ""}
-                    readonly
-                  />
-                </div>
-                <button
-                  id="copy-button"
-                  aria-label="Copy tokens"
-                  class="btn btn-ghost rounded-box p-2 items-center justify-center border border-base-300"
+                <svg
+                  class="w-5 h-5"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                  ><path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="3"
+                    d="M5 13l4 4L19 7"></path></svg
                 >
-                  <label class="swap" id="copy-swap-id">
-                    <div class="swap-off">
-                      <svg
-                        class="w-4 h-4"
-                        aria-hidden="true"
-                        xmlns="http://www.w3.org/2000/svg"
-                        fill="currentColor"
-                        viewBox="0 0 18 20"
-                      >
-                        <path
-                          d="M16 1h-3.278A1.992 1.992 0 0 0 11 0H7a1.993 1.993 0 0 0-1.722 1H2a2 2 0 0 0-2 2v15a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V3a2 2 0 0 0-2-2Zm-3 14H5a1 1 0 0 1 0-2h8a1 1 0 0 1 0 2Zm0-4H5a1 1 0 0 1 0-2h8a1 1 0 1 1 0 2Zm0-5H5a1 1 0 0 1 0-2h2V2h4v2h2a1 1 0 1 1 0 2Z"
-                        ></path>
-                      </svg>
-                    </div>
-                    <div class="swap-on">
-                      <svg
-                        class="w-4 h-4 text-success"
-                        aria-hidden="true"
-                        xmlns="http://www.w3.org/2000/svg"
-                        fill="none"
-                        viewBox="0 0 16 12"
-                      >
-                        <path
-                          stroke="currentColor"
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                          stroke-width="2"
-                          d="M1 5.917 5.724 10.5 15 1.5"></path>
-                      </svg>
-                    </div>
-                  </label>
-                </button>
               </div>
-              <p class="label text-sm mt-2">
-                Paste into the tokens field on the app's launch page.
-              </p>
-              <div class="text-center mt-2 h-8">
-                <span
-                  id="copy-status"
-                  class="text-success text-sm sr-only"
-                  aria-live="polite"></span>
+              <div class="flex-1 text-left">
+                <div class="font-semibold text-sm">Sync Game</div>
+                <div class="text-xs opacity-70">Connect account</div>
               </div>
-            </fieldset>
+            </div>
+          </button>
+
+          <!-- Arrow -->
+          <div class="hidden sm:block text-base-content/30">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              class="h-5 w-5"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M9 5l7 7-7 7"></path>
+            </svg>
+          </div>
+
+          <!-- Step 2 -->
+          <button
+            class="step-indicator flex-1 w-full sm:w-auto"
+            data-step="2"
+            disabled
+          >
+            <div
+              class="flex items-center gap-3 p-3 rounded-lg border-2 transition-all duration-200 step-2-box border-success bg-success/10"
+            >
+              <div
+                class="shrink-0 w-8 h-8 rounded-full flex items-center justify-center font-bold step-2-circle bg-success text-success-content"
+              >
+                <svg
+                  class="w-5 h-5"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                  ><path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="3"
+                    d="M5 13l4 4L19 7"></path></svg
+                >
+              </div>
+              <div class="flex-1 text-left">
+                <div class="font-semibold text-sm">Link Social</div>
+                <div class="text-xs opacity-70">Social account</div>
+              </div>
+            </div>
+          </button>
+
+          <!-- Arrow -->
+          <div class="hidden sm:block text-base-content/30">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              class="h-5 w-5"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M9 5l7 7-7 7"></path>
+            </svg>
+          </div>
+
+          <!-- Step 3 -->
+          <button
+            class="step-indicator flex-1 w-full sm:w-auto"
+            data-step="3"
+            disabled
+          >
+            <div
+              class="flex items-center gap-3 p-3 rounded-lg border-2 transition-all duration-200 step-3-box border-success bg-success/10"
+            >
+              <div
+                class="shrink-0 w-8 h-8 rounded-full flex items-center justify-center font-bold step-3-circle bg-success text-success-content"
+              >
+                <svg
+                  class="w-5 h-5"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                  ><path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="3"
+                    d="M5 13l4 4L19 7"></path></svg
+                >
+              </div>
+              <div class="flex-1 text-left">
+                <div class="font-semibold text-sm">Complete</div>
+                <div class="text-xs opacity-70">Ready to use</div>
+              </div>
+            </div>
+          </button>
+        </div>
+      </div>
+
+      <!-- Step Content -->
+      <div class="bg-base-100 rounded-md p-6">
+        <!-- Error State -->
+        <div id="error-content" class="step-content hidden">
+          <h2 class="text-xl font-bold mb-3 text-error">
+            Authentication Failed
+          </h2>
+          <p class="text-sm text-base-content/70 mb-4">
+            We encountered an issue while processing your authentication. Please
+            try again.
+          </p>
+
+          <div class="alert bg-error/10 border border-error text-sm mb-4">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              class="w-6 h-6 shrink-0 text-error"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+              ></path>
+            </svg>
+            <div>
+              <div class="font-semibold text-error">Error Details</div>
+              <div class="leading-snug text-base-content" id="error-message">
+              </div>
+            </div>
+          </div>
+
+          <div class="flex flex-col gap-3">
+            <a
+              href={`/auth/local/signin${appOriginParam ? `?app_origin=${appOriginParam}` : ""}`}
+              class="btn btn-primary w-full border border-primary-content"
+            >
+              ← Retry Sign-in
+            </a>
+            <button
+              onclick="window.location.href = '/'"
+              class="btn btn-ghost w-full border border-base-300"
+            >
+              Continue as Guest
+            </button>
           </div>
         </div>
+
+        <!-- Success State (Step 3) -->
+        <div id="success-content" class="step-content hidden">
+          <h2 class="text-xl font-bold mb-3">Setup Complete</h2>
+          <p class="text-sm text-base-content/70 mb-4">
+            Your game account has been successfully linked to your social
+            account. You can now access your account from any device.
+          </p>
+
+          <div class="alert bg-success/10 border border-success text-sm mb-4">
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              class="w-6 h-6 shrink-0 text-success"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+            </svg>
+            <div>
+              <div class="font-semibold text-success">Account Linked</div>
+              <div class="leading-snug text-base-content">
+                Your account is ready to use!
+              </div>
+            </div>
+          </div>
+
+          <div class="flex flex-col gap-3">
+            <button
+              id="dashboard-btn"
+              onclick="window.location.href = '/'"
+              class="btn btn-primary w-full border border-primary-content"
+            >
+              → Continue to Dashboard
+            </button>
+            <a
+              id="app-return-link"
+              href="tauri://auth-complete?status=success"
+              class="btn btn-ghost w-full border border-base-300"
+            >
+              ← Return to App
+            </a>
+          </div>
+        </div>
+      </div>
+
+      <!-- Skip Option -->
+      <div class="p-6">
+        <p class="text-sm text-base-content/70 mb-3 text-center">
+          Your game account and social profile have been securely linked
+        </p>
       </div>
     </div>
   </div>
@@ -270,110 +432,130 @@ cookies.delete("sb-local-provider", { path: "/" });
   <Navigation />
 </Layout>
 
-<astro-data-auth_props
-  data-set-session-error-flag={String(set_session_error_flag)}
-  data-return-href-missing-flag={String(return_href_missing_flag)}
-  data-return-href={return_href ?? ""}></astro-data-auth_props>
+<astro-data-callback
+  data-error-flag={String(set_session_error_flag)}
+  data-error-message={error_message ?? ""}
+  data-is-desktop-app={String(isDesktopApp)}
+  data-app-return-url={app_return_url ?? ""}
+>
+</astro-data-callback>
 
 <script>
-  class AstroDataAuthProps extends HTMLElement {
+  class AstroDataCallback extends HTMLElement {
     constructor() {
       super();
-      const setSessionErrorFlag = this.dataset.setSessionErrorFlag!;
-      const returnHrefMissingFlag =
-        this.dataset.returnHrefMissingFlag === "true";
-      const returnHref = this.dataset.returnHref;
+      const errorFlag = this.dataset.errorFlag === "true";
+      const errorMessage = this.dataset.errorMessage || "";
+      const isDesktopApp = this.dataset.isDesktopApp === "true";
+      const appReturnUrl = this.dataset.appReturnUrl || "";
 
       window.addEventListener("DOMContentLoaded", () => {
-        if (setSessionErrorFlag == "true") {
-          document
-            .getElementById("set_session_error")
-            ?.classList.remove("hidden");
-          document.getElementById("heading_error")?.classList.remove("hidden");
-          document.getElementById("heading_success")?.classList.add("hidden");
+        const errorContent = document.getElementById("error-content");
+        const successContent = document.getElementById("success-content");
+        const errorMessageEl = document.getElementById("error-message");
+
+        // Update Step 3 indicator based on error state
+        const step3Box = document.querySelector(".step-3-box");
+        const step3Circle = document.querySelector(".step-3-circle");
+
+        if (errorFlag) {
+          // Show error state
+          errorContent?.classList.remove("hidden");
+          successContent?.classList.add("hidden");
+
+          if (errorMessageEl && errorMessage) {
+            errorMessageEl.textContent = errorMessage;
+          }
+
+          // Update Step 3 to error state
+          if (step3Box && step3Circle) {
+            step3Box.className =
+              "flex items-center gap-3 p-3 rounded-lg border-2 transition-all duration-200 step-3-box border-error bg-error/10";
+            step3Circle.className =
+              "shrink-0 w-8 h-8 rounded-full flex items-center justify-center font-bold step-3-circle bg-error text-error-content";
+            step3Circle.innerHTML =
+              '<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M6 18L18 6M6 6l12 12"/></svg>';
+          }
+
+          // Auto-redirect to app on error (after short delay for UX)
+          if (isDesktopApp && appReturnUrl) {
+            setTimeout(() => {
+              window.location.href =
+                appReturnUrl +
+                (appReturnUrl.includes("?") ? "&" : "?") +
+                "status=error&message=" +
+                encodeURIComponent(errorMessage);
+            }, 2000); // 2 second delay to show error message
+          }
         } else {
-          // Session succeeded - show success message and prepare to redirect
-          document
-            .getElementById("set_session_success")
-            ?.classList.remove("hidden");
-          document
-            .getElementById("heading_success")
-            ?.classList.remove("hidden");
-          document.getElementById("heading_error")?.classList.add("hidden");
-        }
+          // Show success state (Step 3)
+          errorContent?.classList.add("hidden");
+          successContent?.classList.remove("hidden");
 
-        if (returnHrefMissingFlag) {
-          document
-            .getElementById("return_href_missing")
-            ?.classList.remove("hidden");
-        }
-      });
+          // Update Step 3 to success state
+          if (step3Box && step3Circle) {
+            step3Box.className =
+              "flex items-center gap-3 p-3 rounded-lg border-2 transition-all duration-200 step-3-box border-success bg-success/10";
+            step3Circle.className =
+              "shrink-0 w-8 h-8 rounded-full flex items-center justify-center font-bold step-3-circle bg-success text-success-content";
+            step3Circle.innerHTML =
+              '<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"/></svg>';
+          }
 
-      // Only auto-redirect if return_href is valid and not the fallback "/" or missing
-      window.addEventListener("load", () => {
-        if (!returnHrefMissingFlag && returnHref && returnHref !== "/") {
-          try {
-            // console.log("Redirecting to:", returnHref);
-            window.location.href = returnHref;
-          } catch (e) {
-            // If redirect fails, keep user on page
-            console.error("Failed to redirect:", e);
+          // Set manual return-to-app link even when app detection is missing
+          const appReturnLink = document.getElementById("app-return-link");
+          if (appReturnLink) {
+            const base = appReturnUrl || "fusou://auth-complete";
+            const href =
+              base + (base.includes("?") ? "&" : "?") + "status=success";
+            appReturnLink.setAttribute("href", href);
+          }
+
+          // Switch primary accent depending on app vs web
+          const dashboardBtn = document.getElementById("dashboard-btn");
+          if (dashboardBtn && appReturnLink) {
+            if (isDesktopApp) {
+              // App is primary action
+              dashboardBtn.classList.remove(
+                "btn-primary",
+                "border-primary-content"
+              );
+              dashboardBtn.classList.add("btn-ghost", "border-base-300");
+
+              appReturnLink.classList.remove("btn-ghost", "border-base-300");
+              appReturnLink.classList.add(
+                "btn-primary",
+                "border-primary-content"
+              );
+            } else {
+              // Web is primary action
+              dashboardBtn.classList.add(
+                "btn-primary",
+                "border-primary-content"
+              );
+              dashboardBtn.classList.remove("btn-ghost", "border-base-300");
+
+              appReturnLink.classList.add("btn-ghost", "border-base-300");
+              appReturnLink.classList.remove(
+                "btn-primary",
+                "border-primary-content"
+              );
+            }
+          }
+
+          // Auto-redirect to app on success (after short delay for UX)
+          if (isDesktopApp && appReturnUrl) {
+            setTimeout(() => {
+              window.location.href =
+                appReturnUrl +
+                (appReturnUrl.includes("?") ? "&" : "?") +
+                "status=success";
+            }, 1500); // 1.5 second delay to show success message
           }
         }
-        // If returnHrefMissingFlag is true or href is "/" or empty, stay on page and show warning
       });
     }
   }
 
-  customElements.define("astro-data-auth_props", AstroDataAuthProps);
-</script>
-
-<script>
-  const copy_token = () => {
-    const swap_label = document.getElementById("copy-swap-id");
-    const copy_status = document.getElementById("copy-status");
-    swap_label?.classList.add("swap-active");
-    const tokensEl = document.getElementById("tokens");
-    let text = "";
-    if (
-      tokensEl instanceof HTMLTextAreaElement ||
-      tokensEl instanceof HTMLInputElement
-    ) {
-      // input & textarea share .value
-      // @ts-ignore runtime check
-      text = tokensEl.value || "";
-    } else if (tokensEl) {
-      text = tokensEl.textContent || "";
-    }
-    const showStatus = (msg) => {
-      if (!copy_status) return;
-      copy_status.textContent = msg;
-      copy_status.classList.remove("sr-only");
-      setTimeout(() => {
-        copy_status.classList.add("sr-only");
-        copy_status.textContent = "";
-      }, 1500);
-    };
-
-    if (text && navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(text).then(
-        () => showStatus("Copied"),
-        () => showStatus("Copy failed")
-      );
-    } else if (
-      tokensEl instanceof HTMLTextAreaElement ||
-      tokensEl instanceof HTMLInputElement
-    ) {
-      tokensEl.select();
-      tokensEl.setSelectionRange?.(0, tokensEl.value.length);
-      const ok = document.execCommand("copy");
-      showStatus(ok ? "Copied" : "Copy failed");
-    } else {
-      showStatus("No tokens to copy");
-    }
-
-    setTimeout(() => swap_label?.classList.remove("swap-active"), 1200);
-  };
-  const copy_button = document.getElementById("copy-button");
-  if (copy_button) copy_button.addEventListener("click", copy_token);
+  customElements.define("astro-data-callback", AstroDataCallback);
 </script>

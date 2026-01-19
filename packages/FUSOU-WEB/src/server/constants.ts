@@ -14,6 +14,11 @@ export const CORS_HEADERS: Record<string, string> = {
 
 export const SIGNED_URL_TTL_SECONDS = 120;
 export const SNAPSHOT_TOKEN_TTL_SECONDS = 300;
+// Threshold for treating snapshot payload as empty and skipping upload
+export const SNAPSHOT_EMPTY_PAYLOAD_THRESHOLD_BYTES = 100;
+
+// Number of latest snapshot files to keep per tag (per owner)
+export const SNAPSHOT_KEEP_LATEST_COUNT_PER_TAG = 1;
 export const CACHE_TTL_SECONDS = 6 * 60 * 60;
 export const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
@@ -58,3 +63,27 @@ export const DEFAULT_ALLOWED_EXTENSIONS = [
   "json",
   // 'mp3',
 ];
+
+// ========================
+// Compaction Service Configuration
+// ========================
+export const COMPACTION_CONFIG = {
+  // Maximum number of fragments to compact in a single operation
+  MAX_FRAGMENTS: 1000,
+  // Maximum bytes to read/write in a single operation
+  MAX_BYTES: 100 * 1024 * 1024, // 100 MB
+  // Request timeout for compaction operations
+  REQ_TIMEOUT_MS: 120 * 1000, // 2 minutes
+};
+
+// ========================
+// R2 Signed URL Configuration
+// ========================
+export const R2_SIGNED_URL_CONFIG = {
+  // Default expiration time for R2 signed URLs (in seconds)
+  DEFAULT_EXPIRES_IN_SECONDS: 3600, // 1 hour
+  // Maximum expiration time allowed for signed URLs
+  MAX_EXPIRES_IN_SECONDS: 7 * 24 * 60 * 60, // 7 days
+  // Minimum expiration time allowed
+  MIN_EXPIRES_IN_SECONDS: 60, // 1 minute
+};

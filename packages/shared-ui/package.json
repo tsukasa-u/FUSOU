@@ -71,5 +71,6 @@
       "import": "./dist/index.js",
       "require": "./dist/index.js"
     }
-  }
+  },
+  "customElements": "custom-elements.json"
 }
