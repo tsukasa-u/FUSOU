@@ -11,6 +11,10 @@ use fusou_auth::{AuthManager, FileStorage};
 
 const R2_STORAGE_PROVIDER_NAME: &str = "r2";
 
+// Compile-time constant for the expected number of master data tables
+// This must match the number of tables in upload_master_data_tables()
+const EXPECTED_MASTER_TABLE_COUNT: usize = 13;
+
 #[derive(Clone)]
 pub struct R2StorageProvider {
     pending_store: Arc<PendingStore>,
@@ -192,6 +196,18 @@ impl StorageProvider for R2StorageProvider {
             master_tables.push(("mst_map_area", table.mst_map_area.clone()));
             master_tables.push(("mst_map_info", table.mst_map_info.clone()));
             master_tables.push(("mst_ship_upgrade", table.mst_ship_upgrade.clone()));
+
+            // Compile-time check: Ensure we always have exactly 13 tables
+            // This assertion will fail at runtime if the table count is incorrect,
+            // preventing server-side validation failures due to missing/extra tables
+            assert_eq!(
+                master_tables.len(),
+                EXPECTED_MASTER_TABLE_COUNT,
+                "Master data tables count mismatch: expected {}, got {}. \
+                 All 13 tables must be present in the correct order for server validation.",
+                EXPECTED_MASTER_TABLE_COUNT,
+                master_tables.len()
+            );
 
             // All 13 tables are always present (even if empty), so never skip
             tracing::info!("Uploading {} master data tables for period={}", master_tables.len(), period_tag);

@@ -4,6 +4,7 @@
 #[cfg(test)]
 mod tests {
     use std::collections::HashSet;
+    use super::EXPECTED_MASTER_TABLE_COUNT;
 
     /// Test: All 13 master tables are included in consistent order
     #[test]
@@ -25,6 +26,13 @@ mod tests {
         ];
 
         assert_eq!(table_names.len(), 13, "Must have exactly 13 tables");
+        
+        // Verify the constant matches the actual table count
+        assert_eq!(
+            table_names.len(),
+            EXPECTED_MASTER_TABLE_COUNT,
+            "Table count must match EXPECTED_MASTER_TABLE_COUNT constant"
+        );
 
         // Verify no duplicates
         let set: HashSet<_> = table_names.iter().collect();
