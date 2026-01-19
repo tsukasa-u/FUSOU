@@ -63,6 +63,8 @@ jobs:
 
   test-install:
     needs: build-and-publish
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
     env:
       PACKAGE_VERSION: ${{ needs.build-and-publish.outputs.package-version }}
