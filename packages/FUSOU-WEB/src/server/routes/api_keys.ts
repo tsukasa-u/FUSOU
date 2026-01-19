@@ -176,7 +176,7 @@ app.get('/usage', async (c) => {
     return jsonResponse({ success: true, usage });
   } catch (error) {
     console.error('Usage check error:', error);
-    return jsonResponse({ error: 'Internal error', details: error instanceof Error ? error.message : String(error) }, 500);
+    return jsonResponse({ error: 'Internal error' }, 500);
   }
 });
 
@@ -462,7 +462,7 @@ app.delete('/devices/:id', async (c) => {
     return jsonResponse({ success: true, message: 'Device revoked' });
   } catch (error) {
     console.error('Device revoke error:', error);
-    return jsonResponse({ error: 'Internal error', details: error instanceof Error ? error.message : String(error) }, 500);
+    return jsonResponse({ error: 'Internal error' }, 500);
   }
 });
 
