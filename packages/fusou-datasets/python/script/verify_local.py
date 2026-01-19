@@ -22,7 +22,7 @@ def verify_authentication():
             # in real usage users just call public APIs.
             from fusou_datasets import _get_api_key
             key = _get_api_key()
-            print(f"✓ API Key found in config: {key[:8]}...")
+            print("✓ API Key found in config.")
         except Exception as e:
             print(f"✗ API Key not configured: {e}")
             key = input("Enter API Key manually > ").strip()
@@ -32,7 +32,7 @@ def verify_authentication():
                 print("Skipping...")
                 return False
     else:
-        print(f"✓ API Key found in env: {api_key[:8]}...")
+        print("✓ API Key found in environment variable.")
     
     return True
 
