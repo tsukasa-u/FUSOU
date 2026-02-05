@@ -101,17 +101,28 @@ fn log_response(
         }
 
         tokio::spawn(async move {
-            let mut buffer: Vec<u8> = Vec::new();
-            if !pass && content_type.eq("text/plain") {
-                // this code is for the response not decoded in hudsucker!!
-                match flate2::read::MultiGzDecoder::new(body.as_slice()).read_to_end(&mut buffer) {
-                    Ok(_) => {}
-                    Err(_) => {
-                        buffer = body.clone();
+            // Phase 4: Decompress CPU-bound operations using spawn_blocking
+            let buffer_for_text = if !pass && content_type.eq("text/plain") {
+                let body_clone = body.clone();
+                match tokio::task::spawn_blocking(move || {
+                    let mut buf = Vec::new();
+                    match flate2::read::MultiGzDecoder::new(body_clone.as_slice()).read_to_end(&mut buf) {
+                        Ok(_) => buf,
+                        Err(_) => body_clone,
+                    }
+                }).await {
+                    Ok(buf) => buf,
+                    Err(e) => {
+                        tracing::error!("spawn_blocking decompression failed: {}", e);
+                        body.clone()
                     }
                 }
+            } else {
+                Vec::new()
+            };
 
-                if let Ok(buffer_string) = String::from_utf8(buffer.clone()) {
+            if !pass && content_type.eq("text/plain") {
+                if let Ok(buffer_string) = String::from_utf8(buffer_for_text.clone()) {
                     let mes = bidirectional_channel::StatusInfo::RESPONSE {
                         path: uri_path.clone(),
                         content_type: content_type.to_string(),
@@ -122,6 +133,7 @@ fn log_response(
                     tracing::warn!("Failed to convert buffer to string");
                 }
             }
+
             if save {
                 let path_log = Path::new(save_path.as_str());
 
@@ -136,13 +148,6 @@ fn log_response(
                         }
                     }
 
-                    // let time_stamped = format!(
-                    //     "kcsapi/{}_{}S{}",
-                    //     file_prefix,
-                    //     jst.timestamp(),
-                    //     uri_path.as_str().replace("/kcsapi", "").replace("/", "@")
-                    // );
-
                     let time_formated = format!(
                         "kcsapi/{}S{}",
                         jst.format("%Y%m%d_%H%M%S%3f"),
@@ -155,7 +160,7 @@ fn log_response(
                         file_prefix
                     );
                     let metadata_buffer = metadata_string.as_bytes();
-                    let combined_buffer = [metadata_buffer, buffer.as_slice()].concat();
+                    let combined_buffer = [metadata_buffer, buffer_for_text.as_slice()].concat();
                     // Phase 3: Use async file I/O (non-blocking)
                     if let Err(e) = tokio::fs::write(path_log.join(Path::new(&time_formated)), combined_buffer).await {
                         tracing::error!("Failed to write kcsapi file: {}", e);
@@ -177,17 +182,26 @@ fn log_response(
                     let file_log_path_for_sync = file_log_path.clone();
 
                     if content_type.eq("application/json") {
-                        // this code is for the response not decoded in hudsucker!!
-                        match flate2::read::MultiGzDecoder::new(body.as_slice())
-                            .read_to_end(&mut buffer)
-                        {
-                            Ok(_) => {}
-                            Err(_) => {
-                                buffer = body.clone();
+                        // Phase 4: Decompress JSON using spawn_blocking
+                        let body_clone = body.clone();
+                        let json_buffer = match tokio::task::spawn_blocking(move || {
+                            let mut buf = Vec::new();
+                            match flate2::read::MultiGzDecoder::new(body_clone.as_slice())
+                                .read_to_end(&mut buf)
+                            {
+                                Ok(_) => buf,
+                                Err(_) => body_clone,
                             }
-                        }
+                        }).await {
+                            Ok(buf) => buf,
+                            Err(e) => {
+                                tracing::error!("spawn_blocking JSON decompression failed: {}", e);
+                                body.clone()
+                            }
+                        };
+                        
                         // Phase 3: Use async file I/O (non-blocking)
-                        if let Err(e) = tokio::fs::write(&file_log_path, buffer).await {
+                        if let Err(e) = tokio::fs::write(&file_log_path, json_buffer).await {
                             tracing::error!("Failed to write json file: {}", e);
                         }
                     } else {
@@ -199,22 +213,6 @@ fn log_response(
 
                     // Phase 2: Non-blocking asset sync notification with backpressure handling
                     asset_sync::notify_new_asset(file_log_path_for_sync);
-                    //     fs::write(file_log_path, body.clone().clone())
-                    //         .expect_or_log("Failed to write file");
-                    // } else {
-                    //     let file_log_metadata =
-                    //         fs::metadata(file_log_path.clone()).expect_or_log("Failed to get metadata");
-                    //     #[cfg(target_os = "linux")]
-                    //     if file_log_metadata.len() == 0 {
-                    //         fs::write(file_log_path, body.clone().clone())
-                    //             .expect_or_log("Failed to write file");
-                    //     }
-                    //     #[cfg(target_os = "windows")]
-                    //     if file_log_metadata.file_size() == 0 {
-                    //         fs::write(file_log_path, body.clone().clone())
-                    //             .expect_or_log("Failed to write file");
-                    //     }
-                    // }
                 }
             }
         });

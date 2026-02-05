@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tokio::{
     fs,
-    sync::mpsc::{self, UnboundedReceiver, UnboundedSender},
+    sync::mpsc,
     task::JoinHandle,
     time,
 };
@@ -119,6 +119,8 @@ struct PersistentAssetCache {
     keys: Vec<String>,
     hashes: HashMap<String, Option<String>>,
     last_sync_timestamp: Option<u64>,
+    /// ISO8601 timestamp when this cache expires
+    cache_expires_at: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -310,6 +312,9 @@ async fn run_worker(
         tracing::warn!(error = %err, "failed to refresh asset sync period");
     }
 
+    // Load persistent cache from disk BEFORE checking if refresh is needed
+    load_persistent_cache(&settings.save_root);
+
     // Only attempt to refresh existing keys if authentication is ready
     if check_auth_ready(&settings, &auth_manager).await {
         if let Err(err) = maybe_refresh_existing_keys(&client, &settings, &auth_manager).await {
@@ -440,7 +445,14 @@ async fn process_path(
     let bytes = fs::read(path)
         .await
         .map_err(|err| format!("failed to read file for upload: {err}"))?;
-    let local_hash = sha256_hex(&bytes);
+    
+    // Phase 4: CPU-bound SHA256 hashing using spawn_blocking for large files
+    let local_hash = tokio::task::spawn_blocking({
+        let bytes = bytes.clone();
+        move || sha256_hex(&bytes)
+    })
+    .await
+    .map_err(|e| format!("spawn_blocking hash computation failed: {}", e))?;
 
     // Check if remote has this key with a hash
     if let Some(remote_hash_opt) = remote_content_hash(&key) {
@@ -750,6 +762,13 @@ fn parse_cache_ttl(payload: &PeriodApiResponse) -> Duration {
 fn duration_until(iso: &str) -> Option<Duration> {
     let expiry = DateTime::parse_from_rfc3339(iso).ok()?.with_timezone(&Utc);
     let diff = expiry.signed_duration_since(Utc::now());
+    
+    // If the expiry time is in the past, return None instead of negative duration
+    // This prevents errors when converting to std::time::Duration
+    if diff.num_seconds() <= 0 {
+        return None;
+    }
+    
     diff.to_std().ok()
 }
 
@@ -788,11 +807,6 @@ async fn maybe_refresh_existing_keys(
             return Ok(());
         }
     };
-
-    // On first run, try to load persistent cache from disk
-    if !remote_cache_is_fresh() {
-        load_persistent_cache(&settings.save_root);
-    }
 
     if remote_cache_is_fresh() {
         tracing::info!("remote key cache is still fresh; skipping refresh");
@@ -1014,10 +1028,8 @@ fn register_remote_key(key: &str, hash: Option<&str>) {
     match guard.as_mut() {
         Some(cache) => {
             cache.keys.insert(key.to_string());
-            cache
-                .hashes
-                .entry(key.to_string())
-                .or_insert(hash.map(|s| s.to_string()));
+            // Always update hash, don't use or_insert which preserves existing values
+            cache.hashes.insert(key.to_string(), hash.map(|s| s.to_string()));
             if cache.expires_at <= Instant::now() {
                 cache.expires_at =
                     Instant::now() + Duration::from_secs(REMOTE_KEYS_CACHE_FALLBACK_SECS);
@@ -1078,7 +1090,7 @@ fn load_persistent_cache(save_root: &Path) {
     let cache_path = save_root.join(PERSISTENT_CACHE_FILENAME);
 
     if !cache_path.exists() {
-        tracing::debug!("No persistent asset cache found at {:?}", cache_path);
+        tracing::info!("No persistent asset cache found at {:?}; will perform full sync on first API call", cache_path);
         return;
     }
 
@@ -1089,9 +1101,30 @@ fn load_persistent_cache(save_root: &Path) {
                     let keys: HashSet<String> = persisted.keys.into_iter().collect();
                     let count = keys.len();
 
+                    // Parse cache expiration time from ISO8601
+                    let (expires_at, cache_status) = match persisted.cache_expires_at.as_deref() {
+                        Some(iso) => match duration_until(iso) {
+                            Some(duration) => {
+                                (Instant::now() + duration, "valid")
+                            }
+                            None => {
+                                // Expiry time is in the past
+                                (Instant::now(), "expired (past timestamp)")
+                            }
+                        },
+                        None => {
+                            // No expiry timestamp in cache file
+                            (Instant::now(), "expired (missing timestamp)")
+                        }
+                    };
+
+                    let is_expired = expires_at <= Instant::now();
+
                     tracing::info!(
                         count = count,
                         last_sync_ts = ?persisted.last_sync_timestamp,
+                        cache_status = cache_status,
+                        cache_expired = is_expired,
                         "Loaded persistent asset cache from disk"
                     );
 
@@ -1104,9 +1137,15 @@ fn load_persistent_cache(save_root: &Path) {
                         *guard = Some(RemoteKeyCache {
                             keys,
                             hashes: persisted.hashes,
-                            expires_at: Instant::now(), // Mark as expired to trigger refresh
+                            expires_at,
                             last_sync_timestamp: persisted.last_sync_timestamp,
                         });
+
+                        if is_expired {
+                            tracing::info!("Persistent cache has expired; incremental sync will be triggered");
+                        } else {
+                            tracing::info!("Persistent cache is still valid; API call will be skipped");
+                        }
                     }
                 }
                 Err(e) => {
@@ -1129,10 +1168,30 @@ fn save_persistent_cache(
 ) {
     let cache_path = save_root.join(PERSISTENT_CACHE_FILENAME);
 
+    // Get cache_expires_at from current in-memory cache
+    let cache_expires_at = EXISTING_KEYS_CACHE
+        .read()
+        .expect("existing keys cache lock poisoned")
+        .as_ref()
+        .and_then(|cache| {
+            // Only save expiry time if it's still in the future
+            if cache.expires_at > Instant::now() {
+                let remaining = cache.expires_at.duration_since(Instant::now());
+                let future = Utc::now() + chrono::Duration::from_std(remaining).ok()?;
+                Some(future.to_rfc3339())
+            } else {
+                // Cache has already expired, don't save an expired timestamp
+                None
+            }
+        });
+
+    let cache_expires_at_display = cache_expires_at.clone();
+
     let persisted = PersistentAssetCache {
         keys: keys.iter().cloned().collect(),
         hashes: hashes.clone(),
         last_sync_timestamp: last_sync_ts,
+        cache_expires_at,
     };
 
     match serde_json::to_string_pretty(&persisted) {
@@ -1140,8 +1199,10 @@ fn save_persistent_cache(
             if let Err(e) = std::fs::write(&cache_path, json) {
                 tracing::warn!("Failed to write persistent asset cache: {}", e);
             } else {
-                tracing::debug!(
+                tracing::info!(
                     count = keys.len(),
+                    last_sync_ts = ?last_sync_ts,
+                    cache_expires_at = ?cache_expires_at_display,
                     "Saved persistent asset cache to {:?}",
                     cache_path
                 );
