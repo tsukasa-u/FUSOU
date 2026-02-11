@@ -1,5 +1,5 @@
 {
-  "v1": {
+  "v0": {
     "table_version": "0.4",
     "tables": {
       "env_info": [

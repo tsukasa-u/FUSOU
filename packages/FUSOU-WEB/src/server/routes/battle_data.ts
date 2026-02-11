@@ -98,7 +98,7 @@ app.post("/upload", async (c) => {
         ? body.schema_version.trim()
         : typeof body?.schemaVersion === "string"
           ? body.schemaVersion.trim()
-          : "v1";
+          : "v0";
       const declaredSize = parseInt(typeof body?.file_size === "string" ? body.file_size : "0", 10);
       const tableOffsets = typeof body?.table_offsets === "string" ? body.table_offsets.trim() : null;
       const pathTag = typeof body?.path === "string" ? body.path.trim() : null;
@@ -175,7 +175,7 @@ app.post("/upload", async (c) => {
       const table = tokenPayload.table as string;
       const periodTag = (tokenPayload as any).period_tag as string;
       let tableOffsets = (tokenPayload as any).table_offsets as string | null;
-      const schemaVersion = (tokenPayload as any).schema_version as string || "v1";
+      const schemaVersion = (tokenPayload as any).schema_version as string || "v0";
 
       const triggeredAt = new Date().toISOString();
 

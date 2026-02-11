@@ -6,17 +6,18 @@ AVRO_WASM_DIR="$SCRIPT_DIR"
 
 echo "Building Avro WASM with multiple schema versions..."
 
-# Version to build (default: v1)
-VERSION=${1:-"v1"}
+# Version to build (default: v0)
+VERSION=${1:-"v0"}
 
 if [ "$VERSION" = "all" ]; then
-    FEATURE="schema_v1,schema_v2,console_error_panic_hook"
-elif [ "$VERSION" = "v1" ] || [ "$VERSION" = "v2" ]; then
+    FEATURE="schema_v0,schema_v1,schema_v2,console_error_panic_hook"
+elif [ "$VERSION" = "v0" ] || [ "$VERSION" = "v1" ] || [ "$VERSION" = "v2" ]; then
     FEATURE="schema_$VERSION,console_error_panic_hook"
 else
-    echo "Usage: $0 [v1|v2|all]"
+    echo "Usage: $0 [v0|v1|v2|all]"
     echo ""
-    echo "  v1  - Build with schema_v1 (default)"
+    echo "  v0  - Build with schema_v0 (default)"
+    echo "  v1  - Build with schema_v1"
     echo "  v2  - Build with schema_v2"
     echo "  all - Build with BOTH schema_v1 and schema_v2"
     exit 1

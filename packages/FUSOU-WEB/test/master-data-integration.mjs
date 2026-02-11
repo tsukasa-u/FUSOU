@@ -131,7 +131,7 @@ results.push(test('Offset contiguity (no gaps, no overlaps)', () => {
 
 // Test 5: Period tag validation
 results.push(test('Period tag validation rules', () => {
-  const validTags = ['period_001', 'event-2024-01', 'master_data_v1', 'a'];
+  const validTags = ['period_001', 'event-2024-01', 'master_data_v0', 'a'];
   const invalidTags = ['', '.hidden', '/path', 'path/../escape', 'name with space'];
   
   const validator = (tag) => {

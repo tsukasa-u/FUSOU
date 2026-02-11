@@ -83,7 +83,7 @@ type QueueMessage = LegacyQueueMessage | BatchedQueueMessage;
  */
 async function normalizeMessage(msg: QueueMessage): Promise<BufferLogRecord[]> {
   const now = Date.now();
-  const schemaVersion = msg.schemaVersion || 'v1';
+  const schemaVersion = msg.schemaVersion || 'v0';
   const timestamp = msg.triggeredAt ? new Date(msg.triggeredAt).getTime() : now;
 
   // Check if this is a batched message (all tables in one)

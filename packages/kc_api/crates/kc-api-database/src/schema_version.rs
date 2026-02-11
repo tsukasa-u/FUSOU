@@ -1,11 +1,11 @@
-#[cfg(feature = "schema_v1")]
+#[cfg(feature = "schema_v0")]
 pub const DATABASE_TABLE_VERSION: &str = "0.4";
 
-#[cfg(feature = "schema_v2")]
+#[cfg(feature = "schema_v1")]
 pub const DATABASE_TABLE_VERSION: &str = "1.0";
 
-#[cfg(all(not(feature = "schema_v1"), not(feature = "schema_v2")))]
-pub const DATABASE_TABLE_VERSION: &str = "0.0";
+#[cfg(feature = "schema_v2")]
+pub const DATABASE_TABLE_VERSION: &str = "2.0";
 
 #[cfg(feature = "schema_v1")]
 pub const SCHEMA_VERSION: &str = "v1";
@@ -13,7 +13,7 @@ pub const SCHEMA_VERSION: &str = "v1";
 #[cfg(feature = "schema_v2")]
 pub const SCHEMA_VERSION: &str = "v2";
 
-#[cfg(all(not(feature = "schema_v1"), not(feature = "schema_v2")))]
+#[cfg(feature = "schema_v0")]
 pub const SCHEMA_VERSION: &str = "v0";
 
 #[cfg(test)]

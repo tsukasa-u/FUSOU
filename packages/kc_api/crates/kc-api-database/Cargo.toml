@@ -24,7 +24,7 @@ regex = { workspace = true }
 dot-writer = { workspace = true }
 
 [features]
-default = ["graphviz", "full"]
+default = ["graphviz", "full", "schema_v0"]
 graphviz = []
 cytoscape = []
 breaking_schema = []
@@ -34,8 +34,7 @@ full = ["tokio", "apache-avro/zstandard"]
 # WASM feature excludes heavy dependencies (for WASM builds)
 wasm = []
 
-# Note: schema_v1 and schema_v2 features are kept for backward compatibility with FUSOU-APP
-# Both versions are are compiled by default now, but these flags are needed for dependent crates
+schema_v0 = []
 schema_v1 = []
 schema_v2 = []
 

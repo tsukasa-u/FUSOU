@@ -20,7 +20,8 @@ panic = "abort"
 strip = true
 
 [features]
-default = ["schema_v1", "console_error_panic_hook"]
+default = ["schema_v0", "console_error_panic_hook"]
+schema_v0 = []
 schema_v1 = []
 schema_v2 = []
 console_error_panic_hook = []

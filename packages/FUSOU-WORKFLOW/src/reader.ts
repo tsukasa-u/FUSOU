@@ -27,7 +27,7 @@ import { fetchHotDataWithFallback, BufferLogRecord } from './db';
 interface Env {
   BATTLE_DATA_BUCKET: R2Bucket;
   BATTLE_INDEX_DB: D1Database;
-  SCHEMA_FINGERPRINTS_JSON?: string; // map: { "v1": { "table": ["<sha256>", ...] }, ... }
+  SCHEMA_FINGERPRINTS_JSON?: string; // map: { "v0": { "table": ["<sha256>", ...] }, ... }
   // TiDB Cloud Serverless connection URL (required for hot data queries)
   TIDB_KC_DB_URL?: string;
 }
@@ -38,7 +38,7 @@ interface QueryParams {
   from?: number;  // timestamp (ms)
   to?: number;    // timestamp (ms)
   format?: string; // 'json' (default) | 'ocf'
-  schema_version?: string; // Optional: filter by schema version (v1, v2, etc.) - defaults to latest
+  schema_version?: string; // Optional: filter by schema version (v0, v1, etc.) - defaults to latest
 }
 
 interface HotRecord {
@@ -166,9 +166,9 @@ async function fetchColdIndexes(
     sql += ' AND bi.schema_version = ?';
     bindings.push(schema_version);
   } else {
-    // Default: prefer v1, but fallback to any version if v1 not available
+    // Default: prefer v0, but fallback to any version if v0 not available
     // This handles NULL values from pre-migration data
-    sql += ' AND (bi.schema_version = \'v1\' OR bi.schema_version IS NULL)';
+    sql += ' AND (bi.schema_version = \'v0\' OR bi.schema_version IS NULL)';
   }
   
   if (from !== undefined) {

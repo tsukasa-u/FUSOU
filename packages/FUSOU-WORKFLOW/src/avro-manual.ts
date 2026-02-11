@@ -24,7 +24,7 @@ function decodeLong(buffer: Uint8Array, offset: number): { value: number; offset
 }
 
 // Ensure namespace embeds schema_version for downstream validation
-export function ensureSchemaNamespace(schema: any, schemaVersion: string = 'v1'): any {
+export function ensureSchemaNamespace(schema: any, schemaVersion: string = 'v0'): any {
   if (schema.namespace && schema.namespace.includes(schemaVersion)) {
     return schema;
   }
