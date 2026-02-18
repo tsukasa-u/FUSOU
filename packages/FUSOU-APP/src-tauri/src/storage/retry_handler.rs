@@ -3,7 +3,7 @@ use std::sync::Arc;
 use fusou_auth::{AuthManager, FileStorage};
 use fusou_upload::{Uploader, UploadRequest, UploadContext};
 use fusou_upload::retry_service::RetryHandler;
-use kc_api::database::SCHEMA_VERSION;
+use kc_api::database::DATABASE_TABLE_VERSION;
 
 use crate::storage::cloud_provider_trait::CloudProviderFactory;
 
@@ -38,6 +38,10 @@ impl RetryHandler for AppUploadRetryHandler {
                             .ok_or("r2 upload endpoint not configured")?;
 
                         let file_size = data.len() as u64;
+                        // Use saved table_version from context to avoid version mismatch after app upgrade
+                        let table_version = context.get("table_version")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or(DATABASE_TABLE_VERSION);
                         let handshake_body = Uploader::build_battle_data_handshake(
                             period_tag,
                             path_tag,
@@ -45,7 +49,7 @@ impl RetryHandler for AppUploadRetryHandler {
                             table,
                             file_size,
                             table_offsets,
-                            SCHEMA_VERSION,
+                            table_version,
                         );
 
                         let mut headers = std::collections::HashMap::new();

@@ -96,6 +96,11 @@ app.post("/upload", async (c) => {
     // Preparation phase: claim ownership for entire period
     preparationValidator: async (body, user) => {
       const periodTag = typeof body?.kc_period_tag === "string" ? body.kc_period_tag.trim() : "";
+      const tableVersion = typeof body?.table_version === "string"
+        ? body.table_version.trim()
+        : typeof body?.tableVersion === "string"
+          ? body.tableVersion.trim()
+          : "";
       const contentHash = typeof body?.content_hash === "string" ? body.content_hash.trim() : "";
       const tableOffsetsStr = typeof body?.table_offsets === "string" ? body.table_offsets.trim() : "";
 
@@ -112,6 +117,10 @@ app.post("/upload", async (c) => {
       }
       if (periodTag.startsWith('.') || periodTag.startsWith('/') || periodTag.includes('..')) {
         return c.json({ error: "kc_period_tag cannot start with . or / or contain .." }, 400);
+      }
+
+      if (!tableVersion) {
+        return c.json({ error: "table_version is required" }, 400);
       }
 
       // Validate content_hash
@@ -223,17 +232,18 @@ app.post("/upload", async (c) => {
       try {
         const stmt = db.prepare(`
           INSERT INTO master_data_index 
-            (period_tag, content_hash, upload_status, uploaded_by, created_at)
-          VALUES (?, ?, 'pending', ?, ?)
-          ON CONFLICT(period_tag) DO NOTHING
+            (period_tag, table_version, content_hash, upload_status, uploaded_by, created_at)
+          VALUES (?, ?, 'pending', ?, ?, ?)
+          ON CONFLICT(period_tag, table_version) DO NOTHING
           RETURNING id
         `);
         
         const now = Date.now();
         const result = await stmt.bind(
-          periodTag, 
-          contentHash, 
-          user.id, 
+          periodTag,
+          tableVersion,
+          contentHash,
+          user.id,
           now
         ).first() as { id?: number } | null;
         
@@ -256,6 +266,7 @@ app.post("/upload", async (c) => {
           tokenPayload: {
             record_id: result.id,
             period_tag: periodTag,
+            table_version: tableVersion,
             content_hash: contentHash,
             declared_size: declaredSize,
             table_offsets: tableOffsetsStr,
@@ -303,6 +314,7 @@ app.post("/upload", async (c) => {
 
       const recordId = tokenPayload.record_id as number;
       const periodTag = tokenPayload.period_tag as string;
+      const tableVersion = tokenPayload.table_version as string;
       const expectedContentHash = tokenPayload.content_hash as string;
       const tableOffsetsStr = tokenPayload.table_offsets as string;
       const tableCount = tokenPayload.table_count as number;
@@ -375,10 +387,10 @@ app.post("/upload", async (c) => {
         // Split data and upload each table to R2
         const r2Keys: string[] = [];
         const uploadResults: Array<{ table: string; r2_key: string; size: number }> = [];
-
+        
         for (const offset of tableOffsets) {
           const tableData = data.slice(offset.start, offset.end);
-          const r2Key = `master_data/${periodTag}/${offset.table_name}.avro`;
+          const r2Key = `master_data/${tableVersion}/${periodTag}/${offset.table_name}.avro`;
 
           console.info(`[master-data] Uploading ${offset.table_name}: ${r2Key} (${tableData.byteLength} bytes)`);
 
@@ -397,6 +409,7 @@ app.post("/upload", async (c) => {
               customMetadata: {
                 table_name: offset.table_name,
                 period_tag: periodTag,
+                table_version: tableVersion,
                 table_hash: tableContentHash, // Hash of individual table
                 uploaded_by: user.id,
                 batch_hash: expectedContentHash, // Hash of entire batch for reference
@@ -456,7 +469,6 @@ app.post("/upload", async (c) => {
           }
         }
 
-        // All tables uploaded successfully - update D1
         console.info(`[master-data] All ${r2Keys.length} tables uploaded successfully for period ${periodTag}`);
 
         try {
@@ -465,8 +477,8 @@ app.post("/upload", async (c) => {
             const offset = tableOffsets[i];
             const tableStmt = db.prepare(`
               INSERT INTO master_data_tables 
-                (master_data_id, table_name, table_index, start_byte, end_byte, record_count, r2_key, content_hash, created_at)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (master_data_id, table_name, table_version, table_index, start_byte, end_byte, record_count, r2_key, content_hash, created_at)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             `);
             
             // Compute hash for this individual table
@@ -476,12 +488,13 @@ app.post("/upload", async (c) => {
               .map(b => b.toString(16).padStart(2, '0'))
               .join('');
             
-            const r2Key = `master_data/${periodTag}/${offset.table_name}.avro`;
+            const r2Key = `master_data/${tableVersion}/${periodTag}/${offset.table_name}.avro`;
             const now = Date.now();
             
             await tableStmt.bind(
               recordId,
               offset.table_name,
+              tableVersion,
               i,
               offset.start,
               offset.end,
@@ -601,20 +614,27 @@ app.get("/exists", async (c) => {
   }
 
   const periodTag = c.req.query("period_tag");
+  const tableVersion = c.req.query("table_version");
 
   if (!periodTag) {
     return c.json({ error: "period_tag is required" }, 400);
   }
 
   try {
-    const stmt = db.prepare(`
-      SELECT id, period_tag, content_hash, r2_keys, upload_status, created_at, completed_at
+    let sql = `
+      SELECT id, period_tag, table_version, content_hash, r2_keys, upload_status, created_at, completed_at
       FROM master_data_index
       WHERE period_tag = ? AND upload_status = 'completed'
-      LIMIT 1
-    `);
+    `;
+    const params: unknown[] = [periodTag];
+    if (tableVersion) {
+      sql += ' AND table_version = ?';
+      params.push(tableVersion);
+    }
+    sql += ' LIMIT 1';
 
-    const result = await stmt.bind(periodTag).first();
+    const stmt = db.prepare(sql);
+    const result = await stmt.bind(...params).first();
 
     if (!result) {
       return c.json({ exists: false }, 404);
@@ -625,6 +645,7 @@ app.get("/exists", async (c) => {
       data: {
         id: result.id,
         period_tag: result.period_tag,
+        table_version: result.table_version,
         table_count: result.table_count,
         table_offsets: result.table_offsets ? JSON.parse(result.table_offsets) : [],
         upload_status: result.upload_status,
@@ -666,15 +687,21 @@ app.get("/latest", async (c) => {
   }
 
   try {
-    const stmt = db.prepare(`
-      SELECT id, period_tag, content_hash, r2_keys, upload_status, created_at, completed_at
+    const tableVersion = c.req.query("table_version");
+    let sql = `
+      SELECT id, period_tag, table_version, content_hash, r2_keys, upload_status, created_at, completed_at
       FROM master_data_index
       WHERE upload_status = 'completed'
-      ORDER BY completed_at DESC
-      LIMIT 1
-    `);
+    `;
+    const params: unknown[] = [];
+    if (tableVersion) {
+      sql += ' AND table_version = ?';
+      params.push(tableVersion);
+    }
+    sql += ' ORDER BY completed_at DESC LIMIT 1';
     
-    const result = await stmt.bind().first();
+    const stmt = db.prepare(sql);
+    const result = await stmt.bind(...params).first();
 
     if (!result) {
       return c.json({ exists: false }, 404);
@@ -685,6 +712,7 @@ app.get("/latest", async (c) => {
       data: {
         id: result.id,
         period_tag: result.period_tag,
+        table_version: result.table_version,
         table_count: result.table_count,
         table_offsets: result.table_offsets ? JSON.parse(result.table_offsets) : [],
         upload_status: result.upload_status,
@@ -729,6 +757,7 @@ app.get("/download", async (c) => {
 
   const periodTag = c.req.query("period_tag");
   const tableName = c.req.query("table_name");
+  const tableVersion = c.req.query("table_version");
 
   if (!periodTag) {
     return c.json({ error: "period_tag is required" }, 400);
@@ -736,6 +765,10 @@ app.get("/download", async (c) => {
   
   if (!tableName) {
     return c.json({ error: "table_name is required" }, 400);
+  }
+
+  if (!tableVersion) {
+    return c.json({ error: "table_version is required" }, 400);
   }
 
   // Validate table_name
@@ -747,14 +780,20 @@ app.get("/download", async (c) => {
 
   try {
     // Find the metadata record for this period
-    const stmt = db.prepare(`
+    let sql = `
       SELECT r2_keys, table_offsets
       FROM master_data_index
       WHERE period_tag = ? AND upload_status = 'completed'
-      LIMIT 1
-    `);
+    `;
+    const params: unknown[] = [periodTag];
+    if (tableVersion) {
+      sql += ' AND table_version = ?';
+      params.push(tableVersion);
+    }
+    sql += ' LIMIT 1';
+    const stmt = db.prepare(sql);
 
-    const record = await stmt.bind(periodTag).first() as { r2_keys?: string; table_offsets?: string } | null;
+    const record = await stmt.bind(...params).first() as { r2_keys?: string; table_offsets?: string } | null;
 
     if (!record?.r2_keys) {
       return c.json({ error: "Master data not found for this period" }, 404);
@@ -780,8 +819,8 @@ app.get("/download", async (c) => {
     }
 
     // Find the R2 key for this specific table
-    // Format: master_data/{period_tag}/{table_name}.avro
-    const expectedKey = `master_data/${periodTag}/${tableName}.avro`;
+    // Format: master_data/{table_version}/{period_tag}/{table_name}.avro
+    const expectedKey = `master_data/${tableVersion}/${periodTag}/${tableName}.avro`;
     const r2Key = r2Keys.find(key => key === expectedKey);
 
     if (!r2Key) {

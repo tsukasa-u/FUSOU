@@ -94,11 +94,11 @@ app.post("/upload", async (c) => {
       const datasetId = typeof body?.dataset_id === "string" ? body.dataset_id.trim() : "";
       const table = typeof body?.table === "string" ? body.table.trim() : "";
       const periodTag = typeof body?.kc_period_tag === "string" ? body.kc_period_tag.trim() : "";
-      const schemaVersion = typeof body?.schema_version === "string"
-        ? body.schema_version.trim()
-        : typeof body?.schemaVersion === "string"
-          ? body.schemaVersion.trim()
-          : "v0";
+      const tableVersion = typeof body?.table_version === "string"
+        ? body.table_version.trim()
+        : typeof body?.tableVersion === "string"
+          ? body.tableVersion.trim()
+          : "";
       const declaredSize = parseInt(typeof body?.file_size === "string" ? body.file_size : "0", 10);
       const tableOffsets = typeof body?.table_offsets === "string" ? body.table_offsets.trim() : null;
       const pathTag = typeof body?.path === "string" ? body.path.trim() : null;
@@ -123,6 +123,9 @@ app.post("/upload", async (c) => {
       }
       if (!periodTag) {
         return c.json({ error: "kc_period_tag is required" }, 400);
+      }
+      if (!tableVersion) {
+        return c.json({ error: "table_version is required" }, 400);
       }
       if (!/^[\w\-]+$/.test(periodTag)) {
         return c.json({ error: "kc_period_tag must contain only alphanumeric characters and hyphens" }, 400);
@@ -166,7 +169,7 @@ app.post("/upload", async (c) => {
           table_offsets: tableOffsets,
           content_hash: contentHash,
           path_tag: pathTag,
-          schema_version: schemaVersion,
+          table_version: tableVersion,
         },
       };
     },
@@ -175,7 +178,8 @@ app.post("/upload", async (c) => {
       const table = tokenPayload.table as string;
       const periodTag = (tokenPayload as any).period_tag as string;
       let tableOffsets = (tokenPayload as any).table_offsets as string | null;
-      const schemaVersion = (tokenPayload as any).schema_version as string || "v0";
+      const tableVersion = (tokenPayload as any).table_version as string;
+      const detectedTableVersions = new Set<string>();
 
       const triggeredAt = new Date().toISOString();
 
@@ -235,7 +239,7 @@ app.post("/upload", async (c) => {
               return c.json({ error: 'Invalid Avro: schema not found in header' }, 400);
             }
 
-            const decodeResult = await validateAvroOCFSmart(slice);
+            const decodeResult = await validateAvroOCFSmart(slice, tableVersion);
             if (!decodeResult.valid) {
               console.error(`[battle-data] Decode validation failed for ${tname}:`, decodeResult.errorMessage);
               return c.json({
@@ -244,7 +248,19 @@ app.post("/upload", async (c) => {
               }, 400);
             }
 
-            console.info(`[battle-data] Validated ${tname}: ${decodeResult.recordCount} records`);
+            if (!decodeResult.tableVersion) {
+              console.error(`[battle-data] Missing table_version in Avro header for ${tname}`);
+              return c.json({ error: 'table_version not found in Avro header' }, 400);
+            }
+
+            if (decodeResult.tableVersion !== tableVersion) {
+              console.error(`[battle-data] table_version mismatch for ${tname}: token=${tableVersion}, avro=${decodeResult.tableVersion}`);
+              return c.json({ error: `table_version mismatch: expected ${tableVersion}, got ${decodeResult.tableVersion}` }, 400);
+            }
+
+            detectedTableVersions.add(decodeResult.tableVersion);
+
+            console.info(`[battle-data] Validated ${tname}: ${decodeResult.recordCount} records, table_version=${decodeResult.tableVersion}`);
             validatedOffsets.push({
               table_name: tname,
               start_byte: start,
@@ -266,7 +282,7 @@ app.post("/upload", async (c) => {
             return c.json({ error: 'Invalid Avro: schema not found in header' }, 400);
           }
 
-          const decodeResult = await validateAvroOCFSmart(data);
+          const decodeResult = await validateAvroOCFSmart(data, tableVersion);
           if (!decodeResult.valid) {
             console.error('[battle-data] Decode validation failed:', decodeResult.errorMessage);
             return c.json({
@@ -275,13 +291,32 @@ app.post("/upload", async (c) => {
             }, 400);
           }
 
-          console.info(`[battle-data] Validated ${table}: ${decodeResult.recordCount} records`);
+          if (!decodeResult.tableVersion) {
+            console.error('[battle-data] Missing table_version in Avro header');
+            return c.json({ error: 'table_version not found in Avro header' }, 400);
+          }
+
+          if (decodeResult.tableVersion !== tableVersion) {
+            console.error(`[battle-data] table_version mismatch: token=${tableVersion}, avro=${decodeResult.tableVersion}`);
+            return c.json({ error: `table_version mismatch: expected ${tableVersion}, got ${decodeResult.tableVersion}` }, 400);
+          }
+
+          detectedTableVersions.add(decodeResult.tableVersion);
+
+          console.info(`[battle-data] Validated ${table}: ${decodeResult.recordCount} records, table_version=${decodeResult.tableVersion}`);
           validatedOffsets.push({
             table_name: table,
             start_byte: 0,
             byte_length: data.byteLength,
             record_count: decodeResult.recordCount,
           });
+        }
+
+        if (detectedTableVersions.size > 1) {
+          return c.json({
+            error: 'Mixed table_version detected in upload',
+            detected_versions: Array.from(detectedTableVersions),
+          }, 400);
         }
 
         // Send a SINGLE queue message with all tables batched
@@ -296,7 +331,7 @@ app.post("/upload", async (c) => {
               batched: true,
               datasetId,
               periodTag,
-              schemaVersion,
+              tableVersion,
               triggeredAt,
               userId: user.id,
               // Full payload (base64 encoded)
@@ -356,11 +391,13 @@ app.get("/chunks", async (c) => {
   }
 
   try {
+    const tableVersion = c.req.query("table_version");
     let sql = `SELECT 
            bi.id AS id,
            bi.dataset_id,
            bi.table_name AS table,
            bi.length AS size,
+           bi.table_version,
            af.file_path,
            af.created_at,
            bi.start_timestamp,
@@ -370,6 +407,8 @@ app.get("/chunks", async (c) => {
          JOIN archived_files af ON af.id = bi.file_id
          WHERE bi.dataset_id = ? AND bi.table_name = ?`;
     const params: unknown[] = [datasetId, table];
+
+    if (tableVersion) { sql += ` AND bi.table_version = ?`; params.push(tableVersion); }
 
     // Convert ISO8601 to epoch millis if provided
     const fromMs = from ? Date.parse(from) : undefined;
@@ -391,6 +430,7 @@ app.get("/chunks", async (c) => {
       file_path: r.file_path,
       dataset_id: r.dataset_id,
       table: r.table,
+      table_version: r.table_version,
       size: r.size,
       record_count: r.record_count,
       uploaded_at: new Date(r.start_timestamp).toISOString(),
@@ -426,22 +466,26 @@ app.get("/latest", async (c) => {
   }
 
   try {
-    const stmt = indexDb.prepare(
-      `SELECT 
+    const tableVersion = c.req.query("table_version");
+    let latestSql = `SELECT 
          bi.id,
          bi.dataset_id,
          bi.table_name AS table,
          bi.length AS size,
+         bi.table_version,
          af.file_path,
          af.created_at,
          bi.start_timestamp,
          bi.record_count
        FROM block_indexes bi
        JOIN archived_files af ON af.id = bi.file_id
-       WHERE bi.dataset_id = ? AND bi.table_name = ?
-       ORDER BY bi.start_timestamp DESC LIMIT 1`
-    );
-    const row = await stmt.bind(datasetId, table).first?.();
+       WHERE bi.dataset_id = ? AND bi.table_name = ?`;
+    const latestParams: unknown[] = [datasetId, table];
+    if (tableVersion) { latestSql += ` AND bi.table_version = ?`; latestParams.push(tableVersion); }
+    latestSql += ` ORDER BY bi.start_timestamp DESC LIMIT 1`;
+
+    const stmt = indexDb.prepare(latestSql);
+    const row = await stmt.bind(...latestParams).first?.();
 
     if (!row) { return c.json({ error: "No fragments found" }, 404); }
 
@@ -450,6 +494,7 @@ app.get("/latest", async (c) => {
       file_path: row.file_path,
       dataset_id: row.dataset_id,
       table: row.table,
+      table_version: row.table_version,
       size: row.size,
       record_count: row.record_count,
       uploaded_at: new Date(Number(row.start_timestamp || 0)).toISOString(),
@@ -491,11 +536,13 @@ app.get("/global/chunks", async (c) => {
   }
 
   try {
+    const tableVersion = c.req.query("table_version");
     let sql = `SELECT 
            bi.id,
            bi.dataset_id,
            bi.table_name AS table,
            bi.length AS size,
+           bi.table_version,
            af.file_path,
            af.created_at,
            bi.start_timestamp,
@@ -505,6 +552,8 @@ app.get("/global/chunks", async (c) => {
          JOIN archived_files af ON af.id = bi.file_id
          WHERE bi.table_name = ?`;
     const params: unknown[] = [table];
+
+    if (tableVersion) { sql += ` AND bi.table_version = ?`; params.push(tableVersion); }
 
     const fromMs = from ? Date.parse(from) : undefined;
     const toMs = to ? Date.parse(to) : undefined;
@@ -524,6 +573,7 @@ app.get("/global/chunks", async (c) => {
       file_path: r.file_path,
       dataset_id: r.dataset_id,
       table: r.table,
+      table_version: r.table_version,
       size: r.size,
       record_count: r.record_count,
       uploaded_at: new Date(r.start_timestamp).toISOString(),
@@ -554,22 +604,26 @@ app.get("/global/latest", async (c) => {
   }
 
   try {
-    const stmt = indexDb.prepare(
-      `SELECT 
+    const tableVersion = c.req.query("table_version");
+    let globalLatestSql = `SELECT 
          bi.id,
          bi.dataset_id,
          bi.table_name AS table,
          bi.length AS size,
+         bi.table_version,
          af.file_path,
          af.created_at,
          bi.start_timestamp,
          bi.record_count
        FROM block_indexes bi
        JOIN archived_files af ON af.id = bi.file_id
-       WHERE bi.table_name = ?
-       ORDER BY bi.start_timestamp DESC LIMIT 1`
-    );
-    const row = await stmt.bind(table).first?.();
+       WHERE bi.table_name = ?`;
+    const globalLatestParams: unknown[] = [table];
+    if (tableVersion) { globalLatestSql += ` AND bi.table_version = ?`; globalLatestParams.push(tableVersion); }
+    globalLatestSql += ` ORDER BY bi.start_timestamp DESC LIMIT 1`;
+
+    const stmt = indexDb.prepare(globalLatestSql);
+    const row = await stmt.bind(...globalLatestParams).first?.();
     if (!row) { return c.json({ error: "No fragments found" }, 404); }
 
     const latest = {
@@ -577,6 +631,7 @@ app.get("/global/latest", async (c) => {
       file_path: row.file_path,
       dataset_id: row.dataset_id,
       table: row.table,
+      table_version: row.table_version,
       size: row.size,
       record_count: row.record_count,
       uploaded_at: new Date(Number(row.start_timestamp || 0)).toISOString(),

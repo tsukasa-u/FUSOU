@@ -105,7 +105,7 @@ impl Uploader {
     /// * `table` - Table name being uploaded (e.g., "port_table")
     /// * `file_size` - Size of the binary data in bytes
     /// * `table_offsets` - JSON string containing offset metadata for concatenated tables
-    /// * `schema_version` - Schema version tag (e.g., "v1", "v2")
+    /// * `table_version` - Table version tag (e.g., "0.4", "0.5")
     pub fn build_battle_data_handshake(
         period_tag: &str,
         path_tag: &str,
@@ -113,7 +113,7 @@ impl Uploader {
         table: &str,
         file_size: u64,
         table_offsets: &str,
-        schema_version: &str,
+        table_version: &str,
     ) -> serde_json::Value {
         serde_json::json!({
             "path": format!("{}.bin", path_tag),
@@ -123,7 +123,7 @@ impl Uploader {
             "kc_period_tag": period_tag,
             "file_size": file_size.to_string(),
             "table_offsets": table_offsets,
-            "schema_version": schema_version,
+            "table_version": table_version,
         })
     }
     /// Helper: build handshake body for fleet snapshot upload

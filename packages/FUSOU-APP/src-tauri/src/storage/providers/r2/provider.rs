@@ -1,6 +1,6 @@
 use std::sync::Arc;
 use kc_api::database::table::{GetDataTableEncode, PortTableEncode};
-use kc_api::database::SCHEMA_VERSION;
+use kc_api::database::DATABASE_TABLE_VERSION;
 
 use crate::storage::service::{StorageError, StorageFuture, StorageProvider};
 use crate::storage::common::get_all_port_tables;
@@ -84,7 +84,7 @@ impl R2StorageProvider {
             table_name,
             file_size as u64,
             &table_offsets,
-            SCHEMA_VERSION,
+            DATABASE_TABLE_VERSION,
         );
 
         let mut headers = std::collections::HashMap::new();
@@ -102,6 +102,7 @@ impl R2StorageProvider {
                 "dataset_id": dataset_id,
                 "table": table_name,
                 "table_offsets": table_offsets,
+                "table_version": DATABASE_TABLE_VERSION,
             })),
         };
 
@@ -445,6 +446,7 @@ impl R2StorageProvider {
             "content_hash": content_hash,
             "file_size": concatenated_data.len(),
             "table_offsets": table_offsets_json,  // JSON string (not parsed)
+            "table_version": DATABASE_TABLE_VERSION,
         });
 
         tracing::debug!("Preparation body: {}", prep_body);

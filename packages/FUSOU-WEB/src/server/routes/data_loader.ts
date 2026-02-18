@@ -233,6 +233,7 @@ app.get("/data/:table", async (c) => {
   const clientId = c.req.header("X-CLIENT-ID");
   const periodTagParam = c.req.query("period_tag") || "latest";
   const scopeParam = c.req.query("scope") || "all";
+  const tableVersionParam = c.req.query("table_version") || undefined;
   const limit = Math.min(parseInt(c.req.query("limit") || "100", 10), 1000);
 
   if (!apiKey) {
@@ -332,6 +333,7 @@ app.get("/data/:table", async (c) => {
       let masterSql = `SELECT 
            mdt.id AS id,
            mdi.period_tag AS period_tag,
+           mdi.table_version AS table_version,
            mdt.table_name AS table_name,
            mdt.r2_key AS r2_key,
            mdi.created_at AS created_at
@@ -343,6 +345,11 @@ app.get("/data/:table", async (c) => {
       if (periodTag && periodTagParam !== "all") {
         masterSql += ` AND mdi.period_tag = ?`;
         masterParams.push(periodTag);
+      }
+
+      if (tableVersionParam) {
+        masterSql += ` AND mdi.table_version = ?`;
+        masterParams.push(tableVersionParam);
       }
 
       masterSql += ` ORDER BY created_at DESC LIMIT ?`;
@@ -361,10 +368,11 @@ app.get("/data/:table", async (c) => {
       const files = (masterResult.results as any[]).map((r) => ({
         id: r.id,
         period_tag: r.period_tag,
+        table_version: r.table_version,
         table_name: r.table_name,
         r2_key: r.r2_key,
         created_at: r.created_at,
-        download_url: `/api/data-loader/download-master?period_tag=${encodeURIComponent(r.period_tag)}&table_name=${encodeURIComponent(r.table_name)}`,
+        download_url: `/api/data-loader/download-master?period_tag=${encodeURIComponent(r.period_tag)}&table_name=${encodeURIComponent(r.table_name)}${r.table_version ? `&table_version=${encodeURIComponent(r.table_version)}` : ''}`,
         type: "master",
       }));
 
@@ -408,10 +416,11 @@ app.get("/data/:table", async (c) => {
     const includeBuffer = c.req.query("include_buffer") === "true";
     
     // Query D1 for archived files
-    let sql = `SELECT 
+        let sql = `SELECT 
          bi.id,
          bi.dataset_id,
          bi.table_name,
+          bi.table_version,
          bi.length AS size,
          bi.record_count,
          bi.start_timestamp,
@@ -435,6 +444,11 @@ app.get("/data/:table", async (c) => {
         params.push(periodTag);
     }
 
+    if (tableVersionParam) {
+      sql += ` AND bi.table_version = ?`;
+      params.push(tableVersionParam);
+    }
+
     sql += ` ORDER BY bi.start_timestamp DESC LIMIT ?`;
     params.push(limit);
 
@@ -452,6 +466,7 @@ app.get("/data/:table", async (c) => {
       id: r.id,
       file_path: r.file_path,
       period_tag: r.period_tag,
+      table_version: r.table_version,
       size: r.size, // Block length
       record_count: r.record_count,
       start_timestamp: r.start_timestamp,
@@ -1053,6 +1068,7 @@ app.get("/download-master", async (c) => {
   const clientId = c.req.header("X-CLIENT-ID");
   const periodTag = c.req.query("period_tag");
   const tableName = c.req.query("table_name");
+  const tableVersion = c.req.query("table_version");
 
   if (!apiKey || !clientId) {
     return new Response("Authentication required", { status: 401 });
@@ -1095,13 +1111,17 @@ app.get("/download-master", async (c) => {
     }
 
     // Get r2_key from master_data_index
-    const stmt = masterDb.prepare(
-      `SELECT mdt.r2_key FROM master_data_tables mdt
+    let sql = `SELECT mdt.r2_key FROM master_data_tables mdt
        JOIN master_data_index mdi ON mdt.master_data_id = mdi.id
-       WHERE mdi.period_tag = ? AND mdt.table_name = ? AND mdi.upload_status = 'completed'
-       ORDER BY mdi.created_at DESC LIMIT 1`
-    );
-    const row = await stmt.bind(periodTag, tableName).first();
+       WHERE mdi.period_tag = ? AND mdt.table_name = ? AND mdi.upload_status = 'completed'`;
+    const params: unknown[] = [periodTag, tableName];
+    if (tableVersion) {
+      sql += ' AND mdi.table_version = ?';
+      params.push(tableVersion);
+    }
+    sql += ' ORDER BY mdi.created_at DESC LIMIT 1';
+    const stmt = masterDb.prepare(sql);
+    const row = await stmt.bind(...params).first();
     const r2Key = (row as { r2_key?: string } | null)?.r2_key;
 
     if (!r2Key) {

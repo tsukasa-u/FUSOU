@@ -599,7 +599,7 @@ def list_master_tables() -> List[str]:
     return list(_MASTER_TABLES)
 
 
-def get_master_latest() -> Dict[str, Any]:
+def get_master_latest(table_version: Optional[str] = None) -> Dict[str, Any]:
     """Get latest master-data metadata (period_tag) via data loader.
 
     Returns dict with keys: period_tag (str or None)
@@ -618,7 +618,10 @@ def get_master_latest() -> Dict[str, Any]:
         
         # Get latest period for the first master table
         first_table = master_tables[0]
-        resp2 = _request("GET", f"/data/{first_table}?period_tag=latest&limit=1")
+        url = f"/data/{first_table}?period_tag=latest&limit=1"
+        if table_version:
+            url += f"&table_version={table_version}"
+        resp2 = _request("GET", url)
         if resp2.status_code == 404:
             return {"exists": False, "period_tag": None}
         if resp2.status_code != 200:
@@ -631,7 +634,7 @@ def get_master_latest() -> Dict[str, Any]:
         raise FusouDatasetsError(f"Failed to get master latest: {e}")
 
 
-def load_master(table: str, period_tag: str = "latest") -> pd.DataFrame:
+def load_master(table: str, period_tag: str = "latest", table_version: Optional[str] = None) -> pd.DataFrame:
     """Load a master-data table as pandas DataFrame via data loader.
 
     Args:
@@ -642,7 +645,10 @@ def load_master(table: str, period_tag: str = "latest") -> pd.DataFrame:
         raise ValueError(f"Unknown master table '{table}'. Use list_master_tables().")
 
     # Use data loader /data/:table endpoint
-    resp = _request("GET", f"/data/{table}?period_tag={period_tag}&limit=1")
+    url = f"/data/{table}?period_tag={period_tag}&limit=1"
+    if table_version:
+        url += f"&table_version={table_version}"
+    resp = _request("GET", url)
     
     if resp.status_code == 404:
         raise DatasetNotFoundError(f"No master-data available for table '{table}' with period_tag='{period_tag}'")
@@ -688,15 +694,18 @@ def list_period_tags(_retry: bool = True) -> Dict[str, Any]:
     return {"period_tags": data.get("period_tags", []), "latest": data.get("latest")}
 
 
-def _load_impl(table: str, period_tag: str = "latest", limit: int = 100, show_progress: bool = True, _retry: bool = True) -> pd.DataFrame:
+def _load_impl(table: str, period_tag: str = "latest", limit: int = 100, show_progress: bool = True, table_version: Optional[str] = None, _retry: bool = True) -> pd.DataFrame:
     """Internal implementation of load() with retry parameter."""
     if not table:
         raise ValueError("Table name required")
     
-    resp = _request("GET", f"/data/{table}?period_tag={period_tag}&limit={limit}")
+    url = f"/data/{table}?period_tag={period_tag}&limit={limit}"
+    if table_version:
+        url += f"&table_version={table_version}"
+    resp = _request("GET", url)
     
     if resp.status_code == 403 and _retry:
-        return _handle_403(resp, lambda: _load_impl(table, period_tag, limit, show_progress, _retry=False))
+        return _handle_403(resp, lambda: _load_impl(table, period_tag, limit, show_progress, table_version, _retry=False))
     if resp.status_code == 404:
         raise DatasetNotFoundError(
             f"❌ No data found for table '{table}' with period_tag='{period_tag}'\n\n"
@@ -773,16 +782,20 @@ def _load_impl_with_files(
     limit: int,
     show_progress: bool,
     scope: str,
+    table_version: Optional[str],
     _retry: bool
 ) -> tuple:
     """Load implementation that returns (DataFrame, files_list) tuple."""
     if not table:
         raise ValueError("Table name required")
     
-    resp = _request("GET", f"/data/{table}?period_tag={period_tag}&limit={limit}&scope={scope}")
+    url = f"/data/{table}?period_tag={period_tag}&limit={limit}&scope={scope}"
+    if table_version:
+        url += f"&table_version={table_version}"
+    resp = _request("GET", url)
     
     if resp.status_code == 403 and _retry:
-        return _handle_403(resp, lambda: _load_impl_with_files(table, period_tag, limit, show_progress, scope, _retry=False))
+        return _handle_403(resp, lambda: _load_impl_with_files(table, period_tag, limit, show_progress, scope, table_version, _retry=False))
     if resp.status_code == 404:
         raise DatasetNotFoundError(
             f"❌ No data found for table '{table}' with period_tag='{period_tag}'\n\n"
@@ -801,7 +814,15 @@ def _load_impl_with_files(
             "The table exists but has no data files yet.\n"
             "Check available tables: fusou_datasets.list_tables()"
         )
-    
+
+    # When table_version is not specified and mixed versions are returned,
+    # auto-select the latest version and filter files.
+    if not table_version:
+        detected = _get_latest_table_version(files)
+        versions = {f.get("table_version") for f in files if f.get("table_version")}
+        if detected and len(versions) > 1:
+            files = _filter_files_by_version(files, detected)
+
     df = _download_files(files, table, show_progress)
     return df, files
 
@@ -813,7 +834,8 @@ def load(
     show_progress: bool = True,
     force_download: bool = False,
     offline: bool = False,
-    scope: str = "all"
+    scope: str = "all",
+    table_version: Optional[str] = None
 ) -> pd.DataFrame:
     """
     Load data for a table.
@@ -826,6 +848,7 @@ def load(
         force_download: Force re-download even if cached
         offline: Use cached data without server validation
         scope: "all" (all users' data, default) or "own" (your uploads only)
+        table_version: Table version to load (e.g., "0.4")
         
     Returns:
         pd.DataFrame: Combined data from all matching files
@@ -837,12 +860,17 @@ def load(
         raise ValueError(f"scope must be 'own' or 'all', got '{scope}'")
     
     # If caching enabled and not forcing download
+    resolved_cache_version = None
     if cache_dir and not force_download:
-        cache_path = Path(cache_dir) / table / period_tag
-        manifest_path = cache_path / "manifest.json"
-        data_path = cache_path / "data.parquet"
+        resolved_cache_version = _resolve_cached_table_version(cache_dir, table, table_version)
+        if resolved_cache_version:
+            cache_path = Path(cache_dir) / table / resolved_cache_version / period_tag
+        else:
+            cache_path = None
+        manifest_path = cache_path / "manifest.json" if cache_path else None
+        data_path = cache_path / "data.parquet" if cache_path else None
         
-        if data_path.exists() and manifest_path.exists():
+        if cache_path and data_path and manifest_path and data_path.exists() and manifest_path.exists():
             if offline:
                 # Offline mode: use cache without validation
                 print(f"[Cache] Loading {table} from cache (offline)", file=sys.stderr)
@@ -851,9 +879,22 @@ def load(
             # Online mode: validate cache with server
             try:
                 # Cache validation
-                resp = _request("GET", f"/data/{table}?period_tag={period_tag}&limit={limit}&scope={scope}")
+                url = f"/data/{table}?period_tag={period_tag}&limit={limit}&scope={scope}"
+                effective_request_version = table_version or resolved_cache_version
+                if effective_request_version:
+                    url += f"&table_version={effective_request_version}"
+                resp = _request("GET", url)
                 if resp.status_code == 200:
                     files = resp.json().get("files", [])
+                    detected_version = _get_latest_table_version(files)
+                    # Filter to latest version if mixed and no explicit version requested
+                    if not table_version and detected_version:
+                        versions = {f.get("table_version") for f in files if f.get("table_version")}
+                        if len(versions) > 1:
+                            files = _filter_files_by_version(files, detected_version)
+                    if table_version and detected_version and table_version != detected_version:
+                        print(f"[Cache] table_version mismatch: cache={resolved_cache_version}, server={detected_version}", file=sys.stderr)
+                        raise FusouDatasetsError("table_version mismatch between cache and server")
                     current_hash = _compute_files_hash(files)
                     
                     with open(manifest_path, "r") as f:
@@ -866,7 +907,7 @@ def load(
                         print(f"[Cache] Data updated, re-downloading {table}", file=sys.stderr)
                         # Use existing files list for download and cache
                         df = _download_files(files, table, show_progress)
-                        _save_to_cache(table, period_tag, df, files)
+                        _save_to_cache(table, period_tag, detected_version or table_version or "unknown", df, files)
                         return df
             except Exception as e:
                 print(f"[Cache] Validation failed, re-downloading: {e}", file=sys.stderr)
@@ -890,12 +931,41 @@ def load(
             "  3. Then use: fusou_datasets.load(..., offline=True)"
         )
     
+    if offline and not resolved_cache_version and not table_version:
+        # List available cached versions for the user
+        available_cached = []
+        _cache_dir = _config.get("cache_dir")
+        if _cache_dir:
+            _table_dir = Path(_cache_dir) / table
+            if _table_dir.exists():
+                available_cached = sorted([p.name for p in _table_dir.iterdir() if p.is_dir()])
+        if available_cached:
+            versions_str = ", ".join(f"'{v}'" for v in available_cached)
+            raise DatasetNotFoundError(
+                f"❌ Multiple cached versions found for '{table}': {versions_str}\n\n"
+                "Please specify table_version explicitly:\n"
+                f"  fusou_datasets.load('{table}', table_version='{available_cached[0]}', offline=True)"
+            )
+        else:
+            raise DatasetNotFoundError(
+                f"❌ No cached data for '{table}'\n\n"
+                "Offline mode requires cached data. To fix:\n"
+                f"  1. Run: fusou_datasets.load('{table}')\n"
+                "  2. Then use: fusou_datasets.load(..., offline=True)"
+            )
+
     # Download data (no cache or cache miss)
-    df, files = _load_impl_with_files(table, period_tag, limit, show_progress, scope, _retry=True)
+    df, files = _load_impl_with_files(table, period_tag, limit, show_progress, scope, table_version, _retry=True)
+    detected_version = _get_latest_table_version(files)
+    if table_version and detected_version and table_version != detected_version:
+        raise FusouDatasetsError(
+            f"table_version mismatch: requested {table_version}, server returned {detected_version}"
+        )
+    effective_version = detected_version or table_version or "unknown"
     
     # Save to cache if enabled
     if cache_dir:
-        _save_to_cache(table, period_tag, df, files)
+        _save_to_cache(table, period_tag, effective_version, df, files)
     
     return df
 
@@ -905,22 +975,88 @@ def _compute_files_hash(files: list) -> str:
     import hashlib
     # Sort by id to ensure consistent ordering
     sorted_files = sorted(files, key=lambda f: f.get("id", ""))
-    # Create hash from id, size, record_count
+    # Create hash from id, size, record_count, table_version
     hash_input = "|".join(
-        f"{f.get('id')}:{f.get('size')}:{f.get('record_count')}"
+        f"{f.get('id')}:{f.get('size')}:{f.get('record_count')}:{f.get('table_version')}"
         for f in sorted_files
     )
     return hashlib.sha256(hash_input.encode()).hexdigest()[:16]
 
 
-def _save_to_cache(table: str, period_tag: str, df: pd.DataFrame, files: list) -> None:
+def _version_sort_key(v: str) -> tuple:
+    """Return a sort key for table_version strings.
+
+    Legacy formats ('v0', 'v1') sort before dotted formats ('0.4', '0.5').
+    """
+    if v.startswith("v") and v[1:].isdigit():
+        # Legacy: v0 → (0, int), v1 → (0, int)
+        return (0, int(v[1:]), 0)
+    parts = v.split(".")
+    try:
+        return (1, int(parts[0]), int(parts[1]) if len(parts) > 1 else 0)
+    except ValueError:
+        return (2, 0, 0)
+
+
+def _get_latest_table_version(files: list) -> Optional[str]:
+    """Extract the latest table_version from file list.
+
+    If multiple versions exist, returns the latest one and prints a warning.
+    """
+    versions = {f.get("table_version") for f in files if f.get("table_version")}
+    if not versions:
+        return None
+    if len(versions) > 1:
+        latest = max(versions, key=_version_sort_key)
+        print(
+            f"[Info] Mixed table_version detected: {sorted(versions)}. "
+            f"Auto-selecting latest: '{latest}'",
+            file=sys.stderr,
+        )
+        return latest
+    return next(iter(versions))
+
+
+def _filter_files_by_version(files: list, version: str) -> list:
+    """Filter file list to only include files matching the given table_version."""
+    return [f for f in files if f.get("table_version") == version]
+
+
+# Keep backward-compatible alias
+def _get_single_table_version(files: list) -> Optional[str]:
+    """Extract a single table_version from file list.
+
+    Returns the latest version when multiple versions are present.
+    """
+    return _get_latest_table_version(files)
+
+
+def _resolve_cached_table_version(cache_dir: str, table: str, table_version: Optional[str]) -> Optional[str]:
+    """Resolve cache table_version when not provided.
+
+    If table_version is provided, return it. Otherwise, if exactly one
+    version directory exists for the table, return it. If none or multiple,
+    return None.
+    """
+    if table_version:
+        return table_version
+    base = Path(cache_dir) / table
+    if not base.exists() or not base.is_dir():
+        return None
+    versions = [p.name for p in base.iterdir() if p.is_dir()]
+    if len(versions) == 1:
+        return versions[0]
+    return None
+
+
+def _save_to_cache(table: str, period_tag: str, table_version: str, df: pd.DataFrame, files: list) -> None:
     """Save DataFrame to local cache."""
     cache_dir = _config.get("cache_dir")
     if not cache_dir:
         return
     
     try:
-        cache_path = Path(cache_dir) / table / period_tag
+        cache_path = Path(cache_dir) / table / table_version / period_tag
         cache_path.mkdir(parents=True, exist_ok=True)
         
         # Compute hash from files list
@@ -958,6 +1094,7 @@ def _save_to_cache(table: str, period_tag: str, df: pd.DataFrame, files: list) -
         manifest = {
             "hash": current_hash,
             "period_tag": period_tag,
+            "table_version": table_version,
             "cached_at": pd.Timestamp.now().isoformat(),
             "record_count": len(df)
         }

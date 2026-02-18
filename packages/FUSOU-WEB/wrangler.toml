@@ -8,7 +8,7 @@ pages_build_output_dir = "dist"
 # Note: Do NOT hardcode variables in wrangler.toml.
 # - Development: keep non-secret config in .env via dotenvx
 # - Production (Cloudflare Pages): set environment variables in the Pages Dashboard
-#   e.g. Settings → Environment Variables → add SCHEMA_FINGERPRINTS_JSON
+#   e.g. Settings → Environment Variables → add TABLE_FINGERPRINTS_JSON
 
 # ===== Service Bindings =====
 # Connect to separate Workers

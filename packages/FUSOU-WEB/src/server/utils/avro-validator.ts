@@ -1,11 +1,11 @@
 /**
  * Avro OCF Validator (WASM Edition for Cloudflare Workers)
- * 
+ *
  * Uses Rust+WASM apache-avro implementation for strict schema validation
  * - Canonical schema matching against known schemas
  * - Full Avro OCF decode validation
  * - No eval() - CSP compliant
- * 
+ *
  * Security:
  * - Client schemas are matched against server-side canonical schemas
  * - Rejects data with unknown or tampered schemas
@@ -36,7 +36,7 @@ export {
   type SchemaMatchInfo,
   type ValidationResult,
   type SchemaMatchResult,
-} from '@fusou/avro-wasm';
+} from "@fusou/avro-wasm";
 
 /**
  * Extract schema JSON from Avro OCF header
@@ -45,7 +45,13 @@ export {
 export function extractSchemaFromOCF(data: Uint8Array): string | null {
   try {
     // Parse magic bytes
-    if (data.length < 4 || data[0] !== 0x4F || data[1] !== 0x62 || data[2] !== 0x6A || data[3] !== 0x01) {
+    if (
+      data.length < 4 ||
+      data[0] !== 0x4f ||
+      data[1] !== 0x62 ||
+      data[2] !== 0x6a ||
+      data[3] !== 0x01
+    ) {
       return null;
     }
 
@@ -53,10 +59,10 @@ export function extractSchemaFromOCF(data: Uint8Array): string | null {
     const headerSlice = data.slice(0, Math.min(data.length, 4096));
     const text = new TextDecoder().decode(headerSlice);
 
-    const idx = text.indexOf('avro.schema');
+    const idx = text.indexOf("avro.schema");
     if (idx === -1) return null;
 
-    const startBrace = text.indexOf('{', idx);
+    const startBrace = text.indexOf("{", idx);
     if (startBrace === -1) return null;
 
     let depth = 0;
@@ -72,7 +78,7 @@ export function extractSchemaFromOCF(data: Uint8Array): string | null {
         continue;
       }
 
-      if (ch === '\\') {
+      if (ch === "\\") {
         escapeNext = true;
         continue;
       }
@@ -83,8 +89,8 @@ export function extractSchemaFromOCF(data: Uint8Array): string | null {
       }
 
       if (!inString) {
-        if (ch === '{') depth++;
-        if (ch === '}') {
+        if (ch === "{") depth++;
+        if (ch === "}") {
           depth--;
           if (depth === 0) {
             endBrace = i;
@@ -107,17 +113,25 @@ export function extractSchemaFromOCF(data: Uint8Array): string | null {
  */
 export function validateAvroHeader(
   data: Uint8Array,
-  maxBytes: number = 65536
+  maxBytes: number = 65536,
 ): { valid: boolean; error?: string } {
   // Size limit
   if (data.byteLength > maxBytes) {
-    return { valid: false, error: `File too large: ${data.byteLength} bytes (max: ${maxBytes})` };
+    return {
+      valid: false,
+      error: `File too large: ${data.byteLength} bytes (max: ${maxBytes})`,
+    };
   }
 
   // Magic bytes: "Obj\x01"
-  if (data.byteLength < 4 ||
-    data[0] !== 0x4F || data[1] !== 0x62 || data[2] !== 0x6A || data[3] !== 0x01) {
-    return { valid: false, error: 'Invalid Avro magic bytes' };
+  if (
+    data.byteLength < 4 ||
+    data[0] !== 0x4f ||
+    data[1] !== 0x62 ||
+    data[2] !== 0x6a ||
+    data[3] !== 0x01
+  ) {
+    return { valid: false, error: "Invalid Avro magic bytes" };
   }
 
   return { valid: true };
