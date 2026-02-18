@@ -200,6 +200,7 @@ CREATE TABLE buffer_logs (
     dataset_id TEXT NOT NULL,
     table_name TEXT NOT NULL,
     period_tag TEXT DEFAULT 'latest',
+    table_version TEXT NOT NULL,
     payload BLOB NOT NULL,               -- Avro OCF のブロック／NDJSON 等
     content_hash TEXT,                   -- 任意：重複排除用
     received_at INTEGER NOT NULL         -- 受信時刻（ms）
@@ -214,12 +215,13 @@ CREATE INDEX IF NOT EXISTS idx_buffer_logs_key
 ### archived_files（R2 に保存したアーカイブの台帳）
 ```sql
 CREATE TABLE archived_files (
-    file_path TEXT PRIMARY KEY,          -- 例: battle/20251223_18.avro
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    file_path TEXT NOT NULL UNIQUE,      -- R2: "0.4/202412/1700000000/battle-000.avro"
+    table_version TEXT NOT NULL,
+    file_size INTEGER,
+    compression_codec TEXT,              -- 例: 'deflate'
     created_at INTEGER NOT NULL,
-    total_bytes INTEGER,
-    total_records INTEGER,
-    codec TEXT,                          -- 例: 'deflate'
-    schema_hash TEXT                     -- 任意：スキーマ整合性の検査用
+    last_modified_at INTEGER
 );
 ```
 
@@ -233,6 +235,7 @@ CREATE TABLE block_indexes (
     record_count INTEGER,                -- オプション：見積もり
     dataset_id TEXT,
     table_name TEXT,
+    table_version TEXT,
     period_tag TEXT,
     created_at INTEGER NOT NULL,
     FOREIGN KEY(file_path) REFERENCES archived_files(file_path)

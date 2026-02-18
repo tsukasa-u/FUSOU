@@ -6,15 +6,15 @@
 
 **battle_data.ts (line 98-102):**
 ```typescript
-const schemaVersion = typeof body?.schema_version === "string"
-  ? body.schema_version.trim()
-  : typeof body?.schemaVersion === "string"
-    ? body.schemaVersion.trim()
+const tableVersion = typeof body?.table_version === "string"
+  ? body.table_version.trim()
+  : typeof body?.tableVersion === "string"
+    ? body.tableVersion.trim()
     : "v1";
 ```
 
 **問題点:**
-- クライアントが送信した `schema_version` をそのまま信頼している
+- クライアントが送信した `table_version` をそのまま信頼している
 - スキーマの内容（フィールド構成）を一切検証していない
 - 悪意のあるクライアントが任意のバージョンを宣言できる
 
@@ -24,14 +24,14 @@ const schemaVersion = typeof body?.schema_version === "string"
 // 攻撃者が送信
 POST /upload
 {
-  "schema_version": "v2",  // ← 嘘のバージョンを宣言
+  "table_version": "v2",  // ← 嘘のバージョンを宣言
   "table": "battle_result",
   "data": <v1形式のデータ>  // ← 実際はv1の古いスキーマ
 }
 ```
 
 **結果:**
-1. サーバーは `schema_version: "v2"` として D1 に保存
+1. サーバーは `table_version: "v2"` として D1 に保存
 2. 読み取り時、v2のフィンガープリント検証を試みる
 3. **実際のデータはv1** → フィンガープリント不一致
 4. データが読めなくなる or 破損データとして扱われる
@@ -42,7 +42,7 @@ POST /upload
 // 互換性のないスキーマで送信
 POST /upload
 {
-  "schema_version": "v2",
+  "table_version": "v2",
   "table": "battle_result",
   "data": <フィールド型を変更したデータ>
   // 例: id を string から number に変更
@@ -66,7 +66,7 @@ POST /upload
 import { parseSchemaFingerprintFromHeader, computeSchemaFingerprint } from '../../../FUSOU-WORKFLOW/dist/avro-manual.js';
 
 // 環境変数から許可されたスキーマフィンガープリントを読み込み
-const ALLOWED_SCHEMA_FINGERPRINTS = {
+const ALLOWED_TABLE_FINGERPRINTS = {
   v1: "3a5f2bc71d8e9ab...",  // 実際のv1スキーマのSHA-256
   v2: "7d8e9ab42f1c6d3...",  // 実際のv2スキーマのSHA-256
 };
@@ -76,7 +76,7 @@ app.post("/upload", async (c) => {
   // ... 既存のコード ...
   
   // クライアントが送信したスキーマバージョン
-  const declaredVersion = body.schema_version || "v1";
+  const declaredVersion = body.table_version || "v1";
   
   // Avroヘッダーからスキーマを抽出
   const headerLen = getAvroHeaderLength(uploadedData);
@@ -93,7 +93,7 @@ app.post("/upload", async (c) => {
   }
   
   // 2. フィンガープリント検証
-  const expectedFingerprint = ALLOWED_SCHEMA_FINGERPRINTS[declaredVersion];
+  const expectedFingerprint = ALLOWED_TABLE_FINGERPRINTS[declaredVersion];
   if (!expectedFingerprint) {
     return c.json({ 
       error: `Unknown schema version: ${declaredVersion}` 
@@ -119,7 +119,7 @@ app.post("/upload", async (c) => {
 **wrangler.toml:**
 ```toml
 [env.production.vars]
-SCHEMA_FINGERPRINTS_JSON = '{"v1":"3a5f2bc71d8e...","v2":"7d8e9ab42f1c..."}'
+TABLE_FINGERPRINTS_JSON = '{"v1":"3a5f2bc71d8e...","v2":"7d8e9ab42f1c..."}'
 ```
 
 **スキーマ更新手順:**
@@ -151,7 +151,7 @@ SCHEMA_FINGERPRINTS_JSON = '{"v1":"3a5f2bc71d8e...","v2":"7d8e9ab42f1c..."}'
 
 ### ✅ 実装済み
 - スキーマフィンガープリント計算（`computeSchemaFingerprint`）
-- 読み取り時のフィンガープリント検証（`validateHeaderSchemaVersion`）
+- 読み取り時のフィンガープリント検証（`validateHeaderTableVersion`）
 - 後方互換性のある変更の処理
 - 複数バージョン混在の読み取り
 
@@ -166,7 +166,7 @@ SCHEMA_FINGERPRINTS_JSON = '{"v1":"3a5f2bc71d8e...","v2":"7d8e9ab42f1c..."}'
 
 ### ステップ1: 即座に実装すべき（セキュリティ重要度：高）
 1. `battle_data.ts` に `validateUploadedSchema()` 関数を追加
-2. 環境変数 `SCHEMA_FINGERPRINTS_JSON` の設定
+2. 環境変数 `TABLE_FINGERPRINTS_JSON` の設定
 3. アップロード時の検証を有効化
 
 ### ステップ2: 中期的改善

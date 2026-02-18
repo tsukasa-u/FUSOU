@@ -43,11 +43,11 @@
      |                               |    computeSchemaFingerprint()
      |                               |
      |                               | 4. 環境変数と比較
-     |                               |    SCHEMA_FINGERPRINTS_JSON
+     |                               |    TABLE_FINGERPRINTS_JSON
      |                               |    {"v1": "abc123...", "v2": "def456..."}
      |                               |
      |                               | 5. 一致判定
-     |                               |    validateHeaderSchemaVersion()
+     |                               |    validateHeaderTableVersion()
      |                               |
      |<------------------------------|
      |      OK / Error               |
@@ -61,7 +61,7 @@
 // kc_api や FUSOU-APP から送信されるデータ
 const data = {
   table_name: "battle_result",
-  schema_version: "v1",  // ← スキーマバージョン指定
+  table_version: "v1",  // ← テーブルバージョン指定
   data: { /* 実データ */ }
 };
 
@@ -92,17 +92,17 @@ await R2.put(filePath, avroFile);
 // D1にインデックス保存
 await D1.prepare(`
   INSERT INTO block_indexes 
-    (dataset_id, table_name, schema_version, file_id, ...)
+    (dataset_id, table_name, table_version, file_id, ...)
   VALUES (?, ?, ?, ?, ...)
 `).bind(userId, "battle_result", "v1", fileId, ...).run();
 ```
 
 #### ステップ3: サーバー側（読み取り時の検証）
 
-**reader.ts: validateHeaderSchemaVersion()**
+**reader.ts: validateHeaderTableVersion()**
 
 ```typescript
-async function validateHeaderSchemaVersion(
+async function validateHeaderTableVersion(
   header: Uint8Array,          // Avroファイルのヘッダー部分
   expectedVersion: string,     // 期待されるバージョン（例: "v1"）
   allowedMap: Record<string, string>  // 許可されたハッシュマップ
@@ -136,7 +136,7 @@ async function validateHeaderSchemaVersion(
 **wrangler.toml または Cloudflare Dashboard**
 ```toml
 [env.production.vars]
-SCHEMA_FINGERPRINTS_JSON = '{"v1":"3a5f2bc71d8e...","v2":"7d8e9ab42f1c..."}'
+TABLE_FINGERPRINTS_JSON = '{"v1":"3a5f2bc71d8e...","v2":"7d8e9ab42f1c..."}'
 ```
 
 この環境変数は以下のように取得されます：
@@ -144,9 +144,9 @@ SCHEMA_FINGERPRINTS_JSON = '{"v1":"3a5f2bc71d8e...","v2":"7d8e9ab42f1c..."}'
 ```typescript
 // reader.ts
 function loadSchemaFingerprintMap(env: Env): Record<string, string> {
-  if (!env.SCHEMA_FINGERPRINTS_JSON) return {};
+  if (!env.TABLE_FINGERPRINTS_JSON) return {};
   try {
-    return JSON.parse(env.SCHEMA_FINGERPRINTS_JSON);
+    return JSON.parse(env.TABLE_FINGERPRINTS_JSON);
   } catch {
     return {};
   }
@@ -184,7 +184,7 @@ export async function computeSchemaFingerprint(schemaJson: string): Promise<stri
 ```
 1. クライアントがv1スキーマでデータ送信
 2. サーバーがAvroヘッダーに "fusou.v1" を埋め込み
-3. R2に保存、D1に schema_version="v1" でインデックス
+3. R2に保存、D1に table_version="v1" でインデックス
 4. 読み取り時:
    - parseSchemaFingerprintFromHeader() → "3a5f2bc..."
    - 環境変数の {"v1": "3a5f2bc..."} と一致
@@ -207,7 +207,7 @@ export async function computeSchemaFingerprint(schemaJson: string): Promise<stri
 ```
 1. v1とv2のデータが混在
 2. 現在の実装では:
-   - effectiveSchemaVersion = params.schema_version ?? coldIndexes[0]?.schema_version
+   - effectiveTableVersion = params.table_version ?? coldIndexes[0]?.table_version
    - 最初のブロックのバージョンを全体に適用
    - ⚠️ 問題: v1とv2が混在していると正しく検証できない
 ```
@@ -223,11 +223,11 @@ export async function computeSchemaFingerprint(schemaJson: string): Promise<stri
    - 互換性のない変更（型変更など）が拒否されるかテストされていない
 
 2. **複数バージョン混在の処理が不明確**
-   - reader.tsは最初のブロックのschema_versionを全体に適用
+   - reader.tsは最初のブロックのtable_versionを全体に適用
    - 異なるバージョンが混在する場合の動作が未定義
 
 3. **環境変数の更新手順が不明確**
-   - スキーマv2を追加する際、SCHEMA_FINGERPRINTS_JSONをどう更新するか
+   - スキーマv2を追加する際、TABLE_FINGERPRINTS_JSONをどう更新するか
    - ロールバック時の対応が不明
 
 ### ✅ 推奨される追加テスト
@@ -294,8 +294,8 @@ async function testIncompatible() {
 async function testMixedVersions() {
   // v1とv2のブロックが混在
   const indexes = [
-    { schema_version: 'v1', file_path: 'v1.avro' },
-    { schema_version: 'v2', file_path: 'v2.avro' }
+    { table_version: 'v1', file_path: 'v1.avro' },
+    { table_version: 'v2', file_path: 'v2.avro' }
   ];
   
   // 読み取り時の動作を確認
@@ -325,7 +325,7 @@ console.log('v2 hash:', hash);
 
 2. **環境変数を更新**
 ```bash
-wrangler secret put SCHEMA_FINGERPRINTS_JSON
+wrangler secret put TABLE_FINGERPRINTS_JSON
 # 入力: {"v1":"3a5f...","v2":"7d8e..."}
 ```
 

@@ -34,7 +34,7 @@ The `handleCron` function (`src/cron.ts`) performs the following steps:
 
 2.  **Grouping**
 
-    - Groups data by `table_name`, `period_tag`, and `schema_version`.
+    - Groups data by `table_name`, `period_tag`, and `table_version`.
     - Further groups by `dataset_id` to handle multi-part uploads.
 
 3.  **Avro OCF Merging**
@@ -49,8 +49,8 @@ The `handleCron` function (`src/cron.ts`) performs the following steps:
 4.  **Storage (R2)**
 
     - Uploads the merged file to `BATTLE_DATA_BUCKET`.
-    - Path: `{schemaVersion}/{periodTag}/{runTimestamp}/{tableName}-{indexStr}.avro`
-    - Metadata: Stores run info, block counts, and schema version.
+    - Path: `{tableVersion}/{periodTag}/{runTimestamp}/{tableName}-{indexStr}.avro`
+    - Metadata: Stores run info, block counts, and table version.
 
 5.  **Indexing (D1)**
 
@@ -76,7 +76,7 @@ CREATE TABLE archived_files (
   file_path TEXT NOT NULL,
   file_size INTEGER,
   compression_codec TEXT,
-  schema_version TEXT,
+    table_version TEXT,
   created_at INTEGER,
   last_modified_at INTEGER
 );
@@ -90,7 +90,7 @@ Maps datasets to their byte ranges in R2 files.
 CREATE TABLE block_indexes (
   dataset_id TEXT NOT NULL,
   table_name TEXT NOT NULL,
-  schema_version TEXT,
+    table_version TEXT,
   period_tag TEXT,
   file_id INTEGER NOT NULL,
   start_byte INTEGER NOT NULL,

@@ -8,7 +8,7 @@ This app validates Avro slices against a table/version allowlist.
 - Changes require a WEB rebuild/deploy.
 
 ## Override per environment
-- Set `SCHEMA_FINGERPRINTS_JSON` as an environment variable to override bundled JSON.
+- Set `TABLE_FINGERPRINTS_JSON` as an environment variable to override bundled JSON.
 - Development: put the JSON into `.env` loaded by dotenvx.
 - Production (Cloudflare Pages): configure in the Pages Dashboard → Settings → Environment Variables.
 

@@ -430,7 +430,7 @@ export async function handleCron(env: Env): Promise<void> {
     // NEW: Log schema version distribution
     const versionDistribution = new Map<string, number>();
     for (const row of rows) {
-      const v = row.schema_version || 'NULL';
+      const v = row.table_version || 'NULL';
       versionDistribution.set(v, (versionDistribution.get(v) ?? 0) + 1);
     }
     
@@ -439,10 +439,10 @@ export async function handleCron(env: Env): Promise<void> {
     );
     
     // Log any NULL occurrences
-    const nullCount = rows.filter(r => !r.schema_version).length;
+    const nullCount = rows.filter(r => !r.table_version).length;
     if (nullCount > 0) {
       console.warn(
-        `[ALERT] Found ${nullCount} rows with NULL schema_version! ` +
+        `[ALERT] Found ${nullCount} rows with NULL table_version! ` +
         `This should not happen after migration.`
       );
     }
@@ -459,11 +459,11 @@ export async function handleCron(env: Env): Promise<void> {
     for (const group of groups) {
       if (!group.blocks.length) continue;
       
-      versionsSeen.add(group.key.schema_version);
+      versionsSeen.add(group.key.table_version);
       
       console.debug(
         `[Archival] Processing group: ` +
-        `schema_version=${group.key.schema_version}, ` +
+        `table_version=${group.key.table_version}, ` +
         `table=${group.key.table_name}, ` +
         `period=${group.key.period_tag}, ` +
         `blocks=${group.blocks.length}`
@@ -476,7 +476,7 @@ export async function handleCron(env: Env): Promise<void> {
       console.info(
         `[Archival] Uploaded file: path=${filePath}, ` +
         `size=${chunk.size}, ` +
-        `schema_version=${group.key.schema_version}`
+        `table_version=${group.key.table_version}`
       );
     }
     
@@ -508,7 +508,7 @@ async function handleRead(request: Request, env: Env): Promise<Response> {
   console.debug('[Reader] Query:', {
     dataset_id: params.dataset_id,
     table_name: params.table_name,
-    schema_version: params.schema_version || 'any',
+    table_version: params.table_version || 'any',
     time_range: params.from && params.to ? 
       `${params.from}-${params.to}` : 'all'
   });
@@ -518,8 +518,8 @@ async function handleRead(request: Request, env: Env): Promise<Response> {
     const coldIndexes = await fetchColdIndexes(env.BATTLE_INDEX_DB, params);
     
     // Log version distribution in result
-    const hotVersions = new Set(hotData.map(r => r.schema_version));
-    const coldVersions = new Set(coldIndexes.map(b => b.schema_version));
+    const hotVersions = new Set(hotData.map(r => r.table_version));
+    const coldVersions = new Set(coldIndexes.map(b => b.table_version));
     
     console.info('[Reader] Data distribution:', {
       hot_records: hotData.length,
@@ -530,7 +530,7 @@ async function handleRead(request: Request, env: Env): Promise<Response> {
     
     // Warn if versions are mixed unexpectedly
     if (hotVersions.size > 1 || coldVersions.size > 1) {
-      console.warn('[Reader] Multiple schema versions detected - this is OK during migration');
+      console.warn('[Reader] Multiple table versions detected - this is OK during migration');
     }
     
     // ... rest of reader logic ...
@@ -552,23 +552,23 @@ async function handleRead(request: Request, env: Env): Promise<Response> {
 -- Query for monitoring dashboard
 SELECT 
   'buffer_logs' as table_name,
-  schema_version,
+  table_version,
   COUNT(*) as record_count,
   MIN(timestamp) as oldest_record,
   MAX(timestamp) as newest_record
 FROM buffer_logs
 WHERE created_at > datetime('now', '-1 hour')
-GROUP BY schema_version
+GROUP BY table_version
 UNION ALL
 SELECT 
   'archived_files',
-  schema_version,
+  table_version,
   COUNT(*),
   MIN(created_at),
   MAX(created_at)
 FROM archived_files
 WHERE created_at > datetime('now', '-1 hour')
-GROUP BY schema_version;
+GROUP BY table_version;
 ```
 
 ### Daily: Integrity Check
@@ -576,26 +576,26 @@ GROUP BY schema_version;
 ```sql
 -- Check for NULL values (should be 0)
 SELECT 
-  SUM(CASE WHEN schema_version IS NULL THEN 1 ELSE 0 END) as null_count
+  SUM(CASE WHEN table_version IS NULL THEN 1 ELSE 0 END) as null_count
 FROM (
-  SELECT schema_version FROM buffer_logs
+  SELECT table_version FROM buffer_logs
   UNION ALL
-  SELECT schema_version FROM archived_files
+  SELECT table_version FROM archived_files
   UNION ALL
-  SELECT schema_version FROM block_indexes
+  SELECT table_version FROM block_indexes
 );
 ```
 
 ### Weekly: Path vs. Schema Version Consistency
 
 ```sql
--- Detect path/schema_version mismatches
--- e.g., file_path="v1/..." but schema_version="v2"
+-- Detect path/table_version mismatches
+-- e.g., file_path="v1/..." but table_version="v2"
 SELECT COUNT(*) as mismatches
 FROM archived_files
 WHERE 
-  (SUBSTR(file_path, 1, 2) = 'v1' AND schema_version != 'v1') OR
-  (SUBSTR(file_path, 1, 2) = 'v2' AND schema_version != 'v2');
+  (SUBSTR(file_path, 1, 2) = 'v1' AND table_version != 'v1') OR
+  (SUBSTR(file_path, 1, 2) = 'v2' AND table_version != 'v2');
   
 -- Should always be 0
 ```
@@ -604,7 +604,7 @@ WHERE
 
 ### Critical Alerts
 ```
-1. NULL schema_version detected
+1. NULL table_version detected
    - Threshold: > 0
    - Action: Check if migration was applied correctly
    - Severity: CRITICAL
@@ -615,7 +615,7 @@ WHERE
    - Severity: CRITICAL
 
 3. Reader fails on version filtering
-   - Pattern: "schema_version column not found"
+   - Pattern: "table_version column not found"
    - Action: Check if D1 migration was applied
    - Severity: CRITICAL
 ```
@@ -623,7 +623,7 @@ WHERE
 ### Warning Alerts
 ```
 1. Unexpected version in production
-   - Pattern: schema_version != 'v1' during v1-only phase
+   - Pattern: table_version != 'v1' during v1-only phase
    - Action: Check if new app was deployed early
    - Severity: WARNING
 
@@ -662,24 +662,24 @@ WHERE
 
 - [ ] Configure alerts in monitoring system
   - Datadog / New Relic / CloudFlare Analytics Engine
-  - Alert on NULL schema_version
+  - Alert on NULL table_version
   - Alert on version mismatch
 
 ### Day-1 Post-Production
 
 - [ ] Monitor first hour of logs
   ```bash
-  tail -f cloudflare-worker-logs.txt | grep schema_version
+  tail -f cloudflare-worker-logs.txt | grep table_version
   ```
 
 - [ ] Check version distribution
   ```sql
-  SELECT schema_version, COUNT(*) FROM buffer_logs GROUP BY schema_version;
+  SELECT table_version, COUNT(*) FROM buffer_logs GROUP BY table_version;
   ```
 
 - [ ] Verify no NULL values
   ```sql
-  SELECT COUNT(*) FROM buffer_logs WHERE schema_version IS NULL;
+  SELECT COUNT(*) FROM buffer_logs WHERE table_version IS NULL;
   ```
 
 ### Ongoing Monitoring (Daily)
@@ -700,7 +700,7 @@ WHERE
   "operation": "cron|reader|buffer-consumer",
   "message": "Schema version tracking",
   "data": {
-    "schema_version": "v1",
+    "table_version": "v1",
     "count": 150,
     "duration_ms": 245,
     "error": null
@@ -720,14 +720,14 @@ WHERE
     "type": "R2 Range Request Failed",
     "code": "NoSuchKey",
     "path": "v2/2025-12/battle-001.avro",
-    "schema_version": "v2"
+    "table_version": "v2"
   }
 }
 ```
 
 ## 6. Troubleshooting Guide
 
-### Symptom: "schema_version column not found" Error
+### Symptom: "table_version column not found" Error
 
 ```
 Likely Cause: D1 migration not applied
@@ -735,11 +735,11 @@ Fix:
 1. Check if ALTER TABLE was executed
    PRAGMA table_info(buffer_logs);
 2. If missing, apply migration
-   npx wrangler d1 execute prod_db --file=migrations/add_schema_version.sql
+   npx wrangler d1 execute prod_db --file=migrations/add_table_version.sql
 3. Redeploy FUSOU-WORKFLOW
 ```
 
-### Symptom: All new data has schema_version=NULL
+### Symptom: All new data has table_version=NULL
 
 ```
 Likely Cause: Default value not working or app not specifying version
@@ -748,11 +748,11 @@ Fix:
    PRAGMA table_info(buffer_logs);
    (should show: DEFAULT 'v1')
 2. Check app code
-   - buffer-consumer.ts: schemaVersion || 'v1'
-   - cron.ts: Always passes schema_version
+   - buffer-consumer.ts: tableVersion || 'v1'
+   - cron.ts: Always passes table_version
 3. If DEFAULT missing, run:
    ALTER TABLE buffer_logs ADD CONSTRAINT check_version 
-   CHECK (schema_version IS NOT NULL);
+   CHECK (table_version IS NOT NULL);
 ```
 
 ### Symptom: Path/Version Mismatch Detected
@@ -760,7 +760,7 @@ Fix:
 ```
 Example:
   archived_files.file_path = "v1/2025-12/battle-001.avro"
-  archived_files.schema_version = "v2"
+  archived_files.table_version = "v2"
 
 Investigation:
 1. Query the specific file
@@ -772,8 +772,8 @@ Investigation:
 
 Fix:
 1. Update the column to match
-   UPDATE archived_files SET schema_version='v1' 
-   WHERE file_path LIKE 'v1/%' AND schema_version != 'v1';
+   UPDATE archived_files SET table_version='v1' 
+   WHERE file_path LIKE 'v1/%' AND table_version != 'v1';
 2. Verify R2 object still exists and is readable
 3. Test reader on affected file
 ```
@@ -787,7 +787,7 @@ Expected behavior during migration:
 
 If this is NOT expected:
 1. Check reader.ts query
-   - Was schema_version filtering removed by accident?
+   - Was table_version filtering removed by accident?
 2. Check if v2 app was deployed when it shouldn't be
 3. Check logs for version distribution
 ```
@@ -799,23 +799,23 @@ If this is NOT expected:
 import { D1Database } from "@cloudflare/workers-types";
 
 export async function checkVersionHealth(db: D1Database): Promise<void> {
-  console.log('=== Schema Version Health Check ===');
+  console.log('=== Table Version Health Check ===');
   
   // Check 1: NULL values
   const nullCount = await db.prepare(
-    `SELECT COUNT(*) as cnt FROM buffer_logs WHERE schema_version IS NULL`
+    `SELECT COUNT(*) as cnt FROM buffer_logs WHERE table_version IS NULL`
   ).first<{ cnt: number }>();
   
   if (nullCount?.cnt! > 0) {
-    console.error(`❌ CRITICAL: Found ${nullCount.cnt} NULL schema_version values`);
+    console.error(`❌ CRITICAL: Found ${nullCount.cnt} NULL table_version values`);
   } else {
-    console.log('✓ No NULL schema_version values');
+    console.log('✓ No NULL table_version values');
   }
   
   // Check 2: Distribution
   const distribution = await db.prepare(
-    `SELECT schema_version, COUNT(*) as cnt FROM buffer_logs 
-     GROUP BY schema_version`
+    `SELECT table_version, COUNT(*) as cnt FROM buffer_logs 
+     GROUP BY table_version`
   ).all();
   
   console.log('Version distribution:', distribution.results);
@@ -823,7 +823,7 @@ export async function checkVersionHealth(db: D1Database): Promise<void> {
   // Check 3: Path/Version mismatch
   const mismatches = await db.prepare(
     `SELECT COUNT(*) as cnt FROM archived_files 
-     WHERE SUBSTR(file_path, 1, 2) != schema_version`
+     WHERE SUBSTR(file_path, 1, 2) != table_version`
   ).first<{ cnt: number }>();
   
   if (mismatches?.cnt! > 0) {
