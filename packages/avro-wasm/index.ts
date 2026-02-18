@@ -71,7 +71,7 @@ export interface AvroValidationResult {
   recordCount: number;
   errorMessage?: string;
   tableName?: string;
-  schemaVersion?: string;
+  tableVersion?: string;
 }
 
 /**
@@ -90,27 +90,34 @@ export async function validateAvroOCF(
     recordCount: result.record_count ?? 0,
     errorMessage: result.error_message ?? undefined,
     tableName: result.table_name ?? undefined,
-    schemaVersion: result.schema_version ?? undefined,
+    tableVersion: result.table_version ?? undefined,
   };
 }
 
 /**
  * Validate Avro OCF with automatic canonical schema matching
  * This is the recommended function for strict validation of untrusted data
+ *
+ * @param data - The Avro OCF binary data
+ * @param hintTableVersion - Optional table_version hint from the client.
+ *   When schemas are identical across multiple versions (e.g., users on different
+ *   app versions), this hint disambiguates the correct version. Pass undefined
+ *   or omit if no hint is available.
  */
 export async function validateAvroOCFSmart(
-  data: Uint8Array
+  data: Uint8Array,
+  hintTableVersion?: string
 ): Promise<AvroValidationResult> {
   await initWasm();
 
-  const result = wasm_validate_avro_ocf_smart(data);
+  const result = wasm_validate_avro_ocf_smart(data, hintTableVersion ?? "");
 
   return {
     valid: result.valid,
     recordCount: result.record_count ?? 0,
     errorMessage: result.error_message ?? undefined,
     tableName: result.table_name ?? undefined,
-    schemaVersion: result.schema_version ?? undefined,
+    tableVersion: result.table_version ?? undefined,
   };
 }
 
@@ -131,7 +138,7 @@ export async function validateAvroOCFByTable(
     recordCount: result.record_count ?? 0,
     errorMessage: result.error_message ?? undefined,
     tableName: result.table_name ?? tableName,
-    schemaVersion: result.schema_version ?? version,
+    tableVersion: result.table_version ?? undefined,
   };
 }
 
@@ -144,13 +151,18 @@ export interface SchemaMatchInfo {
 
 /**
  * Match client schema against known canonical schemas
+ *
+ * @param schemaJson - The client's schema JSON
+ * @param hintTableVersion - Optional table_version hint to disambiguate
+ *   when multiple versions share identical canonical forms.
  */
 export async function matchClientSchema(
-  schemaJson: string
+  schemaJson: string,
+  hintTableVersion?: string
 ): Promise<SchemaMatchInfo> {
   await initWasm();
 
-  const result = wasm_match_client_schema(schemaJson);
+  const result = wasm_match_client_schema(schemaJson, hintTableVersion ?? "");
 
   return {
     matched: result.matched,

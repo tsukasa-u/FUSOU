@@ -6,20 +6,36 @@ AVRO_WASM_DIR="$SCRIPT_DIR"
 
 echo "Building Avro WASM with multiple schema versions..."
 
-# Version to build (default: v0)
-VERSION=${1:-"v0"}
+# Version to build (default: all — always include every version for multi-version coexistence)
+VERSION=${1:-"all"}
+
+# Auto-detect available schema versions from Cargo.toml
+detect_versions() {
+    local versions=()
+    while IFS= read -r line; do
+        if [[ "$line" =~ ^schema_(v[0-9]+_[0-9]+)[[:space:]]*= ]]; then
+            versions+=("${BASH_REMATCH[1]}")
+        fi
+    done < "$AVRO_WASM_DIR/Cargo.toml"
+    echo "${versions[@]}"
+}
+
+DETECTED_VERSIONS=($(detect_versions))
+echo "Detected schema versions: ${DETECTED_VERSIONS[*]}"
 
 if [ "$VERSION" = "all" ]; then
-    FEATURE="schema_v0,schema_v1,schema_v2,console_error_panic_hook"
-elif [ "$VERSION" = "v0" ] || [ "$VERSION" = "v1" ] || [ "$VERSION" = "v2" ]; then
+    FEATURE_PARTS=()
+    for v in "${DETECTED_VERSIONS[@]}"; do
+        FEATURE_PARTS+=("schema_$v")
+    done
+    FEATURE="$(IFS=,; echo "${FEATURE_PARTS[*]}"),console_error_panic_hook"
+elif [[ "$VERSION" =~ ^v[0-9]+_[0-9]+$ ]]; then
     FEATURE="schema_$VERSION,console_error_panic_hook"
 else
-    echo "Usage: $0 [v0|v1|v2|all]"
+    echo "Usage: $0 [v0_4|v0_5|v0_6|...|all]"
     echo ""
-    echo "  v0  - Build with schema_v0 (default)"
-    echo "  v1  - Build with schema_v1"
-    echo "  v2  - Build with schema_v2"
-    echo "  all - Build with BOTH schema_v1 and schema_v2"
+    echo "  vN_M  - Build with schema_vN_M only"
+    echo "  all   - Build with ALL detected schema versions (default)"
     exit 1
 fi
 
