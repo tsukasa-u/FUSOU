@@ -1,7 +1,7 @@
 {
   "schemas": [
     {
-      "schema": "{\"type\":\"record\",\"name\":\"EnvInfo\",\"fields\":[{\"name\":\"version\",\"type\":\"string\"},{\"name\":\"uuid\",\"type\":{\"type\":\"string\",\"logicalType\":\"uuid\"}},{\"name\":\"user_env_unique\",\"type\":\"string\"},{\"name\":\"timestamp\",\"type\":\"long\"}]}",
+      "schema": "{\"type\":\"record\",\"name\":\"EnvInfo\",\"fields\":[{\"name\":\"version\",\"type\":\"string\"},{\"name\":\"uuid\",\"type\":{\"type\":\"string\",\"logicalType\":\"uuid\"}},{\"name\":\"user_env_unique\",\"type\":\"string\"},{\"name\":\"timestamp\",\"type\":\"long\"},{\"name\":\"app_platform\",\"type\":[\"null\",\"string\"]}]}",
       "table_name": "env_info"
     },
     {
@@ -133,5 +133,5 @@
       "table_name": "battle"
     }
   ],
-  "table_version": "1.0"
+  "table_version": "0.5"
 }

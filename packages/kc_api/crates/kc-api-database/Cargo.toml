@@ -24,7 +24,7 @@ regex = { workspace = true }
 dot-writer = { workspace = true }
 
 [features]
-default = ["graphviz", "full", "schema_v0"]
+default = ["graphviz", "full", "schema_v0_4"]
 graphviz = []
 cytoscape = []
 breaking_schema = []
@@ -34,9 +34,9 @@ full = ["tokio", "apache-avro/zstandard"]
 # WASM feature excludes heavy dependencies (for WASM builds)
 wasm = []
 
-schema_v0 = []
-schema_v1 = []
-schema_v2 = []
+schema_v0_4 = []
+schema_v0_5 = []
+schema_v0_6 = []
 
 # Optional: Override uuid for WASM target to include js feature
 [target.'cfg(target_arch = "wasm32")'.dependencies]

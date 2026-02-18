@@ -30,6 +30,12 @@ pub struct EnvInfo {
     pub uuid: EnvInfoId,
     pub user_env_unique: UserEnv,
     pub timestamp: i64,
+    /// Added in table_version 0.5 (schema_v0_5).
+    /// When compiling with schema_v0_4 feature, this field is excluded
+    /// so the generated schema matches the 0.4 shape.
+    #[cfg(not(feature = "schema_v0_4"))]
+    #[serde(default)]
+    pub app_platform: Option<String>,
 }
 
 impl EnvInfo {
@@ -45,6 +51,8 @@ impl EnvInfo {
             uuid: new_uuid,
             user_env_unique: data.0,
             timestamp: data.1,
+            #[cfg(not(feature = "schema_v0_4"))]
+            app_platform: None,
         };
 
         table.env_info.push(new_data);
