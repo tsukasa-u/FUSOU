@@ -2,7 +2,7 @@
  * ローカル診断スクリプト：抽出済みParquetファイルのRowGroup検証
  * 
  * 使用方法:
- *   npx tsx test-merge-diagnostics.ts /path/to/extracted_fragment.parquet
+ *   npx tsx test/test-merge-diagnostics.ts /path/to/extracted_fragment.parquet
  * 
  * 出力：
  *   - ファイルヘッダー/フッター構造
@@ -11,7 +11,7 @@
  */
 
 import { readFileSync } from 'fs';
-import { parseParquetMetadataFromFullFile } from './src/parquet-compactor.js';
+import { parseParquetMetadataFromFullFile } from '../src/parquet-compactor.js';
 
 if (process.argv.length < 3) {
   console.error('Usage: npx tsx test-merge-diagnostics.ts <path-to-parquet-file>');

@@ -10,7 +10,7 @@ async function runDebugTest() {
     console.log("=== DETAILED SCHEMA MATCHING DEBUG TEST ===\n");
     
     console.log("Loading WASM...");
-    const { default: init, match_client_schema, get_available_versions, get_schema_json, get_available_schemas, validate_avro_ocf_smart, init_panic_hook } = await import('./pkg/avro_wasm.js');
+    const { default: init, match_client_schema, get_available_versions, get_schema_json, get_available_schemas, validate_avro_ocf_smart, init_panic_hook } = await import('../pkg/avro_wasm.js');
     
     const wasmPath = path.join(process.cwd(), 'pkg/avro_wasm_bg.wasm');
     const wasmBuffer = fs.readFileSync(wasmPath);
@@ -59,7 +59,7 @@ async function runDebugTest() {
         console.log(`Testing: ${test.name}`);
         console.log(`Input schema: ${test.schema.slice(0, 80)}...`);
         
-        const result = match_client_schema(test.schema);
+        const result = match_client_schema(test.schema, "");
         console.log(`Result: matched=${result.matched}, version=${result.version}, table=${result.table_name}, error=${result.error}`);
         console.log("");
     }
