@@ -29,9 +29,9 @@ if [ -z "$needs_bump" ]; then
 fi
 
 # Was schema_version.rs updated?
-schema_version_changed=$(printf "%s\n" "$changed_files" | grep -E '^kc_api/crates/kc-api-database/src/schema_version.rs' || true)
+table_version_changed=$(printf "%s\n" "$changed_files" | grep -E '^kc_api/crates/kc-api-database/src/schema_version.rs' || true)
 
-if [ -n "$schema_version_changed" ]; then
+if [ -n "$table_version_changed" ]; then
   echo "[check-schema-version-bump] schema_version.rs updated ✅" >&2
   exit 0
 fi
@@ -39,5 +39,5 @@ fi
 echo "[check-schema-version-bump] ERROR: Detected schema-related changes but schema_version.rs was not updated." >&2
 echo "Files impacting schema:" >&2
 printf "  %s\n" $needs_bump >&2
-echo "Please bump DATABASE_TABLE_VERSION and/or SCHEMA_VERSION feature set as appropriate." >&2
+echo "Please bump DATABASE_TABLE_VERSION as appropriate." >&2
 exit 1
