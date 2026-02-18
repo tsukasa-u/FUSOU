@@ -1,0 +1,237 @@
+name: validate schema chain
+
+on:
+  pull_request:
+    paths:
+      - "packages/kc_api/crates/kc-api-database/src/**"
+      - "packages/kc_api/crates/kc-api-database/Cargo.toml"
+      - "packages/kc_api/generated-schemas/**"
+      - "packages/avro-wasm/Cargo.toml"
+      - "packages/avro-wasm/src/**"
+      - "packages/configs/fingerprints.json"
+      - "packages/FUSOU-WORKFLOW/src/reader.ts"
+  push:
+    branches: [main, dev]
+    paths:
+      - "packages/kc_api/crates/kc-api-database/src/**"
+      - "packages/kc_api/crates/kc-api-database/Cargo.toml"
+      - "packages/kc_api/generated-schemas/**"
+      - "packages/avro-wasm/Cargo.toml"
+      - "packages/avro-wasm/src/**"
+      - "packages/configs/fingerprints.json"
+      - "packages/FUSOU-WORKFLOW/src/reader.ts"
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  validate-schema-versions:
+    runs-on: ubuntu-latest
+    name: Validate schema version consistency
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+
+      - name: install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            packages/kc_api/target
+          key: ${{ runner.os }}-cargo-schema-${{ hashFiles('packages/kc_api/**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-schema-
+
+      # Step 1: Auto-detect schema versions from Cargo.toml
+      - name: Detect schema versions
+        id: detect
+        run: |
+          VERSIONS=()
+          while IFS= read -r line; do
+            if [[ "$line" =~ ^schema_(v[0-9]+_[0-9]+)[[:space:]]*= ]]; then
+              VERSIONS+=("${BASH_REMATCH[1]}")
+            fi
+          done < packages/kc_api/crates/kc-api-database/Cargo.toml
+          echo "versions=${VERSIONS[*]}" >> "$GITHUB_OUTPUT"
+          echo "count=${#VERSIONS[@]}" >> "$GITHUB_OUTPUT"
+          echo "Detected versions: ${VERSIONS[*]}"
+          if [ ${#VERSIONS[@]} -eq 0 ]; then
+            echo "::error::No schema versions detected in Cargo.toml. Expected schema_vN_M features."
+            exit 1
+          fi
+
+      # Step 2: Regenerate schemas and compare with checked-in
+      - name: Regenerate schemas
+        run: |
+          cd packages/kc_api/crates/kc-api-database
+          VERSIONS=(${{ steps.detect.outputs.versions }})
+          for ver in "${VERSIONS[@]}"; do
+            echo "Generating schema_${ver}..."
+            OUTPUT_FILE="../../generated-schemas/schema_${ver}_check.json"
+            # NOTE: 'full' feature is required because models module is gated behind #[cfg(feature = "full")]
+            if cargo run --bin print_schema --no-default-features --features "schema_${ver},full" \
+              > "$OUTPUT_FILE" 2>/dev/null; then
+              # Verify output is valid JSON (not empty)
+              if [ ! -s "$OUTPUT_FILE" ]; then
+                echo "⚠️  schema_${ver} generated empty output"
+                rm -f "$OUTPUT_FILE"
+              fi
+            else
+              echo "⚠️  schema_${ver} generation failed"
+              rm -f "$OUTPUT_FILE"
+            fi
+          done
+
+      - name: Compare generated schemas with checked-in
+        run: |
+          DRIFT=false
+          VERSIONS=(${{ steps.detect.outputs.versions }})
+          for ver in "${VERSIONS[@]}"; do
+            CHECKED="packages/kc_api/generated-schemas/schema_${ver}.json"
+            GENERATED="packages/kc_api/generated-schemas/schema_${ver}_check.json"
+            if [ ! -f "$CHECKED" ] && [ -f "$GENERATED" ]; then
+              echo "❌ schema_${ver}.json is missing but can be generated. Run: packages/kc_api/scripts/generate-schemas.sh"
+              DRIFT=true
+            elif [ -f "$CHECKED" ] && [ ! -f "$GENERATED" ]; then
+              echo "❌ schema_${ver}: checked-in file exists but regeneration failed. Check 'cargo run --bin print_schema --features schema_${ver},full'."
+              DRIFT=true
+            elif [ -f "$CHECKED" ] && [ -f "$GENERATED" ]; then
+              if ! diff -q "$CHECKED" "$GENERATED" > /dev/null 2>&1; then
+                echo "❌ schema_${ver}.json is out of date. Run: packages/kc_api/scripts/generate-schemas.sh"
+                diff "$CHECKED" "$GENERATED" | head -20 || true
+                DRIFT=true
+              else
+                echo "✅ schema_${ver}.json is up to date"
+              fi
+            fi
+          done
+          # Clean up
+          rm -f packages/kc_api/generated-schemas/schema_*_check.json
+          if [ "$DRIFT" = true ]; then
+            echo ""
+            echo "::error::Schema drift detected. Run 'packages/kc_api/scripts/generate-schemas.sh' and commit the updated files."
+            exit 1
+          fi
+
+      # Step 3: Recompute fingerprints and compare
+      - name: Recompute fingerprints
+        run: |
+          VERSIONS=(${{ steps.detect.outputs.versions }})
+          node -e "
+          const fs = require('fs');
+          const crypto = require('crypto');
+          const results = {};
+          const versions = process.argv.slice(1);
+
+          for (const ver of versions) {
+            const file = 'packages/kc_api/generated-schemas/schema_' + ver + '.json';
+            if (!fs.existsSync(file)) { continue; }
+            const content = JSON.parse(fs.readFileSync(file, 'utf-8'));
+            const tableVersion = content.table_version || 'unknown';
+            const tables = {};
+            for (const entry of (content.schemas || [])) {
+              // Hash raw schema JSON without namespace manipulation
+              const hash = crypto.createHash('sha256').update(entry.schema).digest('hex');
+              tables[entry.table_name] = [hash];
+            }
+            // Use table_version as the key (e.g., "0.4", "0.5", "0.6")
+            results[tableVersion] = { tables };
+          }
+
+          fs.writeFileSync('/tmp/fingerprints_check.json', JSON.stringify(results, null, 2));
+          " "${VERSIONS[@]}"
+
+      - name: Compare fingerprints with checked-in
+        run: |
+          CHECKED="packages/configs/fingerprints.json"
+          GENERATED="/tmp/fingerprints_check.json"
+          if [ ! -f "$CHECKED" ]; then
+            echo "::error::fingerprints.json is missing. Run 'packages/kc_api/scripts/generate-schemas.sh'."
+            exit 1
+          fi
+          # Normalize JSON before comparing (sort keys)
+          node -e "
+          const fs = require('fs');
+          const checked = JSON.parse(fs.readFileSync('$CHECKED', 'utf-8'));
+          const generated = JSON.parse(fs.readFileSync('$GENERATED', 'utf-8'));
+          function deepSort(obj) {
+            if (Array.isArray(obj)) return obj.map(deepSort);
+            if (typeof obj === 'object' && obj !== null) {
+              const sorted = {};
+              for (const key of Object.keys(obj).sort()) {
+                sorted[key] = deepSort(obj[key]);
+              }
+              return sorted;
+            }
+            return obj;
+          }
+          const normalize = obj => JSON.stringify(deepSort(obj), null, 2);
+
+          // Check each version
+          let drift = false;
+          const allVersions = new Set([...Object.keys(checked), ...Object.keys(generated)]);
+          for (const ver of [...allVersions].sort()) {
+            if (!generated[ver]) {
+              console.log('⚠️  ' + ver + ': in fingerprints.json but not in generated schemas (may be stale)');
+              continue;
+            }
+            if (!checked[ver]) {
+              console.log('❌ ' + ver + ': missing from fingerprints.json');
+              drift = true;
+              continue;
+            }
+            const checkedCount = Object.keys(checked[ver].tables || {}).length;
+            const generatedCount = Object.keys(generated[ver].tables || {}).length;
+            if (normalize(checked[ver]) !== normalize(generated[ver])) {
+              console.log('❌ ' + ver + ': fingerprints mismatch (checked: ' + checkedCount + ' tables, generated: ' + generatedCount + ' tables)');
+              drift = true;
+            } else {
+              console.log('✅ ' + ver + ': ' + checkedCount + ' tables match');
+            }
+          }
+          if (drift) {
+            console.log('');
+            console.log('::error::Fingerprint drift detected. Run packages/kc_api/scripts/generate-schemas.sh and commit packages/configs/fingerprints.json');
+            process.exit(1);
+          }
+          "
+
+      # Step 4: Validate avro-wasm features include all versions
+      - name: Validate avro-wasm features
+        run: |
+          VERSIONS=(${{ steps.detect.outputs.versions }})
+          WASM_FEATURES=()
+          while IFS= read -r line; do
+            if [[ "$line" =~ ^schema_(v[0-9]+_[0-9]+)[[:space:]]*= ]]; then
+              WASM_FEATURES+=("${BASH_REMATCH[1]}")
+            fi
+          done < packages/avro-wasm/Cargo.toml
+
+          MISSING=()
+          for ver in "${VERSIONS[@]}"; do
+            if [[ ! " ${WASM_FEATURES[*]} " =~ " ${ver} " ]]; then
+              MISSING+=("$ver")
+            fi
+          done
+
+          if [ ${#MISSING[@]} -gt 0 ]; then
+            echo "::error::avro-wasm/Cargo.toml is missing schema features: ${MISSING[*]}. Add them to [features] and default."
+            exit 1
+          fi
+
+          # Check default features include all versions
+          DEFAULT_LINE=$(grep '^default' packages/avro-wasm/Cargo.toml || true)
+          for ver in "${VERSIONS[@]}"; do
+            if [[ ! "$DEFAULT_LINE" =~ "schema_${ver}" ]]; then
+              echo "::warning::avro-wasm default features do not include schema_${ver}. Consider adding it."
+            fi
+          done
+          echo "✅ avro-wasm features are consistent"
