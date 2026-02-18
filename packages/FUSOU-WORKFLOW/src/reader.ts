@@ -24,10 +24,15 @@ import { parseAllDeflateAvroBlocks, parseAllNullAvroBlocks, getAvroHeaderLengthF
 import { computeSchemaFingerprint } from './avro-manual';
 import { fetchHotDataWithFallback, BufferLogRecord } from './db';
 
+// Bundled fingerprints — automatically kept in sync via rebuild-schema-chain.sh
+// This import is resolved at build time, so no manual env var setup is needed.
+// The env var TABLE_FINGERPRINTS_JSON can still override this at runtime.
+import bundledFingerprints from '../../configs/fingerprints.json';
+
 interface Env {
   BATTLE_DATA_BUCKET: R2Bucket;
   BATTLE_INDEX_DB: D1Database;
-  SCHEMA_FINGERPRINTS_JSON?: string; // map: { "v0": { "table": ["<sha256>", ...] }, ... }
+  TABLE_FINGERPRINTS_JSON?: string; // map: { "0.4": { "table": ["<sha256>", ...] }, ... }
   // TiDB Cloud Serverless connection URL (required for hot data queries)
   TIDB_KC_DB_URL?: string;
 }
@@ -38,7 +43,7 @@ interface QueryParams {
   from?: number;  // timestamp (ms)
   to?: number;    // timestamp (ms)
   format?: string; // 'json' (default) | 'ocf'
-  schema_version?: string; // Optional: filter by schema version (v0, v1, etc.) - defaults to latest
+  table_version?: string; // Optional: filter by table version (0.4, 0.5, etc.)
 }
 
 interface HotRecord {
@@ -53,7 +58,7 @@ interface BlockIndex {
   id: number;
   dataset_id: string;
   table_name: string;
-  schema_version: string;
+  table_version: string;
   file_id: number;
   start_byte: number;
   length: number;
@@ -82,6 +87,7 @@ async function fetchHotData(
     table_name: params.table_name,
     from: params.from,
     to: params.to,
+    table_version: params.table_version,
   });
   
   // FIXED: Deserialize Avro OCF binary data (not JSON text)
@@ -145,11 +151,11 @@ async function fetchColdIndexes(
   db: D1Database,
   params: QueryParams
 ): Promise<BlockIndex[]> {
-  const { dataset_id, table_name, from, to, schema_version } = params;
+  const { dataset_id, table_name, from, to, table_version } = params;
   
   let sql = `
     SELECT 
-      bi.id, bi.dataset_id, bi.table_name, bi.schema_version, bi.file_id,
+      bi.id, bi.dataset_id, bi.table_name, bi.table_version, bi.file_id,
       bi.start_byte, bi.length, bi.record_count,
       bi.start_timestamp, bi.end_timestamp,
       af.file_path, af.compression_codec
@@ -160,15 +166,10 @@ async function fetchColdIndexes(
   
   const bindings: any[] = [dataset_id, table_name];
   
-  // Filter by schema_version if specified
-  // If not specified, return all versions (backward compatible)
-  if (schema_version !== undefined) {
-    sql += ' AND bi.schema_version = ?';
-    bindings.push(schema_version);
-  } else {
-    // Default: prefer v0, but fallback to any version if v0 not available
-    // This handles NULL values from pre-migration data
-    sql += ' AND (bi.schema_version = \'v0\' OR bi.schema_version IS NULL)';
+  // Filter by table_version if specified
+  if (table_version !== undefined) {
+    sql += ' AND bi.table_version = ?';
+    bindings.push(table_version);
   }
   
   if (from !== undefined) {
@@ -239,23 +240,32 @@ async function fetchAvroHeader(
 
 async function parseSchemaFingerprintFromHeader(header: Uint8Array): Promise<{ fingerprint: string | null; namespace: string | null }> {
   try {
-    // Rough extraction: find avro.schema JSON payload inside header text
+    // Extract avro.schema JSON payload from Avro binary header.
+    // In Avro OCF, metadata keys are stored as Avro strings (varint length + raw bytes),
+    // NOT as JSON-quoted strings. So we search for the raw key without quotes.
     const text = new TextDecoder().decode(header);
-    const keyIdx = text.indexOf('"avro.schema"');
+    const keyIdx = text.indexOf('avro.schema');
     if (keyIdx === -1) return { fingerprint: null, namespace: null };
     const startBrace = text.indexOf('{', keyIdx);
     if (startBrace === -1) return { fingerprint: null, namespace: null };
-    // Find matching closing brace using a simple stack walk
+    // Find matching closing brace with proper JSON string/escape handling
     let depth = 0;
     let endBrace = -1;
+    let inString = false;
+    let escapeNext = false;
     for (let i = startBrace; i < text.length; i++) {
       const ch = text[i];
-      if (ch === '{') depth++;
-      if (ch === '}') {
-        depth--;
-        if (depth === 0) {
-          endBrace = i;
-          break;
+      if (escapeNext) { escapeNext = false; continue; }
+      if (ch === '\\') { escapeNext = true; continue; }
+      if (ch === '"') { inString = !inString; continue; }
+      if (!inString) {
+        if (ch === '{') depth++;
+        if (ch === '}') {
+          depth--;
+          if (depth === 0) {
+            endBrace = i;
+            break;
+          }
         }
       }
     }
@@ -273,39 +283,41 @@ async function parseSchemaFingerprintFromHeader(header: Uint8Array): Promise<{ f
 type FingerprintEntry = string | string[];
 type FingerprintTableMap = Record<string, FingerprintEntry>;
 interface FingerprintVersionEntry {
-  table_version: string;
   tables: FingerprintTableMap;
 }
 type FingerprintVersionMap = Record<string, FingerprintVersionEntry>;
 
 function loadSchemaFingerprintMap(env: Env): FingerprintVersionMap {
-  if (!env.SCHEMA_FINGERPRINTS_JSON) return {};
-  try {
-    const parsed = JSON.parse(env.SCHEMA_FINGERPRINTS_JSON);
-    if (typeof parsed === 'object' && parsed !== null) return parsed as FingerprintVersionMap;
-  } catch {
-    return {};
+  // Priority: env var override > bundled fingerprints.json
+  if (env.TABLE_FINGERPRINTS_JSON) {
+    try {
+      const parsed = JSON.parse(env.TABLE_FINGERPRINTS_JSON);
+      if (typeof parsed === 'object' && parsed !== null) return parsed as FingerprintVersionMap;
+    } catch {
+      // Fall through to bundled
+    }
+  }
+  // Use bundled fingerprints (imported at build time from configs/fingerprints.json)
+  if (bundledFingerprints && typeof bundledFingerprints === 'object') {
+    return bundledFingerprints as unknown as FingerprintVersionMap;
   }
   return {};
 }
 
-async function validateHeaderSchemaVersion(
+async function validateHeaderTableVersion(
   header: Uint8Array,
-  expectedVersion: string | undefined,
+  tableVersion: string | undefined,
   allowedMap: FingerprintVersionMap,
   tableName: string
 ): Promise<void> {
-  if (!expectedVersion) return;
+  if (!tableVersion) return;
   const { fingerprint, namespace } = await parseSchemaFingerprintFromHeader(header);
-  if (namespace && !namespace.includes(expectedVersion)) {
-    throw new Error(`Schema namespace mismatch: expected version ${expectedVersion}, got namespace ${namespace}`);
-  }
-  const versionEntry = allowedMap[expectedVersion];
+  const versionEntry = allowedMap[tableVersion];
   if (!versionEntry || !fingerprint) return;
   const allowed = versionEntry.tables[tableName];
   const allowedList = Array.isArray(allowed) ? allowed : (allowed ? [allowed] : []);
   if (allowedList.length > 0 && !allowedList.includes(fingerprint)) {
-    throw new Error(`Schema fingerprint mismatch for ${expectedVersion}/${tableName} (TABLE_VERSION: ${versionEntry.table_version})`);
+    throw new Error(`Schema fingerprint mismatch for table_version=${tableVersion}/${tableName}`);
   }
 }
 
@@ -335,7 +347,6 @@ async function deserializeAvroBlock(
 async function fetchColdData(
   r2: R2Bucket,
   indexes: BlockIndex[],
-  expectedSchemaVersion: string | undefined,
   allowedFingerprints: FingerprintVersionMap,
   tableName: string
 ): Promise<any[]> {
@@ -359,8 +370,9 @@ async function fetchColdData(
     // Optional: verify header codec matches index expectation, if provided
     const headerCodec = detectCompressionCodec(header);
 
-    // Schema namespace/fingerprint validation (per file)
-    await validateHeaderSchemaVersion(header, expectedSchemaVersion, allowedFingerprints, tableName);
+    // Schema namespace/fingerprint validation (per file, using file's own table_version)
+    const fileTableVersion = blocks[0]?.table_version; // All blocks in a file share the same version
+    await validateHeaderTableVersion(header, fileTableVersion, allowedFingerprints, tableName);
     
     // Fetch all blocks for this file in parallel
     const blockPromises = blocks.map(block => {
@@ -424,7 +436,8 @@ export async function handleRead(
     table_name: url.searchParams.get('table_name') ?? '',
     from: url.searchParams.has('from') ? Number(url.searchParams.get('from')) : undefined,
     to: url.searchParams.has('to') ? Number(url.searchParams.get('to')) : undefined,
-    format: url.searchParams.get('format') ?? 'json'
+    format: url.searchParams.get('format') ?? 'json',
+    table_version: url.searchParams.get('table_version') ?? undefined
   };
   
   if (!params.dataset_id || !params.table_name) {
@@ -441,6 +454,26 @@ export async function handleRead(
       if (indexes.length === 0) {
         return new Response('Not Found', { status: 404 });
       }
+      
+      // Check for mixed table versions (OCF format requires single schema)
+      const uniqueVersions = new Set(indexes.map(idx => idx.table_version));
+      if (uniqueVersions.size > 1) {
+        console.warn(
+          `[Reader] Mixed table versions detected for OCF request: ${Array.from(uniqueVersions).join(', ')}`
+        );
+        return new Response(
+          JSON.stringify({
+            error: 'Mixed table versions detected',
+            detected_versions: Array.from(uniqueVersions),
+            details: 'OCF format requires single table version. Please specify table_version parameter.',
+          }),
+          { 
+            status: 400, 
+            headers: { 'Content-Type': 'application/json' } 
+          }
+        );
+      }
+      
       // Group by file_path; choose the first group
       const filePath = indexes[0].file_path;
       const blocks = indexes.filter(i => i.file_path === filePath);
@@ -470,13 +503,21 @@ export async function handleRead(
     const coldIndexes = await fetchColdIndexes(env.BATTLE_INDEX_DB, params);
     console.log(`Cold indexes: ${coldIndexes.length}`);
     
+    // Detect mixed table versions
+    const uniqueVersions = new Set(coldIndexes.map(idx => idx.table_version));
+    const mixedVersions = uniqueVersions.size > 1;
+    if (mixedVersions) {
+      console.warn(
+        `[Reader] Mixed table versions detected: ${Array.from(uniqueVersions).join(', ')}. ` +
+        `Consider specifying table_version parameter for consistent results.`
+      );
+    }
+    
     // Step 3: Fetch Cold data (Range Requests, parallel)
     const allowedFingerprints = loadSchemaFingerprintMap(env);
-    const effectiveSchemaVersion = params.schema_version ?? (coldIndexes[0]?.schema_version ?? undefined);
     const coldRecords = await fetchColdData(
       env.BATTLE_DATA_BUCKET,
       coldIndexes,
-      effectiveSchemaVersion,
       allowedFingerprints,
       params.table_name
     );
@@ -497,13 +538,17 @@ export async function handleRead(
         : 'public, max-age=60'                // 1 minute
     });
     
+    const detectedVersionsList = Array.from(uniqueVersions);
     return new Response(
       JSON.stringify({
         dataset_id: params.dataset_id,
         table_name: params.table_name,
+        table_version: detectedVersionsList.length === 1 ? detectedVersionsList[0] : undefined,
         record_count: mergedRecords.length,
         hot_count: hotRecords.length,
         cold_count: coldRecords.length,
+        mixed_versions: mixedVersions || undefined,
+        detected_versions: mixedVersions ? detectedVersionsList : undefined,
         records: mergedRecords
       }),
       { status: 200, headers }

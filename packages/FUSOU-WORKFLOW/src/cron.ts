@@ -33,7 +33,7 @@ interface BufferRow {
   dataset_id: string;
   table_name: string;
   period_tag: string;
-  schema_version: string;
+  table_version: string;
   timestamp: number;
   data: ArrayBuffer;  // Already Avro OCF binary
   uploaded_by: string | null;
@@ -48,7 +48,7 @@ interface DatasetBlock {
 }
 
 interface GroupKey {
-  schema_version: string;
+  table_version: string;
   table_name: string;
   period_tag: string;
 }
@@ -61,7 +61,7 @@ interface ArchiveGroup {
 interface BlockIndexRow {
   dataset_id: string;
   table_name: string;
-  schema_version: string;
+  table_version: string;
   period_tag: string;
   file_id: number;
   start_byte: number;
@@ -78,7 +78,7 @@ function convertToBufferRow(record: BufferLogRecord): BufferRow {
     dataset_id: record.dataset_id,
     table_name: record.table_name,
     period_tag: record.period_tag,
-    schema_version: record.schema_version,
+    table_version: record.table_version,
     timestamp: record.timestamp,
     // FIXED: Use proper slice to avoid byteOffset issues when data is a Uint8Array view
     data: record.data instanceof ArrayBuffer 
@@ -95,9 +95,9 @@ function convertToBufferRow(record: BufferLogRecord): BufferRow {
 function groupByDataset(rows: BufferRow[]): ArchiveGroup[] {
   const groupMap = new Map<string, Map<string, BufferRow[]>>();
 
-  // Group by (schema_version::table_name::period_tag) -> dataset_id -> rows[]
+  // Group by (table_version::table_name::period_tag) -> dataset_id -> rows[]
   for (const row of rows) {
-    const groupKey = `${row.schema_version}::${row.table_name}::${row.period_tag}`;
+    const groupKey = `${row.table_version}::${row.table_name}::${row.period_tag}`;
     if (!groupMap.has(groupKey)) {
       groupMap.set(groupKey, new Map());
     }
@@ -113,9 +113,9 @@ function groupByDataset(rows: BufferRow[]): ArchiveGroup[] {
   for (const [groupKey, datasetMap] of groupMap.entries()) {
     const parts = groupKey.split('::');
     if (parts.length !== 3) {
-      throw new Error(`Internal error: groupKey format invalid: "${groupKey}" (expected "schema_version::table_name::period_tag")`);
+      throw new Error(`Internal error: groupKey format invalid: "${groupKey}" (expected "table_version::table_name::period_tag")`);
     }
-    const [schema_version, table_name, period_tag] = parts;
+    const [table_version, table_name, period_tag] = parts;
     const blocks: DatasetBlock[] = [];
 
     for (const [dataset_id, rows] of datasetMap.entries()) {
@@ -160,7 +160,7 @@ function groupByDataset(rows: BufferRow[]): ArchiveGroup[] {
     }
 
     groups.push({
-      key: { schema_version, table_name, period_tag },
+      key: { table_version, table_name, period_tag },
       blocks
     });
   }
@@ -173,13 +173,13 @@ function groupByDataset(rows: BufferRow[]): ArchiveGroup[] {
 // Multiple datasets are merged into single files up to this limit for efficient storage
 const MAX_FILE_SIZE = 128 * 1024 * 1024;
 
-function generateFilePath(schemaVersion: string, periodTag: string, tableName: string, fileIndex: number, runTimestamp: number): string {
+function generateFilePath(tableVersion: string, periodTag: string, tableName: string, fileIndex: number, runTimestamp: number): string {
   // Generate file path with index for multi-dataset files
   const indexStr = String(fileIndex).padStart(3, '0');
-  return `${schemaVersion}/${periodTag}/${runTimestamp}/${tableName}-${indexStr}.avro`;
+  return `${tableVersion}/${periodTag}/${runTimestamp}/${tableName}-${indexStr}.avro`;
 }
 
-async function registerArchivedFile(db: D1Database, filePath: string, schemaVersion: string, fileSize: number, codec: string = 'deflate'): Promise<number> {
+async function registerArchivedFile(db: D1Database, filePath: string, tableVersion: string, fileSize: number, codec: string = 'deflate'): Promise<number> {
   // Use INSERT OR REPLACE to handle duplicate file_path (idempotent)
   // This allows cron to safely retry without UNIQUE constraint failures
   const now = Date.now();
@@ -199,20 +199,20 @@ async function registerArchivedFile(db: D1Database, filePath: string, schemaVers
 
   if (existing?.id) {
     // Update file metadata for existing entry (idempotent)
-    // CRITICAL: Include schema_version in UPDATE to ensure consistency
+    // CRITICAL: Include table_version in UPDATE to ensure consistency
     await db.prepare(`
       UPDATE archived_files 
-      SET file_size = ?, compression_codec = ?, schema_version = ?, last_modified_at = ?
+      SET file_size = ?, compression_codec = ?, table_version = ?, last_modified_at = ?
       WHERE id = ?
-    `).bind(fileSize, codec, schemaVersion, now, existing.id).run();
+    `).bind(fileSize, codec, tableVersion, now, existing.id).run();
     return existing.id;
   }
 
   // New file: INSERT
   await db.prepare(`
-    INSERT INTO archived_files (file_path, schema_version, file_size, compression_codec, created_at, last_modified_at)
+    INSERT INTO archived_files (file_path, table_version, file_size, compression_codec, created_at, last_modified_at)
     VALUES (?, ?, ?, ?, ?, ?)
-  `).bind(filePath, schemaVersion, fileSize, codec, now, now).run();
+  `).bind(filePath, tableVersion, fileSize, codec, now, now).run();
 
   const row = await db.prepare('SELECT last_insert_rowid() AS id').first<{ id: number }>();
   return row?.id ?? 0;
@@ -232,12 +232,12 @@ async function insertBlockIndexes(db: D1Database, rows: BlockIndexRow[]): Promis
 
   // Insert new indexes
   const sql = `
-    INSERT INTO block_indexes (dataset_id, table_name, schema_version, period_tag, file_id, start_byte, length, record_count, start_timestamp, end_timestamp)
+    INSERT INTO block_indexes (dataset_id, table_name, table_version, period_tag, file_id, start_byte, length, record_count, start_timestamp, end_timestamp)
     VALUES ${rows.map(() => '(?,?,?,?,?,?,?,?,?,?)').join(',')}
   `;
   const params: (string | number)[] = [];
   for (const r of rows) {
-    params.push(r.dataset_id, r.table_name, r.schema_version, r.period_tag, r.file_id, r.start_byte, r.length, r.record_count, r.start_timestamp, r.end_timestamp);
+    params.push(r.dataset_id, r.table_name, r.table_version, r.period_tag, r.file_id, r.start_byte, r.length, r.record_count, r.start_timestamp, r.end_timestamp);
   }
   await db.prepare(sql).bind(...params).run();
 }
@@ -301,7 +301,7 @@ export async function handleCron(env: Env): Promise<void> {
       for (let fileIndex = 0; fileIndex < fileChunks.length; fileIndex++) {
         const chunk = fileChunks[fileIndex];
         const filePath = generateFilePath(
-          group.key.schema_version,
+          group.key.table_version,
           group.key.period_tag,
           group.key.table_name,
           fileIndex + 1,
@@ -359,7 +359,7 @@ export async function handleCron(env: Env): Promise<void> {
             'run-timestamp': String(runTimestamp),
             'block-count': String(chunk.blocks.length),
             'format': 'avro-ocf',
-            'schema-version': group.key.schema_version,
+            'table-version': group.key.table_version,
             'table': group.key.table_name,
             'period': group.key.period_tag,
             'file-index': String(fileIndex + 1),
@@ -369,7 +369,7 @@ export async function handleCron(env: Env): Promise<void> {
 
         // Register file in D1
         try {
-          const fileId = await registerArchivedFile(env.BATTLE_INDEX_DB, filePath, group.key.schema_version, actualSize, 'deflate');
+          const fileId = await registerArchivedFile(env.BATTLE_INDEX_DB, filePath, group.key.table_version, actualSize, 'deflate');
 
           // FIXED: Create block indexes using accurate boundaries from merge result
           // Each dataset's data is at the exact byte position returned by mergeAvroOCFWithBoundaries
@@ -382,7 +382,7 @@ export async function handleCron(env: Env): Promise<void> {
             blockIndexes.push({
               dataset_id: block.dataset_id,
               table_name: group.key.table_name,
-              schema_version: group.key.schema_version,
+              table_version: group.key.table_version,
               period_tag: group.key.period_tag,
               file_id: fileId,
               start_byte: boundary.startByte,  // Accurate offset from merge result

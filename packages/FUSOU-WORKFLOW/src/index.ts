@@ -69,9 +69,16 @@ export default {
         const dataset_id = payload?.dataset_id ?? payload?.datasetId;
         const table = payload?.table;
         const period_tag = payload?.period_tag ?? payload?.periodTag ?? 'latest';
+        const table_version = payload?.table_version ?? payload?.tableVersion;
         const slices: string[] = Array.isArray(payload?.slices) ? payload.slices : [];
         if (!dataset_id || !table || !slices.length) {
           return new Response(JSON.stringify({ error: 'Missing dataset_id, table, or slices' }), {
+            status: 400,
+            headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
+          });
+        }
+        if (!table_version) {
+          return new Response(JSON.stringify({ error: 'Missing table_version' }), {
             status: 400,
             headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
           });
@@ -82,7 +89,7 @@ export default {
             headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
           });
         }
-        const messages = slices.map((b64) => ({ body: { dataset_id, table, period_tag, avro_base64: b64 } }));
+        const messages = slices.map((b64) => ({ body: { dataset_id, table, period_tag, table_version, avro_base64: b64 } }));
         await (env.COMPACTION_QUEUE as any).sendBatch(messages as any);
         return new Response(JSON.stringify({ status: 'accepted', enqueued: messages.length }), {
           status: 202,

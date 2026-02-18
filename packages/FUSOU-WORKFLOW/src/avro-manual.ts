@@ -23,14 +23,7 @@ function decodeLong(buffer: Uint8Array, offset: number): { value: number; offset
   return { value: decodeZigzag(n), offset: pos };
 }
 
-// Ensure namespace embeds schema_version for downstream validation
-export function ensureSchemaNamespace(schema: any, schemaVersion: string = 'v0'): any {
-  if (schema.namespace && schema.namespace.includes(schemaVersion)) {
-    return schema;
-  }
-  return { ...schema, namespace: `fusou.${schemaVersion}` };
-}
-
+// Schema fingerprint: SHA-256 hash of the raw schema JSON
 export async function computeSchemaFingerprint(schemaJson: string): Promise<string> {
   // Use WebCrypto (available in Cloudflare Workers) for SHA-256 fingerprint
   const encoder = new TextEncoder();

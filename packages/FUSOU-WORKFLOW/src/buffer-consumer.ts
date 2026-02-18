@@ -30,7 +30,7 @@ interface BufferLogRecord {
   dataset_id: string;
   table_name: string;
   period_tag: string;
-  schema_version: string;
+  table_version: string;
   timestamp: number;  // milliseconds
   data: ArrayBuffer;   // Avro binary BLOB
   uploaded_by?: string;
@@ -43,7 +43,7 @@ interface LegacyQueueMessage {
   avro_base64: string;
   datasetId: string;
   periodTag: string;
-  schemaVersion?: string;  // v1, v2, etc.
+  tableVersion: string;  // 0.4, 0.5, etc.
   triggeredAt?: string;
   userId?: string;
 }
@@ -61,7 +61,7 @@ interface BatchedQueueMessage {
   batched: true;
   datasetId: string;
   periodTag: string;
-  schemaVersion?: string;
+  tableVersion: string;
   triggeredAt?: string;
   userId?: string;
   payload_base64: string;  // Full concatenated payload
@@ -83,8 +83,12 @@ type QueueMessage = LegacyQueueMessage | BatchedQueueMessage;
  */
 async function normalizeMessage(msg: QueueMessage): Promise<BufferLogRecord[]> {
   const now = Date.now();
-  const schemaVersion = msg.schemaVersion || 'v0';
+  const tableVersion = msg.tableVersion;
   const timestamp = msg.triggeredAt ? new Date(msg.triggeredAt).getTime() : now;
+
+  if (!tableVersion) {
+    throw new Error('Missing table_version in queue message');
+  }
 
   // Check if this is a batched message (all tables in one)
   if ('batched' in msg && msg.batched === true) {
@@ -102,13 +106,13 @@ async function normalizeMessage(msg: QueueMessage): Promise<BufferLogRecord[]> {
         throw new Error(`Avro header validation failed for ${offset.table_name}: ${headerCheck.error}`);
       }
 
-      console.log(`[Consumer] Accepted ${offset.table_name}: ${slice.length} bytes, schema=${schemaVersion}`);
+      console.log(`[Consumer] Accepted ${offset.table_name}: ${slice.length} bytes, table_version=${tableVersion}`);
 
       records.push({
         dataset_id: msg.datasetId,
         table_name: offset.table_name,
         period_tag: msg.periodTag ?? 'latest',
-        schema_version: schemaVersion,
+        table_version: tableVersion,
         timestamp,
         data: slice.buffer.slice(slice.byteOffset, slice.byteOffset + slice.byteLength),
         uploaded_by: msg.userId
@@ -129,13 +133,13 @@ async function normalizeMessage(msg: QueueMessage): Promise<BufferLogRecord[]> {
     throw new Error(`Avro header validation failed: ${headerCheck.error}`);
   }
 
-  console.log(`[Consumer] Accepted ${legacyMsg.table}: ${avroBytes.length} bytes, schema=${schemaVersion}`);
+  console.log(`[Consumer] Accepted ${legacyMsg.table}: ${avroBytes.length} bytes, table_version=${tableVersion}`);
 
   return [{
     dataset_id: legacyMsg.datasetId,
     table_name: legacyMsg.table,
     period_tag: legacyMsg.periodTag ?? 'latest',
-    schema_version: schemaVersion,
+    table_version: tableVersion,
     timestamp,
     // FIXED: Use proper slice to handle Uint8Array buffer offset correctly
     data: avroBytes.buffer.slice(avroBytes.byteOffset, avroBytes.byteOffset + avroBytes.byteLength),
@@ -190,7 +194,7 @@ export async function handleBufferConsumer(
       dataset_id: r.dataset_id,
       table_name: r.table_name,
       period_tag: r.period_tag,
-      schema_version: r.schema_version,
+      table_version: r.table_version,
       timestamp: r.timestamp,
       data: r.data,
       uploaded_by: r.uploaded_by,
@@ -250,7 +254,7 @@ export async function handleBufferConsumerChunked(
       dataset_id: r.dataset_id,
       table_name: r.table_name,
       period_tag: r.period_tag,
-      schema_version: r.schema_version,
+      table_version: r.table_version,
       timestamp: r.timestamp,
       data: r.data,
       uploaded_by: r.uploaded_by,

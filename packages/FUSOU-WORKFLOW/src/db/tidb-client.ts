@@ -185,7 +185,7 @@ export interface BufferLogRow {
   dataset_id: string;
   table_name: string;
   period_tag: string;
-  schema_version: string;
+  table_version: string;
   timestamp: number;
   data: Uint8Array;
   uploaded_by: string | null;
@@ -195,7 +195,7 @@ export interface InsertBufferLogParams {
   dataset_id: string;
   table_name: string;
   period_tag: string;
-  schema_version: string;
+  table_version: string;
   timestamp: number;
   data: Uint8Array;
   uploaded_by?: string;
@@ -210,13 +210,13 @@ export async function insertBufferLog(
 ): Promise<{ insertId: number }> {
   const result = await conn.execute(
     `INSERT INTO buffer_logs 
-     (dataset_id, table_name, period_tag, schema_version, timestamp, data, uploaded_by)
+      (dataset_id, table_name, period_tag, table_version, timestamp, data, uploaded_by)
      VALUES (?, ?, ?, ?, ?, ?, ?)`,
     [
       params.dataset_id,
       params.table_name,
       params.period_tag,
-      params.schema_version,
+      params.table_version,
       params.timestamp,
       params.data,
       params.uploaded_by || null,
@@ -235,9 +235,9 @@ export async function fetchBufferedData(
   conn: TiDBConnection
 ): Promise<BufferLogRow[]> {
   const result = await conn.execute(
-    `SELECT id, dataset_id, table_name, period_tag, schema_version, timestamp, data, uploaded_by
+    `SELECT id, dataset_id, table_name, period_tag, table_version, timestamp, data, uploaded_by
      FROM buffer_logs
-     ORDER BY timestamp ASC`
+     ORDER BY table_version, table_name, period_tag, dataset_id, id ASC`
   );
   
   // TiDB SDK: default returns array directly, fullResult:true returns object with rows
@@ -260,15 +260,21 @@ export async function fetchHotData(
     table_name: string;
     from?: number;
     to?: number;
+    table_version?: string;
   }
 ): Promise<BufferLogRow[]> {
   let sql = `
-    SELECT id, dataset_id, table_name, period_tag, schema_version, timestamp, data, uploaded_by
+    SELECT id, dataset_id, table_name, period_tag, table_version, timestamp, data, uploaded_by
     FROM buffer_logs
     WHERE dataset_id = ? AND table_name = ?
   `;
   
   const bindings: (string | number)[] = [params.dataset_id, params.table_name];
+  
+  if (params.table_version !== undefined) {
+    sql += ' AND table_version = ?';
+    bindings.push(params.table_version);
+  }
   
   if (params.from !== undefined) {
     sql += ' AND timestamp >= ?';

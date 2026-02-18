@@ -21,7 +21,7 @@ export interface BufferLogRow {
   dataset_id: string;
   table_name: string;
   period_tag: string;
-  schema_version: string;
+  table_version: string;
   timestamp: number;
   data: ArrayBuffer;  // D1 returns ArrayBuffer for BLOB
   uploaded_by: string | null;
@@ -31,7 +31,7 @@ export interface InsertBufferLogParams {
   dataset_id: string;
   table_name: string;
   period_tag: string;
-  schema_version: string;
+  table_version: string;
   timestamp: number;
   data: ArrayBuffer;
   uploaded_by?: string;
@@ -50,13 +50,13 @@ export async function insertBufferLog(
 ): Promise<{ insertId: number }> {
   const result = await db.prepare(`
     INSERT INTO buffer_logs 
-    (dataset_id, table_name, period_tag, schema_version, timestamp, data, uploaded_by)
+    (dataset_id, table_name, period_tag, table_version, timestamp, data, uploaded_by)
     VALUES (?, ?, ?, ?, ?, ?, ?)
   `).bind(
     params.dataset_id,
     params.table_name,
     params.period_tag,
-    params.schema_version,
+    params.table_version,
     params.timestamp,
     params.data,
     params.uploaded_by || null
@@ -68,15 +68,15 @@ export async function insertBufferLog(
 
 /**
  * Fetch all buffered data for archiving
- * Ordered by schema_version, table_name, period_tag, dataset_id, id for efficient grouping
+ * Ordered by table_version, table_name, period_tag, dataset_id, id for efficient grouping
  */
 export async function fetchBufferedData(
   db: D1Database
 ): Promise<BufferLogRow[]> {
   const result = await db.prepare(`
-    SELECT id, dataset_id, table_name, period_tag, schema_version, timestamp, data, uploaded_by
+    SELECT id, dataset_id, table_name, period_tag, table_version, timestamp, data, uploaded_by
     FROM buffer_logs
-    ORDER BY schema_version, table_name, period_tag, dataset_id, id ASC
+    ORDER BY table_version, table_name, period_tag, dataset_id, id ASC
   `).all<BufferLogRow>();
   
   return result.results ?? [];
@@ -92,15 +92,21 @@ export async function fetchHotData(
     table_name: string;
     from?: number;
     to?: number;
+    table_version?: string;
   }
 ): Promise<BufferLogRow[]> {
   let sql = `
-    SELECT id, dataset_id, table_name, period_tag, schema_version, timestamp, data, uploaded_by
+    SELECT id, dataset_id, table_name, period_tag, table_version, timestamp, data, uploaded_by
     FROM buffer_logs
     WHERE dataset_id = ? AND table_name = ?
   `;
   
   const bindings: (string | number)[] = [params.dataset_id, params.table_name];
+  
+  if (params.table_version !== undefined) {
+    sql += ' AND table_version = ?';
+    bindings.push(params.table_version);
+  }
   
   if (params.from !== undefined) {
     sql += ' AND timestamp >= ?';
@@ -157,7 +163,7 @@ export async function bulkInsertBufferLogs(
     const placeholders = chunk.map(() => '(?, ?, ?, ?, ?, ?, ?)').join(',');
     const sql = `
       INSERT INTO buffer_logs 
-      (dataset_id, table_name, period_tag, schema_version, timestamp, data, uploaded_by)
+      (dataset_id, table_name, period_tag, table_version, timestamp, data, uploaded_by)
       VALUES ${placeholders}
     `;
     
@@ -167,7 +173,7 @@ export async function bulkInsertBufferLogs(
         record.dataset_id,
         record.table_name,
         record.period_tag,
-        record.schema_version,
+        record.table_version,
         record.timestamp,
         record.data,
         record.uploaded_by || null

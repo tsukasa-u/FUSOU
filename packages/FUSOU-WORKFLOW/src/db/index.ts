@@ -80,7 +80,7 @@ export interface BufferLogRecord {
   dataset_id: string;
   table_name: string;
   period_tag: string;
-  schema_version: string;
+  table_version: string;
   timestamp: number;
   data: ArrayBuffer | Uint8Array;
   uploaded_by: string | null;
@@ -193,7 +193,7 @@ export async function insertBufferLogsWithFallback(
     dataset_id: string;
     table_name: string;
     period_tag: string;
-    schema_version: string;
+    table_version: string;
     timestamp: number;
     data: ArrayBuffer | Uint8Array;
     uploaded_by?: string;
@@ -265,6 +265,7 @@ export async function fetchHotDataWithFallback(
     table_name: string;
     from?: number;
     to?: number;
+    table_version?: string;
   }
 ): Promise<{ rows: BufferLogRecord[]; source: 'tidb' | 'd1'; rateLimited?: boolean }> {
   if (env.TIDB_KC_DB_URL) {

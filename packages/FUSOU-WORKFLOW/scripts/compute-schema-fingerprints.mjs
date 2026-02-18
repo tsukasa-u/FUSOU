@@ -7,10 +7,10 @@
  *   node scripts/compute-schema-fingerprints.mjs path/to/schema.json
  * 
  * Output:
- *   Prints JSON to stdout, e.g. {"v1":"<sha256>","v2":"<sha256>"}
+ *   Prints JSON to stdout, e.g. {"v0_4":"<sha256>","v0_5":"<sha256>"}
  * 
  * Notes:
- * - Expects each schema JSON to contain a `namespace` like "fusou.v1".
+ * - Expects each schema JSON to contain a `namespace` like "fusou.v0_4".
  * - Fingerprint is computed on the canonical JSON string of the schema.
  */
 
@@ -26,7 +26,7 @@ function usageAndExit(msg) {
   console.error('\nUsage:');
   console.error('  node scripts/compute-schema-fingerprints.mjs <schema.json|*.avsc>...');
   console.error('\nExample:');
-  console.error('  node scripts/compute-schema-fingerprints.mjs schemas/battle_result.v1.avsc schemas/battle_result.v2.avsc');
+  console.error('  node scripts/compute-schema-fingerprints.mjs schemas/battle_result.v0_4.avsc schemas/battle_result.v0_5.avsc');
   process.exit(1);
 }
 
@@ -50,7 +50,7 @@ async function main() {
 
     const ns = typeof schema.namespace === 'string' ? schema.namespace : '';
     const match = ns.match(/fusou\.(v[\w\-]+)/);
-    if (!match) usageAndExit(`Schema namespace must include version like fusou.v1: ${ns}`);
+    if (!match) usageAndExit(`Schema namespace must include version like fusou.v0_4: ${ns}`);
     const version = match[1]; // e.g. v1
 
     // Canonicalize JSON (sort keys) to ensure stable hash
