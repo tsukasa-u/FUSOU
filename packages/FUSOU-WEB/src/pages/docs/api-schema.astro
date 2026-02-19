@@ -1,0 +1,28 @@
+---
+import "@/assets/app.css";
+import "@/styles/global.css";
+import Navigation from "@/components/Navigation.astro";
+import Layout from "@/layouts/Layout.astro";
+import SchemaGraph from "@/components/react/SchemaGraph";
+---
+
+<Layout title="API Schema | FUSOU">
+  <div class="h-16"></div>
+  <div class="flex max-w-[1440px] mx-auto">
+    <div class="flex-1 min-w-0"></div>
+    <div class="w-full max-w-[1600px] px-4 sm:px-6 md:px-8 pt-4">
+      <header class="mb-4">
+        <h1 class="text-2xl font-bold text-base-content">
+          kc-api Schema Explorer
+        </h1>
+        <p class="mt-1 text-sm text-base-content/60">
+          Interactive visualization of database tables and API endpoint
+          structures, version by version.
+        </p>
+      </header>
+      <SchemaGraph client:only="react" />
+    </div>
+    <div class="flex-1 min-w-0"></div>
+  </div>
+  <Navigation />
+</Layout>

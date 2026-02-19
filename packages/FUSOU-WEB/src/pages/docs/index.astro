@@ -160,6 +160,14 @@ const menuHtml = renderMenuHtml(menuTree, 2, 4);
           Browse every guide, quick start, and reference entry grouped by their
           slug hierarchy.
         </p>
+        <div class="mt-6 mb-4 p-4 bg-base-200 rounded-xl">
+          <a href="/docs/api-schema" class="text-lg font-semibold text-sky-600 hover:underline">
+            API Schema Explorer
+          </a>
+          <p class="text-sm text-base-content/70 mt-1">
+            Interactive visualization of kc-api database tables and API endpoint structures with ReactFlow.
+          </p>
+        </div>
         <ul class="bg-base-100 rounded-xl py-6 space-y-8" set:html={menuHtml} />
       </main>
 

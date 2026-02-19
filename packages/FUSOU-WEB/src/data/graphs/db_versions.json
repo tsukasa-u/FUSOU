@@ -1,0 +1,44 @@
+{
+  "versions": {
+    "v0_4": {
+      "tableCount": 33,
+      "version": "0.4"
+    },
+    "v0_5": {
+      "tableCount": 33,
+      "version": "0.5"
+    },
+    "v0_6": {
+      "tableCount": 33,
+      "version": "0.6"
+    }
+  },
+  "sortedVersions": [
+    "v0_4",
+    "v0_5",
+    "v0_6"
+  ],
+  "majorVersions": {
+    "v0": {
+      "versions": [
+        "v0_4",
+        "v0_5",
+        "v0_6"
+      ],
+      "latest": "v0_6"
+    }
+  },
+  "diffs": {
+    "v0_4_to_v0_5": {
+      "env_info": {
+        "status": "changed",
+        "addedFields": [
+          "app_platform"
+        ],
+        "removedFields": [],
+        "changedFields": []
+      }
+    },
+    "v0_5_to_v0_6": {}
+  }
+}
