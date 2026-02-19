@@ -44,8 +44,8 @@ jobs:
         uses: mozilla-actions/sccache-action@v0.0.9
       - name: export dependencies dot
         run: |
-          cargo test --all test_struct_dependency
-          cargo test --all test_database_dependency
+          cargo test -p kc-api-dto test_struct_dependency_syn -- --nocapture
+          cargo test -p kc-api-database test_database_dependency_syn -- --nocapture
         working-directory: ./packages/kc_api
       - name: export dependencies svg
         run: |
