@@ -8,7 +8,11 @@ interface NodeDetailPanelProps {
   onClose: () => void;
 }
 
-export default function NodeDetailPanel({ node, mode, onClose }: NodeDetailPanelProps) {
+export default function NodeDetailPanel({
+  node,
+  mode,
+  onClose,
+}: NodeDetailPanelProps) {
   const data = node.data as any;
   const title = data.recordName || data.structName || data.tableName || node.id;
 
@@ -18,7 +22,13 @@ export default function NodeDetailPanel({ node, mode, onClose }: NodeDetailPanel
       <div className="flex items-center justify-between px-4 py-2 bg-base-200 border-b border-base-300">
         <h3 className="font-bold text-sm truncate">{title}</h3>
         <button className="btn btn-ghost btn-xs btn-circle" onClick={onClose}>
-          <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+          <svg
+            className="w-4 h-4"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={2}
+          >
             <path d="M18 6L6 18M6 6l12 12" />
           </svg>
         </button>
@@ -27,12 +37,19 @@ export default function NodeDetailPanel({ node, mode, onClose }: NodeDetailPanel
       {/* Subtitle / badges */}
       {mode === "database" && data.tableName && (
         <div className="px-4 py-1 text-xs text-base-content/50 bg-base-200/50 border-b border-base-300 flex items-center gap-2">
-          <span>Table: <code className="font-mono">{data.tableName}</code></span>
+          <span>
+            Table: <code className="font-mono">{data.tableName}</code>
+          </span>
           {data.diffStatus && (
-            <span className={`badge badge-xs ${
-              data.diffStatus === "added" ? "badge-success" :
-              data.diffStatus === "removed" ? "badge-error" : "badge-warning"
-            }`}>
+            <span
+              className={`badge badge-xs ${
+                data.diffStatus === "added"
+                  ? "badge-success"
+                  : data.diffStatus === "removed"
+                    ? "badge-error"
+                    : "badge-warning"
+              }`}
+            >
               {data.diffStatus}
             </span>
           )}
@@ -40,9 +57,15 @@ export default function NodeDetailPanel({ node, mode, onClose }: NodeDetailPanel
       )}
       {mode === "endpoints" && (
         <div className="px-4 py-1 bg-base-200/50 border-b border-base-300">
-          {data.isReq && <span className="badge badge-info badge-sm">Request</span>}
-          {data.isRes && <span className="badge badge-success badge-sm">Response</span>}
-          {data.isDataType && <span className="badge badge-neutral badge-sm">Data Type</span>}
+          {data.isReq && (
+            <span className="badge badge-info badge-sm">Request</span>
+          )}
+          {data.isRes && (
+            <span className="badge badge-success badge-sm">Response</span>
+          )}
+          {data.isDataType && (
+            <span className="badge badge-neutral badge-sm">Data Type</span>
+          )}
         </div>
       )}
 
@@ -59,24 +82,34 @@ export default function NodeDetailPanel({ node, mode, onClose }: NodeDetailPanel
           <tbody>
             {data.fields && data.fields.length > 0 ? (
               data.fields.map((field: any, i: number) => {
-                const diffClass = field.diffStatus === "added"
-                  ? "bg-success/10"
-                  : field.diffStatus === "removed"
-                    ? "bg-error/10 line-through"
-                    : field.diffStatus === "changed"
-                      ? "bg-warning/10"
-                      : "";
+                const diffClass =
+                  field.diffStatus === "added"
+                    ? "bg-success/10"
+                    : field.diffStatus === "removed"
+                      ? "bg-error/10 line-through"
+                      : field.diffStatus === "changed"
+                        ? "bg-warning/10"
+                        : "";
                 return (
                   <tr key={i} className={`hover ${diffClass}`}>
                     {mode === "database" && (
                       <td className="text-xs w-8 text-center">
-                        {field.isKey && <span className="text-warning font-bold">PK</span>}
-                        {field.isFk && <span className="text-secondary font-bold">FK</span>}
-                        {field.isEnvRef && <span className="text-info font-bold">EV</span>}
+                        {field.isKey && (
+                          <span className="text-warning font-bold">PK</span>
+                        )}
+                        {field.isFk && (
+                          <span className="text-secondary font-bold">FK</span>
+                        )}
+                        {field.isEnvRef && (
+                          <span className="text-info font-bold">EV</span>
+                        )}
                       </td>
                     )}
                     <td className="font-mono text-xs">{field.name}</td>
-                    <td className="font-mono text-xs text-base-content/60 max-w-[140px] truncate" title={field.type}>
+                    <td
+                      className="font-mono text-xs text-base-content/60 max-w-[140px] truncate"
+                      title={field.type}
+                    >
                       {field.type}
                     </td>
                   </tr>
@@ -84,7 +117,10 @@ export default function NodeDetailPanel({ node, mode, onClose }: NodeDetailPanel
               })
             ) : (
               <tr>
-                <td colSpan={mode === "database" ? 3 : 2} className="text-center text-base-content/40 italic">
+                <td
+                  colSpan={mode === "database" ? 3 : 2}
+                  className="text-center text-base-content/40 italic"
+                >
                   No fields available
                 </td>
               </tr>

@@ -13,8 +13,14 @@ import { resolve, dirname, basename } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const STRUCT_DOT_DIR = resolve(__dirname, "../../kc_api/tests/struct_dependency_dot");
-const DB_DOT_DIR = resolve(__dirname, "../../kc_api/tests/database_dependency_dot");
+const STRUCT_DOT_DIR = resolve(
+  __dirname,
+  "../../kc_api/tests/struct_dependency_dot",
+);
+const DB_DOT_DIR = resolve(
+  __dirname,
+  "../../kc_api/tests/database_dependency_dot",
+);
 const OUTPUT_DIR = resolve(__dirname, "../src/data/graphs");
 
 /**
@@ -83,7 +89,9 @@ function parseDotFile(content, nodeType) {
     const trimmed = line.trim();
 
     // Match node: id [label="...", shape=record];
-    const nodeMatch = trimmed.match(/^(\w+)\s*\[label="(.+)",\s*shape=record\];?$/);
+    const nodeMatch = trimmed.match(
+      /^(\w+)\s*\[label="(.+)",\s*shape=record\];?$/,
+    );
     if (nodeMatch) {
       const nodeId = nodeMatch[1];
       const rawLabel = nodeMatch[2];
@@ -108,7 +116,9 @@ function parseDotFile(content, nodeType) {
     }
 
     // Match edges: source:handle:dir -> target:handle:dir;
-    const edgeMatch = trimmed.match(/^(\w+):(\w+):\w+\s*->\s*(\w+):(\w+):\w+;?$/);
+    const edgeMatch = trimmed.match(
+      /^(\w+):(\w+):\w+\s*->\s*(\w+):(\w+):\w+;?$/,
+    );
     if (edgeMatch) {
       const [, src, srcHandle, tgt, tgtHandle] = edgeMatch;
       edges.push({
@@ -147,7 +157,9 @@ function annotateWithFeatureVariants(allEndpoints, featureVariants) {
   for (const ep of allEndpoints) {
     for (const node of ep.nodes) {
       const nodeId = node.id;
-      for (const [feature, structDiffs] of Object.entries(featureVariants.field_diffs)) {
+      for (const [feature, structDiffs] of Object.entries(
+        featureVariants.field_diffs,
+      )) {
         const fieldDiffs = structDiffs[nodeId];
         if (!fieldDiffs) continue;
 
@@ -193,12 +205,15 @@ function annotateWithFeatureVariants(allEndpoints, featureVariants) {
 function processEndpoints() {
   if (!existsSync(STRUCT_DOT_DIR)) {
     console.warn(`DOT directory not found: ${STRUCT_DOT_DIR}`);
-    writeFileSync(resolve(OUTPUT_DIR, "endpoints_by_group.json"), JSON.stringify({ groups: {} }, null, 2));
+    writeFileSync(
+      resolve(OUTPUT_DIR, "endpoints_by_group.json"),
+      JSON.stringify({ groups: {} }, null, 2),
+    );
     return;
   }
 
   const dotFiles = readdirSync(STRUCT_DOT_DIR).filter(
-    (f) => f.endsWith(".dot") && f !== "all.dot"
+    (f) => f.endsWith(".dot") && f !== "all.dot",
   );
 
   const groups = {};
@@ -246,7 +261,7 @@ function processEndpoints() {
   annotateWithFeatureVariants(allEndpoints, featureVariants);
 
   const sortedGroups = Object.fromEntries(
-    Object.entries(groups).sort(([a], [b]) => a.localeCompare(b))
+    Object.entries(groups).sort(([a], [b]) => a.localeCompare(b)),
   );
 
   const output = {
@@ -269,7 +284,9 @@ function processEndpoints() {
       totalFields += node.data.fields.length;
     }
   }
-  console.log(`✓ ${output.totalEndpoints} endpoints, ${output.totalGroups} groups, ${totalFields} total fields → ${outputPath}`);
+  console.log(
+    `✓ ${output.totalEndpoints} endpoints, ${output.totalGroups} groups, ${totalFields} total fields → ${outputPath}`,
+  );
 }
 
 // ---- Database DOT processing ----
@@ -278,7 +295,10 @@ function processDatabaseDot() {
   const dotPath = resolve(DB_DOT_DIR, "all.dot");
   if (!existsSync(dotPath)) {
     console.warn(`Database DOT not found: ${dotPath}`);
-    writeFileSync(resolve(OUTPUT_DIR, "database_dot.json"), JSON.stringify({ nodes: [], edges: [] }, null, 2));
+    writeFileSync(
+      resolve(OUTPUT_DIR, "database_dot.json"),
+      JSON.stringify({ nodes: [], edges: [] }, null, 2),
+    );
     return;
   }
 
@@ -289,20 +309,24 @@ function processDatabaseDot() {
   for (const node of parsed.nodes) {
     const d = node.data;
     // Convert PascalCase to snake_case for table name
-    d.tableName = d.structName
-      .replace(/([A-Z])/g, (c, _, i) => (i > 0 ? `_${c.toLowerCase()}` : c.toLowerCase()));
+    d.tableName = d.structName.replace(/([A-Z])/g, (c, _, i) =>
+      i > 0 ? `_${c.toLowerCase()}` : c.toLowerCase(),
+    );
     d.recordName = d.structName;
 
     for (const field of d.fields) {
       field.isKey = field.name === "uuid";
-      field.isFk = !field.isKey && field.name !== "env_uuid" && /\w+Id/.test(field.type);
+      field.isFk =
+        !field.isKey && field.name !== "env_uuid" && /\w+Id/.test(field.type);
       field.isEnvRef = field.name === "env_uuid";
     }
   }
 
   const outputPath = resolve(OUTPUT_DIR, "database_dot.json");
   writeFileSync(outputPath, JSON.stringify(parsed, null, 2));
-  console.log(`✓ database DOT: ${parsed.nodes.length} tables, ${parsed.edges.length} edges → ${outputPath}`);
+  console.log(
+    `✓ database DOT: ${parsed.nodes.length} tables, ${parsed.edges.length} edges → ${outputPath}`,
+  );
 }
 
 // ---- Main ----

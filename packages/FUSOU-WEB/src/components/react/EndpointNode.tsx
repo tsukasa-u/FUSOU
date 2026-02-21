@@ -31,11 +31,7 @@ export interface EndpointNodeData {
 function EndpointNode({ data, id }: NodeProps) {
   const d = data as unknown as EndpointNodeData;
 
-  const headerBg = d.isReq
-    ? "bg-info"
-    : d.isRes
-      ? "bg-success"
-      : "bg-neutral";
+  const headerBg = d.isReq ? "bg-info" : d.isRes ? "bg-success" : "bg-neutral";
 
   const headerText = d.isReq
     ? "text-info-content"
@@ -44,15 +40,33 @@ function EndpointNode({ data, id }: NodeProps) {
       : "text-neutral-content";
 
   const headerIcon = d.isReq ? (
-    <svg className="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+    <svg
+      className="w-3.5 h-3.5 shrink-0"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+    >
       <path d="M5 12h14M12 5l7 7-7 7" />
     </svg>
   ) : d.isRes ? (
-    <svg className="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+    <svg
+      className="w-3.5 h-3.5 shrink-0"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+    >
       <path d="M19 12H5M12 19l-7-7 7-7" />
     </svg>
   ) : (
-    <svg className="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+    <svg
+      className="w-3.5 h-3.5 shrink-0"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+    >
       <rect x="4" y="4" width="16" height="16" rx="2" />
       <path d="M9 9h6M9 13h4" />
     </svg>
@@ -78,10 +92,19 @@ function EndpointNode({ data, id }: NodeProps) {
       : "";
 
   return (
-    <div className={`bg-base-100 rounded-lg shadow-md ${relationBorder} ${opacity} min-w-[200px] max-w-[320px] text-xs transition-opacity`}>
-      <Handle type="target" position={Position.Left} id={`${id}-${d.structName}`} className="!bg-primary !w-2 !h-2" />
+    <div
+      className={`bg-base-100 rounded-lg shadow-md ${relationBorder} ${opacity} min-w-[200px] max-w-[320px] text-xs transition-opacity`}
+    >
+      <Handle
+        type="target"
+        position={Position.Left}
+        id={`${id}-${d.structName}`}
+        className="!bg-primary !w-2 !h-2"
+      />
 
-      <div className={`${headerBg} ${headerText} px-3 py-1.5 rounded-t-md font-bold text-sm flex items-center gap-2`}>
+      <div
+        className={`${headerBg} ${headerText} px-3 py-1.5 rounded-t-md font-bold text-sm flex items-center gap-2`}
+      >
         {headerIcon}
         <span className="truncate">{d.structName}</span>
         {d.relationType === "selected" && (
@@ -109,35 +132,48 @@ function EndpointNode({ data, id }: NodeProps) {
             ? `[${field.diffDetail.feature}] ${field.diffDetail.withoutFeature ?? "(none)"} → ${field.diffDetail.withFeature ?? "(none)"}`
             : undefined;
           return (
-          <div
-            key={field.name}
-            className={`px-3 py-1 flex items-center gap-2 ${diffBg}`}
-            style={{ position: "relative" }}
-            title={diffTitle}
-          >
-            <span className={`font-mono ${field.diffStatus === "removed" ? "line-through text-base-content/40" : ""}`}>
-              {field.name}
-            </span>
-            {field.diffStatus && (
-              <span className={`badge badge-xs ${
-                field.diffStatus === "added" ? "badge-success" :
-                field.diffStatus === "removed" ? "badge-error" :
-                "badge-warning"
-              }`}>
-                {field.diffStatus === "added" ? "+" : field.diffStatus === "removed" ? "-" : "~"}
+            <div
+              key={field.name}
+              className={`px-3 py-1 flex items-center gap-2 ${diffBg}`}
+              style={{ position: "relative" }}
+              title={diffTitle}
+            >
+              <span
+                className={`font-mono ${field.diffStatus === "removed" ? "line-through text-base-content/40" : ""}`}
+              >
+                {field.name}
               </span>
-            )}
-            <span className={`ml-auto font-mono truncate max-w-[150px] ${field.diffStatus === "removed" ? "line-through text-base-content/30" : "text-base-content/50"}`} title={field.type}>
-              {field.type}
-            </span>
-            <Handle
-              type="source"
-              position={Position.Right}
-              id={`${id}-${field.name}`}
-              className="!bg-secondary !w-1.5 !h-1.5"
-              style={{ top: "50%", transform: "translateY(-50%)" }}
-            />
-          </div>
+              {field.diffStatus && (
+                <span
+                  className={`badge badge-xs ${
+                    field.diffStatus === "added"
+                      ? "badge-success"
+                      : field.diffStatus === "removed"
+                        ? "badge-error"
+                        : "badge-warning"
+                  }`}
+                >
+                  {field.diffStatus === "added"
+                    ? "+"
+                    : field.diffStatus === "removed"
+                      ? "-"
+                      : "~"}
+                </span>
+              )}
+              <span
+                className={`ml-auto font-mono truncate max-w-[150px] ${field.diffStatus === "removed" ? "line-through text-base-content/30" : "text-base-content/50"}`}
+                title={field.type}
+              >
+                {field.type}
+              </span>
+              <Handle
+                type="source"
+                position={Position.Right}
+                id={`${id}-${field.name}`}
+                className="!bg-secondary !w-1.5 !h-1.5"
+                style={{ top: "50%", transform: "translateY(-50%)" }}
+              />
+            </div>
           );
         })}
         {d.fields.length === 0 && (

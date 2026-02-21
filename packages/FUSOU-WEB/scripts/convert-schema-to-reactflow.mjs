@@ -77,7 +77,10 @@ function parseAvroType(avroType) {
         isUuid: inner.isUuid,
       };
     }
-    return { display: avroType.map((t) => parseAvroType(t).display).join(" | "), isUuid: false };
+    return {
+      display: avroType.map((t) => parseAvroType(t).display).join(" | "),
+      isUuid: false,
+    };
   }
   if (typeof avroType === "object") {
     if (avroType.logicalType === "uuid") {
@@ -157,7 +160,9 @@ function resolveTarget(fieldName, sourceTable, tables) {
       return candidate;
     }
     // Snake_case match
-    const snaked = candidate.replace(/([A-Z])/g, (m) => `_${m.toLowerCase()}`).replace(/^_/, "");
+    const snaked = candidate
+      .replace(/([A-Z])/g, (m) => `_${m.toLowerCase()}`)
+      .replace(/^_/, "");
     if (tableNames.includes(snaked) && snaked !== sourceTable) {
       return snaked;
     }
@@ -165,31 +170,31 @@ function resolveTarget(fieldName, sourceTable, tables) {
 
   // Special known mappings based on database_dependency_dot analysis
   const knownMappings = {
-    "battles": "battle",
-    "ship_ids": null, // contextual: own_ship, enemy_ship, friend_ship depending on source
-    "slotid": "own_slotitem",
-    "slot": null, // contextual
-    "slot_ex": null,
-    "plane_info": "plane_info",
-    "air_base_air_attack": "airbase_airattack",
-    "air_base_assault": "airbase_assult",
-    "carrier_base_assault": "carrierbase_assault",
-    "air_base_air_attacks": "airbase_airattack_list",
-    "opening_air_attack": "opening_airattack",
-    "opening_taisen": "opening_taisen_list",
-    "support_hourai": "support_hourai",
-    "support_airattack": "support_airattack",
-    "opening_raigeki": "opening_raigeki",
-    "hougeki": "hougeki_list",
-    "closing_raigeki": "closing_raigeki",
-    "friendly_force_attack": "friendly_support_hourai_list",
-    "midnight_hougeki": "midnight_hougeki_list",
-    "hourai_list": "friendly_support_hourai",
-    "airbase_id": "airbase",
-    "f_deck_id": "own_deck",
-    "e_deck_id": "enemy_deck",
-    "friend_deck_id": "friend_deck",
-    "support_deck_id": "support_deck",
+    battles: "battle",
+    ship_ids: null, // contextual: own_ship, enemy_ship, friend_ship depending on source
+    slotid: "own_slotitem",
+    slot: null, // contextual
+    slot_ex: null,
+    plane_info: "plane_info",
+    air_base_air_attack: "airbase_airattack",
+    air_base_assault: "airbase_assult",
+    carrier_base_assault: "carrierbase_assault",
+    air_base_air_attacks: "airbase_airattack_list",
+    opening_air_attack: "opening_airattack",
+    opening_taisen: "opening_taisen_list",
+    support_hourai: "support_hourai",
+    support_airattack: "support_airattack",
+    opening_raigeki: "opening_raigeki",
+    hougeki: "hougeki_list",
+    closing_raigeki: "closing_raigeki",
+    friendly_force_attack: "friendly_support_hourai_list",
+    midnight_hougeki: "midnight_hougeki_list",
+    hourai_list: "friendly_support_hourai",
+    airbase_id: "airbase",
+    f_deck_id: "own_deck",
+    e_deck_id: "enemy_deck",
+    friend_deck_id: "friend_deck",
+    support_deck_id: "support_deck",
   };
 
   if (fieldName in knownMappings) {
@@ -199,10 +204,17 @@ function resolveTarget(fieldName, sourceTable, tables) {
     }
     // Contextual: try to match by source table prefix
     if (mapped === null) {
-      if (sourceTable.startsWith("own") && tableNames.includes("own_ship")) return "own_ship";
-      if (sourceTable.startsWith("enemy") && tableNames.includes("enemy_ship")) return "enemy_ship";
-      if (sourceTable.startsWith("friend") && tableNames.includes("friend_ship")) return "friend_ship";
-      if (sourceTable.startsWith("support") && tableNames.includes("own_ship")) return "own_ship";
+      if (sourceTable.startsWith("own") && tableNames.includes("own_ship"))
+        return "own_ship";
+      if (sourceTable.startsWith("enemy") && tableNames.includes("enemy_ship"))
+        return "enemy_ship";
+      if (
+        sourceTable.startsWith("friend") &&
+        tableNames.includes("friend_ship")
+      )
+        return "friend_ship";
+      if (sourceTable.startsWith("support") && tableNames.includes("own_ship"))
+        return "own_ship";
     }
   }
 
@@ -270,13 +282,23 @@ function computeVersionDiff(older, newer) {
   // Tables added in newer
   for (const [id, data] of newerTables) {
     if (!olderTables.has(id)) {
-      diff[id] = { status: "added", addedFields: data.fields.map((f) => f.name), removedFields: [], changedFields: [] };
+      diff[id] = {
+        status: "added",
+        addedFields: data.fields.map((f) => f.name),
+        removedFields: [],
+        changedFields: [],
+      };
     }
   }
   // Tables removed in newer
   for (const [id, data] of olderTables) {
     if (!newerTables.has(id)) {
-      diff[id] = { status: "removed", addedFields: [], removedFields: data.fields.map((f) => f.name), changedFields: [] };
+      diff[id] = {
+        status: "removed",
+        addedFields: [],
+        removedFields: data.fields.map((f) => f.name),
+        changedFields: [],
+      };
     }
   }
   // Tables in both - check fields
@@ -288,14 +310,23 @@ function computeVersionDiff(older, newer) {
     const olderFieldMap = new Map(olderData.fields.map((f) => [f.name, f]));
     const newerFieldMap = new Map(newerData.fields.map((f) => [f.name, f]));
 
-    const addedFields = [...newerFieldNames].filter((n) => !olderFieldNames.has(n));
-    const removedFields = [...olderFieldNames].filter((n) => !newerFieldNames.has(n));
+    const addedFields = [...newerFieldNames].filter(
+      (n) => !olderFieldNames.has(n),
+    );
+    const removedFields = [...olderFieldNames].filter(
+      (n) => !newerFieldNames.has(n),
+    );
     const changedFields = [...newerFieldNames]
       .filter((n) => olderFieldNames.has(n))
       .filter((n) => olderFieldMap.get(n).type !== newerFieldMap.get(n).type);
 
     if (addedFields.length || removedFields.length || changedFields.length) {
-      diff[id] = { status: "changed", addedFields, removedFields, changedFields };
+      diff[id] = {
+        status: "changed",
+        addedFields,
+        removedFields,
+        changedFields,
+      };
     }
   }
   return diff;
@@ -326,7 +357,10 @@ function loadDotEdges(avroRecordNames) {
   const recordToTable = new Map();
   for (const node of dotData.nodes) {
     dotIdToTable.set(node.id, node.data.tableName);
-    recordToTable.set(node.data.recordName || node.data.structName, node.data.tableName);
+    recordToTable.set(
+      node.data.recordName || node.data.structName,
+      node.data.tableName,
+    );
   }
 
   // Build mapping: DOT tableName → Avro tableName (match by recordName)
@@ -366,7 +400,8 @@ function loadDotEdges(avroRecordNames) {
   // Also collect isEnvRef info from DOT data
   const envRefFields = new Map(); // tableName -> Set of field names that are env refs
   for (const node of dotData.nodes) {
-    const table = dotTableToAvroTable.get(node.data.tableName) || node.data.tableName;
+    const table =
+      dotTableToAvroTable.get(node.data.tableName) || node.data.tableName;
     const envRefs = new Set();
     for (const field of node.data.fields) {
       if (field.isEnvRef) envRefs.add(field.name);
@@ -428,7 +463,7 @@ for (const version of VERSIONS) {
       // Filter DOT edges to only include nodes present in this version
       const nodeIds = new Set(result.nodes.map((n) => n.id));
       result.edges = dotMerge.edges.filter(
-        (e) => nodeIds.has(e.source) && nodeIds.has(e.target)
+        (e) => nodeIds.has(e.source) && nodeIds.has(e.target),
       );
       // Enrich nodes with isEnvRef from DOT
       result.nodes = enrichAvroNodes(result.nodes, dotMerge.envRefFields);
@@ -436,8 +471,13 @@ for (const version of VERSIONS) {
 
     const outputPath = resolve(OUTPUT_DIR, `db_${version}.json`);
     writeFileSync(outputPath, JSON.stringify(result, null, 2));
-    allVersions[version] = { tableCount: result.tableCount, version: result.version };
-    console.log(`✓ ${version}: ${result.tableCount} tables, ${result.edges.length} edges → ${outputPath}`);
+    allVersions[version] = {
+      tableCount: result.tableCount,
+      version: result.version,
+    };
+    console.log(
+      `✓ ${version}: ${result.tableCount} tables, ${result.edges.length} edges → ${outputPath}`,
+    );
   }
 }
 
@@ -456,11 +496,17 @@ for (let i = 1; i < VERSIONS.length; i++) {
 const majorVersions = computeMajorVersions(VERSIONS);
 writeFileSync(
   resolve(OUTPUT_DIR, "db_versions.json"),
-  JSON.stringify({
-    versions: allVersions,
-    sortedVersions: [...VERSIONS],
-    majorVersions,
-    diffs,
-  }, null, 2)
+  JSON.stringify(
+    {
+      versions: allVersions,
+      sortedVersions: [...VERSIONS],
+      majorVersions,
+      diffs,
+    },
+    null,
+    2,
+  ),
 );
-console.log(`✓ db_versions.json written (majors: ${Object.keys(majorVersions).join(", ")})`);
+console.log(
+  `✓ db_versions.json written (majors: ${Object.keys(majorVersions).join(", ")})`,
+);

@@ -55,13 +55,26 @@ function SchemaTableNode({ data, id }: NodeProps) {
       : "";
 
   return (
-    <div className={`bg-base-100 rounded-lg shadow-md border-2 ${borderColor} ${opacity} min-w-[220px] max-w-[340px] text-xs transition-opacity`}>
+    <div
+      className={`bg-base-100 rounded-lg shadow-md border-2 ${borderColor} ${opacity} min-w-[220px] max-w-[340px] text-xs transition-opacity`}
+    >
       {/* Target handle on left for incoming FK references */}
-      <Handle type="target" position={Position.Left} id={`${id}-uuid`} className="!bg-primary !w-2.5 !h-2.5 !-left-1.5" />
+      <Handle
+        type="target"
+        position={Position.Left}
+        id={`${id}-uuid`}
+        className="!bg-primary !w-2.5 !h-2.5 !-left-1.5"
+      />
 
       {/* Header */}
       <div className="bg-primary text-primary-content px-3 py-1.5 rounded-t-md font-bold text-sm flex items-center gap-2">
-        <svg className="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+        <svg
+          className="w-3.5 h-3.5 shrink-0"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={2}
+        >
           <rect x="3" y="3" width="18" height="18" rx="2" />
           <line x1="3" y1="9" x2="21" y2="9" />
           <line x1="9" y1="3" x2="9" y2="21" />
@@ -71,10 +84,15 @@ function SchemaTableNode({ data, id }: NodeProps) {
           <span className="badge badge-xs badge-primary ml-auto">選択中</span>
         )}
         {!d.relationType && d.diffStatus && (
-          <span className={`badge badge-xs ml-auto ${
-            d.diffStatus === "added" ? "badge-success" :
-            d.diffStatus === "removed" ? "badge-error" : "badge-warning"
-          }`}>
+          <span
+            className={`badge badge-xs ml-auto ${
+              d.diffStatus === "added"
+                ? "badge-success"
+                : d.diffStatus === "removed"
+                  ? "badge-error"
+                  : "badge-warning"
+            }`}
+          >
             {d.diffStatus}
           </span>
         )}
@@ -91,17 +109,18 @@ function SchemaTableNode({ data, id }: NodeProps) {
       <div className="divide-y divide-base-200">
         {d.fields.map((field, idx) => {
           const fieldDiff = field.diffStatus;
-          const bgClass = fieldDiff === "added"
-            ? "bg-success/10"
-            : fieldDiff === "removed"
-              ? "bg-error/10"
-              : fieldDiff === "changed"
-                ? "bg-warning/10"
-                : field.isKey
-                  ? "bg-primary/5"
-                  : field.isFk
-                    ? "bg-secondary/5"
-                    : "";
+          const bgClass =
+            fieldDiff === "added"
+              ? "bg-success/10"
+              : fieldDiff === "removed"
+                ? "bg-error/10"
+                : fieldDiff === "changed"
+                  ? "bg-warning/10"
+                  : field.isKey
+                    ? "bg-primary/5"
+                    : field.isFk
+                      ? "bg-secondary/5"
+                      : "";
 
           return (
             <div
@@ -112,35 +131,68 @@ function SchemaTableNode({ data, id }: NodeProps) {
               {/* Key badges */}
               <span className="w-6 shrink-0 text-center">
                 {field.isKey && (
-                  <span className="text-warning font-bold text-[10px]" title="Primary Key">PK</span>
+                  <span
+                    className="text-warning font-bold text-[10px]"
+                    title="Primary Key"
+                  >
+                    PK
+                  </span>
                 )}
                 {field.isFk && (
-                  <span className="text-secondary font-bold text-[10px]" title="Foreign Key ref">FK</span>
+                  <span
+                    className="text-secondary font-bold text-[10px]"
+                    title="Foreign Key ref"
+                  >
+                    FK
+                  </span>
                 )}
                 {field.isEnvRef && (
-                  <span className="text-info font-bold text-[10px]" title="Env reference">EV</span>
+                  <span
+                    className="text-info font-bold text-[10px]"
+                    title="Env reference"
+                  >
+                    EV
+                  </span>
                 )}
               </span>
 
-              <span className={`font-mono ${field.isKey ? "font-bold" : ""} ${
-                field.diffStatus === "removed" ? "line-through text-base-content/40" : ""
-              }`}>
+              <span
+                className={`font-mono ${field.isKey ? "font-bold" : ""} ${
+                  field.diffStatus === "removed"
+                    ? "line-through text-base-content/40"
+                    : ""
+                }`}
+              >
                 {field.name}
               </span>
 
               {/* Diff status badge */}
               {field.diffStatus && (
-                <span className={`badge badge-xs ${
-                  field.diffStatus === "added" ? "badge-success" :
-                  field.diffStatus === "removed" ? "badge-error" : "badge-warning"
-                }`}>
-                  {field.diffStatus === "added" ? "+" : field.diffStatus === "removed" ? "-" : "~"}
+                <span
+                  className={`badge badge-xs ${
+                    field.diffStatus === "added"
+                      ? "badge-success"
+                      : field.diffStatus === "removed"
+                        ? "badge-error"
+                        : "badge-warning"
+                  }`}
+                >
+                  {field.diffStatus === "added"
+                    ? "+"
+                    : field.diffStatus === "removed"
+                      ? "-"
+                      : "~"}
                 </span>
               )}
 
-              <span className={`ml-auto font-mono truncate max-w-[130px] ${
-                field.diffStatus === "removed" ? "line-through text-base-content/30" : "text-base-content/50"
-              }`} title={field.type}>
+              <span
+                className={`ml-auto font-mono truncate max-w-[130px] ${
+                  field.diffStatus === "removed"
+                    ? "line-through text-base-content/30"
+                    : "text-base-content/50"
+                }`}
+                title={field.type}
+              >
                 {field.type}
               </span>
 
