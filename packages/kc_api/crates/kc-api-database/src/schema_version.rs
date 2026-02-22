@@ -4,13 +4,13 @@ pub const DATABASE_TABLE_VERSION: &str = "0.4";
 #[cfg(feature = "schema_v0_5")]
 pub const DATABASE_TABLE_VERSION: &str = "0.5";
 
-#[cfg(feature = "schema_v0_6")]
-pub const DATABASE_TABLE_VERSION: &str = "0.6";
+// #[cfg(feature = "schema_v0_6")]
+// pub const DATABASE_TABLE_VERSION: &str = "0.6";
 
 #[cfg(not(any(
     feature = "schema_v0_4",
     feature = "schema_v0_5",
-    feature = "schema_v0_6"
+    // feature = "schema_v0_6"
 )))]
 compile_error!(
     "At least one schema version feature must be enabled (schema_v0_4, schema_v0_5, or schema_v0_6). \
